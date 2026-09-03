@@ -2,7 +2,6 @@ import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import {
   setupEvalContext,
   runTurn,
-  getIpcHandler,
   type EvalContext,
 } from "../infra/turn";
 import { scenario } from "../infra/scenario";

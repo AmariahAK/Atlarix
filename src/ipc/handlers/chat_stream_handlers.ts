@@ -2089,7 +2089,7 @@ export function registerChatStreamHandlers() {
           // shape. Its own `fullResponse` param is the live text, not ctx.fullResponse.
           const processResponseChunkUpdate = (args: { fullResponse: string }) =>
             runProcessResponseChunkUpdate(
-              { req, updatedChat, event, streamId },
+              { req, updatedChat, event, streamId, placeholderAssistantMessage },
               args,
             );
 

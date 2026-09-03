@@ -91,6 +91,54 @@ export function insertAskUserAnswerUserMessage(
   return true;
 }
 
+/**
+ * Insert a mid-turn user message (an "interjection") into the live turn buffer,
+ * positioned BEFORE the streaming assistant placeholder.
+ *
+ * WHY BEFORE, not appended. The placeholder keeps growing as the model writes,
+ * so a user row appended after it would end up above nothing and then have the
+ * continuation appear above itself. Before the placeholder, the transcript reads
+ * "…earlier turns, your message, what the assistant is saying now", which is
+ * what the owner asked for ("insert live, before the placeholder").
+ *
+ * ID ORDER vs DISPLAY ORDER. `chat_stream_handlers` mints the turn's user id
+ * before the placeholder's specifically so id order matches array order — and
+ * this is the one message that cannot honour that, since it is minted after the
+ * turn began. It is safe because nothing CONSUMES id order: the renderer paints
+ * `messages` in array order and keys rows by id for identity only (verified —
+ * no id comparison or sort anywhere in the renderer). Array order stays correct,
+ * which is the property that is actually read.
+ *
+ * Returns the new message, or null when the chat has no live buffer.
+ */
+export function insertUserInterjectionMessage(
+  chatId: number,
+  content: string,
+  /** The streaming assistant row to sit in front of. */
+  placeholderMessageId: number,
+  sessionRowId?: string,
+): Message | null {
+  const chat = ephemeralChats.get(chatId);
+  if (!chat) return null;
+  const msg: Message = {
+    id: nextEphemeralMessageId(),
+    chatId,
+    role: "user",
+    content,
+    createdAt: new Date(),
+    ...(sessionRowId ? { sessionRowId } : {}),
+  };
+  const at = chat.messages.findIndex((m) => m.id === placeholderMessageId);
+  // A missing placeholder means the turn already finalized between the drain
+  // and this call. Appending is then correct — it is the newest message.
+  if (at < 0) chat.messages.push(msg);
+  // Mutate in place: `updatedChat.messages` in the stream handler is the SAME
+  // array (assigned across at turn start), and the chunk emitter copies from
+  // it. Replacing the array here would leave the handler writing to the old one.
+  else chat.messages.splice(at, 0, msg);
+  return msg;
+}
+
 export function editTransportUserMessage(
   chatId: number,
   userMessageId: number,
@@ -187,6 +235,14 @@ export function isStreamTransportId(chatId: number): boolean {
  * session for the lifetime of the main process.
  */
 export function deleteStreamTransport(chatId: number): boolean {
+  // Any mid-turn message still waiting for this chat can never be delivered
+  // once its buffer is gone — the queue is keyed on the same id and would
+  // otherwise outlive the chat for the life of the main process. Imported
+  // lazily: `user-interjections` is main-only and this module is imported from
+  // the renderer's type graph.
+  void import("@/lib/agent/user-interjections")
+    .then((m) => m.clearUserInterjections(chatId))
+    .catch(() => {});
   return ephemeralChats.delete(chatId);
 }
 

@@ -20,6 +20,9 @@ export interface ProcessResponseChunkUpdateDeps {
   updatedChat: any;
   event: IpcMainInvokeEvent;
   streamId: number;
+  /** The row this turn streams into — matched by id, see below. Optional so
+   * existing callers/tests that never inserted anything mid-turn still work. */
+  placeholderAssistantMessage?: { id: number } | null;
 }
 
 /** Throttle for the live output-token tick (per chat). The real provider usage
@@ -43,26 +46,38 @@ export async function processResponseChunkUpdate(
       fullResponse,
     );
   }
-  // Update the placeholder assistant message content in the messages array
+  // Update the placeholder assistant message content in the messages array.
+  //
+  // FOUND BY ID, NOT BY POSITION. This used to take
+  // `messages[messages.length - 1]` and require `role === "assistant"`, which
+  // held only while the placeholder was guaranteed last. A mid-turn user
+  // interjection is inserted in FRONT of the placeholder, so the last element
+  // becomes the assistant row still — but the array can also carry a user row
+  // after it in the ask_user/finalize interleavings, and the failure mode of
+  // guessing wrong here is the worst kind: no error, the live assistant text
+  // simply stops updating. Identity is the thing we actually have.
   const currentMessages = [...updatedChat.messages];
-  if (
-    currentMessages.length > 0 &&
-    currentMessages[currentMessages.length - 1].role === "assistant"
-  ) {
-    currentMessages[currentMessages.length - 1].content = fullResponse;
-    {
-      const lastIdx = updatedChat.messages.length - 1;
-      if (
-        lastIdx >= 0 &&
-        updatedChat.messages[lastIdx]?.role === "assistant"
-      ) {
-        updatedChat.messages[lastIdx].content = fullResponse;
-        const { getStreamTransport } = await import("@/lib/chat/stream-transport");
-        const ec = getStreamTransport(req.chatId);
-        if (ec) {
-          ec.messages = updatedChat.messages;
-        }
-      }
+  const placeholderId = deps.placeholderAssistantMessage?.id;
+  const idx =
+    placeholderId != null
+      ? currentMessages.findIndex((m: any) => m?.id === placeholderId)
+      : -1;
+  // Fall back to the old rule when there is no id to match (older callers, and
+  // the tests that construct a bare chat): last element if it is the assistant.
+  const targetIdx =
+    idx >= 0
+      ? idx
+      : currentMessages.length > 0 &&
+          currentMessages[currentMessages.length - 1].role === "assistant"
+        ? currentMessages.length - 1
+        : -1;
+  if (targetIdx >= 0) {
+    currentMessages[targetIdx].content = fullResponse;
+    updatedChat.messages[targetIdx].content = fullResponse;
+    const { getStreamTransport } = await import("@/lib/chat/stream-transport");
+    const ec = getStreamTransport(req.chatId);
+    if (ec) {
+      ec.messages = updatedChat.messages;
     }
   }
 

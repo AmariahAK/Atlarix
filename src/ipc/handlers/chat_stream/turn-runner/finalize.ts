@@ -19,7 +19,7 @@ import type { ModelClient } from "@/ipc/utils/get_model_client";
 import { getAutonomousSessionLog, getAgentActivityForTurn } from "@/ipc/handlers/autonomous-session-state";
 import { NetworkStreamDisconnectedError } from "@/ipc/handlers/chat_stream/network-retry";
 import { clearInterruptedDraft } from "@/ipc/handlers/chat_stream/stream-lifecycle";
-import { activeStreams, activeStreamId, streamSessionByChatId, pendingAskUserArtifactByChatId, partialResponses } from "@/ipc/handlers/chat_stream/stream-state";
+import { activeStreams, activeStreamId, streamSessionByChatId, pendingAskUserArtifactByChatId, partialResponses, streamTurnIdByChatId } from "@/ipc/handlers/chat_stream/stream-state";
 import { type ChatResponseEnd } from "@/ipc/ipc_types";
 import { stripQuestionsBlockFromResponse } from "@/ipc/utils/cleanFullResponse";
 import { FileUploadsState } from "@/ipc/utils/file_uploads_state";
@@ -475,7 +475,19 @@ export async function handleTurnError(
             const chat = getStreamTransport(req.chatId);
             const pendingArtifact = pendingAskUserArtifactByChatId.get(req.chatId);
             if (chat) {
-              const last = chat.messages[chat.messages.length - 1];
+              // By id, not by position — a mid-turn user interjection sits in
+              // FRONT of this row, and (unlike the chunk emitter) getting it
+              // wrong here loses the question turn's whole visible text.
+              //
+              // The id comes from `streamTurnIdByChatId`, which the handler
+              // publishes for exactly this reason: this catch block sits outside
+              // the scope that holds the placeholder (chat:cancel has the same
+              // problem, and this is the map that solved it there).
+              const pid = Number(streamTurnIdByChatId.get(req.chatId));
+              const last =
+                (Number.isFinite(pid)
+                  ? chat.messages.find((m) => m.id === pid)
+                  : undefined) ?? chat.messages[chat.messages.length - 1];
               if (last?.role === "assistant") {
                 let content = stripThinkBlocks(
                   partialResponses.get(req.chatId) ?? last.content ?? "",

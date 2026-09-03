@@ -13,7 +13,7 @@ import { IpcClient } from "@/ipc/ipc_client";
 import {
     isStreamingByIdAtom,
     chatInputValueAtom,
-    queuedMessageByChatIdAtom,
+    pendingInterjectionsByChatIdAtom,
 } from "@/atoms/chatAtoms";
 import { ChatInputControls } from "@/components/ChatInputControls";
 import { Button } from "@/components/ui/button";
@@ -85,12 +85,29 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
         });
         IpcClient.getInstance().cancelChatStream(chatId);
     };
-    // v13.1: while ANY turn is streaming, the user can type and queue ONE
-    // follow-up message that is sent automatically when the turn ends (the
-    // stop square stays visible; Enter/Send queues). Generalizes the v13 7B
-    // waiting-on-command queue to every streaming state.
-    const [queuedByChatId, setQueuedByChatId] = useAtom(queuedMessageByChatIdAtom);
-    const queuedMessage = queuedByChatId.get(chatId);
+    /**
+     * Mid-turn messages. Typing while a turn runs no longer parks ONE message
+     * until the turn ends — each message is handed to main, which delivers it
+     * into the RUNNING turn on its next step (and, if the turn ends first,
+     * opens the next turn with it).
+     *
+     * MAIN OWNS THE LIST. This atom is a mirror repainted from
+     * `chat:interjections`, so a second window, a reload, or a chat switch all
+     * see the same queue. The old renderer-only single slot silently rejected a
+     * second message (Enter bypasses the disabled Send button, so the user got
+     * no feedback at all) and could be dropped outright by a chat switch.
+     */
+    const [pendingByChatId, setPendingByChatId] = useAtom(
+        pendingInterjectionsByChatIdAtom,
+    );
+    const pendingInterjections = pendingByChatId.get(chatId) ?? [];
+    const applyPending = (pending: { id: string; text: string; ts: number }[]) =>
+        setPendingByChatId((prev) => {
+            const n = new Map(prev);
+            if (pending.length) n.set(chatId, pending);
+            else n.delete(chatId);
+            return n;
+        });
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const { menu: autocompleteMenu, onKeyDown: autocompleteKeyDown } =
         useComposerAutocomplete({
@@ -120,13 +137,12 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
     } = useAttachments();
 
     const attachDisabled = isStreaming || mustSignIn;
+    // No queue-full case any more: the list takes as many as you type, so the
+    // only reason to disable Send is having nothing to send.
     const sendDisabled =
         isSubmitting ||
         mustSignIn ||
-        (!inputValue.trim() && attachments.length === 0) ||
-        // While streaming, the send button queues a message — disabled only
-        // once the single queue slot is full.
-        (isStreaming && queuedMessage != null);
+        (!inputValue.trim() && attachments.length === 0);
 
     useEffect(() => {
         if (inputRef.current) {
@@ -135,22 +151,60 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
         }
     }, [inputValue]);
 
+    /**
+     * Keep the mirror honest.
+     *
+     * FETCH on chat change, because main is the owner: the queue outlives a
+     * reload and a chat switch, and without this the chip would show nothing
+     * for messages that are genuinely still pending. SUBSCRIBE because main
+     * clears entries we did not ask it to — a delivered message leaves the
+     * queue from `prepareStep`, not from a click here.
+     */
+    useEffect(() => {
+        let alive = true;
+        const client = IpcClient.getInstance();
+        void client
+            .listUserInterjections(chatId)
+            .then((pending) => {
+                if (alive) applyPending(pending);
+            })
+            .catch(() => {});
+        const off = client.onUserInterjections(({ chatId: cid, pending }) => {
+            // Every window hears every chat's queue; only ours is ours.
+            if (cid !== chatId) return;
+            applyPending(pending);
+        });
+        return () => {
+            alive = false;
+            off();
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [chatId]);
+
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if ((!inputValue.trim() && attachments.length === 0) || isSubmitting) return;
 
-        // Streaming: queue ONE text message; useStreamChat flushes it when the
-        // turn ends. Attachments stay disabled mid-stream, so this is text-only.
+        // Streaming: hand the text to main for mid-turn delivery. Attachments
+        // stay disabled mid-stream (`attachDisabled`), so this is text-only —
+        // worth noting because the queue is a bare-text list and would drop
+        // them silently if they were ever allowed through here.
         if (isStreaming) {
-            if (queuedMessage != null || !inputValue.trim()) return;
-            const toQueue = inputValue;
-            setQueuedByChatId((prev) => {
-                const n = new Map(prev);
-                n.set(chatId, toQueue);
-                return n;
-            });
+            if (!inputValue.trim()) return;
+            const text = inputValue;
+            // Renderer-minted id, so the chip can offer cancel before main has
+            // answered — and `recordUserInterjection` is idempotent on it, so a
+            // retry cannot deliver the same words twice.
+            const id = `ij-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
             setInputValue("");
             inputRef.current?.focus();
+            void IpcClient.getInstance()
+                .interjectUserMessage(chatId, id, text)
+                .then(({ pending }) => applyPending(pending))
+                .catch(() => {
+                    // Put the text back rather than losing it — the user typed it.
+                    setInputValue((cur) => (cur ? cur : text));
+                });
             return;
         }
 
@@ -199,9 +253,7 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
     const effectivePlaceholder = mustSignIn
         ? "Sign in to continue…"
         : isStreaming
-            ? queuedMessage != null
-                ? "One message already queued…"
-                : "Type a follow-up — Enter queues it for when the turn ends…"
+            ? "Type a message — Enter sends it to the running turn…"
             : placeholder;
 
     return (
@@ -319,9 +371,9 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
                     />
 
                     {/* v13.2: ONE action slot — Stop replaces Send while
-                        streaming (and vice versa). Enter still queues a
-                        follow-up mid-stream (handleSubmit); the queued chip
-                        below carries that state. */}
+                        streaming (and vice versa). Enter mid-stream sends the
+                        typed text INTO the running turn (handleSubmit); the chip
+                        below shows what has not been picked up yet. */}
                     {isStreaming ? (
                         <Button
                             type="button"
@@ -329,7 +381,7 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
                             size="icon"
                             className="mx-1 hover:bg-destructive/10 hover:text-destructive"
                             onClick={stopStreamNow}
-                            title="Stop generation (Enter queues your typed message)"
+                            title="Stop generation (Enter sends your message to the running turn)"
                         >
                             <StopCircle className="h-4 w-4" />
                         </Button>
@@ -347,24 +399,42 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
                     )}
                 </form>
 
-                {queuedMessage != null ? (
-                    <div className="mx-3 mb-1 flex items-center gap-2 rounded-md border border-border bg-muted/40 px-2 py-1 text-[11px] text-muted-foreground">
-                        <span className="shrink-0 font-medium">Queued — sends when the turn ends:</span>
-                        <span className="truncate flex-1">{queuedMessage}</span>
-                        <button
-                            type="button"
-                            className="shrink-0 hover:text-foreground"
-                            title="Cancel queued message"
-                            onClick={() =>
-                                setQueuedByChatId((prev) => {
-                                    const n = new Map(prev);
-                                    n.delete(chatId);
-                                    return n;
-                                })
-                            }
-                        >
-                            ×
-                        </button>
+                {pendingInterjections.length > 0 ? (
+                    <div className="mx-3 mb-1 space-y-1">
+                        {/* The label is the honest one now: these go to the turn
+                            that is already RUNNING, on its next step — not "when
+                            the turn ends". The count matters because several can
+                            be pending, which the old single slot could not say. */}
+                        <div className="px-2 text-[11px] font-medium text-muted-foreground">
+                            {pendingInterjections.length === 1
+                                ? "Sending to the running turn:"
+                                : `Sending ${pendingInterjections.length} messages to the running turn:`}
+                        </div>
+                        {pendingInterjections.map((m) => (
+                            <div
+                                key={m.id}
+                                className="flex items-center gap-2 rounded-md border border-border bg-muted/40 px-2 py-1 text-[11px] text-muted-foreground"
+                            >
+                                <span className="truncate flex-1">{m.text}</span>
+                                <button
+                                    type="button"
+                                    className="shrink-0 hover:text-foreground"
+                                    title="Cancel this message"
+                                    onClick={() => {
+                                        void IpcClient.getInstance()
+                                            .cancelUserInterjection(chatId, m.id)
+                                            // `ok:false` means it was ALREADY
+                                            // delivered — not a failure, just too
+                                            // late. Either way the returned queue
+                                            // is what we repaint from.
+                                            .then(({ pending }) => applyPending(pending))
+                                            .catch(() => {});
+                                    }}
+                                >
+                                    ×
+                                </button>
+                            </div>
+                        ))}
                     </div>
                 ) : null}
 

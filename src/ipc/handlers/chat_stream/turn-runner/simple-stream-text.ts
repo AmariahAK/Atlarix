@@ -74,6 +74,8 @@ import { collectPendingBackgroundResultsBody } from "@/lib/agent/collect-results
 import { takePendingScheduledWakeupNudges } from "@/lib/agent/scheduled-wakeups";
 import { takePendingDroppedHistoryNotice } from "@/lib/context/dropped-history-notice";
 import { takePendingSubagentResults } from "@/lib/agents/subagent-results";
+import { takePendingUserInterjections } from "@/lib/agent/user-interjections";
+import { deliverInterjectionsToTranscript } from "@/ipc/handlers/chat_stream/interjection-delivery";
 import {
   advanceCacheBreakpointsForStep,
   buildStreamMessagesWithCacheBreakpoints,
@@ -92,6 +94,7 @@ import {
   shouldOmitTemperature,
 } from "@/lib/routing/reasoning-detector";
 import { systemReminder } from "@/lib/streaming/system-reminder";
+import { buildStepMessages } from "@/lib/streaming/step-messages";
 import {
   AI_STREAMING_ERROR_MESSAGE_PREFIX,
   modelFailureUserMessage,
@@ -606,6 +609,22 @@ export async function simpleStreamText(
                 // #12: targeted empty-output nudge (take-once), set by the retry.
                 const emptyOutputNudge = ctx.pendingEmptyOutputNudge;
                 ctx.pendingEmptyOutputNudge = null;
+                /**
+                 * MID-TURN USER MESSAGES. The owner's ask: "not cancel just come
+                 * in as my message" — a message typed while the turn runs reaches
+                 * the running turn instead of being held and replayed as a new
+                 * one.
+                 *
+                 * NOT GATED ON `forceCollectOnWake`, unlike every drain above it.
+                 * That guard exists because `collect_results` is the single
+                 * consumer of BACKGROUND results, and draining them here too
+                 * would either double-deliver or leave the forced tool empty. A
+                 * user interjection is a different payload on a different channel
+                 * with no tool consumer, so routing it through a tool result
+                 * would be a category error — and suppressing it on a wake turn
+                 * would silently swallow the user's own words.
+                 */
+                const interjections = takePendingUserInterjections(req.chatId);
                 if (correction) {
                   logger.log(
                     `[repetition] injecting mid-round correction (chat ${req.chatId})`,
@@ -621,6 +640,11 @@ export async function simpleStreamText(
                     `[background-subagent] injecting finished result (chat ${req.chatId})`,
                   );
                 }
+                if (interjections?.length) {
+                  logger.log(
+                    `[interjection] delivering ${interjections.length} mid-turn user message(s) (chat ${req.chatId}, step ${stepNumber})`,
+                  );
+                }
                 const injected = [
                   reminder,
                   droppedHistory,
@@ -634,15 +658,54 @@ export async function simpleStreamText(
                   // things the model reads before it acts.
                   taskLedger,
                   modeReanchor,
+                  // The harness half of a mid-turn message: the user's own words
+                  // go below, UNTAGGED, and this says how to read them. Kept in
+                  // the tagged block on purpose — guidance about the message is
+                  // the harness talking, and putting it in the user's mouth is
+                  // exactly the confusion the tag convention exists to prevent.
+                  interjections?.length
+                    ? `The user sent ${interjections.length === 1 ? "a message" : `${interjections.length} messages`} while you were working; ${interjections.length === 1 ? "it appears" : "they appear"} below as ${interjections.length === 1 ? "a real user turn" : "real user turns, oldest first"}. Fold ${interjections.length === 1 ? "it" : "them"} into what you are already doing and continue — do NOT restart, re-greet, or re-answer earlier requests. If ${interjections.length === 1 ? "it changes" : "they change"} the goal, say so briefly and change course.`
+                    : null,
                 ]
                   .filter(Boolean)
                   .join("\n\n");
                 // v14.8.8: frame the whole harness-injected block as out-of-band
                 // so a recency-biased model never reads these nudges as a fresh
                 // user request (only genuine user turns stay untagged).
-                const stepMessages = injected
-                  ? [...messages, { role: "user" as const, content: systemReminder(injected) }]
-                  : messages;
+                //
+                // WHICH IS PRECISELY WHY THE INTERJECTIONS ARE NOT WRAPPED.
+                // `system-reminder.ts` states the convention: harness content is
+                // `role:"user"` because providers reject mid-conversation
+                // `role:"system"`, and the TAG is what marks it as not-real-input
+                // — "only untagged user turns are real user input". A mid-turn
+                // message from the user IS real user input, so untagged is not a
+                // shortcut here, it is the correct channel. These are the first
+                // untagged injections on this seam.
+                //
+                // Each one is its OWN message, oldest first, so a correction that
+                // followed a request still reads in the order it was typed.
+                // (Consecutive untagged user messages already occur today — the
+                // tagged block below is appended after `messages` that may itself
+                // end with a user turn — so this is not a new provider shape.)
+                const assembled = buildStepMessages({
+                  messages,
+                  injected,
+                  interjections,
+                  tag: systemReminder,
+                });
+                const stepMessages = assembled.messages as typeof messages;
+                if (interjections?.length) {
+                  // Transcript + durable persistence. Fire-and-forget: the words
+                  // are already in `stepMessages`, so a slow session write must
+                  // never delay the dispatch.
+                  void deliverInterjectionsToTranscript({
+                    chatId: req.chatId,
+                    streamId,
+                    event,
+                    placeholderMessageId: Number(placeholderAssistantMessage?.id),
+                    interjections,
+                  });
+                }
                 // v13.3: per-step breakpoint advancement — without it, every
                 // step re-pays full price for the turn's accumulated tool
                 // results (opencode gets this free by re-running its message
@@ -654,15 +717,21 @@ export async function simpleStreamText(
                 // constraint — a weak model cannot skip it. Subsequent steps run
                 // free (the model then acts on the collected results).
                 const forceCollect = forceCollectOnWake && stepNumber === 0;
+                // `assembled.changed` rather than `injected`: an
+                // interjection-only step changes the messages with an empty
+                // `injected`, and returning `undefined` there would drop the
+                // user's message on the floor.
+                const changedMessages = assembled.changed;
                 const base =
-                  cacheMarkerPlacement !== "none" && (stepNumber > 0 || injected)
+                  cacheMarkerPlacement !== "none" &&
+                  (stepNumber > 0 || changedMessages)
                     ? {
                         messages: advanceCacheBreakpointsForStep(
                           stepMessages,
                           cacheMarkerPlacement,
                         ),
                       }
-                    : injected
+                    : changedMessages
                       ? { messages: stepMessages }
                       : undefined;
                 if (forceCollect) {

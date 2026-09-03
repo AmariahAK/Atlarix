@@ -31,7 +31,7 @@ import {
   liveToolInputByChatIdAtom,
   waitingOnCommandByChatIdAtom,
   parkedWaitingByChatIdAtom,
-  queuedMessageByChatIdAtom,
+  pendingInterjectionsByChatIdAtom,
   turnSnapshotTurnIdByMessageIdAtom,
   responseDoneAnimationAtom,
   restartedAfterMessageIdAtom,
@@ -1790,44 +1790,6 @@ export function useStreamChat({
               n.delete(chatId);
               return n;
             });
-            let flushedQueuedMessage = false;
-            {
-              const queued = getDefaultStore()
-                .get(queuedMessageByChatIdAtom)
-                .get(chatId);
-              /**
-               * DO NOT flush over a pending question.
-               *
-               * `ask_user` deliberately ENDS the turn ("answers arrive as the
-               * next message"), so this stream-end handler runs while the
-               * question card is on screen. Flushing here started a fresh turn
-               * on the queued text, which pre-empted the card — leaving the user
-               * no way to answer except pressing Stop.
-               *
-               * OBSERVED 2026-09-03, and it was the first domino of three: the
-               * forced Stop latched `user-stopped`, the empty-prompt answer turn
-               * could not clear that latch, and five sub-agents then had every
-               * wake refused. Fixing the latch alone would have left the user
-               * still forced to Stop.
-               *
-               * The message is KEPT queued, not dropped — answering flushes it
-               * on the next stream end, in the order the user typed it.
-               */
-              const awaitingAnswer = Boolean(
-                getDefaultStore().get(pendingUserQuestionByChatIdAtom)[chatId],
-              );
-              if (queued?.trim() && !awaitingAnswer) {
-                getDefaultStore().set(queuedMessageByChatIdAtom, (prev) => {
-                  const n = new Map(prev);
-                  n.delete(chatId);
-                  return n;
-                });
-                flushedQueuedMessage = true;
-                setTimeout(() => {
-                  void streamMessageRef.current?.({ prompt: queued, chatId });
-                }, 50);
-              }
-            }
             // Bug F: close the auto-wake race. If a background command OR a
             // sub-agent finished just as the turn ended (so no further
             // prepareStep drained it) and the user has nothing queued, wake a
@@ -1844,11 +1806,13 @@ export function useStreamChat({
             if (response.userCancelled) {
               userStoppedChatsRef.current.add(chatId);
             }
-            if (
-              !flushedQueuedMessage &&
-              !response.userCancelled &&
-              !userStoppedChatsRef.current.has(chatId)
-            ) {
+            const maybeWakeForBackgroundResults = () => {
+              if (
+                response.userCancelled ||
+                userStoppedChatsRef.current.has(chatId)
+              ) {
+                return;
+              }
               const ipc = IpcClient.getInstance();
               void Promise.all([
                 ipc.backgroundHasPendingResults(response.chatId),
@@ -1879,6 +1843,57 @@ export function useStreamChat({
                   );
                 })
                 .catch(() => {});
+            };
+            {
+              /**
+               * FALLBACK for mid-turn user messages.
+               *
+               * The normal path is `prepareStep`: a message typed mid-turn is
+               * delivered into the RUNNING turn on its next step. But when the
+               * model stops, there is no next step and nothing drains — so
+               * anything still pending opens a fresh turn here instead. Between
+               * the two, a message is always delivered exactly once: the drain
+               * is take-once and shared, so whichever gets there first wins.
+               *
+               * DO NOT FLUSH OVER A PENDING QUESTION. `ask_user` deliberately
+               * ENDS the turn ("answers arrive as the next message"), so this
+               * handler runs while the question card is on screen. Starting a
+               * turn here pre-empted the card and left the user no way to answer
+               * except pressing Stop — which was the first domino of three
+               * (observed 2026-09-03): the forced Stop latched `user-stopped`,
+               * the empty-prompt answer turn could not clear the latch, and five
+               * sub-agent wakes were then refused.
+               *
+               * The messages stay QUEUED in main, not dropped — answering
+               * delivers them into the continuation turn.
+               */
+              const awaitingAnswer = Boolean(
+                getDefaultStore().get(pendingUserQuestionByChatIdAtom)[chatId],
+              );
+              // The mirror can be stale (main may have delivered mid-turn
+              // between the last repaint and now), so it decides only whether to
+              // ASK; `flushUserInterjections` is the authority, and a null answer
+              // means everything was already delivered.
+              const mirrorHasPending =
+                (getDefaultStore()
+                  .get(pendingInterjectionsByChatIdAtom)
+                  .get(chatId)?.length ?? 0) > 0;
+              if (!mirrorHasPending || awaitingAnswer) {
+                maybeWakeForBackgroundResults();
+              } else {
+                void IpcClient.getInstance()
+                  .flushUserInterjections(chatId)
+                  .then(({ text }) => {
+                    if (!text?.trim()) {
+                      maybeWakeForBackgroundResults();
+                      return;
+                    }
+                    setTimeout(() => {
+                      void streamMessageRef.current?.({ prompt: text, chatId });
+                    }, 50);
+                  })
+                  .catch(() => maybeWakeForBackgroundResults());
+              }
             }
             refreshChats();
             refreshApp();

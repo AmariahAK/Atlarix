@@ -265,6 +265,18 @@ export interface BackgroundJobUpdatePayload {
   running: number;
 }
 
+/**
+ * One pending mid-turn user message. Renderer-side view of
+ * `UserInterjection` — declared here rather than imported from
+ * `@/lib/agent/user-interjections` so the renderer bundle does not pull in a
+ * main-process module for a three-field shape.
+ */
+export interface UserInterjectionView {
+  id: string;
+  text: string;
+  ts: number;
+}
+
 export class IpcClient {
   private static instance: IpcClient;
   private ipcRenderer: PreloadIpcRenderer;
@@ -3702,6 +3714,51 @@ export class IpcClient {
   ): () => void {
     const off = this.ipcRenderer.on("chat:background-job-update", (payload) =>
       listener(payload as BackgroundJobUpdatePayload),
+    );
+    return typeof off === "function" ? off : () => {};
+  }
+
+  /**
+   * Mid-turn user messages. Main owns the queue, so all three of these RETURN
+   * the authoritative list rather than the renderer computing its own — the
+   * single-source rule that the old renderer-only queue broke.
+   */
+  public async interjectUserMessage(
+    chatId: number,
+    id: string,
+    text: string,
+  ): Promise<{ ok: boolean; pending: UserInterjectionView[] }> {
+    return this.ipcRenderer.invoke("chat:interject", { chatId, id, text });
+  }
+
+  public async cancelUserInterjection(
+    chatId: number,
+    id: string,
+  ): Promise<{ ok: boolean; pending: UserInterjectionView[] }> {
+    return this.ipcRenderer.invoke("chat:interject-cancel", { chatId, id });
+  }
+
+  public async listUserInterjections(
+    chatId: number,
+  ): Promise<UserInterjectionView[]> {
+    return this.ipcRenderer.invoke("chat:interject-list", chatId);
+  }
+
+  /** Take-once: drains the queue and returns it as one prompt, or null. */
+  public async flushUserInterjections(
+    chatId: number,
+  ): Promise<{ text: string | null }> {
+    return this.ipcRenderer.invoke("chat:interject-flush", chatId);
+  }
+
+  public onUserInterjections(
+    listener: (payload: {
+      chatId: number;
+      pending: UserInterjectionView[];
+    }) => void,
+  ): () => void {
+    const off = this.ipcRenderer.on("chat:interjections", (payload) =>
+      listener(payload as { chatId: number; pending: UserInterjectionView[] }),
     );
     return typeof off === "function" ? off : () => {};
   }
