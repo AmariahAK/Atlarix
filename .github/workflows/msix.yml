@@ -10,13 +10,19 @@
 #
 # It was `workflow_dispatch`-only until the packaged-context spike passed on real
 # Windows hardware (8/8 self-test probes inside the MSIX, including the sandbox
-# assertions). Two safeguards keep it off the critical path now that it is wired in:
+# assertions).
 #
-#   * release.yml does NOT list this job in `publish-release`'s `needs`, so an MSIX
-#     failure can never block a real release.
-#   * The artifact is NOT uploaded to atlarix-releases. It is unsigned, and an
-#     unsigned .msix is uninstallable without the signer's certificate — publishing
-#     one would just be a broken download on the public releases page.
+# THIS JOB IS ON THE CRITICAL PATH, as of 2026-08-28: `release.yml` lists it in
+# `publish-release`'s `needs`, so a failure here blocks the desktop publish too.
+# That is the owner's rule and the correct direction — the MSIX ships on every
+# release and was never described as optional, and v14.38.3 is what treating it as
+# optional cost (Store users, the majority, got nothing while the run went green).
+# The trade it accepts is that a Store or Azure outage now blocks the desktop
+# publish; the recovery is a job re-run, not a new tag.
+#
+# One safeguard remains: the artifact is NOT uploaded to atlarix-releases. It is
+# unsigned, and an unsigned .msix is uninstallable without the signer's certificate
+# — publishing one would just be a broken download on the public releases page.
 #
 # UNSIGNED is deliberate: signing happens on the maintainer's Windows machine, so no
 # code-signing private key needs to live in GitHub secrets, and the certificate stays

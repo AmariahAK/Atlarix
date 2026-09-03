@@ -31,7 +31,7 @@ import {
   liveToolInputByChatIdAtom,
   waitingOnCommandByChatIdAtom,
   parkedWaitingByChatIdAtom,
-  queuedMessageByChatIdAtom,
+  pendingInterjectionsByChatIdAtom,
   turnSnapshotTurnIdByMessageIdAtom,
   responseDoneAnimationAtom,
   restartedAfterMessageIdAtom,
@@ -503,6 +503,65 @@ export function useStreamChat({
   const streamDispatchCounterRef = useRef(0);
   const latestDispatchByChatRef = useRef<Map<number, number>>(new Map());
 
+
+  /**
+   * Settle a sub-agent card that finished AFTER its turn ended.
+   *
+   * PERSISTENT (mount-level) on purpose. The stream's own `chat:activity`
+   * listener is unsubscribed in its cleanup, so every `subagent_complete`
+   * arriving after the turn had nowhere to land: the card froze into the display
+   * snapshot with whatever state it held at stream end and span forever.
+   *
+   * OBSERVED 2026-09-03: a card stuck on "Sub-agents · 4/5 running" while all
+   * five had in fact completed (11:20:42 → 11:25:16). The background-tasks pill
+   * was correct throughout, because it reads main-process state rather than a
+   * transient event — which is the tell that the card was listening, not
+   * deriving.
+   *
+   * `onBackgroundSettled` in register-delegation-tools already emits this event
+   * post-turn, deliberately ("this closure outlives the tool call"). The only
+   * missing half was a receiver, and the ids line up exactly: both the start and
+   * the completion carry the DELEGATION id, which is what the card is keyed on
+   * (the task store's `taskId` is a separate randomUUID and is not usable here).
+   *
+   * Only completion/progress are handled. Anything else post-turn belongs to the
+   * stream listener and would double-apply.
+   */
+  useEffect(() => {
+    const unsub = IpcClient.getInstance().onChatActivity((payload: unknown) => {
+      const item = normalizeChatActivityPayload(payload);
+      if (!item) return;
+      if (
+        item.type !== "subagent_complete" &&
+        item.type !== "subagent_progress"
+      ) {
+        return;
+      }
+      // A LIVE turn already routes these through its own listener; applying them
+      // twice would fight over the same row.
+      if (item.chatId != null) {
+        const live = getDefaultStore().get(isStreamingByIdAtom).get(item.chatId);
+        if (live === true) return;
+      }
+      getDefaultStore().set(
+        completedStreamThreadByAssistantMessageIdAtom,
+        (frozen) => {
+          let changed = false;
+          const next: Record<number, StreamThreadItem[]> = {};
+          for (const [key, thread] of Object.entries(frozen)) {
+            // Only the message that actually owns this sub-agent row is touched;
+            // `mergeSubagentActivityIntoThread` is keyed on the delegation id, so
+            // a thread without it comes back referentially identical.
+            const merged = mergeSubagentActivityIntoThread(thread, item);
+            next[Number(key)] = merged;
+            if (merged !== thread) changed = true;
+          }
+          return changed ? next : frozen;
+        },
+      );
+    });
+    return unsub;
+  }, []);
 
   // v14: background jobs — keep the indicator atom fresh and AUTO-WAKE the agent
   // when a job finishes while the chat is idle. Persistent (mount-level) so it
@@ -1731,23 +1790,6 @@ export function useStreamChat({
               n.delete(chatId);
               return n;
             });
-            let flushedQueuedMessage = false;
-            {
-              const queued = getDefaultStore()
-                .get(queuedMessageByChatIdAtom)
-                .get(chatId);
-              if (queued?.trim()) {
-                getDefaultStore().set(queuedMessageByChatIdAtom, (prev) => {
-                  const n = new Map(prev);
-                  n.delete(chatId);
-                  return n;
-                });
-                flushedQueuedMessage = true;
-                setTimeout(() => {
-                  void streamMessageRef.current?.({ prompt: queued, chatId });
-                }, 50);
-              }
-            }
             // Bug F: close the auto-wake race. If a background command OR a
             // sub-agent finished just as the turn ended (so no further
             // prepareStep drained it) and the user has nothing queued, wake a
@@ -1764,11 +1806,13 @@ export function useStreamChat({
             if (response.userCancelled) {
               userStoppedChatsRef.current.add(chatId);
             }
-            if (
-              !flushedQueuedMessage &&
-              !response.userCancelled &&
-              !userStoppedChatsRef.current.has(chatId)
-            ) {
+            const maybeWakeForBackgroundResults = () => {
+              if (
+                response.userCancelled ||
+                userStoppedChatsRef.current.has(chatId)
+              ) {
+                return;
+              }
               const ipc = IpcClient.getInstance();
               void Promise.all([
                 ipc.backgroundHasPendingResults(response.chatId),
@@ -1799,6 +1843,57 @@ export function useStreamChat({
                   );
                 })
                 .catch(() => {});
+            };
+            {
+              /**
+               * FALLBACK for mid-turn user messages.
+               *
+               * The normal path is `prepareStep`: a message typed mid-turn is
+               * delivered into the RUNNING turn on its next step. But when the
+               * model stops, there is no next step and nothing drains — so
+               * anything still pending opens a fresh turn here instead. Between
+               * the two, a message is always delivered exactly once: the drain
+               * is take-once and shared, so whichever gets there first wins.
+               *
+               * DO NOT FLUSH OVER A PENDING QUESTION. `ask_user` deliberately
+               * ENDS the turn ("answers arrive as the next message"), so this
+               * handler runs while the question card is on screen. Starting a
+               * turn here pre-empted the card and left the user no way to answer
+               * except pressing Stop — which was the first domino of three
+               * (observed 2026-09-03): the forced Stop latched `user-stopped`,
+               * the empty-prompt answer turn could not clear the latch, and five
+               * sub-agent wakes were then refused.
+               *
+               * The messages stay QUEUED in main, not dropped — answering
+               * delivers them into the continuation turn.
+               */
+              const awaitingAnswer = Boolean(
+                getDefaultStore().get(pendingUserQuestionByChatIdAtom)[chatId],
+              );
+              // The mirror can be stale (main may have delivered mid-turn
+              // between the last repaint and now), so it decides only whether to
+              // ASK; `flushUserInterjections` is the authority, and a null answer
+              // means everything was already delivered.
+              const mirrorHasPending =
+                (getDefaultStore()
+                  .get(pendingInterjectionsByChatIdAtom)
+                  .get(chatId)?.length ?? 0) > 0;
+              if (!mirrorHasPending || awaitingAnswer) {
+                maybeWakeForBackgroundResults();
+              } else {
+                void IpcClient.getInstance()
+                  .flushUserInterjections(chatId)
+                  .then(({ text }) => {
+                    if (!text?.trim()) {
+                      maybeWakeForBackgroundResults();
+                      return;
+                    }
+                    setTimeout(() => {
+                      void streamMessageRef.current?.({ prompt: text, chatId });
+                    }, 50);
+                  })
+                  .catch(() => maybeWakeForBackgroundResults());
+              }
             }
             refreshChats();
             refreshApp();

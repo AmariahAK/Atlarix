@@ -24,6 +24,10 @@ const validInvokeChannels = [
   "chat:stream:reconnect", // FIX 4: re-dispatch the last chat:stream after silent retries failed
   "chat:abort",  // User can stop AI to save tokens
   "chat:submit-user-question-answer", // ask_user tool: submit answer from UI
+  "chat:interject",        // mid-turn user message: record for delivery on the next step
+  "chat:interject-cancel", // withdraw one still-undelivered mid-turn message
+  "chat:interject-list",   // authoritative pending queue (main owns it, not the renderer)
+  "chat:interject-flush",  // take-once drain for the stream-end fallback turn
   "workspace:open-in-new-window",
   "workspace:bind-window", // tells main which workspace THIS window is showing
   "window:open-blank",
@@ -380,6 +384,7 @@ const validReceiveChannels = [
   "browser:console", // main → renderer: coalesced BATCH of console entries at EVERY level (the Console tab). `browser:error` stays error/warning-only for its existing consumers.
   "browser:request-panel", // main → renderer: the agent needs the Browser panel open (mirrors the plan-artifact auto-open)
   "chat:background-job-update", // main → renderer: background job started/finished/cancelled
+  "chat:interjections", // main → renderer: the pending mid-turn-message queue changed
   "automation:run-update", // main → renderer: automation run started/finished (triage feed refresh)
   "automations:changed", // main → renderer: a definition was created/updated/deleted (incl. by the agent)
   "automations:focus-feed", // main → renderer: OS-notification click → open the automations tab

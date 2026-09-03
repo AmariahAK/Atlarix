@@ -48,12 +48,15 @@ MSIX packaging needs the Windows SDK's `makeappx.exe`, so it cannot run on macOS
 **On a release, the whole thing is automatic and produces NOTHING to download.**
 Tagging `v*` runs `release.yml`, which calls `msix.yml` with `upload_wrapper: true`;
 the job builds the `.msix`, wraps it as `.msixupload`, and submits it to Partner
-Center in the same job, reading straight from `out/msix/`. Three safeguards:
+Center in the same job, reading straight from `out/msix/`.
 
-- `build-msix` is **not** in `publish-release`'s `needs`, so an MSIX failure cannot
-  block shipping the `.exe`/`.dmg`/`.deb`.
-- Submission is `continue-on-error: true`, so a Store API outage cannot fail a
-  release either.
+`build-msix` **is** in `publish-release`'s `needs` (owner's rule, 2026-08-28), so a
+failure to BUILD the MSIX blocks the desktop publish as well. This page said the
+opposite until v14.42.0, which is the same wrong belief that let v14.38.3 ship
+desktop-only. Two safeguards remain:
+
+- Submission to Partner Center is `continue-on-error: true`, so a Store API outage
+  cannot fail a release — only a failed build can.
 - The package is **not** uploaded to `atlarix-releases`. It is unsigned, and an
   unsigned `.msix` cannot be installed without the signer's certificate — publishing
   one would put a broken download on the public releases page.

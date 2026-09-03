@@ -858,9 +858,15 @@ jobs:
   # installed without the signer's certificate. Publishing one would put a broken
   # download on the public releases page.
   #
-  # DELIBERATELY ABSENT from `publish-release`'s and `announce-release`'s `needs`: the
-  # Store package is not part of the public release, so an MSIX failure must never
-  # block shipping the .exe/.dmg/.deb. It gates on `quality` only.
+  # REQUIRED by `publish-release` (see its `needs`, and the owner's rule recorded
+  # there). This comment said the opposite for a week after the rule changed on
+  # 2026-08-28 — it claimed the job was "deliberately absent" from that list, which
+  # is precisely the belief that let v14.38.3 ship desktop-only while Store users,
+  # the majority, got nothing. A comment that contradicts the code is worse than no
+  # comment: it is read instead of the code.
+  #
+  # NOT in `announce-release`'s `needs` — that one gates on `publish-release`, which
+  # already carries the MSIX requirement transitively.
   #
   # Was workflow_dispatch-only until the packaged-context spike passed on real
   # Windows hardware (8/8 probes inside the MSIX, sandbox assertions included).

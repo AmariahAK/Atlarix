@@ -373,10 +373,20 @@ export const waitingOnCommandByChatIdAtom = atom<
 >(new Map());
 
 /**
- * v13 Phase 7: one queued user message per chat while the agent is waiting on
- * a command — flushed by useStreamChat when the stream ends.
+ * Mid-turn user messages pending delivery, per chat — a MIRROR of the
+ * main-process queue (`src/lib/agent/user-interjections.ts`), never the truth.
+ *
+ * It used to be the truth, and a single `string`: one queued message, flushed
+ * as a brand-new turn when the stream ended. That shape had three defects —
+ * a second message was silently rejected, renderer state died on reload and
+ * could be dropped by a chat switch, and "flush as a new turn" is not what was
+ * asked for ("not cancel just come in as my message"). Main now owns the queue
+ * and delivers each message into the RUNNING turn; this atom exists only so the
+ * composer can draw it, and is repainted from `chat:interjections`.
  */
-export const queuedMessageByChatIdAtom = atom<Map<number, string>>(new Map());
+export const pendingInterjectionsByChatIdAtom = atom<
+  Map<number, { id: string; text: string; ts: number }[]>
+>(new Map());
 
 /**
  * A2/A3: the turn ENDED cleanly (isStreaming=false, send button shown) with

@@ -42,6 +42,7 @@ import {
   isChatUserStopped,
   markChatUserStopped,
   clearChatUserStopped,
+  shouldClearUserStopLatch,
   activeStreams,
   activeStreamRuns,
 } from "@/ipc/handlers/chat_stream/stream-state";
@@ -196,6 +197,73 @@ describe("the two-window incident", () => {
       shouldDropSystemWake(
         { systemWake: true },
         { isStreaming: isChatStreamLive(CHAT), userStopped: isChatUserStopped(CHAT) },
+      ),
+    ).toBeNull();
+  });
+});
+
+/**
+ * Releasing the latch — the other half of the same decision, and the half that
+ * was wrong.
+ *
+ * OBSERVED 2026-09-03 (packaged v14.41.0): a chat that went through ONE
+ * `ask_user` round was latched `user-stopped` for the rest of its life. Closing
+ * the question flow aborts the stream, which latches the stop; the answer turn
+ * arrives as `{ prompt: "", continueAfterQuestions: true }` because the answers
+ * are persisted as their own user message — so the old
+ * `prompt.trim().length > 0` rule could not clear it.
+ *
+ * Five sub-agents then finished over five minutes and every single wake was
+ * refused: `[wake] dropped system wake for chat -42: user-stopped` ×5. Their
+ * results survived (they queue, and drain on the next turn) but arrived only
+ * when the user TYPED. Background commands, automations and scheduled
+ * self-wakes all lose eager delivery through the same latch.
+ */
+describe("shouldClearUserStopLatch", () => {
+  it("clears on a typed message", () => {
+    expect(shouldClearUserStopLatch({})).toBe(true);
+  });
+
+  it("clears when the user ANSWERS questions — an empty prompt, but user-driven", () => {
+    // `InlineUserQuestions.tsx` sends `{ prompt: "", continueAfterQuestions: true }`;
+    // the answers are their own persisted message. This is the case that was
+    // broken, and it is why the rule cannot key on prompt content.
+    expect(shouldClearUserStopLatch({ systemWake: undefined })).toBe(true);
+  });
+
+  it("NEVER clears for a system wake — a wake must not lift its own suppression", () => {
+    // The property the old rule was protecting, kept by the correct discriminator.
+    expect(shouldClearUserStopLatch({ systemWake: true })).toBe(false);
+  });
+
+  it("a wake cannot clear the latch and then be admitted", () => {
+    // End to end over the two pure guards: a background job reporting in must
+    // not resurrect a chat the user stopped, no matter the order of checks.
+    markChatUserStopped(CHAT);
+    const wake = { systemWake: true };
+    expect(shouldClearUserStopLatch(wake)).toBe(false);
+    expect(
+      shouldDropSystemWake(wake, {
+        isStreaming: false,
+        userStopped: isChatUserStopped(CHAT),
+      }),
+    ).toBe("user-stopped");
+    clearChatUserStopped(CHAT);
+  });
+
+  it("a user action clears the latch, so the NEXT wake is admitted", () => {
+    // The regression this fixes: after one ask_user round the chat could never
+    // be woken again by anything.
+    markChatUserStopped(CHAT);
+    expect(isChatUserStopped(CHAT)).toBe(true);
+    if (shouldClearUserStopLatch({ systemWake: undefined })) {
+      clearChatUserStopped(CHAT);
+    }
+    expect(isChatUserStopped(CHAT)).toBe(false);
+    expect(
+      shouldDropSystemWake(
+        { systemWake: true },
+        { isStreaming: false, userStopped: isChatUserStopped(CHAT) },
       ),
     ).toBeNull();
   });

@@ -1,6 +1,7 @@
 /**
  * Small session/mode IPC handlers extracted from registerChatStreamHandlers:
- * respond-mode-change, chat:submit-user-question-answer.
+ * respond-mode-change, chat:submit-user-question-answer, and the mid-turn
+ * user-message ("interjection") queue.
  * Independent of the streaming turn engine — registered by the parent.
  *
  * (Satellite: never imports the parent handler.)
@@ -14,6 +15,14 @@ import { settingsPatchForWorkMode } from "@/lib/work-mode";
 import { safeSend } from "@/ipc/utils/safe_sender";
 import { resolveModeChange } from "./stream-lifecycle";
 import { pendingAskUserArtifactByChatId } from "./stream-state";
+import {
+  recordUserInterjection,
+  cancelUserInterjection,
+  listPendingUserInterjections,
+  takeUserInterjectionsAsPrompt,
+  setUserInterjectionNotifier,
+} from "@/lib/agent/user-interjections";
+import { broadcastToAllWindows } from "@/ipc/utils/broadcast_all_windows";
 
 const logger = log.scope("chat_stream_handlers");
 
@@ -97,4 +106,62 @@ export function registerSessionHandlers(): void {
     },
   );
 
+  /**
+   * MID-TURN USER MESSAGES.
+   *
+   * The queue lives in MAIN (`user-interjections.ts`), not in a renderer atom,
+   * so it survives a reload, cannot be dropped by a chat switch, and is the
+   * SAME list in every window. The renderer therefore never holds the truth —
+   * it records, cancels, and reads, and repaints from the broadcast below.
+   */
+  setUserInterjectionNotifier((chatId, pending) => {
+    // Every window: the queue is per CHAT, and a chat can be open in more than
+    // one. Each window renders only the chats it owns (the same rule the
+    // background-job broadcast follows, after that channel got this wrong).
+    broadcastToAllWindows("chat:interjections", { chatId, pending });
+  });
+
+  ipcMain.handle(
+    "chat:interject",
+    (_e, payload: { chatId: number; id: string; text: string }) => {
+      const entry = recordUserInterjection(Number(payload?.chatId), {
+        id: String(payload?.id ?? ""),
+        text: String(payload?.text ?? ""),
+      });
+      return {
+        ok: entry != null,
+        pending: listPendingUserInterjections(Number(payload?.chatId)),
+      };
+    },
+  );
+
+  ipcMain.handle(
+    "chat:interject-cancel",
+    (_e, payload: { chatId: number; id: string }) => {
+      const chatId = Number(payload?.chatId);
+      // False means it was ALREADY DELIVERED, which is not an error — it is the
+      // race this design accepts. The renderer treats it as "too late" rather
+      // than as a failure, and the returned queue is what it repaints from.
+      const ok = cancelUserInterjection(chatId, String(payload?.id ?? ""));
+      return { ok, pending: listPendingUserInterjections(chatId) };
+    },
+  );
+
+  ipcMain.handle("chat:interject-list", (_e, chatId: number) =>
+    listPendingUserInterjections(Number(chatId)),
+  );
+
+  /**
+   * Fallback drain, used when the turn ENDED without another step (the model
+   * stopped, so `prepareStep` never ran again). The renderer opens a fresh turn
+   * with what comes back.
+   *
+   * Take-once, sharing the mid-turn drain's counter — so a stream-end flush
+   * racing a final step cannot deliver the same words twice. A message is
+   * therefore either delivered mid-turn or it opens the next turn; never both,
+   * and never neither.
+   */
+  ipcMain.handle("chat:interject-flush", (_e, chatId: number) => ({
+    text: takeUserInterjectionsAsPrompt(Number(chatId)),
+  }));
 }

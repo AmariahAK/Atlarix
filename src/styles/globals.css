@@ -127,6 +127,25 @@ html[data-fullscreen="true"] #layout-main-content-container {
   --primary: #059669;
   --primary-foreground: #FFFFFF;
 
+  /*
+   * The user's own chat bubble.
+   *
+   * NOT `--primary`, which is what it used to be. `--primary` is a
+   * BUTTON colour — full-saturation emerald sized for a 12px label — and a
+   * paragraph-sized block of it glares. Worse, in dark mode the bubble's
+   * markdown carries `dark:prose-invert`, which forces light prose text and
+   * overrode `--primary-foreground`'s near-black: the result was white on
+   * bright emerald, the highest-glare combination the palette can produce.
+   *
+   * So the bubble gets its own pair, tuned as a SURFACE: still unmistakably
+   * green (it has to read as the user's, at a glance, next to the assistant's
+   * neutral bubble) but at a lightness a wall of text can sit on. The
+   * foreground agrees with prose-invert instead of fighting it.
+   */
+  --user-bubble: #D1FAE5;
+  --user-bubble-foreground: #052E16;
+  --user-bubble-border: #A7F3D0;
+
   /* Secondary = Golden */
   --secondary: #D97706;
   --secondary-foreground: #FFFFFF;
@@ -222,6 +241,13 @@ html[data-fullscreen="true"] #layout-main-content-container {
   --primary: #10B981;
   --primary-foreground: #0F1A14;
 
+  /* The user's own chat bubble — see the light-theme note above for why this
+   * is not `--primary`. Deep enough for pale prose text to sit on (~8.8:1),
+   * and still clearly greener than the assistant's `--muted` (#162419). */
+  --user-bubble: #124B36;
+  --user-bubble-foreground: #D1FAE5;
+  --user-bubble-border: #1B6B4C;
+
   /* Secondary = Amber Gold */
   --secondary: #F59E0B;
   --secondary-foreground: #0F1A14;
@@ -298,6 +324,9 @@ html[data-fullscreen="true"] #layout-main-content-container {
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-user-bubble: var(--user-bubble);
+  --color-user-bubble-foreground: var(--user-bubble-foreground);
+  --color-user-bubble-border: var(--user-bubble-border);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);

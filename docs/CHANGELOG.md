@@ -3,6 +3,40 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.42.0] (2026-09-03) — Talk to it while it is working
+
+**A message you type mid-turn now reaches the turn that is running.** It used to be
+parked until the turn ended and then replayed as a brand-new one — and only one
+message fitted. A second was silently rejected, with no feedback at all, because
+Enter bypasses the disabled Send button, so your text just sat in the box. Now
+each message is handed to the running turn and arrives on its next step, and it
+appears in the transcript the moment the agent takes it. Type as many as you like;
+each stays cancellable until it is picked up. If the turn ends before one can be
+delivered, it opens the next turn instead — never both, and never neither.
+
+**Answering a question no longer needs a Stop.** The question tool deliberately
+ends the turn, and the queued-message flush ran at exactly that moment — so a
+message you had typed started a fresh turn on top of the question card, and
+pressing Stop was the only way back to it. That Stop then latched the chat as
+stopped, and releasing the latch required a non-empty prompt, which an answer
+never sends because the answers travel out of band. One question round could
+leave a chat latched for good: five sub-agents finished over the following five
+minutes and every one of their wakes was refused. Commands, automations and
+scheduled self-wakes all lost the same eager delivery. Their results were never
+lost — only the automatic pickup was.
+
+**Sub-agent cards finish counting.** A card could sit on "4/5 running" after all
+five had in fact finished, because the listener that would have settled it
+unsubscribed when the turn ended, leaving the completion events that arrived
+afterwards with no receiver.
+
+**Your own messages stopped glaring.** The bubble borrowed the button colour —
+full-saturation emerald — and in dark mode the near-black text it was meant to
+pair with never applied, because the markdown inside forces light prose text. The
+result was white on full emerald, the highest-glare pair the palette can produce.
+The bubble now has its own surface colours: deep emerald in dark mode, a pale
+tint in light, with a border to keep its edge legible.
+
 ## [14.41.0] (2026-09-02) — The context meter starts telling the truth
 
 **The context meter was hiding about 10,000 tokens.** It counted the system prompt and

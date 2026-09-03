@@ -30,7 +30,7 @@ import {
   interleavedDisplayContentForMessageAtom,
   sourcesForMessageAtom,
   waitingOnCommandByChatIdAtom,
-  queuedMessageByChatIdAtom,
+  pendingInterjectionsByChatIdAtom,
   turnSnapshotTurnIdByMessageIdAtom,
   activeChatIdAtom,
   selectedChatIdAtom,
@@ -124,7 +124,7 @@ export function clearChatAtomsForChat(
   deleteMapKey(streamThreadByChatIdAtom);
   deleteMapKey(streamLastActivityAtByChatIdAtom);
   deleteMapKey(waitingOnCommandByChatIdAtom);
-  deleteMapKey(queuedMessageByChatIdAtom);
+  deleteMapKey(pendingInterjectionsByChatIdAtom);
   deleteRecordKey(lastTurnHadToolCallsByChatIdAtom);
   deleteRecordKey(lastReasoningTokensByChatIdAtom);
   deleteRecordKey(lastAuxTokensByChatIdAtom);
