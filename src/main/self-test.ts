@@ -484,7 +484,28 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
      */
     name: "computer-use",
     run: async () => {
-      const { execFileSync } = await import("node:child_process");
+      const { execFileSync, spawnSync } = await import("node:child_process");
+
+      /**
+       * Run a bundled binary WITHOUT throwing on a non-zero exit.
+       *
+       * `execFileSync` throws on both a bad exit code and a fatal signal, which
+       * collapses two very different facts into one. `doctor` in particular exits
+       * non-zero to report an UNHEALTHY ENVIRONMENT — on a CI runner with no
+       * interactive desktop session, Windows UIA is unavailable and it says so,
+       * correctly. That is not a broken build, and failing the release for it
+       * would make every Windows release depend on a condition CI can never meet.
+       */
+      const run = (bin: string, args: string[], timeout: number) => {
+        const r = spawnSync(bin, args, { encoding: "utf8", timeout });
+        if (r.error) throw r.error;
+        return {
+          status: r.status,
+          signal: r.signal,
+          stdout: r.stdout ?? "",
+          stderr: r.stderr ?? "",
+        };
+      };
       const { resolveComputerBinary } = await import("@/lib/computer/resolve-binary");
       const { telemetryIsOptedOut, telemetryOptOutPath, ensureTelemetryOptOut } =
         await import("@/lib/computer/driver-session");
@@ -505,10 +526,23 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
         //    reported VALID by `codesign -v` and refused by the kernel on exec,
         //    with no output and nothing in the system log. Only running it tells
         //    you. `signal === null` is the assertion, not just exit 0.
-        const version = execFileSync(driver, ["--version"], {
-          encoding: "utf8",
-          timeout: 20_000,
-        });
+        const versionRun = run(driver, ["--version"], 20_000);
+        if (versionRun.signal !== null) {
+          // THE ONE THAT MATTERS. A binary carrying a PROVISIONED entitlement is
+          // SIGKILLed by the kernel on exec while `codesign -v` still calls the
+          // bundle valid — that is exactly how signed v14.35.0 shipped broken.
+          // A signal here means the nested binaries inherited something they
+          // must not have; check entitlements.plist before anything else.
+          throw new Error(
+            `cua-driver was killed by ${versionRun.signal} on exec — this is the ` +
+              `provisioned-entitlement class (codesign reports such a bundle VALID). ` +
+              `Check entitlements.plist for a restricted key.`,
+          );
+        }
+        if (versionRun.status !== 0) {
+          throw new Error(`cua-driver --version exited ${versionRun.status}`);
+        }
+        const version = versionRun.stdout;
         if (!/cua-driver\s+\d+\.\d+/.test(version)) {
           throw new Error(`unexpected --version output: ${version.slice(0, 80)}`);
         }
@@ -541,20 +575,38 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
         //    change would otherwise silently disable our preflight, and a
         //    preflight that reports nothing is worse than none. Parse leniently:
         //    the driver prints a human banner before the JSON in some modes.
-        const doctorOut = execFileSync(driver, ["doctor", "--json"], {
-          encoding: "utf8",
-          timeout: 30_000,
-        });
-        const jsonStart = doctorOut.search(/[[{]/);
-        if (jsonStart < 0) throw new Error("doctor --json produced no JSON");
-        const report = JSON.parse(doctorOut.slice(jsonStart)) as {
-          probes?: Array<{ label?: string }>;
-        };
-        if (!Array.isArray(report.probes) || report.probes.length === 0) {
-          throw new Error("doctor --json has no `probes` array — its schema moved");
+        //    ITS EXIT CODE IS NOT OUR ASSERTION. `doctor` exits non-zero when the
+        //    ENVIRONMENT is unhealthy, and on a CI runner it genuinely is: with no
+        //    interactive desktop session Windows UIA cannot start, and the driver
+        //    correctly reports `UIA health probe exceeded 2000ms; falling back to
+        //    Win32-only window tools`. Treating that as a build failure would make
+        //    every Windows release depend on a condition no runner can satisfy.
+        //    What we assert is the SCHEMA; the health goes in the notes.
+        const doctorRun = run(driver, ["doctor", "--json"], 30_000);
+        if (doctorRun.signal !== null) {
+          throw new Error(`cua-driver doctor was killed by ${doctorRun.signal}`);
         }
-        if (!report.probes.some((p) => p.label === "binary")) {
-          notes.push("doctor: no `binary` probe (schema drift, preflight may degrade)");
+        const doctorOut = doctorRun.stdout;
+        const jsonStart = doctorOut.search(/[[{]/);
+        if (jsonStart < 0) {
+          if (doctorRun.status === 0) {
+            // Clean exit and no JSON at all is a genuine contract break.
+            throw new Error("doctor --json exited 0 but produced no JSON");
+          }
+          notes.push(`doctor: unhealthy here (exit ${doctorRun.status}, no report)`);
+        } else {
+          const report = JSON.parse(doctorOut.slice(jsonStart)) as {
+            probes?: Array<{ label?: string }>;
+          };
+          if (!Array.isArray(report.probes) || report.probes.length === 0) {
+            throw new Error("doctor --json has no `probes` array — its schema moved");
+          }
+          if (doctorRun.status !== 0) {
+            notes.push(`doctor: exit ${doctorRun.status} (environment, not the build)`);
+          }
+          if (!report.probes.some((p) => p.label === "binary")) {
+            notes.push("doctor: no `binary` probe (schema drift, preflight may degrade)");
+          }
         }
 
         // 5. macOS: THE SPI PROBE'S SHAPE, not its verdict. Asserting
