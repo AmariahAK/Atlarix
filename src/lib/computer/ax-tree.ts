@@ -136,7 +136,15 @@ export function parseWindowSnapshot(
   return {
     elements: kept,
     total: Number(snap.element_count ?? rows.length) || rows.length,
-    degraded: Boolean(snap.degraded_reason) || rows.length === 0,
+    // ONLY when the driver SAID so. An earlier version also set this for any
+    // empty tree, which made the two branches of the empty-window message
+    // collapse into one: `refs.length === 0` is exactly when that message prints,
+    // so "the app draws its own surface" was asserted every time and the "it may
+    // still be loading" advice was unreachable. Observed 2026-09-05 against
+    // WhatsApp on its SPLASH SCREEN — the tree was empty because nothing had
+    // rendered yet, and the model was told the app was uninspectable and sent to
+    // OCR, which needed a second permission it did not have.
+    degraded: Boolean(snap.degraded_reason),
     ...(snap.degraded_reason ? { degradedReason: snap.degraded_reason } : {}),
     ...(snap.app_name ? { appName: snap.app_name } : {}),
     ...(snap.window_title ? { windowTitle: snap.window_title } : {}),
@@ -155,14 +163,16 @@ export function formatWindow(
   app: { name: string; pid: number },
 ): string {
   if (refs.length === 0) {
+    // DO NOT ASSERT THE CAUSE. An empty tree means "nothing readable right now",
+    // and a just-launched app showing a splash screen looks identical to one that
+    // draws its own surface. Re-reading is free; OCR is slow, lossy, and needs a
+    // second macOS grant — so the cheap check goes first, always.
     return (
-      `No addressable elements in ${app.name}. ` +
-      (parsed.degraded
-        ? `Its accessibility surface could not be read (${parsed.degradedReason ?? "empty tree"}), ` +
-          `which usually means the app draws its own surface. Read it with mode:"text" — ` +
-          `local OCR — which is slower and lossy but will see what this tree cannot.`
-        : `The window may still be loading; re-read once. If it stays empty the app draws ` +
-          `its own surface — use mode:"text" for OCR.`)
+      `No addressable elements in ${app.name}${parsed.degraded ? ` (${parsed.degradedReason})` : ""}. ` +
+      `If you just opened or navigated it, wait a moment and read it again — a window ` +
+      `still painting has no tree yet, which looks exactly like one that has none. ` +
+      `If a second read is also empty, the app draws its own surface: use mode:"text" ` +
+      `for local OCR, which is slower and gives text positions rather than refs to act on.`
     );
   }
 

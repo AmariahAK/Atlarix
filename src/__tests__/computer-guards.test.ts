@@ -219,3 +219,63 @@ describe("the guard lists themselves", () => {
     expect(SHELL_APPS).toContain("gnome-terminal");
   });
 });
+
+/**
+ * The empty-window message, which misled a real run on 2026-09-05.
+ *
+ * WhatsApp had just been launched and was showing its SPLASH SCREEN. The tree was
+ * empty because nothing had rendered yet — but `degraded` was set for ANY empty
+ * tree, so the message asserted "the app draws its own surface" and sent the model
+ * to OCR, which needed a second macOS grant it did not have. The "it may still be
+ * loading, re-read once" half of that message was unreachable: `refs.length === 0`
+ * is exactly when it prints, so the empty-tree condition made the flag always true.
+ *
+ * A window still painting is indistinguishable from one with no tree. So the
+ * message must not pick, and the free check has to come first.
+ */
+describe("empty-window message", () => {
+  it("offers the cheap re-read BEFORE suggesting OCR", async () => {
+    const { formatWindow } = await import("@/lib/computer/ax-tree");
+    const msg = formatWindow(
+      { rows: [], total: 0, degraded: false },
+      [],
+      { name: "WhatsApp", pid: 1 },
+    );
+    expect(msg).toMatch(/read it again/i);
+    expect(msg.indexOf("read it again")).toBeLessThan(msg.indexOf('mode:"text"'));
+  });
+
+  it("does not claim the app draws its own surface on a FIRST empty read", async () => {
+    const { formatWindow } = await import("@/lib/computer/ax-tree");
+    const msg = formatWindow(
+      { rows: [], total: 0, degraded: false },
+      [],
+      { name: "WhatsApp", pid: 1 },
+    );
+    // It may say so as a CONDITIONAL second step, but never as the diagnosis.
+    expect(msg).not.toMatch(/which usually means the app draws its own surface/i);
+    expect(msg).toMatch(/second read is also empty/i);
+  });
+
+  it("still surfaces a reason the driver actually gave", async () => {
+    const { formatWindow } = await import("@/lib/computer/ax-tree");
+    const msg = formatWindow(
+      { rows: [], total: 0, degraded: true, degradedReason: "ax timeout" },
+      [],
+      { name: "OBS", pid: 2 },
+    );
+    // A reason from the driver is real signal and must not be swallowed.
+    expect(msg).toContain("ax timeout");
+  });
+
+  it("says OCR gives positions, not refs — so nothing there is clickable", async () => {
+    const { formatWindow } = await import("@/lib/computer/ax-tree");
+    const msg = formatWindow({ rows: [], total: 0, degraded: false }, [], {
+      name: "CapCut",
+      pid: 3,
+    });
+    // Without this the model reads OCR output and tries to act on it, and there
+    // is deliberately no coordinate form to act with.
+    expect(msg).toMatch(/rather than refs/i);
+  });
+});
