@@ -51,18 +51,31 @@ function norm(s: string): string {
 }
 
 /**
- * WORD-BOUNDARY MATCHING, NOT SUBSTRING — and this is not fastidiousness.
+ * BOUNDARY MATCHING ON BOTH THE NAME AND THE BUNDLE ID — and the second half of
+ * that sentence was learned twice.
  *
- * The first version used `name.includes(needle)`, and the test suite immediately
- * caught it refusing **OBS Studio**: the list contains `st` (the suckless
- * terminal), and "OBS St-udio" contains "st". A guard that refuses a video mixer
- * because a two-letter terminal exists is a guard people switch off, and switching
- * it off removes the terminal protection too.
+ * The first version used `name.includes(needle)` and refused **OBS Studio**,
+ * because the list contains `st` (the suckless terminal) and "OBS St-udio"
+ * contains "st". That was fixed for display names with `\b`, a test was added, the
+ * test passed — and the identical bug sat untouched in the bundle-id branch, under
+ * a comment asserting it could not arise there. It arose immediately:
+ * `com.apple.sy-st-empreferences` matched `st`, so **System Settings was refused
+ * as a terminal**, with the terminal wording, which is both wrong and alarming.
  *
- * So a needle must match a whole word (or a whole multi-word phrase). Bundle ids
- * are matched loosely on purpose: they are dotted and reversed
- * (`com.googlecode.iterm2`), so a boundary there is a dot or a digit, and the
- * ambiguity that bites display names does not arise.
+ * Measured on one ordinary Mac, `st` alone wrongly claimed six apps: OBS (yes, the
+ * same OBS the name fix was written for — the bundle id defeated it anyway), App
+ * Store, Podcasts, Stickies, Stocks and System Settings.
+ *
+ * A bundle id is dotted and reversed (`com.googlecode.iterm2`), so its boundaries
+ * are `.` `-` `_`, the ends of the string, and a trailing digit — NOT "anywhere in
+ * the string". `iterm` still matches `com.googlecode.iterm2` (dot before, digit
+ * after) and `terminal` still matches `com.apple.terminal` (dot before, end after),
+ * so nothing real is lost by being precise.
+ *
+ * THE GENERAL LESSON, which is why this comment is long: a two-character entry in
+ * a deny list is a substring of half the world. When one is unavoidable, every
+ * comparison it takes part in needs a boundary — and "the ambiguity does not arise
+ * here" is a claim to TEST, not to assert.
  */
 function matches(list: string[], name: string, bundleId?: string): boolean {
   const n = norm(name);
@@ -71,8 +84,11 @@ function matches(list: string[], name: string, bundleId?: string): boolean {
     const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     // `\b` on both sides, so "st" matches "st" and "st -e" but not "studio".
     if (new RegExp(`\\b${escaped}\\b`).test(n)) return true;
-    const compact = needle.replace(/\s+/g, "");
-    return Boolean(b) && b.includes(compact);
+    if (!b) return false;
+    const compact = needle.replace(/\s+/g, "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // Start of string or a separator, then the needle, then a separator, a digit
+    // (iterm2), or the end.
+    return new RegExp(`(^|[._-])${compact}([._-]|[0-9]|$)`).test(b);
   });
 }
 

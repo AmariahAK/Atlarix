@@ -237,7 +237,7 @@ describe("empty-window message", () => {
   it("offers the cheap re-read BEFORE suggesting OCR", async () => {
     const { formatWindow } = await import("@/lib/computer/ax-tree");
     const msg = formatWindow(
-      { rows: [], total: 0, degraded: false },
+      { elements: [], total: 0, degraded: false },
       [],
       { name: "WhatsApp", pid: 1 },
     );
@@ -248,7 +248,7 @@ describe("empty-window message", () => {
   it("does not claim the app draws its own surface on a FIRST empty read", async () => {
     const { formatWindow } = await import("@/lib/computer/ax-tree");
     const msg = formatWindow(
-      { rows: [], total: 0, degraded: false },
+      { elements: [], total: 0, degraded: false },
       [],
       { name: "WhatsApp", pid: 1 },
     );
@@ -260,7 +260,7 @@ describe("empty-window message", () => {
   it("still surfaces a reason the driver actually gave", async () => {
     const { formatWindow } = await import("@/lib/computer/ax-tree");
     const msg = formatWindow(
-      { rows: [], total: 0, degraded: true, degradedReason: "ax timeout" },
+      { elements: [], total: 0, degraded: true, degradedReason: "ax timeout" },
       [],
       { name: "OBS", pid: 2 },
     );
@@ -270,12 +270,77 @@ describe("empty-window message", () => {
 
   it("says OCR gives positions, not refs — so nothing there is clickable", async () => {
     const { formatWindow } = await import("@/lib/computer/ax-tree");
-    const msg = formatWindow({ rows: [], total: 0, degraded: false }, [], {
+    const msg = formatWindow({ elements: [], total: 0, degraded: false }, [], {
       name: "CapCut",
       pid: 3,
     });
     // Without this the model reads OCR output and tries to act on it, and there
     // is deliberately no coordinate form to act with.
     expect(msg).toMatch(/rather than refs/i);
+  });
+});
+
+/**
+ * The bundle-id branch, which carried the SAME over-match the display-name branch
+ * was fixed for — and survived because the fix was tested only on names.
+ *
+ * `SHELL_APPS` contains `st` (the suckless terminal). `b.includes("st")` is true of
+ * `com.apple.systempreferences`, so System Settings was refused AS A TERMINAL, with
+ * the terminal wording. Observed live 2026-09-05. On one ordinary Mac, `st` alone
+ * wrongly claimed six installed apps — including OBS, the very app the display-name
+ * fix had been written for, because its bundle id defeated the fix anyway.
+ */
+describe("guardTargetApp — bundle ids need boundaries too", () => {
+  const cases: Array<[string, string]> = [
+    ["OBS", "com.obsproject.obs-studio"],
+    ["App Store", "com.apple.appstore"],
+    ["Podcasts", "com.apple.podcasts"],
+    ["Stickies", "com.apple.stickies"],
+    ["Stocks", "com.apple.stocks"],
+  ];
+  for (const [name, bundleId] of cases) {
+    it(`does not call ${name} a terminal because its id contains "st"`, async () => {
+      const { guardTargetApp } = await import("@/lib/computer/guards");
+      const v = guardTargetApp({ name, bundleId });
+      expect(v.allowed).toBe(true);
+    });
+  }
+
+  it("still refuses System Settings — but as a CREDENTIAL surface, not a terminal", async () => {
+    // It stays blocked: it is where TCC grants live, so an agent that could drive
+    // it could grant itself permissions. Only the REASON was wrong.
+    const { guardTargetApp } = await import("@/lib/computer/guards");
+    const v = guardTargetApp({
+      name: "System Settings",
+      bundleId: "com.apple.systempreferences",
+    });
+    expect(v.allowed).toBe(false);
+    if (v.allowed) return;
+    expect(v.reason).toMatch(/credentials or system permissions/i);
+    expect(v.reason).not.toMatch(/terminal or shell/i);
+  });
+
+  it("still catches real terminals by bundle id, which is the point of the branch", async () => {
+    const { guardTargetApp } = await import("@/lib/computer/guards");
+    // A dot before and the end after; a dot before and a digit after (iterm2).
+    for (const [name, bundleId] of [
+      ["Terminal", "com.apple.terminal"],
+      ["iTerm", "com.googlecode.iterm2"],
+      ["Ghostty", "com.mitchellh.ghostty"],
+      ["WezTerm", "com.github.wez.wezterm"],
+      ["Alacritty", "org.alacritty"],
+      ["kitty", "net.kovidgoyal.kitty"],
+      ["st", "suckless.st"],
+    ] as Array<[string, string]>) {
+      const v = guardTargetApp({ name: "Innocuous Name", bundleId });
+      expect(v.allowed, `${name} (${bundleId}) must still be refused`).toBe(false);
+    }
+  });
+
+  it("catches a terminal even when the display name is disguised", async () => {
+    // The bundle id is the harder thing to fake, which is why the branch exists.
+    const { guardTargetApp } = await import("@/lib/computer/guards");
+    const v = guardTargetApp({ name: "Notes", bundleId: "com.apple.terminal" });
+    expect(v.allowed).toBe(false);
   });
 });
