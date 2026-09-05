@@ -13,7 +13,7 @@
  * So the equals-form cases below are the regression, not decoration.
  */
 import { describe, expect, it } from "vitest";
-// @ts-expect-error - .mjs build script, typed by its sibling .d.mts
+// Typed by its sibling scripts/cli-args.d.mts, so no ts-expect-error is needed.
 import { argValue, argFlag } from "../../scripts/cli-args.mjs";
 
 /** argv as node presents it: [exec, script, ...args]. */
