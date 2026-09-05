@@ -511,164 +511,165 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
         await import("@/lib/computer/driver-session");
 
       const notes: string[] = [];
-      const spawned: Array<{ kill: () => void }> = [];
-      try {
-        const driver = resolveComputerBinary("cua-driver");
-        if (!driver) {
-          // A build without the feature is a valid build (ALLOW_NO_COMPUTER_USE),
-          // and `verify-ci-package-out` is what fails when it should not be
-          // absent. There is no skip state here, so this is a noted success.
-          return "cua-driver not bundled (computer use unavailable in this build)";
-        }
 
-        // 1. IT EXECUTES. This is the v14.35.0 SIGKILL detector for the two new
-        //    nested binaries: a bundle carrying a PROVISIONED entitlement is
-        //    reported VALID by `codesign -v` and refused by the kernel on exec,
-        //    with no output and nothing in the system log. Only running it tells
-        //    you. `signal === null` is the assertion, not just exit 0.
-        const versionRun = run(driver, ["--version"], 20_000);
-        if (versionRun.signal !== null) {
-          // THE ONE THAT MATTERS. A binary carrying a PROVISIONED entitlement is
-          // SIGKILLed by the kernel on exec while `codesign -v` still calls the
-          // bundle valid — that is exactly how signed v14.35.0 shipped broken.
-          // A signal here means the nested binaries inherited something they
-          // must not have; check entitlements.plist before anything else.
-          throw new Error(
-            `cua-driver was killed by ${versionRun.signal} on exec — this is the ` +
-              `provisioned-entitlement class (codesign reports such a bundle VALID). ` +
-              `Check entitlements.plist for a restricted key.`,
-          );
-        }
-        if (versionRun.status !== 0) {
-          throw new Error(`cua-driver --version exited ${versionRun.status}`);
-        }
-        const version = versionRun.stdout;
-        if (!/cua-driver\s+\d+\.\d+/.test(version)) {
-          throw new Error(`unexpected --version output: ${version.slice(0, 80)}`);
-        }
+      // NO `try/finally` KILLING CHILDREN, because there are none to kill. Every
+      // call below is `spawnSync`/`execFileSync` — a synchronous one-shot that has
+      // already terminated — and the probe never starts the `serve` daemon. The
+      // loop that used to be here iterated an array nothing ever pushed to, which
+      // is worse than nothing: it reads as protection that is not there.
+      //
+      // WHAT IS STILL NOT GUARANTEED, and it matters on Windows: a GRANDCHILD.
+      // `cua-driver doctor` logs `UIA health probe exceeded 2000ms; falling back to
+      // Win32-only window tools`, which implies a worker. If such a worker outlives
+      // the driver, Node never had a handle to it and nothing here could kill it —
+      // exactly the "lingering grandchild" that `run-packaged-self-test.mjs` calls
+      // the whole problem, and why that harness kills the process TREE and
+      // downgrades a would-not-exit run instead of failing on it. The Windows
+      // teardown defect is long-standing and still unidentified; see docs/TODO.md.
+      const driver = resolveComputerBinary("cua-driver");
+      if (!driver) {
+        // A build without the feature is a valid build (ALLOW_NO_COMPUTER_USE),
+        // and `verify-ci-package-out` is what fails when it should not be
+        // absent. There is no skip state here, so this is a noted success.
+        return "cua-driver not bundled (computer use unavailable in this build)";
+      }
 
-        // 2. THE TELEMETRY OPT-OUT IS ON DISK. cua-driver phones home by default
-        //    and registers on the first run of ANY subcommand, so this must be
-        //    true BEFORE anything else runs — `telemetry disable` afterwards is
-        //    too late. Repair it here rather than only reporting, because a
-        //    packaged app that reaches this probe is about to be used.
-        ensureTelemetryOptOut();
-        if (!telemetryIsOptedOut()) {
-          throw new Error(
-            `telemetry opt-out missing at ${telemetryOptOutPath()} — the driver would ` +
-              `register an installation id on first use`,
-          );
-        }
-
-        // 3. THE TOOL SURFACE IS THERE. A floor, not equality, so an upstream
-        //    bump is not a release-blocker — but a collapse to nothing is.
-        const tools = execFileSync(driver, ["list-tools"], {
-          encoding: "utf8",
-          timeout: 30_000,
-        });
-        const toolCount = tools.split("\n").filter((l) => /^\S+:/.test(l)).length;
-        if (toolCount < 40) {
-          throw new Error(`list-tools reported only ${toolCount} tools (expected 40+)`);
-        }
-
-        // 4. `doctor --json` PARSES AND CARRIES ITS PROBES. An upstream schema
-        //    change would otherwise silently disable our preflight, and a
-        //    preflight that reports nothing is worse than none. Parse leniently:
-        //    the driver prints a human banner before the JSON in some modes.
-        //    ITS EXIT CODE IS NOT OUR ASSERTION. `doctor` exits non-zero when the
-        //    ENVIRONMENT is unhealthy, and on a CI runner it genuinely is: with no
-        //    interactive desktop session Windows UIA cannot start, and the driver
-        //    correctly reports `UIA health probe exceeded 2000ms; falling back to
-        //    Win32-only window tools`. Treating that as a build failure would make
-        //    every Windows release depend on a condition no runner can satisfy.
-        //    What we assert is the SCHEMA; the health goes in the notes.
-        const doctorRun = run(driver, ["doctor", "--json"], 30_000);
-        if (doctorRun.signal !== null) {
-          throw new Error(`cua-driver doctor was killed by ${doctorRun.signal}`);
-        }
-        const doctorOut = doctorRun.stdout;
-        const jsonStart = doctorOut.search(/[[{]/);
-        if (jsonStart < 0) {
-          if (doctorRun.status === 0) {
-            // Clean exit and no JSON at all is a genuine contract break.
-            throw new Error("doctor --json exited 0 but produced no JSON");
-          }
-          notes.push(`doctor: unhealthy here (exit ${doctorRun.status}, no report)`);
-        } else {
-          const report = JSON.parse(doctorOut.slice(jsonStart)) as {
-            probes?: Array<{ label?: string }>;
-          };
-          if (!Array.isArray(report.probes) || report.probes.length === 0) {
-            throw new Error("doctor --json has no `probes` array — its schema moved");
-          }
-          if (doctorRun.status !== 0) {
-            notes.push(`doctor: exit ${doctorRun.status} (environment, not the build)`);
-          }
-          if (!report.probes.some((p) => p.label === "binary")) {
-            notes.push("doctor: no `binary` probe (schema drift, preflight may degrade)");
-          }
-        }
-
-        // 5. macOS: THE SPI PROBE'S SHAPE, not its verdict. Asserting
-        //    `slps_post_event === true` would fail the build the day Apple
-        //    removes the symbol — which is the day the fallback matters most.
-        const helper = resolveComputerBinary("atlarix-cu");
-        if (process.platform === "darwin") {
-          if (!helper) {
-            notes.push("atlarix-cu absent (SPI probe + OCR unavailable)");
-          } else {
-            const probeOut = execFileSync(helper, ["probe", "--json"], {
-              encoding: "utf8",
-              timeout: 20_000,
-            });
-            const probe = JSON.parse(probeOut.slice(probeOut.search(/[[{]/))) as {
-              rung?: string;
-            };
-            if (!probe.rung) throw new Error("atlarix-cu probe reported no rung");
-            notes.push(`input rung=${probe.rung}`);
-          }
-        }
-
-        // 6. OCR ACTUALLY WORKS — the one genuinely BEHAVIOURAL assertion CI can
-        //    make here, because neither macOS Vision nor Windows.Media.Ocr needs
-        //    a GUI session or a TCC grant. It renders nothing: the fixture is an
-        //    embedded PNG, so the round-trip is deterministic.
-        if (helper && process.platform !== "linux") {
-          try {
-            const ocr = execFileSync(helper, ["ocr", "--self-test"], {
-              encoding: "utf8",
-              timeout: 60_000,
-            });
-            const parsed = JSON.parse(ocr.slice(ocr.search(/[[{]/))) as { got?: string };
-            notes.push(`ocr=${JSON.stringify(parsed.got ?? "")}`);
-          } catch (e) {
-            // On Windows a missing OCR language pack is a real SKU gap, not a
-            // broken build — note it rather than failing the release.
-            const msg = e instanceof Error ? e.message : String(e);
-            if (process.platform === "win32" && /ocr-unavailable/i.test(msg)) {
-              notes.push("ocr=unavailable (no Windows OCR language pack on this machine)");
-            } else {
-              throw new Error(`OCR self-test failed: ${msg.slice(0, 200)}`);
-            }
-          }
-        }
-
-        return (
-          `${version.trim()}, ${toolCount} tools, telemetry opted out` +
-          (notes.length ? ` | ${notes.join(" | ")}` : "")
+      // 1. IT EXECUTES. This is the v14.35.0 SIGKILL detector for the two new
+      //    nested binaries: a bundle carrying a PROVISIONED entitlement is
+      //    reported VALID by `codesign -v` and refused by the kernel on exec,
+      //    with no output and nothing in the system log. Only running it tells
+      //    you. `signal === null` is the assertion, not just exit 0.
+      const versionRun = run(driver, ["--version"], 20_000);
+      if (versionRun.signal !== null) {
+        // THE ONE THAT MATTERS. A binary carrying a PROVISIONED entitlement is
+        // SIGKILLed by the kernel on exec while `codesign -v` still calls the
+        // bundle valid — that is exactly how signed v14.35.0 shipped broken.
+        // A signal here means the nested binaries inherited something they
+        // must not have; check entitlements.plist before anything else.
+        throw new Error(
+          `cua-driver was killed by ${versionRun.signal} on exec — this is the ` +
+            `provisioned-entitlement class (codesign reports such a bundle VALID). ` +
+            `Check entitlements.plist for a restricted key.`,
         );
-      } finally {
-        // `run-packaged-self-test.mjs` has a hard deadline because v14.35.0 on
-        // Windows printed PASSED (9/9) and then never exited. A probe that spawns
-        // children is a new way to reproduce that.
-        for (const child of spawned) {
-          try {
-            child.kill();
-          } catch {
-            /* already gone */
+      }
+      if (versionRun.status !== 0) {
+        throw new Error(`cua-driver --version exited ${versionRun.status}`);
+      }
+      const version = versionRun.stdout;
+      if (!/cua-driver\s+\d+\.\d+/.test(version)) {
+        throw new Error(`unexpected --version output: ${version.slice(0, 80)}`);
+      }
+
+      // 2. THE TELEMETRY OPT-OUT IS ON DISK. cua-driver phones home by default
+      //    and registers on the first run of ANY subcommand, so this must be
+      //    true BEFORE anything else runs — `telemetry disable` afterwards is
+      //    too late. Repair it here rather than only reporting, because a
+      //    packaged app that reaches this probe is about to be used.
+      ensureTelemetryOptOut();
+      if (!telemetryIsOptedOut()) {
+        throw new Error(
+          `telemetry opt-out missing at ${telemetryOptOutPath()} — the driver would ` +
+            `register an installation id on first use`,
+        );
+      }
+
+      // 3. THE TOOL SURFACE IS THERE. A floor, not equality, so an upstream
+      //    bump is not a release-blocker — but a collapse to nothing is.
+      const tools = execFileSync(driver, ["list-tools"], {
+        encoding: "utf8",
+        timeout: 30_000,
+      });
+      const toolCount = tools.split("\n").filter((l) => /^\S+:/.test(l)).length;
+      if (toolCount < 40) {
+        throw new Error(`list-tools reported only ${toolCount} tools (expected 40+)`);
+      }
+
+      // 4. `doctor --json` PARSES AND CARRIES ITS PROBES. An upstream schema
+      //    change would otherwise silently disable our preflight, and a
+      //    preflight that reports nothing is worse than none. Parse leniently:
+      //    the driver prints a human banner before the JSON in some modes.
+      //    ITS EXIT CODE IS NOT OUR ASSERTION. `doctor` exits non-zero when the
+      //    ENVIRONMENT is unhealthy, and on a CI runner it genuinely is: with no
+      //    interactive desktop session Windows UIA cannot start, and the driver
+      //    correctly reports `UIA health probe exceeded 2000ms; falling back to
+      //    Win32-only window tools`. Treating that as a build failure would make
+      //    every Windows release depend on a condition no runner can satisfy.
+      //    What we assert is the SCHEMA; the health goes in the notes.
+      const doctorRun = run(driver, ["doctor", "--json"], 30_000);
+      if (doctorRun.signal !== null) {
+        throw new Error(`cua-driver doctor was killed by ${doctorRun.signal}`);
+      }
+      const doctorOut = doctorRun.stdout;
+      const jsonStart = doctorOut.search(/[[{]/);
+      if (jsonStart < 0) {
+        if (doctorRun.status === 0) {
+          // Clean exit and no JSON at all is a genuine contract break.
+          throw new Error("doctor --json exited 0 but produced no JSON");
+        }
+        notes.push(`doctor: unhealthy here (exit ${doctorRun.status}, no report)`);
+      } else {
+        const report = JSON.parse(doctorOut.slice(jsonStart)) as {
+          probes?: Array<{ label?: string }>;
+        };
+        if (!Array.isArray(report.probes) || report.probes.length === 0) {
+          throw new Error("doctor --json has no `probes` array — its schema moved");
+        }
+        if (doctorRun.status !== 0) {
+          notes.push(`doctor: exit ${doctorRun.status} (environment, not the build)`);
+        }
+        if (!report.probes.some((p) => p.label === "binary")) {
+          notes.push("doctor: no `binary` probe (schema drift, preflight may degrade)");
+        }
+      }
+
+      // 5. macOS: THE SPI PROBE'S SHAPE, not its verdict. Asserting
+      //    `slps_post_event === true` would fail the build the day Apple
+      //    removes the symbol — which is the day the fallback matters most.
+      const helper = resolveComputerBinary("atlarix-cu");
+      if (process.platform === "darwin") {
+        if (!helper) {
+          notes.push("atlarix-cu absent (SPI probe + OCR unavailable)");
+        } else {
+          const probeOut = execFileSync(helper, ["probe", "--json"], {
+            encoding: "utf8",
+            timeout: 20_000,
+          });
+          const probe = JSON.parse(probeOut.slice(probeOut.search(/[[{]/))) as {
+            rung?: string;
+          };
+          if (!probe.rung) throw new Error("atlarix-cu probe reported no rung");
+          notes.push(`input rung=${probe.rung}`);
+        }
+      }
+
+      // 6. OCR ACTUALLY WORKS — the one genuinely BEHAVIOURAL assertion CI can
+      //    make here, because neither macOS Vision nor Windows.Media.Ocr needs
+      //    a GUI session or a TCC grant. It renders nothing: the fixture is an
+      //    embedded PNG, so the round-trip is deterministic.
+      if (helper && process.platform !== "linux") {
+        try {
+          const ocr = execFileSync(helper, ["ocr", "--self-test"], {
+            encoding: "utf8",
+            timeout: 60_000,
+          });
+          const parsed = JSON.parse(ocr.slice(ocr.search(/[[{]/))) as { got?: string };
+          notes.push(`ocr=${JSON.stringify(parsed.got ?? "")}`);
+        } catch (e) {
+          // On Windows a missing OCR language pack is a real SKU gap, not a
+          // broken build — note it rather than failing the release.
+          const msg = e instanceof Error ? e.message : String(e);
+          if (process.platform === "win32" && /ocr-unavailable/i.test(msg)) {
+            notes.push("ocr=unavailable (no Windows OCR language pack on this machine)");
+          } else {
+            throw new Error(`OCR self-test failed: ${msg.slice(0, 200)}`);
           }
         }
       }
+
+      return (
+        `${version.trim()}, ${toolCount} tools, telemetry opted out` +
+        (notes.length ? ` | ${notes.join(" | ")}` : "")
+      );
     },
   },
 ];

@@ -1022,6 +1022,18 @@ needs a clean Sentry week, not a machine).
   **Where to look next:** a Windows machine, `atlarix.exe --self-test` from a terminal, and Process
   Explorer to see what the parent of the second process actually is. That single observation is worth
   more than any further code reading.
+  **A NEW SUSPECT, 2026-09-05 — cua-driver's Windows UIA worker.** The v14.43.0 dry run on
+  `notarize-dryrun-v14.43.0` reproduced the non-exit with 10/10 probes, where the immediately
+  preceding v14.42.0 tag build exited on its own at 9/9. The difference is the new `computer-use`
+  probe, and the driver logs `WARN uia_windows_enum: UIA health probe exceeded 2000ms; falling back
+  to Win32-only window tools; no other UIA worker will start until this provider call returns` —
+  which names a WORKER. The probe itself holds no handle to kill: every call is a synchronous
+  `spawnSync`/`execFileSync` one-shot and it never starts the `serve` daemon, so if a worker outlives
+  `cua-driver doctor` it is a GRANDCHILD Node never saw. That matches the shape of this defect
+  exactly. **Two data points is not proof** — the defect predates computer use and is intermittent —
+  so treat this as the first thing to check on the Windows machine, not as the answer. Concretely:
+  run `atlarix.exe --self-test` twice, once with the driver present and once with it removed
+  (`ALLOW_NO_COMPUTER_USE=1` builds one), and compare. If only the former hangs, this is it.
 
 - **`withLock` serialises TWO callers, not N.** `src/ipc/utils/lock_utils.ts` awaits only the one
   lock it observed, so with three contenders B and C both wake on A's release and **both acquire** —
