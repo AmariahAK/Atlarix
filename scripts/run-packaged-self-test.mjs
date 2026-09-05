@@ -11,13 +11,11 @@ import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { argValue } from "./cli-args.mjs";
 
 function parseArgs(argv) {
-  const opts = {};
-  for (let i = 2; i < argv.length; i++) {
-    if (argv[i] === "--arch" && argv[i + 1]) opts.arch = argv[++i];
-  }
-  return opts;
+  // Both `--arch x64` and `--arch=x64`; the workflow uses the latter.
+  return { arch: argValue(argv, "arch") };
 }
 
 const APP = "Atlarix";

@@ -12,16 +12,16 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { readBinaryArchs } from "./binary-arch.mjs";
+import { argValue } from "./cli-args.mjs";
 
 function parseArgs(argv) {
-  const opts = { stage: "make", platform: process.platform, arch: process.arch };
-  for (let i = 2; i < argv.length; i++) {
-    const arg = argv[i];
-    if (arg === "--stage" && argv[i + 1]) opts.stage = argv[++i];
-    else if (arg === "--platform" && argv[i + 1]) opts.platform = argv[++i];
-    else if (arg === "--arch" && argv[i + 1]) opts.arch = argv[++i];
-  }
-  return opts;
+  // This script is the one that CAUGHT the arch mismatch, so it must never be the
+  // one that mis-parses it. Both `--arch x64` and `--arch=x64` are accepted.
+  return {
+    stage: argValue(argv, "stage") ?? "make",
+    platform: argValue(argv, "platform") ?? process.platform,
+    arch: argValue(argv, "arch") ?? process.arch,
+  };
 }
 
 function listFilesRecursive(dir) {

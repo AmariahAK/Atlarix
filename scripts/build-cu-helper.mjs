@@ -23,6 +23,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { assertBinaryArch, archForTriple } from "./binary-arch.mjs";
+import { argValue } from "./cli-args.mjs";
 
 const TAG = "build-cu-helper";
 const ROOT = process.cwd();
@@ -35,9 +36,10 @@ const TRIPLES = {
   win32: { arm64: "aarch64-pc-windows-msvc", x64: "x86_64-pc-windows-msvc" },
 };
 
+// Shared so `--arch=x64` and `--arch x64` both work. The local version handled
+// only the space form, which silently built the HOST arch for the x64 matrix leg.
 function arg(name) {
-  const i = process.argv.indexOf(`--${name}`);
-  return i >= 0 ? process.argv[i + 1] : undefined;
+  return argValue(process.argv, name);
 }
 
 // Linux has no atlarix-cu: no OS OCR to bind, and the input fallback is macOS-only.

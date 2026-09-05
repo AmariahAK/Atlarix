@@ -29,6 +29,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { assertBinaryArch, archForTriple } from "./binary-arch.mjs";
+import { argValue } from "./cli-args.mjs";
 
 const TAG = "build-cua-driver";
 const ROOT = process.cwd();
@@ -41,9 +42,10 @@ const TRIPLES = {
   linux: { arm64: "aarch64-unknown-linux-gnu", x64: "x86_64-unknown-linux-gnu" },
 };
 
+// Shared so `--arch=x64` and `--arch x64` both work. The local version handled
+// only the space form, which silently built the HOST arch for the x64 matrix leg.
 function arg(name) {
-  const i = process.argv.indexOf(`--${name}`);
-  return i >= 0 ? process.argv[i + 1] : undefined;
+  return argValue(process.argv, name);
 }
 
 const explicitTarget = arg("target");
