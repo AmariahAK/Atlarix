@@ -21,6 +21,36 @@ vi.mock("electron", () => ({
 }));
 vi.mock("@/main/settings", () => ({ readSettings: () => ({}) }));
 
+/** Grants, so the coordinate tests exercise arithmetic and not a preflight. */
+let permissions = {
+  platform: "darwin",
+  accessibility: "granted",
+  screenRecording: "granted",
+  needsRelaunch: false,
+};
+vi.mock("@/main/computer-use-permissions", () => ({
+  readPermissions: () => permissions,
+}));
+
+/**
+ * `ocrWindow` now REQUIRES the capture to exist before handing its path to the
+ * helper, because `get_window_state` succeeds with Screen Recording denied and
+ * silently writes no image — the bug that reported `cannot read <path>: No such
+ * file or directory` to the model instead of naming the permission. The driver is
+ * mocked here and writes nothing, so stat has to be mocked alongside it.
+ */
+let captureSize = 4096;
+vi.mock("node:fs", async (orig) => {
+  const actual = (await orig()) as Record<string, unknown>;
+  return {
+    ...actual,
+    statSync: (p: string, ...rest: unknown[]) =>
+      String(p).includes("atlarix-ocr")
+        ? { size: captureSize }
+        : (actual.statSync as (...a: unknown[]) => unknown)(p, ...rest),
+  };
+});
+
 /** What the driver reports for the window we asked about. */
 let windowState: unknown = {};
 /** What the OCR helper found, in IMAGE PIXELS relative to the crop. */
@@ -82,6 +112,13 @@ beforeEach(() => {
   capturedExec = null;
   windowState = {};
   helperWords = [];
+  captureSize = 4096;
+  permissions = {
+    platform: "darwin",
+    accessibility: "granted",
+    screenRecording: "granted",
+    needsRelaunch: false,
+  };
   setPlatform("darwin");
 });
 
@@ -185,5 +222,43 @@ describe("ocrWindow coordinates", () => {
     setPlatform("linux");
     await ocrWindow(1234);
     expect(capturedExec).toBe("tesseract");
+  });
+
+  it("names Screen Recording when the capture never lands — the WhatsApp failure", async () => {
+    // OBSERVED 2026-09-05 on a packaged build: `get_window_state` returned real
+    // bounds and scale (the window server needs no grant) and wrote no image, so
+    // the missing path reached the OCR helper and the model was told
+    // `cannot read …/window.png: No such file or directory (os error 2)`. It then
+    // retried, tried another app, shelled out to `screencapture`, and hit the
+    // terminal refusal — four turns routing around an ungranted dialog.
+    const { ocrWindow } = await load();
+    permissions.screenRecording = "denied";
+    captureSize = 0; // the driver wrote nothing
+    windowState = { window_bounds: { x: 0, y: 0 }, screenshot_scale: 1 };
+
+    const res = await ocrWindow(1234);
+    expect("error" in res).toBe(true);
+    if (!("error" in res)) return;
+    expect(res.error).toMatch(/Screen Recording/);
+    expect(res.error).toMatch(/RESTART/);
+    expect(res.error).not.toMatch(/No such file or directory/);
+  });
+
+  it("does NOT blame permissions when the grant is held but the capture is empty", async () => {
+    // Same symptom, different cause. Telling the user to grant something they
+    // already granted is its own dead end.
+    const { ocrWindow } = await load();
+    captureSize = 0;
+    windowState = { window_bounds: { x: 0, y: 0 }, screenshot_scale: 1 };
+
+    const res = await ocrWindow(1234);
+    expect("error" in res).toBe(true);
+    if (!("error" in res)) return;
+    expect(res.error).toMatch(/minimised or on another Space/i);
+    // It DOES mention Screen Recording — to say it is already granted, which
+    // preempts the wrong fix. What it must not do is ask for a grant, so assert
+    // on the category-2 tail rather than on the words.
+    expect(res.error).toMatch(/Screen Recording is granted/);
+    expect(res.error).not.toContain("Ask the user to do that and retry ONCE");
   });
 });

@@ -42,6 +42,7 @@ import { DeskBusyError, withDesk } from "@/lib/computer/desk-lock";
 import { guardTypeTarget } from "@/lib/computer/guards";
 import { detectInputRung, refusePixelAction } from "@/lib/computer/input-rung";
 import { ocrWindow } from "@/lib/computer/ocr";
+import { missingGrantMessage } from "@/lib/computer/permission-hint";
 import { showOutline } from "@/lib/computer/overlay";
 import {
   explainDriverStaleError,
@@ -177,6 +178,21 @@ ToolRegistry.register({
             : "No applications are reporting windows right now.",
         };
       }
+
+      // ACCESSIBILITY IS CHECKED HERE, BEFORE ANY WORK, because every mode below
+      // depends on it and none of them fail in a way that names it. With the grant
+      // missing the driver still answers — `get_window_state` returns real bounds
+      // from the window server — it just returns an EMPTY TREE. Downstream that
+      // reads as "this app draws its own surface, try mode:\"text\"", which sends
+      // the model to OCR that cannot work either. On a real run that cost four
+      // turns and ended in the terminal refusal, with nobody ever told to open
+      // System Settings.
+      //
+      // `mode:"apps"` is deliberately above this line: it is measured to work with
+      // accessibility:false and screen_recording:false, so it stays the one read
+      // that answers before any grant exists.
+      const grantMissing = missingGrantMessage("accessibility");
+      if (grantMissing) return { success: false, error: grantMissing };
 
       const resolved = await resolveTargetApp(str(args.app));
       if (!resolved.ok) return { success: false, error: resolved.error };
@@ -326,6 +342,13 @@ ToolRegistry.register({
     }
 
     try {
+      // Same gate as the read tool, and it matters more here: without
+      // Accessibility a click cannot land, and the driver does not say so — it
+      // reports success against an empty tree. Refusing with the grant named beats
+      // a silent no-op that the model reads as "done".
+      const grantMissing = missingGrantMessage("accessibility");
+      if (grantMissing) return { success: false, error: grantMissing };
+
       // ── menu: the only action addressed by path rather than by ref ──────────
       if (action === "menu") {
         const path = str(args.path);

@@ -30,10 +30,11 @@
  * the kind of bug that survives a demo.
  */
 import { execFile } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import log from "electron-log";
+import { missingGrantMessage } from "./permission-hint";
 import { callDriver } from "./driver-session";
 import { missingBinaryMessage, resolveComputerBinary } from "./resolve-binary";
 
@@ -186,7 +187,38 @@ export async function ocrWindow(
       origin = { x: Number(b.x ?? 0) || 0, y: Number(b.y ?? 0) || 0 };
       scale = Number(state?.screenshot_scale ?? 1) || 1;
     } catch (e) {
-      return { error: `Could not capture the window to OCR: ${(e as Error).message}` };
+      // A THROW is the easy case. The hard one is below: the call SUCCEEDS with
+      // Screen Recording denied and simply writes no image.
+      return {
+        error:
+          missingGrantMessage("screen") ??
+          `Could not capture the window to OCR: ${(e as Error).message}`,
+      };
+    }
+
+    // THE CAPTURE MUST EXIST BEFORE WE HAND ITS PATH TO THE HELPER.
+    //
+    // `get_window_state` returns real `window_bounds` and `screenshot_scale` from
+    // the window server — neither needs a grant — and silently produces no file
+    // when Screen Recording is denied. Without this check the missing path reached
+    // the OCR helper, which reported `cannot read <path>: No such file or directory
+    // (os error 2)`: true, and useless, because nothing in it names a permission.
+    // That cost four turns on a real run before anyone thought to check a dialog.
+    let captureBytes = 0;
+    try {
+      captureBytes = statSync(shot).size;
+    } catch {
+      captureBytes = 0;
+    }
+    if (captureBytes === 0) {
+      const denied = missingGrantMessage("screen");
+      if (denied) return { error: denied };
+      return {
+        error:
+          "The driver reported the window but wrote no screenshot, and Screen " +
+          "Recording is granted — so this is not a permission problem. The window " +
+          'may be minimised or on another Space. Read it with mode:"tree" instead.',
+      };
     }
 
     const report =
