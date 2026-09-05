@@ -26,6 +26,8 @@ const DRIVES_A_VIEW = [
   "browser_test",
   "mobile",
   "mobile_inspect",
+  "computer",
+  "computer_inspect",
 ] as const;
 
 function resolve(

@@ -320,9 +320,74 @@ const providerKeysCheck: DoctorCheck = {
  * install. Duplicating it as a probe would give the panel two answers about
  * updates that could disagree.
  */
+/**
+ * Desktop computer use — a READ-ONLY check, deliberately not `reuse("computer-use")`.
+ *
+ * The self-test probe of that name spawns children (`--version`, `list-tools`,
+ * `doctor --json`, an OCR round-trip), and `child-exec` / `fs-outside-container`
+ * are excluded from this panel for exactly that reason: Diagnostics runs on a
+ * button a user presses, and it should not start processes or grab the screen to
+ * answer a question about configuration. So this reports STATE — is the binary
+ * there, is telemetry opted out, do we hold the grants — and leaves behaviour to
+ * the packaged self-test.
+ *
+ * `warn`, not `fail`: nothing else in the app depends on this, and a machine where
+ * the user has simply not granted Accessibility yet is not broken.
+ */
+const computerUseCheck: DoctorCheck = {
+  name: "computer-use",
+  title: "Desktop control",
+  what: "Atlarix can read and act on other applications, and holds the permissions to do it.",
+  remediation:
+    "On macOS, grant BOTH in System Settings → Privacy & Security: Accessibility (to read and " +
+    "click) and Screen Recording (for OCR and outlines), then RESTART Atlarix — macOS caches the " +
+    "screen-capture decision per process, so a grant made while it is running does not take " +
+    "effect until it relaunches. On Windows and Linux there is no equivalent permission; if it " +
+    "still fails there, the helper is missing from the build.",
+  docPath: "help/diagnostics",
+  severityWhenFailed: "warn",
+  run: async () => {
+    const { resolveComputerBinary } = await import("@/lib/computer/resolve-binary");
+    const { telemetryIsOptedOut, computerUseEnabled } = await import(
+      "@/lib/computer/driver-session"
+    );
+    const { readPermissions } = await import("./computer-use-permissions");
+
+    if (!computerUseEnabled()) return "switched off in Settings → Computer use";
+
+    const driver = resolveComputerBinary("cua-driver");
+    if (!driver) {
+      throw new Error("the cua-driver helper is not bundled in this build");
+    }
+
+    const notes: string[] = [];
+    // Not a hard failure on its own — but it is the difference between the app
+    // matching its own privacy claim and not, so it is worth surfacing.
+    if (!telemetryIsOptedOut()) notes.push("telemetry opt-out NOT written yet");
+
+    const perms = readPermissions();
+    if (perms.platform === "darwin") {
+      if (perms.accessibility !== "granted") {
+        throw new Error("macOS has not granted Accessibility to Atlarix");
+      }
+      if (perms.screenRecording !== "granted") {
+        // Reading and clicking still work without it; only OCR and the outlines
+        // need capture. Say which half is affected rather than failing flatly.
+        notes.push("Screen Recording not granted — reading and clicking work, OCR does not");
+      }
+      if (perms.needsRelaunch) notes.push("a grant changed — restart Atlarix to pick it up");
+    } else {
+      notes.push(`${perms.platform}: no OS permission gate for desktop control`);
+    }
+
+    return `helper present${notes.length ? ` | ${notes.join(" | ")}` : ""}`;
+  },
+};
+
 export const DOCTOR_CHECKS: DoctorCheck[] = [
   coreCheck,
   providerKeysCheck,
+  computerUseCheck,
   catalogCheck,
   credentialStoreCheck,
   reuse("sqlite", {

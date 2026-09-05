@@ -181,7 +181,14 @@ export function resolveToolsetForSession(
     name === "browser" ||
     name.startsWith("browser_") ||
     name === "mobile" ||
-    name.startsWith("mobile_");
+    name.startsWith("mobile_") ||
+    // `computer_*` by the same rule and for the same reason: a headless CLI has no
+    // desktop, and an unattended automation driving one is a UI surface with no
+    // observer. NAMED, not a prefix test — `"computer".startsWith("computer_")` is
+    // FALSE, which is exactly how the consolidated `browser` act tool once survived
+    // both filters.
+    name === "computer" ||
+    name.startsWith("computer_");
   // Unattended (automation) runs happen inside the real app — MCP servers,
   // web search, attachments all exist — so only human-handoff and UI-view
   // tools are dropped: ask_user would park the turn forever (no responder),

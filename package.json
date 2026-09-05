@@ -65,6 +65,9 @@
     "check:lint": "oxlint src",
     "verify:ban-guard": "node scripts/verify-ban-guard.mjs",
     "check:sandbox": "node scripts/check-sandbox-helpers.mjs",
+    "check:cua-pin": "node scripts/check-cua-pin.mjs",
+    "build:cua-driver": "node scripts/build-cua-driver.mjs",
+    "build:cu-helper": "node scripts/build-cu-helper.mjs",
     "check:functions": "deno check supabase/functions/_shared/*.ts supabase/functions/*/index.ts"
   },
   "keywords": [

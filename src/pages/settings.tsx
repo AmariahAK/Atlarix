@@ -18,6 +18,7 @@ import { SettingsWorkspaceNav } from "@/components/settings/SettingsWorkspaceNav
 import { useTheme } from "@/contexts/ThemeContext";
 import { SearchSettings } from "@/components/settings/SearchSettings";
 import { VoiceInputSettings } from "@/components/settings/VoiceInputSettings";
+import { ComputerUseSettings as ComputerUseSettingsPanel } from "@/components/settings/ComputerUseSettings";
 import { DiagnosticsPanel } from "@/components/settings/DiagnosticsPanel";
 import { CommunitySettingsSection } from "@/components/community/CommunitySettingsSection";
 import {
@@ -37,6 +38,7 @@ import {
   Mic,
   Users,
   TriangleAlert,
+  MonitorSmartphone,
 } from "lucide-react";
 
 
@@ -65,6 +67,7 @@ const SECTIONS = [
   { to: "/settings", label: "General", icon: SlidersHorizontal },
   { to: "/settings/diagnostics", label: "Diagnostics", icon: Stethoscope },
   { to: "/settings/browser", label: "Browser", icon: Globe },
+  { to: "/settings/computer-use", label: "Computer use", icon: MonitorSmartphone },
   { to: "/settings/search", label: "Search", icon: Search },
   { to: "/settings/notifications", label: "Notifications", icon: Bell },
   { to: "/settings/voice", label: "Voice input", icon: Mic },
@@ -490,6 +493,18 @@ function CliLauncherSettings() {
  * which is where build verification belongs (it is a "tell me when"
  * preference, not a model one). Nothing was removed anywhere.
  */
+export function ComputerUseSettings() {
+  return (
+    <div
+      id="computer-use"
+      className="bg-card rounded-xl shadow-sm p-6 border border-border"
+    >
+      <h2 className="text-lg font-medium text-foreground mb-4">Computer use</h2>
+      <ComputerUseSettingsPanel />
+    </div>
+  );
+}
+
 export function VoiceSettings() {
   return (
     <div id="voice" className="bg-card rounded-xl shadow-sm p-6 border border-border">

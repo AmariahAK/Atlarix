@@ -466,6 +466,159 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
       }
     },
   },
+  {
+    /**
+     * COMPUTER USE — what CI can prove, and a docstring about what it cannot.
+     *
+     * A CI runner has no TCC grants (SIP blocks `tccutil` insertion), no
+     * interactive desktop session on Windows, and runs under xvfb on Linux. So
+     * **no automated test anywhere can assert a real click, keystroke or AX read**
+     * — that is permanently a manual matrix, and this probe must not be read as
+     * covering it. What it does cover is everything up to the moment input would
+     * be delivered, which is where the failures that have actually bitten this
+     * project live.
+     *
+     * NOT REUSED AS A DOCTOR ROW, deliberately: it spawns children, and
+     * `child-exec` / `fs-outside-container` are excluded from the Diagnostics
+     * panel for exactly that reason. `doctor.ts` gets a narrower read-only check.
+     */
+    name: "computer-use",
+    run: async () => {
+      const { execFileSync } = await import("node:child_process");
+      const { resolveComputerBinary } = await import("@/lib/computer/resolve-binary");
+      const { telemetryIsOptedOut, telemetryOptOutPath, ensureTelemetryOptOut } =
+        await import("@/lib/computer/driver-session");
+
+      const notes: string[] = [];
+      const spawned: Array<{ kill: () => void }> = [];
+      try {
+        const driver = resolveComputerBinary("cua-driver");
+        if (!driver) {
+          // A build without the feature is a valid build (ALLOW_NO_COMPUTER_USE),
+          // and `verify-ci-package-out` is what fails when it should not be
+          // absent. There is no skip state here, so this is a noted success.
+          return "cua-driver not bundled (computer use unavailable in this build)";
+        }
+
+        // 1. IT EXECUTES. This is the v14.35.0 SIGKILL detector for the two new
+        //    nested binaries: a bundle carrying a PROVISIONED entitlement is
+        //    reported VALID by `codesign -v` and refused by the kernel on exec,
+        //    with no output and nothing in the system log. Only running it tells
+        //    you. `signal === null` is the assertion, not just exit 0.
+        const version = execFileSync(driver, ["--version"], {
+          encoding: "utf8",
+          timeout: 20_000,
+        });
+        if (!/cua-driver\s+\d+\.\d+/.test(version)) {
+          throw new Error(`unexpected --version output: ${version.slice(0, 80)}`);
+        }
+
+        // 2. THE TELEMETRY OPT-OUT IS ON DISK. cua-driver phones home by default
+        //    and registers on the first run of ANY subcommand, so this must be
+        //    true BEFORE anything else runs — `telemetry disable` afterwards is
+        //    too late. Repair it here rather than only reporting, because a
+        //    packaged app that reaches this probe is about to be used.
+        ensureTelemetryOptOut();
+        if (!telemetryIsOptedOut()) {
+          throw new Error(
+            `telemetry opt-out missing at ${telemetryOptOutPath()} — the driver would ` +
+              `register an installation id on first use`,
+          );
+        }
+
+        // 3. THE TOOL SURFACE IS THERE. A floor, not equality, so an upstream
+        //    bump is not a release-blocker — but a collapse to nothing is.
+        const tools = execFileSync(driver, ["list-tools"], {
+          encoding: "utf8",
+          timeout: 30_000,
+        });
+        const toolCount = tools.split("\n").filter((l) => /^\S+:/.test(l)).length;
+        if (toolCount < 40) {
+          throw new Error(`list-tools reported only ${toolCount} tools (expected 40+)`);
+        }
+
+        // 4. `doctor --json` PARSES AND CARRIES ITS PROBES. An upstream schema
+        //    change would otherwise silently disable our preflight, and a
+        //    preflight that reports nothing is worse than none. Parse leniently:
+        //    the driver prints a human banner before the JSON in some modes.
+        const doctorOut = execFileSync(driver, ["doctor", "--json"], {
+          encoding: "utf8",
+          timeout: 30_000,
+        });
+        const jsonStart = doctorOut.search(/[[{]/);
+        if (jsonStart < 0) throw new Error("doctor --json produced no JSON");
+        const report = JSON.parse(doctorOut.slice(jsonStart)) as {
+          probes?: Array<{ label?: string }>;
+        };
+        if (!Array.isArray(report.probes) || report.probes.length === 0) {
+          throw new Error("doctor --json has no `probes` array — its schema moved");
+        }
+        if (!report.probes.some((p) => p.label === "binary")) {
+          notes.push("doctor: no `binary` probe (schema drift, preflight may degrade)");
+        }
+
+        // 5. macOS: THE SPI PROBE'S SHAPE, not its verdict. Asserting
+        //    `slps_post_event === true` would fail the build the day Apple
+        //    removes the symbol — which is the day the fallback matters most.
+        const helper = resolveComputerBinary("atlarix-cu");
+        if (process.platform === "darwin") {
+          if (!helper) {
+            notes.push("atlarix-cu absent (SPI probe + OCR unavailable)");
+          } else {
+            const probeOut = execFileSync(helper, ["probe", "--json"], {
+              encoding: "utf8",
+              timeout: 20_000,
+            });
+            const probe = JSON.parse(probeOut.slice(probeOut.search(/[[{]/))) as {
+              rung?: string;
+            };
+            if (!probe.rung) throw new Error("atlarix-cu probe reported no rung");
+            notes.push(`input rung=${probe.rung}`);
+          }
+        }
+
+        // 6. OCR ACTUALLY WORKS — the one genuinely BEHAVIOURAL assertion CI can
+        //    make here, because neither macOS Vision nor Windows.Media.Ocr needs
+        //    a GUI session or a TCC grant. It renders nothing: the fixture is an
+        //    embedded PNG, so the round-trip is deterministic.
+        if (helper && process.platform !== "linux") {
+          try {
+            const ocr = execFileSync(helper, ["ocr", "--self-test"], {
+              encoding: "utf8",
+              timeout: 60_000,
+            });
+            const parsed = JSON.parse(ocr.slice(ocr.search(/[[{]/))) as { got?: string };
+            notes.push(`ocr=${JSON.stringify(parsed.got ?? "")}`);
+          } catch (e) {
+            // On Windows a missing OCR language pack is a real SKU gap, not a
+            // broken build — note it rather than failing the release.
+            const msg = e instanceof Error ? e.message : String(e);
+            if (process.platform === "win32" && /ocr-unavailable/i.test(msg)) {
+              notes.push("ocr=unavailable (no Windows OCR language pack on this machine)");
+            } else {
+              throw new Error(`OCR self-test failed: ${msg.slice(0, 200)}`);
+            }
+          }
+        }
+
+        return (
+          `${version.trim()}, ${toolCount} tools, telemetry opted out` +
+          (notes.length ? ` | ${notes.join(" | ")}` : "")
+        );
+      } finally {
+        // `run-packaged-self-test.mjs` has a hard deadline because v14.35.0 on
+        // Windows printed PASSED (9/9) and then never exited. A probe that spawns
+        // children is a new way to reproduce that.
+        for (const child of spawned) {
+          try {
+            child.kill();
+          } catch {
+            /* already gone */
+          }
+        }
+      }
+    },
+  },
 ];
 
 export async function runSelfTest(

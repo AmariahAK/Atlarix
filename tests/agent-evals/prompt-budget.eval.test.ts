@@ -165,6 +165,34 @@ function measureFirstRequest(scenarioId: string): PrefixMeasurement {
  * a ratchet that only ever loosens, so it moves whenever the prefix does — down
  * after a reduction, and up ONLY with a line here saying what was bought.
  *
+ * MEASURED AGAIN 2026-09-04, after `computer` + `computer_inspect` (v14.43.0):
+ *
+ *          mobile EVERY mode   + computer pair   delta   ceiling   headroom
+ *   ask         10,875             11,399        +524    11,750      351
+ *   plan        10,310             10,834        +524    11,150      316
+ *   build       14,644             15,156        +512    15,800      644
+ *   review      10,526             11,050        +524    11,350      300
+ *   debug       14,053             14,565        +512    15,150      585
+ *
+ * WHAT IT BOUGHT: the agent can read and act on any other application on the
+ * machine — Slack, Excel, Airtable, Metabase — in the background, in every mode
+ * including Explore, which is the point (pulling the numbers out of Metabase
+ * BEFORE the work starts is the named use case). Both tools are peripheral under
+ * tool-reveal, so each binds one first sentence plus a `tool_help` pointer.
+ *
+ * THE CEILINGS ARE DELIBERATELY NOT RAISED. Every mode still fits, so headroom
+ * TIGHTENED rather than loosened — which is the ratchet working as intended. Note
+ * how thin review (300) and plan (316) now are: the next addition to a read-only
+ * mode will not fit, and should be made to earn a ceiling move rather than
+ * inheriting slack it did not pay for.
+ *
+ * AND IT COST MORE THAN PLANNED — the design targeted ~350/mode and it came in at
+ * ~524. Same split as before: the parameter SCHEMAS are the residue, since reveal
+ * trims prose and keeps every parameter, type and enum. One lever was already
+ * pulled (`button` folded into the `action` enum, worth 22), and the remaining ones
+ * are the same shape: fold a variant into an enum rather than adding a parameter.
+ * `computer_inspect` has 4 parameters and `computer` has 6.
+ *
  * These run ~1,100 above a bare `constructSystemPromptParts` measurement of the
  * same mode, because a real dispatch also carries the mode reanchor and the
  * ContextAssembler's project-instruction and skills-index pointers. That gap IS

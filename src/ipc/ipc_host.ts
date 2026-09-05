@@ -47,6 +47,7 @@ import { registerCommunityHandlers } from "./handlers/community_handlers";
 import { registerCommandPermissionHandlers } from "./handlers/command_permission_handlers";
 import { registerFilePermissionHandlers } from "./handlers/file_permission_handlers";
 import { registerDoctorHandlers } from "./handlers/doctor_handlers";
+import { registerComputerUseHandlers } from "./handlers/computer_use_handlers";
 import { registerPlanArtifactHandlers } from "./handlers/plan_artifact_handlers";
 import { registerRemoteSshHandlers } from "../main/remote-ssh/remote_ssh_handlers";
 import "./handlers/dev_server_handlers"; // Auto-registers on import (Lovable-style live preview)
@@ -101,6 +102,7 @@ export function registerIpcHandlers() {
   registerCommandPermissionHandlers();
   registerFilePermissionHandlers();
   registerDoctorHandlers();
+  registerComputerUseHandlers();
   registerBrowserHandlers(); // v11 in-app browser (WebContentsView) + WebMCP
   registerBackgroundHandlers(); // v14 background-job indicator/cancel + auto-wake
   registerAutomationHandlers(); // Automations: definitions CRUD + triage feed + proposal apply

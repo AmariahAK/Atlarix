@@ -24,6 +24,11 @@ import path from "node:path";
 const TAG = "check-sandbox-helpers";
 const ROOT = process.cwd();
 
+/**
+ * ONE ROW PER (helper, target). `atlarix-cu` needs three triples — two darwin and
+ * one windows — so a single `target` per helper no longer expresses the matrix, and
+ * the closing count is a count of PAIRS.
+ */
 const HELPERS = [
   { name: "atlarix-sandbox", target: "x86_64-pc-windows-msvc", dir: "native/atlarix-sandbox" },
   {
@@ -31,6 +36,12 @@ const HELPERS = [
     target: "x86_64-unknown-linux-gnu",
     dir: "native/atlarix-sandbox-linux",
   },
+  // The computer-use helper: macOS Vision OCR + the private-SPI probe + the public
+  // CGEventPostToPid fallback, and Windows.Media.Ocr. No linux row — Linux OCR goes
+  // through `tesseract` from TypeScript, so the crate has no linux body to check.
+  { name: "atlarix-cu", target: "aarch64-apple-darwin", dir: "native/atlarix-cu" },
+  { name: "atlarix-cu", target: "x86_64-apple-darwin", dir: "native/atlarix-cu" },
+  { name: "atlarix-cu", target: "x86_64-pc-windows-msvc", dir: "native/atlarix-cu" },
 ];
 
 function installedTargets() {
@@ -68,11 +79,23 @@ for (const helper of HELPERS) {
     continue;
   }
   if (!targets.includes(helper.target)) {
-    // Loud, because a silently-skipped check is exactly the failure mode here.
-    console.log(
-      `::warning::[${TAG}] target ${helper.target} not installed — ${helper.name} NOT type-checked. ` +
-        `Install it with: rustup target add ${helper.target}`,
-    );
+    // A MISSING TARGET IS A FAILURE UNDER CI, NOT A WARNING.
+    //
+    // This used to warn and continue everywhere, which reintroduces the exact hole
+    // the script exists to close: an unchecked `#![cfg]`-gated crate compiles to an
+    // empty binary and reports success. A warning in a green log is not a control.
+    // Locally it stays a warning — not every contributor installs five triples —
+    // but CI must have them, and the darwin ones are the least likely to be present
+    // on a contributor's machine, which is precisely why they need enforcing.
+    const msg =
+      `target ${helper.target} not installed — ${helper.name} NOT type-checked. ` +
+      `Install it with: rustup target add ${helper.target}`;
+    if (process.env.CI) {
+      console.error(`::error::[${TAG}] ${msg}`);
+      failed = true;
+    } else {
+      console.log(`::warning::[${TAG}] ${msg}`);
+    }
     continue;
   }
 
@@ -91,4 +114,4 @@ for (const helper of HELPERS) {
 }
 
 if (failed) process.exit(1);
-console.log(`[${TAG}] OK — ${checked}/${HELPERS.length} helper(s) type-checked`);
+console.log(`[${TAG}] OK — ${checked}/${HELPERS.length} (helper, target) pair(s) type-checked`);

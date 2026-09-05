@@ -120,12 +120,30 @@ jobs:
       # shipped broken. `cargo check --target <triple>` sets the cfg for real and
       # type-checks the body; it needs no cross-linker because it never links.
       # Behaviour is still the `sandbox` self-test probe's job in the package jobs.
-      - name: Install Rust targets for sandbox helpers
+      # Pinned to match native/cua-driver/PIN.json, and check:cua-pin FAILS if the
+      # two disagree. `cargo install --git` honours neither upstream's
+      # rust-toolchain.toml nor its .cargo/config.toml, so the version is set here
+      # or nowhere.
+      - uses: dtolnay/rust-toolchain@1.97.1
+
+      - name: Install Rust targets for the native helpers
         run: |
           rustup target add x86_64-pc-windows-msvc
           rustup target add x86_64-unknown-linux-gnu
+          # atlarix-cu (computer use) targets both macOS arches. `cargo check`
+          # never links, so these type-check from this Linux runner — which is the
+          # whole point: the crate is #![cfg]-gated, so building it on the wrong
+          # host produces an EMPTY binary and reports success.
+          rustup target add aarch64-apple-darwin
+          rustup target add x86_64-apple-darwin
 
-      - name: Type check sandbox helpers (cross-target)
+      # The pin file IS the cua-driver dependency (no source in this repo), so the
+      # pin file is what gets checked: a full 40-char SHA rather than a movable
+      # branch or tag, the retained MIT licence, and a toolchain matching this job.
+      - name: Check the cua-driver pin
+        run: npm run check:cua-pin
+
+      - name: Type check native helpers (cross-target)
         run: npm run check:sandbox
 
       # The edge functions are the money path and were type-checked by NOTHING.
@@ -302,6 +320,38 @@ jobs:
 
       - name: Tests
         run: npm test
+
+      # THIS JOB HAD NO CARGO STEP UNTIL v14.43.0 — macOS uses /usr/bin/sandbox-exec,
+      # so no Rust helper was ever needed here. Computer use changes that: both
+      # binaries are bundled inside Atlarix.app so macOS attributes the TCC grant to
+      # Atlarix (see forge.config.ts's extraResource comment).
+      #
+      # Fail-loud with an escape hatch, copying build-linux's Landlock step in shape
+      # — but note the difference in KIND: a missing sandbox helper is a security
+      # regression, a missing driver is a missing feature. Warn-and-ship is right
+      # here only because the runtime refuses cleanly when the binary is absent,
+      # and because verify-ci-package-out asserts its presence unless waived.
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Build computer-use helpers (Rust)
+        env:
+          # .cargo/config.toml is CWD-relative and `cargo install --git` never sees
+          # upstream's, so upstream's macOS floor is set here instead.
+          MACOSX_DEPLOYMENT_TARGET: "13.0"
+          ALLOW_NO_COMPUTER_USE: ${{ vars.ALLOW_NO_COMPUTER_USE }}
+        run: |
+          set -uo pipefail
+          if npm run build:cua-driver -- --arch=${{ matrix.arch }} \
+             && npm run build:cu-helper -- --arch=${{ matrix.arch }}; then
+            echo "Built cua-driver + atlarix-cu for ${{ matrix.arch }}."
+          elif [ "${ALLOW_NO_COMPUTER_USE:-}" = "1" ]; then
+            echo "::warning::computer-use helpers failed to build — shipping WITHOUT computer use. The tool will refuse at runtime with an actionable message."
+          else
+            echo "::error::computer-use helpers failed to build. Fix the crate/pin, or set ALLOW_NO_COMPUTER_USE=1 to ship without the feature."
+            exit 1
+          fi
 
       - name: Build for macOS (${{ matrix.arch }})
         run: |
@@ -550,6 +600,32 @@ jobs:
         env:
           ALLOW_UNSANDBOXED_RELEASE: ${{ vars.ALLOW_UNSANDBOXED_RELEASE }}
 
+      # cua-driver only on Linux: atlarix-cu binds macOS Vision and
+      # Windows.Media.Ocr, and Linux has no OS OCR — that path shells out to
+      # `tesseract` from TypeScript, so there is no crate body to build here.
+      #
+      # UNVERIFIED UNTIL THE FIRST RUN: the exact dev-package set. AT-SPI, XTest and
+      # the overlay crate are the likely needs; adjust from the first failure rather
+      # than guessing more now.
+      - name: Install Linux computer-use build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdbus-1-dev libxtst-dev libxdo-dev libgtk-3-dev pkg-config
+
+      - name: Build computer-use helper (Rust)
+        env:
+          ALLOW_NO_COMPUTER_USE: ${{ vars.ALLOW_NO_COMPUTER_USE }}
+        run: |
+          set -uo pipefail
+          if npm run build:cua-driver -- --arch=x64; then
+            echo "Built cua-driver (unsigned — Linux needs no code-signing)."
+          elif [ "${ALLOW_NO_COMPUTER_USE:-}" = "1" ]; then
+            echo "::warning::cua-driver failed to build, but ALLOW_NO_COMPUTER_USE=1 — shipping WITHOUT computer use."
+          else
+            echo "::error::cua-driver failed to build. Fix the crate/pin, or set ALLOW_NO_COMPUTER_USE=1 to ship without the feature."
+            exit 1
+          fi
+
       - name: Upload Landlock helper for Windows builds
         uses: actions/upload-artifact@v4
         with:
@@ -794,6 +870,40 @@ jobs:
             Write-Host "::warning::atlarix-sandbox.exe failed to build, but ALLOW_UNSANDBOXED_RELEASE=1 — shipping WITHOUT the Windows sandbox (run_command stays unsandboxed)."
           } else {
             Write-Host "::error::atlarix-sandbox.exe failed to build — refusing to ship Windows unsandboxed. Fix the crate, or set ALLOW_UNSANDBOXED_RELEASE=1 to override."
+            exit 1
+          }
+
+      - name: Build computer-use helpers (Rust)
+        shell: pwsh
+        env:
+          # .cargo/config.toml is CWD-relative, so `cargo install --git` never sees
+          # upstream's. WITHOUT crt-static the shipped exe needs the VC++
+          # redistributable — and it starts fine on every CI runner and every dev
+          # box, failing only on a user's machine.
+          RUSTFLAGS: "-C target-feature=+crt-static"
+          ALLOW_NO_COMPUTER_USE: ${{ vars.ALLOW_NO_COMPUTER_USE }}
+        run: |
+          npm run build:cua-driver -- --arch=x64
+          $drvOk = $LASTEXITCODE -eq 0
+          npm run build:cu-helper -- --arch=x64
+          $cuOk = $LASTEXITCODE -eq 0
+          if ($drvOk -and $cuOk) {
+            # Signing is OPTIONAL and only affects SmartScreen, exactly as for the
+            # sandbox helper. Note the Store build needs none of this: the MSIX
+            # package signature covers every payload file.
+            if ($env:SM_CODE_SIGNING_CERT_SHA1_HASH) {
+              foreach ($exe in @("native/.dist/cua-driver.exe", "native/.dist/atlarix-cu.exe")) {
+                & signtool sign /sha1 $env:SM_CODE_SIGNING_CERT_SHA1_HASH /tr http://timestamp.digicert.com /td SHA256 /fd SHA256 $exe
+                if ($LASTEXITCODE -ne 0) { Write-Error "signtool failed for $exe"; exit $LASTEXITCODE }
+              }
+            } else {
+              Write-Host "No SM_CODE_SIGNING_CERT_SHA1_HASH — shipping computer-use helpers unsigned."
+            }
+            Write-Host "Built cua-driver.exe + atlarix-cu.exe."
+          } elseif ($env:ALLOW_NO_COMPUTER_USE -eq "1") {
+            Write-Host "::warning::computer-use helpers failed to build, but ALLOW_NO_COMPUTER_USE=1 — shipping WITHOUT computer use."
+          } else {
+            Write-Host "::error::computer-use helpers failed to build. Fix the crate/pin, or set ALLOW_NO_COMPUTER_USE=1 to ship without the feature."
             exit 1
           }
 

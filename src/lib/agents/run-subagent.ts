@@ -149,6 +149,8 @@ const QA_SUBAGENT_TOOL_NAMES = [
   // v14.41: a QA worker verifying a mobile build needs the same read/act pair
   // it gets for the web — running the thing IS the observation.
   "mobile",
+  "computer",
+  "computer_inspect",
   "mobile_inspect",
 ] as const;
 

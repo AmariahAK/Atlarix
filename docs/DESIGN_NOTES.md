@@ -11,6 +11,86 @@ Nothing here is a commitment. An entry graduates to TODO when it becomes active 
 
 ---
 
+## Desktop computer use — 2026-09-04
+
+`computer_inspect` + `computer` complete the set: Atlarix could drive a web page and a mobile
+emulator, and could not touch the machine it runs on. Now it reads and acts on any other
+application — in the background, no cursor warp, no focus steal, no Space switching.
+
+**The reach is NEW, and the mobile note's justification does NOT transfer.** "Mobile: refs, not
+coordinates" argues the pair is safe partly because "the reach is also not new: `adb` was already
+available through `run_command`". There is no existing path by which the agent can click a button in
+Slack. So this is a genuinely new capability, and its containment is its own mechanism rather than an
+inherited one.
+
+**No per-app prompt, by decision.** Every application is reachable; Atlarix itself never is. On macOS
+that is defensible because the OS is the real consent gate — nothing works until Accessibility and
+Screen Recording are granted to Atlarix by name, revocably, in System Settings. **On Windows and
+Linux there is no equivalent, and the docs must say so rather than implying parity.** The containment
+is therefore: refusals by class (terminals, credential managers, secure fields), Atlarix made
+unaddressable, a closed key set, and `.atlarix/permissions.json` as the committable per-project
+switch.
+
+**Refs, not coordinates — and here it is not a preference.** Both Core models are text-only
+(`z-ai/glm-5.3`, `deepseek/deepseek-v4-pro` are `input:["text"]`), so a screenshot-first tool would
+hit `image-embed-gate.ts` on the default models for Free and Pro. The accessibility tree is text,
+which is why every model can drive this.
+
+**READING THE DEPENDENCY'S DOCS DELETED THE HARDEST PART.** The design assumed the only addressing
+primitive was `element_index` — an index into a cache the next snapshot replaces, which still
+*resolves*, to a different element. So it specified re-resolution by identity on every act
+(`axIdentifier` → `role+name+pathKey` → `role+name+ordinal` → `role+name`). `cua-driver describe
+click` documents **`element_token`**: *"Returns an explicit stale error once a newer snapshot
+supersedes it."* That is exactly the guarantee, enforced a layer lower than we could enforce it. So
+`refs.ts` became a NAMING layer, and never falls back to a bare index. **The general form: before
+building a correctness mechanism on top of a dependency, read what the dependency already
+guarantees** — a second, fuzzier copy of a working mechanism is worse than none.
+
+**And the same habit caught a live bug.** `ocr.ts` had invented `window.bounds` / `window.scale`;
+`describe get_window_state` names them `window_bounds` / `screenshot_scale`. It would have silently
+used origin 0,0 and scale 1 — window-relative coordinates presented as screen coordinates.
+
+**OCR TAKES A WINDOW, NEVER THE DISPLAY.** Measured against Vision, same text at the same pixel size,
+only the framing changed:
+
+| input | result |
+|---|---|
+| 3024×1890 full screen, 24px labels | **1 word**, `"Epоnся"`, confidence **0.3** |
+| 800×700 crop of the same pixels | **6/6 words**, confidence **1.0** |
+
+`minimumTextHeight` was not the limiter — 24/1890 = 0.0127, above the 0.005 set. Vision downscales a
+large input, so full-screen Retina UI text drops below legibility before recognition starts. **It
+returns one nonsense observation rather than an empty list, which is worse than nothing because it
+looks like an answer.**
+
+**The vendored binary phones home by default.** cua-driver registers an installation id on the first
+run of ANY subcommand. Our README says "no file contents are sent as telemetry". The opt-out is a
+file, and **the ordering is the whole point**: pre-seed `~/.cua-driver/config.json` before the first
+spawn, because `telemetry disable` is itself an invocation. **A vendored dependency's DEFAULTS are
+part of what you ship**, and this one contradicted the product's central claim.
+
+**Three self-inflicted defects, all caught by tests, all worth the shape they taught.** A substring
+guard refused **OBS Studio**, because the shell list contains `st` and `"OBS St-udio".includes("st")`
+— a guard that over-matches is one people switch off, taking the real protection with it; now
+word-boundary matched. The desk lock counted *waiters*, but a caller does not stop waiting until its
+gate resolves on a microtask, so five workers arriving in one synchronous burst had the third
+refused; now counts *in flight*. And the first concurrency assertion was `ran >= 1`, which would have
+passed with a completely broken lock — tightened to exact counts plus `maxConcurrent === 1`, then
+**proven** by breaking the chain (it becomes 4).
+
+**The prompt cost more than designed: +524/mode against a ~350 target.** Every mode still fits, so
+the ceilings were deliberately NOT raised — headroom tightened rather than loosened, which is the
+ratchet working. Review (300) and plan (316) are now thin, and the next read-only-mode addition
+should earn a ceiling move rather than inherit slack.
+
+**What no CI can ever assert here.** SIP blocks `tccutil` insertion, the Windows runner has no
+interactive desktop, Linux CI runs under xvfb — so **no automated test anywhere can prove a real
+click, keystroke or AX read**. The self-test probe covers everything up to the moment input would be
+delivered (it executes, telemetry is opted out, 56 tools, `doctor --json` still carries its schema,
+and an OCR round-trip, which is headless-safe because neither Vision nor Windows.Media.Ocr needs a
+GUI session). Its docstring says what it does not cover, so a green badge is never read as
+"computer use works".
+
 ## The e2e suite — RETIRED 2026-08-19, and why not repaired
 
 *Recorded so "we should bring back e2e" starts from the measurement rather than the instinct.*
@@ -929,9 +1009,46 @@ the arguments we passed.
 The suite keeps `mobile-live-ios.test.ts` and `describe.skipIf`s it when nothing is booted, so
 it costs nothing on a machine without Xcode and is there the moment someone boots a device.
 
-**The ANDROID half remains unverified:** `adb` is not installed on this machine, so no part of
-the emulator loop has run. Tracked in docs/TODO.md as explicitly UNVERIFIED, and it should not
-be ticked off a green suite — the iOS findings above are the argument for why.
+**The ANDROID half was then verified — 2026-09-04 — and the very first command was broken.**
+`adb shell uiautomator dump /dev/tty` exits **0** and returns exactly `UI hierchary dumped to:
+/dev/tty` (32 characters, upstream's typo included) with **no XML at all**: `adb shell` allocates
+a pty, and the document written to /dev/tty never reaches adb's stdout stream. So the entire
+Android read path — the read AND the per-act ref resolution, which share `readHierarchy` —
+returned nothing, silently, from the moment it shipped. `exec-out` takes the raw binary path and
+returns the document (12,338 characters on the launcher screen).
+
+That is the **same failure as `simctl io <id> screenshot -`**, one section above, on the other
+platform, from the same cause. Twice in one tool is enough to state the rule rather than the
+anecdote: **a wrapper around an external CLI is UNVERIFIED until it has been run against that
+CLI, and the assertion that catches this class is about the SHAPE of the real output — a document
+containing nodes, PNG magic bytes, a non-zero character count — never about the arguments we
+passed.** A mock returns what it was told to, so a green mocked suite is not evidence either time.
+
+`mobile-live-android.test.ts` mirrors the iOS file, `describe.skipIf(!hasBootedDevice())` and
+resolving `adb` through the shipped locator, so a machine whose SDK the app cannot find reports
+"nothing to test" rather than failing every assertion.
+
+**And a second bug was found only because the checklist was FINISHED rather than abandoned at the
+first green loop.** `action:"launch"` used `monkey -p <pkg> -c android.intent.category.LAUNCHER 1`
+— the recipe everyone copies. On API 35 monkey exits **251**, writes its argument dump to
+**stderr**, and the activity never comes to the foreground. It now resolves the component with
+`cmd package resolve-activity --brief` and starts it with `am start -n`, which exits 0 and
+actually launches. The first run of this file stopped after hierarchy, tap and screenshot and
+deleted the emulator with `type`, `swipe`, `launch` and the log reads still unexercised; the
+launch bug was sitting in the part that had been skipped. **A verification checklist that already
+exists is not advisory — stopping at the first green result is how the second bug survives the
+run that was supposed to find it.**
+
+**The mirror-image lesson, and it cost more time than either bug.** Two of the four failures in
+that run were the TEST's fault, and both looked exactly like product defects:
+`ToolRegistry.execute` nests a result under `result` but TRUNCATES a large payload into a JSON
+*string* (with `_truncatedOutput`/`_originalSize`), so `.content` read off it is `undefined` —
+which is why `mode:"logs"` appeared to return nothing while it was returning 400 lines; and
+`runDeviceCli` returns both `stdout` and `buffer`, so reading a PNG from the string corrupts byte
+0 and the magic-byte assertion fails on a good image. A live test manufactures false accusations
+as readily as a mock manufactures false confidence. **Reproduce the failure against the raw CLI
+before believing the wrapper is at fault** — that is what separated the two real bugs from the two
+imaginary ones.
 
 ## An error message is part of the tool's contract — 2026-09-02
 

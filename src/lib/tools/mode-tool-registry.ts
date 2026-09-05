@@ -71,6 +71,8 @@ export const EVERY_MODE_TOOLS = [
   // The tokens are affordable because both are PERIPHERAL under tool-reveal, so
   // every mode binds one sentence plus a `tool_help` pointer rather than the full
   // description — which is why their first sentences carry the cheap default.
+  "computer",
+  "computer_inspect",
   "mobile_inspect",
   "mobile",
 ] as const;

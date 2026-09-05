@@ -190,6 +190,8 @@ const BROWSER_TEXT_TOOLS = new Set([
   // v14.41: the mobile pair reads and acts on an emulator. Its text results
   // (hierarchy, logs, device list) render in the same card as the browser's.
   "mobile_inspect",
+  "computer_inspect",
+  "computer",
   "mobile",
 ]);
 // browser_inspect(mode:"screenshot") returns a PNG payload; the screenshot

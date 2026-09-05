@@ -65,10 +65,18 @@ function offeredToolNames(scenarioId: string): string[] {
 // SMALLER surface that can also see the app it is building. Both are peripheral
 // under tool-reveal in EVERY mode, so each binds one sentence plus a tool_help
 // pointer — which is why those first sentences carry the cheap default.
+// v14.43.0 adds `computer` + `computer_inspect` to every mode, on the same
+// argument as browser/mobile: neither touches the WORKSPACE (driving Slack or
+// Metabase changes an app's state, not the project), and "what do the Q3 numbers
+// say" is a question, which is Explore's whole job. Both are peripheral under
+// tool-reveal in every mode. Unlike mobile, though, the REACH is new — there was
+// no existing path by which the agent could click a button in another app — so the
+// containment is its own mechanism (guards.ts refuses shells, credential managers
+// and secure fields by class; apps.ts makes Atlarix itself unaddressable).
 const GOLDEN = {
   ask: [
     "ask_user", "automations", "background_jobs", "browser",
-    "browser_inspect", "compress_context", "glob", "grep", "list_attachments",
+    "browser_inspect", "compress_context", "computer", "computer_inspect", "glob", "grep", "list_attachments",
     "list_available_mcps", "mcp_call", "mobile", "mobile_inspect",
     "read_attachment", "read_file",
     "read_url", "run_command", "schedule_wakeup", "session_search",
@@ -76,7 +84,7 @@ const GOLDEN = {
   ],
   plan: [
     "ask_user", "automations", "browser", "browser_inspect",
-    "compress_context", "glob", "grep", "list_attachments",
+    "compress_context", "computer", "computer_inspect", "glob", "grep", "list_attachments",
     "list_available_mcps", "mcp_call", "mobile", "mobile_inspect", "plan",
     "read_attachment", "read_file",
     "read_url", "schedule_wakeup", "session_search", "subagents", "task",
@@ -84,7 +92,8 @@ const GOLDEN = {
   ],
   build: [
     "ask_user", "automations", "background_jobs", "browser",
-    "browser_inspect", "browser_test", "compress_context", "edit_file",
+    "browser_inspect", "browser_test", "compress_context", "computer",
+    "computer_inspect", "edit_file",
     "glob", "grep", "list_attachments", "list_available_mcps", "mcp_call",
     "mobile", "mobile_inspect",
     "plan", "proposals", "read_attachment", "read_file", "read_url",

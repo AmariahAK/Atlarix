@@ -469,6 +469,25 @@ export const UserSettingsSchema = z.object({
       enforce: z.boolean().optional(),
     })
     .optional(),
+  /**
+   * Desktop computer use (`computer_inspect` / `computer`).
+   *
+   * DEFAULTS ON, and read as `!== false` everywhere — there is deliberately no
+   * per-app prompt (owner's decision 2026-09-04: any and all apps, with Atlarix
+   * itself never a target). On macOS the OS is the real consent gate: nothing
+   * works until Accessibility and Screen Recording are granted to Atlarix. On
+   * Windows and Linux there is no equivalent prompt, so this toggle and
+   * `.atlarix/permissions.json` are the kill switches.
+   */
+  computerUse: z.boolean().optional(),
+  computerUseConfig: z
+    .object({
+      /** Show cua-driver's per-session cursor and our element outlines. */
+      overlay: z.boolean().optional(),
+      /** Follow the OS setting, force stills, or allow motion. */
+      reducedMotion: z.enum(["auto", "on", "off"]).optional(),
+    })
+    .optional(),
   enableAutoUpdate: z.boolean(),
   releaseChannel: ReleaseChannelSchema,
   customNodePath: z.string().optional().nullable(),

@@ -1904,6 +1904,21 @@ app.on("before-quit", (e) => {
     } catch (tapErr) {
       logger.warn("restoreTapFeedback on quit:", tapErr);
     }
+    // v14.43: stop the computer-use daemon. It is a long-lived child that holds
+    // the user's Accessibility and Screen Recording grants, so orphaning it is
+    // worse than orphaning an ordinary process — it would keep those capabilities
+    // live with no window to explain them. `stop --socket` first for a clean
+    // shutdown (it releases the socket and removes the session cursor), then kill.
+    // Lazily imported, like restoreTapFeedback above: a session that never used
+    // the feature never loads the module.
+    try {
+      const { stopComputerUse } = await import("./lib/computer/driver-session");
+      await stopComputerUse();
+      const { destroyOverlay } = await import("./lib/computer/overlay");
+      destroyOverlay();
+    } catch (cuErr) {
+      logger.warn("stopComputerUse on quit:", cuErr);
+    }
     // v12 3.7: drain tracked state-mutating background work (self-correction
     // dispatch, snapshot writes, usage records) before the process dies.
     try {

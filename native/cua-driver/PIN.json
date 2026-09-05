@@ -1,0 +1,9 @@
+{
+  "repo": "https://github.com/trycua/cua",
+  "rev": "986b6f257b1afddef0cbd4815bb2744eab7eadba",
+  "package": "cua-driver",
+  "version": "0.23.2",
+  "toolchain": "1.97.1",
+  "license": "MIT",
+  "pinnedAt": "2026-09-04"
+}

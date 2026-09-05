@@ -1828,6 +1828,34 @@ export class IpcClient {
     return this.ipcRenderer.invoke("doctor:run");
   }
 
+  /**
+   * Computer-use permission state. Read-only and NON-PROMPTING, so the settings
+   * panel can call it on mount.
+   */
+  public async getComputerUsePermissions(): Promise<
+    import("@/main/computer-use-permissions").ComputerUsePermissions
+  > {
+    return this.ipcRenderer.invoke("computer-use:permissions");
+  }
+
+  /**
+   * Provoke the OS prompt for one grant and open its System Settings pane.
+   *
+   * Takes a KEY, not a URL — see computer_use_handlers.ts for why widening
+   * `validateOpenExternalUrl` to admit the custom scheme would be the wrong fix.
+   * Only ever called from an explicit click.
+   */
+  public async requestComputerUsePermission(
+    which: "accessibility" | "screenRecording",
+  ): Promise<import("@/main/computer-use-permissions").ComputerUsePermissions> {
+    return this.ipcRenderer.invoke("computer-use:request-permission", { which });
+  }
+
+  /** Restart so macOS applies a grant it caches per process. */
+  public async relaunchForComputerUse(): Promise<{ ok: boolean }> {
+    return this.ipcRenderer.invoke("computer-use:relaunch");
+  }
+
   /** The last report as redacted text, ready to paste to support. */
   public async copyDoctorReport(): Promise<string> {
     return this.ipcRenderer.invoke("doctor:copy-report");

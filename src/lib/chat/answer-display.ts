@@ -376,6 +376,8 @@ const TEXT_EMITTED_TOOL_TAG_NAMES = [
   "browser",
   "mobile",
   "mobile_inspect",
+  "computer",
+  "computer_inspect",
   // Retired names, kept: a reloaded session can replay a leak that already
   // happened, and it should still be stripped rather than shown as raw text.
   "browser_navigate",

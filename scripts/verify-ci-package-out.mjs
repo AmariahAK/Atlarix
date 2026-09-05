@@ -8,8 +8,10 @@
  *   node scripts/verify-ci-package-out.mjs --stage make --platform darwin --arch arm64
  *   node scripts/verify-ci-package-out.mjs --stage package --platform linux --arch x64
  */
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { readBinaryArchs } from "./binary-arch.mjs";
 
 function parseArgs(argv) {
   const opts = { stage: "make", platform: process.platform, arch: process.arch };
@@ -80,6 +82,207 @@ function verifyWindowsSetupSize(makeFiles) {
   return null;
 }
 
+/**
+ * EVERY `extraResource` THIS APP SHIPS, AND WHAT MUST BE TRUE OF IT.
+ *
+ * Until v14.43.0 this script asserted only that `resources/app.asar` exists — so
+ * every bundled resource the app has ever had could have silently vanished from
+ * `resources/` and the release would still have gone green. `extraResource` is
+ * double-guarded in forge.config.ts (`process.platform === …` AND
+ * `fs.existsSync(…)`), which is the right shape for a build that must not break —
+ * and exactly why a missing input drops the resource with no error. This is the
+ * assertion that closes that.
+ *
+ * The pre-existing entries are BACKFILLED here deliberately: they had the same gap.
+ *
+ *   platforms  which platforms must carry it
+ *   minBytes   a floor. "Exists" is not enough — a 0-byte or few-byte file is a
+ *              failed build whose artifact got copied, and the empty-#![cfg]-binary
+ *              problem has already fooled this project once.
+ *   exec       must have the POSIX exec bit. `extraResource` preserves mode, but a
+ *              `cp` in a build script may not, and the failure is an EACCES on a
+ *              user's machine long after CI was green.
+ *   arch       must contain code for the requested --arch. THE GUARD FOR THE
+ *              native/.dist STALENESS HAZARD: those binaries are staged to one
+ *              arch-agnostic path so forge can name them, and `npm run clean` does
+ *              not touch native/.dist.
+ *   optional   absence is a warning, not a failure (a capability that degrades).
+ */
+const EXPECTED_RESOURCES = [
+  { name: "AGENTS.md", platforms: ["darwin", "win32", "linux"], minBytes: 500 },
+  { name: "skills", platforms: ["darwin", "win32", "linux"], dir: true },
+  { name: "app-update.yml", platforms: ["darwin", "win32", "linux"], minBytes: 200 },
+  {
+    name: "models-snapshot.json.gz",
+    platforms: ["darwin", "win32", "linux"],
+    minBytes: 10_000,
+    // forge.config.ts guards on existsSync and the runbook calls regenerating it a
+    // nice-to-have (a stale snapshot self-heals on first refresh), so absence must
+    // not fail a release.
+    optional: true,
+  },
+  {
+    name: "atlarix-sandbox.exe",
+    platforms: ["win32"],
+    minBytes: 20_000,
+    arch: true,
+    optionalEnv: "ALLOW_UNSANDBOXED_RELEASE",
+  },
+  {
+    name: "atlarix-sandbox-linux",
+    platforms: ["linux", "win32"], // win32 carries it for WSL confinement
+    minBytes: 20_000,
+    exec: true,
+    // Piped from the build-linux job as an artifact, so on win32 it is an ELF and
+    // the arch check would compare it against the Windows --arch. Skip arch there.
+    archOn: ["linux"],
+    optionalEnv: "ALLOW_UNSANDBOXED_RELEASE",
+  },
+  {
+    name: "cua-driver",
+    platforms: ["darwin", "linux"],
+    minBytes: 5_000_000,
+    exec: true,
+    arch: true,
+    optionalEnv: "ALLOW_NO_COMPUTER_USE",
+  },
+  {
+    name: "cua-driver.exe",
+    platforms: ["win32"],
+    minBytes: 5_000_000,
+    arch: true,
+    optionalEnv: "ALLOW_NO_COMPUTER_USE",
+  },
+  {
+    name: "atlarix-cu",
+    platforms: ["darwin"],
+    minBytes: 100_000,
+    exec: true,
+    arch: true,
+    optionalEnv: "ALLOW_NO_COMPUTER_USE",
+  },
+  {
+    name: "atlarix-cu.exe",
+    platforms: ["win32"],
+    minBytes: 100_000,
+    arch: true,
+    optionalEnv: "ALLOW_NO_COMPUTER_USE",
+  },
+];
+
+/** Where extraResource lands, which is platform-specific on darwin only. */
+function resourcesDirFor(packageDir, platform, appName) {
+  return platform === "darwin"
+    ? path.join(packageDir, `${appName}.app`, "Contents", "Resources")
+    : path.join(packageDir, "resources");
+}
+
+/**
+ * `codesign -v --strict` on each new nested binary, plus an entitlements dump.
+ *
+ * NECESSARY BUT NOT SUFFICIENT, and that has to be said out loud: v14.35.0 shipped
+ * a bundle that passed `codesign -v` and that the kernel SIGKILLed on exec, because
+ * a PROVISIONED entitlement had reached a nested binary. The sufficient check is
+ * the `computer-use` self-test probe asserting `--version` exits 0 with
+ * `signal === null` inside the packaged app.
+ */
+function verifySignature(file) {
+  try {
+    execFileSync("codesign", ["-v", "--strict", file], { stdio: "pipe" });
+  } catch (e) {
+    const detail = String(e.stderr ?? e.message ?? "").trim().slice(0, 300);
+    return `codesign -v --strict failed for ${path.basename(file)}: ${detail}`;
+  }
+  try {
+    const ents = execFileSync("codesign", ["-d", "--entitlements", "-", file], {
+      stdio: ["ignore", "pipe", "ignore"],
+      encoding: "latin1",
+    });
+    // The one thing that must never appear on a nested binary.
+    if (/keychain-access-groups|temporary-exception/.test(ents)) {
+      return `${path.basename(file)} carries a PROVISIONED entitlement — this is the v14.35.0 SIGKILL class`;
+    }
+  } catch {
+    // No entitlements to dump is fine.
+  }
+  return null;
+}
+
+function verifyExpectedResources(packageDir, platform, arch, appName, { signed }) {
+  const dir = resourcesDirFor(packageDir, platform, appName);
+  if (!fs.existsSync(dir)) return [`missing resources dir ${path.relative(process.cwd(), dir)}`];
+
+  const errors = [];
+  for (const spec of EXPECTED_RESOURCES) {
+    if (!spec.platforms.includes(platform)) continue;
+    const target = path.join(dir, spec.name);
+    const waived = spec.optionalEnv && process.env[spec.optionalEnv] === "1";
+
+    if (!fs.existsSync(target)) {
+      const msg = `missing resource ${spec.name} in ${path.relative(process.cwd(), dir)}`;
+      if (spec.optional || waived) {
+        console.log(`::warning::[verify-ci-package-out] ${msg}${waived ? ` (waived by ${spec.optionalEnv}=1)` : ""}`);
+      } else {
+        errors.push(
+          `${msg}. extraResource is guarded on existsSync in forge.config.ts, so a missing ` +
+            `BUILD INPUT drops it silently — check the build step for this helper ran.`,
+        );
+      }
+      continue;
+    }
+
+    const st = fs.statSync(target);
+    if (spec.dir) {
+      if (!st.isDirectory()) errors.push(`${spec.name} is not a directory`);
+      console.log(`OK: resource ${spec.name}/`);
+      continue;
+    }
+
+    if (spec.minBytes && st.size < spec.minBytes) {
+      errors.push(
+        `${spec.name} is ${st.size} bytes, below the ${spec.minBytes} floor — a truncated or ` +
+          `empty artifact from a failed build`,
+      );
+      continue;
+    }
+    if (spec.exec && platform !== "win32" && !(st.mode & 0o111)) {
+      errors.push(`${spec.name} is not executable (mode ${(st.mode & 0o777).toString(8)})`);
+      continue;
+    }
+
+    const wantArch = spec.arch || (spec.archOn && spec.archOn.includes(platform));
+    let archNote = "";
+    if (wantArch) {
+      try {
+        const archs = readBinaryArchs(target);
+        if (!archs.includes(arch)) {
+          errors.push(
+            `${spec.name} is ${archs.join("+")} but --arch ${arch} was requested. A stale ` +
+              `native/.dist from another arch is the usual cause; npm run clean does not remove it.`,
+          );
+          continue;
+        }
+        archNote = `, ${archs.join("+")}`;
+      } catch (e) {
+        errors.push(`${spec.name}: ${e.message}`);
+        continue;
+      }
+    }
+
+    if (signed && platform === "darwin" && (spec.arch || spec.exec)) {
+      const sigErr = verifySignature(target);
+      if (sigErr) {
+        errors.push(sigErr);
+        continue;
+      }
+      archNote += ", signed";
+    }
+
+    console.log(`OK: resource ${spec.name} (${formatBytes(st.size)}${archNote})`);
+  }
+  return errors;
+}
+
 async function fail(msg) {
   console.error(`::error::${msg}`);
   process.exit(1);
@@ -124,6 +327,16 @@ async function main() {
     if (resourceErr) {
       await fail(resourceErr);
     }
+  }
+
+  // Signature checks only make sense once signing has run, which on darwin means
+  // an identity was available. Absent one (a local unsigned build), skip them
+  // rather than failing on an ad-hoc signature.
+  const signed = platform === "darwin" && !!process.env.APPLE_TEAM_ID;
+  const resourceErrors = verifyExpectedResources(packageDir, platform, arch, appName, { signed });
+  if (resourceErrors.length) {
+    for (const e of resourceErrors) console.error(`::error::[verify-ci-package-out] ${e}`);
+    await fail(`${resourceErrors.length} expected resource(s) missing or invalid — see above`);
   }
 
   if (stage === "make") {
