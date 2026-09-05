@@ -34,7 +34,7 @@
  *   - Reads of a password manager's window, where the contents ARE the secret.
  *
  * Every entry below therefore declares which of its input fields name a target, so
- * one resolve covers all 37 tools at once rather than each call remembering.
+ * one resolve covers every tool at once rather than each call remembering.
  *
  * # The field names are MEASURED, not guessed
  *
@@ -100,6 +100,12 @@ export interface DispatchSpec {
   /** Accepts raw pixel coordinates → subject to the input-rung pixel policy. */
   pixels?: boolean;
   /**
+   * The result may name apps or windows we do not own — run it through
+   * `stripSelfFromResult` before the model sees it. Needed wherever a tool can
+   * answer about the whole desktop rather than about one resolved app.
+   */
+  selfFilterResult?: boolean;
+  /**
    * Requires an explicit user approval before it runs, on top of the class guards.
    * Reserved for the irreversible: the guards answer "may this app be touched",
    * not "is destroying unsaved work what the user wanted".
@@ -108,18 +114,26 @@ export interface DispatchSpec {
 }
 
 /**
- * THE 37 MODEL-FACING TOOLS. Absence from this map is a refusal — the map is the
+ * THE 35 MODEL-FACING TOOLS. Absence from this map is a refusal — the map is the
  * allowlist, so a tool added upstream is unreachable until someone decides where it
  * belongs. That is deliberate: a new driver release must not silently widen us.
  */
 export const DISPATCH: Readonly<Record<string, DispatchSpec>> = {
   // ── read ──────────────────────────────────────────────────────────────────
   get_window_state: { appTarget: ["pid"] },
-  get_accessibility_tree: {},
-  list_apps: {},
-  list_windows: { appTarget: ["pid"] },
+  // TAKES NO PARAMETERS AT ALL, and returns "running regular apps and on-screen
+  // visible windows with their bounds, z-order, and owner pid ... needs no TCC
+  // grants". There is no input to guard, so the containment is entirely outbound.
+  get_accessibility_tree: { selfFilterResult: true },
+  // Dispatched raw, this does NOT go through `listApps()`, which is where check 3
+  // (Atlarix is never listed) lives. The outbound filter is what restores it.
+  list_apps: { selfFilterResult: true },
+  // `pid` is OPTIONAL on `list_windows`: with no pid it returns EVERY layer-0
+  // window WindowServer knows about, ours included. Declaring the field is
+  // therefore only half the guard — see `stripSelfFromResult` in `apps.ts` for the
+  // other half, which runs on the way out.
+  list_windows: { appTarget: ["pid"], selfFilterResult: true },
   get_screen_size: {},
-  get_desktop_state: {},
   zoom: { appTarget: ["pid"] },
   verify_state: { appTarget: ["pid"] },
   get_cursor_position: {},
@@ -246,6 +260,27 @@ export const HOST_ONLY: ReadonlySet<string> = new Set([
  * the one list where it is warranted.
  */
 export const DENIED: Readonly<Record<string, string>> = {
+  // MOVED HERE FROM THE MODEL-FACING SET after reading its `describe` output, which
+  // says two things the tool's name does not: it is *"Capture the full display in
+  // true screen pixels with no downscale"*, and its stated purpose is to be *"the
+  // coordinate source for actions whose target is {kind:\"desktop\"}"*.
+  //
+  // Both halves fail here. The second names the one thing Atlarix refuses outright
+  // (see DESKTOP_SCOPE_REFUSAL), so its documented use case does not exist for us.
+  // The first is a hole in the guarantee the owner named FIRST — a full-display
+  // capture necessarily contains Atlarix's own window, including whatever approval
+  // card is on it, and unlike a listing an image cannot be filtered afterwards.
+  //
+  // Nothing is lost: `computer_inspect mode:"screenshot"` and `zoom` both capture a
+  // WINDOW, scoped to an app that has passed resolveTargetApp — and `ocr.ts` already
+  // documents, with measurements, that a full-screen capture is the WRONG input for
+  // reading anyway (1 nonsense word at confidence 0.3, against 6/6 at 1.0 on the
+  // same pixels cropped).
+  get_desktop_state:
+    "A full-display capture is not available. It would include Atlarix's own window, " +
+    "and its only documented purpose is screen-absolute coordinates, which Atlarix " +
+    "refuses. Read one application instead — computer_inspect with mode:\"screenshot\", " +
+    "or `zoom` for a region of a window.",
   replay_trajectory:
     "Trajectory replay is switched off in Atlarix by product decision. Recording is " +
     "available; replaying a recording is not.",

@@ -55,11 +55,35 @@ const MAX_IN_FLIGHT = MAX_WAITERS + 1;
 /** And no one waits longer than this. */
 const MAX_WAIT_MS = 45_000;
 
-/** The single chain. The key exists only so the busy message can name an app. */
-let tail: Promise<unknown> = Promise.resolve();
-/** Admitted and not yet finished: the holder plus its queue. */
-let inFlight = 0;
-let holder: string | null = null;
+/**
+ * TWO CHAINS, NOT ONE — and the second one is not a performance tweak.
+ *
+ * The header's whole argument for a global lock is *"there is one focus and one
+ * cursor"*. That argument is about the DESKTOP, and it does not reach the browser
+ * tools: `browser_click` and `browser_type` drive a Chromium target over CDP, which
+ * has its own input queue, does not move the system cursor and does not change which
+ * window is frontmost. Serialising those behind a desktop act would be a lock that
+ * covers more than the resource — the mirror of the mistake the header rejects — and
+ * with `MAX_WAITERS = 3` it would also turn browser work into `DeskBusyError` for no
+ * reason.
+ *
+ * Reads take no lane at all: they do not mutate, and the driver's own stale-token
+ * mechanism is what makes a read-then-act pair safe.
+ */
+export type Lane = "desk" | "browser";
+
+interface LaneState {
+  /** The chain. */
+  tail: Promise<unknown>;
+  /** Admitted and not yet finished: the holder plus its queue. */
+  inFlight: number;
+  holder: string | null;
+}
+
+const lanes: Record<Lane, LaneState> = {
+  desk: { tail: Promise.resolve(), inFlight: 0, holder: null },
+  browser: { tail: Promise.resolve(), inFlight: 0, holder: null },
+};
 
 export class DeskBusyError extends Error {
   constructor(message: string) {
@@ -68,32 +92,41 @@ export class DeskBusyError extends Error {
   }
 }
 
-function busyMessage(wantedBy: string): string {
-  const queued = Math.max(0, inFlight - 1);
+function busyMessage(state: LaneState, lane: Lane, wantedBy: string): string {
+  const queued = Math.max(0, state.inFlight - 1);
+  const what = lane === "browser" ? "the browser" : "the desktop";
   return (
-    `Another agent is driving ${holder ? `"${holder}"` : "the desktop"} right now and ` +
+    `Another agent is driving ${state.holder ? `"${state.holder}"` : what} right now and ` +
     `${queued} more are waiting, so ${wantedBy} was not touched. **Nothing was done.** ` +
     `Do other work first and come back to this — do not spin on it.`
   );
 }
 
 /**
- * Run `fn` with exclusive use of the desktop.
+ * Run `fn` with exclusive use of one lane.
  *
- * @param label  what this action targets, for the busy message and the log
- * @param signal the turn's abort signal, so Stop unwinds the queue
+ * @param label what this action targets, for the busy message and the log
+ * @param opts  `signal` is the turn's abort signal, so Stop unwinds the queue;
+ *              `lane` defaults to the desktop.
  */
 export async function withDesk<T>(
   label: string,
   fn: () => Promise<T>,
-  signal?: AbortSignal,
+  opts?: { signal?: AbortSignal; lane?: Lane } | AbortSignal,
 ): Promise<T> {
-  if (inFlight >= MAX_IN_FLIGHT) {
-    throw new DeskBusyError(busyMessage(label));
+  // The third argument used to be a bare AbortSignal and the tests still pass one.
+  // Accepting both beats a flag day for a two-caller helper.
+  const o = opts instanceof AbortSignal ? { signal: opts } : (opts ?? {});
+  const signal = o.signal;
+  const lane: Lane = o.lane ?? "desk";
+  const state = lanes[lane];
+
+  if (state.inFlight >= MAX_IN_FLIGHT) {
+    throw new DeskBusyError(busyMessage(state, lane, label));
   }
 
-  inFlight++;
-  const previous = tail;
+  state.inFlight++;
+  const previous = state.tail;
 
   // A deadline and an abort, raced against the queue. Without these a contended
   // desktop becomes a stalled turn.
@@ -105,11 +138,13 @@ export async function withDesk<T>(
       fn2();
     };
     const timer = setTimeout(
-      () => done(() => reject(new DeskBusyError(busyMessage(label)))),
+      () => done(() => reject(new DeskBusyError(busyMessage(state, lane, label)))),
       MAX_WAIT_MS,
     );
     const onAbort = () =>
-      done(() => reject(new DeskBusyError(`Cancelled while waiting for the desktop (${label}).`)));
+      done(() =>
+        reject(new DeskBusyError(`Cancelled while waiting for the desktop (${label}).`)),
+      );
     signal?.addEventListener("abort", onAbort, { once: true });
     // `.then(x, x)` so a previous holder's rejection cannot strand the queue.
     void previous.then(
@@ -134,7 +169,7 @@ export async function withDesk<T>(
   const held = new Promise<void>((r) => {
     release = r;
   });
-  tail = previous.then(
+  state.tail = previous.then(
     () => held,
     () => held,
   );
@@ -142,31 +177,37 @@ export async function withDesk<T>(
   try {
     await gate;
   } catch (e) {
-    inFlight--;
+    state.inFlight--;
     release();
     throw e;
   }
 
-  holder = label;
+  state.holder = label;
   const startedAt = Date.now();
   try {
     return await fn();
   } finally {
     const ms = Date.now() - startedAt;
-    if (ms > 5_000) logger.info(`[computer-use] held the desk ${ms}ms for ${label}`);
-    holder = null;
-    inFlight--;
+    if (ms > 5_000) logger.info(`[computer-use] held the ${lane} ${ms}ms for ${label}`);
+    state.holder = null;
+    state.inFlight--;
     release();
   }
 }
 
 /** Tests only. */
 export function resetDeskLockForTests(): void {
-  tail = Promise.resolve();
-  inFlight = 0;
-  holder = null;
+  for (const state of Object.values(lanes)) {
+    state.tail = Promise.resolve();
+    state.inFlight = 0;
+    state.holder = null;
+  }
 }
 
-export function deskLockStateForTests(): { inFlight: number; holder: string | null } {
+export function deskLockStateForTests(lane: Lane = "desk"): {
+  inFlight: number;
+  holder: string | null;
+} {
+  const { inFlight, holder } = lanes[lane];
   return { inFlight, holder };
 }

@@ -36,6 +36,7 @@ import path from "node:path";
 import log from "electron-log";
 import { missingGrantMessage } from "./permission-hint";
 import { callDriver } from "./driver-session";
+import { noteWindowRead } from "./refs";
 import { missingBinaryMessage, resolveComputerBinary } from "./resolve-binary";
 
 const logger = log.scope("computer-use");
@@ -243,6 +244,11 @@ export async function ocrWindow(
       `[computer-use] OCR pid=${pid} words=${words.length} scale=${scale} ` +
         `origin=${origin.x},${origin.y}`,
     );
+    // OCR is the OTHER half of "a pixel action must be paired with a read" — it is
+    // the read that canvas apps have, where the accessibility tree has nothing. If
+    // only `mintRefs` recorded reads, the pixel policy would refuse exactly the apps
+    // it was written to enable.
+    noteWindowRead(pid);
     return {
       engine: process.platform === "linux" ? "tesseract" : process.platform === "darwin" ? "macos-vision" : "windows-media-ocr",
       scale,

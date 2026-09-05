@@ -130,6 +130,86 @@ export async function listApps(): Promise<DesktopApp[]> {
   return out;
 }
 
+/**
+ * CHECK 3, ON THE WAY OUT — for the tools that answer without being asked about an
+ * app at all.
+ *
+ * `listApps()` above filters Atlarix from `list_apps`, and until `computer_call`
+ * existed that was the whole of check 3, because `list_apps` was the only listing
+ * the model could reach. It no longer is, and the two new ways round it were found
+ * by reading the driver's own `describe` output rather than by reasoning about the
+ * names:
+ *
+ *   - `list_windows` — `pid` is OPTIONAL. With no pid it returns every layer-0
+ *     window WindowServer knows about, each with `pid`, `app_name`, `title` and
+ *     `bounds`. There is no app to resolve, so `resolveTargetPid` is never reached.
+ *   - `get_accessibility_tree` — takes NO PARAMETERS AT ALL, and its own description
+ *     is *"running regular apps and on-screen visible windows with their bounds,
+ *     z-order, and owner pid ... a fast discovery read that needs no TCC grants"*.
+ *     So it is a complete substitute for `list_apps`, it needs no permission, and it
+ *     has no input for an inbound guard to inspect.
+ *
+ * Both would hand the model Atlarix's pid, window title and on-screen bounds — the
+ * three things needed to aim at our own approval buttons. An inbound guard cannot
+ * help with either, so the filter has to run on the RESULT.
+ *
+ * It walks rather than reading fixed keys: the exact nesting is the driver's to
+ * change on a pin bump, and a filter that silently stops matching a renamed field is
+ * the failure mode this whole file exists to avoid.
+ */
+const SELF_FILTERED_TOOLS: ReadonlySet<string> = new Set([
+  "list_apps",
+  "list_windows",
+  "get_accessibility_tree",
+]);
+
+export function isSelfFilteredTool(tool: string): boolean {
+  return SELF_FILTERED_TOOLS.has(tool);
+}
+
+/** Does this object look like an app or window record naming a process? */
+function selfRecord(o: Record<string, unknown>): boolean {
+  const pidRaw = o.pid ?? o.owner_pid ?? o.ownerPid ?? o.process_id;
+  const pid = typeof pidRaw === "number" ? pidRaw : undefined;
+  const name = [o.name, o.app_name, o.appName, o.owner_name, o.ownerName]
+    .filter((v) => typeof v === "string")
+    .join(" ");
+  const bundleId = [o.bundle_id, o.bundleId].find((v) => typeof v === "string") as
+    | string
+    | undefined;
+  if (pid === undefined && !name && !bundleId) return false;
+  return isSelf({
+    ...(pid !== undefined ? { pid } : {}),
+    ...(name ? { name } : {}),
+    ...(bundleId ? { bundleId } : {}),
+  });
+}
+
+/**
+ * Remove every record that names Atlarix from a driver result.
+ *
+ * Depth-bounded: these are flat listings, and an unbounded walk over an untrusted
+ * shape is how a cycle becomes a hang.
+ */
+export function stripSelfFromResult(tool: string, result: unknown): unknown {
+  if (!SELF_FILTERED_TOOLS.has(tool)) return result;
+  const walk = (node: unknown, depth: number): unknown => {
+    if (depth > 8 || node === null || typeof node !== "object") return node;
+    if (Array.isArray(node)) {
+      return node
+        .filter((el) => !(el && typeof el === "object" && !Array.isArray(el) &&
+          selfRecord(el as Record<string, unknown>)))
+        .map((el) => walk(el, depth + 1));
+    }
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+      out[k] = walk(v, depth + 1);
+    }
+    return out;
+  };
+  return walk(result, 0);
+}
+
 export type ResolvedApp =
   | { ok: true; app: DesktopApp }
   | { ok: false; error: string };
@@ -190,9 +270,21 @@ export async function resolveTargetApp(nameOrId: string): Promise<ResolvedApp> {
     };
   }
 
-  const target = partial[0]!;
-  // CHECK 1 again, on the RESOLVED pid — the identity check above cannot see a pid
-  // the model never mentioned.
+  return vetResolved(partial[0]!);
+}
+
+/**
+ * THE SHARED TAIL. Everything that decides whether a RESOLVED app may be touched.
+ *
+ * Factored out because there are now two ways in — a name (`resolveTargetApp`) and a
+ * raw pid (`resolveTargetPid`, which `computer_call` needs) — and two copies of a
+ * containment check is how one of them silently stops matching the other. The header
+ * calls this file "THE SINGLE SEAM"; that is only true while both entry points end
+ * here.
+ */
+function vetResolved(target: DesktopApp): ResolvedApp {
+  // CHECK 1 again, on the RESOLVED pid — an identity check on what the model typed
+  // cannot see a pid the model never mentioned.
   if (isSelf({ name: target.name, pid: target.pid, bundleId: target.bundleId })) {
     return { ok: false, error: selfTargetRefusal() };
   }
@@ -204,4 +296,45 @@ export async function resolveTargetApp(nameOrId: string): Promise<ResolvedApp> {
   }
 
   return { ok: true, app: target };
+}
+
+/**
+ * Resolve a raw pid — the form `computer_call` hands us, and the form that has no
+ * name for the guards to read.
+ *
+ * WHY THIS IS THE DANGEROUS DIRECTION. `resolveTargetApp` starts from a string, so
+ * the self-check can fire on the string itself. A pid carries no name: the ONLY way
+ * to learn that pid 4213 is Atlarix, or 1Password, or Terminal, is to look it up.
+ * A dispatcher that passes `input.pid` straight to the driver therefore has no
+ * guards at all — not weaker ones, none.
+ *
+ * Order matters here. `isSelf` runs BEFORE the listing, because `listApps()` filters
+ * Atlarix out (check 3): looking up our own pid in that list finds nothing, and
+ * "no running application has pid N" is the wrong answer — it invites a retry and it
+ * lies about why.
+ */
+export async function resolveTargetPid(pid: unknown): Promise<ResolvedApp> {
+  const n = typeof pid === "number" ? pid : Number(pid);
+  if (!Number.isInteger(n) || n <= 0) {
+    return {
+      ok: false,
+      error:
+        `"${String(pid)}" is not a process id. Get one from computer_inspect mode:"apps", ` +
+        `which lists what is running.`,
+    };
+  }
+
+  if (isSelf({ pid: n })) return { ok: false, error: selfTargetRefusal() };
+
+  const apps = await listApps();
+  const found = apps.find((a) => a.pid === n);
+  if (!found) {
+    return {
+      ok: false,
+      error:
+        `No running application has pid ${n}. Process ids change every launch — read ` +
+        `computer_inspect mode:"apps" again and use a pid from that list.`,
+    };
+  }
+  return vetResolved(found);
 }

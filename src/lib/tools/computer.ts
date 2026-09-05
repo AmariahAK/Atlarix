@@ -40,6 +40,7 @@ import {
 import { callDriver, ComputerUseError } from "@/lib/computer/driver-session";
 import { DeskBusyError, withDesk } from "@/lib/computer/desk-lock";
 import { guardTypeTarget } from "@/lib/computer/guards";
+import { KEYS, isNamedKey, toDriverKey } from "@/lib/computer/keys";
 import { detectInputRung, refusePixelAction } from "@/lib/computer/input-rung";
 import { ocrWindow } from "@/lib/computer/ocr";
 import { missingGrantMessage } from "@/lib/computer/permission-hint";
@@ -277,12 +278,6 @@ ToolRegistry.register({
 
 // ── computer ────────────────────────────────────────────────────────────────
 
-/** The closed key set. See `native/atlarix-cu/src/post.rs` for why it is closed. */
-const KEYS = [
-  "enter", "tab", "escape", "backspace", "delete", "up", "down", "left", "right",
-  "home", "end", "page_up", "page_down", "select_all", "copy", "paste", "cut",
-] as const;
-
 ToolRegistry.register({
   name: "computer",
   requiresWorkspace: false,
@@ -438,7 +433,7 @@ ToolRegistry.register({
 
         if (action === "key") {
           const key = str(args.key);
-          if (!KEYS.includes(key as (typeof KEYS)[number])) {
+          if (!isNamedKey(key)) {
             return {
               success: false,
               error:
@@ -447,7 +442,17 @@ ToolRegistry.register({
                 `with a different spelling.`,
             };
           }
-          await callDriver("press_key", { pid, element_token: element.token, key });
+          // TRANSLATED, not passed through. These are OUR names; the driver
+          // publishes a different vocabulary (`return`, `pageup`, and no
+          // `select_all` at all — that one is `a` with a cmd modifier). See
+          // `keys.ts` for the two vocabularies and why they diverged.
+          const dk = toDriverKey(key);
+          await callDriver("press_key", {
+            pid,
+            element_token: element.token,
+            key: dk.key,
+            ...(dk.modifiers ? { modifiers: dk.modifiers } : {}),
+          });
           return { success: true, title: element.label || element.role, content: `Pressed ${key}.` };
         }
 

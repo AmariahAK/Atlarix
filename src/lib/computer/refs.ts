@@ -106,6 +106,7 @@ export function mintRefs(input: {
   // Newest last; drop the oldest beyond the window.
   while (list.length > KEEP_GENERATIONS) list.shift();
   byApp.set(key, list);
+  noteWindowRead(input.pid);
   return withRefs;
 }
 
@@ -188,9 +189,43 @@ export function isDriverStaleError(message: string): boolean {
   );
 }
 
+// ── "did you look first" ────────────────────────────────────────────────────
+
+/**
+ * When each pid was last READ. Not the same question as ref staleness.
+ *
+ * The owner's decision on pixel actions was *allow them, paired with an OCR or
+ * element read* — the reason OCR returning positions is useful at all. This ledger
+ * is what makes "paired with" checkable: a raw `click {pid, x, y}` through
+ * `computer_call` carries no ref, so nothing else in this file can tell a coordinate
+ * derived from a read apart from one the model guessed.
+ *
+ * IT IS NOT A FRESHNESS CHECK, and conflating the two would make it both stricter
+ * and less useful than it should be. Whether an ELEMENT is still the element is the
+ * driver's job, and it does it properly: `element_token` "returns an explicit stale
+ * error once a newer snapshot supersedes it". This only answers "did this turn ever
+ * look at that window", so the window is generous on purpose — a model that reads,
+ * thinks, calls another tool, then clicks is behaving well, and refusing it would be
+ * a false alarm that teaches nothing.
+ */
+const readAt = new Map<number, number>();
+const READ_RECENCY_MS = 5 * 60_000;
+
+/** Record that we read a window belonging to `pid`. Called by every read path. */
+export function noteWindowRead(pid: number): void {
+  if (Number.isInteger(pid) && pid > 0) readAt.set(pid, Date.now());
+}
+
+/** Has this turn actually looked at `pid` recently enough to be aiming at something? */
+export function hasRecentReadFor(pid: number, now = Date.now()): boolean {
+  const at = readAt.get(pid);
+  return at !== undefined && now - at <= READ_RECENCY_MS;
+}
+
 /** Tests only. */
 export function resetRefsForTests(): void {
   byApp.clear();
+  readAt.clear();
   nextGen = 1;
 }
 

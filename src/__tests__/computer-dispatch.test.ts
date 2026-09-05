@@ -70,9 +70,9 @@ describe("dispatch table", () => {
     expect(new Set(all).size).toBe(all.length);
   });
 
-  it("exposes 36 model-facing tools, and the enum list matches", () => {
-    expect(Object.keys(DISPATCH)).toHaveLength(36);
-    expect(MODEL_FACING_TOOLS).toHaveLength(36);
+  it("exposes 35 model-facing tools, and the enum list matches", () => {
+    expect(Object.keys(DISPATCH)).toHaveLength(35);
+    expect(MODEL_FACING_TOOLS).toHaveLength(35);
     expect([...MODEL_FACING_TOOLS].sort()).toEqual(MODEL_FACING_TOOLS);
   });
 
@@ -183,7 +183,16 @@ describe.skipIf(!haveDriver)("agreement with the shipped driver", () => {
     }
     expect(offenders, "these could type into a password field unchecked").toEqual([]);
   });
+});
 
+/**
+ * TOP LEVEL ON PURPOSE. These four assert PURE functions and need no binary, but the
+ * first version of this file nested them inside the `describe.skipIf(!haveDriver)`
+ * block above — so on CI's `quality` job, which type-checks and tests but never
+ * BUILDS the driver, the most load-bearing security tests in the file skipped
+ * silently while the run stayed green. `skipIf` is inherited by every nested
+ * describe, and a skipped test looks exactly like a passing one in a summary line.
+ */
 describe("screen-absolute escape hatches", () => {
   /**
    * THE BYPASS THIS EXISTS FOR. The first draft of the table declared which FIELDS
@@ -232,5 +241,4 @@ describe.skipIf(!haveDriver)("escape hatches vs the real schemas", () => {
       expect(usesDesktopScope({ scope: "desktop" }), `${tool} must be covered`).toBe(true);
     }
   });
-});
 });
