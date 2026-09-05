@@ -14,7 +14,7 @@
  * gave 6/6 at confidence 1.0. So the coordinates are always window-relative on the
  * way in, and this is where they become screen coordinates.
  */
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("electron", () => ({
   app: { isPackaged: false, getAppPath: () => process.cwd(), getPath: () => "/tmp" },
@@ -26,6 +26,8 @@ let windowState: unknown = {};
 /** What the OCR helper found, in IMAGE PIXELS relative to the crop. */
 let helperWords: Array<Record<string, number | string>> = [];
 let capturedCall: { tool: string; input: Record<string, unknown> } | null = null;
+/** Which binary the OCR path actually shelled out to — the platform branch, observed. */
+let capturedExec: string | null = null;
 
 vi.mock("@/lib/computer/driver-session", () => ({
   callDriver: vi.fn(async (tool: string, input: Record<string, unknown>) => {
@@ -45,11 +47,12 @@ vi.mock("node:child_process", async (orig) => {
   return {
     ...actual,
     execFile: (
-      _bin: string,
+      bin: string,
       _args: string[],
       _opts: unknown,
       cb: (e: Error | null, stdout: string, stderr: string) => void,
     ) => {
+      capturedExec = bin;
       cb(null, JSON.stringify({ ok: true, width: 800, height: 700, scale: 1, words: helperWords }), "");
     },
   };
@@ -57,10 +60,33 @@ vi.mock("node:child_process", async (orig) => {
 
 const load = async () => await import("@/lib/computer/ocr");
 
+/**
+ * PIN THE PLATFORM, or this file tests different code depending on who runs it.
+ *
+ * `ocrWindow` branches on `process.platform`: Linux has no OS OCR engine and goes
+ * to `tesseract`, every other platform to the bundled helper. Left unpinned, the
+ * four coordinate tests below exercised the helper on a dev Mac and tesseract on
+ * the Linux CI runner — and the `node:child_process` mock fed its JSON report into
+ * tesseract's TSV parser, which found no words, which is indistinguishable from
+ * "this window genuinely has no text". So the arithmetic this file exists to pin
+ * was never exercised in CI at all, and the failure only surfaced once the whole
+ * suite ran on Linux. Set it explicitly per test instead.
+ */
+const realPlatform = process.platform;
+function setPlatform(p: NodeJS.Platform) {
+  Object.defineProperty(process, "platform", { value: p, configurable: true });
+}
+
 beforeEach(() => {
   capturedCall = null;
+  capturedExec = null;
   windowState = {};
   helperWords = [];
+  setPlatform("darwin");
+});
+
+afterEach(() => {
+  Object.defineProperty(process, "platform", { value: realPlatform, configurable: true });
 });
 
 describe("ocrWindow coordinates", () => {
@@ -142,5 +168,22 @@ describe("ocrWindow coordinates", () => {
     if ("error" in res) throw new Error(res.error);
     expect(res.words[0]).toMatchObject({ x: 40, y: 40 });
     expect(Number.isFinite(res.words[0]!.x)).toBe(true);
+  });
+
+  it("routes by platform: the bundled helper everywhere, tesseract on Linux", async () => {
+    // The crate has no Linux body — it builds for two darwin triples plus windows —
+    // so tesseract is the ONLY OCR Linux has. Asserting the binary by name is what
+    // stops this file silently testing the wrong path on a Linux runner again.
+    const { ocrWindow } = await load();
+    windowState = { window_bounds: { x: 0, y: 0 }, screenshot_scale: 1 };
+    helperWords = [{ text: "Save", x: 20, y: 40, w: 60, h: 18, conf: 1 }];
+
+    await ocrWindow(1234);
+    expect(capturedExec).toBe("/fake/atlarix-cu");
+
+    capturedExec = null;
+    setPlatform("linux");
+    await ocrWindow(1234);
+    expect(capturedExec).toBe("tesseract");
   });
 });
