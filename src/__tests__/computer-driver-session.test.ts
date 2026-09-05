@@ -29,6 +29,28 @@ vi.mock("@/main/settings", () => ({
   readSettings: () => fakeSettings,
 }));
 
+
+/** Controls the stubbed `cua-driver status` used by the stale-socket tests. */
+let driverStatusRunning = false;
+/** Every argv the module shelled out with, in order. */
+const driverCalls: string[] = [];
+vi.mock("node:child_process", async (orig) => {
+  const actual = (await orig()) as Record<string, unknown>;
+  return {
+    ...actual,
+    execFile: (
+      _bin: string,
+      args: string[],
+      _opts: unknown,
+      cb: (e: Error | null, stdout: string, stderr: string) => void,
+    ) => {
+      driverCalls.push(args.join(" "));
+      cb(null, driverStatusRunning ? "Cua Driver daemon is running" : "not running", "");
+      return undefined;
+    },
+  };
+});
+
 let homeSpy: ReturnType<typeof vi.spyOn>;
 let fakeHome: string;
 
@@ -46,6 +68,38 @@ afterEach(async () => {
   const m = await load();
   m.resetDriverSessionForTests();
 });
+
+
+/**
+ * Drive `clearStaleSocket` with a real file on disk and a controllable `status`.
+ *
+ * The property under test is an ORDER (prove, then remove) and a refusal (never
+ * remove a live one) — so `execFile` is stubbed at module scope (ESM exports cannot
+ * be spied) and `unlinkSync` is observed through the file actually disappearing.
+ */
+async function runStaleSocketScenario(opts: {
+  statusRunning: boolean;
+  present?: boolean;
+}): Promise<{ calls: string[]; sockExists: () => boolean }> {
+  driverCalls.length = 0;
+  driverStatusRunning = opts.statusRunning;
+
+  const { socketPath, clearStaleSocket } = await load();
+  const sock = socketPath();
+  fs.mkdirSync(path.dirname(sock), { recursive: true });
+  if (opts.present !== false) fs.writeFileSync(sock, "");
+  else fs.rmSync(sock, { force: true });
+
+  const before = fs.existsSync(sock);
+  await clearStaleSocket("/fake/cua-driver", sock);
+  const after = fs.existsSync(sock);
+  // Synthesise the "unlink" marker from observed effect rather than a spy, so the
+  // test cannot pass against a mock that never touched the filesystem.
+  const calls = [...driverCalls];
+  if (before && !after) calls.push("unlink");
+
+  return { calls, sockExists: () => fs.existsSync(sock) };
+}
 
 describe("telemetry opt-out", () => {
   it("writes {telemetry_enabled:false} where the driver reads it", async () => {
@@ -189,4 +243,44 @@ describe("the start budget", () => {
       reason: expect.stringMatching(/killed|not-installed/),
     });
   });
+
+/**
+ * A STALE SOCKET FROM AN UNCLEAN EXIT — which killed the feature permanently on a
+ * real packaged build, 2026-09-05.
+ *
+ * The app was force-killed, so the daemon never unlinked its endpoint. Every later
+ * start then failed with `embedded daemon endpoint already exists at …/cua.sock;
+ * the owning host must prove and remove its stale socket before spawn`, surfacing
+ * to the model as a 20-second readiness timeout — an error that names the symptom
+ * and hides the cause. `stopComputerUse` handles a CLEAN quit; nothing handled a
+ * SIGKILL, a crash, or a power cut, and after any of those computer use was dead
+ * until someone deleted a file by hand.
+ *
+ * The driver names the protocol in its own refusal: prove it is stale, then remove
+ * it. `status --socket` is the proof.
+ */
+describe("stale daemon socket", () => {
+  it("proves staleness with `status` before unlinking anything", async () => {
+    const { calls, sockExists } = await runStaleSocketScenario({ statusRunning: false });
+    // The order is the safety property: a blind unlink would let a second instance
+    // steal a live instance's endpoint, and two hosts driving one desk is a worse
+    // failure than the one being fixed.
+    const statusAt = calls.findIndex((c) => c.startsWith("status"));
+    const unlinkAt = calls.indexOf("unlink");
+    expect(statusAt).toBeGreaterThanOrEqual(0);
+    expect(unlinkAt).toBeGreaterThan(statusAt);
+    expect(sockExists()).toBe(false);
+  });
+
+  it("NEVER unlinks a socket a live daemon is listening on", async () => {
+    const { calls, sockExists } = await runStaleSocketScenario({ statusRunning: true });
+    expect(calls).not.toContain("unlink");
+    expect(sockExists()).toBe(true);
+  });
+
+  it("does nothing when there is no socket file at all", async () => {
+    const { calls } = await runStaleSocketScenario({ statusRunning: false, present: false });
+    expect(calls).not.toContain("unlink");
+  });
+});
 });

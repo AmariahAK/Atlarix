@@ -84,6 +84,12 @@ beforeEach(() => {
       stdout: Array.from({ length: 56 }, (_, i) => `tool_${i}: does a thing`).join("\n"),
     },
     doctor: { status: 0, signal: null, stdout: DOCTOR_JSON },
+    describe: {
+      status: 0,
+      signal: null,
+      stdout:
+        "elements element_index element_token window_bounds screenshot_scale running",
+    },
   };
 });
 
@@ -140,5 +146,31 @@ describe("computer-use probe", () => {
     };
     // A floor, not equality — an upstream addition must not block a release.
     await expect(probe().run()).resolves.toBeTruthy();
+  });
+
+  it("fails when the driver contract lacks a field the runtime reads", async () => {
+    // The point of this assertion: a missing field NEVER throws at runtime.
+    // `ocrWindow` reads window_bounds/screenshot_scale with `?? 0` / `?? 1`
+    // defaults, so its absence silently yields origin 0,0 and scale 1 — window
+    // pixels presented as screen points, which looks like success and clicks in
+    // the wrong place. We shipped exactly that once by guessing the field names.
+    results.describe = {
+      status: 0,
+      signal: null,
+      stdout: "elements element_index element_token running", // no coordinates
+    };
+    await expect(probe().run()).rejects.toThrow(/window_bounds|screenshot_scale/);
+  });
+
+  it("fails when a tool the runtime depends on is absent on this platform", async () => {
+    // The driver's surface is per-platform — its own docs say "List macOS apps"
+    // and the Windows build reports a different tool count.
+    results.describe = { status: 1, signal: null, stdout: "" };
+    await expect(probe().run()).rejects.toThrow(/may not exist on this platform/);
+  });
+
+  it("records which platform the contract was checked on", async () => {
+    const detail = await probe().run();
+    expect(String(detail)).toContain(`contract ok on ${process.platform}`);
   });
 });

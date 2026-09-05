@@ -22,7 +22,7 @@
  * chain, so copying it would inherit a leak.
  */
 import { execFile, spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { app } from "electron";
@@ -56,7 +56,9 @@ export type ComputerUnavailable =
   | "unsupported-os-version"
   | "spawn-failed"
   | "not-ready"
-  | "killed";
+  | "killed"
+  /** A leftover socket from an unclean exit that we could not remove. */
+  | "stale-socket";
 
 export class ComputerUseError extends Error {
   constructor(
@@ -255,9 +257,65 @@ async function daemonRunning(bin: string): Promise<boolean> {
   return r.ok && /is running/i.test(r.stdout);
 }
 
+/**
+ * REMOVE A STALE SOCKET BEFORE SPAWNING, because an unclean exit leaves one and it
+ * breaks the feature permanently until the file is deleted.
+ *
+ * Observed on a packaged build 2026-09-05: the app was force-killed, so the daemon
+ * never unlinked its endpoint, and every later start failed with
+ *
+ *     cua-driver serve error: embedded daemon endpoint already exists at
+ *     …/cua.sock; the owning host must prove and remove its stale socket
+ *     before spawn
+ *
+ * The teardown in `stopComputerUse` does `stop --socket` and then kills, which
+ * handles a clean quit. It cannot handle a SIGKILL, a crash, or a power loss — and
+ * after any of those, computer use was dead for good with an error naming a 20s
+ * readiness timeout rather than a leftover file.
+ *
+ * The driver states the protocol in that message: the host must PROVE the socket is
+ * stale and then remove it. `status --socket` is the proof — it reports
+ * "Cua Driver daemon is not running" for an orphaned endpoint. So: no file, nothing
+ * to do; file plus a live daemon, reuse it and never unlink (that would be another
+ * Atlarix instance's endpoint); file with no live daemon, unlink and continue.
+ *
+ * Unlinking is deliberately NOT unconditional. A blind `rm` would let a second
+ * instance steal a running instance's socket, and the failure that produces is far
+ * worse than this one: two hosts driving one desk.
+ */
+export async function clearStaleSocket(bin: string, sock: string): Promise<void> {
+  if (process.platform === "win32") return; // named pipe; no file to leak
+  if (!existsSync(sock)) return;
+
+  if (await daemonRunning(bin)) {
+    // Someone is home. Not ours to delete.
+    logger.info("[computer-use] a daemon is already listening on the socket; reusing it");
+    return;
+  }
+
+  try {
+    unlinkSync(sock);
+    logger.warn(
+      `[computer-use] removed a stale daemon socket at ${sock} — the previous ` +
+        `daemon exited without cleaning up (a force-kill or crash does that)`,
+    );
+  } catch (e) {
+    // Surface it rather than letting `serve` fail with its own less specific
+    // message: a socket we cannot remove is a permissions or ownership problem
+    // the user can act on.
+    throw new ComputerUseError(
+      "stale-socket",
+      `A stale desktop-control socket at ${sock} could not be removed ` +
+        `(${(e as Error).message}). Ask the user to delete that file and retry ONCE ` +
+        `after they confirm — do not retry before then.`,
+    );
+  }
+}
+
 async function spawnDaemon(bin: string): Promise<void> {
   const sock = socketPath();
   assertSocketPathFits(sock);
+  await clearStaleSocket(bin, sock);
 
   // `--embedded` is the flag that keeps TCC attribution on Atlarix and stops the
   // driver ever raising its own permission prompt. Without it, `serve` would

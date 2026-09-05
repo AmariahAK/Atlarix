@@ -622,6 +622,48 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
         }
       }
 
+      // 4b. THE DRIVER CONTRACT, ON WHATEVER PLATFORM THIS IS.
+      //
+      // Everything the runtime reads was learned from `describe` on macOS, and the
+      // driver's tool surface is PER-PLATFORM: its own docs say "List macOS apps",
+      // "known to WindowServer", "via AXSetAttribute(kAXSelectedText)", and the
+      // Windows build reports a different tool count. So the fields are an
+      // assumption on Windows and Linux, not a fact.
+      //
+      // The reason this is a hard failure rather than a note: a MISSING field does
+      // not throw anywhere. `ocrWindow` reads `window_bounds` and
+      // `screenshot_scale` with `?? 0` / `?? 1` defaults, so their absence silently
+      // yields origin 0,0 and scale 1 — window-relative pixels presented as screen
+      // points. That looks like the feature working and clicks in the wrong place,
+      // which is the worst outcome available. We already shipped that bug once by
+      // guessing `window.bounds`/`window.scale`; this is the guard against
+      // shipping it again on a platform nobody can hold.
+      //
+      // `describe` is read-only: no GUI session, no TCC grant, no window server.
+      // It is the one cross-platform contract assertion CI can actually make.
+      const CONTRACT: Array<[string, string[]]> = [
+        ["get_window_state", ["elements", "element_index", "element_token", "window_bounds", "screenshot_scale"]],
+        ["list_apps", ["running"]],
+      ];
+      for (const [tool, fields] of CONTRACT) {
+        const described = run(driver, ["describe", tool], 20_000);
+        if (described.status !== 0) {
+          throw new Error(
+            `cua-driver describe ${tool} exited ${described.status} on ${process.platform} — ` +
+              `the tool the runtime depends on may not exist on this platform`,
+          );
+        }
+        const missing = fields.filter((f) => !described.stdout.includes(f));
+        if (missing.length) {
+          throw new Error(
+            `cua-driver describe ${tool} on ${process.platform} does not mention ` +
+              `${missing.join(", ")} — the runtime reads ${missing.length > 1 ? "those fields" : "that field"} ` +
+              `and would silently default (origin 0,0 / scale 1) rather than fail`,
+          );
+        }
+      }
+      notes.push(`contract ok on ${process.platform}`);
+
       // 5. macOS: THE SPI PROBE'S SHAPE, not its verdict. Asserting
       //    `slps_post_event === true` would fail the build the day Apple
       //    removes the symbol — which is the day the fallback matters most.
