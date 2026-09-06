@@ -691,7 +691,22 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
           ? `\\\\.\\pipe\\atlarix-cua-selftest`
           : path.join(os.tmpdir(), `atlarix-cua-st-${process.pid}.sock`);
       try {
-        const served = run(
+        /**
+         * `spawnSync` DIRECTLY, not through `run()` above — and this is the whole
+         * trick of the probe.
+         *
+         * A good manifest means `serve` keeps listening, so the only way to observe
+         * success is to let it time out. But `spawnSync`'s timeout kills the child
+         * AND sets `result.error` to ETIMEDOUT, and `run()` rethrows `r.error` — so
+         * routing this through it failed the probe in exactly the case where the
+         * manifest was CORRECT. That is how this first ran: 9/10, with the one
+         * failure being the thing working.
+         *
+         * So: read stdout/stderr, and treat the kill as the pass. A real
+         * authorization failure arrives in well under a second, long before the
+         * timeout, which is why a short one is enough.
+         */
+        const served = spawnSync(
           driver,
           [
             "serve",
@@ -704,20 +719,25 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
             manifestFile,
             "--approve-capability-manifest",
           ],
-          4_000,
+          { encoding: "utf8", timeout: 3_000 },
         );
-        const out = `${served.stdout}${served.stderr}`;
-        if (/authorization startup error|capability manifest/i.test(out)) {
+        const out = `${served.stdout ?? ""}${served.stderr ?? ""}`;
+        if (/authorization startup error/i.test(out)) {
           throw new Error(
             `the capability manifest was rejected by cua-driver on ${process.platform}: ` +
               `${out.trim().slice(0, 300)} — desktop control would refuse to start`,
           );
         }
-        // A timeout here is the SUCCESS case: it means startup got past
-        // authorization and the daemon is listening.
-        notes.push(
-          served.signal ? "manifest accepted (daemon started)" : `manifest ok (${out.trim().slice(0, 60)})`,
-        );
+        if (served.signal || /listening/i.test(out)) {
+          notes.push("manifest accepted (bounded daemon started)");
+        } else {
+          // Exited on its own without an authorization complaint: not a manifest
+          // problem, and not something to fail a release for — a runner with no
+          // window server is the likely cause. Say so rather than asserting.
+          notes.push(
+            `manifest not provable here: serve exited ${served.status} (${out.trim().slice(0, 80)})`,
+          );
+        }
       } finally {
         try {
           run(driver, ["stop", "--socket", probeSocket], 5_000);

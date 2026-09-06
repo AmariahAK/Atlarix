@@ -8,6 +8,16 @@ chain behind it — the queued flush pre-empting a question card, a stop latch a
 clear (five sub-agent wakes refused), a sub-agent card frozen mid-count — and the user bubble's
 glare.
 
+**Self-test non-exit — a third data point, and it is NOT computer use (2026-09-05).**
+The packaged self-test on macOS arm64 now shows the same "all probes passed, process
+tree had to be killed" as the Windows runs. Two consecutive runs of the SAME build
+differed only in outcome: 9/10 FAILED → exited 1 on its own; 10/10 PASSED → did not
+exit. That matches the recorded pattern (it happens on the PASSING path) rather than
+the new probe: checked immediately after, there is no orphaned `cua-driver`, no
+leftover probe socket and no running Atlarix. Next step is still the grandchild
+experiment recorded above, but it should now be run on macOS, where a debugger is
+actually available.
+
 **Security review of v14.43.0 — 5 findings, all fixed (2026-09-05):**
 
 | # | Finding | Sev | Fix |
