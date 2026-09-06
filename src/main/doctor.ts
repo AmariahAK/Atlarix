@@ -365,6 +365,32 @@ const computerUseCheck: DoctorCheck = {
     // matching its own privacy claim and not, so it is worth surfacing.
     if (!telemetryIsOptedOut()) notes.push("telemetry opt-out NOT written yet");
 
+    /**
+     * THE CAPABILITY CEILING, checked without starting anything.
+     *
+     * `driver-session.ts` refuses a daemon that is not in bounded mode, so a
+     * manifest the driver would reject does not degrade desktop control — it
+     * disables it. The daemon-side proof lives in the packaged self-test (which may
+     * spawn); what is checkable HERE, read-only, is whether the file on disk still
+     * matches what the code would write. A stale one fails closed, which is a
+     * confusing bug rather than a dangerous one, and this is where it becomes
+     * visible instead of arriving as "desktop control will not start".
+     *
+     * `health_report` was considered for this row and rejected: it is an MCP tool
+     * and needs a running daemon, which is exactly what this check promises not to
+     * start.
+     */
+    const { buildManifest, manifestPath } = await import("@/lib/computer/manifest");
+    const { readFileSync } = await import("node:fs");
+    try {
+      const onDisk = readFileSync(manifestPath(), "utf8");
+      if (onDisk.trim() !== JSON.stringify(buildManifest(), null, 2).trim()) {
+        notes.push("capability manifest on disk is stale — it is rewritten at next start");
+      }
+    } catch {
+      // Never written, because desktop control has not been used yet. Normal.
+    }
+
     const perms = readPermissions();
     if (perms.platform === "darwin") {
       if (perms.accessibility !== "granted") {

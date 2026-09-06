@@ -73,6 +73,7 @@ export const EVERY_MODE_TOOLS = [
   // description — which is why their first sentences carry the cheap default.
   "computer",
   "computer_inspect",
+  "computer_call",
   "mobile_inspect",
   "mobile",
 ] as const;

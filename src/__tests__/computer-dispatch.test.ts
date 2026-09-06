@@ -70,9 +70,9 @@ describe("dispatch table", () => {
     expect(new Set(all).size).toBe(all.length);
   });
 
-  it("exposes 35 model-facing tools, and the enum list matches", () => {
-    expect(Object.keys(DISPATCH)).toHaveLength(35);
-    expect(MODEL_FACING_TOOLS).toHaveLength(35);
+  it("exposes 34 model-facing tools, and the enum list matches", () => {
+    expect(Object.keys(DISPATCH)).toHaveLength(34);
+    expect(MODEL_FACING_TOOLS).toHaveLength(34);
     expect([...MODEL_FACING_TOOLS].sort()).toEqual(MODEL_FACING_TOOLS);
   });
 
@@ -169,6 +169,25 @@ describe.skipIf(!haveDriver)("agreement with the shipped driver", () => {
     }
 
     expect(offenders, "these reach the driver without passing resolveTargetApp").toEqual([]);
+  });
+
+  it("declares driverConfirm wherever the driver owns a `confirm` of its own", () => {
+    /**
+     * A NAME COLLISION, caught as a class rather than as one instance.
+     *
+     * Atlarix's two-step gate for the irreversible tools reads `input.confirm` and
+     * strips it before dispatch, because it is not a driver field. `install_ffmpeg`
+     * has a `confirm` of its own — "pass `confirm: true` to actually run it" — and
+     * stripping that one made the install step permanently unreachable: every call
+     * reported the command and never ran it, which looks exactly like the tool
+     * working. If a driver upgrade gives another tool a `confirm`, it lands here.
+     */
+    const offenders: string[] = [];
+    for (const [tool, spec] of Object.entries(DISPATCH)) {
+      if (!schemaProps(tool).includes("confirm")) continue;
+      if (!spec.driverConfirm) offenders.push(tool);
+    }
+    expect(offenders, "Atlarix would strip these tools' own confirm flag").toEqual([]);
   });
 
   it("declares typesInto wherever the driver accepts text to type", () => {

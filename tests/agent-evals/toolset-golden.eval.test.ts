@@ -76,7 +76,7 @@ function offeredToolNames(scenarioId: string): string[] {
 const GOLDEN = {
   ask: [
     "ask_user", "automations", "background_jobs", "browser",
-    "browser_inspect", "compress_context", "computer", "computer_inspect", "glob", "grep", "list_attachments",
+    "browser_inspect", "compress_context", "computer", "computer_call", "computer_inspect", "glob", "grep", "list_attachments",
     "list_available_mcps", "mcp_call", "mobile", "mobile_inspect",
     "read_attachment", "read_file",
     "read_url", "run_command", "schedule_wakeup", "session_search",
@@ -84,7 +84,7 @@ const GOLDEN = {
   ],
   plan: [
     "ask_user", "automations", "browser", "browser_inspect",
-    "compress_context", "computer", "computer_inspect", "glob", "grep", "list_attachments",
+    "compress_context", "computer", "computer_call", "computer_inspect", "glob", "grep", "list_attachments",
     "list_available_mcps", "mcp_call", "mobile", "mobile_inspect", "plan",
     "read_attachment", "read_file",
     "read_url", "schedule_wakeup", "session_search", "subagents", "task",
@@ -93,7 +93,7 @@ const GOLDEN = {
   build: [
     "ask_user", "automations", "background_jobs", "browser",
     "browser_inspect", "browser_test", "compress_context", "computer",
-    "computer_inspect", "edit_file",
+    "computer_call", "computer_inspect", "edit_file",
     "glob", "grep", "list_attachments", "list_available_mcps", "mcp_call",
     "mobile", "mobile_inspect",
     "plan", "proposals", "read_attachment", "read_file", "read_url",

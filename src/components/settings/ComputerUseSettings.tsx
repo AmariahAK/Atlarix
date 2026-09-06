@@ -130,8 +130,9 @@ export function ComputerUseSettings() {
             Reads and clicks in any app on this machine — Slack, Excel, a browser — in the
             background, without moving your cursor or stealing focus. It never targets Atlarix
             itself, and never types into a terminal or a password field. Add{" "}
-            <code>{'{"deny": ["computer"]}'}</code> to a project&apos;s{" "}
-            <code>.atlarix/permissions.json</code> to switch it off for that project only.
+            <code>{'{"deny": ["computer*"]}'}</code> to a project&apos;s{" "}
+            <code>.atlarix/permissions.json</code> to switch it off for that project only,
+            or a narrower rule like <code>{'computer_call(kill_app)'}</code> for one action.
           </p>
         </div>
         <Switch

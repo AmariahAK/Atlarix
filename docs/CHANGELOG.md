@@ -3,6 +3,57 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.43.0] (unreleased) — It can use the rest of your computer
+
+**Atlarix can now read and act on any other application on this machine.** Slack,
+Excel, Airtable, Metabase, OBS, CapCut — in the background, without moving your
+cursor, stealing focus or switching Spaces. It reads a window as TEXT (the
+accessibility tree, a few hundred tokens) and acts on elements by reference, so
+every Core model can drive it, not only the ones that can see pictures. Where an
+app draws its own surface and exposes no tree, local OCR reads it instead — on your
+machine, with the image never entering the conversation. On macOS you grant
+Accessibility and Screen Recording to Atlarix by name in System Settings, and
+nothing else ever asks for them.
+
+**It never targets Atlarix itself.** Not by name, not by process id, not by window
+id, and Atlarix does not appear in the list of running applications at all — so the
+agent cannot form a plan around clicking its own approval buttons. Terminals and
+shells are refused too (typing into one would be a command with no sandbox, no
+danger gate and no approval card), as are password managers, and any field that
+looks like a credential. There is no whole-screen coordinate form: every action
+names an application first.
+
+**The whole driver surface, without the prompt cost.** Beyond the read-and-click
+pair there is now a single `computer_call` tool that reaches 34 driver tools by
+name: nine browser tools that attach to your REAL logged-in browser and read the
+page over the DevTools protocol — no screenshot, no macOS permission, and your
+Airtable and Metabase sessions are already signed in — plus the clipboard, app
+launch, window frames, zoom, drag and pixel-addressed input for canvas apps.
+Parameter schemas are fetched on demand rather than shipped in every prompt, so all
+of that costs about 285 tokens a turn instead of six thousand, and it does not
+disturb the prompt cache on turns that never touch the desktop.
+
+**Key combinations are an allowlist, not a blocklist.** Copy, paste, undo, redo,
+save, find and word-wise selection work, on all three platforms — the action
+modifier is Command on macOS and Control elsewhere, so the same rule means the same
+thing everywhere. Quit, close, hide, minimise, force-quit, lock, log out, the app
+switcher, Spotlight, the Windows Run box and the Linux virtual-console switch are
+not expressible. That list is different on every operating system and grows with
+every release, which is exactly why the allowed set is the one that is enumerated.
+
+**The helper runs under a capability ceiling it cannot exceed.** Atlarix starts it
+in bounded mode with a signed capability manifest listing exactly the tools it may
+run, so a mistake in Atlarix's own checks still meets a second refusal in a
+different process. Trajectory replay, driver reconfiguration and uploading local
+files to a web page are refused outright. If the helper is ever running without
+that ceiling, Atlarix declines to use it rather than carrying on.
+
+**Two Settings controls that used to do nothing now work.** *Show what it is doing*
+and the motion preference governed only Atlarix's own green outlines; the helper's
+own cursor was never drawn at all, because it is created per session and Atlarix
+had never opened one. It opens one now, and both controls reach it live — no
+restart to turn the cursor off.
+
 ## [14.42.0] (2026-09-03) — Talk to it while it is working
 
 **A message you type mid-turn now reaches the turn that is running.** It used to be

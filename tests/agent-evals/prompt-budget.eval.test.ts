@@ -186,6 +186,39 @@ function measureFirstRequest(scenarioId: string): PrefixMeasurement {
  * mode will not fit, and should be made to earn a ceiling move rather than
  * inheriting slack it did not pay for.
  *
+ * # v14.43: computer_call — the whole driver surface for +285
+ *
+ *          + computer pair    + computer_call   delta   ceiling   headroom
+ *   ask        11,396            11,681         +285    12,650      969
+ *   plan       10,831            11,116         +285    12,050      934
+ *   build      15,427            15,430          +3     16,700    1,270
+ *   review     11,047            11,332         +285    12,250      918
+ *   debug      14,836            14,839          +3     16,050    1,211
+ *
+ * WHAT IT BOUGHT: 34 driver tools instead of 8 — the nine browser_* tools (which
+ * read a REAL logged-in browser over CDP with no screenshot and no macOS grant),
+ * the clipboard, app launch, window frames, zoom, drag and pixel input. Registering
+ * them as 34 tools would have cost ~6,000 and, worse, invalidated the prompt CACHE
+ * on every turn of every conversation; schemas are fetched as a tool RESULT instead.
+ *
+ * WHY BUILD AND DEBUG MOVED BY 3 AND NOT 285: their revealed-tool count is already
+ * at its cap (tools=30 before and after), so `computer_call` is reachable there
+ * through `tool_help` rather than bound up front. The read-only modes, which had
+ * the least headroom, are the ones that pay.
+ *
+ * THE CEILINGS MOVE HERE, for the first time since the mobile pair. The note below
+ * predicted this: review (300) and plan (316) had no room left, and this addition
+ * earned the move rather than inheriting slack. They are set at baseline + 8% per
+ * the rule above, which RE-TIGHTENS the ratchet — the old ask ceiling was baseline
+ * + 3.1%, so the effective headroom is now bounded by the rule and not by history.
+ *
+ * AND THE EARLIER LESSON HELD — the design targeted ~250/mode and it came in at
+ * ~285, against ~524 for the previous pair. The difference is the whole point of
+ * one dispatch tool with three parameters: the parameter SCHEMAS are the residue,
+ * since reveal trims prose and keeps every parameter, type and enum.
+ *
+ * The v14.41 note, kept because its prediction came true:
+ *
  * AND IT COST MORE THAN PLANNED — the design targeted ~350/mode and it came in at
  * ~524. Same split as before: the parameter SCHEMAS are the residue, since reveal
  * trims prose and keeps every parameter, type and enum. One lever was already
@@ -206,11 +239,11 @@ function measureFirstRequest(scenarioId: string): PrefixMeasurement {
  * stamp. Don't chase a single-digit difference; the headroom exists for it.
  */
 const BUDGET: Record<string, { minTotal: number; maxTotal: number }> = {
-  ask: { minTotal: 9_250, maxTotal: 11_750 },
-  plan: { minTotal: 8_750, maxTotal: 11_150 },
-  build: { minTotal: 12_450, maxTotal: 15_800 },
-  review: { minTotal: 8_950, maxTotal: 11_350 },
-  debug: { minTotal: 11_950, maxTotal: 15_150 },
+  ask: { minTotal: 9_900, maxTotal: 12_650 },
+  plan: { minTotal: 9_450, maxTotal: 12_050 },
+  build: { minTotal: 13_100, maxTotal: 16_700 },
+  review: { minTotal: 9_650, maxTotal: 12_250 },
+  debug: { minTotal: 12_600, maxTotal: 16_050 },
 };
 
 const CASES = [

@@ -91,12 +91,42 @@ export interface DispatchSpec {
    * rather than an app (`browser_navigate`).
    */
   appTarget?: readonly string[];
-  /** Mutates the desktop → must hold the desk lock. Reads must NOT take it. */
+  /**
+   * How an `appTarget` is checked.
+   *
+   * `"running"` (the default) resolves the value against `list_apps` — the full
+   * three-check seam. `"identity"` checks the NAME only, because the app is not
+   * running yet: `launch_app`'s whole purpose is to start something cold, so
+   * resolving it against a list of running processes would refuse every legitimate
+   * call with "no running application matches".
+   */
+  appTargetKind?: "running" | "identity";
+  /** Mutates something → must hold a lock. Reads must NOT take one. */
   act?: boolean;
+  /**
+   * Which lock. `"browser"` for the CDP-driven tools: they have their own input
+   * queue, move no system cursor and change no frontmost window, so serialising
+   * them behind a desktop act would be a lock that covers more than the resource.
+   */
+  lane?: "desk" | "browser";
   /** Fields carrying text to be typed → `guardTypeTarget` + secure-field refusal. */
   typesInto?: readonly string[];
   /** Fields carrying key names → checked against the closed KEYS set. */
   keyFields?: readonly string[];
+  /**
+   * This tool's `ref` is a PAGE ref, not one of ours.
+   *
+   * Two ref namespaces meet in `computer_call` and they look nothing alike. Ours is
+   * `d3.7` — minted by `computer_inspect`, backed by a driver element token we hold
+   * (`refs.ts`). The browser tools take `p<snapshot>:<index>`, minted by
+   * `get_browser_state` and meaningful only to the driver.
+   *
+   * The dispatcher translates OUR refs into `element_token` before dispatch. Doing
+   * that to a page ref refuses it as malformed — which would have made every
+   * `browser_click` and `browser_type` call fail, i.e. broken the browser surface
+   * that is the main reason this tool exists. So these pass through untouched.
+   */
+  pageRef?: boolean;
   /** Accepts raw pixel coordinates → subject to the input-rung pixel policy. */
   pixels?: boolean;
   /**
@@ -111,10 +141,22 @@ export interface DispatchSpec {
    * not "is destroying unsaved work what the user wanted".
    */
   needsApproval?: boolean;
+  /**
+   * The DRIVER has its own `confirm` parameter — do not treat it as ours.
+   *
+   * A NAME COLLISION worth spelling out. Atlarix's two-step gate for the
+   * irreversible pair reads `input.confirm`, and strips it before dispatch because
+   * it is not a driver field. `install_ffmpeg` already has a `confirm` of its own
+   * (its docs: "called without `confirm` it only REPORTS the exact install command;
+   * pass `confirm: true` to actually run it"). Stripping that one would make the
+   * install step permanently unreachable — every call would report the command and
+   * never run it, looking for all the world like the tool working.
+   */
+  driverConfirm?: boolean;
 }
 
 /**
- * THE 35 MODEL-FACING TOOLS. Absence from this map is a refusal — the map is the
+ * THE 34 MODEL-FACING TOOLS. Absence from this map is a refusal — the map is the
  * allowlist, so a tool added upstream is unreachable until someone decides where it
  * belongs. That is deliberate: a new driver release must not silently widen us.
  */
@@ -160,7 +202,7 @@ export const DISPATCH: Readonly<Record<string, DispatchSpec>> = {
   // ── app lifecycle ─────────────────────────────────────────────────────────
   // `launch_app` names its target by bundle id or display name, never by pid —
   // it is the one place a target is resolved BEFORE a process exists.
-  launch_app: { appTarget: ["bundle_id", "name"], act: true },
+  launch_app: { appTarget: ["bundle_id", "name"], appTargetKind: "identity", act: true },
   // `kill_app` takes ONLY a pid. Without the resolve it would happily kill
   // Atlarix, or a shell mid-command. The resolve stops it reaching us and stops
   // nothing else: `kill -9` on any app discards unsaved work with no undo, and no
@@ -201,13 +243,17 @@ export const DISPATCH: Readonly<Record<string, DispatchSpec>> = {
   // identities — there is no app to re-resolve.
   browser_prepare: { appTarget: ["pid"] },
   get_browser_state: { appTarget: ["pid"] },
-  browser_navigate: { act: true },
-  browser_click: { act: true },
-  browser_type: { act: true, typesInto: ["text"] },
-  browser_pointer: { act: true },
-  browser_dialog: { act: true },
-  browser_download: { act: true },
-  browser_set_input_files: { act: true },
+  browser_navigate: { act: true, lane: "browser" },
+  browser_click: { act: true, lane: "browser", pageRef: true },
+  browser_type: { act: true, lane: "browser", typesInto: ["text"], pageRef: true },
+  browser_pointer: { act: true, lane: "browser", pageRef: true },
+  browser_dialog: { act: true, lane: "browser" },
+  // The driver marks this `destructive: true` and says it "Requires MCP-host
+  // destructive-tool approval". Atlarix IS the MCP host, and had no such approval —
+  // so it gets one here. `destination_root` is host-set (see HOST_OWNED_FIELDS):
+  // the driver proves the file lands inside the approved directory, and the
+  // directory is ours, not the model's.
+  browser_download: { act: true, lane: "browser", needsApproval: true, pageRef: true },
 
   // ── diagnostics ───────────────────────────────────────────────────────────
   // Both were on a proposed denylist and the owner overruled it, correctly.
@@ -218,7 +264,7 @@ export const DISPATCH: Readonly<Record<string, DispatchSpec>> = {
   // manager, and "ffmpeg is run as a separate process, never linked into the
   // driver", so it cannot touch our bundle, signature or notarization.
   check_for_update: {},
-  install_ffmpeg: { act: true },
+  install_ffmpeg: { act: true, driverConfirm: true },
 };
 
 /**
@@ -288,6 +334,24 @@ export const DENIED: Readonly<Record<string, string>> = {
     "Changing the driver's configuration is Atlarix's job, not the model's — it can " +
     "re-enable the telemetry Atlarix deliberately switches off before the driver's " +
     "first run.",
+  /**
+   * AN EXFILTRATION PRIMITIVE, and the clearest one in the driver's surface.
+   *
+   * Its own description: "Assign one or more explicit absolute local files to an
+   * exact live <input type=file> ref through CDP." That is an arbitrary local file
+   * uploaded to an arbitrary web page — reached from a tool whose parameters contain
+   * no command, with no sandbox, no danger gate, no approval card and no ruleset
+   * evaluation. It is the terminal argument from `guards.ts`, pointed outward
+   * instead of inward, and it composes with the browser tools' accepted risk: the
+   * model may be reading attacker-controlled page content while it does this.
+   *
+   * Refusing the whole tool rather than its `files` field, because the field IS the
+   * tool.
+   */
+  browser_set_input_files:
+    "Uploading local files to a web page is not available. It would send a file from " +
+    "this machine to a site, outside every check Atlarix puts on file access. Ask the " +
+    "user to attach the file themselves.",
   page: "`page` is a deprecated compatibility shim. Use the browser_* tools instead.",
   escalate_session: "`escalate_session` is deprecated upstream and does nothing useful here.",
   get_session_state: "`get_session_state` is a deprecated alias. Use get_session.",
@@ -305,7 +369,60 @@ export const MODEL_FACING_TOOLS: readonly string[] = Object.keys(DISPATCH).sort(
  * than refused: the model passing it is a harmless mistake, not an attack, and a
  * refusal there would be noise.
  */
-export const HOST_OWNED_FIELDS: readonly string[] = ["session"];
+export const HOST_OWNED_FIELDS: readonly string[] = [
+  "session",
+  // FILESYSTEM DESTINATIONS THE MODEL DOES NOT CHOOSE.
+  //
+  // `screenshot_out_file` is how Atlarix keeps image bytes out of this process —
+  // the driver writes a PNG to a path WE pick. Exposed to the model it is an
+  // arbitrary-file-write primitive: a PNG at any path the app can write, with no
+  // sandbox, no approval card and no ruleset evaluation, from a tool whose
+  // parameters contain no path. `debug_image_out` (on `click`) is the same thing
+  // wearing a debug name, and `output_dir` is the recorder's.
+  //
+  // Stripped rather than refused: a model passing one is making a harmless mistake
+  // about who owns the field, and we overwrite it anyway.
+  "screenshot_out_file",
+  "debug_image_out",
+  "output_dir",
+  "destination_root",
+];
+
+/**
+ * FIELDS THAT ARE A REFUSAL, not a strip.
+ *
+ * The distinction matters. A host-owned field is one we overwrite, so ignoring the
+ * model's value changes nothing it cared about. These fields ARE the request: strip
+ * `files` from `browser_set_input_files` and the call succeeds having uploaded
+ * nothing, which teaches the model that it worked.
+ *
+ * Every one of them is a filesystem or process capability that reaches around the
+ * command-permission system — the same argument `guards.ts` makes about terminals,
+ * arriving through a tool whose parameters contain no command:
+ *
+ *   - `file_path` / `image_path` on `clipboard_write` load a local file INTO the
+ *     clipboard, and `clipboard_read` reads it straight back out. That is an
+ *     arbitrary local file read — `~/.ssh/id_rsa`, `~/.aws/credentials` — with no
+ *     workspace boundary and nothing to approve.
+ *   - `additional_arguments` on `launch_app` passes arbitrary argv to an arbitrary
+ *     application, and `webkit_inspector_port` opens a debugging server on it.
+ */
+export const REFUSED_FIELDS: readonly string[] = [
+  "file_path",
+  "image_path",
+  "additional_arguments",
+  "webkit_inspector_port",
+];
+
+/** The refusal wording for one of those, naming the supervised alternative. */
+export function refusedFieldReason(tool: string, field: string): string {
+  return (
+    `\`${field}\` is not available on ${tool} in Atlarix: it reaches the filesystem or ` +
+    `another process outside the command-permission system, with no sandbox and no ` +
+    `approval card. Atlarix will not do this. Do not retry — use read_file, write_file ` +
+    `or run_command, which are the supervised paths for exactly this.`
+  );
+}
 
 export type DispatchVerdict =
   | { allowed: true; spec: DispatchSpec }

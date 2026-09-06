@@ -22,12 +22,13 @@
  * chain, so copying it would inherit a leak.
  */
 import { execFile, spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { app } from "electron";
 import log from "electron-log";
 import { readSettings } from "@/main/settings";
+import { isManifestExpiry, writeManifest } from "./manifest";
 import {
   missingBinaryMessage,
   resolveComputerBinary,
@@ -312,6 +313,72 @@ export async function clearStaleSocket(bin: string, sock: string): Promise<void>
   }
 }
 
+/**
+ * FAIL CLOSED ON THE MODE, because a silent downgrade is the failure that matters.
+ *
+ * `serve` can start without the manifest — that is what shipped before this — and
+ * the only visible difference is a line in `status`. If a future flag change, a
+ * malformed manifest we somehow accept, or an already-running daemon started by
+ * something else leaves us in standard mode, every tool in `computer_call` is
+ * reachable with no driver-side ceiling at all, and nothing else would say so.
+ *
+ * `status` reports the mode and whether the manifest was approved at startup, so
+ * this asserts both rather than trusting the flags we passed. The check also covers
+ * the case the flags cannot: a daemon we did NOT spawn (another window, or a `serve`
+ * the user started), which `ensureDaemon` deliberately adopts.
+ */
+async function assertBounded(bin: string): Promise<void> {
+  const r = await run(bin, ["status", "--socket", socketPath()], 8_000);
+  const out = r.ok ? r.stdout : "";
+  const bounded = /permission mode:\s*bounded/i.test(out);
+  const approved = /capability manifest:.*approved_at_startup=true/i.test(out);
+  if (bounded && approved) return;
+  try {
+    child?.kill();
+  } catch {
+    /* already gone */
+  }
+  child = null;
+  ready = false;
+  throw new ComputerUseError(
+    "not-ready",
+    "The desktop-control helper is running without its capability ceiling " +
+      `(${bounded ? "manifest not approved at startup" : "not in bounded mode"}). Atlarix ` +
+      "will not use it in that state. Ask the user to quit any `cua-driver serve` they " +
+      "started themselves and restart Atlarix; do not retry.",
+  );
+}
+
+// ── the driver's own agent cursor ────────────────────────────────────────────
+
+/**
+ * Whether the driver should draw its per-session cursor.
+ *
+ * `overlay.ts` used to claim layer 1 "ships regardless of anything here". It did
+ * not: the driver's cursor is documented as minted per SESSION, and Atlarix drove
+ * the daemon with one-shot `call`s and never opened one — so no cursor was ever
+ * drawn, and the Settings toggle governed only our own green outlines while
+ * describing both.
+ */
+export function driverCursorWanted(): boolean {
+  try {
+    const s = readSettings();
+    if (s.computerUse === false) return false;
+    return s.computerUseConfig?.overlay !== false;
+  } catch {
+    return true;
+  }
+}
+
+/** The reduced-motion setting, in the driver's own vocabulary. */
+export function reducedMotionSetting(): "auto" | "on" | "off" {
+  try {
+    return readSettings().computerUseConfig?.reducedMotion ?? "auto";
+  } catch {
+    return "auto";
+  }
+}
+
 async function spawnDaemon(bin: string): Promise<void> {
   const sock = socketPath();
   assertSocketPathFits(sock);
@@ -322,6 +389,36 @@ async function spawnDaemon(bin: string): Promise<void> {
   // relaunch itself as CuaDriver.app and the user would be asked to grant
   // Accessibility to a stranger.
   const args = ["serve", "--embedded", "--socket", sock];
+
+  /**
+   * BOUNDED MODE + THE CAPABILITY MANIFEST — the driver's own ceiling.
+   *
+   * `--capability-manifest` is narrow-only and REQUIRES `--permission-mode bounded`
+   * plus `--approve-capability-manifest` ("the trusted launcher asserts that the
+   * human reviewed this exact manifest"). Atlarix is that launcher: the manifest is
+   * generated from `dispatch.ts`, so what it approves is what the code decided.
+   *
+   * Note what is NOT here. `--grant existing-profile` is refused in this mode —
+   * "--grant is valid only in standard permission mode" — and it is unnecessary,
+   * because the same capability is `unattended_in_bounded` and the manifest declares
+   * it. Reaching for the flag would silently force us back to standard mode.
+   */
+  const manifest = writeManifest();
+  args.push(
+    "--permission-mode",
+    "bounded",
+    "--capability-manifest",
+    manifest,
+    "--approve-capability-manifest",
+  );
+
+  /**
+   * The driver's own agent cursor, bound to the Settings control that already
+   * exists. `--no-overlay` is a spawn-time flag; the live toggle is
+   * `set_agent_cursor_enabled`, which `setDriverCursorEnabled` below uses so
+   * flipping the setting does not need a daemon restart.
+   */
+  if (!driverCursorWanted()) args.push("--no-overlay");
 
   const proc = spawn(bin, args, {
     stdio: ["ignore", "pipe", "pipe"],
@@ -353,6 +450,7 @@ async function spawnDaemon(bin: string): Promise<void> {
   while (Date.now() - started < READY_TIMEOUT_MS) {
     if (child !== proc) break; // it exited while we waited
     if (await daemonRunning(bin)) {
+      await assertBounded(bin);
       ready = true;
       const version = await run(bin, ["--version"], 8_000);
       logger.info(
@@ -390,7 +488,22 @@ async function spawnDaemon(bin: string): Promise<void> {
  * the effect is UNKNOWN rather than that it failed, because a click may well have
  * landed.
  */
-export async function ensureDaemon(): Promise<string> {
+/**
+ * May we invoke the driver at all, and where is it?
+ *
+ * SPLIT OUT OF `ensureDaemon` because not every use of the driver needs a daemon.
+ * `dump-docs` and `describe` read the binary's own registry: no socket, no TCC
+ * grant, no GUI session — which is exactly why `self-test.ts` can assert the driver
+ * contract on a headless CI runner. Starting a daemon to read documentation would
+ * make a cheap call expensive and, on macOS, could provoke a permission prompt at a
+ * moment the user has no context for.
+ *
+ * The three gates still apply to those calls, in this order and for this reason:
+ * the settings kill switch is the user's decision and outranks everything; the OS
+ * floor is a permanent fact, not a transient failure; a missing binary is a build
+ * problem. Each maps to a different error wording category.
+ */
+export function assertComputerUseAllowed(): string {
   if (!computerUseEnabled()) {
     throw new ComputerUseError(
       "disabled-by-setting",
@@ -403,6 +516,11 @@ export async function ensureDaemon(): Promise<string> {
 
   const bin = resolveComputerBinary("cua-driver");
   if (!bin) throw new ComputerUseError("not-installed", missingBinaryMessage("cua-driver"));
+  return bin;
+}
+
+export async function ensureDaemon(): Promise<string> {
+  const bin = assertComputerUseAllowed();
 
   if (child && ready) return bin;
 
@@ -447,6 +565,183 @@ export function exhaustStartBudgetForTests(): void {
   startCount = MAX_STARTS;
 }
 
+// ── the driver's tool registry, read once ────────────────────────────────────
+
+/**
+ * `dump-docs --type json` — every tool's description and schema in ONE spawn.
+ *
+ * It lives here rather than in `tool-catalogue.ts` because this is the module that
+ * shells out to the driver, and because `callDriver` itself needs one fact from it
+ * (which tools accept a `session`). Putting it the other way round would make
+ * `driver-session` import `tool-catalogue` import `driver-session`.
+ *
+ * No daemon, no socket, no TCC grant: this reads the binary's own registry, which
+ * is why it is gated on `assertComputerUseAllowed()` and not on `ensureDaemon()`.
+ */
+export interface RawDriverTool {
+  name?: string;
+  description?: string;
+  input_schema?: {
+    properties?: Record<string, Record<string, unknown>>;
+    required?: string[];
+  };
+}
+
+let docsCache: { key: string; tools: RawDriverTool[] } | null = null;
+
+export async function dumpDocsJson(): Promise<RawDriverTool[]> {
+  const bin = assertComputerUseAllowed();
+  let key = bin;
+  try {
+    key = `${bin}:${statSync(bin).mtimeMs}`;
+  } catch {
+    /* keep the path alone */
+  }
+  if (docsCache && docsCache.key === key) return docsCache.tools;
+
+  const r = await run(bin, ["dump-docs", "--type", "json"], 30_000);
+  if (!r.ok) {
+    throw new ComputerUseError("spawn-failed", `cua-driver dump-docs: ${r.error}`);
+  }
+  const start = r.stdout.search(/[[{]/);
+  const parsed = JSON.parse(r.stdout.slice(start < 0 ? 0 : start)) as {
+    mcp?: { tools?: RawDriverTool[] };
+  };
+  const tools = parsed.mcp?.tools ?? [];
+  docsCache = { key, tools };
+  return tools;
+}
+
+/**
+ * Which tools take a `session`, read from their schemas rather than listed here.
+ *
+ * It is NOT all of them — `list_windows` has only `{on_screen_only, pid}` — and
+ * sending an unknown field to a schema with `additionalProperties: false` is an
+ * error, so this cannot be a guess.
+ */
+async function sessionAcceptingTools(): Promise<Set<string>> {
+  const tools = await dumpDocsJson();
+  const out = new Set<string>();
+  for (const t of tools) {
+    if (t.name && t.input_schema?.properties && "session" in t.input_schema.properties) {
+      out.add(t.name);
+    }
+  }
+  return out;
+}
+
+// ── the session, and the cursor it mints ─────────────────────────────────────
+
+/**
+ * ONE NAMED SESSION FOR THE DAEMON'S LIFETIME, and the reason is the cursor.
+ *
+ * The driver's agent cursor is keyed by session id, and each `cua-driver call` is a
+ * separate process on a fresh connection — so with `session` omitted every action
+ * gets the transport's own implicit session, i.e. a different one each time. That
+ * is why nothing coherent was ever drawn, and why `overlay.ts`'s claim that layer 1
+ * "ships regardless" was wrong. The driver's own guidance says the same thing from
+ * the other direction: "prefer a short public session label and repeat it on every
+ * call that accepts it".
+ */
+const SESSION_LABEL = "atlarix";
+
+let sessionOpen = false;
+/** The cursor state we last pushed, so a settings change is detectable for free. */
+let pushedCursor: { enabled: boolean; motion: string } | null = null;
+
+async function callOnce(
+  bin: string,
+  tool: string,
+  input: Record<string, unknown>,
+): Promise<unknown> {
+  const r = await run(
+    bin,
+    ["call", tool, JSON.stringify(input), "--socket", socketPath()],
+    15_000,
+  );
+  if (!r.ok) return null;
+  const start = r.stdout.search(/[[{]/);
+  if (start < 0) return null;
+  try {
+    return JSON.parse(r.stdout.slice(start)) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Push the two Settings controls onto the driver's cursor.
+ *
+ * `reduced_motion` rides on `set_agent_cursor_theme`, NOT on
+ * `set_agent_cursor_motion` — the latter is movement PHYSICS (spring, arc size,
+ * dwell) and carries no such field. The theme call requires a `theme_id`, and
+ * rather than inventing one we read the session's current theme back and re-send it
+ * with the motion preference attached.
+ *
+ * Best-effort throughout: a cursor is a visual nicety and must never be the reason
+ * an action fails — the same doctrine as `overlay.ts` and the mobile tap feedback.
+ */
+async function syncCursor(bin: string): Promise<void> {
+  const enabled = driverCursorWanted();
+  const motion = reducedMotionSetting();
+  if (pushedCursor && pushedCursor.enabled === enabled && pushedCursor.motion === motion) return;
+  pushedCursor = { enabled, motion };
+  try {
+    await callOnce(bin, "set_agent_cursor_enabled", { session: SESSION_LABEL, enabled });
+    const state = (await callOnce(bin, "get_agent_cursor_state", {
+      session: SESSION_LABEL,
+    })) as { theme_id?: unknown; theme?: { id?: unknown } } | null;
+    const themeId = String(state?.theme_id ?? state?.theme?.id ?? "").trim();
+    if (themeId) {
+      await callOnce(bin, "set_agent_cursor_theme", {
+        session: SESSION_LABEL,
+        theme_id: themeId,
+        reduced_motion: motion,
+      });
+    }
+  } catch {
+    /* no cursor; every action continues regardless */
+  }
+}
+
+/**
+ * THE TCC CROSS-CHECK, once per session.
+ *
+ * `--embedded` means the driver inherits ATLARIX's grants and never raises its own
+ * prompt: measured, `check_permissions` reports `attribution: "host"`,
+ * `embedded: true`. That is the whole basis of the permission story the Settings
+ * panel tells the user — they grant Accessibility to Atlarix, by name, and nothing
+ * else ever asks.
+ *
+ * If it ever reports something else, the app is telling the user something untrue.
+ * Logged at WARN rather than refused: the grants themselves still work, so failing
+ * the feature would be a worse outcome than a loud log — but it must not pass
+ * silently either.
+ */
+async function assertHostAttribution(bin: string): Promise<void> {
+  const perms = (await callOnce(bin, "check_permissions", {})) as {
+    source?: { attribution?: unknown; embedded?: unknown };
+  } | null;
+  const source = perms?.source;
+  if (!source) return;
+  if (source.attribution !== "host" || source.embedded !== true) {
+    logger.warn(
+      `[computer-use] permission attribution is not the host: ` +
+        `attribution=${String(source.attribution)} embedded=${String(source.embedded)} — ` +
+        `Settings tells the user grants belong to Atlarix, and that may no longer be true`,
+    );
+  }
+}
+
+async function ensureSession(bin: string): Promise<void> {
+  if (!sessionOpen) {
+    await callOnce(bin, "start_session", { session: SESSION_LABEL });
+    sessionOpen = true;
+    await assertHostAttribution(bin);
+  }
+  await syncCursor(bin);
+}
+
 /**
  * One tool call through the daemon.
  *
@@ -460,11 +755,34 @@ export async function callDriver(
   opts?: { screenshotOutFile?: string; timeoutMs?: number },
 ): Promise<unknown> {
   const bin = await ensureDaemon();
-  const args = ["call", tool, JSON.stringify(input), "--socket", socketPath()];
+  await ensureSession(bin);
+
+  let payload = input;
+  try {
+    if ((await sessionAcceptingTools()).has(tool)) {
+      payload = { ...input, session: SESSION_LABEL };
+    }
+  } catch {
+    // Without the registry we simply do not label the call: it still works, it
+    // just draws on the implicit session's cursor.
+  }
+
+  const args = ["call", tool, JSON.stringify(payload), "--socket", socketPath()];
   if (opts?.screenshotOutFile) args.push("--screenshot-out-file", opts.screenshotOutFile);
 
   const r = await run(bin, args, opts?.timeoutMs ?? CALL_TIMEOUT_MS);
   if (!r.ok) {
+    // A manifest that has aged out fails EVERY call, with a message about
+    // authorization rather than about the tool. Left untranslated a model reads it
+    // as "this tool is broken" and moves on to another one, which fails the same
+    // way — so name the actual fix.
+    if (isManifestExpiry(r.error)) {
+      throw new ComputerUseError(
+        "not-ready",
+        "Desktop control's authorization has expired for this run of Atlarix. Nothing is " +
+          "wrong with the request. Tell the user to restart Atlarix; do not retry.",
+      );
+    }
     throw new ComputerUseError("spawn-failed", `cua-driver ${tool}: ${r.error}`);
   }
   const text = r.stdout.trim();
@@ -494,6 +812,23 @@ export async function stopComputerUse(): Promise<void> {
   ready = false;
   const bin = resolveComputerBinary("cua-driver");
   if (bin) {
+    // End the named session first, so its cursor, recording and configuration
+    // cleanup hooks run "exactly once" (the driver's word) rather than being torn
+    // down with the process. `stop` alone would leave the cursor's teardown to a
+    // socket close.
+    if (sessionOpen) {
+      sessionOpen = false;
+      pushedCursor = null;
+      try {
+        await run(
+          bin,
+          ["call", "end_session", JSON.stringify({ session: SESSION_LABEL }), "--socket", socketPath()],
+          5_000,
+        );
+      } catch {
+        /* the daemon may already be gone */
+      }
+    }
     try {
       await run(bin, ["stop", "--socket", socketPath()], 5_000);
     } catch {

@@ -485,6 +485,9 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
     name: "computer-use",
     run: async () => {
       const { execFileSync, spawnSync } = await import("node:child_process");
+      const os = await import("node:os");
+      const path = await import("node:path");
+      const { rmSync } = await import("node:fs");
 
       /**
        * Run a bundled binary WITHOUT throwing on a non-zero exit.
@@ -509,14 +512,16 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
       const { resolveComputerBinary } = await import("@/lib/computer/resolve-binary");
       const { telemetryIsOptedOut, telemetryOptOutPath, ensureTelemetryOptOut } =
         await import("@/lib/computer/driver-session");
+      const { writeManifest } = await import("@/lib/computer/manifest");
 
       const notes: string[] = [];
 
-      // NO `try/finally` KILLING CHILDREN, because there are none to kill. Every
-      // call below is `spawnSync`/`execFileSync` — a synchronous one-shot that has
-      // already terminated — and the probe never starts the `serve` daemon. The
-      // loop that used to be here iterated an array nothing ever pushed to, which
-      // is worse than nothing: it reads as protection that is not there.
+      // ONE child needs cleaning up, and it has its OWN `finally` rather than a
+      // shared one: the manifest probe (4c) starts a `serve` with a timeout, and
+      // stops it on the spot. Everything else here is `spawnSync`/`execFileSync` —
+      // a synchronous one-shot that has already terminated — so a blanket
+      // try/finally would still be iterating an array nothing pushes to, which is
+      // worse than nothing: it reads as protection that is not there.
       //
       // WHAT IS STILL NOT GUARANTEED, and it matters on Windows: a GRANDCHILD.
       // `cua-driver doctor` logs `UIA health probe exceeded 2000ms; falling back to
@@ -663,6 +668,70 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
         }
       }
       notes.push(`contract ok on ${process.platform}`);
+
+      /**
+       * 4c. THE CAPABILITY MANIFEST ACTUALLY PARSES, on this platform's driver.
+       *
+       * The manifest is what puts the daemon in bounded mode, and `driver-session`
+       * refuses to use a daemon that is NOT in bounded mode — deliberately, so a
+       * silent downgrade is impossible. The cost of that choice is that a manifest
+       * the driver rejects does not degrade the feature, it DISABLES it. On a pin
+       * bump that changes the schema, the first person to find out would be a user.
+       *
+       * The authorization check runs before the socket bind (a bad manifest prints
+       * "authorization startup error" and never prints "listening"), so a short-
+       * lived `serve` is a complete test of it. Only an AUTHORIZATION failure is
+       * treated as a build failure: a CI runner where `serve` cannot start for
+       * unrelated reasons — no window server, no interactive desktop — must not
+       * turn into a red build about the manifest.
+       */
+      const manifestFile = writeManifest();
+      const probeSocket =
+        process.platform === "win32"
+          ? `\\\\.\\pipe\\atlarix-cua-selftest`
+          : path.join(os.tmpdir(), `atlarix-cua-st-${process.pid}.sock`);
+      try {
+        const served = run(
+          driver,
+          [
+            "serve",
+            "--embedded",
+            "--socket",
+            probeSocket,
+            "--permission-mode",
+            "bounded",
+            "--capability-manifest",
+            manifestFile,
+            "--approve-capability-manifest",
+          ],
+          4_000,
+        );
+        const out = `${served.stdout}${served.stderr}`;
+        if (/authorization startup error|capability manifest/i.test(out)) {
+          throw new Error(
+            `the capability manifest was rejected by cua-driver on ${process.platform}: ` +
+              `${out.trim().slice(0, 300)} — desktop control would refuse to start`,
+          );
+        }
+        // A timeout here is the SUCCESS case: it means startup got past
+        // authorization and the daemon is listening.
+        notes.push(
+          served.signal ? "manifest accepted (daemon started)" : `manifest ok (${out.trim().slice(0, 60)})`,
+        );
+      } finally {
+        try {
+          run(driver, ["stop", "--socket", probeSocket], 5_000);
+        } catch {
+          /* nothing to stop */
+        }
+        if (process.platform !== "win32") {
+          try {
+            rmSync(probeSocket, { force: true });
+          } catch {
+            /* best effort */
+          }
+        }
+      }
 
       // 5. macOS: THE SPI PROBE'S SHAPE, not its verdict. Asserting
       //    `slps_post_event === true` would fail the build the day Apple

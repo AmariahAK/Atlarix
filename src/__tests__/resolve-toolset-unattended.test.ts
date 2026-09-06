@@ -27,6 +27,7 @@ const DRIVES_A_VIEW = [
   "mobile",
   "mobile_inspect",
   "computer",
+  "computer_call",
   "computer_inspect",
 ] as const;
 

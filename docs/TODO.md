@@ -8,6 +8,32 @@ chain behind it — the queued flush pre-empting a question card, a stop latch a
 clear (five sub-agent wakes refused), a sub-agent card frozen mid-count — and the user bubble's
 glare.
 
+**Owed for v14.43.0 (desktop computer use — unreleased, no CHANGELOG version bump yet):**
+- **RELEASE IS BLOCKED ON THE ACTIONS BUDGET.** The spending limit was exhausted by five
+  full-matrix dispatches; private-repo CI fails in ~3s with an EMPTY log and the cause only in the
+  run annotations. Raise it before tagging.
+- **Nothing in `computer_call` has been exercised against a real desktop.** The guards, the
+  manifest and the schema catalogue are covered by 110 tests including live checks against the
+  shipped binary, but no click has landed. In the PACKAGED app, with both grants: a browser read
+  of a logged-in Airtable/Metabase page (`browser_prepare` → `get_browser_state`), `clipboard_read`,
+  `launch_app`, and a pixel click driven from an OCR read on a canvas app.
+- **The driver's own cursor has never been SEEN.** `start_session` now mints it and both Settings
+  controls push to it live — verify it draws, and that unchecking *Show what it is doing* stops it
+  without a restart.
+- **`kill_app` and `browser_download` have a model-side confirm, NOT a user approval card.** A real
+  card needs a new operation in `PermissionInterceptor`, a preview type, an executor and a renderer
+  component; a `__permission_required` envelope carrying an operation the renderer cannot draw would
+  hang the turn on approval that never appears. Deliberate, and the card is the right end state.
+- **Bounded mode expires** (24h absolute, 12h idle). Past that every call fails with an
+  authorization error, translated to "restart Atlarix". Nobody has run an app session long enough
+  to see it.
+- **`clipboard_write` + an allowed `cmd+V` is an unguarded paste path**, including into a secure
+  field. Materially harder to misuse than typing (the model must already hold the text) and closing
+  it needs an element, which is the same problem `type_text` solves with a ref. Known residual.
+- **Windows and Linux are unverified**, as ever: SIP blocks `tccutil`, the Windows runner has no
+  interactive desktop, Linux CI runs under xvfb. The self-test now asserts the capability manifest
+  parses on each platform, which is the one new thing CI can hold.
+
 **Owed for v14.42.0:**
 - **The mid-turn path is UNVERIFIED in a packaged build.** Type mid-stream, confirm the row
   appears in front of the streaming text and the assistant KEEPS streaming underneath it, then the

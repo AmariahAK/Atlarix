@@ -192,6 +192,7 @@ const BROWSER_TEXT_TOOLS = new Set([
   "mobile_inspect",
   "computer_inspect",
   "computer",
+  "computer_call",
   "mobile",
 ]);
 // browser_inspect(mode:"screenshot") returns a PNG payload; the screenshot

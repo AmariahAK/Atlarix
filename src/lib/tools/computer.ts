@@ -30,7 +30,15 @@
  * Linux there is no equivalent, and the docs say so rather than implying parity.
  */
 import { ToolRegistry } from "./registry";
-import { listApps, resolveTargetApp, type DesktopApp } from "@/lib/computer/apps";
+import {
+  listApps,
+  resolveTargetApp,
+  stripSelfFromResult,
+  type DesktopApp,
+} from "@/lib/computer/apps";
+import { MODEL_FACING_TOOLS } from "@/lib/computer/dispatch";
+import { prepareDispatch } from "@/lib/computer/dispatch-guard";
+import { describeDriverTool } from "@/lib/computer/tool-catalogue";
 import {
   findElements,
   formatWindow,
@@ -474,6 +482,172 @@ ToolRegistry.register({
 
         return { success: false, error: `Unknown action "${action}".` };
       });
+    } catch (e) {
+      return toFailure(e);
+    }
+  },
+});
+
+// ── computer_call ───────────────────────────────────────────────────────────
+
+/**
+ * THE FULL DRIVER SURFACE, through one tool.
+ *
+ * `computer_inspect` + `computer` reach 8 of cua-driver's 56 tools. That was a
+ * prompt-budget decision and it was a real capability ceiling: the nine `browser_*`
+ * tools (which read a REAL logged-in browser's DOM over CDP, needing no macOS grant)
+ * and `clipboard_read` and `launch_app` were all unreachable, and the model shelled
+ * out to `open -a` because of the last one and then walked into the terminal
+ * refusal.
+ *
+ * The curated pair stays as the cheap default for the common case — read a window,
+ * click a ref. This is the escape hatch, and it costs the prompt one parameter
+ * schema and a list of names rather than 56 schemas. See `tool-catalogue.ts` for why
+ * that difference is about the prompt CACHE and not only about tokens.
+ *
+ * EVERY GUARD IS IN `dispatch-guard.ts`, not here. This function's job is to hand
+ * `{tool, input}` to `prepareDispatch`, take the lock the spec asks for, and turn
+ * the result into a tool envelope. A guard added to this handler instead of to that
+ * file is a guard the tests do not reach.
+ */
+ToolRegistry.register({
+  name: "computer_call",
+  requiresWorkspace: false,
+  isCore: false,
+  isReadOnly: false,
+  allowInAskMode: true,
+  description:
+    // ONE sentence, <200 chars, no internal ". " — see computer_inspect for why.
+    "Call one cua-driver tool directly by name — the full desktop surface beyond `computer`: browsers, clipboard, app launch, window frames, zoom, drag and pixel-addressed input.\n" +
+    'Pass describe:true with a `tool` to get that tool\'s parameters before calling it. Schemas are not in this prompt — fetch the one you need, once.\n' +
+    "Prefer `ref` over x,y wherever a tool takes one: a ref comes from computer_inspect, survives a moved window, and names what is being touched.\n" +
+    "The browser_* tools attach to the user's REAL browser and read logged-in pages (Airtable, Metabase, an admin console) with no screenshot and no macOS grant — start with browser_prepare, then get_browser_state.\n" +
+    "Atlarix's own window is never a target, terminals and credential managers are never targets, and there is no screen-absolute (whole-desktop) coordinate form.",
+  parameters: {
+    type: "object",
+    properties: {
+      tool: {
+        type: "string",
+        // THE NAMES LIVE IN THE ENUM, not in the description. An enum is what a
+        // model's constrained decoding can actually hold it to, and it is the same
+        // token cost either way.
+        enum: [...MODEL_FACING_TOOLS],
+        description: "Which driver tool to call.",
+      },
+      input: {
+        type: "object",
+        description:
+          "The tool's parameters. Use describe:true first if you do not know them.",
+      },
+      describe: {
+        type: "boolean",
+        description: "Return the tool's parameters instead of calling it.",
+      },
+    },
+    required: ["tool"],
+    additionalProperties: false,
+  },
+  handler: async (rawArgs: unknown) => {
+    const args = (rawArgs ?? {}) as Args;
+    const tool = str(args.tool);
+    if (!tool) {
+      return {
+        success: false,
+        error: "computer_call needs a `tool` name. Its `tool` parameter lists every valid one.",
+      };
+    }
+
+    try {
+      if (args.describe === true) {
+        const doc = await describeDriverTool(tool);
+        if (!doc.ok) return { success: false, error: doc.error };
+        return {
+          success: true,
+          title: `${tool} — parameters`,
+          content:
+            `${doc.doc.description}\n\nParameters (as Atlarix accepts them — the driver's own ` +
+            `session, screen-absolute and file-path fields are not offered):\n` +
+            JSON.stringify(
+              { properties: doc.doc.properties, ...(doc.doc.required ? { required: doc.doc.required } : {}) },
+              null,
+              1,
+            ),
+        };
+      }
+
+      // The grant gate, before any work. Same reasoning as the other two tools:
+      // without Accessibility the driver still ANSWERS, with an empty tree, and a
+      // model reads that as "nothing there" rather than "ask for permission".
+      // browser_* is the exception the driver documents — CDP needs no TCC — so it
+      // is deliberately allowed through.
+      if (!tool.startsWith("browser_") && tool !== "get_browser_state") {
+        const grantMissing = missingGrantMessage("accessibility");
+        if (grantMissing) return { success: false, error: grantMissing };
+      }
+
+      const prep = await prepareDispatch(tool, args.input);
+      if (!prep.ok) return { success: false, error: prep.error };
+      const { input, spec, app, label } = prep.prepared;
+
+      /**
+       * THE IRREVERSIBLE PAIR, and an honest note about what this gate is.
+       *
+       * This is a two-step confirm by the MODEL, in the shape cua-driver uses for
+       * `install_ffmpeg` — not a user approval card. A real card means a new
+       * operation in `PermissionInterceptor`, a preview type, an executor and a
+       * renderer component; a `__permission_required` envelope carrying an operation
+       * the renderer cannot draw would hang the turn on approval that never appears,
+       * which is worse than this. The card is the right end state and is written up
+       * as outstanding rather than quietly skipped.
+       */
+      if (spec.needsApproval && input.confirm !== true) {
+        if (!spec.driverConfirm) delete input.confirm;
+        return {
+          success: false,
+          error:
+            `${tool} is irreversible${app ? ` and would act on ${app.name}` : ""} — ` +
+            `\`kill_app\` discards unsaved work with no undo, and a download writes a file. ` +
+            `Nothing was done. If the user has asked for this, call again with ` +
+            `input.confirm: true. If they have not, ask them first with ask_user.`,
+        };
+      }
+      // Only ours. `install_ffmpeg` owns a `confirm` of its own — see driverConfirm.
+      if (!spec.driverConfirm) delete input.confirm;
+
+      const call = async () => {
+        const raw = await callDriver(tool, input);
+        const result = spec.selfFilterResult ? stripSelfFromResult(tool, raw) : raw;
+        /**
+         * A HARD CEILING ON THE RESULT, because this path has no formatter.
+         *
+         * `computer_inspect` reads the same `get_window_state` and renders 60
+         * elements as a few hundred tokens. Here the driver's raw payload goes
+         * straight back, and a dense window is tens of thousands of characters of
+         * tokens and frames the model cannot use — it holds no driver tokens. So it
+         * is cut, and the cut SAYS which tool renders it properly rather than
+         * leaving a truncated JSON document to be puzzled over.
+         */
+        const json = JSON.stringify(result) ?? "";
+        const cut = json.length > 6_000;
+        return {
+          success: true,
+          title: label,
+          content:
+            `${tool} → ${json.slice(0, 6_000)}\n` +
+            (cut
+              ? `[cut at 6,000 of ${json.length} characters. For a window's contents use ` +
+                `computer_inspect, which renders the same read as text with refs you can act on.]\n`
+              : "") +
+            (spec.act
+              ? "Re-read the window if this changed it — refs from before this may be gone."
+              : ""),
+        };
+      };
+
+      // Reads take no lock at all; acts take the lane their spec names. See
+      // `desk-lock.ts` for why the browser is a separate lane and not the same one.
+      if (!spec.act) return await call();
+      return await withDesk(label, call, { lane: spec.lane ?? "desk" });
     } catch (e) {
       return toFailure(e);
     }

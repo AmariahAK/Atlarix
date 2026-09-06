@@ -151,6 +151,7 @@ const QA_SUBAGENT_TOOL_NAMES = [
   "mobile",
   "computer",
   "computer_inspect",
+  "computer_call",
   "mobile_inspect",
 ] as const;
 

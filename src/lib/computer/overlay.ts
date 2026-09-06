@@ -3,10 +3,17 @@
  *
  * # Two layers, and this is the second
  *
- * cua-driver already draws a per-session CURSOR showing where it acts — on by
- * default, and available to us because we run `serve` (the overlay is documented as
- * "serve only — needs the daemon UI runloop"). That is layer 1 and it ships
- * regardless of anything here.
+ * cua-driver draws a per-session CURSOR showing where it acts, available to us
+ * because we run `serve` (the overlay is documented as "serve only — needs the
+ * daemon UI runloop"). That is layer 1.
+ *
+ * IT DID NOT ALWAYS SHIP. This comment used to say layer 1 "ships regardless of
+ * anything here", and that was wrong for a reason worth keeping: the cursor is
+ * keyed by SESSION id, every `cua-driver call` is a separate process on a fresh
+ * connection, and Atlarix opened no session — so each action drew on a different
+ * implicit session and nothing coherent ever appeared. `driver-session.ts` now
+ * opens one named session for the daemon's lifetime and labels every call with it,
+ * which is what makes the sentence above true.
  *
  * It cannot outline an ELEMENT, though: `cursor-theme build` takes a `.lottie`
  * source, so a theme animates a pointer. The owner asked for outlines on the
