@@ -18,6 +18,54 @@ leftover probe socket and no running Atlarix. Next step is still the grandchild
 experiment recorded above, but it should now be run on macOS, where a debugger is
 actually available.
 
+## Queued 2026-09-06 (owner) — UX + product, unrelated to computer use
+
+- [ ] **Why "truncated" in a deep web search.** Observed in the owner's own transcript:
+  the model's thoughts read *"The deep search returned some content but mostly
+  resilience-focused and truncated"* — so it SAW our truncation marker and worked
+  around it with more searches. `src/lib/tools/web.ts`: `DEEP_FETCH_MAX = 20_000`
+  per page, `READ_URL_DEFAULT_MAX = 20_000`, and `truncateForRead()` appends
+  `"... [Content truncated]"`. Two different questions to separate before touching a
+  number: is 20K/page genuinely too small for the pages deep search picks, or is the
+  synthesis step dropping content that WAS fetched? Measure one real deep query
+  before changing a cap — v13.1 already raised this once from 5K.
+
+- [ ] **Keep an unsent draft when the app closes.** Typing a long message and quitting
+  loses it, which forces the user to retype something they may no longer remember.
+  Persist per SESSION (not globally — a draft belongs to the conversation it was
+  typed in), restore on open, clear on send. `src/components/SimpleChatInput.tsx`.
+  Watch the two-store split ([[atlarix-chat-stores]]): ephemeral sessions are numeric
+  ids and persisted ones are UUIDs, so the key has to survive a session being
+  persisted mid-draft.
+
+- [ ] **Language option — LLM output and UI.** Thirteen, with codes:
+  `en-us, zh-hans, fr, de, hi, it, ja, ko, pl, pt-br, ru, es, tr`. Note this is
+  exactly the Microsoft Store LISTING language set, so the same list should feed the
+  Store submission rather than being maintained twice. Two halves with very different
+  costs: the model's RESPONSE language is a per-turn prompt instruction (the owner's
+  own suggestion, and the cheap correct one — it belongs in the system prompt, and it
+  must be counted against `prompt-budget.eval.test.ts`); the UI is real i18n across
+  every component and is a much larger piece of work. Decide whether both ship
+  together or the response language ships first.
+
+- [ ] **Settings + Integrations: drop the left sub-nav, keep the top tabs.** Both are
+  rendered today and they say almost the same thing. `src/components/SettingsList.tsx`
+  and `IntegrationsList.tsx` (mounted from `app-sidebar.tsx`) are the sidebar;
+  `ScrollableTabNav.tsx` is the tab row. NOT a straight deletion: the two lists are
+  not identical — the sidebar carries Community and Danger zone, the tab row carries
+  Computer use behind its chevron — so every destination has to survive the removal.
+  There was a `settings-nav-parity` test for exactly this class of dead link; whatever
+  replaces it needs the same guarantee.
+
+- [ ] **Move the history (clock) and new-window buttons out of the chat header.** They
+  are squeezed into the Home chat header and only exist there. They belong in the left
+  rail beside Apps / Tools / Settings / Integrations, where they are reachable from
+  every screen.
+
+- [ ] **Session ordering on reopen.** Reopening lands on the most recent session
+  instead of a fresh Untitled, so the top session cannot be opened without first
+  clicking a different one and coming back. Reported 2026-09-06.
+
 **THE PERMISSION PROBLEM, DIAGNOSED 2026-09-06 — it was never permissions.**
 Measured from the daemon running as a child of the PACKAGED app:
 `accessibility: true, screen_recording: true, attribution: "host", embedded: true,
