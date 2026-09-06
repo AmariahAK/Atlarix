@@ -24,6 +24,7 @@ let permissions = {
   accessibility: "denied" as string,
   screenRecording: "denied" as string,
   needsRelaunch: false,
+  appPath: "/Applications/Atlarix.app",
 };
 
 const fakeIpc = Object.assign(makeFakeIpc(), {
@@ -57,6 +58,7 @@ beforeEach(() => {
     accessibility: "denied",
     screenRecording: "denied",
     needsRelaunch: false,
+    appPath: "/Applications/Atlarix.app",
   };
 });
 
@@ -79,28 +81,26 @@ describe("ComputerUseSettings", () => {
    * "Grant" is what made fourteen clicks across two days read as "I granted it and
    * it still says no". Asserting both labels pins the honest wording.
    */
-  it("labels each permission by what the click can actually do", async () => {
+  it("offers Grant for each ungranted permission, and only then requests", async () => {
     renderWithProviders(<ComputerUseSettings />);
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: /^grant$/i })).toBeInTheDocument(),
-    );
-    expect(screen.getByRole("button", { name: /open settings/i })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getAllByRole("button", { name: /grant/i }).length).toBe(2));
 
-    fireEvent.click(screen.getByRole("button", { name: /^grant$/i }));
+    fireEvent.click(screen.getAllByRole("button", { name: /grant/i })[0]!);
     await waitFor(() => expect(calls.some((c) => c.startsWith("request:"))).toBe(true));
   });
 
-  it("still routes the Screen Recording button through the same request path", async () => {
+  /**
+   * THE STEP THE BUTTON CANNOT DO, and the reason this is asserted rather than left
+   * to prose. Apple moved screen-capture consent to ScreenCaptureKit, so no Electron
+   * call raises that dialog — and macOS only LISTS an app in the pane once the app
+   * has asked. An app that cannot ask never appears, so the pane's `+` button is the
+   * only route, and the user needs the exact bundle path because a local build and
+   * the installed one are both called Atlarix.
+   */
+  it("tells the user to add the app manually, and which one to pick", async () => {
     renderWithProviders(<ComputerUseSettings />);
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: /open settings/i })).toBeInTheDocument(),
-    );
-    fireEvent.click(screen.getByRole("button", { name: /open settings/i }));
-    // A different LABEL, not a different mechanism: it still deep-links the pane
-    // and re-reads the grants afterwards.
-    await waitFor(() =>
-      expect(calls.some((c) => c === "request:screenRecording")).toBe(true),
-    );
+    await waitFor(() => expect(screen.getByText(/will not be in that list/i)).toBeInTheDocument());
+    expect(screen.getByText(/Atlarix\.app$/)).toBeInTheDocument();
   });
 
   it("names the two permissions and what each one actually costs you", async () => {
@@ -126,6 +126,9 @@ describe("ComputerUseSettings", () => {
       accessibility: "unsupported",
       screenRecording: "unsupported",
       needsRelaunch: false,
+      // Empty off darwin: there is no pane to add an app to, so the hint must not
+      // render a path at someone who has nowhere to paste it.
+      appPath: "",
     };
     renderWithProviders(<ComputerUseSettings />);
     // "unsupported" is a fact about the platform, not a permission we hold —

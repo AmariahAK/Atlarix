@@ -484,7 +484,7 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
      */
     name: "computer-use",
     run: async () => {
-      const { execFileSync, spawnSync } = await import("node:child_process");
+      const { execFileSync, spawn, spawnSync } = await import("node:child_process");
       const os = await import("node:os");
       const path = await import("node:path");
       const { rmSync } = await import("node:fs");
@@ -669,19 +669,144 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
       notes.push(`contract ok on ${process.platform}`);
 
       /**
-       * 4c. NO MANIFEST PROBE, and this is the record of why.
+       * 4c. READ A REAL WINDOW, THROUGH A REAL DAEMON, IN THIS APP'S OWN IDENTITY.
        *
-       * There was one here, and it passed while the feature was dead. Bounded mode
-       * gates window access by EXACT app identity — `bundle_id: "*"` parses and
-       * grants nothing — so `get_window_state` on any app returned
-       * `bounded_resource_outside_manifest`, while the probe exercised `list_apps`
-       * and `get_screen_size`: the only two tools that need no per-app resource.
+       * THE PROBE THAT SHOULD HAVE EXISTED FIRST. There was a manifest probe here
+       * and it reported green over a completely dead feature: it asserted the daemon
+       * was in bounded mode and that a denied tool was refused, using `list_apps`
+       * and `get_screen_size` — the only two tools that need no per-app resource —
+       * while every actual window read was being refused. It tested the LAYER, not
+       * the CAPABILITY.
        *
-       * A probe that asserts a LAYER is configured, rather than a CAPABILITY still
-       * working, is worse than no probe: it reports green over a dead feature. If
-       * the manifest comes back (see docs/TODO.md), the probe that comes with it
-       * must read a real window through it.
+       * So this one reads a window and asserts elements came back. Three things make
+       * it possible to do that deterministically, on all three platforms:
+       *
+       *  - THE TARGET IS OUR OWN WINDOW. It always exists, needs no other app to be
+       *    open, and cannot be a Catalyst app with null AX values or an app the
+       *    class guards refuse. (Atlarix is never a target for the MODEL — that rule
+       *    lives in `apps.ts` and is enforced on the dispatch path. This is the host
+       *    reading itself through the raw driver, deliberately below that layer,
+       *    which is the only self-contained AX target on the machine.)
+       *  - IT IS THE APP ASKING. The daemon is a child of this process, so it
+       *    inherits our TCC grant on macOS, our session on Linux, our interactive
+       *    desktop on Windows — the exact conditions the feature runs under.
+       *  - THE ASSERTION IS CONDITIONAL ON THE GRANT, not on the platform. A CI
+       *    runner has no Accessibility grant, no interactive desktop and no
+       *    AT-SPI session, so an empty tree there is an environment fact and becomes
+       *    a note. An empty tree when the OS says we HAVE the grant is the feature
+       *    being broken, and that fails the build.
        */
+      {
+        const probeSocket =
+          process.platform === "win32"
+            ? `\\\\.\\pipe\\atlarix-cua-selftest-${process.pid}`
+            : path.join(os.tmpdir(), `atlarix-st-${process.pid}.sock`);
+        const daemon = spawn(
+          driver,
+          ["serve", "--embedded", "--socket", probeSocket],
+          { stdio: ["ignore", "pipe", "pipe"] },
+        );
+        let daemonOut = "";
+        daemon.stdout?.on("data", (d: Buffer) => (daemonOut += d.toString()));
+        daemon.stderr?.on("data", (d: Buffer) => (daemonOut += d.toString()));
+
+        try {
+          const deadline = Date.now() + 20_000;
+          let up = false;
+          while (Date.now() < deadline && daemon.exitCode === null) {
+            const st = run(driver, ["status", "--socket", probeSocket], 8_000);
+            if (st.status === 0 && /is running/i.test(st.stdout)) {
+              up = true;
+              break;
+            }
+            await new Promise((r) => setTimeout(r, 250));
+          }
+          if (!up) {
+            throw new Error(
+              `the driver daemon did not start on ${process.platform}: ` +
+                `${daemonOut.trim().slice(0, 200) || "no output"}`,
+            );
+          }
+
+          const callJson = (tool: string, input: Record<string, unknown>) => {
+            const r = run(
+              driver,
+              ["call", tool, JSON.stringify(input), "--socket", probeSocket],
+              30_000,
+            );
+            const text = `${r.stdout}${r.stderr}`;
+            const at = text.search(/[[{]/);
+            if (at < 0) throw new Error(`${tool} produced no JSON: ${text.slice(0, 160)}`);
+            return JSON.parse(text.slice(at)) as Record<string, unknown>;
+          };
+
+          const perms = callJson("check_permissions", {}) as {
+            accessibility?: boolean;
+            source?: { attribution?: unknown; embedded?: unknown };
+          };
+          // The embedded contract, asserted where it is actually observable: the
+          // daemon must be running as US, or grants attach to a different identity
+          // and would silently stop following Atlarix across updates.
+          const src = perms.source ?? {};
+          if (src.embedded !== true || (src.attribution && src.attribution !== "host")) {
+            throw new Error(
+              `the driver is not running in this app's identity ` +
+                `(embedded=${String(src.embedded)} attribution=${String(src.attribution)})`,
+            );
+          }
+
+          const state = callJson("get_window_state", {
+            pid: process.pid,
+            max_elements: 25,
+            include_screenshot: false,
+          }) as {
+            elements?: unknown[];
+            degraded_reason?: string;
+            refusal?: { code?: string; message?: string };
+          };
+          if (state.refusal) {
+            throw new Error(
+              `the driver refused to read our own window: ${state.refusal.code} — ` +
+                `${String(state.refusal.message).slice(0, 160)}`,
+            );
+          }
+          const count = Array.isArray(state.elements) ? state.elements.length : 0;
+          const granted = perms.accessibility === true;
+
+          if (granted && count === 0) {
+            throw new Error(
+              `Accessibility is granted on ${process.platform} and the driver still read ` +
+                `ZERO elements from this app's own window` +
+                (state.degraded_reason ? ` (${state.degraded_reason})` : "") +
+                ` — reading is the whole feature, so this is a build failure, not an ` +
+                `environment one`,
+            );
+          }
+          notes.push(
+            granted
+              ? `read ${count} elements from our own window`
+              : `read path exercised; no accessibility grant here (${count} elements)`,
+          );
+        } finally {
+          try {
+            run(driver, ["stop", "--socket", probeSocket], 5_000);
+          } catch {
+            /* it may already be gone */
+          }
+          try {
+            daemon.kill();
+          } catch {
+            /* already exited */
+          }
+          if (process.platform !== "win32") {
+            try {
+              rmSync(probeSocket, { force: true });
+            } catch {
+              /* best effort */
+            }
+          }
+        }
+      }
 
       // 5. macOS: THE SPI PROBE'S SHAPE, not its verdict. Asserting
       //    `slps_post_event === true` would fail the build the day Apple

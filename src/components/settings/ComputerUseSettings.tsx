@@ -40,6 +40,8 @@ interface PermissionReport {
   accessibility: GrantState;
   screenRecording: GrantState;
   needsRelaunch: boolean;
+  /** This build's `.app` path — which one to pick in the pane's file picker. */
+  appPath?: string;
 }
 
 function StateIcon({ state }: { state: GrantState }) {
@@ -54,15 +56,15 @@ function GrantRow({
   what,
   state,
   onGrant,
-  canPrompt,
+  hint,
   busy,
 }: {
   title: string;
   what: string;
   state: GrantState;
   onGrant: () => void;
-  /** True when macOS still lets the app raise the dialog itself. */
-  canPrompt?: boolean;
+  /** Rendered under the row when there is a manual step the click cannot do. */
+  hint?: React.ReactNode;
   busy: boolean;
 }) {
   return (
@@ -74,6 +76,7 @@ function GrantRow({
         <div className="min-w-0">
           <div className="text-sm font-medium text-foreground">{title}</div>
           <p className="text-xs text-muted-foreground">{what}</p>
+          {hint}
         </div>
       </div>
       {state === "granted" || state === "unsupported" ? (
@@ -82,14 +85,7 @@ function GrantRow({
         </span>
       ) : (
         <Button variant="outline" size="sm" disabled={busy} onClick={onGrant} className="shrink-0">
-          {/*
-            THE LABEL HAS TO MATCH WHAT THE CLICK CAN DO. Accessibility has a real
-            prompting API. Screen Recording does not — Apple moved that consent to
-            ScreenCaptureKit and no Electron call raises the dialog, so all this
-            button can do is open the pane. Labelling both "Grant" is why fourteen
-            clicks across two days read as "I granted it and it still says no".
-          */}
-          {busy ? "Opening…" : canPrompt ? "Grant" : "Open Settings"}
+          {busy ? "Opening…" : "Grant"}
         </Button>
       )}
     </div>
@@ -163,14 +159,37 @@ export function ComputerUseSettings() {
                 state={perms?.accessibility ?? "not-determined"}
                 busy={busy === "accessibility"}
                 onGrant={() => void grant("accessibility")}
-                canPrompt
               />
               <GrantRow
                 title="Screen Recording"
-                what="Needed only to read apps that draw their own surface (OCR) and to outline elements. Reading and clicking work without it. macOS will not let Atlarix ask for this one — switch it on in the pane, then restart Atlarix."
+                what="Needed only to read apps that draw their own surface (OCR) and to outline elements. Reading and clicking work without it."
                 state={perms?.screenRecording ?? "not-determined"}
                 busy={busy === "screenRecording"}
                 onGrant={() => void grant("screenRecording")}
+                /*
+                 * THE MANUAL STEP, SPELLED OUT, because there is no way around it.
+                 *
+                 * Apple moved screen-capture consent to ScreenCaptureKit; no Electron
+                 * call raises that dialog. And macOS only LISTS an app in that pane
+                 * once the app has asked — so an app that cannot ask never appears,
+                 * and the pane's `+` button is the only route. Sending someone to a
+                 * list their app is missing from, with no explanation, is what made
+                 * this look broken for two days.
+                 *
+                 * The PATH matters: a local build lives under `out/` and the installed
+                 * one in `/Applications`, both are called Atlarix, and picking the
+                 * wrong one grants the wrong binary.
+                 */
+                hint={
+                  perms?.screenRecording !== "granted" && perms?.appPath ? (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Atlarix will not be in that list until you add it: click{" "}
+                      <span className="font-medium">+</span> at the bottom of the pane and
+                      choose <code className="text-[11px]">{perms.appPath}</code>, then
+                      restart Atlarix — macOS caches this decision per process.
+                    </p>
+                  ) : null
+                }
               />
             </div>
             {perms?.platform && perms.platform !== "darwin" ? (

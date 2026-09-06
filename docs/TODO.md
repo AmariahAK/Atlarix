@@ -18,6 +18,99 @@ leftover probe socket and no running Atlarix. Next step is still the grandchild
 experiment recorded above, but it should now be run on macOS, where a debugger is
 actually available.
 
+## NEXT SESSION — computer use: the root cause, then the strategy call
+
+### 1. THE BUG THAT EXPLAINS TWO DAYS. Fix this before deciding anything else.
+
+`get_window_state` requires **BOTH `pid` AND `window_id`** — measured from the
+driver's own schema:
+
+```
+get_window_state REQUIRED: ['pid', 'window_id']
+```
+
+`snapshotWindow` (`src/lib/tools/computer.ts`) passes `window_id` only when the model
+supplies `window`, and `computer_inspect` documents that parameter as *"Optional with
+one [window]"* — so it is almost never sent. The driver then answers with the PLAIN
+TEXT `Missing required integer field: window_id`, `callDriver`
+(`driver-session.ts`) finds no JSON and returns `{ raw: text }`, and
+`parseWindowSnapshot` sees no `elements` and reports **an empty tree**.
+
+**So every "the accessibility tree came back empty" was this.** WhatsApp, Finder, all
+of it. Not Catalyst, not permissions, not cua-driver. A required parameter we never
+sent, and an error swallowed into a misleading success.
+
+WE HAVE STILL NEVER READ AN ACCESSIBILITY TREE. Not once. Every architectural doubt
+in this session rests on evidence that is an artifact of this bug.
+
+Two fixes, and the second matters as much as the first:
+
+- [ ] **Resolve a `window_id` when the model does not name one.** `list_windows
+  {pid, on_screen_only:true}` → pick the frontmost (highest `z_index`). If the app has
+  no window, say THAT — "Finder has no open window" is the true answer the owner
+  should have got, instead of an empty tree that sent the model to OCR.
+- [ ] **Stop `callDriver` turning a driver error into `{raw}`.** A non-JSON body is
+  the driver telling us we called it wrong; returning it as data is what hid this for
+  two days. It must throw with the driver's own message. This is
+  [[atlarix-error-message-is-the-contract]] happening to us again, in our own code.
+- [ ] **The self-test probe (`self-test.ts` 4c) has the SAME bug** — I wrote it by
+  copying how production calls the tool and inherited the defect, which is exactly how
+  it survived. It currently FAILS with that message, and that redness is the finding.
+  Fix it with the same resolver, and keep it: reading our own window is the assertion
+  that would have caught this on day one.
+
+### 2. THEN the strategy call the owner raised (2026-09-06)
+
+Do not decide before §1 is green — every option below is currently being judged on
+zero successful reads.
+
+**What the survey found.** The desktop's equivalent of the DOM is the accessibility
+tree; there is no rawer layer to drop to. Three OS APIs (macOS AXUIElement, Windows
+UIA, Linux AT-SPI2), so "read it directly" means building a cross-platform native
+abstraction — which is what cua-driver already is. Two credible cross-platform
+libraries exist:
+
+| | cua-driver (current) | xa11y (`@crowecawcaw/xa11y`) |
+|---|---|---|
+| shape | daemon + socket + CLI + JSON | in-process Node addon |
+| tree read | yes | yes |
+| AX actions, no focus steal | yes | yes |
+| pixel input (canvas apps) | yes (SkyLight SPI) | NO |
+| screenshots / OCR | yes | no (we have `atlarix-cu`) |
+| maturity | funded, MCP ecosystem | 69 stars, one maintainer |
+
+Ruled out and why, so they are not re-surveyed: **Agent-S** — an agent, not a driver,
+and vision-first (needs a grounding model; our Core models are `input:["text"]`).
+**macOS Harness** (browser-use) — architecturally identical to cua-driver but macOS
+ONLY, v0.1.2, one contributor, Python. **magentic-ui** — browser + files only, its own
+docs say it "cannot access native desktop applications". **nut.js / robotjs** — INPUT
+libraries; they do not read trees, so trading away the cursor buys nothing on the
+reading side, which is the only side that is broken. **MCP** — the right answer for
+Airtable/Metabase/Slack/Linear (Airtable ships an official server), but explicitly
+NOT the question: the owner wants general control of their own device.
+
+Note for the record: AX actions post no events, so they never steal focus. The cursor
+was only ever the price for PIXEL input on canvas apps.
+
+**The decision to put to the owner, which reverses an earlier one.** Not one failure
+this week came from reading a tree. They all came from the layer built to safely
+expose 34 tools — the capability manifest, the dispatch table, the tool catalogue, the
+session lifecycle, the chord allowlist, the two ref namespaces, the schema trimming.
+That is ~2,000 lines and every bug in the session. We ran on 8 tools for weeks.
+
+- [ ] **OWNER DECISION: shrink the surface back?** Using cua-driver as a plain AX
+  library — `list_windows`, `get_window_state`, `click`, `type_text`, `press_key`,
+  `invoke_menu` — deletes all of the above while keeping pixel input and the mature
+  engine. It reverses "I want all 56 tools" (2026-09-05), and the honest case for
+  reversing is that the widening bought browser attach + `launch_app` and cost us
+  every failure since. A deletion, not a rewrite, and reversible.
+- [ ] **xa11y stays on the table** as the later "delete the daemon too" move — but only
+  with a working baseline to measure against, never as a hope.
+- [ ] **Scope, separately from the library question.** Desktop AX is the right tool for
+  apps with no other door (CapCut, OBS, Excel, legacy internal apps). It is the WRONG
+  tool for anything with an API or MCP server. Consider shipping the browser half as
+  supported and the desktop half as explicitly beta.
+
 ## Queued 2026-09-06 (owner) — UX + product, unrelated to computer use
 
 - [ ] **Why "truncated" in a deep web search.** Observed in the owner's own transcript:

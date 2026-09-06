@@ -39,6 +39,16 @@ export interface ComputerUsePermissions {
   screenRecording: GrantState;
   /** True once a grant has been observed changing, so the UI can offer a relaunch. */
   needsRelaunch: boolean;
+  /**
+   * This build's `.app` bundle path, so the UI can tell the user what to pick.
+   *
+   * Needed because Screen Recording has no prompting API and macOS only LISTS an
+   * app in that pane once the app has asked for it — so an app that cannot ask never
+   * appears, and the only route is the pane's `+` button and a file picker. Telling
+   * someone to "find Atlarix" is useless when a local build lives under `out/` and
+   * the installed one lives in `/Applications`, and both are called Atlarix.
+   */
+  appPath: string;
 }
 
 /** Which System Settings pane to deep-link to for each grant. */
@@ -73,6 +83,7 @@ export function readPermissions(): ComputerUsePermissions {
       accessibility: "unsupported",
       screenRecording: "unsupported",
       needsRelaunch: false,
+      appPath: "",
     };
   }
 
@@ -106,7 +117,21 @@ export function readPermissions(): ComputerUsePermissions {
     accessibility,
     screenRecording,
     needsRelaunch: relaunchOffered,
+    appPath: appBundlePath(),
   };
+}
+
+/**
+ * The `.app` bundle this process is running from.
+ *
+ * `process.execPath` is `…/Atlarix.app/Contents/MacOS/atlarix`, so the bundle is
+ * three levels up. In development there is no bundle and the empty string tells the
+ * UI to say nothing rather than print an Electron path nobody can act on.
+ */
+function appBundlePath(): string {
+  if (process.platform !== "darwin" || !app.isPackaged) return "";
+  const i = process.execPath.indexOf(".app/Contents/MacOS/");
+  return i < 0 ? "" : process.execPath.slice(0, i + 4);
 }
 
 /**
