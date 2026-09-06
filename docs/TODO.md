@@ -8,6 +8,18 @@ chain behind it — the queued flush pre-empting a question card, a stop latch a
 clear (five sub-agent wakes refused), a sub-agent card frozen mid-count — and the user bubble's
 glare.
 
+**Security review of v14.43.0 — 5 findings, all fixed (2026-09-05):**
+
+| # | Finding | Sev | Fix |
+|---|---|---|---|
+| 1 | `launch_app.urls` was not refused — "file paths or URLs to open with the app" composes into arbitrary local file READ (launch TextEdit on `~/.aws/credentials` → cmd+A → cmd+C → `clipboard_read`), and is an outbound channel on a browser bundle id | High | added to `REFUSED_FIELDS` |
+| 2 | `assertBounded` had ONE call site, on the spawn path — a daemon already listening on our socket was adopted and trusted, with no tool allowlist, no deny list and possibly no `--embedded`. Its own comment claimed it covered that case | Med | called on the adoption branch; two tests |
+| 3 | The pixel policy never ran for `drag` — its coordinates are `from_x/from_y/to_x/to_y` and the predicate was hardcoded to `x`/`y`. `drag` also has no `element_token`, so coordinates are its ONLY form: the one act tool that cannot use a ref was the one nothing checked | Med | `pixelFields` on the spec, pinned against the real schemas |
+| 4 | Nested `target.window_id` was never resolved while top-level `window_id` was — a call could name a vetted pid and OUR window in one object, and `tool-catalogue` advertises exactly that shape | Med | walks every `window_id` at any depth, and the two halves of a `target` must agree |
+| 5 | Rung 4 was unreachable: `detectInputRung` can only return `driver-spi` or `public-fallback`, so both `rung === "refuse"` branches and `refusePixelAction` were dead code and the documented ladder described a control that did not exist | Low | `"refuse"` removed from the union; rung 4 is now a decision (`pixelDeliveryRefused`) taken from rung 3 — the compiler found the second dead call site |
+
+Ruled out and worth not re-checking: command injection (every spawn is `execFile`/`spawn` with an argv array, no shell), prototype pollution on the allowlist (spread defines an own `__proto__`; `DENIED[name]` shadows every `Object.prototype` member), `browser_navigate` + `file://` (the driver restricts the scheme itself), and sensitive data in logs (no window contents, clipboard, typed text or page content is logged).
+
 **Owed for v14.43.0 (desktop computer use — unreleased, no CHANGELOG version bump yet):**
 - **RELEASE IS BLOCKED ON THE ACTIONS BUDGET.** The spending limit was exhausted by five
   full-matrix dispatches; private-repo CI fails in ~3s with an EMPTY log and the cause only in the

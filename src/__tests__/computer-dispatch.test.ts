@@ -190,6 +190,32 @@ describe.skipIf(!haveDriver)("agreement with the shipped driver", () => {
     expect(offenders, "Atlarix would strip these tools' own confirm flag").toEqual([]);
   });
 
+  it("names real coordinate fields on every tool the pixel policy governs", () => {
+    /**
+     * THE HOLE THIS CLOSES. The guard's predicate was `"x" in input || "y" in
+     * input`, and `drag`'s coordinates are from_x/from_y/to_x/to_y — it has no `x`
+     * or `y` at all. So the pixel policy was permanently skipped for the ONE act
+     * tool that cannot be addressed by a ref instead (it carries no element_token),
+     * meaning coordinates are its only form and nothing ever checked them.
+     *
+     * Asserted against the driver's own schemas, so a renamed field lands here
+     * rather than silently switching the policy off for that tool.
+     */
+    const offenders: string[] = [];
+    for (const [tool, spec] of Object.entries(DISPATCH)) {
+      if (!spec.pixels) continue;
+      const props = schemaProps(tool);
+      const named = spec.pixelFields ?? [];
+      if (!named.length) {
+        offenders.push(`${tool} (no pixelFields)`);
+        continue;
+      }
+      const missing = named.filter((f) => !props.includes(f));
+      if (missing.length) offenders.push(`${tool}.${missing.join("/")}`);
+    }
+    expect(offenders, "the pixel policy would not fire for these").toEqual([]);
+  });
+
   it("declares typesInto wherever the driver accepts text to type", () => {
     // Same shape of hole for guardTypeTarget: text reaching a secure field.
     const offenders: string[] = [];

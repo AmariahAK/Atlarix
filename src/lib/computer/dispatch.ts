@@ -127,8 +127,20 @@ export interface DispatchSpec {
    * that is the main reason this tool exists. So these pass through untouched.
    */
   pageRef?: boolean;
-  /** Accepts raw pixel coordinates → subject to the input-rung pixel policy. */
+  /**
+   * Accepts raw pixel coordinates → subject to the input-rung pixel policy.
+   *
+   * `pixelFields` names them, and it is not decoration. The first version of the
+   * guard hardcoded `"x" in input || "y" in input`, and `drag`'s coordinates are
+   * `from_x`/`from_y`/`to_x`/`to_y` — it has no `x` or `y` property at all. So the
+   * predicate was permanently false for the one act tool that CANNOT be addressed
+   * by a ref (it carries no `element_token`), meaning coordinates are its only form
+   * and the policy never looked at it. A blind drag inside a file manager moves
+   * files.
+   */
   pixels?: boolean;
+  /** Which fields carry those coordinates. Measured, not assumed. */
+  pixelFields?: readonly string[];
   /**
    * The result may name apps or windows we do not own — run it through
    * `stripSelfFromResult` before the model sees it. Needed wherever a tool can
@@ -182,19 +194,26 @@ export const DISPATCH: Readonly<Record<string, DispatchSpec>> = {
 
   // ── act ───────────────────────────────────────────────────────────────────
   // Every one of these takes `pid`, and all but the menu/frame pair accept x/y.
-  click: { appTarget: ["pid", "target.pid"], act: true, pixels: true },
-  double_click: { appTarget: ["pid"], act: true, pixels: true },
-  right_click: { appTarget: ["pid"], act: true, pixels: true },
-  scroll: { appTarget: ["pid", "target.pid"], act: true, pixels: true },
-  drag: { appTarget: ["pid", "target.pid"], act: true, pixels: true },
+  click: { appTarget: ["pid", "target.pid"], act: true, pixels: true, pixelFields: ["x", "y"] },
+  double_click: { appTarget: ["pid"], act: true, pixels: true, pixelFields: ["x", "y"] },
+  right_click: { appTarget: ["pid"], act: true, pixels: true, pixelFields: ["x", "y"] },
+  scroll: { appTarget: ["pid", "target.pid"], act: true, pixels: true, pixelFields: ["x", "y"] },
+  // NO `x`/`y` — measured properties are from_x, from_y, to_x, to_y. And no
+  // element_token either, so a ref cannot address it: coordinates are its only form.
+  drag: {
+    appTarget: ["pid", "target.pid"],
+    act: true,
+    pixels: true,
+    pixelFields: ["from_x", "from_y", "to_x", "to_y"],
+  },
   // `move_cursor` has NO top-level `pid`. Measured properties are
   // {cursor_id, scope, session, target, x, y} — its only address is the NESTED
   // `target.pid`. A dispatcher that normalises `input.pid` alone leaves this tool
   // completely ungoverned, which is what the first draft of this table did.
-  move_cursor: { appTarget: ["target.pid"], act: true, pixels: true },
-  press_key: { appTarget: ["pid", "target.pid"], act: true, pixels: true, keyFields: ["key", "modifiers"] },
-  hotkey: { appTarget: ["pid", "target.pid"], act: true, pixels: true, keyFields: ["keys"] },
-  type_text: { appTarget: ["pid", "target.pid"], act: true, pixels: true, typesInto: ["text"] },
+  move_cursor: { appTarget: ["target.pid"], act: true, pixels: true, pixelFields: ["x", "y"] },
+  press_key: { appTarget: ["pid", "target.pid"], act: true, pixels: true, keyFields: ["key", "modifiers"], pixelFields: ["x", "y"] },
+  hotkey: { appTarget: ["pid", "target.pid"], act: true, pixels: true, keyFields: ["keys"], pixelFields: ["x", "y"] },
+  type_text: { appTarget: ["pid", "target.pid"], act: true, pixels: true, typesInto: ["text"], pixelFields: ["x", "y"] },
   set_value: { appTarget: ["pid"], act: true, typesInto: ["value"] },
   invoke_menu: { appTarget: ["pid"], act: true },
   set_window_frame: { appTarget: ["pid"], act: true },
@@ -412,6 +431,25 @@ export const REFUSED_FIELDS: readonly string[] = [
   "image_path",
   "additional_arguments",
   "webkit_inspector_port",
+  // `launch_app.urls`, and the one I got wrong first time round.
+  //
+  // I refused `additional_arguments` and `webkit_inspector_port` and reasoned that
+  // `urls` was benign because opening a file in an app is "close to `open`". The
+  // driver's own description says what it actually is: "Optional file paths or URLs
+  // to open with the app". That is the SAME capability the two entries above refuse,
+  // and it composes into a complete arbitrary local file READ with nothing else that
+  // is denied:
+  //
+  //   launch_app {bundle_id:"com.apple.TextEdit", urls:["~/.aws/credentials"]}
+  //   computer_inspect {app:"TextEdit"}        ← also satisfies the read-pairing gate
+  //   hotkey {pid, keys:["cmd","a"]}           ← allowed: an editing chord
+  //   hotkey {pid, keys:["cmd","c"]}           ← allowed
+  //   clipboard_read {}                        ← the whole file comes back
+  //
+  // Pointed at a browser bundle id the same field is an OUTBOUND channel. "Close to
+  // `open`" was the wrong frame: `open` is not a supervised path in this app,
+  // `read_file` is.
+  "urls",
 ];
 
 /** The refusal wording for one of those, naming the supervised alternative. */

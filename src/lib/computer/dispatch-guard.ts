@@ -54,7 +54,7 @@ import {
 import { callDriver } from "./driver-session";
 import { guardTargetApp, guardTypeTarget } from "./guards";
 import { chordFromPressKey, guardChord, isNamedKey, toDriverKey } from "./keys";
-import { detectInputRung, refusePixelAction } from "./input-rung";
+import { detectInputRung, pixelDeliveryRefused, refusePixelAction } from "./input-rung";
 import { downloadRoot } from "./manifest";
 import { hasRecentReadFor, resolveRef } from "./refs";
 import {
@@ -107,6 +107,33 @@ function writePath(input: Record<string, unknown>, dotted: string, value: unknow
     node = next as Record<string, unknown>;
   }
   node[parts[parts.length - 1]!] = value;
+}
+
+/**
+ * Every `window_id` in the input, with the dotted path that reached it.
+ *
+ * Depth-bounded, and it walks rather than reading two known keys: the nested form
+ * lives under `target` today and a driver upgrade may put it somewhere else. A
+ * target field the walk misses is a target nothing checks.
+ */
+function collectWindowIds(
+  input: Record<string, unknown>,
+  prefix = "",
+  depth = 0,
+): Array<[string, unknown]> {
+  if (depth > 4) return [];
+  const out: Array<[string, unknown]> = [];
+  for (const [key, value] of Object.entries(input)) {
+    const path = prefix ? `${prefix}.${key}` : key;
+    if (key === "window_id" && value !== undefined && value !== null && value !== "") {
+      out.push([prefix ? path : "", value]);
+      continue;
+    }
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      out.push(...collectWindowIds(value as Record<string, unknown>, path, depth + 1));
+    }
+  }
+  return out;
 }
 
 /**
@@ -219,18 +246,45 @@ export async function prepareDispatch(
     if (field.endsWith("pid")) writePath(input, field, resolved.app.pid);
   }
 
-  // 6b. WINDOW ID — a target that names no application.
-  if ("window_id" in input && input.window_id !== undefined && input.window_id !== null) {
-    const owner = await pidForWindow(input.window_id);
+  /**
+   * 6b. EVERY WINDOW ID, AT ANY DEPTH — a target that names no application.
+   *
+   * The first version checked `"window_id" in input`, top level only, and the
+   * driver's `target` parameter carries the same field NESTED:
+   * `{kind:"window", pid, window_id}`, both required, on click, drag, scroll,
+   * type_text, press_key, hotkey and move_cursor. `tool-catalogue.ts` advertises
+   * that exact shape to the model as the supported addressing form.
+   *
+   * So a call could name a vetted `pid` and an unvetted Atlarix `window_id` in one
+   * object and pass. Whether the driver then acts on the window or the process is
+   * its business — `delivery_mode:"foreground"` is documented as fronting "the exact
+   * window" and requiring `window_id`, which is enough reason not to leave the
+   * question to it. A guard written for this hazard that does not run on this input
+   * shape is not a guard.
+   *
+   * Both halves must also AGREE: a `target` whose `window_id` belongs to a different
+   * process than its `pid` is either a mistake or an attempt, and neither should be
+   * forwarded.
+   */
+  for (const [where, value] of collectWindowIds(input)) {
+    const owner = await pidForWindow(value);
     if (owner === null) {
       return fail(
-        `No open window has id ${JSON.stringify(input.window_id)}. Window ids come from ` +
-          `computer_inspect and change when a window is closed and reopened — re-read and ` +
-          `use a current one.`,
+        `No open window has id ${JSON.stringify(value)}${where ? ` (in \`${where}\`)` : ""}. ` +
+          `Window ids come from computer_inspect and change when a window is closed and ` +
+          `reopened — re-read and use a current one.`,
       );
     }
     const resolved = await resolveTargetPid(owner);
     if (!resolved.ok) return fail(resolved.error);
+    const claimed = readPath(input, where ? `${where.replace(/\.window_id$/, "")}.pid` : "pid");
+    if (typeof claimed === "number" && claimed !== owner) {
+      return fail(
+        `That window id belongs to ${resolved.app.name} (pid ${owner}), not to pid ` +
+          `${claimed}. Name one application: pass the pid and window id from the same ` +
+          `computer_inspect read.`,
+      );
+    }
     app = app ?? resolved.app;
   }
 
@@ -287,10 +341,12 @@ export async function prepareDispatch(
   }
 
   // 9. PIXELS.
-  const pixelAddressed = spec.pixels && !element && ("x" in input || "y" in input);
+  // FIELD-DRIVEN, not hardcoded to x/y — `drag` has neither. See `pixelFields`.
+  const pixelAddressed =
+    spec.pixels && !element && (spec.pixelFields ?? []).some((f) => f in input);
   if (pixelAddressed) {
     const rung = await detectInputRung();
-    if (rung === "refuse") return fail(refusePixelAction(name));
+    if (pixelDeliveryRefused(rung)) return fail(refusePixelAction(name));
     const pid = typeof input.pid === "number" ? input.pid : app?.pid;
     // NO TARGET AT ALL. The driver would refuse this itself, but only after the
     // read-pairing check below had silently not applied — and "the next layer

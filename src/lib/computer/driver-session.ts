@@ -536,7 +536,19 @@ export async function ensureDaemon(): Promise<string> {
     ensureTelemetryOptOut();
     // An already-running daemon (another window, or a `serve` the user started)
     // does not consume the start budget — we did not spawn it.
+    //
+    // IT STILL HAS TO PROVE ITS CEILING. `assertBounded`'s own comment claims it
+    // covers "a daemon we did NOT spawn, which ensureDaemon deliberately adopts",
+    // and for one commit it did not: the only call site was the spawn path, so any
+    // pre-existing daemon on our socket was adopted and trusted. In that state the
+    // driver's half of the containment — the tool allowlist, the deny list, the
+    // files.write restriction — is simply absent, and `--embedded` may be too,
+    // which silently breaks the TCC-attribution story Settings tells the user.
+    //
+    // A comment asserting a check runs is not the check running; that is the same
+    // lesson as `guards.ts`'s "the ambiguity does not arise here".
     if (await daemonRunning(bin)) {
+      await assertBounded(bin);
       ready = true;
       return;
     }

@@ -41,6 +41,9 @@ vi.mock("@/lib/computer/driver-session", () => ({
 let rung = "driver-spi";
 vi.mock("@/lib/computer/input-rung", () => ({
   detectInputRung: vi.fn(async () => rung),
+  // Rung 4 is a decision taken from rung 3, so the mock has to make it too — the
+  // real one refuses exactly when the SPI path is gone.
+  pixelDeliveryRefused: (r: string) => r === "public-fallback",
   refusePixelAction: (what: string) => `Pixel ${what} is unavailable on this machine.`,
 }));
 
@@ -150,8 +153,10 @@ describe("the target holes", () => {
     expect(bad.ok).toBe(false);
     if (!bad.ok) expect(bad.error).toMatch(/Atlarix's own window/i);
 
+    // A REAL window id from the fixture, because the nested `window_id` is now
+    // resolved too — a made-up one is refused, which is the point of step 6b.
     const good = await prepareDispatch("move_cursor", {
-      target: { kind: "window", pid: 100, window_id: 1 },
+      target: { kind: "window", pid: 100, window_id: "w-slack" },
       x: 5,
       y: 5,
     });
@@ -217,6 +222,24 @@ describe("filesystem and process escape hatches", () => {
       if (!r.ok) expect(r.error).toMatch(/Atlarix will not do this|supervised path/i);
     });
   }
+
+  /**
+   * THE ONE I GOT WRONG FIRST TIME. I refused `additional_arguments` and
+   * `webkit_inspector_port` and let `urls` through, reasoning that opening a file in
+   * an app is "close to `open`". The driver's description says what it is: "Optional
+   * file paths or URLs to open with the app" — the same capability, and it composes
+   * into a complete arbitrary file read via TextEdit → cmd+A → cmd+C →
+   * clipboard_read, every step of which is otherwise allowed.
+   */
+  it("refuses launch_app urls, the arbitrary-file-read composition", async () => {
+    const { prepareDispatch } = await load();
+    const r = await prepareDispatch("launch_app", {
+      bundle_id: "com.apple.TextEdit",
+      urls: ["/Users/victim/.aws/credentials"],
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/read_file|supervised path/i);
+  });
 
   it("still allows the ordinary form of each of those", async () => {
     const { prepareDispatch } = await load();
@@ -387,13 +410,85 @@ describe("pixels are paired with a read", () => {
     if (!r.ok) expect(r.error).toMatch(/no application|whole-screen coordinate form/i);
   });
 
+  /**
+   * `drag` has NO `x`/`y` — its coordinates are from_x/from_y/to_x/to_y — and no
+   * element_token either, so coordinates are its ONLY addressing form. A predicate
+   * hardcoded to x/y was permanently false for the one act tool that can never
+   * satisfy the policy by using a ref instead.
+   */
+  it("applies the policy to drag, whose coordinates are named differently", async () => {
+    const { prepareDispatch } = await load();
+    const blind = await prepareDispatch("drag", {
+      pid: 100,
+      from_x: 10,
+      from_y: 20,
+      to_x: 200,
+      to_y: 30,
+    });
+    expect(blind.ok, "a blind drag must be refused like a blind click").toBe(false);
+    if (!blind.ok) expect(blind.error).toMatch(/without reading it first/i);
+
+    await noteRead(100);
+    const seen = await prepareDispatch("drag", {
+      pid: 100,
+      from_x: 10,
+      from_y: 20,
+      to_x: 200,
+      to_y: 30,
+    });
+    expect(seen.ok).toBe(true);
+  });
+
   it("refuses on rung 4 regardless of the read", async () => {
-    rung = "refuse";
+    // Rung 4 is now a DECISION taken from rung 3 — `public-fallback` is what the
+    // probe can actually report, and nothing ever produced the old "refuse".
+    rung = "public-fallback";
     const { prepareDispatch } = await load();
     await noteRead(100);
     const r = await prepareDispatch("click", { pid: 100, x: 1, y: 1 });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toMatch(/unavailable on this machine/i);
+  });
+});
+
+describe("nested window ids", () => {
+  /**
+   * The driver's `target` carries `window_id` alongside `pid`, and
+   * `tool-catalogue.ts` advertises that shape as the supported addressing form. A
+   * check written for top-level `window_id` alone never sees it — so a call could
+   * name a vetted pid and OUR window in one object.
+   */
+  it("refuses our own window id nested inside target", async () => {
+    const { prepareDispatch } = await load();
+    const r = await prepareDispatch("press_key", {
+      target: { kind: "window", pid: 100, window_id: "w-atlarix" },
+      key: "return",
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/Atlarix's own window/i);
+  });
+
+  it("refuses a target whose two halves name different processes", async () => {
+    const { prepareDispatch } = await load();
+    // Slack's pid with Terminal's window: either a mistake or an attempt, and
+    // forwarding it leaves the driver to decide which half wins.
+    const r = await prepareDispatch("click", {
+      target: { kind: "window", pid: 100, window_id: "w-term" },
+      x: 1,
+      y: 1,
+    });
+    expect(r.ok).toBe(false);
+  });
+
+  it("allows a target whose halves agree", async () => {
+    const { prepareDispatch } = await load();
+    await noteRead(100);
+    const r = await prepareDispatch("click", {
+      target: { kind: "window", pid: 100, window_id: "w-slack" },
+      x: 1,
+      y: 1,
+    });
+    expect(r.ok).toBe(true);
   });
 });
 

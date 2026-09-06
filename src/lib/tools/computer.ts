@@ -49,7 +49,11 @@ import { callDriver, ComputerUseError } from "@/lib/computer/driver-session";
 import { DeskBusyError, withDesk } from "@/lib/computer/desk-lock";
 import { guardTypeTarget } from "@/lib/computer/guards";
 import { KEYS, isNamedKey, toDriverKey } from "@/lib/computer/keys";
-import { detectInputRung, refusePixelAction } from "@/lib/computer/input-rung";
+import {
+  detectInputRung,
+  pixelDeliveryRefused,
+  refusePixelAction,
+} from "@/lib/computer/input-rung";
 import { ocrWindow } from "@/lib/computer/ocr";
 import { missingGrantMessage } from "@/lib/computer/permission-hint";
 import { showOutline } from "@/lib/computer/overlay";
@@ -469,7 +473,7 @@ ToolRegistry.register({
           // Scrolling is the one act that may need the pixel rung, so it is the one
           // that can hit rung 4. Check before acting rather than after.
           const rung = await detectInputRung();
-          if (rung === "refuse") {
+          if (pixelDeliveryRefused(rung)) {
             return { success: false, error: refusePixelAction("scroll") };
           }
           await callDriver("scroll", { pid, element_token: element.token, direction });

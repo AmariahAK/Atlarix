@@ -32,6 +32,12 @@ vi.mock("@/main/settings", () => ({
 
 /** Controls the stubbed `cua-driver status` used by the stale-socket tests. */
 let driverStatusRunning = false;
+/**
+ * The full `status` body, when a test needs more than "running / not running" —
+ * the bounded-mode assertion reads the permission mode and the manifest lines out
+ * of exactly this output.
+ */
+let driverStatusText: string | null = null;
 /** Every argv the module shelled out with, in order. */
 const driverCalls: string[] = [];
 vi.mock("node:child_process", async (orig) => {
@@ -45,7 +51,8 @@ vi.mock("node:child_process", async (orig) => {
       cb: (e: Error | null, stdout: string, stderr: string) => void,
     ) => {
       driverCalls.push(args.join(" "));
-      cb(null, driverStatusRunning ? "Cua Driver daemon is running" : "not running", "");
+      const running = driverStatusText ?? "Cua Driver daemon is running";
+      cb(null, driverStatusRunning ? running : "not running", "");
       return undefined;
     },
   };
@@ -58,6 +65,12 @@ const load = async () => await import("@/lib/computer/driver-session");
 
 beforeEach(() => {
   fakeSettings = {};
+  // Both reset here, not only in the helper that used to own them: the adoption
+  // tests set them directly, and a leaked `true` sends `ensureDaemon` down the
+  // adopt path in every later test — which is how the start-budget test started
+  // failing the moment they were added.
+  driverStatusRunning = false;
+  driverStatusText = null;
   fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), "atlarix-cu-home-"));
   homeSpy = vi.spyOn(os, "homedir").mockReturnValue(fakeHome);
 });
@@ -225,6 +238,56 @@ describe("missing binaries", () => {
     } else {
       expect(msg).toMatch(/not present in this build/i);
     }
+  });
+});
+
+describe("adopting a daemon someone else started", () => {
+  /**
+   * THE LAYER THIS PROTECTS. `manifest.ts` exists so that a bug in our own dispatch
+   * layer still meets a second refusal in a different process. `ensureDaemon`
+   * deliberately ADOPTS a daemon already listening on our socket — another window,
+   * or a `serve` the user started — and for one commit it adopted it without
+   * checking the ceiling, because `assertBounded` had a single call site on the
+   * SPAWN path while its own comment claimed it covered this case.
+   *
+   * In that state the driver's tool allowlist, its deny list and its files.write
+   * restriction are all absent, and `--embedded` may be too — which silently breaks
+   * the TCC-attribution story the Settings panel tells the user.
+   */
+  const BOUNDED =
+    "Cua Driver daemon is running\n" +
+    "  permission mode: bounded (trusted_startup_configuration)\n" +
+    "  capability manifest: configured=true, approved_at_startup=true, valid=true\n";
+  const STANDARD =
+    "Cua Driver daemon is running\n" +
+    "  permission mode: standard (built_in_default)\n" +
+    "  capability manifest: configured=false, approved_at_startup=false, valid=true\n";
+
+  it("refuses a running daemon that has no capability ceiling", async () => {
+    const m = await load();
+    m.resetDriverSessionForTests();
+    driverStatusRunning = true;
+    driverStatusText = STANDARD;
+
+    await expect(m.ensureDaemon()).rejects.toMatchObject({
+      // `not-installed` on a machine with no built driver — the binary check comes
+      // first there, and is also correct.
+      reason: expect.stringMatching(/not-ready|not-installed/),
+    });
+  });
+
+  it("adopts one that IS bounded, so the check is not just a refusal", async () => {
+    const m = await load();
+    m.resetDriverSessionForTests();
+    driverStatusRunning = true;
+    driverStatusText = BOUNDED;
+
+    // Either it adopts (a driver is built here) or it refuses for the one other
+    // legitimate reason. What it must NOT do is refuse for the ceiling.
+    await m.ensureDaemon().catch((e: { reason?: string; message?: string }) => {
+      expect(e.reason).toBe("not-installed");
+      expect(String(e.message)).not.toMatch(/capability ceiling/i);
+    });
   });
 });
 

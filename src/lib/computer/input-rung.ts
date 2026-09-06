@@ -33,7 +33,21 @@ import { resolveComputerBinary } from "./resolve-binary";
 
 const logger = log.scope("computer-use");
 
-export type InputRung = "driver-ax" | "driver-spi" | "public-fallback" | "refuse";
+/**
+ * WHAT THE PROBE CAN REPORT. Rungs 1-3 only — see `pixelDeliveryRefused` for 4.
+ *
+ * `"refuse"` used to be a member of this union and NOTHING EVER PRODUCED IT.
+ * `probe.rs` emits only `driver-spi` or `public-fallback`, and every non-probe exit
+ * below returns `driver-spi`, so both `rung === "refuse"` call sites were dead and
+ * `refusePixelAction` was dead code — the table above described a control that did
+ * not exist. Exactly the failure the header's own `windowsSandboxUsable` citation
+ * warns about, and the same dead-branch shape as `ax-tree.ts`'s `degraded` flag.
+ *
+ * Rung 4 is a DECISION taken from rung 3, not something a probe can find, because it
+ * depends on what the action needs: the same red probe is fine for a keystroke and
+ * not fine for a mouse event.
+ */
+export type InputRung = "driver-ax" | "driver-spi" | "public-fallback";
 
 interface ProbeReport {
   ok?: boolean;
@@ -135,7 +149,25 @@ export async function postScrollViaFallback(
 }
 
 /**
- * RUNG 4. The message a model gets when a pixel action cannot be delivered.
+ * RUNG 4, as a decision rather than a probe result.
+ *
+ * The header's argument, restated because this is the line that enforces it:
+ * `CGEventPostToPid` delivers a KEYBOARD event to a background process reliably,
+ * and a MOUSE event carries a screen location the target hit-tests against its own
+ * window — so on rung 3 a keystroke lands and a click may be ignored, or handled
+ * somewhere else entirely. A wrong click is worse than a refusal: a refusal costs a
+ * turn, a misplaced click can send a message or accept a dialog.
+ *
+ * So: coordinate-addressed actions are refused once the SPI path is gone. Actions
+ * addressed by an element `ref` are untouched — they use the accessibility path and
+ * post no events at all, which is rung 1 and why it is the default.
+ */
+export function pixelDeliveryRefused(rung: InputRung): boolean {
+  return rung === "public-fallback";
+}
+
+/**
+ * The message a model gets when a pixel action cannot be delivered.
  *
  * Category 3 wording (refused by policy, permanent) with an alternative, so the
  * model switches strategy instead of probing for a spelling that works.
