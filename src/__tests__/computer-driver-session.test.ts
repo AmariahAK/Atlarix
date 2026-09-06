@@ -241,55 +241,21 @@ describe("missing binaries", () => {
   });
 });
 
-describe("adopting a daemon someone else started", () => {
-  /**
-   * THE LAYER THIS PROTECTS. `manifest.ts` exists so that a bug in our own dispatch
-   * layer still meets a second refusal in a different process. `ensureDaemon`
-   * deliberately ADOPTS a daemon already listening on our socket — another window,
-   * or a `serve` the user started — and for one commit it adopted it without
-   * checking the ceiling, because `assertBounded` had a single call site on the
-   * SPAWN path while its own comment claimed it covered this case.
-   *
-   * In that state the driver's tool allowlist, its deny list and its files.write
-   * restriction are all absent, and `--embedded` may be too — which silently breaks
-   * the TCC-attribution story the Settings panel tells the user.
-   */
-  const BOUNDED =
-    "Cua Driver daemon is running\n" +
-    "  permission mode: bounded (trusted_startup_configuration)\n" +
-    "  capability manifest: configured=true, approved_at_startup=true, valid=true\n";
-  const STANDARD =
-    "Cua Driver daemon is running\n" +
-    "  permission mode: standard (built_in_default)\n" +
-    "  capability manifest: configured=false, approved_at_startup=false, valid=true\n";
-
-  it("refuses a running daemon that has no capability ceiling", async () => {
-    const m = await load();
-    m.resetDriverSessionForTests();
-    driverStatusRunning = true;
-    driverStatusText = STANDARD;
-
-    await expect(m.ensureDaemon()).rejects.toMatchObject({
-      // `not-installed` on a machine with no built driver — the binary check comes
-      // first there, and is also correct.
-      reason: expect.stringMatching(/not-ready|not-installed/),
-    });
-  });
-
-  it("adopts one that IS bounded, so the check is not just a refusal", async () => {
-    const m = await load();
-    m.resetDriverSessionForTests();
-    driverStatusRunning = true;
-    driverStatusText = BOUNDED;
-
-    // Either it adopts (a driver is built here) or it refuses for the one other
-    // legitimate reason. What it must NOT do is refuse for the ceiling.
-    await m.ensureDaemon().catch((e: { reason?: string; message?: string }) => {
-      expect(e.reason).toBe("not-installed");
-      expect(String(e.message)).not.toMatch(/capability ceiling/i);
-    });
-  });
-});
+/**
+ * BOUNDED MODE, AND WHY THERE IS NO CEILING TEST HERE ANY MORE.
+ *
+ * There were two tests here asserting that a daemon without an approved capability
+ * manifest is refused. The manifest is off (see `driver-session.ts`): it gates
+ * window access by EXACT app identity — `bundle_id: "*"` parses and grants nothing
+ * — so with it on, every read of every app returned
+ * `bounded_resource_outside_manifest` and the feature was dead. "Any and all apps,
+ * no per-app prompt" and bounded mode cannot both be true.
+ *
+ * Deleted rather than skipped, because a skipped test asserting a control that is
+ * switched off reads as coverage. If the manifest returns — via the installed-app
+ * enumeration in docs/TODO.md — the test that comes back with it must read a real
+ * window through it, which is exactly what the old one failed to do.
+ */
 
 describe("the start budget", () => {
   it("refuses a third start rather than respawning forever", async () => {

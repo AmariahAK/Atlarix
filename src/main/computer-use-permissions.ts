@@ -26,7 +26,7 @@
  * Never call those two. The `check_permissions` TOOL under `--embedded` is the one
  * that reports OUR grants, and it is the cross-check below.
  */
-import { app, desktopCapturer, shell, systemPreferences } from "electron";
+import { app, shell, systemPreferences } from "electron";
 import log from "electron-log";
 
 const logger = log.scope("computer-use");
@@ -110,33 +110,46 @@ export function readPermissions(): ComputerUsePermissions {
 }
 
 /**
- * Provoke the OS prompt for one grant, then open the right pane.
+ * Ask for one grant: prompt where macOS allows it, deep-link where it does not.
  *
- * Only ever called from an explicit click. Accessibility has a real prompting API;
- * Screen Recording does not, so the prompt is provoked by making one throwaway
- * 1×1 capture request — `desktopCapturer` is main-process-only since Electron 17,
- * which suits us.
+ * # SCREEN RECORDING CANNOT BE PROMPTED FOR, AND PRETENDING OTHERWISE COST TWO DAYS
+ *
+ * This used to provoke it with a throwaway 1×1 `desktopCapturer.getSources()`.
+ * Measured from the owner's own log, that call failed on EVERY attempt — fourteen
+ * clicks across 2026-09-05 and 2026-09-06, all
+ *
+ *     provoking the screenRecording prompt failed: Failed to get sources.
+ *
+ * and it failed while `getMediaAccessStatus("screen")` reported **granted** and the
+ * driver's own `check_permissions` reported `screen_recording: true`. So the grant
+ * was real and the provocation was broken, which is the worst possible pairing: the
+ * button did nothing, the row did not change, and the honest reading from the other
+ * side of the screen was "I gave it permission and it still says no".
+ *
+ * Apple moved screen-capture consent to ScreenCaptureKit, and `desktopCapturer` no
+ * longer raises the dialog. There is no Electron API that does. **The System
+ * Settings pane IS the mechanism** — it always was, and the provocation attempt was
+ * decoration on top of the thing that actually works.
+ *
+ * So Accessibility keeps its real prompting API, Screen Recording goes straight to
+ * the pane, and nothing logs a failure for an operation we are no longer attempting.
  */
 export async function requestPermission(which: PaneKey): Promise<ComputerUsePermissions> {
   if (process.platform !== "darwin") return readPermissions();
 
-  try {
-    if (which === "accessibility") {
-      // `true` prompts AND opens the pane.
+  if (which === "accessibility") {
+    try {
+      // `true` prompts AND opens the pane — the one grant macOS still lets an app
+      // ask for directly.
       systemPreferences.isTrustedAccessibilityClient(true);
-    } else {
-      // The smallest capture that still counts as one, purely to make macOS ask.
-      await desktopCapturer.getSources({
-        types: ["screen"],
-        thumbnailSize: { width: 1, height: 1 },
-      });
+    } catch (e) {
+      logger.warn(`[computer-use] the accessibility prompt failed:`, e);
     }
-  } catch (e) {
-    logger.warn(`[computer-use] provoking the ${which} prompt failed:`, e);
   }
 
-  // Deep-link regardless: if the grant was already denied once, macOS will not ask
-  // again and the pane is the only way forward.
+  // Always deep-link. For Screen Recording it is the only route; for Accessibility
+  // it is the fallback, because once a grant has been denied macOS will not ask a
+  // second time and the pane is the only way forward.
   await openPrivacyPane(which);
   return readPermissions();
 }

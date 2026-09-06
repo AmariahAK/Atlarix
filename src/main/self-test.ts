@@ -512,7 +512,6 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
       const { resolveComputerBinary } = await import("@/lib/computer/resolve-binary");
       const { telemetryIsOptedOut, telemetryOptOutPath, ensureTelemetryOptOut } =
         await import("@/lib/computer/driver-session");
-      const { writeManifest } = await import("@/lib/computer/manifest");
 
       const notes: string[] = [];
 
@@ -670,88 +669,19 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
       notes.push(`contract ok on ${process.platform}`);
 
       /**
-       * 4c. THE CAPABILITY MANIFEST ACTUALLY PARSES, on this platform's driver.
+       * 4c. NO MANIFEST PROBE, and this is the record of why.
        *
-       * The manifest is what puts the daemon in bounded mode, and `driver-session`
-       * refuses to use a daemon that is NOT in bounded mode — deliberately, so a
-       * silent downgrade is impossible. The cost of that choice is that a manifest
-       * the driver rejects does not degrade the feature, it DISABLES it. On a pin
-       * bump that changes the schema, the first person to find out would be a user.
+       * There was one here, and it passed while the feature was dead. Bounded mode
+       * gates window access by EXACT app identity — `bundle_id: "*"` parses and
+       * grants nothing — so `get_window_state` on any app returned
+       * `bounded_resource_outside_manifest`, while the probe exercised `list_apps`
+       * and `get_screen_size`: the only two tools that need no per-app resource.
        *
-       * The authorization check runs before the socket bind (a bad manifest prints
-       * "authorization startup error" and never prints "listening"), so a short-
-       * lived `serve` is a complete test of it. Only an AUTHORIZATION failure is
-       * treated as a build failure: a CI runner where `serve` cannot start for
-       * unrelated reasons — no window server, no interactive desktop — must not
-       * turn into a red build about the manifest.
+       * A probe that asserts a LAYER is configured, rather than a CAPABILITY still
+       * working, is worse than no probe: it reports green over a dead feature. If
+       * the manifest comes back (see docs/TODO.md), the probe that comes with it
+       * must read a real window through it.
        */
-      const manifestFile = writeManifest();
-      const probeSocket =
-        process.platform === "win32"
-          ? `\\\\.\\pipe\\atlarix-cua-selftest`
-          : path.join(os.tmpdir(), `atlarix-cua-st-${process.pid}.sock`);
-      try {
-        /**
-         * `spawnSync` DIRECTLY, not through `run()` above — and this is the whole
-         * trick of the probe.
-         *
-         * A good manifest means `serve` keeps listening, so the only way to observe
-         * success is to let it time out. But `spawnSync`'s timeout kills the child
-         * AND sets `result.error` to ETIMEDOUT, and `run()` rethrows `r.error` — so
-         * routing this through it failed the probe in exactly the case where the
-         * manifest was CORRECT. That is how this first ran: 9/10, with the one
-         * failure being the thing working.
-         *
-         * So: read stdout/stderr, and treat the kill as the pass. A real
-         * authorization failure arrives in well under a second, long before the
-         * timeout, which is why a short one is enough.
-         */
-        const served = spawnSync(
-          driver,
-          [
-            "serve",
-            "--embedded",
-            "--socket",
-            probeSocket,
-            "--permission-mode",
-            "bounded",
-            "--capability-manifest",
-            manifestFile,
-            "--approve-capability-manifest",
-          ],
-          { encoding: "utf8", timeout: 3_000 },
-        );
-        const out = `${served.stdout ?? ""}${served.stderr ?? ""}`;
-        if (/authorization startup error/i.test(out)) {
-          throw new Error(
-            `the capability manifest was rejected by cua-driver on ${process.platform}: ` +
-              `${out.trim().slice(0, 300)} — desktop control would refuse to start`,
-          );
-        }
-        if (served.signal || /listening/i.test(out)) {
-          notes.push("manifest accepted (bounded daemon started)");
-        } else {
-          // Exited on its own without an authorization complaint: not a manifest
-          // problem, and not something to fail a release for — a runner with no
-          // window server is the likely cause. Say so rather than asserting.
-          notes.push(
-            `manifest not provable here: serve exited ${served.status} (${out.trim().slice(0, 80)})`,
-          );
-        }
-      } finally {
-        try {
-          run(driver, ["stop", "--socket", probeSocket], 5_000);
-        } catch {
-          /* nothing to stop */
-        }
-        if (process.platform !== "win32") {
-          try {
-            rmSync(probeSocket, { force: true });
-          } catch {
-            /* best effort */
-          }
-        }
-      }
 
       // 5. macOS: THE SPI PROBE'S SHAPE, not its verdict. Asserting
       //    `slps_post_event === true` would fail the build the day Apple

@@ -18,6 +18,49 @@ leftover probe socket and no running Atlarix. Next step is still the grandchild
 experiment recorded above, but it should now be run on macOS, where a debugger is
 actually available.
 
+**THE PERMISSION PROBLEM, DIAGNOSED 2026-09-06 — it was never permissions.**
+Measured from the daemon running as a child of the PACKAGED app:
+`accessibility: true, screen_recording: true, attribution: "host", embedded: true,
+disclaim_env: false, responsible_ppid: <the app>`. Both grants held, correct
+identity, correct responsibility chain. Three separate faults were stacked on top of
+that, which is why every test "failed on permissions":
+
+1. **The Grant button never worked, on any run.** `desktopCapturer.getSources()`
+   threw `Failed to get sources` on all FOURTEEN clicks across 09-05 and 09-06 —
+   while `getMediaAccessStatus("screen")` reported granted. Apple moved screen-capture
+   consent to ScreenCaptureKit and no Electron call raises the dialog any more. FIXED:
+   Screen Recording no longer pretends to prompt, the button says "Open Settings",
+   and the row says macOS will not let Atlarix ask.
+2. **Bounded mode refused every application** (mine, 09-06, live for a few hours).
+   `bundle_id: "*"` parses and grants nothing; only an exact bundle id or an exact
+   pid is accepted, so "any and all apps, no per-app prompt" and bounded mode are
+   incompatible. FIXED by switching to standard mode + `--grant existing-profile`
+   (which is standard-mode-only, so the browser attach moved with it).
+3. **The two apps that were tested were both special cases.** WhatsApp is Mac
+   Catalyst — the driver's own docs say Catalyst returns null AX values, so it will
+   NEVER work through the tree. System Settings is on the credential deny list by
+   design (it is where TCC grants live).
+
+**STILL UNPROVEN, and it is the one thing that matters:** no ordinary app has ever
+been read successfully end to end. Every failure so far has a different explanation
+and none of them is "the design does not work". Next: read Finder through the
+packaged app.
+
+**Getting the driver-side ceiling back, properly.** The manifest is kept, unused at
+spawn. It is one enumeration away from being BETTER than what was removed: writing
+the bundle id of every INSTALLED app would restore the tool ceiling AND let the
+driver enforce the Atlarix / terminal / credential exclusions in its own process.
+Apps installed mid-session would need a restart, which is acceptable. Whatever comes
+back with it must read a REAL WINDOW through it — the probe that shipped asserted
+`list_apps` and `get_screen_size`, the only two tools needing no per-app resource,
+and so reported green over a dead feature.
+
+**Consider a behavioural permission read.** The panel reports the TCC ROW
+(`getMediaAccessStatus`), which is why it can say "Granted" while capture fails. The
+driver exposes `check_permissions {probe_direct_capture: true}` →
+`screen_recording_capturable`, which is ground truth. NOT DONE because it may raise
+a fresh Tahoe direct-capture consent dialog, which is the owner's call to trigger.
+
 **Security review of v14.43.0 — 5 findings, all fixed (2026-09-05):**
 
 | # | Finding | Sev | Fix |

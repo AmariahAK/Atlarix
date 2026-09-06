@@ -54,12 +54,15 @@ function GrantRow({
   what,
   state,
   onGrant,
+  canPrompt,
   busy,
 }: {
   title: string;
   what: string;
   state: GrantState;
   onGrant: () => void;
+  /** True when macOS still lets the app raise the dialog itself. */
+  canPrompt?: boolean;
   busy: boolean;
 }) {
   return (
@@ -79,7 +82,14 @@ function GrantRow({
         </span>
       ) : (
         <Button variant="outline" size="sm" disabled={busy} onClick={onGrant} className="shrink-0">
-          {busy ? "Opening…" : "Grant"}
+          {/*
+            THE LABEL HAS TO MATCH WHAT THE CLICK CAN DO. Accessibility has a real
+            prompting API. Screen Recording does not — Apple moved that consent to
+            ScreenCaptureKit and no Electron call raises the dialog, so all this
+            button can do is open the pane. Labelling both "Grant" is why fourteen
+            clicks across two days read as "I granted it and it still says no".
+          */}
+          {busy ? "Opening…" : canPrompt ? "Grant" : "Open Settings"}
         </Button>
       )}
     </div>
@@ -153,10 +163,11 @@ export function ComputerUseSettings() {
                 state={perms?.accessibility ?? "not-determined"}
                 busy={busy === "accessibility"}
                 onGrant={() => void grant("accessibility")}
+                canPrompt
               />
               <GrantRow
                 title="Screen Recording"
-                what="Needed only to read apps that draw their own surface (OCR) and to outline elements. Reading and clicking work without it."
+                what="Needed only to read apps that draw their own surface (OCR) and to outline elements. Reading and clicking work without it. macOS will not let Atlarix ask for this one — switch it on in the pane, then restart Atlarix."
                 state={perms?.screenRecording ?? "not-determined"}
                 busy={busy === "screenRecording"}
                 onGrant={() => void grant("screenRecording")}

@@ -69,12 +69,38 @@ describe("ComputerUseSettings", () => {
     expect(calls).not.toContain("relaunch");
   });
 
-  it("offers Grant for each ungranted permission, and only then requests", async () => {
+  /**
+   * THE LABELS DIFFER ON PURPOSE, and the difference is the fix for a real
+   * two-day confusion.
+   *
+   * Accessibility has a real prompting API, so "Grant" is true. Screen Recording
+   * does not — Apple moved that consent to ScreenCaptureKit and no Electron call
+   * raises the dialog — so the button can only open the pane, and calling it
+   * "Grant" is what made fourteen clicks across two days read as "I granted it and
+   * it still says no". Asserting both labels pins the honest wording.
+   */
+  it("labels each permission by what the click can actually do", async () => {
     renderWithProviders(<ComputerUseSettings />);
-    await waitFor(() => expect(screen.getAllByRole("button", { name: /grant/i }).length).toBe(2));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /^grant$/i })).toBeInTheDocument(),
+    );
+    expect(screen.getByRole("button", { name: /open settings/i })).toBeInTheDocument();
 
-    fireEvent.click(screen.getAllByRole("button", { name: /grant/i })[0]!);
+    fireEvent.click(screen.getByRole("button", { name: /^grant$/i }));
     await waitFor(() => expect(calls.some((c) => c.startsWith("request:"))).toBe(true));
+  });
+
+  it("still routes the Screen Recording button through the same request path", async () => {
+    renderWithProviders(<ComputerUseSettings />);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /open settings/i })).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /open settings/i }));
+    // A different LABEL, not a different mechanism: it still deep-links the pane
+    // and re-reads the grants afterwards.
+    await waitFor(() =>
+      expect(calls.some((c) => c === "request:screenRecording")).toBe(true),
+    );
   });
 
   it("names the two permissions and what each one actually costs you", async () => {

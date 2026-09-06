@@ -28,7 +28,7 @@ import path from "node:path";
 import { app } from "electron";
 import log from "electron-log";
 import { readSettings } from "@/main/settings";
-import { isManifestExpiry, writeManifest } from "./manifest";
+import { isManifestExpiry } from "./manifest";
 import {
   missingBinaryMessage,
   resolveComputerBinary,
@@ -313,42 +313,6 @@ export async function clearStaleSocket(bin: string, sock: string): Promise<void>
   }
 }
 
-/**
- * FAIL CLOSED ON THE MODE, because a silent downgrade is the failure that matters.
- *
- * `serve` can start without the manifest — that is what shipped before this — and
- * the only visible difference is a line in `status`. If a future flag change, a
- * malformed manifest we somehow accept, or an already-running daemon started by
- * something else leaves us in standard mode, every tool in `computer_call` is
- * reachable with no driver-side ceiling at all, and nothing else would say so.
- *
- * `status` reports the mode and whether the manifest was approved at startup, so
- * this asserts both rather than trusting the flags we passed. The check also covers
- * the case the flags cannot: a daemon we did NOT spawn (another window, or a `serve`
- * the user started), which `ensureDaemon` deliberately adopts.
- */
-async function assertBounded(bin: string): Promise<void> {
-  const r = await run(bin, ["status", "--socket", socketPath()], 8_000);
-  const out = r.ok ? r.stdout : "";
-  const bounded = /permission mode:\s*bounded/i.test(out);
-  const approved = /capability manifest:.*approved_at_startup=true/i.test(out);
-  if (bounded && approved) return;
-  try {
-    child?.kill();
-  } catch {
-    /* already gone */
-  }
-  child = null;
-  ready = false;
-  throw new ComputerUseError(
-    "not-ready",
-    "The desktop-control helper is running without its capability ceiling " +
-      `(${bounded ? "manifest not approved at startup" : "not in bounded mode"}). Atlarix ` +
-      "will not use it in that state. Ask the user to quit any `cua-driver serve` they " +
-      "started themselves and restart Atlarix; do not retry.",
-  );
-}
-
 // ── the driver's own agent cursor ────────────────────────────────────────────
 
 /**
@@ -391,26 +355,59 @@ async function spawnDaemon(bin: string): Promise<void> {
   const args = ["serve", "--embedded", "--socket", sock];
 
   /**
-   * BOUNDED MODE + THE CAPABILITY MANIFEST — the driver's own ceiling.
+   * BOUNDED MODE IS OFF, AND THE REASON IS A PRODUCT DECISION, NOT A BUG.
    *
-   * `--capability-manifest` is narrow-only and REQUIRES `--permission-mode bounded`
-   * plus `--approve-capability-manifest` ("the trusted launcher asserts that the
-   * human reviewed this exact manifest"). Atlarix is that launcher: the manifest is
-   * generated from `dispatch.ts`, so what it approves is what the code decided.
+   * It shipped on for a few hours and broke the feature completely: every read of
+   * every application came back
    *
-   * Note what is NOT here. `--grant existing-profile` is refused in this mode —
-   * "--grant is valid only in standard permission mode" — and it is unnecessary,
-   * because the same capability is `unattended_in_bounded` and the manifest declares
-   * it. Reaching for the flag would silently force us back to standard mode.
+   *     bounded_resource_outside_manifest — desktop application pid 680 is
+   *     outside the capability manifest
+   *
+   * The manifest gates window access by EXACT IDENTITY. Measured against the pinned
+   * driver, `get_window_state` on Finder:
+   *
+   *     apps: [{bundle_id: "*"}]                → REFUSED (parses, grants nothing)
+   *     apps: [{bundle_id: "com.apple.finder"}] → allowed
+   *     desktop: {applications: [680]}          → allowed (a PID, per launch)
+   *     apps: [{executable: "*"}]               → rejected at startup
+   *
+   * There is no expression of "any application", and "any and all apps, with no
+   * per-app prompt" is the decision this whole feature rests on. The two are
+   * incompatible: bounded mode is built for an agent with a KNOWN target list.
+   *
+   * WHY THE TEST DID NOT CATCH IT, which is the more useful half: the live manifest
+   * test starts a real daemon, asserts `permission mode: bounded`, and proves a
+   * denied tool is refused — using `list_apps` and `get_screen_size`, the only two
+   * tools that need no per-app resource. It tested the LAYER, not the CAPABILITY,
+   * and passed while the feature was dead.
+   *
+   * The manifest is NOT deleted, because it is one enumeration away from working:
+   * writing the bundle id of every INSTALLED app would restore the ceiling and let
+   * the driver enforce the Atlarix / terminal / credential exclusions itself, in its
+   * own process — strictly better than what was here. That is worth doing, and not
+   * worth doing while the feature is down. See docs/TODO.md.
    */
-  const manifest = writeManifest();
-  args.push(
-    "--permission-mode",
-    "bounded",
-    "--capability-manifest",
-    manifest,
-    "--approve-capability-manifest",
-  );
+
+  /**
+   * `--grant existing-profile`, WHICH IS ONLY POSSIBLE NOW THAT BOUNDED MODE IS OFF.
+   *
+   * The owner's decision was that the browser tools attach to the user's REAL
+   * logged-in Chromium, because the use case is reading their own authenticated
+   * Airtable and Metabase. The driver refuses that by default and there are exactly
+   * two ways to authorise it, and they are mutually exclusive:
+   *
+   *   standard mode → `--grant existing-profile` (this line)
+   *   bounded mode  → `browser.profiles: [{kind:"existing_profile"}]` in the
+   *                   manifest; the FLAG is refused with "--grant is valid only in
+   *                   standard permission mode"
+   *
+   * So removing the manifest did not just remove a ceiling — it moved where this
+   * capability has to be declared. Without this line `browser_prepare` on the
+   * user's own profile is refused, and the browser half of the feature (the half
+   * that needs no macOS grant at all, and the reason the surface was widened) does
+   * not work.
+   */
+  args.push("--grant", "existing-profile");
 
   /**
    * The driver's own agent cursor, bound to the Settings control that already
@@ -450,7 +447,6 @@ async function spawnDaemon(bin: string): Promise<void> {
   while (Date.now() - started < READY_TIMEOUT_MS) {
     if (child !== proc) break; // it exited while we waited
     if (await daemonRunning(bin)) {
-      await assertBounded(bin);
       ready = true;
       const version = await run(bin, ["--version"], 8_000);
       logger.info(
@@ -536,19 +532,7 @@ export async function ensureDaemon(): Promise<string> {
     ensureTelemetryOptOut();
     // An already-running daemon (another window, or a `serve` the user started)
     // does not consume the start budget — we did not spawn it.
-    //
-    // IT STILL HAS TO PROVE ITS CEILING. `assertBounded`'s own comment claims it
-    // covers "a daemon we did NOT spawn, which ensureDaemon deliberately adopts",
-    // and for one commit it did not: the only call site was the spawn path, so any
-    // pre-existing daemon on our socket was adopted and trusted. In that state the
-    // driver's half of the containment — the tool allowlist, the deny list, the
-    // files.write restriction — is simply absent, and `--embedded` may be too,
-    // which silently breaks the TCC-attribution story Settings tells the user.
-    //
-    // A comment asserting a check runs is not the check running; that is the same
-    // lesson as `guards.ts`'s "the ambiguity does not arise here".
     if (await daemonRunning(bin)) {
-      await assertBounded(bin);
       ready = true;
       return;
     }
