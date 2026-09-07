@@ -13,131 +13,68 @@ macOS arm64 shows the same "all probes passed, process tree had to be killed" as
 Windows runs. Two consecutive runs of the SAME build differed only in outcome: one
 FAILED → exited 1 on its own; one PASSED → did not exit. **It happens on the PASSING
 path**, and nothing was left running afterwards. Next step is the grandchild
-experiment recorded below, now runnable on macOS where a debugger is available.
+experiment recorded in `scripts/run-packaged-self-test.mjs`'s `DEADLINE_MS` docblock,
+now runnable on macOS where a debugger is available.
 
 ## Queued 2026-09-06 (owner) — UX + product
 
-- [ ] **Why "truncated" in a deep web search.** Observed in the owner's own transcript:
-  the model's thoughts read *"The deep search returned some content but mostly
-  resilience-focused and truncated"* — so it SAW our truncation marker and worked
-  around it with more searches. `src/lib/tools/web.ts`: `DEEP_FETCH_MAX = 20_000`
-  per page, `READ_URL_DEFAULT_MAX = 20_000`, and `truncateForRead()` appends
-  `"... [Content truncated]"`. Two different questions to separate before touching a
-  number: is 20K/page genuinely too small for the pages deep search picks, or is the
-  synthesis step dropping content that WAS fetched? Measure one real deep query
-  before changing a cap — v13.1 already raised this once from 5K.
+**Five of six SHIPPED 2026-09-07.** Kept as a one-line record each, because the next
+reader's question is "was this done?" and an item that has to be re-investigated to
+answer that costs more than the line.
 
-- [ ] **Keep an unsent draft when the app closes.** Typing a long message and quitting
-  loses it, which forces the user to retype something they may no longer remember.
-  Persist per SESSION (not globally — a draft belongs to the conversation it was
-  typed in), restore on open, clear on send. `src/components/SimpleChatInput.tsx`.
-  Watch the two-store split ([[atlarix-chat-stores]]): ephemeral sessions are numeric
-  ids and persisted ones are UUIDs, so the key has to survive a session being
-  persisted mid-draft.
+- [x] **Deep-search truncation** — `657ba43c`. Both halves measured first, as this item
+  demanded: synthesis drops NOTHING (it concatenates fetched content verbatim), and 20K
+  was genuinely too small (every page sampled ran 25K–75K chars). Fixed by ALLOCATING a
+  total across the URLs actually fetched (`deepFetchBudget`) rather than raising the flat
+  cap, so five results are unchanged and one or two get the whole budget.
+- [x] **Unsent draft survives a quit** — `856ff33e`. Keyed by SESSION UUID, which
+  sidesteps the ephemeral-numeric/persisted-UUID migration this item warned about rather
+  than implementing it. Residual, deliberate: a draft typed in the few milliseconds
+  before a session has a UUID is not persisted.
+- [x] **Settings/Integrations sub-nav dropped** — `e7884f4b`. The item's premise was
+  wrong: the sidebar carried NO destination the tab row lacked (8 == 8, 5 == 5). The
+  real work was that removing the mounts left an empty 240px hover flyout.
+- [x] **New-window button + clock moved to the rail** — `0b5d7257`. Two corrections: they
+  were never in the chat header (they were in the AppList group header), and the clock is
+  NOT a history button — `LocalDateTimeClock` has no onClick. **If a session-history
+  button is wanted, that is a new feature, not a move.**
+- [x] **Session ordering on reopen** — `6c5dcf3e`. Two faults: reopen resumed the newest
+  session, AND the row handler no-opped on the already-active row, so the top row was
+  inert from anywhere in the app.
 
-- [ ] **Language option — LLM output and UI.** Thirteen, with codes:
-  `en-us, zh-hans, fr, de, hi, it, ja, ko, pl, pt-br, ru, es, tr`. Note this is
-  exactly the Microsoft Store LISTING language set, so the same list should feed the
-  Store submission rather than being maintained twice. Two halves with very different
-  costs: the model's RESPONSE language is a per-turn prompt instruction (the owner's
-  own suggestion, and the cheap correct one — it belongs in the system prompt, and it
-  must be counted against `prompt-budget.eval.test.ts`); the UI is real i18n across
-  every component and is a much larger piece of work. Decide whether both ship
-  together or the response language ships first.
-
-- [ ] **Settings + Integrations: drop the left sub-nav, keep the top tabs.** Both are
-  rendered today and they say almost the same thing. `src/components/SettingsList.tsx`
-  and `IntegrationsList.tsx` (mounted from `app-sidebar.tsx`) are the sidebar;
-  `ScrollableTabNav.tsx` is the tab row. NOT a straight deletion: the two lists are
-  not identical — the sidebar carries Community and Danger zone — so every destination
-  has to survive the removal. `src/__tests__/settings-nav-parity.test.ts` exists and
-  guards exactly this class of dead link; keep that guarantee.
-
-- [ ] **Move the history (clock) and new-window buttons out of the chat header.** They
-  are squeezed into the Home chat header and only exist there. They belong in the left
-  rail beside Apps / Tools / Settings / Integrations, where they are reachable from
-  every screen.
-
-- [ ] **Session ordering on reopen.** Reopening lands on the most recent session
-  instead of a fresh Untitled, so the top session cannot be opened without first
-  clicking a different one and coming back. Reported 2026-09-06.
-
-**Blocked on the owner — the Actions spending limit.** The limit was exhausted by five
-full-matrix dispatches; private-repo CI then fails in ~3s with an EMPTY log and the cause
-only in the run annotations. It also silently makes Railway SKIP the `atlarix-proxy`
-deploy (`skippedReason: CI check suite failed`, status `SKIPPED` not `FAILED`) — that
-went unnoticed for three days. Raise it before tagging anything.
-
-**Owed for v14.42.0:**
-- **The mid-turn path is UNVERIFIED in a packaged build.** Type mid-stream, confirm the row
-  appears in front of the streaming text and the assistant KEEPS streaming underneath it, then the
-  question flow end to end (type → it asks → answer → the queued message is delivered, and the
-  next sub-agent wake is admitted). The owner chose to ship on the suite; this is the watch item.
-- **One provider question no test can answer:** whether every Core provider tolerates two
-  consecutive untagged user messages mid-round without merging them. Check a recorded request body
-  against a Core model. If one merges, fall back to a single combined untagged message.
-
-**Carried from v14.41.0, still not done:**
-- [x] **`mobile_inspect` / `mobile` VERIFIED against a real Android emulator, 2026-09-04** — and
-  the first command it issued was broken. See "Android verified" below. iOS was already verified
-  2026-09-02. Both halves have now been run against real devices.
-- **Walk the v14.41.0 DELETIONS by presence, not just absence:** GitHub SIGN-IN to the Atlarix
-  account still works (the one thing that must not break); the welcome screen still routes to a
-  first workspace now that Clone repo is gone; an existing cron/MCP automation still fires.
-- **Drive a page end to end through the consolidated `browser` tool** (navigate → find → click →
-  read) and confirm the activity row reads properly rather than "Runned browser".
-- **The `[prompt-cache]` measurement.** One long packaged session on a Core model, recording
-  `write=` on turn 1 and `read=` on turns 2..n. Information for the next cycle, not a gate.
-
-**Owner actions:** delete the `OAUTH_CLIENT_ID` repository secret (nothing reads it any more —
-`src/lib/auth/README.md` records why there is no second GitHub credential).
-
-**Previous:** v14.41.0 — released 2026-09-02 (its header sat on "STAGED, not released" until this
-cut; it published 15:24Z that day). The context meter counted the system prompt and nothing else,
-so ~10,000 tokens of tool descriptions and schemas were billed every turn and measured by nothing;
-six browser tools became two; per-project settings moved off the global Settings page; and Atlarix
-can read and drive a mobile emulator screen. Measured prefix, per mode: Explore 11,539 → 10,404;
-Plan 10,891 → 9,839; Build 15,329 → 14,605; Review 11,199 → 10,055; Debug 14,738 → 14,014.
-
-**Previous:** v14.40.0 (2026-09-01) — a dropped connection no longer ends the run.
-v14.39.2 · v14.39.1 · v14.39.0 (all 2026-09-01) — one compaction system where there had been
-three, the marker as a real column, and `session_search` to read behind the boundary.
-
-**Previous:** v14.38.4 (2026-08-29) — the auth-plumbing release: sign-in fixed
-(the redirect had one slash too many and stopped matching Supabase's allow-list), sign-out and
-sign-in now reach every window, Docker builds run under the sandbox, a denied write offers a grant
-even when the command hides its own failure, edits stop rendering as "Create · new file", and the
-prompt finally states the workspace root.
-
-**Previous:** v14.38.3 (2026-08-28) — Core 1 → GLM 5.3 and the dead realtime scaffolding. 12 assets,
-MSIX submitted to the Store and now REQUIRED by `publish-release`.
-
-**Previous:** v14.38.2 (2026-08-27) · v14.38.0 (2026-08-27) · v14.37.0 (2026-08-24) ·
-v14.36.0 (2026-08-22) ·
-v14.35.0 (2026-08-20). Full narrative for every one of them is in
-[`CHANGELOG.md`](./CHANGELOG.md).
-
-**Last updated:** 2026-09-01
-
-**Trap worth keeping:** an `## [Unreleased]` changelog heading ships **empty** release notes —
-`scripts/ci/extract-changelog.sh` matches `^## \[?v?<version>\]?`, so it finds nothing. Rename the
-heading to the real version before tagging. (Done for 14.39.3.)
-
-> **What belongs here:** open work, decisions still owed, and traps worth not
-> rediscovering.
-> **What does not:** shipped narrative → [`CHANGELOG.md`](./CHANGELOG.md). Design prose →
-> [`DESIGN_NOTES.md`](./DESIGN_NOTES.md).
->
-> **KEEP THIS FILE LEAN.** It reached 1,811 lines on 2026-08-27 by accumulating a full
-> per-release SHIPPED section every version plus the narrative of incidents that had since
-> been resolved — all of it duplicated in the changelog or the git history. A queue nobody
-> can scan is a queue nobody reads. When a release ships: keep only what changes how the
-> NEXT change is made, move the rest, and delete a resolved incident once its lesson is in
-> **Traps**.
-
-
----
-
+- [ ] **Language option — IN PROGRESS.** Thirteen locales:
+  `en-us, zh-hans, fr, de, hi, it, ja, ko, pl, pt-br, ru, es, tr` — and the Microsoft
+  Store listing already carries all thirteen, so no Store work is owed. **Owner chose
+  both halves in one release (2026-09-07)**, against the recommendation to ship the
+  response language first; the mitigation held is that each lands as its own commit so
+  the two prompt-budget ceiling movements stay separately attributable.
+  - [x] **PR-A infrastructure** — `26da434e`. i18next 26.4.2 + react-i18next 17.0.13,
+    `src/lib/i18n/locales.ts` as the single source of truth, `appLanguage` as an ENUM
+    (unlike free-form `voiceLanguage` — a value here selects a bundled catalog, so an
+    unknown tag is a blank UI), the `settings:changed` broadcast that fixes cross-window
+    staleness, and two guards proven to fire: TypeScript key types, and `check:i18n`
+    with a hardcoded-string ratchet at 315.
+  - [ ] **Response language.** In `stableHeader`, NOT the per-turn tail as this item
+    originally said — locale is stable for a session and the tail is the cache-hostile
+    half. Emit only when the locale is not `en-us`, so English installs pay zero. Needs a
+    SIXTH case in `prompt-budget.eval.test.ts` with `appLanguage: "fr"`, or the cost is
+    never measured (the suite runs in English) and the feature could ship silently dead.
+    **`AGENTS.md` must not carry it** — that file IS the shipped prompt, sent
+    unconditionally to every user.
+  - [ ] **UI i18n** — ~177 files, ~1,300 strings, estimated 7 weeks. Lands as PRs B–H,
+    one surface per catalog namespace so siblings never conflict: tool-activity-labels
+    (139 strings, best ratio, proves the pipeline) → settings → chat → components →
+    onboarding → main process → the 12 non-English catalogs.
+  - Decided and worth not rediscovering: **RTL is fully descoped** (all 13 locales are
+    LTR, and `check:i18n` fails if that changes); **diagnostics stay English**
+    (`doctor.ts`, `self-test.ts`, `database-init-failure.ts` — a translated stack trace
+    makes support harder); **`whats-new.ts` is fetched from `atlarix-releases` and no
+    bundled catalog can reach it** — decide whether it stays English or the remote JSON
+    gains a per-locale shape.
+  - Three hazards that are NOT RTL: German/Russian/Polish run 30–40% longer (that is the
+    layout budget); Geist has no CJK or Devanagari glyphs, so zh/ja/ko/hi need the font
+    stack extended; and Turkish casing needs `document.documentElement.lang` (done in
+    PR-A).
 
 ## Traps from v14.41.0 (2026-09-02)
 
@@ -162,17 +99,19 @@ heading to the real version before tagging. (Done for 14.39.3.)
 - **Retiring a feature leaves typed orphans a type-checker will not find.** §3 deleted the GitHub
   poller but left `GithubTriggerEventSchema` (a runtime value, so knip could not see it as an unused
   type) and `GithubCursor`. Run `npx knip` AND grep the feature's noun after any deletion.
-- **Candidate, NOT done: three staged deps that look unnecessary.** With pinning fixed, the log
-  now names the roots it cannot pin individually — `keytar`, `mysql2`, `pg` — and all three look
-  like they should not be installed into the app at all. `keytar` is explicitly unused
-  (`supabase-secure-storage.ts`: "intentionally does NOT use keytar"; it is a native module, so
-  this is real install cost and a build-failure surface), and `mysql2`/`pg` are Drizzle's
-  optional drivers where Atlarix uses SQLite. They are in `mainRollupExternals` for a good
-  reason — the bundler must not try to bundle code Drizzle references — but being an EXTERNAL
-  and being an install ROOT are different questions, and the hook conflates them.
-  **Not changed:** if anything does a top-level require of one of them, removing it crashes the
-  packaged app, and that needs verifying in the `.app` rather than reasoning about. Bloat win,
-  crash risk — worth doing deliberately, not as a side effect.
+- **`keytar` / `mysql2` / `pg` — the premise was WRONG, and the residue is one line.**
+  This was filed as "three staged deps that look unnecessary… real install cost and a
+  build-failure surface", with a warning that removing them might crash the packaged app.
+  Re-checked 2026-09-07: **none of the three is a dependency at all** — not in
+  `package.json`, not in `package-lock.json`, not in `node_modules`. They cannot be
+  installed into the app, because `packageAfterPrune` installs `keepRoots ∩ fullDeps` and
+  they are in neither. So there is no bloat and no crash risk.
+  The only real residue is three unnecessary entries in `mainRollupExternals`
+  (`vite.main.config.mts`), which is a tidy-up, not an investigation. Worth recording
+  because the original framing would have sent someone to verify a crash that cannot
+  happen — and because the lesson is the general one: an item that reasons from a build
+  LOG ("the log names the roots it cannot pin") is reasoning about a different set than
+  the one that ships.
 - **RELEASE INTEGRITY: the staged-app dependency pinning had silently never worked.**
   `forge.config.ts`'s `packageAfterPrune` reads `package-lock.json` to install the staged app's
   runtime deps at the EXACT versions that were tested. Inside that hook,
@@ -275,7 +214,8 @@ heading to the real version before tagging. (Done for 14.39.3.)
   fixed (temp file, then unlink), but check for it before any commit that follows a mobile test
   run: `ls -- './-'`. A filename of `-` is also awkward to delete — `rm -f -- './-'`, since
   plain `rm -- -` and `rm '-'` both fight the shell.
-- **iOS half VERIFIED on a live simulator 2026-09-02; the ANDROID half is still unverified.**
+- **iOS half VERIFIED on a live simulator 2026-09-02; ANDROID verified 2026-09-04** against a
+  real API 35 emulator — see the trap below, where the first command it issued turned out broken.
   `mobile-live-ios.test.ts` runs against a booted simulator and `describe.skipIf`s itself when
   there isn't one, so it stays in the suite. **It is the only thing that found any of these,
   and the mocked suite was green throughout:**
@@ -293,7 +233,7 @@ heading to the real version before tagging. (Done for 14.39.3.)
     refusal above 1.5 MB — the downscale needs Electron's `nativeImage`, and its fallback
     would otherwise send the raw capture.
 - [x] **ANDROID VERIFIED 2026-09-04, against a real API 35 emulator — and it was BROKEN.**
-  Covered by the new `src/__tests__/mobile-live-android.test.ts` (11 assertions,
+  Covered by the new `src/__tests__/mobile-live-android.test.ts` (
   `describe.skipIf(!hasBootedDevice())` so it costs nothing without an SDK). Emulator installed
   for the run and deleted immediately after.
 
@@ -320,13 +260,6 @@ heading to the real version before tagging. (Done for 14.39.3.)
   rather than acting on whatever now occupies the index; `settings get system show_touches`
   returning the literal string `null` when unset, which is exactly what the restore path is
   written to expect.
-
-  **Two things I got wrong writing the test, worth keeping because both are shaped like real
-  bugs:** `runDeviceCli` returns BOTH `stdout` (a UTF-8 string) and `buffer` — reading a PNG from
-  `stdout` corrupts byte 0 (0x89 is not valid UTF-8), so the magic check fails on a perfectly
-  good image; and `ToolRegistry.execute` NESTS a successful handler result under `result`, so a
-  test reading `res.content` at the top level sees `undefined` while `res.success` is `true`.
-  Both produce a convincing false accusation against working code.
 
   **THE SECOND BUG, found only because the checklist was finished: `action:"launch"` NEVER
   WORKED on Android.** The recipe was `monkey -p <pkg> -c android.intent.category.LAUNCHER 1`,
@@ -481,9 +414,12 @@ surface (it should, so the model learns one contract); how a tab is chosen and h
 user consents per-site; and what happens when the extension is absent (the in-app
 browser is the fallback, and the failure must say which browser it wanted).
 
-## 🔜 Next session — the queue, in order
+## 🔜 Next session — the queue
 
-### 1. Harbor upstream integration — IN PROGRESS 2026-09-01
+*(Unordered. It read "in order" while numbered 1, OPEN, 0, 1b, 3 with no 2 —
+numbers that do not sequence are worse than none.)*
+
+### Harbor upstream integration — IN PROGRESS 2026-09-01
 
 **Why this route and not a submission.** Terminal-Bench 4.0 community submissions are CLOSED —
 `leaderboard/SUBMIT.md`: *"Only submissions run by the maintainers will be added."* The
@@ -498,7 +434,7 @@ commenter with `author_association: NONE` satisfied it the next day).
 the agent once and every one becomes `harbor run -d <dataset> --agent atlarix` — a standing
 regression suite for the agent loop, independent of anyone reading a leaderboard.
 
-**Done:** `npm i -g atlarix` is live (14.39.2, trusted-publisher OIDC from `headless.yml`, no
+**Done:** `npm i -g atlarix` is live (trusted-publisher OIDC from `headless.yml`, no
 token in secrets); reasoning reaches the wire at the model's ceiling; the self-timeout is gone;
 `--version` answers; `--trajectory-file` streams JSONL with secrets redacted.
 
@@ -574,7 +510,7 @@ exactly why none of them should be acted on yet.
 meter and the history start from the summary), then `/security-review` on the diff.
 
 
-### 0. OAuth redirect allowlist — OWNER ACTION, still owed
+### OAuth redirect allowlist — OWNER ACTION, still owed
 
 The code fix shipped in v14.38.4 (`AUTH_CALLBACK_URL` is now the canonical two-slash
 `atlarix://auth/callback`, locked by `src/__tests__/oauth-redirect-allowlist-match.test.ts`). **It
@@ -595,7 +531,7 @@ URLs, alongside the two-slash entry, and keep both until those builds are gone.
 a compiled glob and, on a miss, silently substitutes the Site URL. Sign-in completes in the browser,
 lands on the website, and the app is simply never launched.
 
-### 1b. The repository list is live but the EXISTING installs are empty
+### The repository list is live but the EXISTING installs are empty
 
 Shipped 2026-08-27 (`atlarix-reviewer@09f6ff3`, migration `20260827180000`). Verified in
 production: the column exists, the RPC is service-role gated, and both live installs read
@@ -614,7 +550,7 @@ is the honest thing for it to say. Two ways out:
   `GET /installation/repositories` per install with an installation token and applying it
   with `mode: 'set'`. Needs the App private key, which lives in Railway, not locally.
 
-### 3. One non-owner run of the reviewer, end to end
+### One non-owner run of the reviewer, end to end
 
 **No account other than `AmariahAK` has ever completed install → subscribe → bind →
 review.** `review_jobs` totals 4 (3 done, 1 failed), all owner; `atlarix-releases` is
@@ -830,26 +766,18 @@ These are trips and clicks, not tasks. Each fix is already shipped.
 
 ## ✅ Windows/Linux verification — CLOSED 2026-09-04
 
-The section that stood here, "🚧 Needs the Windows machine — one trip clears all of it", is deleted.
-Its own preamble admitted that counting it as backlog "made this queue read three times its real
-size", and after the owner's confirmations nothing in it still needs a machine:
+Everything that once stood here is verified: Electron 43, process-tree kill, on-device voice
+(Windows and Linux), the Windows Low-IL sandbox (`run_command` succeeds with git, so
+`CreateProcessAsUserW` is not hitting `ERROR_PRIVILEGE_NOT_HELD`), the MSIX §4 behaviour check
+including the protocol declaration, and Linux voice on the WebGPU-first path.
 
-- [x] **Electron 43** — verified 2026-08-21 on Windows and Linux.
-- [x] **Process-tree kill (v14.32.0)** — verified 2026-08-21.
-- [x] **On-device voice (v14.30.0)** — verified 2026-08-21 on Windows and Linux.
-- [x] **Windows sandbox (Low IL, v14.28.0)** — confirmed by the owner 2026-09-04: `run_command`
-      succeeds with git under Low IL, so `CreateProcessAsUserW` is not hitting
-      `ERROR_PRIVILEGE_NOT_HELD` and commands are genuinely confined.
-- [x] **MSIX §4 behaviour check** — confirmed by the owner 2026-09-04, protocol declaration
-      included. Worth recording *why* this is comfortable: most users are on the Store build, which
-      Microsoft re-signs with a trusted certificate, and the `runFullTrust` justification is
-      approved — so the MSIX is a full-trust packaged app, not an AppContainer one.
-- [x] **Linux voice** — confirmed by the owner 2026-09-04 on the WebGPU-first path.
+**The lesson worth keeping**, since it is why the section existed at all: its own preamble
+admitted that counting these as backlog "made this queue read three times its real size", and two
+of the items were **mis-filed as needing Windows** when neither did — the passkey-notice check is
+a page script with no platform branch, and the Linux notification SIGSEGV needs a clean Sentry
+week, not a machine. Both are in "Verification owed". Before filing something as blocked on
+hardware, check that the hardware is what it is actually blocked on.
 
-Two items were **mis-filed** here rather than genuinely blocked; both moved to "Verification owed"
-above, and neither needs Windows: the **passkey notice accuracy** check (a BrowserView page script
-with no platform branch — five minutes on the dev Mac) and the **Linux notification SIGSEGV** (which
-needs a clean Sentry week, not a machine).
 ## ⚠️ Known and NOT fixed — deliberately, with reasons
 
 - **Windows: the packaged app does not exit after `--self-test`. ROOT CAUSE UNIDENTIFIED.** It prints
@@ -861,7 +789,9 @@ needs a clean Sentry week, not a machine).
   regressed between 08-20 and 08-22. Ruled out by reading the code: the `proxy-worker` probe uses a
   `worker_threads` Worker (in-process, and it terminates it), nothing calls `app.relaunch()` or
   re-executes `process.execPath` on this path, and the v14.36.0 `main.ts` changes are all behind
-  `IS_SELF_TEST` guards that provably still short-circuit. Not reproducible on macOS.
+  `IS_SELF_TEST` guards that provably still short-circuit. **NOT Windows-only** — the same
+  "all probes passed, process tree had to be killed" was recorded on macOS arm64 2026-09-05,
+  on the PASSING path, which is the pattern rather than the exception.
   **Mitigated, not fixed** (v14.36.0): `run-packaged-self-test.mjs` now takes its verdict from the
   probe REPORT in the file sink rather than from process termination, kills the process tree, and
   prints a loud warning. A failing probe, a launch error, a signal kill, a non-zero exit, or no report
@@ -885,7 +815,7 @@ needs a clean Sentry week, not a machine).
   would put exactly those runs where nobody looks. **This is settled, not pending.** The cost is
   accepted: production alert counts include the owner's own machine, so never read alert VOLUME as a
   user-impact signal without checking the source first.
-- **`useAuth` is an UNSHARED hook with ~22 consumers**, each running its own `checkSession()` —
+- **`useAuth` is an UNSHARED hook with 30+ consumers**, each running its own `checkSession()` —
   still the cause of repeated "Enforcing workspace limit" logs. Guard in the IPC handler, never in
   the hook. **The sign-out half is now scoped:** `SubscriptionManager.signOut()` does not broadcast
   `auth:resolved`, so only the instance that initiated a sign-out updates and a second window keeps
@@ -1080,71 +1010,41 @@ having once that set is backfilled — see the repository-list item.
 Supabase request count is the tell, and the 2026-08-26 lesson was that 704 requests/hour looked like
 the website and was actually a 5-second poll. Do not scale on a hunch.
 
-## ☁️ Cloudflare — DNS MIGRATED 2026-09-01; what is left is small
+## ☁️ Cloudflare — DNS MIGRATED 2026-09-01; one thing left
 
-> The account is the owner's **PERSONAL** Cloudflare (`amariah.abish@gmail.com`), created for the
-> R2 backups. The `wrangler` setup on this machine belongs to SpacInsider — **never do Atlarix work
-> through the work account.** Nothing below needs `wrangler`; it is dashboard plus DNS.
+Landed: DNS on Cloudflare, **grey-clouded deliberately** (Vercel advises against a proxy in front
+of it — it intercepts their ACME path and breaks cert renewal, and every free-tier WAF /
+rate-limit / Bot-Fight feature is proxy-gated, so grey-clouding forgoes nothing we could have
+used); **DNSSEC**; the **apex SPF** that was missing entirely; and **DMARC reporting**, which had
+been `p=none` with no `rua` and so monitored nothing.
 
-**Done.** `atlarix.dev` moved Namecheap BasicDNS → Cloudflare (`perla`/`vicente.ns.cloudflare.com`)
-with zero downtime, all 10 records intact. **Everything is DNS-only (grey) and stays that way** —
-Vercel advises against a proxy in front of it, which intercepts their ACME path and breaks cert
-renewal, and every free-tier WAF / rate-limit / Bot-Fight feature is proxy-gated, so grey-clouding
-forgoes nothing we could have used. Also landed: **DNSSEC** (DS `2371 13 2`, AD flag verified on
-1.1.1.1 / 8.8.8.8 / 9.9.9.9 / OpenDNS), the **apex SPF** that was missing entirely
-(`include:_spf.google.com ~all` — Google only; Resend has its own on `send.`), and **DMARC
-reporting** (`rua=mailto:dmarc@atlarix.dev`; the record had been `p=none` with no `rua`, so it
-monitored nothing).
+- [ ] **DMARC `p=none` → `p=quarantine`**, after 2–4 weeks of reports. Time-gated, not
+      effort-gated. Not before — enforcing without data is how legitimate mail starts landing in
+      spam.
 
-**Owed:** watch the DMARC reports for 2–4 weeks, then move `p=none` → `p=quarantine`. Not before —
-enforcing without data is how legitimate mail starts landing in spam.
+**Deliberately not doing:** Workers, Pages, Zero Trust, Images, and **proxying the Railway origin**
+(`api.atlarix.dev`) — Cloudflare in front of a streaming SSE endpoint can buffer or time out and
+break token streaming for every desktop user. If that is ever revisited, do it alone and make a
+real streaming turn the acceptance test; `/health` would pass either way.
 
-**Deliberately skipped: CAA.** Vercel controls issuance; pinning a CA risks a silent renewal failure
-for a threat Certificate Transparency already surfaces. Revisit only if issuance moves in-house.
+**Turnstile — CLOSED 2026-09-01**, and not the way it was framed. What was actually happening:
+email/password signup was ENABLED on a project that never uses it, so `POST /auth/v1/signup` →
+confirm through a disposable inbox → `claim_signup_credit()` paid $1 without ever touching our UI.
+23 claims, $23. Closed twice on purpose — the dashboard toggle (Email off) AND
+`20260901100000_trial_credit_requires_oauth_identity.sql`, which refuses the grant unless
+`auth.identities` holds a non-email provider row. The toggle alone was not enough: it exists only
+in the dashboard, `supabase/config.toml`'s `[auth]` block is the LOCAL stack's, and re-enabling it
+would reopen the hole with nothing in the repo to show. **A payout rule belongs next to the
+payout** — and not as an allowlist of provider names, since adding a fourth provider later would
+silently stop paying the credit and nobody reports a dollar they never knew existed.
 
-### Turnstile — CLOSED 2026-09-01, and not the way it was framed
-
-**The hole was real and LIVE, not the disposable-email hypothesis this section used to describe.**
-Neither product has an email-auth call site — both are `signInWithOAuth` only — and I took that to
-mean there was nothing to protect. Wrong thing to reason about. The Supabase Auth REST API is public
-and the anon key ships in the app binary and the site bundle, so our call sites bound nothing:
-
-    curl -H "apikey: <anon>" https://<ref>.supabase.co/auth/v1/settings
-    → "email": true, "disable_signup": false
-
-**Email/password signup was ENABLED on a project that never uses it.** `POST /auth/v1/signup` →
-confirm through a disposable inbox (`mailer_autoconfirm: false` — required, and exactly what those
-services automate) → sign in → `claim_signup_credit()` → $1, never touching our UI. 23 claims, $23.
-
-**Closed twice, on purpose.**
-1. Dashboard: Authentication → Providers → **Email off**. Removes an endpoint nothing uses.
-2. Code: `20260901100000_trial_credit_requires_oauth_identity.sql` refuses the grant unless
-   `auth.identities` holds a row with `provider <> 'email'`.
-
-The toggle alone was not enough: it exists only in the dashboard, `supabase/config.toml`'s `[auth]`
-block is the LOCAL stack's, and re-enabling it would reopen the hole with nothing in the repo to
-show. **A payout rule belongs next to the payout.** Not an allowlist of provider names — adding a
-fourth provider later would silently stop paying the credit, and nobody reports a dollar they never
-knew existed.
-
-**Turnstile itself was never the answer here** and is not needed now. It cannot attach to
-`signInWithOAuth` (a redirect carries no `captchaToken`), and with signup disabled and the RPC gated
-it protects nothing that is not already covered.
-
-**Still open, not urgent at $23:** the dedupe key is `(kind='trial', ref=user_id)`, so the scarce
-thing is an account, and Google/GitHub accounts remain free. The durable answer is tying the grant to
-something costlier — a payment method, or account age — not a challenge; Turnstile could not help
-regardless, since that signup happens on Google's site. The owner has separately recorded wanting the
-credit raised to ~$5 "gated on a verified account", which is the same decision from the other end.
-
-
-### Still not worth it
-
-Workers, Pages, Zero Trust, Images. And **proxying the Railway origin** (`api.atlarix.dev`) stays
-off: Cloudflare in front of a streaming SSE endpoint can buffer or time out and break token
-streaming for every desktop user. If it is ever revisited, do it alone and make a real streaming
-turn the acceptance test — `/health` would pass either way.
-
+- [ ] **Trial-credit residual — open, not urgent at $23.** The dedupe key is
+      `(kind='trial', ref=user_id)`, so the scarce thing is an account, and Google/GitHub accounts
+      are free. The durable answer ties the grant to something costlier — a payment method, or
+      account age — not a challenge; Turnstile could not have helped regardless, since that signup
+      happens on Google's site. The owner separately wants the credit raised to ~$5 "gated on a
+      verified account", which is the same decision from the other end. **Decision first, then
+      code.**
 
 ## 🔐 Security follow-ups — owner-triaged, deferred
 
