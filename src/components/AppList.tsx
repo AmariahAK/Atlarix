@@ -1,7 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
-import { ChevronDown, ChevronRight, Plus, Folder, MessageSquare, Search, EyeOff, AppWindow } from "lucide-react";
+import { ChevronDown, ChevronRight, Plus, Folder, MessageSquare, Search, EyeOff } from "lucide-react";
 import { Trash2 } from "lucide-react";
-import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import { useAtom, useSetAtom } from "jotai";
 import { selectedAppIdAtom, selectedWorkspaceInfoAtom } from "@/atoms/appAtoms";
 import { startNewWorkspaceConversation } from "@/lib/open-workspace-session";
 import { activeWorkspaceSessionIdAtom } from "@/atoms/sessionAtoms";
@@ -19,7 +19,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { clearDeletedWorkspaceClientState } from "@/lib/workspace-delete-cleanup";
 import { AppSearchDialog } from "./AppSearchDialog";
-import { LocalDateTimeClock } from "@/components/LocalDateTimeClock";
 import { pushRecentWorkspace } from "@/lib/workspace-recents";
 import { openWorkspaceFolder } from "@/lib/open-workspace-session";
 import { Badge } from "@/components/ui/badge";
@@ -39,7 +38,6 @@ interface WorkspaceWithChats {
 export function AppList({ show }: { show?: boolean }) {
   const navigate = useNavigate();
   const [selectedAppId, setSelectedAppId] = useAtom(selectedAppIdAtom);
-  const workspaceInfo = useAtomValue(selectedWorkspaceInfoAtom);
   const setSelectedWorkspaceInfo = useSetAtom(selectedWorkspaceInfoAtom);
   const [, setSelectedChatId] = useAtom(selectedChatIdAtom);
   const { apps, loading, error, refreshApps } = useLoadApps();
@@ -135,13 +133,6 @@ export function AppList({ show }: { show?: boolean }) {
     return ws?.name ?? "Workspace";
   }, [selectedAppId, workspaces]);
 
-  const activeWorkspacePath = useMemo(() => {
-    if (selectedAppId == null) return null;
-    const ws = workspaces.find((w) => w.id === selectedAppId);
-    const path = ws?.path?.trim() || workspaceInfo?.path?.trim();
-    return path || null;
-  }, [selectedAppId, workspaces, workspaceInfo?.path]);
-
   if (!show) {
     return null;
   }
@@ -189,17 +180,6 @@ export function AppList({ show }: { show?: boolean }) {
     });
   };
 
-  // v14.8.10: a fresh window with NO workspace bound (lands on the chooser) —
-  // the old behavior (clone the CURRENT workspace into a new window) surprised
-  // users; that path still exists via workspace:open-in-new-window for CLI use.
-  const handleOpenInNewWindow = async () => {
-    try {
-      await IpcClient.getInstance().openBlankWindow();
-    } catch (error) {
-      console.error("Failed to open a new window:", error);
-    }
-  };
-
   return (
     <>
       <SidebarGroup
@@ -211,18 +191,6 @@ export function AppList({ show }: { show?: boolean }) {
             {activeWorkspaceLabel}
           </span>
           <div className="flex items-center gap-1 shrink-0">
-            <LocalDateTimeClock variant="compact" tickMs={1000} />
-            {selectedAppId != null && activeWorkspacePath ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 w-6 p-0"
-                title="Open a new window"
-                onClick={() => void handleOpenInNewWindow()}
-              >
-                <AppWindow className="h-4 w-4" />
-              </Button>
-            ) : null}
             {/* Only when browsing all workspaces (no folder open) */}
             {isAuthenticated && selectedAppId == null && (
               <Button
