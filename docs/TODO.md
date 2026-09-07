@@ -1060,16 +1060,21 @@ a `(source, repo, since-claimed)` ledger window, which is exact only because `st
 each attribute the other's spend to itself. The fix is not a cleverer window — it is for the proxy to
 return the debited amount on the response. **Do this BEFORE scaling the reviewer, not after.**
 
-**Residual 3 — the service path bills whatever the header names.** A pull-request webhook fires with
-nobody signed in, so `auth.uid()` is null and no owner-scoped RPC will work; the reviewer therefore
-authenticates with a service token and passes `x-atlarix-account-id`. The proxy TRUSTS that header.
-That is a deliberate, documented trade (the alternative was putting the reviewer inside the metering
-boundary, which is worse), but it means **a leaked `REVIEWER_SERVICE_TOKEN` lets the holder bill any
-account.** Worth noting the cross-check that is available and unused: the reviewer already resolves
-the account from `github_installs` itself, so the proxy could verify the claimed account actually owns
-an installation rather than taking the header's word. Cheap, and it turns a bearer secret into a
-bearer secret plus a consistency check. Pairs with the existing "scope the reviewer's Postgres role"
-item.
+**Residual 3 — CLOSED, and it was already closed when this was re-read 2026-09-07.** The service
+path authenticates with a service token and names the payer in `x-atlarix-account-id`, because a
+pull-request webhook fires with nobody signed in. The proxy no longer takes that header's word:
+`accountHasInstallation` (`atlarix-proxy/src/entitlement.ts`) asks `github_installs` whether the
+claimed id owns a live install (`removed_at IS NULL`), cached 5 minutes, and `server.ts` refuses
+with `account_not_bound` when it does not. A failed CHECK returns 502, not 403 — "we could not
+check" is our outage and must be retryable, while "not bound" is an answer. Four tests under
+"the account must own a live installation" cover it, including that the check runs against the id
+the HEADER named and does not run on the user path.
+
+That does not make the token less of a bearer secret; it means holding it is no longer enough on
+its own, and a leak's blast radius drops from every account to accounts that have actually
+installed the app. The repo-level check is deliberately NOT done: `github_installs.repositories`
+still reads empty on both live installs, so gating on it would fail closed on real traffic. Worth
+having once that set is backfilled — see the repository-list item.
 
 **What would change the picture:** any of these becoming real needs a *measurement* first — the
 Supabase request count is the tell, and the 2026-08-26 lesson was that 704 requests/hour looked like
