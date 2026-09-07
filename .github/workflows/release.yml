@@ -132,6 +132,13 @@ jobs:
       - name: Type check native helpers (cross-target)
         run: npm run check:sandbox
 
+      # Catalog parity across locales, the RTL refusal, and the hardcoded-string
+      # ratchet. The ratchet only ever goes DOWN, so this stays green through the
+      # string migration instead of being red for the whole of it — a guard that
+      # is red for weeks is a guard someone switches off.
+      - name: i18n guards
+        run: npm run check:i18n
+
       # The edge functions are the money path and were type-checked by NOTHING.
       # `type ServiceClient = ReturnType<typeof createClient>` resolved the schema
       # generic to `never`, so every .rpc() call was already an error — 23 of them

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SUPPORTED_LOCALES } from "@/lib/i18n/locales";
 
 export const SecretSchema = z.object({
   value: z.string(),
@@ -391,6 +392,21 @@ export const UserSettingsSchema = z.object({
    * language never needs a schema change (same reasoning as
    * `voiceTranscriptionProvider`). */
   voiceLanguage: z.string().optional(),
+  /**
+   * UI language AND the language the assistant replies in.
+   *
+   * An ENUM, unlike `voiceLanguage` directly above, and the divergence is
+   * deliberate: that one is free-form because any ISO-639-1 code is meaningful to
+   * Whisper, so a new language needs no schema change. A value HERE selects a
+   * bundled catalog, so an unrecognised tag renders a blank UI rather than a
+   * degraded one.
+   *
+   * Unset means "derive from the OS locale", resolved at READ time rather than
+   * defaulted at first launch — so a user who changes their system language sees
+   * Atlarix follow, instead of being frozen to whatever it was when they
+   * installed. That is why there is no entry in DEFAULT_SETTINGS.
+   */
+  appLanguage: z.enum(SUPPORTED_LOCALES).optional(),
   /** @deprecated superseded by the binary `deepThinking` toggle (v14.8.5). */
   thinkingBudget: z.enum(["low", "medium", "high"]).optional(),
   /**

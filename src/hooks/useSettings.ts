@@ -60,6 +60,26 @@ export function useSettings() {
     loadInitialData();
   }, [loadInitialData]);
 
+  /**
+   * ADOPT SETTINGS WRITTEN BY ANY WINDOW, INCLUDING THIS ONE.
+   *
+   * This hook loads once per window into a jotai atom, and until now nothing
+   * invalidated the other windows' copies — so changing a setting in window A
+   * left window B on the old value until it was reloaded. That is why zoom
+   * drifted between windows, and it is why the assistant's reply language is
+   * read in MAIN at prompt-construction time rather than being passed up from a
+   * renderer that might be stale.
+   *
+   * Writing the atom directly rather than re-fetching: main already sends the
+   * settled value, so a round trip would only add a window where the two
+   * disagree.
+   */
+  useEffect(() => {
+    return IpcClient.getInstance().onSettingsChanged((next) => {
+      setSettingsAtom(next);
+    });
+  }, [setSettingsAtom]);
+
   const updateSettings = async (newSettings: Partial<UserSettings>) => {
     setLoading(true);
     try {

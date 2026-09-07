@@ -4,6 +4,12 @@ import { createRoot } from "react-dom/client";
 import { router } from "./router";
 import { RouterProvider } from "@tanstack/react-router";
 import { PostHogProvider } from "posthog-js/react";
+import { I18nextProvider } from "react-i18next";
+import { createI18n } from "./lib/i18n";
+
+/** One instance for this window, created eagerly so the first paint has text.
+ *  `useAppLocale` switches it once settings resolve. */
+const i18n = createI18n();
 import posthog from "posthog-js";
 import {
   ensurePostHogInitialized,
@@ -266,9 +272,14 @@ async function bootstrap() {
     setPostHogConfig(posthogConfig.posthogApiKey, posthogConfig.analyticsId);
     ensurePostHogInitialized();
   }
-  createRoot(document.getElementById("root")!).render(
+    createRoot(document.getElementById("root")!).render(
     <StrictMode>
       <SentryErrorBoundary fallback={<SentryFallback />}>
+        {/* Outside QueryClientProvider so a translated string is available to
+            anything that renders during a query's loading state. The instance is
+            initialised SYNCHRONOUSLY with the English catalog, so there is no
+            frame where the UI shows raw keys. */}
+        <I18nextProvider i18n={i18n}>
         <QueryClientProvider client={queryClient}>
           <PostHogProvider client={getPostHogClient() ?? posthog}>
             <PostHogIdentityBridge />
@@ -279,6 +290,7 @@ async function bootstrap() {
             </DevServerProvider>
           </PostHogProvider>
         </QueryClientProvider>
+        </I18nextProvider>
       </SentryErrorBoundary>
     </StrictMode>,
   );

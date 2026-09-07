@@ -3,7 +3,7 @@
   "productName": "Atlarix",
   "version": "14.42.0",
   "private": true,
-  "description": "The private AI workstation for engineering teams — your code stays on your machine, with managed Atlarix Core models, any-model BYOK across 145+ providers, and local execution.",
+  "description": "The private AI workstation for engineering teams \u2014 your code stays on your machine, with managed Atlarix Core models, any-model BYOK across 145+ providers, and local execution.",
   "main": ".vite/build/main.js",
   "repository": {
     "type": "git",
@@ -65,7 +65,8 @@
     "check:lint": "oxlint src",
     "verify:ban-guard": "node scripts/verify-ban-guard.mjs",
     "check:sandbox": "node scripts/check-sandbox-helpers.mjs",
-    "check:functions": "deno check supabase/functions/_shared/*.ts supabase/functions/*/index.ts"
+    "check:functions": "deno check supabase/functions/_shared/*.ts supabase/functions/*/index.ts",
+    "check:i18n": "node scripts/check-i18n.mjs"
   },
   "keywords": [
     "ai",
@@ -195,6 +196,7 @@
     "fix-path": "^4.0.0",
     "fs-extra": "^10.1.0",
     "glob": "^13.0.6",
+    "i18next": "^26.4.2",
     "jotai": "^2.12.2",
     "jsdom": "^29.0.2",
     "kill-port": "^2.0.1",
@@ -208,6 +210,7 @@
     "posthog-node": "^4.18.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "react-i18next": "^17.0.13",
     "react-markdown": "^10.1.0",
     "react-shiki": "^0.9.0",
     "react-virtuoso": "^4.18.10",

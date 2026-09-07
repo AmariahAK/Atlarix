@@ -2692,6 +2692,31 @@ export class IpcClient {
     };
   }
 
+  /**
+   * User settings changed — in ANY window, including this one.
+   *
+   * `useSettings` loads once per window into a jotai atom and nothing used to
+   * invalidate the others, so a second window kept a stale copy until reloaded.
+   * That is why zoom drifted between windows; language would make it obvious.
+   *
+   * The `(...args)` shape is not defensive padding — the preload strips the
+   * Electron event for some channels and not others, and eleven listeners
+   * written `(_e, payload)` have silently never fired. Taking whichever arg is
+   * present is what the auth bridge does, and it is right for the same reason.
+   */
+  public onSettingsChanged(
+    handler: (settings: UserSettings) => void,
+  ): () => void {
+    const listener = ((...args: unknown[]) => {
+      const data = (args.length > 1 ? args[1] : args[0]) as UserSettings;
+      if (data) handler(data);
+    }) as (...args: unknown[]) => void;
+    this.ipcRenderer.on("settings:changed", listener);
+    return () => {
+      this.ipcRenderer.removeListener("settings:changed", listener);
+    };
+  }
+
   /** Pull (and clear) a CLI workspace buffered before this renderer mounted. */
   public consumePendingCliWorkspace(): Promise<{
     appId: number;

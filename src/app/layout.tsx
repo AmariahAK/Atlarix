@@ -15,6 +15,7 @@ import {
   userSettingsAtom,
 } from "@/atoms/appAtoms";
 import { useSettings } from "@/hooks/useSettings";
+import { useAppLocale } from "@/hooks/useAppLocale";
 import type { ZoomLevel } from "@/lib/schemas";
 import { activeChatIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
 import { useNavigate } from "@tanstack/react-router";
@@ -248,6 +249,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   // Mounted here, once, because it keys off the ACTIVE chat — one owner, not a
   // per-component effect racing itself.
   useEvictColdChatState();
+  // Applies `appLanguage` to i18next and stamps document.lang (Turkish casing
+  // depends on the attribute, not just on the catalog).
+  useAppLocale();
   const { settings } = useSettings();
   const selectedAppId = useAtomValue(selectedAppIdAtom);
   const setSelectedAppId = useSetAtom(selectedAppIdAtom);

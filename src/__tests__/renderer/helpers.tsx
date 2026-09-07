@@ -13,6 +13,8 @@
  */
 
 import React from "react";
+import { I18nextProvider } from "react-i18next";
+import { createI18n } from "@/lib/i18n";
 import { render } from "@testing-library/react";
 import { getDefaultStore } from "jotai";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -190,8 +192,16 @@ export function renderWithProviders(ui: React.ReactElement) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+  // A FRESH i18n instance per render, initialised synchronously with the English
+  // catalog. Synchronous is the load-bearing part: `t("some.key")` returns the
+  // English string on the FIRST render, so every existing text assertion in this
+  // suite keeps passing without being touched or awaited. An async init would
+  // have meant rewriting ~94 assertions across 24 files to wait for a swap.
+  const i18n = createI18n();
   const result = render(
-    <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>,
+    <I18nextProvider i18n={i18n}>
+      <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>
+    </I18nextProvider>,
   );
-  return { ...result, store, queryClient };
+  return { ...result, store, queryClient, i18n };
 }
