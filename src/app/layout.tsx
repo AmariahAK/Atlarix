@@ -16,7 +16,7 @@ import {
 } from "@/atoms/appAtoms";
 import { useSettings } from "@/hooks/useSettings";
 import type { ZoomLevel } from "@/lib/schemas";
-import { chatInputValueAtom, activeChatIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
+import { activeChatIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
 import { useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAIPanelListener } from "@/hooks/useAIPanelListener";
@@ -249,7 +249,6 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   // per-component effect racing itself.
   useEvictColdChatState();
   const { settings } = useSettings();
-  const setChatInput = useSetAtom(chatInputValueAtom);
   const selectedAppId = useAtomValue(selectedAppIdAtom);
   const setSelectedAppId = useSetAtom(selectedAppIdAtom);
   const setSelectedWorkspaceInfo = useSetAtom(selectedWorkspaceInfoAtom);
@@ -373,9 +372,6 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 
     return () => { };
   }, [settings?.zoomLevel]);
-  useEffect(() => {
-    setChatInput("");
-  }, [selectedAppId]);
 
   // Fix: Finding 4 — models.dev background refresh (non-blocking notice)
   useEffect(() => {
