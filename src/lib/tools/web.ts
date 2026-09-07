@@ -37,8 +37,46 @@ const WEB_SEARCH_SETUP_HINT =
 /** Default read budget per page (v13.1: raised from 5K — modern docs need more). */
 const READ_URL_DEFAULT_MAX = 20_000;
 const READ_URL_MAX_CAP = 50_000;
-/** Per-page content budget for deep/comprehensive web_search fetches. */
+/**
+ * Per-page content budget for deep/comprehensive web_search fetches — the FLOOR,
+ * and the value used when all five slots are filled.
+ *
+ * MEASURED 2026-09-07, because the owner saw the model reason around our own
+ * truncation marker ("mostly resilience-focused and truncated") and work the gap
+ * with extra searches. Two questions had to be separated before touching a number,
+ * and v13.1 had already raised this once from 5K, so a blind raise was the
+ * anti-goal:
+ *
+ * 1. Does the SYNTHESIS step drop content that was fetched? **No.** The assembly
+ *    below concatenates each page's content verbatim — no second truncation, no
+ *    summarisation. Every byte that survives this cap reaches the model.
+ * 2. Is 20K/page too small for the pages deep search picks? **Yes**, on every
+ *    page sampled — extracted text ran 25K-75K chars (kubernetes.io's Deployment
+ *    page is 3.8x the cap; react.dev, docs.python.org and Wikipedia all ~2x).
+ *
+ * So the cap was the whole problem — but raising it flat multiplies by the page
+ * count, and 5 x 20K is already ~25K tokens for one tool call. Instead the budget
+ * is now allocated across the pages actually being fetched: a TOTAL, divided by
+ * how many URLs came back. Worst case is unchanged (five pages, 20K each); the
+ * common case of one or two usable results gets the whole budget instead of
+ * leaving four fifths of it unspent. Strictly better, with no new ceiling.
+ */
 const DEEP_FETCH_MAX = 20_000;
+/** Total across all pages in one deep fetch. Held at the old worst case, 5 x 20K. */
+const DEEP_FETCH_TOTAL = 100_000;
+
+/**
+ * Per-page budget for a deep fetch of `pageCount` URLs.
+ *
+ * Never below DEEP_FETCH_MAX (so this can only ever help) and never above
+ * READ_URL_MAX_CAP, which is the ceiling a user can ask for on a single
+ * `read_url` — one page arriving through search should not out-read that.
+ */
+export function deepFetchBudget(pageCount: number): number {
+    if (pageCount <= 0) return DEEP_FETCH_MAX;
+    const share = Math.floor(DEEP_FETCH_TOTAL / pageCount);
+    return Math.min(READ_URL_MAX_CAP, Math.max(DEEP_FETCH_MAX, share));
+}
 /** Default page-fetch timeout (v13.1: 10–15s was too tight for CDN-slow docs). */
 const FETCH_TIMEOUT_MS = 20_000;
 const FETCH_TIMEOUT_MAX_MS = 60_000;
@@ -912,11 +950,12 @@ async function runDeepSearch(
         .slice(0, cap);
 
     // See the note in `web_search` — same reason, same wrapper, still parallel.
+    const perPage = deepFetchBudget(topUrls.length);
     const fetchedContent = await Promise.allSettled(
         topUrls.map(async (result) => {
             const fetched = await fetchUrlContentCached(
                 result.url,
-                DEEP_FETCH_MAX,
+                perPage,
                 FETCH_TIMEOUT_MS,
                 "Atlarix/1.0 (Deep Search)",
             );
