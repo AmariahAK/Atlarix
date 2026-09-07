@@ -235,41 +235,31 @@ export type OpenWorkspaceFolderOptions = {
   refreshApps?: () => Promise<void>;
 };
 
+/**
+ * REOPENING A WORKSPACE LANDS ON A FRESH UNTITLED, not on the newest session.
+ *
+ * It used to resume `sessions[0]` sorted by `updatedAt` desc. That is also the
+ * order `sessions:list` returns (`workspace_session_handlers.ts`, `orderBy(desc(
+ * updatedAt))`), so the resumed session was ALWAYS the top row — and
+ * `WorkspaceSessionList` early-returns when the clicked row is already active.
+ * Net effect: the top session could not be opened at all until you clicked a
+ * different one and came back. Reported 2026-09-06.
+ *
+ * `startWorkspaceConversation` is the right call rather than a bare create: its
+ * handler reuses a most-recent session that is still default-titled with zero
+ * messages and prunes other stale empties, so repeated reopens do not accumulate
+ * Untitled rows. The CLI path (`import_workspace_core.ts`) has always gone through
+ * it; this makes the renderer agree instead of diverging.
+ *
+ * `workMode: null` is deliberate — a session created a moment ago has no stored
+ * mode, so it resolves from the global preference, and the previous session's mode
+ * must not carry into a brand-new one.
+ */
 async function resolveSessionAndChat(
   workspaceAppId: number,
 ): Promise<{ sessionId: string; chatId: number; workMode: WorkMode | null }> {
   const ipc = IpcClient.getInstance();
   const store = getDefaultStore();
-  const sessionToChat = store.get(sessionIdToChatIdAtom);
-
-  const sessions = await ipc.listWorkspaceSessions(workspaceAppId);
-  const sorted = [...sessions].sort(
-    (a, b) =>
-      new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-  );
-
-  if (sorted.length > 0) {
-    const sessionId = sorted[0].id;
-    // The row we already fetched carries the mode — no second round trip, and no
-    // window where the id is active but the mode is still the previous session's.
-    const workMode = (sorted[0].workMode ?? null) as WorkMode | null;
-    const existingChatId = sessionToChat.get(sessionId);
-    if (existingChatId != null) {
-      return { sessionId, chatId: existingChatId, workMode };
-    }
-    const { chatId } = await ipc.allocateSessionTransport(sessionId);
-    store.set(sessionIdToChatIdAtom, (prev) => {
-      const next = new Map(prev);
-      next.set(sessionId, chatId);
-      return next;
-    });
-    store.set(chatIdToSessionIdAtom, (prev) => {
-      const next = new Map(prev);
-      next.set(chatId, sessionId);
-      return next;
-    });
-    return { sessionId, chatId, workMode };
-  }
 
   const { sessionId, chatId } =
     await ipc.startWorkspaceConversation(workspaceAppId);
@@ -283,9 +273,6 @@ async function resolveSessionAndChat(
     next.set(chatId, sessionId);
     return next;
   });
-  // A session created a moment ago has no stored mode, so it resolves from the
-  // global preference. Explicit `null` rather than leaving the atom alone: the
-  // previous session's mode must not carry into a brand-new one.
   return { sessionId, chatId, workMode: null };
 }
 

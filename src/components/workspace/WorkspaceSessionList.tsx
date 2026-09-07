@@ -350,7 +350,19 @@ export function WorkspaceSessionList({
           )}
           onClick={() => {
             if (renamingId === session.id) return;
-            if (activeSessionId === session.id) return;
+            // ALREADY-ACTIVE ROW: re-focus, do not no-op. This was a bare
+            // `return`, which made the active row feel broken — you clicked it
+            // and nothing happened, from anywhere in the app. Falling through to
+            // handleSelectSession is the wrong fix: it re-runs
+            // hydrateSessionIntoChat and re-loads a session already loaded. So
+            // point the chat at it and navigate home, which is what the user
+            // meant by clicking a row they can see is selected.
+            if (activeSessionId === session.id) {
+              const mapped = sessionIdToChatId.get(session.id);
+              if (mapped != null) setActiveChatId(mapped);
+              void navigate({ to: "/" });
+              return;
+            }
             void handleSelectSession(session.id);
           }}
         >
