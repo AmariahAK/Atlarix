@@ -295,26 +295,13 @@ const config: ForgeConfig = {
             // `codesign -v` calls valid and the kernel refuses to exec — no output,
             // no stderr, nothing in the system log.
             //
-            // COMPUTER USE (v14.43.0) NEEDS NO ENTITLEMENT AT ALL, and that is
-            // written here because this is where someone will come looking to add
-            // one. Accessibility, Screen Recording and `CGEventPostToPid` are
-            // governed by TCC — a per-user consent recorded against the app's
-            // identity — not by entitlements. There is nothing to declare, and the
-            // plausible candidates are all traps:
-            //   • `keychain-access-groups` — PROVISIONED. The v14.35.0 killer above.
-            //   • `com.apple.security.temporary-exception.*` — provisioned, MAS-only.
-            //   • `com.apple.security.automation.apple-events` — not restricted, but
-            //     useless here, and it would additionally require an
-            //     NSAppleEventsUsageDescription in Info.plist.
-            //   • `com.apple.security.cs.disable-library-validation` — not
-            //     restricted, but unnecessary and it weakens the app. If the
-            //     bundled cua-driver ever needs it, treat that as a reason to
-            //     re-examine the dependency, not to add the entitlement.
-            // The two new nested binaries (cua-driver, atlarix-cu) inherit this
-            // file, which is safe precisely because it holds nothing provisioned.
-            // The `computer-use` self-test probe asserts `--version` exits 0 with
-            // signal === null, because that is the only way to DETECT this class:
-            // codesign will tell you the bundle is fine.
+            // Every nested binary inherits this file, which is safe precisely
+            // because it holds nothing provisioned. The plausible additions are
+            // traps: `keychain-access-groups` is PROVISIONED (the v14.35.0 killer
+            // above) and `com.apple.security.temporary-exception.*` is provisioned
+            // and MAS-only. If a bundled helper ever seems to need
+            // `disable-library-validation`, treat that as a reason to re-examine
+            // the dependency, not to add the entitlement.
             optionsForFile: () => ({
               entitlements: "./entitlements.plist",
               "entitlements-inherit": "./entitlements.plist",
@@ -377,32 +364,6 @@ const config: ForgeConfig = {
         path.join(__dirname, "native/atlarix-sandbox-linux/target/release/atlarix-sandbox-linux"),
       )
         ? [path.join(__dirname, "native/atlarix-sandbox-linux/target/release/atlarix-sandbox-linux")]
-        : []),
-      // ── computer use ──────────────────────────────────────────────────────
-      // cua-driver: the background computer-use backend for `computer_inspect` /
-      // `computer`. Built in CI from the rev pinned in native/cua-driver/PIN.json
-      // (`npm run build:cua-driver`) and STAGED to native/.dist so this path is
-      // arch-agnostic — build-macos is an arch:[arm64,x64] matrix, and cargo writes
-      // to target/<triple>/release/, which this array cannot interpolate.
-      //
-      // IT MUST LIVE INSIDE THE BUNDLE, and that is a TCC requirement, not tidiness.
-      // macOS attributes an Accessibility / Screen Recording grant to the
-      // RESPONSIBLE PROCESS, and a child spawned from Contents/Resources stays in
-      // Atlarix's responsibility chain — so the grant follows Atlarix and its path
-      // never changes across updates. Claude Code's own shipping bug is the
-      // counter-example: its helper lives at a per-VERSION path outside any bundle,
-      // so every update orphans the user's grants silently.
-      // Resolves at runtime via process.resourcesPath/cua-driver.
-      ...(fs.existsSync(path.join(__dirname, `native/.dist/cua-driver${process.platform === "win32" ? ".exe" : ""}`))
-        ? [path.join(__dirname, `native/.dist/cua-driver${process.platform === "win32" ? ".exe" : ""}`)]
-        : []),
-      // atlarix-cu: our own helper — the macOS private-SPI probe, the public
-      // CGEventPostToPid input fallback, and OS-native OCR (macOS Vision /
-      // Windows.Media.Ocr). No Linux build: there is no OS OCR to bind there, so
-      // that path shells out to `tesseract` from TypeScript instead.
-      ...(process.platform !== "linux" &&
-      fs.existsSync(path.join(__dirname, `native/.dist/atlarix-cu${process.platform === "win32" ? ".exe" : ""}`))
-        ? [path.join(__dirname, `native/.dist/atlarix-cu${process.platform === "win32" ? ".exe" : ""}`)]
         : []),
     ],
   },

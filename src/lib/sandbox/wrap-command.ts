@@ -343,6 +343,21 @@ function findBwrap(): string | null {
  * native/atlarix-sandbox-linux in the Linux CI job). Self-contained — no OS
  * dependency, unlike bwrap. Falls back to bwrap when absent (e.g. a dev build
  * without the compiled helper). Override with ATLARIX_SANDBOX_HELPER_LINUX.
+ *
+ * NO DEV BRANCH, AND THAT IS THE POINT WORTH KNOWING. This and `findWindowsHelper`
+ * check an env override then `process.resourcesPath`, and stop. Under
+ * `electron-forge start` there is no `resourcesPath` entry, so neither resolves and
+ * the sandbox SILENTLY FALLS BACK — commands in a dev run are less confined than in
+ * a packaged one. That is deliberate for a security control (it degrades safely and
+ * loudly enough in CI, where the packaged path is what ships), but it means a dev
+ * session is not a valid place to test sandbox confinement. Set
+ * ATLARIX_SANDBOX_HELPER_LINUX / ATLARIX_SANDBOX_HELPER_WINDOWS to a built binary,
+ * or verify in the packaged app.
+ *
+ * The contrasting pattern, for a FEATURE rather than a control, is
+ * `resolveSnapshotPath()` in `src/lib/models_dev.ts`: env → packaged → dev → cwd.
+ * Note its own scar tissue — the cwd fallback silently disabled the offline model
+ * catalog in headless runs, because cwd there is the benchmark task directory.
  */
 export function findLinuxHelper(): string | null {
   const fromEnv = process.env.ATLARIX_SANDBOX_HELPER_LINUX;

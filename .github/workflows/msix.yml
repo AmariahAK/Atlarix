@@ -249,34 +249,6 @@ jobs:
             Write-Host "::warning::atlarix-sandbox.exe failed to build — this MSIX will run run_command UNSANDBOXED. Acceptable for a spike build; do not ship it."
           }
 
-      # Pinned to native/cua-driver/PIN.json, and check:cua-pin fails if they
-      # disagree. This job otherwise uses whatever Rust the runner image ships,
-      # which is fine for the sandbox helper (no MSRV) and NOT fine for cua-driver,
-      # whose upstream pins 1.97.1 — and `cargo install --git` ignores upstream's
-      # rust-toolchain.toml, so nothing else would set it.
-      - uses: dtolnay/rust-toolchain@1.97.1
-
-      - name: Build computer-use helpers (Rust)
-        shell: pwsh
-        env:
-          # Same crt-static reason as release.yml: without it the exe needs the
-          # VC++ redistributable on the user's machine.
-          RUSTFLAGS: "-C target-feature=+crt-static"
-        run: |
-          # Unsigned is fine here and non-fatal, exactly like the sandbox helper
-          # above: inside an MSIX every payload file is covered by the PACKAGE
-          # signature, so a per-file cert would add nothing. Microsoft also
-          # re-signs the Store submission with a trusted certificate.
-          npm run build:cua-driver -- --arch=${{ inputs.arch }}
-          $drvOk = $LASTEXITCODE -eq 0
-          npm run build:cu-helper -- --arch=${{ inputs.arch }}
-          $cuOk = $LASTEXITCODE -eq 0
-          if ($drvOk -and $cuOk) {
-            Write-Host "Built cua-driver.exe + atlarix-cu.exe."
-          } else {
-            Write-Host "::warning::computer-use helpers failed to build — this MSIX ships WITHOUT computer use. verify-ci-package-out will flag the missing resources unless ALLOW_NO_COMPUTER_USE=1."
-          }
-
       - name: Package (electron-forge)
         timeout-minutes: 55
         shell: pwsh

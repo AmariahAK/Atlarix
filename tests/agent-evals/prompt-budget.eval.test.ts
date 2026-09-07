@@ -165,57 +165,26 @@ function measureFirstRequest(scenarioId: string): PrefixMeasurement {
  * a ratchet that only ever loosens, so it moves whenever the prefix does — down
  * after a reduction, and up ONLY with a line here saying what was bought.
  *
- * MEASURED AGAIN 2026-09-04, after `computer` + `computer_inspect` (v14.43.0):
+ * MEASURED 2026-09-07, after the desktop computer-use tools were DELETED:
  *
- *          mobile EVERY mode   + computer pair   delta   ceiling   headroom
- *   ask         10,875             11,399        +524    11,750      351
- *   plan        10,310             10,834        +524    11,150      316
- *   build       14,644             15,156        +512    15,800      644
- *   review      10,526             11,050        +524    11,350      300
- *   debug       14,053             14,565        +512    15,150      585
+ *          mobile EVERY mode   now      delta   ceiling   headroom
+ *   ask         10,875        10,901     +26    11,800      899
+ *   plan        10,310        10,336     +26    11,200      864
+ *   build       14,644        14,668     +24    15,850    1,182
+ *   review      10,526        10,552     +26    11,400      848
+ *   debug       14,053        14,077     +24    15,250    1,173
  *
- * WHAT IT BOUGHT: the agent can read and act on any other application on the
- * machine — Slack, Excel, Airtable, Metabase — in the background, in every mode
- * including Explore, which is the point (pulling the numbers out of Metabase
- * BEFORE the work starts is the named use case). Both tools are peripheral under
- * tool-reveal, so each binds one first sentence plus a `tool_help` pointer.
+ * `computer` + `computer_inspect` + `computer_call` are gone, giving back 780 in
+ * each read-only mode and 762 in build/debug. The +26/+24 against the last
+ * pre-computer column is unrelated prefix drift over the same period, not a
+ * regression — the prefix is now within ~26 tokens of where it stood before the
+ * feature existed.
  *
- * THE CEILINGS ARE DELIBERATELY NOT RAISED. Every mode still fits, so headroom
- * TIGHTENED rather than loosened — which is the ratchet working as intended. Note
- * how thin review (300) and plan (316) now are: the next addition to a read-only
- * mode will not fit, and should be made to earn a ceiling move rather than
- * inheriting slack it did not pay for.
- *
- * # v14.43: computer_call — the whole driver surface for +285
- *
- *          + computer pair    + computer_call   delta   ceiling   headroom
- *   ask        11,396            11,681         +285    12,650      969
- *   plan       10,831            11,116         +285    12,050      934
- *   build      15,427            15,430          +3     16,700    1,270
- *   review     11,047            11,332         +285    12,250      918
- *   debug      14,836            14,839          +3     16,050    1,211
- *
- * WHAT IT BOUGHT: 34 driver tools instead of 8 — the nine browser_* tools (which
- * read a REAL logged-in browser over CDP with no screenshot and no macOS grant),
- * the clipboard, app launch, window frames, zoom, drag and pixel input. Registering
- * them as 34 tools would have cost ~6,000 and, worse, invalidated the prompt CACHE
- * on every turn of every conversation; schemas are fetched as a tool RESULT instead.
- *
- * WHY BUILD AND DEBUG MOVED BY 3 AND NOT 285: their revealed-tool count is already
- * at its cap (tools=30 before and after), so `computer_call` is reachable there
- * through `tool_help` rather than bound up front. The read-only modes, which had
- * the least headroom, are the ones that pay.
- *
- * THE CEILINGS MOVE HERE, for the first time since the mobile pair. The note below
- * predicted this: review (300) and plan (316) had no room left, and this addition
- * earned the move rather than inheriting slack. They are set at baseline + 8% per
- * the rule above, which RE-TIGHTENS the ratchet — the old ask ceiling was baseline
- * + 3.1%, so the effective headroom is now bounded by the rule and not by history.
- *
- * AND THE EARLIER LESSON HELD — the design targeted ~250/mode and it came in at
- * ~285, against ~524 for the previous pair. The difference is the whole point of
- * one dispatch tool with three parameters: the parameter SCHEMAS are the residue,
- * since reveal trims prose and keeps every parameter, type and enum.
+ * THE CEILINGS MOVE DOWN, which is the ratchet working in the direction it almost
+ * never gets to. They were raised for `computer_call` on the argument that the
+ * addition had earned it; that addition is gone, so the slack goes with it rather
+ * than being inherited by whatever lands next. Reset to baseline + 8% per the rule
+ * below. The next read-only-mode addition pays for its own room.
  *
  * The v14.41 note, kept because its prediction came true:
  *
@@ -224,7 +193,6 @@ function measureFirstRequest(scenarioId: string): PrefixMeasurement {
  * trims prose and keeps every parameter, type and enum. One lever was already
  * pulled (`button` folded into the `action` enum, worth 22), and the remaining ones
  * are the same shape: fold a variant into an enum rather than adding a parameter.
- * `computer_inspect` has 4 parameters and `computer` has 6.
  *
  * These run ~1,100 above a bare `constructSystemPromptParts` measurement of the
  * same mode, because a real dispatch also carries the mode reanchor and the
@@ -239,11 +207,11 @@ function measureFirstRequest(scenarioId: string): PrefixMeasurement {
  * stamp. Don't chase a single-digit difference; the headroom exists for it.
  */
 const BUDGET: Record<string, { minTotal: number; maxTotal: number }> = {
-  ask: { minTotal: 9_900, maxTotal: 12_650 },
-  plan: { minTotal: 9_450, maxTotal: 12_050 },
-  build: { minTotal: 13_100, maxTotal: 16_700 },
-  review: { minTotal: 9_650, maxTotal: 12_250 },
-  debug: { minTotal: 12_600, maxTotal: 16_050 },
+  ask: { minTotal: 9_250, maxTotal: 11_800 },
+  plan: { minTotal: 8_800, maxTotal: 11_200 },
+  build: { minTotal: 12_450, maxTotal: 15_850 },
+  review: { minTotal: 8_950, maxTotal: 11_400 },
+  debug: { minTotal: 11_950, maxTotal: 15_250 },
 };
 
 const CASES = [

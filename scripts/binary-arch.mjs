@@ -1,14 +1,12 @@
 /**
  * Read a native binary's architecture from its own header, with no toolchain.
  *
- * WHY THIS EXISTS: the computer-use helpers are staged into `native/.dist/` so
- * `forge.config.ts` can reference one arch-agnostic path, but `build-macos` is an
- * `arch: [arm64, x64]` matrix. A stale staging directory from the previous arch
- * would be packaged silently, producing a DMG whose helper cannot execute — and
- * `npm run clean` only rimrafs `out` and `scaffold/node_modules`, so it will not
- * save you. Every build asserts what it produced, and
- * `verify-ci-package-out.mjs` re-asserts the copy that actually landed inside the
- * package.
+ * WHY THIS EXISTS: `verify-ci-package-out.mjs` asserts that every bundled native
+ * helper matches the architecture the package was built for. `build-macos` is an
+ * `arch: [arm64, x64]` matrix, so a helper left over from the previous arch would
+ * otherwise be packaged silently, producing a DMG whose helper cannot execute —
+ * and `npm run clean` only rimrafs `out` and `scaffold/node_modules`, so it will
+ * not save you.
  *
  * Parsed rather than shelled out to on purpose: `lipo` exists only on macOS and
  * `dumpbin` needs a Visual Studio environment, so a shell-based check would be

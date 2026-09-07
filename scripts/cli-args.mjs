@@ -3,9 +3,9 @@
  * silent-wrong-output bug.
  *
  * THE FAILURE THIS EXISTS TO PREVENT, observed in CI on 2026-09-05:
- * `build-cua-driver.mjs` and `build-cu-helper.mjs` parsed only the space-separated
+ * Build scripts once parsed only the space-separated
  * form (`indexOf("--arch")` then `argv[i + 1]`), while the workflow invokes them as
- * `npm run build:cua-driver -- --arch=x64`. `indexOf` found nothing, the scripts
+ * `npm run <script> -- --arch=x64`. `indexOf` found nothing, the scripts
  * fell back to `process.arch`, and on an arm64 `macos-latest` runner the x64 job
  * built `aarch64-apple-darwin` while printing `--arch=x64` in the very same log
  * line. Every internal check still passed, because each one compared the binary

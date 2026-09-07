@@ -1,11 +1,10 @@
 /**
  * `scripts/binary-arch.mjs` is the guard against a real, silent packaging hazard:
- * the computer-use helpers are staged into `native/.dist/` so `forge.config.ts` can
- * name one arch-agnostic path, but `build-macos` is an `arch: [arm64, x64]` matrix.
- * A stale staging directory from the previous arch would be packaged without
- * complaint, and `npm run clean` only rimrafs `out` and `scaffold/node_modules`, so
- * it would not help. Every build asserts what it produced and
- * `verify-ci-package-out.mjs` re-asserts the copy inside the package.
+ * `build-macos` is an `arch: [arm64, x64]` matrix, so a native helper left over
+ * from the previous arch would be packaged without complaint, and `npm run clean`
+ * only rimrafs `out` and `scaffold/node_modules`, so it would not help.
+ * `verify-ci-package-out.mjs` re-asserts the arch of every bundled helper inside
+ * the package it actually built.
  *
  * A guard that mis-reads a header is worse than no guard, so it is pinned here
  * against SYNTHETIC headers rather than against whatever binaries happen to be on

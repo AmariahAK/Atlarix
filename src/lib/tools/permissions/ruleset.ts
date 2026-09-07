@@ -95,13 +95,6 @@ export function ruleMatchTarget(
   if (toolName === "run_command" || toolName === "run_tests") {
     return typeof args.command === "string" ? args.command : "";
   }
-  // `computer_call` dispatches by NAME, so the name is what a rule wants to match:
-  // `computer_call(kill_app)` or `computer_call(browser_*)`. Without this the
-  // target is "" for every dispatch and only a bare `computer_call` rule — all or
-  // nothing — can be written.
-  if (toolName === "computer_call") {
-    return typeof args.tool === "string" ? args.tool : "";
-  }
   const p = args.path ?? args.file_path ?? args.filePath;
   return typeof p === "string" ? p : "";
 }

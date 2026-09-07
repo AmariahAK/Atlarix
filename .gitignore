@@ -124,11 +124,6 @@ userData/
 # Rust build output for the Windows sandbox helper
 native/atlarix-sandbox/target/
 native/atlarix-sandbox-linux/target/
-native/atlarix-cu/target/
-# Staged computer-use binaries. Built in CI (and locally via npm run
-# build:cua-driver / build:cu-helper); never committed, like the helpers above.
-native/.dist/
-
 # On-device Model2Vec model (build artifact, fetched via npm run fetch-model2vec)
 assets/model2vec/
 

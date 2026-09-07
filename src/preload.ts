@@ -75,12 +75,6 @@ const validInvokeChannels = [
   // throws "Invalid channel: <name>" at runtime — the handler being registered in
   // `ipc_host` is not enough, and nothing at build time catches the omission.
   "doctor:run",
-  // Computer use. Like every entry here, omitting one of these is a RUNTIME
-  // failure only — `Invalid channel: <name>` — because registering the handler in
-  // ipc_host is not enough and nothing at build time catches it.
-  "computer-use:permissions",
-  "computer-use:request-permission",
-  "computer-use:relaunch",
   "doctor:copy-report",
   "messages:add",
   "messages:mark-complete",

@@ -138,36 +138,6 @@ const EXPECTED_RESOURCES = [
     archOn: ["linux"],
     optionalEnv: "ALLOW_UNSANDBOXED_RELEASE",
   },
-  {
-    name: "cua-driver",
-    platforms: ["darwin", "linux"],
-    minBytes: 5_000_000,
-    exec: true,
-    arch: true,
-    optionalEnv: "ALLOW_NO_COMPUTER_USE",
-  },
-  {
-    name: "cua-driver.exe",
-    platforms: ["win32"],
-    minBytes: 5_000_000,
-    arch: true,
-    optionalEnv: "ALLOW_NO_COMPUTER_USE",
-  },
-  {
-    name: "atlarix-cu",
-    platforms: ["darwin"],
-    minBytes: 100_000,
-    exec: true,
-    arch: true,
-    optionalEnv: "ALLOW_NO_COMPUTER_USE",
-  },
-  {
-    name: "atlarix-cu.exe",
-    platforms: ["win32"],
-    minBytes: 100_000,
-    arch: true,
-    optionalEnv: "ALLOW_NO_COMPUTER_USE",
-  },
 ];
 
 /** Where extraResource lands, which is platform-specific on darwin only. */
@@ -183,8 +153,8 @@ function resourcesDirFor(packageDir, platform, appName) {
  * NECESSARY BUT NOT SUFFICIENT, and that has to be said out loud: v14.35.0 shipped
  * a bundle that passed `codesign -v` and that the kernel SIGKILLed on exec, because
  * a PROVISIONED entitlement had reached a nested binary. The sufficient check is
- * the `computer-use` self-test probe asserting `--version` exits 0 with
- * `signal === null` inside the packaged app.
+ * launching the packaged app and confirming a nested binary execs without the
+ * kernel killing it — a signature check alone cannot see a provisioned entitlement.
  */
 function verifySignature(file) {
   try {

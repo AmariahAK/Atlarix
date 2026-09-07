@@ -8,7 +8,6 @@ import { browserSettingsRoute } from "./routes/settings/browser";
 import { searchSettingsRoute } from "./routes/settings/search";
 import { notificationsSettingsRoute } from "./routes/settings/notifications";
 import { voiceSettingsRoute } from "./routes/settings/voice";
-import { computerUseSettingsRoute } from "./routes/settings/computer-use";
 import { communitySettingsRoute } from "./routes/settings/community";
 import { dangerSettingsRoute } from "./routes/settings/danger";
 import { providerSettingsRoute } from "./routes/integrations/providers/$provider";
@@ -35,7 +34,6 @@ const routeTree = rootRoute.addChildren([
     searchSettingsRoute,
     notificationsSettingsRoute,
     voiceSettingsRoute,
-  computerUseSettingsRoute,
     communitySettingsRoute,
     dangerSettingsRoute,
   ]),

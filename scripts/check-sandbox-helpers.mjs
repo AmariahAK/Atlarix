@@ -25,9 +25,10 @@ const TAG = "check-sandbox-helpers";
 const ROOT = process.cwd();
 
 /**
- * ONE ROW PER (helper, target). `atlarix-cu` needs three triples — two darwin and
- * one windows — so a single `target` per helper no longer expresses the matrix, and
- * the closing count is a count of PAIRS.
+ * ONE ROW PER (helper, target). A helper may need several triples, so a single
+ * `target` per helper does not express the matrix — the closing count is a count
+ * of PAIRS, and a missing pair is a HARD FAILURE under CI (see below). It was a
+ * `::warning::` once, which quietly reopened the hole this script exists to close.
  */
 const HELPERS = [
   { name: "atlarix-sandbox", target: "x86_64-pc-windows-msvc", dir: "native/atlarix-sandbox" },
@@ -36,12 +37,6 @@ const HELPERS = [
     target: "x86_64-unknown-linux-gnu",
     dir: "native/atlarix-sandbox-linux",
   },
-  // The computer-use helper: macOS Vision OCR + the private-SPI probe + the public
-  // CGEventPostToPid fallback, and Windows.Media.Ocr. No linux row — Linux OCR goes
-  // through `tesseract` from TypeScript, so the crate has no linux body to check.
-  { name: "atlarix-cu", target: "aarch64-apple-darwin", dir: "native/atlarix-cu" },
-  { name: "atlarix-cu", target: "x86_64-apple-darwin", dir: "native/atlarix-cu" },
-  { name: "atlarix-cu", target: "x86_64-pc-windows-msvc", dir: "native/atlarix-cu" },
 ];
 
 function installedTargets() {

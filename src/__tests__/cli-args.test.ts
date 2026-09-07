@@ -7,8 +7,8 @@
  * log line. Every internal assertion passed — each compared the binary against the
  * RESOLVED target rather than the REQUESTED one, so they agreed with each other and
  * were both wrong. Only re-reading the arch off the packaged copy caught it, and
- * without that the Intel DMG ships arm64 helpers: installs fine, launches fine,
- * computer use dead on every Intel Mac.
+ * without that the Intel DMG ships arm64 native helpers: installs fine, launches
+ * fine, and the helper cannot execute on any Intel Mac.
  *
  * So the equals-form cases below are the regression, not decoration.
  */

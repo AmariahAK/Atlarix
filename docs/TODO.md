@@ -8,110 +8,14 @@ chain behind it — the queued flush pre-empting a question card, a stop latch a
 clear (five sub-agent wakes refused), a sub-agent card frozen mid-count — and the user bubble's
 glare.
 
-**Self-test non-exit — a third data point, and it is NOT computer use (2026-09-05).**
-The packaged self-test on macOS arm64 now shows the same "all probes passed, process
-tree had to be killed" as the Windows runs. Two consecutive runs of the SAME build
-differed only in outcome: 9/10 FAILED → exited 1 on its own; 10/10 PASSED → did not
-exit. That matches the recorded pattern (it happens on the PASSING path) rather than
-the new probe: checked immediately after, there is no orphaned `cua-driver`, no
-leftover probe socket and no running Atlarix. Next step is still the grandchild
-experiment recorded above, but it should now be run on macOS, where a debugger is
-actually available.
+**Self-test non-exit — a third data point (2026-09-05).** The packaged self-test on
+macOS arm64 shows the same "all probes passed, process tree had to be killed" as the
+Windows runs. Two consecutive runs of the SAME build differed only in outcome: one
+FAILED → exited 1 on its own; one PASSED → did not exit. **It happens on the PASSING
+path**, and nothing was left running afterwards. Next step is the grandchild
+experiment recorded below, now runnable on macOS where a debugger is available.
 
-## NEXT SESSION — computer use: the root cause, then the strategy call
-
-### 1. THE BUG THAT EXPLAINS TWO DAYS. Fix this before deciding anything else.
-
-`get_window_state` requires **BOTH `pid` AND `window_id`** — measured from the
-driver's own schema:
-
-```
-get_window_state REQUIRED: ['pid', 'window_id']
-```
-
-`snapshotWindow` (`src/lib/tools/computer.ts`) passes `window_id` only when the model
-supplies `window`, and `computer_inspect` documents that parameter as *"Optional with
-one [window]"* — so it is almost never sent. The driver then answers with the PLAIN
-TEXT `Missing required integer field: window_id`, `callDriver`
-(`driver-session.ts`) finds no JSON and returns `{ raw: text }`, and
-`parseWindowSnapshot` sees no `elements` and reports **an empty tree**.
-
-**So every "the accessibility tree came back empty" was this.** WhatsApp, Finder, all
-of it. Not Catalyst, not permissions, not cua-driver. A required parameter we never
-sent, and an error swallowed into a misleading success.
-
-WE HAVE STILL NEVER READ AN ACCESSIBILITY TREE. Not once. Every architectural doubt
-in this session rests on evidence that is an artifact of this bug.
-
-Two fixes, and the second matters as much as the first:
-
-- [ ] **Resolve a `window_id` when the model does not name one.** `list_windows
-  {pid, on_screen_only:true}` → pick the frontmost (highest `z_index`). If the app has
-  no window, say THAT — "Finder has no open window" is the true answer the owner
-  should have got, instead of an empty tree that sent the model to OCR.
-- [ ] **Stop `callDriver` turning a driver error into `{raw}`.** A non-JSON body is
-  the driver telling us we called it wrong; returning it as data is what hid this for
-  two days. It must throw with the driver's own message. This is
-  [[atlarix-error-message-is-the-contract]] happening to us again, in our own code.
-- [ ] **The self-test probe (`self-test.ts` 4c) has the SAME bug** — I wrote it by
-  copying how production calls the tool and inherited the defect, which is exactly how
-  it survived. It currently FAILS with that message, and that redness is the finding.
-  Fix it with the same resolver, and keep it: reading our own window is the assertion
-  that would have caught this on day one.
-
-### 2. THEN the strategy call the owner raised (2026-09-06)
-
-Do not decide before §1 is green — every option below is currently being judged on
-zero successful reads.
-
-**What the survey found.** The desktop's equivalent of the DOM is the accessibility
-tree; there is no rawer layer to drop to. Three OS APIs (macOS AXUIElement, Windows
-UIA, Linux AT-SPI2), so "read it directly" means building a cross-platform native
-abstraction — which is what cua-driver already is. Two credible cross-platform
-libraries exist:
-
-| | cua-driver (current) | xa11y (`@crowecawcaw/xa11y`) |
-|---|---|---|
-| shape | daemon + socket + CLI + JSON | in-process Node addon |
-| tree read | yes | yes |
-| AX actions, no focus steal | yes | yes |
-| pixel input (canvas apps) | yes (SkyLight SPI) | NO |
-| screenshots / OCR | yes | no (we have `atlarix-cu`) |
-| maturity | funded, MCP ecosystem | 69 stars, one maintainer |
-
-Ruled out and why, so they are not re-surveyed: **Agent-S** — an agent, not a driver,
-and vision-first (needs a grounding model; our Core models are `input:["text"]`).
-**macOS Harness** (browser-use) — architecturally identical to cua-driver but macOS
-ONLY, v0.1.2, one contributor, Python. **magentic-ui** — browser + files only, its own
-docs say it "cannot access native desktop applications". **nut.js / robotjs** — INPUT
-libraries; they do not read trees, so trading away the cursor buys nothing on the
-reading side, which is the only side that is broken. **MCP** — the right answer for
-Airtable/Metabase/Slack/Linear (Airtable ships an official server), but explicitly
-NOT the question: the owner wants general control of their own device.
-
-Note for the record: AX actions post no events, so they never steal focus. The cursor
-was only ever the price for PIXEL input on canvas apps.
-
-**The decision to put to the owner, which reverses an earlier one.** Not one failure
-this week came from reading a tree. They all came from the layer built to safely
-expose 34 tools — the capability manifest, the dispatch table, the tool catalogue, the
-session lifecycle, the chord allowlist, the two ref namespaces, the schema trimming.
-That is ~2,000 lines and every bug in the session. We ran on 8 tools for weeks.
-
-- [ ] **OWNER DECISION: shrink the surface back?** Using cua-driver as a plain AX
-  library — `list_windows`, `get_window_state`, `click`, `type_text`, `press_key`,
-  `invoke_menu` — deletes all of the above while keeping pixel input and the mature
-  engine. It reverses "I want all 56 tools" (2026-09-05), and the honest case for
-  reversing is that the widening bought browser attach + `launch_app` and cost us
-  every failure since. A deletion, not a rewrite, and reversible.
-- [ ] **xa11y stays on the table** as the later "delete the daemon too" move — but only
-  with a working baseline to measure against, never as a hope.
-- [ ] **Scope, separately from the library question.** Desktop AX is the right tool for
-  apps with no other door (CapCut, OBS, Excel, legacy internal apps). It is the WRONG
-  tool for anything with an API or MCP server. Consider shipping the browser half as
-  supported and the desktop half as explicitly beta.
-
-## Queued 2026-09-06 (owner) — UX + product, unrelated to computer use
+## Queued 2026-09-06 (owner) — UX + product
 
 - [ ] **Why "truncated" in a deep web search.** Observed in the owner's own transcript:
   the model's thoughts read *"The deep search returned some content but mostly
@@ -145,10 +49,9 @@ That is ~2,000 lines and every bug in the session. We ran on 8 tools for weeks.
   rendered today and they say almost the same thing. `src/components/SettingsList.tsx`
   and `IntegrationsList.tsx` (mounted from `app-sidebar.tsx`) are the sidebar;
   `ScrollableTabNav.tsx` is the tab row. NOT a straight deletion: the two lists are
-  not identical — the sidebar carries Community and Danger zone, the tab row carries
-  Computer use behind its chevron — so every destination has to survive the removal.
-  There was a `settings-nav-parity` test for exactly this class of dead link; whatever
-  replaces it needs the same guarantee.
+  not identical — the sidebar carries Community and Danger zone — so every destination
+  has to survive the removal. `src/__tests__/settings-nav-parity.test.ts` exists and
+  guards exactly this class of dead link; keep that guarantee.
 
 - [ ] **Move the history (clock) and new-window buttons out of the chat header.** They
   are squeezed into the Home chat header and only exist there. They belong in the left
@@ -159,86 +62,11 @@ That is ~2,000 lines and every bug in the session. We ran on 8 tools for weeks.
   instead of a fresh Untitled, so the top session cannot be opened without first
   clicking a different one and coming back. Reported 2026-09-06.
 
-**THE PERMISSION PROBLEM, DIAGNOSED 2026-09-06 — it was never permissions.**
-Measured from the daemon running as a child of the PACKAGED app:
-`accessibility: true, screen_recording: true, attribution: "host", embedded: true,
-disclaim_env: false, responsible_ppid: <the app>`. Both grants held, correct
-identity, correct responsibility chain. Three separate faults were stacked on top of
-that, which is why every test "failed on permissions":
-
-1. **The Grant button never worked, on any run.** `desktopCapturer.getSources()`
-   threw `Failed to get sources` on all FOURTEEN clicks across 09-05 and 09-06 —
-   while `getMediaAccessStatus("screen")` reported granted. Apple moved screen-capture
-   consent to ScreenCaptureKit and no Electron call raises the dialog any more. FIXED:
-   Screen Recording no longer pretends to prompt, the button says "Open Settings",
-   and the row says macOS will not let Atlarix ask.
-2. **Bounded mode refused every application** (mine, 09-06, live for a few hours).
-   `bundle_id: "*"` parses and grants nothing; only an exact bundle id or an exact
-   pid is accepted, so "any and all apps, no per-app prompt" and bounded mode are
-   incompatible. FIXED by switching to standard mode + `--grant existing-profile`
-   (which is standard-mode-only, so the browser attach moved with it).
-3. **The two apps that were tested were both special cases.** WhatsApp is Mac
-   Catalyst — the driver's own docs say Catalyst returns null AX values, so it will
-   NEVER work through the tree. System Settings is on the credential deny list by
-   design (it is where TCC grants live).
-
-**STILL UNPROVEN, and it is the one thing that matters:** no ordinary app has ever
-been read successfully end to end. Every failure so far has a different explanation
-and none of them is "the design does not work". Next: read Finder through the
-packaged app.
-
-**Getting the driver-side ceiling back, properly.** The manifest is kept, unused at
-spawn. It is one enumeration away from being BETTER than what was removed: writing
-the bundle id of every INSTALLED app would restore the tool ceiling AND let the
-driver enforce the Atlarix / terminal / credential exclusions in its own process.
-Apps installed mid-session would need a restart, which is acceptable. Whatever comes
-back with it must read a REAL WINDOW through it — the probe that shipped asserted
-`list_apps` and `get_screen_size`, the only two tools needing no per-app resource,
-and so reported green over a dead feature.
-
-**Consider a behavioural permission read.** The panel reports the TCC ROW
-(`getMediaAccessStatus`), which is why it can say "Granted" while capture fails. The
-driver exposes `check_permissions {probe_direct_capture: true}` →
-`screen_recording_capturable`, which is ground truth. NOT DONE because it may raise
-a fresh Tahoe direct-capture consent dialog, which is the owner's call to trigger.
-
-**Security review of v14.43.0 — 5 findings, all fixed (2026-09-05):**
-
-| # | Finding | Sev | Fix |
-|---|---|---|---|
-| 1 | `launch_app.urls` was not refused — "file paths or URLs to open with the app" composes into arbitrary local file READ (launch TextEdit on `~/.aws/credentials` → cmd+A → cmd+C → `clipboard_read`), and is an outbound channel on a browser bundle id | High | added to `REFUSED_FIELDS` |
-| 2 | `assertBounded` had ONE call site, on the spawn path — a daemon already listening on our socket was adopted and trusted, with no tool allowlist, no deny list and possibly no `--embedded`. Its own comment claimed it covered that case | Med | called on the adoption branch; two tests |
-| 3 | The pixel policy never ran for `drag` — its coordinates are `from_x/from_y/to_x/to_y` and the predicate was hardcoded to `x`/`y`. `drag` also has no `element_token`, so coordinates are its ONLY form: the one act tool that cannot use a ref was the one nothing checked | Med | `pixelFields` on the spec, pinned against the real schemas |
-| 4 | Nested `target.window_id` was never resolved while top-level `window_id` was — a call could name a vetted pid and OUR window in one object, and `tool-catalogue` advertises exactly that shape | Med | walks every `window_id` at any depth, and the two halves of a `target` must agree |
-| 5 | Rung 4 was unreachable: `detectInputRung` can only return `driver-spi` or `public-fallback`, so both `rung === "refuse"` branches and `refusePixelAction` were dead code and the documented ladder described a control that did not exist | Low | `"refuse"` removed from the union; rung 4 is now a decision (`pixelDeliveryRefused`) taken from rung 3 — the compiler found the second dead call site |
-
-Ruled out and worth not re-checking: command injection (every spawn is `execFile`/`spawn` with an argv array, no shell), prototype pollution on the allowlist (spread defines an own `__proto__`; `DENIED[name]` shadows every `Object.prototype` member), `browser_navigate` + `file://` (the driver restricts the scheme itself), and sensitive data in logs (no window contents, clipboard, typed text or page content is logged).
-
-**Owed for v14.43.0 (desktop computer use — unreleased, no CHANGELOG version bump yet):**
-- **RELEASE IS BLOCKED ON THE ACTIONS BUDGET.** The spending limit was exhausted by five
-  full-matrix dispatches; private-repo CI fails in ~3s with an EMPTY log and the cause only in the
-  run annotations. Raise it before tagging.
-- **Nothing in `computer_call` has been exercised against a real desktop.** The guards, the
-  manifest and the schema catalogue are covered by 110 tests including live checks against the
-  shipped binary, but no click has landed. In the PACKAGED app, with both grants: a browser read
-  of a logged-in Airtable/Metabase page (`browser_prepare` → `get_browser_state`), `clipboard_read`,
-  `launch_app`, and a pixel click driven from an OCR read on a canvas app.
-- **The driver's own cursor has never been SEEN.** `start_session` now mints it and both Settings
-  controls push to it live — verify it draws, and that unchecking *Show what it is doing* stops it
-  without a restart.
-- **`kill_app` and `browser_download` have a model-side confirm, NOT a user approval card.** A real
-  card needs a new operation in `PermissionInterceptor`, a preview type, an executor and a renderer
-  component; a `__permission_required` envelope carrying an operation the renderer cannot draw would
-  hang the turn on approval that never appears. Deliberate, and the card is the right end state.
-- **Bounded mode expires** (24h absolute, 12h idle). Past that every call fails with an
-  authorization error, translated to "restart Atlarix". Nobody has run an app session long enough
-  to see it.
-- **`clipboard_write` + an allowed `cmd+V` is an unguarded paste path**, including into a secure
-  field. Materially harder to misuse than typing (the model must already hold the text) and closing
-  it needs an element, which is the same problem `type_text` solves with a ref. Known residual.
-- **Windows and Linux are unverified**, as ever: SIP blocks `tccutil`, the Windows runner has no
-  interactive desktop, Linux CI runs under xvfb. The self-test now asserts the capability manifest
-  parses on each platform, which is the one new thing CI can hold.
+**Blocked on the owner — the Actions spending limit.** The limit was exhausted by five
+full-matrix dispatches; private-repo CI then fails in ~3s with an EMPTY log and the cause
+only in the run annotations. It also silently makes Railway SKIP the `atlarix-proxy`
+deploy (`skippedReason: CI check suite failed`, status `SKIPPED` not `FAILED`) — that
+went unnoticed for three days. Raise it before tagging anything.
 
 **Owed for v14.42.0:**
 - **The mid-turn path is UNVERIFIED in a packaged build.** Type mid-stream, confirm the row
@@ -599,255 +427,6 @@ heading to the real version before tagging. (Done for 14.39.3.)
   mid-session clone the ONLY way to clone, i.e. the normal case. Re-read a threat note when you
   delete the thing it names.
 
-## 🖥️ Desktop computer use — BUILDING. Native + packaging + runtime DONE, tool pair NEXT
-
-Full plan lives outside the repo (`~/.claude/plans/great-also-remember-to-resilient-lynx.md`); the
-design prose belongs in DESIGN_NOTES once built. What follows is only what a future session must not
-re-derive, plus the two things that can still invalidate the shape.
-
-### Built so far (2026-09-04) — uncommitted, `ts 0 · lint 0 · 3738 tests · check:sandbox 5/5`
-
-- [x] **Build plumbing.** `native/cua-driver/{PIN.json,LICENSE,README.md}` — the pin IS the
-      dependency, since no upstream source lives here. `scripts/`: `build-cua-driver.mjs`,
-      `build-cu-helper.mjs`, `check-cua-pin.mjs`, `binary-arch.mjs` (+`.d.mts`). npm:
-      `build:cua-driver`, `build:cu-helper`, `check:cua-pin`.
-- [x] **`check-sandbox-helpers.mjs` reshaped** to one row per **(helper, target)** — 5 pairs — and a
-      missing triple is now a **hard failure under CI** instead of a `::warning::`. That warning was
-      quietly reopening the hole the script exists to close.
-- [x] **`check:cua-pin` verified to catch** a tag-instead-of-SHA (a movable ref is not a pin) and a
-      toolchain drift, against **both** workflows.
-- [x] **`native/atlarix-cu`** — `probe` / `post` / `ocr`, pure Rust (no `build.rs` shim, or
-      `cargo check --target aarch64-apple-darwin` would stop working from the Linux runner). All
-      three triples clean, **zero warnings**, 346 KB.
-- [x] **Packaging + CI.** Two `extraResource` entries (verified in the RESOLVED config, not just the
-      edit); `entitlements.plist` untouched with a comment listing the four entitlements someone
-      might wrongly add; cargo steps in `build-macos` (**that job never had one**), `build-windows`,
-      `build-linux` and `msix.yml`, each with `ALLOW_NO_COMPUTER_USE`; `msix.yml`'s toolchain pinned,
-      as it was using whatever Rust the runner shipped.
-- [x] **`verify-ci-package-out.mjs` now asserts an expected-resources table** — presence, size floor,
-      exec bit, **arch match**, `codesign -v --strict`, entitlements scan — and **backfills the
-      pre-existing gap**: it previously asserted only that `app.asar` exists, so every bundled
-      resource the app has ever shipped could have vanished and the release would have gone green.
-      Four negative controls verified against a synthetic package tree.
-- [x] **Runtime.** `src/lib/computer/resolve-binary.ts` (the `models_dev.ts` pattern, WITH the dev
-      branch the sandbox helpers lack — a silent fallback is survivable for a security control and
-      not for a feature) and `driver-session.ts`: telemetry pre-seed → lazy spawn → readiness poll →
-      two-start budget → clean teardown, wired into the `before-quit` chain beside
-      `restoreTapFeedback`. `computerUse` + `computerUseConfig` added to `UserSettingsSchema`.
-
-### Traps this build turned up, which the plan did not predict
-
-- **cua-driver SENDS TELEMETRY BY DEFAULT and registers on the first run of ANY subcommand.** After
-  nothing but `doctor`, `telemetry status` read `enabled (source: default)` with a generated
-  installation ID and `Registration recorded: true` — a persistent id had been transmitted. Our
-  README says "no file contents are sent as telemetry". **The opt-out is
-  `~/.cua-driver/config.json` `{"telemetry_enabled": false}` and it MUST be pre-seeded before the
-  first spawn** — `telemetry disable` is itself an invocation, so afterwards is too late.
-- **OCR MUST TAKE A WINDOW, NEVER THE DISPLAY.** Same text at the same pixel size: a 3024×1890
-  full-screen capture yielded **1 word** (`"Epоnся"`, confidence 0.3) while an 800×700 crop yielded
-  **6/6 at confidence 1.0**. `minimumTextHeight` was NOT the limiter (24/1890 = 0.0127, above the
-  0.005 we set) — Vision downscales a large input, so full-screen Retina UI text drops below
-  legibility before recognition starts. It returns one nonsense observation rather than an empty
-  list, **which is worse than nothing because it looks like an answer.** Recorded at the top of
-  `native/atlarix-cu/src/ocr.rs`.
-- **`SUN_LEN` is real** — a long socket path fails at bind with `path must be shorter than SUN_LEN`,
-  from inside a child process, so it reads like a driver bug. Asserted before spawning.
-- **The Windows cross-target check earned its keep immediately:** `OcrEngine::Language()` does not
-  exist, and `OcrResult::Lines` is gated behind the `Foundation_Collections` feature — whose absence
-  rustc reports as "no method named `Lines`", i.e. as a missing method rather than a missing feature.
-- **`validateOpenExternalUrl` allows only `mailto:`/`http`/`https` and throws otherwise**, so the
-  macOS System Settings deep link (`x-apple.systempreferences:…`) cannot use the existing
-  `open-external-url` IPC. It needs its own main-process handler. Do not widen that validator.
-- **Every new invoke channel must be added to `validInvokeChannels` in `src/preload.ts`** or the
-  renderer throws `Invalid channel` at runtime — registering the handler is not enough, and nothing
-  at build time catches the omission (that file says so itself).
-- **A SUBSTRING GUARD OVER-MATCHED, and the test caught it on the first run.** `guards.ts` refuses
-  terminals by name, the list contains `st` (the suckless terminal), and `name.includes("st")`
-  refused **OBS Studio**. A guard that refuses a video mixer because a two-letter terminal exists
-  is a guard people switch off — and switching it off removes the terminal protection too. Now
-  matched on word boundaries, with OBS Studio and Studio One as regression cases.
-- **The desk lock's counter was off by one in the case that matters.** It counted *waiters*, but a
-  caller does not stop waiting until its gate resolves on a microtask — so five workers arriving
-  in one synchronous burst (the normal case) had the third queued caller refused while the holder
-  was still nominally waiting. Now counts *in flight* (holder + queue). The concurrency test is
-  **proven** to catch the `withLock` N>2 defect: with the chain broken, `maxConcurrent` is 4
-  instead of 1.
-- **The prompt cost more than planned: +524/mode, not the ~350 targeted** (ask 11,399, plan
-  10,834, review 11,050, build 15,156, debug 14,565). Every mode still fits, so the ceilings were
-  deliberately NOT raised — headroom tightened rather than loosened, which is the ratchet working.
-  Review (300) and plan (316) are now thin: the next read-only-mode addition will not fit and
-  should earn a ceiling move rather than inherit slack. Parameter SCHEMAS are the residue, as
-  before; one lever was already pulled (`button` folded into the `action` enum, worth 22).
-
-### Still to build
-
-- [x] **`src/main/computer-use-permissions.ts`** — the TCC preflight. Reads both grants WITHOUT
-      prompting (`isTrustedAccessibilityClient(false)`; `getMediaAccessStatus("screen")`), provokes
-      each prompt only from an explicit click, and deep-links the right pane. It takes a pane KEY,
-      never a URL, so the renderer can name a pane and cannot name a destination — that is how it
-      avoids widening `validateOpenExternalUrl`. Notices a grant flipping on and offers a relaunch,
-      because macOS caches the ScreenCapture decision per process. Reports `"unsupported"` (not
-      `"granted"`) on Windows/Linux: there is no OS gate there, which is a fact about the platform
-      rather than a permission we hold. Also carries `crossCheckDriverAttribution`, which warns if
-      the driver ever reports anything but `attribution: "host"` — the standing Gate A guard.
-- [x] **`src/lib/computer/input-rung.ts`** — probe → driver AX (default; posts no events at all, so
-      it survives any SPI change) → driver SPI → `atlarix-cu post` → **refuse**. Rung 4 exists
-      because `CGEventPostToPid` delivers keyboard reliably but a mouse event carries a location the
-      target hit-tests, so it would click the WRONG thing rather than fail. Rung logged at info, by
-      name.
-- [x] **`src/lib/computer/ocr.ts`** — window-scoped capture via `--screenshot-out-file` (image bytes
-      never enter this process or the model's context), Linux `tesseract` TSV fallback, and the two
-      coordinate conversions in the right order: **scale first, then translate**. Six tests, and the
-      order test is **proven** to catch an inversion (it yields x=300 instead of 550). That bug would
-      be a half-position offset on Retina — plausible-looking and invisible in a demo.
-- [x] **THE TOOL PAIR IS BUILT.** `src/lib/computer/{refs,ax-tree,apps,guards,desk-lock}.ts` +
-      `src/lib/tools/computer.ts`, plus all nine list entries. 48 new tests; `3792 passing`.
-
-      **The driver made the ref design MUCH smaller, and reading its help is what found that.**
-      The plan assumed the only primitive was `element_index` — an index into a cache the next
-      snapshot replaces, which still RESOLVES to a different element — so it specified
-      re-resolution by identity (`axIdentifier` → `role+name+pathKey` → `role+name+ordinal` →
-      `role+name`) on every act. `cua-driver describe click` documents **`element_token`**:
-      *"Opaque per-snapshot element handle… Returns an explicit stale error once a newer snapshot
-      supersedes it."* That is the exact guarantee, enforced a layer lower than we could. So
-      `refs.ts` is now a NAMING layer (`d3.7` costs a few tokens; the opaque token carries no
-      meaning to a model) and never falls back to a bare index. Re-implementing identity matching
-      on top would have been a second, fuzzier copy of a working mechanism.
-
-      **`get_window_state` field names came from `describe`, not from guessing** — and that
-      caught a live bug: `ocr.ts` had invented `window.bounds` / `window.scale`, where the real
-      fields are `window_bounds` / `screenshot_scale`. It would have silently used origin 0,0 and
-      scale 1 on every call — window-relative coordinates presented as screen coordinates. Also
-      learned there: `include_screenshot:false` is the documented cheap path (tier 1 never needs
-      the image), `query` projects the tree server-side, `max_elements` bounds the walk (the
-      driver's own default is ~2000 at depth 25, for "Electron / Obsidian / large web apps that
-      produce 10k+ element trees"), and `degraded_reason: ax_window_unresolved` is the empty-tree
-      signal that should route to OCR.
-
-      **`invoke_menu` is `action:"menu"`** — the way into canvas apps, since menu bars are fully
-      AX-exposed where a timeline or preview is not.
-
-- [x] **Phase 6 DONE — settings, diagnostics, overlay, DESIGN_NOTES.**
-      - `computer-use` **self-test probe** (10th). Verified live: `cua-driver 0.23.2, 56 tools,
-        telemetry opted out | input rung=driver-spi | ocr="ATLARIX OCR 42"`. `--version` is
-        asserted with `signal === null` — the v14.35.0 SIGKILL detector for the new nested
-        binaries, since `codesign -v` calls such a bundle valid. `list-tools` uses a FLOOR (40) not
-        equality, so an upstream bump is not a release-blocker.
-      - **A separate, read-only doctor row** rather than `reuse("computer-use")`: that probe spawns
-        children, and `child-exec` / `fs-outside-container` are excluded from the panel for exactly
-        that reason. Diagnostics runs on a button a user presses; it must not start processes or
-        grab the screen to answer a configuration question.
-      - **Settings section** (5 files: component, `pages/settings.tsx` wrapper + `SECTIONS`,
-        `routes/settings/computer-use.tsx`, `router.ts`, schema keys). Nothing runs on mount except
-        the non-prompting read; the Grant buttons are the consent. On Windows/Linux it says there
-        is no OS gate rather than showing two green ticks — "unsupported" is a fact about the
-        platform, not a permission we hold.
-      - **The System Settings deep link takes a KEY, not a URL.** `validateOpenExternalUrl` permits
-        only mailto/http/https, and widening it to admit `x-apple.systempreferences:` would turn a
-        narrow auditable allowlist into a general one. So the renderer names a PANE and cannot name
-        a DESTINATION.
-      - **Overlay layer 2** — our green element outlines, reusing `ai-cursor.ts`'s marks (`#34d399`,
-        2px ring, 6px radius, the same halo) so desktop and in-app browser read as one product.
-        Layer 1 (cua-driver's own session cursor) ships regardless, since we run `serve`.
-        Best-effort throughout; Linux is feature-detected OFF because a transparent window with no
-        compositor paints BLACK over the user's screen, and Wayland cannot position windows
-        globally.
-        **The `transparent: true` at `src/main.ts:1358` turned out to be a red herring** — it is
-        inside `webPreferences`, where transparency is not even a valid option, and sits beside a
-        commented-out `frame: false`. It is a stale frameless-MAIN-WINDOW experiment, unrelated to
-        an overlay window. No blocker.
-      - **DESIGN_NOTES entry** written, including the general form of the biggest lesson: before
-        building a correctness mechanism on top of a dependency, read what the dependency already
-        guarantees.
-
-      **Preload channel allowlist tested.** Three new channels, and the test that asserts they are
-      in `validInvokeChannels` is **proven** to fail when one is removed — that omission is a
-      runtime-only failure (`Invalid channel`) with nothing at build time to catch it.
-- [ ] **Notarization dry run before merging** — cua-driver links private SkyLight. Only a real
-      `notarytool submit` answers it, and a rejection on a release tag blocks the release.
-- [ ] **Gate A, last:** on a packaged build, confirm System Settings › Privacy & Security ›
-      Accessibility names **Atlarix**, not CuaDriver, and that `check_permissions` still reports
-      `attribution: "host"`.
-
-**The tool pair is `computer_inspect` + `computer`**, mirroring `browser`/`mobile` down to the naming
-and the ref contract. Backend is **`cua-driver`** (trycua, MIT, Rust, v0.23.2 at rev
-`986b6f257b1afddef0cbd4815bb2744eab7eadba`). Nous Research's Hermes ships it; OpenClaw is tracking
-it. Ships as one release with OCR included.
-
-- **Refs, not coordinates — and here it is not a preference, it is the only design that RUNS.** Both
-  Core models are text-only, measured in `build/models-snapshot.json.gz`: `z-ai/glm-5.3` and
-  `deepseek/deepseek-v4-pro` are both `input:["text"]`. A screenshot-first tool would hit
-  `image-embed-gate.ts` on the default models for Free and Pro. (`z-ai/glm-5.3-flash` DOES have
-  vision, if a Core vision slot is ever wanted.)
-- **Invocation is `serve --embedded` + one-shot `call`, NOT `mcp --direct`.** Owner's call, and it is
-  the better shape: `call` needs a daemon ("through the **required** running daemon"), and
-  `--embedded` is the daemon flavour that keeps our identity — *"inherit the host's TCC grants, never
-  prompt or relaunch."* Verified live from a plain shell: `call check_permissions` returns
-  `attribution: "host"`, `embedded: true`, `disclaim_env: false`. **This means NO MCP client** — no
-  `StdioClientTransport`, no `createMCPClient` — just `execFile`, exactly like
-  `src/lib/mobile/device-tools.ts` shells out to `adb`. It also puts cua-driver's session cursor
-  overlay back in reach, since the overlay is `serve`-only.
-- **TELEMETRY IS ON BY DEFAULT AND REGISTERS ON FIRST RUN OF ANY SUBCOMMAND.** `telemetry status`
-  read `enabled (source: default)` with a generated installation ID and `Registration recorded:
-  true` after nothing but a `doctor` call. Our README sells "no file contents are sent as telemetry".
-  **The opt-out is a file — `~/.cua-driver/config.json` with `{"telemetry_enabled": false}` — and it
-  must be PRE-SEEDED before the first spawn.** Running `telemetry disable` afterwards is too late:
-  that command is itself an invocation. Assert it in the self-test probe.
-- **Capability manifest: admit the FULL surface except `replay_trajectory`** (owner's call
-  2026-09-04). The manifest is NOT the model's token surface — the model only ever sees two tools, so
-  admitting all 56 costs zero tokens and avoids a manifest redeploy the day we want `invoke_menu`.
-  `bounded` mode is immutable for the daemon's lifetime and cannot be changed by a tool call, so the
-  one exclusion actually holds.
-  **Why `replay_trajectory` specifically:** it re-invokes every recorded call, and its own docs say
-  *"element indices are per-snapshot and don't survive across sessions. **Pixel clicks and all
-  keyboard tools replay cleanly**"* while read-only tools are not recorded, so the element cache is
-  never repopulated. That is a stored script of raw pixel clicks and keystrokes fired against
-  whatever is on screen later, with no fresh snapshot and no ref validation — the exact failure the
-  ref design exists to prevent. Recording itself is admitted and probably unused by either side.
-- **`drag` is the one action that cannot be ref-addressed** — it takes window-local screenshot pixels.
-  Contract: **two refs in, coordinates computed by US** from element bounds. Pixels never cross the
-  tool boundary. (The design pass claimed macOS background drag is "an exact refusal"; upstream's
-  `docs/test-matrix.md` says drag is `PX` with delivery `Background and foreground`, so it works.)
-- **`get_window_state` returns BOTH a structured `elements` array AND a Markdown rendering, and says
-  the array is preferred.** Parse `elements`.
-- **`invoke_menu` is the unlock for canvas apps.** Menu bars are fully AX-exposed, so File → Export
-  works in Excel, OBS and CapCut even where the canvas has no addressable elements. More stable than
-  clicking, since a menu path survives a window resize. The general rule: **chrome works, canvases
-  do not** — anything with named controls is reachable, anything drawn as pixels degrades to OCR for
-  reading and little for acting.
-- **Atlarix itself is never a target** (owner's call: every other app is allowed). Three independent
-  checks, because one is not enough: pid against `app.getAppMetrics()` (every process we own, not
-  just `process.pid`), identity match on bundle id / process name / window owner, and **exclusion
-  from the app listing** so the model never learns a name or ref for it. The third matters most —
-  refusing only at act time leaves a target the model keeps probing. This check is what keeps the
-  approval gate real: without it, "approve this write?" is a button the agent can click itself.
-- **OCR is the OS's own engine**, not a bundled model: macOS Vision, Windows `Windows.Media.Ocr`,
-  Linux `tesseract` if present else a reported LIMITATION. Deliberately rejects the Whisper
-  precedent (a ~285 MB CDN fetch needing a clear-cache UI, running in a RENDERER worker a
-  main-process tool cannot reach). macOS trap: **`minimumTextHeight` must drop to ≈0.005** or Vision
-  returns nothing for 12pt UI labels on a Retina capture.
-- **`SUN_LEN` is real.** A long socket path fails at bind with `path must be shorter than SUN_LEN`
-  (observed). `~/Library/Application Support/Atlarix/cua.sock` is fine; assert the length before
-  spawning rather than surfacing a bind error.
-- **`cargo install --locked --git` works** despite the monorepo having **no root `Cargo.toml`** — the
-  inference from that absence was wrong and the test settled it. `rust-toolchain.toml` (1.97.1) and
-  `.cargo/config.toml` are **both ignored** by that install path, so CI must set
-  `MACOSX_DEPLOYMENT_TARGET=13.0` and `RUSTFLAGS=-C target-feature=+crt-static` itself. Builds fine
-  on 1.93.1, so the toolchain pin is belt-and-braces. `--locked` warns (not fails) on a yanked
-  `chacha20` — keep the flag.
-- **macOS 13.0 floor** (upstream's deployment target) against Atlarix's macOS 11+. Check
-  `process.getSystemVersion()` before spawning; the alternative is a dyld error the user cannot act
-  on. **28.5 MB per platform**, and it keeps state in `~/.cua-driver`, outside userData.
-- **Never invoke `update --apply` or `skills install`.** The first replaces the binary inside a
-  signed `.app` (breaks the signature and notarization); the second symlinks a skill pack into other
-  agents' directories. Neither is reachable as a *tool*, so `check_for_update` is harmless — the
-  hazard is the CLI subcommand.
-- **STILL OPEN, and it can still move the design:** confirm on a signed build that the responsibility
-  chain is what `check_permissions` self-reports — one computer-use read, then `ps -o pid,ppid,args`
-  and System Settings › Privacy & Security › Accessibility naming **Atlarix**, not CuaDriver.
-  Notarization of a bundle linking private SkyLight also needs a real `notarytool submit` dry run
-  **before** merging, or a rejection lands on a release tag.
-
 ## ✅ `browser-recorder.ts` is LIVE — do not delete it
 
 Proposed for deletion 2026-09-04 as "never in use". It is in use, end to end, and the chain is short
@@ -864,6 +443,43 @@ by `tool-expand-view.test.ts:174-188` and `browser-recorder.test.ts`.
 A feature reachable only from a discouraged path is rarely seen and still wired. *Rarely exercised is
 not the same as unreachable* — this is the same reachability-not-presence rule the Dyad-era removal
 ran on.
+
+## 🧩 Browser extension — drive the user's OWN browser (queued 2026-09-07)
+
+**The gap it closes.** We ship an in-app Chromium, but the user's session lives in THEIR
+browser. Anything behind a login — Metabase, Airtable, an internal dashboard, any
+SSO-walled URL — is unreachable to us and trivially reachable to them. This is the
+single biggest coverage win available: ~85% of desktop-agent tasks need no GUI control,
+but a large share of the remainder is "the thing I'm already logged into".
+
+**Two dead ends, measured 2026-09-07, so nobody re-derives them:**
+- **CDP attach to the running browser is CLOSED.** Chromium ≥136 refuses
+  `--remote-debugging-port` when the browser is on its default user-data-dir — shipped
+  deliberately to kill a cookie-theft vector. You can only get a debug port on a fresh
+  profile, which by definition has none of the user's logins. Verified against Brave 150
+  on the owner's machine: no debug port open, and none obtainable.
+- **Cookie import is CLOSED.** Chrome's App-Bound Encryption (Chrome 127) binds cookie
+  decryption to Chrome's own app identity, so another process running as the same user
+  cannot read the cookie store. Add SSO and device trust on top.
+
+**So the shape is an extension + native messaging**, which is the only sanctioned route
+into an authenticated session:
+
+```
+Atlarix (desktop)  ←native messaging (stdio)→  MV3 extension  →  the user's real tab
+```
+
+- One build covers Chrome/Edge/Brave; Safari needs a separate Safari App Extension.
+- Complements the in-app browser rather than replacing it: ours for unauthenticated
+  fetching and scripted work, theirs for "the thing I'm already logged into".
+- Costs: an MV3 extension to build and maintain, Web Store review, and the user has to
+  install it.
+
+**Design questions still open:** how the native-messaging host is registered per browser
+and per OS; whether the extension exposes the same `browser`/`browser_inspect` tool
+surface (it should, so the model learns one contract); how a tab is chosen and how the
+user consents per-site; and what happens when the extension is absent (the in-app
+browser is the fallback, and the failure must say which browser it wanted).
 
 ## 🔜 Next session — the queue, in order
 
@@ -1254,18 +870,6 @@ needs a clean Sentry week, not a machine).
   **Where to look next:** a Windows machine, `atlarix.exe --self-test` from a terminal, and Process
   Explorer to see what the parent of the second process actually is. That single observation is worth
   more than any further code reading.
-  **A NEW SUSPECT, 2026-09-05 — cua-driver's Windows UIA worker.** The v14.43.0 dry run on
-  `notarize-dryrun-v14.43.0` reproduced the non-exit with 10/10 probes, where the immediately
-  preceding v14.42.0 tag build exited on its own at 9/9. The difference is the new `computer-use`
-  probe, and the driver logs `WARN uia_windows_enum: UIA health probe exceeded 2000ms; falling back
-  to Win32-only window tools; no other UIA worker will start until this provider call returns` —
-  which names a WORKER. The probe itself holds no handle to kill: every call is a synchronous
-  `spawnSync`/`execFileSync` one-shot and it never starts the `serve` daemon, so if a worker outlives
-  `cua-driver doctor` it is a GRANDCHILD Node never saw. That matches the shape of this defect
-  exactly. **Two data points is not proof** — the defect predates computer use and is intermittent —
-  so treat this as the first thing to check on the Windows machine, not as the answer. Concretely:
-  run `atlarix.exe --self-test` twice, once with the driver present and once with it removed
-  (`ALLOW_NO_COMPUTER_USE=1` builds one), and compare. If only the former hangs, this is it.
 
 - **`withLock` serialises TWO callers, not N.** `src/ipc/utils/lock_utils.ts` awaits only the one
   lock it observed, so with three contenders B and C both wake on A's release and **both acquire** —
@@ -1301,6 +905,14 @@ needs a clean Sentry week, not a machine).
 
 ## 🔜 Blocked on the owner — not active work
 
+- **2026-09-17 — GitHub Marketplace, chase it if Atlarix Reviewer is still not listed.** Three weeks
+  after the App went public (2026-08-27), which is when GitHub's own guidance says to contact them.
+  FIRST check <https://github.com/settings/apps> for rejection notes, requested changes, or a
+  still-pending review — the answer is often already there. If there is genuinely no communication,
+  file at <https://support.github.com/contact> → *What can we help with?* → **Marketplace** →
+  *"App review pending for X weeks, no updates received"*, including the app name, App ID, the
+  GitHub org/account used to submit, and the SUBMISSION date (which may differ from the date the
+  App went public).
 - **Windows code-signing cert** — native-sandbox CI, and the only real fix for the C6 residual on
   direct-download Windows. Release infra, no cert. The helper sign step is wired; set the secret.
 - OAuth `state` nonce / PKCE stays **not doing** — attempted v14.12.0, broke sign-in, reverted. The

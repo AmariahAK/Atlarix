@@ -187,7 +187,7 @@ export const BUILTIN_AGENTS: Readonly<Record<string, UserAgent>> = Object.freeze
       "browser_inspect",
       "browser_test",
       "mobile",
-      "computer", "computer_call", "computer_inspect", "mobile_inspect",
+      "mobile_inspect",
     ],
     systemPrompt: QA_PROMPT,
   },
