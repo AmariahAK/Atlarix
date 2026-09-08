@@ -1,8 +1,145 @@
 diff --git a/node_modules/@electron/node-gyp/lib/find-visualstudio.js b/node_modules/@electron/node-gyp/lib/find-visualstudio.js
-index 1b5ddf3..43e3e08 100644
+index 1b5ddf3..2304c4f 100644
 --- a/node_modules/@electron/node-gyp/lib/find-visualstudio.js
 +++ b/node_modules/@electron/node-gyp/lib/find-visualstudio.js
-@@ -583,7 +583,20 @@ class VisualStudioFinder {
+@@ -1,8 +1,13 @@
+ 'use strict'
+ 
+ const log = require('./log')
+-const { existsSync } = require('./fs')
+-const { win32: path } = require('path')
++const { existsSync, readdirSync } = require('./fs')
++// PATCHED (Atlarix): `nativeJoin` is the PLATFORM-DEFAULT join, added alongside
++// the module's win32-only `path`. On Windows the two are the same function, so
++// production behaviour is unchanged; on a POSIX host win32.join rewrites `/` to `\`
++// and yields an unopenable path, which is what would make findLatestToolset
++// untestable off Windows. See src/__tests__/node-gyp-vs2026-patch.test.ts.
++const { win32: path, join: nativeJoin } = require('path')
+ const { regSearchKeys, execFile } = require('./util')
+ 
+ class VisualStudioFinder {
+@@ -119,7 +124,7 @@ class VisualStudioFinder {
+   }
+ 
+   async findVisualStudio2019OrNewerFromSpecifiedLocation () {
+-    return this.findVSFromSpecifiedLocation([2019, 2022])
++    return this.findVSFromSpecifiedLocation([2019, 2022, 2026])
+   }
+ 
+   async findVisualStudio2017FromSpecifiedLocation () {
+@@ -161,7 +166,7 @@ class VisualStudioFinder {
+   }
+ 
+   async findVisualStudio2019OrNewerUsingSetupModule () {
+-    return this.findNewVSUsingSetupModule([2019, 2022])
++    return this.findNewVSUsingSetupModule([2019, 2022, 2026])
+   }
+ 
+   async findVisualStudio2017UsingSetupModule () {
+@@ -222,7 +227,7 @@ class VisualStudioFinder {
+   // Invoke the PowerShell script to get information about Visual Studio 2019
+   // or newer installations
+   async findVisualStudio2019OrNewer () {
+-    return this.findNewVS([2019, 2022])
++    return this.findNewVS([2019, 2022, 2026])
+   }
+ 
+   // Invoke the PowerShell script to get information about Visual Studio 2017
+@@ -388,6 +393,20 @@ class VisualStudioFinder {
+       ret.versionYear = 2022
+       return ret
+     }
++    // PATCHED (Atlarix): Visual Studio 2026 is major 18.
++    //
++    // Without this, `windows-latest` (= windows-2025-vs2026, whose ONLY Visual
++    // Studio is 2026) falls through to the `return {}` below, and node-gyp reports
++    // "Could not find any Visual Studio installation to use" on a machine that
++    // plainly has one — taking out build-windows AND build-msix.
++    //
++    // Deliberately NOT a generic `>= 18` rule: the major->year map is not linear
++    // (15->2017, 16->2019, 17->2022), so a year for major 19 would be invented
++    // rather than known. The next VS needs another line here.
++    if (ret.versionMajor === 18) {
++      ret.versionYear = 2026
++      return ret
++    }
+     this.log.silly('- unsupported version:', ret.versionMajor)
+     return {}
+   }
+@@ -446,11 +465,72 @@ class VisualStudioFinder {
+       return 'v142'
+     } else if (versionYear === 2022) {
+       return 'v143'
++    } else if (versionYear >= 2026) {
++      // PATCHED (Atlarix): discover the toolset from disk instead of hardcoding it.
++      //
++      // The year -> vNNN map is NOT derivable from the MSVC version: VS 2022 17.14
++      // ships MSVC 14.44 and is still v143, so any 14.x -> vNNN arithmetic is wrong.
++      // What IS authoritative is the directory MSBuild itself resolves against.
++      //
++      // This value is load-bearing and unvalidated: it is the SOLE source of
++      // <PlatformToolset> in the generated .vcxproj (find-visualstudio -> config.gypi
++      // msbuild_toolset -> msvs.py), nothing in gyp checks it, and MSBuild only
++      // complains (MSB8020) if the toolset is missing entirely. A wrong-but-installed
++      // string compiles silently with the wrong compiler.
++      //
++      // Returning null is NOT a safe "let MSBuild decide": processData discards any
++      // install with a falsy toolset ("- missing any VC++ toolset"), which puts you
++      // back on "Could not find any Visual Studio installation to use" with a
++      // misleading cause. So this always returns a string.
++      const found = this.findLatestToolset(info.path)
++      if (found) {
++        this.log.silly('- discovered VC++ toolset on disk:', found)
++        return found
++      }
++      this.log.silly('- no PlatformToolsets directory found, falling back to v143')
++      return 'v143'
+     }
+     this.log.silly('- invalid versionYear:', versionYear)
+     return null
+   }
+ 
++  // PATCHED (Atlarix): highest vNNN under
++  //   <vsPath>\MSBuild\Microsoft\VC\<vNNN>\Platforms\x64\PlatformToolsets\
++  // which is exactly the set MSBuild will accept. Returns null if the layout has
++  // moved; the caller falls back rather than failing.
++  findLatestToolset (vsPath) {
++    const vcRoot = nativeJoin(vsPath, 'MSBuild', 'Microsoft', 'VC')
++    let best = null
++    let bestNum = -1
++    let vcDirs
++    try {
++      vcDirs = readdirSync(vcRoot)
++    } catch {
++      return null
++    }
++    for (const vcDir of vcDirs) {
++      const toolsetDir = nativeJoin(vcRoot, vcDir, 'Platforms', 'x64', 'PlatformToolsets')
++      let entries
++      try {
++        entries = readdirSync(toolsetDir)
++      } catch {
++        continue
++      }
++      for (const entry of entries) {
++        const m = /^v(\d+)$/.exec(entry)
++        if (!m) {
++          continue
++        }
++        const num = parseInt(m[1], 10)
++        if (num > bestNum) {
++          bestNum = num
++          best = entry
++        }
++      }
++    }
++    return best
++  }
++
+   // Helper - process Windows SDK information
+   getSDK (info) {
+     const win8SDK = 'Microsoft.VisualStudio.Component.Windows81SDK'
+@@ -583,7 +663,20 @@ class VisualStudioFinder {
    }
  
    async execFile (exec, args) {

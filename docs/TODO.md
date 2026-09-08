@@ -868,6 +868,22 @@ hardware, check that the hardware is what it is actually blocked on.
   **This is a latent bug the assertion caught on its first CI run** — before it, every Store
   build that lost this race shipped without WSL confinement, green and silent. One-line fix;
   a job re-run was the correct recovery for the release itself, but the race remains.
+- **Un-pin the Windows runners from `windows-2022`, once a dispatch proves it.** The blocker
+  is fixed: `patches/@electron+node-gyp+10.2.0-electron.1.patch` now maps VS major 18 to year
+  2026, adds 2026 to all three `supportedYears` arrays, and discovers the VC++ toolset by
+  scanning `<vsPath>\MSBuild\Microsoft\VC\*\Platforms\x64\PlatformToolsets` rather than
+  hardcoding a `vNNN` (the year→toolset map is NOT derivable from the MSVC version — VS 2022
+  17.14 ships MSVC 14.44 and is still `v143`). What is missing is a green run: nobody here has
+  a machine with VS 2026, so it is unexercised code on the path that takes out `build-windows`
+  AND `build-msix` at once.
+  **Next step:** dispatch `Atlarix MSIX` with the new `runner: windows-latest` input (needs the
+  repo flipped public for the Actions budget, same as a release), and read the printed
+  `versionYear` / `toolset` from the "Verify Visual Studio toolchain is discoverable" step.
+  That step exists because the obvious verification does not work: `@electron/rebuild` buffers
+  node-gyp's output and prints it only on a non-zero exit, so on a green build there is no log
+  and "assert the ABSENCE of `unsupported version: 18`" is vacuously true. Only after that
+  dispatch is green do `msix.yml`'s two defaults and `release.yml:build-windows` change.
+  `src/__tests__/node-gyp-vs2026-patch.test.ts` guards the patch from evaporating on a bump.
 - **Windows code-signing cert** — native-sandbox CI, and the only real fix for the C6 residual on
   direct-download Windows. Release infra, no cert. The helper sign step is wired; set the secret.
 - OAuth `state` nonce / PKCE stays **not doing** — attempted v14.12.0, broke sign-in, reverted. The

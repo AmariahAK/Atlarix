@@ -59,6 +59,18 @@ on:
         required: false
         default: false
         type: boolean
+      # The runner label, so the windows-2022 un-pin can be TESTED without cutting a
+      # release. `windows-latest` is windows-2025-vs2026, whose only Visual Studio is
+      # 2026 — the case the node-gyp patch exists for. Default stays pinned so an
+      # ordinary manual run behaves exactly like a release run.
+      runner:
+        description: "Runner image (windows-latest = the VS 2026 image)"
+        required: false
+        default: "windows-2022"
+        type: choice
+        options:
+          - windows-2022
+          - windows-latest
   # Called by release.yml on a `v*` tag, so every release produces a submittable
   # package without anyone remembering to run this by hand. `upload_wrapper`
   # defaults to TRUE there: a release build is exactly when the Store wrapper is
@@ -74,6 +86,13 @@ on:
         required: false
         default: true
         type: boolean
+      # Declared separately because workflow_call and workflow_dispatch do not share
+      # an input block. A RELEASE always gets the pinned image until a dispatch on
+      # windows-latest has gone green.
+      runner:
+        required: false
+        default: "windows-2022"
+        type: string
 
 # Mirrors the env block in release.yml. These are the credentials Vite embeds at
 # BUILD time — Supabase, Lemon Squeezy variant ids, the Atlarix Core proxy URL.
@@ -116,13 +135,22 @@ jobs:
     # which is why two latent defects in it surfaced at once (the 1 MB maxBuffer,
     # patched, and no VS>=18 support, unpatched).
     #
-    # THE REAL FIX is to teach the patched find-visualstudio.js that version 18 is
-    # year 2026 and go back to `windows-latest`: this image is much colder (~5 min
-    # of setup before the build step) and GitHub is retiring windows-2022, so the
-    # pin buys one release. Verify the un-pin by the ABSENCE of "unsupported
-    # version: 18" in the gyp log, not by the build passing — a passing build
-    # proves a toolchain was found, not which one.
-    runs-on: windows-2022
+    # THE PATCH HAS LANDED (v14.43.0+): patches/@electron+node-gyp+10.2.0-electron.1
+    # .patch now maps major 18 -> year 2026, adds 2026 to all three supportedYears
+    # arrays, and discovers the VC++ toolset from disk. What has NOT happened is a
+    # green run on the vs2026 image — nobody has a Windows machine with VS 2026 here,
+    # so the patch is unexercised.
+    #
+    # TO UN-PIN: dispatch this workflow with runner=windows-latest. The
+    # "Verify Visual Studio toolchain is discoverable" step prints the versionYear and
+    # toolset that were actually selected, which is the assertion to read — NOT the
+    # build passing, and not the absence of "unsupported version: 18" from a gyp log
+    # that @electron/rebuild swallows on success. Once that dispatch is green, change
+    # the two defaults above and release.yml's build-windows to windows-latest.
+    #
+    # windows-2022 is on a deprecation path and this image is also much colder
+    # (~5 min of setup before the build step), so this is a stopgap either way.
+    runs-on: ${{ inputs.runner || 'windows-2022' }}
     timeout-minutes: 120
     steps:
       - name: Checkout code
@@ -190,6 +218,23 @@ jobs:
       - name: Verify Forge patch applied
         shell: pwsh
         run: node scripts/verify-forge-patch.mjs
+
+      # Fails FAST, and names what was found.
+      #
+      # The native rebuild does not happen at `npm ci` — it runs inside
+      # forge.config.ts, i.e. at the "Package (electron-forge)" step, several minutes
+      # of Vite and Rust later. So without this, a Visual Studio the patched node-gyp
+      # cannot see surfaces as a late "Could not find any Visual Studio installation
+      # to use", a message that names neither node-gyp nor the patch.
+      #
+      # It also PRINTS the versionYear and toolset that were selected, which is the
+      # only honest way to verify the VS 2026 patch: @electron/rebuild buffers
+      # node-gyp's output and prints it only on a non-zero exit, so on a green build
+      # there is no log to grep and "assert the absence of `unsupported version: 18`"
+      # proves nothing.
+      - name: Verify Visual Studio toolchain is discoverable
+        shell: pwsh
+        run: node scripts/check-vs-toolchain.mjs
 
       - name: Ensure Electron binary (Windows)
         shell: pwsh

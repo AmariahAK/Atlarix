@@ -661,12 +661,15 @@ jobs:
     # which is why two latent defects in it surfaced at once (the 1 MB maxBuffer,
     # patched, and no VS>=18 support, unpatched).
     #
-    # THE REAL FIX is to teach the patched find-visualstudio.js that version 18 is
-    # year 2026 and go back to `windows-latest`: this image is much colder (~5 min
-    # of setup before the build step) and GitHub is retiring windows-2022, so the
-    # pin buys one release. Verify the un-pin by the ABSENCE of "unsupported
-    # version: 18" in the gyp log, not by the build passing — a passing build
-    # proves a toolchain was found, not which one.
+    # THE PATCH HAS LANDED (v14.43.0+): patches/@electron+node-gyp+10.2.0-electron.1
+    # .patch now maps major 18 -> year 2026. This job STAYS PINNED until the un-pin
+    # has been proven on a runner, and this is not the place to prove it: a red
+    # build-windows on a tag takes out the release. Dispatch `Atlarix MSIX` with
+    # runner=windows-latest instead (see the long note in msix.yml), read the
+    # "Verify Visual Studio toolchain is discoverable" step's printed versionYear and
+    # toolset, and only then change this line.
+    #
+    # windows-2022 is on a deprecation path, so this is a stopgap either way.
     runs-on: windows-2022
     timeout-minutes: 180
     steps:
@@ -722,6 +725,23 @@ jobs:
       - name: Verify Forge patch applied
         shell: pwsh
         run: node scripts/verify-forge-patch.mjs
+
+      # Fails FAST, and names what was found.
+      #
+      # The native rebuild does not happen at `npm ci` — it runs inside
+      # forge.config.ts, i.e. at the "Package (electron-forge)" step, several minutes
+      # of Vite and Rust later. So without this, a Visual Studio the patched node-gyp
+      # cannot see surfaces as a late "Could not find any Visual Studio installation
+      # to use", a message that names neither node-gyp nor the patch.
+      #
+      # It also PRINTS the versionYear and toolset that were selected, which is the
+      # only honest way to verify the VS 2026 patch: @electron/rebuild buffers
+      # node-gyp's output and prints it only on a non-zero exit, so on a green build
+      # there is no log to grep and "assert the absence of `unsupported version: 18`"
+      # proves nothing.
+      - name: Verify Visual Studio toolchain is discoverable
+        shell: pwsh
+        run: node scripts/check-vs-toolchain.mjs
 
       - name: Ensure Electron binary (Windows)
         shell: pwsh

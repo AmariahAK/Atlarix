@@ -65,6 +65,7 @@
     "check:lint": "oxlint src",
     "verify:ban-guard": "node scripts/verify-ban-guard.mjs",
     "check:sandbox": "node scripts/check-sandbox-helpers.mjs",
+    "check:vs": "node scripts/check-vs-toolchain.mjs",
     "check:functions": "deno check supabase/functions/_shared/*.ts supabase/functions/*/index.ts",
     "check:i18n": "node scripts/check-i18n.mjs"
   },
