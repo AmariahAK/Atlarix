@@ -4,6 +4,19 @@
   ],
   "rules": {
     "eslint/no-unused-vars": "error",
-    "eslint/no-empty-pattern": "off"
-  }
+    "eslint/no-empty-pattern": "off",
+    "react-hooks/rules-of-hooks": "warn",
+    "react/set-state-in-effect": "off",
+    "react-hooks/exhaustive-deps": "off",
+    "react/refs": "off",
+    "react/purity": "off",
+    "react/preserve-manual-memoization": "off",
+    "react/immutability": "off",
+    "react/globals": "off",
+    "react/use-memo": "off",
+    "react/static-components": "off"
+  },
+  "plugins": [
+    "react"
+  ]
 }

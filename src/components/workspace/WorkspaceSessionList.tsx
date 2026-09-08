@@ -321,22 +321,10 @@ export function WorkspaceSessionList({
     }
   };
 
-  if (listLoading) {
-    return (
-      <div className="text-[10px] text-muted-foreground py-1 px-2">
-        Loading sessions...
-      </div>
-    );
-  }
-
-  if (sessions.length === 0) {
-    return (
-      <div className="text-[10px] text-muted-foreground py-1 px-2">
-        No saved sessions yet.
-      </div>
-    );
-  }
-
+  // NOTE: this hook must stay ABOVE the early returns below. It was first added
+  // beneath them, which meant the loading render never called it and the next
+  // render did — React #310, "rendered more hooks than during the previous
+  // render", and a white error screen on every workspace open.
   /**
    * THE ACTIVE SESSION SORTS FIRST, whatever its timestamp says.
    *
@@ -359,6 +347,22 @@ export function WorkspaceSessionList({
     const active = sessions.filter((s) => s.id === activeSessionId);
     return active.length ? [...active, ...sessions.filter((s) => s.id !== activeSessionId)] : sessions;
   }, [sessions, activeSessionId]);
+
+  if (listLoading) {
+    return (
+      <div className="text-[10px] text-muted-foreground py-1 px-2">
+        Loading sessions...
+      </div>
+    );
+  }
+
+  if (sessions.length === 0) {
+    return (
+      <div className="text-[10px] text-muted-foreground py-1 px-2">
+        No saved sessions yet.
+      </div>
+    );
+  }
 
   return (
     <>

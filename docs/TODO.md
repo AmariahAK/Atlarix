@@ -815,6 +815,22 @@ hardware, check that the hardware is what it is actually blocked on.
   would put exactly those runs where nobody looks. **This is settled, not pending.** The cost is
   accepted: production alert counts include the owner's own machine, so never read alert VOLUME as a
   user-impact signal without checking the source first.
+- **8 conditional-hook violations, now VISIBLE but not blocking.** Enabling
+  `react-hooks/rules-of-hooks` (2026-09-08, after a conditional `useMemo` shipped a
+  React #310 white screen to the packaged app) surfaced 8 pre-existing ones:
+  `useStreamChat.ts` ×4 — `useAtomValue` inside `if (hasChatId)` and a
+  `hasChatId ? useProposal(id) : useProposal()` ternary; `SubAgentRunCard.tsx` ×2;
+  `useWorkspacePlanPanel.ts` and `RightPanel.tsx` ×1 each (`useSearch` inside a
+  `try`). They work today only because the condition happens to be stable for a
+  component's lifetime — which is a property of current callers, not a guarantee.
+  **`useStreamChat` is the risky one**: it is a core hook and changing its hook
+  ORDER can break streaming, so it deserves its own pass rather than a drive-by.
+  Set to `warn` so CI stays green and new violations are still caught; raise to
+  `error` once these 8 are gone.
+  Also switched OFF, as pre-existing debt worth its own decision rather than 100
+  warnings drowning the 10 real ones: `react/set-state-in-effect` (58) and
+  `react-hooks/exhaustive-deps` (25). The second is genuinely valuable and is the
+  one to turn on next.
 - **`useAuth` is an UNSHARED hook with 30+ consumers**, each running its own `checkSession()` —
   still the cause of repeated "Enforcing workspace limit" logs. Guard in the IPC handler, never in
   the hook. **The sign-out half is now scoped:** `SubscriptionManager.signOut()` does not broadcast
