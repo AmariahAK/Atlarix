@@ -859,6 +859,15 @@ hardware, check that the hardware is what it is actually blocked on.
   *"App review pending for X weeks, no updates received"*, including the app name, App ID, the
   GitHub org/account used to submit, and the SUBMISSION date (which may differ from the date the
   App went public).
+- **`build-msix` must `needs: build-linux`.** It declares `needs: [quality]` but genuinely
+  depends on `build-linux`'s `landlock-helper` artifact — `msix.yml:220` downloads it with
+  `continue-on-error: true`. On v14.43.0 they raced and MSIX lost: msix started 09:24:58 and
+  failed 09:28:27, while build-linux did not upload until 09:32:12. The download failed
+  silently, `forge.config.ts`'s `existsSync` guard dropped the helper from `extraResource`
+  without complaint, and only the NEW `EXPECTED_RESOURCES` check turned it red.
+  **This is a latent bug the assertion caught on its first CI run** — before it, every Store
+  build that lost this race shipped without WSL confinement, green and silent. One-line fix;
+  a job re-run was the correct recovery for the release itself, but the race remains.
 - **Windows code-signing cert** — native-sandbox CI, and the only real fix for the C6 residual on
   direct-download Windows. Release infra, no cert. The helper sign step is wired; set the secret.
 - OAuth `state` nonce / PKCE stays **not doing** — attempted v14.12.0, broke sign-in, reverted. The
