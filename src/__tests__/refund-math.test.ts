@@ -4,7 +4,6 @@ import {
   incrementalClawbackCents,
   grantClawbackCents,
   invoiceIds,
-  productOf,
   refundFraction,
 } from "../../supabase/functions/_shared/refund-math";
 
@@ -17,7 +16,6 @@ import {
  * not to a line of code.
  */
 
-const REVIEWER_VARIANT = "999111";
 
 describe("invoiceIds — the id trap", () => {
   it("takes the SUBSCRIPTION from attributes, not from data.id", () => {
@@ -40,27 +38,6 @@ describe("invoiceIds — the id trap", () => {
     // string "undefined", which is truthy and would sail past that guard.
     expect(invoiceIds({})).toEqual({ invoiceId: "", subscriptionId: "" });
     expect(invoiceIds({ data: {} })).toEqual({ invoiceId: "", subscriptionId: "" });
-  });
-});
-
-describe("productOf", () => {
-  it("trusts custom_data.kind when it is there", () => {
-    expect(productOf("reviewer", "", REVIEWER_VARIANT)).toBe("reviewer");
-  });
-
-  it("falls back to the variant id, which is the only signal a refund carries", () => {
-    // Refunds, renewals and cancellations arrive with NO custom_data.
-    expect(productOf("", REVIEWER_VARIANT, REVIEWER_VARIANT)).toBe("reviewer");
-  });
-
-  it("does not classify as reviewer when the variant is unconfigured", () => {
-    // An unset REVIEWER_VARIANT_ID must not make every event match on "".
-    expect(productOf("", "", null)).toBe("pro");
-    expect(productOf("", "", "")).toBe("pro");
-  });
-
-  it("defaults to pro, so pre-existing subscribers are never stranded", () => {
-    expect(productOf("", "someone-elses-variant", REVIEWER_VARIANT)).toBe("pro");
   });
 });
 

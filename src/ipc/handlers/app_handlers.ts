@@ -1,5 +1,5 @@
 import { ipcMain, app } from "electron";
-import { assertWorkspaceQuota, noteWorkspaceCreated } from "@/ipc/utils/workspace-quota";
+import { noteWorkspaceCreated } from "@/ipc/utils/workspace-quota";
 import { perfMark } from "@/lib/perf-marks";
 import {
   db,
@@ -357,7 +357,6 @@ export function registerAppHandlers() {
       // A copy is a new workspace and counts against the plan, same as opening a
       // folder. This path had NO cap check at all — only the import path did, so
       // duplicating was a way past a limit the product otherwise enforces.
-      await assertWorkspaceQuota();
       const [newDbApp] = await db
         .insert(apps)
         .values({

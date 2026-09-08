@@ -24,19 +24,15 @@ import { apps, automationRuns, automations, mcpToolConsents } from "@/db/schema"
 import { SubscriptionManager } from "@/lib/SubscriptionManager";
 import { broadcastToAllWindows } from "@/ipc/utils/broadcast_all_windows";
 import type { AutomationInput } from "./types";
-import {
-  AUTOMATIONS_FREE_MAX as FREE_MAX,
-  AUTOMATIONS_PRO_MAX as PRO_MAX,
-} from "@/lib/plan-caps";
+import { AUTOMATIONS_WORKSPACE_MAX as WORKSPACE_MAX } from "@/lib/workspace-caps";
 
 const logger = log.scope("automations-service");
 
 /**
- * Automations per workspace. Re-exported from `lib/plan-caps` so enforcement,
+ * Automations per workspace. Re-exported from `lib/workspace-caps` so enforcement,
  * the reported limit and the sentence the model reads cannot drift apart.
  */
-export const AUTOMATIONS_FREE_MAX = FREE_MAX;
-export const AUTOMATIONS_WORKSPACE_MAX = PRO_MAX;
+export const AUTOMATIONS_WORKSPACE_MAX = WORKSPACE_MAX;
 
 export type AutomationRow = typeof automations.$inferSelect;
 
@@ -161,11 +157,6 @@ export async function createAutomation(
   if (count >= AUTOMATIONS_WORKSPACE_MAX) {
     throw new Error(
       `Maximum ${AUTOMATIONS_WORKSPACE_MAX} automations per workspace. Remove one to add another.`,
-    );
-  }
-  if (!SubscriptionManager.isPro() && count >= AUTOMATIONS_FREE_MAX) {
-    throw new Error(
-      `Free tier is limited to ${AUTOMATIONS_FREE_MAX} automations per workspace. Upgrade to Pro for up to ${AUTOMATIONS_WORKSPACE_MAX}.`,
     );
   }
 

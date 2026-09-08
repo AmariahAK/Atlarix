@@ -7,7 +7,7 @@ import { apps } from "@/db/schema";
 import { db } from "@/db";
 import { eq } from "drizzle-orm";
 import { parseRemoteUri } from "@/lib/workspace-fs";
-import { assertWorkspaceQuota, noteWorkspaceCreated } from "@/ipc/utils/workspace-quota";
+import { noteWorkspaceCreated } from "@/ipc/utils/workspace-quota";
 import { startWorkspaceSession } from "./workspace_session_handlers";
 import { normalizeAppPath } from "@/lib/canonical-app-path";
 
@@ -67,7 +67,6 @@ export async function importWorkspaceFromPath({
   // workspace they already had: the check threw before the dedupe could return
   // the existing row. Re-opening your own folder does not increase the count and
   // must never be refused by a limit it cannot exceed.
-  await assertWorkspaceQuota();
 
   const now = new Date();
   const [app] = await db

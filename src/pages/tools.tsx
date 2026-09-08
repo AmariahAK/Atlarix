@@ -207,7 +207,7 @@ const FEATURES: ToolFeature[] = [
   },
   {
     id: "skills-marketplace",
-    title: "Skills marketplace (Pro)",
+    title: "Skills marketplace",
     shortDescription:
       "Install Apache-licensed playbooks from the public registry—five global slots and five per workspace.",
     category: "skills",
@@ -230,7 +230,7 @@ const FEATURES: ToolFeature[] = [
     id: "mcp-manual",
     title: "MCP servers (manual)",
     shortDescription:
-      "Wire stdio or HTTP MCP servers globally or per workspace. Free tier: one MCP server per workspace; Pro: up to ten per workspace.",
+      "Wire stdio or HTTP MCP servers globally or per workspace, up to ten per workspace.",
     category: "mcp",
     steps: ["Settings → Tools → MCP", "Add command or URL + env", "Approve tool calls per capability"],
     howItWorks:
@@ -239,13 +239,13 @@ const FEATURES: ToolFeature[] = [
   },
   {
     id: "mcp-marketplace",
-    title: "MCP marketplace (Pro)",
+    title: "MCP marketplace",
     shortDescription:
       "One-click installs from the curated atlarix-mcps registry; pagination matches the skills browser.",
     category: "mcp",
     steps: ["Open MCP → Marketplace tab", "Filter or search", "Connect with env vars, choose scope"],
     howItWorks:
-      "Registry rows carry installUrl metadata; installs still respect the same caps as manual servers. Some entries require Pro.",
+      "Registry rows carry installUrl metadata; installs still respect the same caps as manual servers.",
     link: { label: "Settings → MCP marketplace", to: "/settings" },
   },
   {
@@ -277,12 +277,11 @@ const FEATURES: ToolFeature[] = [
   },
   {
     id: "workspace-connectors",
-    title: "One-click connectors (Pro)",
+    title: "One-click connectors",
     shortDescription:
       "Connect Slack, Jira, Linear, Notion, Sentry, CI, and calendar as MCP servers with one click — pick org/repo/channel scope per chat session.",
     category: "integration",
     steps: [
-      "Upgrade to Pro in Settings → Subscription",
       "Connect a service from Settings → MCP marketplace",
       "When a tool needs context, pick org/repo/channel scope for that chat session (clears on New Chat)",
     ],
@@ -348,8 +347,9 @@ export default function ToolsPage() {
         <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm">
           <p className="font-medium text-foreground mb-1">Models</p>
           <p className="text-muted-foreground mb-2">
-            {CORE_PAYMENT_SUMMARY} Every plan runs every Core model, plus your own keys and local models.
-            Pro adds unlimited workspaces, the Agent Behaviors &amp; MCP marketplaces, one-click connectors, and higher MCP &amp; automation capacity.
+            {CORE_PAYMENT_SUMMARY} Every feature is on every plan — workspaces, the Agent Behaviors
+            and MCP marketplaces, one-click connectors, automations — plus your own keys and local
+            models. What you pay for is Atlarix Core inference.
           </p>
           {/* The live lineup, so this card states what is ACTUALLY configured rather
               than a hardcoded count. `useAtlarixCoreCatalog` omits unmapped slots, so

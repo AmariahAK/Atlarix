@@ -1,0 +1,28 @@
+-- Remove the $1 signup trial credit, permanently, for new and existing accounts.
+--
+-- WHY NOW. The trial was kept at $1 in August on a measurement: app turns cost 2–29c, so
+-- $1 was ~20 turns — a real session, and enough to reach the aha before paying. Core's
+-- lineup has since moved to GLM 5.3, GPT 5.6 Terra and GPT 5.6 Sol, where a turn runs
+-- roughly 50–90c. The same $1 now buys one or two turns. It stopped being a trial and
+-- became a rounding error, so it is withdrawn rather than resized: with the desktop app
+-- free and users funding their own inference, the honest shape is a $10 top-up.
+--
+-- SCOPE. This stops anyone RECEIVING the credit again. Credit already granted is left
+-- alone: clawing $1 back across 116 accounts is a bad-will trade for ~$100, and it would
+-- need a migration that reasons about partly-spent balances to avoid driving wallets
+-- negative. "Remove for existing users" is read as *nobody receives it again*.
+--
+-- OLD CLIENTS ARE SAFE, and this was checked rather than assumed. A desktop app in the
+-- wild keeps calling `auth:claim-signup-credit` on every sign-in for as long as it goes
+-- un-updated. Both layers swallow the failure: `auth_handlers.ts` returns
+-- `{ ok: false, error }` on an RPC error rather than throwing, and `useAuth.ts` calls it
+-- with `.catch(() => {})`. So a dropped function is silent — no crash, no Sentry noise,
+-- no user-visible error. That is what makes DROP safe here rather than neutering the body.
+--
+-- WHAT GOES WITH IT. `20260901100000` added an OAuth-identity requirement to this
+-- function, because email signup had been enabled on the project and the $1 was claimable
+-- by anyone with the public anon key and a disposable inbox. That guard existed only to
+-- protect this grant and has nothing left to protect. The underlying fix — email/password
+-- signup being disabled in the dashboard — is unaffected and stays.
+
+DROP FUNCTION IF EXISTS public.claim_signup_credit();

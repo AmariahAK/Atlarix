@@ -93,7 +93,7 @@ export function registerIpcHandlers() {
   registerFileHandlers(); // File read/write for live code editor
   registerAuthHandlers(); // OAuth & user plan management
   registerCodebaseSearchHandlers(); // Codebase semantic search
-  registerWorkspaceSnapshotHandlers(); // Workspace snapshots (Pro)
+  registerWorkspaceSnapshotHandlers();
   registerStreamHandlers(); // v3.9 Stream tools (terminal/pipeline)
   registerTourHandlers(); // Shepherd tour state (electron-store–style local JSON)
   registerCommunityHandlers(); // Discord invite metadata for Community dialog

@@ -31,7 +31,6 @@ import {
 import { IpcClient } from "@/ipc/ipc_client";
 import { showError, showSuccess } from "@/lib/toast";
 import { useAuth } from "@/lib/auth/useAuth";
-import { useUpgrade } from "@/hooks/useUpgrade";
 
 type SkillManifestFile = { name: string; url: string };
 type SkillManifestEntry = {
@@ -281,9 +280,6 @@ export function SkillsSettingsPage() {
       : null;
 
   const { status, loading: authLoading } = useAuth();
-  const { handleUpgrade, isLoading: upgradeLoading } = useUpgrade();
-  const plan = status?.plan ?? "free";
-  const isPaid = plan === "pro";
 
   const [registryUrl, setRegistryUrl] = useState(OFFICIAL_REGISTRY_URL);
   const [registry, setRegistry] = useState<SkillRegistryIndex | null>(null);
@@ -355,9 +351,8 @@ export function SkillsSettingsPage() {
   }, [ipc, selectedAppId]);
 
   useEffect(() => {
-    if (!isPaid) return;
     void refreshInstalled();
-  }, [refreshInstalled, isPaid]);
+  }, [refreshInstalled]);
 
   const onFetchRegistry = useCallback(async () => {
     setFetching(true);
@@ -500,35 +495,7 @@ export function SkillsSettingsPage() {
           </p>
         </div>
 
-        {/* Tier gate — informational, mirroring the MCP marketplace tab. Landing
-            here on Free must never trigger a checkout; upgrading is an explicit
-            click on the button below. */}
-        {!authLoading && !isPaid ? (
-          <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-6 space-y-3 text-sm">
-            <div className="font-medium text-foreground">Skills are a Pro feature</div>
-            <p className="text-muted-foreground">
-              Installing Agent Behaviors from the{" "}
-              <span className="font-medium">skills registry</span> requires Pro. On Free, the agent
-              still reads project instructions from <code>.atlarix/atlarix.md</code> and any
-              behaviors you commit under <code>.atlarix/skills/</code> in the repo itself.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                onClick={() => {
-                  void handleUpgrade();
-                }}
-                disabled={upgradeLoading}
-              >
-                {upgradeLoading ? "Opening..." : "Upgrade"}
-              </Button>
-              <Button variant="outline" onClick={() => navigate({ to: "/account" })}>
-                Manage plan
-              </Button>
-            </div>
-          </div>
-        ) : null}
-
-        {(!authLoading && !isPaid) || !selectedAppId ? null : (
+        {!selectedAppId ? null : (
         <>
         <Accordion type="multiple" defaultValue={["registry", "browse", "active"]} className="w-full">
           <AccordionItem value="registry" className="border rounded-xl">

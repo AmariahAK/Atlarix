@@ -280,13 +280,10 @@ const validInvokeChannels = [
   "auth:sign-in",
   "auth:sign-out",
   "auth:get-current-user",
-  "auth:can-create-workspace",
-  "auth:check-workspace-limit",  // Workspace limit check for Free tier
   "auth:get-plan-info",
   "auth:upgrade",
   "auth:add-credit",          // PAYG: open a credit top-up checkout
   "auth:get-credit-balance",  // PAYG: read the user's Core credit balance (cents)
-  "auth:claim-signup-credit", // PAYG: one-time $1 trial credit
   "auth:refresh-plan",
   "auth:manage-subscription",
   "auth:cancel-subscription",

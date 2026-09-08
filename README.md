@@ -56,7 +56,7 @@ Release notes: **[docs/CHANGELOG.md](docs/CHANGELOG.md)** (current: 14.25+). Old
 - **Approvals & command sandbox:** File writes wait for explicit approval with a diff preview — accept or reject **individual hunks**, not just whole files, all **inline in chat** (no separate panel). Shell commands run inside a per-OS write-confining sandbox and only the genuinely dangerous ones ask; Explore/Plan/Review are read-only. Allow-once / always-allow decisions are **scoped to the workspace** — approvals saved in one project never carry to another.
 - **Work beyond one folder:** The workspace is the default scope, not a wall. The agent reads and searches another project by absolute path with no ceremony; the first *write* to a folder outside the workspace asks you once for that folder, and the grant then covers both file edits and shell commands. Cross-repo edits are snapshotted like any other, so **Revert covers them too**.
 - **Voice-to-text:** Dictate to the composer — free on-device **Whisper** by default (private, no key), or use your own cloud key (OpenAI / Groq / Gemini — never billed to Atlarix Core).
-- **Automations:** Schedule unattended runs on a cron or MCP trigger from the Automations tab, with a triage feed of past runs — **2 per workspace on Free, 10 on Pro**.
+- **Automations:** Schedule unattended runs on a cron or MCP trigger from the Automations tab, with a triage feed of past runs — up to **10 per workspace**.
 - **Interactive questions:** The agent can ask you **up to 5 questions in one inline card** (options + free text) and the stream genuinely pauses until you answer — no invented answers, no missed prompts.
 - **Native web search:** On providers with built-in search (Anthropic, OpenAI, Gemini 2+) the provider's own search tool runs at dispatch with **inline citations that survive reload**; everywhere else a built-in search chain provides a universal fallback, with optional local private search via Docker.
 - **Prompt caching:** Dispatches are cache-friendly out of the box — Anthropic API key turns place `cache_control` breakpoints over the stable system header and conversation history, cutting repeat-turn input cost and latency.
@@ -75,12 +75,12 @@ Retrieval is **purely lexical — no index, no embeddings, no map tool, no backg
 ### AI Agents & Modes
 
 - **Work modes:** Explore, Plan, Build, Debug, Review.
-- **Atlarix Core:** Managed cloud models, named in the picker by what they actually are. The lineup is configured remotely ([`core-models.json`](https://github.com/AmariahAK/atlarix-releases/blob/main/core-models.json)) rather than fixed in a release, so it changes without an app update — today it is **GLM 5.3** and **DeepSeek V4 Pro**. Every plan can use every Core model; there is no tier gating and no model is reserved for a paid plan. Pro includes Core for everyday work and draws on a prepaid credit balance beyond that; Free draws on that balance from the start (top up from $10).
+- **Atlarix Core:** Managed cloud models, named in the picker by what they actually are. The lineup is configured remotely ([`core-models.json`](https://github.com/AmariahAK/atlarix-releases/blob/main/core-models.json)) rather than fixed in a release, so it changes without an app update — today it is **GLM 5.3**, **GPT 5.6 Terra** and **GPT 5.6 Sol**. Every plan can use every Core model; there is no tier gating and no model is reserved for a paid plan. Pro includes Core for everyday work and draws on a prepaid credit balance beyond that; Free draws on that balance from the start (top up from $10).
 
 ### Workspace Tools & Extensions
 
 - **Core tools:** A deliberately minimal tool surface — `read_file`, a single `edit_file` (one tool for create/overwrite via `operation:"write"` plus surgical `operation:"replace"` with self-healing match), **`glob`** + **`grep`** (bundled ripgrep), `run_command` (incl. `git` CLI and background commands), web search/read, `task` parallel workers, `plan`, MCP, attachments, and the in-app browser tools (`browser_inspect` to read a page, `browser` to act on it). Explore/Plan/Review run a read-only sandbox profile.
-- **MCP:** MCP servers are configured **per workspace** — **Free** connects **1** (manual config); **Pro** gets the marketplace plus up to **10** per workspace (one-click OAuth connect from the marketplace). On-demand **`list_available_mcps`** / **`mcp_call`** in workspace chat.
+- **MCP:** MCP servers are configured **per workspace** — up to **10** each, added manually or in one click from the marketplace (including OAuth connectors). On-demand **`list_available_mcps`** / **`mcp_call`** in workspace chat.
 - **Agent Behaviors:** Install from [atlarix-skills](https://github.com/AmariahAK/atlarix-skills). Optional **`.atlarix/skills/`** in the repo.
 
 ### Diagnostics & panels
@@ -208,22 +208,33 @@ After `npm install`, **`postinstall`** runs `patch-package` and the Electron ins
 
 ## Pricing
 
-| Tier      | Price   | Workspaces | Highlights |
-|-----------|---------|------------|------------|
-| **Free**  | $0      | 1          | Every Core model (pay-as-you-go credits); your own API keys and local models free; core tools; **1** MCP server per workspace (manual config); **2** automations per workspace |
-| **Pro**   | $19/mo  | Unlimited  | Everything in Free + **Atlarix Core included for everyday work** + Agent Behaviors + MCP marketplace + one-click OAuth connectors; **10** MCP servers and **10** automations per workspace |
+**The app is free.** Every feature is on every plan — unlimited workspaces, the Agent
+Behaviors and MCP marketplaces, one-click OAuth connectors, automations, workspace
+snapshots, the full tool surface. Your own API keys and local models (Ollama, LM Studio)
+cost nothing, on any plan, forever.
 
-**Every plan runs every model.** Every Core model is available on Free and Pro alike — the lineup is configured remotely, so it is whatever `core-models.json` currently names rather than a fixed count — and **your own API keys and local models are free on every plan**.
+What you pay for is **Atlarix Core** — the managed models we host and meter. Top up a
+prepaid balance from **$10** and it is billed as you use it, with the exact cost of every
+call shown in the app.
 
-**Pro includes Atlarix Core for everyday work**, and heavier use draws on pay-as-you-go credit you top up, metered as you go. Free uses that same credit from the start (each new account gets a one-time **$1** trial credit; top-ups start at **$10**). See [docs/compass-limits.md](docs/compass-limits.md).
+| | Price | What it is |
+|---|---|---|
+| **Free** | $0 | The whole app. Core on pay-as-you-go credit. |
+| **Pro** | $19/mo | The whole app, plus **Atlarix Reviewer**, plus Atlarix Core included for everyday work. Heavier use draws on the same credit. |
 
-### Atlarix Reviewer — a separate product
+**One subscription, one balance.** Pro covers the desktop app and Atlarix Reviewer from a
+single monthly Core allowance — they are not billed separately and they do not hold
+separate balances. See [docs/compass-limits.md](docs/compass-limits.md).
 
-**$19 per developer / month.** A GitHub App that reviews every pull request on the repositories you choose and posts its findings as review comments — file, line, what is wrong, and the fix. It never writes to your code, and it never executes, builds or tests it.
+### Atlarix Reviewer
 
-Reviews run on Atlarix Core and are **included for everyday reviewing**, the same way Pro works; heavier use draws on the same pay-as-you-go credit, metered per review. Your account page itemises what reviewing has spent separately from the app.
+A GitHub App that reviews every pull request on the repositories you choose and posts its
+findings as review comments — file, line, what is wrong, and the fix. It never writes to
+your code, and it never executes, builds or tests it.
 
-Pro and Reviewer are **separate subscriptions** — holding one does not include the other.
+Reviews run on Atlarix Core, so they need a funded balance: either the allowance that
+comes with Pro, or pay-as-you-go credit. Your account page itemises what reviewing has
+spent separately from the app.
 
 ---
 

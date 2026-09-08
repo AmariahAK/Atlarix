@@ -175,6 +175,26 @@ export async function getEffectiveBudget(
 export async function getMaxTokens(
   model: LargeLanguageModel,
 ): Promise<number | undefined> {
+  // Core is a SYNTHETIC provider, and its registry entry carries a blanket
+  // `maxOutputTokens: 32_000` (compass_constants). Nothing corrected it, because
+  // `getLanguageModels` early-returns the synthetic list before
+  // `enrichModelsWithModelsDevLimits` can run — so a 128K-output model was capped at a
+  // quarter of its ceiling and long turns truncated for no reason anyone could see.
+  //
+  // Resolve the tier's REAL limit the same way `getContextWindowDetailed` above
+  // resolves its context: by the tier's provider + vendor model id, which is the only
+  // key models.dev answers to for a directly-routed tier.
+  //
+  // BYOK deliberately gets no equivalent here — it is already correct.
+  // `enrichModelsWithModelsDevLimits` fills only MISSING limits and never overwrites a
+  // provider's own value, and the floors below apply only on a total catalog miss.
+  if (model.provider === "compass") {
+    const coreTarget = getCoreModelsDevTargetForTier(model.name);
+    if (coreTarget) {
+      const limits = await getModelsDevLimits(coreTarget.providerId, coreTarget.modelId);
+      if (limits?.output && limits.output > 0) return limits.output;
+    }
+  }
   const modelOption = await findLanguageModel(model);
   return modelOption?.maxOutputTokens ?? undefined;
 }

@@ -14,7 +14,16 @@
  * external imports, no globals — that is the whole constraint that keeps it so.
  */
 
-export type BillingProduct = "pro" | "reviewer";
+/**
+ * The one product that grants a Core allowance.
+ *
+ * A union of one, deliberately, rather than deleting the type: `credit_grants` is keyed by
+ * (user_id, product) and every grant RPC takes the argument, so the concept is still real
+ * in the schema even though there is only one member. Adding a second product means
+ * widening this AND restoring the classifier that used to sit below — see the git history
+ * for `productOf`, removed 2026-09-08 with the second subscription.
+ */
+export type BillingProduct = "pro";
 
 /**
  * The subscription-invoice fields a refund event carries, as they actually
@@ -93,28 +102,6 @@ export function creditClawbackCents(amounts: RefundAmounts): number {
   if (refunded !== null) return Math.round(refunded);
   const subtotal = positiveNumber(amounts.subtotal);
   return subtotal === null ? 0 : Math.round(subtotal);
-}
-
-/**
- * Which product a subscription event is about.
- *
- * `kind` (from the checkout's custom_data) is the strong signal but it is only
- * present on events descended from a checkout we created. Renewals, refunds and
- * cancellations arrive with no custom_data at all, so `variant_id` has to carry
- * it — which is why the variant id is compared rather than merely stored.
- *
- * Unknown falls to 'pro', preserving the behaviour every existing Pro subscriber
- * already has: those rows predate REVIEWER_VARIANT_ID being set and their
- * renewals carry no custom_data, so anything else would strand them.
- */
-export function productOf(
-  kind: string,
-  variantId: string,
-  reviewerVariantId: string | null | undefined,
-): BillingProduct {
-  if (kind === "reviewer") return "reviewer";
-  if (reviewerVariantId && variantId && variantId === reviewerVariantId) return "reviewer";
-  return "pro";
 }
 
 /**

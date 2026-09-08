@@ -641,11 +641,14 @@ Noted, not scheduled. Sources: opencode `v1.18.17`, claude-code `v2.1.229` / `23
     device×dtype matrix settled it. Inference multiplies that — native module per platform × ABI on
     top of better-sqlite3/node-pty/keytar, Metal/CUDA/Vulkan backends, a 4–8GB download — for a
     model still weak at agentic tool-calling. Ollama already solves this for whoever wants it.
-- **Per-model sampling defaults.** opencode fixed DeepSeek V4 Flash specifically; GLM and DeepSeek
-  tool-calling is genuinely temperature-sensitive, so this is a quality lever on the Core path.
+- **Per-model sampling defaults.** opencode fixed DeepSeek V4 Flash specifically; GLM tool-calling is
+  genuinely temperature-sensitive, so this is a quality lever on the Core path. Re-check it against
+  the GPT 5.6 tiers, which replaced DeepSeek on core-2/3 and reject `temperature` outright.
 - **Route chore calls to the cheapest available model** — session titles, compaction summaries, the
-  streaming compass one-liner, commit messages. They don't need Core 4. Same saving as embedded
-  inference with no new dependency.
+  streaming compass one-liner, commit messages. They don't need the top tier — and the saving grew
+  when core-2/3 became GPT 5.6 at $2.00/$12.00 and $4.00/$20.00 per M. Same saving as embedded
+  inference with no new
+  dependency.
 - **Malformed tool args.** Claude Code fixed a hard crash on a non-string `glob` / `file_path` /
   `command`. We explicitly target weak and local models, which emit `file_path: ["a","b"]`
   regularly — worth confirming a schema rejection returns a correctable tool error rather than

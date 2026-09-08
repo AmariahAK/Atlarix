@@ -34,7 +34,7 @@ import {
 } from "@/lib/automations/types";
 import { listAutomations, getAutomation } from "@/lib/automations/service";
 import { SubscriptionManager } from "@/lib/SubscriptionManager";
-import { capRemedy, describePlanCap, planCapClause } from "@/lib/plan-caps";
+import { describeWorkspaceCap, workspaceCapClause } from "@/lib/workspace-caps";
 
 const logger = log.scope("automations-tool");
 
@@ -104,7 +104,7 @@ ToolRegistry.register({
     "PROPOSE, DO NOT SELF-START. Offer an automation when you have watched the user do the same check repeatedly, and create it once they agree. Do not set up watches on GitHub, Slack, CI or anything else the user has not asked for. create/update/delete all require the user's approval before anything is written. " +
     "An MCP trigger also records standing consent for that tool (the poller runs unattended and cannot prompt) — say so when you propose one. " +
     "\n" +
-    planCapClause("automations"),
+    workspaceCapClause("automations"),
   requiresWorkspace: true,
   isCore: false,
   isReadOnly: false,
@@ -167,14 +167,9 @@ ToolRegistry.register({
 
     if (args.operation === "list") {
       const { automations: rows } = await listAutomations(workspaceId);
-      // Report the cap alongside the contents: the agent has no other way to
-      // learn the user's tier (nothing in the prompt mentions a plan), so
-      // without this a refused create reads as a broken workspace.
-      const limits = describePlanCap(
-        "automations",
-        SubscriptionManager.isPro(),
-        rows.length,
-      );
+      // Report the cap alongside the contents, or a refused create reads as a broken
+      // workspace rather than a full one.
+      const limits = describeWorkspaceCap("automations", rows.length);
       return {
         success: true,
         limits,
@@ -188,7 +183,7 @@ ToolRegistry.register({
           last_run_at: a.lastRunAt,
         })),
         note: !limits.canAddMore
-          ? `At the ${limits.tier} limit of ${limits.max} automations. This is a plan limit, not a workspace problem. ${capRemedy("automations", limits.tier === "pro")}`
+          ? `At the workspace limit of ${limits.max} automations. Remove one to add another — this is not a plan limit and there is no tier that raises it.`
           : rows.length === 0
             ? "No automations yet. Offer one only if the user has been repeating a check by hand."
             : undefined,

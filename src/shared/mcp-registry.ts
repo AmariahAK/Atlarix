@@ -32,7 +32,6 @@ export interface McpRegistryEnvVar {
 }
 
 export type McpRegistryAuthType = "none" | "env" | "oauth";
-export type McpRegistryTier = "free" | "pro";
 
 /**
  * Structured OAuth config for `authType: "oauth"` HTTP MCPs.
@@ -87,8 +86,16 @@ export interface McpRegistryEntry {
   category?: string;
   /** Approximate install count from the registry publisher. Optional badge. */
   installs?: number;
-  /** Visibility — `"pro"` entries are hidden for free users. */
-  tier?: McpRegistryTier;
+  /**
+   * Visibility tier. IGNORED since 2026-09-08 — the app is free and the marketplace is
+   * available on every plan, so nothing filters on this any more.
+   *
+   * The field stays in the type because the REMOTE index still carries it on 26 of its
+   * 286 entries and `mcps:fetch-registry` is a bare cast with no runtime schema. Declaring
+   * it documents what will arrive; deleting it would only make the extra key undeclared,
+   * not absent.
+   */
+  tier?: string;
 }
 
 export interface McpRegistryIndex {

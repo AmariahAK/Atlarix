@@ -51,13 +51,12 @@ export function AppList({ show }: { show?: boolean }) {
   const setActiveChatId = useSetAtom(activeChatIdAtom);
   const [activeWorkspaceSessionId] = useAtom(activeWorkspaceSessionIdAtom);
 
-  // Pro (unlimited) + the main-process workspace-limit signal.
-  const canAddWorkspace = useMemo(() => {
-    if (!isAuthenticated || !status) return false;
-    if (status.canCreateWorkspace) return true;
-    if (status.plan === "pro") return true;
-    return apps.length < 1;
-  }, [status, apps.length, isAuthenticated]);
+  // Workspaces are unlimited on every plan (2026-09-08). Signed in is the only
+  // requirement — a workspace is still an account-scoped row.
+  const canAddWorkspace = useMemo(
+    () => isAuthenticated && !!status,
+    [status, isAuthenticated],
+  );
 
   // Load chats for each workspace
   useEffect(() => {
@@ -234,21 +233,6 @@ export function AppList({ show }: { show?: boolean }) {
                 className="h-6 w-6 p-0"
                 title="Add workspace (browse folder)"
                 onClick={() => void handleBrowseWorkspace()}
-              >
-                <Plus className="h-4 w-4" />
-              </Button>
-            )}
-            {/* Show disabled + button with tooltip for Free tier users at limit */}
-            {selectedAppId == null &&
-              isAuthenticated &&
-              status?.plan === "free" &&
-              apps.length >= 1 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 w-6 p-0 opacity-50 cursor-not-allowed"
-                title="Upgrade to Pro for unlimited workspaces"
-                disabled
               >
                 <Plus className="h-4 w-4" />
               </Button>

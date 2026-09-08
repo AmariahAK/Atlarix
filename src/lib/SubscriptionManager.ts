@@ -60,16 +60,6 @@ export interface UserSession {
 // CONFIGURATION
 // ============================================
 
-/** Free tier limits */
-export const PLAN_LIMITS = {
-    free: {
-        maxWorkspaces: 1,
-    },
-    pro: {
-        maxWorkspaces: Infinity,
-    },
-};
-
 /** What `auth:resolved` carries. `user: null` means genuinely signed out. */
 export type AuthResolvedPayload = {
     user: {
@@ -627,39 +617,6 @@ export class SubscriptionManager {
         }
 
         return { success: true, user: this.session, error: null };
-    }
-
-    // ========================================
-    // WORKSPACE GATING
-    // ========================================
-
-    /**
-     * Check if user can create a new workspace
-     * Free: 1 workspace max; Pro/Workforce: Unlimited
-     */
-    static async canCreateWorkspace(): Promise<{ allowed: boolean; reason?: string; currentCount: number; maxAllowed: number }> {
-        const tier = this.getEffectiveTier();
-        const limit = PLAN_LIMITS[tier].maxWorkspaces;
-
-        // Get current workspace count
-        const workspaceCount = await this.getWorkspaceCount();
-
-        if (workspaceCount >= limit) {
-            return {
-                allowed: false,
-                reason: tier === 'free'
-                    ? 'Free plan allows 1 workspace. Upgrade to Pro for unlimited workspaces.'
-                    : `Workspace limit reached (${limit}).`,
-                currentCount: workspaceCount,
-                maxAllowed: limit,
-            };
-        }
-
-        return {
-            allowed: true,
-            currentCount: workspaceCount,
-            maxAllowed: limit,
-        };
     }
 
     /**

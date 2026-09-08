@@ -219,8 +219,23 @@ export const getOpenRouterModelIdForCoreTier = getCoreModelIdForCoreTier;
  * broke the BYOK-fallback path and any persisted selection pointing at it.
  */
 export function getFirstConfiguredCoreTier(): string | undefined {
-  return CORE_TIER_ORDER.find((tier) => !!getCoreModelIdForCoreTier(tier)?.trim());
+  return DEFAULT_CORE_TIER_ORDER.find((tier) => !!getCoreModelIdForCoreTier(tier)?.trim());
 }
+
+/**
+ * Preference order when something needs "a Core model" and has no opinion.
+ *
+ * NOT `CORE_TIER_ORDER`. That is the display order — slot 1, 2, 3, 4 — and using it
+ * here made the lowest-numbered slot the de-facto default for every unopinionated
+ * caller. The default is a PRODUCT decision (owner, 2026-09-08): core-2 first, so a
+ * new user's first turn runs on the tier we most want them to judge us by, whatever
+ * model happens to occupy it. The rest follow in slot order as a fallback, so this
+ * still degrades correctly when core-2 is unconfigured.
+ */
+const DEFAULT_CORE_TIER_ORDER = [
+  CORE_TIER_2,
+  ...CORE_TIER_ORDER.filter((t) => t !== CORE_TIER_2),
+] as const;
 
 /**
  * Resolve a requested Core tier to one that is actually configured.

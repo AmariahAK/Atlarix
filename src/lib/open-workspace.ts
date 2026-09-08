@@ -33,21 +33,6 @@ async function importOrSelectApp(
     };
   }
 
-  const ipcRenderer = window.electron?.ipcRenderer;
-  if (ipcRenderer?.invoke) {
-    const limitCheck = (await ipcRenderer.invoke("auth:check-workspace-limit")) as {
-      allowed?: boolean;
-      reason?: string;
-    };
-    if (!limitCheck.allowed) {
-      const { triggerUpgrade } = await import("@/hooks/useUpgrade");
-      void triggerUpgrade();
-      throw new PlanLimitError(
-        limitCheck.reason ?? "Upgrade to Pro for unlimited workspaces.",
-      );
-    }
-  }
-
   const appName = path.split(/[/\\]/).pop() || "Workspace";
   const importResult = await IpcClient.getInstance().importApp({ path, appName });
   await refreshApps?.();

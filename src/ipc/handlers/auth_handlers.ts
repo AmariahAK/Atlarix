@@ -18,10 +18,12 @@ const logger = log.scope("auth-handlers");
  *
  * `useAuth` is a plain hook with no shared state, so every component that calls it
  * runs its own `checkSession()` on mount — and there are ~20 of them. Each one fired
- * `auth:get-current-user`, `auth:claim-signup-credit` and `auth:get-plan-info`
- * independently, so a single app start hit Supabase several times over for answers
- * that are identical by construction. The project's API logs showed four
- * `claim_signup_credit` calls inside the same second.
+ * `auth:get-current-user` and `auth:get-plan-info` independently, so a single app start
+ * hit Supabase several times over for answers that are identical by construction. The
+ * measurement that forced this was a *write* RPC: the project's API logs showed four
+ * `claim_signup_credit` calls inside the same second. That channel is gone with the
+ * signup trial (2026-09-08), but the reads it travelled with are still duplicated the
+ * same way, so the coalescing stays.
  *
  * Coalescing here rather than in the hook fixes it for all consumers at once without
  * touching any of them. Only calls that OVERLAP are shared — nothing is cached past
@@ -31,14 +33,6 @@ import { isStartupAuthResolved } from "@/lib/auth/startup-auth-state";
 
 const inFlight = new Map<string, Promise<unknown>>();
 
-/**
- * Remembered signup-credit result, so the one-time grant is asked for once rather than
- * on every session check. Cleared on sign-out — a different account signing in must be
- * able to claim its own credit.
- */
-let claimedSignupCredit:
-    | { ok: boolean; balanceCents: number; granted: boolean }
-    | null = null;
 
 
 function coalesce<T>(key: string, run: () => Promise<T>): Promise<T> {
@@ -107,9 +101,6 @@ export function registerAuthHandlers() {
             logger.log(
                 `[AuthHandlers] Sign out requested${params?.removeLocalData ? " (with local data removal)" : ""}`,
             );
-            // The next account to sign in must be able to claim its own signup credit.
-            claimedSignupCredit = null;
-
             try {
                 if (params?.removeLocalData) {
                     // Explicitly asked for. Never a side effect of signing out.
@@ -185,59 +176,22 @@ export function registerAuthHandlers() {
         }
     });
 
-    // Check if user can create workspace
-    ipcMain.handle("auth:can-create-workspace", async () => {
-        try {
-            const result = await SubscriptionManager.canCreateWorkspace();
-            return { success: true, ...result };
-        } catch (error) {
-            logger.error(`[AuthHandlers] Can create workspace error:`, error);
-            return {
-                success: false,
-                // A16/L-1: fail CLOSED — a thrown check must not become a free
-                // pass past the free-tier cap. The UI surfaces the reason so the
-                // user can retry once the plan check recovers.
-                allowed: false,
-                reason: "Couldn't verify your plan limit — please try again.",
-                error: error instanceof Error ? error.message : "Unknown error"
-            };
-        }
-    });
-
-    // Check workspace limit (alias for frontend use)
-    ipcMain.handle("auth:check-workspace-limit", async () => {
-        try {
-            const result = await SubscriptionManager.canCreateWorkspace();
-            return {
-                allowed: result.allowed,
-                reason: result.reason,
-                currentCount: result.currentCount,
-                maxAllowed: result.maxAllowed,
-            };
-        } catch (error) {
-            logger.error(`[AuthHandlers] Check workspace limit error:`, error);
-            // A16/L-1: fail CLOSED (was `allowed: true`).
-            return {
-                allowed: false,
-                reason: "Couldn't verify your plan limit — please try again.",
-            };
-        }
-    });
-
     /*
-     * `auth:enforce-workspace-limit` lived here until v14.27.0.
+     * THREE WORKSPACE-LIMIT CHANNELS LIVED HERE, AND ALL THREE ARE GONE.
      *
-     * It ran on sign-in and, for a Free user, DELETED every workspace but the
-     * OLDEST — cascading through chat sessions, MCP servers, daily logs, workflow
-     * templates and automations. It also needed request coalescing and a
-     * remembered result, because ~22 `useAuth` consumers each invoked it in one
-     * tick and a destructive operation was racing itself.
+     * `auth:enforce-workspace-limit` (until v14.27.0) ran on sign-in and, for a Free
+     * user, DELETED every workspace but the OLDEST — cascading through chat sessions,
+     * MCP servers, daily logs, workflow templates and automations. It needed request
+     * coalescing and a remembered result purely because ~22 `useAuth` consumers each
+     * invoked it in one tick and a destructive operation was racing itself.
      *
-     * None of that is needed once the cap is enforced where a workspace is
-     * CREATED (`ipc/utils/workspace-quota.ts`) — which is how this product
-     * already enforced its MCP and automation caps. Nothing is deleted, so
-     * nothing has to be serialised against itself, and a user already over the
-     * cap keeps what they have instead of losing all but the oldest.
+     * `auth:can-create-workspace` and `auth:check-workspace-limit` replaced it with a
+     * refusal at CREATE time, which was the right shape for a cap.
+     *
+     * On 2026-09-08 the cap itself went: the desktop app is free, every feature is on
+     * every plan, and what you pay for is Atlarix Core inference. `get-plan-info` still
+     * reports `currentWorkspaceCount` because the number is worth showing; there is
+     * simply no limit to compare it against.
      */
 
     // Get workspace limit info
@@ -248,7 +202,7 @@ export function registerAuthHandlers() {
         coalesce("get-plan-info", async () => {
         try {
             const user = SubscriptionManager.getCurrentUser();
-            const canCreate = await SubscriptionManager.canCreateWorkspace();
+            const workspaceCount = await SubscriptionManager.getWorkspaceCount();
             const workspaceDetails = await SubscriptionManager.getCurrentWorkspaceDetails();
 
             // Subscription details — TTL-cached + invalidated on realtime plan
@@ -269,9 +223,7 @@ export function registerAuthHandlers() {
                     ? SubscriptionManager.getEffectiveTier()
                     : "free",
                 isLoggedIn: SubscriptionManager.isLoggedIn(),
-                workspaceLimit: canCreate.maxAllowed,
-                currentWorkspaceCount: canCreate.currentCount,
-                canCreateWorkspace: canCreate.allowed,
+                currentWorkspaceCount: workspaceCount,
                 currentWorkspace: workspaceDetails,
                 subscriptionStatus,      // 'active' | 'cancelled' | null
                 subscriptionEndsAt,      // ISO date string or null
@@ -374,36 +326,6 @@ export function registerAuthHandlers() {
             }
         }),
     );
-
-    // PAYG: claim the one-time $1 signup trial credit (idempotent server-side).
-    //
-    // `checkSession()` fires this on EVERY session check, and every `useAuth` consumer
-    // runs its own check — so a grant that can only ever happen once was being asked
-    // for repeatedly, as a write RPC, for the entire life of the account. Once it has
-    // answered successfully in this process there is nothing left to claim, so the
-    // result is remembered and replayed. A failed attempt is NOT remembered, so a
-    // genuine claim is never lost to a transient error.
-    ipcMain.handle("auth:claim-signup-credit", async () => {
-        if (claimedSignupCredit) return claimedSignupCredit;
-        return coalesce("claim-signup-credit", async () => {
-            try {
-                const { getSupabaseClient } = await import("../../lib/auth/supabase-client");
-                const supabase = getSupabaseClient();
-                const { data, error } = await supabase.rpc("claim_signup_credit");
-                if (error) return { ok: false, error: error.message };
-                const row = data as { ok?: boolean; balance_cents?: number; granted?: boolean } | null;
-                const result = {
-                    ok: row?.ok !== false,
-                    balanceCents: Number(row?.balance_cents ?? 0),
-                    granted: row?.granted === true,
-                };
-                if (result.ok) claimedSignupCredit = result;
-                return result;
-            } catch (error) {
-                return { ok: false, error: error instanceof Error ? error.message : "Unknown error" };
-            }
-        });
-    });
 
     // Refresh plan from Supabase (call after payment)
     ipcMain.handle("auth:refresh-plan", async () => {

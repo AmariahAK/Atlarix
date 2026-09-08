@@ -1,61 +1,31 @@
 /**
- * The Free workspace cap, enforced where a workspace is CREATED.
+ * Workspace count bookkeeping.
  *
- * WHY THIS EXISTS RATHER THAN A CLEANUP PASS
- * ------------------------------------------
- * Until v14.27.0 the cap was applied retroactively: `auth:enforce-workspace-limit`
+ * THERE IS NO LONGER A WORKSPACE CAP. The desktop app went free on 2026-09-08 — every
+ * feature is on every plan, and what you pay for is Atlarix Core inference — so
+ * `assertWorkspaceQuota` and the Free limit of one workspace are gone.
+ *
+ * Worth keeping the history, because the cap was got wrong twice before it was got
+ * right. Until v14.27.0 it was enforced RETROACTIVELY: `auth:enforce-workspace-limit`
  * ran on sign-in and, for a Free user, DELETED every workspace but the oldest —
- * cascading through chat sessions, MCP servers, daily logs, workflow templates
- * and automations as it went. A plan limit was being enforced by destroying work
- * the user never agreed to lose, and it kept the OLDEST one, which is rarely the
- * one you wanted.
+ * cascading through chat sessions, MCP servers, daily logs, workflow templates and
+ * automations as it went. A plan limit enforced by destroying work the user never
+ * agreed to lose, keeping the oldest workspace, which is rarely the one you wanted.
+ * It was then replaced by a refusal at CREATE time, which was correct, and is now
+ * removed entirely because there is nothing to refuse.
  *
- * Atlarix already had a settled answer to "how do we enforce a Free cap" in two
- * other places, and it is not deletion:
- *
- *   mcp_handlers.ts       "Free tier is limited to 1 MCP server per workspace…"
- *   automations/service   "Free tier is limited to 2 automations per workspace…"
- *
- * Both refuse the CREATE and name the upgrade. This brings workspaces in line.
- *
- * Consequence, deliberate: someone already over the cap (a Pro user who
- * downgraded) keeps everything they have and simply cannot add more. The old
- * code would have deleted the excess at their next sign-in.
- *
- * NOTE this is the MAIN-side guard. `lib/open-workspace.ts` checks the same
- * limit in the renderer before offering to open a folder — that is a UX
- * affordance and does not cover the CLI open path, the duplicate path, or
- * anything that reaches the insert another way.
+ * What remains is the cache invalidation, which was never about plans.
  */
 
 import { SubscriptionManager } from "@/lib/SubscriptionManager";
-import { PlanLimitError } from "@/lib/plan-limit-error";
 
 /**
- * Throws when creating another workspace would exceed the plan's limit.
+ * Call after a successful workspace insert.
  *
- * Call this at the point a NEW row is about to be inserted — after any
- * existing-workspace lookup, so re-opening a folder you already have is never
- * blocked by a cap it does not increase.
- */
-export async function assertWorkspaceQuota(): Promise<void> {
-  const check = await SubscriptionManager.canCreateWorkspace();
-  if (!check.allowed) {
-    // PlanLimitError, not a bare Error: `sentry-before-send` drops these so an
-    // expected plan gate never lands in the error dashboard as a defect.
-    throw new PlanLimitError(
-      check.reason ??
-        `Workspace limit reached (${check.maxAllowed}). Remove one to add another.`,
-    );
-  }
-}
-
-/**
- * Call after a successful insert.
- *
- * `SubscriptionManager.getWorkspaceCount()` memoises, and the only existing
- * invalidation was on DELETE — so without this the count stays stale after a
- * create and the very next check reads a number that is one too low.
+ * `SubscriptionManager.getWorkspaceCount()` memoises, and the only other invalidation
+ * is on DELETE — so without this the count stays stale after a create and the next read
+ * is one too low. Still consumed by `auth:get-plan-info`, which reports the count for
+ * display.
  */
 export function noteWorkspaceCreated(): void {
   SubscriptionManager.clearWorkspaceCache();

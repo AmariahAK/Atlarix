@@ -334,6 +334,28 @@ describe("resolving a tier that is not in the lineup", () => {
     expect(getFirstConfiguredCoreTier()).toBe("core-2");
   });
 
+  /**
+   * The default is a PRODUCT decision, not slot order (owner, 2026-09-08): an
+   * unopinionated caller gets core-2, so a new user's first turn runs on the tier we
+   * most want them to judge us by. Before this, `CORE_TIER_ORDER` made core-1 the
+   * de-facto default for everything that did not name a tier.
+   */
+  it("prefers core-2 over core-1 when BOTH are configured", () => {
+    setCoreModelOverrides({
+      "core-1": "z-ai/glm-5.3",
+      "core-2": "openai/gpt-5.6-terra",
+      "core-3": "openai/gpt-5.6-sol",
+    });
+    expect(getFirstConfiguredCoreTier()).toBe("core-2");
+  });
+
+  it("still falls back to core-1 when core-2 is unconfigured", () => {
+    // The preference must not become a requirement — a lineup without core-2 has to
+    // keep working rather than reporting "nothing configured".
+    setCoreModelOverrides({ "core-1": "z-ai/glm-5.3", "core-3": "openai/gpt-5.6-sol" });
+    expect(getFirstConfiguredCoreTier()).toBe("core-1");
+  });
+
   it("is undefined when nothing is configured, so callers can say so plainly", () => {
     expect(getFirstConfiguredCoreTier()).toBeUndefined();
   });

@@ -206,20 +206,6 @@ export default function WelcomeLauncher() {
     );
   }
 
-  const ensureCanAddWorkspace = async (): Promise<boolean> => {
-    const ipcRenderer = window.electron?.ipcRenderer;
-    if (!ipcRenderer?.invoke) return true;
-    const limitCheck = (await ipcRenderer.invoke("auth:check-workspace-limit")) as {
-      allowed?: boolean;
-      reason?: string;
-    };
-    if (limitCheck.allowed !== false) return true;
-    const { triggerUpgrade } = await import("@/hooks/useUpgrade");
-    void triggerUpgrade();
-    showError(limitCheck.reason ?? "Free plan allows one workspace.");
-    return false;
-  };
-
   const confirmRemove = async () => {
     if (!pendingRemoval) return;
     const { id } = pendingRemoval;
@@ -291,7 +277,6 @@ export default function WelcomeLauncher() {
           data-onboarding="welcome-open-folder"
           onClick={() =>
             void (async () => {
-              if (!(await ensureCanAddWorkspace())) return;
               try {
                 await openWorkspaceFromDirectoryPicker({
                   navigate: (opts) => navigate(opts),

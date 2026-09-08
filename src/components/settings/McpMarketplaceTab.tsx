@@ -31,7 +31,6 @@ import {
 } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { IpcClient } from "@/ipc/ipc_client";
-import { useAuth } from "@/lib/auth/useAuth";
 import {
   DEFAULT_MCP_REGISTRY_URL,
   getMcpOAuthScopes,
@@ -62,10 +61,6 @@ export function McpMarketplaceTab({
   onChanged?: () => void;
 }) {
   const ipc = IpcClient.getInstance();
-  const { status } = useAuth();
-  const tier = status?.plan ?? "free";
-  const isPaid = tier === "pro";
-
   const [registry, setRegistry] = useState<McpRegistryIndex | null>(null);
   const [fetching, setFetching] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -149,7 +144,6 @@ export function McpMarketplaceTab({
     if (!registry) return [];
     const q = search.trim().toLowerCase();
     return registry.mcps.filter((m) => {
-      if (m.tier === "pro" && tier !== "pro") return false;
       if (tagFilter !== "all" && !(m.tags ?? []).includes(tagFilter)) return false;
       if (categoryFilter !== "all" && m.category?.trim() !== categoryFilter) return false;
       if (!q) return true;
@@ -158,7 +152,7 @@ export function McpMarketplaceTab({
         .toLowerCase();
       return haystack.includes(q);
     });
-  }, [registry, search, tagFilter, categoryFilter, tier]);
+  }, [registry, search, tagFilter, categoryFilter]);
 
   useEffect(() => {
     setPage(1);
@@ -251,18 +245,6 @@ export function McpMarketplaceTab({
     },
     [ipc, refreshInstalled, onChanged],
   );
-
-  if (!isPaid) {
-    return (
-      <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-6 text-sm">
-        <div className="font-medium text-foreground mb-1">Marketplace is a Pro feature</div>
-        <p className="text-muted-foreground">
-          Free accounts can add <strong>one</strong> MCP per workspace manually. One-click marketplace installs
-          require Pro. Upgrade in Settings → Pricing.
-        </p>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-4">
@@ -361,11 +343,6 @@ export function McpMarketplaceTab({
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
                       <span className="font-medium truncate">{entry.name}</span>
-                      {entry.tier === "pro" && (
-                        <span className="text-[10px] uppercase tracking-wide rounded bg-amber-500/15 text-amber-600 px-1.5 py-0.5">
-                          Pro
-                        </span>
-                      )}
                       {entry.authType === "env" && (
                         <ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" />
                       )}

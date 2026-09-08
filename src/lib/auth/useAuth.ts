@@ -24,9 +24,7 @@ export interface AuthUser {
 export interface UserStatus {
     plan: 'free' | 'pro';
     isLoggedIn: boolean;
-    workspaceLimit: number;
     currentWorkspaceCount: number;
-    canCreateWorkspace: boolean;
     /** LemonSqueezy subscription status (e.g. active, on_trial, cancelled, expired) */
     subscriptionStatus?: string | null;
     subscriptionEndsAt?: string | null; // ISO date string
@@ -257,9 +255,7 @@ export function useAuth() {
             setStatus((prev) => ({
                 plan,
                 isLoggedIn: true,
-                workspaceLimit: prev?.workspaceLimit ?? (plan === 'pro' ? Infinity : 1),
                 currentWorkspaceCount: prev?.currentWorkspaceCount ?? 0,
-                canCreateWorkspace: prev?.canCreateWorkspace ?? true,
                 subscriptionStatus: prev?.subscriptionStatus ?? null,
                 subscriptionEndsAt: prev?.subscriptionEndsAt,
             }));
@@ -328,23 +324,16 @@ export function useAuth() {
                 setStatus({
                     plan,
                     isLoggedIn: true,
-                    workspaceLimit: result.isPro ? Infinity : 1,
                     currentWorkspaceCount: 0,
-                    canCreateWorkspace: true,
                 });
-                // One-time $1 Atlarix Core trial credit (idempotent server-side —
-                // grants once per user, no-op on every subsequent sign-in).
-                void ipcRenderer.invoke('auth:claim-signup-credit').catch(() => {});
                 // Fetch full plan info (subscriptionEndsAt, etc.) for billing UI
-                type PlanResult = { success?: boolean; plan?: string; workspaceLimit?: number; currentWorkspaceCount?: number; canCreateWorkspace?: boolean; subscriptionStatus?: string | null; subscriptionEndsAt?: string | null; isLoggedIn?: boolean };
+                type PlanResult = { success?: boolean; plan?: string; currentWorkspaceCount?: number; subscriptionStatus?: string | null; subscriptionEndsAt?: string | null; isLoggedIn?: boolean };
                 const planResult = (await ipcRenderer.invoke('auth:get-plan-info')) as PlanResult | undefined;
                 if (planResult?.success) {
                     setStatus((prev) => prev ? {
                         ...prev,
                         plan: (planResult.plan ?? prev.plan) as UserStatus['plan'],
-                        workspaceLimit: planResult.workspaceLimit ?? prev.workspaceLimit,
                         currentWorkspaceCount: planResult.currentWorkspaceCount ?? prev.currentWorkspaceCount,
-                        canCreateWorkspace: planResult.canCreateWorkspace ?? prev.canCreateWorkspace,
                         subscriptionStatus: planResult.subscriptionStatus ?? prev.subscriptionStatus ?? null,
                         subscriptionEndsAt: planResult.subscriptionEndsAt ?? prev.subscriptionEndsAt,
                     } : prev);
@@ -367,16 +356,14 @@ export function useAuth() {
             const ipcRenderer = window.electron?.ipcRenderer;
             if (!ipcRenderer?.invoke) return;
 
-            type PlanResult = { success?: boolean; plan?: string; workspaceLimit?: number; currentWorkspaceCount?: number; canCreateWorkspace?: boolean; subscriptionStatus?: string | null; subscriptionEndsAt?: string | null; isLoggedIn?: boolean };
+            type PlanResult = { success?: boolean; plan?: string; currentWorkspaceCount?: number; subscriptionStatus?: string | null; subscriptionEndsAt?: string | null; isLoggedIn?: boolean };
             const result = (await ipcRenderer.invoke('auth:get-plan-info')) as PlanResult | undefined;
 
             if (result?.success) {
                 setStatus({
                     plan: (result.plan ?? 'free') as UserStatus['plan'],
                     isLoggedIn: result.isLoggedIn ?? true,
-                    workspaceLimit: result.workspaceLimit ?? 1,
                     currentWorkspaceCount: result.currentWorkspaceCount ?? 0,
-                    canCreateWorkspace: result.canCreateWorkspace ?? true,
                     subscriptionStatus: result.subscriptionStatus ?? null,
                     subscriptionEndsAt: result.subscriptionEndsAt ?? null,
                 });

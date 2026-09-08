@@ -15,7 +15,7 @@
 
 import { ToolRegistry } from "./registry";
 import { SubscriptionManager } from "@/lib/SubscriptionManager";
-import { capRemedy, describePlanCap, planCapClause } from "@/lib/plan-caps";
+import { describeWorkspaceCap, workspaceCapClause } from "@/lib/workspace-caps";
 import { wrapUntrustedData } from "../streaming/untrusted-data";
 import { db } from "../../db";
 import { mcpServers } from "../../db/schema";
@@ -149,19 +149,14 @@ ToolRegistry.register({
   allowInAskMode: true,
   description:
     "List MCP (Model Context Protocol) servers configured for this session: global servers plus, when in a workspace, that workspace's own MCP servers. Returns server names, transports, and the tool names each server exposes. Call this BEFORE invoking any MCP tool via mcp_call. " +
-    planCapClause("mcp"),
+    workspaceCapClause("mcp"),
   parameters: { type: "object", properties: {} },
   handler: async (args: { workspaceId?: number }) => {
     try {
       const servers = await listConfiguredMcps(args.workspaceId ?? null);
-      // The cap the USER is subject to, reported rather than only enforced —
-      // the agent has no other way to learn the tier, so "you can't add another"
-      // would otherwise look like a fault instead of a plan limit.
-      const limits = describePlanCap(
-        "mcp",
-        SubscriptionManager.isPro(),
-        servers.length,
-      );
+      // Reported rather than only enforced: "you can't add another" would otherwise
+      // look like a fault instead of a full workspace.
+      const limits = describeWorkspaceCap("mcp", servers.length);
       if (servers.length === 0) {
         return {
           servers: [],
@@ -177,7 +172,7 @@ ToolRegistry.register({
           "Call mcp_call({ server: '<server name>', tool: '<tool name>', arguments: {...} }) to invoke a tool. Each invocation requires user consent on first use." +
           (limits.canAddMore
             ? ""
-            : ` The user is at the ${limits.tier} limit of ${limits.max} MCP server(s) — a plan limit, not a workspace fix. ${capRemedy("mcp", limits.tier === "pro")}`),
+            : ` The workspace is at its limit of ${limits.max} MCP server(s). Remove one to add another — this is not a plan limit and there is no tier that raises it.`),
       };
     } catch (err) {
       return { error: err instanceof Error ? err.message : String(err) };

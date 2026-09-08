@@ -11,11 +11,8 @@ import { getAuthedUser, json, corsHeaders } from "../_shared/auth.ts";
 //                             (LEMONSQUEEZY_CREDIT_VARIANT_ID) with a per-checkout
 //                             custom_price = the app-chosen amount (>= $10). One
 //                             product covers every top-up amount.
-//   reviewer               -> Atlarix Reviewer monthly (LEMONSQUEEZY_REVIEWER_VARIANT_ID).
-//                             A SEPARATE product from Pro, not an upgrade of it: the
-//                             two are independent subscriptions on one account and one
-//                             wallet, so `kind` has to reach the webhook intact or a
-//                             Reviewer payment gets entitled as Pro.
+// (A third mode, `reviewer`, existed until 2026-09-08. Atlarix Reviewer no longer has its
+//  own subscription — Pro entitles it — so there is nothing separate to buy.)
 //
 // NOTE for callers: this is a THREE-value enum now, but the parse below still
 // defaults anything unrecognised to "subscription". That is deliberate — an older
@@ -48,14 +45,11 @@ const DEFAULT_RETURN_ORIGIN = "https://www.atlarix.dev";
  * configured in LemonSqueezy. We only override the checkouts we created and
  * therefore know how to follow up on.
  *
- * The reviewer goes to /reviewer/setup rather than /account deliberately: paying
- * is not the last step for that product, installing the App on a repository is,
- * and a page can detect whether that already happened, list what is connected,
- * and be revisited from the receipt email. A modal can do none of those.
+ * Note /reviewer/setup is still the page that binds a GitHub installation to an account —
+ * it is simply no longer reached from a checkout, because there is no Reviewer checkout.
  */
 function returnUrlFor(mode: string): string {
   const origin = (envTrim("ACCOUNT_RETURN_ORIGIN") ?? DEFAULT_RETURN_ORIGIN).replace(/\/+$/, "");
-  if (mode === "reviewer") return `${origin}/reviewer/setup?purchase=reviewer`;
   if (mode === "credit") return `${origin}/account?purchase=credit`;
   return `${origin}/account?purchase=pro`;
 }
@@ -72,7 +66,7 @@ Deno.serve(async (req) => {
   let amountCents = 0;
   try {
     const body = await req.json();
-    if (body?.mode === "credit" || body?.mode === "reviewer") mode = body.mode;
+    if (body?.mode === "credit") mode = body.mode;
     if (typeof body?.amount_cents === "number") amountCents = Math.floor(body.amount_cents);
   } catch {
     // default to subscription
@@ -100,9 +94,8 @@ Deno.serve(async (req) => {
       // where checkout opens in an external tab the app never sees.
       redirect_url: returnUrl,
       // The same destination on the emailed receipt — a second route back for
-      // anyone who closed the tab before the redirect landed. For the reviewer
-      // that email is the only remaining prompt to finish installing the App.
-      receipt_button_text: mode === "reviewer" ? "Finish setup" : "Go to your account",
+      // anyone who closed the tab before the redirect landed.
+      receipt_button_text: "Go to your account",
       receipt_link_url: returnUrl,
     },
   };
@@ -115,13 +108,10 @@ Deno.serve(async (req) => {
       return json({ error: "amount_below_minimum", min_cents: MIN_TOPUP_CENTS }, 400);
     }
     // Per-checkout price override — one credit product, app-chosen amount.
-    // NOT set for either subscription mode: a subscription's price is the
-    // product's price, and overriding it per checkout would let the caller
-    // choose what to pay every month.
+    // NOT set for the subscription mode: a subscription's price is the product's
+    // price, and overriding it per checkout would let the caller choose what to
+    // pay every month.
     attributes.custom_price = amountCents;
-  } else if (mode === "reviewer") {
-    variantId = envTrim("LEMONSQUEEZY_REVIEWER_VARIANT_ID") ?? null;
-    if (!variantId) return json({ error: "checkout_not_configured_for_reviewer" }, 500);
   } else {
     variantId = proVariantId();
     if (!variantId) return json({ error: "checkout_not_configured_for_pro" }, 500);

@@ -22,14 +22,6 @@ const DEFAULT_REGISTRY_URL =
 
 export const SKILLS_WORKSPACE_MAX = 10;
 
-function requirePaidSkills(): void {
-  // Mirror MCP: Pro OR Workforce unlocks paid features.
-  const isPro = SubscriptionManager.isPro();
-  if (!isPro) {
-    throw new Error("Skills are available on Pro. Upgrade to use Skills.");
-  }
-}
-
 export type SkillManifestFile = { name: string; url: string };
 
 export type SkillManifestEntry = {
@@ -150,7 +142,6 @@ function filterSkillsByWorkspacePath<
 
 export function registerSkillsHandlers() {
   handle("skills:fetch-registry", async (_event: IpcMainInvokeEvent, registryUrl?: string) => {
-    requirePaidSkills();
     const url = registryUrl?.trim() || DEFAULT_REGISTRY_URL;
     return (await fetchJsonWithTimeout(url)) as SkillRegistryIndex;
   });
@@ -161,7 +152,6 @@ export function registerSkillsHandlers() {
       _event: IpcMainInvokeEvent,
       params?: { scope?: "workspace"; workspacePath?: string },
     ) => {
-      requirePaidSkills();
       const wsPath = params?.workspacePath?.trim();
       if (!wsPath) {
         return [];
@@ -183,7 +173,6 @@ export function registerSkillsHandlers() {
   );
 
   handle("skills:list-orphaned", async () => {
-    requirePaidSkills();
     const appRows = await db.select({ path: apps.path }).from(apps);
     const paths = new Set(appRows.map((r) => r.path).filter((p) => !!p?.trim()));
     const workspaceRows = await db
@@ -202,7 +191,6 @@ export function registerSkillsHandlers() {
   });
 
   handle("skills:install", async (_event: IpcMainInvokeEvent, params: InstallSkillParams) => {
-    requirePaidSkills();
     assertValidInstallParams(params);
     const { skill } = params;
     const workspacePath = normalizeSkillWorkspacePath(params.workspacePath?.trim() ?? "");
@@ -282,7 +270,6 @@ export function registerSkillsHandlers() {
   });
 
   handle("skills:uninstall", async (_event: IpcMainInvokeEvent, params: UninstallSkillParams) => {
-    requirePaidSkills();
     const skillId = params?.skillId?.trim();
     if (!skillId) throw new Error("skillId is required");
     // Skills are workspace-scoped only (global was retired by migration 0049),
