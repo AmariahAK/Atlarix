@@ -72,6 +72,79 @@ const DEEP_FETCH_TOTAL = 100_000;
  * READ_URL_MAX_CAP, which is the ceiling a user can ask for on a single
  * `read_url` — one page arriving through search should not out-read that.
  */
+/**
+ * TOTAL model-facing characters for the assembled `Detailed Content Analysis`.
+ *
+ * `web_search` is in `SELF_PAGINATED_TOOLS`, so the registry's head+tail envelope
+ * no longer runs on it — which means this number is now the ONLY thing standing
+ * between a 100 KB fetch and the model's context. It is set just under the
+ * ~6,000-token envelope it is exempt from, so exempting the tool bought FAIRNESS,
+ * not a bigger allowance.
+ *
+ * WHY IT HAD TO BE THE TOOL'S JOB. The envelope kept head 1,500 + tail 500 tokens
+ * of the whole assembled document. For one command's stdout that is right — you
+ * want the start and the error at the end. For five concatenated web pages it kept
+ * page 1 and discarded pages 2-5 entirely: measured 6.1% retained, four sources
+ * fetched and thrown away unread, under a header claiming "analyzed 5 pages in
+ * depth". Only the tool knows its result is N independent documents.
+ */
+const SEARCH_OUTPUT_TOTAL_CHARS = 24_000;
+
+type FetchedPage = { title: string; url: string; content: string; source?: string };
+
+/**
+ * Render fetched pages into a bounded section that keeps SOMETHING from every page
+ * and says truthfully what it kept.
+ *
+ * The three signalling channels are copied deliberately from `read_file`
+ * (`src/lib/tools/file.ts`), the tool in this repo that already got this right:
+ *   1. a header on EVERY page stating position in the whole ("chars 1-N of M"),
+ *      with "(complete)" as a distinct literal when nothing was cut;
+ *   2. an EMPTY footer when nothing remains — absence is the terminal signal;
+ *   3. a footer naming the EXACT next call, never a vague "narrow it".
+ *
+ * Here the next call is `read_url` on the page's own URL, which is nearly free:
+ * `fetchUrlContentCached` shares one cache with this path (the User-Agent is
+ * deliberately kept out of the key) with a 15-minute TTL, so the follow-up is a
+ * warm hit rather than a second fetch.
+ */
+export function renderFetchedPages(pages: FetchedPage[]): {
+    text: string;
+    fullyIncluded: number;
+} {
+    if (pages.length === 0) return { text: "", fullyIncluded: 0 };
+
+    // Chrome (heading, url line, footers) is charged AGAINST the budget rather than
+    // added on top, so the total is a real ceiling and not an estimate.
+    const CHROME_PER_PAGE = 220;
+    const perPage = Math.max(
+        500,
+        Math.floor(SEARCH_OUTPUT_TOTAL_CHARS / pages.length) - CHROME_PER_PAGE,
+    );
+
+    let out = "";
+    let fullyIncluded = 0;
+    pages.forEach((page, idx) => {
+        const total = page.content.length;
+        const kept = Math.min(total, perPage);
+        const complete = kept >= total;
+        if (complete) fullyIncluded++;
+
+        out += `### ${idx + 1}. ${page.title}\n`;
+        out += `📍 ${page.source ? `[${page.source}] ` : ""}${page.url}\n`;
+        out += complete
+            ? `chars 1-${total} of ${total} (complete)\n\n`
+            : `chars 1-${kept} of ${total}\n\n`;
+        out += page.content.slice(0, kept);
+        // Empty when complete — that absence is how the model knows it has all of it.
+        out += complete
+            ? `\n\n---\n\n`
+            : `\n\n(truncated — ${total - kept} more chars; call read_url with url="${page.url}" for the full page)\n\n---\n\n`;
+    });
+
+    return { text: out, fullyIncluded };
+}
+
 export function deepFetchBudget(pageCount: number): number {
     if (pageCount <= 0) return DEEP_FETCH_MAX;
     const share = Math.floor(DEEP_FETCH_TOTAL / pageCount);
@@ -854,10 +927,16 @@ ToolRegistry.register({
                 .map(r => (r as PromiseFulfilledResult<any>).value);
 
             // Build response
+            const rendered = renderFetchedPages(validFetched);
             let response = `# 🔍 ${searchMode.toUpperCase()} Search: "${query}"\n\n`;
+            // Same honesty rule as runDeepSearch: describe what is here, not what
+            // was fetched. This branch had the identical defect.
             response += `_Searched ${searchResults.sources.length} sources`;
             if (validFetched.length > 0) {
-                response += `, analyzed ${validFetched.length} pages in depth`;
+                response += `; ${validFetched.length} page(s) read`;
+                response += rendered.fullyIncluded === validFetched.length
+                    ? `, all included in full`
+                    : `, ${rendered.fullyIncluded} in full and ${validFetched.length - rendered.fullyIncluded} excerpted (read_url for the rest)`;
             }
             response += `_\n\n`;
 
@@ -866,12 +945,7 @@ ToolRegistry.register({
 
             // Detailed analysis for deep/comprehensive
             if (validFetched.length > 0) {
-                response += `## Detailed Content Analysis\n\n`;
-                validFetched.forEach((page, idx) => {
-                    response += `### ${idx + 1}. ${page.title}\n`;
-                    response += `📍 [${page.source}] ${page.url}\n\n`;
-                    response += `${page.content}\n\n---\n\n`;
-                });
+                response += `## Detailed Content Analysis\n\n${rendered.text}`;
             }
 
             // For comprehensive mode, add cross-references
@@ -972,16 +1046,21 @@ async function runDeepSearch(
         .filter((r) => r.status === "fulfilled" && r.value !== null)
         .map((r) => (r as PromiseFulfilledResult<any>).value);
 
+    const rendered = renderFetchedPages(validFetched);
     let response = `# Deep Search Results for: "${query}"\n\n`;
-    response += `_Searched ${searchResults.sources.length} sources, analyzed ${validFetched.length} pages in depth_\n\n`;
+    // The header states what the model ACTUALLY RECEIVES. It used to claim
+    // "analyzed N pages in depth" while the envelope was delivering one of them —
+    // a producer claiming a complete retained output after discarding bytes.
+    response += `_Searched ${searchResults.sources.length} sources; ${validFetched.length} page(s) read`;
+    if (validFetched.length > 0) {
+        response += rendered.fullyIncluded === validFetched.length
+            ? `, all included in full`
+            : `, ${rendered.fullyIncluded} in full and ${validFetched.length - rendered.fullyIncluded} excerpted (read_url for the rest)`;
+    }
+    response += `_\n\n`;
     response += `## Quick Overview\n${searchResults.formattedText}\n\n`;
     if (validFetched.length > 0) {
-        response += `## Detailed Content Analysis\n\n`;
-        validFetched.forEach((page, idx) => {
-            response += `### ${idx + 1}. ${page.title}\n`;
-            response += `📍 ${page.url}\n\n`;
-            response += `${page.content}\n\n---\n\n`;
-        });
+        response += `## Detailed Content Analysis\n\n${rendered.text}`;
     }
 
     return {
