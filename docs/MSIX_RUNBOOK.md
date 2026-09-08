@@ -318,7 +318,13 @@ All items shipped:
 - **Lemon Squeezy / IAP note** — approved.
 - **Certification passed** — Microsoft re-signs with a trusted certificate.
 - **Release automation** — `release.yml` calls `msix.yml` on every `v*` tag.
-  Non-gating (absent from `publish-release`'s `needs`).
+  **GATING as of 2026-08-28** — `build-msix` IS in `publish-release`'s `needs`
+  (`release.yml:913`). This line previously said the opposite, and that belief is
+  exactly what shipped v14.38.3 desktop-only when MSIX failed on an npm race and
+  nothing was gated on it. If the MSIX BUILD fails, `publish-release` never runs
+  and the draft stays invisible with all its assets attached — recover with a job
+  re-run, not a new tag. Store SUBMISSION failing blocks nothing
+  (`continue-on-error: true`).
 - **Automated Store submission** — `scripts/store-submit.mjs` uses the Partner
   Center Submission API v1 (Azure AD client credentials). Triggered on release
   tags, `continue-on-error: true`. Requires three GitHub secrets:

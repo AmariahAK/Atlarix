@@ -3,6 +3,54 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.43.0] (2026-09-08) — It speaks your language
+
+**Atlarix answers in your language.** Thirteen of them — English, 简体中文, Français,
+Deutsch, हिन्दी, Italiano, 日本語, 한국어, Polski, Português (Brasil), Русский, Español,
+Türkçe — picked in Settings → General → Language, or left to follow your system.
+Code, file paths, shell commands and identifiers stay in their original language,
+because translating those produces code that does not run. English installs pay
+nothing for this: the instruction is only sent when you are not on English.
+
+**Session names and attachment filenames survive your alphabet.** Both were
+cleaned with a rule that only understood A–Z, so everything else was replaced with
+spaces or underscores. A Russian conversation was named "gitignore" — the one Latin
+word in the title — and a Chinese one lost its name entirely; a file called
+отчёт.pdf became `_____.pdf` in the attachment chip. German and Turkish were
+mangled from the inside, which is worse, because "F ge gitignore hinzu" still looks
+like a title. Every script we ship is now kept intact, combining marks included, so
+Hindi is no longer taken apart syllable by syllable.
+
+**Reopening a workspace lands on a fresh chat, and the chat you are in is
+clickable.** It used to resume the most recently touched session — which, because
+reopening reuses an existing empty one rather than piling up new ones, could be
+days old and sit third in the list. Worse, clicking the row you were already in did
+nothing at all, so the top session looked broken until you clicked a different one
+and came back.
+
+**Deep web search stops throwing away most of what it fetched.** It read up to five
+pages and delivered one. The other four were fetched, waited for, and discarded
+unread — while the result announced that it had "analyzed 5 pages in depth". The
+model could see the truncation and worked around it by searching again, which is
+why answers sometimes took several searches to arrive. Every page now contributes,
+each says how much of it you are seeing, and the agent can pull any of them in full
+with one follow-up read.
+
+**Settings and Integrations lost their duplicate menu.** Both pages had a sidebar
+list and a row of tabs saying almost the same thing. The tabs remain; the sidebar
+is gone, and nothing became unreachable — the two lists were identical.
+
+**Unsent text is no longer lost.** A message you typed but did not send survives
+switching sessions and quitting the app, and it belongs to the conversation you
+typed it in rather than following you around.
+
+**The new-window button and the clock moved to the left rail**, so they are
+reachable from every screen instead of only from Home.
+
+**A setting changed in one window now reaches every window.** Each window used to
+load settings once and never hear about later changes, which is why zoom could
+differ between two windows of the same app until one was reloaded.
+
 ## [14.42.0] (2026-09-03) — Talk to it while it is working
 
 **A message you type mid-turn now reaches the turn that is running.** It used to be
