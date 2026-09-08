@@ -411,3 +411,34 @@ s3_secret_key = "env(S3_SECRET_KEY)"
 # declarative_schema_path = "./database"
 # JSON string passed through to pg-delta SQL formatting.
 # format_options = "{\"keywordCase\":\"upper\",\"indent\":2,\"maxWidth\":80,\"commaStyle\":\"trailing\"}"
+
+# ---------------------------------------------------------------------------
+# Edge function JWT verification, DECLARED rather than left to the dashboard.
+# ---------------------------------------------------------------------------
+# This section did not exist until 2026-09-08, and its absence was a live hazard:
+# with nothing declared, `verify_jwt` lived ONLY in the dashboard, so any
+# `supabase functions deploy` could re-enable it on the webhook and silently break
+# every LemonSqueezy delivery — payments would stop crediting with nothing failing
+# loudly anywhere.
+#
+# LemonSqueezy sends no Supabase auth token; the webhook authenticates the delivery
+# by verifying the HMAC signature itself, which is why JWT verification must be OFF
+# for it and ON for everything a signed-in user calls.
+[functions.handle-lemon-webhook]
+verify_jwt = false
+
+# Called from the app and the site by a signed-in user, so the JWT is the identity
+# these rely on — `create-checkout` embeds the trusted user id in the checkout, and
+# `cancel-subscription` resolves the subscription from the verified user id. Turning
+# verification off here would let anyone cancel or bill anyone.
+[functions.create-checkout]
+verify_jwt = true
+
+[functions.cancel-subscription]
+verify_jwt = true
+
+[functions.bind-github-install]
+verify_jwt = true
+
+[functions.send-email]
+verify_jwt = true

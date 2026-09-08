@@ -485,6 +485,117 @@ round.
 customer code through it contradicts "The Private AI Workstation" and the README's promise
 that Core requests are not logged or retained.
 
+## 🔌 Core reliability + billing — found 2026-09-08 while diagnosing one dead turn
+
+One `read ECONNRESET` in the packaged app produced *"We're currently having trouble
+reaching Atlarix Core"*. The reset itself is transient and rare — **1 in 48 Core requests**
+in that log, 0 in the previous one. Everything below is what the investigation found
+AROUND it, and three of the four are real defects that the blip merely exposed.
+
+**Do not re-diagnose the reset as a timeout.** It is not one, and the first pass got this
+wrong. The failing request was issued at `23:15:21.151` — the instant a `run_command` tool
+finished — and died at `23:15:21.425`: **274 ms**. The `23:14:51` line that makes it look
+like 30.3 seconds is the start of the USER'S TURN, not that request's. The op id
+(`op_1788898517694`) decodes to 23:15:17 and dates the tool independently. Anchor on the
+step, never on the turn.
+
+Ruled out, each with evidence, so none of it needs repeating:
+- **Not the proxy.** Container up since 23:11:41, 10-minute config refreshes unbroken, no
+  crash — and it settled that very generation normally at 23:15:26.
+- **Not the Responses translation, not large contexts, not a slow first byte.** A replay of
+  the failing shape (120k-token tool-loop request) returned headers in 2.6s and finished
+  clean at 8.6s. Two 384-second `effort: max` streams — one direct to OpenAI, one through
+  the proxy — both completed cleanly, keepalives holding the max inter-chunk gap at 15.1s.
+- The stack is `handleFetchError → postToApi → postJsonToApi → doStream → streamStep`:
+  the request phase, before any response header, on **step 2 of the agent loop**.
+
+- [ ] **A network reset kills the whole turn, because the retry that exists cannot fire.**
+  This is the one worth fixing; the reset is weather, this is a bug. Three things line up:
+  1. `simple-stream-text.ts:528` sets `maxRetries: 0` whenever tools are present — which
+     for Atlarix is always. **Deliberate, do not just raise it:** the comment in
+     `network-retry.ts` says it exists so the SDK's backoff does not multiply with ours.
+  2. Our own retry SHOULD have covered it. `handleFetchError` builds an `APICallError` with
+     `isRetryable: true`, `isNetworkStreamError` honours that verdict, and
+     `round-retry.ts:270` would have retried at 2s/5s/10s.
+  3. **It never ran.** `streamText`'s `onError` (`simple-stream-text.ts:~960`) consumes the
+     error, sends `chat:response:error` to the renderer — the toast — and does not rethrow.
+     The SDK also emits the failure as a top-level `error` part on the stream, and
+     `processStreamChunks` handles only `tool-error` (`stream_chunk_tags.ts:320`), never a
+     bare `error` part. So the stream ends "cleanly" with no output, no exception reaches
+     round-retry's catch, and the turn dies.
+
+  The log is the proof of (3): there is **no** `[stream] Network error on attempt 1/3` line.
+  Fix shape: have `onError` classify with `isNetworkStreamError` and, when true, record it
+  and let the round-retry catch handle it, instead of emitting `chat:response:error`
+  immediately. Small change, and it activates machinery that already exists and is already
+  tested (`network-retry-socket-faults.test.ts`, `retry-jitter.test.ts`).
+
+  **The test that pins it must drive a request-phase failure, not a mid-stream one.** A
+  mid-stream fault already retries today; that is exactly why this hole survived.
+
+- [ ] **The proxy bills output the client never received.** The proxy completed and settled
+  that generation (`tokens=42110 cents=5`) five seconds AFTER the app had given up. The
+  client's socket was gone; the proxy never noticed, because Railway's edge keeps reading
+  from us. Decide what is right here — most likely: nothing, since we genuinely paid
+  OpenAI for those tokens — but it should be a decision on the record rather than an
+  accident. Pairs with the item below.
+
+- [ ] **A client abort charges the FULL reserve, which can exceed the true cost.** Measured,
+  not inferred: the same request cost **45c** completed and **58c** aborted —
+  `stream ended early (client-aborted)` → `NO PRICE for openai/gpt-5.6-terra (tokens=?,
+  computed=null) — charging 58c (reserve was 58c)`. The cause is structural: the usage
+  frame only arrives in the final event, so an early disconnect has no token count to price
+  from. Conservative-by-design, and defensible — but it overcharges the user on exactly the
+  failure they did not cause, and a flaky connection makes it repeatable. Options: meter
+  the deltas seen so far, or refund the difference on the next successful settle.
+
+- [ ] **Launchpad: a stopped login must not force a page refresh.** When the login is
+  interrupted or cancelled, the page is left in a state the user can only escape by
+  reloading. It should return to a usable signed-out form on its own. Separate from — and
+  do not confuse with — the unreproduced login failure below.
+
+## 🧾 `/v1/responses` — SHIPPED 2026-09-08, five things it deliberately left open
+
+The plan (teach the proxy OpenAI's Responses dialect so the GPT tiers can reason with tools)
+landed in full: `be76d24` + `afccf1e` in atlarix-proxy, `cc15d3b` in atlarix-releases.
+294 proxy tests green, and the design's central claim VERIFIED by diff —
+`usage.ts`, `cost.ts` and `server.ts` are untouched by the Responses commits, so the money
+path never learned a second dialect. Live multi-turn tool loop confirmed on core-2.
+
+What it did NOT do, in the order the plan itself ranked them:
+
+- [ ] **The rollback was never rehearsed — the plan required it and the session skipped it.**
+  *"An untested rollback is not a rollback — the OpenRouter fallback that silently expired
+  is the lesson."* Flip `providers.openai.protocol` back to `"openai"` in
+  `atlarix-releases/core-models.json`, confirm the tier returns to `/chat/completions` on
+  the next refresh with no deploy, then flip it forward again. Ten minutes, and until it is
+  done the "rollback is a config commit" claim is a belief, not a fact. **Do this first.**
+
+- [ ] **The payoff is still unmeasured — the whole point may not be worth its price.**
+  Terra is $2.00/$12.00 per M against GLM 5.3's $1.40/$4.40. Reasoning is now unlocked, but
+  nobody has shown reasoning-Terra beats GLM 5.3 by enough to justify ~2.7× the output rate.
+  Run it on `tests/agent-evals`. If it loses, core-2 should go back to something cheaper and
+  the Responses path simply sits there costing nothing — it is config-selected.
+
+- [ ] **`xhigh` and `max` effort are reachable now and the app still cannot ask for them.**
+  The probe got the supported set verbatim from the API's own error:
+  `'none', 'low', 'medium', 'high', 'xhigh', and 'max'` — only `minimal` is rejected.
+  `thinking_utils.ts:85` clamps the client to `medium`/`high`, so two levels we are already
+  paying to have access to are unreachable. Cheap win; check the prompt-budget and cost
+  implications before exposing `max` as a default anything.
+
+- [ ] **`pick-core-model.mjs --check` is still not wired into CI.** It exists and it works;
+  nothing runs it. A `core-models.json` edit that names a model the checker would reject
+  therefore ships live-on-merge to every installed app with no gate in front of it. That is
+  the same shape as the trap the checker was written to prevent.
+
+- [ ] **Launchpad login — never reproduced, one unverified cause left.** Credentials,
+  providers and redirect URLs were all checked and are correct. The one thing not
+  verifiable from here is whether Vercel has `VITE_SUPABASE_URL` and
+  `VITE_SUPABASE_PUBLISHABLE_KEY` set for the deployed environment. Check that before
+  spending any time on the code — and note this is a DIFFERENT item from the
+  stopped-login-needs-a-refresh bug above.
+
 ## 🔜 Next session — the queue
 
 *(Unordered. It read "in order" while numbered 1, OPEN, 0, 1b, 3 with no 2 —
