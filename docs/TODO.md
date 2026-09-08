@@ -8,75 +8,73 @@ chain behind it — the queued flush pre-empting a question card, a stop latch a
 clear (five sub-agent wakes refused), a sub-agent card frozen mid-count — and the user bubble's
 glare.
 
-**Owed for v14.42.0:**
-- **The mid-turn path is UNVERIFIED in a packaged build.** Type mid-stream, confirm the row
-  appears in front of the streaming text and the assistant KEEPS streaming underneath it, then the
-  question flow end to end (type → it asks → answer → the queued message is delivered, and the
-  next sub-agent wake is admitted). The owner chose to ship on the suite; this is the watch item.
-- **One provider question no test can answer:** whether every Core provider tolerates two
-  consecutive untagged user messages mid-round without merging them. Check a recorded request body
-  against a Core model. If one merges, fall back to a single combined untagged message.
+**Self-test non-exit — a third data point (2026-09-05).** The packaged self-test on
+macOS arm64 shows the same "all probes passed, process tree had to be killed" as the
+Windows runs. Two consecutive runs of the SAME build differed only in outcome: one
+FAILED → exited 1 on its own; one PASSED → did not exit. **It happens on the PASSING
+path**, and nothing was left running afterwards. Next step is the grandchild
+experiment recorded in `scripts/run-packaged-self-test.mjs`'s `DEADLINE_MS` docblock,
+now runnable on macOS where a debugger is available.
 
-**Carried from v14.41.0, still not done:**
-- **`mobile_inspect` / `mobile` are UNVERIFIED against a real device** (no `adb` on this machine).
-  Do not claim mobile works off a green suite.
-- **Walk the v14.41.0 DELETIONS by presence, not just absence:** GitHub SIGN-IN to the Atlarix
-  account still works (the one thing that must not break); the welcome screen still routes to a
-  first workspace now that Clone repo is gone; an existing cron/MCP automation still fires.
-- **Drive a page end to end through the consolidated `browser` tool** (navigate → find → click →
-  read) and confirm the activity row reads properly rather than "Runned browser".
-- **The `[prompt-cache]` measurement.** One long packaged session on a Core model, recording
-  `write=` on turn 1 and `read=` on turns 2..n. Information for the next cycle, not a gate.
+## Queued 2026-09-06 (owner) — UX + product
 
-**Owner actions:** delete the `OAUTH_CLIENT_ID` repository secret (nothing reads it any more —
-`src/lib/auth/README.md` records why there is no second GitHub credential).
+**Five of six SHIPPED 2026-09-07.** Kept as a one-line record each, because the next
+reader's question is "was this done?" and an item that has to be re-investigated to
+answer that costs more than the line.
 
-**Previous:** v14.41.0 — released 2026-09-02 (its header sat on "STAGED, not released" until this
-cut; it published 15:24Z that day). The context meter counted the system prompt and nothing else,
-so ~10,000 tokens of tool descriptions and schemas were billed every turn and measured by nothing;
-six browser tools became two; per-project settings moved off the global Settings page; and Atlarix
-can read and drive a mobile emulator screen. Measured prefix, per mode: Explore 11,539 → 10,404;
-Plan 10,891 → 9,839; Build 15,329 → 14,605; Review 11,199 → 10,055; Debug 14,738 → 14,014.
+- [x] **Deep-search truncation** — `657ba43c`. Both halves measured first, as this item
+  demanded: synthesis drops NOTHING (it concatenates fetched content verbatim), and 20K
+  was genuinely too small (every page sampled ran 25K–75K chars). Fixed by ALLOCATING a
+  total across the URLs actually fetched (`deepFetchBudget`) rather than raising the flat
+  cap, so five results are unchanged and one or two get the whole budget.
+- [x] **Unsent draft survives a quit** — `856ff33e`. Keyed by SESSION UUID, which
+  sidesteps the ephemeral-numeric/persisted-UUID migration this item warned about rather
+  than implementing it. Residual, deliberate: a draft typed in the few milliseconds
+  before a session has a UUID is not persisted.
+- [x] **Settings/Integrations sub-nav dropped** — `e7884f4b`. The item's premise was
+  wrong: the sidebar carried NO destination the tab row lacked (8 == 8, 5 == 5). The
+  real work was that removing the mounts left an empty 240px hover flyout.
+- [x] **New-window button + clock moved to the rail** — `0b5d7257`. Two corrections: they
+  were never in the chat header (they were in the AppList group header), and the clock is
+  NOT a history button — `LocalDateTimeClock` has no onClick. **If a session-history
+  button is wanted, that is a new feature, not a move.**
+- [x] **Session ordering on reopen** — `6c5dcf3e`. Two faults: reopen resumed the newest
+  session, AND the row handler no-opped on the already-active row, so the top row was
+  inert from anywhere in the app.
 
-**Previous:** v14.40.0 (2026-09-01) — a dropped connection no longer ends the run.
-v14.39.2 · v14.39.1 · v14.39.0 (all 2026-09-01) — one compaction system where there had been
-three, the marker as a real column, and `session_search` to read behind the boundary.
-
-**Previous:** v14.38.4 (2026-08-29) — the auth-plumbing release: sign-in fixed
-(the redirect had one slash too many and stopped matching Supabase's allow-list), sign-out and
-sign-in now reach every window, Docker builds run under the sandbox, a denied write offers a grant
-even when the command hides its own failure, edits stop rendering as "Create · new file", and the
-prompt finally states the workspace root.
-
-**Previous:** v14.38.3 (2026-08-28) — Core 1 → GLM 5.3 and the dead realtime scaffolding. 12 assets,
-MSIX submitted to the Store and now REQUIRED by `publish-release`.
-
-**Previous:** v14.38.2 (2026-08-27) · v14.38.0 (2026-08-27) · v14.37.0 (2026-08-24) ·
-v14.36.0 (2026-08-22) ·
-v14.35.0 (2026-08-20). Full narrative for every one of them is in
-[`CHANGELOG.md`](./CHANGELOG.md).
-
-**Last updated:** 2026-09-01
-
-**Trap worth keeping:** an `## [Unreleased]` changelog heading ships **empty** release notes —
-`scripts/ci/extract-changelog.sh` matches `^## \[?v?<version>\]?`, so it finds nothing. Rename the
-heading to the real version before tagging. (Done for 14.39.3.)
-
-> **What belongs here:** open work, decisions still owed, and traps worth not
-> rediscovering.
-> **What does not:** shipped narrative → [`CHANGELOG.md`](./CHANGELOG.md). Design prose →
-> [`DESIGN_NOTES.md`](./DESIGN_NOTES.md).
->
-> **KEEP THIS FILE LEAN.** It reached 1,811 lines on 2026-08-27 by accumulating a full
-> per-release SHIPPED section every version plus the narrative of incidents that had since
-> been resolved — all of it duplicated in the changelog or the git history. A queue nobody
-> can scan is a queue nobody reads. When a release ships: keep only what changes how the
-> NEXT change is made, move the rest, and delete a resolved incident once its lesson is in
-> **Traps**.
-
-
----
-
+- [ ] **Language option — IN PROGRESS.** Thirteen locales:
+  `en-us, zh-hans, fr, de, hi, it, ja, ko, pl, pt-br, ru, es, tr` — and the Microsoft
+  Store listing already carries all thirteen, so no Store work is owed. **Owner chose
+  both halves in one release (2026-09-07)**, against the recommendation to ship the
+  response language first; the mitigation held is that each lands as its own commit so
+  the two prompt-budget ceiling movements stay separately attributable.
+  - [x] **PR-A infrastructure** — `26da434e`. i18next 26.4.2 + react-i18next 17.0.13,
+    `src/lib/i18n/locales.ts` as the single source of truth, `appLanguage` as an ENUM
+    (unlike free-form `voiceLanguage` — a value here selects a bundled catalog, so an
+    unknown tag is a blank UI), the `settings:changed` broadcast that fixes cross-window
+    staleness, and two guards proven to fire: TypeScript key types, and `check:i18n`
+    with a hardcoded-string ratchet at 315.
+  - [ ] **Response language.** In `stableHeader`, NOT the per-turn tail as this item
+    originally said — locale is stable for a session and the tail is the cache-hostile
+    half. Emit only when the locale is not `en-us`, so English installs pay zero. Needs a
+    SIXTH case in `prompt-budget.eval.test.ts` with `appLanguage: "fr"`, or the cost is
+    never measured (the suite runs in English) and the feature could ship silently dead.
+    **`AGENTS.md` must not carry it** — that file IS the shipped prompt, sent
+    unconditionally to every user.
+  - [ ] **UI i18n** — ~177 files, ~1,300 strings, estimated 7 weeks. Lands as PRs B–H,
+    one surface per catalog namespace so siblings never conflict: tool-activity-labels
+    (139 strings, best ratio, proves the pipeline) → settings → chat → components →
+    onboarding → main process → the 12 non-English catalogs.
+  - Decided and worth not rediscovering: **RTL is fully descoped** (all 13 locales are
+    LTR, and `check:i18n` fails if that changes); **diagnostics stay English**
+    (`doctor.ts`, `self-test.ts`, `database-init-failure.ts` — a translated stack trace
+    makes support harder); **`whats-new.ts` is fetched from `atlarix-releases` and no
+    bundled catalog can reach it** — decide whether it stays English or the remote JSON
+    gains a per-locale shape.
+  - Three hazards that are NOT RTL: German/Russian/Polish run 30–40% longer (that is the
+    layout budget); Geist has no CJK or Devanagari glyphs, so zh/ja/ko/hi need the font
+    stack extended; and Turkish casing needs `document.documentElement.lang` (done in
+    PR-A).
 
 ## Traps from v14.41.0 (2026-09-02)
 
@@ -101,17 +99,19 @@ heading to the real version before tagging. (Done for 14.39.3.)
 - **Retiring a feature leaves typed orphans a type-checker will not find.** §3 deleted the GitHub
   poller but left `GithubTriggerEventSchema` (a runtime value, so knip could not see it as an unused
   type) and `GithubCursor`. Run `npx knip` AND grep the feature's noun after any deletion.
-- **Candidate, NOT done: three staged deps that look unnecessary.** With pinning fixed, the log
-  now names the roots it cannot pin individually — `keytar`, `mysql2`, `pg` — and all three look
-  like they should not be installed into the app at all. `keytar` is explicitly unused
-  (`supabase-secure-storage.ts`: "intentionally does NOT use keytar"; it is a native module, so
-  this is real install cost and a build-failure surface), and `mysql2`/`pg` are Drizzle's
-  optional drivers where Atlarix uses SQLite. They are in `mainRollupExternals` for a good
-  reason — the bundler must not try to bundle code Drizzle references — but being an EXTERNAL
-  and being an install ROOT are different questions, and the hook conflates them.
-  **Not changed:** if anything does a top-level require of one of them, removing it crashes the
-  packaged app, and that needs verifying in the `.app` rather than reasoning about. Bloat win,
-  crash risk — worth doing deliberately, not as a side effect.
+- **`keytar` / `mysql2` / `pg` — the premise was WRONG, and the residue is one line.**
+  This was filed as "three staged deps that look unnecessary… real install cost and a
+  build-failure surface", with a warning that removing them might crash the packaged app.
+  Re-checked 2026-09-07: **none of the three is a dependency at all** — not in
+  `package.json`, not in `package-lock.json`, not in `node_modules`. They cannot be
+  installed into the app, because `packageAfterPrune` installs `keepRoots ∩ fullDeps` and
+  they are in neither. So there is no bloat and no crash risk.
+  The only real residue is three unnecessary entries in `mainRollupExternals`
+  (`vite.main.config.mts`), which is a tidy-up, not an investigation. Worth recording
+  because the original framing would have sent someone to verify a crash that cannot
+  happen — and because the lesson is the general one: an item that reasons from a build
+  LOG ("the log names the roots it cannot pin") is reasoning about a different set than
+  the one that ships.
 - **RELEASE INTEGRITY: the staged-app dependency pinning had silently never worked.**
   `forge.config.ts`'s `packageAfterPrune` reads `package-lock.json` to install the staged app's
   runtime deps at the EXACT versions that were tested. Inside that hook,
@@ -214,7 +214,8 @@ heading to the real version before tagging. (Done for 14.39.3.)
   fixed (temp file, then unlink), but check for it before any commit that follows a mobile test
   run: `ls -- './-'`. A filename of `-` is also awkward to delete — `rm -f -- './-'`, since
   plain `rm -- -` and `rm '-'` both fight the shell.
-- **iOS half VERIFIED on a live simulator 2026-09-02; the ANDROID half is still unverified.**
+- **iOS half VERIFIED on a live simulator 2026-09-02; ANDROID verified 2026-09-04** against a
+  real API 35 emulator — see the trap below, where the first command it issued turned out broken.
   `mobile-live-ios.test.ts` runs against a booted simulator and `describe.skipIf`s itself when
   there isn't one, so it stays in the suite. **It is the only thing that found any of these,
   and the mocked suite was green throughout:**
@@ -231,16 +232,73 @@ heading to the real version before tagging. (Done for 14.39.3.)
   - A live screenshot is 2.85 MB (~3.8 MB base64), so there is now a downscale AND a hard
     refusal above 1.5 MB — the downscale needs Electron's `nativeImage`, and its fallback
     would otherwise send the raw capture.
-- **STILL UNVERIFIED: Android.** `adb` is not installed on this machine (not on PATH, no SDK
-  platform-tools), so nothing in the emulator loop has ever run. Before claiming it works, on a
-  real Android emulator: read the hierarchy, tap a ref, type into a field, swipe, read the logs
-  with and without `package`, take one screenshot. **Also behavioural, not reasoned: whether the
-  OS sandbox permits `adb`'s local socket.** Do not tick this off a green suite.
-  Add to that loop, since it writes device state: **tap feedback**. On a device with
-  `show_touches` OFF, act once and confirm the circle appears and the note says so; quit Atlarix
-  and confirm `adb shell settings get system show_touches` reports `null` again (not the literal
-  string `"null"`). On a device where the user had it ON, confirm Atlarix says nothing and leaves
-  it on after quitting.
+- [x] **ANDROID VERIFIED 2026-09-04, against a real API 35 emulator — and it was BROKEN.**
+  Covered by the new `src/__tests__/mobile-live-android.test.ts` (
+  `describe.skipIf(!hasBootedDevice())` so it costs nothing without an SDK). Emulator installed
+  for the run and deleted immediately after.
+
+  **THE BUG: `adb shell uiautomator dump /dev/tty` RETURNS NO XML.** Exit code 0, and stdout is
+  exactly `UI hierchary dumped to: /dev/tty` — 32 characters, upstream's typo included, and not
+  one byte of a document. `adb shell` allocates a pty and the XML written to /dev/tty never
+  reaches adb's stdout stream. **The whole Android read path returned nothing, silently, since
+  v14.41.0.** Fix is one word: `shell` → **`exec-out`**, which takes the raw binary path and
+  returns 12,338 characters. One call site (`readHierarchy`), used by both the read and the
+  per-act ref resolution, so one fix covers both.
+
+  It is the **same silent zero** as `simctl io <id> screenshot -` writing a file named `-`: exit
+  0, a plausible message, nothing usable — and it survived a green mocked suite for the same
+  reason. That is now twice in one tool, on two platforms, from the same cause. **The rule has
+  earned promotion from "write a live test" to a design rule: a wrapper around an external CLI is
+  UNVERIFIED until it has run against that CLI, and the assertion that catches this class is
+  about the SHAPE of real output (a document containing nodes, PNG magic bytes, a non-zero
+  count), never about the arguments passed.**
+
+  What the run confirmed WORKS, once the dump is fixed: 14 elements parsed with correct centres
+  (centre, not corner); `mobile_inspect` returning 840 characters of text; `exec-out screencap
+  -p` genuinely streaming (1,374,951 bytes, PNG magic `89504e47`); **tapping a real element by
+  ref** (`m3` → "Tapped drag_layer"); a stale ref failing loudly with the re-read instruction
+  rather than acting on whatever now occupies the index; `settings get system show_touches`
+  returning the literal string `null` when unset, which is exactly what the restore path is
+  written to expect.
+
+  **THE SECOND BUG, found only because the checklist was finished: `action:"launch"` NEVER
+  WORKED on Android.** The recipe was `monkey -p <pkg> -c android.intent.category.LAUNCHER 1`,
+  which is the widely-copied one and is wrong: on API 35 monkey exits **251**, writes its
+  argument dump to **stderr**, and `topResumedActivity` never changes. `execFile` surfaced the
+  non-zero exit with monkey's own arg-echo, so the tool reported a baffling
+  `adb -s: args: [-p, com.android.settings, …]`. Fixed to resolve the component first —
+  `cmd package resolve-activity --brief <pkg>` (the launchable component is its LAST line;
+  earlier lines are match metadata) — then `am start -n <component>`, which exits 0 and really
+  does foreground the activity.
+
+  **The rest of the checklist, now actually run:** `type` into a real field ✓ · `swipe` ✓ ·
+  `key` back ✓ · `launch` ✓ (after the fix) · logs unfiltered (6,799 chars) and narrowed by
+  `package` (6,261) ✓ — note `-t N` bounds volume first, so the dramatic iOS-style reduction is
+  not visible and that is not a defect · the tap-feedback ROUND TRIP ✓: note emitted,
+  `show_touches` → `1`, and after `restoreTapFeedback()` the key is ABSENT again (reads `null`)
+  rather than holding the four-character string `"null"`.
+
+  **The OS sandbox DOES permit `adb`'s local socket — on macOS.** Through `sandbox-exec` in
+  read-only mode, `adb devices && adb shell getprop sys.boot_completed` returns
+  `emulator-5554 device` / `1`. Windows (Low IL) and Linux (Landlock) are still unverified for
+  this and need those machines.
+
+  **STILL not exercised:** iOS `launch` (needs a booted simulator — the Android branch changed,
+  the iOS `simctl launch` branch did not), and Windows/Linux sandbox reach for `adb`.
+
+- **A LESSON ABOUT `ToolRegistry.execute`'s ENVELOPE, because it made me accuse working code
+  twice.** A successful handler result is nested under `result` — but when the payload is large,
+  `guardToolCall` truncates it and `result` arrives as a **JSON string** alongside
+  `_truncatedOutput` / `_originalSize`. Reading `.content` off that string yields `undefined`,
+  which is indistinguishable from a tool that returned nothing: that is exactly how
+  `mode:"logs"` looked broken while it was returning 400 lines of real logcat. Any test driving
+  a tool through `execute` needs an unwrap that handles BOTH shapes.
+  The sibling trap in the same file: `runDeviceCli` returns both `stdout` (a UTF-8 string) and
+  `buffer`, and reading a PNG from `stdout` corrupts byte 0 (0x89 is not valid UTF-8), so the
+  magic-byte check fails on a perfectly good image. Two of my four "findings" were my own
+  harness. **A live test can produce false accusations as easily as a mock produces false
+  confidence — confirm the failure against the raw CLI before believing the wrapper is at
+  fault.**
 - **A test that reuses the implementation's own predicate cannot catch the predicate being
   wrong.** `resolve-toolset-unattended.test.ts` asserted `!names.some(n => n.startsWith("browser_"))`
   — the same expression as the filter it was testing. When `browser` lost its underscore the
@@ -302,9 +360,66 @@ heading to the real version before tagging. (Done for 14.39.3.)
   mid-session clone the ONLY way to clone, i.e. the normal case. Re-read a threat note when you
   delete the thing it names.
 
-## 🔜 Next session — the queue, in order
+## ✅ `browser-recorder.ts` is LIVE — do not delete it
 
-### 1. Harbor upstream integration — IN PROGRESS 2026-09-01
+Proposed for deletion 2026-09-04 as "never in use". It is in use, end to end, and the chain is short
+enough to re-check in one grep — so this note exists to stop the next proposal:
+
+`browser.ts` calls `recordBrowserAction` at ~15 sites, and at `browser.ts:595-619` attaches
+`sessionWalkthrough` (markdown, back-compat) and `sessionSteps` (structured) to the **screenshot**
+result → `tool-expand-view.ts:1226` reads `payload.sessionSteps` and at `:1237` produces
+`kind: "browser_recording"` → `ToolExpandPanel.tsx:43` renders `ToolBrowserRecordingExpand`. Covered
+by `tool-expand-view.test.ts:174-188` and `browser-recorder.test.ts`.
+
+**Why it FEELS unused, which is the real point:** its only trigger is
+`browser_inspect(mode:"screenshot")`, which the tool description deliberately calls a LAST RESORT.
+A feature reachable only from a discouraged path is rarely seen and still wired. *Rarely exercised is
+not the same as unreachable* — this is the same reachability-not-presence rule the Dyad-era removal
+ran on.
+
+## 🧩 Browser extension — drive the user's OWN browser (queued 2026-09-07)
+
+**The gap it closes.** We ship an in-app Chromium, but the user's session lives in THEIR
+browser. Anything behind a login — Metabase, Airtable, an internal dashboard, any
+SSO-walled URL — is unreachable to us and trivially reachable to them. This is the
+single biggest coverage win available: ~85% of desktop-agent tasks need no GUI control,
+but a large share of the remainder is "the thing I'm already logged into".
+
+**Two dead ends, measured 2026-09-07, so nobody re-derives them:**
+- **CDP attach to the running browser is CLOSED.** Chromium ≥136 refuses
+  `--remote-debugging-port` when the browser is on its default user-data-dir — shipped
+  deliberately to kill a cookie-theft vector. You can only get a debug port on a fresh
+  profile, which by definition has none of the user's logins. Verified against Brave 150
+  on the owner's machine: no debug port open, and none obtainable.
+- **Cookie import is CLOSED.** Chrome's App-Bound Encryption (Chrome 127) binds cookie
+  decryption to Chrome's own app identity, so another process running as the same user
+  cannot read the cookie store. Add SSO and device trust on top.
+
+**So the shape is an extension + native messaging**, which is the only sanctioned route
+into an authenticated session:
+
+```
+Atlarix (desktop)  ←native messaging (stdio)→  MV3 extension  →  the user's real tab
+```
+
+- One build covers Chrome/Edge/Brave; Safari needs a separate Safari App Extension.
+- Complements the in-app browser rather than replacing it: ours for unauthenticated
+  fetching and scripted work, theirs for "the thing I'm already logged into".
+- Costs: an MV3 extension to build and maintain, Web Store review, and the user has to
+  install it.
+
+**Design questions still open:** how the native-messaging host is registered per browser
+and per OS; whether the extension exposes the same `browser`/`browser_inspect` tool
+surface (it should, so the model learns one contract); how a tab is chosen and how the
+user consents per-site; and what happens when the extension is absent (the in-app
+browser is the fallback, and the failure must say which browser it wanted).
+
+## 🔜 Next session — the queue
+
+*(Unordered. It read "in order" while numbered 1, OPEN, 0, 1b, 3 with no 2 —
+numbers that do not sequence are worse than none.)*
+
+### Harbor upstream integration — IN PROGRESS 2026-09-01
 
 **Why this route and not a submission.** Terminal-Bench 4.0 community submissions are CLOSED —
 `leaderboard/SUBMIT.md`: *"Only submissions run by the maintainers will be added."* The
@@ -319,7 +434,7 @@ commenter with `author_association: NONE` satisfied it the next day).
 the agent once and every one becomes `harbor run -d <dataset> --agent atlarix` — a standing
 regression suite for the agent loop, independent of anyone reading a leaderboard.
 
-**Done:** `npm i -g atlarix` is live (14.39.2, trusted-publisher OIDC from `headless.yml`, no
+**Done:** `npm i -g atlarix` is live (trusted-publisher OIDC from `headless.yml`, no
 token in secrets); reasoning reaches the wire at the model's ceiling; the self-timeout is gone;
 `--version` answers; `--trajectory-file` streams JSONL with secrets redacted.
 
@@ -395,7 +510,7 @@ exactly why none of them should be acted on yet.
 meter and the history start from the summary), then `/security-review` on the diff.
 
 
-### 0. OAuth redirect allowlist — OWNER ACTION, still owed
+### OAuth redirect allowlist — OWNER ACTION, still owed
 
 The code fix shipped in v14.38.4 (`AUTH_CALLBACK_URL` is now the canonical two-slash
 `atlarix://auth/callback`, locked by `src/__tests__/oauth-redirect-allowlist-match.test.ts`). **It
@@ -416,7 +531,7 @@ URLs, alongside the two-slash entry, and keep both until those builds are gone.
 a compiled glob and, on a miss, silently substitutes the Site URL. Sign-in completes in the browser,
 lands on the website, and the app is simply never launched.
 
-### 1b. The repository list is live but the EXISTING installs are empty
+### The repository list is live but the EXISTING installs are empty
 
 Shipped 2026-08-27 (`atlarix-reviewer@09f6ff3`, migration `20260827180000`). Verified in
 production: the column exists, the RPC is service-role gated, and both live installs read
@@ -435,7 +550,7 @@ is the honest thing for it to say. Two ways out:
   `GET /installation/repositories` per install with an installation token and applying it
   with `mode: 'set'`. Needs the App private key, which lives in Railway, not locally.
 
-### 3. One non-owner run of the reviewer, end to end
+### One non-owner run of the reviewer, end to end
 
 **No account other than `AmariahAK` has ever completed install → subscribe → bind →
 review.** `review_jobs` totals 4 (3 done, 1 failed), all owner; `atlarix-releases` is
@@ -484,7 +599,10 @@ only for the standing lessons, which apply to the next sweep:
 - **Do NOT publish the $10 figure.** Say "includes Core for everyday work". Denominating an allowance
   in dollars publishes your cost structure and invites the $19-for-$10 comparison; nobody else in the
   market does it.
-- **Atlarix Reviewer is $19/dev/mo, unlimited repos, OSS free.** Per developer is what the whole
+- **Atlarix Reviewer is $19/dev/mo, unlimited repos.** No open-source exemption — that was an
+  INTENT that was never built and was withdrawn 2026-09-04 (spec §8 Rev 4); the reviewer has no
+  repository-visibility logic, so a public repo hits the same entitlement gate and the same wallet
+  debit as a private one. Per developer is what the whole
   market does (CodeRabbit ~$24 Pro, Greptile ~$30, Bugbot ~$40) and **nobody charges per repo** —
   per-repo punishes microservice teams, who have the most PRs and the most to gain, and creates an
   incentive to install on one repo and skip the rest. It is also safe: a dev's PR output is bounded by
@@ -616,50 +734,49 @@ These are trips and clicks, not tasks. Each fix is already shipped.
       that jumps every turn would mean the per-mode tool-description tiering is invalidating the
       cached prefix.
 
-## 🚧 Needs the Windows machine — one trip clears all of it
+- [ ] **Passkey notice ACCURACY — and it never needed the Windows machine.** It sat under "Needs the
+      Windows machine" until 2026-09-04, which is part of why it went unverified for weeks:
+      `src/lib/browser/webauthn-notice.ts` is an injected BrowserView page script with **no platform
+      check of its own** (the file says so), so it behaves identically on all three OSes and is
+      verifiable on the dev Mac.
+      The check is a **false-positive** check, not a feature test. No platform authenticator exists
+      anywhere any more — Windows and Linux never had one, and macOS's went with the provisioned
+      `keychain-access-groups` entitlement — so the notice is CORRECT to fire for an unstated
+      request. It must **NOT** fire when a page explicitly asks for a roaming authenticator
+      (`authenticatorAttachment: "cross-platform"`): a security key, or a phone over the hybrid/QR
+      flow, goes through Chromium on every platform, and that phone is where the user's synced
+      passkey already lives. Two earlier wordings of this message were wrong in **opposite**
+      directions, which is why it is the TRIGGER being checked and not the text.
+- [ ] **Linux: the notification SIGSEGV** in `electron::NotificationPresenter::RemoveNotification`
+      (Fedora 44 Sentry report). Moved out of the Windows section 2026-09-04 — the fix is reasoned,
+      not observed, and what it needs is a **clean Sentry week**, not a machine. Leave the app
+      unfocused through several automation runs and let notifications expire rather than clicking
+      them.
+- [ ] **Sub-agent round dedupe has two UNPINNED paths** — found 2026-09-04 while fixing the
+      double-render, and independent of that fix. `consolidateSubagentRoundsInThread` has **no test
+      coverage at all**: nothing under `src/__tests__` or `tests` calls it. And
+      `src/__tests__/subagent-card-settles-after-turn.test.ts:121` claims to pin "leaves a thread
+      that does not own the sub-agent REFERENTIALLY identical" while its fixture **already contains
+      a round** — so the case that matters is untested: `mergeSubagentActivityIntoThread` appending
+      a fresh round into a **round-less** frozen thread, which the mount-level `onChatActivity`
+      listener in `useStreamChat` does for every entry of
+      `completedStreamThreadByAssistantMessageIdAtom` with no chat filter and no ownership check.
+      Both are latent duplicate-panel sources. A fixture that already satisfies the condition it is
+      meant to test is the same trap as a green assertion that asserts nothing.
 
-**Every fix below is ALREADY SHIPPED.** This is a verification checklist. Counting it as a backlog is
-what made this queue read three times its real size.
+## ✅ Windows/Linux verification — CLOSED 2026-09-04
 
-> **The migration itself is VERIFIED (2026-08-21).** A full end-to-end pass ran on **Windows and
-> Linux** against the packaged v14.35.0 build and the app works: it installs, launches, and runs a
-> real turn after the Electron 43 upgrade and the AI-SDK spec-line majors. That closes the question
-> the migration actually raised — whether a native ABI or a provider spec change broke a platform no
-> one develops on — and it is the first time both platforms have been confirmed on a release of this
-> size. What survives below is not "does it run" but the individual behaviours whose only evidence is
-> a specific log line or a specific click, which a smoke pass does not produce. Tick them as they are
-> observed rather than assuming this pass covered them.
+Everything that once stood here is verified: Electron 43, process-tree kill, on-device voice
+(Windows and Linux), the Windows Low-IL sandbox (`run_command` succeeds with git, so
+`CreateProcessAsUserW` is not hitting `ERROR_PRIVILEGE_NOT_HELD`), the MSIX §4 behaviour check
+including the protocol declaration, and Linux voice on the WebGPU-first path.
 
-- [x] **Electron 43** — verified 2026-08-21 on Windows and Linux: the packaged app runs after the
-      upgrade. Still worth capturing if you are back on the machine anyway:
-      `self-test:packaged` reporting **9 probes** including the new `sqlite` one (the only genuinely
-      ABI-pinned module, and the one nothing used to cover). The upgrade does **not** revalidate the
-      sandbox helpers — standalone Rust binaries, no Node ABI coupling — but they need this machine
-      anyway, below.
-- [ ] **Passkey notice ACCURACY** — it must **not** appear for a request that explicitly asks for a
-      roaming authenticator, because a security key or a phone over hybrid/QR works on every
-      platform. Verify one actually does.
-- [ ] **Windows sandbox (Low IL, v14.28.0)** — `run_command` must succeed with git under Low IL;
-      that is the whole point. Confirm an **info**-level `Sandboxing run_command` line (it was
-      `debug`, so only failure was ever visible). `CreateProcessAsUserW` must succeed unprivileged —
-      `ERROR_PRIVILEGE_NOT_HELD (1314)` means commands run unconfined, and then implement Codex's model.
-- [x] **Process-tree kill (v14.32.0)** — VERIFIED by the owner on Windows and Linux, 2026-08-21.
-      `taskkill /pid <pid> /T /F` reaps the tree; it was previously reasoned from documented behaviour
-      only, with the real-process test skipped on Windows.
-- [x] **On-device voice (v14.30.0)** — VERIFIED by the owner on Windows and Linux, 2026-08-21.
-      Dictation works after the q4 fix, which closes the item the v14.30.0 release opened with
-      "Windows+Linux runtime verification still owed".
-- [ ] **MSIX §4 behaviour check** (`MSIX_RUNBOOK.md`) — **baseline on Squirrel FIRST**, or a failure
-      inside MSIX is unattributable. Plus: the manifest protocol declaration works for OAuth, and
-      `atlarix://pro-return` completes a Lemon Squeezy purchase. Not to be confused with the packaging
-      spike, which ran 2026-08-07. A Squirrel → Store reinstall **keeps user data** (verified by hand
-      2026-08-12, so no migration is needed); the exact `userData` path string is the one piece still
-      unrecorded.
-- [ ] **Linux, not Windows: the notification SIGSEGV** in
-      `electron::NotificationPresenter::RemoveNotification` (Fedora 44 Sentry report). Fix is
-      reasoned, not observed. Leave the app unfocused through several automation runs and let
-      notifications expire rather than clicking them; success is a clean Sentry week.
-- [ ] Linux voice, never tested, now on the same WebGPU-first path.
+**The lesson worth keeping**, since it is why the section existed at all: its own preamble
+admitted that counting these as backlog "made this queue read three times its real size", and two
+of the items were **mis-filed as needing Windows** when neither did — the passkey-notice check is
+a page script with no platform branch, and the Linux notification SIGSEGV needs a clean Sentry
+week, not a machine. Both are in "Verification owed". Before filing something as blocked on
+hardware, check that the hardware is what it is actually blocked on.
 
 ## ⚠️ Known and NOT fixed — deliberately, with reasons
 
@@ -672,7 +789,9 @@ what made this queue read three times its real size.
   regressed between 08-20 and 08-22. Ruled out by reading the code: the `proxy-worker` probe uses a
   `worker_threads` Worker (in-process, and it terminates it), nothing calls `app.relaunch()` or
   re-executes `process.execPath` on this path, and the v14.36.0 `main.ts` changes are all behind
-  `IS_SELF_TEST` guards that provably still short-circuit. Not reproducible on macOS.
+  `IS_SELF_TEST` guards that provably still short-circuit. **NOT Windows-only** — the same
+  "all probes passed, process tree had to be killed" was recorded on macOS arm64 2026-09-05,
+  on the PASSING path, which is the pattern rather than the exception.
   **Mitigated, not fixed** (v14.36.0): `run-packaged-self-test.mjs` now takes its verdict from the
   probe REPORT in the file sink rather than from process termination, kills the process tree, and
   prints a loud warning. A failing probe, a launch error, a signal kill, a non-zero exit, or no report
@@ -696,7 +815,23 @@ what made this queue read three times its real size.
   would put exactly those runs where nobody looks. **This is settled, not pending.** The cost is
   accepted: production alert counts include the owner's own machine, so never read alert VOLUME as a
   user-impact signal without checking the source first.
-- **`useAuth` is an UNSHARED hook with ~22 consumers**, each running its own `checkSession()` —
+- **8 conditional-hook violations, now VISIBLE but not blocking.** Enabling
+  `react-hooks/rules-of-hooks` (2026-09-08, after a conditional `useMemo` shipped a
+  React #310 white screen to the packaged app) surfaced 8 pre-existing ones:
+  `useStreamChat.ts` ×4 — `useAtomValue` inside `if (hasChatId)` and a
+  `hasChatId ? useProposal(id) : useProposal()` ternary; `SubAgentRunCard.tsx` ×2;
+  `useWorkspacePlanPanel.ts` and `RightPanel.tsx` ×1 each (`useSearch` inside a
+  `try`). They work today only because the condition happens to be stable for a
+  component's lifetime — which is a property of current callers, not a guarantee.
+  **`useStreamChat` is the risky one**: it is a core hook and changing its hook
+  ORDER can break streaming, so it deserves its own pass rather than a drive-by.
+  Set to `warn` so CI stays green and new violations are still caught; raise to
+  `error` once these 8 are gone.
+  Also switched OFF, as pre-existing debt worth its own decision rather than 100
+  warnings drowning the 10 real ones: `react/set-state-in-effect` (58) and
+  `react-hooks/exhaustive-deps` (25). The second is genuinely valuable and is the
+  one to turn on next.
+- **`useAuth` is an UNSHARED hook with 30+ consumers**, each running its own `checkSession()` —
   still the cause of repeated "Enforcing workspace limit" logs. Guard in the IPC handler, never in
   the hook. **The sign-out half is now scoped:** `SubscriptionManager.signOut()` does not broadcast
   `auth:resolved`, so only the instance that initiated a sign-out updates and a second window keeps
@@ -716,6 +851,14 @@ what made this queue read three times its real size.
 
 ## 🔜 Blocked on the owner — not active work
 
+- **2026-09-17 — GitHub Marketplace, chase it if Atlarix Reviewer is still not listed.** Three weeks
+  after the App went public (2026-08-27), which is when GitHub's own guidance says to contact them.
+  FIRST check <https://github.com/settings/apps> for rejection notes, requested changes, or a
+  still-pending review — the answer is often already there. If there is genuinely no communication,
+  file at <https://support.github.com/contact> → *What can we help with?* → **Marketplace** →
+  *"App review pending for X weeks, no updates received"*, including the app name, App ID, the
+  GitHub org/account used to submit, and the SUBMISSION date (which may differ from the date the
+  App went public).
 - **Windows code-signing cert** — native-sandbox CI, and the only real fix for the C6 residual on
   direct-download Windows. Release infra, no cert. The helper sign step is wired; set the secret.
 - OAuth `state` nonce / PKCE stays **not doing** — attempted v14.12.0, broke sign-in, reverted. The
@@ -863,86 +1006,61 @@ a `(source, repo, since-claimed)` ledger window, which is exact only because `st
 each attribute the other's spend to itself. The fix is not a cleverer window — it is for the proxy to
 return the debited amount on the response. **Do this BEFORE scaling the reviewer, not after.**
 
-**Residual 3 — the service path bills whatever the header names.** A pull-request webhook fires with
-nobody signed in, so `auth.uid()` is null and no owner-scoped RPC will work; the reviewer therefore
-authenticates with a service token and passes `x-atlarix-account-id`. The proxy TRUSTS that header.
-That is a deliberate, documented trade (the alternative was putting the reviewer inside the metering
-boundary, which is worse), but it means **a leaked `REVIEWER_SERVICE_TOKEN` lets the holder bill any
-account.** Worth noting the cross-check that is available and unused: the reviewer already resolves
-the account from `github_installs` itself, so the proxy could verify the claimed account actually owns
-an installation rather than taking the header's word. Cheap, and it turns a bearer secret into a
-bearer secret plus a consistency check. Pairs with the existing "scope the reviewer's Postgres role"
-item.
+**Residual 3 — CLOSED, and it was already closed when this was re-read 2026-09-07.** The service
+path authenticates with a service token and names the payer in `x-atlarix-account-id`, because a
+pull-request webhook fires with nobody signed in. The proxy no longer takes that header's word:
+`accountHasInstallation` (`atlarix-proxy/src/entitlement.ts`) asks `github_installs` whether the
+claimed id owns a live install (`removed_at IS NULL`), cached 5 minutes, and `server.ts` refuses
+with `account_not_bound` when it does not. A failed CHECK returns 502, not 403 — "we could not
+check" is our outage and must be retryable, while "not bound" is an answer. Four tests under
+"the account must own a live installation" cover it, including that the check runs against the id
+the HEADER named and does not run on the user path.
+
+That does not make the token less of a bearer secret; it means holding it is no longer enough on
+its own, and a leak's blast radius drops from every account to accounts that have actually
+installed the app. The repo-level check is deliberately NOT done: `github_installs.repositories`
+still reads empty on both live installs, so gating on it would fail closed on real traffic. Worth
+having once that set is backfilled — see the repository-list item.
 
 **What would change the picture:** any of these becoming real needs a *measurement* first — the
 Supabase request count is the tell, and the 2026-08-26 lesson was that 704 requests/hour looked like
 the website and was actually a 5-second poll. Do not scale on a hunch.
 
-## ☁️ Cloudflare — DNS MIGRATED 2026-09-01; what is left is small
+## ☁️ Cloudflare — DNS MIGRATED 2026-09-01; one thing left
 
-> The account is the owner's **PERSONAL** Cloudflare (`amariah.abish@gmail.com`), created for the
-> R2 backups. The `wrangler` setup on this machine belongs to SpacInsider — **never do Atlarix work
-> through the work account.** Nothing below needs `wrangler`; it is dashboard plus DNS.
+Landed: DNS on Cloudflare, **grey-clouded deliberately** (Vercel advises against a proxy in front
+of it — it intercepts their ACME path and breaks cert renewal, and every free-tier WAF /
+rate-limit / Bot-Fight feature is proxy-gated, so grey-clouding forgoes nothing we could have
+used); **DNSSEC**; the **apex SPF** that was missing entirely; and **DMARC reporting**, which had
+been `p=none` with no `rua` and so monitored nothing.
 
-**Done.** `atlarix.dev` moved Namecheap BasicDNS → Cloudflare (`perla`/`vicente.ns.cloudflare.com`)
-with zero downtime, all 10 records intact. **Everything is DNS-only (grey) and stays that way** —
-Vercel advises against a proxy in front of it, which intercepts their ACME path and breaks cert
-renewal, and every free-tier WAF / rate-limit / Bot-Fight feature is proxy-gated, so grey-clouding
-forgoes nothing we could have used. Also landed: **DNSSEC** (DS `2371 13 2`, AD flag verified on
-1.1.1.1 / 8.8.8.8 / 9.9.9.9 / OpenDNS), the **apex SPF** that was missing entirely
-(`include:_spf.google.com ~all` — Google only; Resend has its own on `send.`), and **DMARC
-reporting** (`rua=mailto:dmarc@atlarix.dev`; the record had been `p=none` with no `rua`, so it
-monitored nothing).
+- [ ] **DMARC `p=none` → `p=quarantine`**, after 2–4 weeks of reports. Time-gated, not
+      effort-gated. Not before — enforcing without data is how legitimate mail starts landing in
+      spam.
 
-**Owed:** watch the DMARC reports for 2–4 weeks, then move `p=none` → `p=quarantine`. Not before —
-enforcing without data is how legitimate mail starts landing in spam.
+**Deliberately not doing:** Workers, Pages, Zero Trust, Images, and **proxying the Railway origin**
+(`api.atlarix.dev`) — Cloudflare in front of a streaming SSE endpoint can buffer or time out and
+break token streaming for every desktop user. If that is ever revisited, do it alone and make a
+real streaming turn the acceptance test; `/health` would pass either way.
 
-**Deliberately skipped: CAA.** Vercel controls issuance; pinning a CA risks a silent renewal failure
-for a threat Certificate Transparency already surfaces. Revisit only if issuance moves in-house.
+**Turnstile — CLOSED 2026-09-01**, and not the way it was framed. What was actually happening:
+email/password signup was ENABLED on a project that never uses it, so `POST /auth/v1/signup` →
+confirm through a disposable inbox → `claim_signup_credit()` paid $1 without ever touching our UI.
+23 claims, $23. Closed twice on purpose — the dashboard toggle (Email off) AND
+`20260901100000_trial_credit_requires_oauth_identity.sql`, which refuses the grant unless
+`auth.identities` holds a non-email provider row. The toggle alone was not enough: it exists only
+in the dashboard, `supabase/config.toml`'s `[auth]` block is the LOCAL stack's, and re-enabling it
+would reopen the hole with nothing in the repo to show. **A payout rule belongs next to the
+payout** — and not as an allowlist of provider names, since adding a fourth provider later would
+silently stop paying the credit and nobody reports a dollar they never knew existed.
 
-### Turnstile — CLOSED 2026-09-01, and not the way it was framed
-
-**The hole was real and LIVE, not the disposable-email hypothesis this section used to describe.**
-Neither product has an email-auth call site — both are `signInWithOAuth` only — and I took that to
-mean there was nothing to protect. Wrong thing to reason about. The Supabase Auth REST API is public
-and the anon key ships in the app binary and the site bundle, so our call sites bound nothing:
-
-    curl -H "apikey: <anon>" https://<ref>.supabase.co/auth/v1/settings
-    → "email": true, "disable_signup": false
-
-**Email/password signup was ENABLED on a project that never uses it.** `POST /auth/v1/signup` →
-confirm through a disposable inbox (`mailer_autoconfirm: false` — required, and exactly what those
-services automate) → sign in → `claim_signup_credit()` → $1, never touching our UI. 23 claims, $23.
-
-**Closed twice, on purpose.**
-1. Dashboard: Authentication → Providers → **Email off**. Removes an endpoint nothing uses.
-2. Code: `20260901100000_trial_credit_requires_oauth_identity.sql` refuses the grant unless
-   `auth.identities` holds a row with `provider <> 'email'`.
-
-The toggle alone was not enough: it exists only in the dashboard, `supabase/config.toml`'s `[auth]`
-block is the LOCAL stack's, and re-enabling it would reopen the hole with nothing in the repo to
-show. **A payout rule belongs next to the payout.** Not an allowlist of provider names — adding a
-fourth provider later would silently stop paying the credit, and nobody reports a dollar they never
-knew existed.
-
-**Turnstile itself was never the answer here** and is not needed now. It cannot attach to
-`signInWithOAuth` (a redirect carries no `captchaToken`), and with signup disabled and the RPC gated
-it protects nothing that is not already covered.
-
-**Still open, not urgent at $23:** the dedupe key is `(kind='trial', ref=user_id)`, so the scarce
-thing is an account, and Google/GitHub accounts remain free. The durable answer is tying the grant to
-something costlier — a payment method, or account age — not a challenge; Turnstile could not help
-regardless, since that signup happens on Google's site. The owner has separately recorded wanting the
-credit raised to ~$5 "gated on a verified account", which is the same decision from the other end.
-
-
-### Still not worth it
-
-Workers, Pages, Zero Trust, Images. And **proxying the Railway origin** (`api.atlarix.dev`) stays
-off: Cloudflare in front of a streaming SSE endpoint can buffer or time out and break token
-streaming for every desktop user. If it is ever revisited, do it alone and make a real streaming
-turn the acceptance test — `/health` would pass either way.
-
+- [ ] **Trial-credit residual — open, not urgent at $23.** The dedupe key is
+      `(kind='trial', ref=user_id)`, so the scarce thing is an account, and Google/GitHub accounts
+      are free. The durable answer ties the grant to something costlier — a payment method, or
+      account age — not a challenge; Turnstile could not have helped regardless, since that signup
+      happens on Google's site. The owner separately wants the credit raised to ~$5 "gated on a
+      verified account", which is the same decision from the other end. **Decision first, then
+      code.**
 
 ## 🔐 Security follow-ups — owner-triaged, deferred
 

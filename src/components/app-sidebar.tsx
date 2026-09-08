@@ -4,6 +4,7 @@ import {
   HelpCircle,
   Wrench,
   Plug,
+  AppWindow,
   LogIn,
   LogOut,
   User,
@@ -31,11 +32,11 @@ import {
 // ChatList removed - unified into home page
 import { AppList } from "./AppList";
 import { HelpDialog } from "./HelpDialog"; // Import the new dialog
-import { SettingsList } from "./SettingsList";
-import { IntegrationsList } from "./IntegrationsList";
 import { triggerUpgrade } from "@/hooks/useUpgrade";
 import { useCreditBalance } from "@/hooks/useCreditBalance";
 import { SignOutDialog } from "@/components/auth/SignOutDialog";
+import { LocalDateTimeClock } from "./LocalDateTimeClock";
+import { IpcClient } from "@/ipc/ipc_client";
 
 // Menu items.
 const items = [
@@ -71,8 +72,6 @@ type HoverState =
   | "start-hover:app"
   | "start-hover:chat"
   | "start-hover:tools"
-  | "start-hover:settings"
-  | "start-hover:integrations"
   | "clear-hover"
   | "no-hover";
 
@@ -120,9 +119,6 @@ export function AppSidebar() {
 
   const routerState = useRouterState();
   const isAppRoute = routerState.location.pathname === "/";
-  const isSettingsRoute = routerState.location.pathname.startsWith("/settings");
-  const isIntegrationsRoute =
-    routerState.location.pathname.startsWith("/integrations");
 
   let selectedItem: string | null = null;
   if (hoverState === "start-hover:app") {
@@ -131,17 +127,9 @@ export function AppSidebar() {
     selectedItem = "Chat";
   } else if (hoverState === "start-hover:tools") {
     selectedItem = "Tools";
-  } else if (hoverState === "start-hover:settings") {
-    selectedItem = "Settings";
-  } else if (hoverState === "start-hover:integrations") {
-    selectedItem = "Integrations";
   } else if (state === "expanded") {
     if (isAppRoute) {
       selectedItem = "Apps";
-    } else if (isSettingsRoute) {
-      selectedItem = "Settings";
-    } else if (isIntegrationsRoute) {
-      selectedItem = "Integrations";
     }
   }
 
@@ -168,8 +156,6 @@ export function AppSidebar() {
           {/* Sidebar Content - Chat removed, unified into home page */}
           <div className="w-[240px]">
             <AppList show={selectedItem === "Apps"} />
-            <SettingsList show={selectedItem === "Settings"} />
-            <IntegrationsList show={selectedItem === "Integrations"} />
           </div>
         </div>
       </SidebarContent>
@@ -360,6 +346,31 @@ export function AppSidebar() {
             )}
           </SidebarMenuItem>
 
+          {/* New window + clock. They lived in the AppList group header, which
+              only renders while the Apps rail item is hovered or the route is
+              "/", so they were effectively Home-only. Neither depends on a
+              workspace — `window:open-blank` deliberately opens an UNBOUND window
+              that lands on the chooser — so the rail is where they belong. */}
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              size="sm"
+              className="font-medium w-14 flex flex-col items-center gap-1 h-14 mb-2 rounded-2xl"
+              title="Open a new window"
+              onClick={() => {
+                void IpcClient.getInstance().openBlankWindow();
+              }}
+            >
+              <AppWindow className="h-5 w-5" />
+              <span className={"text-xs"}>Window</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+
+          <SidebarMenuItem>
+            <div className="w-14 flex items-center justify-center mb-2">
+              <LocalDateTimeClock variant="compact" tickMs={1000} />
+            </div>
+          </SidebarMenuItem>
+
           {/* Help Button */}
           <SidebarMenuItem>
             {/* Change button to open dialog instead of linking */}
@@ -425,10 +436,11 @@ function AppIcons({
                         onHoverChange("start-hover:chat");
                       } else if (item.title === "Tools") {
                         onHoverChange("start-hover:tools");
-                      } else if (item.title === "Settings") {
-                        onHoverChange("start-hover:settings");
-                      } else if (item.title === "Integrations") {
-                        onHoverChange("start-hover:integrations");
+                      } else {
+                        // Settings and Integrations navigate straight to their
+                        // page — their nav is the top tab row there, so hovering
+                        // must not expand a 240px column with nothing in it.
+                        onHoverChange("clear-hover");
                       }
                     }}
                   >

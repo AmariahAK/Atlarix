@@ -54,9 +54,23 @@ async function readHierarchy(
   if (gap) return { ok: false, error: gap };
   // `uiautomator dump /dev/tty` writes the XML to stdout, avoiding a
   // pull-then-delete round trip through the device's filesystem.
+  //
+  // IT MUST BE `exec-out`, NOT `shell`. Verified against a real Android 15
+  // (API 35) emulator on 2026-09-04: `adb shell uiautomator dump /dev/tty`
+  // exits 0 and returns exactly `UI hierchary dumped to: /dev/tty` — 32
+  // characters, upstream's typo included, and NOT ONE BYTE OF XML. `adb shell`
+  // allocates a pty, and the document written to /dev/tty never reaches adb's
+  // stdout stream; `exec-out` takes the raw binary path and returns it (12,337
+  // characters on the launcher screen).
+  //
+  // This is the same silent zero as `simctl io <id> screenshot -` writing a
+  // file literally named `-`: exit 0, a plausible message, nothing usable. Both
+  // survived a green mocked suite for the same reason — a mock returns what it
+  // was told to, so only a real device can catch it. Assert the SHAPE of the
+  // output (a document containing nodes), never the arguments passed.
   const r = await runDeviceCli(
     "adb",
-    ["-s", device.id, "shell", "uiautomator", "dump", "/dev/tty"],
+    ["-s", device.id, "exec-out", "uiautomator", "dump", "/dev/tty"],
     { timeoutMs: 25_000 },
   );
   if (!r.ok) return { ok: false, error: r.error };
@@ -70,7 +84,15 @@ async function readHierarchy(
         'mode:"screenshot" can see it.',
     };
   }
-  return { ok: true, xml: r.stdout.slice(start) };
+  // `exec-out` appends the same status line AFTER the document. The node parser
+  // is regex-based so trailing prose is harmless, but cutting it keeps the xml
+  // field an actual document for anything that later parses it strictly.
+  const end = r.stdout.lastIndexOf("</hierarchy>");
+  const xml =
+    end > start
+      ? r.stdout.slice(start, end + "</hierarchy>".length)
+      : r.stdout.slice(start);
+  return { ok: true, xml };
 }
 
 /**
@@ -114,7 +136,11 @@ ToolRegistry.register({
     // carry the cheap default (a TEXT hierarchy) — not an introduction. Making
     // the default the cheap path is also why this tool needs no NEVER_TRIM
     // entry: a model that calls it with no arguments gets the right read.
-    "Read the screen of a running Android emulator or iOS Simulator as TEXT: called with no `mode` it returns the UI hierarchy — every interactive element with a stable `ref` for the `mobile` tool to act on — which answers \"what is on screen\", \"is the button there\" and \"did the form submit\" in a few hundred tokens.\n" +
+    // WAS 311 CHARS AND SILENTLY TRUNCATED at `firstSentence`'s 200-char cap,
+    // which dropped "in a few hundred tokens" — the cheap-default claim this whole
+    // design rests on. Measured and shortened 2026-09-04. Keep it under 200 with no
+    // internal ". ", or the binding loses its point again.
+    "Read an Android emulator or iOS Simulator screen as TEXT — with no `mode` it returns the UI hierarchy: every interactive element with a stable `ref` for the `mobile` tool, in a few hundred tokens.\n" +
     "mode:\"screenshot\" — a literal PNG and a LAST RESORT (thousands of tokens): only when the user needs the actual image (a design to match, a rendering artefact, a custom-drawn surface). NEVER to answer \"what do you see\" or to find an element — the hierarchy already does that, in text.\n" +
     "mode:\"logs\" — a bounded tail of the device log, filtered to warnings and errors by default. This is where a crash's stack trace is.\n" +
     "mode:\"devices\" — what is running, when you need to name one.\n" +
@@ -459,16 +485,55 @@ ToolRegistry.register({
             `com.example.app — letters, digits, dots, dashes and underscores only.`,
         };
       }
-      const r =
-        device.platform === "android"
-          ? await runDeviceCli(
-              "adb",
-              ["-s", device.id, "shell", "monkey", "-p", pkg, "-c", "android.intent.category.LAUNCHER", "1"],
-              { timeoutMs: 25_000 },
-            )
-          : await runDeviceCli("xcrun", ["simctl", "launch", device.id, pkg], {
-              timeoutMs: 25_000,
-            });
+      // ANDROID: RESOLVE THE ACTIVITY, THEN `am start`. NOT `monkey`.
+      //
+      // This used to be `monkey -p <pkg> -c android.intent.category.LAUNCHER 1`,
+      // which is the widely-copied recipe and does not work. Measured against a
+      // real Android 15 (API 35) emulator on 2026-09-04: monkey exits **251**,
+      // writes its argument dump to **stderr**, and `topResumedActivity` never
+      // changes — the app is not launched. `execFile` surfaces the non-zero exit
+      // with monkey's own arg-echo as the message, so the tool reported a
+      // baffling `adb -s: args: [-p, com.android.settings, …]` failure.
+      //
+      // `cmd package resolve-activity --brief <pkg>` prints the launchable
+      // component as its LAST line (earlier lines are match metadata), and
+      // `am start -n <component>` then exits 0 with `Starting: Intent { … }` and
+      // the activity really does come to the foreground.
+      let r: Awaited<ReturnType<typeof runDeviceCli>>;
+      if (device.platform === "android") {
+        const resolved = await runDeviceCli(
+          "adb",
+          ["-s", device.id, "shell", "cmd", "package", "resolve-activity", "--brief", pkg],
+          { timeoutMs: 15_000 },
+        );
+        // `<pkg>/<activity>` — reject anything that is not that shape rather
+        // than passing junk to `am start`, which would fail less clearly.
+        const component = resolved.ok
+          ? (resolved.stdout
+              .split(/\r?\n/)
+              .map((l) => l.trim())
+              .filter((l) => /^[A-Za-z0-9_.]+\/[A-Za-z0-9_.$]+$/.test(l))
+              .pop() ?? "")
+          : "";
+        if (!component) {
+          return {
+            success: false,
+            error:
+              `"${pkg}" has no launchable activity on ${device.label} — it may not be ` +
+              `installed. Check with mobile_inspect(mode:"devices") that you have the ` +
+              `right device, and confirm the package name. Do not retry with the same value.`,
+          };
+        }
+        r = await runDeviceCli(
+          "adb",
+          ["-s", device.id, "shell", "am", "start", "-n", component],
+          { timeoutMs: 25_000 },
+        );
+      } else {
+        r = await runDeviceCli("xcrun", ["simctl", "launch", device.id, pkg], {
+          timeoutMs: 25_000,
+        });
+      }
       if (!r.ok) return { success: false, error: r.error };
       return {
         success: true,

@@ -406,6 +406,33 @@ export function AssistantMessageBody({
     suppressDelegateTools,
   ]);
 
+  /**
+   * THE ROUND PANEL HAS ONE HOME, AND THE LEGACY BRANCH USED TO GIVE IT TWO.
+   *
+   * `liveThread` carries the `subagent_round` item, and `StreamThreadItemView`
+   * mounts `SubAgentsRoundPanel` for it — so mapping the whole thread rendered
+   * the panel a second time, alongside the unconditional `inlineSubagentRound`
+   * render below. Both appeared mid-stream, labelled DIFFERENTLY: a single round
+   * short-circuits `consolidateSubagentRoundsInThread`, so the thread copy never
+   * reaches `pickSubagentDisplayLabel` and keeps the raw IPC label
+   * ("Sub-agent: Explorer"), while `inlineSubagentRound` resolves to
+   * "Mapping: <scope>". Two panels, two names, four agents — which read as the
+   * work having been done twice.
+   *
+   * `ipcTimelineTailItems` and `completedThreadTailItems` already take exactly
+   * this decision as their `excludeSubagentRound` argument; the map above them
+   * bypassed both. Same predicate, applied at the third site.
+   *
+   * The filter belongs HERE and not in `liveThread` itself: `liveThread` also
+   * feeds `resolveLiveSubagentRound`, which needs the round to produce
+   * `inlineSubagentRound` in the first place. Filtering at the source would
+   * make the panel disappear entirely.
+   */
+  const liveThreadItems = useMemo(() => {
+    if (!inlineSubagentRound) return liveThread;
+    return liveThread.filter((item) => item.kind !== "subagent_round");
+  }, [liveThread, inlineSubagentRound]);
+
   // W7 (v14.8.11): weave IPC-only items (compaction/background/plan cards)
   // into the content timeline at their timestamps instead of pinning them to
   // the bottom. One helper for the streaming AND completed paths so they
@@ -527,7 +554,7 @@ export function AssistantMessageBody({
         />
       ) : null}
       {isStreaming
-        ? liveThread.map((item) => (
+        ? liveThreadItems.map((item) => (
             <StreamThreadItemView
               key={threadItemKey(item)}
               item={item}
@@ -595,7 +622,13 @@ export function AssistantMessageBody({
  *
  * One definition, rendered by both. The round PANEL stays in each middle because
  * its position is genuinely branch-specific (woven mid-timeline vs. after the
- * parts) — `assistant-message-trailing-parity` asserts both mount it.
+ * parts).
+ *
+ * This used to claim `assistant-message-trailing-parity` asserted both branches
+ * mount the panel. It did not — that file carried no sub-agent assertion at all,
+ * and ran every case with `isStreaming={false}`, which is precisely the state
+ * where the legacy branch's DOUBLE mount does not appear. The gap hid the bug
+ * fixed in v14.43.0; `subagent-round-single-panel` now pins the count mid-stream.
  */
 function MessageTrailing({
   tailItems,

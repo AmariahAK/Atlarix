@@ -294,6 +294,14 @@ const config: ForgeConfig = {
             // restricted entitlement on one of those produces a binary that
             // `codesign -v` calls valid and the kernel refuses to exec — no output,
             // no stderr, nothing in the system log.
+            //
+            // Every nested binary inherits this file, which is safe precisely
+            // because it holds nothing provisioned. The plausible additions are
+            // traps: `keychain-access-groups` is PROVISIONED (the v14.35.0 killer
+            // above) and `com.apple.security.temporary-exception.*` is provisioned
+            // and MAS-only. If a bundled helper ever seems to need
+            // `disable-library-validation`, treat that as a reason to re-examine
+            // the dependency, not to add the entitlement.
             optionsForFile: () => ({
               entitlements: "./entitlements.plist",
               "entitlements-inherit": "./entitlements.plist",

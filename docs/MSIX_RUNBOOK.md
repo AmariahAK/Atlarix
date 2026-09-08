@@ -18,7 +18,9 @@ How to build, sign, install, and verify the Atlarix MSIX package **by hand**.
 >
 > What this document IS for: getting a signed package onto a Windows machine so the
 > deep-system behaviour can be verified **inside the package container** — §4. That
-> verification is still owed (see `docs/TODO.md` → *Needs the Windows machine*).
+> verification was **confirmed by the owner on 2026-09-04**; see `docs/TODO.md` →
+> *Windows/Linux verification — CLOSED*. §4 is kept as the procedure to re-run after
+> any change to the sandbox helper, the protocol handler, or the payload binaries.
 
 ---
 
@@ -214,10 +216,11 @@ Run the automated probes first, then the three things no probe can cover.
 
 > This was written as a gate to clear *before* submitting to the Store. That gate has
 > been passed: the app is listed, certification succeeded, and submission is
-> automated. What remains is confirming that the deep-system features actually behave
-> inside the package container on real Windows — still outstanding, and tracked in
-> `docs/TODO.md` under *Needs the Windows machine* alongside the Low-IL sandbox,
-> on-device voice, and the `taskkill` process-tree kill.
+> automated. Confirming that the deep-system features actually behave inside the
+> package container on real Windows was the last open piece, and the owner
+> **confirmed it on 2026-09-04** along with the Low-IL sandbox, on-device voice and
+> the `taskkill` process-tree kill. See `docs/TODO.md` → *Windows/Linux verification
+> — CLOSED*.
 
 ### 4a. Baseline on the Squirrel build (do this FIRST)
 
@@ -315,7 +318,13 @@ All items shipped:
 - **Lemon Squeezy / IAP note** — approved.
 - **Certification passed** — Microsoft re-signs with a trusted certificate.
 - **Release automation** — `release.yml` calls `msix.yml` on every `v*` tag.
-  Non-gating (absent from `publish-release`'s `needs`).
+  **GATING as of 2026-08-28** — `build-msix` IS in `publish-release`'s `needs`
+  (`release.yml:913`). This line previously said the opposite, and that belief is
+  exactly what shipped v14.38.3 desktop-only when MSIX failed on an npm race and
+  nothing was gated on it. If the MSIX BUILD fails, `publish-release` never runs
+  and the draft stays invisible with all its assets attached — recover with a job
+  re-run, not a new tag. Store SUBMISSION failing blocks nothing
+  (`continue-on-error: true`).
 - **Automated Store submission** — `scripts/store-submit.mjs` uses the Partner
   Center Submission API v1 (Azure AD client credentials). Triggered on release
   tags, `continue-on-error: true`. Requires three GitHub secrets:

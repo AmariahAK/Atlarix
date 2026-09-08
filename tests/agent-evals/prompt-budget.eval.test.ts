@@ -165,6 +165,35 @@ function measureFirstRequest(scenarioId: string): PrefixMeasurement {
  * a ratchet that only ever loosens, so it moves whenever the prefix does — down
  * after a reduction, and up ONLY with a line here saying what was bought.
  *
+ * MEASURED 2026-09-07, after the desktop computer-use tools were DELETED:
+ *
+ *          mobile EVERY mode   now      delta   ceiling   headroom
+ *   ask         10,875        10,901     +26    11,800      899
+ *   plan        10,310        10,336     +26    11,200      864
+ *   build       14,644        14,668     +24    15,850    1,182
+ *   review      10,526        10,552     +26    11,400      848
+ *   debug       14,053        14,077     +24    15,250    1,173
+ *
+ * `computer` + `computer_inspect` + `computer_call` are gone, giving back 780 in
+ * each read-only mode and 762 in build/debug. The +26/+24 against the last
+ * pre-computer column is unrelated prefix drift over the same period, not a
+ * regression — the prefix is now within ~26 tokens of where it stood before the
+ * feature existed.
+ *
+ * THE CEILINGS MOVE DOWN, which is the ratchet working in the direction it almost
+ * never gets to. They were raised for `computer_call` on the argument that the
+ * addition had earned it; that addition is gone, so the slack goes with it rather
+ * than being inherited by whatever lands next. Reset to baseline + 8% per the rule
+ * below. The next read-only-mode addition pays for its own room.
+ *
+ * The v14.41 note, kept because its prediction came true:
+ *
+ * AND IT COST MORE THAN PLANNED — the design targeted ~350/mode and it came in at
+ * ~524. Same split as before: the parameter SCHEMAS are the residue, since reveal
+ * trims prose and keeps every parameter, type and enum. One lever was already
+ * pulled (`button` folded into the `action` enum, worth 22), and the remaining ones
+ * are the same shape: fold a variant into an enum rather than adding a parameter.
+ *
  * These run ~1,100 above a bare `constructSystemPromptParts` measurement of the
  * same mode, because a real dispatch also carries the mode reanchor and the
  * ContextAssembler's project-instruction and skills-index pointers. That gap IS
@@ -178,11 +207,17 @@ function measureFirstRequest(scenarioId: string): PrefixMeasurement {
  * stamp. Don't chase a single-digit difference; the headroom exists for it.
  */
 const BUDGET: Record<string, { minTotal: number; maxTotal: number }> = {
-  ask: { minTotal: 9_250, maxTotal: 11_750 },
-  plan: { minTotal: 8_750, maxTotal: 11_150 },
-  build: { minTotal: 12_450, maxTotal: 15_800 },
-  review: { minTotal: 8_950, maxTotal: 11_350 },
-  debug: { minTotal: 11_950, maxTotal: 15_150 },
+  ask: { minTotal: 9_250, maxTotal: 11_800 },
+  plan: { minTotal: 8_800, maxTotal: 11_200 },
+  build: { minTotal: 12_450, maxTotal: 15_850 },
+  review: { minTotal: 8_950, maxTotal: 11_400 },
+  debug: { minTotal: 11_950, maxTotal: 15_250 },
+  // A NON-ENGLISH case, because every other case runs in English and the response
+  // language block is emitted ONLY when the locale is not en-us. Without this the
+  // suite would never see the instruction at all, its cost would be unmeasured,
+  // and the feature could ship silently dead — the block could stop being emitted
+  // and nothing here would notice.
+  "build-fr": { minTotal: 12_450, maxTotal: 15_950 },
 };
 
 const CASES = [
@@ -202,6 +237,11 @@ const CASES = [
     key: "debug",
     mode: "build" as const,
     settings: { workModePreference: "debug" } as const,
+  },
+  {
+    key: "build-fr",
+    mode: "build" as const,
+    settings: { appLanguage: "fr" } as const,
   },
 ];
 
@@ -258,5 +298,24 @@ describe("prompt budget — the fixed prefix, on the wire", () => {
       .join("\n");
     console.log(`[prompt-budget] dispatched prefix per mode:\n${rows}`);
     expect(Object.keys(measured).length).toBe(CASES.length);
+  });
+
+  it("EMITS the response-language block on a non-English locale", () => {
+    // The ceiling check alone cannot catch this. If the block stopped being
+    // emitted — a renamed setting, a resolver returning en-us, a filter dropping
+    // an empty string — `build-fr` would simply equal `build` and every budget
+    // assertion would still pass, while the feature was silently dead. The DELTA
+    // is the only thing that proves it reached the wire.
+    const base = measured["build"]!;
+    const fr = measured["build-fr"]!;
+    expect(
+      fr.total - base.total,
+      `build-fr (${fr.total}) must exceed build (${base.total}) — the response ` +
+        `language instruction is not reaching the dispatched prompt`,
+    ).toBeGreaterThan(20);
+    // It belongs in the SYSTEM prefix, not in tool descriptions or schemas.
+    expect(fr.systemTokens).toBeGreaterThan(base.systemTokens);
+    expect(fr.toolDescriptionTokens).toBe(base.toolDescriptionTokens);
+    expect(fr.toolSchemaTokens).toBe(base.toolSchemaTokens);
   });
 });

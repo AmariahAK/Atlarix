@@ -186,4 +186,28 @@ describe("a post-turn completion settles the frozen card", () => {
     expect(rows.filter((r) => r.status === "done")).toHaveLength(5);
     expect(rows.filter((r) => r.status === "running")).toHaveLength(0);
   });
+
+  it("keys start and completion to the SAME round, without leaning on consolidation", () => {
+    // WHY THIS EXISTS ALONGSIDE "does not ADD a row". That test builds its
+    // fixture with `mergeSubagentActivityIntoThread`, which itself calls
+    // `consolidateSubagentRoundsInThread` — so if start and completion ever keyed
+    // to DIFFERENT round ids, the duplicate would be silently merged and the row
+    // count would still be 1. It cannot tell "the ids match" from "the ids
+    // differed and something covered for it".
+    //
+    // The round id is observable and stable, so assert on it directly: a
+    // divergence flips the surviving id (consolidation adopts the running round,
+    // else the last one) even though the count stays at 1.
+    const started = startedThread();
+    const startedRounds = started.filter((i) => i.kind === "subagent_round");
+    expect(startedRounds).toHaveLength(1);
+
+    const settled = mergeSubagentActivityIntoThread(started, completion());
+    const settledRounds = settled.filter((i) => i.kind === "subagent_round");
+    expect(settledRounds).toHaveLength(1);
+    expect(
+      settledRounds[0]!.id,
+      "completion keyed to a different round than start — consolidation is hiding a duplicate",
+    ).toBe(startedRounds[0]!.id);
+  });
 });

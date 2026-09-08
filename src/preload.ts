@@ -328,6 +328,7 @@ const validReceiveChannels = [
   "app:output",
   "deep-link-received",
   "plan-changed",              // Realtime plan updates from Supabase
+  "settings:changed",          // main → EVERY renderer: user settings were written. Without it a second window keeps a stale copy (useSettings loads once per window into an atom) — the reason zoom drifted between windows.
   "auth:resolved",             // main → renderer: the startup session restore SETTLED (user or null). Unlike plan-changed this always fires — a restore that found nothing is still an answer the renderer needs.
   "oauth-callback-success",    // OAuth callback from main process
   "force-close-detected",

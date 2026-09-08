@@ -68,7 +68,70 @@ const NEVER_TRUNCATE = new Set<string>(["browser_screenshot"]);
 // gain — exempt it; the envelope is for unbounded outputs (commands, etc.).
 // read_attachment self-pages the same way since W3 (v14.8.11) — offset/limit
 // over the cached full extraction, page size bounded in the tool itself.
-const SELF_PAGINATED_TOOLS = new Set<string>(["read_file", "read_attachment", "session_search"]);
+// web_search joined 2026-09-07 for a different reason worth stating: its result is
+// FIVE INDEPENDENT PAGES, not one stream. Head+tail on that keeps page 1 and
+// discards pages 2-5 entirely — measured, 6.1% retained, four sources fetched and
+// thrown away unread. It now allocates its own budget across the pages it actually
+// has and points at `read_url` for the rest (a warm cache hit, 15-minute TTL).
+const SELF_PAGINATED_TOOLS = new Set<string>([
+    "read_file",
+    "read_attachment",
+    "session_search",
+    "web_search",
+]);
+
+/**
+ * Per-tool truncation hints, because the generic one is an IMPOSSIBLE instruction
+ * for most tools.
+ *
+ * The default tells the model to "call read_file again with offset/limit on the
+ * same path" or to "narrow the command". For a web search there is no path and no
+ * command, so its only remaining move was to search again — which is exactly what
+ * the owner observed in his own transcript.
+ *
+ * NOT to be confused with `TOOL_RECOVERY_HINTS` in `tool-error-patterns.ts`: that
+ * is the ERROR path (a tool that failed), this is the SUCCESS path (a tool that
+ * worked and returned too much). They answer different questions and are keyed by
+ * the same tool names, which is exactly why they are easy to conflate.
+ */
+const TRUNCATION_HINTS: Record<string, string> = {
+    mcp_call:
+        "call the same MCP tool with narrower arguments, or ask the server for a specific field.",
+    read_url: "call read_url again with a smaller max_length, or a more specific URL.",
+    grep: "narrow the path/include, or lower max_results.",
+    glob: "narrow the pattern, or lower the limit.",
+};
+const TRUNCATION_HINT_DEFAULT =
+    "for a file, call read_file again with offset/limit on the same path; " +
+    "for a command, narrow it (pipe through head/grep or target a specific path).";
+
+/**
+ * The largest string-valued field of an object, by character count.
+ *
+ * WHY THIS EXISTS — the bug it fixes is not merely lossy, it is CORRUPTING.
+ * Truncating `JSON.stringify(result)` cuts an object's serialization mid-value, so
+ * the model receives syntactically invalid JSON, and the returned SHAPE changes
+ * from object to string. Worse, `wrapUntrustedData` puts its closing
+ * `</untrusted-data>` tag at the end of the text field — which is precisely the
+ * middle of the serialization, so every truncated object result shipped an
+ * unterminated injection-defence envelope.
+ *
+ * Truncating the biggest string field IN PLACE fixes all three: the shape survives
+ * (so `web_search`'s `sources` array stays parseable and citations keep working),
+ * the JSON stays valid, and a head+tail of the text field keeps its tail — which is
+ * where the closing tag lives.
+ */
+function largestStringField(o: Record<string, unknown>): string | null {
+    let key: string | null = null;
+    let len = -1;
+    for (const [k, v] of Object.entries(o)) {
+        if (typeof v === "string" && v.length > len) {
+            key = k;
+            len = v.length;
+        }
+    }
+    return key;
+}
 
 /**
  * If `result` exceeds the token budget (or the byte ceiling) and the tool is
@@ -110,18 +173,51 @@ export async function maybeTruncateToolOutput(
             }
         }
 
+        const hint = TRUNCATION_HINTS[toolName] ?? TRUNCATION_HINT_DEFAULT;
+        const noticeFor = (omitted: number, total: number) =>
+            `\n\n[output truncated: ${omitted.toLocaleString("en-US")} of ` +
+            `${total.toLocaleString("en-US")} chars omitted. To see more: ${hint}]`;
+
+        // OBJECT RESULTS ARE TRUNCATED IN THEIR LARGEST STRING FIELD, not in their
+        // serialization — see `largestStringField` for why cutting the JSON is
+        // corrupting rather than merely lossy.
+        if (result !== null && typeof result === "object" && !Array.isArray(result)) {
+            const obj = result as Record<string, unknown>;
+            const field = largestStringField(obj);
+            if (field) {
+                const original = obj[field] as string;
+                // Budget the FIELD, not the envelope: the rest of the object
+                // (ids, urls, a sources array) is small and must survive whole.
+                const overhead = resultStr.length - original.length;
+                const { text: preview, omittedChars } =
+                    truncateLib.headTailTruncateToTokens(
+                        original,
+                        TOOL_OUTPUT_PREVIEW_HEAD_TOKENS,
+                        TOOL_OUTPUT_PREVIEW_TAIL_TOKENS,
+                    );
+                if (omittedChars > 0) {
+                    return {
+                        value: {
+                            ...obj,
+                            [field]: `${preview}${noticeFor(omittedChars, original.length)}`,
+                        },
+                        truncated: true,
+                        totalChars: resultStr.length,
+                    };
+                }
+                // The big field fit, so the overage is structural (a huge array,
+                // many keys). Nothing safe to cut in place — fall through.
+                void overhead;
+            }
+        }
+
         const { text: preview, omittedChars } = truncateLib.headTailTruncateToTokens(
             resultStr,
             TOOL_OUTPUT_PREVIEW_HEAD_TOKENS,
             TOOL_OUTPUT_PREVIEW_TAIL_TOKENS,
         );
-        const notice =
-            `\n\n[output truncated: ${omittedChars.toLocaleString("en-US")} of ` +
-            `${resultStr.length.toLocaleString("en-US")} chars omitted. To see more: ` +
-            `for a file, call read_file again with offset/limit on the same path; ` +
-            `for a command, narrow it (pipe through head/grep or target a specific path).]`;
         return {
-            value: `${preview}${notice}`,
+            value: `${preview}${noticeFor(omittedChars, resultStr.length)}`,
             truncated: true,
             totalChars: resultStr.length,
         };

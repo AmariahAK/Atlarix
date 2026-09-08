@@ -1,4 +1,5 @@
 import { ipcMain } from "electron";
+import { broadcastToAllWindows } from "../utils/broadcast_all_windows";
 import type { UserSettings } from "../../lib/schemas";
 import { writeSettings } from "../../main/settings";
 import { readSettings, isSecretEncryptionAvailable } from "../../main/settings";
@@ -46,7 +47,14 @@ export function registerSettingsHandlers() {
           model_name: next.selectedModel?.name ?? "",
         });
       }
-      return readSettings();
+      // EVERY WINDOW, not just the one that asked. `useSettings` loads once per
+      // window into a jotai atom and nothing invalidated the others, so a second
+      // window kept showing stale settings until it was reloaded — which is why
+      // zoom already drifted between windows. Language makes that visible
+      // (window A in French, window B still English), so the broadcast lands
+      // here rather than being bolted onto the language feature alone.
+      broadcastToAllWindows("settings:changed", next);
+      return next;
     },
   );
 

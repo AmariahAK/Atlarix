@@ -929,9 +929,46 @@ the arguments we passed.
 The suite keeps `mobile-live-ios.test.ts` and `describe.skipIf`s it when nothing is booted, so
 it costs nothing on a machine without Xcode and is there the moment someone boots a device.
 
-**The ANDROID half remains unverified:** `adb` is not installed on this machine, so no part of
-the emulator loop has run. Tracked in docs/TODO.md as explicitly UNVERIFIED, and it should not
-be ticked off a green suite — the iOS findings above are the argument for why.
+**The ANDROID half was then verified — 2026-09-04 — and the very first command was broken.**
+`adb shell uiautomator dump /dev/tty` exits **0** and returns exactly `UI hierchary dumped to:
+/dev/tty` (32 characters, upstream's typo included) with **no XML at all**: `adb shell` allocates
+a pty, and the document written to /dev/tty never reaches adb's stdout stream. So the entire
+Android read path — the read AND the per-act ref resolution, which share `readHierarchy` —
+returned nothing, silently, from the moment it shipped. `exec-out` takes the raw binary path and
+returns the document (12,338 characters on the launcher screen).
+
+That is the **same failure as `simctl io <id> screenshot -`**, one section above, on the other
+platform, from the same cause. Twice in one tool is enough to state the rule rather than the
+anecdote: **a wrapper around an external CLI is UNVERIFIED until it has been run against that
+CLI, and the assertion that catches this class is about the SHAPE of the real output — a document
+containing nodes, PNG magic bytes, a non-zero character count — never about the arguments we
+passed.** A mock returns what it was told to, so a green mocked suite is not evidence either time.
+
+`mobile-live-android.test.ts` mirrors the iOS file, `describe.skipIf(!hasBootedDevice())` and
+resolving `adb` through the shipped locator, so a machine whose SDK the app cannot find reports
+"nothing to test" rather than failing every assertion.
+
+**And a second bug was found only because the checklist was FINISHED rather than abandoned at the
+first green loop.** `action:"launch"` used `monkey -p <pkg> -c android.intent.category.LAUNCHER 1`
+— the recipe everyone copies. On API 35 monkey exits **251**, writes its argument dump to
+**stderr**, and the activity never comes to the foreground. It now resolves the component with
+`cmd package resolve-activity --brief` and starts it with `am start -n`, which exits 0 and
+actually launches. The first run of this file stopped after hierarchy, tap and screenshot and
+deleted the emulator with `type`, `swipe`, `launch` and the log reads still unexercised; the
+launch bug was sitting in the part that had been skipped. **A verification checklist that already
+exists is not advisory — stopping at the first green result is how the second bug survives the
+run that was supposed to find it.**
+
+**The mirror-image lesson, and it cost more time than either bug.** Two of the four failures in
+that run were the TEST's fault, and both looked exactly like product defects:
+`ToolRegistry.execute` nests a result under `result` but TRUNCATES a large payload into a JSON
+*string* (with `_truncatedOutput`/`_originalSize`), so `.content` read off it is `undefined` —
+which is why `mode:"logs"` appeared to return nothing while it was returning 400 lines; and
+`runDeviceCli` returns both `stdout` and `buffer`, so reading a PNG from the string corrupts byte
+0 and the magic-byte assertion fails on a good image. A live test manufactures false accusations
+as readily as a mock manufactures false confidence. **Reproduce the failure against the raw CLI
+before believing the wrapper is at fault** — that is what separated the two real bugs from the two
+imaginary ones.
 
 ## An error message is part of the tool's contract — 2026-09-02
 

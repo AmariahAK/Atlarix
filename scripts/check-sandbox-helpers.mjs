@@ -24,6 +24,12 @@ import path from "node:path";
 const TAG = "check-sandbox-helpers";
 const ROOT = process.cwd();
 
+/**
+ * ONE ROW PER (helper, target). A helper may need several triples, so a single
+ * `target` per helper does not express the matrix — the closing count is a count
+ * of PAIRS, and a missing pair is a HARD FAILURE under CI (see below). It was a
+ * `::warning::` once, which quietly reopened the hole this script exists to close.
+ */
 const HELPERS = [
   { name: "atlarix-sandbox", target: "x86_64-pc-windows-msvc", dir: "native/atlarix-sandbox" },
   {
@@ -68,11 +74,23 @@ for (const helper of HELPERS) {
     continue;
   }
   if (!targets.includes(helper.target)) {
-    // Loud, because a silently-skipped check is exactly the failure mode here.
-    console.log(
-      `::warning::[${TAG}] target ${helper.target} not installed — ${helper.name} NOT type-checked. ` +
-        `Install it with: rustup target add ${helper.target}`,
-    );
+    // A MISSING TARGET IS A FAILURE UNDER CI, NOT A WARNING.
+    //
+    // This used to warn and continue everywhere, which reintroduces the exact hole
+    // the script exists to close: an unchecked `#![cfg]`-gated crate compiles to an
+    // empty binary and reports success. A warning in a green log is not a control.
+    // Locally it stays a warning — not every contributor installs five triples —
+    // but CI must have them, and the darwin ones are the least likely to be present
+    // on a contributor's machine, which is precisely why they need enforcing.
+    const msg =
+      `target ${helper.target} not installed — ${helper.name} NOT type-checked. ` +
+      `Install it with: rustup target add ${helper.target}`;
+    if (process.env.CI) {
+      console.error(`::error::[${TAG}] ${msg}`);
+      failed = true;
+    } else {
+      console.log(`::warning::[${TAG}] ${msg}`);
+    }
     continue;
   }
 
@@ -91,4 +109,4 @@ for (const helper of HELPERS) {
 }
 
 if (failed) process.exit(1);
-console.log(`[${TAG}] OK — ${checked}/${HELPERS.length} helper(s) type-checked`);
+console.log(`[${TAG}] OK — ${checked}/${HELPERS.length} (helper, target) pair(s) type-checked`);

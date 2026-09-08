@@ -12,8 +12,31 @@ export type MessageAttachmentRecord = {
   modelContent?: string | null;
 };
 
-function sanitizeAttachmentFilename(name: string): string {
-  return name.replace(/[^\w\s.\-()·]/g, "_").slice(0, 120) || "attachment";
+/**
+ * Make a user's filename safe to store, WITHOUT erasing their language.
+ *
+ * The class was `[^\w\s.\-()·]`, and JavaScript's `\w` is ASCII-only, so every
+ * non-Latin filename was replaced with underscores:
+ *
+ *   "otchyot.pdf" in Cyrillic  -> "_____.pdf"
+ *   Chinese two-character name -> "__.pdf"
+ *   "Bericht_Uebersicht.pdf" with an umlaut -> "Bericht__bersicht.pdf"
+ *
+ * Unlike the session-title case this has nothing to do with model output — these
+ * are the user's OWN files, so it has been mangling them for anyone not typing in
+ * English, and the attachment chip showed them the damage every time.
+ *
+ * `\p{L}\p{N}\p{M}` with the `u` flag keeps letters, digits and combining marks in
+ * any script. `\p{M}` matters: Devanagari and Arabic build characters from a
+ * letter plus marks, so letters-only still breaks those filenames from the inside.
+ *
+ * THE SECURITY PROPERTY IS UNCHANGED, and that is the part to check when editing
+ * this. Path separators, the Windows-reserved set and control characters are none
+ * of L/N/M/space/dot/hyphen/paren/middot, so they are still replaced — a
+ * traversal attempt still loses its separators and has nothing to traverse with.
+ */
+export function sanitizeAttachmentFilename(name: string): string {
+  return name.replace(/[^\p{L}\p{N}\p{M}\s.\-()·]/gu, "_").slice(0, 120) || "attachment";
 }
 
 /** Browser + main-process safe stable hash (no node:crypto). */

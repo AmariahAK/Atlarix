@@ -120,13 +120,24 @@ jobs:
       # shipped broken. `cargo check --target <triple>` sets the cfg for real and
       # type-checks the body; it needs no cross-linker because it never links.
       # Behaviour is still the `sandbox` self-test probe's job in the package jobs.
-      - name: Install Rust targets for sandbox helpers
+      # Pinned rather than "whatever Rust the runner image ships", so the toolchain
+      # that type-checks the sandbox helpers below is the same one on every run.
+      - uses: dtolnay/rust-toolchain@1.97.1
+
+      - name: Install Rust targets for the native helpers
         run: |
           rustup target add x86_64-pc-windows-msvc
           rustup target add x86_64-unknown-linux-gnu
 
-      - name: Type check sandbox helpers (cross-target)
+      - name: Type check native helpers (cross-target)
         run: npm run check:sandbox
+
+      # Catalog parity across locales, the RTL refusal, and the hardcoded-string
+      # ratchet. The ratchet only ever goes DOWN, so this stays green through the
+      # string migration instead of being red for the whole of it — a guard that
+      # is red for weeks is a guard someone switches off.
+      - name: i18n guards
+        run: npm run check:i18n
 
       # The edge functions are the money path and were type-checked by NOTHING.
       # `type ServiceClient = ReturnType<typeof createClient>` resolved the schema
@@ -549,6 +560,7 @@ jobs:
           fi
         env:
           ALLOW_UNSANDBOXED_RELEASE: ${{ vars.ALLOW_UNSANDBOXED_RELEASE }}
+
 
       - name: Upload Landlock helper for Windows builds
         uses: actions/upload-artifact@v4

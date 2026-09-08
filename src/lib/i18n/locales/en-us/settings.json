@@ -1,0 +1,7 @@
+{
+  "language": {
+    "label": "Language",
+    "description": "The language Atlarix replies in. Code, file paths and commands stay as they are. Follows your system language unless you choose one.",
+    "systemDefault": "System default"
+  }
+}

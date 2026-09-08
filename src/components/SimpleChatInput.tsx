@@ -32,6 +32,7 @@ import { TokenBar } from "@/components/chat/TokenBar";
 import { VoiceInputButton } from "@/components/chat/VoiceInputButton";
 import type { FileAttachment } from "@/ipc/ipc_types";
 import { useState } from "react";
+import { useChatInputDraft } from "@/hooks/useChatInputDraft";
 import { useAuth } from "@/lib/auth/useAuth";
 import { SignInToChatNotice } from "@/components/chat/SignInToChatNotice";
 import { cn } from "@/lib/utils";
@@ -69,6 +70,9 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
     // Keep live per-turn token usage fresh here (always-mounted composer) so the
     // meter climbs live even when the usage popover is closed.
     useLiveTurnTokenUsage(chatId);
+    // Unsent text survives a session switch and a quit. Both submit paths below
+    // set the value to "", which the draft store treats as a delete.
+    useChatInputDraft(chatId);
     const isStreamingById = useAtomValue(isStreamingByIdAtom);
     const isStreaming = isStreamingById.get(chatId) ?? false;
     const setIsStreamingById = useSetAtom(isStreamingByIdAtom);
