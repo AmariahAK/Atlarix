@@ -31,6 +31,7 @@ import { getAppVersion } from "../lib/app-version";
 import { memoryDirFor } from "../lib/agent-memory";
 import { getAcceptableShell } from "../lib/shell/resolve-shell";
 import { readSettings } from "../main/settings";
+import { LOCALE_ENGLISH_NAMES } from "@/lib/i18n/locales";
 import { buildProjectDocsPromptHint } from "../lib/project-memory";
 import { applySharedPromptFragments } from "../lib/prompts/shared-fragments";
 
@@ -410,6 +411,33 @@ Your context window this session is **${contextSize.toLocaleString("en-US")} tok
      * Everything else keeps its order, and the set is unchanged — so this costs
      * one cache-prefix invalidation on first use and nothing after.
      */
+    /**
+     * RESPONSE LANGUAGE — emitted only when the user is not on English.
+     *
+     * Read in MAIN from `readSettings()`, never passed up from the renderer.
+     * `useSettings` loads once per window into an atom, so a second window can
+     * hold a stale copy — and a stale window would make the model answer in the
+     * wrong language. Main is the only place with one answer.
+     *
+     * In `stableHeader`, NOT the dynamic tail. Locale is stable for a whole
+     * session, and the tail is the cache-hostile half — putting a stable fact
+     * there would cost prompt-cache efficiency for nothing.
+     *
+     * Emitted ONLY when the locale is not en-us, so English installs — the
+     * majority — pay ZERO tokens. Telling a model to answer in English is
+     * instructing it to do what it was going to do anyway.
+     *
+     * The carve-out is load-bearing. Without it the model translates identifiers,
+     * file paths, shell commands and commit messages, which produces code that
+     * does not run. The last sentence is there so the model can answer "how do I
+     * change this?" without the user going to look for it.
+     */
+    const appLanguage = readSettings().appLanguage;
+    const responseLanguage =
+        appLanguage && appLanguage !== "en-us"
+            ? `# Response language\nReply in ${LOCALE_ENGLISH_NAMES[appLanguage]}. Keep code, file paths, shell commands, identifiers and commit messages in their original language. The user can change this in Settings → General → Language.`
+            : "";
+
     const stableHeader = [
         runtimeIdentity,
         base.trim(),
@@ -418,6 +446,7 @@ Your context window this session is **${contextSize.toLocaleString("en-US")} tok
         modeBundle,
         deviceInfo,
         contextBudgetInfo,
+        responseLanguage,
     ].filter((s) => s.length > 0).join("\n\n");
 
     // Dynamic tail: contents that vary across turns. Date only (no clock time)

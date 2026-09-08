@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { Loader2, MessageSquare, MoreHorizontal } from "lucide-react";
 import { getDefaultStore, useAtomValue, useSetAtom } from "jotai";
@@ -337,10 +337,33 @@ export function WorkspaceSessionList({
     );
   }
 
+  /**
+   * THE ACTIVE SESSION SORTS FIRST, whatever its timestamp says.
+   *
+   * `sessions:list` orders by `desc(updatedAt)`, which is right for the rest of
+   * the list. But reopening a workspace REUSES an existing empty "Untitled"
+   * rather than minting one (that is what stops the sidebar filling with
+   * empties), so the session you are dropped into can be days old and land third
+   * — reported 2026-09-08 with a screenshot showing exactly that.
+   *
+   * Fixed HERE and not by touching `updatedAt` on reuse, which was the first
+   * attempt and is a tested prohibition: `session-reuse-guard.eval.test.ts`
+   * asserts the row is untouched because "reusing and binding a session is not
+   * something that happened IN the conversation", and drift there once caused a
+   * real data-loss bug. Presentation order is a presentation concern.
+   *
+   * Stable within each group, so the rest of the list keeps recency order.
+   */
+  const ordered = useMemo(() => {
+    if (!activeSessionId) return sessions;
+    const active = sessions.filter((s) => s.id === activeSessionId);
+    return active.length ? [...active, ...sessions.filter((s) => s.id !== activeSessionId)] : sessions;
+  }, [sessions, activeSessionId]);
+
   return (
     <>
     <div className="space-y-0.5 pb-1">
-      {sessions.map((session) => (
+      {ordered.map((session) => (
         <div
           key={session.id}
           className={cn(

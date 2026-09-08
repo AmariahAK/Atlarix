@@ -1,9 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
+import {
+  SUPPORTED_LOCALES,
+  LOCALE_LABELS,
+  type SupportedLocale,
+} from "@/lib/i18n/locales";
 import ConfirmationDialog from "@/components/ConfirmationDialog";
 import { IpcClient } from "@/ipc/ipc_client";
 import { showSuccess, showError } from "@/lib/toast";
 // Hidden: ThinkingBudgetSelector, ReleaseChannelSelector, RuntimeModeSelector, NodePathSelector
 import { useSettings } from "@/hooks/useSettings";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -272,6 +278,11 @@ export function DangerZoneSettings() {
 
 export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
   const { settings, updateSettings } = useSettings();
+  // First real use of the i18n catalogs. PR-A shipped the infrastructure with no
+  // strings moved; the Language row's own labels are the natural first entries,
+  // and the `check:i18n` ratchet is what insisted — it caught these three the
+  // moment they were added as literals.
+  const { t } = useTranslation("settings");
   const analyticsOptedIn = settings?.telemetryConsent === "opted_in";
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
@@ -353,6 +364,41 @@ export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
               <SelectItem value="system">System</SelectItem>
               <SelectItem value="light">Light</SelectItem>
               <SelectItem value="dark">Dark</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        {/* LANGUAGE — one setting, both halves. It selects the UI catalog and it
+            is what `system_prompt.ts` reads (in MAIN, never from a renderer that
+            could be stale) to tell the model which language to reply in. The
+            picker shows endonyms because someone looking for their own language
+            scans for the word they call it, not the English exonym. */}
+        <div className="flex items-center justify-between gap-4 pt-4 border-t border-border mt-4">
+          <div className="space-y-0.5">
+            <label className="text-sm font-medium text-foreground">
+              {t("language.label")}
+            </label>
+            <p className="text-xs text-muted-foreground">
+              {t("language.description")}
+            </p>
+          </div>
+          <Select
+            value={settings?.appLanguage ?? "system"}
+            onValueChange={(v) =>
+              void updateSettings({
+                appLanguage: v === "system" ? undefined : (v as SupportedLocale),
+              })
+            }
+          >
+            <SelectTrigger className="w-44">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="system">{t("language.systemDefault")}</SelectItem>
+              {SUPPORTED_LOCALES.map((l) => (
+                <SelectItem key={l} value={l}>
+                  {LOCALE_LABELS[l]}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>

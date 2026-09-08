@@ -212,6 +212,12 @@ const BUDGET: Record<string, { minTotal: number; maxTotal: number }> = {
   build: { minTotal: 12_450, maxTotal: 15_850 },
   review: { minTotal: 8_950, maxTotal: 11_400 },
   debug: { minTotal: 11_950, maxTotal: 15_250 },
+  // A NON-ENGLISH case, because every other case runs in English and the response
+  // language block is emitted ONLY when the locale is not en-us. Without this the
+  // suite would never see the instruction at all, its cost would be unmeasured,
+  // and the feature could ship silently dead — the block could stop being emitted
+  // and nothing here would notice.
+  "build-fr": { minTotal: 12_450, maxTotal: 15_950 },
 };
 
 const CASES = [
@@ -231,6 +237,11 @@ const CASES = [
     key: "debug",
     mode: "build" as const,
     settings: { workModePreference: "debug" } as const,
+  },
+  {
+    key: "build-fr",
+    mode: "build" as const,
+    settings: { appLanguage: "fr" } as const,
   },
 ];
 
@@ -287,5 +298,24 @@ describe("prompt budget — the fixed prefix, on the wire", () => {
       .join("\n");
     console.log(`[prompt-budget] dispatched prefix per mode:\n${rows}`);
     expect(Object.keys(measured).length).toBe(CASES.length);
+  });
+
+  it("EMITS the response-language block on a non-English locale", () => {
+    // The ceiling check alone cannot catch this. If the block stopped being
+    // emitted — a renamed setting, a resolver returning en-us, a filter dropping
+    // an empty string — `build-fr` would simply equal `build` and every budget
+    // assertion would still pass, while the feature was silently dead. The DELTA
+    // is the only thing that proves it reached the wire.
+    const base = measured["build"]!;
+    const fr = measured["build-fr"]!;
+    expect(
+      fr.total - base.total,
+      `build-fr (${fr.total}) must exceed build (${base.total}) — the response ` +
+        `language instruction is not reaching the dispatched prompt`,
+    ).toBeGreaterThan(20);
+    // It belongs in the SYSTEM prefix, not in tool descriptions or schemas.
+    expect(fr.systemTokens).toBeGreaterThan(base.systemTokens);
+    expect(fr.toolDescriptionTokens).toBe(base.toolDescriptionTokens);
+    expect(fr.toolSchemaTokens).toBe(base.toolSchemaTokens);
   });
 });
