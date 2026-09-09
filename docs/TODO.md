@@ -53,7 +53,8 @@ answer that costs more than the line.
         (unlike free-form `voiceLanguage` — a value here selects a bundled catalog, so an
         unknown tag is a blank UI), the `settings:changed` broadcast that fixes cross-window
         staleness, and two guards proven to fire: TypeScript key types, and `check:i18n`
-        with a hardcoded-string ratchet at 315.
+        with a hardcoded-string ratchet (the count lives in
+        `scripts/i18n-baseline.json` and auto-lowers — do not restate it here).
   - [ ] **Response language.** In `stableHeader`, NOT the per-turn tail as this item
         originally said — locale is stable for a session and the tail is the cache-hostile
         half. Emit only when the locale is not `en-us`, so English installs pay zero. Needs a
@@ -630,153 +631,70 @@ frame-ancestors on `/login` and `/account`, while `Login.tsx:27` asserts a "stri
 does not exist). For an OAuth-only signup path the abuse lever that actually applies is
 Supabase's own **Auth → Rate Limits**, not captcha.
 
-## 🧹 The free-app teardown: what v14.44 left behind (owner-confirmed 2026-09-09)
+## ✅ v14.44 SHIPPED 2026-09-09 — Core lineup, an honest wallet, tips, and the round halt
 
-Found while confirming "is the app actually free now" against the code rather than the
-commit message. `c9b8bed1` counted six plan gates deleted; there is a **seventh**, plus
-residue and one deliberate decision worth recording so nobody "fixes" it later.
+Compressed from three full sections now that the work has landed. Narrative lives in
+`docs/CHANGELOG.md`; what stays here is the one-line record, the decisions that must not be
+undone, and what is still owed.
 
-- [ ] **MCP still has a live free-tier gate — remove it.**
-      `src/components/settings/ToolsMcpSettings.tsx:345` —
-      `plan === "free" && servers.length >= 1` — firing in three places: the add is blocked
-      with _"Free tier is limited to 1 MCP server. Upgrade to Pro for unlimited."_ (`:409`),
-      an amber banner renders an **Upgrade to Pro** button (`:634-642`), and the Add button
-      is disabled (`:650`). `useUpgrade` is imported at `:336` solely for this.
-      **Why it survived:** `c9b8bed1` edited `McpMarketplaceTab.tsx` — the same feature's
-      OTHER surface. One feature, two settings surfaces, one missed. Grep the feature's noun
-      across `src/components`, not just the file the diff touched.
-      **Why it is worse than a stale flag:** Pro no longer sells unlimited MCP, so this is an
-      upgrade prompt for a benefit that does not exist — the exact rule
-      `workspace-caps.ts` states for the model (_"a model that suggests a purchase which does
-      not exist is worse than one that says nothing"_), broken in the UI. And there is **no
-      handler-side gate** in `mcp_handlers.ts`, so enforcement is renderer-only: a human is
-      capped in Settings while the agent adding servers through tools is not.
-      **Leave the sidebar Upgrade button alone** (`app-sidebar.tsx:236-247`) — Pro still sells
-      the Core allowance plus Reviewer, so prompting a free user there is correct. The line is:
-      selling the allowance is fine, gating a FEATURE behind it is not.
+- [x] **Core lineup → GLM 5.3 / Terra / Astra** — `4cc3d84e` (app), `30aafc0` (config).
+      Astra verified live via `/v1/models`. Sol dropped: models.dev files it at OpenAI's
+      priority rate, the proxy bills from that row, and `core-models.json` has no per-tier
+      price override. **Not our bug to fix in code — owner decision 2026-09-09: leave it to
+      models.dev, we simply do not ship that model.**
+- [x] **The new-user default really does land on core-3** — `4806ddeb`. The tier-order
+      change alone did NOT do this: `DEFAULT_SETTINGS.selectedModel` hardcoded `core-1`, and
+      the order feeds only the BYOK-rescue path. `DEFAULT_NEW_USER_CORE_TIER` now derives
+      from the order. **It names a SLOT, never a model id** (owner) — that indirection is why
+      the lineup changes without an app update.
+- [x] **The wallet refuses instead of clamping, and states its number** — `ebfc014`
+      (proxy), `4cc3d84e` (client). `required_cents` is parsed in the classifier, the last
+      place the raw body exists.
+- [x] **Free-app teardown finished** — `a21de99`. The seventh plan gate (`ToolsMcpSettings`,
+      missed because `c9b8bed1` edited the OTHER surface of the same feature), plus the
+      `PlanLimitError` residue and the fixture keeping it alive.
+- [x] **Tips under the composer + a shortcuts list in Help** — `bbbb28f9`.
+- [x] **Credit exhaustion stops the whole sub-agent round** — `da3615ed`. A child's 402 was
+      destroyed before anything could act on it; a parent's cancelled nothing. Shared
+      predicate, per-chat latch, limiter queue drained.
+- [x] **The slot-change notice** — `4806ddeb`. Compares the RESOLVED model id, not the
+      tier→model map: a map comparison sees no change when the lineup holds still and the
+      user moves (substituted slot, or a moved default).
 
-- [x] **Resource caps are CORRECT as they stand — owner confirmed 2026-09-09.** MCP 10,
-      automations 10, skills 10, all per workspace. They are resource limits, not plan limits,
-      and no tier raises them. **Do not touch the numbers.**
+**Decisions recorded so nobody "fixes" them later:**
 
-  - [ ] One consolidation owed, no behaviour change: `workspace-caps.ts` opens _"The
-        per-workspace caps, in one place"_ and holds only MCP and automations. The skills cap
-        is `SKILLS_WORKSPACE_MAX` at `src/ipc/handlers/skills_handlers.ts:23`. Three caps, one
-        living outside the file that exists to prevent precisely this drift.
+- **Resource caps are CORRECT: MCP 10, automations 10, skills 10, per workspace.** They are
+  resource limits, not plan limits, and no tier raises them. **Do not touch the numbers.**
+- **Account registration is REQUIRED and stays** (`SimpleChatInput.tsx`, `mustSignIn`). BYOK
+  and local Ollama are free of metering but not usable anonymously. Deliberate — it reads
+  like an oversight and is not. Do not file it as friction.
+- **Astra is NOT capped.** `maxOutputTokens` sizes the reasoning budget
+  (`reasoning-detector.ts`), so capping the tier whose value IS reasoning is the worst place
+  to economise. `token_utils.ts:176-184` records what happened last time Core was pinned.
+- **`DelegationConfigSchema`: only `tokenBudgetPerTurn` is read.** A fourth field,
+  `maxConcurrentDelegations`, was read by `register-delegation-tools` while no caller ever
+  supplied it — wired-looking and dead. Deleted in `da3615ed`. Do not attach behaviour to
+  the remaining three without following one to a caller that supplies it.
 
-- [x] **Account registration is REQUIRED and stays — owner decision 2026-09-09.**
-      `src/components/SimpleChatInput.tsx:127` sets `mustSignIn = !isAuthenticated` and
-      disables the whole composer, attachments and voice included. So BYOK and local Ollama
-      are free of metering but **not usable anonymously** — an Atlarix account is needed to
-      send anything at all. This is deliberate. **Do not remove it**, and do not file it as
-      friction; it is written down here because it reads like an oversight and is not.
+**Still owed:**
 
-- [ ] **Delete the plan-gate residue.** `src/lib/plan-limit-error.ts` and
-      `src/lib/sentry-ignore-patterns.ts:13-14` still classify _"Upgrade to Pro for unlimited
-      workspaces"_ as expected gating. That string no longer exists in the app — it survives
-      only in `src/__tests__/sentry-before-send.test.ts:9`. **A fixture keeping a dead branch
-      alive**, the same shape as the `listConfiguredMcps` scope trap. Delete the module, the
-      two patterns and the fixture together; keep the MCP pattern only until the gate above is
-      gone, then it goes too.
-
-## 🎚️ Core lineup → GLM 5.3 / Terra / Astra, default core-3 (owner-decided 2026-09-09)
-
-**The lineup.** `core-1` GLM 5.3, `core-2` GPT 5.6 Terra, `core-3` **GPT 6 Astra**. Sol is
-DROPPED — not because it is a bad model but because models.dev records it at the
-`openai/fast` rate ($4/$20) instead of standard ($2/$10), the proxy bills from models.dev,
-and there is no per-tier pricing override in `core-models.json` to correct it. Terra is
-priced correctly and needs no override, so the change we want costs nothing to ship.
-
-**The default becomes core-3** (`DEFAULT_CORE_TIER_ORDER`, `compass_constants.ts:235`) so a
-new user's first turn is on GPT 6. Three tests pin the old answer and must be rewritten,
-not just edited — their names and docblocks state the superseded core-2 decision:
-`core-tier-routing.test.ts:329`, `:343` ("prefers core-2 over core-1 when BOTH are
-configured"), `:352`.
-
-**Astra is NOT capped.** Owner decision, and the mechanism agrees: `maxOutputTokens` sizes
-the reasoning budget (`reasoning-detector.ts:365`), so capping the tier whose value IS
-reasoning is the worst place to economise. See also `token_utils.ts:176-184`, where Core was
-accidentally pinned at 32K for weeks — "truncated for no reason anyone could see."
-
-- [ ] **One-time "this slot changed" notice — owner decision, ship it with the flip.**
-      Two populations, and the SECOND is the larger one:
-  - saved `core-3` selections move Sol → Astra ($2/$10 → $10/$50);
-  - **everyone with no explicit selection moves Terra → Astra**, because the default moves
-    core-2 → core-3. That is the bigger group and the bigger per-turn change.
-    Fire when the model resolved behind a user's EFFECTIVE selection (their persisted tier,
-    or the default if they have none) differs from last session AND is materially dearer.
-    Needs a remembered `tier → model id` baseline per install plus a price read
-    (`getCoreModelsDevTargetForTier` → `getModelsDevLimits`). Must NOT fire on first run —
-    no baseline means no notice, not a notice with an empty before. Dismissible, chat-surface,
-    same family as `LoadedSessionBanner`.
-    **Precedent, for the record:** `core-3` already went DeepSeek V4 Pro → Sol silently in
-    `b552014` (2026-09-08) and held DeepSeek since 2026-07-26. Slot-not-model is the shipped
-    design and the README sells it; the notice exists because a 5x move plus a default change
-    is a different magnitude, not because the design is wrong.
-
-### DEPLOY ORDER — the one thing "one release" cannot make simultaneous
-
-Owner chose to ship everything as one release. That is the planning unit, but these changes
-do NOT reach users together, and getting the order wrong reproduces the
-OAuth-redirect-allowlist trap (a server-side flip old clients cannot satisfy):
-
-| Change                                                                | Reaches whom                             |
-| --------------------------------------------------------------------- | ---------------------------------------- |
-| `core-models.json` flip                                               | **every installed build, within 10 min** |
-| proxy clamp removal                                                   | **every installed build, on deploy**     |
-| slot-change notice · `required_cents` in the refusal · tips · cleanup | only builds that UPDATE                  |
-
-So **ship the client first, let it propagate, then flip config and deploy the proxy.**
-Reversed, existing users get Astra as their default at $10/$50 with a blunt "balance is used
-up" and no slot notice — precisely the experience the client half exists to prevent.
-
-**Owner action still owed BEFORE the config flip:** rehearse the `/v1/responses` rollback
-(§"/v1/responses — SHIPPED"). Flip `providers.openai.protocol` back to `"openai"`, confirm
-the tier returns to `/chat/completions` on the next refresh with no deploy, flip it forward
-again. Ten minutes, and it is the one lever that has never been pulled — which matters most
-on the release that changes which model sits behind it.
-
-- [ ] **Guard the next mispricing, since `--check` passed clean through this one.**
-      `pick-core-model.mjs --check` verifies a price EXISTS, never that it is right — it reported
-      "No problems found" on all three tiers with Sol mispriced 2x. Add a cross-check of
-      models.dev against OpenRouter's standard-endpoint price per model, failing on a material
-      mismatch, and wire `--check` into CI (still not wired; a `core-models.json` edit ships
-      live-on-merge with no gate). Also: `configSnippet` (`:186`) hardcodes
-      `"protocol": "openai"` — regenerating the openai provider block from the script silently
-      reverts the Responses work.
-
-## 🛑 Credit exhaustion must stop the sub-agent round (owner, 2026-09-09)
-
-Every primitive already exists and none of them are connected.
-
-- `cancelAllSubagentTasksForChat(chatId)` — `src/lib/tools/spawn-task.ts:276`, already
-  called on a user Stop (`chat_stream/lifecycle-handlers.ts:57, 109`) and on stream
-  teardown (`chat_stream/stream-lifecycle.ts:255`). It stops token spend.
-- The 402 is already classified: `classifyCompassFailure` (`compass-failure-classifier.ts:39`)
-  returns the credit-exhausted verdict for `statusCode === 402` or an
-  `insufficient_credit` body, and it is called at
-  `chat_stream/turn-runner/simple-stream-text.ts:1000`.
-
-**Two directions, and the second is the one that matters — do not ship only the first.**
-
-- [ ] **Parent turn 402s → cancel the children.** One call at the classifier site. Easy,
-      and insufficient on its own.
-- [ ] **A CHILD 402s → stop the whole round.** Each sub-agent runs its own stream, so a
-      child's 402 does not reach the parent's `onError` at all today. Every sibling will fail
-      identically — an empty wallet is not a per-agent condition — and each attempt still
-      consumes a reserve attempt on a wallet that has nothing. The child's credit verdict has
-      to reach the round's decision point and cancel the siblings, and the turn must say WHY
-      the round stopped rather than reporting N failed agents.
-
-**Why this stops being hypothetical:** with the output clamp removed (owner decision, same
-day) each Astra call holds its full worst-case reserve — ~$9.24 at the 128K ceiling — so a
-four-way fan-out needs ~$37 of headroom. On a modest balance children 2-4 refusing becomes
-the NORMAL path, not an edge case, the moment Astra is the default tier.
-
-**Watch the interaction with the `onError` bug already filed above** (§"A network reset
-kills the whole turn"): that same `onError` consumes errors without rethrowing. Whatever
-hook is added here must not depend on an exception propagating, because in that path none
-does.
+- [ ] **Owner: rehearse the `/v1/responses` rollback.** Flip
+      `providers.openai.protocol` back to `"openai"`, confirm the tier returns to
+      `/chat/completions` on the next refresh with no deploy, flip forward again. Ten
+      minutes, and it is the one lever never pulled — which matters most now that it decides
+      which model answers.
+- [ ] **Wire `pick-core-model.mjs --check` into CI.** Still ungated: a `core-models.json`
+      edit reaches every installed client within the hour with nothing having validated the
+      ids, the routing or the provider blocks. Needs no secrets — the audit reads models.dev
+      and the committed JSON, and the provider probe is skipped without a key. (A price
+      cross-check was built and reverted: owner, 2026-09-09 — not worth carrying code for one
+      model's bad upstream data.) `configSnippet`'s hardcoded `"protocol": "openai"` is
+      already fixed in atlarix-releases `b548015`.
+- [ ] **Packaged-app verification.** See the plan's Verification section: tips, shortcuts,
+      the Astra default, the slot notice, the refusal naming its number, the sub-agent round
+      halting on exhaustion, and the MCP gate being gone. Plus the two compatibility states
+      only a deliberate test catches — an OLD build against the new proxy, and a NEW build
+      against an old one (the state our own rollback creates).
 
 ## 📊 Sentry error selection + PostHog usage tracking (queued 2026-09-09, owner)
 
@@ -2057,13 +1975,14 @@ in `git log -- docs/TODO.md` and `CHANGELOG.md`.
   file ran, not evidence that the objects changed. **Verify against the database.** `supabase db
 query --linked` exists and needs no password:
 
-          -- did the body actually change?
-          select position('<a token unique to the new body>' in pg_get_functiondef(p.oid))
-          from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-          where n.nspname = 'public' and p.proname = '<fn>';
-
-          -- and did the grants survive? (see the PUBLIC trap below)
-          select array_to_string(p.proacl, ' | ') from pg_proc p … ;
+  ```sql
+  -- did the body actually change?
+  select position('<a token unique to the new body>' in pg_get_functiondef(p.oid))
+  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public' and p.proname = '<fn>';
+  -- and did the grants survive? (see the PUBLIC trap below)
+  select array_to_string(p.proacl, ' | ') from pg_proc p … ;
+  ```
 
   A correct-looking `proacl` is `authenticated=X/postgres | service_role=X/postgres` — a bare
   `=X/postgres` entry with no role before the `=` IS the PUBLIC grant.
