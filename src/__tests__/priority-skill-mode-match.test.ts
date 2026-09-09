@@ -5,6 +5,7 @@ import {
   type PrioritySkill,
 } from "@/lib/skills/priority-skill-loader";
 import {
+  SKILL_INDEX_INLINE_MAX,
   formatSkillIndexForPrompt,
   type SkillIndexEntry,
 } from "@/lib/skills/skill-index";
@@ -118,6 +119,37 @@ describe("formatSkillIndexForPrompt", () => {
     }
     expect(out).toContain("Skills available (25)");
     expect(out).not.toContain("…");
+  });
+
+  /**
+   * Beyond the inline bound the list is cut — but never SILENTLY, which is the actual
+   * invariant the test above protects. The old 10/6KB/24KB caps dropped skills with no
+   * indication, so the model was told that skills 11+ did not exist. Here the heading
+   * still counts all of them, the remainder is stated outright, and the directory is
+   * named so `grep` reaches them — no dedicated search tool, because grep already does
+   * this.
+   *
+   * The bound sits well above any realistic workspace, so this path is for the
+   * pathological case only — which is exactly why it needs a test: nobody will hit it
+   * by accident and notice it is wrong.
+   */
+  it("states what it omitted, and how to reach it", () => {
+    const many = Array.from({ length: SKILL_INDEX_INLINE_MAX + 7 }, (_, i) =>
+      entry({ name: `skill-${i}`, readPath: `.atlarix/skills/s${i}/SKILL.md` }),
+    );
+    const out = formatSkillIndexForPrompt(many);
+
+    // The count is of everything that EXISTS, not of what was printed. A heading that
+    // counted only the shown ones would be the silent-drop failure wearing a number.
+    expect(out).toContain(`Skills available (${SKILL_INDEX_INLINE_MAX + 7})`);
+    expect(out).toContain("and 7 more");
+    expect(out).toContain(".atlarix/skills/");
+    expect(out).toContain("grep");
+
+    // The first are listed in full; the tail is not pretended into existence.
+    expect(out).toContain("skill-0");
+    expect(out).toContain(`skill-${SKILL_INDEX_INLINE_MAX - 1}`);
+    expect(out).not.toContain(`skill-${SKILL_INDEX_INLINE_MAX + 6}`);
   });
 
   it("a skill with a huge body still costs only its index line", () => {

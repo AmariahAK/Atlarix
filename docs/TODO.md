@@ -948,9 +948,19 @@ all.** `skill-index.ts:14-17` says so: _"Nothing is capped and nothing is clippe
 So the growth problem is **pre-existing, not something the importer creates** — any repo with
 40 skill files already does this today. That makes the fix more necessary, not less:
 
-- **Add a `find_skill`-style lookup and bound the injected index**, so prompt cost is
-  CONSTANT regardless of how many skills a workspace holds. With the cap retired this is the
-  only control on that growth, so it ships WITH the import rather than after it.
+- **Bound the injected index** (`SKILL_INDEX_INLINE_MAX`), so prompt cost stays constant
+  however many skills a workspace holds. The bound sits well above any realistic workspace,
+  so in practice nothing changes; past it the heading still counts everything, the
+  remainder is stated, and the directory is named.
+
+  **NO `find_skill` TOOL — owner, 2026-09-09.** One was written and deleted the same
+  session. `grep` and `glob` already read `.atlarix/skills/`, so a dedicated search tool is
+  a second way to do a thing that already works — exactly the surface this project filters
+  out. **Do not re-propose it.** The distinction that matters is not "searchable vs not":
+  it is that the omission is EXPLICIT. The old 10/6KB/24KB caps dropped skills silently and
+  told the model they did not exist, which is the failure
+  `priority-skill-mode-match.test.ts` pins.
+
 - **Retire the skills cap** (owner, 2026-09-09): `SKILLS_WORKSPACE_MAX`, the `"skills"`
   member of `WorkspaceCapKind` (`workspace-caps.ts:48`), its `CAP_MAX`/`CAP_NOUN` entries and
   its Sentry pattern; update `sentry-before-send.test.ts:23`, which type-depends on the
@@ -1092,7 +1102,7 @@ numbers that do not sequence are worse than none.)_
 **Agreed order at the 2026-09-09 handoff**, so the next reader does not re-derive it:
 
 1. **Tag v14.44** — everything is on `dev` and the CHANGELOG is written. Owner's call.
-2. **v14.45** — §8 above, in full: the import, the marketplace deletion, `find_skill`, the
+2. **v14.45** — §8 above, in full: the import, the marketplace deletion, the bounded index,
    MCP active/stored split. Designed, zero code.
 3. **Launchpad** — the stopped-login fix (root cause is located: `Login.tsx:72`'s `pending`
    is cleared in exactly one place, inside `if (err)`, with no `try`/`catch` and no
