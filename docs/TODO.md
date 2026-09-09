@@ -712,6 +712,20 @@ against `/v1/responses` with our own key, streaming, counting
 So it is the tool-CALLING step, not the presence of tools. `effort: "high"` +
 `summary: "detailed"` changes nothing — still 0. **There is no lever and no fix.**
 
+**A SECOND AND MORE COMMON CAUSE: the model often does not reason at all.** Same setup,
+same day:
+
+| Prompt                                 | summary events | reasoning_tokens |
+| -------------------------------------- | -------------- | ---------------- |
+| `hey how are you?`                     | 0              | **0**            |
+| `hey how are you?` at `effort: "high"` | 0              | **0**            |
+| `What is 17 * 23? Think it through.`   | 79             | 18               |
+| a design/tradeoff question             | 90             | 42               |
+
+Reasoning effort is a CEILING, not a floor: a trivial prompt burns zero reasoning tokens
+and there is nothing to summarise. So "no thoughts on a greeting" is correct and proves
+nothing about the wiring — **read `reasoning_tokens` before suspecting the pipeline.**
+
 Expect it: in a coding harness most steps are tool calls, so thoughts land on the step
 where the model stops calling tools and writes its answer — the final step after tool
 results included. A turn still mid-fan-out showing only tool cards is correct.
