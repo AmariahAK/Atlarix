@@ -1,0 +1,24 @@
+-- Drop `installed_skills` — the skills marketplace is gone (v14.45).
+--
+-- The table existed only to track what the in-app registry browser had downloaded into
+-- `.atlarix/skills/<skillId>/`. With the fetch, install, uninstall and listing handlers
+-- deleted, nothing reads it and nothing can write it. Left in place it would be residue
+-- that reads as live: a schema entry describing a feature the app no longer has.
+--
+-- SAFE BECAUSE NOTHING QUERIES IT ANY MORE. The two readers outside the handlers were
+-- `skill-index.ts` (which built prompt index lines from these rows) and
+-- `workspace-capabilities.ts` (which listed skill names for the prompt). Both now read
+-- `.atlarix/skills/*.md` from disk instead, which is where skills actually live.
+--
+-- NOT AN EDIT TO 0042/0049. Those migrations created and pruned this table and they stay
+-- exactly as they are — they are applied history keyed by hash, and rewriting them breaks
+-- the ledger on every existing install. Dropping is a NEW step, which is the only shape a
+-- change to applied history is allowed to take.
+--
+-- USER FILES ARE NOT TOUCHED. Skills the marketplace downloaded remain on disk under
+-- `<workspace>/.atlarix/skills/<skillId>/`. They are orphaned — the loader reads
+-- top-level `*.md` only, so it will not see them — but deleting files out of a user's own
+-- repository is a far worse risk than leaving a folder behind, and a user who wants one
+-- back can move its SKILL.md up a level.
+
+DROP TABLE IF EXISTS installed_skills;

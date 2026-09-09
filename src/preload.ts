@@ -157,13 +157,9 @@ const validInvokeChannels = [
   "mcp:set-tool-consent",
   "mcps:fetch-registry",
   "mcps:install-from-registry",
-  // Skills
-  "skills:fetch-registry",
-  "skills:install",
-  "skills:uninstall",
-  "skills:list",
-  "skills:list-orphaned",
+  // Skills — read only since v14.45 (the marketplace is gone).
   "skills:list-repo-skills",
+  "skills:read-repo-skill",
   // MCP consent response from renderer to main
   "mcp:tool-consent-response",
   // "Done responding" desktop notification (renderer → main at turn-end)

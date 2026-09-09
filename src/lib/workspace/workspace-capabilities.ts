@@ -1,8 +1,8 @@
-import { and, eq, or } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { installedSkills, mcpServers } from "@/db/schema";
+import { mcpServers } from "@/db/schema";
 import { oauthConnectedFromRow } from "@/lib/mcp/oauth-token-utils";
-import { normalizeSkillWorkspacePath } from "@/paths/paths";
+import { loadPrioritySkillsForWorkspace } from "@/lib/skills/priority-skill-loader";
 
 // No cap. This is a NAMES list — a truncated one told the model that skills 11+
 // simply did not exist, which is the worst possible failure for a summary whose
@@ -43,29 +43,28 @@ export async function loadWorkspaceCapabilitiesSummary(opts: {
       ),
     );
 
-  const skillRows = await db
-    .select({
-      name: installedSkills.name,
-      scope: installedSkills.scope,
-      workspacePath: installedSkills.workspacePath,
-    })
-    .from(installedSkills)
-    .where(
-      or(
-        eq(installedSkills.scope, "global"),
-        eq(installedSkills.scope, "workspace"),
-      ),
+  /**
+   * Read the skills from DISK, not from a table.
+   *
+   * This used to select from `installed_skills`, which the v14.45 marketplace deletion
+   * drops. Left alone it would not have errored — it would have quietly returned nothing
+   * forever, and the prompt below would have told the model on every single turn that
+   * there are no skills and to "browse Settings → Skills to install", advertising a page
+   * that no longer exists. A summary that is confidently wrong is worse than an absent
+   * one, and nothing would have failed to reveal it.
+   *
+   * `.atlarix/skills/*.md` is where skills actually live, so that is what this reports.
+   */
+  let skillNames: string[] = [];
+  try {
+    const skills = await loadPrioritySkillsForWorkspace(
+      opts.workspacePath,
+      false,
     );
-
-  const normalizedWs = normalizeSkillWorkspacePath(opts.workspacePath);
-  const skillNames = skillRows
-    .filter(
-      (r) =>
-        r.scope === "global" ||
-        (r.workspacePath != null &&
-          normalizeSkillWorkspacePath(r.workspacePath) === normalizedWs),
-    )
-    .map((r) => r.name);
+    skillNames = skills.map((s) => s.name);
+  } catch {
+    // A workspace with no `.atlarix/skills/` is the common case, not an error.
+  }
 
   return {
     skillNames,
@@ -87,18 +86,18 @@ export function formatWorkspaceCapabilitiesForPrompt(
   // Only the DYNAMIC state lives here (which skills/MCP servers this workspace
   // has, + oauth status). The static "how to invoke MCP/skills" guidance is in
   // <tools_registry> (mode-tool-registry.ts) — not duplicated here.
-  const lines: string[] = [
-    "## Workspace integrations (installed skills + MCP)",
-    "",
-  ];
+  const lines: string[] = ["## Workspace integrations (skills + MCP)", ""];
 
   if (summary.skillNames.length > 0) {
     lines.push(
-      `**Installed skills (${summary.skillNames.length}):** ${summary.skillNames.join(", ")}`,
+      `**Skills (${summary.skillNames.length}):** ${summary.skillNames.join(", ")}`,
     );
   } else {
+    // No "browse Settings to install" any more — there is nowhere to install FROM,
+    // and pointing the model at a deleted page is how it starts telling users to
+    // visit it.
     lines.push(
-      "**Installed skills:** none (browse Settings → Skills to install).",
+      "**Skills:** none (a skill is a markdown file in `.atlarix/skills/`).",
     );
   }
 

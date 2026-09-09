@@ -31,32 +31,32 @@ export const MCP_WORKSPACE_MAX = 10;
 export const AUTOMATIONS_WORKSPACE_MAX = 10;
 
 /**
- * Skills per workspace.
+ * THERE IS NO SKILLS CAP, and this note is here so nobody adds one back.
  *
- * MOVED HERE 2026-09-09, and it was written TWICE before that — once as
- * `SKILLS_WORKSPACE_MAX` in `skills_handlers.ts` (the number actually enforced) and once
- * as a local `MAX_WORKSPACE` in `SkillsSettingsPage.tsx` (the number shown to the user).
- * The renderer caught the handler's refusal, threw the message away, and rebuilt it from
- * its own copy — so raising the enforced cap would have kept telling users the old one,
- * and the two wordings had already drifted apart ("Workspace limit reached" against the
- * handler's "Workspace skills limit reached"). Which is precisely the failure this file
- * exists to prevent, one import away from the file that says so.
+ * `SKILLS_WORKSPACE_MAX = 10` was retired in v14.45 with the skills marketplace, because
+ * its ONLY enforcement site was `skills:install` — the code that deletion removed. Repo
+ * skills under `.atlarix/skills/` were never capped at all (`skill-index.ts`: "Nothing is
+ * capped and nothing is clipped"), so keeping the constant would have left a number in
+ * the codebase that described nothing.
+ *
+ * It is also not enforceable by nature: these are files the user put in their own repo,
+ * and you cannot refuse a file that already exists. What bounds their cost is the skill
+ * INDEX — one line each, and searchable rather than wholesale — not a count.
+ *
+ * MCP 10 and automations 10 are untouched and stay.
  */
-export const SKILLS_WORKSPACE_MAX = 10;
 
 /** The capped resources. Adding one here forces every consumer to handle it. */
-export type WorkspaceCapKind = "mcp" | "automations" | "skills";
+export type WorkspaceCapKind = "mcp" | "automations";
 
 const CAP_MAX: Record<WorkspaceCapKind, number> = {
   mcp: MCP_WORKSPACE_MAX,
   automations: AUTOMATIONS_WORKSPACE_MAX,
-  skills: SKILLS_WORKSPACE_MAX,
 };
 
 const CAP_NOUN: Record<WorkspaceCapKind, string> = {
   mcp: "MCP servers",
   automations: "automations",
-  skills: "skills",
 };
 
 export type WorkspaceCapStatus = {

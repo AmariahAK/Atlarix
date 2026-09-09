@@ -28,10 +28,6 @@ import * as path from "node:path";
 import log from "electron-log";
 
 import { firstSentence } from "@/lib/text/first-sentence";
-import { db } from "@/db";
-import { installedSkills } from "@/db/schema";
-import { eq } from "drizzle-orm";
-import { normalizeSkillWorkspacePath } from "@/paths/paths";
 import { resolveBuiltinSkillsRoot } from "./skill-loader";
 import {
   filterSkillsForMode,
@@ -45,7 +41,11 @@ export interface SkillIndexEntry {
   description: string;
   /** What the model passes to `read_file` — workspace-relative, or absolute for bundled guides. */
   readPath: string;
-  source: "repo" | "installed" | "guide";
+  /**
+   * `"installed"` is gone with the marketplace (v14.45). It rendered identically to
+   * `"repo"` in `formatSkillIndexForPrompt`, so nothing downstream distinguished them.
+   */
+  source: "repo" | "guide";
 }
 
 /**
@@ -74,65 +74,6 @@ const BUNDLED_GUIDES: Array<{
       "Fence schemas for inline charts, graphs and markmaps rendered in chat.",
   },
 ];
-
-function safeParseJson<T>(raw: string | null | undefined, fallback: T): T {
-  if (!raw) return fallback;
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
-  }
-}
-
-/**
- * Marketplace skills — index lines only, and NO disk read at all: `name` and
- * `description` are columns on `installed_skills`, and the body path is
- * deterministic (`.atlarix/skills/<id>/SKILL.md`, skills_handlers.ts).
- *
- * Only workspace scope is queried: migration 0049 deleted every global row and
- * installs hardcode `scope: "workspace"`, so the global branch was dead.
- */
-async function loadInstalledSkillEntries(
-  workspacePath: string,
-): Promise<SkillIndexEntry[]> {
-  const rows = await db
-    .select()
-    .from(installedSkills)
-    .where(eq(installedSkills.scope, "workspace"));
-
-  const wanted = normalizeSkillWorkspacePath(workspacePath);
-  const out: SkillIndexEntry[] = [];
-  for (const row of rows) {
-    if (
-      !row.workspacePath ||
-      normalizeSkillWorkspacePath(row.workspacePath) !== wanted
-    ) {
-      continue;
-    }
-    // Prefer the recorded SKILL.md so a skill shipping an unusual filename
-    // still gets a correct pointer; fall back to the standard layout.
-    const cached = safeParseJson(
-      row.cachedFiles,
-      [] as Array<{ name: string; localPath: string }>,
-    );
-    const skillMd =
-      cached.find((f) => f.name.toLowerCase() === "skill.md") ??
-      cached.find((f) => f.name.toLowerCase().endsWith("skill.md"));
-    const relPath = skillMd
-      ? path
-          .relative(workspacePath, skillMd.localPath)
-          .split(path.sep)
-          .join("/")
-      : `.atlarix/skills/${row.id}/SKILL.md`;
-    out.push({
-      name: row.name,
-      description: firstSentence(row.description ?? ""),
-      readPath: relPath,
-      source: "installed",
-    });
-  }
-  return out;
-}
 
 /** Bundled guides that actually exist in this build. */
 async function loadGuideEntries(): Promise<SkillIndexEntry[]> {
@@ -188,12 +129,6 @@ export async function buildSkillIndex(
       }
     } catch (err) {
       logger.warn("[skill-index] repo skills failed:", err);
-    }
-
-    try {
-      entries.push(...(await loadInstalledSkillEntries(ws)));
-    } catch (err) {
-      logger.warn("[skill-index] installed skills failed:", err);
     }
   }
 

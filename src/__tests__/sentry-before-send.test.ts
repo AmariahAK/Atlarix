@@ -19,8 +19,14 @@ describe("sentryBeforeSendDropExpected", () => {
    * The message comes from `workspaceCapRefusal` rather than a literal, so rewording
    * the refusal without updating the matcher fails here instead of silently
    * un-dropping the noise.
+   *
+   * `"skills"` was dropped from this list in v14.45 for the same reason the patterns
+   * above were: the skills cap retired with the marketplace, its only enforcement site,
+   * so a refusal for it is now another error the app cannot produce. The type is what
+   * caught it — `WorkspaceCapKind` no longer has the member, so this fails to compile
+   * rather than passing forever against a fixture.
    */
-  it.each(["mcp", "automations", "skills"] as const)(
+  it.each(["mcp", "automations"] as const)(
     "drops the %s workspace-cap refusal",
     (kind) => {
       const event = {

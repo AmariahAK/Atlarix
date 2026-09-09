@@ -34,7 +34,7 @@ any repo size. The agent has a workspace. You have control.
 
 **Downloads:** Installers for **macOS**, **Linux**, and **Windows** are on [atlarix.dev](https://atlarix.dev). _(Windows builds are currently unsigned; code signing is coming soon.)_
 
-**Open ecosystem (source / installers / registries):** community **Agent Behaviors** live in [AmariahAK/atlarix-skills](https://github.com/AmariahAK/atlarix-skills); the **MCP marketplace index** is [AmariahAK/atlarix-mcps](https://github.com/AmariahAK/atlarix-mcps); official desktop builds are published from [AmariahAK/atlarix-releases](https://github.com/AmariahAK/atlarix-releases). The Atlarix app itself is proprietary.
+**Open ecosystem (source / installers / registries):** the **MCP marketplace index** is [AmariahAK/atlarix-mcps](https://github.com/AmariahAK/atlarix-mcps); official desktop builds are published from [AmariahAK/atlarix-releases](https://github.com/AmariahAK/atlarix-releases). The Atlarix app itself is proprietary.
 
 Release notes: **[docs/CHANGELOG.md](docs/CHANGELOG.md)** (current: 14.25+). Older entries: **[docs/CHANGELOG_PREVIOUS.md](docs/CHANGELOG_PREVIOUS.md)**.
 
@@ -82,7 +82,7 @@ Retrieval is **purely lexical — no index, no embeddings, no map tool, no backg
 
 - **Core tools:** A deliberately minimal tool surface — `read_file`, a single `edit_file` (one tool for create/overwrite via `operation:"write"` plus surgical `operation:"replace"` with self-healing match), **`glob`** + **`grep`** (bundled ripgrep), `run_command` (incl. `git` CLI and background commands), web search/read, `task` parallel workers, `plan`, MCP, attachments, and the in-app browser tools (`browser_inspect` to read a page, `browser` to act on it). Explore/Plan/Review run a read-only sandbox profile.
 - **MCP:** MCP servers are configured **per workspace** — up to **10** each, added manually or in one click from the marketplace (including OAuth connectors). On-demand **`list_available_mcps`** / **`mcp_call`** in workspace chat.
-- **Agent Behaviors:** Install from [atlarix-skills](https://github.com/AmariahAK/atlarix-skills). Optional **`.atlarix/skills/`** in the repo.
+- **Skills:** Markdown files in **`.atlarix/skills/`** that teach Atlarix a repeatable job — write one, or ask Atlarix to. Their names and descriptions are in the prompt; the file itself is read only when it is relevant, so the count costs you nothing.
 
 ### Diagnostics & panels
 

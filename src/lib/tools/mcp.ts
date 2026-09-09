@@ -13,8 +13,13 @@
  * (see chat_stream_handlers.ts).
  */
 
+import log from "electron-log";
 import { ToolRegistry } from "./registry";
-import { describeWorkspaceCap, workspaceCapClause } from "@/lib/workspace-caps";
+import {
+  MCP_WORKSPACE_MAX,
+  describeWorkspaceCap,
+  workspaceCapClause,
+} from "@/lib/workspace-caps";
 import { wrapUntrustedData } from "../streaming/untrusted-data";
 import { db } from "../../db";
 import { mcpServers } from "../../db/schema";
@@ -24,6 +29,8 @@ import {
   McpNeedsOAuthError,
 } from "../../ipc/utils/mcp_manager";
 import type { McpAuthType } from "../mcp/oauth-constants";
+
+const logger = log.scope("mcp-tools");
 
 export interface McpAuthRequired {
   serverId: number;
@@ -54,6 +61,8 @@ interface ListedMcpServer {
   tools: Array<{ name: string; description?: string }>;
   error?: string;
   needsOAuth?: boolean;
+  /** Configured but not switched on: named here, connected only on first use. */
+  inactive?: boolean;
 }
 
 function formatMcpError(
@@ -94,20 +103,51 @@ async function listConfiguredMcps(
    */
   if (workspaceId == null) return [];
 
+  /**
+   * EVERY configured server, enabled or not.
+   *
+   * This used to filter on `enabled`, which made a stored-but-inactive server
+   * invisible — and a model cannot ask for what it cannot see. That mattered the
+   * moment servers could arrive without being switched on: a config import lands
+   * them `enabled: false` so nothing spawns unprompted, and they would have been
+   * imported into a void.
+   *
+   * The active/inactive split is what the loop below acts on, not this query.
+   */
   const servers = await db
     .select()
     .from(mcpServers)
     .where(
-      and(
-        eq(mcpServers.enabled, true as any),
-        eq(mcpServers.scope, "workspace"),
-        eq(mcpServers.appId, workspaceId),
-      ),
+      and(eq(mcpServers.scope, "workspace"), eq(mcpServers.appId, workspaceId)),
     );
   const out: ListedMcpServer[] = [];
 
   const { mcpManager } = await import("../../ipc/utils/mcp_manager");
   for (const s of servers) {
+    /**
+     * An inactive server is NAMED, never connected.
+     *
+     * Listing its tools would mean spawning it — for a stdio server that is
+     * launching someone's process, and for a remote one an authenticated round
+     * trip — purely to render a menu. So it contributes a name and a description
+     * and nothing else — the name and transport are all a stored row carries, since
+     * there is no description column. That also keeps the list bounded as storage
+     * grows: fifty stored servers cost fifty lines, not fifty connections.
+     *
+     * `mcp_call` is where it becomes real, through the consent and auth path that
+     * already exists.
+     */
+    if (!s.enabled) {
+      out.push({
+        id: s.id,
+        name: s.name,
+        scope: s.scope,
+        transport: s.transport,
+        tools: [],
+        inactive: true,
+      });
+      continue;
+    }
     try {
       const client = await mcpManager.getClient(s.id);
       const toolSet = (await client.tools()) as Record<
@@ -240,7 +280,6 @@ ToolRegistry.register({
       .from(mcpServers)
       .where(
         and(
-          eq(mcpServers.enabled, true as any),
           eq(mcpServers.name, args.server),
           eq(mcpServers.scope, "workspace"),
           eq(mcpServers.appId, args.workspaceId),
@@ -249,8 +288,54 @@ ToolRegistry.register({
       .limit(1);
     if (!server) {
       return {
-        error: `MCP server "${args.server}" not found or not enabled. Call list_available_mcps to see what is configured.`,
+        error: `MCP server "${args.server}" is not configured in this workspace. Call list_available_mcps to see what is.`,
       };
+    }
+
+    /**
+     * FIRST USE ACTIVATES a configured-but-inactive server.
+     *
+     * `list_available_mcps` names inactive servers without connecting them, so this is
+     * where one becomes real. Enabling here rather than refusing is the whole point of
+     * storing them inactive: a user brings their config across, nothing spawns until
+     * something actually needs it, and then it just works.
+     *
+     * The cap is enforced on ACTIVE servers, so activation has to respect it — and it
+     * REFUSES rather than evicting. Auto-disabling somebody else's server to make room
+     * silently rewrites a configuration the user set and could kill an in-flight
+     * session; naming what to turn off leaves that decision where it belongs.
+     *
+     * This is not a security gate. Consent is: `requireConsent` still runs per tool on
+     * first use, below, and that is what the user actually approves.
+     */
+    if (!server.enabled) {
+      const activeCount = (
+        await db
+          .select()
+          .from(mcpServers)
+          .where(
+            and(
+              eq(mcpServers.enabled, true as any),
+              eq(mcpServers.scope, "workspace"),
+              eq(mcpServers.appId, args.workspaceId),
+            ),
+          )
+      ).length;
+      if (activeCount >= MCP_WORKSPACE_MAX) {
+        return {
+          error:
+            `MCP server "${args.server}" is configured but not enabled, and this workspace ` +
+            `already has the maximum ${MCP_WORKSPACE_MAX} enabled. Ask the user to disable ` +
+            `one in Settings → MCP before using this server.`,
+        };
+      }
+      await db
+        .update(mcpServers)
+        .set({ enabled: true as any })
+        .where(eq(mcpServers.id, server.id));
+      logger.log(
+        `[mcp] activating "${server.name}" on first use (was configured but not enabled)`,
+      );
     }
 
     const ctx = args._mcpInvocationContext;

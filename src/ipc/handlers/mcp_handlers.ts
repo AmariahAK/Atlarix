@@ -56,6 +56,33 @@ export { MCP_WORKSPACE_MAX };
 
 type ConsentDecision = "accept-once" | "accept-always" | "decline";
 
+/**
+ * How many MCP servers are ACTIVE in this workspace.
+ *
+ * The cap counts enabled servers, not stored rows. Storing a server costs a row; what a
+ * workspace with fifty of them actually costs is comprehension and connections, and only
+ * enabled ones are ever connected or listed to the model (`mcp.ts` filters on `enabled`
+ * in both `list_available_mcps` and `mcp_call`).
+ *
+ * This is what lets a config import keep everything a user brought without any of it
+ * going live: imported servers land `enabled: false` and sit outside the cap until the
+ * user or the model turns one on. Note the column DEFAULTS TO TRUE (`schema.ts`), so an
+ * inserter that forgets to set it lands the server active and inside the cap.
+ */
+async function activeWorkspaceMcpCount(appId: number): Promise<number> {
+  const rows = await db
+    .select()
+    .from(mcpServers)
+    .where(
+      and(
+        eq(mcpServers.scope, "workspace"),
+        eq(mcpServers.appId, appId),
+        eq(mcpServers.enabled, true as any),
+      ),
+    );
+  return rows.length;
+}
+
 export function registerMcpHandlers() {
   handle(
     "mcp:list-servers",
@@ -128,15 +155,9 @@ export function registerMcpHandlers() {
         throw new Error("Select a workspace before adding an MCP server.");
       }
 
-      const workspaceCount = await db
-        .select()
-        .from(mcpServers)
-        .where(
-          and(eq(mcpServers.scope, "workspace"), eq(mcpServers.appId, appId)),
-        );
-      if (workspaceCount.length >= MCP_WORKSPACE_MAX) {
+      if ((await activeWorkspaceMcpCount(appId)) >= MCP_WORKSPACE_MAX) {
         throw new Error(
-          `Maximum ${MCP_WORKSPACE_MAX} MCP servers per workspace. Remove one to add another.`,
+          `Maximum ${MCP_WORKSPACE_MAX} enabled MCP servers per workspace. Disable or remove one to add another.`,
         );
       }
       const {
@@ -449,16 +470,10 @@ export function registerMcpHandlers() {
           return { success: false, error: entryError };
         }
 
-        const workspaceCount = await db
-          .select()
-          .from(mcpServers)
-          .where(
-            and(eq(mcpServers.scope, "workspace"), eq(mcpServers.appId, appId)),
-          );
-        if (workspaceCount.length >= MCP_WORKSPACE_MAX) {
+        if ((await activeWorkspaceMcpCount(appId)) >= MCP_WORKSPACE_MAX) {
           return {
             success: false,
-            error: `Maximum ${MCP_WORKSPACE_MAX} MCP servers per workspace. Remove one to add another.`,
+            error: `Maximum ${MCP_WORKSPACE_MAX} enabled MCP servers per workspace. Disable or remove one to add another.`,
           };
         }
         if (entry.authType === "oauth") {

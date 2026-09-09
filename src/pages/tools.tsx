@@ -219,34 +219,19 @@ const FEATURES: ToolFeature[] = [
     link: { label: "Home → Chat", to: "/" },
   },
   {
-    id: "skills-marketplace",
-    title: "Skills marketplace",
-    shortDescription:
-      "Install Apache-licensed playbooks from the public registry—five global slots and five per workspace.",
-    category: "skills",
-    steps: [
-      "Settings → Skills",
-      "Browse and install",
-      "Use Build/Review modes to activate compatible skills",
-    ],
-    howItWorks:
-      "Skills shrink repetitive prompt boilerplate; they never replace your workspace instructions in `.atlarix/ATLARIX.md`.",
-    link: { label: "Settings → Skills", to: "/settings" },
-  },
-  {
     id: "repo-skills",
-    title: "Repo skills (.atlarix/skills/)",
+    title: "Skills (.atlarix/skills/)",
     shortDescription:
-      "Drop markdown skills under `.atlarix/skills/`; they load as workspace context on every plan.",
+      "Markdown files under `.atlarix/skills/` that teach Atlarix a repeatable job.",
     category: "skills",
     steps: [
-      "Add skill files to `.atlarix/skills/`",
-      "Commit them like other project docs",
-      "They load automatically as workspace context",
+      "Add a markdown file to `.atlarix/skills/` — or ask Atlarix to write one",
+      "Commit it like other project docs",
+      "Atlarix reads it when the job comes up",
     ],
     howItWorks:
-      "Skills in `.atlarix/skills/` are read as additional workspace context, committed alongside your project.",
-    link: { label: "Open workspace folder", to: "/" },
+      "Atlarix sees every skill's name and description on each turn, and reads the full file only when one is relevant — so the count does not cost you prompt space. Settings → Skills lists what a workspace has and shows you any of them.",
+    link: { label: "Settings → Skills", to: "/integrations/skills" },
   },
   {
     id: "mcp-manual",
@@ -260,14 +245,14 @@ const FEATURES: ToolFeature[] = [
       "Approve tool calls per capability",
     ],
     howItWorks:
-      "Manual entries are unchanged by the marketplace; they are ideal for private or bespoke servers.",
+      "Manual entries are unchanged by the MCP marketplace; they are ideal for private or bespoke servers.",
     link: { label: "Settings → MCP", to: "/settings" },
   },
   {
     id: "mcp-marketplace",
     title: "MCP marketplace",
     shortDescription:
-      "One-click installs from the curated atlarix-mcps registry; pagination matches the skills browser.",
+      "One-click installs from the curated atlarix-mcps registry.",
     category: "mcp",
     steps: [
       "Open MCP → Marketplace tab",

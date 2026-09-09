@@ -174,6 +174,8 @@ export function isJournalMigrationApplied(
       return tableExists(sqlite, "custom_commands");
     case "0041_drop_diagram_versions":
       return !tableExists(sqlite, "diagram_versions");
+    // Historical: `0076` drops this table. The case stays because a database that
+    // replays history still passes through here, and a missing case returns false.
     case "0042_installed_skills":
       return columnExists(sqlite, "installed_skills", "scope");
     case "0043_mcp_registry_columns":
@@ -265,6 +267,11 @@ export function isJournalMigrationApplied(
       return columnExists(sqlite, "chat_sessions", "work_mode");
     case "0075_edit_stats":
       return tableExists(sqlite, "edit_stats");
+    // A DROP verifies by ABSENCE. `0041_drop_diagram_versions` above is the same
+    // shape — asserting the table still exists would pass on a database where the
+    // migration never ran, which is the failure this file is for.
+    case "0076_drop_installed_skills":
+      return !tableExists(sqlite, "installed_skills");
     default:
       return false;
   }

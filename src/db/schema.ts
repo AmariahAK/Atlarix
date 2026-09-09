@@ -1,8 +1,8 @@
 import { sql } from "drizzle-orm";
 import {
   index,
-  integer,
   primaryKey,
+  integer,
   sqliteTable,
   text,
   unique,
@@ -850,36 +850,12 @@ export const reviewPatterns = sqliteTable(
   (table) => [index("review_patterns_workspace_idx").on(table.workspaceId)],
 );
 
-// --- Skills (Community registry installs) ---
+// --- Skills ---
 //
-// WORKSPACE SCOPE ONLY. Global installs were retired and their rows purged by
-// migration `0049_workspace_only_remote.sql`; `skills:install` hardcodes
-// `scope: "workspace"` and every query filters on it.
-//
-// The `scope` column STAYS despite having one legal value, because it is part of
-// the composite primary key below — SQLite cannot drop a primary-key member
-// without rebuilding the table, which is real migration risk for no user-visible
-// gain. `workspacePath` stays nullable for the same reason (it was nullable
-// *because* of global scope).
-export const installedSkills = sqliteTable(
-  "installed_skills",
-  {
-    id: text("id").notNull(),
-    name: text("name").notNull(),
-    version: text("version").notNull(),
-    author: text("author").notNull(),
-    description: text("description").notNull(),
-    tags: text("tags").notNull(), // JSON: string[]
-    compatibleModes: text("compatible_modes").notNull(), // JSON: string[]
-    installedAt: integer("installed_at", { mode: "timestamp" }).notNull(),
-    scope: text("scope").notNull(), // always "workspace" — see the note above
-    workspacePath: text("workspace_path"), // nullable only for legacy reasons
-    cachedFiles: text("cached_files").notNull(), // JSON: { name, localPath }[]
-  },
-  (table) => ({
-    pk: primaryKey({ columns: [table.id, table.scope, table.workspacePath] }),
-  }),
-);
+// There is no skills table. The in-app marketplace and its `installed_skills` table were
+// deleted in v14.45 (migration `0076`); skills are `.atlarix/skills/*.md` files in the
+// user's own repo, read from disk by `priority-skill-loader.ts`. Nothing about them is
+// persisted here, deliberately — the files ARE the state.
 
 // PASS6: pivot* + blueprintSnapshots relations restored.
 export const pivotNodesRelations = relations(pivotNodes, ({ one }) => ({

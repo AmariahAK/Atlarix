@@ -798,47 +798,15 @@ export interface McpToolConsent {
   updatedAt: number;
 }
 
-// --- Skills Types (community registry installs) ---
-export interface SkillManifestFile {
-  name: string;
-  url: string;
-}
+// --- Skills Types (read only since v14.45 — the registry/install types are gone) ---
 
-export interface SkillManifestEntry {
-  id: string;
-  name: string;
-  description: string;
-  version: string;
-  author: string;
-  tags: string[];
-  compatibleModes: string[];
-  files: SkillManifestFile[];
-}
-
-export interface SkillRegistryIndex {
-  version: string;
-  updatedAt?: string;
-  skills: SkillManifestEntry[];
-}
-
-export interface InstallSkillParams {
-  skill: SkillManifestEntry;
-  scope: "workspace";
-  workspacePath?: string;
-}
-
-export interface UninstallSkillParams {
-  skillId: string;
-  scope: "workspace";
-  workspacePath?: string;
-}
-
-/** Workforce Feature 1: repo-scoped priority skill summary (from `.atlarix/skills/`). */
+/** One `.atlarix/skills/*.md`, as the settings list renders it. Metadata only. */
 export interface RepoSkillSummary {
   name: string;
   description: string;
   tags: string[];
   modes: string[];
+  /** Reflects a Team gate that no longer exists, so always false. */
   priority: boolean;
   version: string;
   filename: string;
@@ -848,20 +816,6 @@ export interface RepoSkillSummary {
 export interface ListRepoSkillsResult {
   skills: RepoSkillSummary[];
   isWorkforce: boolean;
-}
-
-export interface InstalledSkillRow {
-  id: string;
-  name: string;
-  version: string;
-  author: string;
-  description: string;
-  tags: string[];
-  compatibleModes: string[];
-  installedAt: Date | string;
-  scope: "workspace";
-  workspacePath: string | null;
-  cachedFiles: Array<{ name: string; localPath: string }>;
 }
 
 export interface CloneRepoParams {

@@ -20,7 +20,7 @@
     "previousSession": "Ask Atlarix to read a previous session by name when you want accurate context on earlier work.",
     "autocomplete": "Type / for commands, or @ to point at a file.",
     "mcp": "Connect MCP servers in Settings \u2192 Integrations to give Atlarix your own tools.",
-    "skills": "Install skills per workspace in Settings to teach Atlarix a repeatable job.",
+    "skills": "Drop a markdown file in .atlarix/skills/ to teach Atlarix a repeatable job \u2014 or ask it to write one.",
     "voice": "Dictate instead of typing \u2014 Whisper runs on your machine, so it needs no key.",
     "automations": "Put recurring work on a schedule with automations.",
     "subagents": "Hand independent work to sub-agents and let them run in parallel."

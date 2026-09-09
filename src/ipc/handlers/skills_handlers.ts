@@ -1,356 +1,57 @@
+/**
+ * Workspace skills: READ ONLY.
+ *
+ * The in-app skills marketplace was deleted in v14.45. It fetched a remote registry
+ * index, downloaded manifest files into `.atlarix/skills/<skillId>/`, and tracked the
+ * lot in an `installed_skills` table. All of it is gone — the registry fetch, install,
+ * uninstall, the installed/orphan listings, and the table.
+ *
+ * WHY, because it reads like a capability regression and is not one. Users research a
+ * skill at the moment they need it, or ask the model to write one; a curated in-app store
+ * competed with that and earned nothing. The reasoning generalises and is the part worth
+ * keeping: a skill is inert text, whereas an MCP server is a live connection holding
+ * credentials with remote side effects. Curation and management are worth building where a
+ * mistake has consequences — which is the MCP side, not this one.
+ *
+ * What remains is the feature that was always the real one: `.atlarix/skills/*.md` files
+ * a user writes or drops into their own repo. This module lets the app LIST them and READ
+ * one. Nothing here writes to disk or to the database.
+ */
 import type { IpcMainInvokeEvent } from "electron";
 import log from "electron-log";
-import * as fs from "node:fs/promises";
-import * as path from "node:path";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 import { db } from "../../db";
-import { apps, installedSkills } from "../../db/schema";
+import { apps } from "../../db/schema";
 import { createLoggedHandler } from "./safe_handle";
 import { loadPrioritySkillsForWorkspace } from "../../lib/skills/priority-skill-loader";
-import {
-  SKILLS_WORKSPACE_MAX,
-  workspaceCapRefusal,
-} from "../../lib/workspace-caps";
-import {
-  getAtlarixAppPath,
-  normalizeSkillWorkspacePath,
-} from "../../paths/paths";
+import { getAtlarixAppPath } from "../../paths/paths";
 
 const logger = log.scope("skills_handlers");
 const handle = createLoggedHandler(logger);
 
-const DEFAULT_REGISTRY_URL =
-  "https://raw.githubusercontent.com/AmariahAK/atlarix-skills/main/index.json";
-
 /**
- * Re-exported for the existing importers of this module. The number itself lives in
- * `workspace-caps.ts` with the other two per-workspace caps — it used to be declared
- * here AND again in `SkillsSettingsPage.tsx`, which is how the enforced cap and the
- * displayed cap could disagree.
+ * Resolve a workspace id to the skills the loader can see, or null.
+ *
+ * Shared by both handlers so the list and the read can never disagree about which
+ * files exist — which is also what makes the read safe without any path handling of
+ * its own. See `skills:read-repo-skill`.
  */
-export { SKILLS_WORKSPACE_MAX };
+async function loadSkillsForWorkspaceId(workspaceId: unknown) {
+  if (typeof workspaceId !== "number" || workspaceId <= 0) return null;
 
-export type SkillManifestFile = { name: string; url: string };
-
-export type SkillManifestEntry = {
-  id: string;
-  name: string;
-  description: string;
-  version: string;
-  author: string;
-  tags: string[];
-  compatibleModes: string[];
-  files: SkillManifestFile[];
-};
-
-export type SkillRegistryIndex = {
-  version: string;
-  updatedAt?: string;
-  skills: SkillManifestEntry[];
-};
-
-export type InstallSkillParams = {
-  skill: SkillManifestEntry;
-  scope: "workspace";
-  workspacePath?: string;
-};
-
-export type UninstallSkillParams = {
-  skillId: string;
-  scope: "workspace";
-  workspacePath?: string;
-};
-
-function assertValidInstallParams(params: InstallSkillParams): void {
-  if (!params?.skill?.id?.trim()) throw new Error("Missing skill.id");
-  if (!params.skill.name?.trim()) throw new Error("Missing skill.name");
-  if (!params.skill.version?.trim()) throw new Error("Missing skill.version");
-  if (!params.skill.author?.trim()) throw new Error("Missing skill.author");
-  if (!params.skill.description?.trim())
-    throw new Error("Missing skill.description");
-  if (!Array.isArray(params.skill.tags)) throw new Error("Invalid skill.tags");
-  if (!Array.isArray(params.skill.compatibleModes))
-    throw new Error("Invalid skill.compatibleModes");
-  if (!Array.isArray(params.skill.files) || params.skill.files.length === 0)
-    throw new Error("Invalid skill.files");
-  // Always required: workspace is the only scope there is.
-  if (!params.workspacePath?.trim()) {
-    throw new Error("workspacePath is required to install a skill");
-  }
-}
-
-function localDirForInstall(skillId: string, workspacePath: string) {
-  return path.join(workspacePath, ".atlarix", "skills", skillId);
-}
-
-async function fetchJsonWithTimeout(url: string): Promise<any> {
-  const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
-  if (!res.ok) {
-    throw new Error(`Registry fetch failed: ${res.status} ${res.statusText}`);
-  }
-  return res.json();
-}
-
-async function countSkillsForWorkspace(workspacePath: string) {
-  const normalized = normalizeSkillWorkspacePath(workspacePath);
-  const rows = await db
+  const [appRow] = await db
     .select()
-    .from(installedSkills)
-    .where(eq(installedSkills.scope, "workspace"));
-  return rows.filter((row) =>
-    row.workspacePath
-      ? normalizeSkillWorkspacePath(row.workspacePath) === normalized
-      : false,
-  ).length;
-}
+    .from(apps)
+    .where(eq(apps.id, workspaceId))
+    .limit(1);
+  if (!appRow) return null;
 
-async function migrateSkillWorkspacePathRows(): Promise<void> {
-  const rows = await db
-    .select()
-    .from(installedSkills)
-    .where(eq(installedSkills.scope, "workspace"));
-  for (const row of rows) {
-    if (!row.workspacePath?.trim()) continue;
-    const normalized = normalizeSkillWorkspacePath(row.workspacePath);
-    if (normalized === row.workspacePath) continue;
-    const conflict = await db
-      .select({ id: installedSkills.id })
-      .from(installedSkills)
-      .where(
-        and(
-          eq(installedSkills.id, row.id),
-          eq(installedSkills.scope, "workspace"),
-          eq(installedSkills.workspacePath, normalized),
-        ),
-      )
-      .limit(1);
-    if (conflict.length > 0) continue;
-    await db
-      .update(installedSkills)
-      .set({ workspacePath: normalized })
-      .where(
-        and(
-          eq(installedSkills.id, row.id),
-          eq(installedSkills.scope, "workspace"),
-          eq(installedSkills.workspacePath, row.workspacePath),
-        ),
-      );
-  }
-}
-
-function filterSkillsByWorkspacePath<
-  T extends { workspacePath: string | null },
->(rows: T[], workspacePath: string): T[] {
-  const normalized = normalizeSkillWorkspacePath(workspacePath);
-  return rows.filter((row) =>
-    row.workspacePath
-      ? normalizeSkillWorkspacePath(row.workspacePath) === normalized
-      : false,
-  );
+  // Team tier removed — repo skill priority (was Team-only) is disabled.
+  return loadPrioritySkillsForWorkspace(getAtlarixAppPath(appRow.path), false);
 }
 
 export function registerSkillsHandlers() {
-  handle(
-    "skills:fetch-registry",
-    async (_event: IpcMainInvokeEvent, registryUrl?: string) => {
-      const url = registryUrl?.trim() || DEFAULT_REGISTRY_URL;
-      return (await fetchJsonWithTimeout(url)) as SkillRegistryIndex;
-    },
-  );
-
-  handle(
-    "skills:list",
-    async (
-      _event: IpcMainInvokeEvent,
-      params?: { scope?: "workspace"; workspacePath?: string },
-    ) => {
-      const wsPath = params?.workspacePath?.trim();
-      if (!wsPath) {
-        return [];
-      }
-      await migrateSkillWorkspacePathRows();
-      const rows = await db
-        .select()
-        .from(installedSkills)
-        .where(eq(installedSkills.scope, "workspace"));
-      const filtered = filterSkillsByWorkspacePath(rows, wsPath);
-
-      return filtered.map((r) => ({
-        ...r,
-        tags: safeParseJsonArray(r.tags),
-        compatibleModes: safeParseJsonArray(r.compatibleModes),
-        cachedFiles: safeParseJson(
-          r.cachedFiles,
-          [] as Array<{ name: string; localPath: string }>,
-        ),
-      }));
-    },
-  );
-
-  handle("skills:list-orphaned", async () => {
-    const appRows = await db.select({ path: apps.path }).from(apps);
-    const paths = new Set(
-      appRows.map((r) => r.path).filter((p) => !!p?.trim()),
-    );
-    const workspaceRows = await db
-      .select()
-      .from(installedSkills)
-      .where(eq(installedSkills.scope, "workspace"));
-    const orphans = workspaceRows.filter(
-      (r) => !r.workspacePath?.trim() || !paths.has(r.workspacePath),
-    );
-    return orphans.map((r) => ({
-      ...r,
-      tags: safeParseJsonArray(r.tags),
-      compatibleModes: safeParseJsonArray(r.compatibleModes),
-      cachedFiles: safeParseJson(
-        r.cachedFiles,
-        [] as Array<{ name: string; localPath: string }>,
-      ),
-    }));
-  });
-
-  handle(
-    "skills:install",
-    async (_event: IpcMainInvokeEvent, params: InstallSkillParams) => {
-      assertValidInstallParams(params);
-      const { skill } = params;
-      const workspacePath = normalizeSkillWorkspacePath(
-        params.workspacePath?.trim() ?? "",
-      );
-      if (!workspacePath) {
-        throw new Error("workspacePath is required to install a skill.");
-      }
-      const scope = "workspace" as const;
-
-      const wsCount = await countSkillsForWorkspace(workspacePath);
-      if (wsCount >= SKILLS_WORKSPACE_MAX) {
-        throw new Error(workspaceCapRefusal("skills"));
-      }
-
-      const localDir = localDirForInstall(skill.id, workspacePath);
-
-      // 3. Download
-      try {
-        await fs.rm(localDir, { recursive: true, force: true });
-        await fs.mkdir(localDir, { recursive: true });
-
-        const downloaded = [];
-        for (const f of skill.files) {
-          const fileUrl = f.url;
-          const res = await fetch(fileUrl, {
-            signal: AbortSignal.timeout(15_000),
-          });
-          if (!res.ok) {
-            throw new Error(
-              `Download failed for ${skill.id}/${f.name}: ${res.status} ${res.statusText}`,
-            );
-          }
-          const buf = Buffer.from(await res.arrayBuffer());
-          const localPath = path.join(localDir, f.name);
-          await fs.mkdir(path.dirname(localPath), { recursive: true });
-          await fs.writeFile(localPath, buf);
-          downloaded.push({ name: f.name, localPath });
-        }
-
-        // 4. Meta
-        await fs.writeFile(
-          path.join(localDir, ".skill-meta.json"),
-          JSON.stringify(skill, null, 2),
-          "utf8",
-        );
-
-        // 5. Upsert DB
-        await db
-          .insert(installedSkills)
-          .values({
-            id: skill.id,
-            name: skill.name,
-            version: skill.version,
-            author: skill.author,
-            description: skill.description,
-            tags: JSON.stringify(skill.tags ?? []),
-            compatibleModes: JSON.stringify(skill.compatibleModes ?? []),
-            installedAt: new Date(),
-            scope,
-            workspacePath:
-              scope === "workspace" ? (workspacePath as string) : null,
-            cachedFiles: JSON.stringify(downloaded),
-          })
-          .onConflictDoUpdate({
-            target: [
-              installedSkills.id,
-              installedSkills.scope,
-              installedSkills.workspacePath,
-            ],
-            set: {
-              name: skill.name,
-              version: skill.version,
-              author: skill.author,
-              description: skill.description,
-              tags: JSON.stringify(skill.tags ?? []),
-              compatibleModes: JSON.stringify(skill.compatibleModes ?? []),
-              installedAt: new Date(),
-              cachedFiles: JSON.stringify(downloaded),
-            },
-          });
-
-        return { success: true, localDir };
-      } catch (e) {
-        try {
-          await fs.rm(localDir, { recursive: true, force: true });
-        } catch {}
-        throw e;
-      }
-    },
-  );
-
-  handle(
-    "skills:uninstall",
-    async (_event: IpcMainInvokeEvent, params: UninstallSkillParams) => {
-      const skillId = params?.skillId?.trim();
-      if (!skillId) throw new Error("skillId is required");
-      // Skills are workspace-scoped only (global was retired by migration 0049),
-      // so the two guards that used to stand here collapsed into this one: the
-      // `scope !== "workspace"` half is now unreachable by type.
-      const workspacePath = params.workspacePath?.trim();
-      if (!workspacePath) {
-        throw new Error("workspacePath is required to uninstall a skill.");
-      }
-      const where = and(
-        eq(installedSkills.id, skillId),
-        eq(installedSkills.scope, "workspace"),
-        eq(installedSkills.workspacePath, workspacePath),
-      );
-
-      const [row] = await db
-        .select()
-        .from(installedSkills)
-        .where(where)
-        .limit(1);
-      if (!row) return { success: true };
-
-      const cachedFiles = safeParseJson(
-        row.cachedFiles,
-        [] as Array<{ name: string; localPath: string }>,
-      );
-      const localDir = cachedFiles[0]?.localPath
-        ? path.dirname(cachedFiles[0].localPath)
-        : localDirForInstall(skillId, workspacePath);
-
-      try {
-        await fs.rm(localDir, { recursive: true, force: true });
-      } catch {}
-
-      await db.delete(installedSkills).where(where);
-      return { success: true };
-    },
-  );
-
-  // Workforce Feature 1: list repo-scoped priority skills from `.atlarix/skills/`.
-  // No `requirePaidSkills()` gate — the folder is readable on all tiers;
-  // the `priority: true` frontmatter flag is itself the gate (Workforce-only).
   handle(
     "skills:list-repo-skills",
     async (
@@ -370,23 +71,13 @@ export function registerSkillsHandlers() {
     }> => {
       // Team tier removed — repo skill priority (was Team-only) is disabled.
       const isWorkforce = false;
-      const workspaceId = params?.workspaceId;
-      if (typeof workspaceId !== "number" || workspaceId <= 0) {
-        return { skills: [], isWorkforce };
-      }
+      const loaded = await loadSkillsForWorkspaceId(params?.workspaceId);
+      if (!loaded) return { skills: [], isWorkforce };
 
-      const [appRow] = await db
-        .select()
-        .from(apps)
-        .where(eq(apps.id, workspaceId))
-        .limit(1);
-      if (!appRow) return { skills: [], isWorkforce };
-
-      const workspacePath = getAtlarixAppPath(appRow.path);
-      const loaded = await loadPrioritySkillsForWorkspace(
-        workspacePath,
-        isWorkforce,
-      );
+      // Metadata only. The bodies are deliberately NOT sent here: a workspace can
+      // hold any number of skills, and shipping every body to render a list is the
+      // same mistake as putting them in the prompt (`DESIGN_NOTES.md` — skills are an
+      // index, not a payload). `skills:read-repo-skill` fetches one on demand.
       const skills = loaded.map((s) => ({
         name: s.name,
         description: s.description,
@@ -400,22 +91,43 @@ export function registerSkillsHandlers() {
     },
   );
 
+  handle(
+    "skills:read-repo-skill",
+    async (
+      _event: IpcMainInvokeEvent,
+      params?: { workspaceId?: number; filename?: string },
+    ): Promise<{ content: string } | null> => {
+      const filename = params?.filename?.trim();
+      if (!filename) return null;
+
+      const loaded = await loadSkillsForWorkspaceId(params?.workspaceId);
+      if (!loaded) return null;
+
+      /**
+       * SELECT FROM WHAT THE LOADER ENUMERATED — never join a path from this input.
+       *
+       * `filename` arrives from the renderer, so building
+       * `<workspace>/.atlarix/skills/<filename>` would be a traversal surface needing a
+       * guard, and `.atlarix/**` has already produced one hole in this codebase. Matching
+       * against the list the loader already produced removes the surface instead of
+       * guarding it: a name that is not a skill in this workspace simply is not found.
+       *
+       * The loader also already holds the body (`PrioritySkill.content`), so this costs
+       * no extra file I/O — the list handler just drops it.
+       */
+      const match = loaded.find((s) => s.filename === filename);
+      if (!match) {
+        logger.warn(
+          `skills:read-repo-skill: "${filename}" is not a skill in workspace ${params?.workspaceId}`,
+        );
+        return null;
+      }
+      return { content: match.content };
+    },
+  );
+
   // DELETED: `skills:get-active-for-session`. It was the body of the v13-era
   // `get_active_skills` tool — read every cached SKILL.md and return the lot —
   // and it outlived that tool with no renderer caller at all. Skills reach the
   // model as an index now (skill-index.ts) and their bodies via read_file.
-}
-
-function safeParseJsonArray(raw: string | null | undefined): string[] {
-  const arr = safeParseJson(raw, [] as unknown);
-  return Array.isArray(arr) ? arr.map((x) => String(x)) : [];
-}
-
-function safeParseJson<T>(raw: string | null | undefined, fallback: T): T {
-  if (!raw) return fallback;
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
-  }
 }

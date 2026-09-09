@@ -43,10 +43,6 @@ import type {
   SelectNodeFolderResult,
   DiscordInviteInfoResult,
   PlanUpdatePayload,
-  SkillRegistryIndex,
-  InstallSkillParams,
-  UninstallSkillParams,
-  InstalledSkillRow,
   ListRepoSkillsResult,
   ChatTokenUsage,
 } from "./ipc_types";
@@ -2481,47 +2477,31 @@ export class IpcClient {
     return this.ipcRenderer.invoke("mcp:set-tool-consent", params);
   }
 
-  // --- Skills Client Methods ---
-  public async skillsFetchRegistry(
-    registryUrl?: string,
-  ): Promise<SkillRegistryIndex> {
-    return this.ipcRenderer.invoke("skills:fetch-registry", registryUrl);
-  }
-
-  public async skillsInstall(
-    params: InstallSkillParams,
-  ): Promise<{ success: boolean; localDir?: string }> {
-    return this.ipcRenderer.invoke("skills:install", params);
-  }
-
-  public async skillsUninstall(
-    params: UninstallSkillParams,
-  ): Promise<{ success: boolean }> {
-    return this.ipcRenderer.invoke("skills:uninstall", params);
-  }
-
-  public async skillsList(params?: {
-    scope?: "global" | "workspace" | "all";
-    workspacePath?: string;
-  }): Promise<InstalledSkillRow[]> {
-    return this.ipcRenderer.invoke("skills:list", params);
-  }
-
-  public async skillsListOrphaned(): Promise<InstalledSkillRow[]> {
-    return this.ipcRenderer.invoke("skills:list-orphaned");
-  }
+  // --- Skills Client Methods (read only since v14.45) ---
 
   /**
-   * Workforce Feature 1: list repo-scoped priority skills from `.atlarix/skills/`.
-   * Available on all tiers; the `priority` flag in each skill itself reflects
-   * the Workforce gate (priority will be `false` for non-Workforce users even
-   * if the frontmatter sets `priority: true`).
+   * List the workspace's `.atlarix/skills/*.md`. Metadata only — bodies come from
+   * `readRepoSkill`, one at a time, because a workspace can hold any number of them.
+   *
+   * The `priority` flag reflects a Team gate that no longer exists, so it is always
+   * `false`; kept in the shape because the frontmatter key is still parsed.
    */
   public async listRepoSkills(
     workspaceId: number | null | undefined,
   ): Promise<ListRepoSkillsResult> {
     return this.ipcRenderer.invoke("skills:list-repo-skills", {
       workspaceId: workspaceId ?? null,
+    });
+  }
+
+  /** One skill's markdown body, or null if that filename is not a skill here. */
+  public async readRepoSkill(
+    workspaceId: number | null | undefined,
+    filename: string,
+  ): Promise<{ content: string } | null> {
+    return this.ipcRenderer.invoke("skills:read-repo-skill", {
+      workspaceId: workspaceId ?? null,
+      filename,
     });
   }
 
