@@ -1,6 +1,5 @@
 import { ipcMain } from "electron";
 import log from "electron-log";
-import { buildAtlarixCoreTierCatalog } from "@/lib/atlarix-core-catalog";
 import { isCompassBuildConfigured } from "../shared/compass_constants";
 import {
   computeCoreSlotChange,
@@ -16,10 +15,6 @@ export function registerCompassHandlers(): void {
     return isCompassBuildConfigured();
   });
 
-  ipcMain.handle("compass:get-tier-catalog", () => {
-    return buildAtlarixCoreTierCatalog();
-  });
-
   /**
    * Has the model behind this user's Core slot changed since they last saw it?
    *
@@ -30,29 +25,35 @@ export function registerCompassHandlers(): void {
    * the only behaviour that both stays quiet about a change the user never
    * experienced and arms the notice for the one after it.
    */
-  ipcMain.handle("compass:get-slot-change-notice", (): CoreSlotChange | null => {
-    try {
-      const settings = readSettings();
-      const current = effectiveCoreModelId(settings.selectedModel);
-      if (!current) return null;
+  ipcMain.handle(
+    "compass:get-slot-change-notice",
+    (): CoreSlotChange | null => {
+      try {
+        const settings = readSettings();
+        const current = effectiveCoreModelId(settings.selectedModel);
+        if (!current) return null;
 
-      const change = computeCoreSlotChange(settings.lastSeenCoreModel, current);
-      if (!settings.lastSeenCoreModel?.trim()) {
-        writeSettings({ lastSeenCoreModel: current });
+        const change = computeCoreSlotChange(
+          settings.lastSeenCoreModel,
+          current,
+        );
+        if (!settings.lastSeenCoreModel?.trim()) {
+          writeSettings({ lastSeenCoreModel: current });
+          return null;
+        }
+        if (change) {
+          logger.log(
+            `[compass] Core model changed for this user: ${change.from} → ${change.to}`,
+          );
+        }
+        return change;
+      } catch (e) {
+        // A notice is a nicety. Failing to compute one must never break a chat.
+        logger.warn("[compass] slot-change check failed", e);
         return null;
       }
-      if (change) {
-        logger.log(
-          `[compass] Core model changed for this user: ${change.from} → ${change.to}`,
-        );
-      }
-      return change;
-    } catch (e) {
-      // A notice is a nicety. Failing to compute one must never break a chat.
-      logger.warn("[compass] slot-change check failed", e);
-      return null;
-    }
-  });
+    },
+  );
 
   /**
    * The user has seen it. Advancing the baseline is the dismissal — see

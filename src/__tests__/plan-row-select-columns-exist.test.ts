@@ -48,7 +48,13 @@ import fs from "node:fs";
 import path from "node:path";
 
 const MIGRATIONS = path.join(process.cwd(), "supabase", "migrations");
-const CLIENT = path.join(process.cwd(), "src", "lib", "auth", "supabase-client.ts");
+const CLIENT = path.join(
+  process.cwd(),
+  "src",
+  "lib",
+  "auth",
+  "supabase-client.ts",
+);
 
 /**
  * Column names on `public.users`, replayed from the migrations in deployment
@@ -77,7 +83,9 @@ function migratedUsersColumns(): Set<string> {
     let targetIsUsers = false;
     for (const raw of sql.split(/\r?\n/)) {
       const line = raw.trim();
-      const alter = line.match(/^ALTER\s+TABLE\s+(?:ONLY\s+)?(?:public\.)?"?(\w+)"?/i);
+      const alter = line.match(
+        /^ALTER\s+TABLE\s+(?:ONLY\s+)?(?:public\.)?"?(\w+)"?/i,
+      );
       if (alter) targetIsUsers = alter[1].toLowerCase() === "users";
       if (!targetIsUsers) continue;
       for (const m of line.matchAll(
@@ -95,12 +103,28 @@ function migratedUsersColumns(): Set<string> {
   return cols;
 }
 
-/** The column list the app asks PostgREST for. */
+/**
+ * The column list the app asks PostgREST for.
+ *
+ * QUOTE STYLE MUST NOT MATTER. This read the constant with a single-quote-only
+ * pattern, so running the repo's own formatter — which normalises to double quotes —
+ * broke both assertions in this file for a reason that has nothing to do with
+ * columns, migrations, or the bug this test exists for. Any of the three JS string
+ * delimiters is accepted now: the subject is the column list, never how it is
+ * spelled. A backtick is included because the constant is a plain string today but
+ * its sibling `PLAN_ROW_SELECT_WITH_VARIANT` is already a template literal.
+ */
 function planSelectColumns(): string[] {
   const src = fs.readFileSync(CLIENT, "utf8");
-  const m = src.match(/const PLAN_ROW_SELECT_BASE\s*=\s*\n?\s*'([^']+)'/);
+  const m = src.match(
+    /const PLAN_ROW_SELECT_BASE\s*=\s*(?:'([^']+)'|"([^"]+)"|`([^`]+)`)/,
+  );
   expect(m, "PLAN_ROW_SELECT_BASE not found — was it renamed?").toBeTruthy();
-  return m![1].split(",").map((c) => c.trim()).filter(Boolean);
+  const literal = m![1] ?? m![2] ?? m![3]!;
+  return literal
+    .split(",")
+    .map((c) => c.trim())
+    .filter(Boolean);
 }
 
 describe("PLAN_ROW_SELECT_BASE", () => {
@@ -115,12 +139,17 @@ describe("PLAN_ROW_SELECT_BASE", () => {
     const cols = migratedUsersColumns();
     // Sanity, so a parse that silently matched nothing cannot pass the real
     // assertion below by returning an empty set.
-    expect(cols.has("plan"), "plan missing — the migration replay found nothing").toBe(true);
+    expect(
+      cols.has("plan"),
+      "plan missing — the migration replay found nothing",
+    ).toBe(true);
     expect(cols.has("effective_tier")).toBe(true);
     expect(cols.has("banned_at")).toBe(true);
     // And the teardown's DROPs must be honoured, or the replay is add-only and
     // would happily approve a column that no longer exists.
-    expect(cols.has("team_id"), "team_id was DROPPED by 20260714130000").toBe(false);
+    expect(cols.has("team_id"), "team_id was DROPPED by 20260714130000").toBe(
+      false,
+    );
     expect(cols.has("has_db_studio_legacy")).toBe(false);
   });
 
@@ -138,7 +167,9 @@ describe("PLAN_ROW_SELECT_BASE", () => {
 
   it("also holds for the variant select", () => {
     const src = fs.readFileSync(CLIENT, "utf8");
-    const m = src.match(/PLAN_ROW_SELECT_WITH_VARIANT = `\$\{PLAN_ROW_SELECT_BASE\}, ([a-z_]+)`/);
+    const m = src.match(
+      /PLAN_ROW_SELECT_WITH_VARIANT = `\$\{PLAN_ROW_SELECT_BASE\}, ([a-z_]+)`/,
+    );
     expect(m, "PLAN_ROW_SELECT_WITH_VARIANT not found").toBeTruthy();
     expect(migratedUsersColumns().has(m![1])).toBe(true);
   });

@@ -129,7 +129,13 @@ export const RuntimeModeSchema = z.enum(["web-sandbox", "local-node", "unset"]);
 export const ChatModeSchema = z.enum(["build", "ask", "agent"]);
 
 /** v5.1: Fine-grained work mode (tools + Blueprint tier alignment). */
-export const WorkModeSchema = z.enum(["ask", "plan", "build", "debug", "review"]);
+export const WorkModeSchema = z.enum([
+  "ask",
+  "plan",
+  "build",
+  "debug",
+  "review",
+]);
 export type WorkMode = z.infer<typeof WorkModeSchema>;
 
 /** v2.1: Agent mode (Direct / Guided / Autonomous). */
@@ -150,7 +156,20 @@ export const AutonomousConfigSchema = z.object({
   requireApprovalForNested: z.boolean().default(true),
 });
 
-/** Unified delegation limits (all work modes). */
+/**
+ * Unified delegation limits (all work modes).
+ *
+ * ONLY `tokenBudgetPerTurn` IS READ — `ChatInputControls.tsx` is its single consumer.
+ * The other three parse and are then ignored: the real per-turn and concurrency cap is
+ * `MAX_SUBAGENTS_PER_TURN` (`lib/agents/agent-runtime.ts`), and there is no UI writing
+ * any of them.
+ *
+ * Said out loud because a fourth field here, `maxConcurrentDelegations`, WAS read —
+ * `register-delegation-tools` took it off the stream context — while neither
+ * build-branch nor ask-branch ever passed it, so the setting appeared wired and did
+ * nothing. It was deleted in v14.44. Do not attach behaviour to a field below without
+ * first following it to a caller that actually supplies it.
+ */
 export const DelegationConfigSchema = z.object({
   maxDelegationDepth: z.number().min(1).max(5).default(2),
   maxDelegationsPerTurn: z.number().min(1).max(10).default(3),
@@ -166,7 +185,15 @@ export const SelfReviewConfigSchema = z.object({
   qualityThreshold: z.number().min(0.7).max(0.95).default(0.85),
   reviewModel: z.enum(["same", "custom"]).default("same"),
   customReviewModel: LargeLanguageModelSchema.optional(),
-  criteria: z.array(z.string()).default(["completeness", "correctness", "clarity", "safety", "best_practices"]),
+  criteria: z
+    .array(z.string())
+    .default([
+      "completeness",
+      "correctness",
+      "clarity",
+      "safety",
+      "best_practices",
+    ]),
   showInActivityStream: z.boolean().default(true),
 });
 
@@ -176,15 +203,23 @@ export const ContextSummarizationConfigSchema = z.object({
   customSummarizationModel: LargeLanguageModelSchema.optional(),
   compactionThreshold: z.number().min(0.6).max(0.9).default(0.75),
   adaptiveThreshold: z.boolean().default(true),
-  summarizationStrategy: z.enum(["preserve_details", "balanced", "aggressive"]).default("balanced"),
+  summarizationStrategy: z
+    .enum(["preserve_details", "balanced", "aggressive"])
+    .default("balanced"),
   adaptivePromptSizing: z.boolean().default(true),
 });
 
 /** v2.1: Activity stream config. */
 export const ActivityStreamConfigSchema = z.object({
-  position: z.enum(["right_panel", "overlay", "bottom_bar"]).default("right_panel"),
-  autoCollapseAfterMs: z.union([z.literal(3000), z.literal(10000), z.literal(0)]).default(10000),
-  showTokenCosts: z.enum(["always", "autonomous_only", "never"]).default("always"),
+  position: z
+    .enum(["right_panel", "overlay", "bottom_bar"])
+    .default("right_panel"),
+  autoCollapseAfterMs: z
+    .union([z.literal(3000), z.literal(10000), z.literal(0)])
+    .default(10000),
+  showTokenCosts: z
+    .enum(["always", "autonomous_only", "never"])
+    .default("always"),
 });
 
 /**

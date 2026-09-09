@@ -102,9 +102,13 @@ function attachmentMimeType(file: File, bytes: Uint8Array): string {
 
 /** Base64 without FileReader — avoids renderer failures on some PDFs in Electron. */
 function uint8ToBase64(bytes: Uint8Array): string {
-  const B = (globalThis as unknown as {
-    Buffer?: { from: (input: Uint8Array) => { toString: (enc: string) => string } };
-  }).Buffer;
+  const B = (
+    globalThis as unknown as {
+      Buffer?: {
+        from: (input: Uint8Array) => { toString: (enc: string) => string };
+      };
+    }
+  ).Buffer;
   if (B) {
     return B.from(bytes).toString("base64");
   }
@@ -112,7 +116,9 @@ function uint8ToBase64(bytes: Uint8Array): string {
   const binaryChunks: string[] = [];
   for (let i = 0; i < bytes.length; i += chunk) {
     const sub = bytes.subarray(i, Math.min(i + chunk, bytes.length));
-    binaryChunks.push(String.fromCharCode.apply(null, sub as unknown as number[]));
+    binaryChunks.push(
+      String.fromCharCode.apply(null, sub as unknown as number[]),
+    );
   }
   return btoa(binaryChunks.join(""));
 }
@@ -140,7 +146,9 @@ function randomAttachmentId(): string | undefined {
     : undefined;
 }
 
-async function encodeFileAttachmentForStream(attachment: FileAttachment): Promise<{
+async function encodeFileAttachmentForStream(
+  attachment: FileAttachment,
+): Promise<{
   id?: string;
   name: string;
   type: string;
@@ -171,7 +179,8 @@ async function encodeFileAttachmentForStream(attachment: FileAttachment): Promis
   // Deterministic content-hash id: the same file encoded twice (double-add,
   // edit/resend) resolves to the SAME id, so AttachmentStore + the server-side
   // backstop collapse it to one record instead of two random-UUID copies.
-  const id = attachment.id ?? (await contentHashId(buffer)) ?? randomAttachmentId();
+  const id =
+    attachment.id ?? (await contentHashId(buffer)) ?? randomAttachmentId();
 
   import("@/lib/attachment-store")
     .then(({ AttachmentStore }) => {
@@ -313,14 +322,22 @@ export class IpcClient {
   private permissionHandlers: Map<number, Set<(payload: any) => void>>;
   private commandPermissionBlockedHandlers: Map<
     number,
-    Set<(payload: { chatId: number; category?: string; message?: string }) => void>
+    Set<
+      (payload: { chatId: number; category?: string; message?: string }) => void
+    >
   >;
   private filePermissionBlockedHandlers: Map<
     number,
     Set<(payload: { chatId: number; message?: string }) => void>
   >;
   private userQuestionHandlers: Map<number, (payload: any) => void>;
-  private modeChangeHandler: ((payload: { chatId: number; requestedMode: string; reason: string }) => void) | null = null;
+  private modeChangeHandler:
+    | ((payload: {
+        chatId: number;
+        requestedMode: string;
+        reason: string;
+      }) => void)
+    | null = null;
   private terminalHandlers: Map<number, Set<(payload: any) => void>>;
   private toolStartHandlers: Set<
     (payload: {
@@ -382,16 +399,32 @@ export class IpcClient {
     (payload: { message: string; timedOut?: boolean }) => void
   > = new Set();
   private coreModelsChangedHandlers: Set<() => void> = new Set();
-  private windowFullscreenHandlers: Set<(payload: { fullscreen: boolean }) => void> = new Set();
-  private chatActivityHandlers: Set<(payload: { label?: string; status?: string; chatId?: number }) => void> = new Set();
-  private updateDownloadingHandlers: Set<(payload: { version: string }) => void> = new Set();
-  private updateAvailableHandlers: Set<
-    (payload: { currentVersion: string; latestVersion: string; releaseUrl: string }) => void
+  private windowFullscreenHandlers: Set<
+    (payload: { fullscreen: boolean }) => void
   > = new Set();
-  private updateDownloadedHandlers: Set<(payload: { version: string }) => void> = new Set();
-  private updateStatusHandlers: Set<(payload: UpdateStatusPayload) => void> = new Set();
+  private chatActivityHandlers: Set<
+    (payload: { label?: string; status?: string; chatId?: number }) => void
+  > = new Set();
+  private updateDownloadingHandlers: Set<
+    (payload: { version: string }) => void
+  > = new Set();
+  private updateAvailableHandlers: Set<
+    (payload: {
+      currentVersion: string;
+      latestVersion: string;
+      releaseUrl: string;
+    }) => void
+  > = new Set();
+  private updateDownloadedHandlers: Set<
+    (payload: { version: string }) => void
+  > = new Set();
+  private updateStatusHandlers: Set<(payload: UpdateStatusPayload) => void> =
+    new Set();
   private cliLauncherStaleHandlers: Set<() => void> = new Set();
-  private planUpdateHandlers = new Map<number, Set<(payload: PlanUpdatePayload) => void>>();
+  private planUpdateHandlers = new Map<
+    number,
+    Set<(payload: PlanUpdatePayload) => void>
+  >();
   private planArtifactHandlers = new Set<
     (payload: import("./utils/emit_plan_artifact").PlanArtifactPayload) => void
   >();
@@ -404,11 +437,10 @@ export class IpcClient {
   private contextReportHandlers = new Set<
     (payload: import("./ipc_types").ChatContextReport) => void
   >();
-  private tokenUsageHandlers = new Set<
-    (payload: ChatTokenUsage) => void
-  >();
+  private tokenUsageHandlers = new Set<(payload: ChatTokenUsage) => void>();
   private constructor() {
-    this.ipcRenderer = (window as any).electron.ipcRenderer as PreloadIpcRenderer;
+    this.ipcRenderer = (window as any).electron
+      .ipcRenderer as PreloadIpcRenderer;
     this.chatStreams = new Map();
     this.appStreams = new Map();
     this.mcpConsentHandlers = new Map();
@@ -419,11 +451,7 @@ export class IpcClient {
     this.terminalHandlers = new Map();
     // Set up listeners for stream events
     this.ipcRenderer.on("chat:response:chunk", (data) => {
-      if (
-        data &&
-        typeof data === "object" &&
-        "chatId" in data
-      ) {
+      if (data && typeof data === "object" && "chatId" in data) {
         const { chatId } = data as { chatId: number };
 
         // Optimistic stop: the user clicked Stop; drop further CHUNKS instantly
@@ -432,7 +460,12 @@ export class IpcClient {
         if (this.optimisticallyCancelled.has(chatId)) return;
 
         // Fix S: ignore updates from a superseded stream leg.
-        if (this.shouldDropStreamEvent(chatId, (data as { streamId?: unknown }).streamId)) {
+        if (
+          this.shouldDropStreamEvent(
+            chatId,
+            (data as { streamId?: unknown }).streamId,
+          )
+        ) {
           return;
         }
 
@@ -505,7 +538,12 @@ export class IpcClient {
     });
 
     this.ipcRenderer.on("chat:tool:start", (payload: unknown) => {
-      if (payload && typeof payload === "object" && "chatId" in payload && "toolName" in payload) {
+      if (
+        payload &&
+        typeof payload === "object" &&
+        "chatId" in payload &&
+        "toolName" in payload
+      ) {
         const { chatId, toolName, toolId, toolCallId, toolArgs } = payload as {
           chatId: number;
           toolName: string;
@@ -526,7 +564,9 @@ export class IpcClient {
           toolCallId?: string;
           status?: "success" | "error";
         };
-        this.toolEndHandlers.forEach((h) => h({ chatId, toolId, toolCallId, status }));
+        this.toolEndHandlers.forEach((h) =>
+          h({ chatId, toolId, toolCallId, status }),
+        );
       }
     });
 
@@ -727,8 +767,7 @@ export class IpcClient {
       if (payload && typeof payload === "object" && "chatId" in payload) {
         const { chatId } = payload;
         const handler = this.userQuestionHandlers.get(chatId);
-        const numericId =
-          typeof chatId === "number" ? chatId : Number(chatId);
+        const numericId = typeof chatId === "number" ? chatId : Number(chatId);
         const handlerNumeric =
           Number.isFinite(numericId) && !Number.isNaN(numericId)
             ? this.userQuestionHandlers.get(numericId)
@@ -744,7 +783,12 @@ export class IpcClient {
 
     // Legacy: mode change approval prompt (unused for request_mode_change; handler may be unset)
     this.ipcRenderer.on("mode_change_requested", (payload: any) => {
-      if (payload && typeof payload === "object" && "chatId" in payload && this.modeChangeHandler) {
+      if (
+        payload &&
+        typeof payload === "object" &&
+        "chatId" in payload &&
+        this.modeChangeHandler
+      ) {
         this.modeChangeHandler(payload);
       }
     });
@@ -774,7 +818,9 @@ export class IpcClient {
     this.ipcRenderer.on("plan:artifact-activated", (payload: unknown) => {
       this.planArtifactHandlers.forEach((h) => {
         try {
-          h(payload as import("./utils/emit_plan_artifact").PlanArtifactPayload);
+          h(
+            payload as import("./utils/emit_plan_artifact").PlanArtifactPayload,
+          );
         } catch {
           /* noop */
         }
@@ -784,7 +830,9 @@ export class IpcClient {
     this.ipcRenderer.on("plan:artifact-updated", (payload: unknown) => {
       this.planArtifactUpdatedHandlers.forEach((h) => {
         try {
-          h(payload as import("./utils/emit_plan_artifact").PlanArtifactPayload);
+          h(
+            payload as import("./utils/emit_plan_artifact").PlanArtifactPayload,
+          );
         } catch {
           /* noop */
         }
@@ -814,7 +862,12 @@ export class IpcClient {
     });
 
     this.ipcRenderer.on("plan:file-updated", (payload: unknown) => {
-      if (!payload || typeof payload !== "object" || !("workspacePath" in payload)) return;
+      if (
+        !payload ||
+        typeof payload !== "object" ||
+        !("workspacePath" in payload)
+      )
+        return;
       const p = payload as { workspacePath: string; mtime: number | null };
       this.planFileUpdatedHandlers.forEach((h) => {
         try {
@@ -833,13 +886,17 @@ export class IpcClient {
 
     this.ipcRenderer.on("update:downloading", (data) => {
       if (data && typeof data === "object" && "version" in data) {
-        this.updateDownloadingHandlers.forEach((h) => h(data as { version: string }));
+        this.updateDownloadingHandlers.forEach((h) =>
+          h(data as { version: string }),
+        );
       }
     });
 
     this.ipcRenderer.on("update:downloaded", (data) => {
       if (data && typeof data === "object" && "version" in data) {
-        this.updateDownloadedHandlers.forEach((h) => h(data as { version: string }));
+        this.updateDownloadedHandlers.forEach((h) =>
+          h(data as { version: string }),
+        );
       }
     });
 
@@ -868,7 +925,9 @@ export class IpcClient {
 
     this.ipcRenderer.on("update:status", (data) => {
       if (data && typeof data === "object" && "lastResult" in data) {
-        this.updateStatusHandlers.forEach((h) => h(data as UpdateStatusPayload));
+        this.updateStatusHandlers.forEach((h) =>
+          h(data as UpdateStatusPayload),
+        );
       }
     });
 
@@ -891,7 +950,7 @@ export class IpcClient {
   public async editMessage(
     chatId: number,
     userMessageId: number,
-    newContent: string
+    newContent: string,
   ): Promise<{ success: boolean }> {
     return this.ipcRenderer.invoke("chat:edit-message", {
       chatId,
@@ -903,7 +962,7 @@ export class IpcClient {
   /** v3.9: Revert conversation to assistant message, truncate after it, clear has_answered_questions. */
   public async revertToMessage(
     chatId: number,
-    assistantMessageId: number
+    assistantMessageId: number,
   ): Promise<{ success: boolean }> {
     return this.ipcRenderer.invoke("chat:revert-to-message", {
       chatId,
@@ -985,7 +1044,10 @@ export class IpcClient {
     skipped?: string[];
     error?: string;
   }> {
-    return this.ipcRenderer.invoke("revert:snapshot-range", { chatId, turnIds });
+    return this.ipcRenderer.invoke("revert:snapshot-range", {
+      chatId,
+      turnIds,
+    });
   }
 
   /** Union of files a RANGE of turn snapshots would restore/delete (for the edit-revert dialog). */
@@ -1001,7 +1063,10 @@ export class IpcClient {
   }
 
   /** Main → renderer: live task-ledger plan for PlanCard. */
-  public onPlanUpdate(chatId: number, handler: (payload: PlanUpdatePayload) => void): () => void {
+  public onPlanUpdate(
+    chatId: number,
+    handler: (payload: PlanUpdatePayload) => void,
+  ): () => void {
     let set = this.planUpdateHandlers.get(chatId);
     if (!set) {
       set = new Set();
@@ -1017,14 +1082,18 @@ export class IpcClient {
   }
 
   public onPlanArtifactActivated(
-    handler: (payload: import("./utils/emit_plan_artifact").PlanArtifactPayload) => void,
+    handler: (
+      payload: import("./utils/emit_plan_artifact").PlanArtifactPayload,
+    ) => void,
   ): () => void {
     this.planArtifactHandlers.add(handler);
     return () => this.planArtifactHandlers.delete(handler);
   }
 
   public onPlanArtifactUpdated(
-    handler: (payload: import("./utils/emit_plan_artifact").PlanArtifactPayload) => void,
+    handler: (
+      payload: import("./utils/emit_plan_artifact").PlanArtifactPayload,
+    ) => void,
   ): () => void {
     this.planArtifactUpdatedHandlers.add(handler);
     return () => this.planArtifactUpdatedHandlers.delete(handler);
@@ -1039,9 +1108,7 @@ export class IpcClient {
   }
 
   /** Live per-turn token usage (real per-step + throttled stream estimates). */
-  public onTokenUsage(
-    handler: (payload: ChatTokenUsage) => void,
-  ): () => void {
+  public onTokenUsage(handler: (payload: ChatTokenUsage) => void): () => void {
     this.tokenUsageHandlers.add(handler);
     return () => this.tokenUsageHandlers.delete(handler);
   }
@@ -1074,9 +1141,10 @@ export class IpcClient {
     /** Optional explicit STT model; otherwise catalog-resolved. */
     model?: string;
   }): Promise<string> {
-    const res = (await this.ipcRenderer.invoke("voice:transcribe-cloud", params)) as
-      | { ok: true; text: string }
-      | { ok: false; error: string };
+    const res = (await this.ipcRenderer.invoke(
+      "voice:transcribe-cloud",
+      params,
+    )) as { ok: true; text: string } | { ok: false; error: string };
     if (!res.ok) throw new Error(res.error);
     return res.text;
   }
@@ -1134,7 +1202,10 @@ export class IpcClient {
   }
 
   /** Persist serialized xterm scrollback so it survives app restarts. */
-  public async savePtyScrollback(instanceId: string, data: string): Promise<void> {
+  public async savePtyScrollback(
+    instanceId: string,
+    data: string,
+  ): Promise<void> {
     await this.ipcRenderer.invoke("pty:scrollback:save", { instanceId, data });
   }
 
@@ -1165,7 +1236,6 @@ export class IpcClient {
     return this.ipcRenderer.invoke("plans:set-status", { planId, planStatus });
   }
 
-
   public async getPlanArtifact(
     planId: string,
   ): Promise<import("./utils/emit_plan_artifact").PlanArtifactPayload | null> {
@@ -1187,7 +1257,13 @@ export class IpcClient {
   }
 
   /** v3.5: Register for chat activity (e.g. summarization). Returns unsubscribe. */
-  public onChatActivity(handler: (payload: { label?: string; status?: string; chatId?: number }) => void): () => void {
+  public onChatActivity(
+    handler: (payload: {
+      label?: string;
+      status?: string;
+      chatId?: number;
+    }) => void,
+  ): () => void {
     this.chatActivityHandlers.add(handler);
     return () => this.chatActivityHandlers.delete(handler);
   }
@@ -1317,7 +1393,9 @@ export class IpcClient {
    * Returns null when there is nothing to show — which includes every failure
    * mode, because a panel that cannot say anything should not appear.
    */
-  public async getWhatsNew(): Promise<import("@/main/whats-new").WhatsNewEntry | null> {
+  public async getWhatsNew(): Promise<
+    import("@/main/whats-new").WhatsNewEntry | null
+  > {
     try {
       return (await this.ipcRenderer.invoke("whats-new:get")) ?? null;
     } catch {
@@ -1390,7 +1468,6 @@ export class IpcClient {
   ): Promise<Array<{ name: string; description: string; mode: string }>> {
     return this.ipcRenderer.invoke("agents:list", appId);
   }
-
 
   public async getChat(chatId: number): Promise<Chat> {
     try {
@@ -1476,7 +1553,8 @@ export class IpcClient {
     const n = (this.pendingStreamDispatch.get(chatId) ?? 1) - 1;
     if (n <= 0) this.pendingStreamDispatch.delete(chatId);
     else this.pendingStreamDispatch.set(chatId, n);
-    const dropped = (result as { dropped?: string } | null | undefined)?.dropped;
+    const dropped = (result as { dropped?: string } | null | undefined)
+      ?.dropped;
     if (dropped) {
       // Main refused a system wake (a turn is already live for this chat, or the
       // user stopped it). No stream started, so no terminal event is coming and
@@ -1668,7 +1746,9 @@ export class IpcClient {
   // FIX 4: re-dispatch the last `chat:stream` request for this chat. Backend
   // emits `chat:stream:reset-partial` before kicking off the fresh stream
   // so the renderer can clear its in-flight assistant buffer.
-  public async reconnectStream(chatId: number): Promise<{ success: boolean; message?: string }> {
+  public async reconnectStream(
+    chatId: number,
+  ): Promise<{ success: boolean; message?: string }> {
     return this.ipcRenderer.invoke("chat:stream:reconnect", { chatId });
   }
 
@@ -1704,7 +1784,6 @@ export class IpcClient {
       workspaceId,
     });
   }
-
 
   /**
    * Hydrate a chat's transport for a persisted session WITHOUT re-sending its bodies.
@@ -1755,11 +1834,20 @@ export class IpcClient {
     return this.ipcRenderer.invoke("automations:list", workspaceId);
   }
 
-  public async createAutomation(workspaceId: number, input: unknown): Promise<{ id: string }> {
-    return this.ipcRenderer.invoke("automations:create", { workspaceId, input });
+  public async createAutomation(
+    workspaceId: number,
+    input: unknown,
+  ): Promise<{ id: string }> {
+    return this.ipcRenderer.invoke("automations:create", {
+      workspaceId,
+      input,
+    });
   }
 
-  public async updateAutomation(id: string, input: unknown): Promise<{ ok: boolean }> {
+  public async updateAutomation(
+    id: string,
+    input: unknown,
+  ): Promise<{ ok: boolean }> {
     return this.ipcRenderer.invoke("automations:update", { id, input });
   }
 
@@ -1767,7 +1855,10 @@ export class IpcClient {
     return this.ipcRenderer.invoke("automations:delete", id);
   }
 
-  public async toggleAutomation(id: string, enabled: boolean): Promise<{ ok: boolean }> {
+  public async toggleAutomation(
+    id: string,
+    enabled: boolean,
+  ): Promise<{ ok: boolean }> {
     return this.ipcRenderer.invoke("automations:toggle", { id, enabled });
   }
 
@@ -1779,10 +1870,15 @@ export class IpcClient {
     workspaceId: number,
     includeArchived = false,
   ): Promise<import("@/lib/automations/types").AutomationRunView[]> {
-    return this.ipcRenderer.invoke("automations:runs", { workspaceId, includeArchived });
+    return this.ipcRenderer.invoke("automations:runs", {
+      workspaceId,
+      includeArchived,
+    });
   }
 
-  public async markAutomationRunsRead(runIds: string[]): Promise<{ ok: boolean }> {
+  public async markAutomationRunsRead(
+    runIds: string[],
+  ): Promise<{ ok: boolean }> {
     return this.ipcRenderer.invoke("automations:mark-read", runIds);
   }
 
@@ -1792,10 +1888,14 @@ export class IpcClient {
 
   /** Subscribe to live automation run updates (triage feed). Returns unsubscribe. */
   public onAutomationRunUpdate(
-    handler: (view: import("@/lib/automations/types").AutomationRunView) => void,
+    handler: (
+      view: import("@/lib/automations/types").AutomationRunView,
+    ) => void,
   ): () => void {
-    const unsubscribe = this.ipcRenderer.on("automation:run-update", (payload: unknown) =>
-      handler(payload as import("@/lib/automations/types").AutomationRunView),
+    const unsubscribe = this.ipcRenderer.on(
+      "automation:run-update",
+      (payload: unknown) =>
+        handler(payload as import("@/lib/automations/types").AutomationRunView),
     );
     return typeof unsubscribe === "function" ? unsubscribe : () => {};
   }
@@ -1805,7 +1905,9 @@ export class IpcClient {
    * which writes in main and would otherwise leave the panel stale.
    */
   public onAutomationsChanged(handler: () => void): () => void {
-    const unsubscribe = this.ipcRenderer.on("automations:changed", () => handler());
+    const unsubscribe = this.ipcRenderer.on("automations:changed", () =>
+      handler(),
+    );
     return typeof unsubscribe === "function" ? unsubscribe : () => {};
   }
 
@@ -1813,8 +1915,9 @@ export class IpcClient {
   public onAutomationsFocusFeed(
     handler: (payload: { runId?: string }) => void,
   ): () => void {
-    const unsubscribe = this.ipcRenderer.on("automations:focus-feed", (payload: unknown) =>
-      handler(payload as { runId?: string }),
+    const unsubscribe = this.ipcRenderer.on(
+      "automations:focus-feed",
+      (payload: unknown) => handler(payload as { runId?: string }),
     );
     return typeof unsubscribe === "function" ? unsubscribe : () => {};
   }
@@ -1846,7 +1949,11 @@ export class IpcClient {
     sessionId: string,
     workMode: import("@/lib/schemas").WorkMode,
   ) {
-    return this.ipcRenderer.invoke("sessions:set-work-mode", sessionId, workMode);
+    return this.ipcRenderer.invoke(
+      "sessions:set-work-mode",
+      sessionId,
+      workMode,
+    );
   }
 
   public async deleteWorkspaceSession(
@@ -2169,7 +2276,6 @@ export class IpcClient {
    * user's own credentials. Signing in with GitHub is untouched (Supabase).
    */
 
-
   // Get the main app version
   public async getAppVersion(): Promise<string> {
     const result = await this.ipcRenderer.invoke("get-app-version");
@@ -2186,7 +2292,9 @@ export class IpcClient {
   }
 
   /** Dev-only: last N tool execution durations from main (ring buffer). */
-  public async getToolPerfSnapshot(): Promise<{ name: string; ms: number; at: number }[]> {
+  public async getToolPerfSnapshot(): Promise<
+    { name: string; ms: number; at: number }[]
+  > {
     return this.ipcRenderer.invoke("perf:tool-snapshot");
   }
 
@@ -2204,7 +2312,10 @@ export class IpcClient {
   }
 
   // --- MCP Client Methods ---
-  public async listMcpServers(filter?: { scope?: "workspace"; appId?: number }) {
+  public async listMcpServers(filter?: {
+    scope?: "workspace";
+    appId?: number;
+  }) {
     return this.ipcRenderer.invoke("mcp:list-servers", filter);
   }
 
@@ -2248,9 +2359,7 @@ export class IpcClient {
    * JSON index when successful. If `url` is omitted the default Atlarix
    * registry URL is used.
    */
-  public async fetchMcpRegistry(
-    url?: string,
-  ): Promise<{
+  public async fetchMcpRegistry(url?: string): Promise<{
     success: boolean;
     registry?: import("@/shared/mcp-registry").McpRegistryIndex;
     error?: string;
@@ -2373,15 +2482,21 @@ export class IpcClient {
   }
 
   // --- Skills Client Methods ---
-  public async skillsFetchRegistry(registryUrl?: string): Promise<SkillRegistryIndex> {
+  public async skillsFetchRegistry(
+    registryUrl?: string,
+  ): Promise<SkillRegistryIndex> {
     return this.ipcRenderer.invoke("skills:fetch-registry", registryUrl);
   }
 
-  public async skillsInstall(params: InstallSkillParams): Promise<{ success: boolean; localDir?: string }> {
+  public async skillsInstall(
+    params: InstallSkillParams,
+  ): Promise<{ success: boolean; localDir?: string }> {
     return this.ipcRenderer.invoke("skills:install", params);
   }
 
-  public async skillsUninstall(params: UninstallSkillParams): Promise<{ success: boolean }> {
+  public async skillsUninstall(
+    params: UninstallSkillParams,
+  ): Promise<{ success: boolean }> {
     return this.ipcRenderer.invoke("skills:uninstall", params);
   }
 
@@ -2402,8 +2517,12 @@ export class IpcClient {
    * the Workforce gate (priority will be `false` for non-Workforce users even
    * if the frontmatter sets `priority: true`).
    */
-  public async listRepoSkills(workspaceId: number | null | undefined): Promise<ListRepoSkillsResult> {
-    return this.ipcRenderer.invoke("skills:list-repo-skills", { workspaceId: workspaceId ?? null });
+  public async listRepoSkills(
+    workspaceId: number | null | undefined,
+  ): Promise<ListRepoSkillsResult> {
+    return this.ipcRenderer.invoke("skills:list-repo-skills", {
+      workspaceId: workspaceId ?? null,
+    });
   }
 
   /**
@@ -2583,8 +2702,7 @@ export class IpcClient {
     appId?: number | null;
     instanceId: string;
   }): Promise<
-    | { success: true; instanceId: string }
-    | { success: false; error: string }
+    { success: true; instanceId: string } | { success: false; error: string }
   > {
     return this.ipcRenderer.invoke("terminal-instances:close", {
       chatId: params.chatId,
@@ -2668,7 +2786,10 @@ export class IpcClient {
     return this.ipcRenderer.invoke("cli:uninstall");
   }
 
-  public async checkCliInstalled(): Promise<{ installed: boolean; path: string }> {
+  public async checkCliInstalled(): Promise<{
+    installed: boolean;
+    path: string;
+  }> {
     return this.ipcRenderer.invoke("cli:check-installed");
   }
 
@@ -2746,7 +2867,12 @@ export class IpcClient {
     appId?: number | null;
     /** v10 per-hunk approval: write this composed content instead of the full proposal. */
     overrideContent?: string;
-  }): Promise<{ operationId: string; approved: boolean; executedAt?: number; error?: string }> {
+  }): Promise<{
+    operationId: string;
+    approved: boolean;
+    executedAt?: number;
+    error?: string;
+  }> {
     return this.ipcRenderer.invoke("execute-permission", {
       chatId,
       operationId,
@@ -2785,7 +2911,9 @@ export class IpcClient {
   public async listGrantedFolders(
     appId: number,
   ): Promise<Array<{ path: string; exists: boolean }>> {
-    return this.ipcRenderer.invoke("file-permissions:list-granted-folders", { appId });
+    return this.ipcRenderer.invoke("file-permissions:list-granted-folders", {
+      appId,
+    });
   }
 
   public async grantFolder(params: {
@@ -2799,7 +2927,10 @@ export class IpcClient {
     appId: number;
     path: string;
   }): Promise<{ success: boolean }> {
-    return this.ipcRenderer.invoke("file-permissions:revoke-granted-folder", params);
+    return this.ipcRenderer.invoke(
+      "file-permissions:revoke-granted-folder",
+      params,
+    );
   }
 
   public async listCommandPermissions(appId: number) {
@@ -2808,7 +2939,9 @@ export class IpcClient {
 
   /** The built-in read-only command categories that auto-run (deny-overridable). */
   public async listCommandDefaults(): Promise<string[]> {
-    const result = await this.ipcRenderer.invoke("command-permissions:defaults");
+    const result = await this.ipcRenderer.invoke(
+      "command-permissions:defaults",
+    );
     return Array.isArray(result) ? (result as string[]) : [];
   }
 
@@ -2840,11 +2973,14 @@ export class IpcClient {
     });
   }
 
-  public async executeAllPermissions({
-    chatId,
-  }: {
-    chatId: number;
-  }): Promise<Array<{ operationId: string; approved: boolean; executedAt?: number; error?: string }>> {
+  public async executeAllPermissions({ chatId }: { chatId: number }): Promise<
+    Array<{
+      operationId: string;
+      approved: boolean;
+      executedAt?: number;
+      error?: string;
+    }>
+  > {
     return this.ipcRenderer.invoke("execute-all-permissions", {
       chatId,
     });
@@ -2859,11 +2995,14 @@ export class IpcClient {
    * approved once per command. The blanket lives on the per-turn interceptor, so
    * it expires with the turn and never becomes a saved rule.
    */
-  public async approveAllForTurn({
-    chatId,
-  }: {
-    chatId: number;
-  }): Promise<Array<{ operationId: string; approved: boolean; executedAt?: number; error?: string }>> {
+  public async approveAllForTurn({ chatId }: { chatId: number }): Promise<
+    Array<{
+      operationId: string;
+      approved: boolean;
+      executedAt?: number;
+      error?: string;
+    }>
+  > {
     return this.ipcRenderer.invoke("approve-all-for-turn", {
       chatId,
     });
@@ -2873,7 +3012,9 @@ export class IpcClient {
     chatId,
   }: {
     chatId: number;
-  }): Promise<Array<{ operationId: string; approved: boolean; error?: string }>> {
+  }): Promise<
+    Array<{ operationId: string; approved: boolean; error?: string }>
+  > {
     return this.ipcRenderer.invoke("reject-all-permissions", {
       chatId,
     });
@@ -2894,7 +3035,11 @@ export class IpcClient {
    * Returns unsubscribe function.
    */
   public onModeChangeRequest(
-    handler: (payload: { chatId: number; requestedMode: string; reason: string }) => void
+    handler: (payload: {
+      chatId: number;
+      requestedMode: string;
+      reason: string;
+    }) => void,
   ): () => void {
     this.modeChangeHandler = handler;
     return () => {
@@ -2905,13 +3050,25 @@ export class IpcClient {
   /**
    * Respond to a mode change request (approve or deny).
    */
-  public async respondModeChange(chatId: number, approve: boolean, requestedMode?: string): Promise<{ ok: boolean }> {
-    return this.ipcRenderer.invoke("respond-mode-change", { chatId, approve, requestedMode });
+  public async respondModeChange(
+    chatId: number,
+    approve: boolean,
+    requestedMode?: string,
+  ): Promise<{ ok: boolean }> {
+    return this.ipcRenderer.invoke("respond-mode-change", {
+      chatId,
+      approve,
+      requestedMode,
+    });
   }
 
   /** Main applied a work-mode change from the model (request_mode_change); sync renderer settings atom. */
   public onModeChanged(
-    callback: (payload: { chatId: number; newMode: string; settings: UserSettings }) => void,
+    callback: (payload: {
+      chatId: number;
+      newMode: string;
+      settings: UserSettings;
+    }) => void,
   ): () => void {
     const listener = (data: unknown) => {
       if (
@@ -2920,7 +3077,9 @@ export class IpcClient {
         "chatId" in data &&
         "settings" in data
       ) {
-        callback(data as { chatId: number; newMode: string; settings: UserSettings });
+        callback(
+          data as { chatId: number; newMode: string; settings: UserSettings },
+        );
       }
     };
     this.ipcRenderer.on("mode:changed", listener);
@@ -2998,7 +3157,7 @@ export class IpcClient {
       type: "permission-request";
       operationId: string;
       request: any;
-    }) => void
+    }) => void,
   ): () => void {
     return this.addChatSubscriber(this.permissionHandlers, chatId, handler);
   }
@@ -3074,12 +3233,12 @@ export class IpcClient {
       commandId: string;
       command: string;
       output: string;
-      status: 'running' | 'completed' | 'error';
+      status: "running" | "completed" | "error";
       exitCode?: number;
       background?: boolean; // A long-running/background process — gets its own tab
       isPermissionBased?: boolean; // True if this command came from permission system
-      source?: 'user' | 'agent'; // Who initiated the command (agent failures don't pop a toast)
-    }) => void
+      source?: "user" | "agent"; // Who initiated the command (agent failures don't pop a toast)
+    }) => void,
   ): () => void {
     let handlers = this.terminalHandlers.get(chatId);
     if (!handlers) {
@@ -3107,14 +3266,14 @@ export class IpcClient {
       framework: string;
       output: string;
       fullOutput: string;
-      status: 'running' | 'stopped' | 'error';
+      status: "running" | "stopped" | "error";
       timestamp: number;
-    }) => void
+    }) => void,
   ): () => void {
     const listener = (data: any) => handler(data);
-    this.ipcRenderer.on('dev-server:output', listener);
+    this.ipcRenderer.on("dev-server:output", listener);
     return () => {
-      this.ipcRenderer.removeListener('dev-server:output', listener);
+      this.ipcRenderer.removeListener("dev-server:output", listener);
     };
   }
 
@@ -3125,16 +3284,16 @@ export class IpcClient {
   public onOperationStatus(
     handler: (payload: {
       operationId: string;
-      status: 'pending' | 'queued' | 'running' | 'completed' | 'failed';
+      status: "pending" | "queued" | "running" | "completed" | "failed";
       progress?: number;
       duration?: number;
       error?: string;
-    }) => void
+    }) => void,
   ): () => void {
     const listener = (data: any) => handler(data);
-    this.ipcRenderer.on('operation-status', listener);
+    this.ipcRenderer.on("operation-status", listener);
     return () => {
-      this.ipcRenderer.removeListener('operation-status', listener);
+      this.ipcRenderer.removeListener("operation-status", listener);
     };
   }
 
@@ -3147,16 +3306,15 @@ export class IpcClient {
       chatId: number;
       prompt: string;
       failureCount: number;
-    }) => void
+    }) => void,
   ): () => void {
     const listener = (data: any) => handler(data);
-    this.ipcRenderer.on('auto-recovery-needed', listener);
+    this.ipcRenderer.on("auto-recovery-needed", listener);
     return () => {
-      this.ipcRenderer.removeListener('auto-recovery-needed', listener);
+      this.ipcRenderer.removeListener("auto-recovery-needed", listener);
     };
   }
   // --- End Permission Management ---
-
 
   // --- Portal Management ---
   public async portalMigrateCreate(params: {
@@ -3239,7 +3397,9 @@ export class IpcClient {
   }
 
   /** Main inserted a synthetic user message for post-turn auto-fix; continue stream with that prompt. */
-  public onAutoSelfCorrect(callback: (data: { chatId: number }) => void): () => void {
+  public onAutoSelfCorrect(
+    callback: (data: { chatId: number }) => void,
+  ): () => void {
     const listener = (data: unknown) => {
       if (data && typeof data === "object" && "chatId" in data) {
         callback(data as { chatId: number });
@@ -3451,12 +3611,16 @@ export class IpcClient {
     return this.ipcRenderer.invoke("get-user-budget");
   }
 
-
   /** Validate a hand-typed destination folder (clone dialog). */
 
   // --- Remote SSH ---
   public async listSshHosts(): Promise<
-    Array<{ hostAlias: string; hostName?: string; user?: string; port?: number }>
+    Array<{
+      hostAlias: string;
+      hostName?: string;
+      user?: string;
+      port?: number;
+    }>
   > {
     return this.ipcRenderer.invoke("ssh:list-hosts");
   }
@@ -3469,7 +3633,9 @@ export class IpcClient {
     return this.ipcRenderer.invoke("ssh:disconnect", hostAlias);
   }
 
-  public async testSshConnection(hostAlias: string): Promise<{ ok: boolean; message: string }> {
+  public async testSshConnection(
+    hostAlias: string,
+  ): Promise<{ ok: boolean; message: string }> {
     return this.ipcRenderer.invoke("ssh:test-connection", hostAlias);
   }
 
@@ -3485,8 +3651,14 @@ export class IpcClient {
     return this.ipcRenderer.invoke("provider:get-api-key", { providerId });
   }
 
-  public async setProviderApiKey(providerId: string, apiKey: string): Promise<void> {
-    return this.ipcRenderer.invoke("provider:set-api-key", { providerId, apiKey });
+  public async setProviderApiKey(
+    providerId: string,
+    apiKey: string,
+  ): Promise<void> {
+    return this.ipcRenderer.invoke("provider:set-api-key", {
+      providerId,
+      apiKey,
+    });
   }
 
   public async deleteProviderApiKey(providerId: string): Promise<void> {
@@ -3499,12 +3671,6 @@ export class IpcClient {
 
   public async isCompassBuildConfigured(): Promise<boolean> {
     return this.ipcRenderer.invoke("compass:is-build-configured");
-  }
-
-  public async getAtlarixCoreTierCatalog(): Promise<
-    import("@/lib/atlarix-core-catalog").AtlarixCoreTierPresentation[]
-  > {
-    return this.ipcRenderer.invoke("compass:get-tier-catalog");
   }
 
   /**
@@ -3635,7 +3801,11 @@ export class IpcClient {
     tabId: number,
     requestId: string,
   ): Promise<{ body: string; base64: boolean } | { unavailable: string }> {
-    return this.ipcRenderer.invoke("browser:get-network-body", tabId, requestId);
+    return this.ipcRenderer.invoke(
+      "browser:get-network-body",
+      tabId,
+      requestId,
+    );
   }
 
   public onBrowserSurfaceError(
@@ -3673,11 +3843,8 @@ export class IpcClient {
     return typeof off === "function" ? off : () => {};
   }
 
-
   // Background jobs (v14).
-  public async backgroundJobsList(
-    chatId: number,
-  ): Promise<
+  public async backgroundJobsList(chatId: number): Promise<
     {
       operationId: string;
       command: string;
@@ -3694,7 +3861,10 @@ export class IpcClient {
     chatId: number,
     jobId: string,
   ): Promise<{ ok: boolean }> {
-    return this.ipcRenderer.invoke("chat:background-job-cancel", { chatId, jobId });
+    return this.ipcRenderer.invoke("chat:background-job-cancel", {
+      chatId,
+      jobId,
+    });
   }
 
   /** Non-destructive: are there undrained finished background results for this chat? */
@@ -3707,10 +3877,7 @@ export class IpcClient {
 
   /** Non-destructive: are there undrained finished sub-agent results for this chat? */
   public async subagentHasPendingResults(chatId: number): Promise<boolean> {
-    return this.ipcRenderer.invoke(
-      "chat:subagent-has-pending-results",
-      chatId,
-    );
+    return this.ipcRenderer.invoke("chat:subagent-has-pending-results", chatId);
   }
 
   /** C3: full current output (non-destructive) for a running background job. */
@@ -3741,7 +3908,10 @@ export class IpcClient {
     chatId: number,
     taskId: string,
   ): Promise<{ ok: boolean; reason?: string }> {
-    return this.ipcRenderer.invoke("chat:subagent-job-cancel", { chatId, taskId });
+    return this.ipcRenderer.invoke("chat:subagent-job-cancel", {
+      chatId,
+      taskId,
+    });
   }
 
   /** Non-destructive TAIL of a sub-agent's narration (never moves the model's cursor). */
@@ -3749,7 +3919,10 @@ export class IpcClient {
     chatId: number,
     taskId: string,
   ): Promise<{ text: string; elapsedMs: number; state: string } | null> {
-    return this.ipcRenderer.invoke("chat:subagent-job-output", { chatId, taskId });
+    return this.ipcRenderer.invoke("chat:subagent-job-output", {
+      chatId,
+      taskId,
+    });
   }
 
   public onBackgroundJobUpdate(
@@ -3828,7 +4001,9 @@ export class IpcClient {
   }
 
   // SearxNG search methods
-  public async checkSearxngHealth(url: string): Promise<{ success: boolean; error?: string; resultsCount?: number }> {
+  public async checkSearxngHealth(
+    url: string,
+  ): Promise<{ success: boolean; error?: string; resultsCount?: number }> {
     return this.ipcRenderer.invoke("searxng:health-check", url);
   }
 
@@ -3841,17 +4016,28 @@ export class IpcClient {
       language?: string;
       pageno?: number;
     };
-  }): Promise<{ success: boolean; results?: any[]; suggestions?: string[]; error?: string }> {
+  }): Promise<{
+    success: boolean;
+    results?: any[];
+    suggestions?: string[];
+    error?: string;
+  }> {
     return this.ipcRenderer.invoke("searxng:search", params);
   }
 
   // Sync SearxNG config from renderer localStorage to main process
-  public async syncSearxngConfig(config: { url: string | null; enabled: boolean }): Promise<{ success: boolean }> {
+  public async syncSearxngConfig(config: {
+    url: string | null;
+    enabled: boolean;
+  }): Promise<{ success: boolean }> {
     return this.ipcRenderer.invoke("searxng:set-config", config);
   }
 
   // Get SearxNG config from database (via main process)
-  public async getSearxngConfig(): Promise<{ url: string | null; enabled: boolean }> {
+  public async getSearxngConfig(): Promise<{
+    url: string | null;
+    enabled: boolean;
+  }> {
     return this.ipcRenderer.invoke("searxng:get-config");
   }
 
@@ -3871,7 +4057,12 @@ export class IpcClient {
 
   public async listWorkspaceSnapshots(appId: number): Promise<{
     success: boolean;
-    snapshots?: Array<{ id: number; name: string; createdAt: Date; fileCount: number }>;
+    snapshots?: Array<{
+      id: number;
+      name: string;
+      createdAt: Date;
+      fileCount: number;
+    }>;
   }> {
     return this.ipcRenderer.invoke("workspace-snapshot:list", appId);
   }
@@ -3935,7 +4126,11 @@ export class IpcClient {
    */
   public async listRunningDevServers(): Promise<{
     success: boolean;
-    servers: Array<{ workspaceId: number; url: string | null; framework: string }>;
+    servers: Array<{
+      workspaceId: number;
+      url: string | null;
+      framework: string;
+    }>;
   }> {
     return this.ipcRenderer.invoke("dev-server:list-running");
   }
@@ -3958,7 +4153,10 @@ export class IpcClient {
   /**
    * Write file contents
    */
-  public async writeFileContent(filePath: string, content: string): Promise<{
+  public async writeFileContent(
+    filePath: string,
+    content: string,
+  ): Promise<{
     success: boolean;
     error?: string;
   }> {
@@ -3979,12 +4177,16 @@ export class IpcClient {
     return this.ipcRenderer.invoke("file:get-stats", { filePath });
   }
 
-  public onUpdateDownloading(handler: (payload: { version: string }) => void): () => void {
+  public onUpdateDownloading(
+    handler: (payload: { version: string }) => void,
+  ): () => void {
     this.updateDownloadingHandlers.add(handler);
     return () => this.updateDownloadingHandlers.delete(handler);
   }
 
-  public onUpdateDownloaded(handler: (payload: { version: string }) => void): () => void {
+  public onUpdateDownloaded(
+    handler: (payload: { version: string }) => void,
+  ): () => void {
     this.updateDownloadedHandlers.add(handler);
     return () => this.updateDownloadedHandlers.delete(handler);
   }
@@ -4016,24 +4218,35 @@ export class IpcClient {
   }
 
   public async getUpdateStatus(): Promise<UpdateStatusPayload> {
-    return (await this.ipcRenderer.invoke("update:get-status")) as UpdateStatusPayload;
+    return (await this.ipcRenderer.invoke(
+      "update:get-status",
+    )) as UpdateStatusPayload;
   }
 
   public async checkForUpdatesNow(): Promise<UpdateStatusPayload> {
-    return (await this.ipcRenderer.invoke("update:check-now")) as UpdateStatusPayload;
+    return (await this.ipcRenderer.invoke(
+      "update:check-now",
+    )) as UpdateStatusPayload;
   }
 
-  public onUpdateStatus(handler: (payload: UpdateStatusPayload) => void): () => void {
+  public onUpdateStatus(
+    handler: (payload: UpdateStatusPayload) => void,
+  ): () => void {
     this.updateStatusHandlers.add(handler);
     return () => this.updateStatusHandlers.delete(handler);
   }
 }
 
 // Export function to get SearxNG config from main process (for use in main process only)
-export async function getSearxngConfigFromMain(): Promise<{ url: string | null; enabled: boolean }> {
-  if (typeof window !== 'undefined') {
+export async function getSearxngConfigFromMain(): Promise<{
+  url: string | null;
+  enabled: boolean;
+}> {
+  if (typeof window !== "undefined") {
     // In renderer, this shouldn't be called
-    throw new Error('getSearxngConfigFromMain should only be called from main process');
+    throw new Error(
+      "getSearxngConfigFromMain should only be called from main process",
+    );
   }
 
   // In main process, directly import and call the config
