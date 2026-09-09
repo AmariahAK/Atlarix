@@ -1,12 +1,14 @@
 # Atlarix TODO
 
-**Current version:** v14.42.0 — released 2026-09-03. A message you type mid-turn now reaches the
-turn that is RUNNING instead of being parked until it ends, delivered as an untagged user turn on
-the next step and inserted into the transcript in front of the streaming row. The queue moved to
-main and became a list (a second message used to be silently rejected). Plus the three-defect
-chain behind it — the queued flush pre-empting a question card, a stop latch an answer could not
-clear (five sub-agent wakes refused), a sub-agent card frozen mid-count — and the user bubble's
-glare.
+**Current version:** v14.44.0 — bumped 2026-09-09, on `dev`, **not yet tagged** (latest tag is
+`v14.43.0`). The app is free, the Core lineup is GLM 5.3 / Terra / Astra with new accounts on
+the reasoning tier, and the money path is honest in both directions: a cancelled turn is priced
+from what was actually generated instead of the whole output budget it was allowed, and a
+dropped connection retries instead of ending the turn as "Something went wrong". Narrative in
+`docs/CHANGELOG.md`.
+
+**This header has been wrong before.** It read v14.42.0 while `package.json` said 14.43.0 and
+two versions had shipped. Update it in the same commit as the version bump, or don't trust it.
 
 **Self-test non-exit — a third data point (2026-09-05).** The packaged self-test on
 macOS arm64 shows the same "all probes passed, process tree had to be killed" as the
@@ -456,7 +458,7 @@ desktop attaches to it as a tool provider while the sidebar calls it directly.
   bank and their email, with the agent reading instructions off pages it does not control.
   Per-site permission from day one, the way Claude in Chrome does it.
 
-## 🧪 Muse Spark 1.3 vs GLM 5.3 on core-1 — evaluate, do not swap on reputation (queued 2026-09-08)
+## 🧪 Muse Spark 1.3 vs GLM 5.3 on core-1 — RESEARCH ONLY (owner, 2026-09-09)
 
 Owner asked whether GLM 5.3 should stay now that Meta's **Muse Spark 1.3** exists. On paper
 it wins on every measurable axis, by a little:
@@ -474,8 +476,15 @@ OpenAI-compatible — and OpenRouter carries `meta/muse-spark-1.3` as a rollback
 Adoption would be one line in `PROVIDER_KEY_ENV_NAMES`, a `providers.meta` block, and an
 entry in `pick-core-model.mjs`.
 
-**Why it is queued rather than done.** The price win is ~11% input / ~3% output, which does
-not by itself justify a provider migration; the real prize is multimodal on the BUDGET tier.
+**NOT A MANDATORY SWITCH — owner decision 2026-09-09.** Adopting Meta means a **finance
+migration**, not just a config edit: another vendor to onboard, fund and reconcile, on a
+card that has already failed one provider (see the Kimi round). So this stays open as
+RESEARCH, revisited only if the benefit grows past that cost. Nothing here is owed; do not
+treat it as a queued task, and do not swap core-1 on the strength of the table above.
+
+**Why it was queued rather than done in the first place.** The price win is ~11% input / ~3%
+output, which does not by itself justify a provider migration; the real prize is multimodal
+on the BUDGET tier.
 And core-1 is the tier **Atlarix Reviewer runs on** — 39c a review, 4 findings, zero false
 positives on the live run. Swapping the proven reviewer model on reputation is the one move
 here with real downside. Run `npm run eval` before deciding, and check Meta's billing
@@ -512,46 +521,60 @@ Ruled out, each with evidence, so none of it needs repeating:
 - The stack is `handleFetchError → postToApi → postJsonToApi → doStream → streamStep`:
   the request phase, before any response header, on **step 2 of the agent loop**.
 
-- [ ] **A network reset kills the whole turn, because the retry that exists cannot fire.**
-      This is the one worth fixing; the reset is weather, this is a bug. Three things line up:
+**All three SHIPPED 2026-09-09** — `002ba1bb` (app), `420e481` (proxy). Compressed to the
+record plus the traps worth keeping; narrative is in `docs/CHANGELOG.md`.
 
-  1. `simple-stream-text.ts:528` sets `maxRetries: 0` whenever tools are present — which
-     for Atlarix is always. **Deliberate, do not just raise it:** the comment in
-     `network-retry.ts` says it exists so the SDK's backoff does not multiply with ours.
-  2. Our own retry SHOULD have covered it. `handleFetchError` builds an `APICallError` with
-     `isRetryable: true`, `isNetworkStreamError` honours that verdict, and
-     `round-retry.ts:270` would have retried at 2s/5s/10s.
-  3. **It never ran.** `streamText`'s `onError` (`simple-stream-text.ts:~960`) consumes the
-     error, sends `chat:response:error` to the renderer — the toast — and does not rethrow.
-     The SDK also emits the failure as a top-level `error` part on the stream, and
-     `processStreamChunks` handles only `tool-error` (`stream_chunk_tags.ts:320`), never a
-     bare `error` part. So the stream ends "cleanly" with no output, no exception reaches
-     round-retry's catch, and the turn dies.
+- [x] **A network reset was reported as a model that would not answer.** The diagnosis this
+      item carried was right that the retry could not fire and WRONG about why, in a way
+      worth keeping. **`isNetworkStreamError` followed `cause` but never `error` — and the
+      SDK hands `onError` an envelope, `{ error }`, not the error.** So `String(envelope)`
+      was `"[object Object]"`, the message regex matched nothing, and that branch had never
+      once fired for a request-phase failure. Its sibling `isNoUsableModelOutputError` DOES
+      unwrap `.error`. **Two classifiers, one object, opposite verdicts — when they disagree,
+      suspect the shape before the logic.**
 
-  The log is the proof of (3): there is **no** `[stream] Network error on attempt 1/3` line.
-  Fix shape: have `onError` classify with `isNetworkStreamError` and, when true, record it
-  and let the round-retry catch handle it, instead of emitting `chat:response:error`
-  immediately. Small change, and it activates machinery that already exists and is already
-  tested (`network-retry-socket-faults.test.ts`, `retry-jitter.test.ts`).
+      And what reached round-retry was never the transport error at all: with zero completed
+      steps the SDK rejects the result promises with a **synthetic `NoOutputGeneratedError`**
+      and discards the `APICallError` entirely, not even as a `cause`, so the empty-output
+      branch claimed it — retrying twice a second apart while telling the model it had
+      "produced only internal reasoning", to a dead socket. `onError` now records what it
+      already classified correctly and round-retry prefers that, **ahead of** the
+      empty-output branch (after it, nothing changes). `processStreamChunks` also handles a
+      top-level `error` part for the first time, which stops `applyEmptyFallback` writing
+      "Something went wrong" into a message about to be retried.
 
-  **The test that pins it must drive a request-phase failure, not a mid-stream one.** A
-  mid-stream fault already retries today; that is exactly why this hole survived.
+      **None of it ever produced a Sentry event** — every "no output generated" pattern is on
+      the ignore list, so this whole class of failure has been invisible. It took a hand-read
+      log to find. Pinned by `tests/agent-evals/request-phase-reset.eval.test.ts`, which
+      needed a new fake-provider kind (`socket_reset`) because nothing could refuse a
+      connection.
 
-- [ ] **The proxy bills output the client never received.** The proxy completed and settled
-      that generation (`tokens=42110 cents=5`) five seconds AFTER the app had given up. The
-      client's socket was gone; the proxy never noticed, because Railway's edge keeps reading
-      from us. Decide what is right here — most likely: nothing, since we genuinely paid
-      OpenAI for those tokens — but it should be a decision on the record rather than an
-      accident. Pairs with the item below.
+- [x] **A client abort no longer charges the full reserve.** Priced from the output deltas
+      the tee watched go past, capped at the reserve, with the two causes that shared a null
+      `computedUsd` split on `reason`. **The zero-price discriminator applies on the new path
+      too:** a tier priced at 0 estimates 0, `min(0, reserve)` is 0, and the abort would have
+      settled free and silent — the very leak that branch exists to prevent, reintroduced
+      through the side door. **Known and deliberate: a cancelled reasoning turn
+      UNDER-charges**, because reasoning tokens are billed but reach us only as a much
+      shorter summary on `/v1/responses`. An abort is a failure the user did not ask for, so
+      the error leans their way. **Do not "restore" the reserve here.**
 
-- [ ] **A client abort charges the FULL reserve, which can exceed the true cost.** Measured,
-      not inferred: the same request cost **45c** completed and **58c** aborted —
-      `stream ended early (client-aborted)` → `NO PRICE for openai/gpt-5.6-terra (tokens=?,
-computed=null) — charging 58c (reserve was 58c)`. The cause is structural: the usage
-      frame only arrives in the final event, so an early disconnect has no token count to price
-      from. Conservative-by-design, and defensible — but it overcharges the user on exactly the
-      failure they did not cause, and a flaky connection makes it repeatable. Options: meter
-      the deltas seen so far, or refund the difference on the next successful settle.
+- [x] **The proxy billing output the client never received — DECIDED: keep charging.** We
+      genuinely paid the provider. There is no signal to detect it by, either: the client
+      vanishes, Railway's edge keeps draining us, and the stream finishes normally. The
+      settle log now carries the stream's elapsed time, which is the only thing that makes
+      the case visible when correlated against a client-side error timestamp. The real
+      mitigation is the retry above — a recovered turn means the tokens were not wasted.
+
+- [ ] **A response body that just ENDS is accepted as a complete answer.** Found while
+      building the request-phase test, not reported by a user. A server that writes a delta
+      and then closes the body with no terminating chunk produces **no error, no retry, and
+      one request** — the model's half-sentence is delivered as the final answer. Same class
+      as the `finish_reason` case already fixed, and the same failure mode: silence. The
+      classifier cannot help, because there is nothing to classify; it needs a completeness
+      check on the stream itself. Reproducible in one line via
+      `testing/fake-llm-server/scenario.ts` — see the `socket_reset` docblock, which records
+      why the mid-stream variant was removed and what it turned up.
 
 - [ ] **Launchpad: a stopped login must not force a page refresh.** When the login is
       interrupted or cancelled, the page is left in a state the user can only escape by
@@ -590,10 +613,15 @@ What it did NOT do, in the order the plan itself ranked them:
       ladder ended in a bare `: 0.33`, so the first budget model handed `xhigh` would have
       silently received the MEDIUM budget.
 
-- [ ] **`pick-core-model.mjs --check` is still not wired into CI.** It exists and it works;
-      nothing runs it. A `core-models.json` edit that names a model the checker would reject
-      therefore ships live-on-merge to every installed app with no gate in front of it. That is
-      the same shape as the trap the checker was written to prevent.
+- [x] **`pick-core-model.mjs --check` is wired into CI** — atlarix-releases `ba68dd6`. It
+      joined the workflow that already made this argument for `updates.json` rather than
+      arriving as a second file. **Verified by breaking an `apiModelId` and watching it fail**
+      — a gate never seen to fail is not known to work. Needs no secrets: models.dev and
+      OpenRouter's catalogs are public, and the optional live provider `/models` consult skips
+      without keys. `fetchJson` gained two retries, because a brief models.dev outage blocking
+      an unrelated merge is how a check earns a reputation for being ignored; it still fails
+      CLOSED on a sustained outage, and the job comment says so, so a red X is not misread as
+      bad JSON.
 
 - [ ] **Launchpad login — never reproduced, one unverified cause left.** Credentials,
       providers and redirect URLs were all checked and are correct. The one thing not
@@ -602,16 +630,41 @@ What it did NOT do, in the order the plan itself ranked them:
       spending any time on the code — and note this is a DIFFERENT item from the
       stopped-login-needs-a-refresh bug above.
 
-## 🛡️ Launchpad: render the Turnstile widget (queued 2026-09-09, owner)
+## 🛡️ Launchpad Turnstile — DEFERRED, and now with the reason measured (owner, 2026-09-09)
 
 **Captcha is ENABLED on the Supabase project** (Authentication → Attack Protection →
 Turnstile), and the Cloudflare widget `atlarix-auth` exists (Managed mode, 2 hostnames).
 Nothing renders it, so it has never been solved once — the Cloudflare dashboard reads
 _Insufficient Data_ for that widget's "Likely human" column.
 
-**Owed:** render the widget on `atlarix-launchpad/src/pages/Login.tsx` — the Turnstile
-script plus `<div class="cf-turnstile" data-sitekey=…>`, sitekey from a `VITE_` env var
-(the sitekey is public; only the SECRET goes in Supabase, and it is already set there).
+**DECISION 2026-09-09: do NOT render it yet.** The earlier framing — "the wiring is the
+expensive half, land it now" — does not survive contact with the deployed CSP.
+
+**Rendering it requires widening THREE directives of an enforcing CSP**, not the two you
+would guess. `atlarix-launchpad/vercel.json` carries a real `Content-Security-Policy` (it was
+flipped from Report-Only in `80218a3`), and Turnstile needs:
+
+1. `script-src 'self' 'unsafe-inline'` → must admit `https://challenges.cloudflare.com`
+2. **`frame-src 'none'` → must admit it too.** The challenge is an iframe. Hardest blocker,
+   and the one nobody remembers.
+3. `connect-src` is set explicitly, so `default-src` does not cover Turnstile's XHR either.
+
+**And it would gate nothing.** A repo-wide search for every captcha-protected Supabase
+endpoint (`signUp`, `signInWithPassword`, `signInWithOtp`, `resetPasswordForEmail`, `resend`,
+`verifyOtp`) finds **exactly one auth call in the whole project** — `useAuth.ts:76`
+`signInWithOAuth`, a redirect-builder with no `captchaToken` path — plus
+`CheckoutButton.tsx:49` `getSession()`. There is also **no backend to verify a token with**:
+no `api/` directory, no middleware, and `supabase/` holds only `config.toml`.
+
+So the trade is: weaken a policy you just moved to enforcing, for analytics signal, on a page
+with no captcha-enforcing endpoint. **Land the render together with the first non-OAuth
+path**, when the token has somewhere to go. Until then the abuse lever that actually applies
+is Supabase's **Auth → Rate Limits**.
+
+**Owed instead (small, and unrelated to captcha):** `Login.tsx:27-36`'s comment still asserts
+"the CSP is still `Content-Security-Policy-Report-Only`, so it reports and does not enforce".
+**That has been false since `80218a3`.** A comment describing the opposite of the deployed
+policy is worse than no comment — fix it while touching that file for the stopped-login bug.
 
 **Two facts that decide how far this goes, so nobody implements half of it and calls it
 protection:**
@@ -633,7 +686,13 @@ frame-ancestors on `/login` and `/account`, while `Login.tsx:27` asserts a "stri
 does not exist). For an OAuth-only signup path the abuse lever that actually applies is
 Supabase's own **Auth → Rate Limits**, not captcha.
 
-## ✅ v14.44 SHIPPED 2026-09-09 — Core lineup, an honest wallet, tips, and the round halt
+## ✅ v14.44 — Core lineup, an honest wallet, tips, the round halt, and the money path
+
+**Status 2026-09-09: all landed on `dev`, version bumped, CHANGELOG written — NOT YET
+TAGGED.** The heading said "SHIPPED" for a day while `package.json` still read 14.43.0 and
+the latest tag was `v14.43.0`, which is the kind of claim that makes the whole file harder to
+trust. Release is push `dev` → land `main` → **wait for green CI** → tag; headless publishes
+automatically on `v*`.
 
 Compressed from three full sections now that the work has landed. Narrative lives in
 `docs/CHANGELOG.md`; what stays here is the one-line record, the decisions that must not be
@@ -667,6 +726,13 @@ undone, and what is still owed.
 
 - **Resource caps are CORRECT: MCP 10, automations 10, skills 10, per workspace.** They are
   resource limits, not plan limits, and no tier raises them. **Do not touch the numbers.**
+  **REVISED 2026-09-09, pending v14.45 — read §8 before acting on the line above.** The
+  NUMBERS are still not to be touched; what changes is what MCP's 10 counts (active servers,
+  not stored ones) and that the SKILLS cap is retired outright, because the marketplace
+  deletion removes its only enforcement site and repo skills were never capped at all
+  (`skill-index.ts:14-17`: "Nothing is capped and nothing is clipped"). **Automations 10 is
+  untouched.** Recorded here as DECIDED and NOT YET IMPLEMENTED, deliberately: the code still
+  counts rows, so anyone reading this before v14.45 ships should trust the code.
 - **Account registration is REQUIRED and stays** (`SimpleChatInput.tsx`, `mustSignIn`). BYOK
   and local Ollama are free of metering but not usable anonymously. Deliberate — it reads
   like an oversight and is not. Do not file it as friction.
@@ -680,14 +746,16 @@ undone, and what is still owed.
 
 **Still owed:**
 
-- [ ] **Owner: rehearse the `/v1/responses` rollback** — tracked in full under
-      §`/v1/responses` above, not restated here. This section originally duplicated it, and
-      two copies of one item is how one gets closed while the other lives on.
-- [ ] **Wire `pick-core-model.mjs --check` into CI** — tracked in full under
-      §`/v1/responses` above, not restated here. Two notes that belong with it: a price
-      cross-check was built and REVERTED (owner, 2026-09-09 — not worth carrying code for one
-      model's bad upstream data), and `configSnippet`'s hardcoded `"protocol": "openai"` is
-      already fixed in atlarix-releases `b548015`.
+- [x] **Owner: rehearse the `/v1/responses` rollback** — owner-confirmed 2026-09-09,
+      tracked in full under §`/v1/responses` above. **The consequence still stands and is
+      worth re-reading before ever pulling it for real:** rolling back LOSES reasoning
+      entirely, because tools plus a non-`none` effort is a hard 400 on
+      `/chat/completions`, so the proxy forces `reasoning_effort: "none"`. A rollback is
+      therefore a capability downgrade, not a neutral revert.
+- [x] **Wire `pick-core-model.mjs --check` into CI** — DONE 2026-09-09, tracked in full
+      under §`/v1/responses` above. The note that outlives it: a price cross-check was built
+      and **REVERTED** (owner, 2026-09-09 — not worth carrying code for one model's bad
+      upstream data). **Do not re-propose it.**
 - [ ] **Packaged-app verification — PARTLY DONE, owner-confirmed 2026-09-09.** Verified in
       the packaged app: tips plus the TIP label, Astra live in the picker and billing
       correctly, the slot-change notice appearing, and the composer ring spinning smoothly.
@@ -767,10 +835,261 @@ storage once consent exists so session continuity survives the gate (`:151-156`)
 change here keeps that suite green. Treat the consent boundary as the contract, not the
 implementation detail.
 
+## 📦 v14.45 — "continue with what you had", and the marketplace goes
+
+**Supersedes the §8 appendix in `~/.claude/plans/great-your-in-plan-wise-storm.md`**, which
+was its only home and asked to be moved here. Designed and settled 2026-09-09; **zero code
+written.** Two of the original design's premises turned out to be wrong when checked against
+the code, and both corrections are recorded below rather than silently dropped.
+
+**The product goal:** a user arriving from Claude Code, opencode, Cursor or Copilot keeps
+their setup instead of starting from scratch.
+
+### What already works, so it is not part of this
+
+`readProjectInstructions` (`project-memory.ts:163-178`) already walks
+`.atlarix/atlarix.md` → `AGENTS.md` → `CLAUDE.md`, read-only, never copying. **A Claude Code
+or opencode user already keeps their instructions on day one.** There is nothing at all for
+`.cursorrules` or `.github/copilot-instructions.md` — zero references anywhere in `src` — so
+Cursor and Copilot users are the ones actually starting cold.
+
+### 1. Entry point — auto-detect, offer ONCE, never silent
+
+On opening a workspace, notice foreign configs and offer. **Not silent**, because importing
+sub-agents and MCP servers is a permission change, not a convenience. A Settings-only button
+was considered and rejected: the users it exists for are the ones who just installed and do
+not know the feature exists.
+
+### 2. Instruction files — near-zero cost
+
+`.cursorrules` and `.github/copilot-instructions.md` are single files and drop onto the
+existing ladder. Widen `ProjectInstructionsSource` (`project-memory.ts:162`) and the filename
+ternary at `context-sections.ts:245-250`. **Zero added tokens per turn.** Globbed sets
+(`.cursor/rules/*.mdc`, `.github/instructions/*.instructions.md`) do NOT fit a ladder and
+belong on the skill-index path.
+
+**Get real sample files first.** Cursor's `.mdc` frontmatter and Copilot's
+`.instructions.md` are known only from documentation and have never been checked against an
+actual file. Do not write parsers from docs.
+
+### 3. Sub-agents — the design's first WRONG premise, and the real hazard
+
+The appendix said `mode` defaulting to `"build"` makes `agentIsWriter` true. **False in
+isolation.** `agentIsWriter` (`user-agents.ts:213-216`) is `mode ∈ {build,debug}` **AND**
+(`tools` omitted **OR** `tools` includes `edit_file`). The QA agent is `mode: build` and is
+not a writer. `qa-subagent.test.ts:44-50` states it outright: _"`mode` gates whether
+commands/browser tools are reachable at all. The no-write property comes from the toolset
+plus the forced read-only sandbox, never from the mode."_
+
+**So the import hazard is the OMITTED `tools` allowlist, not the mode default** — and it is
+worse than the appendix thought, because of an anti-escalation control that is pinned by
+test: `subagentWillWrite` (`user-agents.ts:223-233`) returns `agentIsWriter(agent)` for a
+NAMED agent and **ignores `write: true`**. So a foreign read-only reviewer imported without
+an allowlist would be write-capable **and un-overridable from the delegation side**.
+
+- **Importer rule: always emit an explicit `tools` allowlist, never omit it.** A foreign
+  definition that declares no tools gets a read-only toolset.
+- **Imported definitions are "capability undeclared".** Nobody wrote them against Atlarix's
+  capability model, so for those the CALLER's flag decides — which is the owner's "let the
+  model decide at delegation time", scoped so it does not invert the control that exists for
+  user-authored agents.
+- The lever for work that needs changes already exists: an anonymous `task({ write: true })`
+  spawn, where the flag genuinely decides (`spawn-task.ts:471-478`).
+- **State the rule in the prompt as guidance** so the model makes sensible requests.
+  Guidance PLUS enforcement, never instead of it.
+- Worth remembering while designing this: even a writer sub-agent never touches the
+  workspace. `spawn-task.ts:485+` routes every `edit_file` into a proposal set that doubles
+  as its read overlay; nothing lands until the main agent accepts it through the ordinary
+  approval gate.
+
+### 4. MCP — the architecture already does what was asked for
+
+`src/lib/tools/mcp.ts` opens with _"Pass 7: MCP scoping rework — on-demand discovery and
+invocation"_. MCP tools are **not** force-merged into the tool set; the model gets
+`list_available_mcps` and `mcp_call`, with per-tool `requireConsent` and
+`requireAuth`/`McpNeedsOAuthError`. **So the appendix's "import behind a review screen" is
+unnecessary and the eager-spawn hazard does not exist.**
+
+- **Store the config; never eager-connect.** Imported servers land `enabled: false`. Watch
+  the default — `mcpServers.enabled` is `notNull().default(true)` (`db/schema.ts:963`), so an
+  importer that forgets lands them ACTIVE.
+- **`list_available_mcps` must list configured-but-inactive servers by name and description
+  WITHOUT connecting.** It currently filters `enabled = true` (`mcp.ts:102`, `:243`), so an
+  imported server is invisible and the model cannot ask for what it cannot see. Tools
+  enumerated only for active servers — which is both the lazy behaviour and the context bound.
+- **First `mcp_call` activates** through the consent/auth path that already exists.
+- **At the ceiling, refuse and NAME what to deactivate — never auto-evict.** Eviction
+  silently rewrites a user's configuration and can kill an in-flight session.
+- **Import only what we can actually serve, and report what we could not, and why.** Two gaps
+  lazy loading does not fix: we do not speak **SSE**, so an SSE-only URL fails at the moment
+  of asking rather than at import; and OAuth cannot complete mid-turn (no browser mid-turn),
+  so an imported OAuth server needs a Connect click before first use.
+- The missing `cwd` column stops being a crash risk once we store a config rather than
+  writing columns we do not have — `mcp_handlers.ts:205` sets `update.cwd` for a column that
+  does not exist.
+- **Stored-but-inactive servers keep their credentials** (owner, 2026-09-09: "we can just
+  store"). Per-tool `requireConsent` remains the gate on use.
+
+### 5. Skills — bound the index, and the cap dies with the marketplace
+
+`SKILL.md` is a de facto standard and the existing parser already reads `name`/`description`,
+ignoring unknown keys. Import flat to `.atlarix/skills/<name>.md`.
+
+**The appendix's second wrong premise:** it warned that 40 imported skills would put 40 lines
+in every prompt and that the importer must enforce the 10 cap itself. The cap it meant has
+only ONE enforcement site — `skills:install` (`skills_handlers.ts:227-230`) — which the
+marketplace deletion removes, and **repo skills under `.atlarix/skills/` were never capped at
+all.** `skill-index.ts:14-17` says so: _"Nothing is capped and nothing is clipped."_
+
+So the growth problem is **pre-existing, not something the importer creates** — any repo with
+40 skill files already does this today. That makes the fix more necessary, not less:
+
+- **Add a `find_skill`-style lookup and bound the injected index**, so prompt cost is
+  CONSTANT regardless of how many skills a workspace holds. With the cap retired this is the
+  only control on that growth, so it ships WITH the import rather than after it.
+- **Retire the skills cap** (owner, 2026-09-09): `SKILLS_WORKSPACE_MAX`, the `"skills"`
+  member of `WorkspaceCapKind` (`workspace-caps.ts:48`), its `CAP_MAX`/`CAP_NOUN` entries and
+  its Sentry pattern; update `sentry-before-send.test.ts:23`, which type-depends on the
+  member. You cannot refuse a file the user already put in their own repo. **MCP 10 and
+  automations 10 are untouched**, and MCP's 10 becomes a limit on ACTIVE servers.
+
+### 6. Foreign tool names
+
+An import-time rewrite in a new `src/lib/tools/foreign-tool-names.ts`. An alias cannot fix
+it: `browser.ts:1630-1635` records that native tool-calling validates against the ADVERTISED
+tools, so a name the model calls but we never advertised is rejected at the provider.
+
+### 7. Hooks — do NOT import
+
+v14.26.0 deleted that subsystem for a documented reason (`plan-sync.ts:151-159`): a hook was
+a shell command run on every tool call. Rebuilding it from files the user did not write is
+strictly worse than the case that justified removing it.
+
+### 8. Delete the in-app skills marketplace (owner, 2026-09-09)
+
+Users research a skill at the moment of need or ask the model to write one; a curated in-app
+store competes with that and earns nothing. **The reasoning generalises and is the useful
+part:** a skill is inert text, an MCP server is a live connection holding credentials with
+remote side effects. Curation and management are worth building where a mistake has
+consequences — the MCP side. (`McpMarketplaceTab.tsx` stays.)
+
+**KEEP:** `.atlarix/skills/*.md`, `skill-index.ts` (`buildSkillIndex`,
+`formatSkillIndexForPrompt`, `BUNDLED_GUIDES`, the repo branch at `:175-191`),
+`priority-skill-loader.ts`, `normalizeSkillWorkspacePath` (`paths/paths.ts:50-53` — a general
+path wrapper despite its name; `mcp-skills-persistence.test.ts:68-76` pins it),
+`first-sentence.ts`, and everything under `src/lib/skills/skill-registry.ts` and `src/skills/`
+(mode-skill names and bundled prompt content — unrelated to the registry despite the names).
+
+**DELETE:** the marketplace half of `SkillsSettingsPage.tsx` (registry types `:34-50`, the
+hardcoded `OFFICIAL_REGISTRY_URL` `:66-67`, `SkillCard` `:142-224`, `InstalledSkillCard`
+`:226-286`, the Registry & Filters accordion `:525-634`, the browse/active tabs `:636-770`,
+the orphan panel `:772-808`); `tools.tsx:222-235`'s `skills-marketplace` entry (already
+stale — it advertises "five global slots and five per workspace" and its
+`link.to: "/settings"` dead-ends), and the stale cross-reference at `:266-270` where
+`mcp-marketplace` says "pagination matches the skills browser"; handlers
+`skills:fetch-registry` / `:list` / `:list-orphaned` / `:install` / `:uninstall`
+(`skills_handlers.ts:154-349` plus helpers `:23-24`, `:34-151`, `:409-421`); the five
+`preload.ts:161-165` allowlist entries; the five `ipc_client.ts:2484-2512` methods; and
+`ipc_types.ts:801-834` + `:853-865`.
+
+**The `"skills"` CATEGORY in `tools.tsx` (`:17`, `:38`) stays** — `repo-skills` (`:236-250`)
+uses it.
+
+**KEEP the route and nav** (`routes/integrations/skills.tsx`, `router.ts:17,41,48`,
+`pages/integrations.tsx:58-63`, `open-settings-section.ts:35,43`). The page becomes a
+**read view** (owner: _"let them just see all the skills and read them"_): list every skill
+in `.atlarix/skills/` and let the user open one and read it. Read-only, no editing in v1.
+
+- The list is already served — `skills:list-repo-skills` (`skills_handlers.ts:354-401`)
+  returns name/description/tags/modes/priority/version/filename.
+- **Bodies need no new file I/O**: `PrioritySkill` already carries `content`
+  (`priority-skill-loader.ts:43`, set at `:222`) and the handler simply drops it in its
+  `.map`. Add a `skills:read-repo-skill` channel returning the `content` of the entry whose
+  `filename` matches. Sending every body in the list call is the wrong default — skills are
+  indexed, not paid for up front (`DESIGN_NOTES.md:384`).
+- **Match against the enumerated list; never build a path from renderer input.** Selecting by
+  exact match against what the loader already enumerated removes the traversal surface rather
+  than guarding it. Test a `../` filename anyway.
+- Keeping the route also avoids a knot: deleting the page orphans `skills:list-repo-skills`,
+  which `preload-invoke-channels.test.ts` would then want in `KNOWN_NO_RENDERER_CALLER` while
+  its own third test forbids that for a still-allowlisted channel.
+
+**Three deletion hazards, in order of risk:**
+
+1. **`skill-index.ts` reads the marketplace table on the KEEP path.**
+   `loadInstalledSkillEntries` (`:95-135`) is called from inside `buildSkillIndex` at
+   `:193-197`. Remove the call and the function, drop the now-unused `db`/`installedSkills`
+   imports (`:31-33`) and the local `safeParseJson` (`:78-85`), and narrow
+   `SkillIndexEntry.source` from `"repo" | "installed" | "guide"` to `"repo" | "guide"`
+   (`:48`) — `formatSkillIndexForPrompt` already renders `installed` and `repo` identically.
+   `priority-skill-mode-match.test.ts:9,26-35` consumes that union.
+2. **`workspace-capabilities.ts` will LIE TO THE MODEL.** `skillNames` is populated
+   **exclusively** from `installed_skills` (`:45-67`), so after deletion the prompt
+   permanently emits `:101` — _"Installed skills: none (browse Settings → Skills to
+   install)"_ — advertising a surface that no longer exists. **Repoint it at the repo skills**
+   rather than deleting the section, so the prompt tells the truth. Its `scope = 'global'`
+   filter (`:55`) is already a dead branch, purged by migration 0049.
+3. **On-disk residue.** Marketplace installs wrote
+   `<workspace>/.atlarix/skills/<skillId>/` subdirectories with a `.skill-meta.json`, inside
+   the same directory the KEEP loader reads. They do not collide (the loader takes top-level
+   `*.md` only) but they are orphaned with no cleanup path. **Leave them and say so in the
+   CHANGELOG** — code that deletes files out of a user's own repo is a worse risk than
+   invisible litter.
+
+**Database:** `installed_skills` (`db/schema.ts:864-883`) exists only for this feature. Drop
+it via a **NEW** migration; do not touch `drizzle/0042_installed_skills.sql`,
+`0049_workspace_only_remote.sql` or their `meta/_journal.json` entries. Regenerate
+`src/db/migrations/bundled.generated.ts` with `scripts/generate-bundled-sql-migrations.mjs`
+rather than hand-editing, and add the new migration alongside the `0042` case in
+`migration_seed_verification.ts:177-178`.
+
+**Copy:** `README.md:37` and the first half of `:85`; and `tips.json:23`'s composer tip
+("Install skills per workspace in Settings") **reworded, not removed** —
+`composer-tips.ts:92-100` types the id union against the catalog, so deleting one side
+without the other is a compile error, and `i18n-keys-resolve.test.ts` walks every leaf key.
+
+**Tests that will need attention, and why:** `skill-index-no-bodies.test.ts:29-35` (mocks
+`@/db` so installed rows come back empty — becomes dead, harmless),
+`mcp-skills-persistence.test.ts:68-76` (pins the shared path helper),
+`sentry-before-send.test.ts:23` (type-depends on the `"skills"` cap kind),
+`settings-nav-parity.test.ts:78-84` (asserts Integrations has > 3 routes; removing Skills
+would leave 4, so keeping the route keeps this comfortable). Run `knip` after — it treats
+`src/routes/**` as entries and will surface orphaned exports. **A failure anywhere else means
+something on the KEEP list was reached through a marketplace code path**, which is the thing
+to look for rather than to patch away.
+
+### OPEN, and found while designing this: `agentIsWriter` measures WORKSPACE writes only
+
+A read-only sub-agent keeps `run_command`, which is contained by the write-confining sandbox.
+**`mcp_call` is not containable that way, because the effect is remote.** So a sub-agent that
+`agentIsWriter` calls read-only can post to Slack, open a PR, or send mail — anything a
+configured MCP server exposes. The real gate is per-tool `requireConsent` in `mcp.ts`, which
+exists and works; **nothing in the codebase says so**, and the naming actively suggests
+otherwise.
+
+Not a v14.45 item and not caused by the import — it is true today. What it needs is a
+decision on whether "read-only" should mean "no side effects" (in which case an MCP-capable
+agent is not read-only) or stay "no workspace writes" with the naming and docs made honest.
+**Decide before anything starts relying on `agentIsWriter` as a safety property.**
+
 ## 🔜 Next session — the queue
 
 _(Unordered. It read "in order" while numbered 1, OPEN, 0, 1b, 3 with no 2 —
 numbers that do not sequence are worse than none.)_
+
+**Agreed order at the 2026-09-09 handoff**, so the next reader does not re-derive it:
+
+1. **Tag v14.44** — everything is on `dev` and the CHANGELOG is written. Owner's call.
+2. **v14.45** — §8 above, in full: the import, the marketplace deletion, `find_skill`, the
+   MCP active/stored split. Designed, zero code.
+3. **Launchpad** — the stopped-login fix (root cause is located: `Login.tsx:72`'s `pending`
+   is cleared in exactly one place, inside `if (err)`, with no `try`/`catch` and no
+   `finally`), plus the stale CSP comment. Turnstile is DEFERRED, with the reason measured.
+4. **Telemetry** — Sentry ignore-list revision and the PostHog question set, scoped before
+   touched.
+
+**Still owner-only:** the trial-credit decision (a decision, not code — see §Cloudflare), and
+verifying Vercel's `VITE_SUPABASE_*` env vars before any more time goes into launchpad login.
 
 ### Harbor upstream integration — IN PROGRESS 2026-09-01
 
@@ -793,10 +1112,15 @@ token in secrets); reasoning reaches the wire at the model's ceiling; the self-t
 
 **Owed:**
 
-- `src/harbor/agents/installed/atlarix.py` in the fork at `../harbor`, plus `AgentName.ATLARIX`
-  and `factory.py` — the only three touchpoints (verified by searching `AgentName.OPENCODE`).
-  Mirror `opencode.py`: `ModelConnectionSpec(passthrough=True)`, `ensure_system_dependencies`,
-  `nvm_node_install_snippet()`, `CliFlag`/`ErrorPattern`, `AgentCapabilities(atif=True)`.
+- [x] `src/harbor/agents/installed/atlarix.py` plus `AgentName.ATLARIX` and `factory.py` —
+      the three touchpoints. **Owner-confirmed done 2026-09-09, and NOT verifiable from this
+      machine:** there is no `../harbor` checkout here and no `atlarix.py` anywhere under the home
+      directory — only the installed CLI at `.bench-venv/bin/harbor`. So the fork lives somewhere
+      else, and the next person to pick this up should find out where before assuming it is
+      missing. The shape it had to mirror, for reference: `opencode.py`'s
+      `ModelConnectionSpec(passthrough=True)`, `ensure_system_dependencies`,
+      `nvm_node_install_snippet()`, `CliFlag`/`ErrorPattern`, `AgentCapabilities(atif=True)`.
+- **Still owed below.** The four items that follow are unaffected by the fork landing.
 - **The instruction must NOT go in argv.** `atlarix_tb/agent.py` passes `--prompt {escaped}`,
   which puts the task text in the agent's own `/proc/<pid>/cmdline`; harbor **#2311** documents
   agents killed by their own `pkill -f` this way — 15/15 trials, exit 143/137, each graded on a
@@ -838,9 +1162,15 @@ leaderboard's reward-hacking judge reviews trajectories, and a run whose command
 output is weaker evidence than one whose do. Fixing it means touching how `build-branch.ts`
 emits command activity, which is wider than this work.
 
-### 🔍 OPEN — the sub-agent round panel renders twice
+### ✅ The sub-agent round panel rendering twice — CLOSED (owner-confirmed 2026-09-09)
 
-Not fixed (owner's call: cosmetic, and no cause was proven). The AGENTS are not duplicated — four ran
+Owner reports this is handled; the nearest commit on `dev` is `18c8933f`
+("test(subagents): cover the round-consolidation paths that had none"). Note what that
+commit is and is not: it adds COVERAGE of the consolidation paths, so if the duplicate ever
+returns, the candidate list below is still the place to start — and the advice in it still
+holds, because no cause was ever proven by instrumentation.
+
+Kept verbatim for that reason. The AGENTS are not duplicated — four ran
 and `4/4 running` was correct; the PANEL appears twice, labelled differently each time. Candidates,
 so the next attempt starts from evidence rather than re-deriving it:
 
@@ -863,7 +1193,12 @@ exactly why none of them should be acted on yet.
 **Owed before release:** verify in the PACKAGED app (a long real session, quit, reopen, confirm the
 meter and the history start from the summary), then `/security-review` on the diff.
 
-### OAuth redirect allowlist — OWNER ACTION, still owed
+### OAuth redirect allowlist — DONE (owner-confirmed 2026-09-09)
+
+Owner reports the allowlist entry is in place. Not verifiable from this machine — the
+Supabase dashboard is the only authority on it, and `supabase/config.toml`'s `[auth]` block
+is the LOCAL stack's — so this is a report, not a measurement. The reasoning below is kept
+because it decides what the entry must look like, and getting it wrong is silent.
 
 The code fix shipped in v14.38.4 (`AUTH_CALLBACK_URL` is now the canonical two-slash
 `atlarix://auth/callback`, locked by `src/__tests__/oauth-redirect-allowlist-match.test.ts`). **It
@@ -904,7 +1239,11 @@ is the honest thing for it to say. Two ways out:
   `GET /installation/repositories` per install with an installation token and applying it
   with `mode: 'set'`. Needs the App private key, which lives in Railway, not locally.
 
-### One non-owner run of the reviewer, end to end
+### One non-owner run of the reviewer, end to end — DONE (owner-confirmed 2026-09-09)
+
+Owner reports this was walked. Not verifiable from here (it needs the `review_jobs` table,
+and the counts below are the pre-run snapshot). Kept for the reasoning, because if an
+onboarding bug does surface it will surface exactly here.
 
 **No account other than `AmariahAK` has ever completed install → subscribe → bind →
 review.** `review_jobs` totals 4 (3 done, 1 failed), all owner; `atlarix-releases` is
@@ -1414,9 +1753,30 @@ rate-limit / Bot-Fight feature is proxy-gated, so grey-clouding forgoes nothing 
 used); **DNSSEC**; the **apex SPF** that was missing entirely; and **DMARC reporting**, which had
 been `p=none` with no `rua` and so monitored nothing.
 
-- [ ] **DMARC `p=none` → `p=quarantine`**, after 2–4 weeks of reports. Time-gated, not
-      effort-gated. Not before — enforcing without data is how legitimate mail starts landing in
-      spam.
+- [x] **DMARC `p=none` → `p=quarantine` — LIVE 2026-09-09**, and validated against real
+      reports rather than a calendar. Record is
+      `v=DMARC1; p=quarantine; rua=mailto:dmarc@atlarix.dev; fo=1;`.
+
+      **The evidence, so nobody re-derives it:** five aggregate reports (Microsoft ×2,
+      Google, Zoho ×2) covering Sep 4–7 carried **six messages, 6/6 passing DMARC, zero
+      spoofing**. The one SPF failure was a FORWARDER — envelope sender rewritten to
+      `spi-tch.com`, but DKIM passed on `atlarix.dev` with the `google` selector, and DMARC
+      passes if either mechanism aligns. That signature (good DKIM, rewritten envelope,
+      third-party IP) is a forwarder, not an attack: a spoofer cannot produce a valid
+      signature from the Workspace key. **`adkim=r` / `aspf=r` relaxed alignment is what lets
+      that row survive — do not tighten to `s` without cause.**
+
+      Sender inventory is one aligned sender (MX `smtp.google.com`, SPF
+      `include:_spf.google.com`, DKIM on the `google` selector), which is why days of data
+      were enough and the original 2–4 weeks was over-cautious.
+
+- **Cloudflare "DMARC Management" — deliberately NOT enabled, and this is the trap.** It is
+  not the policy control; it is report RENDERING, and it is built on top of **Email Routing**,
+  which is disabled on this zone. Enabling Email Routing publishes Cloudflare's own MX records
+  on the apex, which would displace `1 smtp.google.com` and **break inbound Google Workspace
+  mail — including the `dmarc@` mailbox receiving these very reports.** Working email traded
+  for a nicer dashboard. If report rendering is ever wanted, add a second `rua` pointing at a
+  free third-party analytics service: one address in one TXT record, no MX involvement.
 
 **Deliberately not doing:** Workers, Pages, Zero Trust, Images, and **proxying the Railway origin**
 (`api.atlarix.dev`) — Cloudflare in front of a streaming SSE endpoint can buffer or time out and
@@ -1515,6 +1875,43 @@ approval, MCP description wrapping + OAuth-URL validation, the universal write-c
 
 ## 🪤 Traps worth not rediscovering
 
+### Two classifiers, one object, opposite verdicts
+
+`isNetworkStreamError` followed `cause` but never `error`. The AI SDK hands `onError` an
+ENVELOPE — `{ error }`, not the error — so `String(envelope)` was `"[object Object]"`, the
+message regex matched nothing, and the network branch inside `onError` had **never once
+fired** for a request-phase failure. Meanwhile its sibling `isNoUsableModelOutputError`
+unwraps `.error` and therefore claimed the same object confidently. A dead socket was
+reported to the user as a model that would not answer.
+
+Neither classifier was wrong about the errors it was written for. What was wrong was that two
+functions inspecting the same value disagreed about its SHAPE, and nothing compared them.
+
+- **When two predicates over one value disagree, suspect the shape before the logic.** The
+  bug is rarely inside either function.
+- **A classifier that unwraps must unwrap everything its callers can hand it.** Following
+  `cause` and not `error` is not a partial fix; it is a fix that reads as complete.
+- **The verdict a classifier never renders leaves no trace.** There was no log line, no
+  Sentry event and no failed test, because the branch simply was not taken. Absence of
+  evidence looked exactly like absence of the failure.
+
+### An SDK can replace your error with its own
+
+The same incident, one layer up. When a request dies before any step completes, the AI SDK
+enqueues an `error` part, then its flush sees `recordedSteps.length === 0` and rejects the
+result promises with a **synthetic `NoOutputGeneratedError`** — discarding the original
+`APICallError` entirely, not even attached as a `cause`. So the only error a caller can catch
+describes a symptom the SDK inferred, not the failure that happened.
+
+- **Classify at the point where the real error still exists**, then carry the verdict forward.
+  `onError` sees the truth; the catch block does not.
+- **Ordering is the fix, not the addition.** The unwrap has to run BEFORE the branch that
+  matches the substitute error. Placed after it, it is dead code that looks like a fix.
+- **Retry machinery that is "already tested" can still be unreachable.** Both
+  `network-retry-socket-faults.test.ts` and `retry-jitter.test.ts` passed throughout: they
+  test the classifier and the delays, and nothing tested that anything ever calls them with
+  a real transport failure.
+
 ### A silent zero is the failure mode to design against, twice over
 
 Both of this cycle's real bugs returned a plausible-looking ZERO instead of failing.
@@ -1610,8 +2007,15 @@ then invisible with nothing to explain why. It is unreachable (both insert paths
 it STAYS, because flipping a default in SQLite means rebuilding the table — the same cost as
 dropping the column. Changing it in `schema.ts` without a migration would be worse still: new
 installs would get one default and existing ones the other, so the schema would describe
-neither. Same reasoning keeps `installed_skills.scope`, which is part of a composite primary
+neither. Same reasoning kept `installed_skills.scope`, which is part of a composite primary
 key. **Narrow the TYPES, leave the columns.**
+
+**Except that `installed_skills` itself goes in v14.45** — the whole table, via a NEW
+migration, because the skills marketplace is being deleted and nothing else reads it. That
+does not weaken the rule above: dropping a table nothing uses is not the same as changing a
+column that live code binds. The old migrations (`0042`, `0049`) and their journal entries
+stay exactly as they are — they are applied history keyed by hash, and rewriting them breaks
+every existing install's ledger.
 
 ### A comment asking people to remember is not a control
 

@@ -3,6 +3,56 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.44.0] (2026-09-09) — The app is free, and the meter is honest
+
+**Atlarix is free.** Every feature is available to everyone; what you pay for is Atlarix
+Core inference. There is no Free tier and no Pro tier, so nothing in the app is behind a
+plan any more — MCP servers, automations, skills, sub-agents and workspaces all just work.
+The per-workspace limits that remain (10 MCP servers, 10 automations, 10 skills) are there
+because a workspace with fifty MCP servers is one nobody can reason about, not because
+somebody has not paid. Bringing your own key or running Ollama locally is metered by nobody.
+
+**A new Core lineup: GLM 5.3, GPT 5.6 Terra, and GPT 6 Astra.** New accounts start on the
+reasoning tier rather than the budget one. Because a Core slot names a SLOT and never a
+model, the lineup can change without you updating the app — and when the model behind a slot
+does change, Atlarix now tells you instead of quietly answering in a different voice.
+
+**The wallet refuses instead of guessing.** A request you cannot afford is declined up front
+with the amount it would take, rather than being clamped into something smaller that then
+fails halfway through.
+
+**A cancelled turn no longer overcharges you.** Stopping a generation used to bill the
+worst case — the whole output budget the model was allowed, not the two seconds it actually
+produced. The same request measured 45c completed and 58c cancelled. It is now priced from
+what was really generated, and it can never cost more than the estimate you were quoted.
+If the connection drops rather than you cancelling, the same applies.
+
+**A dropped connection retries instead of blaming the model.** A brief network reset used to
+end the turn with "Something went wrong — please try again", after two silent retries that
+told the model to stop thinking and answer — to a socket that was already dead. The retry
+that was supposed to handle this could never fire. Now a reset backs off and reconnects, and
+the answer arrives. Nothing is shown to you at all when it recovers.
+
+**Running out of credit stops the whole round, not just one worker.** When a turn had
+several sub-agents running and the credit ran out, one of them failed and the rest carried
+on spending. Now the round halts together, and queued work is dropped rather than started.
+
+**Reasoning reaches its top settings on GPT models.** The highest two effort levels were
+unreachable — asking for them silently sent a lower one.
+
+**Atlarix speaks your language again.** Every translated string in the app was returning its
+own name instead of the translation. If you had picked a language other than English in
+v14.43, this is the release where it works.
+
+**Smaller things.** A tip under the composer, labelled so it reads as a tip, and a shortcuts
+list in Help you can actually find. The context ring spins smoothly while a turn streams. A
+failed first turn no longer leaves a session permanently called "Untitled". Pressing Stop, or
+recovering from a network blip, no longer files an error report. A single failed fetch of the
+Core lineup no longer hides a lineup change until restart.
+
+**For the record:** signing in is still required. Bring-your-own-key and local Ollama are
+free of metering, but not usable anonymously — that is deliberate.
+
 ## [14.43.0] (2026-09-08) — It speaks your language
 
 **Atlarix answers in your language.** Thirteen of them — English, 简体中文, Français,
