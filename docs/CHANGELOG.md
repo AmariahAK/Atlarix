@@ -3,14 +3,14 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
-## [14.44.0] (2026-09-09) — The app is free, and the meter is honest
+## [14.45.0] (2026-09-09) — The app is free, the meter is honest, and skills live in your repo
 
 **Atlarix is free.** Every feature is available to everyone; what you pay for is Atlarix
 Core inference. There is no Free tier and no Pro tier, so nothing in the app is behind a
 plan any more — MCP servers, automations, skills, sub-agents and workspaces all just work.
-The per-workspace limits that remain (10 MCP servers, 10 automations, 10 skills) are there
-because a workspace with fifty MCP servers is one nobody can reason about, not because
-somebody has not paid. Bringing your own key or running Ollama locally is metered by nobody.
+The per-workspace limits that remain (10 MCP servers, 10 automations) are there because a
+workspace with fifty MCP servers is one nobody can reason about, not because somebody has
+not paid. Bringing your own key or running Ollama locally is metered by nobody.
 
 **A new Core lineup: GLM 5.3, GPT 5.6 Terra, and GPT 6 Astra.** New accounts start on the
 reasoning tier rather than the budget one. Because a Core slot names a SLOT and never a
@@ -37,6 +37,32 @@ the answer arrives. Nothing is shown to you at all when it recovers.
 several sub-agents running and the credit ran out, one of them failed and the rest carried
 on spending. Now the round halts together, and queued work is dropped rather than started.
 
+**Skills are files in your repo, and the in-app marketplace is gone.** A skill is a markdown
+file in `.atlarix/skills/` that teaches Atlarix a repeatable job — write one, or ask Atlarix
+to write it for you, and commit it alongside your project docs so everyone working in the
+repo gets the same behaviour. The registry browser is removed: the skills that earn their
+place turned out to be the ones specific to a codebase, not generic ones fetched from a
+list. Settings → Skills now shows what a workspace has and lets you read any of them.
+Skills you installed previously stay on disk; nothing is deleted from your repository.
+
+**Project rules can be more than one file.** `.atlarix/rules/` holds as many as you like and
+they all apply — testing, style, the way your migrations get written. The older
+`.atlarix/atlarix.md` keeps working exactly as before.
+
+**Atlarix can bring your setup across from another AI coding tool.** Point it at a config
+from Cursor, Copilot, or something we have never heard of, and it will read it and offer to
+carry it over — rules become a file in `.atlarix/rules/`, and MCP servers are proposed one
+at a time for you to approve. It never adopts another tool's configuration on its own, and
+it never adds an MCP server without asking: approving one means Atlarix will run that
+program on your machine, so the approval shows you the exact command.
+
+**A project can no longer change how Atlarix behaves without telling you.** A repository was
+able to ship a file that silently replaced Atlarix's own operating instructions for every
+turn — including a sub-agent's, one that can edit files. Cloning someone's project was
+enough. That is fixed: those instructions now always come from Atlarix itself. Relatedly,
+changes to files under `.atlarix/` ask for approval instead of being written silently,
+because those files decide how the agent behaves in future sessions.
+
 **Reasoning reaches its top settings on GPT models.** The highest two effort levels were
 unreachable — asking for them silently sent a lower one.
 
@@ -48,7 +74,9 @@ v14.43, this is the release where it works.
 list in Help you can actually find. The context ring spins smoothly while a turn streams. A
 failed first turn no longer leaves a session permanently called "Untitled". Pressing Stop, or
 recovering from a network blip, no longer files an error report. A single failed fetch of the
-Core lineup no longer hides a lineup change until restart.
+Core lineup no longer hides a lineup change until restart. Atlarix also spends fewer tokens
+describing itself each turn — it now tells the model how many skills and MCP servers a
+workspace has rather than listing them, and says nothing at all when there are none.
 
 **For the record:** signing in is still required. Bring-your-own-key and local Ollama are
 free of metering, but not usable anonymously — that is deliberate.

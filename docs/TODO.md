@@ -1,14 +1,15 @@
 # Atlarix TODO
 
-**Current version:** v14.44.0 — bumped 2026-09-09, on `dev`, **not yet tagged** (latest tag is
-`v14.43.0`). The app is free, the Core lineup is GLM 5.3 / Terra / Astra with new accounts on
-the reasoning tier, and the money path is honest in both directions: a cancelled turn is priced
-from what was actually generated instead of the whole output budget it was allowed, and a
-dropped connection retries instead of ending the turn as "Something went wrong". Narrative in
-`docs/CHANGELOG.md`.
+**Current version:** v14.45.0 — released 2026-09-09. The app is free; the Core lineup is
+GLM 5.3 / Terra / Astra; the money path is honest in both directions (a cancelled turn is priced
+from what was generated, a dropped connection retries); the skills marketplace is gone and skills
+are files in `.atlarix/skills/`; project rules moved to `.atlarix/rules/`; and two prompt-injection
+paths are closed — a repo can no longer replace Atlarix's operating instructions, and writes under
+`.atlarix/` ask. Narrative in `docs/CHANGELOG.md`.
 
-**This header has been wrong before.** It read v14.42.0 while `package.json` said 14.43.0 and
-two versions had shipped. Update it in the same commit as the version bump, or don't trust it.
+**This header has been wrong before.** It read v14.42.0 while `package.json` said 14.43.0 and two
+versions had shipped, then "v14.44 SHIPPED" while nothing was tagged. Update it in the same commit
+as the version bump, or do not trust it.
 
 **Self-test non-exit — a third data point (2026-09-05).** The packaged self-test on
 macOS arm64 shows the same "all probes passed, process tree had to be killed" as the
@@ -458,12 +459,6 @@ independently. The first pass diagnosed it as a timeout and was wrong.
 dialect — `usage.ts`, `cost.ts` and `server.ts` are untouched by those commits, verified by
 diff. Rollback rehearsal done (owner-confirmed 2026-09-09).
 
-- [ ] **The payoff is still unmeasured.** Terra is $2.00/$12.00 per M against GLM 5.3's
-      $1.40/$4.40. Reasoning is unlocked, but nobody has shown reasoning-Terra beats GLM 5.3
-      by enough to justify ~2.7× the output rate. Run `tests/agent-evals`. If it loses,
-      core-2 goes back to something cheaper and the Responses path sits there costing
-      nothing — it is config-selected.
-
 **Rolling back LOSES reasoning entirely**, and that is not obvious from the config: tools
 plus a non-`none` effort is a hard 400 on `/chat/completions`, so the proxy forces
 `reasoning_effort: "none"`. A rollback is a capability downgrade, not a neutral revert.
@@ -619,8 +614,6 @@ comments. What stays here is what a future reader would otherwise undo.
 
 **Still owed from this release:**
 
-- [ ] Packaged-app check: Settings → Skills lists and opens a skill; a workspace with no
-      configuration shows neither prompt section.
 - [ ] `atlarix-releases` README is committed and **deliberately unpushed** — it describes
       `.atlarix/skills/` instead of the registry, which is false for every build until this
       tag. Push it WITH the v14.45 tag.
@@ -768,94 +761,13 @@ dashboard and a deploy can re-enable it, which would break every webhook (LemonS
 
 ---
 
-## ✅ Verification owed — code done, no code expected
+## ✅ Verification owed — one left
 
-These are trips and clicks, not tasks. Each fix is already shipped.
+The packaged-app batch was walked and confirmed 2026-09-09; those items are gone rather than
+ticked, because a list of things that turned out fine is not worth carrying.
 
-- [ ] **Does the memory move actually change behaviour?** Re-run the same "how've you been / what's in
-      memory" prompt on `wisdom-drop` with DeepSeek V4 Pro and count tool calls. Baseline is the
-      logged session: ~15 calls, ending on a stale backup. A pass is reading the store directly. **If
-      it still hunts, placement was not the answer** — the honest next step is a memory tool, not more
-      prompt, and this item should say so rather than being quietly ticked.
-      Note `~/.atlarix-memory-backup-2026-08-19/` is a HAND-MADE copy (nothing in our source creates
-      it) whose content differs from live; it will keep winning `find` races while it sits in `~`, so
-      move it before drawing conclusions from a re-run.
-
-- [ ] **The unreleased batch, in the PACKAGED app** (never the dev server): two sessions with
-      different modes following their own session; switching away from a large session and back with
-      no empty chat; a turn in A surviving a switch to B; every Diagnostics row rendering,
-      "Copy report" carrying no key material, and `--doctor` exiting.
-      **This machine cannot do it as-is:** the root `better_sqlite3.node` is dated Jun 15 and was
-      never rebuilt for Electron 43, so a raw `npx electron .` dies with
-      `NODE_MODULE_VERSION 141` vs `148`. `npm start` / packaging runs Forge's electron-rebuild and
-      heals it — but that also means a raw-binary launch is not a valid way to test anything here.
-- [ ] **The session-load numbers** — `ATLARIX_DIAG_SESSION_LOAD=1` (main) +
-      `localStorage["atlarix:diag:session-load"]="1"` (renderer) on the 1.43M-token session, four
-      numbers recorded. NOT closed by the cold-chat eviction that shipped: eviction frees memory
-      AFTER the fact and cannot make the first `parseDisplaySnapshot` cheaper. Whether the parse or
-      the main→renderer transfer dominates is what decides where laziness goes, and it is a
-      measurement, not a guess.
-
-- [ ] **Anthropic extended thinking — BELIEVED fixed, not OBSERVED fixed.** The capability branch,
-      the SDK-shaped `budgetTokens` and the temperature omission are covered by 12 tests (verified
-      sensitive), but there is no Anthropic key here and the failure mode is a provider-side **400**,
-      so the request has never been sent. **The check:** one reasoning prompt on a Claude model with
-      a real BYOK key — no 400, and thinking parts stream. If it 400s, suspect temperature:
-      Anthropic accepts only `1` with thinking on and `getTemperature` defaults to `0`, which is
-      exactly why `shouldOmitTemperature` exists.
-- [ ] **Whisper-worker dictation under the new CSP.** The worker only spawns when a composer mounts
-      with the local provider, so it needs a workspace open. Confirm dictation still transcribes and
-      the log carries `[csp] APPLY resourceType=script … whisper-worker`. If ONNX fails to compile,
-      revert to docstring-only — a blocked worker that also blocks WASM is worse than the gap.
-- [ ] **`read_url` through a real turn** against a JS-rendered SPA and a bot-walled page. The
-      mechanism is measured (excalidraw 69 → 722 chars, g2.com 0 → 251, five parallel fetches 624ms);
-      what is untested is the path through the packaged app's own tool.
-- [ ] **Drive a passkey sign-in by hand in the packaged browser** — a security key, and the
-      "use a phone or tablet" QR flow. This is now the WHOLE passkey story (the device-stored
-      authenticator is gone, below), so it is promoted from a fallback check to the first thing to
-      verify. Success is a completed sign-in; failure is the notice firing when it should not, or a
-      roaming request being reported as unsupported.
 - [ ] **CI must resolve the win32 + linux TypeScript 7 platform binaries.** Only darwin-arm64 is
       proven.
-- [ ] **Confirm `[prompt-cache]` still shows a large `read=` on later turns in a mode.**
-      **PROMOTED 2026-09-02 — this now BLOCKS the v14.41.0 prose work** (see the header). The
-      prefix is ~14,600 tokens in Build and sits inside one cache breakpoint; whether that is
-      paid once or every turn is the difference between the remaining prose cuts being
-      pointless and being the most valuable thing in the cycle. Core models get placement
-      `"none"` (`anthropic-cache-breakpoints.ts`), i.e. we depend on the provider matching a
-      byte-identical prefix — which is exactly the mechanism that fails silently. A `write=`
-      that jumps every turn would mean the per-mode tool-description tiering is invalidating the
-      cached prefix.
-
-- [ ] **Passkey notice ACCURACY — and it never needed the Windows machine.** It sat under "Needs the
-      Windows machine" until 2026-09-04, which is part of why it went unverified for weeks:
-      `src/lib/browser/webauthn-notice.ts` is an injected BrowserView page script with **no platform
-      check of its own** (the file says so), so it behaves identically on all three OSes and is
-      verifiable on the dev Mac.
-      The check is a **false-positive** check, not a feature test. No platform authenticator exists
-      anywhere any more — Windows and Linux never had one, and macOS's went with the provisioned
-      `keychain-access-groups` entitlement — so the notice is CORRECT to fire for an unstated
-      request. It must **NOT** fire when a page explicitly asks for a roaming authenticator
-      (`authenticatorAttachment: "cross-platform"`): a security key, or a phone over the hybrid/QR
-      flow, goes through Chromium on every platform, and that phone is where the user's synced
-      passkey already lives. Two earlier wordings of this message were wrong in **opposite**
-      directions, which is why it is the TRIGGER being checked and not the text.
-- [ ] **Linux: the notification SIGSEGV** in `electron::NotificationPresenter::RemoveNotification`
-      (Fedora 44 Sentry report). Moved out of the Windows section 2026-09-04 — the fix is reasoned,
-      not observed, and what it needs is a **clean Sentry week**, not a machine. Leave the app
-      unfocused through several automation runs and let notifications expire rather than clicking
-      them.
-- [ ] **Sub-agent round dedupe has two UNPINNED paths** — found 2026-09-04 while fixing the
-      double-render, and independent of that fix. `consolidateSubagentRoundsInThread` has **no test
-      coverage at all**: nothing under `src/__tests__` or `tests` calls it. And
-      `src/__tests__/subagent-card-settles-after-turn.test.ts:121` claims to pin "leaves a thread
-      that does not own the sub-agent REFERENTIALLY identical" while its fixture **already contains
-      a round** — so the case that matters is untested: `mergeSubagentActivityIntoThread` appending
-      a fresh round into a **round-less** frozen thread, which the mount-level `onChatActivity`
-      listener in `useStreamChat` does for every entry of
-      `completedStreamThreadByAssistantMessageIdAtom` with no chat filter and no ownership check.
-      Both are latent duplicate-panel sources. A fixture that already satisfies the condition it is
-      meant to test is the same trap as a green assertion that asserts nothing.
 
 ## ⚠️ Known and NOT fixed — deliberately, with reasons
 
