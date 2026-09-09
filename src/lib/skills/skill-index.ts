@@ -149,58 +149,38 @@ export async function buildSkillIndex(
  * line, however many there are.
  */
 /**
- * How many workspace skills are listed in full before the rest become searchable.
+ * WORKSPACE SKILLS ARE A COUNT, NOT A CATALOGUE.
  *
- * The index used to be unbounded, which was fine while a cap on installs bounded it
- * indirectly. Nothing does now — skills are files in the user's repo, and there is no
- * refusing a file that already exists — so a workspace with sixty of them would put
- * sixty lines in every prompt, forever, most of them irrelevant to the task at hand.
+ * This used to emit a name, a description and a path for every skill, and briefly a
+ * bounded version of the same. Both were the wrong shape: a workspace can hold any
+ * number of skill files — they are the user's own markdown, and there is no refusing a
+ * file that already exists — so the cost of describing them grew with the repo while
+ * most of them were irrelevant to any given task.
  *
- * Listing SOME still matters: a model that cannot see any skill names does not know to
- * go looking, and a search tool nobody calls is worse than a short list. So the common
- * case is unchanged — the number is set well above any realistic workspace, so in
- * practice every skill is still listed and this bound never engages.
+ * The model does not need the catalogue to use a skill. It needs to KNOW skills exist,
+ * and it already has `grep` and `glob` to read the directory when a task looks like
+ * something the project has a written procedure for. One line buys the first; the tools
+ * it already has cover the second. (A `find_skill` tool was written for this and deleted
+ * the same day — it was a second way to do a thing that works.)
  *
- * WHAT THE OLD CAPS GOT WRONG, and why this is not a return to them: the 10/6KB/24KB
- * caps dropped skills SILENTLY, telling the model that skills 11+ did not exist. That is
- * the worst possible failure for a summary whose whole job is to say what is available.
- * The omission here is explicit — the heading still counts every skill, the remainder is
- * stated, and the directory is named so `grep` or `glob` reaches the rest. Nothing falls
- * off without saying so, which is the invariant `priority-skill-mode-match.test.ts`
- * actually pins.
- *
- * No search tool for this. `grep` and `glob` already read `.atlarix/skills/`, and a
- * dedicated one would be a second way to do a thing that works.
- *
- * Interpolated into the prompt below rather than written out, because a sentence that
- * restates a number is a sentence that will eventually contradict it.
+ * The old caps failed differently and worse, so it is worth being precise about the
+ * difference: they dropped skills SILENTLY, telling the model that skills 11+ did not
+ * exist. Nothing is hidden here — the count is of everything, and the directory is
+ * named.
  */
-export const SKILL_INDEX_INLINE_MAX = 25;
 
 export function formatSkillIndexForPrompt(entries: SkillIndexEntry[]): string {
   if (!entries.length) return "";
-  const render = (e: SkillIndexEntry) =>
-    e.description
-      ? `- **${e.name}** — ${e.description}\n  \`${e.readPath}\``
-      : `- **${e.name}**\n  \`${e.readPath}\``;
 
   const project = entries.filter((e) => e.source !== "guide");
   const guides = entries.filter((e) => e.source === "guide");
 
   const lines: string[] = [];
   if (project.length) {
-    const shown = project.slice(0, SKILL_INDEX_INLINE_MAX);
-    const hidden = project.length - shown.length;
-    lines.push(`## Skills available (${project.length})`);
     lines.push(
-      "Each line is a skill you can read in full. When one looks relevant to the task, `read_file` its path BEFORE doing the work it covers — the line is a summary, the file is the instruction. Optional: never chase a skill at the cost of the user's actual task.",
+      `## Skills (${project.length})`,
+      `This project has ${project.length} skill file(s) in \`.atlarix/skills/\` — written procedures for jobs it does repeatedly. When a task looks like one of them, \`grep\` or \`glob\` that directory and \`read_file\` the one that fits BEFORE doing the work it covers. Optional: never chase a skill at the cost of the user's actual task.`,
     );
-    for (const e of shown) lines.push(render(e));
-    if (hidden > 0) {
-      lines.push(
-        `- …and ${hidden} more in \`.atlarix/skills/\` not listed here. \`grep\` that directory for a keyword from the task if none of the above fits.`,
-      );
-    }
   }
 
   // Bundled guides are split out and labelled because their path points INSIDE
@@ -211,6 +191,14 @@ export function formatSkillIndexForPrompt(entries: SkillIndexEntry[]): string {
   // The path has to stay (read_file needs it), so the fix is to say plainly what
   // the directory is and that it is not a place to go.
   if (guides.length) {
+    // Guides KEEP their lines, unlike workspace skills above. They live inside the
+    // application bundle, so grep over the project cannot reach them — a count would
+    // make them unreachable rather than merely unlisted. They are also few and fixed,
+    // so the cost does not grow.
+    const render = (e: SkillIndexEntry) =>
+      e.description
+        ? `- **${e.name}** — ${e.description}\n  \`${e.readPath}\``
+        : `- **${e.name}**\n  \`${e.readPath}\``;
     if (lines.length) lines.push("");
     lines.push(`## Built-in guides (${guides.length})`);
     lines.push(

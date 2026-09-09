@@ -5,7 +5,6 @@ import {
   type PrioritySkill,
 } from "@/lib/skills/priority-skill-loader";
 import {
-  SKILL_INDEX_INLINE_MAX,
   formatSkillIndexForPrompt,
   type SkillIndexEntry,
 } from "@/lib/skills/skill-index";
@@ -98,58 +97,53 @@ describe("filterSkillsForMode", () => {
 // skill can never silently fall off the end the way the old 10/6KB/24KB caps
 // let it.
 describe("formatSkillIndexForPrompt", () => {
-  it("emits name, description and read path — and no body", () => {
+  it("names no workspace skill — not the name, not the description, not the path", () => {
+    // v14.45: a count replaced the catalogue. The model reaches a skill with grep, and
+    // the flat cost is the whole point, so a per-skill detail creeping back in is a
+    // regression even though it would look like an improvement.
     const out = formatSkillIndexForPrompt([
       entry({ name: "pdf-tools", description: "Extract PDF form fields." }),
     ]);
-    expect(out).toContain("pdf-tools");
-    expect(out).toContain("Extract PDF form fields.");
-    expect(out).toContain(".atlarix/skills/test.md");
+    expect(out).not.toContain("pdf-tools");
+    expect(out).not.toContain("Extract PDF form fields.");
+    expect(out).not.toContain(".atlarix/skills/test.md");
+    // But it still says where to look and how.
+    expect(out).toContain(".atlarix/skills/");
     expect(out).toContain("read_file");
   });
 
-  it("indexes EVERY skill — no cap, no truncation marker", () => {
-    const many = Array.from({ length: 25 }, (_, i) =>
-      entry({ name: `skill-${i}`, readPath: `.atlarix/skills/s${i}/SKILL.md` }),
-    );
-    const out = formatSkillIndexForPrompt(many);
-    for (const s of many) {
-      expect(out).toContain(s.name);
-      expect(out).toContain(s.readPath);
-    }
-    expect(out).toContain("Skills available (25)");
-    expect(out).not.toContain("…");
-  });
-
   /**
-   * Beyond the inline bound the list is cut — but never SILENTLY, which is the actual
-   * invariant the test above protects. The old 10/6KB/24KB caps dropped skills with no
-   * indication, so the model was told that skills 11+ did not exist. Here the heading
-   * still counts all of them, the remainder is stated outright, and the directory is
-   * named so `grep` reaches them — no dedicated search tool, because grep already does
-   * this.
-   *
-   * The bound sits well above any realistic workspace, so this path is for the
-   * pathological case only — which is exactly why it needs a test: nobody will hit it
-   * by accident and notice it is wrong.
+   * Workspace skills are a COUNT now, not a catalogue — the model has grep for the
+   * rest. What must stay true is that nothing is hidden: the number is of every skill,
+   * and the directory is named, so this can never become the old silent-drop failure
+   * where the model was told skills 11+ did not exist.
    */
-  it("states what it omitted, and how to reach it", () => {
-    const many = Array.from({ length: SKILL_INDEX_INLINE_MAX + 7 }, (_, i) =>
+  it("states how many skills there are, and where, without naming them", () => {
+    const many = Array.from({ length: 32 }, (_, i) =>
       entry({ name: `skill-${i}`, readPath: `.atlarix/skills/s${i}/SKILL.md` }),
     );
     const out = formatSkillIndexForPrompt(many);
 
-    // The count is of everything that EXISTS, not of what was printed. A heading that
-    // counted only the shown ones would be the silent-drop failure wearing a number.
-    expect(out).toContain(`Skills available (${SKILL_INDEX_INLINE_MAX + 7})`);
-    expect(out).toContain("and 7 more");
+    expect(out).toContain("32");
     expect(out).toContain(".atlarix/skills/");
     expect(out).toContain("grep");
 
-    // The first are listed in full; the tail is not pretended into existence.
-    expect(out).toContain("skill-0");
-    expect(out).toContain(`skill-${SKILL_INDEX_INLINE_MAX - 1}`);
-    expect(out).not.toContain(`skill-${SKILL_INDEX_INLINE_MAX + 6}`);
+    // Cost is flat: no per-skill line, however many there are.
+    expect(out).not.toContain("skill-0");
+    expect(out).not.toContain("skill-31");
+    expect(out.length).toBeLessThan(600);
+  });
+
+  it("costs the same for two skills as for two hundred", () => {
+    // The property the count exists for. A catalogue grew with the repo; this does not.
+    const mk = (n: number) =>
+      formatSkillIndexForPrompt(
+        Array.from({ length: n }, (_, i) => entry({ name: `s-${i}` })),
+      );
+    const small = mk(2);
+    const large = mk(200);
+    // Identical but for the number itself.
+    expect(large.replace(/200/g, "N")).toBe(small.replace(/2/g, "N"));
   });
 
   it("a skill with a huge body still costs only its index line", () => {
@@ -180,8 +174,16 @@ describe("formatSkillIndexForPrompt", () => {
           "/Applications/Atlarix.app/Contents/Resources/skills/guides/memory.md",
       }),
     ]);
-    expect(out).toContain("## Skills available (1)");
+    expect(out).toContain("## Skills (1)");
     expect(out).toContain("## Built-in guides (1)");
+    // Guides keep their per-entry lines while workspace skills do not: grep over the
+    // project cannot reach inside the app bundle, so a count would make them
+    // unreachable rather than merely unlisted.
+    expect(out).toContain("guides/memory");
+    expect(out).toContain(
+      "/Applications/Atlarix.app/Contents/Resources/skills/guides/memory.md",
+    );
+    expect(out).not.toContain("house-style");
     expect(out).toMatch(/inside the Atlarix application/i);
     expect(out).toMatch(/Never `cd` into these paths/i);
     expect(out).toMatch(/working directory is the project folder/i);

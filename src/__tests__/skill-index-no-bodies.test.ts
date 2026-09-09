@@ -9,9 +9,14 @@ import * as path from "node:path";
  * summary stopped at 10). A truncated instruction is worse than an absent one,
  * because the model cannot tell it is reading a fragment.
  *
- * So these assert the two properties that replaced it: the prompt carries
- * POINTERS, never bodies, and EVERY skill gets one no matter how many there are
- * or how big they get.
+ * The property that replaced it, and the one that still matters most: NO BODY EVER
+ * ENTERS THE PROMPT. `buildSkillIndex` reads the files, so a regression here would put
+ * whole skill bodies back into every turn.
+ *
+ * v14.45 narrowed the second property. The prompt no longer carries a pointer PER
+ * SKILL, because a workspace can hold any number of them and the model has grep; it
+ * carries a count and the directory. Nothing is hidden — the count is of everything —
+ * which is what distinguishes it from the old caps that silently dropped the 11th.
  */
 
 vi.mock("electron-log", () => ({
@@ -71,7 +76,7 @@ afterEach(async () => {
 });
 
 describe("skills index — pointers, not bodies", () => {
-  it("emits name, description and read path, and never the body", async () => {
+  it("keeps name/description/path on the ENTRY, and out of the prompt", async () => {
     await writeSkill(
       "house-style.md",
       "name: house-style\ndescription: Our TypeScript conventions.",
@@ -87,13 +92,16 @@ describe("skills index — pointers, not bodies", () => {
       source: "repo",
     });
 
+    // The ENTRY carries name/description/path — `read_file` needs them, and the
+    // settings page renders them. The PROMPT carries neither, only a count.
     const prompt = formatSkillIndexForPrompt(entries);
-    expect(prompt).toContain("house-style");
-    expect(prompt).toContain(".atlarix/skills/house-style.md");
+    expect(prompt).toContain("1");
+    expect(prompt).toContain(".atlarix/skills/");
+    expect(prompt).not.toContain("house-style");
     expect(prompt).not.toContain(BODY_CANARY);
   });
 
-  it("a huge skill still costs one line — no cap, no clipping", async () => {
+  it("a huge skill costs nothing in the prompt — no cap needed", async () => {
     // 200 KB: well past every limit the old loader enforced (6 KB per skill,
     // 24 KB total), which would have silently truncated this mid-sentence.
     await writeSkill(
@@ -105,12 +113,12 @@ describe("skills index — pointers, not bodies", () => {
     const prompt = formatSkillIndexForPrompt(
       await buildSkillIndex(workspace, "build"),
     );
-    expect(prompt).toContain("giant");
     expect(prompt).not.toContain(BODY_CANARY);
+    expect(prompt).not.toContain("giant");
     expect(prompt.length).toBeLessThan(800);
   });
 
-  it("indexes all 15 skills — the 11th does not fall off the end", async () => {
+  it("counts all 15 skills — the 11th is not written out of existence", async () => {
     for (let i = 0; i < 15; i++) {
       await writeSkill(
         `skill-${String(i).padStart(2, "0")}.md`,
@@ -122,13 +130,14 @@ describe("skills index — pointers, not bodies", () => {
     const entries = await buildSkillIndex(workspace, "build");
     expect(entries).toHaveLength(15);
 
+    // Every skill is COUNTED — which is the invariant this test has always been for.
+    // It used to check that the 11th got a line; now it checks the 15th is in the
+    // number, because being counted is what stops the model believing it does not
+    // exist. No body, and no per-skill line either.
     const prompt = formatSkillIndexForPrompt(entries);
-    expect(prompt).toContain("Skills available (15)");
+    expect(prompt).toContain("15");
     for (let i = 0; i < 15; i++) {
-      expect(prompt).toContain(`skill-${i}`);
-      expect(prompt).toContain(
-        `.atlarix/skills/skill-${String(i).padStart(2, "0")}.md`,
-      );
+      expect(prompt).not.toContain(`skill-${i}`);
     }
     expect(prompt).not.toContain(BODY_CANARY);
   });
