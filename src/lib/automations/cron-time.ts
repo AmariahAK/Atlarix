@@ -48,14 +48,15 @@ export function cronWithClock(cron: string, time: ClockTime): string {
   const parts = cron.trim().split(/\s+/);
   const rest = parts.length === 5 ? parts.slice(2) : ["*", "*", "*"];
   const hour24 =
-    time.meridiem === "AM"
-      ? time.hour12 % 12
-      : (time.hour12 % 12) + 12;
+    time.meridiem === "AM" ? time.hour12 % 12 : (time.hour12 % 12) + 12;
   return [String(time.minute), String(hour24), ...rest].join(" ");
 }
 
 /** 1-12, for the hour column. */
-export const HOUR_OPTIONS: number[] = Array.from({ length: 12 }, (_, i) => i + 1);
+export const HOUR_OPTIONS: number[] = Array.from(
+  { length: 12 },
+  (_, i) => i + 1,
+);
 
 /**
  * Every minute, 0-59.

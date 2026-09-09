@@ -137,7 +137,9 @@ describe("readSettings before the app is ready", () => {
 
     // Proves the guard is scoped to the pre-ready window and did not simply
     // disable decryption.
-    expect(settings.providerSettings?.openai?.apiKey?.value).toBe("sk-the-real-key");
+    expect(settings.providerSettings?.openai?.apiKey?.value).toBe(
+      "sk-the-real-key",
+    );
     expect(scopeLogger.warn).not.toHaveBeenCalled();
   });
 

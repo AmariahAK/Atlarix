@@ -50,6 +50,38 @@ try {
 }
 
 /**
+ * The Core slot env vars are UNSET for every test, on CI as well as locally.
+ *
+ * `getCoreModelIdForCoreTier` resolves a slot in three steps: the runtime override
+ * (hosted `core-models.json`), then `process.env.ATLARIX_CORE_MODEL_1..4`, then the
+ * dev provider. Tests that exercise what happens to an UNMAPPED slot — the
+ * fall-forward when a slot is dropped, the fall-back to the bare tier id, the route
+ * that stays `compass` because nothing claims it — are really asserting on step two
+ * being empty. That is true on a developer machine and false on CI, where the
+ * workflow passes all four in as secrets at `env:` scope.
+ *
+ * So the suite went green locally and red on the release push, with the diagnosis
+ * hidden twice over: the values arrive masked, so the failure reads
+ * `expected '***' to be 'z-ai/glm-5.3'` — an assertion about a string nothing in the
+ * repo produces. Three tests hit it at v14.45; individual suites had been patched
+ * for the same reason at v14.7.
+ *
+ * DELETED, not `vi.stubEnv("", ...)`. A stub records the ambient value as the one to
+ * restore, so the `vi.unstubAllEnvs()` in any suite that sets its own slots — and
+ * three do — would hand the CI secret back to every test after it in that file.
+ * Deleting makes "absent" the baseline those suites restore to, which is the state
+ * they were all written against.
+ */
+for (const key of [
+  "ATLARIX_CORE_MODEL_1",
+  "ATLARIX_CORE_MODEL_2",
+  "ATLARIX_CORE_MODEL_3",
+  "ATLARIX_CORE_MODEL_4",
+]) {
+  delete process.env[key];
+}
+
+/**
  * Vitest runs in Node, not Electron. Many main-process modules import `electron`
  * or `@sentry/electron/main`; stub them so importing those graphs does not throw.
  */

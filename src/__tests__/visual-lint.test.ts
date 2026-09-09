@@ -23,11 +23,13 @@ function fakeWc(handlers: {
   return {
     getURL: () => handlers.url ?? "http://localhost:3000/",
     executeJavaScript: async (script: string) => {
-      if (script.includes("typeof window.axe")) return handlers.axePresent ?? true;
+      if (script.includes("typeof window.axe"))
+        return handlers.axePresent ?? true;
       if (script.includes("window.__atlarixCLS") && script.includes("defects"))
         return handlers.lint ?? null;
       if (script.includes("colorCount")) return handlers.design ?? null;
-      if (script.includes("empty body")) return handlers.blank ?? { blank: false, reason: "" };
+      if (script.includes("empty body"))
+        return handlers.blank ?? { blank: false, reason: "" };
       return null;
     },
   } as unknown as Electron.WebContents;
@@ -42,11 +44,20 @@ describe("runVisualLint — merge, rank, cap", () => {
         cls: 0.05,
         elementCount: 120,
         defects: [
-          { rule: "collapsed-layout", impact: "moderate", message: "collapsed" },
+          {
+            rule: "collapsed-layout",
+            impact: "moderate",
+            message: "collapsed",
+          },
           { rule: "blank-render", impact: "critical", message: "blank" },
         ],
         axeViolations: [
-          { rule: "color-contrast", impact: "serious", message: "low contrast", count: 3 },
+          {
+            rule: "color-contrast",
+            impact: "serious",
+            message: "low contrast",
+            count: 3,
+          },
         ],
         truncated: false,
       },
@@ -87,7 +98,14 @@ describe("formatVisualLintReport", () => {
   it("flags CLS over the 0.1 threshold and lists defects", () => {
     const out = formatVisualLintReport({
       ...base,
-      defects: [{ rule: "broken-image", impact: "serious", message: "img failed", target: "img.hero" }],
+      defects: [
+        {
+          rule: "broken-image",
+          impact: "serious",
+          message: "img failed",
+          target: "img.hero",
+        },
+      ],
     });
     expect(out).toContain("above the 0.1");
     expect(out).toContain("[serious] broken-image");
@@ -124,14 +142,21 @@ describe("detectBlankRender — conservative gate", () => {
   });
 
   it("reports a blank page when the body is empty", async () => {
-    const wc = fakeWc({ blank: { blank: true, reason: "empty body — no text, elements, or media" } });
+    const wc = fakeWc({
+      blank: {
+        blank: true,
+        reason: "empty body — no text, elements, or media",
+      },
+    });
     const res = await detectBlankRender(wc);
     expect(res?.blank).toBe(true);
     expect(res?.reason).toContain("empty body");
   });
 
   it("reports not-blank for a rendered page", async () => {
-    const res = await detectBlankRender(fakeWc({ blank: { blank: false, reason: "" } }));
+    const res = await detectBlankRender(
+      fakeWc({ blank: { blank: false, reason: "" } }),
+    );
     expect(res?.blank).toBe(false);
   });
 });

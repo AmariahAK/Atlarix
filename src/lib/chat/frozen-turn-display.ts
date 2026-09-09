@@ -14,8 +14,9 @@ export function frozenThoughtContentForTurn(
 ): string | null {
   if (timeline?.length) {
     const fromTimeline = timeline
-      .filter((i): i is Extract<InlineTimelineItem, { kind: "thought" }> =>
-        i.kind === "thought",
+      .filter(
+        (i): i is Extract<InlineTimelineItem, { kind: "thought" }> =>
+          i.kind === "thought",
       )
       .map((i) => i.content)
       .filter(Boolean)
@@ -47,7 +48,7 @@ export function extractThoughtContentFromAssistantRaw(
   const parts = parseAssistantMessageParts(raw, options?.isStreaming ?? false);
   const fromParts = parts
     .filter(
-      (p): p is Extract<typeof parts[number], { type: "thought" }> =>
+      (p): p is Extract<(typeof parts)[number], { type: "thought" }> =>
         p.type === "thought",
     )
     .map((p) => p.content)

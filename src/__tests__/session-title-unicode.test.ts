@@ -17,7 +17,9 @@ import { extractAtlarixChatSummary } from "@/lib/workspace-session-title";
 import { SUPPORTED_LOCALES } from "@/lib/i18n/locales";
 
 const wrap = (t: string) =>
-  extractAtlarixChatSummary(`<atlarix-chat-summary>${t}</atlarix-chat-summary>`);
+  extractAtlarixChatSummary(
+    `<atlarix-chat-summary>${t}</atlarix-chat-summary>`,
+  );
 
 describe("session titles survive non-ASCII scripts", () => {
   it("keeps Cyrillic", () => {
@@ -37,7 +39,9 @@ describe("session titles survive non-ASCII scripts", () => {
   });
 
   it("keeps Korean", () => {
-    expect(wrap("gitignore 추가 및 비밀 제거")).toBe("gitignore 추가 및 비밀 제거");
+    expect(wrap("gitignore 추가 및 비밀 제거")).toBe(
+      "gitignore 추가 및 비밀 제거",
+    );
   });
 
   it("keeps Devanagari", () => {

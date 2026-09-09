@@ -8,11 +8,12 @@
 function resolveSoundUrl(file: string): string {
   const base =
     typeof import.meta !== "undefined" &&
-    (import.meta as unknown as { env?: { BASE_URL?: string } }).env?.BASE_URL != null
-      ? String((import.meta as unknown as { env: { BASE_URL: string } }).env.BASE_URL).replace(
-          /\/$/,
-          "",
-        )
+    (import.meta as unknown as { env?: { BASE_URL?: string } }).env?.BASE_URL !=
+      null
+      ? String(
+          (import.meta as unknown as { env: { BASE_URL: string } }).env
+            .BASE_URL,
+        ).replace(/\/$/, "")
       : "";
   const rel = `${base}/sounds/${file}`.replace(/^\//, "");
   if (typeof window !== "undefined" && window.location?.href) {
@@ -63,7 +64,10 @@ function unlockAutoplayOnce(): void {
 }
 
 if (typeof document !== "undefined") {
-  document.addEventListener("pointerdown", unlockAutoplayOnce, { once: true, passive: true });
+  document.addEventListener("pointerdown", unlockAutoplayOnce, {
+    once: true,
+    passive: true,
+  });
   document.addEventListener("keydown", unlockAutoplayOnce, { once: true });
 }
 
@@ -75,7 +79,9 @@ function getAudio(type: SoundType): HTMLAudioElement {
     audio.addEventListener(
       "error",
       () => {
-        console.debug(`Sound "${type}" failed to load from ${src} (check public/sounds/)`);
+        console.debug(
+          `Sound "${type}" failed to load from ${src} (check public/sounds/)`,
+        );
         audioCache.delete(type);
       },
       { once: true },

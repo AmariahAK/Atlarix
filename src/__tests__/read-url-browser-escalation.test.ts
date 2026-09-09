@@ -24,11 +24,17 @@ vi.mock("@/lib/browser/headless-page", () => ({
   shutdownHiddenPages: () => {},
 }));
 
-import { fetchUrlContentCached, __clearReadUrlCacheForTests } from "@/lib/tools/web";
+import {
+  fetchUrlContentCached,
+  __clearReadUrlCacheForTests,
+} from "@/lib/tools/web";
 
 function response(
   body: string,
-  { status = 200, contentType = "text/html" }: { status?: number; contentType?: string } = {},
+  {
+    status = 200,
+    contentType = "text/html",
+  }: { status?: number; contentType?: string } = {},
 ): Response {
   return {
     ok: status >= 200 && status < 300,
@@ -42,7 +48,7 @@ function response(
 /** A client-rendered shell: plenty of HTML, no prose. */
 function jsShell(): string {
   return (
-    "<html><head><title>App</title></head><body><div id=\"root\"></div>" +
+    '<html><head><title>App</title></head><body><div id="root"></div>' +
     `<script>${"x".repeat(40_000)}</script>` +
     "</body></html>"
   );
@@ -54,8 +60,11 @@ const PROSE = "the article body continues at length ".repeat(12);
 /** Make the mocked hidden page return this rendered DOM. */
 function rendersAs(html: string, title = "Rendered") {
   withHiddenPageMock.mockImplementation(
-    async (_url: string, _opts: unknown, extract: (wc: unknown) => Promise<unknown>) =>
-      extract({ executeJavaScript: async () => ({ html, title }) }),
+    async (
+      _url: string,
+      _opts: unknown,
+      extract: (wc: unknown) => Promise<unknown>,
+    ) => extract({ executeJavaScript: async () => ({ html, title }) }),
   );
 }
 
@@ -102,7 +111,9 @@ describe("no escalation on the happy path", () => {
 describe("escalation", () => {
   it("renders a JS shell and returns the rendered content", async () => {
     safeFetchMock.mockResolvedValue(response(jsShell()));
-    rendersAs(`<html><body><main><h1>Client Rendered</h1><p>${PROSE}</p></main></body></html>`);
+    rendersAs(
+      `<html><body><main><h1>Client Rendered</h1><p>${PROSE}</p></main></body></html>`,
+    );
 
     const out = await fetchUrlContentCached("https://spa.dev/", 20_000);
     expect(withHiddenPageMock).toHaveBeenCalledTimes(1);
@@ -121,7 +132,9 @@ describe("escalation", () => {
 
   it("escalates a 403 bot wall", async () => {
     safeFetchMock.mockResolvedValue(response("blocked", { status: 403 }));
-    rendersAs(`<html><body><main><p>the article behind the wall. ${PROSE}</p></main></body></html>`);
+    rendersAs(
+      `<html><body><main><p>the article behind the wall. ${PROSE}</p></main></body></html>`,
+    );
     const out = await fetchUrlContentCached("https://walled.dev/", 20_000);
     expect(withHiddenPageMock).toHaveBeenCalledTimes(1);
     expect(out.ok).toBe(true);
@@ -134,7 +147,10 @@ describe("escalation", () => {
       withHiddenPageMock.mockReset();
       safeFetchMock.mockResolvedValue(response("nope", { status }));
       rendersAs(`<html><body><main><p>${PROSE}</p></main></body></html>`);
-      const out = await fetchUrlContentCached(`https://limited.dev/${status}`, 20_000);
+      const out = await fetchUrlContentCached(
+        `https://limited.dev/${status}`,
+        20_000,
+      );
       expect(withHiddenPageMock, `status ${status}`).toHaveBeenCalledTimes(1);
       expect(out.ok, `status ${status}`).toBe(true);
     }
@@ -162,7 +178,7 @@ describe("escalation", () => {
     safeFetchMock.mockResolvedValue(
       response(
         '<html><head><title>App</title><script src="/assets/index-a1b2.js"></script></head>' +
-          "<body><div id=\"root\">You need to enable JavaScript to run this app.</div></body></html>",
+          '<body><div id="root">You need to enable JavaScript to run this app.</div></body></html>',
       ),
     );
     rendersAs(`<html><body><main><p>${PROSE}</p></main></body></html>`);
@@ -175,8 +191,10 @@ describe("escalation", () => {
     // example.com extracts to 183 chars and is complete. Size alone would have
     // escalated it; the linked-bundle test is what keeps it on the fetch path.
     safeFetchMock.mockResolvedValue(
-      response("<html><head><title>Example</title></head><body><main><h1>Example Domain</h1>" +
-        "<p>This domain is for use in documentation examples.</p></main></body></html>"),
+      response(
+        "<html><head><title>Example</title></head><body><main><h1>Example Domain</h1>" +
+          "<p>This domain is for use in documentation examples.</p></main></body></html>",
+      ),
     );
     const out = await fetchUrlContentCached("https://tiny.dev/", 20_000);
     expect(withHiddenPageMock).not.toHaveBeenCalled();
@@ -187,9 +205,14 @@ describe("escalation", () => {
     // An editor or a canvas app. Returning `ok` with its title as the body hands
     // the model a few characters labelled as the page content, which it repeats.
     safeFetchMock.mockResolvedValue(
-      response('<html><head><title>Playground</title><script src="/app.js"></script></head><body></body></html>'),
+      response(
+        '<html><head><title>Playground</title><script src="/app.js"></script></head><body></body></html>',
+      ),
     );
-    rendersAs("<html><body><main><p>Playground</p></main></body></html>", "Playground");
+    rendersAs(
+      "<html><body><main><p>Playground</p></main></body></html>",
+      "Playground",
+    );
     const out = await fetchUrlContentCached("https://editor.dev/", 20_000);
     expect(out.ok).toBe(false);
     if (!out.ok) expect(out.error).toContain("no readable text");
@@ -217,7 +240,9 @@ describe("SSRF: the browser path is policed too", () => {
   for (const url of blocked) {
     it(`never loads ${url} in the window`, async () => {
       safeFetchMock.mockResolvedValue(response("blocked", { status: 403 }));
-      assertUrlAllowedMock.mockRejectedValue(new Error("URL blocked: private address"));
+      assertUrlAllowedMock.mockRejectedValue(
+        new Error("URL blocked: private address"),
+      );
       rendersAs("<html><body><main><p>secrets</p></main></body></html>");
 
       const out = await fetchUrlContentCached(url, 20_000);

@@ -20,6 +20,7 @@ import enTools from "./locales/en-us/tools.json";
 import enOnboarding from "./locales/en-us/onboarding.json";
 import enPanels from "./locales/en-us/panels.json";
 import enMain from "./locales/en-us/main.json";
+import enTips from "./locales/en-us/tips.json";
 
 /**
  * One catalog per SURFACE, so a translation PR touches one JSON file and never
@@ -36,6 +37,7 @@ export const NAMESPACES = [
   "onboarding",
   "panels",
   "main",
+  "tips",
 ] as const;
 export type Namespace = (typeof NAMESPACES)[number];
 
@@ -48,6 +50,7 @@ export const EN_RESOURCES = {
   onboarding: enOnboarding,
   panels: enPanels,
   main: enMain,
+  tips: enTips,
 } as const;
 
 /**
@@ -64,7 +67,9 @@ export const EN_RESOURCES = {
  * up to i18next v24 and every tutorial still says so, but v26 renamed it and the
  * old key is silently ignored — you get an async init and tests that see raw keys.
  */
-export function createI18n(locale: SupportedLocale = DEFAULT_LOCALE): I18nInstance {
+export function createI18n(
+  locale: SupportedLocale = DEFAULT_LOCALE,
+): I18nInstance {
   const instance = i18next.createInstance();
   void instance.init({
     lng: locale,
@@ -73,6 +78,26 @@ export function createI18n(locale: SupportedLocale = DEFAULT_LOCALE): I18nInstan
     defaultNS: "common",
     resources: { [DEFAULT_LOCALE]: EN_RESOURCES },
     initAsync: false,
+    /**
+     * WITHOUT THIS, NOTHING RESOLVES — every `t()` in the app returned its own key.
+     *
+     * i18next NORMALISES a language code before looking a key up (`en-us` → `en-US`)
+     * but stores the resource bundle under the literal key it was handed. Our locale
+     * identifiers are lowercase everywhere — the catalog directories, `SUPPORTED_LOCALES`,
+     * the `appLanguage` enum — so the store was keyed `en-us` while the lookup asked for
+     * `en-US` and missed every time. Measured: `lng`/resources both `en-us` fails, both
+     * `en-US` works, and `en-us` + `en-US` works.
+     *
+     * This was invisible for two reasons and neither was the catalog: `parseMissingKeyHandler`
+     * renders the key, and most call sites pass a `defaultValue` (the shortcut rows, for
+     * instance) so they showed correct English from the fallback. The feature tips have no
+     * defaultValue, which is why `feature.automations` was the first thing anyone saw.
+     *
+     * `lowerCaseLng` keeps i18next's normalisation in the same case as our identifiers.
+     * The alternative — renaming every locale to BCP-47 canonical casing — would touch the
+     * directories, the enum, and the Microsoft Store listing codes for 13 locales.
+     */
+    lowerCaseLng: true,
     interpolation: {
       // React escapes for us; double-escaping turns an apostrophe into &#39;
       // in the middle of a sentence.

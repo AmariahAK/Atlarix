@@ -61,8 +61,7 @@ export async function handleMcpOAuthDeepLink(url: string): Promise<boolean> {
 
     const error = parsed.searchParams.get("error");
     if (error) {
-      const description =
-        parsed.searchParams.get("error_description") ?? error;
+      const description = parsed.searchParams.get("error_description") ?? error;
       logger.error("MCP OAuth callback error:", description);
       return true;
     }

@@ -12,4 +12,3 @@ export function isAllowedToolOutputPath(fullPath: string): boolean {
   }
   return normalized.endsWith(".txt");
 }
-

@@ -112,7 +112,9 @@ describe("task tool", () => {
     const listed = (await ToolRegistry.execute("subagents", {
       operation: "list",
       _chatSessionId: chatId,
-    })) as { result?: { subagents?: Array<{ name: string; task_id: string }> } };
+    })) as {
+      result?: { subagents?: Array<{ name: string; task_id: string }> };
+    };
     expect(listed.result?.subagents?.[0]?.name).toBe("long scout");
     expect(listed.result?.subagents?.[0]?.task_id).toBe(taskId);
 
@@ -158,7 +160,9 @@ describe("task tool", () => {
             status: "done",
             detail: "42 matches",
           });
-          a.abortSignal?.addEventListener("abort", () => reject(new Error("aborted")));
+          a.abortSignal?.addEventListener("abort", () =>
+            reject(new Error("aborted")),
+          );
         }),
     );
 
@@ -192,7 +196,9 @@ describe("task tool", () => {
       "Scanning packages/api",
     );
 
-    const { clearSubagentsForChat } = await import("@/lib/agents/subagent-results");
+    const { clearSubagentsForChat } = await import(
+      "@/lib/agents/subagent-results"
+    );
     await ToolRegistry.execute("subagents", {
       operation: "cancel",
       agent: "scout api",
@@ -221,7 +227,9 @@ describe("task tool", () => {
       await writeFile(nodePath.join(nonGit, "a.ts"), "before\n", "utf-8");
       await import("@/lib/tools/index");
       const { runSubagent } = await import("@/lib/agents/run-subagent");
-      const { recordEditProposal } = await import("@/lib/agents/subagent-proposals");
+      const { recordEditProposal } = await import(
+        "@/lib/agents/subagent-proposals"
+      );
 
       // Stand in for the sub-agent: record one edit against its proposal set,
       // exactly as run-subagent's tool funnel does.

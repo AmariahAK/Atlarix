@@ -19,6 +19,7 @@ const CORE_TOOL_NAMES = new Set([
 export const WORKSPACE_INTEGRATION_TOOL_NAMES = [
   "list_available_mcps",
   "mcp_call",
+  "manage_mcp_server",
 ] as const;
 
 const WORKSPACE_INTEGRATION_TOOL_SET = new Set<string>(

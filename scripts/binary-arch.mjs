@@ -26,7 +26,12 @@ const CPU_TYPE_X86_64 = 0x01000007;
 const CPU_TYPE_ARM64 = 0x0100000c;
 
 /** PE IMAGE_FILE_HEADER.Machine values. */
-const PE_MACHINE = { 0x8664: "x64", 0x014c: "ia32", 0xaa64: "arm64", 0x01c4: "arm" };
+const PE_MACHINE = {
+  0x8664: "x64",
+  0x014c: "ia32",
+  0xaa64: "arm64",
+  0x01c4: "arm",
+};
 
 /** ELF e_machine values. */
 const ELF_MACHINE = { 0x3e: "x64", 0x03: "ia32", 0xb7: "arm64", 0x28: "arm" };
@@ -85,10 +90,12 @@ export function readBinaryArchs(file) {
   try {
     const buf = Buffer.alloc(4096);
     const read = fs.readSync(fd, buf, 0, 4096, 0);
-    if (read < 64) throw new Error(`${file}: too small to be an executable (${read} bytes)`);
+    if (read < 64)
+      throw new Error(`${file}: too small to be an executable (${read} bytes)`);
     const slice = buf.subarray(0, read);
     const archs = machoArch(slice) ?? peArch(slice) ?? elfArch(slice);
-    if (!archs) throw new Error(`${file}: not a recognised Mach-O, PE or ELF binary`);
+    if (!archs)
+      throw new Error(`${file}: not a recognised Mach-O, PE or ELF binary`);
     return archs;
   } finally {
     fs.closeSync(fd);

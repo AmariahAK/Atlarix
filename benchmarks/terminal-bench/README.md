@@ -65,6 +65,7 @@ node ../collect-results.mjs results/
 ```
 
 ## Notes
+
 - Built-in agents `opencode` / `pi` need no code (pi via `--agent-import-path pi_terminal_bench:PiAgent`). Atlarix = the `atlarix_tb:AtlarixAgent` adapter wrapping the headless bundle.
 - With pi (not Claude Code) all three pin the same OpenRouter provider → **clean three-way, no translation asterisk**.
 - `agent.py` mirrors `pi-terminal-bench`'s `BaseInstalledAgent`; reconcile hook names against your installed Harbor if its API drifts.

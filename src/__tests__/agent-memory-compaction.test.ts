@@ -53,7 +53,9 @@ describe("planMemoryCompaction", () => {
   });
 
   it("requires compaction past the threshold", () => {
-    const plan = planMemoryCompaction({ notes: notes(MEMORY_COMPACT_BYTES + MB) });
+    const plan = planMemoryCompaction({
+      notes: notes(MEMORY_COMPACT_BYTES + MB),
+    });
     expect(plan?.required).toBe(true);
     expect(plan?.flag).toMatch(/compact/i);
     expect(plan?.flag).not.toMatch(/when next open/);
@@ -89,7 +91,9 @@ describe("planMemoryCompaction", () => {
    * `skills/guides/memory.md`, which the section already points at.
    */
   it("stays a flag — short, and no re-teaching of the convention", () => {
-    const plan = planMemoryCompaction({ notes: notes(MEMORY_COMPACT_BYTES + MB) });
+    const plan = planMemoryCompaction({
+      notes: notes(MEMORY_COMPACT_BYTES + MB),
+    });
     expect(plan!.flag.length).toBeLessThan(120);
     expect(plan!.flag.split("\n")).toHaveLength(1);
     // Instruction prose that belongs in the guide, not in every dispatch.
@@ -99,7 +103,9 @@ describe("planMemoryCompaction", () => {
   });
 
   it("points at the guide instead of restating it", () => {
-    const plan = planMemoryCompaction({ notes: notes(MEMORY_COMPACT_BYTES + MB) });
+    const plan = planMemoryCompaction({
+      notes: notes(MEMORY_COMPACT_BYTES + MB),
+    });
     expect(plan?.flag).toContain("guides/memory");
   });
 
@@ -182,7 +188,9 @@ describe("listMemoryNoteSizes / memoryDirBytes / isAgentMemoryPath", () => {
     const dir = memoryDirFor(workspace);
     expect(isAgentMemoryPath(workspace, path.join(dir, "note.md"))).toBe(true);
     expect(isAgentMemoryPath(workspace, dir)).toBe(false); // the dir itself is not a note
-    expect(isAgentMemoryPath(workspace, path.join(dir, "..", "escape.md"))).toBe(false);
+    expect(
+      isAgentMemoryPath(workspace, path.join(dir, "..", "escape.md")),
+    ).toBe(false);
     expect(isAgentMemoryPath(workspace, "/etc/passwd")).toBe(false);
   });
 
@@ -190,6 +198,8 @@ describe("listMemoryNoteSizes / memoryDirBytes / isAgentMemoryPath", () => {
     // Isolation is structural (slug = path + hash), and compaction pressure must not
     // leak across projects in either direction.
     const otherDir = memoryDirFor("/Users/someone/code/project-y");
-    expect(isAgentMemoryPath(workspace, path.join(otherDir, "note.md"))).toBe(false);
+    expect(isAgentMemoryPath(workspace, path.join(otherDir, "note.md"))).toBe(
+      false,
+    );
   });
 });

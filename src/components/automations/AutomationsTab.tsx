@@ -39,7 +39,10 @@ import {
   automationsFocusRunIdAtom,
   type AutomationListItem,
 } from "@/atoms/automationAtoms";
-import type { AutomationRunView, AutomationTrigger } from "@/lib/automations/types";
+import type {
+  AutomationRunView,
+  AutomationTrigger,
+} from "@/lib/automations/types";
 import { AutomationForm } from "./AutomationForm";
 
 function triggerLabel(trigger: unknown): string {
@@ -98,7 +101,9 @@ export function AutomationsTab({ appId }: { appId: number | null }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<AutomationListItem | null>(null);
-  const [mcpServers, setMcpServers] = useState<Array<{ id: number; name: string }>>([]);
+  const [mcpServers, setMcpServers] = useState<
+    Array<{ id: number; name: string }>
+  >([]);
   const [transcript, setTranscript] = useState<{
     title: string;
     messages: Array<{ role: string; content: string }>;
@@ -170,25 +175,27 @@ export function AutomationsTab({ appId }: { appId: number | null }) {
 
   // Live feed updates + toast while focused.
   useEffect(() => {
-    const unsubscribe = IpcClient.getInstance().onAutomationRunUpdate((view) => {
-      setRunsAtom((prev) => {
-        const idx = prev.findIndex((r) => r.id === view.id);
-        if (idx >= 0) {
-          const next = [...prev];
-          next[idx] = view;
-          return next;
-        }
-        return [view, ...prev];
-      });
-      if (view.status !== "running" && view.status !== "nothing-to-report") {
-        toast(view.automationName, {
-          description:
-            view.status === "error"
-              ? `Run failed: ${view.error ?? "unknown error"}`
-              : (view.summary ?? "Finished with findings"),
+    const unsubscribe = IpcClient.getInstance().onAutomationRunUpdate(
+      (view) => {
+        setRunsAtom((prev) => {
+          const idx = prev.findIndex((r) => r.id === view.id);
+          if (idx >= 0) {
+            const next = [...prev];
+            next[idx] = view;
+            return next;
+          }
+          return [view, ...prev];
         });
-      }
-    });
+        if (view.status !== "running" && view.status !== "nothing-to-report") {
+          toast(view.automationName, {
+            description:
+              view.status === "error"
+                ? `Run failed: ${view.error ?? "unknown error"}`
+                : (view.summary ?? "Finished with findings"),
+          });
+        }
+      },
+    );
     return unsubscribe;
   }, [setRunsAtom]);
 
@@ -222,18 +229,21 @@ export function AutomationsTab({ appId }: { appId: number | null }) {
   const openTranscript = async (run: AutomationRunView) => {
     if (!run.sessionId) return;
     try {
-      const { session, messages } = await IpcClient.getInstance().getWorkspaceSession(
-        run.sessionId,
-      );
+      const { session, messages } =
+        await IpcClient.getInstance().getWorkspaceSession(run.sessionId);
       setTranscript({
         title: session.title,
-        messages: (messages as Array<{ role: string; content: string }>).map((m) => ({
-          role: m.role,
-          content: m.content,
-        })),
+        messages: (messages as Array<{ role: string; content: string }>).map(
+          (m) => ({
+            role: m.role,
+            content: m.content,
+          }),
+        ),
       });
     } catch (e) {
-      toast.error(`Could not load transcript: ${e instanceof Error ? e.message : e}`);
+      toast.error(
+        `Could not load transcript: ${e instanceof Error ? e.message : e}`,
+      );
     }
   };
 
@@ -267,9 +277,9 @@ export function AutomationsTab({ appId }: { appId: number | null }) {
         </div>
         {automationsList.length === 0 ? (
           <p className="py-2 text-sm text-muted-foreground">
-            Recurring agent runs on a schedule or trigger — a nightly test audit, a ping when a
-            PR opens, a Slack watch via MCP. Results land in the feed below and ping you when
-            there's something to see.
+            Recurring agent runs on a schedule or trigger — a nightly test
+            audit, a ping when a PR opens, a Slack watch via MCP. Results land
+            in the feed below and ping you when there's something to see.
           </p>
         ) : (
           <div className="space-y-1.5">
@@ -279,12 +289,19 @@ export function AutomationsTab({ appId }: { appId: number | null }) {
                 className="flex items-center justify-between gap-2 rounded-md border border-border/60 px-2 py-1.5"
               >
                 <div className="min-w-0">
-                  <p className={cn("truncate text-sm font-medium", !a.enabled && "opacity-50")}>
+                  <p
+                    className={cn(
+                      "truncate text-sm font-medium",
+                      !a.enabled && "opacity-50",
+                    )}
+                  >
                     {a.name}
                   </p>
                   <p className="truncate text-[11px] text-muted-foreground">
                     {triggerLabel(a.trigger)}
-                    {a.lastRunAt ? ` · last run ${relativeTime(a.lastRunAt)}` : ""}
+                    {a.lastRunAt
+                      ? ` · last run ${relativeTime(a.lastRunAt)}`
+                      : ""}
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
@@ -293,7 +310,9 @@ export function AutomationsTab({ appId }: { appId: number | null }) {
                     variant="ghost"
                     className="h-7 w-7"
                     title="Run now"
-                    onClick={() => void IpcClient.getInstance().runAutomationNow(a.id)}
+                    onClick={() =>
+                      void IpcClient.getInstance().runAutomationNow(a.id)
+                    }
                   >
                     <Play className="h-3.5 w-3.5" />
                   </Button>
@@ -324,7 +343,10 @@ export function AutomationsTab({ appId }: { appId: number | null }) {
                   <Switch
                     checked={a.enabled}
                     onCheckedChange={async (enabled) => {
-                      await IpcClient.getInstance().toggleAutomation(a.id, enabled);
+                      await IpcClient.getInstance().toggleAutomation(
+                        a.id,
+                        enabled,
+                      );
                       void refresh();
                     }}
                   />
@@ -352,7 +374,11 @@ export function AutomationsTab({ appId }: { appId: number | null }) {
         </div>
         {visibleRuns.length === 0 ? (
           <p className="py-2 text-sm text-muted-foreground">
-            No runs yet{automationsList.length === 0 ? " — create an automation above" : ""}.
+            No runs yet
+            {automationsList.length === 0
+              ? " — create an automation above"
+              : ""}
+            .
           </p>
         ) : (
           <div className="space-y-1.5">
@@ -363,7 +389,9 @@ export function AutomationsTab({ appId }: { appId: number | null }) {
                   key={run.id}
                   className={cn(
                     "rounded-md border px-2 py-1.5",
-                    run.unread ? "border-primary/40 bg-primary/5" : "border-border/60",
+                    run.unread
+                      ? "border-primary/40 bg-primary/5"
+                      : "border-border/60",
                   )}
                 >
                   <button
@@ -376,8 +404,12 @@ export function AutomationsTab({ appId }: { appId: number | null }) {
                     ) : (
                       <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     )}
-                    {run.unread && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />}
-                    <span className="min-w-0 flex-1 truncate text-sm">{run.automationName}</span>
+                    {run.unread && (
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+                    )}
+                    <span className="min-w-0 flex-1 truncate text-sm">
+                      {run.automationName}
+                    </span>
                     {statusBadge(run)}
                     <span className="shrink-0 text-[10px] text-muted-foreground">
                       {relativeTime(run.startedAt)}
@@ -403,7 +435,8 @@ export function AutomationsTab({ appId }: { appId: number | null }) {
                             className="h-6 px-2 text-[11px]"
                             onClick={() => sendEventToChat(run)}
                           >
-                            <MessageSquarePlus className="mr-1 h-3 w-3" /> Send to chat
+                            <MessageSquarePlus className="mr-1 h-3 w-3" /> Send
+                            to chat
                           </Button>
                         )}
                         {run.sessionId && (
@@ -422,10 +455,14 @@ export function AutomationsTab({ appId }: { appId: number | null }) {
                             variant="ghost"
                             className="h-6 px-2 text-[11px]"
                             onClick={async () => {
-                              await IpcClient.getInstance().archiveAutomationRun(run.id);
+                              await IpcClient.getInstance().archiveAutomationRun(
+                                run.id,
+                              );
                               setRunsAtom((prev) =>
                                 prev.map((r) =>
-                                  r.id === run.id ? { ...r, archived: true, unread: false } : r,
+                                  r.id === run.id
+                                    ? { ...r, archived: true, unread: false }
+                                    : r,
                                 ),
                               );
                             }}
@@ -455,7 +492,10 @@ export function AutomationsTab({ appId }: { appId: number | null }) {
       )}
 
       {/* Transcript peek (read-only — automation transcripts live outside the chat list) */}
-      <Dialog open={transcript != null} onOpenChange={(v) => !v && setTranscript(null)}>
+      <Dialog
+        open={transcript != null}
+        onOpenChange={(v) => !v && setTranscript(null)}
+      >
         <DialogContent className="max-h-[80vh] max-w-2xl overflow-auto">
           <DialogHeader>
             <DialogTitle>{transcript?.title}</DialogTitle>
@@ -474,8 +514,6 @@ export function AutomationsTab({ appId }: { appId: number | null }) {
           </div>
         </DialogContent>
       </Dialog>
-
     </div>
   );
 }
-

@@ -9,7 +9,9 @@ import { describe, expect, it, vi } from "vitest";
 // `vi.hoisted` so the spy exists before the hoisted `vi.mock` factory runs.
 const { upsertWorkspaceCommandPermission } = vi.hoisted(() => ({
   upsertWorkspaceCommandPermission: vi.fn(() => {
-    const e = new Error("unable to open database file") as Error & { code: string };
+    const e = new Error("unable to open database file") as Error & {
+      code: string;
+    };
     e.code = "SQLITE_CANTOPEN";
     throw e;
   }),
@@ -27,8 +29,8 @@ import { registerCommandPermissionHandlers } from "@/ipc/handlers/command_permis
 type Handler = (event: unknown, payload: unknown) => unknown;
 
 function latestHandler(channel: string): Handler | undefined {
-  const calls = (ipcMain.handle as unknown as { mock: { calls: unknown[][] } }).mock
-    .calls;
+  const calls = (ipcMain.handle as unknown as { mock: { calls: unknown[][] } })
+    .mock.calls;
   const found = [...calls].reverse().find((c) => c[0] === channel);
   return found?.[1] as Handler | undefined;
 }

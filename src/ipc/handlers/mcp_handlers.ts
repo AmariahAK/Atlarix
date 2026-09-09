@@ -1,5 +1,5 @@
 import { IpcMainInvokeEvent } from "electron";
-import { MCP_FREE_MAX, MCP_PRO_MAX } from "@/lib/plan-caps";
+import { MCP_WORKSPACE_MAX } from "@/lib/workspace-caps";
 import log from "electron-log";
 import { db } from "../../db";
 import { apps, mcpServers, mcpToolConsents } from "../../db/schema";
@@ -15,14 +15,16 @@ import {
   McpListToolsResult,
   McpServerUpdate,
 } from "../ipc_types";
-import { SubscriptionManager } from "../../lib/SubscriptionManager";
 import {
   DEFAULT_MCP_REGISTRY_URL,
   parseInstallUrl,
   validateMcpRegistryEntry,
   type McpRegistryIndex,
 } from "@/shared/mcp-registry";
-import { serializeApiKeyForDb, encryptEnvForDb } from "@/lib/security/db-secrets";
+import {
+  serializeApiKeyForDb,
+  encryptEnvForDb,
+} from "@/lib/security/db-secrets";
 import {
   sanitizeMcpServerForIpc,
   sanitizeMcpServersForIpc,
@@ -47,13 +49,39 @@ export function logMcpError(context: string, e: unknown): void {
 }
 
 /**
- * Re-exported from `lib/plan-caps` so enforcement, the reported limit and the
+ * Re-exported from `lib/workspace-caps` so enforcement, the reported limit and the
  * sentence the model reads cannot drift apart. The old local literals are gone.
  */
-const MCP_FREE_TIER_LIMIT = MCP_FREE_MAX;
-export const MCP_WORKSPACE_MAX = MCP_PRO_MAX;
+export { MCP_WORKSPACE_MAX };
 
 type ConsentDecision = "accept-once" | "accept-always" | "decline";
+
+/**
+ * How many MCP servers are ACTIVE in this workspace.
+ *
+ * The cap counts enabled servers, not stored rows. Storing a server costs a row; what a
+ * workspace with fifty of them actually costs is comprehension and connections, and only
+ * enabled ones are ever connected or listed to the model (`mcp.ts` filters on `enabled`
+ * in both `list_available_mcps` and `mcp_call`).
+ *
+ * This is what lets a config import keep everything a user brought without any of it
+ * going live: imported servers land `enabled: false` and sit outside the cap until the
+ * user or the model turns one on. Note the column DEFAULTS TO TRUE (`schema.ts`), so an
+ * inserter that forgets to set it lands the server active and inside the cap.
+ */
+async function activeWorkspaceMcpCount(appId: number): Promise<number> {
+  const rows = await db
+    .select()
+    .from(mcpServers)
+    .where(
+      and(
+        eq(mcpServers.scope, "workspace"),
+        eq(mcpServers.appId, appId),
+        eq(mcpServers.enabled, true as any),
+      ),
+    );
+  return rows.length;
+}
 
 export function registerMcpHandlers() {
   handle(
@@ -100,10 +128,7 @@ export function registerMcpHandlers() {
       .where(
         and(
           eq(mcpServers.scope, "workspace"),
-          or(
-            isNull(mcpServers.appId),
-            notInArray(mcpServers.appId, appIds),
-          ),
+          or(isNull(mcpServers.appId), notInArray(mcpServers.appId, appIds)),
         ),
       );
     return sanitizeMcpServersForIpc(rows);
@@ -130,30 +155,22 @@ export function registerMcpHandlers() {
         throw new Error("Select a workspace before adding an MCP server.");
       }
 
-      const isPro = SubscriptionManager.isPro();
-
-      const workspaceCount = await db
-        .select()
-        .from(mcpServers)
-        .where(
-          and(
-            eq(mcpServers.scope, "workspace"),
-            eq(mcpServers.appId, appId),
-          ),
-        );
-      if (workspaceCount.length >= MCP_WORKSPACE_MAX) {
+      if ((await activeWorkspaceMcpCount(appId)) >= MCP_WORKSPACE_MAX) {
         throw new Error(
-          `Maximum ${MCP_WORKSPACE_MAX} MCP servers per workspace. Remove one to add another.`,
+          `Maximum ${MCP_WORKSPACE_MAX} enabled MCP servers per workspace. Disable or remove one to add another.`,
         );
       }
-      if (!isPro && workspaceCount.length >= MCP_FREE_TIER_LIMIT) {
-        throw new Error(
-          "Free tier is limited to 1 MCP server per workspace. Upgrade to Pro for more.",
-        );
-      }
-
-      const { name, transport, command, args, envJson, url, apiKey, enabled, authType } =
-        params;
+      const {
+        name,
+        transport,
+        command,
+        args,
+        envJson,
+        url,
+        apiKey,
+        enabled,
+        authType,
+      } = params;
       const resolvedAuthType =
         authType ??
         (apiKey?.trim()
@@ -213,7 +230,8 @@ export function registerMcpHandlers() {
       if (params.command !== undefined) update.command = params.command;
       if (params.args !== undefined) update.args = params.args || null;
       if (params.cwd !== undefined) update.cwd = params.cwd;
-      if (params.envJson !== undefined) update.envJson = encryptEnvForDb(params.envJson);
+      if (params.envJson !== undefined)
+        update.envJson = encryptEnvForDb(params.envJson);
       if (params.url !== undefined) update.url = params.url;
       if (params.apiKey !== undefined) {
         update.apiKey = params.apiKey?.trim()
@@ -386,7 +404,11 @@ export function registerMcpHandlers() {
     async (
       _event,
       params?: { url?: string },
-    ): Promise<{ success: boolean; registry?: McpRegistryIndex; error?: string }> => {
+    ): Promise<{
+      success: boolean;
+      registry?: McpRegistryIndex;
+      error?: string;
+    }> => {
       const url = params?.url || DEFAULT_MCP_REGISTRY_URL;
       try {
         const res = await fetch(url, {
@@ -403,7 +425,10 @@ export function registerMcpHandlers() {
         }
         const json = (await res.json()) as McpRegistryIndex;
         if (!json || json.version !== "1" || !Array.isArray(json.mcps)) {
-          return { success: false, error: "Registry payload is not a v1 index" };
+          return {
+            success: false,
+            error: "Registry payload is not a v1 index",
+          };
         }
         return { success: true, registry: json };
       } catch (e) {
@@ -445,30 +470,12 @@ export function registerMcpHandlers() {
           return { success: false, error: entryError };
         }
 
-        const isPro = SubscriptionManager.isPro();
-        const workspaceCount = await db
-          .select()
-          .from(mcpServers)
-          .where(
-            and(
-              eq(mcpServers.scope, "workspace"),
-              eq(mcpServers.appId, appId),
-            ),
-          );
-        if (workspaceCount.length >= MCP_WORKSPACE_MAX) {
+        if ((await activeWorkspaceMcpCount(appId)) >= MCP_WORKSPACE_MAX) {
           return {
             success: false,
-            error: `Maximum ${MCP_WORKSPACE_MAX} MCP servers per workspace. Remove one to add another.`,
+            error: `Maximum ${MCP_WORKSPACE_MAX} enabled MCP servers per workspace. Disable or remove one to add another.`,
           };
         }
-        if (!isPro && workspaceCount.length >= MCP_FREE_TIER_LIMIT) {
-          return {
-            success: false,
-            error:
-              "Free tier is limited to 1 MCP server per workspace. Upgrade to Pro for more.",
-          };
-        }
-
         if (entry.authType === "oauth") {
           const inserted = await db
             .insert(mcpServers)

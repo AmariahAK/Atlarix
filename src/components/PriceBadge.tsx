@@ -15,7 +15,9 @@ export function PriceBadge({
   isCore?: boolean;
 }) {
   if (isCore) {
-    return <span className={`${basePill} bg-primary/10 text-primary`}>Paid</span>;
+    return (
+      <span className={`${basePill} bg-primary/10 text-primary`}>Paid</span>
+    );
   }
 
   const out = cost?.output ?? 0;
@@ -24,7 +26,9 @@ export function PriceBadge({
 
   if (!priced) {
     return (
-      <span className={`${basePill} text-primary border border-primary`}>Free</span>
+      <span className={`${basePill} text-primary border border-primary`}>
+        Free
+      </span>
     );
   }
 

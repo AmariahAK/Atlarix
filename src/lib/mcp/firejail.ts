@@ -19,7 +19,9 @@ function basenameMatchesFirejail(command: string): boolean {
   return base === "firejail" || base === "firejail.exe";
 }
 
-async function resolveFirejailPath(customPath?: string): Promise<string | null> {
+async function resolveFirejailPath(
+  customPath?: string,
+): Promise<string | null> {
   if (process.platform !== "linux") return null;
 
   if (customPath?.trim()) {
@@ -33,7 +35,9 @@ async function resolveFirejailPath(customPath?: string): Promise<string | null> 
   }
 
   try {
-    const { stdout } = await execFileAsync("which", ["firejail"], { timeout: 3000 });
+    const { stdout } = await execFileAsync("which", ["firejail"], {
+      timeout: 3000,
+    });
     const found = stdout.trim().split("\n")[0];
     cachedFirejailPath = found && fs.existsSync(found) ? found : null;
   } catch {
@@ -79,7 +83,9 @@ export async function wrapStdioSpawnForFirejail(
     return { command, args };
   }
 
-  const firejailPath = await resolveFirejailPath(settings.mcpStdioFirejail?.customBinaryPath);
+  const firejailPath = await resolveFirejailPath(
+    settings.mcpStdioFirejail?.customBinaryPath,
+  );
   if (!firejailPath) {
     return { command, args };
   }
@@ -105,6 +111,7 @@ export async function getMcpSandboxDiagnostics(
     platform,
     firejailFound: Boolean(firejailPath),
     firejailPath,
-    sandboxWouldBeActive: platform === "linux" && enabled && Boolean(firejailPath),
+    sandboxWouldBeActive:
+      platform === "linux" && enabled && Boolean(firejailPath),
   };
 }

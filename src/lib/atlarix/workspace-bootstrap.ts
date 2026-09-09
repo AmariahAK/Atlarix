@@ -17,7 +17,9 @@ const ARCHIVE_DIR_REL = path.join(".atlarix", "plans", "archive");
  * `.atlarixignore` scaffold — grep/glob run on ripgrep, which honors the user's
  * own .gitignore/.ignore/.atlarixignore if present (see ripgrep-ignore.ts).
  */
-export async function bootstrapAtlarixWorkspaceFolder(workspacePath: string): Promise<void> {
+export async function bootstrapAtlarixWorkspaceFolder(
+  workspacePath: string,
+): Promise<void> {
   if (!workspacePath?.trim()) return;
   try {
     await migrateLegacyAtlarixFiles(workspacePath);
@@ -27,7 +29,9 @@ export async function bootstrapAtlarixWorkspaceFolder(workspacePath: string): Pr
   }
 }
 
-async function archiveLegacyPlanFileIfPresent(workspacePath: string): Promise<void> {
+async function archiveLegacyPlanFileIfPresent(
+  workspacePath: string,
+): Promise<void> {
   const planPath = path.join(workspacePath, LEGACY_PLAN_REL);
   try {
     const body = await fs.readFile(planPath, "utf8");

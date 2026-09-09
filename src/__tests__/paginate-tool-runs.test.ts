@@ -25,11 +25,15 @@ describe("paginate-tool-runs", () => {
     const groups = groupPaginatableRuns(items, nameOf);
     expect(groups).toHaveLength(1);
     expect(groups[0]!.type).toBe("run");
-    expect((groups[0] as { items: Item[] }).items).toHaveLength(TOOL_PAGE_SIZE + 4);
+    expect((groups[0] as { items: Item[] }).items).toHaveLength(
+      TOOL_PAGE_SIZE + 4,
+    );
   });
 
   it("leaves short runs (<= page size) as singles", () => {
-    const items = Array.from({ length: TOOL_PAGE_SIZE }, () => tool("write_file"));
+    const items = Array.from({ length: TOOL_PAGE_SIZE }, () =>
+      tool("write_file"),
+    );
     const groups = groupPaginatableRuns(items, nameOf);
     expect(groups).toHaveLength(TOOL_PAGE_SIZE);
     expect(groups.every((g) => g.type === "single")).toBe(true);

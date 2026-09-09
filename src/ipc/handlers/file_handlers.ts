@@ -52,20 +52,25 @@ const logger = {
  * Register file-related IPC handlers
  */
 export function registerFileHandlers() {
-  ipcMain.handle("file:read-content", async (_, params: { filePath: string }) => {
-    try {
-      await assertFileUnderRegisteredWorkspace(params.filePath);
-      const content = await fs.readFile(params.filePath, "utf-8");
-      logger.log(`[file:read-content] Read ${params.filePath} (${content.length} bytes)`);
-      return { success: true, content };
-    } catch (error) {
-      logger.error("[file:read-content] Failed:", error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-  });
+  ipcMain.handle(
+    "file:read-content",
+    async (_, params: { filePath: string }) => {
+      try {
+        await assertFileUnderRegisteredWorkspace(params.filePath);
+        const content = await fs.readFile(params.filePath, "utf-8");
+        logger.log(
+          `[file:read-content] Read ${params.filePath} (${content.length} bytes)`,
+        );
+        return { success: true, content };
+      } catch (error) {
+        logger.error("[file:read-content] Failed:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
+  );
 
   ipcMain.handle(
     "file:write-content",
@@ -141,5 +146,7 @@ export function registerFileHandlers() {
     },
   );
 
-  logger.log("[File Handlers] Registered file:read-content, file:write-content, file:get-stats, workspace:list-paths");
+  logger.log(
+    "[File Handlers] Registered file:read-content, file:write-content, file:get-stats, workspace:list-paths",
+  );
 }

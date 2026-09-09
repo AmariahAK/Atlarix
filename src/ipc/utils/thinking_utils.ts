@@ -13,7 +13,7 @@ import type { UserSettings } from "../../lib/schemas";
  *    effort-"high" via a token budget): base = "high", Deep = "max".
  * There is deliberately no user "low"; the only choice is the on/off toggle.
  */
-export type ReasoningEffort = "medium" | "high" | "max";
+export type ReasoningEffort = "medium" | "high" | "xhigh" | "max";
 
 /**
  * A model's reasoning ceiling by provider: budget-capable providers can go past
@@ -35,6 +35,30 @@ export function getReasoningEffort(
   return deep ? "high" : "medium";
 }
 
+/**
+ * The effort for OpenAI's effort-only reasoning API.
+ *
+ * SEPARATE FROM `getReasoningEffort` ON PURPOSE. That function pairs a base with a
+ * ceiling, and its ceiling-"max" base is "high" because the providers that reach "max"
+ * are BUDGET-channel ones that are also cheap. OpenAI reaching "max" through the same
+ * function would therefore have raised its BASE to "high" — a bill increase for every
+ * user who never touched the toggle, which is not a change to make quietly.
+ *
+ * The accepted set is `none/low/medium/high/xhigh/max`, verbatim from the API's own 400
+ * on `minimal`, and `@ai-sdk/openai` types it identically. Previously this route asked
+ * for "high" at most and additionally mapped "max" -> "high", so the top TWO levels were
+ * unreachable on models we already pay to have access to.
+ *
+ *  - Deep OFF stays **medium**: unchanged cost, unchanged default behaviour.
+ *  - Deep ON goes to **max**, because "Deep = the ceiling" is what the toggle means
+ *    everywhere else, and "high" was two notches short of this API's ceiling.
+ */
+export function openAiReasoningEffort(
+  settings: UserSettings | undefined,
+): ReasoningEffort {
+  return settings?.deepThinking ? "max" : "medium";
+}
+
 /** Fallback max-output when the caller can't supply one (capability probes). */
 const REASONING_MAXTOKENS_FALLBACK = 32_000;
 
@@ -52,7 +76,18 @@ export function reasoningBudgetTokens(
   const max = Math.max(1, Math.floor(maxOutputTokens));
   const reserve = Math.max(Math.round(max * 0.15), 2048);
   const ceil = Math.max(1024, max - reserve);
-  const frac = effort === "max" ? 0.85 : effort === "high" ? 0.5 : 0.33;
+  // EVERY member of ReasoningEffort gets a fraction. `xhigh` was added to the type for
+  // OpenAI's effort-only API, which does not use this function at all — but leaving it
+  // to fall through to the final `: 0.33` would have quietly given it the MEDIUM budget
+  // the first time a budget-channel model was handed it. Sits between high and max.
+  const frac =
+    effort === "max"
+      ? 0.85
+      : effort === "xhigh"
+        ? 0.7
+        : effort === "high"
+          ? 0.5
+          : 0.33;
   return Math.min(ceil, Math.max(1024, Math.round(max * frac)));
 }
 
@@ -84,9 +119,7 @@ export function getExtraProviderOptions(
   }
 
   if (providerId === "openai") {
-    // OpenAI's reasoning API is effort-only.
-    const effort = getReasoningEffort(settings, "high");
-    return { reasoningEffort: effort === "max" ? "high" : effort };
+    return { reasoningEffort: openAiReasoningEffort(settings) };
   }
 
   const deepThinking = !!settings?.deepThinking;

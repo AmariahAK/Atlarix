@@ -55,7 +55,10 @@ export const AI_CURSOR_SETUP_JS = `
     var __chip = __c.querySelector('[data-part="chip"]');`;
 
 /** Move the pointer onto `el` (assumed in scope) and name the action. */
-export function AI_CURSOR_AT_ELEMENT_JS(label: string, durationMs: number): string {
+export function AI_CURSOR_AT_ELEMENT_JS(
+  label: string,
+  durationMs: number,
+): string {
   const fade = Math.max(0, durationMs - 150);
   return `try {
     ${AI_CURSOR_SETUP_JS}

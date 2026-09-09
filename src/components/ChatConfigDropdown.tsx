@@ -108,9 +108,7 @@ export function ChatConfigDropdown({
             </Button>
           </DropdownMenuTrigger>
         </TooltipTrigger>
-        <TooltipContent>
-          Config: model
-        </TooltipContent>
+        <TooltipContent>Config: model</TooltipContent>
       </Tooltip>
       <DropdownMenuContent
         align="start"
@@ -126,7 +124,10 @@ export function ChatConfigDropdown({
             <Cpu className="h-3.5 w-3.5" />
             Model
           </DropdownMenuLabel>
-          <div className="px-2 py-1 text-sm text-foreground truncate" title={modelDisplayName}>
+          <div
+            className="px-2 py-1 text-sm text-foreground truncate"
+            title={modelDisplayName}
+          >
             {modelDisplayName}
           </div>
           <DropdownMenuItem
@@ -191,8 +192,8 @@ export function ChatConfigDropdown({
             </span>
           </DropdownMenuCheckboxItem>
           <p className="px-2 pb-1 pt-0.5 text-[10px] leading-snug text-muted-foreground">
-            On-device is free & private (first use downloads a small model). Live
-            shows words as you speak (on-device + WebGPU).
+            On-device is free & private (first use downloads a small model).
+            Live shows words as you speak (on-device + WebGPU).
           </p>
         </div>
       </DropdownMenuContent>

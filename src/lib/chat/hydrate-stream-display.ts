@@ -59,9 +59,8 @@ function threadFromSnapshot(
   );
   if (!assistantContent?.trim()) return thread;
 
-  const fromContent = buildCompletedStreamThreadFromAssistantContent(
-    assistantContent,
-  );
+  const fromContent =
+    buildCompletedStreamThreadFromAssistantContent(assistantContent);
   const snapshotRound = thread.find((i) => i.kind === "subagent_round");
   const contentRound = fromContent.find((i) => i.kind === "subagent_round");
   if (snapshotRound && contentRound) {
@@ -70,9 +69,7 @@ function threadFromSnapshot(
       contentRound.agents,
     );
     thread = thread.map((item) =>
-      item.kind === "subagent_round"
-        ? { ...item, agents: mergedAgents }
-        : item,
+      item.kind === "subagent_round" ? { ...item, agents: mergedAgents } : item,
     );
   } else if (!snapshotRound && contentRound) {
     thread = [...thread, contentRound];

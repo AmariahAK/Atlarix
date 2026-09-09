@@ -65,10 +65,7 @@ export function registerPlanArtifactHandlers(): void {
   // were THE plan.
   handle(
     "plans:list-by-session",
-    async (
-      _event,
-      sessionId: string,
-    ): Promise<PlanArtifactPayload[]> => {
+    async (_event, sessionId: string): Promise<PlanArtifactPayload[]> => {
       if (!sessionId?.trim()) return [];
       const rows = await listPlanArtifactsForSession(sessionId);
       return rows.map(toPayload);

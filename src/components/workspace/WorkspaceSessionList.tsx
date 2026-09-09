@@ -70,7 +70,9 @@ export function WorkspaceSessionList({
   const setLoadedResume = useSetAtom(loadedSessionResumeAtom);
   const setLoadedTruncated = useSetAtom(loadedSessionTruncatedAtom);
   const setWorkspaceSessionLoading = useSetAtom(workspaceSessionLoadingAtom);
-  const setWorkspaceSessionLoadingLabel = useSetAtom(workspaceSessionLoadingLabelAtom);
+  const setWorkspaceSessionLoadingLabel = useSetAtom(
+    workspaceSessionLoadingLabelAtom,
+  );
   const setChatIdToSessionId = useSetAtom(chatIdToSessionIdAtom);
   const sessionIdToChatId = useAtomValue(sessionIdToChatIdAtom);
   const setSessionIdToChatId = useSetAtom(sessionIdToChatIdAtom);
@@ -91,7 +93,8 @@ export function WorkspaceSessionList({
   const loadSessions = useCallback(async () => {
     setListLoading(true);
     try {
-      const list = await IpcClient.getInstance().listWorkspaceSessions(workspaceId);
+      const list =
+        await IpcClient.getInstance().listWorkspaceSessions(workspaceId);
       setSessions(list as WorkspaceChatSession[]);
     } catch (e) {
       console.error("Failed to load sessions:", e);
@@ -234,7 +237,9 @@ export function WorkspaceSessionList({
       if (sessionLoadDiagEnabled()) {
         const paintWatch = diagStopwatch("renderer: state → painted");
         requestAnimationFrame(() =>
-          requestAnimationFrame(() => paintWatch.stop("first frame after commit")),
+          requestAnimationFrame(() =>
+            paintWatch.stop("first frame after commit"),
+          ),
         );
       }
     } catch (e) {
@@ -345,7 +350,9 @@ export function WorkspaceSessionList({
   const ordered = useMemo(() => {
     if (!activeSessionId) return sessions;
     const active = sessions.filter((s) => s.id === activeSessionId);
-    return active.length ? [...active, ...sessions.filter((s) => s.id !== activeSessionId)] : sessions;
+    return active.length
+      ? [...active, ...sessions.filter((s) => s.id !== activeSessionId)]
+      : sessions;
   }, [sessions, activeSessionId]);
 
   if (listLoading) {
@@ -366,112 +373,113 @@ export function WorkspaceSessionList({
 
   return (
     <>
-    <div className="space-y-0.5 pb-1">
-      {ordered.map((session) => (
-        <div
-          key={session.id}
-          className={cn(
-            "group flex items-center gap-1 px-2 py-1 rounded cursor-pointer hover:bg-accent",
-            activeSessionId === session.id && "bg-accent",
-            sessionSwitchBusy && "opacity-50 pointer-events-none",
-          )}
-          onClick={() => {
-            if (renamingId === session.id) return;
-            // ALREADY-ACTIVE ROW: re-focus, do not no-op. This was a bare
-            // `return`, which made the active row feel broken — you clicked it
-            // and nothing happened, from anywhere in the app. Falling through to
-            // handleSelectSession is the wrong fix: it re-runs
-            // hydrateSessionIntoChat and re-loads a session already loaded. So
-            // point the chat at it and navigate home, which is what the user
-            // meant by clicking a row they can see is selected.
-            if (activeSessionId === session.id) {
-              const mapped = sessionIdToChatId.get(session.id);
-              if (mapped != null) setActiveChatId(mapped);
-              void navigate({ to: "/" });
-              return;
-            }
-            void handleSelectSession(session.id);
-          }}
-        >
-          {(() => {
-            // backgroundStreamingSessionIdsAtom already applies the reverse-map
-            // consistency guard (a stale forward entry can't spin the wrong row).
-            const bgStream =
-              activeSessionId !== session.id &&
-              backgroundStreamingSessionIds.has(session.id);
-            return bgStream ? (
-              <Loader2 className="h-3 w-3 text-amber-600 animate-spin flex-shrink-0" />
-            ) : (
-              <MessageSquare className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-            );
-          })()}
-          <div className="flex-1 min-w-0">
-            {renamingId === session.id ? (
-              <Input
-                className="h-6 text-xs"
-                value={renameValue}
-                autoFocus
-                onClick={(e) => e.stopPropagation()}
-                onChange={(e) => setRenameValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") void handleRename(session.id);
-                  if (e.key === "Escape") setRenamingId(null);
-                }}
-                onBlur={() => void handleRename(session.id)}
-              />
-            ) : (
-              <>
-                <div className="text-xs truncate">
-                  {titleGeneratingIds.has(session.id) && session.title === "Untitled"
-                    ? "Naming…"
-                    : session.title}
-                </div>
-                <div className="text-[10px] text-muted-foreground">
-                  {formatDistanceToNow(new Date(session.updatedAt), {
-                    addSuffix: true,
-                  })}
-                </div>
-              </>
+      <div className="space-y-0.5 pb-1">
+        {ordered.map((session) => (
+          <div
+            key={session.id}
+            className={cn(
+              "group flex items-center gap-1 px-2 py-1 rounded cursor-pointer hover:bg-accent",
+              activeSessionId === session.id && "bg-accent",
+              sessionSwitchBusy && "opacity-50 pointer-events-none",
+            )}
+            onClick={() => {
+              if (renamingId === session.id) return;
+              // ALREADY-ACTIVE ROW: re-focus, do not no-op. This was a bare
+              // `return`, which made the active row feel broken — you clicked it
+              // and nothing happened, from anywhere in the app. Falling through to
+              // handleSelectSession is the wrong fix: it re-runs
+              // hydrateSessionIntoChat and re-loads a session already loaded. So
+              // point the chat at it and navigate home, which is what the user
+              // meant by clicking a row they can see is selected.
+              if (activeSessionId === session.id) {
+                const mapped = sessionIdToChatId.get(session.id);
+                if (mapped != null) setActiveChatId(mapped);
+                void navigate({ to: "/" });
+                return;
+              }
+              void handleSelectSession(session.id);
+            }}
+          >
+            {(() => {
+              // backgroundStreamingSessionIdsAtom already applies the reverse-map
+              // consistency guard (a stale forward entry can't spin the wrong row).
+              const bgStream =
+                activeSessionId !== session.id &&
+                backgroundStreamingSessionIds.has(session.id);
+              return bgStream ? (
+                <Loader2 className="h-3 w-3 text-amber-600 animate-spin flex-shrink-0" />
+              ) : (
+                <MessageSquare className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+              );
+            })()}
+            <div className="flex-1 min-w-0">
+              {renamingId === session.id ? (
+                <Input
+                  className="h-6 text-xs"
+                  value={renameValue}
+                  autoFocus
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void handleRename(session.id);
+                    if (e.key === "Escape") setRenamingId(null);
+                  }}
+                  onBlur={() => void handleRename(session.id)}
+                />
+              ) : (
+                <>
+                  <div className="text-xs truncate">
+                    {titleGeneratingIds.has(session.id) &&
+                    session.title === "Untitled"
+                      ? "Naming…"
+                      : session.title}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">
+                    {formatDistanceToNow(new Date(session.updatedAt), {
+                      addSuffix: true,
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+            {renamingId !== session.id && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 opacity-0 group-hover:opacity-100 shrink-0"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <MoreHorizontal className="h-3.5 w-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-36">
+                  <DropdownMenuItem
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setRenamingId(session.id);
+                      setRenameValue(session.title);
+                    }}
+                  >
+                    Rename
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void handleDelete(session.id);
+                    }}
+                  >
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
           </div>
-          {renamingId !== session.id && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6 opacity-0 group-hover:opacity-100 shrink-0"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <MoreHorizontal className="h-3.5 w-3.5" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-36">
-                <DropdownMenuItem
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setRenamingId(session.id);
-                    setRenameValue(session.title);
-                  }}
-                >
-                  Rename
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  className="text-destructive focus:text-destructive"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void handleDelete(session.id);
-                  }}
-                >
-                  Delete
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-        </div>
-      ))}
-    </div>
+        ))}
+      </div>
     </>
   );
 }

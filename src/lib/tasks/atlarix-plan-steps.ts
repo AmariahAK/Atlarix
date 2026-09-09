@@ -2,7 +2,6 @@
  * Parse numbered tasks from `.atlarix/ATLARIX_PLAN.md` for task ledger seeding.
  */
 
-
 /**
  * Lines like `1. Do thing`, `2) Other`, or `3. [ ] Checkbox step` → step descriptions.
  * Completed lines `1. [x] Done` are skipped so the ledger only seeds active work.

@@ -47,7 +47,9 @@ export function clearUnverifiedEdit(turnId: string, path: string): void {
  * before finishing. Null when everything landed — so it costs nothing unless
  * something actually failed.
  */
-export function getUnverifiedEditFeedback(turnId: string | undefined): string | null {
+export function getUnverifiedEditFeedback(
+  turnId: string | undefined,
+): string | null {
   if (turnId == null) return null;
   const set = unverifiedEditsByTurn.get(turnId);
   if (!set || set.size === 0) return null;

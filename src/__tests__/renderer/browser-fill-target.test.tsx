@@ -24,7 +24,9 @@ function resolveFillTarget(
   const fn = new Function(
     "el",
     `${RESOLVE_FILLABLE_JS}\nreturn { ok: true, node: el };`,
-  ) as (e: Element) => { ok: true; node: Element } | { ok: false; error: string };
+  ) as (
+    e: Element,
+  ) => { ok: true; node: Element } | { ok: false; error: string };
   return fn(el);
 }
 

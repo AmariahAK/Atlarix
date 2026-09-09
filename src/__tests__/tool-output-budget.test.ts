@@ -9,7 +9,11 @@ import { headTailTruncateToTokens } from "@/lib/truncate";
 
 describe("headTailTruncateToTokens", () => {
   it("passes small content through untouched", () => {
-    const { text, omittedChars } = headTailTruncateToTokens("hello world", 100, 50);
+    const { text, omittedChars } = headTailTruncateToTokens(
+      "hello world",
+      100,
+      50,
+    );
     expect(text).toBe("hello world");
     expect(omittedChars).toBe(0);
   });
@@ -48,9 +52,7 @@ describe("maybeTruncateToolOutput (in-band token budget envelope)", () => {
 
   it("truncates over-budget command output in-band (no disk spill)", async () => {
     const big =
-      "START-MARKER\n" +
-      "x".repeat(120_000) +
-      "\nEND-MARKER exit code 1";
+      "START-MARKER\n" + "x".repeat(120_000) + "\nEND-MARKER exit code 1";
     const out = await maybeTruncateToolOutput("run_command", big);
     expect(out.truncated).toBe(true);
     expect(out.totalChars).toBe(big.length);
@@ -114,32 +116,47 @@ describe("maybeTruncateToolOutput — object results", () => {
       { title: "one", url: "https://a.example" },
       { title: "two", url: "https://b.example" },
     ];
-    const out = await maybeTruncateToolOutput("mcp_call", { text: bigText("B"), sources });
+    const out = await maybeTruncateToolOutput("mcp_call", {
+      text: bigText("B"),
+      sources,
+    });
     const v = out.value as { text: string; sources: unknown };
     expect(v.sources).toEqual(sources);
   });
 
   it("KEEPS the untrusted-data close tag — head+tail of the field keeps its tail", async () => {
-    const out = await maybeTruncateToolOutput("mcp_call", { text: bigText("C"), sources: [] });
+    const out = await maybeTruncateToolOutput("mcp_call", {
+      text: bigText("C"),
+      sources: [],
+    });
     const v = out.value as { text: string };
     expect(v.text).toContain("<untrusted-data-abc123>");
     expect(v.text).toContain("</untrusted-data-abc123>");
   });
 
   it("still produces valid JSON after truncation", async () => {
-    const out = await maybeTruncateToolOutput("mcp_call", { text: bigText("D"), sources: [] });
+    const out = await maybeTruncateToolOutput("mcp_call", {
+      text: bigText("D"),
+      sources: [],
+    });
     expect(() => JSON.parse(JSON.stringify(out.value))).not.toThrow();
   });
 
   it("uses the per-tool hint, not the impossible read_file one", async () => {
-    const out = await maybeTruncateToolOutput("mcp_call", { text: bigText("E"), sources: [] });
+    const out = await maybeTruncateToolOutput("mcp_call", {
+      text: bigText("E"),
+      sources: [],
+    });
     const v = out.value as { text: string };
     expect(v.text).toContain("call the same MCP tool with narrower arguments");
     expect(v.text).not.toContain("call read_file again");
   });
 
   it("string results are unchanged in behaviour", async () => {
-    const out = await maybeTruncateToolOutput("run_command", "z".repeat(120_000));
+    const out = await maybeTruncateToolOutput(
+      "run_command",
+      "z".repeat(120_000),
+    );
     expect(out.truncated).toBe(true);
     expect(typeof out.value).toBe("string");
   });

@@ -11,8 +11,12 @@ const DOWNLOAD_PAGE = "https://atlarix.dev";
  * - Download progress + ready-to-install for electron-updater (update:downloading / update:downloaded).
  */
 export function UpdateBanner() {
-  const [downloadingVersion, setDownloadingVersion] = useState<string | null>(null);
-  const [downloadedVersion, setDownloadedVersion] = useState<string | null>(null);
+  const [downloadingVersion, setDownloadingVersion] = useState<string | null>(
+    null,
+  );
+  const [downloadedVersion, setDownloadedVersion] = useState<string | null>(
+    null,
+  );
   const [notifyUpdate, setNotifyUpdate] = useState<{
     latestVersion: string;
     releaseUrl: string;
@@ -20,9 +24,11 @@ export function UpdateBanner() {
   const notifyDismissedRef = useRef(false);
 
   useEffect(() => {
-    const unsub1 = IpcClient.getInstance().onUpdateDownloading(({ version }) => {
-      setDownloadingVersion(version);
-    });
+    const unsub1 = IpcClient.getInstance().onUpdateDownloading(
+      ({ version }) => {
+        setDownloadingVersion(version);
+      },
+    );
     const unsub2 = IpcClient.getInstance().onUpdateDownloaded(({ version }) => {
       setDownloadingVersion(null);
       const key = `atlarix_update_banner_dismissed_${version}`;
@@ -120,8 +126,13 @@ export function UpdateBanner() {
         <button
           type="button"
           onClick={() => {
-            localStorage.setItem(`atlarix_update_banner_dismissed_${downloadedVersion}`, "1");
-            IpcClient.getInstance().deferUpdate().catch(() => {});
+            localStorage.setItem(
+              `atlarix_update_banner_dismissed_${downloadedVersion}`,
+              "1",
+            );
+            IpcClient.getInstance()
+              .deferUpdate()
+              .catch(() => {});
             setDownloadedVersion(null);
           }}
           className="text-xs text-muted-foreground hover:text-foreground transition-colors"
@@ -132,7 +143,10 @@ export function UpdateBanner() {
           type="button"
           aria-label="Dismiss update banner"
           onClick={() => {
-            localStorage.setItem(`atlarix_update_banner_dismissed_${downloadedVersion}`, "1");
+            localStorage.setItem(
+              `atlarix_update_banner_dismissed_${downloadedVersion}`,
+              "1",
+            );
             setDownloadedVersion(null);
           }}
           className="text-muted-foreground hover:text-foreground transition-colors"

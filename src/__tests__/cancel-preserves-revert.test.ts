@@ -100,22 +100,23 @@ describe("sub-agent (proposal) writes are snapshot-covered", () => {
     const workspace = await fs.mkdtemp(path.join(os.tmpdir(), "atlarix-prop-"));
     const rel = "src/touched.ts";
     await fs.mkdir(path.join(workspace, "src"), { recursive: true });
-    await fs.writeFile(path.join(workspace, rel), "export const a = 1;\n", "utf8");
+    await fs.writeFile(
+      path.join(workspace, rel),
+      "export const a = 1;\n",
+      "utf8",
+    );
 
-    const {
-      createProposalSet,
-      recordEditProposal,
-      __clearAllScopedForTest,
-    } = (await import("@/lib/agents/subagent-proposals")) as unknown as {
-      createProposalSet: (a: {
-        chatId: number;
-        taskId: string;
-        agentName: string;
-        workspace: string;
-      }) => string;
-      recordEditProposal: (id: string, result: unknown) => unknown;
-      __clearAllScopedForTest?: () => void;
-    };
+    const { createProposalSet, recordEditProposal, __clearAllScopedForTest } =
+      (await import("@/lib/agents/subagent-proposals")) as unknown as {
+        createProposalSet: (a: {
+          chatId: number;
+          taskId: string;
+          agentName: string;
+          workspace: string;
+        }) => string;
+        recordEditProposal: (id: string, result: unknown) => unknown;
+        __clearAllScopedForTest?: () => void;
+      };
 
     const setId = createProposalSet({
       chatId: CHAT,

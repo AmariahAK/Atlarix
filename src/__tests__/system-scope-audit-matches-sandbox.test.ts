@@ -56,7 +56,13 @@ function makeWorkspace(): string {
 
 /** Reach the private builder the same way the other interceptor tests do. */
 function sandboxFor(ws: string, command: string) {
-  const i = new PermissionInterceptor(ws, APP_ID, undefined, 1, "build") as unknown as {
+  const i = new PermissionInterceptor(
+    ws,
+    APP_ID,
+    undefined,
+    1,
+    "build",
+  ) as unknown as {
     buildRunCommandSandbox: (preview?: unknown) => unknown | undefined;
   };
   return i.buildRunCommandSandbox({ systemScopeInteractive: true, command });
@@ -78,7 +84,9 @@ describe("what a system-scope approval actually does to the sandbox", () => {
     const ws = makeWorkspace();
     // The shape from the live log: a write to a path outside the workspace,
     // approved, and still confined.
-    expect(sandboxFor(ws, "echo test > ~/.docker/buildx/activity/.writetest")).toBeDefined();
+    expect(
+      sandboxFor(ws, "echo test > ~/.docker/buildx/activity/.writetest"),
+    ).toBeDefined();
     expect(sandboxFor(ws, "cd /Users/dev/other-repo && ls")).toBeDefined();
   });
 

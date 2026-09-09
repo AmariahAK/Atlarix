@@ -31,7 +31,11 @@ afterEach(async () => {
 
 async function writeMemoryFile(content: string) {
   await fs.mkdir(path.join(workspace, ".atlarix"), { recursive: true });
-  await fs.writeFile(path.join(workspace, ".atlarix", "memory.md"), content, "utf8");
+  await fs.writeFile(
+    path.join(workspace, ".atlarix", "memory.md"),
+    content,
+    "utf8",
+  );
 }
 
 describe("migrateLegacyAtlarixFiles", () => {
@@ -50,9 +54,16 @@ describe("migrateLegacyAtlarixFiles", () => {
   });
 
   it("does not touch a root MEMORY.md", async () => {
-    await fs.writeFile(path.join(workspace, "MEMORY.md"), "user file\n", "utf8");
+    await fs.writeFile(
+      path.join(workspace, "MEMORY.md"),
+      "user file\n",
+      "utf8",
+    );
     await migrateLegacyAtlarixFiles(workspace);
-    const content = await fs.readFile(path.join(workspace, "MEMORY.md"), "utf8");
+    const content = await fs.readFile(
+      path.join(workspace, "MEMORY.md"),
+      "utf8",
+    );
     expect(content).toBe("user file\n");
   });
 
@@ -94,13 +105,17 @@ describe("buildProjectDocsPromptHint", () => {
     await writeMemoryFile(
       "# Project memory\n\nSECRET-MARKER-CONTENT payments use Stripe.\n",
     );
-    const hint = await buildProjectDocsPromptHint(workspace, { canWrite: true });
+    const hint = await buildProjectDocsPromptHint(workspace, {
+      canWrite: true,
+    });
     expect(hint).toContain("read_file");
     expect(hint).not.toContain("SECRET-MARKER-CONTENT");
   });
 
   it("always states the atlarix.md follow-when-non-empty rule", async () => {
-    const hint = await buildProjectDocsPromptHint(workspace, { canWrite: false });
+    const hint = await buildProjectDocsPromptHint(workspace, {
+      canWrite: false,
+    });
     expect(hint).toContain(".atlarix/atlarix.md");
     expect(hint).toContain("absent or empty");
   });
@@ -113,20 +128,28 @@ describe("buildProjectDocsPromptHint", () => {
    */
   it("no longer advertises .atlarix/memory.md as the knowledge store", async () => {
     await writeMemoryFile("# Project memory\n\nstack notes\n");
-    const hint = await buildProjectDocsPromptHint(workspace, { canWrite: true });
+    const hint = await buildProjectDocsPromptHint(workspace, {
+      canWrite: true,
+    });
     expect(hint).not.toContain("memory.md");
     expect(hint).not.toContain("you may create it");
     expect(hint).not.toContain("durable facts change");
   });
 
   it("is identical whether or not the mode can write — nothing to create any more", async () => {
-    const writable = await buildProjectDocsPromptHint(workspace, { canWrite: true });
-    const readOnly = await buildProjectDocsPromptHint(workspace, { canWrite: false });
+    const writable = await buildProjectDocsPromptHint(workspace, {
+      canWrite: true,
+    });
+    const readOnly = await buildProjectDocsPromptHint(workspace, {
+      canWrite: false,
+    });
     expect(writable).toBe(readOnly);
   });
 
   it("stays short — it is a rule statement, not a document", async () => {
-    const hint = await buildProjectDocsPromptHint(workspace, { canWrite: true });
+    const hint = await buildProjectDocsPromptHint(workspace, {
+      canWrite: true,
+    });
     expect(hint.length).toBeLessThan(400);
   });
 });
@@ -159,23 +182,125 @@ describe("readProjectInstructions (v13.1 AGENTS.md/CLAUDE.md interop)", () => {
     await fs.writeFile(getAtlarixMdPath(workspace), content, "utf8");
   }
 
+  async function writeRule(name: string, content: string) {
+    const dir = path.join(workspace, ".atlarix", "rules");
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(path.join(dir, name), content, "utf8");
+  }
+
+  /**
+   * v14.45: `.atlarix/rules/` is the canonical home. Rules are plural — a project
+   * accumulates them per concern — and one file forced a monolith or left the rest out
+   * of the agent's reach.
+   */
+  describe(".atlarix/rules/", () => {
+    it("wins over atlarix.md, and reports how many files it read", async () => {
+      await writeAtlarix("from the old single file\n");
+      await writeRule("testing.md", "# Testing\n\nalways red first\n");
+      await writeRule("style.md", "# Style\n\ntabs\n");
+
+      const res = await readProjectInstructions(workspace);
+      expect(res?.source).toBe("rules");
+      expect(res?.fileCount).toBe(2);
+      expect(res?.content).toContain("always red first");
+      expect(res?.content).toContain("tabs");
+      expect(res?.content).not.toContain("from the old single file");
+    });
+
+    it("concatenates in filename order, deterministically", async () => {
+      // The order rules reach the model is behaviour, so it must not depend on
+      // readdir order or on the machine's locale.
+      await writeRule("20-second.md", "SECOND");
+      await writeRule("10-first.md", "FIRST");
+      const res = await readProjectInstructions(workspace);
+      expect(res!.content.indexOf("FIRST")).toBeLessThan(
+        res!.content.indexOf("SECOND"),
+      );
+    });
+
+    it("takes .md files only, and does not descend", async () => {
+      await writeRule("real.md", "REAL");
+      await writeRule("notes.txt", "IGNORED_TXT");
+      await fs.mkdir(path.join(workspace, ".atlarix", "rules", "nested"), {
+        recursive: true,
+      });
+      await fs.writeFile(
+        path.join(workspace, ".atlarix", "rules", "nested", "deep.md"),
+        "IGNORED_NESTED",
+        "utf8",
+      );
+
+      const res = await readProjectInstructions(workspace);
+      expect(res?.content).toContain("REAL");
+      expect(res?.content).not.toContain("IGNORED_TXT");
+      // Not recursive on purpose: nesting must not quietly change what is in scope.
+      expect(res?.content).not.toContain("IGNORED_NESTED");
+      expect(res?.fileCount).toBe(1);
+    });
+
+    it("an empty or whitespace-only directory falls through to the next rung", async () => {
+      await writeAtlarix("the old file still applies\n");
+      await writeRule("blank.md", "   \n\n  ");
+      const res = await readProjectInstructions(workspace);
+      expect(res?.source).toBe("atlarix");
+      expect(res?.content).toContain("the old file still applies");
+    });
+
+    it("atlarix.md keeps working with no rules directory at all", async () => {
+      // The rung is not a deprecation to tidy away later: every existing user has this
+      // file, and removing it would delete their instructions silently.
+      await writeAtlarix("still here\n");
+      const res = await readProjectInstructions(workspace);
+      expect(res?.source).toBe("atlarix");
+      expect(res?.content).toContain("still here");
+    });
+
+    it("never creates the rules directory just by reading", async () => {
+      await fs.writeFile(
+        path.join(workspace, "AGENTS.md"),
+        "agents wins\n",
+        "utf8",
+      );
+      const res = await readProjectInstructions(workspace);
+      expect(res?.source).toBe("agents");
+      // `readAtlarixMd` mkdirs `.atlarix/` as a migration side effect; the rules rung
+      // must not add a second one, or reading a workspace conjures a directory the
+      // user never asked for.
+      await expect(
+        fs.stat(path.join(workspace, ".atlarix", "rules")),
+      ).rejects.toThrow();
+    });
+  });
+
   it("prefers .atlarix/atlarix.md when present", async () => {
     await writeAtlarix("# Rules\n\nfrom atlarix\n");
-    await fs.writeFile(path.join(workspace, "AGENTS.md"), "from agents\n", "utf8");
+    await fs.writeFile(
+      path.join(workspace, "AGENTS.md"),
+      "from agents\n",
+      "utf8",
+    );
     const res = await readProjectInstructions(workspace);
     expect(res?.source).toBe("atlarix");
     expect(res?.content).toContain("from atlarix");
   });
 
   it("falls back to AGENTS.md when atlarix.md is absent", async () => {
-    await fs.writeFile(path.join(workspace, "AGENTS.md"), "agent guidance here\n", "utf8");
+    await fs.writeFile(
+      path.join(workspace, "AGENTS.md"),
+      "agent guidance here\n",
+      "utf8",
+    );
     const res = await readProjectInstructions(workspace);
     expect(res?.source).toBe("agents");
     expect(res?.content).toContain("agent guidance here");
   });
 
   it("falls back to CLAUDE.md when atlarix.md and AGENTS.md are absent", async () => {
-    await fs.writeFile(path.join(workspace, "CLAUDE.md"), "claude guidance\n", "utf8");
+    await fs.writeFile(
+      path.join(workspace, "CLAUDE.md"),
+      "claude guidance\n",
+      "utf8",
+    );
     const res = await readProjectInstructions(workspace);
     expect(res?.source).toBe("claude");
     expect(res?.content).toContain("claude guidance");
@@ -183,7 +308,11 @@ describe("readProjectInstructions (v13.1 AGENTS.md/CLAUDE.md interop)", () => {
 
   it("treats a whitespace-only atlarix.md as absent and falls back", async () => {
     await writeAtlarix("   \n\n");
-    await fs.writeFile(path.join(workspace, "AGENTS.md"), "real guidance\n", "utf8");
+    await fs.writeFile(
+      path.join(workspace, "AGENTS.md"),
+      "real guidance\n",
+      "utf8",
+    );
     const res = await readProjectInstructions(workspace);
     expect(res?.source).toBe("agents");
   });
@@ -241,4 +370,3 @@ describe("extractHeadings (the project-instructions pointer)", () => {
     expect(extractHeadings("just prose\nand more prose")).toEqual([]);
   });
 });
-

@@ -201,9 +201,14 @@ export function redactToolMediaForDisplay(output: unknown): unknown {
   const media = extractImageMedia(secretSafe);
   if (!media) return secretSafe;
 
-  const replaceData = (obj: Record<string, unknown>): Record<string, unknown> =>
+  const replaceData = (
+    obj: Record<string, unknown>,
+  ): Record<string, unknown> =>
     typeof obj.data === "string" && obj.data.length > 256
-      ? { ...obj, data: `[image ${obj.mimeType ?? "binary"} — ${Math.round((obj.data as string).length * 0.75 / 1024)} KB redacted]` }
+      ? {
+          ...obj,
+          data: `[image ${obj.mimeType ?? "binary"} — ${Math.round(((obj.data as string).length * 0.75) / 1024)} KB redacted]`,
+        }
       : obj;
 
   const o = secretSafe as Record<string, unknown>;

@@ -6,7 +6,10 @@ import React, { memo, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { stripPartialQuestionsBlockForDisplay } from "@/ipc/utils/cleanFullResponse";
-import { fenceDelimiter, sanitizeMarkdownForDisplay } from "@/lib/chat/answer-display";
+import {
+  fenceDelimiter,
+  sanitizeMarkdownForDisplay,
+} from "@/lib/chat/answer-display";
 import { preprocessCitationMarkers } from "@/lib/chat/citation-sources";
 import type { SourceItem } from "@/atoms/sourceAtoms";
 import { CitationSourcesContext } from "./CitationSourcesContext";
@@ -37,7 +40,9 @@ const MarkdownBlock = memo(
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
-          code: (props) => <CodeHighlight {...props} isStreaming={isStreaming} />,
+          code: (props) => (
+            <CodeHighlight {...props} isStreaming={isStreaming} />
+          ),
           a: customLink,
           text: ({ children }) => <>{renderTextWithPathMentions(children)}</>,
           ...markdownTableComponents,
@@ -84,7 +89,10 @@ function isBlockContinuationLine(line: string): boolean {
  * parity for every later block and cutting mid-fence — which spilled the code
  * body out of its box as plain text.
  */
-export function splitFrozenTail(content: string): { frozen: string; tail: string } {
+export function splitFrozenTail(content: string): {
+  frozen: string;
+  tail: string;
+} {
   const lines = content.split("\n");
   // closedBeforeLine[i] === true ⇒ no fence is open where line i begins, i.e.
   // the newline *before* line i is a fence-safe cut boundary.
@@ -116,7 +124,10 @@ export function splitFrozenTail(content: string): { frozen: string; tail: string
     // Unsafe ONLY when the cut falls BETWEEN two continuation lines (i.e. inside
     // a list/table/blockquote). Cutting before a construct starts, or after one
     // ends, leaves the construct whole in a single block — that's fine.
-    if (isBlockContinuationLine(prevLine) && isBlockContinuationLine(nextLine)) {
+    if (
+      isBlockContinuationLine(prevLine) &&
+      isBlockContinuationLine(nextLine)
+    ) {
       continue;
     }
     const cut = newlineBeforeLine[i] as number;
@@ -177,7 +188,11 @@ function AtlarixMarkdownSegmentImpl({
             );
           }
           return (
-            <MarkdownBlock key={index} content={piece.content} isStreaming={false} />
+            <MarkdownBlock
+              key={index}
+              content={piece.content}
+              isStreaming={false}
+            />
           );
         })}
       </>

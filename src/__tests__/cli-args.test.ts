@@ -35,7 +35,9 @@ describe("argValue", () => {
   });
 
   it("returns undefined for an absent flag, so callers can default", () => {
-    expect(argValue(argv("--target", "aarch64-apple-darwin"), "arch")).toBeUndefined();
+    expect(
+      argValue(argv("--target", "aarch64-apple-darwin"), "arch"),
+    ).toBeUndefined();
   });
 
   it("never swallows a following FLAG as if it were a value", () => {

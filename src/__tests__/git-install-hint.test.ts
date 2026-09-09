@@ -25,7 +25,10 @@ async function messageFor(p: NodeJS.Platform): Promise<string> {
 }
 
 afterEach(() => {
-  Object.defineProperty(process, "platform", { value: realPlatform, configurable: true });
+  Object.defineProperty(process, "platform", {
+    value: realPlatform,
+    configurable: true,
+  });
   vi.resetModules();
 });
 

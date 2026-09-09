@@ -118,7 +118,10 @@ export default defineConfig({
     },
   },
   define: Object.fromEntries(
-    MAIN_KEYS.map((k) => [`process.env.${k}`, JSON.stringify(process.env[k] ?? "")])
+    MAIN_KEYS.map((k) => [
+      `process.env.${k}`,
+      JSON.stringify(process.env[k] ?? ""),
+    ]),
   ),
   build: {
     sourcemap: false,

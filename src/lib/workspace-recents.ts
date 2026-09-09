@@ -15,10 +15,10 @@ export function loadRecentWorkspaces(): string[] {
 }
 
 export function pushRecentWorkspace(path: string): string[] {
-  const updated = [path, ...loadRecentWorkspaces().filter((p) => p !== path)].slice(
-    0,
-    MAX_RECENTS,
-  );
+  const updated = [
+    path,
+    ...loadRecentWorkspaces().filter((p) => p !== path),
+  ].slice(0, MAX_RECENTS);
   localStorage.setItem(RECENTS_KEY, JSON.stringify(updated));
   return updated;
 }

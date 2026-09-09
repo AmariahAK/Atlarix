@@ -52,7 +52,10 @@ function toolCallIds(messages: ModelMessage[]): string[] {
   const ids: string[] = [];
   for (const m of messages) {
     if (!Array.isArray(m.content)) continue;
-    for (const p of m.content as Array<{ type?: string; toolCallId?: string }>) {
+    for (const p of m.content as Array<{
+      type?: string;
+      toolCallId?: string;
+    }>) {
       if (p?.type === "tool-call" && p.toolCallId) ids.push(p.toolCallId);
     }
   }
@@ -63,7 +66,10 @@ function toolResultIds(messages: ModelMessage[]): string[] {
   const ids: string[] = [];
   for (const m of messages) {
     if (!Array.isArray(m.content)) continue;
-    for (const p of m.content as Array<{ type?: string; toolCallId?: string }>) {
+    for (const p of m.content as Array<{
+      type?: string;
+      toolCallId?: string;
+    }>) {
       if (p?.type === "tool-result" && p.toolCallId) ids.push(p.toolCallId);
     }
   }
@@ -84,7 +90,9 @@ describe("boundNativeHistoryForPersist", () => {
     const before = estimateModelMessagesTokens(turn);
     const budget = Math.floor(before / 4);
 
-    const bounded = boundNativeHistoryForPersist(turn, { budgetTokens: budget });
+    const bounded = boundNativeHistoryForPersist(turn, {
+      budgetTokens: budget,
+    });
 
     expect(estimateModelMessagesTokens(bounded)).toBeLessThan(before);
     expect(estimateModelMessagesTokens(bounded)).toBeLessThanOrEqual(budget);
@@ -111,7 +119,9 @@ describe("boundNativeHistoryForPersist", () => {
     });
 
     const valueFor = (msgs: ModelMessage[], idx: number) => {
-      const parts = msgs[idx]!.content as Array<{ output?: { value?: string } }>;
+      const parts = msgs[idx]!.content as Array<{
+        output?: { value?: string };
+      }>;
       return String(parts[0]?.output?.value ?? "");
     };
     // Message 2 is round 1's result (oldest); message 8 is round 4's (newest).
@@ -161,8 +171,12 @@ describe("boundNativeHistoryForPersist", () => {
     const turn = bigTurn();
     const impossible = 10;
 
-    const once = boundNativeHistoryForPersist(turn, { budgetTokens: impossible });
-    const twice = boundNativeHistoryForPersist(once, { budgetTokens: impossible });
+    const once = boundNativeHistoryForPersist(turn, {
+      budgetTokens: impossible,
+    });
+    const twice = boundNativeHistoryForPersist(once, {
+      budgetTokens: impossible,
+    });
 
     const opts = { builtinProviderId: "anthropic" as const };
     expect(serializeNativeHistory(twice, opts)).toBe(
@@ -181,7 +195,9 @@ describe("boundNativeHistoryForPersist", () => {
       { role: "user", content: "hi" } as ModelMessage,
       ...round(1, 100),
     ];
-    const bounded = boundNativeHistoryForPersist(small, { budgetTokens: 1_000_000 });
+    const bounded = boundNativeHistoryForPersist(small, {
+      budgetTokens: 1_000_000,
+    });
     expect(bounded).toBe(small);
   });
 

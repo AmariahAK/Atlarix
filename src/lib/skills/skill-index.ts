@@ -28,10 +28,6 @@ import * as path from "node:path";
 import log from "electron-log";
 
 import { firstSentence } from "@/lib/text/first-sentence";
-import { db } from "@/db";
-import { installedSkills } from "@/db/schema";
-import { eq } from "drizzle-orm";
-import { normalizeSkillWorkspacePath } from "@/paths/paths";
 import { resolveBuiltinSkillsRoot } from "./skill-loader";
 import {
   filterSkillsForMode,
@@ -45,7 +41,11 @@ export interface SkillIndexEntry {
   description: string;
   /** What the model passes to `read_file` — workspace-relative, or absolute for bundled guides. */
   readPath: string;
-  source: "repo" | "installed" | "guide";
+  /**
+   * `"installed"` is gone with the marketplace (v14.45). It rendered identically to
+   * `"repo"` in `formatSkillIndexForPrompt`, so nothing downstream distinguished them.
+   */
+  source: "repo" | "guide";
 }
 
 /**
@@ -74,66 +74,6 @@ const BUNDLED_GUIDES: Array<{
       "Fence schemas for inline charts, graphs and markmaps rendered in chat.",
   },
 ];
-
-
-function safeParseJson<T>(raw: string | null | undefined, fallback: T): T {
-  if (!raw) return fallback;
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
-  }
-}
-
-/**
- * Marketplace skills — index lines only, and NO disk read at all: `name` and
- * `description` are columns on `installed_skills`, and the body path is
- * deterministic (`.atlarix/skills/<id>/SKILL.md`, skills_handlers.ts).
- *
- * Only workspace scope is queried: migration 0049 deleted every global row and
- * installs hardcode `scope: "workspace"`, so the global branch was dead.
- */
-async function loadInstalledSkillEntries(
-  workspacePath: string,
-): Promise<SkillIndexEntry[]> {
-  const rows = await db
-    .select()
-    .from(installedSkills)
-    .where(eq(installedSkills.scope, "workspace"));
-
-  const wanted = normalizeSkillWorkspacePath(workspacePath);
-  const out: SkillIndexEntry[] = [];
-  for (const row of rows) {
-    if (
-      !row.workspacePath ||
-      normalizeSkillWorkspacePath(row.workspacePath) !== wanted
-    ) {
-      continue;
-    }
-    // Prefer the recorded SKILL.md so a skill shipping an unusual filename
-    // still gets a correct pointer; fall back to the standard layout.
-    const cached = safeParseJson(
-      row.cachedFiles,
-      [] as Array<{ name: string; localPath: string }>,
-    );
-    const skillMd =
-      cached.find((f) => f.name.toLowerCase() === "skill.md") ??
-      cached.find((f) => f.name.toLowerCase().endsWith("skill.md"));
-    const relPath = skillMd
-      ? path
-          .relative(workspacePath, skillMd.localPath)
-          .split(path.sep)
-          .join("/")
-      : `.atlarix/skills/${row.id}/SKILL.md`;
-    out.push({
-      name: row.name,
-      description: firstSentence(row.description ?? ""),
-      readPath: relPath,
-      source: "installed",
-    });
-  }
-  return out;
-}
 
 /** Bundled guides that actually exist in this build. */
 async function loadGuideEntries(): Promise<SkillIndexEntry[]> {
@@ -190,12 +130,6 @@ export async function buildSkillIndex(
     } catch (err) {
       logger.warn("[skill-index] repo skills failed:", err);
     }
-
-    try {
-      entries.push(...(await loadInstalledSkillEntries(ws)));
-    } catch (err) {
-      logger.warn("[skill-index] installed skills failed:", err);
-    }
   }
 
   try {
@@ -214,23 +148,39 @@ export async function buildSkillIndex(
  * never at the cost of the task. No caps, no truncation — every entry gets a
  * line, however many there are.
  */
+/**
+ * WORKSPACE SKILLS ARE A COUNT, NOT A CATALOGUE.
+ *
+ * This used to emit a name, a description and a path for every skill, and briefly a
+ * bounded version of the same. Both were the wrong shape: a workspace can hold any
+ * number of skill files — they are the user's own markdown, and there is no refusing a
+ * file that already exists — so the cost of describing them grew with the repo while
+ * most of them were irrelevant to any given task.
+ *
+ * The model does not need the catalogue to use a skill. It needs to KNOW skills exist,
+ * and it already has `grep` and `glob` to read the directory when a task looks like
+ * something the project has a written procedure for. One line buys the first; the tools
+ * it already has cover the second. (A `find_skill` tool was written for this and deleted
+ * the same day — it was a second way to do a thing that works.)
+ *
+ * The old caps failed differently and worse, so it is worth being precise about the
+ * difference: they dropped skills SILENTLY, telling the model that skills 11+ did not
+ * exist. Nothing is hidden here — the count is of everything, and the directory is
+ * named.
+ */
+
 export function formatSkillIndexForPrompt(entries: SkillIndexEntry[]): string {
   if (!entries.length) return "";
-  const render = (e: SkillIndexEntry) =>
-    e.description
-      ? `- **${e.name}** — ${e.description}\n  \`${e.readPath}\``
-      : `- **${e.name}**\n  \`${e.readPath}\``;
 
   const project = entries.filter((e) => e.source !== "guide");
   const guides = entries.filter((e) => e.source === "guide");
 
   const lines: string[] = [];
   if (project.length) {
-    lines.push(`## Skills available (${project.length})`);
     lines.push(
-      "Each line is a skill you can read in full. When one looks relevant to the task, `read_file` its path BEFORE doing the work it covers — the line is a summary, the file is the instruction. Optional: never chase a skill at the cost of the user's actual task.",
+      `## Skills (${project.length})`,
+      `This project has ${project.length} skill file(s) in \`.atlarix/skills/\` — written procedures for jobs it does repeatedly. When a task looks like one of them, \`grep\` or \`glob\` that directory and \`read_file\` the one that fits BEFORE doing the work it covers. Optional: never chase a skill at the cost of the user's actual task.`,
     );
-    for (const e of project) lines.push(render(e));
   }
 
   // Bundled guides are split out and labelled because their path points INSIDE
@@ -241,6 +191,14 @@ export function formatSkillIndexForPrompt(entries: SkillIndexEntry[]): string {
   // The path has to stay (read_file needs it), so the fix is to say plainly what
   // the directory is and that it is not a place to go.
   if (guides.length) {
+    // Guides KEEP their lines, unlike workspace skills above. They live inside the
+    // application bundle, so grep over the project cannot reach them — a count would
+    // make them unreachable rather than merely unlisted. They are also few and fixed,
+    // so the cost does not grow.
+    const render = (e: SkillIndexEntry) =>
+      e.description
+        ? `- **${e.name}** — ${e.description}\n  \`${e.readPath}\``
+        : `- **${e.name}**\n  \`${e.readPath}\``;
     if (lines.length) lines.push("");
     lines.push(`## Built-in guides (${guides.length})`);
     lines.push(

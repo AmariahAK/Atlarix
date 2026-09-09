@@ -19,7 +19,9 @@ export function columnExists(
   column: string,
 ): boolean {
   if (!tableExists(sqlite, table)) return false;
-  const rows = sqlite.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  const rows = sqlite.prepare(`PRAGMA table_info(${table})`).all() as {
+    name: string;
+  }[];
   return rows.some((r) => r.name === column);
 }
 
@@ -56,14 +58,18 @@ export function isJournalMigrationApplied(
       return columnExists(sqlite, "apps", "vercel_project_id");
     case "0009_previous_misty_knight":
       return (
-        tableExists(sqlite, "versions") && columnExists(sqlite, "apps", "neon_project_id")
+        tableExists(sqlite, "versions") &&
+        columnExists(sqlite, "apps", "neon_project_id")
       );
     case "0010_nappy_fat_cobra":
       return columnExists(sqlite, "apps", "install_command");
     case "0011_light_zeigeist":
       return tableExists(sqlite, "prompts");
     case "0012_bouncy_fenris":
-      return tableExists(sqlite, "mcp_servers") && tableExists(sqlite, "mcp_tool_consents");
+      return (
+        tableExists(sqlite, "mcp_servers") &&
+        tableExists(sqlite, "mcp_tool_consents")
+      );
     case "0013_damp_mephistopheles":
       return columnExists(sqlite, "apps", "is_favorite");
     case "0014_needy_vertigo":
@@ -87,7 +93,10 @@ export function isJournalMigrationApplied(
     case "0021_search_providers":
       return tableExists(sqlite, "search_providers");
     case "0022_add_diagrams":
-      return tableExists(sqlite, "diagrams") && tableExists(sqlite, "diagram_versions");
+      return (
+        tableExists(sqlite, "diagrams") &&
+        tableExists(sqlite, "diagram_versions")
+      );
     case "0023_faulty_diamondback":
       return (
         tableExists(sqlite, "daily_logs") &&
@@ -118,7 +127,10 @@ export function isJournalMigrationApplied(
     case "0030_v40_tool_session_loads":
       return tableExists(sqlite, "tool_session_loads");
     case "0031_project_memory":
-      return tableExists(sqlite, "project_snapshots") && tableExists(sqlite, "project_memory");
+      return (
+        tableExists(sqlite, "project_snapshots") &&
+        tableExists(sqlite, "project_memory")
+      );
     case "0032_pivot_tables":
       return (
         tableExists(sqlite, "pivot_nodes") &&
@@ -148,8 +160,11 @@ export function isJournalMigrationApplied(
       return columnExists(sqlite, "messages", "auto_routed_tier");
     case "0037_compaction_nested_and_synthetic":
       return (
-        columnExists(sqlite, "chat_context_summaries", "compaction_generation") &&
-        columnExists(sqlite, "messages", "is_synthetic")
+        columnExists(
+          sqlite,
+          "chat_context_summaries",
+          "compaction_generation",
+        ) && columnExists(sqlite, "messages", "is_synthetic")
       );
     case "0038_counsel_sessions":
       return tableExists(sqlite, "counsel_sessions");
@@ -159,6 +174,8 @@ export function isJournalMigrationApplied(
       return tableExists(sqlite, "custom_commands");
     case "0041_drop_diagram_versions":
       return !tableExists(sqlite, "diagram_versions");
+    // Historical: `0076` drops this table. The case stays because a database that
+    // replays history still passes through here, and a missing case returns false.
     case "0042_installed_skills":
       return columnExists(sqlite, "installed_skills", "scope");
     case "0043_mcp_registry_columns":
@@ -238,13 +255,11 @@ export function isJournalMigrationApplied(
       // is left. Vacuously true on a fresh DB, which is correct.
       return (
         tableExists(sqlite, "automations") &&
-        !(
-          sqlite
-            .prepare(
-              "SELECT 1 FROM automations WHERE json_valid(trigger) AND json_extract(trigger,'$.kind')='github' LIMIT 1",
-            )
-            .get() as unknown
-        )
+        !(sqlite
+          .prepare(
+            "SELECT 1 FROM automations WHERE json_valid(trigger) AND json_extract(trigger,'$.kind')='github' LIMIT 1",
+          )
+          .get() as unknown)
       );
     case "0073_session_message_plan_title":
       return columnExists(sqlite, "session_messages", "title");
@@ -252,6 +267,11 @@ export function isJournalMigrationApplied(
       return columnExists(sqlite, "chat_sessions", "work_mode");
     case "0075_edit_stats":
       return tableExists(sqlite, "edit_stats");
+    // A DROP verifies by ABSENCE. `0041_drop_diagram_versions` above is the same
+    // shape — asserting the table still exists would pass on a database where the
+    // migration never ran, which is the failure this file is for.
+    case "0076_drop_installed_skills":
+      return !tableExists(sqlite, "installed_skills");
     default:
       return false;
   }

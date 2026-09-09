@@ -24,16 +24,22 @@ export function backgroundJobDisplayName(jobId: string): string {
 }
 
 /** Model-facing block: job id + command + current output tail. */
-export function buildBackgroundJobModelBlock(att: BackgroundJobAttachment): string {
+export function buildBackgroundJobModelBlock(
+  att: BackgroundJobAttachment,
+): string {
   const { jobId, command, outputTail } = att.backgroundJob;
   return [
     `<atlarix-background-job job_id="${escapeXmlAttr(jobId)}" command="${escapeXmlAttr(command)}">`,
-    outputTail?.trim() ? escapeAttachmentTagBody(outputTail) : "(no output captured yet)",
+    outputTail?.trim()
+      ? escapeAttachmentTagBody(outputTail)
+      : "(no output captured yet)",
     "</atlarix-background-job>",
   ].join("\n");
 }
 
 /** Display-only stub (the chip already shows the job id). */
-export function buildBackgroundJobDisplayBlock(att: BackgroundJobAttachment): string {
+export function buildBackgroundJobDisplayBlock(
+  att: BackgroundJobAttachment,
+): string {
   return `<atlarix-background-job job_id="${escapeXmlAttr(att.backgroundJob.jobId)}" />`;
 }

@@ -88,7 +88,9 @@ export function useAttachments() {
         file,
         type,
       }));
-      setAttachments((attachments) => mergeAttachments(attachments, fileAttachments));
+      setAttachments((attachments) =>
+        mergeAttachments(attachments, fileAttachments),
+      );
       e.target.value = "";
     }
   };
@@ -102,7 +104,9 @@ export function useAttachments() {
       file,
       type,
     }));
-    setAttachments((attachments) => mergeAttachments(attachments, fileAttachments));
+    setAttachments((attachments) =>
+      mergeAttachments(attachments, fileAttachments),
+    );
   };
 
   const removeAttachment = (index: number) => {
@@ -128,7 +132,9 @@ export function useAttachments() {
         file,
         type: "chat-context" as const,
       }));
-      setAttachments((attachments) => mergeAttachments(attachments, fileAttachments));
+      setAttachments((attachments) =>
+        mergeAttachments(attachments, fileAttachments),
+      );
     }
   };
 
@@ -144,7 +150,9 @@ export function useAttachments() {
       file,
       type,
     }));
-    setAttachments((attachments) => mergeAttachments(attachments, fileAttachments));
+    setAttachments((attachments) =>
+      mergeAttachments(attachments, fileAttachments),
+    );
   };
 
   // Synchronous on purpose: a paste handler must call preventDefault() during

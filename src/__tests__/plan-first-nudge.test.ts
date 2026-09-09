@@ -19,7 +19,9 @@ describe("plan-first nudge (Build / Fix)", () => {
 
   it("Build also tells it NOT to plan a trivial change", () => {
     // A nudge with no off-switch turns every one-line fix into ceremony.
-    expect(getActiveModeHeaderBlock("build")).toMatch(/single scoped change needs no plan/i);
+    expect(getActiveModeHeaderBlock("build")).toMatch(
+      /single scoped change needs no plan/i,
+    );
   });
 
   it("Fix orders it AFTER the hypothesis, not before", () => {
@@ -40,7 +42,9 @@ describe("plan-first nudge (Build / Fix)", () => {
 
   it("read-only modes are untouched — no build-shaped plan nudge there", () => {
     for (const mode of ["ask", "review"] as const) {
-      expect(getActiveModeHeaderBlock(mode)).not.toContain("NO plan in context");
+      expect(getActiveModeHeaderBlock(mode)).not.toContain(
+        "NO plan in context",
+      );
     }
   });
 });

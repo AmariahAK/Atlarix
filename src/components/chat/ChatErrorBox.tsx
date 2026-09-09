@@ -24,6 +24,22 @@ function openAiSettings() {
 // deleted the "Top up credit" button from the error that most needs it — nothing
 // failed, nothing logged, the button was just gone.
 
+/*
+ * PALETTE: semantic tokens, plus alpha-over-surface for the accents. Fixed 2026-09-09.
+ *
+ * Every colour in this file used to be a literal light-mode palette class — `bg-sky-50`,
+ * `bg-red-50`, `bg-blue-600` CTAs — with ZERO `dark:` variants, so in a dark app the
+ * credit card rendered as the one white panel on screen, directly above a correctly
+ * themed `bg-secondary` Retry button.
+ *
+ * Adding `dark:` variants would have been the wrong fix. The brand `--primary` is
+ * emerald (`styles/globals.css`), so blue CTAs were off-palette in BOTH themes —
+ * `dark:` would have faithfully preserved the wrong hue. Tokens for text and buttons,
+ * and `<colour>-500/10` over the current surface for the two accent tints, which is the
+ * convention the rest of the app already uses (see `InlinePermissionApprovals.tsx`,
+ * `TokenBar.tsx`) and is theme-agnostic by construction rather than by duplication.
+ */
+
 export function ChatErrorBox({
   onDismiss,
   error,
@@ -76,8 +92,8 @@ export function ChatErrorBox({
   if (error.includes("Stream stalled")) {
     return (
       <ChatErrorContainer onDismiss={onDismiss}>
-        The model stopped responding mid-stream. Try sending your message again or
-        switch to another model.
+        The model stopped responding mid-stream. Try sending your message again
+        or switch to another model.
       </ChatErrorContainer>
     );
   }
@@ -154,9 +170,9 @@ function ExternalLink({
   const baseClasses =
     "cursor-pointer inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium shadow-sm focus:outline-none focus:ring-2";
   const primaryClasses =
-    "bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500";
+    "bg-primary text-primary-foreground hover:bg-primary/90 focus:ring-primary/50";
   const secondaryClasses =
-    "bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 hover:border-blue-300 focus:ring-blue-200";
+    "bg-background text-foreground border border-border hover:bg-muted focus:ring-ring/50";
   const iconElement =
     icon ??
     (variant === "primary" ? (
@@ -167,8 +183,9 @@ function ExternalLink({
 
   return (
     <a
-      className={`${baseClasses} ${variant === "primary" ? primaryClasses : secondaryClasses
-        }`}
+      className={`${baseClasses} ${
+        variant === "primary" ? primaryClasses : secondaryClasses
+      }`}
       onClick={() => IpcClient.getInstance().openExternalUrl(href)}
     >
       <span>{children}</span>
@@ -182,7 +199,7 @@ function TopUpButton({ children }: { children: React.ReactNode }) {
   const baseClasses =
     "cursor-pointer inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium shadow-sm focus:outline-none focus:ring-2";
   const primaryClasses =
-    "bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-300";
+    "bg-primary text-primary-foreground hover:bg-primary/90 focus:ring-primary/50";
   return (
     <a className={`${baseClasses} ${primaryClasses}`} onClick={openAiSettings}>
       <span>{children}</span>
@@ -196,9 +213,12 @@ function SwitchProviderButton({ children }: { children: React.ReactNode }) {
   const baseClasses =
     "cursor-pointer inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium shadow-sm focus:outline-none focus:ring-2";
   const secondaryClasses =
-    "bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 hover:border-blue-300 focus:ring-blue-200";
+    "bg-background text-foreground border border-border hover:bg-muted focus:ring-ring/50";
   return (
-    <a className={`${baseClasses} ${secondaryClasses}`} onClick={openAiSettings}>
+    <a
+      className={`${baseClasses} ${secondaryClasses}`}
+      onClick={openAiSettings}
+    >
       <span>{children}</span>
       <SlidersHorizontal size={14} />
     </a>
@@ -213,15 +233,15 @@ function ChatErrorContainer({
   children: React.ReactNode | string;
 }) {
   return (
-    <div className="relative mt-2 bg-red-50 border border-red-200 rounded-md shadow-sm p-2 mx-4">
+    <div className="relative mt-2 bg-destructive/10 border border-destructive/40 rounded-md shadow-sm p-2 mx-4">
       <button
         onClick={onDismiss}
-        className="absolute top-2.5 left-2 p-1 hover:bg-red-100 rounded"
+        className="absolute top-2.5 left-2 p-1 hover:bg-destructive/20 rounded"
       >
-        <X size={14} className="text-red-500" />
+        <X size={14} className="text-destructive" />
       </button>
       <div className="pl-8 py-1 text-sm">
-        <div className="text-red-700 text-wrap">
+        <div className="text-foreground text-wrap">
           {typeof children === "string" ? (
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
@@ -235,7 +255,7 @@ function ChatErrorContainer({
                         IpcClient.getInstance().openExternalUrl(props.href);
                       }
                     }}
-                    className="text-blue-500 hover:text-blue-700"
+                    className="text-primary underline hover:no-underline"
                   >
                     {linkChildren}
                   </a>
@@ -261,15 +281,15 @@ function ChatInfoContainer({
   children: React.ReactNode;
 }) {
   return (
-    <div className="relative mt-2 bg-sky-50 border border-sky-200 rounded-md shadow-sm p-2 mx-4">
+    <div className="relative mt-2 bg-sky-500/10 border border-sky-500/40 rounded-md shadow-sm p-2 mx-4">
       <button
         onClick={onDismiss}
-        className="absolute top-2.5 left-2 p-1 hover:bg-sky-100 rounded"
+        className="absolute top-2.5 left-2 p-1 hover:bg-sky-500/20 rounded"
       >
-        <X size={14} className="text-sky-600" />
+        <X size={14} className="text-sky-600 dark:text-sky-400" />
       </button>
       <div className="pl-8 py-1 text-sm">
-        <div className="text-sky-800 text-wrap">{children}</div>
+        <div className="text-foreground text-wrap">{children}</div>
       </div>
     </div>
   );

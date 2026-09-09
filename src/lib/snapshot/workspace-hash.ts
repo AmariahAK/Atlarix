@@ -6,6 +6,5 @@
 import * as path from "path";
 
 export function atlasDir(workspacePath: string): string {
-    return path.join(workspacePath, ".atlarix");
+  return path.join(workspacePath, ".atlarix");
 }
-

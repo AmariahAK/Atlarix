@@ -55,7 +55,9 @@ function stripComments(source: string): string {
 function readAllowlist(): Set<string> {
   const preload = fs.readFileSync(path.join(SRC, "preload.ts"), "utf8");
   const start = preload.indexOf("const validInvokeChannels = [");
-  expect(start, "validInvokeChannels not found in preload.ts").toBeGreaterThan(-1);
+  expect(start, "validInvokeChannels not found in preload.ts").toBeGreaterThan(
+    -1,
+  );
   const end = preload.indexOf("\n];", start);
   expect(end, "end of validInvokeChannels not found").toBeGreaterThan(start);
   return new Set(
@@ -75,7 +77,8 @@ function bridgeUsingSources(): string[] {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        if (entry.name === "__tests__" || entry.name === "node_modules") continue;
+        if (entry.name === "__tests__" || entry.name === "node_modules")
+          continue;
         walk(full);
         continue;
       }
@@ -118,7 +121,9 @@ describe("preload invoke-channel allowlist", () => {
     const missing = [...invoked.entries()]
       .filter(([channel]) => !allowed.has(channel))
       .filter(([channel]) => !KNOWN_NO_RENDERER_CALLER.has(channel))
-      .map(([channel, files]) => `${channel}  (invoked in ${files.join(", ")})`);
+      .map(
+        ([channel, files]) => `${channel}  (invoked in ${files.join(", ")})`,
+      );
 
     expect(
       missing,

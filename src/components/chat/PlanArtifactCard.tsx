@@ -59,7 +59,10 @@ function PlanStatusStrip({ planStatus }: { planStatus: PlanArtifactStatus }) {
               )}
             >
               {isCurrent && planStatus === "building" ? (
-                <Loader2 className="h-3 w-3 animate-spin shrink-0" aria-hidden />
+                <Loader2
+                  className="h-3 w-3 animate-spin shrink-0"
+                  aria-hidden
+                />
               ) : null}
               {step.label}
             </span>
@@ -73,17 +76,42 @@ function PlanStatusStrip({ planStatus }: { planStatus: PlanArtifactStatus }) {
 function StepIcon({ state }: { state: PlanChecklistStep["state"] }) {
   switch (state) {
     case "done":
-      return <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-green-600 dark:text-green-500" aria-hidden />;
+      return (
+        <CheckCircle2
+          className="h-3.5 w-3.5 shrink-0 text-green-600 dark:text-green-500"
+          aria-hidden
+        />
+      );
     case "in_progress":
-      return <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" aria-hidden />;
+      return (
+        <Loader2
+          className="h-3.5 w-3.5 shrink-0 animate-spin text-primary"
+          aria-hidden
+        />
+      );
     case "blocked":
-      return <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-500" aria-hidden />;
+      return (
+        <AlertTriangle
+          className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-500"
+          aria-hidden
+        />
+      );
     // Handed back to the user — a person, not a warning. Distinct icon AND colour
     // from `blocked`, because the two mean different things to whoever is reading.
     case "external":
-      return <UserRound className="h-3.5 w-3.5 shrink-0 text-sky-600 dark:text-sky-400" aria-hidden />;
+      return (
+        <UserRound
+          className="h-3.5 w-3.5 shrink-0 text-sky-600 dark:text-sky-400"
+          aria-hidden
+        />
+      );
     default:
-      return <Circle className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" aria-hidden />;
+      return (
+        <Circle
+          className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50"
+          aria-hidden
+        />
+      );
   }
 }
 
@@ -101,7 +129,8 @@ export function PlanChecklistProgress({
   // Counted and shown separately: "3/4 done" alone reads as unfinished work when the
   // 4th step is the user's, which is exactly the wrong impression.
   const external = steps.filter((s) => s.state === "external").length;
-  const started = steps.some((s) => s.state !== "todo") || planStatus !== "plan";
+  const started =
+    steps.some((s) => s.state !== "todo") || planStatus !== "plan";
   if (!started) return null;
 
   const externalLabel = external > 0 ? ` · ${external} needs you` : "";
@@ -122,16 +151,21 @@ export function PlanChecklistProgress({
       </div>
       <ul className="space-y-1">
         {steps.map((step) => (
-          <li key={`${step.index}-${step.line}`} className="flex items-start gap-1.5 text-xs">
+          <li
+            key={`${step.index}-${step.line}`}
+            className="flex items-start gap-1.5 text-xs"
+          >
             <span className="mt-0.5">
               <StepIcon state={step.state} />
             </span>
             <span
               className={cn(
                 "min-w-0 break-words",
-                step.state === "done" && "text-muted-foreground line-through decoration-muted-foreground/40",
+                step.state === "done" &&
+                  "text-muted-foreground line-through decoration-muted-foreground/40",
                 step.state === "in_progress" && "text-foreground font-medium",
-                step.state === "blocked" && "text-amber-700 dark:text-amber-400",
+                step.state === "blocked" &&
+                  "text-amber-700 dark:text-amber-400",
                 step.state === "external" && "text-sky-700 dark:text-sky-300",
                 step.state === "todo" && "text-muted-foreground",
               )}

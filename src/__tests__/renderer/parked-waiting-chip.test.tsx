@@ -17,38 +17,48 @@ describe("ParkedWaitingChip", () => {
   });
 
   it("renders nothing when the chat is not parked", () => {
-    const { container } = renderWithProviders(<ParkedWaitingChip chatId={CHAT_ID} />);
+    const { container } = renderWithProviders(
+      <ParkedWaitingChip chatId={CHAT_ID} />,
+    );
     expect(container.textContent).toBe("");
   });
 
   it("shows both counts and the auto-resume reassurance when parked", () => {
-    const { store } = renderWithProviders(<ParkedWaitingChip chatId={CHAT_ID} />);
+    const { store } = renderWithProviders(
+      <ParkedWaitingChip chatId={CHAT_ID} />,
+    );
     act(() => {
       store.set(
         parkedWaitingByChatIdAtom,
         new Map([[CHAT_ID, { commands: 2, subagents: 1, parkedAt: 0 }]]),
       );
     });
-    const text = screen.getByText(/will resume automatically/i).textContent ?? "";
+    const text =
+      screen.getByText(/will resume automatically/i).textContent ?? "";
     expect(text).toContain("2 background tasks");
     expect(text).toContain("1 sub-agent");
   });
 
   it("singularizes one command and shows no sub-agents when zero", () => {
-    const { store } = renderWithProviders(<ParkedWaitingChip chatId={CHAT_ID} />);
+    const { store } = renderWithProviders(
+      <ParkedWaitingChip chatId={CHAT_ID} />,
+    );
     act(() => {
       store.set(
         parkedWaitingByChatIdAtom,
         new Map([[CHAT_ID, { commands: 1, subagents: 0, parkedAt: 0 }]]),
       );
     });
-    const text = screen.getByText(/will resume automatically/i).textContent ?? "";
+    const text =
+      screen.getByText(/will resume automatically/i).textContent ?? "";
     expect(text).toContain("1 background task");
     expect(text).not.toContain("sub-agent");
   });
 
   it("dismiss (×) clears the parked entry for this chat", () => {
-    const { store } = renderWithProviders(<ParkedWaitingChip chatId={CHAT_ID} />);
+    const { store } = renderWithProviders(
+      <ParkedWaitingChip chatId={CHAT_ID} />,
+    );
     act(() => {
       store.set(
         parkedWaitingByChatIdAtom,

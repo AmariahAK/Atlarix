@@ -49,9 +49,9 @@ describe("describeSandboxFailureContext", () => {
   });
 
   it("says '(none)' rather than nothing when no roots were granted", () => {
-    expect(describeSandboxFailureContext({ ...base, writableRoots: [] })).toContain(
-      "(none)",
-    );
+    expect(
+      describeSandboxFailureContext({ ...base, writableRoots: [] }),
+    ).toContain("(none)");
   });
 
   it("calls out read-only mode, which changes what the roots mean", () => {
@@ -64,7 +64,9 @@ describe("describeSandboxFailureContext", () => {
   });
 
   it("is silent when no sandbox was applied", () => {
-    expect(describeSandboxFailureContext({ ...base, sandboxed: false })).toBeNull();
+    expect(
+      describeSandboxFailureContext({ ...base, sandboxed: false }),
+    ).toBeNull();
   });
 
   it("is silent when a path was already attributed", () => {

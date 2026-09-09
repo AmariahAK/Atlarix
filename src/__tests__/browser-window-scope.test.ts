@@ -20,8 +20,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const windows = new Map<number, FakeWindow>();
 class FakeWindow {
   destroyed = false;
-  contentView = { children: [], addChildView: vi.fn(), removeChildView: vi.fn() };
-  webContents = { isDestroyed: () => false, isCrashed: () => false, send: vi.fn() };
+  contentView = {
+    children: [],
+    addChildView: vi.fn(),
+    removeChildView: vi.fn(),
+  };
+  webContents = {
+    isDestroyed: () => false,
+    isCrashed: () => false,
+    send: vi.fn(),
+  };
   private closedHandlers: Array<() => void> = [];
   constructor(public id: number) {
     windows.set(id, this);
@@ -45,10 +53,17 @@ let focusedId: number | null = null;
 
 vi.mock("electron", () => ({
   WebContentsView: class {},
-  session: { fromPartition: () => ({ setPermissionRequestHandler() {}, on() {}, webRequest: { onCompleted() {} } }) },
+  session: {
+    fromPartition: () => ({
+      setPermissionRequestHandler() {},
+      on() {},
+      webRequest: { onCompleted() {} },
+    }),
+  },
   BrowserWindow: {
     fromId: (id: number) => windows.get(id) ?? null,
-    getFocusedWindow: () => (focusedId != null ? (windows.get(focusedId) ?? null) : null),
+    getFocusedWindow: () =>
+      focusedId != null ? (windows.get(focusedId) ?? null) : null,
     getAllWindows: () => [...windows.values()].filter((w) => !w.destroyed),
   },
 }));
@@ -62,7 +77,9 @@ import {
 } from "@/ipc/utils/browser_view_manager";
 
 function makeWindow(id: number) {
-  return new FakeWindow(id) as unknown as Parameters<typeof browserScopeForWindow>[0];
+  return new FakeWindow(id) as unknown as Parameters<
+    typeof browserScopeForWindow
+  >[0];
 }
 
 describe("per-window browser scopes", () => {

@@ -155,15 +155,21 @@ describe("the provider-keys check", () => {
     vi.doMock("@/ipc/shared/provider_api_keys", () => ({
       getProviderApiKey: async () => undefined,
       getConfiguredProviders: async () => {
-        throw new Error("Database not initialized. Call initializeDatabase() first.");
+        throw new Error(
+          "Database not initialized. Call initializeDatabase() first.",
+        );
       },
     }));
     vi.resetModules();
     const { DOCTOR_CHECKS: fresh } = await import("@/main/doctor");
     const providerKeys = fresh.find((c) => c.name === "provider-keys")!;
 
-    await expect(providerKeys.run()).rejects.toThrow(/Database not initialized/);
-    await expect(providerKeys.run()).rejects.not.toThrow(/local database is unavailable/);
+    await expect(providerKeys.run()).rejects.toThrow(
+      /Database not initialized/,
+    );
+    await expect(providerKeys.run()).rejects.not.toThrow(
+      /local database is unavailable/,
+    );
 
     vi.doUnmock("@/ipc/shared/provider_api_keys");
     vi.resetModules();

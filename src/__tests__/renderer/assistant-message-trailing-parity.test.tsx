@@ -50,9 +50,17 @@ const BRANCHES: Branch[] = [
   // Neither flag set → legacy branch.
   { name: "legacy", content: BODY, contentDrivenThread: false },
   // isStructured true → interleaved branch.
-  { name: "interleaved (isStructured)", content: STRUCTURED_BODY, contentDrivenThread: false },
+  {
+    name: "interleaved (isStructured)",
+    content: STRUCTURED_BODY,
+    contentDrivenThread: false,
+  },
   // The prop forces interleaved even for plain prose (ephemeral/floating chat).
-  { name: "interleaved (contentDrivenThread)", content: BODY, contentDrivenThread: true },
+  {
+    name: "interleaved (contentDrivenThread)",
+    content: BODY,
+    contentDrivenThread: true,
+  },
 ];
 
 describe("AssistantMessageBody — trailing parity across both render branches", () => {
@@ -71,7 +79,9 @@ describe("AssistantMessageBody — trailing parity across both render branches",
 
       it("renders the trailing answer prose", () => {
         render();
-        expect(screen.getByText(new RegExp(PROSE.slice(0, 20)))).toBeInTheDocument();
+        expect(
+          screen.getByText(new RegExp(PROSE.slice(0, 20))),
+        ).toBeInTheDocument();
       });
 
       it("renders the citation sources strip exactly once", () => {
@@ -83,7 +93,9 @@ describe("AssistantMessageBody — trailing parity across both render branches",
       it("never leaks the raw <atlarix-sources> tag as text", () => {
         render();
         expect(screen.queryByText(/atlarix-sources/)).not.toBeInTheDocument();
-        expect(screen.queryByText(/example\.com\/parser/)).not.toBeInTheDocument();
+        expect(
+          screen.queryByText(/example\.com\/parser/),
+        ).not.toBeInTheDocument();
       });
 
       it("does not duplicate the answer prose", () => {

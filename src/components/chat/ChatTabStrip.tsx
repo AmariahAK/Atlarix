@@ -21,7 +21,10 @@ import {
   selectedWorkspaceInfoAtom,
   appsListAtom,
 } from "@/atoms/appAtoms";
-import { activeWorkspaceSessionIdAtom, chatIdToSessionIdAtom } from "@/atoms/sessionAtoms";
+import {
+  activeWorkspaceSessionIdAtom,
+  chatIdToSessionIdAtom,
+} from "@/atoms/sessionAtoms";
 import { removeOpenChatTab } from "@/lib/open-workspace-session";
 import { hydrateSessionIntoChat } from "@/lib/chat/hydrate-session-into-chat";
 import { isChatEvicted } from "@/lib/chat/clear-chat-atoms";
@@ -78,7 +81,8 @@ export function ChatTabStrip() {
     if (!sessionId) return;
     const store = getDefaultStore();
     if (store.get(isStreamingByIdAtom).get(chatId) === true) return;
-    const hasMessages = (store.get(chatMessagesByIdAtom).get(chatId)?.length ?? 0) > 0;
+    const hasMessages =
+      (store.get(chatMessagesByIdAtom).get(chatId)?.length ?? 0) > 0;
     if (hasMessages && !isChatEvicted(chatId)) return;
     void hydrateSessionIntoChat({ sessionId, chatId }).catch((e) => {
       // Leave the tab switched — the user asked for it — but say so, because the

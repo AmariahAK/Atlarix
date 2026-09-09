@@ -38,7 +38,9 @@ afterAll(async () => {
 describe("a compacted session survives a reload", () => {
   it("dispatch slices the model history from the persisted marker, not the full log", async () => {
     ctx.server.register(
-      scenario("compact-reload").text("Noted — carrying on from the summary.").build(),
+      scenario("compact-reload")
+        .text("Noted — carrying on from the summary.")
+        .build(),
     );
 
     const chatId = await ctx.newChat();
@@ -104,18 +106,16 @@ describe("a compacted session survives a reload", () => {
     expect(modelFacing[0]!.content).toContain("ZANZIBAR-7");
     // The recovery hint travels with it, so the model knows the dropped turns are
     // retrievable rather than gone.
-    expect(loaded.messages.some((m) => m.content.includes("[END COMPACTION]"))).toBe(
-      true,
-    );
+    expect(
+      loaded.messages.some((m) => m.content.includes("[END COMPACTION]")),
+    ).toBe(true);
   });
 
   it("the token meter measures the SLICED history, not the full log", async () => {
     // The meter and the dispatch must agree about what was sent, or the user sees
     // a session appear to double in size on reopen (the v14.38.1 class of bug:
     // "nothing had been summarised; the ruler changed").
-    ctx.server.register(
-      scenario("compact-meter").text("ok").build(),
-    );
+    ctx.server.register(scenario("compact-meter").text("ok").build());
     const chatId = await ctx.newChat();
     await runTurn(ctx, {
       chatId,

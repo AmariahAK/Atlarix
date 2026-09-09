@@ -96,67 +96,93 @@ describe("executeCompressContext — what the tool still owns", () => {
     compactorSpy.summaryPersisted.value = true;
   });
 
-  it("forwards the supplied session id and chatId to the compactor, and updates the live transport", { timeout: COMPACTION_IO_TIMEOUT_MS }, async () => {
-    const setMessages = vi.fn();
-    const outcome = await executeCompressContext(
-      { reason: "test" },
-      {
-        chatId: -42,
-        messages: FOUR_MESSAGES,
-        systemPromptTokens: 100,
-        workspaceSessionId: "stream-session-1",
-        setMessages,
-      },
-    );
+  it(
+    "forwards the supplied session id and chatId to the compactor, and updates the live transport",
+    { timeout: COMPACTION_IO_TIMEOUT_MS },
+    async () => {
+      const setMessages = vi.fn();
+      const outcome = await executeCompressContext(
+        { reason: "test" },
+        {
+          chatId: -42,
+          messages: FOUR_MESSAGES,
+          systemPromptTokens: 100,
+          workspaceSessionId: "stream-session-1",
+          setMessages,
+        },
+      );
 
-    expect(outcome.success).toBe(true);
-    // Forwarding is the whole contract: the compactor cannot write a durable
-    // marker for a session it was never told about.
-    expect(compactorSpy.lastOpts.value?.chatId).toBe(-42);
-    expect(compactorSpy.lastOpts.value?.workspaceSessionId).toBe("stream-session-1");
-    // And it must still ask for a real summary, not just the cheap steps.
-    expect(compactorSpy.lastOpts.value?.force).toBe(true);
-    // The live transport is replaced with the compacted list.
-    expect(setMessages).toHaveBeenCalledTimes(1);
-    const nextList = setMessages.mock.calls[0]![0] as Array<{ content: string }>;
-    expect(nextList[0]!.content).toContain("[COMPACTION MARKER]");
-  });
+      expect(outcome.success).toBe(true);
+      // Forwarding is the whole contract: the compactor cannot write a durable
+      // marker for a session it was never told about.
+      expect(compactorSpy.lastOpts.value?.chatId).toBe(-42);
+      expect(compactorSpy.lastOpts.value?.workspaceSessionId).toBe(
+        "stream-session-1",
+      );
+      // And it must still ask for a real summary, not just the cheap steps.
+      expect(compactorSpy.lastOpts.value?.force).toBe(true);
+      // The live transport is replaced with the compacted list.
+      expect(setMessages).toHaveBeenCalledTimes(1);
+      const nextList = setMessages.mock.calls[0]![0] as Array<{
+        content: string;
+      }>;
+      expect(nextList[0]!.content).toContain("[COMPACTION MARKER]");
+    },
+  );
 
-  it("relays summaryPersisted from the compactor instead of deciding it locally", { timeout: COMPACTION_IO_TIMEOUT_MS }, async () => {
-    compactorSpy.summaryPersisted.value = true;
-    const persisted = await executeCompressContext(
-      { reason: "test" },
-      { chatId: -7, messages: FOUR_MESSAGES, systemPromptTokens: 100, setMessages: vi.fn() },
-    );
-    expect(persisted.summaryPersisted).toBe(true);
+  it(
+    "relays summaryPersisted from the compactor instead of deciding it locally",
+    { timeout: COMPACTION_IO_TIMEOUT_MS },
+    async () => {
+      compactorSpy.summaryPersisted.value = true;
+      const persisted = await executeCompressContext(
+        { reason: "test" },
+        {
+          chatId: -7,
+          messages: FOUR_MESSAGES,
+          systemPromptTokens: 100,
+          setMessages: vi.fn(),
+        },
+      );
+      expect(persisted.summaryPersisted).toBe(true);
 
-    // The reload-re-summarize risk: compaction still "succeeds" for the turn, but
-    // the caller must learn it will not survive a reload.
-    compactorSpy.summaryPersisted.value = false;
-    const notPersisted = await executeCompressContext(
-      { reason: "test" },
-      { chatId: -99, messages: FOUR_MESSAGES, systemPromptTokens: 100, setMessages: vi.fn() },
-    );
-    expect(notPersisted.success).toBe(true);
-    expect(notPersisted.summaryPersisted).toBe(false);
-  });
+      // The reload-re-summarize risk: compaction still "succeeds" for the turn, but
+      // the caller must learn it will not survive a reload.
+      compactorSpy.summaryPersisted.value = false;
+      const notPersisted = await executeCompressContext(
+        { reason: "test" },
+        {
+          chatId: -99,
+          messages: FOUR_MESSAGES,
+          systemPromptTokens: 100,
+          setMessages: vi.fn(),
+        },
+      );
+      expect(notPersisted.success).toBe(true);
+      expect(notPersisted.summaryPersisted).toBe(false);
+    },
+  );
 
-  it("does not write the marker itself — that moved into the compactor", { timeout: COMPACTION_IO_TIMEOUT_MS }, async () => {
-    await executeCompressContext(
-      { reason: "test" },
-      {
-        chatId: -42,
-        messages: FOUR_MESSAGES,
-        systemPromptTokens: 100,
-        workspaceSessionId: "stream-session-1",
-        setMessages: vi.fn(),
-      },
-    );
-    // With the compactor mocked out, nothing in the tool layer may reach the
-    // session. A regression that re-adds a local persist call fails here.
-    expect(sessionHandlers.persistSpy).not.toHaveBeenCalled();
-    expect(sessionHandlers.resolveSpy).not.toHaveBeenCalled();
-  });
+  it(
+    "does not write the marker itself — that moved into the compactor",
+    { timeout: COMPACTION_IO_TIMEOUT_MS },
+    async () => {
+      await executeCompressContext(
+        { reason: "test" },
+        {
+          chatId: -42,
+          messages: FOUR_MESSAGES,
+          systemPromptTokens: 100,
+          workspaceSessionId: "stream-session-1",
+          setMessages: vi.fn(),
+        },
+      );
+      // With the compactor mocked out, nothing in the tool layer may reach the
+      // session. A regression that re-adds a local persist call fails here.
+      expect(sessionHandlers.persistSpy).not.toHaveBeenCalled();
+      expect(sessionHandlers.resolveSpy).not.toHaveBeenCalled();
+    },
+  );
 });
 describe("model compaction activity → Feed A invalidation contract (Bug 1c)", () => {
   it("the background 'Context compressed' activity survives normalize and matches the token-visuals filter", () => {

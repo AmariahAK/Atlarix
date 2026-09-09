@@ -119,7 +119,10 @@ describe("ToolRegistry.execute recovery envelope", () => {
     // The legacy edit_file/plan convention returns { error, operation } with no
     // success flag — it must now surface as success:false with a recovery hint,
     // not slip through as a success whose result nests the error.
-    registerStructuredFail(FAKE_TOOL, { error: "operation failed", operation: "x" });
+    registerStructuredFail(FAKE_TOOL, {
+      error: "operation failed",
+      operation: "x",
+    });
     const res = await ToolRegistry.execute(FAKE_TOOL, {});
     expect(res.success).toBe(false);
     expect(res.result).toBeUndefined();
@@ -128,7 +131,8 @@ describe("ToolRegistry.execute recovery envelope", () => {
 
   it("v14.8.7 §F: a bare { error } whose message already guides keeps no redundant hint but is still a failure", async () => {
     registerStructuredFail(FAKE_TOOL, {
-      error: "Content not found. Re-read the file and retry with exact content.",
+      error:
+        "Content not found. Re-read the file and retry with exact content.",
       operation: "x",
     });
     const res = await ToolRegistry.execute(FAKE_TOOL, {});

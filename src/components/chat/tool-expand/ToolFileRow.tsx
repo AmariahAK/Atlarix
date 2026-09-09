@@ -26,7 +26,9 @@ export function ToolFileRow({
       <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
       <div className="flex-1 min-w-0 flex items-baseline gap-1.5 flex-wrap">
         <span className="font-medium text-foreground truncate">{fileName}</span>
-        <span className="text-muted-foreground truncate text-[10px]">{directory}</span>
+        <span className="text-muted-foreground truncate text-[10px]">
+          {directory}
+        </span>
       </div>
       {trailing ? (
         <span className="shrink-0 text-muted-foreground text-[10px] tabular-nums">

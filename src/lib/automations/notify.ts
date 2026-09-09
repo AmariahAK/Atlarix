@@ -40,7 +40,9 @@ export async function getAutomationRunView(
   };
 }
 
-export async function broadcastAutomationRunUpdate(runId: string): Promise<void> {
+export async function broadcastAutomationRunUpdate(
+  runId: string,
+): Promise<void> {
   const view = await getAutomationRunView(runId);
   if (!view) return;
   // Every window: the run view carries its own identity, and the previous
@@ -50,7 +52,11 @@ export async function broadcastAutomationRunUpdate(runId: string): Promise<void>
 
 export async function notifyRunFinished(runId: string): Promise<void> {
   const view = await getAutomationRunView(runId);
-  if (!view || view.status === "nothing-to-report" || view.status === "running") {
+  if (
+    !view ||
+    view.status === "nothing-to-report" ||
+    view.status === "running"
+  ) {
     return;
   }
 

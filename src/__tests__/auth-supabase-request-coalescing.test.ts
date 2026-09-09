@@ -1,18 +1,24 @@
 /**
  * `useAuth` is a plain hook with no shared state and ~20 consumers, so each one runs
- * its own `checkSession()` on mount. Before this, that meant every consumer
- * independently fired `auth:claim-signup-credit` and the Supabase-backed reads — the
- * project's API logs showed four `claim_signup_credit` calls inside a single second for
- * a grant that can only ever happen once.
+ * its own `checkSession()` on mount, and every consumer independently fires the
+ * Supabase-backed reads.
  *
- * These assert the two properties that fix it: overlapping reads share one upstream
- * call, and the one-time claim is asked for once per signed-in session.
+ * The duplication was found through a WRITE: `auth:claim-signup-credit` showed four
+ * `claim_signup_credit` calls inside a single second, for a grant that could only ever
+ * happen once. That channel went away with the $1 signup trial on 2026-09-08; the reads
+ * it travelled alongside did not, and neither did the fan-out.
+ *
+ * These assert the property that fixes it: overlapping reads share one upstream call,
+ * and nothing is cached past settlement, so a balance right after a top-up is fresh.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { rpc, getSubscriptionDetails } = vi.hoisted(() => ({
   rpc: vi.fn(),
-  getSubscriptionDetails: vi.fn(async () => ({ status: "active", endsAt: null })),
+  getSubscriptionDetails: vi.fn(async () => ({
+    status: "active",
+    endsAt: null,
+  })),
 }));
 
 vi.mock("@/lib/auth/supabase-client", () => ({
@@ -28,7 +34,7 @@ vi.mock("@/lib/SubscriptionManager", () => ({
     isLoggedIn: () => true,
     isPro: () => false,
     getEffectiveTier: () => "pro",
-    canCreateWorkspace: async () => ({ allowed: true, maxAllowed: 1, currentCount: 0 }),
+    getWorkspaceCount: async () => 0,
     getCurrentWorkspaceDetails: async () => null,
     signOut: async () => {},
   },
@@ -45,8 +51,8 @@ import { registerAuthHandlers } from "@/ipc/handlers/auth_handlers";
 type Handler = (event: unknown, payload?: unknown) => Promise<unknown>;
 
 function latestHandler(channel: string): Handler {
-  const calls = (ipcMain.handle as unknown as { mock: { calls: unknown[][] } }).mock
-    .calls;
+  const calls = (ipcMain.handle as unknown as { mock: { calls: unknown[][] } })
+    .mock.calls;
   const found = [...calls].reverse().find((c) => c[0] === channel);
   if (!found) throw new Error(`no handler registered for ${channel}`);
   return found[1] as Handler;
@@ -65,7 +71,9 @@ describe("auth IPC coalescing — one Supabase call per burst", () => {
   beforeEach(async () => {
     rpc.mockReset();
     getSubscriptionDetails.mockClear();
-    (ipcMain.handle as unknown as { mock: { calls: unknown[][] } }).mock.calls.length = 0;
+    (
+      ipcMain.handle as unknown as { mock: { calls: unknown[][] } }
+    ).mock.calls.length = 0;
     registerAuthHandlers();
     // Reset the remembered claim so each test starts from a signed-out state.
     await latestHandler("auth:sign-out")({});
@@ -77,7 +85,12 @@ describe("auth IPC coalescing — one Supabase call per burst", () => {
     rpc.mockImplementation(() => gate.promise);
 
     const handler = latestHandler("auth:get-credit-balance");
-    const all = Promise.all([handler({}), handler({}), handler({}), handler({})]);
+    const all = Promise.all([
+      handler({}),
+      handler({}),
+      handler({}),
+      handler({}),
+    ]);
     gate.release({ data: { ok: true, balance_cents: 1234 }, error: null });
 
     const results = (await all) as { balanceCents: number }[];
@@ -122,7 +135,10 @@ describe("auth IPC coalescing — one Supabase call per burst", () => {
     // A server older than this client returns only the total. Coalescing the
     // missing halves to 0 would render "$0.00 of $0.00 used" — a confident claim
     // that the allowance is empty, from a server that said nothing about it.
-    rpc.mockResolvedValueOnce({ data: { ok: true, balance_cents: 500 }, error: null });
+    rpc.mockResolvedValueOnce({
+      data: { ok: true, balance_cents: 500 },
+      error: null,
+    });
 
     const handler = latestHandler("auth:get-credit-balance");
     const r = (await handler({})) as {
@@ -139,8 +155,14 @@ describe("auth IPC coalescing — one Supabase call per burst", () => {
   });
 
   it("does NOT cache the balance past settlement — a later read is fresh", async () => {
-    rpc.mockResolvedValueOnce({ data: { ok: true, balance_cents: 500 }, error: null });
-    rpc.mockResolvedValueOnce({ data: { ok: true, balance_cents: 2000 }, error: null });
+    rpc.mockResolvedValueOnce({
+      data: { ok: true, balance_cents: 500 },
+      error: null,
+    });
+    rpc.mockResolvedValueOnce({
+      data: { ok: true, balance_cents: 2000 },
+      error: null,
+    });
 
     const handler = latestHandler("auth:get-credit-balance");
     const first = (await handler({})) as { balanceCents: number };
@@ -151,60 +173,12 @@ describe("auth IPC coalescing — one Supabase call per burst", () => {
     expect(rpc).toHaveBeenCalledTimes(2);
   });
 
-  it("claims the signup credit ONCE even when every consumer asks", async () => {
-    rpc.mockResolvedValue({
-      data: { ok: true, balance_cents: 100, granted: true },
-      error: null,
-    });
-    const handler = latestHandler("auth:claim-signup-credit");
-
-    await Promise.all([handler({}), handler({}), handler({}), handler({})]);
-    await handler({}); // a later session check, long after the burst
-    await handler({});
-
-    expect(rpc).toHaveBeenCalledTimes(1);
-  });
-
-  it("replays the same result to later callers", async () => {
-    rpc.mockResolvedValue({
-      data: { ok: true, balance_cents: 100, granted: true },
-      error: null,
-    });
-    const handler = latestHandler("auth:claim-signup-credit");
-    const first = (await handler({})) as { granted: boolean; balanceCents: number };
-    const later = (await handler({})) as { granted: boolean; balanceCents: number };
-    expect(later).toEqual(first);
-  });
-
-  it("does NOT remember a FAILED claim — a real grant is never lost", async () => {
-    rpc.mockResolvedValueOnce({ data: null, error: { message: "network down" } });
-    const handler = latestHandler("auth:claim-signup-credit");
-    const failed = (await handler({})) as { ok: boolean };
-    expect(failed.ok).toBe(false);
-
-    rpc.mockResolvedValueOnce({
-      data: { ok: true, balance_cents: 100, granted: true },
-      error: null,
-    });
-    const retried = (await handler({})) as { ok: boolean; granted: boolean };
-    expect(retried.ok).toBe(true);
-    expect(retried.granted).toBe(true);
-    expect(rpc).toHaveBeenCalledTimes(2);
-  });
-
-  it("lets a DIFFERENT account claim after sign-out", async () => {
-    rpc.mockResolvedValue({
-      data: { ok: true, balance_cents: 100, granted: true },
-      error: null,
-    });
-    const claim = latestHandler("auth:claim-signup-credit");
-    await claim({});
-    expect(rpc).toHaveBeenCalledTimes(1);
-
-    await latestHandler("auth:sign-out")({});
-    await claim({});
-    expect(rpc).toHaveBeenCalledTimes(2);
-  });
+  /**
+   * Four signup-credit tests lived here and were deleted 2026-09-08 with the $1 trial.
+   * They were the ORIGINAL reason this file exists — a write RPC firing four times in one
+   * second is what exposed the duplication. The reads below still duplicate the same way,
+   * so the coalescing they motivated stays and stays covered.
+   */
 
   it("collapses a cold-cache plan-info burst into ONE subscription lookup", async () => {
     const gate = deferred<{ status: string; endsAt: null }>();
@@ -214,7 +188,10 @@ describe("auth IPC coalescing — one Supabase call per burst", () => {
     const all = Promise.all([handler({}), handler({}), handler({})]);
     gate.release({ status: "active", endsAt: null });
 
-    const results = (await all) as { success: boolean; subscriptionStatus: string }[];
+    const results = (await all) as {
+      success: boolean;
+      subscriptionStatus: string;
+    }[];
     expect(getSubscriptionDetails).toHaveBeenCalledTimes(1);
     for (const r of results) {
       expect(r.success).toBe(true);

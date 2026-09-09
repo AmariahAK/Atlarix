@@ -79,12 +79,16 @@ describe("restoreAuthSessionOnStartup — stored session first", () => {
     const onStoredSession = vi.fn();
     await restoreAuthSessionOnStartup({ onStoredSession });
     expect(onStoredSession).toHaveBeenCalledTimes(1);
-    expect(onStoredSession.mock.calls[0]![0]).toMatchObject({ access_token: "t" });
+    expect(onStoredSession.mock.calls[0]![0]).toMatchObject({
+      access_token: "t",
+    });
   });
 
   it("still retries an empty first read — the keychain can lag at launch", async () => {
     // v13.9: treating the first empty read as terminal was the "reopen logs me out" bug.
-    getSession.mockResolvedValueOnce(ok(null)).mockResolvedValueOnce(ok(EXPIRED));
+    getSession
+      .mockResolvedValueOnce(ok(null))
+      .mockResolvedValueOnce(ok(EXPIRED));
     const onStoredSession = vi.fn();
     await restoreAuthSessionOnStartup({ onStoredSession });
     expect(getSession).toHaveBeenCalledTimes(2);
@@ -112,7 +116,10 @@ describe("restoreAuthSessionOnStartup — stored session first", () => {
 
   it("survives a failing refresh without clearing anything", async () => {
     getSession.mockResolvedValue(ok(EXPIRED));
-    refreshSession.mockResolvedValue({ data: { session: null }, error: { message: "offline" } });
+    refreshSession.mockResolvedValue({
+      data: { session: null },
+      error: { message: "offline" },
+    });
     const onStoredSession = vi.fn();
     // Must resolve, not throw: offline-at-launch is normal and the stored session
     // stays put for autoRefreshToken to recover later.
@@ -123,7 +130,10 @@ describe("restoreAuthSessionOnStartup — stored session first", () => {
   });
 
   it("skips the refresh entirely for a session that is still valid", async () => {
-    const valid = { ...EXPIRED, expires_at: Math.floor(Date.now() / 1000) + 3600 };
+    const valid = {
+      ...EXPIRED,
+      expires_at: Math.floor(Date.now() / 1000) + 3600,
+    };
     getSession.mockResolvedValue(ok(valid));
     const onStoredSession = vi.fn();
     await restoreAuthSessionOnStartup({ onStoredSession });

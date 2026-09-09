@@ -50,7 +50,8 @@ beforeEach(() => {
   registerModelsDevReasoning(CATALOG as never);
 });
 
-const cap = (modelId: string) => detectReasoningCapability(modelId, "anthropic");
+const cap = (modelId: string) =>
+  detectReasoningCapability(modelId, "anthropic");
 
 describe("detectReasoningCapability — anthropic", () => {
   it("enables thinking for a model the catalog says reasons", () => {
@@ -69,14 +70,20 @@ describe("detectReasoningCapability — anthropic", () => {
 
   it("does not fire for another provider's model", () => {
     expect(
-      detectReasoningCapability("claude-opus-4-5", "openrouter").useAnthropicThinking,
+      detectReasoningCapability("claude-opus-4-5", "openrouter")
+        .useAnthropicThinking,
     ).toBe(false);
   });
 });
 
 describe("buildReasoningProviderOptions — anthropic bucket", () => {
   it("emits the SDK shape: anthropic.thinking.budgetTokens (camelCase)", () => {
-    const patch = buildReasoningProviderOptions(cap("claude-opus-4-5"), true, "high", 64_000);
+    const patch = buildReasoningProviderOptions(
+      cap("claude-opus-4-5"),
+      true,
+      "high",
+      64_000,
+    );
     expect(patch.anthropic?.thinking).toMatchObject({ type: "enabled" });
     const thinking = patch.anthropic?.thinking as { budgetTokens?: number };
     expect(typeof thinking.budgetTokens).toBe("number");
@@ -87,8 +94,14 @@ describe("buildReasoningProviderOptions — anthropic bucket", () => {
 
   it("keeps the budget within Anthropic's limits: >= 1024 and below max_tokens", () => {
     for (const max of [8_000, 32_000, 64_000]) {
-      const patch = buildReasoningProviderOptions(cap("claude-opus-4-5"), true, "max", max);
-      const budget = (patch.anthropic?.thinking as { budgetTokens: number }).budgetTokens;
+      const patch = buildReasoningProviderOptions(
+        cap("claude-opus-4-5"),
+        true,
+        "max",
+        max,
+      );
+      const budget = (patch.anthropic?.thinking as { budgetTokens: number })
+        .budgetTokens;
       expect(budget).toBeGreaterThanOrEqual(1024);
       expect(budget).toBeLessThan(max);
     }
@@ -97,38 +110,63 @@ describe("buildReasoningProviderOptions — anthropic bucket", () => {
   it("scales with effort, so deep thinking is actually deeper", () => {
     const at = (effort: "high" | "max") =>
       (
-        buildReasoningProviderOptions(cap("claude-opus-4-5"), true, effort, 64_000)
-          .anthropic?.thinking as { budgetTokens: number }
+        buildReasoningProviderOptions(
+          cap("claude-opus-4-5"),
+          true,
+          effort,
+          64_000,
+        ).anthropic?.thinking as { budgetTokens: number }
       ).budgetTokens;
     expect(at("high")).toBeLessThan(at("max"));
   });
 
   it("emits nothing when the thinking tier is off", () => {
-    const patch = buildReasoningProviderOptions(cap("claude-opus-4-5"), false, "high", 64_000);
+    const patch = buildReasoningProviderOptions(
+      cap("claude-opus-4-5"),
+      false,
+      "high",
+      64_000,
+    );
     expect(patch.anthropic).toBeUndefined();
   });
 
   it("emits nothing for a non-reasoning model", () => {
-    const patch = buildReasoningProviderOptions(cap("claude-haiku-3-5"), true, "high", 64_000);
+    const patch = buildReasoningProviderOptions(
+      cap("claude-haiku-3-5"),
+      true,
+      "high",
+      64_000,
+    );
     expect(patch.anthropic).toBeUndefined();
   });
 });
 
 describe("shouldOmitTemperature", () => {
   it("omits temperature when anthropic thinking is enabled", () => {
-    const patch = buildReasoningProviderOptions(cap("claude-opus-4-5"), true, "high", 64_000);
+    const patch = buildReasoningProviderOptions(
+      cap("claude-opus-4-5"),
+      true,
+      "high",
+      64_000,
+    );
     expect(shouldOmitTemperature({ anthropic: patch.anthropic })).toBe(true);
   });
 
   it("keeps temperature for anthropic WITHOUT thinking (e.g. cache markers only)", () => {
     expect(
-      shouldOmitTemperature({ anthropic: { cacheControl: { type: "ephemeral" } } }),
+      shouldOmitTemperature({
+        anthropic: { cacheControl: { type: "ephemeral" } },
+      }),
     ).toBe(false);
   });
 
   it("keeps temperature for every other provider", () => {
-    expect(shouldOmitTemperature({ openrouter: { reasoning: { enabled: true } } })).toBe(false);
-    expect(shouldOmitTemperature({ google: { thinkingConfig: {} } })).toBe(false);
+    expect(
+      shouldOmitTemperature({ openrouter: { reasoning: { enabled: true } } }),
+    ).toBe(false);
+    expect(shouldOmitTemperature({ google: { thinkingConfig: {} } })).toBe(
+      false,
+    );
     expect(shouldOmitTemperature({})).toBe(false);
     expect(shouldOmitTemperature(undefined)).toBe(false);
   });

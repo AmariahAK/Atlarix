@@ -1,5 +1,9 @@
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
-import { setupEvalContext, getIpcHandler, type EvalContext } from "../infra/turn";
+import {
+  setupEvalContext,
+  getIpcHandler,
+  type EvalContext,
+} from "../infra/turn";
 
 /**
  * `sessions:set-work-mode` against a REAL database.
@@ -16,10 +20,9 @@ let ctx: EvalContext;
 
 async function call(channel: string, ...args: unknown[]) {
   const handler = await getIpcHandler(channel);
-  return (handler as unknown as (e: unknown, ...a: unknown[]) => Promise<unknown>)(
-    {},
-    ...args,
-  );
+  return (
+    handler as unknown as (e: unknown, ...a: unknown[]) => Promise<unknown>
+  )({}, ...args);
 }
 
 beforeAll(async () => {
@@ -42,7 +45,11 @@ describe("sessions:set-work-mode", () => {
     // every session written before this column behaving as it always did.
     expect(created.workMode).toBeNull();
 
-    const updated = (await call("sessions:set-work-mode", created.id, "plan")) as {
+    const updated = (await call(
+      "sessions:set-work-mode",
+      created.id,
+      "plan",
+    )) as {
       workMode: string | null;
     };
     expect(updated.workMode).toBe("plan");
@@ -57,19 +64,35 @@ describe("sessions:set-work-mode", () => {
   });
 
   it("can be changed again", async () => {
-    const created = (await call("sessions:create", ctx.appId)) as { id: string };
+    const created = (await call("sessions:create", ctx.appId)) as {
+      id: string;
+    };
     await call("sessions:set-work-mode", created.id, "review");
-    const after = (await call("sessions:set-work-mode", created.id, "debug")) as {
+    const after = (await call(
+      "sessions:set-work-mode",
+      created.id,
+      "debug",
+    )) as {
       workMode: string | null;
     };
     expect(after.workMode).toBe("debug");
   });
 
   it("refuses a mode that is not a mode", async () => {
-    const created = (await call("sessions:create", ctx.appId)) as { id: string };
+    const created = (await call("sessions:create", ctx.appId)) as {
+      id: string;
+    };
     // A mode gates workspace writes, so this has to fail before the DB, not be
     // sanitized after it.
-    for (const junk of ["", "BUILD", "yolo", "build; drop table", null, 7, {}]) {
+    for (const junk of [
+      "",
+      "BUILD",
+      "yolo",
+      "build; drop table",
+      null,
+      7,
+      {},
+    ]) {
       await expect(
         call("sessions:set-work-mode", created.id, junk),
       ).rejects.toThrow(/Invalid work mode/);

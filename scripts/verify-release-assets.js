@@ -116,7 +116,9 @@ async function verifyReleaseAssets() {
 
     // Asset names are unique regardless of case, so fold both sides rather than
     // trying to predict each maker's capitalisation.
-    const actualByLower = new Map(actualAssets.map((n) => [n.toLowerCase(), n]));
+    const actualByLower = new Map(
+      actualAssets.map((n) => [n.toLowerCase(), n]),
+    );
 
     // Check for missing assets
     const missingAssets = expectedAssets.filter(

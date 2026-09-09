@@ -26,40 +26,64 @@ describe("parsePlanChecklist", () => {
   it("parses numbered checkbox steps with states", () => {
     const steps = parsePlanChecklist(PLAN);
     expect(steps).toHaveLength(5);
-    expect(steps[0]).toMatchObject({ index: 1, text: "Create login form", state: "todo" });
+    expect(steps[0]).toMatchObject({
+      index: 1,
+      text: "Create login form",
+      state: "todo",
+    });
     expect(steps[1]).toMatchObject({ index: 2, state: "in_progress" });
     expect(steps[2]).toMatchObject({ index: 3, state: "done" });
     expect(steps[3]).toMatchObject({ index: 4, state: "blocked" });
-    expect(steps[4]).toMatchObject({ index: 5, text: "Write tests", state: "todo" });
+    expect(steps[4]).toMatchObject({
+      index: 5,
+      text: "Write tests",
+      state: "todo",
+    });
   });
 
   it("parses bullet checkboxes but not plain bullets/headings", () => {
-    const steps = parsePlanChecklist(`## Steps\n- [ ] alpha\n- beta\n- [x] gamma\n`);
+    const steps = parsePlanChecklist(
+      `## Steps\n- [ ] alpha\n- beta\n- [x] gamma\n`,
+    );
     expect(steps.map((s) => s.text)).toEqual(["alpha", "gamma"]);
     expect(steps[1]!.state).toBe("done");
   });
 
   it("returns empty for prose-only plans", () => {
-    expect(parsePlanChecklist("Just do the thing.\n\nNo lists here.")).toEqual([]);
+    expect(parsePlanChecklist("Just do the thing.\n\nNo lists here.")).toEqual(
+      [],
+    );
   });
 });
 
 describe("setStepStateInPlanMarkdown", () => {
   it("flips a step by 1-based index", () => {
-    const res = setStepStateInPlanMarkdown(PLAN, { stepIndex: 1 }, "in_progress");
+    const res = setStepStateInPlanMarkdown(
+      PLAN,
+      { stepIndex: 1 },
+      "in_progress",
+    );
     expect(res.changed).toBe(true);
     expect(res.content).toContain("1. [~] Create login form");
     expect(res.step).toMatchObject({ index: 1, state: "in_progress" });
   });
 
   it("flips a step by text substring (case-insensitive)", () => {
-    const res = setStepStateInPlanMarkdown(PLAN, { stepText: "supabase client" }, "done");
+    const res = setStepStateInPlanMarkdown(
+      PLAN,
+      { stepText: "supabase client" },
+      "done",
+    );
     expect(res.changed).toBe(true);
     expect(res.content).toContain("2. [x] Wire Supabase client");
   });
 
   it("adds a checkbox to plain numbered steps on first update", () => {
-    const res = setStepStateInPlanMarkdown(PLAN, { stepIndex: 5 }, "in_progress");
+    const res = setStepStateInPlanMarkdown(
+      PLAN,
+      { stepIndex: 5 },
+      "in_progress",
+    );
     expect(res.changed).toBe(true);
     expect(res.content).toContain("5. [~] Write tests");
   });
@@ -233,7 +257,12 @@ describe("external steps", () => {
   });
 
   it("replaces the reason rather than appending a second one", () => {
-    const once = setStepStateInPlanMarkdown(BASE, { stepIndex: 2 }, "external", "old");
+    const once = setStepStateInPlanMarkdown(
+      BASE,
+      { stepIndex: 2 },
+      "external",
+      "old",
+    );
     const twice = setStepStateInPlanMarkdown(
       once.content,
       { stepIndex: 2 },
@@ -246,15 +275,29 @@ describe("external steps", () => {
   });
 
   it("strips the reason when the step moves off external", () => {
-    const ext = setStepStateInPlanMarkdown(BASE, { stepIndex: 2 }, "external", "no cert");
-    const back = setStepStateInPlanMarkdown(ext.content, { stepIndex: 2 }, "in_progress");
+    const ext = setStepStateInPlanMarkdown(
+      BASE,
+      { stepIndex: 2 },
+      "external",
+      "no cert",
+    );
+    const back = setStepStateInPlanMarkdown(
+      ext.content,
+      { stepIndex: 2 },
+      "in_progress",
+    );
     expect(back.changed).toBe(true);
     expect(back.content).toContain("2. [~] Rotate the signing key");
     expect(back.content).not.toContain("needs you");
   });
 
   it("still matches by step_text once a reason is attached", () => {
-    const ext = setStepStateInPlanMarkdown(BASE, { stepIndex: 2 }, "external", "no cert");
+    const ext = setStepStateInPlanMarkdown(
+      BASE,
+      { stepIndex: 2 },
+      "external",
+      "no cert",
+    );
     const done = setStepStateInPlanMarkdown(
       ext.content,
       { stepText: "Rotate the signing key" },
@@ -300,7 +343,9 @@ describe("formatPlanChecklistForPrompt", () => {
   });
 
   it("keeps nudging while an actionable step remains", () => {
-    const steps = parsePlanChecklist("1. [ ] Build it\n2. [@] Rotate — needs you: x\n");
+    const steps = parsePlanChecklist(
+      "1. [ ] Build it\n2. [@] Rotate — needs you: x\n",
+    );
     const out = formatPlanChecklistForPrompt(steps)!;
     expect(out).toContain("Remaining: 1. Build it");
     expect(out).not.toContain("No step is left for you");
@@ -327,7 +372,7 @@ describe("formatPlanChecklistForPrompt", () => {
   describe("markdown formatting in step text", () => {
     const REAL_PLAN =
       "- [~] **1. Append 15 quotes to `upcoming-quotes.json`** — insert before the closing `]`.\n" +
-      "- [~] **2. Update README badges** — \"quotes queued\" 150 → 180.\n" +
+      '- [~] **2. Update README badges** — "quotes queued" 150 → 180.\n' +
       "- [x] **3. Full dedup sweep** — dedupe duplicate quote lines.\n";
 
     it("matches the exact needle that was rejected live", () => {

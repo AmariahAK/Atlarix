@@ -22,7 +22,10 @@ import { getAcceptableShell } from "@/lib/shell/resolve-shell";
 
 function probe(name: string) {
   const found = DEFAULT_PROBES.find((p) => p.name === name);
-  if (!found) throw new Error(`no probe named "${name}" — did DEFAULT_PROBES get renamed?`);
+  if (!found)
+    throw new Error(
+      `no probe named "${name}" — did DEFAULT_PROBES get renamed?`,
+    );
   return found;
 }
 
@@ -35,7 +38,12 @@ describe("self-test probe registry", () => {
   it("still registers the packaged-only probes", () => {
     const names = DEFAULT_PROBES.map((p) => p.name);
     expect(names).toEqual(
-      expect.arrayContaining(["pty-spawn", "proxy-worker", "ripgrep", "ai-sdk-deps"]),
+      expect.arrayContaining([
+        "pty-spawn",
+        "proxy-worker",
+        "ripgrep",
+        "ai-sdk-deps",
+      ]),
     );
   });
 
@@ -79,10 +87,13 @@ describe("sandbox probe", () => {
     120_000,
   );
 
-  it.skipIf(available)("is skipped when no sandbox is available on this host", () => {
-    // Placeholder so the suite reports the reason rather than silently omitting.
-    expect(available).toBe(false);
-  });
+  it.skipIf(available)(
+    "is skipped when no sandbox is available on this host",
+    () => {
+      // Placeholder so the suite reports the reason rather than silently omitting.
+      expect(available).toBe(false);
+    },
+  );
 });
 
 describe("context probe", () => {
@@ -90,7 +101,14 @@ describe("context probe", () => {
     const detail = String(await probe("context").run());
     // These key names are what the runbook tells the maintainer to diff between a
     // Squirrel and an MSIX install, so renaming one silently breaks the spike.
-    for (const key of ["windowsStore=", "userData=", "temp=", "home=", "execPath=", "resources="]) {
+    for (const key of [
+      "windowsStore=",
+      "userData=",
+      "temp=",
+      "home=",
+      "execPath=",
+      "resources=",
+    ]) {
       expect(detail).toContain(key);
     }
     expect(detail).toContain(`home=${os.homedir()}`);
@@ -136,7 +154,10 @@ describe("fs-outside-container probe", () => {
   it("removes its temp file even when the read-back assertion fails", async () => {
     // The cleanup lives in a `finally`, so a mid-probe throw must not leak. Prove
     // it by pointing the same write/read/cleanup shape at a path we corrupt.
-    const target = path.join(os.tmpdir(), `atlarix-probe-cleanup-${process.pid}`);
+    const target = path.join(
+      os.tmpdir(),
+      `atlarix-probe-cleanup-${process.pid}`,
+    );
     await expect(
       (async () => {
         await fs.promises.writeFile(target, "a", "utf8");
@@ -164,11 +185,20 @@ describe("runSelfTest", () => {
 
   it("returns a non-zero code and keeps going after a failing probe", async () => {
     const report = await runSelfTest([
-      { name: "boom", run: async () => { throw new Error("nope"); } },
+      {
+        name: "boom",
+        run: async () => {
+          throw new Error("nope");
+        },
+      },
       { name: "after", run: async () => "still ran" },
     ]);
     expect(report.code).toBe(1);
-    expect(report.results[0]).toMatchObject({ name: "boom", ok: false, detail: "nope" });
+    expect(report.results[0]).toMatchObject({
+      name: "boom",
+      ok: false,
+      detail: "nope",
+    });
     // A failing probe must not abort the run — otherwise one early failure hides
     // every later finding, which is exactly what a spike cannot afford.
     expect(report.results[1]).toMatchObject({ name: "after", ok: true });

@@ -114,7 +114,9 @@ export function useVoiceInput({
 }: UseVoiceInputOptions): UseVoiceInputState {
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
-  const [modelLoadProgress, setModelLoadProgress] = useState<number | null>(null);
+  const [modelLoadProgress, setModelLoadProgress] = useState<number | null>(
+    null,
+  );
   const [modelLoadBytes, setModelLoadBytes] = useState<{
     loaded: number;
     total: number;
@@ -188,7 +190,10 @@ export function useVoiceInput({
           typeof m.total === "number" &&
           m.total > 0
         ) {
-          progressByFile.current.set(m.file, { loaded: m.loaded, total: m.total });
+          progressByFile.current.set(m.file, {
+            loaded: m.loaded,
+            total: m.total,
+          });
           const agg = aggregateProgress(progressByFile.current);
           setModelLoadBytes({ loaded: agg.loaded, total: agg.total });
           setModelLoadProgress((prev) =>
@@ -336,7 +341,9 @@ export function useVoiceInput({
       // Default recorder bitrate is tuned for size, not fidelity. Matters most
       // for BYOK cloud, where this encoded blob is uploaded verbatim (local
       // decodes back to PCM, so it only pays the codec loss once).
-      const recorder = new MediaRecorder(stream, { audioBitsPerSecond: 128_000 });
+      const recorder = new MediaRecorder(stream, {
+        audioBitsPerSecond: 128_000,
+      });
       recorderRef.current = recorder;
       chunksRef.current = [];
       recorder.ondataavailable = (e) => {
@@ -363,7 +370,8 @@ export function useVoiceInput({
       // was true while loading — so a live session would queue a re-transcribe every
       // 1.5s against a pipeline that doesn't exist yet, then run them all serially once
       // it did. Live requires a device we have positively confirmed.
-      const canLive = mode === "live" && provider === "local" && device === "webgpu";
+      const canLive =
+        mode === "live" && provider === "local" && device === "webgpu";
       recorder.start(canLive ? LIVE_RETRANSCRIBE_MS : undefined);
       setIsRecording(true);
       if (canLive) {

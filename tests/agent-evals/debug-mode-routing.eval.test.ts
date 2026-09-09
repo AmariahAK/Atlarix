@@ -23,7 +23,9 @@ import { scenario } from "../infra/scenario";
 let ctx: EvalContext;
 
 beforeAll(async () => {
-  ctx = await setupEvalContext({ seedFiles: { "src/x.ts": "export const x = 1;\n" } });
+  ctx = await setupEvalContext({
+    seedFiles: { "src/x.ts": "export const x = 1;\n" },
+  });
 });
 
 afterAll(async () => {
@@ -94,7 +96,9 @@ describe("debug mode is routed like build, not like ask", () => {
       `${OUTER_LOOP_CHANNEL} does not distinguish the branches — this test would prove nothing`,
     ).toEqual({ ask: false, build: true });
 
-    expect(debug, "debug must run the outer agentic loop, like build").toBe(true);
+    expect(debug, "debug must run the outer agentic loop, like build").toBe(
+      true,
+    );
     expect(debug, "debug must not be single-round, like ask").not.toBe(ask);
   });
 

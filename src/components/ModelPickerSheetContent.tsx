@@ -44,7 +44,7 @@ export function ModelPickerSheetContent({
   const providerEntries = useMemo(() => {
     if (!modelsByProviders) return [];
     return Object.entries(modelsByProviders).filter(
-      ([id]) => id !== "auto" && (modelsByProviders[id]?.length ?? 0) > 0
+      ([id]) => id !== "auto" && (modelsByProviders[id]?.length ?? 0) > 0,
     ) as [string, LanguageModel[]][];
   }, [modelsByProviders]);
 
@@ -63,9 +63,9 @@ export function ModelPickerSheetContent({
     return (
       <div className="flex flex-col gap-3 pt-2">
         <p className="text-sm text-muted-foreground">
-          <strong>Auto</strong> is on — the model is chosen per message. Turn off{" "}
-          <strong>Auto mode</strong> in the chat config menu (sliders icon) to pick a
-          fixed model.
+          <strong>Auto</strong> is on — the model is chosen per message. Turn
+          off <strong>Auto mode</strong> in the chat config menu (sliders icon)
+          to pick a fixed model.
         </p>
         <button
           type="button"
@@ -108,22 +108,21 @@ export function ModelPickerSheetContent({
           <Accordion type="multiple" className="w-full p-2">
             {providerEntries.map(([providerId, models]) => {
               const q = searchQuery.trim().toLowerCase();
-              const filtered =
-                !q
-                  ? models
-                  : models.filter(
-                      (m) =>
-                        m.displayName.toLowerCase().includes(q) ||
-                        m.apiName.toLowerCase().includes(q)
-                    );
+              const filtered = !q
+                ? models
+                : models.filter(
+                    (m) =>
+                      m.displayName.toLowerCase().includes(q) ||
+                      m.apiName.toLowerCase().includes(q),
+                  );
               const displayName = getProviderName(providerId);
               return (
                 <AccordionItem key={providerId} value={providerId}>
                   <AccordionTrigger className="text-sm py-3">
                     <span className="font-medium">{displayName}</span>
                     <span className="text-muted-foreground font-normal ml-2">
-                      ({filtered.length}{" "}
-                      {q ? "matching" : ""} model{filtered.length !== 1 ? "s" : ""})
+                      ({filtered.length} {q ? "matching" : ""} model
+                      {filtered.length !== 1 ? "s" : ""})
                     </span>
                   </AccordionTrigger>
                   <AccordionContent>
@@ -139,7 +138,8 @@ export function ModelPickerSheetContent({
                             type="button"
                             onClick={() =>
                               onSelect({
-                                provider: providerId as LargeLanguageModel["provider"],
+                                provider:
+                                  providerId as LargeLanguageModel["provider"],
                                 name: model.apiName,
                               })
                             }
@@ -147,7 +147,7 @@ export function ModelPickerSheetContent({
                               "w-full text-left px-3 py-2 rounded-md hover:bg-accent transition-colors flex items-center justify-between gap-2",
                               selectedModel?.provider === providerId &&
                                 selectedModel?.name === model.apiName &&
-                                "bg-secondary border border-primary"
+                                "bg-secondary border border-primary",
                             )}
                           >
                             <span className="font-medium text-sm truncate flex-1 min-w-0">
@@ -170,8 +170,7 @@ export function ModelPickerSheetContent({
       )}
 
       <p className="text-xs text-muted-foreground">
-        Add or manage API keys in{" "}
-        <strong>Settings → Model providers</strong>.
+        Add or manage API keys in <strong>Settings → Model providers</strong>.
       </p>
     </div>
   );

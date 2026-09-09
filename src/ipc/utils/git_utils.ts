@@ -1,13 +1,7 @@
-import {
-  ATLARIX_CO_AUTHOR_TRAILER,
-  getGitAuthor,
-} from "./git_author";
+import { ATLARIX_CO_AUTHOR_TRAILER, getGitAuthor } from "./git_author";
 
 export { ATLARIX_CO_AUTHOR_TRAILER } from "./git_author";
-import {
-  exec,
-  isGitMissingResult,
-} from "./system_git_exec";
+import { exec, isGitMissingResult } from "./system_git_exec";
 import fs from "node:fs";
 import pathModule from "node:path";
 import { readSettings } from "../../main/settings";
@@ -68,7 +62,9 @@ export function findGitRepositoryRoot(workspacePath: string): string | null {
   return null;
 }
 
-export async function hasGitRepository(workspacePath: string): Promise<boolean> {
+export async function hasGitRepository(
+  workspacePath: string,
+): Promise<boolean> {
   return findGitRepositoryRoot(workspacePath) != null;
 }
 
@@ -154,7 +150,9 @@ export async function isGitStatusClean({
 /** Returns the co-author trailer when user has not disabled it in settings (fresh read every call). */
 export function getCoAuthorTrailerForCommit(): string | undefined {
   const settings = readSettings();
-  return settings.includeAtlarixCoAuthor !== false ? ATLARIX_CO_AUTHOR_TRAILER : undefined;
+  return settings.includeAtlarixCoAuthor !== false
+    ? ATLARIX_CO_AUTHOR_TRAILER
+    : undefined;
 }
 
 export async function gitCommit({
@@ -361,9 +359,6 @@ export async function gitRenameBranch({
     throw new Error(result.stderr.toString());
   }
 }
-
-
-
 
 export async function gitCurrentBranch({
   path,

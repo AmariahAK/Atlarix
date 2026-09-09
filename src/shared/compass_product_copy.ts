@@ -16,7 +16,11 @@ export function formatCompassSubscriptionTier(
 }
 
 /** Pre-v11 ids (`compass-*`) still count as Core tiers so old persisted selections render. */
-const LEGACY_TIER_IDS = ["compass-fast", "compass-balanced", "compass-thinking"];
+const LEGACY_TIER_IDS = [
+  "compass-fast",
+  "compass-balanced",
+  "compass-thinking",
+];
 
 export function isCompassTierId(tierId: string): boolean {
   return (

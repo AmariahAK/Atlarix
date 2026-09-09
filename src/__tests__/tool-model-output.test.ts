@@ -67,9 +67,13 @@ describe("buildToolModelOutput", () => {
   });
 
   it("non-vision provider: screenshot → text fallback, never base64", () => {
-    const out = buildToolModelOutput("browser_screenshot", envelopedScreenshot, {
-      builtinProviderId: undefined,
-    });
+    const out = buildToolModelOutput(
+      "browser_screenshot",
+      envelopedScreenshot,
+      {
+        builtinProviderId: undefined,
+      },
+    );
     expect(out?.type).toBe("text");
     const value = (out as any).value as string;
     expect(value).toContain("cannot view images");
@@ -164,7 +168,9 @@ describe("redactToolMediaForDisplay", () => {
     const redactedEnv: any = redactToolMediaForDisplay(envelopedScreenshot);
     expect(redactedEnv.result.data).toContain("KB redacted");
     expect(redactedEnv.result.url).toBe("https://example.com/docs");
-    expect(JSON.stringify(redactedEnv)).not.toContain(FAKE_PNG_B64.slice(0, 32));
+    expect(JSON.stringify(redactedEnv)).not.toContain(
+      FAKE_PNG_B64.slice(0, 32),
+    );
 
     const redactedRaw: any = redactToolMediaForDisplay(rawScreenshot);
     expect(redactedRaw.data).toContain("KB redacted");

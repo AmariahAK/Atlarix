@@ -1,4 +1,10 @@
-import React, { Suspense, useState, useEffect, memo, type ReactNode } from "react";
+import React, {
+  Suspense,
+  useState,
+  useEffect,
+  memo,
+  type ReactNode,
+} from "react";
 import ShikiHighlighter, {
   isInlineCode,
   createHighlighterCore,
@@ -10,7 +16,9 @@ import { Copy, Check } from "lucide-react";
 import { MarkmapRenderer } from "@/components/chat/MarkmapRenderer";
 
 const LazyGraphRenderer = React.lazy(() =>
-  import("@/components/GraphRenderer").then((m) => ({ default: m.GraphRenderer })),
+  import("@/components/GraphRenderer").then((m) => ({
+    default: m.GraphRenderer,
+  })),
 );
 import { ChartArtifactCard } from "@/components/chat/ChartArtifactCard";
 import { VisualArtifactCard } from "@/components/chat/VisualArtifactCard";
@@ -88,7 +96,13 @@ interface CodeHighlightProps {
 }
 
 export const CodeHighlight = memo(
-  ({ className, children, node, isStreaming = false, ...props }: CodeHighlightProps) => {
+  ({
+    className,
+    children,
+    node,
+    isStreaming = false,
+    ...props
+  }: CodeHighlightProps) => {
     const code = String(children).trim();
     const language = className?.match(/language-(\w+)/)?.[1];
     const isInline = node ? isInlineCode(node) : false;

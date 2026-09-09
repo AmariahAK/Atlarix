@@ -5,10 +5,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import * as echarts from "echarts/core";
 import { GraphChart } from "echarts/charts";
-import {
-  TooltipComponent,
-  GridComponent,
-} from "echarts/components";
+import { TooltipComponent, GridComponent } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
 import { useTheme } from "@/contexts/ThemeContext";
 import {
@@ -17,7 +14,13 @@ import {
   type GraphSpec,
 } from "@/lib/visual-artifacts/graph-spec";
 import { buildGraphEChartsOption } from "@/lib/visual-artifacts/graph-echarts-config";
-import { AlertCircle, RefreshCw, Code, ChevronDown, ChevronUp } from "lucide-react";
+import {
+  AlertCircle,
+  RefreshCw,
+  Code,
+  ChevronDown,
+  ChevronUp,
+} from "lucide-react";
 import { ArtifactStreamingOverlay } from "@/components/chat/ArtifactStreamingOverlay";
 
 echarts.use([GraphChart, TooltipComponent, GridComponent, CanvasRenderer]);
@@ -64,7 +67,10 @@ export function GraphRenderer({
           renderer: "canvas",
         });
       }
-      chartRef.current.setOption(buildGraphEChartsOption(spec, isDarkMode), true);
+      chartRef.current.setOption(
+        buildGraphEChartsOption(spec, isDarkMode),
+        true,
+      );
       chartRef.current.resize();
       setHasRendered(true);
       onRender?.();
@@ -87,24 +93,28 @@ export function GraphRenderer({
       return;
     }
 
-    const timer = window.setTimeout(() => {
-      const spec = parseGraphSpec(code);
-      if (!spec) {
-        if (isStreaming) return;
-        const msg = "Invalid graph JSON — expected nodes and edges.";
-        setError(msg);
-        onError?.(msg);
-        return;
-      }
-      setError(null);
-      try {
-        renderGraph(spec);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "Graph render failed";
-        setError(msg);
-        onError?.(msg);
-      }
-    }, isStreaming ? GRAPH_DEBOUNCE_MS : 0);
+    const timer = window.setTimeout(
+      () => {
+        const spec = parseGraphSpec(code);
+        if (!spec) {
+          if (isStreaming) return;
+          const msg = "Invalid graph JSON — expected nodes and edges.";
+          setError(msg);
+          onError?.(msg);
+          return;
+        }
+        setError(null);
+        try {
+          renderGraph(spec);
+        } catch (err) {
+          const msg =
+            err instanceof Error ? err.message : "Graph render failed";
+          setError(msg);
+          onError?.(msg);
+        }
+      },
+      isStreaming ? GRAPH_DEBOUNCE_MS : 0,
+    );
 
     return () => window.clearTimeout(timer);
   }, [code, isStreaming, renderGraph, onError, renderKey]);
@@ -163,7 +173,11 @@ export function GraphRenderer({
         className="mt-1 flex items-center gap-1 self-start text-xs text-muted-foreground hover:text-foreground"
         onClick={() => setShowRaw((v) => !v)}
       >
-        {showRaw ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+        {showRaw ? (
+          <ChevronUp className="h-3 w-3" />
+        ) : (
+          <ChevronDown className="h-3 w-3" />
+        )}
         <Code className="h-3 w-3" />
         {showRaw ? "Hide raw JSON" : "View raw JSON"}
       </button>

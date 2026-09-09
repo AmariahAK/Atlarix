@@ -142,7 +142,8 @@ export function browserScopeForWindow(win: BrowserWindow): BrowserScope {
   // outlive the window it belonged to (a stale entry whose `closed` never fired,
   // or a reused id). Matching on `isDestroyed()` alone would hand a brand-new
   // window another window's tabs — the exact leak this whole change removes.
-  if (existing && existing.window === win && !win.isDestroyed()) return existing;
+  if (existing && existing.window === win && !win.isDestroyed())
+    return existing;
   const scope: BrowserScope = {
     window: win,
     tabs: new Map(),
@@ -181,7 +182,9 @@ export function browserScopeForWindow(win: BrowserWindow): BrowserScope {
  * and then to the only window, which is exactly the previous single-window
  * behaviour. Returns null only when there is genuinely no window.
  */
-export function resolveBrowserScope(windowId?: number | null): BrowserScope | null {
+export function resolveBrowserScope(
+  windowId?: number | null,
+): BrowserScope | null {
   if (typeof windowId === "number") {
     const win = BrowserWindow.fromId(windowId);
     if (win && !win.isDestroyed()) return browserScopeForWindow(win);
@@ -208,7 +211,12 @@ function allScopes(): BrowserScope[] {
 function fallbackBounds(win: BrowserWindow): Rect {
   const { width, height } = win.getContentBounds();
   const w = Math.max(480, Math.round(width / 2));
-  return { x: Math.max(0, width - w), y: 0, width: w, height: Math.max(360, height) };
+  return {
+    x: Math.max(0, width - w),
+    y: 0,
+    width: w,
+    height: Math.max(360, height),
+  };
 }
 
 /** Real bounds if THIS window's renderer has reported them, else a sane default. */
@@ -230,7 +238,10 @@ export function normalizeBrowserInput(input: string): string | null {
   const trimmed = input.trim();
   if (!trimmed) return null;
   if (isAllowedBrowserUrl(trimmed)) return trimmed;
-  if (!/\s/.test(trimmed) && /^[\w-]+(\.[\w-]+)+(:\d+)?(\/.*)?$/.test(trimmed)) {
+  if (
+    !/\s/.test(trimmed) &&
+    /^[\w-]+(\.[\w-]+)+(:\d+)?(\/.*)?$/.test(trimmed)
+  ) {
     const candidate = `https://${trimmed}`;
     if (isAllowedBrowserUrl(candidate)) return candidate;
   }
@@ -242,7 +253,9 @@ function browserSession(): Session {
   if (!(ses as Session & { __atlarixHardened?: boolean }).__atlarixHardened) {
     (ses as Session & { __atlarixHardened?: boolean }).__atlarixHardened = true;
     ses.setPermissionRequestHandler((_wc, permission, callback) => {
-      logger.log(`[browser] permission "${permission}" denied (default policy)`);
+      logger.log(
+        `[browser] permission "${permission}" denied (default policy)`,
+      );
       callback(false);
     });
     ses.on("will-download", (event, item) => {
@@ -285,7 +298,8 @@ function browserSession(): Session {
             defaultId: 0,
             noLink: true,
           });
-          chosen = response < labels.length ? accounts[response]!.credentialId : null;
+          chosen =
+            response < labels.length ? accounts[response]!.credentialId : null;
         }
       } catch (e) {
         logger.warn(`[browser] passkey chooser failed, declining: ${e}`);
@@ -381,7 +395,9 @@ let blockingFallbackHookInstalled = false;
 function installBlockingFallbackHook(ses: Session): void {
   if (blockingFallbackHookInstalled) return;
   blockingFallbackHookInstalled = true;
-  logger.info("[browser] a tab degraded off CDP — installing webRequest fallback");
+  logger.info(
+    "[browser] a tab degraded off CDP — installing webRequest fallback",
+  );
   ses.webRequest.onBeforeRequest((details, callback) => {
     // A listener that never calls back stalls the request forever, so the
     // callback is outside everything that could throw.
@@ -540,7 +556,10 @@ export function closeActiveBrowserTabIfVisible(scope: BrowserScope): boolean {
  * ONLY on a degraded tab. Injecting it always would wrap `fetch` in every page
  * the user browses to buy nothing.
  */
-function injectNetworkHookIfDegraded(id: number, wc: Electron.WebContents): void {
+function injectNetworkHookIfDegraded(
+  id: number,
+  wc: Electron.WebContents,
+): void {
   if (!isTabDegraded(id)) return;
   void wc.executeJavaScript(NETWORK_HOOK_SCRIPT, true).catch(() => {});
 }
@@ -593,7 +612,11 @@ function wireTabEvents(
       message = String(a[2] ?? "");
       sourceUrl = typeof a[4] === "string" ? (a[4] as string) : undefined;
     } else {
-      const ev = (a[0] ?? {}) as { level?: string; message?: string; sourceId?: string };
+      const ev = (a[0] ?? {}) as {
+        level?: string;
+        message?: string;
+        sourceId?: string;
+      };
       level = ev.level;
       message = String(ev.message ?? "");
       sourceUrl = ev.sourceId;
@@ -612,7 +635,12 @@ function wireTabEvents(
     // it isn't ALSO recorded as a plain console-error (no double-capture).
     const rich = tryParseErrorSentinel(message);
     if (rich) {
-      pushBrowserSurfaceError(scope, { ...rich, url: rich.url ?? sourceUrl, timestamp: nowTs(), tabId: id });
+      pushBrowserSurfaceError(scope, {
+        ...rich,
+        url: rich.url ?? sourceUrl,
+        timestamp: nowTs(),
+        tabId: id,
+      });
       return;
     }
     if (!message) return;
@@ -707,8 +735,7 @@ function wireTabEvents(
       pageUrl: epoch.pageUrl,
     });
   });
-  wc.on("destroyed", () => {
-  });
+  wc.on("destroyed", () => {});
 }
 
 /**
@@ -742,7 +769,10 @@ function tabIdForWebContentsId(id: number | undefined): number | null {
   return null;
 }
 
-export function createTab(scope: BrowserScope, url?: string): BrowserPanelState {
+export function createTab(
+  scope: BrowserScope,
+  url?: string,
+): BrowserPanelState {
   const view = new WebContentsView({
     webPreferences: {
       session: browserSession(),
@@ -760,11 +790,14 @@ export function createTab(scope: BrowserScope, url?: string): BrowserPanelState 
   });
   const id = nextTabId++;
   scope.tabs.set(id, view);
-  (view.webContents as Electron.WebContents & { __atlarixTabId?: number }).__atlarixTabId = id;
+  (
+    view.webContents as Electron.WebContents & { __atlarixTabId?: number }
+  ).__atlarixTabId = id;
   wireTabEvents(scope, id, view);
 
   setActiveTab(scope, id);
-  const target = url && isAllowedBrowserUrl(url) ? url : "https://www.google.com";
+  const target =
+    url && isAllowedBrowserUrl(url) ? url : "https://www.google.com";
 
   // Network capture, best-effort and never blocking the load.
   //
@@ -793,7 +826,8 @@ export function closeTab(scope: BrowserScope, id: number): BrowserPanelState {
     // Detach BEFORE close: a debugger still attached to a destroyed webContents
     // is exactly the shape of the native crash we already have open in Sentry.
     detachNetworkCapture(id, view.webContents);
-    if (!scope.window.isDestroyed()) scope.window.contentView.removeChildView(view);
+    if (!scope.window.isDestroyed())
+      scope.window.contentView.removeChildView(view);
     view.webContents.close();
     scope.tabs.delete(id);
     // Tab ids never repeat, so a retained epoch would leak for the app's life.
@@ -801,7 +835,8 @@ export function closeTab(scope: BrowserScope, id: number): BrowserPanelState {
     clearNavigationEpoch(id);
   }
   if (scope.activeTabId === id) {
-    scope.activeTabId = scope.tabs.size > 0 ? [...scope.tabs.keys()].pop()! : null;
+    scope.activeTabId =
+      scope.tabs.size > 0 ? [...scope.tabs.keys()].pop()! : null;
     if (scope.activeTabId != null) setActiveTab(scope, scope.activeTabId);
   }
   broadcastState(scope);
@@ -852,7 +887,8 @@ export function navigate(
   id: number | null,
   url: string,
 ): boolean {
-  const view = id == null ? getActiveTabView(scope) : (scope.tabs.get(id) ?? null);
+  const view =
+    id == null ? getActiveTabView(scope) : (scope.tabs.get(id) ?? null);
   if (!view) return false;
   if (!isAllowedBrowserUrl(url)) return false;
   void view.webContents.loadURL(url);
@@ -1066,14 +1102,17 @@ export function pushBrowserSurfaceError(
   // arrived cannot be recovered later, and it is what lets a card be labelled
   // with the url that actually produced its contents rather than the tab's
   // latest one.
-  const epoch = entry.tabId != null ? currentNavigationEpoch(entry.tabId) : null;
+  const epoch =
+    entry.tabId != null ? currentNavigationEpoch(entry.tabId) : null;
   const stamped: BrowserSurfaceError = {
     ...entry,
     navSeq: entry.navSeq ?? epoch?.seq,
     pageUrl: entry.pageUrl ?? epoch?.pageUrl,
     unrelated:
       entry.unrelated ??
-      (entry.tabId != null && scope.activeTabId != null && entry.tabId !== scope.activeTabId),
+      (entry.tabId != null &&
+        scope.activeTabId != null &&
+        entry.tabId !== scope.activeTabId),
   };
   if (stamped.type === "network-failed") {
     scope.networkEntries.push(stamped);
@@ -1084,7 +1123,10 @@ export function pushBrowserSurfaceError(
     }
   } else {
     scope.consoleEntries.push(stamped);
-    scope.consoleEntries = evictConsoleEntries(scope.consoleEntries, stamped.tabId);
+    scope.consoleEntries = evictConsoleEntries(
+      scope.consoleEntries,
+      stamped.tabId,
+    );
   }
   if (scope.window.isDestroyed()) return;
 
@@ -1138,7 +1180,8 @@ export function evictConsoleEntries(
 ): BrowserSurfaceError[] {
   let out = entries;
   if (tabId != null) {
-    let overBy = out.filter((e) => e.tabId === tabId).length - BROWSER_CONSOLE_PER_TAB_MAX;
+    let overBy =
+      out.filter((e) => e.tabId === tabId).length - BROWSER_CONSOLE_PER_TAB_MAX;
     if (overBy > 0) {
       out = out.filter((e) => {
         if (overBy > 0 && e.tabId === tabId) {
@@ -1204,7 +1247,6 @@ export function normalizeConsoleLevel(
       return "log";
   }
 }
-
 
 // ── Paintable capture (browser_inspect screenshots) ─────────────────────────
 // capturePage() returns an EMPTY image for a WebContentsView that isn't attached

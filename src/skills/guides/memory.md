@@ -2,7 +2,7 @@
 
 Notes you keep about **this** project, so a later session starts with what you learned
 instead of re-deriving it. Read this only when you're about to write or reorganise a
-note — the index in your context is enough to *read* one.
+note — the index in your context is enough to _read_ one.
 
 ## Where it lives
 
@@ -58,7 +58,7 @@ Then add exactly one line to `MEMORY.md`:
 
 ### The `description` and the index line are the retrieval keys
 
-They are the *only* thing consulted when deciding whether to open a note, so write them
+They are the _only_ thing consulted when deciding whether to open a note, so write them
 to match the **symptom** you'd be experiencing later, not as a title.
 
 - Weak: `Supabase configuration`
@@ -86,7 +86,7 @@ the codebase is a worse copy of it that goes stale independently.
 Do not save what only mattered to one conversation.
 
 If the user asks you to remember something in those categories, ask what was
-*non-obvious* about it and save that instead.
+_non-obvious_ about it and save that instead.
 
 ## Maintenance
 

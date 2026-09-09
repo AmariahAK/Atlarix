@@ -87,7 +87,9 @@ export function registerPtyHandlers(): void {
   ipcMain.handle(
     "pty:scrollback:save",
     async (_event, params: { instanceId: string; data: string }) => {
-      const file = params?.instanceId ? scrollbackPath(params.instanceId) : null;
+      const file = params?.instanceId
+        ? scrollbackPath(params.instanceId)
+        : null;
       if (!file || typeof params.data !== "string") return { ok: false };
       try {
         const data =
@@ -107,7 +109,9 @@ export function registerPtyHandlers(): void {
   ipcMain.handle(
     "pty:scrollback:load",
     async (_event, params: { instanceId: string }) => {
-      const file = params?.instanceId ? scrollbackPath(params.instanceId) : null;
+      const file = params?.instanceId
+        ? scrollbackPath(params.instanceId)
+        : null;
       if (!file) return { data: null };
       try {
         const data = await fs.readFile(file, "utf8");

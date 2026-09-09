@@ -36,17 +36,17 @@ function promptToInput(prompt: LanguageModelV2CallOptions["prompt"]): string {
     } else if (msg.role === "user") {
       const content = Array.isArray(msg.content)
         ? msg.content
-          .filter((p) => p.type === "text")
-          .map((p) => ("text" in p ? p.text : ""))
-          .join(" ")
+            .filter((p) => p.type === "text")
+            .map((p) => ("text" in p ? p.text : ""))
+            .join(" ")
         : String(msg.content);
       parts.push(content);
     } else if (msg.role === "assistant") {
       const content = Array.isArray(msg.content)
         ? msg.content
-          .filter((p) => p.type === "text")
-          .map((p) => ("text" in p ? p.text : ""))
-          .join(" ")
+            .filter((p) => p.type === "text")
+            .map((p) => ("text" in p ? p.text : ""))
+            .join(" ")
         : "";
       if (content) parts.push(content);
     }
@@ -55,7 +55,7 @@ function promptToInput(prompt: LanguageModelV2CallOptions["prompt"]): string {
 }
 
 export function createElasticAgentBuilderModel(
-  config: ElasticAgentBuilderConfig
+  config: ElasticAgentBuilderConfig,
 ): LanguageModelV2 {
   const { baseUrl, apiKey, space, agentId } = config;
   const converseUrl = buildConverseUrl(baseUrl, space);
@@ -84,13 +84,19 @@ export function createElasticAgentBuilderModel(
     const data = (await res.json()) as {
       response?: string;
       conversation_id?: string;
-      usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+      usage?: {
+        prompt_tokens?: number;
+        completion_tokens?: number;
+        total_tokens?: number;
+      };
     };
     const text = data.response ?? "";
     const usage = {
       inputTokens: data.usage?.prompt_tokens ?? 0,
       outputTokens: data.usage?.completion_tokens ?? 0,
-      totalTokens: (data.usage?.total_tokens ?? 0) || (data.usage?.prompt_tokens ?? 0) + (data.usage?.completion_tokens ?? 0),
+      totalTokens:
+        (data.usage?.total_tokens ?? 0) ||
+        (data.usage?.prompt_tokens ?? 0) + (data.usage?.completion_tokens ?? 0),
     } as LanguageModelV2Usage;
     const content: LanguageModelV2Content[] = text
       ? [{ type: "text" as const, text }]
@@ -112,9 +118,17 @@ export function createElasticAgentBuilderModel(
     const stream = new ReadableStream<LanguageModelV2StreamPart>({
       start(controller) {
         controller.enqueue({ type: "stream-start", warnings: [] });
-        controller.enqueue({ type: "text-start", id: "elastic-1", providerMetadata: undefined });
+        controller.enqueue({
+          type: "text-start",
+          id: "elastic-1",
+          providerMetadata: undefined,
+        });
         if (textValue) {
-          controller.enqueue({ type: "text-delta", id: "elastic-1", delta: textValue });
+          controller.enqueue({
+            type: "text-delta",
+            id: "elastic-1",
+            delta: textValue,
+          });
         }
         controller.enqueue({
           type: "finish",

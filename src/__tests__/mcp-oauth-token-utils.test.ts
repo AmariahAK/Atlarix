@@ -41,7 +41,8 @@ describe("oauth-token-utils", () => {
     expect(
       oauthConnectedFromRow({
         authType: "env",
-        oauthTokensJson: '{"value":"{\\"access_token\\":\\"x\\",\\"token_type\\":\\"bearer\\"}"}',
+        oauthTokensJson:
+          '{"value":"{\\"access_token\\":\\"x\\",\\"token_type\\":\\"bearer\\"}"}',
       }),
     ).toBe(false);
   });

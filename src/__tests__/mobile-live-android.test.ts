@@ -17,7 +17,10 @@ function hasBootedDevice(): boolean {
   const adb = findDeviceCli("adb");
   if (!adb) return false;
   try {
-    const out = execFileSync(adb, ["devices"], { encoding: "utf8", timeout: 15_000 });
+    const out = execFileSync(adb, ["devices"], {
+      encoding: "utf8",
+      timeout: 15_000,
+    });
     // "\tdevice" — not "\toffline" (still booting) and not "\tunauthorized".
     return /\tdevice\b/.test(out);
   } catch {
@@ -286,7 +289,11 @@ describe.skipIf(!hasBootedDevice())("LIVE Android emulator", () => {
       package: "com.android.settings",
     })) as Record<string, unknown>;
     const res = payload(env);
-    console.log("[live] launch:", env.success, JSON.stringify(res).slice(0, 160));
+    console.log(
+      "[live] launch:",
+      env.success,
+      JSON.stringify(res).slice(0, 160),
+    );
     expect(env.success).toBe(true);
   }, 90_000);
 
@@ -399,23 +406,44 @@ describe.skipIf(!hasBootedDevice())("LIVE Android emulator", () => {
 
     // Start from a known-clean state.
     await runDeviceCli("adb", [
-      "-s", id, "shell", "settings", "delete", "system", "show_touches",
+      "-s",
+      id,
+      "shell",
+      "settings",
+      "delete",
+      "system",
+      "show_touches",
     ]);
 
     const note = await ensureTapFeedback(id, "test device");
     const on = await runDeviceCli("adb", [
-      "-s", id, "shell", "settings", "get", "system", "show_touches",
+      "-s",
+      id,
+      "shell",
+      "settings",
+      "get",
+      "system",
+      "show_touches",
     ]);
     console.log(
-      "[live] tap feedback note=", note,
-      "| show_touches now=", on.ok ? String(on.stdout).trim() : on.error,
-      "| enabledFor=", tapFeedbackEnabledFor(id),
+      "[live] tap feedback note=",
+      note,
+      "| show_touches now=",
+      on.ok ? String(on.stdout).trim() : on.error,
+      "| enabledFor=",
+      tapFeedbackEnabledFor(id),
     );
     expect(on.ok && String(on.stdout).trim()).toBe("1");
 
     await restoreTapFeedback();
     const after = await runDeviceCli("adb", [
-      "-s", id, "shell", "settings", "get", "system", "show_touches",
+      "-s",
+      id,
+      "shell",
+      "settings",
+      "get",
+      "system",
+      "show_touches",
     ]);
     const v = after.ok ? String(after.stdout).trim() : "";
     console.log("[live] show_touches after restore=", JSON.stringify(v));

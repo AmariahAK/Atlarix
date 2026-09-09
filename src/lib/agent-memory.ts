@@ -44,7 +44,12 @@ const logger = log.scope("agent-memory");
 export const MEMORY_INDEX_FILE = "MEMORY.md";
 
 /** Note kinds. Mirrors the taxonomy that makes recall decisions easy to reason about. */
-export const MEMORY_TYPES = ["project", "feedback", "reference", "user"] as const;
+export const MEMORY_TYPES = [
+  "project",
+  "feedback",
+  "reference",
+  "user",
+] as const;
 export type MemoryType = (typeof MEMORY_TYPES)[number];
 
 /**
@@ -89,7 +94,12 @@ export function workspaceSlug(workspacePath: string): string {
 }
 
 export function memoryDirFor(workspacePath: string): string {
-  return path.join(globalAtlarixRoot(), "projects", workspaceSlug(workspacePath), "memory");
+  return path.join(
+    globalAtlarixRoot(),
+    "projects",
+    workspaceSlug(workspacePath),
+    "memory",
+  );
 }
 
 export function memoryIndexPathFor(workspacePath: string): string {
@@ -111,7 +121,8 @@ async function listNoteFiles(dir: string): Promise<string[]> {
     const entries = await fs.readdir(dir, { withFileTypes: true });
     return entries
       .filter(
-        (e) => e.isFile() && e.name.endsWith(".md") && e.name !== MEMORY_INDEX_FILE,
+        (e) =>
+          e.isFile() && e.name.endsWith(".md") && e.name !== MEMORY_INDEX_FILE,
       )
       .map((e) => e.name)
       .sort();
@@ -243,7 +254,10 @@ export async function adoptMisplacedMemoryDir(
     // Guard 4: don't steal a directory another workspace has already claimed.
     try {
       const stamp = (
-        await fs.readFile(path.join(candidateRoot, WORKSPACE_STAMP_FILE), "utf8")
+        await fs.readFile(
+          path.join(candidateRoot, WORKSPACE_STAMP_FILE),
+          "utf8",
+        )
       ).trim();
       if (stamp && stamp !== path.resolve(workspacePath)) {
         logger.warn(
@@ -366,7 +380,10 @@ export async function listMemoryNoteSizes(
         .filter((e) => e.isFile())
         .map(async (e) => {
           try {
-            return { name: e.name, bytes: (await fs.stat(path.join(dir, e.name))).size };
+            return {
+              name: e.name,
+              bytes: (await fs.stat(path.join(dir, e.name))).size,
+            };
           } catch {
             return { name: e.name, bytes: 0 }; // vanished mid-scan
           }
@@ -434,7 +451,8 @@ export function planMemoryCompaction(args: {
     .sort((a, b) => b.bytes - a.bytes);
   const totalBytes = all.reduce((sum, n) => sum + n.bytes, 0);
 
-  if (totalBytes <= MEMORY_COMPACT_BYTES * MEMORY_COMPACT_NUDGE_RATIO) return null;
+  if (totalBytes <= MEMORY_COMPACT_BYTES * MEMORY_COMPACT_NUDGE_RATIO)
+    return null;
 
   const required = totalBytes > MEMORY_COMPACT_BYTES;
   // Only notes with real bulk are worth naming — compacting a 300-byte note is noise.
@@ -451,7 +469,10 @@ export function planMemoryCompaction(args: {
 }
 
 /** True when `absPath` is inside this workspace's memory directory. */
-export function isAgentMemoryPath(workspacePath: string, absPath: string): boolean {
+export function isAgentMemoryPath(
+  workspacePath: string,
+  absPath: string,
+): boolean {
   const dir = path.resolve(memoryDirFor(workspacePath));
   const rel = path.relative(dir, path.resolve(absPath));
   return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);

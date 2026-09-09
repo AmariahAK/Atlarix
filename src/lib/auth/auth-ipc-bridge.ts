@@ -54,7 +54,10 @@ function planFanOutKey(data: PlanChangedPayload): string {
 function shouldFanOutPlanChange(data: PlanChangedPayload): boolean {
   const key = planFanOutKey(data);
   const now = Date.now();
-  if (key === lastPlanFanOutKey && now - lastPlanFanOutAt < PLAN_FANOUT_DEDUPE_MS) {
+  if (
+    key === lastPlanFanOutKey &&
+    now - lastPlanFanOutAt < PLAN_FANOUT_DEDUPE_MS
+  ) {
     return false;
   }
   lastPlanFanOutKey = key;
@@ -86,13 +89,17 @@ function ensureRegistered(): void {
   }) as (...args: unknown[]) => void);
 }
 
-export function subscribeOAuthSuccess(fn: (data: OAuthPayload) => void): () => void {
+export function subscribeOAuthSuccess(
+  fn: (data: OAuthPayload) => void,
+): () => void {
   ensureRegistered();
   oauthListeners.add(fn);
   return () => oauthListeners.delete(fn);
 }
 
-export function subscribePlanChanged(fn: (data: PlanChangedPayload) => void): () => void {
+export function subscribePlanChanged(
+  fn: (data: PlanChangedPayload) => void,
+): () => void {
   ensureRegistered();
   planListeners.add(fn);
   return () => planListeners.delete(fn);

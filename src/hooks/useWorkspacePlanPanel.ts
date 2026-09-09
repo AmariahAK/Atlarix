@@ -83,7 +83,9 @@ export function useWorkspacePlanPanel(): void {
 
   let chatId: number | undefined;
   try {
-    const search = useSearch({ strict: false }) as { id?: number | string } | undefined;
+    const search = useSearch({ strict: false }) as
+      | { id?: number | string }
+      | undefined;
     const id = search?.id;
     chatId = id != null ? Number(id) : undefined;
   } catch {

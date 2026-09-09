@@ -27,7 +27,8 @@ export function SubAgentCard({
   const [expanded, setExpanded] = useState(false);
 
   const preview = useMemo(() => {
-    const line = (handoff?.summary ?? summary ?? "").trim().split(/\r?\n/)[0] ?? "";
+    const line =
+      (handoff?.summary ?? summary ?? "").trim().split(/\r?\n/)[0] ?? "";
     return line.length > 120 ? `${line.slice(0, 120)}…` : line;
   }, [handoff?.summary, summary]);
 
@@ -70,8 +71,10 @@ export function SubAgentCard({
             <span
               className={cn(
                 "text-[10px] rounded px-1.5 py-0.5 border",
-                status === "running" && "border-amber-500/40 text-amber-700 dark:text-amber-200",
-                status === "done" && "border-emerald-500/35 text-emerald-800 dark:text-emerald-200",
+                status === "running" &&
+                  "border-amber-500/40 text-amber-700 dark:text-amber-200",
+                status === "done" &&
+                  "border-emerald-500/35 text-emerald-800 dark:text-emerald-200",
                 status === "error" && "border-destructive/40 text-destructive",
               )}
             >
@@ -79,7 +82,9 @@ export function SubAgentCard({
             </span>
           </div>
           {preview ? (
-            <p className="mt-1 text-[11px] text-muted-foreground line-clamp-2">{preview}</p>
+            <p className="mt-1 text-[11px] text-muted-foreground line-clamp-2">
+              {preview}
+            </p>
           ) : null}
         </div>
         {summary && summary.length > preview.length ? (

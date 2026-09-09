@@ -140,7 +140,9 @@ describe("edit_file agent-memory compaction directive", () => {
   it("is inert for ANOTHER project's memory directory", async () => {
     // Compaction is per project — this workspace's pressure must not drive a different
     // project's note, in either direction.
-    const otherDir = memoryDirFor(path.join(path.dirname(ws), "other-workspace"));
+    const otherDir = memoryDirFor(
+      path.join(path.dirname(ws), "other-workspace"),
+    );
     fs.mkdirSync(otherDir, { recursive: true });
     fillMemory(MEMORY_COMPACT_BYTES + MB);
     const res = (await ToolRegistry.execute("edit_file", {

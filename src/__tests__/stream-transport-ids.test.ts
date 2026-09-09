@@ -41,7 +41,9 @@ describe("edit clears stale derived state (3.8)", () => {
     expect(setTransportMessageDisplaySnapshot(chatId, msg.id, snapshot)).toBe(
       true,
     );
-    expect(getStreamTransport(chatId)!.messages[0]!.displaySnapshot).toBeTruthy();
+    expect(
+      getStreamTransport(chatId)!.messages[0]!.displaySnapshot,
+    ).toBeTruthy();
 
     expect(editTransportUserMessage(chatId, msg.id, "edited")).toBe(true);
     const edited = getStreamTransport(chatId)!.messages[0]!;

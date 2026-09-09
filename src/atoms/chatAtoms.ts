@@ -74,7 +74,6 @@ export const turnWorkModeByChatIdAtom = atom<
 >(new Map());
 export const chatInputValueAtom = atom<string>("");
 
-
 // Used for scrolling to the bottom of the chat messages (per chat)
 export const chatStreamCountByIdAtom = atom<Map<number, number>>(new Map());
 export const recentStreamChatIdsAtom = atom<Set<number>>(new Set<number>());
@@ -82,7 +81,9 @@ export const recentStreamChatIdsAtom = atom<Set<number>>(new Set<number>());
 export const attachmentsAtom = atom<FileAttachment[]>([]);
 
 /** Per-chat: whether the last completed turn had tool runs or a permission request. Used to show "No actions this turn" when false in agent mode. */
-export const lastTurnHadToolCallsByChatIdAtom = atom<Record<number, boolean>>({});
+export const lastTurnHadToolCallsByChatIdAtom = atom<Record<number, boolean>>(
+  {},
+);
 
 /** Per-chat: last reported reasoning / thinking token count from stream end (thinking-tier turns). */
 export const lastReasoningTokensByChatIdAtom = atom<Record<number, number>>({});
@@ -149,19 +150,24 @@ export const liveTurnUsageByChatIdAtom = atom<
 export const liveTurnToolBucketsByChatIdAtom = atom<
   Record<
     number,
-    { filesRead: number; searchResults: number; otherToolOutput: number } | undefined
+    | { filesRead: number; searchResults: number; otherToolOutput: number }
+    | undefined
   >
 >({});
 
 /** Autonomous mode: post-turn review payload from main (cleared on accept or dismiss). */
-export const autonomousSessionReviewAtom = atom<AutonomousSessionCompletePayload | null>(null);
-
+export const autonomousSessionReviewAtom =
+  atom<AutonomousSessionCompletePayload | null>(null);
 
 /** Latest live plan IPC payload per assistant message (cleared for that chat when a new stream starts). */
-export const livePlanUpdateByAssistantMessageIdAtom = atom<Map<number, PlanUpdatePayload>>(new Map());
+export const livePlanUpdateByAssistantMessageIdAtom = atom<
+  Map<number, PlanUpdatePayload>
+>(new Map());
 
 /** Frozen plan card per assistant message id after stream completes. */
-export const planSnapshotByAssistantMessageIdAtom = atom<Record<number, PlanUpdatePayload>>({});
+export const planSnapshotByAssistantMessageIdAtom = atom<
+  Record<number, PlanUpdatePayload>
+>({});
 
 /** ask_user tool: pending interactive question for a chat (cleared after submit). */
 export type PendingUserQuestion = {
@@ -171,7 +177,9 @@ export type PendingUserQuestion = {
   /** v10.1: ask_user can batch several questions; all must be answered before the stream resumes. */
   questions?: Array<{ question: string; options?: string[] }>;
 };
-export const pendingUserQuestionByChatIdAtom = atom<Record<number, PendingUserQuestion | undefined>>({});
+export const pendingUserQuestionByChatIdAtom = atom<
+  Record<number, PendingUserQuestion | undefined>
+>({});
 
 /** v3.9: After edit or revert, show "conversation restarted from here" divider after this message id. Cleared on stream end. */
 export const restartedAfterMessageIdAtom = atom<number | null>(null);
@@ -215,7 +223,9 @@ export function emptyToolIndicatorState(): ToolIndicatorState {
   };
 }
 
-export const toolIndicatorAtom = atom<ToolIndicatorState>(emptyToolIndicatorState());
+export const toolIndicatorAtom = atom<ToolIndicatorState>(
+  emptyToolIndicatorState(),
+);
 
 /** Frozen thinking card per completed assistant message (DB strips think blocks). */
 export const completedTurnThinkingByAssistantMessageIdAtom = atom<
@@ -301,27 +311,67 @@ function shallowArrayEqual<T>(a: readonly T[], b: readonly T[]): boolean {
   return true;
 }
 
-export const completedStreamThreadForMessageAtom = atomFamily((messageId: number) =>
-  selectAtom(
-    completedStreamThreadByAssistantMessageIdAtom,
-    (r) => r[messageId] ?? EMPTY_THREAD,
-  ),
+export const completedStreamThreadForMessageAtom = atomFamily(
+  (messageId: number) =>
+    selectAtom(
+      completedStreamThreadByAssistantMessageIdAtom,
+      (r) => r[messageId] ?? EMPTY_THREAD,
+    ),
 );
 
 export const inlineTimelineForMessageAtom = atomFamily((messageId: number) =>
-  selectAtom(inlineTimelineByMessageIdAtom, (r) => r[messageId] ?? EMPTY_TIMELINE),
+  selectAtom(
+    inlineTimelineByMessageIdAtom,
+    (r) => r[messageId] ?? EMPTY_TIMELINE,
+  ),
 );
 
-export const completedTurnThinkingForMessageAtom = atomFamily((messageId: number) =>
-  selectAtom(completedTurnThinkingByAssistantMessageIdAtom, (r) => r[messageId]),
+export const completedTurnThinkingForMessageAtom = atomFamily(
+  (messageId: number) =>
+    selectAtom(
+      completedTurnThinkingByAssistantMessageIdAtom,
+      (r) => r[messageId],
+    ),
 );
 
-export const interleavedDisplayContentForMessageAtom = atomFamily((messageId: number) =>
-  selectAtom(interleavedDisplayContentByMessageIdAtom, (r) => r[messageId]),
+export const interleavedDisplayContentForMessageAtom = atomFamily(
+  (messageId: number) =>
+    selectAtom(interleavedDisplayContentByMessageIdAtom, (r) => r[messageId]),
 );
 
 export const sourcesForMessageAtom = atomFamily((messageId: number) =>
-  selectAtom(sourcesByAssistantMessageIdAtom, (r) => r[messageId] ?? EMPTY_SOURCES),
+  selectAtom(
+    sourcesByAssistantMessageIdAtom,
+    (r) => r[messageId] ?? EMPTY_SOURCES,
+  ),
+);
+
+/**
+ * Does this assistant message have ANY renderable part outside its `content`?
+ *
+ * Exists so a caller can tell "this row is completely empty" from "this row has no prose
+ * but does have tool cards / thinking / sources". A turn's visible substance is spread
+ * across four atom families, so `!message.content` on its own is NOT emptiness — a
+ * tools-only turn has empty content and plenty to show, and hiding it would delete the
+ * record of work the agent actually did.
+ *
+ * The case this exists for: a turn rejected before the first token. The placeholder
+ * assistant message is broadcast to the renderer BEFORE the model client is even built,
+ * so a refusal at the wallet gate left an empty `bg-muted` box under a Bot header, with
+ * nothing in it, forever. The placeholder itself cannot simply not be created — its id is
+ * the turn id that the whole streaming subsystem keys on.
+ */
+export const assistantMessageHasNonTextPartsAtom = atomFamily(
+  (messageId: number) =>
+    atom((get) => {
+      if (get(completedStreamThreadForMessageAtom(messageId)).length > 0)
+        return true;
+      if (get(inlineTimelineForMessageAtom(messageId)).length > 0) return true;
+      if (get(sourcesForMessageAtom(messageId)).length > 0) return true;
+      if (get(completedTurnThinkingForMessageAtom(messageId))) return true;
+      if (get(interleavedDisplayContentForMessageAtom(messageId))) return true;
+      return false;
+    }),
 );
 
 /**
@@ -341,7 +391,9 @@ export const activityStreamItemsForChatAtom = atomFamily((chatId: number) =>
 );
 
 /** Last chunk time per chat — feeds the "still working" elapsed note. */
-export const streamLastActivityAtByChatIdAtom = atom<Map<number, number>>(new Map());
+export const streamLastActivityAtByChatIdAtom = atom<Map<number, number>>(
+  new Map(),
+);
 
 /** True only while the backend is actively retrying a dropped/stalled round
  * (genuine reconnect) — drives the honest "Reconnecting…" indicator. Set on
@@ -361,7 +413,9 @@ export interface LiveToolInput {
   content?: string;
   operation?: string;
 }
-export const liveToolInputByChatIdAtom = atom<Map<number, LiveToolInput>>(new Map());
+export const liveToolInputByChatIdAtom = atom<Map<number, LiveToolInput>>(
+  new Map(),
+);
 
 /**
  * v13 Phase 7: the agent is blocked on a still-running foreground command.
@@ -412,7 +466,10 @@ export const turnSnapshotTurnIdByMessageIdAtom = atom<Map<number, string>>(
 );
 
 /** v3.5: Show the "done" phase of the Atlarix animation until this timestamp (for the given chatId). */
-export const responseDoneAnimationAtom = atom<{ chatId: number; until: number } | null>(null);
+export const responseDoneAnimationAtom = atom<{
+  chatId: number;
+  until: number;
+} | null>(null);
 
 /** v3.5: Summarization in progress (show strip above input, left). */
 export const summarizationProgressAtom = atom<{
@@ -424,4 +481,3 @@ export const summarizationProgressAtom = atom<{
   chatId: null,
   label: undefined,
 });
-

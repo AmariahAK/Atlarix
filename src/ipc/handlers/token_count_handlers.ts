@@ -9,7 +9,11 @@ import log from "electron-log";
 
 import { TokenCountParams } from "../ipc_types";
 import { TokenCountResult } from "../ipc_types";
-import { estimateTokens, getContextWindow, getEffectiveBudget } from "../utils/token_utils";
+import {
+  estimateTokens,
+  getContextWindow,
+  getEffectiveBudget,
+} from "../utils/token_utils";
 import {
   bucketNativeTokensByTool,
   isNativeHistoryEnvelope,
@@ -18,7 +22,10 @@ import {
 } from "@/lib/ai/native-history";
 import { createLoggedHandler } from "./safe_handle";
 import { readSettings } from "@/main/settings";
-import { getStreamTransport, isStreamTransportId } from "@/lib/chat/stream-transport";
+import {
+  getStreamTransport,
+  isStreamTransportId,
+} from "@/lib/chat/stream-transport";
 import { sliceFromLastCompactionSummary } from "@/lib/context/compaction";
 
 const logger = log.scope("token_count_handlers");
@@ -268,7 +275,9 @@ function computeDeltaTailTokens(
   const sorted = [...ordered].sort((a, b) => (a.id ?? 0) - (b.id ?? 0));
   const newest = sorted[sorted.length - 1];
   const settled = sorted.slice(0, -1);
-  const settledHighest = settled.length ? (settled[settled.length - 1].id ?? 0) : -1;
+  const settledHighest = settled.length
+    ? (settled[settled.length - 1].id ?? 0)
+    : -1;
 
   const add = (a: RowTokens, b: RowTokens): RowTokens => ({
     filesRead: a.filesRead + b.filesRead,
@@ -330,7 +339,10 @@ async function computeTokenCountResult(
 
   const settings = readSettings();
 
-  const contextSize = await getContextWindow(settings.selectedModel, req.chatId);
+  const contextSize = await getContextWindow(
+    settings.selectedModel,
+    req.chatId,
+  );
 
   // PASS8 E1: Cached system-prompt token estimate (recomputed at most every
   // SYSTEM_PROMPT_CACHE_TTL_MS, keyed by the params that actually influence it).
@@ -342,7 +354,9 @@ async function computeTokenCountResult(
   const cacheChatMode: "ask" | "build" =
     rawChatMode === "ask"
       ? "ask"
-      : rawChatMode === "build" || rawChatMode === "agent" || rawChatMode === undefined
+      : rawChatMode === "build" ||
+          rawChatMode === "agent" ||
+          rawChatMode === undefined
         ? "build"
         : "ask";
   /**
@@ -395,8 +409,12 @@ async function computeTokenCountResult(
   const actualMaxTokens = lastAssistantMessage?.maxTokensUsed ?? null;
 
   const providerId = settings.selectedModel?.provider ?? "auto";
-  const { budget: effectiveBudget, source: budgetSource } = await getEffectiveBudget(providerId, req.chatId);
-  const contextWindow = await getContextWindow(settings.selectedModel, req.chatId);
+  const { budget: effectiveBudget, source: budgetSource } =
+    await getEffectiveBudget(providerId, req.chatId);
+  const contextWindow = await getContextWindow(
+    settings.selectedModel,
+    req.chatId,
+  );
 
   return {
     estimatedTotalTokens: totalTokens,
@@ -435,32 +453,34 @@ export function registerTokenCountHandlers() {
           // noise "Chat not found: -1" + a user-facing error toast).
           return computeTokenCountResult(req, []);
         }
-        const rows: TokenCountMessageRow[] = (ephemeral.messages ?? []).map((m) => ({
-          id: typeof m.id === "number" ? m.id : undefined,
-          content: typeof m.content === "string" ? m.content : "",
-          role: m.role,
-          // The assistant's native tool history. Without this the meter counts
-          // the visible prose and misses every file body, grep hit and command
-          // output the model is actually carrying.
-          modelContent:
-            "modelContent" in m && typeof m.modelContent === "string"
-              ? (m as { modelContent: string }).modelContent
-              : null,
-          // Lets the slice below find a compaction marker by its column, and so
-          // land on the same boundary the dispatch slice does.
-          kind:
-            "kind" in m && typeof m.kind === "string"
-              ? (m as { kind: string }).kind
-              : null,
-          maxTokensUsed:
-            "maxTokensUsed" in m && m.maxTokensUsed != null
-              ? (m as { maxTokensUsed: number | null }).maxTokensUsed
-              : null,
-          createdAt:
-            "createdAt" in m && m.createdAt instanceof Date
-              ? m.createdAt
-              : undefined,
-        }));
+        const rows: TokenCountMessageRow[] = (ephemeral.messages ?? []).map(
+          (m) => ({
+            id: typeof m.id === "number" ? m.id : undefined,
+            content: typeof m.content === "string" ? m.content : "",
+            role: m.role,
+            // The assistant's native tool history. Without this the meter counts
+            // the visible prose and misses every file body, grep hit and command
+            // output the model is actually carrying.
+            modelContent:
+              "modelContent" in m && typeof m.modelContent === "string"
+                ? (m as { modelContent: string }).modelContent
+                : null,
+            // Lets the slice below find a compaction marker by its column, and so
+            // land on the same boundary the dispatch slice does.
+            kind:
+              "kind" in m && typeof m.kind === "string"
+                ? (m as { kind: string }).kind
+                : null,
+            maxTokensUsed:
+              "maxTokensUsed" in m && m.maxTokensUsed != null
+                ? (m as { maxTokensUsed: number | null }).maxTokensUsed
+                : null,
+            createdAt:
+              "createdAt" in m && m.createdAt instanceof Date
+                ? m.createdAt
+                : undefined,
+          }),
+        );
         return computeTokenCountResult(req, rows);
       }
 

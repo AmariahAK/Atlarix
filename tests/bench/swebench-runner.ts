@@ -38,17 +38,28 @@ export interface RunSweBenchOptions {
   /** Value for predictions' `model_name_or_path` (default: provider.model). */
   modelLabel?: string;
   /** Called after each instance for progress logging. */
-  onResult?: (r: { instance_id: string; patchBytes: number; index: number }) => void;
+  onResult?: (r: {
+    instance_id: string;
+    patchBytes: number;
+    index: number;
+  }) => void;
 }
 
 function git(cwd: string, args: string[]): string {
-  return execFileSync("git", args, { cwd, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  return execFileSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  });
 }
 
 /** Clone (cached by repo) + checkout the base commit into workRoot/<instance_id>. */
 export function prepareRepo(inst: SweInstance, workRoot: string): string {
   fs.mkdirSync(workRoot, { recursive: true });
-  const dir = path.join(workRoot, inst.instance_id.replace(/[^a-zA-Z0-9_.-]/g, "_"));
+  const dir = path.join(
+    workRoot,
+    inst.instance_id.replace(/[^a-zA-Z0-9_.-]/g, "_"),
+  );
   if (!fs.existsSync(path.join(dir, ".git"))) {
     fs.rmSync(dir, { recursive: true, force: true });
     execFileSync("git", ["clone", `https://github.com/${inst.repo}.git`, dir], {
@@ -67,8 +78,22 @@ export function prepareRepo(inst: SweInstance, workRoot: string): string {
  * code-only and applies cleanly under the grader.
  */
 export function captureModelPatch(dir: string, baseCommit: string): string {
-  git(dir, ["add", "-A", "--", ".", ":(exclude).atlarix", ":(exclude).atlarix/**"]);
-  return git(dir, ["diff", "--cached", baseCommit, "--", ".", ":(exclude).atlarix"]);
+  git(dir, [
+    "add",
+    "-A",
+    "--",
+    ".",
+    ":(exclude).atlarix",
+    ":(exclude).atlarix/**",
+  ]);
+  return git(dir, [
+    "diff",
+    "--cached",
+    baseCommit,
+    "--",
+    ".",
+    ":(exclude).atlarix",
+  ]);
 }
 
 /** Load SWE-bench instances from a JSONL or JSON-array file. */
@@ -138,7 +163,11 @@ export async function runSweBench(
         }) + "\n",
       );
       count++;
-      opts.onResult?.({ instance_id: inst.instance_id, patchBytes: patch.length, index: i });
+      opts.onResult?.({
+        instance_id: inst.instance_id,
+        patchBytes: patch.length,
+        index: i,
+      });
     }
   } finally {
     await ctx.cleanup();

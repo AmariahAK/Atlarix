@@ -1,12 +1,15 @@
 # Atlarix TODO
 
-**Current version:** v14.42.0 — released 2026-09-03. A message you type mid-turn now reaches the
-turn that is RUNNING instead of being parked until it ends, delivered as an untagged user turn on
-the next step and inserted into the transcript in front of the streaming row. The queue moved to
-main and became a list (a second message used to be silently rejected). Plus the three-defect
-chain behind it — the queued flush pre-empting a question card, a stop latch an answer could not
-clear (five sub-agent wakes refused), a sub-agent card frozen mid-count — and the user bubble's
-glare.
+**Current version:** v14.45.0 — released 2026-09-09. The app is free; the Core lineup is
+GLM 5.3 / Terra / Astra; the money path is honest in both directions (a cancelled turn is priced
+from what was generated, a dropped connection retries); the skills marketplace is gone and skills
+are files in `.atlarix/skills/`; project rules moved to `.atlarix/rules/`; and two prompt-injection
+paths are closed — a repo can no longer replace Atlarix's operating instructions, and writes under
+`.atlarix/` ask. Narrative in `docs/CHANGELOG.md`.
+
+**This header has been wrong before.** It read v14.42.0 while `package.json` said 14.43.0 and two
+versions had shipped, then "v14.44 SHIPPED" while nothing was tagged. Update it in the same commit
+as the version bump, or do not trust it.
 
 **Self-test non-exit — a third data point (2026-09-05).** The packaged self-test on
 macOS arm64 shows the same "all probes passed, process tree had to be killed" as the
@@ -16,65 +19,12 @@ path**, and nothing was left running afterwards. Next step is the grandchild
 experiment recorded in `scripts/run-packaged-self-test.mjs`'s `DEADLINE_MS` docblock,
 now runnable on macOS where a debugger is available.
 
-## Queued 2026-09-06 (owner) — UX + product
+## 🔤 Language option — IN PROGRESS
 
-**Five of six SHIPPED 2026-09-07.** Kept as a one-line record each, because the next
-reader's question is "was this done?" and an item that has to be re-investigated to
-answer that costs more than the line.
-
-- [x] **Deep-search truncation** — `657ba43c`. Both halves measured first, as this item
-  demanded: synthesis drops NOTHING (it concatenates fetched content verbatim), and 20K
-  was genuinely too small (every page sampled ran 25K–75K chars). Fixed by ALLOCATING a
-  total across the URLs actually fetched (`deepFetchBudget`) rather than raising the flat
-  cap, so five results are unchanged and one or two get the whole budget.
-- [x] **Unsent draft survives a quit** — `856ff33e`. Keyed by SESSION UUID, which
-  sidesteps the ephemeral-numeric/persisted-UUID migration this item warned about rather
-  than implementing it. Residual, deliberate: a draft typed in the few milliseconds
-  before a session has a UUID is not persisted.
-- [x] **Settings/Integrations sub-nav dropped** — `e7884f4b`. The item's premise was
-  wrong: the sidebar carried NO destination the tab row lacked (8 == 8, 5 == 5). The
-  real work was that removing the mounts left an empty 240px hover flyout.
-- [x] **New-window button + clock moved to the rail** — `0b5d7257`. Two corrections: they
-  were never in the chat header (they were in the AppList group header), and the clock is
-  NOT a history button — `LocalDateTimeClock` has no onClick. **If a session-history
-  button is wanted, that is a new feature, not a move.**
-- [x] **Session ordering on reopen** — `6c5dcf3e`. Two faults: reopen resumed the newest
-  session, AND the row handler no-opped on the already-active row, so the top row was
-  inert from anywhere in the app.
-
-- [ ] **Language option — IN PROGRESS.** Thirteen locales:
-  `en-us, zh-hans, fr, de, hi, it, ja, ko, pl, pt-br, ru, es, tr` — and the Microsoft
-  Store listing already carries all thirteen, so no Store work is owed. **Owner chose
-  both halves in one release (2026-09-07)**, against the recommendation to ship the
-  response language first; the mitigation held is that each lands as its own commit so
-  the two prompt-budget ceiling movements stay separately attributable.
-  - [x] **PR-A infrastructure** — `26da434e`. i18next 26.4.2 + react-i18next 17.0.13,
-    `src/lib/i18n/locales.ts` as the single source of truth, `appLanguage` as an ENUM
-    (unlike free-form `voiceLanguage` — a value here selects a bundled catalog, so an
-    unknown tag is a blank UI), the `settings:changed` broadcast that fixes cross-window
-    staleness, and two guards proven to fire: TypeScript key types, and `check:i18n`
-    with a hardcoded-string ratchet at 315.
-  - [ ] **Response language.** In `stableHeader`, NOT the per-turn tail as this item
-    originally said — locale is stable for a session and the tail is the cache-hostile
-    half. Emit only when the locale is not `en-us`, so English installs pay zero. Needs a
-    SIXTH case in `prompt-budget.eval.test.ts` with `appLanguage: "fr"`, or the cost is
-    never measured (the suite runs in English) and the feature could ship silently dead.
-    **`AGENTS.md` must not carry it** — that file IS the shipped prompt, sent
-    unconditionally to every user.
-  - [ ] **UI i18n** — ~177 files, ~1,300 strings, estimated 7 weeks. Lands as PRs B–H,
-    one surface per catalog namespace so siblings never conflict: tool-activity-labels
-    (139 strings, best ratio, proves the pipeline) → settings → chat → components →
-    onboarding → main process → the 12 non-English catalogs.
-  - Decided and worth not rediscovering: **RTL is fully descoped** (all 13 locales are
-    LTR, and `check:i18n` fails if that changes); **diagnostics stay English**
-    (`doctor.ts`, `self-test.ts`, `database-init-failure.ts` — a translated stack trace
-    makes support harder); **`whats-new.ts` is fetched from `atlarix-releases` and no
-    bundled catalog can reach it** — decide whether it stays English or the remote JSON
-    gains a per-locale shape.
-  - Three hazards that are NOT RTL: German/Russian/Polish run 30–40% longer (that is the
-    layout budget); Geist has no CJK or Devanagari glyphs, so zh/ja/ko/hi need the font
-    stack extended; and Turkish casing needs `document.documentElement.lang` (done in
-    PR-A).
+Thirteen locales ship (v14.43). The one trap from that work, because it recurs: **every
+`t()` in the app was returning its own key** — a translation layer that resolves to the
+key is indistinguishable from an untranslated app until someone reads the screen in
+another language. Assert on a RESOLVED string, never on `t()` returning truthy.
 
 ## Traps from v14.41.0 (2026-09-02)
 
@@ -180,7 +130,7 @@ answer that costs more than the line.
   the verb lookup came back `undefined` and there was no fallback. The done-tense path is a
   separate branch again — so a label can end up correct in one tense and generic in the other.
 - **ONE implementation, SIX announcements — the consolidation that got left behind.** v14.39.0
-  unified compaction into one compactor with three triggers and left the *announcing* hand-rolled
+  unified compaction into one compactor with three triggers and left the _announcing_ hand-rolled
   at six call sites across four files, with three labels ("Context compacted automatically",
   "Context compressed", "Summarizing in-task context") and inconsistent event types. **That
   inconsistency was itself the bug:** `context-assembly.ts`'s automatic pre-dispatch compaction
@@ -233,9 +183,9 @@ answer that costs more than the line.
     refusal above 1.5 MB — the downscale needs Electron's `nativeImage`, and its fallback
     would otherwise send the raw capture.
 - [x] **ANDROID VERIFIED 2026-09-04, against a real API 35 emulator — and it was BROKEN.**
-  Covered by the new `src/__tests__/mobile-live-android.test.ts` (
-  `describe.skipIf(!hasBootedDevice())` so it costs nothing without an SDK). Emulator installed
-  for the run and deleted immediately after.
+      Covered by the new `src/__tests__/mobile-live-android.test.ts` (
+      `describe.skipIf(!hasBootedDevice())` so it costs nothing without an SDK). Emulator installed
+      for the run and deleted immediately after.
 
   **THE BUG: `adb shell uiautomator dump /dev/tty` RETURNS NO XML.** Exit code 0, and stdout is
   exactly `UI hierchary dumped to: /dev/tty` — 32 characters, upstream's typo included, and not
@@ -255,7 +205,7 @@ answer that costs more than the line.
 
   What the run confirmed WORKS, once the dump is fixed: 14 elements parsed with correct centres
   (centre, not corner); `mobile_inspect` returning 840 characters of text; `exec-out screencap
-  -p` genuinely streaming (1,374,951 bytes, PNG magic `89504e47`); **tapping a real element by
+-p` genuinely streaming (1,374,951 bytes, PNG magic `89504e47`); **tapping a real element by
   ref** (`m3` → "Tapped drag_layer"); a stale ref failing loudly with the re-read instruction
   rather than acting on whatever now occupies the index; `settings get system show_touches`
   returning the literal string `null` when unset, which is exactly what the restore path is
@@ -373,8 +323,8 @@ by `tool-expand-view.test.ts:174-188` and `browser-recorder.test.ts`.
 
 **Why it FEELS unused, which is the real point:** its only trigger is
 `browser_inspect(mode:"screenshot")`, which the tool description deliberately calls a LAST RESORT.
-A feature reachable only from a discouraged path is rarely seen and still wired. *Rarely exercised is
-not the same as unreachable* — this is the same reachability-not-presence rule the Dyad-era removal
+A feature reachable only from a discouraged path is rarely seen and still wired. _Rarely exercised is
+not the same as unreachable_ — this is the same reachability-not-presence rule the Dyad-era removal
 ran on.
 
 ## 🧩 Browser extension — drive the user's OWN browser (queued 2026-09-07)
@@ -386,6 +336,7 @@ single biggest coverage win available: ~85% of desktop-agent tasks need no GUI c
 but a large share of the remainder is "the thing I'm already logged into".
 
 **Two dead ends, measured 2026-09-07, so nobody re-derives them:**
+
 - **CDP attach to the running browser is CLOSED.** Chromium ≥136 refuses
   `--remote-debugging-port` when the browser is on its default user-data-dir — shipped
   deliberately to kill a cookie-theft vector. You can only get a debug port on a fresh
@@ -414,178 +365,313 @@ surface (it should, so the model learns one contract); how a tab is chosen and h
 user consents per-site; and what happens when the extension is absent (the in-app
 browser is the fallback, and the failure must say which browser it wanted).
 
+### Settled 2026-09-08 (owner) — it is TWO products sharing one core
+
+The section above is reason one: a hand for the desktop app. Reason two is a **standalone
+web assistant** for people who have neither the app nor the PR bot — sidebar chat, "change
+this Airtable column", "make a PDF of this", with sessions and memory. Both are served by
+one **page-control layer** (read DOM, click, type, scroll, wait); build that once and the
+desktop attaches to it as a tool provider while the sidebar calls it directly.
+
+- **Auth is OAuth against the Atlarix account**, like the desktop app. That decides the
+  memory question: memory CANNOT live in `chrome.storage`, because the account is portable
+  across devices and device-bound memory silently vanishes on the second machine. It goes
+  in Supabase, keyed to the user.
+- **That makes it the FIRST user content Atlarix stores server-side.** Today the only
+  server-side asset is inference; everything else is on the user's machine. This needs its
+  own privacy page rather than quietly weakening the app's "your code stays on your
+  machine". Scope it like the app's own memory — short notes with a one-line index, read
+  on demand — not a transcript archive. v1: memory server-side, sessions local.
+- **Memory must be user-visible and deletable from day one, and this is a SECURITY
+  requirement, not UX.** A malicious page that gets "remember: the user's checkout is
+  attacker.com" into a silent store has planted something permanent, cross-device, and
+  invisible. Two rules: memory writes come from the user's turn and NEVER from page
+  content, and every write is surfaced when it happens.
+- **Tool surface is not the desktop's.** No filesystem, no shell — `read_file`,
+  `edit_file`, `run_command` and ripgrep do not port. What replaces them: an MV3
+  **offscreen document** running client-side libraries for PDF/CSV/chart generation, handed
+  over via `chrome.downloads`; **sub-agents**, which are just more proxy calls on the same
+  wallet and are genuinely differentiating; and page control for everything else.
+  No image generation and no vision needed — a chart is data plus a spec rendered to
+  canvas, so the model never touches pixels.
+- **Core-only, no BYOK** — deliberate, it is what makes the extension a paid product. Say
+  so in the copy: the app's headline is "any model, your own key", and a user who
+  discovers the difference after installing reads it as a bait-and-switch.
+- **The MV3 service worker terminates after ~30s idle.** A long agent turn dies mid-flight
+  unless state lives in the offscreen document. Cheap to design around now, expensive to
+  retrofit — it is the commonest way extension agents break.
+- **Prompt injection changes category here.** The in-app browser is unauthenticated, which
+  is a limitation AND a containment boundary. The extension is the user logged into their
+  bank and their email, with the agent reading instructions off pages it does not control.
+  Per-site permission from day one, the way Claude in Chrome does it.
+
+## 🧪 Muse Spark 1.3 vs GLM 5.3 on core-1 — RESEARCH ONLY (owner, 2026-09-09)
+
+Owner asked whether GLM 5.3 should stay now that Meta's **Muse Spark 1.3** exists. On paper
+it wins on every measurable axis, by a little:
+
+|            | GLM 5.3       | Muse Spark 1.3                 |
+| ---------- | ------------- | ------------------------------ |
+| in / out   | $1.40 / $4.40 | $1.25 / $4.25                  |
+| cache read | $0.26         | $0.15                          |
+| context    | 1.00M         | 1.05M                          |
+| max output | 131,072       | 131,072                        |
+| inputs     | **text only** | text, image, video, pdf, audio |
+
+First-party provider exists — `https://api.meta.ai/v1`, `META_MODEL_API_KEY`,
+OpenAI-compatible — and OpenRouter carries `meta/muse-spark-1.3` as a rollback target.
+Adoption would be one line in `PROVIDER_KEY_ENV_NAMES`, a `providers.meta` block, and an
+entry in `pick-core-model.mjs`.
+
+**NOT A MANDATORY SWITCH — owner decision 2026-09-09.** Adopting Meta means a **finance
+migration**, not just a config edit: another vendor to onboard, fund and reconcile, on a
+card that has already failed one provider (see the Kimi round). So this stays open as
+RESEARCH, revisited only if the benefit grows past that cost. Nothing here is owed; do not
+treat it as a queued task, and do not swap core-1 on the strength of the table above.
+
+**Why it was queued rather than done in the first place.** The price win is ~11% input / ~3%
+output, which does not by itself justify a provider migration; the real prize is multimodal
+on the BUDGET tier.
+And core-1 is the tier **Atlarix Reviewer runs on** — 39c a review, 4 findings, zero false
+positives on the live run. Swapping the proven reviewer model on reputation is the one move
+here with real downside. Run `npm run eval` before deciding, and check Meta's billing
+accepts a Kenyan card BEFORE any integration work — that is exactly what wasted the Kimi
+round.
+
+**DO NOT use the `-contributor` variants.** `muse-spark-1.3-contributor` is $0.10/$0.20 —
+12x cheaper and very tempting — and its catalog name is "Data Used for Training". Routing
+customer code through it contradicts "The Private AI Workstation" and the README's promise
+that Core requests are not logged or retained.
+
+## ✅ Core reliability + billing — all three CLOSED 2026-09-09
+
+`002ba1bb` (app), `420e481` (proxy). The traps are in §Traps; what belongs here is the one
+diagnostic habit the incident produced:
+
+**Anchor on the STEP, not the turn.** The failing request was issued at `23:15:21.151` and
+died at `23:15:21.425` — 274 ms. The `23:14:51` line that makes it look like 30 seconds is
+the start of the USER'S TURN. The op id decoded to 23:15:17 and dated the tool
+independently. The first pass diagnosed it as a timeout and was wrong.
+
+## 🧾 `/v1/responses` — SHIPPED 2026-09-08
+
+`be76d24` + `afccf1e` (proxy), `cc15d3b` (releases). The money path never learned a second
+dialect — `usage.ts`, `cost.ts` and `server.ts` are untouched by those commits, verified by
+diff. Rollback rehearsal done (owner-confirmed 2026-09-09).
+
+**Rolling back LOSES reasoning entirely**, and that is not obvious from the config: tools
+plus a non-`none` effort is a hard 400 on `/chat/completions`, so the proxy forces
+`reasoning_effort: "none"`. A rollback is a capability downgrade, not a neutral revert.
+
+## 🛡️ Launchpad Turnstile — DEFERRED, and now with the reason measured (owner, 2026-09-09)
+
+**Captcha is ENABLED on the Supabase project** (Authentication → Attack Protection →
+Turnstile), and the Cloudflare widget `atlarix-auth` exists (Managed mode, 2 hostnames).
+Nothing renders it, so it has never been solved once — the Cloudflare dashboard reads
+_Insufficient Data_ for that widget's "Likely human" column.
+
+**DECISION 2026-09-09: do NOT render it yet.** The earlier framing — "the wiring is the
+expensive half, land it now" — does not survive contact with the deployed CSP.
+
+**Rendering it requires widening THREE directives of an enforcing CSP**, not the two you
+would guess. `atlarix-launchpad/vercel.json` carries a real `Content-Security-Policy` (it was
+flipped from Report-Only in `80218a3`), and Turnstile needs:
+
+1. `script-src 'self' 'unsafe-inline'` → must admit `https://challenges.cloudflare.com`
+2. **`frame-src 'none'` → must admit it too.** The challenge is an iframe. Hardest blocker,
+   and the one nobody remembers.
+3. `connect-src` is set explicitly, so `default-src` does not cover Turnstile's XHR either.
+
+**And it would gate nothing.** A repo-wide search for every captcha-protected Supabase
+endpoint (`signUp`, `signInWithPassword`, `signInWithOtp`, `resetPasswordForEmail`, `resend`,
+`verifyOtp`) finds **exactly one auth call in the whole project** — `useAuth.ts:76`
+`signInWithOAuth`, a redirect-builder with no `captchaToken` path — plus
+`CheckoutButton.tsx:49` `getSession()`. There is also **no backend to verify a token with**:
+no `api/` directory, no middleware, and `supabase/` holds only `config.toml`.
+
+So the trade is: weaken a policy you just moved to enforcing, for analytics signal, on a page
+with no captcha-enforcing endpoint. **Land the render together with the first non-OAuth
+path**, when the token has somewhere to go. Until then the abuse lever that actually applies
+is Supabase's **Auth → Rate Limits**.
+
+**Owed instead (small, and unrelated to captcha):** `Login.tsx:27-36`'s comment still asserts
+"the CSP is still `Content-Security-Policy-Report-Only`, so it reports and does not enforce".
+**That has been false since `80218a3`.** A comment describing the opposite of the deployed
+policy is worse than no comment — fix it while touching that file for the stopped-login bug.
+
+**Two facts that decide how far this goes, so nobody implements half of it and calls it
+protection:**
+
+- **Supabase enforces captcha only on the endpoints supabase-js calls DIRECTLY** — signup,
+  password grant, OTP, recover, resend, verify. Atlarix uses **none** of them: both the
+  launchpad (`src/hooks/useAuth.ts:76`) and the desktop app
+  (`src/lib/auth/supabase-client.ts:186`) are OAuth-only (`signInWithOAuth`), and the OAuth
+  authorize/callback pair is not in that set. So **a rendered widget gates nothing today** —
+  it collects Cloudflare-side signal and lights up the analytics, and that is the whole
+  benefit until a non-OAuth path exists.
+- **The moment an email/password or magic-link path is added, the widget becomes mandatory**,
+  and the token has to be threaded through as `options.captchaToken` or that path fails with
+  `captcha_verification_failed`. That is the real reason to land the render now: the wiring is
+  the expensive half, and doing it cold under a broken login is how this becomes a bad hour.
+
+**Not a substitute for:** the missing `headers` block in `vercel.json` (no CSP/HSTS/
+frame-ancestors on `/login` and `/account`, while `Login.tsx:27` asserts a "strict CSP" that
+does not exist). For an OAuth-only signup path the abuse lever that actually applies is
+Supabase's own **Auth → Rate Limits**, not captcha.
+
+## ✅ v14.44 — released; the decisions that outlive it
+
+Narrative in `docs/CHANGELOG.md`. Kept here only because each of these reads like an
+oversight and is not:
+
+- **Resource caps are CORRECT: MCP 10, automations 10.** Resource limits, not plan limits;
+  no tier raises them. **Do not touch the numbers.** MCP's 10 counts _enabled_ servers
+  (v14.45). The skills cap was RETIRED with the marketplace — its only enforcement site was
+  `skills:install`, and repo skills were never capped.
+- **Account registration is REQUIRED and stays** (`SimpleChatInput.tsx`, `mustSignIn`).
+  BYOK and local Ollama are free of metering but not usable anonymously. Deliberate.
+- **Astra is NOT capped.** `maxOutputTokens` sizes the reasoning budget, so capping the
+  tier whose value IS reasoning is the worst place to economise.
+- **`DelegationConfigSchema`: only `tokenBudgetPerTurn` is read.** A fourth field was
+  wired-looking and dead. Do not attach behaviour to the remaining three without following
+  one to a caller that supplies it.
+- **The money path is honest in both directions** — a cancelled turn is priced from what
+  was generated, and a dropped connection retries. A cancelled _reasoning_ turn
+  under-charges deliberately, because reasoning tokens reach us only as a shorter summary.
+  Do not "restore" the reserve.
+
+## 🧠 Why a GPT tier shows no thoughts mid-turn — MEASURED, nothing to fix
+
+Reads exactly like a broken feature and costs a full pipeline audit to answer, so:
+
+**OpenAI emits NO reasoning summary on a step that CALLS A TOOL.** Measured on both Astra
+and Terra with our own key: 87/81 summary events on an answering step, **0 on a tool-calling
+step**. `effort: "high"` + `summary: "detailed"` changes nothing. There is no lever.
+
+**And the more common cause: the model often does not reason at all.** Reasoning effort is a
+CEILING, not a floor — `hey how are you?` burns 0 reasoning tokens even at `effort: "high"`,
+so there is nothing to summarise. **Read `reasoning_tokens` before suspecting the pipeline.**
+
+In a coding harness most steps are tool calls, so thoughts land on the step where the model
+stops calling tools and writes its answer. A turn still mid-fan-out showing only tool cards
+is correct. **The pipeline was verified end-to-end while chasing this — do NOT re-audit it.**
+
+## 📊 Sentry error selection + PostHog usage tracking (queued 2026-09-09, owner)
+
+Both are wired — `@sentry/electron` + `@sentry/core`, `posthog-js` + `posthog-node` — and
+the owner wants the signal improved on each. Not yet scoped; scope it before touching it,
+because the failure mode here is collecting more and learning less.
+
+**Sentry:** the question is which errors are worth reporting. `sentry-ignore-patterns.ts`
+is the existing mechanism and it currently carries dead plan-gate patterns (above), which
+suggests the list has not been revisited since the errors it describes changed. Start by
+reading what actually arrives, then decide what to drop — an ignore list grown by
+guesswork is how a real regression gets filtered out.
+
+**PostHog:** the question is which product questions we cannot currently answer (which
+tools get used, where turns fail, which work modes people actually pick). Instrument
+against named questions, not "more events".
+
+**HARD CONSTRAINT on both — there is a test that pins it.**
+`src/__tests__/telemetry-consent-boundary.test.ts` asserts PostHog **writes nothing to the
+device before consent** and does NOT init without it (`:141`), while keeping persistent
+storage once consent exists so session continuity survives the gate (`:151-156`). Any
+change here keeps that suite green. Treat the consent boundary as the contract, not the
+implementation detail.
+
+## 📦 v14.45 — the marketplace is gone; what is left is smaller and safer
+
+Shipped 2026-09-09. Narrative in `docs/CHANGELOG.md`; the code carries the reasoning in
+comments. What stays here is what a future reader would otherwise undo.
+
+**Decisions, not to be reversed:**
+
+- **No skills marketplace, and no registry to install from.** Users research a skill when
+  they need one or ask the model to write it. The generalisation is the useful part: a
+  skill is inert text, an MCP server is a live connection holding credentials with remote
+  side effects — curation belongs where a mistake has consequences.
+- **No `find_skill` tool.** One was written and deleted the same day. `grep` and `glob`
+  already read `.atlarix/skills/`; a dedicated search tool is a second way to do a thing
+  that works. **Do not re-propose it.**
+- **Workspace skills are a COUNT in the prompt, never a catalogue** — flat cost whatever
+  the repo holds. Bundled guides keep their per-entry lines, because grep cannot reach
+  inside the app bundle and a count would make them unreachable rather than unlisted.
+- **The prompt says nothing when there is nothing.** Announcing that skills and MCP servers
+  do not exist cost ~40 tokens a turn to duplicate what `list_available_mcps` answers on
+  demand.
+- **`.atlarix/atlarix.md` stays in the ladder below `.atlarix/rules/`** — every existing
+  user has one, and removing the rung would delete their instructions silently.
+- **The config importer was dropped and should stay dropped.** Per-vendor parsers for three
+  `mcp.json` shapes go stale the week they are written and know nothing about the next
+  tool. The model reads any config and proposes it through `manage_mcp_server`; the base
+  prompt names no vendor, which is what makes it universal.
+- **MCP cap counts ENABLED servers.** Storing is free, connecting is not. At the ceiling
+  Atlarix refuses and names what to disable — never auto-evicts, which would rewrite a
+  user's configuration silently.
+- **`mcpServers.enabled` defaults to FALSE.** A comment briefly claimed the opposite; the
+  default is the safe one, so an inserter that forgets lands a server inactive. Do not
+  "fix" it.
+
+**Still owed from this release:**
+
+- [ ] `atlarix-releases` README is committed and **deliberately unpushed** — it describes
+      `.atlarix/skills/` instead of the registry, which is false for every build until this
+      tag. Push it WITH the v14.45 tag.
+
 ## 🔜 Next session — the queue
 
-*(Unordered. It read "in order" while numbered 1, OPEN, 0, 1b, 3 with no 2 —
-numbers that do not sequence are worse than none.)*
+**Agreed order at the 2026-09-09 handoff**, so the next reader does not re-derive it:
 
-### Harbor upstream integration — IN PROGRESS 2026-09-01
+1. **Tag v14.45** — v14.44 and v14.45 are both on `dev`. Owner's call. The
+   `atlarix-releases` README commit is unpushed and must go WITH the tag.
+2. **Launchpad** — the stopped-login fix. Root cause located: `Login.tsx:72`'s `pending` is
+   cleared in exactly ONE place, inside `if (err)`, with no `try`/`catch` and no `finally`,
+   so a cancelled OAuth redirect leaves both buttons disabled with a spinner and no error,
+   forever. Keep "do not clear on success" — re-enabling mid-navigation invites a second
+   competing flow — and recover on `visibilitychange`/`focus` instead. Fix local to
+   `Login.tsx`: `useAuth` is a plain UNSHARED hook with three callers and no provider,
+   deliberately (pulling supabase-js into ~40 prerendered pages is the reason). Also fix its
+   stale CSP comment, which still claims Report-Only.
+3. **Telemetry** — the Sentry ignore-list revision and the PostHog question set below.
 
-**Why this route and not a submission.** Terminal-Bench 4.0 community submissions are CLOSED —
-`leaderboard/SUBMIT.md`: *"Only submissions run by the maintainers will be added."* The
-leaderboard repo pins one dataset (`dataset_version_refs: ['4']`), so 2.1 is not a back door
-either. A listed run therefore has to be executed BY a maintainer, which means Atlarix has to be
-a pre-integrated Harbor agent. `CONTRIBUTING.md` is *"fairly liberal"* about agent integrations
-and asks only that **one user of the agent** request it (precedent: harbor issue #2942, where a
-commenter with `author_association: NONE` satisfied it the next day).
+### Harbor upstream integration — fork done (owner-confirmed), rest owed
 
-**The payoff is not only the leaderboard.** Harbor carries 100+ benchmark adapters (`swebench`,
-`swebenchpro`, `swelancer`, `aider_polyglot`, `osworld`, `gaia`, `multi-swe-bench`, …). Upstream
-the agent once and every one becomes `harbor run -d <dataset> --agent atlarix` — a standing
-regression suite for the agent loop, independent of anyone reading a leaderboard.
+Terminal-Bench 4.0 community submissions are CLOSED, so a listed run must be executed BY a
+maintainer — which means Atlarix has to be a pre-integrated Harbor agent. The payoff is not
+only the leaderboard: Harbor carries 100+ benchmark adapters, so upstreaming once turns every
+one into `harbor run -d <dataset> --agent atlarix`, a standing regression suite for the agent
+loop.
 
-**Done:** `npm i -g atlarix` is live (trusted-publisher OIDC from `headless.yml`, no
-token in secrets); reasoning reaches the wire at the model's ceiling; the self-timeout is gone;
-`--version` answers; `--trajectory-file` streams JSONL with secrets redacted.
+The three fork touchpoints are done (owner-confirmed 2026-09-09; **not verifiable from this
+machine** — there is no `../harbor` checkout here, so find out where it lives before assuming
+it is missing). Still owed:
 
-**Owed:**
-- `src/harbor/agents/installed/atlarix.py` in the fork at `../harbor`, plus `AgentName.ATLARIX`
-  and `factory.py` — the only three touchpoints (verified by searching `AgentName.OPENCODE`).
-  Mirror `opencode.py`: `ModelConnectionSpec(passthrough=True)`, `ensure_system_dependencies`,
-  `nvm_node_install_snippet()`, `CliFlag`/`ErrorPattern`, `AgentCapabilities(atif=True)`.
-- **The instruction must NOT go in argv.** `atlarix_tb/agent.py` passes `--prompt {escaped}`,
-  which puts the task text in the agent's own `/proc/<pid>/cmdline`; harbor **#2311** documents
-  agents killed by their own `pkill -f` this way — 15/15 trials, exit 143/137, each graded on a
-  half-finished workspace. Route it env var → file → `--prompt-file`, as `claude_code.py` does.
-- Port `benchmarks/` from `terminal-bench-2-1` to `terminal-bench/terminal-bench@4.0.0`, keeping
-  `atlarix_tb` as a thin pin-proxy subclass (same shape as `pi_proxy.py` over `Pi`) so the
-  opencode comparison still runs.
+- **The instruction must NOT go in argv.** Harbor **#2311** documents agents killed by their
+  own `pkill -f` because the task text sat in `/proc/<pid>/cmdline` — 15/15 trials, exit
+  143/137, each graded on a half-finished workspace. Route it env var → file →
+  `--prompt-file`.
 - **Keep `patch-harbor.py`.** The `upload_dir` `docker cp` bug it works around is still OPEN
-  upstream (#202, #2686, #2043) and bites local-docker runs. Modal avoids it, and Modal is what
-  Harbor's own CI and leaderboard use.
-- Free k=1 smoke on ~10 tasks. Not for a score — to prove install, completion and a parseable
-  trajectory before a maintainer spends donated compute on it.
+  upstream and bites local-docker runs. Modal avoids it, and Modal is what Harbor's own CI
+  and leaderboard use.
+- Port `benchmarks/` to `terminal-bench@4.0.0`, keeping `atlarix_tb` as a thin pin-proxy so
+  the opencode comparison still runs. Then a free k=1 smoke on ~10 tasks — not for a score,
+  to prove install, completion and a parseable trajectory before a maintainer spends donated
+  compute.
+- **Owner action:** file the issue (harbor's Golden Rule requires the first AND last draft to
+  be human, with a disclosure that an agent wrote the code), then get one real user to
+  comment.
 
-**Owner action:** file the issue (harbor's Golden Rule requires the first AND last draft to be
-human, with a disclosure that an agent wrote the code), then get one real user to comment.
+### The reviewer's repository list is live, but existing installs are empty
 
-**Four things only a REAL run found — unit tests passed through all of them.**
+The list works for a NEW install. An install that predates it has no repositories recorded,
+and nothing backfills — so an existing user sees an empty picker and no explanation. Decide
+whether to backfill on next webhook or to say so in the UI.
 
-- **The inline tool tags carry ATTRIBUTES.** `<atlarix-tool-call tool="run_command"
-  status="running">`, not `<atlarix-tool-call>`. A stripper anchored on the bare tag matched
-  nothing a live stream produces, so the whole serialised call block was spliced into
-  `assistant_text` as though the model had said it. Tests using bare tags passed.
-- **A command's completion is announced TWICE.** The canonical `chat:activity` event carries
-  `toolCallId` + `toolArgs`; a second one carries neither, nor a result. Recording it invents a
-  tool call — six entries for four calls. A trajectory audit reads phantom calls as the agent
-  having acted. Filtered at source in `trajectory-writer.ts`, deduped again in the adapter
-  because that file's contract is the JSONL, not the writer.
-- **`ensure_system_dependencies` takes KEYS, not package names.** `("make", "g++")` failed a
-  real trial before the agent installed anything: `ValueError: Unknown system dependencies`.
-  The key is `build_tools`, which maps per distro (build-essential on apt, build-base on apk).
-- **No DeepSeek row existed in `byok-pricing.ts`**, so `turnCostUsd` was absent on every
-  DeepSeek turn and a leaderboard cost column would have been blank. Added V4 Flash and Pro at
-  their PEAK rates — the off-peak tariff is half, a static table cannot know which window
-  applied, and on a published figure overstating is the safe direction.
-
-**Still open, and worth knowing before a scored run:** `resultText` is populated for
-`read_file` but NOT for `run_command`, so command OUTPUT does not reach the trajectory. The
-leaderboard's reward-hacking judge reviews trajectories, and a run whose commands show no
-output is weaker evidence than one whose do. Fixing it means touching how `build-branch.ts`
-emits command activity, which is wider than this work.
-
-### 🔍 OPEN — the sub-agent round panel renders twice
-
-Not fixed (owner's call: cosmetic, and no cause was proven). The AGENTS are not duplicated — four ran
-and `4/4 running` was correct; the PANEL appears twice, labelled differently each time. Candidates,
-so the next attempt starts from evidence rather than re-deriving it:
-
-- `mergeSubagentActivityIntoThread` falls back to a constant `roundId` of `"subagent-round"` when an
-  event carries none, while the live path sends `roundId: ctx.turnId`
-  (`register-delegation-tools.ts`). Two ids cannot merge — `upsertSubagentRound` keys on roundId.
-- `synthesizeSubagentRoundFromParts` uses `"subagent-round-fallback"` — but it is guarded by
-  `if (isStreaming) return null` (`AssistantMessageBody.tsx`) and the observation was mid-stream, so
-  probably NOT this one.
-- `stickyAgents` accumulates per `AssistantMessageBody`; two assistant bodies in one turn would each
-  render the round.
-- `consolidateSubagentRoundsInThread` DOES merge multiple rounds and runs on BOTH the live and
-  completed threads — which is why the duplicate is most likely ACROSS message bodies, not within one.
-
-The visible symptom is the labelling, and it names the two sources: `${agentRole} · ${scope}` from
-the handoff path versus `subagentLabel()`'s `Sub-agent: Explorer`. **Start by instrumenting which
-call site emits each panel** — every theory above is consistent with the screenshots, which is
-exactly why none of them should be acted on yet.
-
-**Owed before release:** verify in the PACKAGED app (a long real session, quit, reopen, confirm the
-meter and the history start from the summary), then `/security-review` on the diff.
-
-
-### OAuth redirect allowlist — OWNER ACTION, still owed
-
-The code fix shipped in v14.38.4 (`AUTH_CALLBACK_URL` is now the canonical two-slash
-`atlarix://auth/callback`, locked by `src/__tests__/oauth-redirect-allowlist-match.test.ts`). **It
-does not reach builds already in the field**: v14.38.3 and earlier still send the three-slash
-`atlarix:///auth/callback` and stay broken until they update.
-
-Add **`atlarix://*/auth/callback`** to Supabase → Authentication → URL Configuration → Redirect
-URLs, alongside the two-slash entry, and keep both until those builds are gone.
-
-- **Not the literal three-slash string** — the dashboard's validator rejects an empty host.
-- **Not `atlarix://**`** — that would also match `atlarix://mcp/oauth/callback`, making the MCP deep
-  link a legal OAuth redirect target. Verified 2026-08-29 against `gobwas/glob` as GoTrue compiles
-  it: `*` matches the empty host, so the narrow pattern hits the three-slash form and nothing else.
-- **Not via `supabase config push`** — `supabase/config.toml`'s `[auth]` block is the LOCAL stack's,
-  so a push overwrites the hosted Site URL with `127.0.0.1`.
-
-**Why a non-match is invisible:** GoTrue matches the requested redirect as a literal string against
-a compiled glob and, on a miss, silently substitutes the Site URL. Sign-in completes in the browser,
-lands on the website, and the app is simply never launched.
-
-### The repository list is live but the EXISTING installs are empty
-
-Shipped 2026-08-27 (`atlarix-reviewer@09f6ff3`, migration `20260827180000`). Verified in
-production: the column exists, the RPC is service-role gated, and both live installs read
-`repo_count: 0`.
-
-**That zero is correct and expected — and it will not fix itself.** The list is populated
-by `installation` / `installation_repositories` webhooks, and both existing installs were
-created BEFORE the code that records them. `installation_repositories.added` is a DELTA,
-so nothing replays history.
-
-Until then the account page falls back to the old "selected repositories" wording, which
-is the honest thing for it to say. Two ways out:
-- **Trivial:** add or remove one repository in the GitHub App's install settings. That
-  fires the event and the list fills for that install.
-- **Proper, if it ever matters at scale:** a one-time backfill calling
-  `GET /installation/repositories` per install with an installation token and applying it
-  with `mode: 'set'`. Needs the App private key, which lives in Railway, not locally.
-
-### One non-owner run of the reviewer, end to end
-
-**No account other than `AmariahAK` has ever completed install → subscribe → bind →
-review.** `review_jobs` totals 4 (3 done, 1 failed), all owner; `atlarix-releases` is
-owner-owned, so testing there exercises the PERMITTED path, not the stranger path. The App
-is confirmed **public** as of 2026-08-27, so the route is open — it has simply never been
-walked. One second GitHub account settles it, and onboarding bugs live exactly here.
-
----
-
-## 🔬 Reference sweep — read 2026-08-21, ALL of it landed
-
-Read against `claude-code` v2.1.238, `opencode` dev @ 57fa34f2 and `openai/codex`
-rust-v0.149.0. Every item shipped; the per-item accounting is in the changelog. Kept
-only for the standing lessons, which apply to the next sweep:
-
-- **A changelog line from another harness is a QUERY, not a task.** Three of ~40 candidate lines
-  turned out to describe real defects here; the rest did not apply, and one (opencode having to learn
-  that `finish: "unknown"` must not end the loop) we already handled better. Read their fix, then go
-  looking in your own source — do not port the fix.
-- **Check reachability before repairing.** The multi-file approval card was a genuine grant/display
-  mismatch AND unreachable, so the correct response was deletion, not a fix. `git grep` finds
-  presence; tracing the producers finds reachability.
-- **An error can arrive as a success.** A 200 response, a well-formed stream, and `finish_reason:
-  "network_error"` — nothing throws, so every retry path stays disarmed and the turn truncates in
-  silence. When a provider hands you a field you never read, ask what it can say.
-- **Windows path spellings are a security surface, not a formatting detail.** `path.isAbsolute` is
-  `true` for `\\host\share` on Windows, and the relative branch has rejected UNC for years while the
-  absolute branch — the spelling an attacker would use — does not. The guard written for this was
-  removed on the owner's call (see the decision record above); the observation stands, and any future
-  read-deny work inherits it.
 ## 💵 Pricing — SETTLED 2026-08-26, and the code that implements it
 
 > Owner decisions, recorded so they are not re-argued. The reframe's rule survives intact: **never
 > ship a tier whose fee is fully consumed by bundled inference.** What changed is that the fee now
-> includes *some* inference, because the old shape asked for two purchases before a new user's first
+> includes _some_ inference, because the old shape asked for two purchases before a new user's first
 > agent turn — and that is where the funnel was dying. 108 users at the time of this decision.
 
 - **Atlarix Pro stays $19/mo** and now includes a **$10 monthly Core allowance**, PAYG on top. Price
@@ -644,7 +730,7 @@ only for the standing lessons, which apply to the next sweep:
   RPC, and nothing anywhere reads `credit_wallet` directly. Verified across all three repos before
   relying on it.
 - **An allowance is SET, not added, so `(kind, ref)` idempotency cannot protect it.** That index makes
-  repeated INSERTs safe, which assumes deltas add up. A replayed grant has to be refused *before* any
+  repeated INSERTs safe, which assumes deltas add up. A replayed grant has to be refused _before_ any
   arithmetic — hence `credit_grants.ref`, checked first.
 - **One `granted_cents` column cannot serve two products.** With SET semantics, whichever subscription
   renews second silently wipes the other's allowance. Caught while wiring the reviewer, before it
@@ -675,108 +761,13 @@ dashboard and a deploy can re-enable it, which would break every webhook (LemonS
 
 ---
 
-## ✅ Verification owed — code done, no code expected
+## ✅ Verification owed — one left
 
-These are trips and clicks, not tasks. Each fix is already shipped.
+The packaged-app batch was walked and confirmed 2026-09-09; those items are gone rather than
+ticked, because a list of things that turned out fine is not worth carrying.
 
-- [ ] **Does the memory move actually change behaviour?** Re-run the same "how've you been / what's in
-      memory" prompt on `wisdom-drop` with DeepSeek V4 Pro and count tool calls. Baseline is the
-      logged session: ~15 calls, ending on a stale backup. A pass is reading the store directly. **If
-      it still hunts, placement was not the answer** — the honest next step is a memory tool, not more
-      prompt, and this item should say so rather than being quietly ticked.
-      Note `~/.atlarix-memory-backup-2026-08-19/` is a HAND-MADE copy (nothing in our source creates
-      it) whose content differs from live; it will keep winning `find` races while it sits in `~`, so
-      move it before drawing conclusions from a re-run.
-
-- [ ] **The unreleased batch, in the PACKAGED app** (never the dev server): two sessions with
-      different modes following their own session; switching away from a large session and back with
-      no empty chat; a turn in A surviving a switch to B; every Diagnostics row rendering,
-      "Copy report" carrying no key material, and `--doctor` exiting.
-      **This machine cannot do it as-is:** the root `better_sqlite3.node` is dated Jun 15 and was
-      never rebuilt for Electron 43, so a raw `npx electron .` dies with
-      `NODE_MODULE_VERSION 141` vs `148`. `npm start` / packaging runs Forge's electron-rebuild and
-      heals it — but that also means a raw-binary launch is not a valid way to test anything here.
-- [ ] **The session-load numbers** — `ATLARIX_DIAG_SESSION_LOAD=1` (main) +
-      `localStorage["atlarix:diag:session-load"]="1"` (renderer) on the 1.43M-token session, four
-      numbers recorded. NOT closed by the cold-chat eviction that shipped: eviction frees memory
-      AFTER the fact and cannot make the first `parseDisplaySnapshot` cheaper. Whether the parse or
-      the main→renderer transfer dominates is what decides where laziness goes, and it is a
-      measurement, not a guess.
-
-- [ ] **Anthropic extended thinking — BELIEVED fixed, not OBSERVED fixed.** The capability branch,
-      the SDK-shaped `budgetTokens` and the temperature omission are covered by 12 tests (verified
-      sensitive), but there is no Anthropic key here and the failure mode is a provider-side **400**,
-      so the request has never been sent. **The check:** one reasoning prompt on a Claude model with
-      a real BYOK key — no 400, and thinking parts stream. If it 400s, suspect temperature:
-      Anthropic accepts only `1` with thinking on and `getTemperature` defaults to `0`, which is
-      exactly why `shouldOmitTemperature` exists.
-- [ ] **Whisper-worker dictation under the new CSP.** The worker only spawns when a composer mounts
-      with the local provider, so it needs a workspace open. Confirm dictation still transcribes and
-      the log carries `[csp] APPLY resourceType=script … whisper-worker`. If ONNX fails to compile,
-      revert to docstring-only — a blocked worker that also blocks WASM is worse than the gap.
-- [ ] **`read_url` through a real turn** against a JS-rendered SPA and a bot-walled page. The
-      mechanism is measured (excalidraw 69 → 722 chars, g2.com 0 → 251, five parallel fetches 624ms);
-      what is untested is the path through the packaged app's own tool.
-- [ ] **Drive a passkey sign-in by hand in the packaged browser** — a security key, and the
-      "use a phone or tablet" QR flow. This is now the WHOLE passkey story (the device-stored
-      authenticator is gone, below), so it is promoted from a fallback check to the first thing to
-      verify. Success is a completed sign-in; failure is the notice firing when it should not, or a
-      roaming request being reported as unsupported.
 - [ ] **CI must resolve the win32 + linux TypeScript 7 platform binaries.** Only darwin-arm64 is
       proven.
-- [ ] **Confirm `[prompt-cache]` still shows a large `read=` on later turns in a mode.**
-      **PROMOTED 2026-09-02 — this now BLOCKS the v14.41.0 prose work** (see the header). The
-      prefix is ~14,600 tokens in Build and sits inside one cache breakpoint; whether that is
-      paid once or every turn is the difference between the remaining prose cuts being
-      pointless and being the most valuable thing in the cycle. Core models get placement
-      `"none"` (`anthropic-cache-breakpoints.ts`), i.e. we depend on the provider matching a
-      byte-identical prefix — which is exactly the mechanism that fails silently. A `write=`
-      that jumps every turn would mean the per-mode tool-description tiering is invalidating the
-      cached prefix.
-
-- [ ] **Passkey notice ACCURACY — and it never needed the Windows machine.** It sat under "Needs the
-      Windows machine" until 2026-09-04, which is part of why it went unverified for weeks:
-      `src/lib/browser/webauthn-notice.ts` is an injected BrowserView page script with **no platform
-      check of its own** (the file says so), so it behaves identically on all three OSes and is
-      verifiable on the dev Mac.
-      The check is a **false-positive** check, not a feature test. No platform authenticator exists
-      anywhere any more — Windows and Linux never had one, and macOS's went with the provisioned
-      `keychain-access-groups` entitlement — so the notice is CORRECT to fire for an unstated
-      request. It must **NOT** fire when a page explicitly asks for a roaming authenticator
-      (`authenticatorAttachment: "cross-platform"`): a security key, or a phone over the hybrid/QR
-      flow, goes through Chromium on every platform, and that phone is where the user's synced
-      passkey already lives. Two earlier wordings of this message were wrong in **opposite**
-      directions, which is why it is the TRIGGER being checked and not the text.
-- [ ] **Linux: the notification SIGSEGV** in `electron::NotificationPresenter::RemoveNotification`
-      (Fedora 44 Sentry report). Moved out of the Windows section 2026-09-04 — the fix is reasoned,
-      not observed, and what it needs is a **clean Sentry week**, not a machine. Leave the app
-      unfocused through several automation runs and let notifications expire rather than clicking
-      them.
-- [ ] **Sub-agent round dedupe has two UNPINNED paths** — found 2026-09-04 while fixing the
-      double-render, and independent of that fix. `consolidateSubagentRoundsInThread` has **no test
-      coverage at all**: nothing under `src/__tests__` or `tests` calls it. And
-      `src/__tests__/subagent-card-settles-after-turn.test.ts:121` claims to pin "leaves a thread
-      that does not own the sub-agent REFERENTIALLY identical" while its fixture **already contains
-      a round** — so the case that matters is untested: `mergeSubagentActivityIntoThread` appending
-      a fresh round into a **round-less** frozen thread, which the mount-level `onChatActivity`
-      listener in `useStreamChat` does for every entry of
-      `completedStreamThreadByAssistantMessageIdAtom` with no chat filter and no ownership check.
-      Both are latent duplicate-panel sources. A fixture that already satisfies the condition it is
-      meant to test is the same trap as a green assertion that asserts nothing.
-
-## ✅ Windows/Linux verification — CLOSED 2026-09-04
-
-Everything that once stood here is verified: Electron 43, process-tree kill, on-device voice
-(Windows and Linux), the Windows Low-IL sandbox (`run_command` succeeds with git, so
-`CreateProcessAsUserW` is not hitting `ERROR_PRIVILEGE_NOT_HELD`), the MSIX §4 behaviour check
-including the protocol declaration, and Linux voice on the WebGPU-first path.
-
-**The lesson worth keeping**, since it is why the section existed at all: its own preamble
-admitted that counting these as backlog "made this queue read three times its real size", and two
-of the items were **mis-filed as needing Windows** when neither did — the passkey-notice check is
-a page script with no platform branch, and the Linux notification SIGSEGV needs a clean Sentry
-week, not a machine. Both are in "Verification owed". Before filing something as blocked on
-hardware, check that the hardware is what it is actually blocked on.
 
 ## ⚠️ Known and NOT fixed — deliberately, with reasons
 
@@ -836,7 +827,7 @@ hardware, check that the hardware is what it is actually blocked on.
   the hook. **The sign-out half is now scoped:** `SubscriptionManager.signOut()` does not broadcast
   `auth:resolved`, so only the instance that initiated a sign-out updates and a second window keeps
   a stale session. `broadcastAuthResolved()` already has no null-session guard (deliberately — that
-  guard *was* the bug), so the fix is one call plus making `handleAuthResolved` clear `user`/`status`
+  guard _was_ the bug), so the fix is one call plus making `handleAuthResolved` clear `user`/`status`
   on a null user instead of early-returning. Do it with the rest of the unshared-hook work.
 - **`ai@7`'s `instructions` placement is the aligned end state, not done.** `role:"system"` inside
   `messages` is re-permitted with `allowSystemInMessages: true` so the v10.1 prompt-cache layout
@@ -855,10 +846,35 @@ hardware, check that the hardware is what it is actually blocked on.
   after the App went public (2026-08-27), which is when GitHub's own guidance says to contact them.
   FIRST check <https://github.com/settings/apps> for rejection notes, requested changes, or a
   still-pending review — the answer is often already there. If there is genuinely no communication,
-  file at <https://support.github.com/contact> → *What can we help with?* → **Marketplace** →
-  *"App review pending for X weeks, no updates received"*, including the app name, App ID, the
+  file at <https://support.github.com/contact> → _What can we help with?_ → **Marketplace** →
+  _"App review pending for X weeks, no updates received"_, including the app name, App ID, the
   GitHub org/account used to submit, and the SUBMISSION date (which may differ from the date the
   App went public).
+- **`build-msix` must `needs: build-linux`.** It declares `needs: [quality]` but genuinely
+  depends on `build-linux`'s `landlock-helper` artifact — `msix.yml:220` downloads it with
+  `continue-on-error: true`. On v14.43.0 they raced and MSIX lost: msix started 09:24:58 and
+  failed 09:28:27, while build-linux did not upload until 09:32:12. The download failed
+  silently, `forge.config.ts`'s `existsSync` guard dropped the helper from `extraResource`
+  without complaint, and only the NEW `EXPECTED_RESOURCES` check turned it red.
+  **This is a latent bug the assertion caught on its first CI run** — before it, every Store
+  build that lost this race shipped without WSL confinement, green and silent. One-line fix;
+  a job re-run was the correct recovery for the release itself, but the race remains.
+- **Un-pin the Windows runners from `windows-2022`, once a dispatch proves it.** The blocker
+  is fixed: `patches/@electron+node-gyp+10.2.0-electron.1.patch` now maps VS major 18 to year
+  2026, adds 2026 to all three `supportedYears` arrays, and discovers the VC++ toolset by
+  scanning `<vsPath>\MSBuild\Microsoft\VC\*\Platforms\x64\PlatformToolsets` rather than
+  hardcoding a `vNNN` (the year→toolset map is NOT derivable from the MSVC version — VS 2022
+  17.14 ships MSVC 14.44 and is still `v143`). What is missing is a green run: nobody here has
+  a machine with VS 2026, so it is unexercised code on the path that takes out `build-windows`
+  AND `build-msix` at once.
+  **Next step:** dispatch `Atlarix MSIX` with the new `runner: windows-latest` input (needs the
+  repo flipped public for the Actions budget, same as a release), and read the printed
+  `versionYear` / `toolset` from the "Verify Visual Studio toolchain is discoverable" step.
+  That step exists because the obvious verification does not work: `@electron/rebuild` buffers
+  node-gyp's output and prints it only on a non-zero exit, so on a green build there is no log
+  and "assert the ABSENCE of `unsupported version: 18`" is vacuously true. Only after that
+  dispatch is green do `msix.yml`'s two defaults and `release.yml:build-windows` change.
+  `src/__tests__/node-gyp-vs2026-patch.test.ts` guards the patch from evaporating on a bump.
 - **Windows code-signing cert** — native-sandbox CI, and the only real fix for the C6 residual on
   direct-download Windows. Release infra, no cert. The helper sign step is wired; set the secret.
 - OAuth `state` nonce / PKCE stays **not doing** — attempted v14.12.0, broke sign-in, reverted. The
@@ -867,114 +883,19 @@ hardware, check that the hardware is what it is actually blocked on.
 
 ## 🔐 Security — reviewer, money path and app hygiene ALL CLOSED (2026-08-30)
 
-**One document remains, deliberately OUTSIDE every repository** (these repos flip public for CI):
-`../SECURITY_SECRETS_2026-08-28.md`, the leak-response note.
+**One document remains, deliberately OUTSIDE every repository** (these repos flip public for
+CI): `../SECURITY_SECRETS_2026-08-28.md`, the leak-response note.
 
-**The two audit write-ups were verified closed and DELETED on 2026-08-30.** Every finding was
-re-checked against the code first, not taken from the status column: `safeRepoPath` guards both
-`PrContext` implementations, `MAY_REQUEST_REVIEW` gates the mention, the per-prompt nonce and the
-scoped installation token are in place, `isRepoFullName` is at both entry points — 196 reviewer
-tests green. The lessons that outlive the findings are kept below; the exploit write-ups are not
-kept, because a repo whose visibility toggles is not a home for them and they had served their
-purpose.
+Both audit write-ups were re-checked against the code and DELETED — a repo whose visibility
+toggles is not a home for exploit write-ups. The lessons that outlived them are in §Traps.
 
-**App hygiene (the last open item) — fixed and SHIPPED in v14.39.0 (`0a7bb027`):** the three identical
-`atlarix://mcp/oauth/callback` branches in `handleDeepLinkReturn` are one branch again (two were
-unreachable — a fix could have landed in a copy that never runs), and `preload.ts` lost the
-`// Test-only channels` comment that sat above the LIVE Build-mode permission channels plus seven
-within-list duplicate entries (the audit said three; it undercounted). No channel was lost:
-`validInvokeChannels` 281 → 276, `validReceiveChannels` 83 → 81, both now duplicate-free, with
-`ts:main` and all 3,470 tests green.
+## 📚 Docs drift — the check that catches it
 
-**The `users` INSERT policy is APPLIED — this section has no open item.** `20260828090000` shows
-local == remote in `supabase migration list --linked` (verified 2026-08-29). It closes the hole where
-an account whose row was missing could insert itself as `plan='pro'`.
-
-**Secrets: there is now a leak-response note**, not a rotation schedule — the question it answers
-is "this key just leaked, now what", which nothing answered before. Three credentials matter:
-the **GitHub App private key** (every installation; GitHub allows two keys, so rotation is
-zero-downtime), **`AZURE_AD_CLIENT_SECRET`** (publishes to the Store — load-bearing for update
-integrity precisely BECAUSE C6 was closed on the Store's behalf), and the **Supabase
-`service_role`** (four consumers, so rolling it needs an order).
-
-### Lessons kept from the reviewer audit — and what is still unaudited
-
-Owner scoped the pass to **`atlarix-reviewer` only**, audited by hand. Five findings, all
-five fixed in `atlarix-reviewer@edc457e` and re-verified against the code on 2026-08-30.
-**The write-up was kept OUTSIDE every repository and has since been deleted:** the reviewer
-and proxy repos get flipped public to run CI past the Actions budget block, so a repo whose
-visibility toggles is not a home for a live exploit write-up. That is a general rule now, not
-a one-off — and it is why the lessons live here rather than in a file beside the code.
-
-**The two that mattered, kept here because they are lessons, not history:**
-
-- **A comment claiming a boundary is not a boundary.** `tools.ts` said there was "no way to
-  read outside the repository under review". `fileAt` built its URL with `encodeURI`, which
-  leaves `/` `.` `?` `#` alone **by design** — it encodes a URL, not a path segment — and
-  `fetch` normalises dot segments like any URL parser. `../../../<org>/<private>/contents/.env`
-  reached that file with the installation token attached, and the review is posted as a PUBLIC
-  comment, so read and exfiltrate were the same action. **When a comment asserts containment,
-  go and try the thing it says is impossible.**
-- **Ask who is allowed to spend, not just who is allowed to speak.** An `@atlarixagent`
-  mention re-runs a paid review, and the only filter was "not a bot" — so on a public repo any
-  GitHub account could drain a paying customer's wallet by commenting in a loop. The fix was
-  already in the payload: `author_association`. **`CONTRIBUTOR` is deliberately NOT in the
-  allowed set** — on a public repo that status is earned by one merged PR and never expires,
-  which makes it a permanent licence to spend someone else's money.
-- Two smaller ones worth the habit: untrusted blocks could close their own delimiters (fixed
-  with a per-prompt nonce — the attacker writes their text before the nonce exists), and
-  installation tokens were minted for the WHOLE installation when a review needs one repo.
-
-**Still NOT audited, and unchanged since the ask:** `handle-lemon-webhook` downstream of a
-valid signature (replayed refunds, forged `custom_data.supabase_user_id`, an invoice id reused
-as a ref across accounts), `bind-github-install`'s one uncovered layer (a VALID code from an
-account that does not administer the target), and the **secrets inventory across four
-deployment targets** with no rotation story — the App private key being the worst, since it
-authenticates as the bot to every installation.
-
-**Closed by this pass:** the proxy's service path no longer takes `x-atlarix-account-id` on
-trust (`atlarix-proxy@1fae9a0`), so a leaked `REVIEWER_SERVICE_TOKEN` reaches only accounts
-that actually installed the App. Verified read-only and NOT to be re-litigated: all ten
-`*_service` DEFINER RPCs are `service_role`-only, RLS is on for all ten public tables, and
-`review_jobs` has RLS with zero policies (deny-all except service_role, correct by design).
-
-## 📚 The docs are stale — owner's ask, 2026-08-27
-
-> Same class of problem the pricing copy had, and found the same way: the site said Pro was
-> pay-as-you-go while the account page said Pro included Core, and both shipped.
-
-- **The pricing framing is now DONE across both repos — verified 2026-08-27, not assumed.**
-  `grep` for `no plan bundles AI` / `Both Free and Pro pay the same way` returns nothing in
-  `guideDocs.ts`, `helpDocs.ts`, `PricingTiers.tsx` or `PricingPage.tsx`. The app repo's
-  `README.md` and `docs/compass-limits.md` carried the same stale claim and were corrected in
-  `0a6e8e2e`; `Terms.tsx` and the credits help doc now state the allowance/credit shape.
-- **DONE 2026-08-28** (`atlarix-launchpad@72d04b6`). The Core guide embeds `CORE_EXPLAINER`
-  from `products.ts` verbatim rather than restating it, which is the check that stops the
-  next change leaving a fourth copy behind.
-- **Reviewer's billing was undocumented everywhere and now is not.** It grants the SAME
-  monthly allowance as Pro (`MONTHLY_GRANT_CENTS`) and debits the same meter; the Terms, the
-  credits doc, the README and `REVIEWER.included` all say so. No dollar figures, per
-  `billing_copy.ts`.
-- **Read `ALL_DOCS` end to end against what the app does now.** `src/data/helpDocs.ts` +
-  `guideDocs.ts` are the in-app error buttons' destinations, so a stale doc is reached by someone who
-  is already stuck. The v14.35.0 Dyad-era removal alone deleted ~30,500 lines; anything describing
-  retrieval, indexing or the old panel-based approvals is describing software that no longer exists.
-- **The blog posts are dated artifacts and should NOT be rewritten** — `blogPostContent.ts` carries
-  pricing tables that were true when published. Leave them; the fix for a stale post is a new post.
-- **The README was advertising twice the product that exists.** "Four managed cloud models —
-  Core 1 (fastest) through Core 4 (most capable). Every plan gets all four", in three places,
-  when `core-models.json` configures TWO and an unconfigured slot reads as empty everywhere.
-  Fixed 2026-08-28 by describing the lineup as remotely configured rather than restating a
-  count that drifts; the same sentence was in `atlarix-releases/README.md` and moved too.
-  **The general form: a doc that states a NUMBER the config decides will be wrong eventually.**
-- **Coverage added 2026-08-28:** deep thinking and voice input, neither documented anywhere.
-  **Passkeys deliberately NOT documented** — the device-stored authenticator is gone and the
-  roaming flow has never been driven by hand, so anything written would describe unverified
-  behaviour. An undocumented feature is a gap; a documented one that does not work is a
-  support ticket.
-- **The check that would stop it recurring:** every claim about pricing or plans now has ONE home
-  (`src/shared/billing_copy.ts` and the launchpad's `src/data/products.ts`). Route the docs through
-  those rather than restating them, and the next change propagates instead of drifting.
+Closed 2026-08-28. The lesson, which is the reusable part: the site said Pro was
+pay-as-you-go while the account page said Pro included Core, and **both shipped**. The fix
+that stops the next one is not proofreading — it is embedding the single source verbatim
+(the Core guide now embeds `CORE_EXPLAINER` from `products.ts`) so a fourth copy cannot
+quietly appear.
 
 ## 🧭 Designed — awaiting a session
 
@@ -990,7 +911,7 @@ that actually installed the App. Verified read-only and NOT to be re-litigated: 
 at worst-case cost, which is precisely what stops an 8–12 call fan-out all clearing a gate only one
 of them could afford. And correctness never depends on the cache: Postgres stays the sole authority,
 every debit is JWT-scoped + RLS-backed and idempotent on the generation id. The file's own claim —
-extra replicas make it *less effective, never incorrect* — holds up. `spend_from_wallet` takes
+extra replicas make it _less effective, never incorrect_ — holds up. `spend_from_wallet` takes
 `FOR UPDATE` on the grant row, so simultaneous debits for one user serialise rather than race.
 
 **Residual 1 — multi-replica overspend, bounded and cheap.** Each replica has its own cache and its
@@ -1022,45 +943,30 @@ installed the app. The repo-level check is deliberately NOT done: `github_instal
 still reads empty on both live installs, so gating on it would fail closed on real traffic. Worth
 having once that set is backfilled — see the repository-list item.
 
-**What would change the picture:** any of these becoming real needs a *measurement* first — the
+**What would change the picture:** any of these becoming real needs a _measurement_ first — the
 Supabase request count is the tell, and the 2026-08-26 lesson was that 704 requests/hour looked like
 the website and was actually a 5-second poll. Do not scale on a hunch.
 
-## ☁️ Cloudflare — DNS MIGRATED 2026-09-01; one thing left
+## ☁️ Cloudflare — DNS migrated, DMARC enforcing; nothing owed
 
-Landed: DNS on Cloudflare, **grey-clouded deliberately** (Vercel advises against a proxy in front
-of it — it intercepts their ACME path and breaks cert renewal, and every free-tier WAF /
-rate-limit / Bot-Fight feature is proxy-gated, so grey-clouding forgoes nothing we could have
-used); **DNSSEC**; the **apex SPF** that was missing entirely; and **DMARC reporting**, which had
-been `p=none` with no `rua` and so monitored nothing.
+**Deliberately not doing, and each has a reason worth keeping:**
 
-- [ ] **DMARC `p=none` → `p=quarantine`**, after 2–4 weeks of reports. Time-gated, not
-      effort-gated. Not before — enforcing without data is how legitimate mail starts landing in
-      spam.
-
-**Deliberately not doing:** Workers, Pages, Zero Trust, Images, and **proxying the Railway origin**
-(`api.atlarix.dev`) — Cloudflare in front of a streaming SSE endpoint can buffer or time out and
-break token streaming for every desktop user. If that is ever revisited, do it alone and make a
-real streaming turn the acceptance test; `/health` would pass either way.
-
-**Turnstile — CLOSED 2026-09-01**, and not the way it was framed. What was actually happening:
-email/password signup was ENABLED on a project that never uses it, so `POST /auth/v1/signup` →
-confirm through a disposable inbox → `claim_signup_credit()` paid $1 without ever touching our UI.
-23 claims, $23. Closed twice on purpose — the dashboard toggle (Email off) AND
-`20260901100000_trial_credit_requires_oauth_identity.sql`, which refuses the grant unless
-`auth.identities` holds a non-email provider row. The toggle alone was not enough: it exists only
-in the dashboard, `supabase/config.toml`'s `[auth]` block is the LOCAL stack's, and re-enabling it
-would reopen the hole with nothing in the repo to show. **A payout rule belongs next to the
-payout** — and not as an allowlist of provider names, since adding a fourth provider later would
-silently stop paying the credit and nobody reports a dollar they never knew existed.
-
-- [ ] **Trial-credit residual — open, not urgent at $23.** The dedupe key is
-      `(kind='trial', ref=user_id)`, so the scarce thing is an account, and Google/GitHub accounts
-      are free. The durable answer ties the grant to something costlier — a payment method, or
-      account age — not a challenge; Turnstile could not have helped regardless, since that signup
-      happens on Google's site. The owner separately wants the credit raised to ~$5 "gated on a
-      verified account", which is the same decision from the other end. **Decision first, then
-      code.**
+- **Grey-clouded, not proxied.** Vercel advises against a proxy in front of it — it
+  intercepts their ACME path and breaks cert renewal, and every free-tier WAF / rate-limit /
+  Bot-Fight feature is proxy-gated, so grey-clouding forgoes nothing we could have used.
+- **Never proxy the Railway origin** (`api.atlarix.dev`). Cloudflare in front of a streaming
+  SSE endpoint can buffer or time out and break token streaming for every desktop user. If
+  it is ever revisited, do it alone and make a real streaming turn the acceptance test —
+  `/health` would pass either way.
+- **Cloudflare "DMARC Management" stays OFF.** It is report rendering, not policy, and it is
+  built on Email Routing — enabling that publishes Cloudflare MX on the apex, which would
+  displace Google Workspace and break the very mailbox the reports arrive in. If rendering is
+  ever wanted, add a second `rua` pointing at a third-party service: one address, no MX.
+- **DMARC is `p=quarantine; fo=1`, live 2026-09-09**, validated against five real aggregate
+  reports (6/6 pass). The one SPF failure was a forwarder covered by an aligned DKIM pass —
+  which is why `adkim=r` / `aspf=r` relaxed alignment must not be tightened without cause.
+- **Trial credit: GONE for everyone**, verified against the live service (`PGRST202`, not the
+  migration ledger). Do not re-propose it, at $1 or $5 or gated on anything.
 
 ## 🔐 Security follow-ups — owner-triaged, deferred
 
@@ -1134,6 +1040,43 @@ approval, MCP description wrapping + OAuth-URL validation, the universal write-c
 ---
 
 ## 🪤 Traps worth not rediscovering
+
+### Two classifiers, one object, opposite verdicts
+
+`isNetworkStreamError` followed `cause` but never `error`. The AI SDK hands `onError` an
+ENVELOPE — `{ error }`, not the error — so `String(envelope)` was `"[object Object]"`, the
+message regex matched nothing, and the network branch inside `onError` had **never once
+fired** for a request-phase failure. Meanwhile its sibling `isNoUsableModelOutputError`
+unwraps `.error` and therefore claimed the same object confidently. A dead socket was
+reported to the user as a model that would not answer.
+
+Neither classifier was wrong about the errors it was written for. What was wrong was that two
+functions inspecting the same value disagreed about its SHAPE, and nothing compared them.
+
+- **When two predicates over one value disagree, suspect the shape before the logic.** The
+  bug is rarely inside either function.
+- **A classifier that unwraps must unwrap everything its callers can hand it.** Following
+  `cause` and not `error` is not a partial fix; it is a fix that reads as complete.
+- **The verdict a classifier never renders leaves no trace.** There was no log line, no
+  Sentry event and no failed test, because the branch simply was not taken. Absence of
+  evidence looked exactly like absence of the failure.
+
+### An SDK can replace your error with its own
+
+The same incident, one layer up. When a request dies before any step completes, the AI SDK
+enqueues an `error` part, then its flush sees `recordedSteps.length === 0` and rejects the
+result promises with a **synthetic `NoOutputGeneratedError`** — discarding the original
+`APICallError` entirely, not even attached as a `cause`. So the only error a caller can catch
+describes a symptom the SDK inferred, not the failure that happened.
+
+- **Classify at the point where the real error still exists**, then carry the verdict forward.
+  `onError` sees the truth; the catch block does not.
+- **Ordering is the fix, not the addition.** The unwrap has to run BEFORE the branch that
+  matches the substitute error. Placed after it, it is dead code that looks like a fix.
+- **Retry machinery that is "already tested" can still be unreachable.** Both
+  `network-retry-socket-faults.test.ts` and `retry-jitter.test.ts` passed throughout: they
+  test the classifier and the delays, and nothing tested that anything ever calls them with
+  a real transport failure.
 
 ### A silent zero is the failure mode to design against, twice over
 
@@ -1230,8 +1173,15 @@ then invisible with nothing to explain why. It is unreachable (both insert paths
 it STAYS, because flipping a default in SQLite means rebuilding the table — the same cost as
 dropping the column. Changing it in `schema.ts` without a migration would be worse still: new
 installs would get one default and existing ones the other, so the schema would describe
-neither. Same reasoning keeps `installed_skills.scope`, which is part of a composite primary
+neither. Same reasoning kept `installed_skills.scope`, which is part of a composite primary
 key. **Narrow the TYPES, leave the columns.**
+
+**Except that `installed_skills` itself goes in v14.45** — the whole table, via a NEW
+migration, because the skills marketplace is being deleted and nothing else reads it. That
+does not weaken the rule above: dropping a table nothing uses is not the same as changing a
+column that live code binds. The old migrations (`0042`, `0049`) and their journal entries
+stay exactly as they are — they are applied history keyed by hash, and rewriting them breaks
+every existing install's ledger.
 
 ### A comment asking people to remember is not a control
 
@@ -1240,7 +1190,6 @@ link that silently does nothing", and cited `team` as a past instance. Then the 
 move deleted the `workflow`, `mcp` and `skills` sections — and would have left three more
 dead entries, for exactly the reason the comment described. `settings-nav-parity.test.ts` is
 the control now (and was verified to FAIL against a reintroduced dead entry before being kept).
-
 
 ### Moving DNS: the zone is bigger than the zone you can see
 
@@ -1299,18 +1248,16 @@ OAuth redirect, I stopped. **Auth flow and money flow are different questions** 
 A pure OAuth/OIDC redirect has nowhere to put one — `signInWithOAuth` takes no `captchaToken`, and
 the provider's own login page is where bot defence actually applies. Before budgeting the work, ask
 "does any auth endpoint take a credential in a request body I control?" If not, the item **closes**
-rather than defers. The trap is answering "add a CAPTCHA to login" without checking the auth *shape*
+rather than defers. The trap is answering "add a CAPTCHA to login" without checking the auth _shape_
 — and its mirror, which caught me here: having concluded that, do not then assume there is nothing
-to protect. `claim_signup_credit()` is an RPC that pays out real money per account and *could* carry
+to protect. `claim_signup_credit()` is an RPC that pays out real money per account and _could_ carry
 a token. Auth flow and money flow are different questions.
 
 ### A `sql` template does not qualify its columns — a subquery can silently self-compare
 
-`sql\`select count(*) from ${sessionMessages} where ${sessionMessages.sessionId} = ${chatSessions.id}\``
-renders BOTH sides unqualified: `where "session_id" = "id"`. Inside the subquery both names resolve
-against `session_messages`, which has its own `id`, so every row compared its `session_id` to its own
-`id` and the count was **structurally always zero**. It returned a plausible number, never threw, and
-drove a delete. Use a `leftJoin` + `groupBy` where the query builder qualifies for you; if a raw
+`sql\`select count(\*) from ${sessionMessages} where ${sessionMessages.sessionId} = ${chatSessions.id}\``renders BOTH sides unqualified:`where "session_id" = "id"`. Inside the subquery both names resolve
+against `session_messages`, which has its own `id`, so every row compared its `session_id`to its own`id`and the count was **structurally always zero**. It returned a plausible number, never threw, and
+drove a delete. Use a`leftJoin`+`groupBy` where the query builder qualifies for you; if a raw
 template is unavoidable, write the table prefixes by hand and test the count against a seeded row.
 
 The general form: **a query that returns a WRONG number is worse than one that throws**, and an
@@ -1334,7 +1281,6 @@ reply", because reply length has no relationship to window size. Subtract a real
 BPE collapses a run of one character to a couple of tokens, so a 70,000-character fixture built that
 way scores ~300 and every size assertion around it is vacuous. Build fixtures from varied text, and
 MEASURE them rather than assuming chars ÷ 4.
-
 
 ### An audit list is not the runtime gate
 
@@ -1361,7 +1307,6 @@ literal string, and changing it needs a migration.
 Corollary, learned the same hour: after writing a test for a bug, break the fix on purpose and
 confirm the test fails. Three mutations were tried here; the first version of the suite caught two.
 
-
 ### The local typecheck and CI's typecheck are DIFFERENT PROJECTS
 
 `npx tsc --noEmit -p tsconfig.json` passes on code that `npm run check:ts` rejects. CI runs the
@@ -1372,7 +1317,6 @@ latter, which is `tsc -p **tsconfig.app.json**` — and that is the project that
 **Run `npm run check:ts`, not a hand-rolled `tsc -p tsconfig.json`.** The launchpad has the mirror
 of this and its own note says so: "typechecked with tsconfig.app.json — the root tsconfig does not
 check src". Same shape, two repos. A gate that does not run CI's own command is not the gate.
-
 
 ### An audit line that RE-DERIVES a decision will eventually state the opposite of it
 
@@ -1387,7 +1331,6 @@ Sibling of "a comment claiming containment is not containment", and worse in one
 misleads whoever reads the code, an audit line misleads whoever is reconstructing an incident, which
 is the moment you can least afford it. **Any log asserting a security property must read the value
 that decided it, never recompute the condition.**
-
 
 ### A tool's own enum must be MAPPED, not compared against two values
 
@@ -1404,7 +1347,6 @@ supplies a field the production payload does not, it is testing a shape that nev
 
 Sibling of the "Runned <tool>" label trap: a new tool needs LABELS/DONE_LABELS and an expand-view
 branch — and now also a mapping for every value of its own operation enum.
-
 
 ### The prompt stated no workspace root, so an agent inverted the memory slug into one
 
@@ -1428,7 +1370,6 @@ reverted. **Paying for defensive prose in the cache prefix on every turn of ever
 one weak model's inference, is the surface growth the harness filter exists to stop.** State missing
 facts; do not argue with bad guesses.
 
-
 ### A redirect Supabase does not recognise is not refused — it is REPLACED
 
 GoTrue compiles every Redirect-URLs entry into a glob (separators `.` and `/`) and matches the
@@ -1445,7 +1386,6 @@ itself, byte for byte, against the string the client actually sends.
 **The generalisation:** a redirect URI is a shared constant that lives half in a dashboard nobody
 diffs. Whenever one is built by concatenation, print it and compare it to the allowlist entry
 character by character — `://` + `/path` is two slashes plus one.
-
 
 ### Deleting railway.toml FLIPS the builder — an 8-minute outage
 
@@ -1510,6 +1450,7 @@ and nothing surfaces it. So the Actions budget problem is not only about red bad
 stops shipping.
 
 **Two consequences for the flow:**
+
 - **Flip the repo public BEFORE the push, not after.** Railway evaluates the check suite as it
   lands; a CI run that goes green later does not retrigger the deploy.
 - `railway redeploy` **redeploys the last deployment's commit**, which is the OLD one — it looks
@@ -1555,7 +1496,7 @@ in `git log -- docs/TODO.md` and `CHANGELOG.md`.
 ### Packaging, signing and native modules
 
 - **`configureWebAuthn` before `whenReady` = SIGTRAP, exit 133** — `EXC_BREAKPOINT`, no exception, no
-  log, nothing a `try/catch` sees. Electron's "call it early" means early *within* the ready phase.
+  log, nothing a `try/catch` sees. Electron's "call it early" means early _within_ the ready phase.
 - **`keychain-access-groups` on a nested binary = SIGKILL, exit 137** — while `codesign -v` calls it
   "valid on disk" and says it satisfies its Designated Requirement. Two plists: the group goes on the
   **top-level bundle only**, selected by `!filePath.includes(".app/")` (osx-sign's own test).
@@ -1567,7 +1508,7 @@ in `git log -- docs/TODO.md` and `CHANGELOG.md`.
 - **A restricted entitlement needs an embedded provisioning profile, or the kernel SIGKILLs the app
   on exec — while `codesign -v` still calls it valid.** `keychain-access-groups` is one. Signing
   succeeds, the signature IS valid, and AMFI refuses the exec anyway, because codesign validates the
-  signature and AMFI validates the *authorisation*. Two different gates. Cost v14.35.0 two tags.
+  signature and AMFI validates the _authorisation_. Two different gates. Cost v14.35.0 two tags.
 - **A local package is ad-hoc signed, so NO entitlement can be tested locally.** `postPackage`
   re-signs with `--force --deep --sign -` (because `packageAfterPrune` strips files after packager
   signs), so the bundle ends up `flags=0x2(adhoc)` with no entitlements and no hardened runtime.
@@ -1617,20 +1558,19 @@ in `git log -- docs/TODO.md` and `CHANGELOG.md`.
   for that release — the lesson is that a green macOS/Linux matrix says nothing about
   the Windows job, which is also the only one that runs the test suite on Windows.
 
-
 - **Verify the artefact users reach, not the one you just wrote.** `/releases/latest` is picked by
   `created_at`, and `atlarix-releases` has ONE commit — every release ties, and the tie never breaks
   forward. Needs `make_latest` plus a read-back of `/releases/latest` itself.
 - **`curl -sS` exits 0 on an HTTP error.** A 503 mid-publish shipped a release as a DRAFT with all 12
   assets attached and every job green. Retry, then read the release back.
 - **A 4–10 second failure with no retrievable log is a BILLING problem**, and the cause is only in
-  the run **annotations**: *"The job was not started because an Actions budget is preventing further
-  use."* Workaround is flipping the repo private → public for the release window (Actions is free on
+  the run **annotations**: _"The job was not started because an Actions budget is preventing further
+  use."_ Workaround is flipping the repo private → public for the release window (Actions is free on
   public) — ask first, and remember clones made during the window persist.
 - **A hung job writes NO log** — `build-linux` sat 79 minutes on `apt-get` (11s the release before).
   Watch the **step's** `started_at`, not the run's. `cancel` + `rerun --failed` is lossless:
   successful jobs keep their outputs and uploaded assets are untouched.
-- **Duplicate asset uploads 422 *green* while keeping the OLD asset** — delete the draft before
+- **Duplicate asset uploads 422 _green_ while keeping the OLD asset** — delete the draft before
   re-tagging.
 - **Verify `extract-changelog.sh` matches your heading BEFORE tagging.** The workflow passes
   `${TAG#v}`, so the `v` is stripped; the body must exceed 700 bytes or it is the bare download list.
@@ -1651,18 +1591,20 @@ in `git log -- docs/TODO.md` and `CHANGELOG.md`.
   `{"upToDate":true,"migrations":[]}`. Both readings are exactly what you would see if the migration
   had silently never applied. A row in `supabase_migrations.schema_migrations` is a claim that the
   file ran, not evidence that the objects changed. **Verify against the database.** `supabase db
-  query --linked` exists and needs no password:
+query --linked` exists and needs no password:
 
-      -- did the body actually change?
-      select position('<a token unique to the new body>' in pg_get_functiondef(p.oid))
-      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-      where n.nspname = 'public' and p.proname = '<fn>';
-
-      -- and did the grants survive? (see the PUBLIC trap below)
-      select array_to_string(p.proacl, ' | ') from pg_proc p … ;
+  ```sql
+  -- did the body actually change?
+  select position('<a token unique to the new body>' in pg_get_functiondef(p.oid))
+  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public' and p.proname = '<fn>';
+  -- and did the grants survive? (see the PUBLIC trap below)
+  select array_to_string(p.proacl, ' | ') from pg_proc p … ;
+  ```
 
   A correct-looking `proacl` is `authenticated=X/postgres | service_role=X/postgres` — a bare
   `=X/postgres` entry with no role before the `=` IS the PUBLIC grant.
+
 - **After ANY `CREATE OR REPLACE` of a DEFINER function, read `proacl` back.** Postgres re-adds the
   default PUBLIC grant on replace, so a migration written to NARROW a function widens it unless the
   `REVOKE … FROM PUBLIC` is re-asserted — and the migration succeeds either way. This is how
@@ -1708,7 +1650,7 @@ in `git log -- docs/TODO.md` and `CHANGELOG.md`.
 
 - **A decision that is GLOBAL cannot be made from per-window state** — and its mirror, a per-window
   decision made from global settings, put a Build turn in a read-only sandbox (`cannot lock ref
-  'HEAD'`) across five sites, triggered by an EFFECT on window open with no click. Concatenate
+'HEAD'`) across five sites, triggered by an EFFECT on window open with no click. Concatenate
   `main.old.log` + `main.log` when reading either. A runaway also ACCELERATES as history grows, so a
   feedback loop is easier to spot by its changing period than its rate.
 - **The preload strips the Electron event** — renderer listeners must be `(payload) =>`; 11 written
@@ -1734,7 +1676,7 @@ in `git log -- docs/TODO.md` and `CHANGELOG.md`.
   `LanguageModelV2 | LanguageModelV3` and needed a hand-edit every SDK major; `AtlarixLanguageModel`
   makes the next spec bump free.
 - **A raw NUL byte makes ripgrep silently skip a file** in a recursive search — the `binary file
-  matches` notice only prints for files named explicitly. Four of our own source files were
+matches` notice only prints for files named explicitly. Four of our own source files were
   unsearchable, and `git diff` showed three as `Bin`, so review could not see them either. Write
   `\u0000`.
 - **Every NEW tool needs `LABELS`/`DONE_LABELS` entries and a `buildToolExpandView` branch**, or the
@@ -1815,9 +1757,9 @@ in `git log -- docs/TODO.md` and `CHANGELOG.md`.
 ## ✔️ Checked and CORRECT as-is — do not "fix" these
 
 From the 2026-08-05 hardcoding sweep and the v14.26.0 permission-surface audit. The test in every case
-is *what happens when the list is incomplete*; the reasoning is in git and `DESIGN_NOTES.md`.
+is _what happens when the list is incomplete_; the reasoning is in git and `DESIGN_NOTES.md`.
 
-- **`defaultWritablePaths`** (`lib/sandbox/wrap-command.ts`) — a *write* allowlist; incomplete fails
+- **`defaultWritablePaths`** (`lib/sandbox/wrap-command.ts`) — a _write_ allowlist; incomplete fails
   CLOSED into the escalation flow. Probing `$HOME` dynamically would WIDEN the sandbox.
 - **`DANGEROUS_PATTERNS`** / **`SYSTEM_SCOPE_PATTERNS`** — UX gates, not boundaries; the sandbox
   catches anything unlisted.
@@ -1848,32 +1790,16 @@ is *what happens when the list is incomplete*; the reasoning is in git and `DESI
   cost; how Devin and Copilot-in-Slack win). (b) A **shared, observable agent session** — a war room
   where teammates watch one run live, drop steering comments, approve actions and hand off, tied to
   the Workforce tier. The chat shell is not the differentiator;
-  the shared *agent* session is. Capture, don't build yet.
+  the shared _agent_ session is. Capture, don't build yet.
 
 ---
 
 ## 📦 Shipped — index
 
-Full prose in [`CHANGELOG.md`](./CHANGELOG.md) (current window) and
-[`CHANGELOG_PREVIOUS.md`](./CHANGELOG_PREVIOUS.md) (archive). This table is the version → trap map;
-the traps themselves are consolidated above.
+Version prose lives in [`CHANGELOG.md`](./CHANGELOG.md) (current window) and
+[`CHANGELOG_PREVIOUS.md`](./CHANGELOG_PREVIOUS.md) (one line per older version).
 
-| Version | Shipped | Trap |
-| --- | --- | --- |
-| **v14.39.1** | The compaction summary hidden from the chat and from `session_search`; the marker identified by a DB column instead of its first bytes; telemetry stopped writing before consent; error reports disclosed; every public data claim reconciled with the code | A comment is not a control: `showExtraFilesToast` opened with "NEVER send `files` — these are absolute paths" and then sent git's raw error, which quotes those same paths. `before_send` dropping events is not the same as writing nothing — `posthog.init` writes a distinct id to localStorage **and** a cookie before consent exists; gate INITIALISATION, not `persistence`, or you re-break `$session_id` continuity. A durable record must be identified STRUCTURALLY: `flattenNativeForCompaction` renders tool results as `{role:"user", content:"<tool_result …>"}`, the exact shape a text-matched marker keys on. Filter a hidden row at the RENDER choke point only — `hydrateSessionIntoChat` builds the model transport's refs from the same list the UI shows, so filtering earlier silently disables the compaction slice. |
-| **v14.39.0** | One compaction system — one summariser, three triggers, one durable marker; `session_search` to read behind it; drop-turns-first reordered to summarise-first; a turn envelope that stops growing; auxiliary sub-agent spend counted; the always-zero session message count fixed | An aggregate `sql` template that does not qualify its columns can self-compare and return 0 forever — here it fed `delete(chatSessions)`. Five absolute token constants each silently switched their own compaction step off on a small window: size every floor as a FRACTION of the budget it protects within. `"x".repeat(70_000)` scores ~300 tokens because BPE collapses a single-character run, so a "70K" fixture measures nothing — size fixtures in TOKENS and prove each test targets the band only its own step can act in. A guard that refuses on `updatedAt !== createdAt` will refuse forever once any bookkeeping write touches the row: binding a transport is not activity, and prune (destructive) and reuse (not) must not share a condition. |
-| **v14.38.1** | Usage bar as a percentage; purchased-credit headline; per-product allowance % and spend on the account page; two startup bugs | A module-level rule is not enforcement — `billing_copy.ts` forbids printing the allowance in dollars and the first thing that rendered it broke that rule. `vi.mock("electron")` does NOT reach a `createRequire` consumer, and `log.scope(name)` returns a NEW logger per call — both produce a green test that asserts nothing. **Confirm a regression test FAILS against the old code before keeping it.** `--doctor` never called `initializeDatabase()`; a bare `catch {}` reported that as the user's database being broken, next to a `Local database: OK` row. |
-| **v14.38.0** | Core included with Pro; the refund path the subscription wallet shipped without; browser tools on localhost; what's-new panel | A refund must reduce a period total by the amount **taken**, not the amount requested, or consumed exceeds total. Backfill a new column from the LEDGER, not from the remaining balance. A `WebContentsView` never added to the hierarchy lays out at ZERO WIDTH, so every answer about the page is plausibly wrong. Resolve a refund's account from the subscription row ONLY — taking from the wrong account is worse than granting to one. |
-| **v14.37.0** | Deep thinking on Core and every OpenAI-compatible provider; lines-written stats; web-search query fidelity | `compass` is a WIRE id, not a vendor: dispatch keys off the wire provider, capability off the vendor. A camelCase `reasoningEffort` sends NOTHING and throws nothing — assert on the DISPATCHED request. Anything reporting on a turn must read what dispatched, not what was selected, or a Core fallback files its work under the user's own key. |
-| **v14.36.0** | Diagnostics panel + `--doctor`; the database dead-end; per-session work mode; cold-chat eviction; debug routed like build; memory location at the top of the prompt | A new IPC channel is TWO edits — handler AND preload allowlist; three were missing and one (`sessions:snapshot-turn-ids`) was a live pre-existing bug behind a silent `catch {}`. A test that supplies the argument itself proves nothing about whether production passes it: four of five work modes lacked the memory path. Request counts did not distinguish the ask and build runners — diffing IPC channels did. `operation-targets` ended `default: break`, so an unknown operation was gated against nothing. |
-| **v14.35.0** | Electron 43, Touch ID passkeys, browser-backed web search, the spec-line majors, 54 → 28 advisories, the Dyad-era removal, the ban system, four plan-tracking fixes | Two silent macOS packaging traps (SIGTRAP 133, SIGKILL 137). `response.messages` became final-step-only. A stale `CREATE OR REPLACE` body nearly broke every client write to `users`. A NUL byte makes ripgrep skip a file. `created_at` is whole seconds. The plan ledger went stale at the **round** boundary, not the step boundary — `run-agent-turn` restarts `stepNumber` at 0 per round, so a take-once queue was already drained. Measured web search: 24/29/25 results where DDG and five public SearxNG instances returned 0/0/0. |
-| **v14.34.0** | Atlarix tests its own work; two windows stop fighting over one mode | A per-window decision made from GLOBAL settings put a Build turn in a read-only sandbox, across five sites, triggered by an effect on window open. Truncation was discarding 99% of its own budget and reordering. Sub-agents had **no way to ask**, which read as safety and was why they could not run commands. |
-| **v14.33.0** | automations that tell the agent; `operation:"run"` | Published ≠ latest, and `curl -sS` exits 0 on an HTTP error. **Verify the artefact users reach.** |
-| **v14.32.0** | native PDF parts; process-tree kill; `read_url` cache; browser panels per page load | A GLOBAL decision cannot be made from per-window state — 84 turn restarts in six minutes. Capability gating is **per MODEL**, never per provider (OpenAI accepts PDF on 15 of 47). `proc.killed` only records that you signalled. |
-| **v14.31.0** | Network tab; browser runtime gating removed; session-restore hang | `Network.enable` **hangs forever** on a never-navigated tab. A `Notification` unreferenced after `show()` is GC'd mid-display → native SIGSEGV. A broadcast that skips the empty case cannot clear a loading flag. |
-| **v14.30.0** | on-device dictation on Windows/Linux; ORT served from inside the app | An error names the model that **reported** it. `postinstall`'s trailing `\|\| true` guards patch-package, not the Electron install. |
-| **v14.29.0** | automated Store submission; WSL Landlock confinement | `latest-mac.yml` is arm64-only by design. Duplicate asset uploads 422 green while keeping the OLD asset. |
-| **v14.28.0** | MSIX on every tag; Windows sandbox rebuilt on Low IL | AppContainer is deny-by-default on **reads**. `cargo check --target …-msvc` works from macOS; `cargo build` proves nothing. |
-| **v14.27.0** | credentials stop vanishing; agent-visible automations | The preload strips the Electron event. `useAuth.loading` cannot distinguish "signed out" from "not known yet". |
-| **v14.26.0** | one engine for every file lookup; one answer per permission question | A Windows drive-letter colon is not a field separator. `path.isAbsolute("C:\\x")` is false on macOS. |
-| **v14.25.0** | honest context accounting; skills on demand; one grant list | A delta cache froze the newest row; `compatibleModes: [Debug]` silently meant EVERY mode; `ContextAssembler`'s budget is `Infinity`, so its trimReport is always empty. |
+**The version → trap table that used to sit here is gone.** It restated the traps that are
+consolidated in §Traps above, in a second wording, in a table wide enough that nobody read
+either — and two copies of a lesson is how one of them ends up contradicting the code. If
+you want to know which release a trap came from, `git log -S` the phrase.

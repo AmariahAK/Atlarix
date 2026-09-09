@@ -66,8 +66,14 @@ export async function runSubagentCommandViaParent(opts: {
   envelope: unknown;
   abortSignal?: AbortSignal;
 }): Promise<SubagentCommandOutcome> {
-  const { chatId, agentName, workspaceId, workspacePath, envelope, abortSignal } =
-    opts;
+  const {
+    chatId,
+    agentName,
+    workspaceId,
+    workspacePath,
+    envelope,
+    abortSignal,
+  } = opts;
 
   if (chatId == null) {
     return {

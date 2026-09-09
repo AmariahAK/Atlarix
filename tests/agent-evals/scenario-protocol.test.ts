@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { startFakeLlmServer, scenario, type FakeLlmServer } from "../infra/scenario";
+import {
+  startFakeLlmServer,
+  scenario,
+  type FakeLlmServer,
+} from "../infra/scenario";
 
 /**
  * Protocol canary: AI SDK (createOpenAICompatible + streamText) against the
@@ -25,7 +29,9 @@ describe("AI SDK against scenario server", () => {
         .build(),
     );
 
-    const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
+    const { createOpenAICompatible } = await import(
+      "@ai-sdk/openai-compatible"
+    );
     const { streamText, jsonSchema } = await import("ai");
 
     const provider = createOpenAICompatible({
@@ -58,8 +64,10 @@ describe("AI SDK against scenario server", () => {
     let text = "";
     for await (const part of result.fullStream) {
       parts.push(part.type);
-      if (part.type === "text-delta") text += (part as any).text ?? (part as any).textDelta ?? "";
-      if (part.type === "error") console.error("DIAG stream error:", (part as any).error);
+      if (part.type === "text-delta")
+        text += (part as any).text ?? (part as any).textDelta ?? "";
+      if (part.type === "error")
+        console.error("DIAG stream error:", (part as any).error);
     }
     console.error("DIAG parts:", parts.join(", "));
     console.error("DIAG text:", JSON.stringify(text));

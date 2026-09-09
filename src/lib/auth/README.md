@@ -5,14 +5,18 @@ This directory contains the OAuth authentication infrastructure for Atlarix.
 ## Files
 
 ### `oauth-config.ts`
+
 Configuration for Google and GitHub OAuth providers:
+
 - Client IDs and redirect URIs
 - OAuth scopes
 - Backend API endpoints
 - Token exchange URLs
 
 ### `useAuth.ts`
+
 React hook for authentication:
+
 - Sign in with Google/GitHub
 - Token management
 - User status fetching
@@ -52,11 +56,11 @@ ATLARIX_API_URL=https:// atlarix-api.fly.dev
 3. Go to [GitHub Developer Settings → OAuth Apps](https://github.com/settings/developers) → **New OAuth App**.
 4. Application name: Atlarix. Homepage URL: `https://atlarix.dev`. **Authorization callback URL**: paste the Supabase callback URL from step 2.
 5. Copy **Client ID** and **Client Secret** from GitHub into Supabase (Authentication → Providers → GitHub). Save.
-> **There is no second GitHub credential.** A device-flow `OAUTH_CLIENT_ID` used to live here for
-> the in-app repo clone; that feature was removed in v14.41.0 (cloning is `git clone` through
-> `run_command`, with the user's own auth), and the variable with it. Steps 1-5 are the whole
-> GitHub setup: Supabase holds the Client ID and Secret server-side, and Atlarix never reads them.
-> Two GitHub credentials for unrelated reasons is what made users think this one was their sign-in.
+   > **There is no second GitHub credential.** A device-flow `OAUTH_CLIENT_ID` used to live here for
+   > the in-app repo clone; that feature was removed in v14.41.0 (cloning is `git clone` through
+   > `run_command`, with the user's own auth), and the variable with it. Steps 1-5 are the whole
+   > GitHub setup: Supabase holds the Client ID and Secret server-side, and Atlarix never reads them.
+   > Two GitHub credentials for unrelated reasons is what made users think this one was their sign-in.
 
 ### 3. Protocol Handler
 
@@ -101,29 +105,30 @@ atlarix://*/auth/callback      <- covers v14.38.3 and earlier
 
 **The three-slash string cannot be entered literally** — the dashboard's validator rejects
 a URL with an empty host ("Please provide a valid URL"). `atlarix://*/auth/callback` is the
-way in: GoTrue's `*` matches a sequence of non-separator characters *including the empty
-one*, so it matches the empty host, while `/` remains a separator it will not cross.
+way in: GoTrue's `*` matches a sequence of non-separator characters _including the empty
+one_, so it matches the empty host, while `/` remains a separator it will not cross.
 
 Verified 2026-08-29 against `gobwas/glob` compiled the way GoTrue compiles it
 (`glob.Compile(uri, '.', '/')`):
 
-| pattern | `atlarix:///auth/callback` | `atlarix://auth/callback` | `atlarix://mcp/oauth/callback` |
-| --- | --- | --- | --- |
-| `atlarix://auth/callback` | no | **match** | no |
-| `atlarix://*/auth/callback` | **match** | no | no |
-| `atlarix://**` | match | match | match |
+| pattern                     | `atlarix:///auth/callback` | `atlarix://auth/callback` | `atlarix://mcp/oauth/callback` |
+| --------------------------- | -------------------------- | ------------------------- | ------------------------------ |
+| `atlarix://auth/callback`   | no                         | **match**                 | no                             |
+| `atlarix://*/auth/callback` | **match**                  | no                        | no                             |
+| `atlarix://**`              | match                      | match                     | match                          |
 
 Neither pattern covers the other, so **keep both**. And do not reach for `atlarix://**`:
 it also makes `atlarix://mcp/oauth/callback` a legal OAuth redirect target, which is the
 MCP handler's deep link, not an auth one.
 
-`supabase/config.toml` does **not** hold this list. Its `[auth]` block is the *local dev*
+`supabase/config.toml` does **not** hold this list. Its `[auth]` block is the _local dev_
 stack's config (`site_url = "http://127.0.0.1:3000"`), so `supabase config push` would
 overwrite the hosted Site URL with localhost. Edit the hosted list in the dashboard.
 
 ### 5. Backend Integration
 
 The backend API at `atlarix-api.fly.dev` handles:
+
 - Token exchange (authorization code → access token)
 - User creation/lookup
 - Subscription status
@@ -132,10 +137,11 @@ The backend API at `atlarix-api.fly.dev` handles:
 ## Usage
 
 ```tsx
-import { useAuth } from '@/lib/auth/useAuth';
+import { useAuth } from "@/lib/auth/useAuth";
 
 function MyComponent() {
-  const { user, status, signInWithGoogle, signInWithGitHub, signOut } = useAuth();
+  const { user, status, signInWithGoogle, signInWithGitHub, signOut } =
+    useAuth();
 
   if (!user) {
     return (
@@ -150,7 +156,7 @@ function MyComponent() {
     <div>
       <p>Welcome, {user.name}!</p>
       <p>Plan: {status?.plan}</p>
-      <p>Prompts remaining: {status?.prompts_remaining || 'Unlimited'}</p>
+      <p>Prompts remaining: {status?.prompts_remaining || "Unlimited"}</p>
       <button onClick={signOut}>Sign Out</button>
     </div>
   );

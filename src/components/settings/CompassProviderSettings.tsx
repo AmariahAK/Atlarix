@@ -21,8 +21,8 @@ export function CompassProviderSettings() {
   return (
     <div className="mt-6 space-y-6">
       <p className="text-sm text-muted-foreground">
-        <strong>{ATLARIX_CORE_CATEGORY_LABEL}</strong> models need no API key. Every plan
-        can use all of them. {CORE_PAYMENT_SUMMARY}
+        <strong>{ATLARIX_CORE_CATEGORY_LABEL}</strong> models need no API key.
+        Every plan can use all of them. {CORE_PAYMENT_SUMMARY}
       </p>
 
       <div className="space-y-4">

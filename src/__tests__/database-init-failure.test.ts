@@ -73,7 +73,9 @@ describe("a downgrade — the case whose advice is the opposite", () => {
   // Load-bearing wording: "latest" would send someone who rolled back to install
   // the same old build again, or worse, over the data this branch protects.
   it("points at the NEWER version, never the latest", () => {
-    expect(describeDatabaseInitFailure(err).primaryActionLabel).toMatch(/newer/i);
+    expect(describeDatabaseInitFailure(err).primaryActionLabel).toMatch(
+      /newer/i,
+    );
     expect(describeDatabaseInitFailure(err).primaryActionLabel).not.toMatch(
       /latest/i,
     );
@@ -89,7 +91,9 @@ describe("storage failures", () => {
       "EROFS: read-only file system",
       "attempt to write a readonly database",
     ]) {
-      expect(describeDatabaseInitFailure(new Error(msg)).kind, msg).toBe("storage");
+      expect(describeDatabaseInitFailure(new Error(msg)).kind, msg).toBe(
+        "storage",
+      );
     }
   });
 });

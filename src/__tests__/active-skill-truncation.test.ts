@@ -30,7 +30,9 @@ const activeSkill = (out: ReturnType<typeof assemble>) =>
 
 describe("activeSkill truncation flag", () => {
   it("is FALSE for a normal mode skill that ends with a newline", () => {
-    const out = assemble("[Active Skill: modes/build-mode]\nYou are in Build mode.\n");
+    const out = assemble(
+      "[Active Skill: modes/build-mode]\nYou are in Build mode.\n",
+    );
     expect(activeSkill(out).truncated).toBe(false);
   });
 
@@ -56,8 +58,12 @@ describe("activeSkill truncation flag", () => {
   });
 
   it("a normal turn produces no truncated/dropped footnote at all", () => {
-    const out = assemble("[Active Skill: modes/review-mode]\nRead-only review.\n");
-    const flagged = out.assembledPromptSections.filter((s) => !s.included || s.truncated);
+    const out = assemble(
+      "[Active Skill: modes/review-mode]\nRead-only review.\n",
+    );
+    const flagged = out.assembledPromptSections.filter(
+      (s) => !s.included || s.truncated,
+    );
     expect(flagged).toEqual([]);
   });
 });

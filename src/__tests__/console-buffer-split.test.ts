@@ -171,7 +171,9 @@ describe("IPC fan-out", () => {
     pushBrowserSurfaceError(scope, consoleEntry("error", "boom"));
     const batches = sent.filter((s) => s.channel === "browser:console");
     expect(batches).toHaveLength(1);
-    expect((batches[0].payload as BrowserSurfaceError[])[0].message).toBe("boom");
+    expect((batches[0].payload as BrowserSurfaceError[])[0].message).toBe(
+      "boom",
+    );
   });
 
   it("noisy levels are coalesced rather than sent per entry", async () => {
@@ -186,7 +188,7 @@ describe("IPC fan-out", () => {
 
     const batches = sent.filter((s) => s.channel === "browser:console");
     expect(batches).toHaveLength(1);
-    expect((batches[0].payload as BrowserSurfaceError[])).toHaveLength(50);
+    expect(batches[0].payload as BrowserSurfaceError[]).toHaveLength(50);
   });
 });
 
@@ -197,7 +199,13 @@ describe("per-tab console isolation", () => {
   });
 
   function tabEntry(tabId: number, message: string): BrowserSurfaceError {
-    return { type: "console-error", level: "log", message, timestamp: Date.now(), tabId };
+    return {
+      type: "console-error",
+      level: "log",
+      message,
+      timestamp: Date.now(),
+      tabId,
+    };
   }
 
   it("a tab logging in a loop cannot evict another tab's history", () => {
@@ -213,9 +221,13 @@ describe("per-tab console isolation", () => {
     }
 
     const entries = getBrowserConsoleEntries(scope);
-    expect(entries.some((e) => e.message === "the one that matters")).toBe(true);
+    expect(entries.some((e) => e.message === "the one that matters")).toBe(
+      true,
+    );
     // The noisy tab is held to its own budget rather than the whole window's.
-    expect(entries.filter((e) => e.tabId === 2).length).toBeLessThanOrEqual(200);
+    expect(entries.filter((e) => e.tabId === 2).length).toBeLessThanOrEqual(
+      200,
+    );
   });
 
   it("keeps the noisy tab's NEWEST entries", () => {
@@ -310,6 +322,8 @@ describe("capture with the panel closed", () => {
     expect(getBrowserSurfaceNetworkFailures(scope)).toHaveLength(1);
     // And it still reaches the renderer, so the unread badge is right the moment
     // the panel is reopened rather than starting from zero.
-    expect(sent.filter((s) => s.channel === "browser:console").length).toBeGreaterThan(0);
+    expect(
+      sent.filter((s) => s.channel === "browser:console").length,
+    ).toBeGreaterThan(0);
   });
 });

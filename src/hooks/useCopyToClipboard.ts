@@ -107,7 +107,7 @@ export const useCopyToClipboard = () => {
       case "atlarix-code-search":
       case "atlarix-code-search-result":
       case "atlarix-read":
-        return "";  // Don't include in copy output
+        return ""; // Don't include in copy output
 
       case "atlarix-write": {
         const writePath = attributes.path || "file";

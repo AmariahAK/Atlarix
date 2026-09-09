@@ -8,7 +8,9 @@ import { IpcClient } from "@/ipc/ipc_client";
 export function PerfDevOverlayHost() {
   const [enabled, setEnabled] = useState(false);
   const [packaged, setPackaged] = useState(true);
-  const [snapshot, setSnapshot] = useState<{ name: string; ms: number; at: number }[]>([]);
+  const [snapshot, setSnapshot] = useState<
+    { name: string; ms: number; at: number }[]
+  >([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -42,7 +44,12 @@ export function PerfDevOverlayHost() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (packaged) return;
-      if (e.ctrlKey && e.shiftKey && e.altKey && (e.key === "p" || e.key === "P")) {
+      if (
+        e.ctrlKey &&
+        e.shiftKey &&
+        e.altKey &&
+        (e.key === "p" || e.key === "P")
+      ) {
         e.preventDefault();
         setEnabled((v) => !v);
       }
@@ -68,19 +75,19 @@ export function PerfDevOverlayHost() {
           Close
         </button>
       </div>
-      <p className="mb-2 text-muted-foreground">Ctrl+Shift+Alt+P toggles. Data from main process only.</p>
+      <p className="mb-2 text-muted-foreground">
+        Ctrl+Shift+Alt+P toggles. Data from main process only.
+      </p>
       <ul className="max-h-48 space-y-1 overflow-y-auto font-mono text-[10px]">
         {snapshot.length === 0 ? (
           <li className="text-muted-foreground">No tool timings yet.</li>
         ) : (
-          [...snapshot]
-            .reverse()
-            .map((row, i) => (
-              <li key={`${row.at}-${i}`} className="flex justify-between gap-2">
-                <span className="truncate text-foreground">{row.name}</span>
-                <span className="shrink-0 text-muted-foreground">{row.ms}ms</span>
-              </li>
-            ))
+          [...snapshot].reverse().map((row, i) => (
+            <li key={`${row.at}-${i}`} className="flex justify-between gap-2">
+              <span className="truncate text-foreground">{row.name}</span>
+              <span className="shrink-0 text-muted-foreground">{row.ms}ms</span>
+            </li>
+          ))
         )}
       </ul>
     </div>

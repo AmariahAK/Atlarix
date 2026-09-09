@@ -14,7 +14,16 @@
  * external imports, no globals — that is the whole constraint that keeps it so.
  */
 
-export type BillingProduct = "pro" | "reviewer";
+/**
+ * The one product that grants a Core allowance.
+ *
+ * A union of one, deliberately, rather than deleting the type: `credit_grants` is keyed by
+ * (user_id, product) and every grant RPC takes the argument, so the concept is still real
+ * in the schema even though there is only one member. Adding a second product means
+ * widening this AND restoring the classifier that used to sit below — see the git history
+ * for `productOf`, removed 2026-09-08 with the second subscription.
+ */
+export type BillingProduct = "pro";
 
 /**
  * The subscription-invoice fields a refund event carries, as they actually
@@ -29,7 +38,8 @@ export type RefundAmounts = {
 
 /** A finite, positive number or null. Strings that look numeric do not count. */
 function positiveNumber(value: unknown): number | null {
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return null;
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0)
+    return null;
   return value;
 }
 
@@ -59,8 +69,10 @@ export type RefundFraction = {
  */
 export function refundFraction(amounts: RefundAmounts): RefundFraction {
   const refunded = positiveNumber(amounts.refunded_amount);
-  const basis = positiveNumber(amounts.total) ?? positiveNumber(amounts.subtotal);
-  if (refunded === null || basis === null) return { fraction: 1, assumedFull: true };
+  const basis =
+    positiveNumber(amounts.total) ?? positiveNumber(amounts.subtotal);
+  if (refunded === null || basis === null)
+    return { fraction: 1, assumedFull: true };
   return { fraction: Math.min(1, refunded / basis), assumedFull: false };
 }
 
@@ -72,7 +84,10 @@ export function refundFraction(amounts: RefundAmounts): RefundFraction {
  * behind on every rounding-error refund, and a grant that never quite empties
  * is a grant that keeps a subscription alive after it was refunded.
  */
-export function grantClawbackCents(monthlyGrantCents: number, fraction: number): number {
+export function grantClawbackCents(
+  monthlyGrantCents: number,
+  fraction: number,
+): number {
   if (!Number.isFinite(monthlyGrantCents) || monthlyGrantCents <= 0) return 0;
   const clamped = Math.max(0, Math.min(1, fraction));
   return Math.round(monthlyGrantCents * clamped);
@@ -93,28 +108,6 @@ export function creditClawbackCents(amounts: RefundAmounts): number {
   if (refunded !== null) return Math.round(refunded);
   const subtotal = positiveNumber(amounts.subtotal);
   return subtotal === null ? 0 : Math.round(subtotal);
-}
-
-/**
- * Which product a subscription event is about.
- *
- * `kind` (from the checkout's custom_data) is the strong signal but it is only
- * present on events descended from a checkout we created. Renewals, refunds and
- * cancellations arrive with no custom_data at all, so `variant_id` has to carry
- * it — which is why the variant id is compared rather than merely stored.
- *
- * Unknown falls to 'pro', preserving the behaviour every existing Pro subscriber
- * already has: those rows predate REVIEWER_VARIANT_ID being set and their
- * renewals carry no custom_data, so anything else would strand them.
- */
-export function productOf(
-  kind: string,
-  variantId: string,
-  reviewerVariantId: string | null | undefined,
-): BillingProduct {
-  if (kind === "reviewer") return "reviewer";
-  if (reviewerVariantId && variantId && variantId === reviewerVariantId) return "reviewer";
-  return "pro";
 }
 
 /**
@@ -170,6 +163,10 @@ export function incrementalClawbackCents(
   alreadyTakenCents: number,
 ): number {
   if (!Number.isFinite(cumulativeCents) || cumulativeCents <= 0) return 0;
-  if (!Number.isFinite(alreadyTakenCents) || alreadyTakenCents < 0) alreadyTakenCents = 0;
-  return Math.max(0, Math.round(cumulativeCents) - Math.round(alreadyTakenCents));
+  if (!Number.isFinite(alreadyTakenCents) || alreadyTakenCents < 0)
+    alreadyTakenCents = 0;
+  return Math.max(
+    0,
+    Math.round(cumulativeCents) - Math.round(alreadyTakenCents),
+  );
 }

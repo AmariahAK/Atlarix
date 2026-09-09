@@ -5,7 +5,7 @@
  * Top 15 languages for 95%+ coverage.
  */
 
-import { type ProblemMatcherFile } from '../matcherEngine';
+import { type ProblemMatcherFile } from "../matcherEngine";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPESCRIPT / TSC
@@ -13,36 +13,38 @@ import { type ProblemMatcherFile } from '../matcherEngine';
 // ═══════════════════════════════════════════════════════════════════════════
 
 export const typescriptMatcher: ProblemMatcherFile = {
-    problemMatcher: [
+  problemMatcher: [
+    {
+      owner: "tsc",
+      pattern: [
         {
-            owner: 'tsc',
-            pattern: [
-                {
-                    regexp: "^([^\\s].*?)\\((\\d+),(\\d+)\\):\\s+(error|warning)\\s+(TS\\d+):\\s+(.*)$",
-                    file: 1,
-                    line: 2,
-                    column: 3,
-                    severity: 4,
-                    code: 5,
-                    message: 6
-                }
-            ]
+          regexp:
+            "^([^\\s].*?)\\((\\d+),(\\d+)\\):\\s+(error|warning)\\s+(TS\\d+):\\s+(.*)$",
+          file: 1,
+          line: 2,
+          column: 3,
+          severity: 4,
+          code: 5,
+          message: 6,
         },
+      ],
+    },
+    {
+      owner: "tsc-relative",
+      pattern: [
         {
-            owner: 'tsc-relative',
-            pattern: [
-                {
-                    regexp: "^(.+?):(\\d+):(\\d+)\\s+-\\s+(error|warning)\\s+(TS\\d+):\\s+(.*)$",
-                    file: 1,
-                    line: 2,
-                    column: 3,
-                    severity: 4,
-                    code: 5,
-                    message: 6
-                }
-            ]
-        }
-    ]
+          regexp:
+            "^(.+?):(\\d+):(\\d+)\\s+-\\s+(error|warning)\\s+(TS\\d+):\\s+(.*)$",
+          file: 1,
+          line: 2,
+          column: 3,
+          severity: 4,
+          code: 5,
+          message: 6,
+        },
+      ],
+    },
+  ],
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -51,36 +53,37 @@ export const typescriptMatcher: ProblemMatcherFile = {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export const eslintMatcher: ProblemMatcherFile = {
-    problemMatcher: [
+  problemMatcher: [
+    {
+      owner: "eslint-compact",
+      pattern: [
         {
-            owner: 'eslint-compact',
-            pattern: [
-                {
-                    regexp: "^(.+):\\s+line\\s+(\\d+),\\s+col\\s+(\\d+),\\s+(Error|Warning)\\s+-\\s+(.+)\\s+\\((.+)\\)$",
-                    file: 1,
-                    line: 2,
-                    column: 3,
-                    severity: 4,
-                    message: 5,
-                    code: 6
-                }
-            ]
+          regexp:
+            "^(.+):\\s+line\\s+(\\d+),\\s+col\\s+(\\d+),\\s+(Error|Warning)\\s+-\\s+(.+)\\s+\\((.+)\\)$",
+          file: 1,
+          line: 2,
+          column: 3,
+          severity: 4,
+          message: 5,
+          code: 6,
         },
+      ],
+    },
+    {
+      owner: "eslint-stylish",
+      severity: "warning",
+      pattern: [
         {
-            owner: 'eslint-stylish',
-            severity: 'warning',
-            pattern: [
-                {
-                    regexp: "^\\s+(\\d+):(\\d+)\\s+(error|warning)\\s+(.+?)\\s+(.+)$",
-                    line: 1,
-                    column: 2,
-                    severity: 3,
-                    message: 4,
-                    code: 5
-                }
-            ]
-        }
-    ]
+          regexp: "^\\s+(\\d+):(\\d+)\\s+(error|warning)\\s+(.+?)\\s+(.+)$",
+          line: 1,
+          column: 2,
+          severity: 3,
+          message: 4,
+          code: 5,
+        },
+      ],
+    },
+  ],
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -89,50 +92,50 @@ export const eslintMatcher: ProblemMatcherFile = {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export const pythonMatcher: ProblemMatcherFile = {
-    problemMatcher: [
+  problemMatcher: [
+    {
+      owner: "python",
+      pattern: [
         {
-            owner: 'python',
-            pattern: [
-                {
-                    regexp: "^\\s*File\\s+\"(.+)\",\\s+line\\s+(\\d+)",
-                    file: 1,
-                    line: 2,
-                    message: 0
-                }
-            ]
+          regexp: '^\\s*File\\s+"(.+)",\\s+line\\s+(\\d+)',
+          file: 1,
+          line: 2,
+          message: 0,
         },
+      ],
+    },
+    {
+      owner: "python-error",
+      pattern: [
         {
-            owner: 'python-error',
-            pattern: [
-                {
-                    regexp: "^(\\w+Error):\\s+(.+)$",
-                    message: 2
-                }
-            ]
+          regexp: "^(\\w+Error):\\s+(.+)$",
+          message: 2,
         },
+      ],
+    },
+    {
+      owner: "mypy",
+      pattern: [
         {
-            owner: 'mypy',
-            pattern: [
-                {
-                    regexp: "^(.+):(\\d+):\\s+(error|note):\\s+(.+)$",
-                    file: 1,
-                    line: 2,
-                    severity: 3,
-                    message: 4
-                }
-            ]
+          regexp: "^(.+):(\\d+):\\s+(error|note):\\s+(.+)$",
+          file: 1,
+          line: 2,
+          severity: 3,
+          message: 4,
         },
+      ],
+    },
+    {
+      owner: "pytest",
+      pattern: [
         {
-            owner: 'pytest',
-            pattern: [
-                {
-                    regexp: "^FAILED\\s+(.+)::(\\S+)\\s+-\\s+(.+)$",
-                    file: 1,
-                    message: 3
-                }
-            ]
-        }
-    ]
+          regexp: "^FAILED\\s+(.+)::(\\S+)\\s+-\\s+(.+)$",
+          file: 1,
+          message: 3,
+        },
+      ],
+    },
+  ],
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -141,29 +144,29 @@ export const pythonMatcher: ProblemMatcherFile = {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export const goMatcher: ProblemMatcherFile = {
-    problemMatcher: [
+  problemMatcher: [
+    {
+      owner: "go",
+      pattern: [
         {
-            owner: 'go',
-            pattern: [
-                {
-                    regexp: "^([^:]+):(\\d+)(?::(\\d+))?:\\s+(.+)$",
-                    file: 1,
-                    line: 2,
-                    column: 3,
-                    message: 4
-                }
-            ]
+          regexp: "^([^:]+):(\\d+)(?::(\\d+))?:\\s+(.+)$",
+          file: 1,
+          line: 2,
+          column: 3,
+          message: 4,
         },
+      ],
+    },
+    {
+      owner: "go-test",
+      pattern: [
         {
-            owner: 'go-test',
-            pattern: [
-                {
-                    regexp: "^---\\s+FAIL:\\s+(\\S+)\\s+\\((.+)\\)$",
-                    message: 1
-                }
-            ]
-        }
-    ]
+          regexp: "^---\\s+FAIL:\\s+(\\S+)\\s+\\((.+)\\)$",
+          message: 1,
+        },
+      ],
+    },
+  ],
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -172,26 +175,26 @@ export const goMatcher: ProblemMatcherFile = {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export const rustMatcher: ProblemMatcherFile = {
-    problemMatcher: [
+  problemMatcher: [
+    {
+      owner: "rustc",
+      pattern: [
         {
-            owner: 'rustc',
-            pattern: [
-                {
-                    regexp: "^(error|warning)(?:\\[E(\\d+)\\])?:\\s+(.+)$",
-                    severity: 1,
-                    code: 2,
-                    message: 3
-                },
-                {
-                    regexp: "^\\s+-->\\s+(.+):(\\d+):(\\d+)$",
-                    file: 1,
-                    line: 2,
-                    column: 3,
-                    message: 0
-                }
-            ]
-        }
-    ]
+          regexp: "^(error|warning)(?:\\[E(\\d+)\\])?:\\s+(.+)$",
+          severity: 1,
+          code: 2,
+          message: 3,
+        },
+        {
+          regexp: "^\\s+-->\\s+(.+):(\\d+):(\\d+)$",
+          file: 1,
+          line: 2,
+          column: 3,
+          message: 0,
+        },
+      ],
+    },
+  ],
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -200,32 +203,32 @@ export const rustMatcher: ProblemMatcherFile = {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export const javaMatcher: ProblemMatcherFile = {
-    problemMatcher: [
+  problemMatcher: [
+    {
+      owner: "javac",
+      pattern: [
         {
-            owner: 'javac',
-            pattern: [
-                {
-                    regexp: "^(.+\\.java):(\\d+):\\s+(error|warning):\\s+(.+)$",
-                    file: 1,
-                    line: 2,
-                    severity: 3,
-                    message: 4
-                }
-            ]
+          regexp: "^(.+\\.java):(\\d+):\\s+(error|warning):\\s+(.+)$",
+          file: 1,
+          line: 2,
+          severity: 3,
+          message: 4,
         },
+      ],
+    },
+    {
+      owner: "maven",
+      pattern: [
         {
-            owner: 'maven',
-            pattern: [
-                {
-                    regexp: "^\\[ERROR\\]\\s+(.+):\\[(\\d+),(\\d+)\\]\\s+(.+)$",
-                    file: 1,
-                    line: 2,
-                    column: 3,
-                    message: 4
-                }
-            ]
-        }
-    ]
+          regexp: "^\\[ERROR\\]\\s+(.+):\\[(\\d+),(\\d+)\\]\\s+(.+)$",
+          file: 1,
+          line: 2,
+          column: 3,
+          message: 4,
+        },
+      ],
+    },
+  ],
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -234,36 +237,38 @@ export const javaMatcher: ProblemMatcherFile = {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export const dotnetMatcher: ProblemMatcherFile = {
-    problemMatcher: [
+  problemMatcher: [
+    {
+      owner: "csc",
+      pattern: [
         {
-            owner: 'csc',
-            pattern: [
-                {
-                    regexp: "^(.+\\.cs)\\((\\d+),(\\d+)\\):\\s+(error|warning)\\s+(CS\\d+):\\s+(.+)$",
-                    file: 1,
-                    line: 2,
-                    column: 3,
-                    severity: 4,
-                    code: 5,
-                    message: 6
-                }
-            ]
+          regexp:
+            "^(.+\\.cs)\\((\\d+),(\\d+)\\):\\s+(error|warning)\\s+(CS\\d+):\\s+(.+)$",
+          file: 1,
+          line: 2,
+          column: 3,
+          severity: 4,
+          code: 5,
+          message: 6,
         },
+      ],
+    },
+    {
+      owner: "msbuild",
+      pattern: [
         {
-            owner: 'msbuild',
-            pattern: [
-                {
-                    regexp: "^(.+)\\((\\d+),(\\d+)\\):\\s+(error|warning)\\s+(\\w+):\\s+(.+)$",
-                    file: 1,
-                    line: 2,
-                    column: 3,
-                    severity: 4,
-                    code: 5,
-                    message: 6
-                }
-            ]
-        }
-    ]
+          regexp:
+            "^(.+)\\((\\d+),(\\d+)\\):\\s+(error|warning)\\s+(\\w+):\\s+(.+)$",
+          file: 1,
+          line: 2,
+          column: 3,
+          severity: 4,
+          code: 5,
+          message: 6,
+        },
+      ],
+    },
+  ],
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -271,30 +276,30 @@ export const dotnetMatcher: ProblemMatcherFile = {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export const rubyMatcher: ProblemMatcherFile = {
-    problemMatcher: [
+  problemMatcher: [
+    {
+      owner: "ruby",
+      pattern: [
         {
-            owner: 'ruby',
-            pattern: [
-                {
-                    regexp: "^(.+\\.rb):(\\d+):in\\s+`(.+)':\\s+(.+)$",
-                    file: 1,
-                    line: 2,
-                    message: 4
-                }
-            ]
+          regexp: "^(.+\\.rb):(\\d+):in\\s+`(.+)':\\s+(.+)$",
+          file: 1,
+          line: 2,
+          message: 4,
         },
+      ],
+    },
+    {
+      owner: "rspec",
+      pattern: [
         {
-            owner: 'rspec',
-            pattern: [
-                {
-                    regexp: "^\\s+#\\s+(.+):(\\d+)$",
-                    file: 1,
-                    line: 2,
-                    message: 0
-                }
-            ]
-        }
-    ]
+          regexp: "^\\s+#\\s+(.+):(\\d+)$",
+          file: 1,
+          line: 2,
+          message: 0,
+        },
+      ],
+    },
+  ],
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -302,20 +307,21 @@ export const rubyMatcher: ProblemMatcherFile = {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export const phpMatcher: ProblemMatcherFile = {
-    problemMatcher: [
+  problemMatcher: [
+    {
+      owner: "php",
+      pattern: [
         {
-            owner: 'php',
-            pattern: [
-                {
-                    regexp: "^(Parse|Fatal|Warning|Notice)\\s+error:\\s+(.+)\\s+in\\s+(.+)\\s+on\\s+line\\s+(\\d+)$",
-                    severity: 1,
-                    message: 2,
-                    file: 3,
-                    line: 4
-                }
-            ]
-        }
-    ]
+          regexp:
+            "^(Parse|Fatal|Warning|Notice)\\s+error:\\s+(.+)\\s+in\\s+(.+)\\s+on\\s+line\\s+(\\d+)$",
+          severity: 1,
+          message: 2,
+          file: 3,
+          line: 4,
+        },
+      ],
+    },
+  ],
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -323,21 +329,21 @@ export const phpMatcher: ProblemMatcherFile = {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export const swiftMatcher: ProblemMatcherFile = {
-    problemMatcher: [
+  problemMatcher: [
+    {
+      owner: "swift",
+      pattern: [
         {
-            owner: 'swift',
-            pattern: [
-                {
-                    regexp: "^(.+\\.swift):(\\d+):(\\d+):\\s+(error|warning):\\s+(.+)$",
-                    file: 1,
-                    line: 2,
-                    column: 3,
-                    severity: 4,
-                    message: 5
-                }
-            ]
-        }
-    ]
+          regexp: "^(.+\\.swift):(\\d+):(\\d+):\\s+(error|warning):\\s+(.+)$",
+          file: 1,
+          line: 2,
+          column: 3,
+          severity: 4,
+          message: 5,
+        },
+      ],
+    },
+  ],
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -345,20 +351,20 @@ export const swiftMatcher: ProblemMatcherFile = {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export const kotlinMatcher: ProblemMatcherFile = {
-    problemMatcher: [
+  problemMatcher: [
+    {
+      owner: "kotlin",
+      pattern: [
         {
-            owner: 'kotlin',
-            pattern: [
-                {
-                    regexp: "^e:\\s+(.+\\.kts?):\\s+\\((\\d+),\\s+(\\d+)\\):\\s+(.+)$",
-                    file: 1,
-                    line: 2,
-                    column: 3,
-                    message: 4
-                }
-            ]
-        }
-    ]
+          regexp: "^e:\\s+(.+\\.kts?):\\s+\\((\\d+),\\s+(\\d+)\\):\\s+(.+)$",
+          file: 1,
+          line: 2,
+          column: 3,
+          message: 4,
+        },
+      ],
+    },
+  ],
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -366,31 +372,31 @@ export const kotlinMatcher: ProblemMatcherFile = {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export const dartMatcher: ProblemMatcherFile = {
-    problemMatcher: [
+  problemMatcher: [
+    {
+      owner: "dart",
+      pattern: [
         {
-            owner: 'dart',
-            pattern: [
-                {
-                    regexp: "^(.+\\.dart):(\\d+):(\\d+):\\s+(Error|Warning):\\s+(.+)$",
-                    file: 1,
-                    line: 2,
-                    column: 3,
-                    severity: 4,
-                    message: 5
-                }
-            ]
+          regexp: "^(.+\\.dart):(\\d+):(\\d+):\\s+(Error|Warning):\\s+(.+)$",
+          file: 1,
+          line: 2,
+          column: 3,
+          severity: 4,
+          message: 5,
         },
+      ],
+    },
+    {
+      owner: "flutter",
+      pattern: [
         {
-            owner: 'flutter',
-            pattern: [
-                {
-                    regexp: "^\\[ERROR:flutter/(.+)\\]\\s+(.+)$",
-                    file: 1,
-                    message: 2
-                }
-            ]
-        }
-    ]
+          regexp: "^\\[ERROR:flutter/(.+)\\]\\s+(.+)$",
+          file: 1,
+          message: 2,
+        },
+      ],
+    },
+  ],
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -398,29 +404,29 @@ export const dartMatcher: ProblemMatcherFile = {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export const scalaMatcher: ProblemMatcherFile = {
-    problemMatcher: [
+  problemMatcher: [
+    {
+      owner: "scala",
+      pattern: [
         {
-            owner: 'scala',
-            pattern: [
-                {
-                    regexp: "^\\[error\\]\\s+(.+\\.scala):(\\d+):(\\d+):\\s+(.+)$",
-                    file: 1,
-                    line: 2,
-                    column: 3,
-                    message: 4
-                }
-            ]
+          regexp: "^\\[error\\]\\s+(.+\\.scala):(\\d+):(\\d+):\\s+(.+)$",
+          file: 1,
+          line: 2,
+          column: 3,
+          message: 4,
         },
+      ],
+    },
+    {
+      owner: "sbt",
+      pattern: [
         {
-            owner: 'sbt',
-            pattern: [
-                {
-                    regexp: "^\\[error\\]\\s+(.+)$",
-                    message: 1
-                }
-            ]
-        }
-    ]
+          regexp: "^\\[error\\]\\s+(.+)$",
+          message: 1,
+        },
+      ],
+    },
+  ],
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -428,31 +434,31 @@ export const scalaMatcher: ProblemMatcherFile = {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export const elixirMatcher: ProblemMatcherFile = {
-    problemMatcher: [
+  problemMatcher: [
+    {
+      owner: "elixir",
+      pattern: [
         {
-            owner: 'elixir',
-            pattern: [
-                {
-                    regexp: "^\\*\\*\\s+\\((\\w+Error)\\)\\s+(.+):(\\d+):\\s+(.+)$",
-                    severity: 1,
-                    file: 2,
-                    line: 3,
-                    message: 4
-                }
-            ]
+          regexp: "^\\*\\*\\s+\\((\\w+Error)\\)\\s+(.+):(\\d+):\\s+(.+)$",
+          severity: 1,
+          file: 2,
+          line: 3,
+          message: 4,
         },
+      ],
+    },
+    {
+      owner: "mix",
+      pattern: [
         {
-            owner: 'mix',
-            pattern: [
-                {
-                    regexp: "^\\((.+?)\\)\\s+(.+):(\\d+):\\s+(.+)$",
-                    file: 2,
-                    line: 3,
-                    message: 4
-                }
-            ]
-        }
-    ]
+          regexp: "^\\((.+?)\\)\\s+(.+):(\\d+):\\s+(.+)$",
+          file: 2,
+          line: 3,
+          message: 4,
+        },
+      ],
+    },
+  ],
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -460,33 +466,33 @@ export const elixirMatcher: ProblemMatcherFile = {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export const haskellMatcher: ProblemMatcherFile = {
-    problemMatcher: [
+  problemMatcher: [
+    {
+      owner: "ghc",
+      pattern: [
         {
-            owner: 'ghc',
-            pattern: [
-                {
-                    regexp: "^(.+\\.hs):(\\d+):(\\d+):\\s+(error|warning):\\s+(.+)$",
-                    file: 1,
-                    line: 2,
-                    column: 3,
-                    severity: 4,
-                    message: 5
-                }
-            ]
+          regexp: "^(.+\\.hs):(\\d+):(\\d+):\\s+(error|warning):\\s+(.+)$",
+          file: 1,
+          line: 2,
+          column: 3,
+          severity: 4,
+          message: 5,
         },
+      ],
+    },
+    {
+      owner: "stack",
+      pattern: [
         {
-            owner: 'stack',
-            pattern: [
-                {
-                    regexp: "^(.+):(\\d+):(\\d+):\\s+(.+)$",
-                    file: 1,
-                    line: 2,
-                    column: 3,
-                    message: 4
-                }
-            ]
-        }
-    ]
+          regexp: "^(.+):(\\d+):(\\d+):\\s+(.+)$",
+          file: 1,
+          line: 2,
+          column: 3,
+          message: 4,
+        },
+      ],
+    },
+  ],
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -494,19 +500,19 @@ export const haskellMatcher: ProblemMatcherFile = {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export const ALL_MATCHERS: ProblemMatcherFile[] = [
-    typescriptMatcher,
-    eslintMatcher,
-    pythonMatcher,
-    goMatcher,
-    rustMatcher,
-    javaMatcher,
-    dotnetMatcher,
-    rubyMatcher,
-    phpMatcher,
-    swiftMatcher,
-    kotlinMatcher,
-    dartMatcher,
-    scalaMatcher,
-    elixirMatcher,
-    haskellMatcher,
+  typescriptMatcher,
+  eslintMatcher,
+  pythonMatcher,
+  goMatcher,
+  rustMatcher,
+  javaMatcher,
+  dotnetMatcher,
+  rubyMatcher,
+  phpMatcher,
+  swiftMatcher,
+  kotlinMatcher,
+  dartMatcher,
+  scalaMatcher,
+  elixirMatcher,
+  haskellMatcher,
 ];

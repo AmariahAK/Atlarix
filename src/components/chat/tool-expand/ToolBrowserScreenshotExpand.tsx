@@ -11,7 +11,10 @@ export function ToolBrowserScreenshotExpand({
     <div className="space-y-1.5">
       <div className="flex items-center gap-1.5 px-1 text-[10px] text-muted-foreground">
         <Globe className="h-3 w-3 shrink-0" />
-        <span className="truncate font-mono text-foreground/80" title={view.url}>
+        <span
+          className="truncate font-mono text-foreground/80"
+          title={view.url}
+        >
           {view.title || view.url}
         </span>
       </div>

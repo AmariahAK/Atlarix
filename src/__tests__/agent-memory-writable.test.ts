@@ -16,7 +16,9 @@ import { memoryDirFor, setAgentMemoryRootOverride } from "@/lib/agent-memory";
 const tmpRoots: string[] = [];
 
 function makeWorkspace(): string {
-  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "atlarix-mem-")));
+  const base = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), "atlarix-mem-")),
+  );
   tmpRoots.push(base);
   const ws = path.join(base, "workspace");
   fs.mkdirSync(ws, { recursive: true });
@@ -55,7 +57,10 @@ describe("agent memory is writable through the approval gate", () => {
   it("does NOT open the whole global .atlarix dir", () => {
     // Only this project's memory directory — not settings, not credentials.
     const ws = makeWorkspace();
-    const outside = path.join(path.dirname(path.dirname(memoryDirFor(ws))), "settings.json");
+    const outside = path.join(
+      path.dirname(path.dirname(memoryDirFor(ws))),
+      "settings.json",
+    );
     expect(() => resolveWrite(ws, outside)).toThrow(/outside workspace/i);
   });
 
@@ -69,9 +74,9 @@ describe("agent memory is writable through the approval gate", () => {
 
   it("still refuses an unrelated absolute path", () => {
     const ws = makeWorkspace();
-    expect(() => resolveWrite(ws, path.join(os.tmpdir(), "elsewhere.md"))).toThrow(
-      /outside workspace/i,
-    );
+    expect(() =>
+      resolveWrite(ws, path.join(os.tmpdir(), "elsewhere.md")),
+    ).toThrow(/outside workspace/i);
   });
 
   // Writable is not the same as invisible. The memory directory's relative form

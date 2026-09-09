@@ -6,16 +6,14 @@
  */
 
 /** Tool cards that should paginate when many run in a row. */
-const PAGINATABLE_TOOLS = new Set([
-  "run_command",
-  "write_file",
-  "edit_file",
-]);
+const PAGINATABLE_TOOLS = new Set(["run_command", "write_file", "edit_file"]);
 
 /** Page size — show this many per run before a "show more" control. */
 export const TOOL_PAGE_SIZE = 6;
 
-export function isPaginatableToolName(name: string | null | undefined): boolean {
+export function isPaginatableToolName(
+  name: string | null | undefined,
+): boolean {
   return !!name && PAGINATABLE_TOOLS.has(name);
 }
 

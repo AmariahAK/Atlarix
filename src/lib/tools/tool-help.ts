@@ -25,7 +25,7 @@ ToolRegistry.register({
   parameters: createParameters(
     {
       tool: stringParam(
-        "Name of the tool to document, exactly as it appears in your tool list (e.g. \"automations\").",
+        'Name of the tool to document, exactly as it appears in your tool list (e.g. "automations").',
       ),
     },
     ["tool"],
@@ -33,7 +33,10 @@ ToolRegistry.register({
   handler: async (args: { tool?: string }) => {
     const wanted = args.tool?.trim();
     if (!wanted) {
-      return { success: false, error: "Pass `tool` — the name of the tool to document." };
+      return {
+        success: false,
+        error: "Pass `tool` — the name of the tool to document.",
+      };
     }
     const meta = ToolRegistry.get(wanted);
     if (!meta) {
@@ -42,7 +45,11 @@ ToolRegistry.register({
       const needle = wanted.toLowerCase();
       const near = ToolRegistry.getAll()
         .map((t) => t.name)
-        .filter((n) => n.toLowerCase().includes(needle) || needle.includes(n.toLowerCase()));
+        .filter(
+          (n) =>
+            n.toLowerCase().includes(needle) ||
+            needle.includes(n.toLowerCase()),
+        );
       return {
         success: false,
         error:

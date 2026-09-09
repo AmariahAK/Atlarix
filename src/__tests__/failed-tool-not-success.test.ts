@@ -37,7 +37,9 @@ describe("isFailedToolResult", () => {
   });
 
   it("detects the legacy bare-error convention (edit_file / plan)", () => {
-    expect(isFailedToolResult({ error: "Missing required parameter: path" })).toBe(true);
+    expect(
+      isFailedToolResult({ error: "Missing required parameter: path" }),
+    ).toBe(true);
   });
 
   it("does not override a tool that explicitly succeeded", () => {
@@ -45,7 +47,9 @@ describe("isFailedToolResult", () => {
     expect(isFailedToolResult({ success: true, error: "" })).toBe(false);
     // A successful result may legitimately carry an `error` FIELD it set to a message
     // about something else; `success: true` wins.
-    expect(isFailedToolResult({ success: true, error: "warn: deprecated" })).toBe(false);
+    expect(
+      isFailedToolResult({ success: true, error: "warn: deprecated" }),
+    ).toBe(false);
   });
 
   it("is false for ordinary successful results", () => {
@@ -62,7 +66,9 @@ describe("isFailedToolResult", () => {
 describe("toolActivityStatusFor", () => {
   it("maps a RETURNED failure to error — the bug", () => {
     // This is the whole fix: before, only `threw` produced "error".
-    expect(toolActivityStatusFor({ success: false, error: "bad pattern" })).toBe("error");
+    expect(
+      toolActivityStatusFor({ success: false, error: "bad pattern" }),
+    ).toBe("error");
   });
 
   it("maps a throw to error regardless of result", () => {

@@ -166,6 +166,8 @@ export function AttachmentsList({
   }
 
   return (
-    <div className="px-2 pt-2 flex flex-wrap gap-1">{indexed.map(inlineNode)}</div>
+    <div className="px-2 pt-2 flex flex-wrap gap-1">
+      {indexed.map(inlineNode)}
+    </div>
   );
 }

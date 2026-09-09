@@ -61,11 +61,7 @@ export function resolveModelDisplayLabel(
     const fromList = modelsByProviders?.compass?.find(
       (m) => m.apiName === selectedModel.name,
     )?.displayName;
-    return displayLabelForCompassTier(
-      selectedModel.name,
-      catalog,
-      fromList,
-    );
+    return displayLabelForCompassTier(selectedModel.name, catalog, fromList);
   }
 
   if (selectedModel.provider === "ollama") {
@@ -98,7 +94,10 @@ export function resolveModelDisplayLabel(
     if (byApi?.displayName) return byApi.displayName;
   }
 
-  const slug = providerSlugFromApiName(selectedModel.name, selectedModel.provider);
+  const slug = providerSlugFromApiName(
+    selectedModel.name,
+    selectedModel.provider,
+  );
   return formatModelWithProvider(
     formatModelApiNameForDisplay(selectedModel.name),
     slug,

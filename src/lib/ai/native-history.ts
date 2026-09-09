@@ -233,7 +233,8 @@ function estimateOutputTokens(output: unknown): number {
     let total = 0;
     for (const part of o.value as AnyPart[]) {
       if (part?.type === "media") total += MEDIA_PART_TOKEN_ESTIMATE;
-      else total += estimateTokens(String((part as { text?: string }).text ?? ""));
+      else
+        total += estimateTokens(String((part as { text?: string }).text ?? ""));
     }
     return total;
   }
@@ -242,7 +243,7 @@ function estimateOutputTokens(output: unknown): number {
 
 function safeJson(value: unknown): string {
   try {
-    return typeof value === "string" ? value : JSON.stringify(value) ?? "";
+    return typeof value === "string" ? value : (JSON.stringify(value) ?? "");
   } catch {
     return "";
   }
@@ -298,7 +299,8 @@ export function flattenNativeForCompaction(
 
 function flattenOutputText(output: unknown): string {
   if (output == null) return "";
-  if (typeof output === "string") return output.slice(0, FLATTEN_TOOL_RESULT_MAX_CHARS);
+  if (typeof output === "string")
+    return output.slice(0, FLATTEN_TOOL_RESULT_MAX_CHARS);
   const o = output as { type?: string; value?: unknown };
   if (o.type === "text" || o.type === "error-text") {
     return String(o.value ?? "").slice(0, FLATTEN_TOOL_RESULT_MAX_CHARS);
@@ -322,7 +324,8 @@ function flattenOutputText(output: unknown): string {
 // ─── Persist-time bounding (what the NEXT turn rehydrates) ──────────────────
 
 /** Marker left in a clipped result so the model knows text is missing, not empty. */
-const TRUNCATION_NOTE = "\n\n[…older tool output clipped when this turn was saved. " +
+const TRUNCATION_NOTE =
+  "\n\n[…older tool output clipped when this turn was saved. " +
   "Re-run the tool, or use `session_search`, if you need the full text.]";
 
 /** Smallest useful remnant of a clipped result — below this, clipping buys nothing. */
@@ -388,7 +391,9 @@ export function boundNativeHistoryForPersist(
     let changed = false;
     const nextParts = parts.map((part) => {
       if (part?.type !== "tool-result") return part;
-      const clipped = clipToolResultOutput((part as { output?: unknown }).output);
+      const clipped = clipToolResultOutput(
+        (part as { output?: unknown }).output,
+      );
       if (!clipped.changed) return part;
       changed = true;
       return { ...part, output: clipped.output };
@@ -410,9 +415,10 @@ export function boundNativeHistoryForPersist(
  * Reports `changed: false` when there is nothing worth clipping, which is what
  * makes the whole pass idempotent.
  */
-function clipToolResultOutput(
-  output: unknown,
-): { output: unknown; changed: boolean } {
+function clipToolResultOutput(output: unknown): {
+  output: unknown;
+  changed: boolean;
+} {
   const asText = (value: string): { output: unknown; changed: boolean } => {
     // Already clipped by a previous pass: report no change so the caller keeps the
     // existing part object instead of rebuilding an identical one.
@@ -424,7 +430,8 @@ function clipToolResultOutput(
     // it is documented that way so nobody later "fixes" the stability tests by
     // strengthening this line.
     if (value.includes(TRUNCATION_NOTE)) return { output, changed: false };
-    if (value.length <= MIN_KEPT_RESULT_CHARS) return { output, changed: false };
+    if (value.length <= MIN_KEPT_RESULT_CHARS)
+      return { output, changed: false };
     return {
       output: {
         type: "text",
@@ -439,7 +446,10 @@ function clipToolResultOutput(
     const r = asText(output);
     // A bare string output stays a bare string.
     return r.changed
-      ? { output: output.slice(0, MIN_KEPT_RESULT_CHARS) + TRUNCATION_NOTE, changed: true }
+      ? {
+          output: output.slice(0, MIN_KEPT_RESULT_CHARS) + TRUNCATION_NOTE,
+          changed: true,
+        }
       : r;
   }
   const o = output as { type?: string; value?: unknown };
@@ -454,7 +464,9 @@ function clipToolResultOutput(
     // elsewhere, and clipping a data URI mid-string produces something invalid.
     const text = (o.value as AnyPart[])
       .map((part) =>
-        part?.type === "media" ? "" : String((part as { text?: string }).text ?? ""),
+        part?.type === "media"
+          ? ""
+          : String((part as { text?: string }).text ?? ""),
       )
       .filter(Boolean)
       .join("\n");
@@ -483,7 +495,8 @@ export function regateNativeMediaForProvider(
   const out = messages.map((m) => {
     if (m.role !== "tool" || typeof m.content === "string") return m;
     const parts = contentParts(m).map((p) => {
-      const output = (p as { output?: { type?: string; value?: unknown } }).output;
+      const output = (p as { output?: { type?: string; value?: unknown } })
+        .output;
       if (output?.type !== "content" || !Array.isArray(output.value)) return p;
       const hasMedia = (output.value as AnyPart[]).some(
         (v) => v?.type === "media",

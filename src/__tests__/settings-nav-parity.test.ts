@@ -60,7 +60,9 @@ function sectionsBlock(rel: string): string {
 
 /** Route paths from a nav list's `{ to: "…" }` entries, in order. */
 function navRoutes(rel: string): string[] {
-  return [...sectionsBlock(rel).matchAll(/\bto:\s*"([^"]+)"/g)].map((m) => m[1]!);
+  return [...sectionsBlock(rel).matchAll(/\bto:\s*"([^"]+)"/g)].map(
+    (m) => m[1]!,
+  );
 }
 
 describe("Settings ↔ Integrations split", () => {
@@ -85,9 +87,10 @@ describe("Settings ↔ Integrations split", () => {
     const settings = new Set(navRoutes("pages/settings.tsx"));
     const integrations = navRoutes("pages/integrations.tsx");
     const both = integrations.filter((r) => settings.has(r));
-    expect(both, "one entry in both navs is a user asking which is real").toEqual(
-      [],
-    );
+    expect(
+      both,
+      "one entry in both navs is a user asking which is real",
+    ).toEqual([]);
   });
 
   it("Settings names nothing that is a connection", () => {
@@ -107,8 +110,6 @@ describe("Settings ↔ Integrations split", () => {
     // Order is a product decision worth pinning: Settings opens on what this
     // install IS; Integrations opens on the thing most people came to do.
     expect(navRoutes("pages/settings.tsx")[0]).toBe("/settings");
-    expect(navRoutes("pages/integrations.tsx")[0]).toBe(
-      "/integrations",
-    );
+    expect(navRoutes("pages/integrations.tsx")[0]).toBe("/integrations");
   });
 });

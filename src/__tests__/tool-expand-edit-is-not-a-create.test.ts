@@ -34,8 +34,14 @@ const diffView = (
   args: unknown,
   result: Record<string, unknown> = { success: true, added: 16, removed: 1 },
 ) => {
-  const view = buildToolExpandView("edit_file", args, JSON.stringify(result), "done");
-  if (view.kind !== "diff") throw new Error(`expected a diff view, got ${view.kind}`);
+  const view = buildToolExpandView(
+    "edit_file",
+    args,
+    JSON.stringify(result),
+    "done",
+  );
+  if (view.kind !== "diff")
+    throw new Error(`expected a diff view, got ${view.kind}`);
   return view;
 };
 
@@ -55,7 +61,10 @@ describe("edit_file expand view", () => {
       path: "internal/api/passkey_authentication.go",
       operation: "replace",
       edits: [
-        { old_content: "if !flagsMatch {", new_content: "if !flagsMatch && strict {" },
+        {
+          old_content: "if !flagsMatch {",
+          new_content: "if !flagsMatch && strict {",
+        },
       ],
     });
 
@@ -78,15 +87,18 @@ describe("edit_file expand view", () => {
   });
 
   it("merge is an update too — it needs a file to merge into", () => {
-    expect(diffView({ path: "a.go", operation: "merge" }).operation).toBe("update");
+    expect(diffView({ path: "a.go", operation: "merge" }).operation).toBe(
+      "update",
+    );
   });
 
   it("write stays ambiguous: a create with no prior content, an update with it", () => {
     // `write` genuinely does both, so it is the one operation still entitled to
     // consult the content.
-    expect(diffView({ path: "new.go", operation: "write", content: "package main" }).operation).toBe(
-      "create",
-    );
+    expect(
+      diffView({ path: "new.go", operation: "write", content: "package main" })
+        .operation,
+    ).toBe("create");
     expect(
       diffView({
         path: "old.go",
@@ -100,7 +112,11 @@ describe("edit_file expand view", () => {
   it("keeps the payload's authoritative line counts", () => {
     // These were always right; the fix must not start recomputing them from the
     // snippet text, which would report the spans rather than the change.
-    const view = diffView({ path: "a.go", operation: "replace", edits: [{ old_content: "x", new_content: "y" }] });
+    const view = diffView({
+      path: "a.go",
+      operation: "replace",
+      edits: [{ old_content: "x", new_content: "y" }],
+    });
     expect(view.addedCount).toBe(16);
     expect(view.removedCount).toBe(1);
   });

@@ -37,7 +37,9 @@ describe("open-weight providers (DeepSeek, Qwen, MiniMax, Kimi)", () => {
   it("points each provider's live /models URL at its real API base", () => {
     // Model lists are sourced dynamically (live /models → models.dev), never
     // hardcoded — so the base URL must be a valid live endpoint.
-    expect(OPENWEIGHT_PROVIDER_BASE_URLS.deepseek).toContain("api.deepseek.com");
+    expect(OPENWEIGHT_PROVIDER_BASE_URLS.deepseek).toContain(
+      "api.deepseek.com",
+    );
     expect(OPENWEIGHT_PROVIDER_BASE_URLS.qwen).toContain("dashscope-intl");
     expect(OPENWEIGHT_PROVIDER_BASE_URLS.minimax).toContain("api.minimax.io");
     expect(OPENWEIGHT_PROVIDER_BASE_URLS.moonshot).toContain("api.moonshot.ai");

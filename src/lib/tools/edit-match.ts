@@ -12,10 +12,19 @@
  * Pure string functions — no fs, safe to unit-test in isolation.
  */
 
-export type Replacer = (content: string, find: string) => Generator<string, void, unknown>;
+export type Replacer = (
+  content: string,
+  find: string,
+) => Generator<string, void, unknown>;
 
 export type ReplacementResult =
-  | { kind: "match"; index: number; matchLength: number; fuzzy: boolean; strategy: string }
+  | {
+      kind: "match";
+      index: number;
+      matchLength: number;
+      fuzzy: boolean;
+      strategy: string;
+    }
   /** old_content matched N>1 places — caller asks for more surrounding context. */
   | { kind: "multiple"; occurrences: number }
   /** a fuzzy span ballooned far beyond old_content — refuse rather than corrupt. */
@@ -29,12 +38,18 @@ const MULTIPLE_CANDIDATES_SIMILARITY_THRESHOLD = 0.65;
 function levenshtein(a: string, b: string): number {
   if (a === "" || b === "") return Math.max(a.length, b.length);
   const matrix = Array.from({ length: a.length + 1 }, (_, i) =>
-    Array.from({ length: b.length + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)),
+    Array.from({ length: b.length + 1 }, (_, j) =>
+      i === 0 ? j : j === 0 ? i : 0,
+    ),
   );
   for (let i = 1; i <= a.length; i++) {
     for (let j = 1; j <= b.length; j++) {
       const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      matrix[i]![j] = Math.min(matrix[i - 1]![j]! + 1, matrix[i]![j - 1]! + 1, matrix[i - 1]![j - 1]! + cost);
+      matrix[i]![j] = Math.min(
+        matrix[i - 1]![j]! + 1,
+        matrix[i]![j - 1]! + 1,
+        matrix[i - 1]![j - 1]! + cost,
+      );
     }
   }
   return matrix[a.length]![b.length]!;
@@ -59,7 +74,8 @@ export const LineTrimmedReplacer: Replacer = function* (content, find) {
     }
     if (matches) {
       let matchStartIndex = 0;
-      for (let k = 0; k < i; k++) matchStartIndex += originalLines[k]!.length + 1;
+      for (let k = 0; k < i; k++)
+        matchStartIndex += originalLines[k]!.length + 1;
       let matchEndIndex = matchStartIndex;
       for (let k = 0; k < searchLines.length; k++) {
         matchEndIndex += originalLines[i + k]!.length;
@@ -98,7 +114,8 @@ export const BlockAnchorReplacer: Replacer = function* (content, find) {
 
   const spanOf = (startLine: number, endLine: number): string => {
     let matchStartIndex = 0;
-    for (let k = 0; k < startLine; k++) matchStartIndex += originalLines[k]!.length + 1;
+    for (let k = 0; k < startLine; k++)
+      matchStartIndex += originalLines[k]!.length + 1;
     let matchEndIndex = matchStartIndex;
     for (let k = startLine; k <= endLine; k++) {
       matchEndIndex += originalLines[k]!.length;
@@ -107,7 +124,11 @@ export const BlockAnchorReplacer: Replacer = function* (content, find) {
     return content.substring(matchStartIndex, matchEndIndex);
   };
 
-  const middleSimilarity = (startLine: number, endLine: number, averaged: boolean): number => {
+  const middleSimilarity = (
+    startLine: number,
+    endLine: number,
+    averaged: boolean,
+  ): number => {
     const actualBlockSize = endLine - startLine + 1;
     const linesToCheck = Math.min(searchBlockSize - 2, actualBlockSize - 2);
     if (linesToCheck <= 0) return 1.0;
@@ -118,15 +139,21 @@ export const BlockAnchorReplacer: Replacer = function* (content, find) {
       const maxLen = Math.max(originalLine.length, searchLine.length);
       if (maxLen === 0) continue;
       const distance = levenshtein(originalLine, searchLine);
-      similarity += averaged ? 1 - distance / maxLen : (1 - distance / maxLen) / linesToCheck;
-      if (!averaged && similarity >= SINGLE_CANDIDATE_SIMILARITY_THRESHOLD) break;
+      similarity += averaged
+        ? 1 - distance / maxLen
+        : (1 - distance / maxLen) / linesToCheck;
+      if (!averaged && similarity >= SINGLE_CANDIDATE_SIMILARITY_THRESHOLD)
+        break;
     }
     return averaged ? similarity / linesToCheck : similarity;
   };
 
   if (candidates.length === 1) {
     const { startLine, endLine } = candidates[0]!;
-    if (middleSimilarity(startLine, endLine, false) >= SINGLE_CANDIDATE_SIMILARITY_THRESHOLD) {
+    if (
+      middleSimilarity(startLine, endLine, false) >=
+      SINGLE_CANDIDATE_SIMILARITY_THRESHOLD
+    ) {
       yield spanOf(startLine, endLine);
     }
     return;
@@ -135,7 +162,11 @@ export const BlockAnchorReplacer: Replacer = function* (content, find) {
   let bestMatch: { startLine: number; endLine: number } | null = null;
   let maxSimilarity = -1;
   for (const candidate of candidates) {
-    const similarity = middleSimilarity(candidate.startLine, candidate.endLine, true);
+    const similarity = middleSimilarity(
+      candidate.startLine,
+      candidate.endLine,
+      true,
+    );
     if (similarity > maxSimilarity) {
       maxSimilarity = similarity;
       bestMatch = candidate;
@@ -146,8 +177,12 @@ export const BlockAnchorReplacer: Replacer = function* (content, find) {
   }
 };
 
-export const WhitespaceNormalizedReplacer: Replacer = function* (content, find) {
-  const normalizeWhitespace = (text: string) => text.replace(/\s+/g, " ").trim();
+export const WhitespaceNormalizedReplacer: Replacer = function* (
+  content,
+  find,
+) {
+  const normalizeWhitespace = (text: string) =>
+    text.replace(/\s+/g, " ").trim();
   const normalizedFind = normalizeWhitespace(find);
   const lines = content.split("\n");
 
@@ -157,7 +192,9 @@ export const WhitespaceNormalizedReplacer: Replacer = function* (content, find) 
     } else if (normalizeWhitespace(line).includes(normalizedFind)) {
       const words = find.trim().split(/\s+/);
       if (words.length > 0) {
-        const pattern = words.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("\\s+");
+        const pattern = words
+          .map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+          .join("\\s+");
         try {
           const match = line.match(new RegExp(pattern));
           if (match) yield match[0];
@@ -172,7 +209,8 @@ export const WhitespaceNormalizedReplacer: Replacer = function* (content, find) 
   if (findLines.length > 1) {
     for (let i = 0; i <= lines.length - findLines.length; i++) {
       const block = lines.slice(i, i + findLines.length);
-      if (normalizeWhitespace(block.join("\n")) === normalizedFind) yield block.join("\n");
+      if (normalizeWhitespace(block.join("\n")) === normalizedFind)
+        yield block.join("\n");
     }
   }
 };
@@ -185,7 +223,9 @@ export const IndentationFlexibleReplacer: Replacer = function* (content, find) {
     const minIndent = Math.min(
       ...nonEmptyLines.map((line) => line.match(/^(\s*)/)?.[1]?.length ?? 0),
     );
-    return lines.map((line) => (line.trim().length === 0 ? line : line.slice(minIndent))).join("\n");
+    return lines
+      .map((line) => (line.trim().length === 0 ? line : line.slice(minIndent)))
+      .join("\n");
   };
 
   const normalizedFind = removeIndentation(find);
@@ -226,7 +266,10 @@ export function normalizeUnicodePunctuation(text: string): string {
     .replace(/ /g, " ");
 }
 
-export const UnicodePunctuationNormalizedReplacer: Replacer = function* (content, find) {
+export const UnicodePunctuationNormalizedReplacer: Replacer = function* (
+  content,
+  find,
+) {
   const normalizedFind = normalizeUnicodePunctuation(find);
   // Only useful when normalization actually changes something on either side.
   const lines = content.split("\n");
@@ -286,7 +329,10 @@ export const ContextAwareReplacer: Replacer = function* (content, find) {
             if (blockLine === findLine) matchingLines++;
           }
         }
-        if (totalNonEmptyLines === 0 || matchingLines / totalNonEmptyLines >= 0.5) {
+        if (
+          totalNonEmptyLines === 0 ||
+          matchingLines / totalNonEmptyLines >= 0.5
+        ) {
           yield blockLines.join("\n");
           break;
         }
@@ -298,39 +344,48 @@ export const ContextAwareReplacer: Replacer = function* (content, find) {
 
 /** Unescape backslash escape sequences (opencode `unescapeString` parity). */
 export function unescapeString(str: string): string {
-  return str.replace(/\\(n|t|r|'|"|`|\\|\n|\$)/g, (match, capturedChar: string) => {
-    switch (capturedChar) {
-      case "n":
-        return "\n";
-      case "t":
-        return "\t";
-      case "r":
-        return "\r";
-      case "'":
-        return "'";
-      case '"':
-        return '"';
-      case "`":
-        return "`";
-      case "\\":
-        return "\\";
-      case "\n":
-        return "\n";
-      case "$":
-        return "$";
-      default:
-        return match;
-    }
-  });
+  return str.replace(
+    /\\(n|t|r|'|"|`|\\|\n|\$)/g,
+    (match, capturedChar: string) => {
+      switch (capturedChar) {
+        case "n":
+          return "\n";
+        case "t":
+          return "\t";
+        case "r":
+          return "\r";
+        case "'":
+          return "'";
+        case '"':
+          return '"';
+        case "`":
+          return "`";
+        case "\\":
+          return "\\";
+        case "\n":
+          return "\n";
+        case "$":
+          return "$";
+        default:
+          return match;
+      }
+    },
+  );
 }
 
 /** Reject a fuzzy span that ballooned well past old_content (opencode parity). */
-export function isDisproportionateMatch(search: string, oldString: string): boolean {
+export function isDisproportionateMatch(
+  search: string,
+  oldString: string,
+): boolean {
   const oldLines = oldString.split("\n").length;
   const searchLines = search.split("\n").length;
   if (searchLines >= Math.max(oldLines + 3, oldLines * 2)) return true;
   if (oldLines === 1) return false;
-  return search.trim().length > Math.max(oldString.trim().length + 500, oldString.trim().length * 4);
+  return (
+    search.trim().length >
+    Math.max(oldString.trim().length + 500, oldString.trim().length * 4)
+  );
 }
 
 function countOccurrences(haystack: string, needle: string): number {
@@ -367,7 +422,10 @@ const REPLACERS: Array<[name: string, replacer: Replacer]> = [
  * skipped (never applied) — we refuse rather than edit the wrong region. Only
  * the EXACT strategy reports `multiple` (the classic "add more context" error).
  */
-export function findReplacement(content: string, oldString: string): ReplacementResult {
+export function findReplacement(
+  content: string,
+  oldString: string,
+): ReplacementResult {
   if (oldString.length === 0) return { kind: "none" };
 
   let sawMultiple: number | null = null;
@@ -389,7 +447,8 @@ export function findReplacement(content: string, oldString: string): Replacement
       sawMultiple = occ; // remember, but keep trying stricter-unique strategies
       continue;
     }
-    if (isDisproportionateMatch(search, oldString)) return { kind: "disproportionate" };
+    if (isDisproportionateMatch(search, oldString))
+      return { kind: "disproportionate" };
     return {
       kind: "match",
       index: content.indexOf(search),
@@ -398,7 +457,8 @@ export function findReplacement(content: string, oldString: string): Replacement
       strategy: name,
     };
   }
-  if (sawMultiple != null) return { kind: "multiple", occurrences: sawMultiple };
+  if (sawMultiple != null)
+    return { kind: "multiple", occurrences: sawMultiple };
   return { kind: "none" };
 }
 
@@ -482,7 +542,10 @@ export function reindentReplacement(
   const oldLines = oldContent.split("\n");
   // Mirror the replacers' trailing-newline tolerance (LineTrimmedReplacer pops
   // a trailing "" search line, so the matched span can be one line shorter).
-  if (oldLines.length === matchedLines.length + 1 && oldLines[oldLines.length - 1] === "") {
+  if (
+    oldLines.length === matchedLines.length + 1 &&
+    oldLines[oldLines.length - 1] === ""
+  ) {
     oldLines.pop();
   }
 
@@ -506,7 +569,9 @@ export function reindentReplacement(
   // (escape/unicode-punctuation fuzz) — nothing to re-anchor.
   let drift = false;
   for (let i = 0; i < oldLines.length; i++) {
-    if (leadingWhitespace(matchedLines[i]!) !== leadingWhitespace(oldLines[i]!)) {
+    if (
+      leadingWhitespace(matchedLines[i]!) !== leadingWhitespace(oldLines[i]!)
+    ) {
       drift = true;
       break;
     }
@@ -515,8 +580,14 @@ export function reindentReplacement(
 
   // Pass 1 — map new lines onto old lines by trimmed text (monotone forward
   // scan) and adopt the matched region's real indent for each mapped line.
-  const out: Array<string | null> = Array.from({ length: newLines.length }, () => null);
-  const mappedRef: Array<number | null> = Array.from({ length: newLines.length }, () => null);
+  const out: Array<string | null> = Array.from(
+    { length: newLines.length },
+    () => null,
+  );
+  const mappedRef: Array<number | null> = Array.from(
+    { length: newLines.length },
+    () => null,
+  );
   let cursor = 0;
   for (let i = 0; i < newLines.length; i++) {
     const trimmed = newLines[i]!.trim();
@@ -546,9 +617,14 @@ export function reindentReplacement(
     const modelUnit = inferIndentUnit([...oldLines, ...newLines]);
     if (fileUnit === "ambiguous" || modelUnit === "ambiguous") return verbatim;
     const fileUnitStr =
-      fileUnit === "none" ? null : fileUnit.kind === "tab" ? "\t" : " ".repeat(fileUnit.width);
+      fileUnit === "none"
+        ? null
+        : fileUnit.kind === "tab"
+          ? "\t"
+          : " ".repeat(fileUnit.width);
     // Flat model block still needs SOME unit to express depth 0 comparisons.
-    const depthUnit: IndentUnit = modelUnit === "none" ? { kind: "space", width: 4 } : modelUnit;
+    const depthUnit: IndentUnit =
+      modelUnit === "none" ? { kind: "space", width: 4 } : modelUnit;
 
     for (let i = 0; i < newLines.length; i++) {
       if (out[i] !== null) continue;

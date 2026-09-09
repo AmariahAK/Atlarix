@@ -55,7 +55,12 @@ async function sendWithTimeout(
     wc.debugger.sendCommand(method, params),
     new Promise((_resolve, reject) =>
       setTimeout(
-        () => reject(new Error(`CDP ${method} timed out after ${CDP_COMMAND_TIMEOUT_MS}ms`)),
+        () =>
+          reject(
+            new Error(
+              `CDP ${method} timed out after ${CDP_COMMAND_TIMEOUT_MS}ms`,
+            ),
+          ),
         CDP_COMMAND_TIMEOUT_MS,
       ).unref?.(),
     ),
@@ -235,11 +240,16 @@ export function recordInjectedBody(
  * it just records through the webRequest fallback instead. Returns whether CDP
  * is live, so the caller can mark the log degraded.
  */
-export async function attachNetworkCapture(tabId: number, wc: Wc): Promise<boolean> {
+export async function attachNetworkCapture(
+  tabId: number,
+  wc: Wc,
+): Promise<boolean> {
   const tabLog = networkLogForTab(tabId);
   if (!cdpEnabled()) {
     markDegraded(tabLog);
-    logger.info(`[network] tab ${tabId}: CDP disabled by env — webRequest fallback`);
+    logger.info(
+      `[network] tab ${tabId}: CDP disabled by env — webRequest fallback`,
+    );
     return false;
   }
 
@@ -257,7 +267,9 @@ export async function attachNetworkCapture(tabId: number, wc: Wc): Promise<boole
   // If the user or anything else takes the debugger, degrade rather than pretend.
   wc.debugger.on("detach", (_event, reason) => {
     markDegraded(tabLog);
-    logger.warn(`[network] tab ${tabId}: debugger detached (${reason}) — fallback from here`);
+    logger.warn(
+      `[network] tab ${tabId}: debugger detached (${reason}) — fallback from here`,
+    );
   });
 
   wc.debugger.on("message", (_event, method, params) => {
@@ -265,7 +277,9 @@ export async function attachNetworkCapture(tabId: number, wc: Wc): Promise<boole
       handleCdpEvent(tabLog, tabId, method, params as Record<string, unknown>);
     } catch (err) {
       // Capture must never take down a browser tab.
-      logger.warn(`[network] tab ${tabId}: event handler threw: ${String(err)}`);
+      logger.warn(
+        `[network] tab ${tabId}: event handler threw: ${String(err)}`,
+      );
     }
   });
 
@@ -299,7 +313,12 @@ export function detachNetworkCapture(tabId: number, wc: Wc): void {
 
 type CdpRequest = {
   requestId?: string;
-  request?: { url?: string; method?: string; headers?: Record<string, string>; postData?: string };
+  request?: {
+    url?: string;
+    method?: string;
+    headers?: Record<string, string>;
+    postData?: string;
+  };
   type?: string;
   timestamp?: number;
   response?: {
@@ -363,7 +382,10 @@ function handleCdpEvent(
   // A row that identifies nothing is worse than no row. (Measured against
   // youtube.com, 2026-08-16: 2 such rows in 59.)
   if (method === "Network.loadingFinished") {
-    completeRequest(tabLog, id, { size: p.encodedDataLength, finishedAt: Date.now() });
+    completeRequest(tabLog, id, {
+      size: p.encodedDataLength,
+      finishedAt: Date.now(),
+    });
     return;
   }
 
@@ -392,9 +414,14 @@ export async function fetchResponseBody(
 ): Promise<{ body: string; base64: boolean } | { unavailable: string }> {
   try {
     if (!wc.debugger.isAttached()) {
-      return { unavailable: "Body capture needs the debugger, which is not attached to this tab." };
+      return {
+        unavailable:
+          "Body capture needs the debugger, which is not attached to this tab.",
+      };
     }
-    const res = (await sendWithTimeout(wc, "Network.getResponseBody", { requestId })) as {
+    const res = (await sendWithTimeout(wc, "Network.getResponseBody", {
+      requestId,
+    })) as {
       body?: string;
       base64Encoded?: boolean;
     };

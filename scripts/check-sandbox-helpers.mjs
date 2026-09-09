@@ -31,7 +31,11 @@ const ROOT = process.cwd();
  * `::warning::` once, which quietly reopened the hole this script exists to close.
  */
 const HELPERS = [
-  { name: "atlarix-sandbox", target: "x86_64-pc-windows-msvc", dir: "native/atlarix-sandbox" },
+  {
+    name: "atlarix-sandbox",
+    target: "x86_64-pc-windows-msvc",
+    dir: "native/atlarix-sandbox",
+  },
   {
     name: "atlarix-sandbox-linux",
     target: "x86_64-unknown-linux-gnu",
@@ -98,15 +102,26 @@ for (const helper of HELPERS) {
   try {
     execFileSync(
       "cargo",
-      ["check", "--quiet", "--manifest-path", manifest, "--target", helper.target],
+      [
+        "check",
+        "--quiet",
+        "--manifest-path",
+        manifest,
+        "--target",
+        helper.target,
+      ],
       { stdio: "inherit" },
     );
     checked++;
   } catch {
-    console.error(`::error::[${TAG}] ${helper.name} failed to type-check for ${helper.target}`);
+    console.error(
+      `::error::[${TAG}] ${helper.name} failed to type-check for ${helper.target}`,
+    );
     failed = true;
   }
 }
 
 if (failed) process.exit(1);
-console.log(`[${TAG}] OK — ${checked}/${HELPERS.length} (helper, target) pair(s) type-checked`);
+console.log(
+  `[${TAG}] OK — ${checked}/${HELPERS.length} (helper, target) pair(s) type-checked`,
+);

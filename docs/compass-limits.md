@@ -29,7 +29,7 @@
 ## Run in Supabase SQL Editor
 
 To create the **`credit_wallet`** table, the append-only **`credit_transactions`** ledger, RLS,
-and the RPCs (`get_credit_balance`, `debit_wallet`, `claim_signup_credit`):
+and the RPCs (`get_credit_balance`, `debit_wallet`):
 
 1. Open your Supabase project → **SQL Editor** → New query.
 2. Paste the **entire** contents of [`supabase/migrations/20260714120000_credit_wallet.sql`](../supabase/migrations/20260714120000_credit_wallet.sql) and run it once.
@@ -54,24 +54,34 @@ Direct `INSERT`/`UPDATE`/`DELETE` on `credit_wallet` is revoked from `authentica
 - **Top-ups.** Minimum top-up **$10** (`MIN_TOPUP_CENTS = 1000`), presets **$10 / $20 / $50**, via a
   single LemonSqueezy "Atlarix Core Credit" product with a per-checkout `custom_price`. The
   `order_created` / `order_refunded` webhook credits / claws back the wallet.
-- **Trial credit.** Each new account gets a one-time **$1** signup credit (`claim_signup_credit`,
-  granted on first sign-in, idempotent per user).
+- **No trial credit.** The one-time $1 signup grant was removed on 2026-09-08 along with
+  `claim_signup_credit`. It was sized when a turn cost 2–29c; on the GPT 5.6 tiers a turn runs
+  50–90c, so $1 bought one or two turns rather than a session. A $10 top-up is the entry point.
 - **BYOK & local are free.** Bring-your-own-key providers and local Ollama / LM Studio never touch
   the wallet on any plan.
 
-## Plan limits (Free vs Pro)
+## Workspace limits — the same on every plan
 
-| Capability                  | Free                  | Pro ($19/mo)          |
-|-----------------------------|-----------------------|-----------------------|
-| Atlarix Core (all 4 models) | Pay-as-you-go credits | Pay-as-you-go credits |
-| Workspaces                  | 1                     | Unlimited             |
-| MCP servers / workspace     | 1 (manual config)     | 10 + marketplace      |
-| Automations / workspace     | 2                     | 10                    |
-| Agent Behaviors             | `.atlarix/skills/`    | + marketplace         |
-| BYOK / local models         | Free                  | Free                  |
+**There are no plan limits on features as of 2026-09-08.** The app is free: unlimited
+workspaces, both marketplaces, one-click connectors, automations and workspace snapshots
+are available whether or not anyone has paid. What remains are resource caps, and they
+exist because a workspace with fifty MCP servers is one nobody can reason about.
+
+| Capability              | Every plan                           |
+| ----------------------- | ------------------------------------ |
+| Atlarix Core            | Pay-as-you-go credit                 |
+| Workspaces              | Unlimited                            |
+| MCP servers / workspace | 10                                   |
+| Automations / workspace | 10                                   |
+| Agent Behaviors         | 10 / workspace, marketplace included |
+| BYOK / local models     | Free                                 |
+
+What Pro buys is **Atlarix Reviewer plus a monthly Core allowance**, over one shared
+balance — not a feature tier.
 
 Limit constants live with their enforcement:
-`MCP_FREE_TIER_LIMIT` / `MCP_WORKSPACE_MAX` (`src/ipc/handlers/mcp_handlers.ts`),
-`AUTOMATIONS_FREE_MAX` / `AUTOMATIONS_WORKSPACE_MAX` (`src/ipc/handlers/automation_handlers.ts`),
+`MCP_WORKSPACE_MAX` / `AUTOMATIONS_WORKSPACE_MAX` (`src/lib/workspace-caps.ts`, re-exported
+by `src/ipc/handlers/mcp_handlers.ts` and `src/lib/automations/service.ts`),
+`SKILLS_WORKSPACE_MAX` (`src/ipc/handlers/skills_handlers.ts`),
 `MIN_TOPUP_CENTS` / `PRESET_TOPUPS_CENTS` (`src/components/settings/AtlarixCoreUsageCard.tsx`),
-and the proxy's `MARKUP` + reserve gate (`atlarix-proxy/src/server.ts`, `pricing.ts`).
+and the proxy's `MARKUP` + reserve gate (`atlarix-proxy/src/server.ts`, `cost.ts`).

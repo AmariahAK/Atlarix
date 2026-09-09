@@ -2,7 +2,11 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { setupEvalContext, getIpcHandler, type EvalContext } from "../infra/turn";
+import {
+  setupEvalContext,
+  getIpcHandler,
+  type EvalContext,
+} from "../infra/turn";
 import { scenario } from "../infra/scenario";
 import { runHeadlessAgent } from "@/headless/headless-runner";
 import {
@@ -140,7 +144,9 @@ describe("headless reasoning level reaches the provider", () => {
       resolveHandler: (channel) => getIpcHandler(channel),
     });
     expect(res.completed).toBe(true);
-    const body = (ctx.server.requestsFor(sc) as Array<Record<string, unknown>>)[0];
+    const body = (
+      ctx.server.requestsFor(sc) as Array<Record<string, unknown>>
+    )[0];
     expect(body).toBeDefined();
     return body;
   }
@@ -207,12 +213,16 @@ describe("headless run writes a usable trajectory", () => {
       .map((l) => JSON.parse(l) as Record<string, any>);
 
     expect(lines[0]).toMatchObject({ type: "run_start", schemaVersion: 1 });
-    expect(lines.find((l) => l.type === "user_text")?.text).toContain("create traj.txt");
+    expect(lines.find((l) => l.type === "user_text")?.text).toContain(
+      "create traj.txt",
+    );
 
     // The real payload from build-branch.ts, not a synthesised one: if the
     // activity event ever stops carrying toolArgs, every trajectory silently
     // loses what the agent actually did and this is what says so.
-    const tool = lines.find((l) => l.type === "tool_use" && l.status !== "running");
+    const tool = lines.find(
+      (l) => l.type === "tool_use" && l.status !== "running",
+    );
     expect(tool?.toolName).toBe("edit_file");
     expect(tool?.args?.path).toBe("traj.txt");
     expect(typeof tool?.toolCallId).toBe("string");
@@ -226,7 +236,9 @@ describe("headless run writes a usable trajectory", () => {
     expect(lines.at(-1)).toMatchObject({ type: "run_end", completed: true });
     // Assistant prose is summarised once, after the turn stops growing — never
     // once per chunk.
-    expect(lines.filter((l) => l.type === "assistant_text").length).toBeLessThanOrEqual(1);
+    expect(
+      lines.filter((l) => l.type === "assistant_text").length,
+    ).toBeLessThanOrEqual(1);
   }, 60_000);
 
   it("captures a command's OUTPUT, not just that it ran", async () => {
@@ -265,10 +277,15 @@ describe("headless run writes a usable trajectory", () => {
       .map((l) => JSON.parse(l) as Record<string, any>);
 
     const done = lines.filter(
-      (l) => l.type === "tool_use" && l.toolName === "run_command" && l.status !== "running",
+      (l) =>
+        l.type === "tool_use" &&
+        l.toolName === "run_command" &&
+        l.status !== "running",
     );
     expect(done.length).toBeGreaterThan(0);
-    const withResult = done.find((l) => typeof l.resultText === "string" && l.resultText);
+    const withResult = done.find(
+      (l) => typeof l.resultText === "string" && l.resultText,
+    );
     expect(withResult).toBeDefined();
     expect(withResult!.resultText).toContain("atlarix-output-marker");
   }, 60_000);

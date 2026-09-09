@@ -92,8 +92,7 @@ export async function runDeviceCli(
   args: string[],
   opts?: { timeoutMs?: number; binary?: boolean },
 ): Promise<
-  | { ok: true; stdout: string; buffer: Buffer }
-  | { ok: false; error: string }
+  { ok: true; stdout: string; buffer: Buffer } | { ok: false; error: string }
 > {
   const bin = findDeviceCli(cli);
   if (!bin) return { ok: false, error: missingCliMessage(cli) };
@@ -152,7 +151,7 @@ export function missingCliMessage(cli: DeviceCli): string {
 export const IOS_UNSUPPORTED = {
   hierarchy:
     "iOS Simulator has no UI-hierarchy dump: `simctl` cannot list elements, so there are no refs to act on. " +
-    "Use mode:\"screenshot\" to see the screen, and drive the simulator by hand or via `idb` (a separate install) through run_command. " +
+    'Use mode:"screenshot" to see the screen, and drive the simulator by hand or via `idb` (a separate install) through run_command. ' +
     "This is a platform limitation, not a transient failure — do not retry.",
   input:
     "iOS Simulator has no input injection via `simctl` — tap/type/swipe are not available, so there is nothing to address a ref to. " +
@@ -212,7 +211,9 @@ export function setDeviceCliRunnerForTests(r: DeviceCliRunner | null): void {
   runnerOverride = r;
 }
 
-function run(...args: Parameters<DeviceCliRunner>): ReturnType<DeviceCliRunner> {
+function run(
+  ...args: Parameters<DeviceCliRunner>
+): ReturnType<DeviceCliRunner> {
   return (runnerOverride ?? runDeviceCli)(...args);
 }
 
@@ -271,7 +272,16 @@ export async function ensureTapFeedback(
     }
     const put = await run(
       "adb",
-      ["-s", deviceId, "shell", "settings", "put", "system", "show_touches", "1"],
+      [
+        "-s",
+        deviceId,
+        "shell",
+        "settings",
+        "put",
+        "system",
+        "show_touches",
+        "1",
+      ],
       { timeoutMs: 8_000 },
     );
     if (!put.ok) return null;
@@ -297,8 +307,25 @@ export async function restoreTapFeedback(): Promise<void> {
       try {
         const args =
           previous === "null" || previous === ""
-            ? ["-s", deviceId, "shell", "settings", "delete", "system", "show_touches"]
-            : ["-s", deviceId, "shell", "settings", "put", "system", "show_touches", previous];
+            ? [
+                "-s",
+                deviceId,
+                "shell",
+                "settings",
+                "delete",
+                "system",
+                "show_touches",
+              ]
+            : [
+                "-s",
+                deviceId,
+                "shell",
+                "settings",
+                "put",
+                "system",
+                "show_touches",
+                previous,
+              ];
         await run("adb", args, { timeoutMs: 5_000 });
       } catch {
         // The device may already be gone — that is the common case on quit, and

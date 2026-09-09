@@ -92,7 +92,9 @@ let handlersRegistered = false;
  * directly. The mock's call list is re-scanned per lookup so handlers
  * registered by module side effects (permissions/handlers.ts) are found too.
  */
-export async function getIpcHandler(channel: string): Promise<ChatStreamHandler> {
+export async function getIpcHandler(
+  channel: string,
+): Promise<ChatStreamHandler> {
   const { ipcMain } = await import("electron");
   if (!handlersRegistered) {
     handlersRegistered = true;
@@ -139,7 +141,11 @@ export async function runTurn(
     during?: (fakeIpc: FakeIpcEvent) => Promise<void>;
     timeoutMs?: number;
     /** Simulate an unattended automation run (drops human-handoff tools, gates MCP consent). */
-    automation?: { runId: string; unattended: true; workspacePathOverride?: string };
+    automation?: {
+      runId: string;
+      unattended: true;
+      workspacePathOverride?: string;
+    };
   },
 ): Promise<TurnResult> {
   writeTestSettings({

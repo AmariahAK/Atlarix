@@ -46,7 +46,7 @@ import { ERROR_SENTINEL } from "./error-hook";
  */
 export const WEBAUTHN_UNSUPPORTED_MESSAGE =
   "This site asked for a passkey stored on this device, which Atlarix's browser " +
-  "can't provide. Choose \"use a phone or tablet\" and scan the QR code with the " +
+  'can\'t provide. Choose "use a phone or tablet" and scan the QR code with the ' +
   "device holding your passkey, or use a security key — both work here.";
 
 /**

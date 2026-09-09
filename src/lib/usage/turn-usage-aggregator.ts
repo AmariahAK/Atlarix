@@ -14,7 +14,10 @@
  */
 
 import log from "electron-log";
-import { totalTokensFromAiUsage, type LooseAiUsage } from "@/lib/usage/ai-usage";
+import {
+  totalTokensFromAiUsage,
+  type LooseAiUsage,
+} from "@/lib/usage/ai-usage";
 import { inputOutputTokensFromUsage } from "@/lib/routing/byok-pricing";
 
 const logger = log.scope("turn-usage");
@@ -138,7 +141,9 @@ export function recordAuxUsage(
     entry.outputTokens += split.outputTokens;
   }
 
-  logger.debug(`aux usage +${tokens} (${label}) chat ${chatId} → ${bucket.totalTokens}`);
+  logger.debug(
+    `aux usage +${tokens} (${label}) chat ${chatId} → ${bucket.totalTokens}`,
+  );
   return tokens;
 }
 
@@ -149,7 +154,9 @@ export function recordAuxUsage(
  * auxiliary calls came from a provider that reports no usage still spent money, and
  * gating on `totalTokens` alone is what made those turns look empty.
  */
-export function takeAuxUsage(chatId: number | null | undefined): AuxUsageTotals | null {
+export function takeAuxUsage(
+  chatId: number | null | undefined,
+): AuxUsageTotals | null {
   if (chatId == null) return null;
   const bucket = buckets.get(chatId);
   buckets.delete(chatId);
@@ -166,9 +173,7 @@ export function takeAuxUsage(chatId: number | null | undefined): AuxUsageTotals 
  * asked for — conflating the two (as the old single "Sub-agents" line did) hides
  * exactly the thing someone auditing their spend wants to see.
  */
-export function summarizeAuxBySource(
-  totals: AuxUsageTotals | null,
-): Array<{
+export function summarizeAuxBySource(totals: AuxUsageTotals | null): Array<{
   source: "subagents" | "compaction" | "other";
   tokens: number;
   calls: number;
@@ -186,7 +191,11 @@ export function summarizeAuxBySource(
       : label.startsWith("compaction")
         ? "compaction"
         : "other";
-    const bucket = grouped.get(source) ?? { tokens: 0, calls: 0, estimatedTokens: 0 };
+    const bucket = grouped.get(source) ?? {
+      tokens: 0,
+      calls: 0,
+      estimatedTokens: 0,
+    };
     // `tokens` is the best total available — measured plus estimated — while
     // `estimatedTokens` says how much of it to trust less. A caller that wants only
     // measured spend subtracts; one that wants the honest size does not have to

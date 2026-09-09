@@ -25,7 +25,14 @@ function directoryStats(target, opts = {}) {
   let truncated = false;
 
   if (!fs.existsSync(target)) {
-    return { bytes: 0, files: 0, dirs: 0, truncated: false, exists: false, walkMs: 0 };
+    return {
+      bytes: 0,
+      files: 0,
+      dirs: 0,
+      truncated: false,
+      exists: false,
+      walkMs: 0,
+    };
   }
 
   const st = fs.statSync(target);
@@ -163,7 +170,9 @@ export function expandZipPowerShell(zipPath, targetDir) {
   const elapsedSec = ((Date.now() - started) / 1000).toFixed(1);
 
   if (result.error) {
-    throw new Error(`${PREFIX} Expand-Archive spawn failed: ${result.error.message}`);
+    throw new Error(
+      `${PREFIX} Expand-Archive spawn failed: ${result.error.message}`,
+    );
   }
   if (result.status !== 0) {
     throw new Error(
@@ -180,12 +189,16 @@ export function expandZipPowerShell(zipPath, targetDir) {
 export function verifyUnpackedElectron(targetDir, opts = {}) {
   const minBytes = opts.minBytes ?? MIN_ELECTRON_UNPACKED_BYTES;
   const stats = directoryStats(targetDir);
-  const truncNote = stats.truncated ? " (walk truncated — increase maxFiles)" : "";
+  const truncNote = stats.truncated
+    ? " (walk truncated — increase maxFiles)"
+    : "";
   console.log(
     `${PREFIX} unpacked ${targetDir}: ${formatBytes(stats.bytes)} files=${stats.files} dirs=${stats.dirs}${truncNote}`,
   );
   if (stats.truncated) {
-    throw new Error(`${PREFIX} unpacked directory walk truncated; cannot verify full extract`);
+    throw new Error(
+      `${PREFIX} unpacked directory walk truncated; cannot verify full extract`,
+    );
   }
   if (stats.bytes < minBytes) {
     throw new Error(
@@ -223,34 +236,50 @@ export function installWindowsCiElectronExtractPatch() {
   const unzipMod = require("@electron/packager/dist/unzip.js");
 
   unzipMod.extractElectronZip = async (zipPath, targetDir) => {
-    console.log(`${PREFIX} patch extract ${path.basename(zipPath)} → ${targetDir}`);
+    console.log(
+      `${PREFIX} patch extract ${path.basename(zipPath)} → ${targetDir}`,
+    );
     verifyElectronZip(zipPath);
     expandZipPowerShell(zipPath, targetDir);
     verifyUnpackedElectron(targetDir);
   };
 
   patchInstalled = true;
-  console.log(`${PREFIX} installed PowerShell extract patch (extract-zip bypassed on Windows CI)`);
+  console.log(
+    `${PREFIX} installed PowerShell extract patch (extract-zip bypassed on Windows CI)`,
+  );
 }
 
 async function cliVerify() {
-  const { getElectronVersion } = require("@electron-forge/core-utils/dist/electron-version.js");
+  const {
+    getElectronVersion,
+  } = require("@electron-forge/core-utils/dist/electron-version.js");
   const cwd = process.cwd();
-  const pkg = JSON.parse(fs.readFileSync(path.join(cwd, "package.json"), "utf8"));
+  const pkg = JSON.parse(
+    fs.readFileSync(path.join(cwd, "package.json"), "utf8"),
+  );
   const version = await getElectronVersion(cwd, pkg);
   const cacheRoot = resolveElectronCacheRoot(cwd);
   console.log(`${PREFIX} --verify electron=${version} cacheRoot=${cacheRoot}`);
-  await ensureElectronZipReady({ version, platform: "win32", arch: "x64", cacheRoot });
+  await ensureElectronZipReady({
+    version,
+    platform: "win32",
+    arch: "x64",
+    cacheRoot,
+  });
   console.log(`${PREFIX} --verify OK`);
 }
 
 const isCliMain =
   Boolean(process.argv[1]) &&
-  path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+  path.resolve(process.argv[1]) ===
+    path.resolve(fileURLToPath(import.meta.url));
 
 if (isCliMain) {
   if (!process.argv.includes("--verify")) {
-    console.error(`${PREFIX} usage: node scripts/win-ci-electron-zip.mjs --verify`);
+    console.error(
+      `${PREFIX} usage: node scripts/win-ci-electron-zip.mjs --verify`,
+    );
     process.exit(1);
   }
   cliVerify().catch((err) => {

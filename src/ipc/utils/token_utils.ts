@@ -20,7 +20,10 @@ export const estimateMessagesTokens = (messages: Message[]): number => {
   // W6 (v14.8.11): per-message sum, matching the context meter's scope — the
   // old role-joined exactTokenCount inflated counts with `role:` prefixes and
   // made the summarize nudge disagree with the meter (v14.8.5 #3).
-  return messages.reduce((acc, m) => acc + exactTokenCountText(m.content || ""), 0);
+  return messages.reduce(
+    (acc, m) => acc + exactTokenCountText(m.content || ""),
+    0,
+  );
 };
 
 // v10.1: dead cache-aware usage helpers removed (normalizeTokenUsage,
@@ -54,7 +57,10 @@ function contextWindowMemoKey(m: LargeLanguageModel): string {
  */
 const compassContextWindowByChat = new Map<number, number>();
 
-export function setCompassContextWindow(chatId: number, contextWindow: number): void {
+export function setCompassContextWindow(
+  chatId: number,
+  contextWindow: number,
+): void {
   if (Number.isFinite(contextWindow) && contextWindow > 0) {
     compassContextWindowByChat.set(chatId, contextWindow);
   }
@@ -109,7 +115,10 @@ export async function getContextWindowDetailed(
     // a vendor-native id, so a directly-routed tier silently got the 200K floor.
     const coreTarget = getCoreModelsDevTargetForTier(target.name);
     if (coreTarget) {
-      const limits = await getModelsDevLimits(coreTarget.providerId, coreTarget.modelId);
+      const limits = await getModelsDevLimits(
+        coreTarget.providerId,
+        coreTarget.modelId,
+      );
       if (limits?.context && limits.context > 0) {
         return { contextWindow: limits.context, source: "compass-fallback" };
       }
@@ -175,6 +184,29 @@ export async function getEffectiveBudget(
 export async function getMaxTokens(
   model: LargeLanguageModel,
 ): Promise<number | undefined> {
+  // Core is a SYNTHETIC provider, and its registry entry carries a blanket
+  // `maxOutputTokens: 32_000` (compass_constants). Nothing corrected it, because
+  // `getLanguageModels` early-returns the synthetic list before
+  // `enrichModelsWithModelsDevLimits` can run — so a 128K-output model was capped at a
+  // quarter of its ceiling and long turns truncated for no reason anyone could see.
+  //
+  // Resolve the tier's REAL limit the same way `getContextWindowDetailed` above
+  // resolves its context: by the tier's provider + vendor model id, which is the only
+  // key models.dev answers to for a directly-routed tier.
+  //
+  // BYOK deliberately gets no equivalent here — it is already correct.
+  // `enrichModelsWithModelsDevLimits` fills only MISSING limits and never overwrites a
+  // provider's own value, and the floors below apply only on a total catalog miss.
+  if (model.provider === "compass") {
+    const coreTarget = getCoreModelsDevTargetForTier(model.name);
+    if (coreTarget) {
+      const limits = await getModelsDevLimits(
+        coreTarget.providerId,
+        coreTarget.modelId,
+      );
+      if (limits?.output && limits.output > 0) return limits.output;
+    }
+  }
   const modelOption = await findLanguageModel(model);
   return modelOption?.maxOutputTokens ?? undefined;
 }
@@ -216,7 +248,8 @@ export async function getTemperature(
 ): Promise<number | undefined> {
   const providerId =
     model.provider === "compass"
-      ? (getCoreModelsDevTargetForTier(model.name)?.providerId ?? model.provider)
+      ? (getCoreModelsDevTargetForTier(model.name)?.providerId ??
+        model.provider)
       : model.provider;
   const modelId =
     model.provider === "compass"

@@ -36,9 +36,7 @@ afterAll(async () => {
 describe("ephemeral → session round-trip", () => {
   it("persists the turn and survives a simulated reload", async () => {
     ctx.server.register(
-      scenario("roundtrip")
-        .text("Ahadi ni deni — message persisted.")
-        .build(),
+      scenario("roundtrip").text("Ahadi ni deni — message persisted.").build(),
     );
 
     const chatId = await ctx.newChat();

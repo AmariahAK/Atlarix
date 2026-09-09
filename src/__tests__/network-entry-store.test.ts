@@ -127,7 +127,12 @@ describe("per-tab network log", () => {
       log,
       "late",
       { status: 200, finishedAt: 9_000 },
-      { tabId: 1, url: "https://api.test/late", method: "GET", source: "webrequest" },
+      {
+        tabId: 1,
+        url: "https://api.test/late",
+        method: "GET",
+        source: "webrequest",
+      },
     );
     expect(done?.durationMs).toBeUndefined();
   });
@@ -186,7 +191,10 @@ describe("injected response bodies", () => {
     });
     expect(log.orphanBodies.size).toBe(1);
 
-    beginRequest(log, started("s1", { url: "https://api.test/save", method: "POST" }));
+    beginRequest(
+      log,
+      started("s1", { url: "https://api.test/save", method: "POST" }),
+    );
     const done = completeRequest(log, "s1", { status: 201 });
 
     expect(done?.responseBody).toBe("saved");
@@ -217,7 +225,9 @@ describe("network sentinel", () => {
     expect(tryParseNetworkSentinel("just a log line")).toBeNull();
     expect(tryParseNetworkSentinel(`${NETWORK_SENTINEL}not json`)).toBeNull();
     // No url means nothing to correlate against — not a usable record.
-    expect(tryParseNetworkSentinel(`${NETWORK_SENTINEL}{"method":"GET"}`)).toBeNull();
+    expect(
+      tryParseNetworkSentinel(`${NETWORK_SENTINEL}{"method":"GET"}`),
+    ).toBeNull();
   });
 
   it("re-clips an oversized body from the page", () => {
@@ -247,7 +257,9 @@ describe("header + size helpers", () => {
     // be a lie the UI would render as a real measurement.
     expect(sizeFromHeaders({})).toBeUndefined();
     expect(sizeFromHeaders(undefined)).toBeUndefined();
-    expect(sizeFromHeaders({ "content-length": "not-a-number" })).toBeUndefined();
+    expect(
+      sizeFromHeaders({ "content-length": "not-a-number" }),
+    ).toBeUndefined();
     expect(sizeFromHeaders({ "content-length": "0" })).toBe(0);
     expect(sizeFromHeaders({ "content-length": "2048" })).toBe(2048);
   });

@@ -28,17 +28,26 @@ describe("isNewer", () => {
 describe("shouldRunNotifyOnlyCheck", () => {
   it("never runs in dev (unpackaged)", () => {
     expect(
-      shouldRunNotifyOnlyCheck({ isPackaged: false, electronUpdaterActive: false }),
+      shouldRunNotifyOnlyCheck({
+        isPackaged: false,
+        electronUpdaterActive: false,
+      }),
     ).toBe(false);
   });
   it("suppresses when electron-updater is active (no double banner)", () => {
     expect(
-      shouldRunNotifyOnlyCheck({ isPackaged: true, electronUpdaterActive: true }),
+      shouldRunNotifyOnlyCheck({
+        isPackaged: true,
+        electronUpdaterActive: true,
+      }),
     ).toBe(false);
   });
   it("runs as the bridge when electron-updater cannot (deb/rpm, mac-not-in-apps, feed fail)", () => {
     expect(
-      shouldRunNotifyOnlyCheck({ isPackaged: true, electronUpdaterActive: false }),
+      shouldRunNotifyOnlyCheck({
+        isPackaged: true,
+        electronUpdaterActive: false,
+      }),
     ).toBe(true);
   });
   // The bridge exists to point users at a GitHub download. For a Microsoft Store
@@ -73,12 +82,17 @@ describe("canElectronUpdaterRun", () => {
   });
   it("ok on Windows", () => {
     expect(
-      canElectronUpdaterRun({ ...base, platform: "win32", isInApplicationsFolder: false }).ok,
+      canElectronUpdaterRun({
+        ...base,
+        platform: "win32",
+        isInApplicationsFolder: false,
+      }).ok,
     ).toBe(true);
   });
   it("ok on Linux AppImage but not deb/rpm", () => {
     expect(
-      canElectronUpdaterRun({ ...base, platform: "linux", isAppImage: true }).ok,
+      canElectronUpdaterRun({ ...base, platform: "linux", isAppImage: true })
+        .ok,
     ).toBe(true);
     const deb = canElectronUpdaterRun({
       ...base,
@@ -89,7 +103,9 @@ describe("canElectronUpdaterRun", () => {
     expect(deb.reason).toBe("unsupported");
   });
   it("not ok for an unpackaged dev build", () => {
-    expect(canElectronUpdaterRun({ ...base, isPackaged: false }).ok).toBe(false);
+    expect(canElectronUpdaterRun({ ...base, isPackaged: false }).ok).toBe(
+      false,
+    );
   });
 });
 
@@ -103,7 +119,11 @@ describe("chooseUpdaterKind", () => {
 
   it("Windows (packaged) → squirrel (Squirrel.Windows, not electron-updater)", () => {
     expect(
-      chooseUpdaterKind({ ...base, platform: "win32", isInApplicationsFolder: false }),
+      chooseUpdaterKind({
+        ...base,
+        platform: "win32",
+        isInApplicationsFolder: false,
+      }),
     ).toBe("squirrel");
   });
   it("macOS in /Applications → electron-updater", () => {
@@ -118,7 +138,9 @@ describe("chooseUpdaterKind", () => {
     ).toBe("none");
   });
   it("macOS outside /Applications → none (notify bridge handles it)", () => {
-    expect(chooseUpdaterKind({ ...base, isInApplicationsFolder: false })).toBe("none");
+    expect(chooseUpdaterKind({ ...base, isInApplicationsFolder: false })).toBe(
+      "none",
+    );
   });
   it("unpackaged dev build → none on every platform", () => {
     expect(chooseUpdaterKind({ ...base, isPackaged: false })).toBe("none");

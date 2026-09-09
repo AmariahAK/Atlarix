@@ -61,7 +61,11 @@ describe("adoptMisplacedMemoryDir", () => {
     const guessed = guessedDirFor(ws);
     await writeNote(guessed, "project-overview.md", "# overview\n");
     await writeNote(guessed, "adding-quotes.md", "# quotes\n");
-    await writeNote(guessed, MEMORY_INDEX_FILE, "# Memory Index\n\n- [Overview](project-overview.md)\n");
+    await writeNote(
+      guessed,
+      MEMORY_INDEX_FILE,
+      "# Memory Index\n\n- [Overview](project-overview.md)\n",
+    );
 
     expect(await adoptMisplacedMemoryDir(ws)).toBe(true);
 
@@ -75,7 +79,11 @@ describe("adoptMisplacedMemoryDir", () => {
   it("carries the index across, not just the notes", async () => {
     const guessed = guessedDirFor(ws);
     await writeNote(guessed, "a.md", "# a\n");
-    await writeNote(guessed, MEMORY_INDEX_FILE, "# Memory Index\n\n- [A](a.md) — hook\n");
+    await writeNote(
+      guessed,
+      MEMORY_INDEX_FILE,
+      "# Memory Index\n\n- [A](a.md) — hook\n",
+    );
 
     await adoptMisplacedMemoryDir(ws);
 
@@ -93,7 +101,9 @@ describe("adoptMisplacedMemoryDir", () => {
 
     expect(await adoptMisplacedMemoryDir(ws)).toBe(false);
     // Source untouched, so nothing is lost and it can be resolved by hand.
-    await expect(fs.access(path.join(guessed, "stranded.md"))).resolves.toBeUndefined();
+    await expect(
+      fs.access(path.join(guessed, "stranded.md")),
+    ).resolves.toBeUndefined();
     expect((await readMemoryIndex(ws))?.noteCount).toBe(1);
   });
 
@@ -109,7 +119,9 @@ describe("adoptMisplacedMemoryDir", () => {
     );
 
     expect(await adoptMisplacedMemoryDir(ws)).toBe(false);
-    await expect(fs.access(path.join(guessed, "note.md"))).resolves.toBeUndefined();
+    await expect(
+      fs.access(path.join(guessed, "note.md")),
+    ).resolves.toBeUndefined();
   });
 
   it("writes a .workspace stamp so ownership stops being a guess", async () => {
@@ -151,6 +163,8 @@ describe("adoptMisplacedMemoryDir", () => {
     const real = memoryDirFor(ws);
     await writeNote(real, "note.md", "# note\n");
     await adoptMisplacedMemoryDir(ws);
-    await expect(fs.access(path.join(real, "note.md"))).resolves.toBeUndefined();
+    await expect(
+      fs.access(path.join(real, "note.md")),
+    ).resolves.toBeUndefined();
   });
 });

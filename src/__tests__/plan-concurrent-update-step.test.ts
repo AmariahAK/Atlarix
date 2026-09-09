@@ -30,7 +30,8 @@ let writes = 0;
 vi.mock("@/db", () => ({ db: {} }));
 
 vi.mock("@/lib/plans/plan-artifacts", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/plans/plan-artifacts")>();
+  const actual =
+    await importOriginal<typeof import("@/lib/plans/plan-artifacts")>();
   return {
     ...actual,
     getPlanArtifact: async (planId: string) => {
@@ -74,7 +75,11 @@ const { setStepStateInPlanMarkdown, parsePlanChecklist } = await import(
 async function markDone(planId: string, stepIndex: number): Promise<void> {
   await withPlanArtifactLock(planId, async () => {
     const row = await getPlanArtifact(planId);
-    const result = setStepStateInPlanMarkdown(row!.content, { stepIndex }, "done");
+    const result = setStepStateInPlanMarkdown(
+      row!.content,
+      { stepIndex },
+      "done",
+    );
     if (result.changed) await updatePlanArtifactContent(planId, result.content);
   });
 }
@@ -91,7 +96,11 @@ beforeEach(() => {
 
 describe("concurrent update_step", () => {
   it("lands ALL THREE marks fired in one step — the live failure", async () => {
-    await Promise.all([markDone("p1", 1), markDone("p1", 2), markDone("p1", 3)]);
+    await Promise.all([
+      markDone("p1", 1),
+      markDone("p1", 2),
+      markDone("p1", 3),
+    ]);
 
     expect(doneCount()).toBe(3);
     expect(stored).toContain("[x] 1. Append quotes");
@@ -101,16 +110,24 @@ describe("concurrent update_step", () => {
 
   it("does not revert steps to todo", async () => {
     // The sharpest symptom: losers came back as `[ ]`, not merely unticked.
-    await Promise.all([markDone("p1", 1), markDone("p1", 2), markDone("p1", 3)]);
-    expect(parsePlanChecklist(stored).slice(0, 3).map((s) => s.state)).toEqual([
-      "done",
-      "done",
-      "done",
+    await Promise.all([
+      markDone("p1", 1),
+      markDone("p1", 2),
+      markDone("p1", 3),
     ]);
+    expect(
+      parsePlanChecklist(stored)
+        .slice(0, 3)
+        .map((s) => s.state),
+    ).toEqual(["done", "done", "done"]);
   });
 
   it("serialises rather than dropping writes", async () => {
-    await Promise.all([markDone("p1", 1), markDone("p1", 2), markDone("p1", 3)]);
+    await Promise.all([
+      markDone("p1", 1),
+      markDone("p1", 2),
+      markDone("p1", 3),
+    ]);
     // One write per mark. Fewer would mean a transform saw a body already
     // containing another's change and decided it had nothing to do.
     expect(writes).toBe(3);

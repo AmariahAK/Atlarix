@@ -32,7 +32,9 @@ export function getEffectiveModel(settings: UserSettings): LargeLanguageModel {
 }
 
 /** Model used for token/temperature options. */
-export function getEffectiveModelForOptions(settings: UserSettings): LargeLanguageModel {
+export function getEffectiveModelForOptions(
+  settings: UserSettings,
+): LargeLanguageModel {
   return settings.selectedModel;
 }
 
@@ -126,9 +128,16 @@ export async function getModelClient(
   // configured — so the app stays usable instead of erroring. Never overrides a
   // provider that DOES have a key, and never re-routes Core itself.
   let fellBackToCore = false;
-  if (process.env.ATLARIX_DIAG_146 === "1" && model.provider !== COMPASS_PROVIDER_ID) {
+  if (
+    process.env.ATLARIX_DIAG_146 === "1" &&
+    model.provider !== COMPASS_PROVIDER_ID
+  ) {
     const coreConfigured = isCompassBuildConfigured();
-    const usable = await hasUsableProviderKey(model.provider, settings, providerConfig);
+    const usable = await hasUsableProviderKey(
+      model.provider,
+      settings,
+      providerConfig,
+    );
     logger.info(
       `[DIAG_146] core-fallback gate provider=${model.provider} coreConfigured=${coreConfigured} hasUsableKey=${usable} → ${coreConfigured && !usable ? "FALLBACK" : "no-fallback"}`,
     );
@@ -173,8 +182,7 @@ async function getRegularModelClient(
 }> {
   // Get API key for the specific provider
   // Priority: settings -> database -> env (so UI/database key wins over .env)
-  let apiKey =
-    settings.providerSettings?.[model.provider]?.apiKey?.value;
+  let apiKey = settings.providerSettings?.[model.provider]?.apiKey?.value;
 
   if (!apiKey) {
     const dbApiKey = await getProviderApiKey(model.provider);
@@ -249,9 +257,9 @@ async function getRegularModelClient(
         baseURL,
         googleAuthOptions: serviceAccountKey
           ? {
-            // Expecting the user to paste the full JSON of the service account key
-            credentials: JSON.parse(serviceAccountKey),
-          }
+              // Expecting the user to paste the full JSON of the service account key
+              credentials: JSON.parse(serviceAccountKey),
+            }
           : undefined,
       });
       return {
@@ -338,7 +346,9 @@ async function getRegularModelClient(
               /* keep the construction-time token — a refused request is better
                  than a request we never send */
             }
-            const headers = new Headers(init?.headers as HeadersInit | undefined);
+            const headers = new Headers(
+              init?.headers as HeadersInit | undefined,
+            );
             headers.set("Authorization", `Bearer ${bearer}`);
             return fetch(input as RequestInfo, { ...init, headers });
           },
@@ -487,8 +497,11 @@ async function getRegularModelClient(
     case "bedrock": {
       // AWS Bedrock supports API key authentication using AWS_BEARER_TOKEN_BEDROCK
       // See: https://sdk.vercel.ai/providers/ai-sdk-providers/amazon-bedrock#api-key-authentication
-      const bedrockSettings = settings.providerSettings?.bedrock as { region?: string } | undefined;
-      const region = bedrockSettings?.region || getEnvVar("AWS_REGION") || "us-east-1";
+      const bedrockSettings = settings.providerSettings?.bedrock as
+        | { region?: string }
+        | undefined;
+      const region =
+        bedrockSettings?.region || getEnvVar("AWS_REGION") || "us-east-1";
       const provider = createAmazonBedrock({
         apiKey: apiKey,
         region,
@@ -507,7 +520,10 @@ async function getRegularModelClient(
           "Cohere API key is required. Provide it in Settings or set COHERE_API_KEY.",
         );
       }
-      const modelClient = createCohereChatModel({ apiKey, modelId: model.name });
+      const modelClient = createCohereChatModel({
+        apiKey,
+        modelId: model.name,
+      });
       return {
         modelClient: {
           model: modelClient,
@@ -523,13 +539,13 @@ async function getRegularModelClient(
       const baseUrl = elasticSettings?.baseUrl?.trim();
       if (!baseUrl) {
         throw new Error(
-          "Elastic Agent Builder requires Kibana URL. Set it in Settings > AI > Provider Settings (Elastic Agent Builder)."
+          "Elastic Agent Builder requires Kibana URL. Set it in Settings > AI > Provider Settings (Elastic Agent Builder).",
         );
       }
       const elasticApiKey = apiKey || elasticSettings?.apiKey?.value;
       if (!elasticApiKey) {
         throw new Error(
-          "Elastic Agent Builder requires an API key. Set it in Settings or set ELASTIC_AGENT_BUILDER_API_KEY."
+          "Elastic Agent Builder requires an API key. Set it in Settings or set ELASTIC_AGENT_BUILDER_API_KEY.",
         );
       }
       const elasticModel = createElasticAgentBuilderModel({
@@ -559,7 +575,10 @@ async function getRegularModelClient(
       // Core (JWT refresh), Vertex (service account), Azure (resourceName), Bedrock
       // (region), Cohere/Elastic (non-OpenAI adapters), OpenRouter (routing +
       // plugins), and the local runtimes.
-      if (providerConfig.apiBaseUrl || hasProviderSdkFactory(providerConfig.npm)) {
+      if (
+        providerConfig.apiBaseUrl ||
+        hasProviderSdkFactory(providerConfig.npm)
+      ) {
         return {
           modelClient: {
             model: createModelFromCatalog({

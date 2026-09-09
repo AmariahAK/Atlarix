@@ -128,14 +128,23 @@ export interface TurnRuntime {
     fullResponse: string;
     abortController: AbortController;
     chatId: number;
-    processResponseChunkUpdate: (args: { fullResponse: string }) => Promise<string>;
+    processResponseChunkUpdate: (args: {
+      fullResponse: string;
+    }) => Promise<string>;
     onFirstModelActivity?: () => void;
     onFirstTextDelta?: () => void;
     onFirstReasoningDelta?: () => void;
     onFirstTextAfterReasoning?: () => void;
     onStreamStall?: () => void;
-    onToolInputProgress?: (info: { toolName: string; deltaCount: number }) => void;
-    onToolInputDelta?: (info: { toolCallId: string; toolName: string; argsTextSoFar: string }) => void;
+    onToolInputProgress?: (info: {
+      toolName: string;
+      deltaCount: number;
+    }) => void;
+    onToolInputDelta?: (info: {
+      toolCallId: string;
+      toolName: string;
+      argsTextSoFar: string;
+    }) => void;
     onStreamActivityPulse?: () => void;
     sanitizeTextDelta?: (text: string) => string;
   }): Promise<{
@@ -160,7 +169,11 @@ export interface TurnRuntime {
   onFirstTextDelta(): void;
   onStreamStall(): void;
   onToolInputProgress(info: { toolName: string; deltaCount: number }): void;
-  onToolInputDelta?(info: { toolCallId: string; toolName: string; argsTextSoFar: string }): void;
+  onToolInputDelta?(info: {
+    toolCallId: string;
+    toolName: string;
+    argsTextSoFar: string;
+  }): void;
   onStreamActivityPulse(): void;
   sanitizeTextDelta(text: string): string;
   applyTierEscalation(args: {
@@ -396,152 +409,152 @@ export async function runAgentTurn(
     // already append theirs to buildIterMessages.
     let finalRoundRespMsgs: ModelMessage[] = [];
     try {
-    while (!streamRoundDone) {
-      // Same guard inside the continuation loop: a mid-round abort must not
-      // trigger another runStreamRound via the continuation `continue` below.
-      // During the forced finish round the turn controller stays aborted, so
-      // skip the guard then (the finish round uses its own controller).
-      if (rt.abortController.signal.aborted && !forceTextFinish) {
-        throw abortReasonError(rt.abortController.signal.reason);
-      }
-      const {
-        bundle,
-        fullResponse: roundFull,
-        finishReason: fr,
-        resumeFromStall,
-      } = await rt.runStreamRound({
-        runSimpleStream: async (o) =>
-          rt.simpleStreamText({
-            chatMessages: buildIterMessages,
-            // Tools OFF for the finish round so the model can't keep looping.
-            tools: forceTextFinish ? {} : profile.tools,
-            systemPromptOverride: roundPrompt.systemPromptOverride,
-            dynamicSystemTail: roundPrompt.dynamicSystemTail,
-            abortSignal: o?.abortSignal,
-            // Normal rounds are UNBOUNDED (parity with opencode/Claude Code) —
-            // the repetition guard, not a step cap, ends a stuck round. The
-            // finish round is the lone exception: exactly ONE step (prose),
-            // bounding the degenerate case where a model still emits a tool call
-            // despite tools being off (text-tool models / scripted evals).
-            maxStepsPerRound: forceTextFinish ? 1 : undefined,
-          }),
-        fullResponse,
-        abortController: roundAbortController,
-        chatId: rt.chatId,
-        processResponseChunkUpdate: rt.processResponseChunkUpdate,
-        onFirstModelActivity: () => {
-          rt.safeSend("chat:stream:phase", {
-            chatId: rt.chatId,
-            phase: "responding",
-            label: "",
-          });
-        },
-        onFirstTextDelta: rt.onFirstTextDelta,
-        onFirstReasoningDelta: () => {
-          rt.safeSend("chat:activity", {
-            id: `reasoning-started-${rt.chatId}-${Date.now()}`,
-            type: "reasoning_started",
-            label: "Thinking deeply...",
-            status: "running",
-            timestamp: Date.now(),
-            chatId: rt.chatId,
-          });
-        },
-        onFirstTextAfterReasoning: () => {
-          rt.safeSend("chat:activity", {
-            id: `reasoning-${rt.chatId}`,
-            type: "reasoning_complete",
-            label: "Done thinking, writing response...",
-            status: "done",
-            timestamp: Date.now(),
-            chatId: rt.chatId,
-          });
-        },
-        onStreamStall: rt.onStreamStall,
-        onToolInputProgress: rt.onToolInputProgress,
-        onToolInputDelta: rt.onToolInputDelta,
-        onStreamActivityPulse: rt.onStreamActivityPulse,
-        sanitizeTextDelta: rt.sanitizeTextDelta,
-      });
-      fullResponse = roundFull;
-      finalFinishReason = fr;
-
-      // CONTINUE-FROM-PARTIAL (stall recovery): the round stalled after
-      // completing ≥1 step. Resume from the captured completed-step messages
-      // instead of restarting (which re-ran every tool call — the "redoing the
-      // whole task" bug). Unified with the truncation-continuation path below:
-      // append the completed work + a "continue" nudge and loop. Do NOT await
-      // `bundle.response` — it's unreliable on a mid-abort bundle.
-      if (resumeFromStall && resumeFromStall.length > 0) {
-        if (stallResumeAttempts >= MAX_STALL_RESUME_ATTEMPTS) {
-          // Repeated stalls even after resuming — surface a recoverable
-          // disconnect rather than spinning. (NetworkStreamDisconnectedError is
-          // thrown by the round wrapper on the no-progress path; here we stop
-          // resuming and let the round end so the [Reconnect] affordance shows.)
-          logger.warn(
-            `${L} Stall-resume cap (${MAX_STALL_RESUME_ATTEMPTS}) reached — ending round`,
-          );
-          finalRoundRespMsgs = resumeFromStall;
-          streamRoundDone = true;
-          break;
+      while (!streamRoundDone) {
+        // Same guard inside the continuation loop: a mid-round abort must not
+        // trigger another runStreamRound via the continuation `continue` below.
+        // During the forced finish round the turn controller stays aborted, so
+        // skip the guard then (the finish round uses its own controller).
+        if (rt.abortController.signal.aborted && !forceTextFinish) {
+          throw abortReasonError(rt.abortController.signal.reason);
         }
-        stallResumeAttempts++;
-        logger.info(
-          `${L} Stall-resume ${stallResumeAttempts}/${MAX_STALL_RESUME_ATTEMPTS}: continuing from ${resumeFromStall.length} completed step-message(s)`,
-        );
-        buildIterMessages = [
-          ...buildIterMessages,
-          ...resumeFromStall,
-          {
-            role: "user",
-            content: buildContinuationPrompt({
-              chatId: rt.chatId,
-              turnId: rt.continuationTurnId,
-              attemptCount: stallResumeAttempts,
-              maxAttempts: MAX_STALL_RESUME_ATTEMPTS,
-              lastContent: stripThinkBlocks(fullResponse),
-              taskLedger: currentPlanLedger(rt.chatId) ?? rt.taskLedger,
+        const {
+          bundle,
+          fullResponse: roundFull,
+          finishReason: fr,
+          resumeFromStall,
+        } = await rt.runStreamRound({
+          runSimpleStream: async (o) =>
+            rt.simpleStreamText({
+              chatMessages: buildIterMessages,
+              // Tools OFF for the finish round so the model can't keep looping.
+              tools: forceTextFinish ? {} : profile.tools,
+              systemPromptOverride: roundPrompt.systemPromptOverride,
+              dynamicSystemTail: roundPrompt.dynamicSystemTail,
+              abortSignal: o?.abortSignal,
+              // Normal rounds are UNBOUNDED (parity with opencode/Claude Code) —
+              // the repetition guard, not a step cap, ends a stuck round. The
+              // finish round is the lone exception: exactly ONE step (prose),
+              // bounding the degenerate case where a model still emits a tool call
+              // despite tools being off (text-tool models / scripted evals).
+              maxStepsPerRound: forceTextFinish ? 1 : undefined,
             }),
-          },
-        ];
-        finalRoundRespMsgs = resumeFromStall;
-        continue;
-      }
-
-      // ai@7: take the ACCUMULATED response messages, not `response.messages`.
-      // The latter now resolves to the FINAL STEP only, so a turn whose tool call
-      // ran in an earlier step lost its native tool exchange entirely — turn 2
-      // then carried no `role:"tool"` history (caught by native-history B2).
-      const respMsgs = (await bundle.responseMessages) as ModelMessage[];
-      finalRoundRespMsgs = respMsgs;
-
-      if (
-        shouldContinue(fr as never, {
-          attemptCount: streamContinuationAttempts,
-          maxAttempts: rt.maxContinuationAttempts,
-        })
-      ) {
-        streamContinuationAttempts++;
-        buildIterMessages = [
-          ...buildIterMessages,
-          ...respMsgs,
-          {
-            role: "user",
-            content: buildContinuationPrompt({
+          fullResponse,
+          abortController: roundAbortController,
+          chatId: rt.chatId,
+          processResponseChunkUpdate: rt.processResponseChunkUpdate,
+          onFirstModelActivity: () => {
+            rt.safeSend("chat:stream:phase", {
               chatId: rt.chatId,
-              turnId: rt.continuationTurnId,
-              attemptCount: streamContinuationAttempts,
-              maxAttempts: rt.maxContinuationAttempts,
-              lastContent: stripThinkBlocks(fullResponse),
-              taskLedger: currentPlanLedger(rt.chatId) ?? rt.taskLedger,
-            }),
+              phase: "responding",
+              label: "",
+            });
           },
-        ];
-        continue;
-      }
+          onFirstTextDelta: rt.onFirstTextDelta,
+          onFirstReasoningDelta: () => {
+            rt.safeSend("chat:activity", {
+              id: `reasoning-started-${rt.chatId}-${Date.now()}`,
+              type: "reasoning_started",
+              label: "Thinking deeply...",
+              status: "running",
+              timestamp: Date.now(),
+              chatId: rt.chatId,
+            });
+          },
+          onFirstTextAfterReasoning: () => {
+            rt.safeSend("chat:activity", {
+              id: `reasoning-${rt.chatId}`,
+              type: "reasoning_complete",
+              label: "Done thinking, writing response...",
+              status: "done",
+              timestamp: Date.now(),
+              chatId: rt.chatId,
+            });
+          },
+          onStreamStall: rt.onStreamStall,
+          onToolInputProgress: rt.onToolInputProgress,
+          onToolInputDelta: rt.onToolInputDelta,
+          onStreamActivityPulse: rt.onStreamActivityPulse,
+          sanitizeTextDelta: rt.sanitizeTextDelta,
+        });
+        fullResponse = roundFull;
+        finalFinishReason = fr;
 
-      streamRoundDone = true;
-    }
+        // CONTINUE-FROM-PARTIAL (stall recovery): the round stalled after
+        // completing ≥1 step. Resume from the captured completed-step messages
+        // instead of restarting (which re-ran every tool call — the "redoing the
+        // whole task" bug). Unified with the truncation-continuation path below:
+        // append the completed work + a "continue" nudge and loop. Do NOT await
+        // `bundle.response` — it's unreliable on a mid-abort bundle.
+        if (resumeFromStall && resumeFromStall.length > 0) {
+          if (stallResumeAttempts >= MAX_STALL_RESUME_ATTEMPTS) {
+            // Repeated stalls even after resuming — surface a recoverable
+            // disconnect rather than spinning. (NetworkStreamDisconnectedError is
+            // thrown by the round wrapper on the no-progress path; here we stop
+            // resuming and let the round end so the [Reconnect] affordance shows.)
+            logger.warn(
+              `${L} Stall-resume cap (${MAX_STALL_RESUME_ATTEMPTS}) reached — ending round`,
+            );
+            finalRoundRespMsgs = resumeFromStall;
+            streamRoundDone = true;
+            break;
+          }
+          stallResumeAttempts++;
+          logger.info(
+            `${L} Stall-resume ${stallResumeAttempts}/${MAX_STALL_RESUME_ATTEMPTS}: continuing from ${resumeFromStall.length} completed step-message(s)`,
+          );
+          buildIterMessages = [
+            ...buildIterMessages,
+            ...resumeFromStall,
+            {
+              role: "user",
+              content: buildContinuationPrompt({
+                chatId: rt.chatId,
+                turnId: rt.continuationTurnId,
+                attemptCount: stallResumeAttempts,
+                maxAttempts: MAX_STALL_RESUME_ATTEMPTS,
+                lastContent: stripThinkBlocks(fullResponse),
+                taskLedger: currentPlanLedger(rt.chatId) ?? rt.taskLedger,
+              }),
+            },
+          ];
+          finalRoundRespMsgs = resumeFromStall;
+          continue;
+        }
+
+        // ai@7: take the ACCUMULATED response messages, not `response.messages`.
+        // The latter now resolves to the FINAL STEP only, so a turn whose tool call
+        // ran in an earlier step lost its native tool exchange entirely — turn 2
+        // then carried no `role:"tool"` history (caught by native-history B2).
+        const respMsgs = (await bundle.responseMessages) as ModelMessage[];
+        finalRoundRespMsgs = respMsgs;
+
+        if (
+          shouldContinue(fr as never, {
+            attemptCount: streamContinuationAttempts,
+            maxAttempts: rt.maxContinuationAttempts,
+          })
+        ) {
+          streamContinuationAttempts++;
+          buildIterMessages = [
+            ...buildIterMessages,
+            ...respMsgs,
+            {
+              role: "user",
+              content: buildContinuationPrompt({
+                chatId: rt.chatId,
+                turnId: rt.continuationTurnId,
+                attemptCount: streamContinuationAttempts,
+                maxAttempts: rt.maxContinuationAttempts,
+                lastContent: stripThinkBlocks(fullResponse),
+                taskLedger: currentPlanLedger(rt.chatId) ?? rt.taskLedger,
+              }),
+            },
+          ];
+          continue;
+        }
+
+        streamRoundDone = true;
+      }
     } catch (err) {
       // A mid-round FORCE_TEXT_FINISH abort surfaces here (runStreamRound
       // rejects with the abort reason). Don't propagate — flip into finish mode
@@ -625,7 +638,9 @@ export async function runAgentTurn(
         continue;
       }
       if (textRep.kind === "loop_abort") {
-        logger.info(`${L} Repeated status restatement persisted — forcing finish round`);
+        logger.info(
+          `${L} Repeated status restatement persisted — forcing finish round`,
+        );
         forceTextFinish = true;
         continue;
       }
@@ -636,7 +651,8 @@ export async function runAgentTurn(
     const hasTextToolCalls = textToolCalls !== null;
 
     const currentOpCount = rt.permissionInterceptor.getAllOperationsCount();
-    const executedOpCount = rt.permissionInterceptor.getExecutedOperationsCount();
+    const executedOpCount =
+      rt.permissionInterceptor.getExecutedOperationsCount();
     logger.log(
       `${L} Operation counts: total=${currentOpCount}, executed=${executedOpCount}, tracked=${totalToolExecutions}`,
     );
@@ -644,7 +660,9 @@ export async function runAgentTurn(
     const hadNativeToolExecution = currentOpCount > totalToolExecutions;
 
     if (hasTextToolCalls) {
-      logger.log(`${L} Detected text-based tool calls, parsing and executing...`);
+      logger.log(
+        `${L} Detected text-based tool calls, parsing and executing...`,
+      );
     } else if (hadNativeToolExecution) {
       const newOps = currentOpCount - totalToolExecutions;
       logger.log(
@@ -678,14 +696,13 @@ export async function runAgentTurn(
     // whole job instead of parking. Text-tool models (MiniMax) finish "stop" with
     // calls embedded in prose, so `hasTextToolCalls` gates them out. Unknown
     // finishReason → fall back to the structural proxy so no provider regresses.
-    const modelYielded =
-      hasTextToolCalls
-        ? false
-        : finalFinishReason === "stop"
-          ? true
-          : finalFinishReason === "tool-calls"
-            ? false
-            : !hadNativeToolExecution && !roundHadNativeToolMessages;
+    const modelYielded = hasTextToolCalls
+      ? false
+      : finalFinishReason === "stop"
+        ? true
+        : finalFinishReason === "tool-calls"
+          ? false
+          : !hadNativeToolExecution && !roundHadNativeToolMessages;
 
     if (modelYielded) {
       // Persist this round's native tool messages (they ran inside the SDK loop)
@@ -737,11 +754,15 @@ export async function runAgentTurn(
           gateFeedback = await profile.planCompletionGate();
           usePlanGate = gateFeedback != null;
         } catch (planErr) {
-          logger.warn(`${L} plan-completion gate failed to run: ${String(planErr)}`);
+          logger.warn(
+            `${L} plan-completion gate failed to run: ${String(planErr)}`,
+          );
         }
       }
       const gateStreak = usePlanGate ? planNudgeStreak : agenticProseOnlyStreak;
-      const gateCap = usePlanGate ? PLAN_YIELD_MAX_NUDGES : PROSE_YIELD_MAX_NUDGES;
+      const gateCap = usePlanGate
+        ? PLAN_YIELD_MAX_NUDGES
+        : PROSE_YIELD_MAX_NUDGES;
       if (
         gateFeedback == null ||
         gateStreak >= gateCap ||
@@ -795,7 +816,8 @@ export async function runAgentTurn(
     if (hasTextToolCalls && textToolCalls && profile.executeTextToolCalls) {
       const outcome = await profile.executeTextToolCalls(textToolCalls);
       iterationResults = outcome.iterationResults;
-      hasPermissionRequest = hasPermissionRequest || outcome.hasPermissionRequest;
+      hasPermissionRequest =
+        hasPermissionRequest || outcome.hasPermissionRequest;
     }
 
     // Store all tool results
@@ -859,7 +881,9 @@ export async function runAgentTurn(
           content: systemReminder(runtimeNotice),
         });
         runtimeNoticeSent = true;
-        logger.log(`${L} Browser runtime notice delivered (non-blocking, once per turn)`);
+        logger.log(
+          `${L} Browser runtime notice delivered (non-blocking, once per turn)`,
+        );
       }
     }
 
@@ -902,7 +926,9 @@ export async function runAgentTurn(
         mode: profile.escalationMode,
       });
     } catch (escalationErr) {
-      logger.warn(`${L} tier escalation guard failed: ${String(escalationErr)}`);
+      logger.warn(
+        `${L} tier escalation guard failed: ${String(escalationErr)}`,
+      );
     }
 
     if (hasPermissionRequest) {

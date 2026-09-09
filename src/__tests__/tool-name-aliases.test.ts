@@ -24,7 +24,10 @@
 import { describe, expect, it } from "vitest";
 import "../lib/tools";
 import { ToolRegistry } from "../lib/tools/registry";
-import { getToolActivityLabel, getToolDoneLabel } from "../lib/tool-activity-labels";
+import {
+  getToolActivityLabel,
+  getToolDoneLabel,
+} from "../lib/tool-activity-labels";
 
 describe("tool name aliases", () => {
   it("browser_test is registered under its current name", () => {
@@ -95,7 +98,9 @@ describe("browser 6→2 aliases", () => {
 
   it("all five retired names resolve to `browser`", () => {
     for (const name of RETIRED) {
-      expect(ToolRegistry.get(name)?.name, `${name} must resolve`).toBe("browser");
+      expect(ToolRegistry.get(name)?.name, `${name} must resolve`).toBe(
+        "browser",
+      );
       expect(ToolRegistry.resolveName(name)).toBe("browser");
     }
   });
@@ -134,7 +139,9 @@ describe("browser 6→2 aliases", () => {
     expect(getToolDoneLabel("browser_interact")).toBe("Acted on page");
     for (const name of RETIRED) {
       expect(getToolDoneLabel(name), `${name} label`).not.toMatch(/Runned/);
-      expect(getToolActivityLabel(name), `${name} running label`).not.toMatch(/Runned/);
+      expect(getToolActivityLabel(name), `${name} running label`).not.toMatch(
+        /Runned/,
+      );
     }
   });
 

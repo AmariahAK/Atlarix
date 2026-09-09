@@ -53,7 +53,8 @@ export function EditStatsCard({ className = "" }: { className?: string }) {
           </p>
         ) : workspaces.length === 0 ? (
           <p className="text-muted-foreground text-sm">
-            Nothing yet. Once you accept an edit in a project, it'll show up here.
+            Nothing yet. Once you accept an edit in a project, it'll show up
+            here.
           </p>
         ) : (
           <>

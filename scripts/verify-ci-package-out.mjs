@@ -66,7 +66,8 @@ function verifyWindowsPackagedResources(packageDir) {
 
 function verifyWindowsSetupSize(makeFiles) {
   const setup = makeFiles.find(
-    (f) => f.toLowerCase().endsWith(".exe") && path.basename(f).includes("Setup"),
+    (f) =>
+      f.toLowerCase().endsWith(".exe") && path.basename(f).includes("Setup"),
   );
   if (!setup) {
     return "no Setup.exe under out/make";
@@ -111,7 +112,11 @@ function verifyWindowsSetupSize(makeFiles) {
 const EXPECTED_RESOURCES = [
   { name: "AGENTS.md", platforms: ["darwin", "win32", "linux"], minBytes: 500 },
   { name: "skills", platforms: ["darwin", "win32", "linux"], dir: true },
-  { name: "app-update.yml", platforms: ["darwin", "win32", "linux"], minBytes: 200 },
+  {
+    name: "app-update.yml",
+    platforms: ["darwin", "win32", "linux"],
+    minBytes: 200,
+  },
   {
     name: "models-snapshot.json.gz",
     platforms: ["darwin", "win32", "linux"],
@@ -160,7 +165,9 @@ function verifySignature(file) {
   try {
     execFileSync("codesign", ["-v", "--strict", file], { stdio: "pipe" });
   } catch (e) {
-    const detail = String(e.stderr ?? e.message ?? "").trim().slice(0, 300);
+    const detail = String(e.stderr ?? e.message ?? "")
+      .trim()
+      .slice(0, 300);
     return `codesign -v --strict failed for ${path.basename(file)}: ${detail}`;
   }
   try {
@@ -178,9 +185,16 @@ function verifySignature(file) {
   return null;
 }
 
-function verifyExpectedResources(packageDir, platform, arch, appName, { signed }) {
+function verifyExpectedResources(
+  packageDir,
+  platform,
+  arch,
+  appName,
+  { signed },
+) {
   const dir = resourcesDirFor(packageDir, platform, appName);
-  if (!fs.existsSync(dir)) return [`missing resources dir ${path.relative(process.cwd(), dir)}`];
+  if (!fs.existsSync(dir))
+    return [`missing resources dir ${path.relative(process.cwd(), dir)}`];
 
   const errors = [];
   for (const spec of EXPECTED_RESOURCES) {
@@ -191,7 +205,9 @@ function verifyExpectedResources(packageDir, platform, arch, appName, { signed }
     if (!fs.existsSync(target)) {
       const msg = `missing resource ${spec.name} in ${path.relative(process.cwd(), dir)}`;
       if (spec.optional || waived) {
-        console.log(`::warning::[verify-ci-package-out] ${msg}${waived ? ` (waived by ${spec.optionalEnv}=1)` : ""}`);
+        console.log(
+          `::warning::[verify-ci-package-out] ${msg}${waived ? ` (waived by ${spec.optionalEnv}=1)` : ""}`,
+        );
       } else {
         errors.push(
           `${msg}. extraResource is guarded on existsSync in forge.config.ts, so a missing ` +
@@ -216,11 +232,14 @@ function verifyExpectedResources(packageDir, platform, arch, appName, { signed }
       continue;
     }
     if (spec.exec && platform !== "win32" && !(st.mode & 0o111)) {
-      errors.push(`${spec.name} is not executable (mode ${(st.mode & 0o777).toString(8)})`);
+      errors.push(
+        `${spec.name} is not executable (mode ${(st.mode & 0o777).toString(8)})`,
+      );
       continue;
     }
 
-    const wantArch = spec.arch || (spec.archOn && spec.archOn.includes(platform));
+    const wantArch =
+      spec.arch || (spec.archOn && spec.archOn.includes(platform));
     let archNote = "";
     if (wantArch) {
       try {
@@ -248,7 +267,9 @@ function verifyExpectedResources(packageDir, platform, arch, appName, { signed }
       archNote += ", signed";
     }
 
-    console.log(`OK: resource ${spec.name} (${formatBytes(st.size)}${archNote})`);
+    console.log(
+      `OK: resource ${spec.name} (${formatBytes(st.size)}${archNote})`,
+    );
   }
   return errors;
 }
@@ -303,10 +324,19 @@ async function main() {
   // an identity was available. Absent one (a local unsigned build), skip them
   // rather than failing on an ad-hoc signature.
   const signed = platform === "darwin" && !!process.env.APPLE_TEAM_ID;
-  const resourceErrors = verifyExpectedResources(packageDir, platform, arch, appName, { signed });
+  const resourceErrors = verifyExpectedResources(
+    packageDir,
+    platform,
+    arch,
+    appName,
+    { signed },
+  );
   if (resourceErrors.length) {
-    for (const e of resourceErrors) console.error(`::error::[verify-ci-package-out] ${e}`);
-    await fail(`${resourceErrors.length} expected resource(s) missing or invalid — see above`);
+    for (const e of resourceErrors)
+      console.error(`::error::[verify-ci-package-out] ${e}`);
+    await fail(
+      `${resourceErrors.length} expected resource(s) missing or invalid — see above`,
+    );
   }
 
   if (stage === "make") {

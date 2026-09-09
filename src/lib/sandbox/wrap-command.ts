@@ -298,7 +298,9 @@ const SANDBOX_EXEC = "/usr/bin/sandbox-exec";
 function buildSeatbeltProfile(writable: string[]): string {
   // Last matching rule wins in SBPL: allow-all, then deny writes, then re-allow
   // writes to the confined set. Network is left allowed by `(allow default)`.
-  const allows = writable.map((p) => `  (subpath ${JSON.stringify(p)})`).join("\n");
+  const allows = writable
+    .map((p) => `  (subpath ${JSON.stringify(p)})`)
+    .join("\n");
   return [
     "(version 1)",
     "(allow default)",
@@ -310,7 +312,10 @@ function buildSeatbeltProfile(writable: string[]): string {
   ].join("\n");
 }
 
-function wrapMacos(req: SandboxRequest, writable: string[]): WrappedSpawn | null {
+function wrapMacos(
+  req: SandboxRequest,
+  writable: string[],
+): WrappedSpawn | null {
   if (!existsSync(SANDBOX_EXEC)) {
     return null;
   }
@@ -363,7 +368,9 @@ export function findLinuxHelper(): string | null {
   const fromEnv = process.env.ATLARIX_SANDBOX_HELPER_LINUX;
   if (fromEnv && existsSync(fromEnv)) return fromEnv;
   try {
-    const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+    const resourcesPath = (
+      process as NodeJS.Process & { resourcesPath?: string }
+    ).resourcesPath;
     if (resourcesPath) {
       const candidate = path.join(resourcesPath, "atlarix-sandbox-linux");
       if (existsSync(candidate)) return candidate;
@@ -374,7 +381,10 @@ export function findLinuxHelper(): string | null {
   return null;
 }
 
-function wrapLinux(req: SandboxRequest, writable: string[]): WrappedSpawn | null {
+function wrapLinux(
+  req: SandboxRequest,
+  writable: string[],
+): WrappedSpawn | null {
   // Prefer the bundled Landlock helper (self-contained); same CLI contract as the
   // Windows helper: --workspace <dir> [--writable <dir>]... -- <cmd>.
   const helper = findLinuxHelper();
@@ -396,10 +406,15 @@ function wrapLinux(req: SandboxRequest, writable: string[]): WrappedSpawn | null
   // Read-only root, writable temp + the confined set. Network is NOT unshared, so
   // it stays available. `--bind-try` skips paths that don't exist.
   const args: string[] = [
-    "--ro-bind", "/", "/",
-    "--dev", "/dev",
-    "--proc", "/proc",
-    "--tmpfs", "/tmp",
+    "--ro-bind",
+    "/",
+    "/",
+    "--dev",
+    "/dev",
+    "--proc",
+    "/proc",
+    "--tmpfs",
+    "/tmp",
     "--die-with-parent",
   ];
   for (const p of writable) {
@@ -427,7 +442,9 @@ function findWindowsHelper(): string | null {
   if (fromEnv && existsSync(fromEnv)) return fromEnv;
   try {
     // process.resourcesPath exists in packaged Electron apps.
-    const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+    const resourcesPath = (
+      process as NodeJS.Process & { resourcesPath?: string }
+    ).resourcesPath;
     if (resourcesPath) {
       const candidate = path.join(resourcesPath, "atlarix-sandbox.exe");
       if (existsSync(candidate)) return candidate;
@@ -465,7 +482,10 @@ export function resetWindowsSandboxProbeForTests(): void {
 function windowsSandboxUsable(helper: string): boolean {
   if (windowsHelperUsable !== null) return windowsHelperUsable;
   try {
-    const probe = spawnSync(helper, ["--probe"], { timeout: 15_000, windowsHide: true });
+    const probe = spawnSync(helper, ["--probe"], {
+      timeout: 15_000,
+      windowsHide: true,
+    });
     windowsHelperUsable = probe.status === 0;
     if (!windowsHelperUsable) {
       logger.warn(
@@ -475,12 +495,17 @@ function windowsSandboxUsable(helper: string): boolean {
     }
   } catch (e) {
     windowsHelperUsable = false;
-    logger.warn(`Windows sandbox self-probe could not run: ${e instanceof Error ? e.message : String(e)}`);
+    logger.warn(
+      `Windows sandbox self-probe could not run: ${e instanceof Error ? e.message : String(e)}`,
+    );
   }
   return windowsHelperUsable;
 }
 
-function wrapWindows(req: SandboxRequest, writable: string[]): WrappedSpawn | null {
+function wrapWindows(
+  req: SandboxRequest,
+  writable: string[],
+): WrappedSpawn | null {
   const helper = findWindowsHelper();
   if (!helper) return null;
   if (!windowsSandboxUsable(helper)) return null;
@@ -513,7 +538,11 @@ export function wrapCommandInSandbox(req: SandboxRequest): WrappedSpawn {
   // or extra paths. Passing "" as the workspace drops it from the candidate set.
   const writable = req.readOnly
     ? defaultWritablePaths("", [], createMissingCaches)
-    : defaultWritablePaths(workspaceReal, req.extraWritablePaths, createMissingCaches);
+    : defaultWritablePaths(
+        workspaceReal,
+        req.extraWritablePaths,
+        createMissingCaches,
+      );
 
   let wrapped: WrappedSpawn | null = null;
   let unavailableNote = "";
@@ -540,8 +569,15 @@ export function wrapCommandInSandbox(req: SandboxRequest): WrappedSpawn {
       });
       if (viaWsl) {
         if (viaWsl.sandboxed) {
-          logger.info(`Sandboxing run_command via WSL (bwrap) for ${req.workspacePath}`);
-          return { file: viaWsl.file, args: viaWsl.args, sandboxed: true, useShellOption: false };
+          logger.info(
+            `Sandboxing run_command via WSL (bwrap) for ${req.workspacePath}`,
+          );
+          return {
+            file: viaWsl.file,
+            args: viaWsl.args,
+            sandboxed: true,
+            useShellOption: false,
+          };
         }
         // Routed into the distro but unconfined: still the right OS to run in, so
         // report it as unsandboxed and let the caller's enforce/warn path decide.
@@ -567,7 +603,9 @@ export function wrapCommandInSandbox(req: SandboxRequest): WrappedSpawn {
     // affirmatively observable. Previously only its FAILURE was logged (at warn),
     // so "the sandbox is on" could only ever be inferred from the absence of a
     // warning — which is how a broken Windows sandbox went unnoticed for releases.
-    logger.info(`Sandboxing run_command (${process.platform}); ${writable.length} writable roots`);
+    logger.info(
+      `Sandboxing run_command (${process.platform}); ${writable.length} writable roots`,
+    );
     return wrapped;
   }
 
@@ -612,7 +650,8 @@ function isBroadRoot(dir: string): boolean {
  */
 export function sandboxGrantPath(deniedPath: string): string {
   const parent = path.dirname(deniedPath);
-  if (!parent || parent === deniedPath || isBroadRoot(parent)) return deniedPath;
+  if (!parent || parent === deniedPath || isBroadRoot(parent))
+    return deniedPath;
   return parent;
 }
 
@@ -678,7 +717,9 @@ export function sandboxEscalationDecision(result: {
 }): { escalate: boolean; allowRetry: boolean } {
   if (!result.success) return { escalate: true, allowRetry: true };
   const denied =
-    parseSandboxDenialsFromOutput(`${result.stderr ?? ""}\n${result.stdout ?? ""}`).length > 0;
+    parseSandboxDenialsFromOutput(
+      `${result.stderr ?? ""}\n${result.stdout ?? ""}`,
+    ).length > 0;
   return { escalate: denied, allowRetry: false };
 }
 

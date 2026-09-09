@@ -1,4 +1,4 @@
-import { countTokens } from '@anthropic-ai/tokenizer'
+import { countTokens } from "@anthropic-ai/tokenizer";
 
 /**
  * S18 (v14.8.11, data-backed): memoize per-text token counts. The W10 gap
@@ -9,48 +9,47 @@ import { countTokens } from '@anthropic-ai/tokenizer'
  * O(1) hits. Keys hold references to strings that are alive in the transport
  * anyway; the entry cap bounds retained garbage after compaction.
  */
-const TOKEN_COUNT_MEMO = new Map<string, number>()
-const TOKEN_COUNT_MEMO_MAX = 4096
+const TOKEN_COUNT_MEMO = new Map<string, number>();
+const TOKEN_COUNT_MEMO_MAX = 4096;
 /** Tiny strings are cheaper to count than to cache. */
-const TOKEN_COUNT_MEMO_MIN_CHARS = 64
+const TOKEN_COUNT_MEMO_MIN_CHARS = 64;
 
 export function exactTokenCount(
-  messages: { role: string; content: string }[]
+  messages: { role: string; content: string }[],
 ): number {
   try {
-    const combinedText = messages.map(m => `${m.role}: ${m.content}`).join('\n')
-    return countTokens(combinedText)
+    const combinedText = messages
+      .map((m) => `${m.role}: ${m.content}`)
+      .join("\n");
+    return countTokens(combinedText);
   } catch {
-    const totalChars = messages
-      .map(m => m.content)
-      .join('')
-      .length
-    return Math.ceil(totalChars / 4)
+    const totalChars = messages.map((m) => m.content).join("").length;
+    return Math.ceil(totalChars / 4);
   }
 }
 
 export function exactTokenCountText(text: string): number {
   if (text.length >= TOKEN_COUNT_MEMO_MIN_CHARS) {
-    const hit = TOKEN_COUNT_MEMO.get(text)
+    const hit = TOKEN_COUNT_MEMO.get(text);
     if (hit !== undefined) {
       // Refresh recency (Map preserves insertion order → delete+set = LRU).
-      TOKEN_COUNT_MEMO.delete(text)
-      TOKEN_COUNT_MEMO.set(text, hit)
-      return hit
+      TOKEN_COUNT_MEMO.delete(text);
+      TOKEN_COUNT_MEMO.set(text, hit);
+      return hit;
     }
   }
-  let count: number
+  let count: number;
   try {
-    count = countTokens(text)
+    count = countTokens(text);
   } catch {
-    count = Math.ceil(text.length / 4)
+    count = Math.ceil(text.length / 4);
   }
   if (text.length >= TOKEN_COUNT_MEMO_MIN_CHARS) {
-    TOKEN_COUNT_MEMO.set(text, count)
+    TOKEN_COUNT_MEMO.set(text, count);
     if (TOKEN_COUNT_MEMO.size > TOKEN_COUNT_MEMO_MAX) {
-      const oldest = TOKEN_COUNT_MEMO.keys().next().value
-      if (oldest !== undefined) TOKEN_COUNT_MEMO.delete(oldest)
+      const oldest = TOKEN_COUNT_MEMO.keys().next().value;
+      if (oldest !== undefined) TOKEN_COUNT_MEMO.delete(oldest);
     }
   }
-  return count
+  return count;
 }

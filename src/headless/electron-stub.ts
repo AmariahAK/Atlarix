@@ -32,7 +32,8 @@ export function getRegisteredHandler(channel: string): Handler | undefined {
 }
 
 const userDataBase =
-  process.env.ATLARIX_USER_DATA_DIR ?? path.join(os.tmpdir(), "atlarix-headless");
+  process.env.ATLARIX_USER_DATA_DIR ??
+  path.join(os.tmpdir(), "atlarix-headless");
 
 const noop = () => {};
 
@@ -92,7 +93,10 @@ export const powerSaveBlocker = {
   isStarted: () => false,
 };
 export const session = {
-  defaultSession: { webRequest: { onBeforeRequest: noop }, setProxy: async () => {} },
+  defaultSession: {
+    webRequest: { onBeforeRequest: noop },
+    setProxy: async () => {},
+  },
 };
 export const Menu = {
   buildFromTemplate: () => ({ popup: noop }),

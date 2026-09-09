@@ -65,7 +65,8 @@ export function CommunityPrompts() {
     // person to answer on a machine would silence the question for everyone
     // who signs in after them.
     const stored = settings.acquisitionSource;
-    const answeredByThisUser = !!stored?.source && stored.userId === currentUserId;
+    const answeredByThisUser =
+      !!stored?.source && stored.userId === currentUserId;
     if (currentUserId && !answeredByThisUser) {
       cardShownFor = currentUserId;
       setAsk("acquisition");
@@ -77,7 +78,8 @@ export function CommunityPrompts() {
     const secondDay = (settings.activeDayCount ?? 0) >= 2;
     const didWork = !!settings.firstTaskCompletedAt;
     const peerPushSettled =
-      !!settings.peerPushPrompt?.askedAt || !!settings.peerPushPrompt?.clickedThroughAt;
+      !!settings.peerPushPrompt?.askedAt ||
+      !!settings.peerPushPrompt?.clickedThroughAt;
     if (secondDay && didWork && !peerPushSettled) {
       cardShownFor = currentUserId ?? "anonymous";
       setAsk("peerpush");
@@ -130,8 +132,8 @@ export function CommunityPrompts() {
             Enjoying Atlarix?
           </h3>
           <p className="text-xs text-muted-foreground mb-3">
-            A PeerPush review is the single most useful thing you can do to help other developers
-            find it.
+            A PeerPush review is the single most useful thing you can do to help
+            other developers find it.
           </p>
           <div className="flex flex-wrap gap-2">
             <Button
@@ -139,7 +141,9 @@ export function CommunityPrompts() {
               className="gap-2"
               onClick={() => {
                 void IpcClient.getInstance().recordPeerPushPrompt("clicked");
-                void IpcClient.getInstance().openExternalUrl(PEERPUSH_REVIEW_URL);
+                void IpcClient.getInstance().openExternalUrl(
+                  PEERPUSH_REVIEW_URL,
+                );
                 close();
               }}
             >
@@ -151,7 +155,9 @@ export function CommunityPrompts() {
               variant="outline"
               className="gap-2"
               onClick={() => {
-                void IpcClient.getInstance().openExternalUrl(DISCORD_INVITE_URL);
+                void IpcClient.getInstance().openExternalUrl(
+                  DISCORD_INVITE_URL,
+                );
                 close();
               }}
             >

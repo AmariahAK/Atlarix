@@ -236,9 +236,13 @@ const PARAM_ALIASES: Readonly<Record<string, readonly string[]>> = {
   path: ["file_path", "filePath", "filename", "file"],
 };
 
-export function canonicalizeParamAliases(schema: unknown, args: unknown): unknown {
+export function canonicalizeParamAliases(
+  schema: unknown,
+  args: unknown,
+): unknown {
   if (!args || typeof args !== "object" || Array.isArray(args)) return args;
-  const props = (schema as { properties?: Record<string, unknown> } | null)?.properties;
+  const props = (schema as { properties?: Record<string, unknown> } | null)
+    ?.properties;
   if (!props || typeof props !== "object") return args;
 
   const a = args as Record<string, unknown>;
@@ -330,7 +334,10 @@ export async function guardToolCall<T>(
 
   const missing = getMissingRequiredParams(parametersSchema, args);
   if (missing.length > 0) {
-    const received = args && typeof args === "object" ? Object.keys(args as Record<string, unknown>) : [];
+    const received =
+      args && typeof args === "object"
+        ? Object.keys(args as Record<string, unknown>)
+        : [];
     log.warn(
       `[tool:${toolName}] INVALID_PARAMS (missing): ${missing.join(", ")}; received=[${received.join(", ")}]`,
     );

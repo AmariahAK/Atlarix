@@ -15,7 +15,9 @@ export const GRAPH_NODE_COLORS = [
 
 export function graphNodeColor(index: number, explicit?: string): string {
   if (explicit) return explicit;
-  return GRAPH_NODE_COLORS[index % GRAPH_NODE_COLORS.length] ?? GRAPH_NODE_COLORS[0];
+  return (
+    GRAPH_NODE_COLORS[index % GRAPH_NODE_COLORS.length] ?? GRAPH_NODE_COLORS[0]
+  );
 }
 
 export function buildGraphEChartsOption(

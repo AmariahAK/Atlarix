@@ -72,7 +72,8 @@ export function _setShadowSnapshotsRootForTests(root: string | null): void {
 }
 
 function shadowGitDir(workspacePath: string): string {
-  const root = shadowRootOverride ?? path.join(getUserDataPath(), SHADOW_ROOT_DIR);
+  const root =
+    shadowRootOverride ?? path.join(getUserDataPath(), SHADOW_ROOT_DIR);
   return path.join(root, workspaceKey(workspacePath));
 }
 
@@ -96,7 +97,9 @@ async function readTurnRoots(gitDir: string, seg: string): Promise<string[]> {
   try {
     const raw = await fs.readFile(turnRootsPath(gitDir, seg), "utf8");
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter((r) => typeof r === "string") : [];
+    return Array.isArray(parsed)
+      ? parsed.filter((r) => typeof r === "string")
+      : [];
   } catch {
     return [];
   }
@@ -145,7 +148,11 @@ async function ensureShadowRepo(workspacePath: string): Promise<string> {
     // not initialized yet
   }
   await fs.mkdir(gitDir, { recursive: true });
-  const init = await git(["init", "--bare", "--quiet", gitDir], workspacePath, {});
+  const init = await git(
+    ["init", "--bare", "--quiet", gitDir],
+    workspacePath,
+    {},
+  );
   if (init.exitCode !== 0) {
     throw new Error(`shadow git init failed: ${init.stderr || init.stdout}`);
   }
@@ -182,7 +189,10 @@ function withWorkspaceLock<T>(
   const key = workspaceKey(workspacePath);
   const prev = captureChains.get(key) ?? Promise.resolve();
   const next = prev.then(fn, fn);
-  captureChains.set(key, next.catch(() => undefined));
+  captureChains.set(
+    key,
+    next.catch(() => undefined),
+  );
   return next;
 }
 
@@ -197,7 +207,9 @@ export interface CaptureSnapshotParams {
  * Before approved writes: stage current file bytes into the turn's shadow tree
  * and update the manifest. First capture per path wins (pre-write state).
  */
-export async function captureSnapshot(params: CaptureSnapshotParams): Promise<void> {
+export async function captureSnapshot(
+  params: CaptureSnapshotParams,
+): Promise<void> {
   const { workspacePath, turnId } = params;
   if (!workspacePath || !turnId) return;
 
@@ -225,8 +237,13 @@ export async function captureSnapshot(params: CaptureSnapshotParams): Promise<vo
 
       // Seed the per-turn index from the turn's previous tree (if any).
       const hasRef =
-        (await git(["rev-parse", "--verify", "--quiet", turnRef(seg)], workspacePath, env))
-          .exitCode === 0;
+        (
+          await git(
+            ["rev-parse", "--verify", "--quiet", turnRef(seg)],
+            workspacePath,
+            env,
+          )
+        ).exitCode === 0;
       await git(
         hasRef ? ["read-tree", turnRef(seg)] : ["read-tree", "--empty"],
         workspacePath,
@@ -243,7 +260,9 @@ export async function captureSnapshot(params: CaptureSnapshotParams): Promise<vo
             continue;
           }
           if (st.size > MAX_SNAPSHOT_FILE_BYTES) {
-            logger.warn(`Skipping snapshot of large file (${st.size}B): ${rel}`);
+            logger.warn(
+              `Skipping snapshot of large file (${st.size}B): ${rel}`,
+            );
             continue;
           }
           toStage.push(rel);
@@ -254,7 +273,11 @@ export async function captureSnapshot(params: CaptureSnapshotParams): Promise<vo
       }
 
       if (toStage.length > 0) {
-        const add = await git(["add", "-f", "--", ...toStage], workspacePath, env);
+        const add = await git(
+          ["add", "-f", "--", ...toStage],
+          workspacePath,
+          env,
+        );
         if (add.exitCode !== 0) {
           logger.warn(`shadow add failed: ${add.stderr || add.stdout}`);
         }
@@ -364,7 +387,10 @@ async function recordTurnRoots(
       const seg = sanitizeLedgerDirSegment(turnId);
       const existing = await readTurnRoots(gitDir, seg);
       const merged = [...new Set([...existing, ...roots])];
-      if (merged.length === existing.length && existing.every((r) => merged.includes(r))) {
+      if (
+        merged.length === existing.length &&
+        existing.every((r) => merged.includes(r))
+      ) {
         return;
       }
       await fs.mkdir(path.join(gitDir, TURNS_DIR), { recursive: true });
@@ -409,15 +435,19 @@ export function groupPathsByRoot(args: {
 }): { root: string; relativePaths: string[]; isPrimary: boolean }[] {
   const primary = path.resolve(args.workspacePath);
   // Longest first so the innermost containing grant wins.
-  const roots = [...new Set(args.grantedRoots.map((r) => path.resolve(r)))].sort(
-    (a, b) => b.length - a.length,
-  );
+  const roots = [
+    ...new Set(args.grantedRoots.map((r) => path.resolve(r))),
+  ].sort((a, b) => b.length - a.length);
   const byRoot = new Map<string, string[]>();
 
   for (const raw of args.paths) {
     if (!raw) continue;
-    const abs = path.isAbsolute(raw) ? path.resolve(raw) : path.resolve(primary, raw);
-    const owner = isInside(primary, abs) ? primary : roots.find((r) => isInside(r, abs));
+    const abs = path.isAbsolute(raw)
+      ? path.resolve(raw)
+      : path.resolve(primary, raw);
+    const owner = isInside(primary, abs)
+      ? primary
+      : roots.find((r) => isInside(r, abs));
     if (!owner) continue; // outside every granted root — not ours to snapshot
     const rel = path.relative(owner, abs).split(path.sep).join("/");
     if (!rel || rel.startsWith("..")) continue;
@@ -451,7 +481,12 @@ async function listTreePaths(
     env,
   );
   if (out.exitCode !== 0) return new Set();
-  return new Set(out.stdout.split("\n").map((s) => s.trim()).filter(Boolean));
+  return new Set(
+    out.stdout
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
 }
 
 async function shadowRevert(
@@ -522,7 +557,10 @@ async function shadowRevert(
  * The primary is always first, so a revert restores in-workspace files before reaching
  * across into a sibling project.
  */
-async function turnRoots(workspacePath: string, turnId: string): Promise<string[]> {
+async function turnRoots(
+  workspacePath: string,
+  turnId: string,
+): Promise<string[]> {
   const primary = path.resolve(workspacePath);
   const extra = await readTurnRoots(
     shadowGitDir(primary),
@@ -637,9 +675,14 @@ export async function listSnapshotFiles(
     const toDisplay = (rel: string): string =>
       root === primary
         ? rel
-        : path.relative(primary, path.join(root, rel)).split(path.sep).join("/");
-    for (const rel of manifest.filesChanged ?? []) filesChanged.push(toDisplay(rel));
-    for (const rel of manifest.createdFiles ?? []) createdFiles.push(toDisplay(rel));
+        : path
+            .relative(primary, path.join(root, rel))
+            .split(path.sep)
+            .join("/");
+    for (const rel of manifest.filesChanged ?? [])
+      filesChanged.push(toDisplay(rel));
+    for (const rel of manifest.createdFiles ?? [])
+      createdFiles.push(toDisplay(rel));
   }
 
   if (!found) return null;
@@ -677,12 +720,12 @@ async function maybePruneOldSnapshots(
       dropped++;
     }
     if (dropped > 0) {
-      await git(
-        ["gc", "--quiet", "--prune=now"],
-        workspacePath,
-        { GIT_DIR: gitDir },
+      await git(["gc", "--quiet", "--prune=now"], workspacePath, {
+        GIT_DIR: gitDir,
+      });
+      logger.info(
+        `Pruned ${dropped} expired snapshot turn(s) for ${workspacePath}`,
       );
-      logger.info(`Pruned ${dropped} expired snapshot turn(s) for ${workspacePath}`);
     }
   } catch (err) {
     logger.warn("snapshot prune failed:", err);

@@ -61,7 +61,9 @@ fs.mkdirSync(dest, { recursive: true });
 for (const name of RUNTIME_FILES) {
   const from = path.join(src, name);
   if (!fs.existsSync(from)) {
-    console.error(`[build-headless-npm] missing required runtime file: ${name}`);
+    console.error(
+      `[build-headless-npm] missing required runtime file: ${name}`,
+    );
     process.exit(1);
   }
   fs.copyFileSync(from, path.join(dest, name));
@@ -89,4 +91,6 @@ const bytes = RUNTIME_FILES.reduce(
 console.log(
   `[build-headless-npm] staged atlarix@${rootVersion} — ${RUNTIME_FILES.length} files, ${(bytes / 1e6).toFixed(1)} MB`,
 );
-console.log(`[build-headless-npm] publish with: npm publish ${path.relative(root, pkgDir)}`);
+console.log(
+  `[build-headless-npm] publish with: npm publish ${path.relative(root, pkgDir)}`,
+);

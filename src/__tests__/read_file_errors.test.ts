@@ -62,7 +62,6 @@ describe("readFileStructuredError", () => {
     expect(result?.error).toBe("path_not_allowed");
   });
 
-
   it("enrichReadFileStructuredError appends inventory", () => {
     const base = readFileStructuredError(
       Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
@@ -76,6 +75,8 @@ describe("readFileStructuredError", () => {
     expect(enriched.message).toContain("2 tracked file");
   });
   it("returns null for unknown errors", () => {
-    expect(readFileStructuredError(new Error("disk on fire"), "x.ts")).toBeNull();
+    expect(
+      readFileStructuredError(new Error("disk on fire"), "x.ts"),
+    ).toBeNull();
   });
 });

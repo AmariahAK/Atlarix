@@ -46,11 +46,38 @@ export const SUPERSEDED_STREAM_STOP = "superseded_stream";
  */
 export const FORCE_TEXT_FINISH_STREAM_STOP = "force_text_finish";
 
+/**
+ * Abort reason when the USER stops the turn — the Stop button (`chat:cancel`) or
+ * `chat:abort`.
+ *
+ * The most common intentional stop of all, and it was the only one with no sentinel.
+ * Both cancel handlers called `abort()` with no reason, so the rejection surfaced as a
+ * bare `AbortError: This operation was aborted`, matched nothing here, and reached
+ * `process.on("unhandledRejection")` — which reported it to Sentry as an error. A user
+ * pressing Stop is not a defect, and it was the single easiest way to file one.
+ *
+ * Observed 2026-09-09 in the packaged build: one Stop press produced TWO Sentry events.
+ */
+export const USER_CANCEL_STREAM_STOP = "user_cancel";
+
+/**
+ * Abort reason for our own teardown paths: per-chat state reset, the app-quit sweep,
+ * and the automation timeout.
+ *
+ * Same defect as the user-cancel case above — deliberate stops with no reason attached,
+ * so every one of them was a Sentry event waiting to happen. Kept distinct from
+ * `user_cancel` because nobody pressed anything here, and a future consumer that wants
+ * to tell "the user stopped this" from "we tore it down" should not have to guess.
+ */
+export const TEARDOWN_STREAM_STOP = "stream_teardown";
+
 const STREAM_STOP_SENTINELS: ReadonlySet<string> = new Set([
   ASK_USER_STREAM_STOP,
   LOOP_REPETITION_STREAM_STOP,
   SUPERSEDED_STREAM_STOP,
   FORCE_TEXT_FINISH_STREAM_STOP,
+  USER_CANCEL_STREAM_STOP,
+  TEARDOWN_STREAM_STOP,
 ]);
 
 /**

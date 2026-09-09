@@ -22,12 +22,7 @@ const REPO_TOOLS = new Set([
   "list_files",
 ]);
 const REPO_OVERVIEW_TOOLS = new Set(["get_repo_overview"]);
-const SEARCH_TOOLS = new Set([
-  "search_code",
-  "search",
-  "grep",
-  "web_search",
-]);
+const SEARCH_TOOLS = new Set(["search_code", "search", "grep", "web_search"]);
 const READ_TOOLS = new Set(["read_file", "read_url"]);
 
 function tryParseJson(str: string): unknown {
@@ -55,7 +50,8 @@ function unwrapToolPayload(raw: string | undefined): {
     }
     if ("result" in o) {
       const r = o.result;
-      if (typeof r === "string") return { inner: r, success: o.success !== false };
+      if (typeof r === "string")
+        return { inner: r, success: o.success !== false };
       if (r && typeof r === "object") {
         const nested = r as Record<string, unknown>;
         if (typeof nested.result === "string") {
@@ -64,7 +60,10 @@ function unwrapToolPayload(raw: string | undefined): {
         if (typeof nested.error === "string") {
           return { inner: nested.error, success: false };
         }
-        return { inner: JSON.stringify(r, null, 2), success: o.success !== false };
+        return {
+          inner: JSON.stringify(r, null, 2),
+          success: o.success !== false,
+        };
       }
     }
     if (typeof o.message === "string" && Object.keys(o).length <= 3) {
@@ -89,7 +88,11 @@ function oneLineSummary(text: string, max = 120): string {
   return `${line.slice(0, max - 1)}…`;
 }
 
-function summarizeRepoOverview(toolName: string, args: unknown, inner: string): string {
+function summarizeRepoOverview(
+  toolName: string,
+  args: unknown,
+  inner: string,
+): string {
   const a = args as Record<string, unknown> | undefined;
   const focus =
     (typeof a?.focus_path === "string" && a.focus_path) ||
@@ -196,7 +199,9 @@ export function formatToolResultDisplay(
 
   if (looksLikeMarkdown(inner)) {
     return {
-      summary: oneLineSummary(inner.split("\n").find((l) => l.trim()) ?? baseSummary),
+      summary: oneLineSummary(
+        inner.split("\n").find((l) => l.trim()) ?? baseSummary,
+      ),
       body: previewBody(truncateBody(inner)),
       bodyKind: "markdown",
     };

@@ -56,7 +56,9 @@ const APP_ID = 77;
 const tmpRoots: string[] = [];
 
 function makeTree() {
-  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "atlarix-grant-")));
+  const base = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), "atlarix-grant-")),
+  );
   tmpRoots.push(base);
   const ws = path.join(base, "Atlarix");
   const sibling = path.join(base, "atlarix-launchpad");
@@ -78,7 +80,8 @@ afterEach(() => {
   granted.clear();
   snapshotBatches.length = 0;
   snapshotGrantedRoots.length = 0;
-  for (const d of tmpRoots.splice(0)) fs.rmSync(d, { recursive: true, force: true });
+  for (const d of tmpRoots.splice(0))
+    fs.rmSync(d, { recursive: true, force: true });
 });
 
 describe("granted folders — one list, both lanes", () => {
@@ -113,7 +116,9 @@ describe("granted folders — one list, both lanes", () => {
       /outside workspace/i,
     );
     // A different tree entirely.
-    expect(() => resolveWrite(ws, path.join(unrelated, "x.ts"))).toThrow(/outside workspace/i);
+    expect(() => resolveWrite(ws, path.join(unrelated, "x.ts"))).toThrow(
+      /outside workspace/i,
+    );
   });
 
   // The interceptor re-reads the store per outside-path write rather than
@@ -131,7 +136,9 @@ describe("granted folders — one list, both lanes", () => {
     expect(i.resolvePathWithinWorkspace(target)).toBe(target);
 
     granted.set(APP_ID, []); // user revokes in Settings
-    expect(() => i.resolvePathWithinWorkspace(target)).toThrow(/outside workspace/i);
+    expect(() => i.resolvePathWithinWorkspace(target)).toThrow(
+      /outside workspace/i,
+    );
   });
 
   // Reading a sibling project by `../` is now allowed (it always was, by
@@ -168,7 +175,9 @@ describe("granted folders — blast radius", () => {
     expect(
       i.shouldAlwaysAutoApprove({
         operation: "write_file",
-        preview: { path: path.join(sibling, ".atlarix", "hooks", "hooks.json") },
+        preview: {
+          path: path.join(sibling, ".atlarix", "hooks", "hooks.json"),
+        },
       }),
     ).toBe(false);
     expect(
@@ -207,7 +216,11 @@ describe("granted folders — blast radius", () => {
     const i = new PermissionInterceptor(ws, APP_ID, "turn-1") as unknown as {
       maybeCaptureWorkspaceSnapshot: (rels: string[]) => Promise<void>;
     };
-    await i.maybeCaptureWorkspaceSnapshot(["src/a.ts", "../peer/b.ts", "src/c.ts"]);
+    await i.maybeCaptureWorkspaceSnapshot([
+      "src/a.ts",
+      "../peer/b.ts",
+      "src/c.ts",
+    ]);
     // No pre-filtering: the outside path survives to the snapshot layer.
     expect(snapshotBatches).toEqual([["src/a.ts", "../peer/b.ts", "src/c.ts"]]);
     // And the grant set travels with it, so only granted roots can be snapshotted.
@@ -226,7 +239,10 @@ describe("granted folders — blast radius", () => {
     };
 
     expect(
-      i.targetPathsForOperation({ operation: "edit_file", preview: { path: "/a/b.ts" } }),
+      i.targetPathsForOperation({
+        operation: "edit_file",
+        preview: { path: "/a/b.ts" },
+      }),
     ).toEqual(["/a/b.ts"]);
 
     // Rename carries a file ACROSS the boundary — both endpoints matter.
@@ -263,8 +279,12 @@ describe("granted folders — blast radius", () => {
 
     // Non-file operations contribute nothing (and must not recurse: the grant
     // card itself is a sandbox_escalation).
-    expect(i.targetPathsForOperation({ operation: "run_command", preview: { command: "ls" } }))
-      .toEqual([]);
+    expect(
+      i.targetPathsForOperation({
+        operation: "run_command",
+        preview: { command: "ls" },
+      }),
+    ).toEqual([]);
     expect(
       i.targetPathsForOperation({
         operation: "sandbox_escalation",

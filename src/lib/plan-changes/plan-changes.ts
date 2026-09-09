@@ -23,7 +23,9 @@ function normalizeAction(raw: string): PlanFileAction {
   return ACTION_ALIASES[key] ?? "MODIFY";
 }
 
-export function parsePlanChangesFromContent(content: string): PlanChangesPayload | null {
+export function parsePlanChangesFromContent(
+  content: string,
+): PlanChangesPayload | null {
   const m = content.match(CHANGES_COMMENT_RE);
   if (!m?.[1]) return null;
   try {
@@ -53,7 +55,9 @@ export function parsePlanChangesFromContent(content: string): PlanChangesPayload
 }
 
 /** Heuristic: pull `path/to/file.ext` from plan step lines. */
-export function deriveFilesFromPlanMarkdown(planMd: string): PlanChangesPayload["files"] {
+export function deriveFilesFromPlanMarkdown(
+  planMd: string,
+): PlanChangesPayload["files"] {
   const seen = new Set<string>();
   const out: PlanChangesPayload["files"] = [];
   const re =

@@ -101,9 +101,15 @@ export function enrichReadFileStructuredError(
 }
 
 export function logReadFileError(structured: ReadFileStructuredError): void {
-  logger.debug(structured.message, { error: structured.error, path: structured.path });
+  logger.debug(structured.message, {
+    error: structured.error,
+    path: structured.path,
+  });
 }
 
-export function logReadFileUnexpected(err: unknown, displayPath?: string): void {
+export function logReadFileUnexpected(
+  err: unknown,
+  displayPath?: string,
+): void {
   logger.warn("read_file failed", { path: displayPath, err });
 }

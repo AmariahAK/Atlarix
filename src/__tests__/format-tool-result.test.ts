@@ -4,7 +4,10 @@ import type { AssistantMessagePart } from "@/lib/chat/assistant-message-parts";
 
 function toolPart(
   overrides: Partial<Extract<AssistantMessagePart, { type: "tool" }>> &
-    Pick<Extract<AssistantMessagePart, { type: "tool" }>, "toolName" | "resultText">,
+    Pick<
+      Extract<AssistantMessagePart, { type: "tool" }>,
+      "toolName" | "resultText"
+    >,
 ): Extract<AssistantMessagePart, { type: "tool" }> {
   return {
     type: "tool",

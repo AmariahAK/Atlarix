@@ -15,7 +15,8 @@ function walk(dir: string, out: string[] = []): string[] {
     if (SKIP_DIRS.has(ent.name)) continue;
     const p = path.join(dir, ent.name);
     if (ent.isDirectory()) walk(p, out);
-    else if (/\.(ts|tsx)$/.test(ent.name) && !ent.name.endsWith(".d.ts")) out.push(p);
+    else if (/\.(ts|tsx)$/.test(ent.name) && !ent.name.endsWith(".d.ts"))
+      out.push(p);
   }
   return out;
 }
@@ -28,7 +29,10 @@ for (const file of walk(ROOT)) {
   const text = fs.readFileSync(file, "utf8");
   let m: RegExpExecArray | null;
   while ((m = exportRe.exec(text))) {
-    candidates.push({ file: path.relative(path.join(__dirname, ".."), file), name: m[1]! });
+    candidates.push({
+      file: path.relative(path.join(__dirname, ".."), file),
+      name: m[1]!,
+    });
   }
 }
 
@@ -49,7 +53,9 @@ for (const { file, name } of candidates) {
   }
 }
 
-console.log(`Scanned ${candidates.length} exports; ${unused.length} with no importers:\n`);
+console.log(
+  `Scanned ${candidates.length} exports; ${unused.length} with no importers:\n`,
+);
 for (const u of unused.slice(0, 80)) {
   console.log(`  ${u.name}  (${u.file})`);
 }

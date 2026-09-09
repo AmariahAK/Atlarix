@@ -25,9 +25,13 @@ export function registerNodeHandlers() {
           return await runShellCommand("pnpm --version");
         } catch {
           try {
-            return await runShellCommand("corepack enable pnpm && pnpm --version");
+            return await runShellCommand(
+              "corepack enable pnpm && pnpm --version",
+            );
           } catch {
-            logger.warn("pnpm not available; install manually if needed (e.g. corepack enable pnpm)");
+            logger.warn(
+              "pnpm not available; install manually if needed (e.g. corepack enable pnpm)",
+            );
             return null;
           }
         }

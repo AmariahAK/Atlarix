@@ -61,7 +61,8 @@ export async function getLanguageModelProviders(): Promise<
     Awaited<ReturnType<typeof getModelsDevProviderCatalog>>[number]
   >();
   try {
-    for (const c of await getModelsDevProviderCatalog()) catalogById.set(c.id, c);
+    for (const c of await getModelsDevProviderCatalog())
+      catalogById.set(c.id, c);
   } catch {
     /* models.dev unavailable — the overlay's own pins still resolve below. */
   }
@@ -74,7 +75,10 @@ export async function getLanguageModelProviders(): Promise<
       const providerDetails = CLOUD_PROVIDERS[key];
       if (providerDetails) {
         const catalog = catalogById.get(key);
-        const envVarNames = resolveProviderEnvVarNames(key, catalog?.envVarNames);
+        const envVarNames = resolveProviderEnvVarNames(
+          key,
+          catalog?.envVarNames,
+        );
         hardcodedProviders.push({
           id: key,
           name: providerDetails.displayName,
@@ -244,13 +248,15 @@ export async function getLanguageModels({
         // `elastic` is the inverse case: it has NO catalog rows (it lists
         // Kibana agents from a self-hosted instance, not models), so native is
         // its only source and the empty floor is correct.
-        fetchModelsFromProvider(providerId, apiKey, provider.apiBaseUrl).catch((error) => {
-          console.warn(
-            `[${providerId}] Native fetch failed, using catalog:`,
-            error,
-          );
-          return [] as LanguageModel[];
-        }),
+        fetchModelsFromProvider(providerId, apiKey, provider.apiBaseUrl).catch(
+          (error) => {
+            console.warn(
+              `[${providerId}] Native fetch failed, using catalog:`,
+              error,
+            );
+            return [] as LanguageModel[];
+          },
+        ),
       ]);
       cloudModels = mergeByApiName(catalog, native);
     }

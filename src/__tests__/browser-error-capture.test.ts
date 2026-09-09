@@ -38,11 +38,14 @@ describe("tryParseErrorSentinel (injected-hook relay, no double-capture)", () =>
   it("returns null for a malformed sentinel payload (never throws)", () => {
     expect(tryParseErrorSentinel(ERROR_SENTINEL + "{not json")).toBeNull();
     // Sentinel present but no message field → not a usable error.
-    expect(tryParseErrorSentinel(ERROR_SENTINEL + JSON.stringify({ foo: 1 }))).toBeNull();
+    expect(
+      tryParseErrorSentinel(ERROR_SENTINEL + JSON.stringify({ foo: 1 })),
+    ).toBeNull();
   });
 
   it("preserves warning level and defaults type to console-error", () => {
-    const msg = ERROR_SENTINEL + JSON.stringify({ level: "warning", message: "hmm" });
+    const msg =
+      ERROR_SENTINEL + JSON.stringify({ level: "warning", message: "hmm" });
     const parsed = tryParseErrorSentinel(msg);
     expect(parsed?.level).toBe("warning");
     expect(parsed?.type).toBe("console-error");
@@ -64,8 +67,11 @@ describe("localhost URL linkification", () => {
   });
 
   it("finds localhost URLs embedded in prose (global matcher)", () => {
-    const raw = "Your app is at localhost:3000 and the api at 127.0.0.1:4000/health.";
-    const matches = [...raw.matchAll(new RegExp(LOCALHOST_URL_RE.source, "g"))].map((m) => m[0]);
+    const raw =
+      "Your app is at localhost:3000 and the api at 127.0.0.1:4000/health.";
+    const matches = [
+      ...raw.matchAll(new RegExp(LOCALHOST_URL_RE.source, "g")),
+    ].map((m) => m[0]);
     expect(matches).toEqual(["localhost:3000", "127.0.0.1:4000/health"]);
   });
 });

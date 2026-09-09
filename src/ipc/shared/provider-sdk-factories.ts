@@ -90,7 +90,9 @@ export const PROVIDER_SDK_FACTORIES: Record<string, ProviderSdkFactory> = {
           `Add one in Settings, or pin it in the provider overlay.`,
       );
     }
-    return createOpenAICompatible({ name: providerId, baseURL, apiKey })(modelId);
+    return createOpenAICompatible({ name: providerId, baseURL, apiKey })(
+      modelId,
+    );
   },
 
   "@ai-sdk/openai": ({ modelId, apiKey, baseURL }) => {

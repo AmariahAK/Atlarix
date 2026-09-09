@@ -39,7 +39,8 @@ function parseArgs(argv) {
   const opts = { arch: "x64", upload: false };
   for (let i = 2; i < argv.length; i++) {
     if (argv[i] === "--arch" && argv[i + 1]) opts.arch = argv[++i];
-    else if (argv[i].startsWith("--arch=")) opts.arch = argv[i].slice("--arch=".length);
+    else if (argv[i].startsWith("--arch="))
+      opts.arch = argv[i].slice("--arch=".length);
     else if (argv[i] === "--upload") opts.upload = true;
   }
   return opts;
@@ -67,7 +68,8 @@ function findSdkTool(exe) {
       if (!entry.startsWith("10.")) continue;
       for (const arch of ["x64", "x86"]) {
         const candidate = path.join(root, entry, arch, exe);
-        if (fs.existsSync(candidate)) candidates.push({ version: entry, path: candidate });
+        if (fs.existsSync(candidate))
+          candidates.push({ version: entry, path: candidate });
       }
     }
     // Some older SDK layouts drop the tools directly in bin\<arch>\.
@@ -78,7 +80,10 @@ function findSdkTool(exe) {
   }
   if (candidates.length === 0) return null;
   candidates.sort((a, b) =>
-    b.version.localeCompare(a.version, undefined, { numeric: true, sensitivity: "base" }),
+    b.version.localeCompare(a.version, undefined, {
+      numeric: true,
+      sensitivity: "base",
+    }),
   );
   return candidates[0].path;
 }
@@ -91,7 +96,9 @@ function toPackageVersion(semver) {
   const core = String(semver).split(/[-+]/)[0]; // drop any prerelease/build tag
   const parts = core.split(".").map((p) => Number(p));
   if (parts.length < 3 || parts.some((n) => !Number.isInteger(n) || n < 0)) {
-    fail(`cannot derive an MSIX version from "${semver}" — need at least X.Y.Z of integers`);
+    fail(
+      `cannot derive an MSIX version from "${semver}" — need at least X.Y.Z of integers`,
+    );
   }
   return `${parts[0]}.${parts[1]}.${parts[2]}.0`;
 }
@@ -154,7 +161,8 @@ function crc32(buf) {
   let crc = 0xffffffff;
   for (const byte of buf) {
     crc ^= byte;
-    for (let i = 0; i < 8; i++) crc = crc & 1 ? (crc >>> 1) ^ 0xedb88320 : crc >>> 1;
+    for (let i = 0; i < 8; i++)
+      crc = crc & 1 ? (crc >>> 1) ^ 0xedb88320 : crc >>> 1;
   }
   return (crc ^ 0xffffffff) >>> 0;
 }
@@ -172,10 +180,14 @@ if (process.platform !== "win32") {
 const packageDir = path.join(ROOT, "out", `${APP}-win32-${arch}`);
 const exePath = path.join(packageDir, EXECUTABLE);
 if (!fs.existsSync(packageDir)) {
-  fail(`packaged app not found at ${packageDir} — run \`electron-forge package\` first`);
+  fail(
+    `packaged app not found at ${packageDir} — run \`electron-forge package\` first`,
+  );
 }
 if (!fs.existsSync(exePath)) {
-  fail(`${EXECUTABLE} missing from ${packageDir} — the AppxManifest Executable would not resolve`);
+  fail(
+    `${EXECUTABLE} missing from ${packageDir} — the AppxManifest Executable would not resolve`,
+  );
 }
 
 const makeappx = findSdkTool("makeappx.exe");
@@ -187,21 +199,36 @@ if (!makeappx) {
 }
 console.log(`[${TAG}] makeappx: ${makeappx}`);
 
-const pkgJson = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
+const pkgJson = JSON.parse(
+  fs.readFileSync(path.join(ROOT, "package.json"), "utf8"),
+);
 const version = toPackageVersion(pkgJson.version);
 console.log(`[${TAG}] package version ${version} (from ${pkgJson.version})`);
 
 // ── Render the manifest ─────────────────────────────────────────────────────
-const templatePath = path.join(ROOT, "build", "msix", "AppxManifest.template.xml");
-if (!fs.existsSync(templatePath)) fail(`manifest template missing: ${templatePath}`);
-const manifest = fs.readFileSync(templatePath, "utf8").replaceAll("{{VERSION}}", version);
+const templatePath = path.join(
+  ROOT,
+  "build",
+  "msix",
+  "AppxManifest.template.xml",
+);
+if (!fs.existsSync(templatePath))
+  fail(`manifest template missing: ${templatePath}`);
+const manifest = fs
+  .readFileSync(templatePath, "utf8")
+  .replaceAll("{{VERSION}}", version);
 
 // An unresolved placeholder produces a package that installs but misbehaves, so
 // treat it as fatal rather than shipping it.
 const leftover = manifest.match(/\{\{[A-Z_]+\}\}/g);
-if (leftover) fail(`unresolved manifest placeholder(s): ${[...new Set(leftover)].join(", ")}`);
+if (leftover)
+  fail(
+    `unresolved manifest placeholder(s): ${[...new Set(leftover)].join(", ")}`,
+  );
 if (!manifest.includes(`Executable="${EXECUTABLE}"`)) {
-  fail(`manifest does not declare Executable="${EXECUTABLE}" — check the template`);
+  fail(
+    `manifest does not declare Executable="${EXECUTABLE}" — check the template`,
+  );
 }
 
 // ── Stage the package layout ────────────────────────────────────────────────
@@ -212,7 +239,9 @@ fs.cpSync(packageDir, layoutDir, { recursive: true });
 
 const assetsSrc = path.join(ROOT, "build", "msix", "assets");
 if (!fs.existsSync(assetsSrc)) {
-  fail(`MSIX assets missing: ${assetsSrc} — run \`node scripts/gen-icons.mjs\` on macOS`);
+  fail(
+    `MSIX assets missing: ${assetsSrc} — run \`node scripts/gen-icons.mjs\` on macOS`,
+  );
 }
 fs.cpSync(assetsSrc, path.join(layoutDir, "Assets"), { recursive: true });
 fs.writeFileSync(path.join(layoutDir, "AppxManifest.xml"), manifest);
@@ -225,18 +254,28 @@ const msixPath = path.join(outDir, msixName);
 fs.rmSync(msixPath, { force: true });
 
 try {
-  execFileSync(makeappx, ["pack", "/d", layoutDir, "/p", msixPath, "/o"], { stdio: "inherit" });
+  execFileSync(makeappx, ["pack", "/d", layoutDir, "/p", msixPath, "/o"], {
+    stdio: "inherit",
+  });
 } catch (err) {
   fail(`makeappx pack failed: ${err.message}`);
 }
-if (!fs.existsSync(msixPath)) fail(`makeappx reported success but ${msixPath} is missing`);
+if (!fs.existsSync(msixPath))
+  fail(`makeappx reported success but ${msixPath} is missing`);
 
 const sizeMiB = (fs.statSync(msixPath).size / 1024 / 1024).toFixed(1);
-console.log(`[${TAG}] built ${path.relative(ROOT, msixPath)} (${sizeMiB} MiB) — UNSIGNED`);
+console.log(
+  `[${TAG}] built ${path.relative(ROOT, msixPath)} (${sizeMiB} MiB) — UNSIGNED`,
+);
 
 if (upload) {
-  const uploadPath = path.join(outDir, `${APP}-${pkgJson.version}-${arch}.msixupload`);
-  writeStoredZip(uploadPath, [{ name: msixName, data: fs.readFileSync(msixPath) }]);
+  const uploadPath = path.join(
+    outDir,
+    `${APP}-${pkgJson.version}-${arch}.msixupload`,
+  );
+  writeStoredZip(uploadPath, [
+    { name: msixName, data: fs.readFileSync(msixPath) },
+  ]);
   console.log(`[${TAG}] wrapped ${path.relative(ROOT, uploadPath)}`);
 }
 

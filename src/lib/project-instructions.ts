@@ -6,11 +6,7 @@
 import path from "node:path";
 import fs from "node:fs";
 import { getUserDataPath } from "../paths/paths";
-import {
-  getAtlarixMdPath,
-  readAtlarixMd,
-  } from "./project-memory";
-
+import { getAtlarixMdPath, readAtlarixMd } from "./project-memory";
 
 const ATLARIX_DIR = ".atlarix";
 const ATLARIX_MD = "ATLARIX.md";
@@ -34,7 +30,9 @@ export async function readGlobalAtlarixMd(): Promise<string> {
   }
 }
 
-export async function readProjectAtlarixMd(workspacePath: string): Promise<string> {
+export async function readProjectAtlarixMd(
+  workspacePath: string,
+): Promise<string> {
   if (!workspacePath) return "";
   const content = await readAtlarixMd(workspacePath);
   return content ?? "";
@@ -99,7 +97,10 @@ export async function loadInstructionLayers(params: {
  * `bundle` and `workspace` stay inline: the bundle is Atlarix's own size-tiered AGENTS.md
  * and `workspace` is short generated text, neither of which the user can grow.
  */
-const POINTED_AT_LAYER_KEYS = new Set<InstructionLayer["key"]>(["global", "project"]);
+const POINTED_AT_LAYER_KEYS = new Set<InstructionLayer["key"]>([
+  "global",
+  "project",
+]);
 
 export function buildInstructionsFromLayers(
   layers: InstructionLayer[],

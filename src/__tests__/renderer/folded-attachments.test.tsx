@@ -71,9 +71,7 @@ describe("AttachmentsList folding", () => {
     // Count reflects the 4 foldable items, not 5.
     expect(screen.getByText("4")).toBeInTheDocument();
     // The background job renders inline as its own chip, outside the fold.
-    expect(
-      screen.getByText(backgroundJobDisplayName("7")),
-    ).toBeInTheDocument();
+    expect(screen.getByText(backgroundJobDisplayName("7"))).toBeInTheDocument();
   });
 
   it("removing from the popover uses the original array index", () => {

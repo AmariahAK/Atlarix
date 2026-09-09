@@ -24,7 +24,9 @@ function runNodeScript(label, scriptPath) {
     shell: false,
   });
   if (result.status !== 0) {
-    console.error(`::error::[${TAG}] ${label} failed (exit ${result.status ?? "?"})`);
+    console.error(
+      `::error::[${TAG}] ${label} failed (exit ${result.status ?? "?"})`,
+    );
     logFailureContext(TAG);
     process.exit(result.status ?? 1);
   }

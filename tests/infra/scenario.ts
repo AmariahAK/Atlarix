@@ -17,7 +17,10 @@ export function scenario(id: string) {
   let repeatLast = false;
 
   const builder = {
-    text(text: string, usage?: Extract<ScenarioResponse, { kind: "text" }>["usage"]) {
+    text(
+      text: string,
+      usage?: Extract<ScenarioResponse, { kind: "text" }>["usage"],
+    ) {
       responses.push({ kind: "text", text, usage });
       return builder;
     },
@@ -44,6 +47,18 @@ export function scenario(id: string) {
     /** Emit one chunk then hang — drives the idle-stall watchdog (§A stall-resume). */
     stall(preText?: string) {
       responses.push({ kind: "stall", preText });
+      return builder;
+    },
+    /**
+     * Kill the TCP connection before a single header — the REQUEST phase.
+     *
+     * The shape no other kind could produce: `error()` is an HTTP status (headers
+     * already sent) and `stall()` hangs a healthy socket. Script a real response
+     * next to assert the network retry recovers. See the `socket_reset` docblock
+     * in `fake-llm-server/scenario.ts` for why there is no mid-stream twin.
+     */
+    socketResetBeforeHeaders() {
+      responses.push({ kind: "socket_reset", when: "before_headers" });
       return builder;
     },
     /** Keep serving the final response when the script runs out (loop evals). */

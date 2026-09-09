@@ -290,8 +290,12 @@ export function formatPlanChecklistForPrompt(
   const head = title?.trim() ? `${title.trim()} — ` : "";
   // Spell out in-progress in the header too, so "0/N done" is never bare: a
   // count of zero with no explanation is what read as "the plan was reset".
-  const progressNote = inProgress.length ? ` · ${inProgress.length} in progress` : "";
-  const externalNote = external.length ? ` · ${external.length} needs the user` : "";
+  const progressNote = inProgress.length
+    ? ` · ${inProgress.length} in progress`
+    : "";
+  const externalNote = external.length
+    ? ` · ${external.length} needs the user`
+    : "";
   lines.push(
     `[Session plan] ${head}${done}/${steps.length} steps done${progressNote}${externalNote}.`,
   );
@@ -303,10 +307,14 @@ export function formatPlanChecklistForPrompt(
     );
   }
   if (pending.length) {
-    lines.push(`Remaining: ${pending.map((s) => `${s.index}. ${s.text}`).join("; ")}`);
+    lines.push(
+      `Remaining: ${pending.map((s) => `${s.index}. ${s.text}`).join("; ")}`,
+    );
   }
   if (blocked.length) {
-    lines.push(`Blocked: ${blocked.map((s) => `${s.index}. ${s.text}`).join("; ")}`);
+    lines.push(
+      `Blocked: ${blocked.map((s) => `${s.index}. ${s.text}`).join("; ")}`,
+    );
   }
   if (external.length) {
     lines.push(
@@ -359,7 +367,11 @@ export function markAllChecklistStepsDone(content: string): {
   let changed = false;
   for (const step of parsePlanChecklist(content)) {
     if (!isActionableStepState(step.state)) continue;
-    const res = setStepStateInPlanMarkdown(out, { stepIndex: step.index }, "done");
+    const res = setStepStateInPlanMarkdown(
+      out,
+      { stepIndex: step.index },
+      "done",
+    );
     if (res.changed) {
       out = res.content;
       changed = true;

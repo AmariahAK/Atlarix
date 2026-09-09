@@ -19,7 +19,10 @@ const { TMP } = vi.hoisted(() => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const path = require("node:path");
   return {
-    TMP: path.join(os.tmpdir(), `atlarix-core-routing-${process.pid}-${Date.now()}`),
+    TMP: path.join(
+      os.tmpdir(),
+      `atlarix-core-routing-${process.pid}-${Date.now()}`,
+    ),
   };
 });
 
@@ -37,6 +40,8 @@ import {
   __resetCoreModelOverridesForTests,
 } from "@/ipc/shared/core-model-override-store";
 import {
+  CORE_TIER_ORDER,
+  DEFAULT_NEW_USER_CORE_TIER,
   getCoreModelIdForCoreTier,
   getOpenRouterModelIdForCoreTier,
   getCoreModelsDevTargetForTier,
@@ -82,7 +87,9 @@ describe("routing block parsing", () => {
       "fetch",
       fetchOk({
         models: { "core-3": "deepseek/deepseek-v4-pro" },
-        routing: { "core-3": { provider: "deepseek", apiModelId: "deepseek-v4-pro" } },
+        routing: {
+          "core-3": { provider: "deepseek", apiModelId: "deepseek-v4-pro" },
+        },
       }),
     );
     await refreshCoreModelOverrides();
@@ -93,7 +100,10 @@ describe("routing block parsing", () => {
   });
 
   it("leaves a tier unrouted when the block is absent (pre-migration shape)", async () => {
-    vi.stubGlobal("fetch", fetchOk({ models: { "core-1": "moonshotai/kimi-k3" } }));
+    vi.stubGlobal(
+      "fetch",
+      fetchOk({ models: { "core-1": "moonshotai/kimi-k3" } }),
+    );
     await refreshCoreModelOverrides();
     expect(getCoreTierRouting("core-1")).toBeUndefined();
   });
@@ -135,7 +145,12 @@ describe("routing block parsing", () => {
       "fetch",
       fetchOk({
         models: { "compass-fast": "deepseek/deepseek-v4-pro" },
-        routing: { "compass-fast": { provider: "deepseek", apiModelId: "deepseek-v4-pro" } },
+        routing: {
+          "compass-fast": {
+            provider: "deepseek",
+            apiModelId: "deepseek-v4-pro",
+          },
+        },
       }),
     );
     await refreshCoreModelOverrides();
@@ -147,7 +162,9 @@ describe("routing block parsing", () => {
       "fetch",
       fetchOk({
         models: { "core-1": "moonshot/kimi-k3" },
-        routing: { "core-1": { provider: "  moonshot  ", apiModelId: "  kimi-k3  " } },
+        routing: {
+          "core-1": { provider: "  moonshot  ", apiModelId: "  kimi-k3  " },
+        },
       }),
     );
     await refreshCoreModelOverrides();
@@ -176,7 +193,9 @@ describe("getCoreModelsDevTargetForTier", () => {
     // `MiniMax-M3`, and that lookup is case-sensitive. Deriving the id by splitting
     // the wire id would miss the row and lose core-4's price AND its 1M window.
     setCoreModelOverrides({ "core-4": "minimax/minimax-m3" });
-    setCoreModelRouting({ "core-4": { provider: "minimax", apiModelId: "MiniMax-M3" } });
+    setCoreModelRouting({
+      "core-4": { provider: "minimax", apiModelId: "MiniMax-M3" },
+    });
     expect(getCoreModelsDevTargetForTier("core-4")).toEqual({
       providerId: "minimax",
       modelId: "MiniMax-M3",
@@ -217,7 +236,9 @@ describe("getCoreModelsDevTargetForTier", () => {
   });
 
   it("normalizes legacy tier ids", () => {
-    setCoreModelRouting({ "core-1": { provider: "moonshot", apiModelId: "kimi-k3" } });
+    setCoreModelRouting({
+      "core-1": { provider: "moonshot", apiModelId: "kimi-k3" },
+    });
     expect(getCoreModelsDevTargetForTier("compass-fast")).toEqual({
       providerId: "moonshot",
       modelId: "kimi-k3",
@@ -239,7 +260,11 @@ describe("lineup size is config-driven", () => {
     });
     const catalog = buildAtlarixCoreTierCatalog();
     expect(catalog).toHaveLength(3);
-    expect(catalog.map((e) => e.internalTierId)).toEqual(["core-1", "core-2", "core-3"]);
+    expect(catalog.map((e) => e.internalTierId)).toEqual([
+      "core-1",
+      "core-2",
+      "core-3",
+    ]);
 
     const models = getCompassSyntheticModels();
     expect(models).toHaveLength(3);
@@ -283,14 +308,21 @@ describe("empty and parked slots", () => {
       vi.stubGlobal(
         "fetch",
         fetchOk({
-          models: { "core-1": placeholder, "core-2": "deepseek/deepseek-v4-pro" },
+          models: {
+            "core-1": placeholder,
+            "core-2": "deepseek/deepseek-v4-pro",
+          },
         }),
       );
       await refreshCoreModelOverrides();
       expect(getCoreModelIdForCoreTier("core-1")).toBeUndefined();
-      expect(getCoreModelIdForCoreTier("core-2")).toBe("deepseek/deepseek-v4-pro");
+      expect(getCoreModelIdForCoreTier("core-2")).toBe(
+        "deepseek/deepseek-v4-pro",
+      );
       // And the parked slot must not reach the picker.
-      expect(getCompassSyntheticModels().map((m) => m.apiName)).toEqual(["core-2"]);
+      expect(getCompassSyntheticModels().map((m) => m.apiName)).toEqual([
+        "core-2",
+      ]);
     },
   );
 
@@ -298,7 +330,9 @@ describe("empty and parked slots", () => {
     process.env.ATLARIX_CORE_MODEL_1 = "TBA";
     process.env.ATLARIX_CORE_MODEL_2 = "deepseek/deepseek-v4-pro";
     expect(getCoreModelIdForCoreTier("core-1")).toBeUndefined();
-    expect(getCoreModelIdForCoreTier("core-2")).toBe("deepseek/deepseek-v4-pro");
+    expect(getCoreModelIdForCoreTier("core-2")).toBe(
+      "deepseek/deepseek-v4-pro",
+    );
   });
 
   it("supports ZERO configured models without inventing rows", () => {
@@ -313,7 +347,9 @@ describe("empty and parked slots", () => {
   it("is empty when every hosted slot is parked", async () => {
     vi.stubGlobal(
       "fetch",
-      fetchOk({ models: { "core-1": "TBA", "core-2": "TBA", "core-3": "TBA" } }),
+      fetchOk({
+        models: { "core-1": "TBA", "core-2": "TBA", "core-3": "TBA" },
+      }),
     );
     await refreshCoreModelOverrides();
     expect(getCompassSyntheticModels()).toEqual([]);
@@ -326,12 +362,43 @@ describe("resolving a tier that is not in the lineup", () => {
    * always existed: the BYOK-no-key rescue hardcoded it, and a selection persisted
    * before the lineup changed still names it. Both would have hard-failed the turn.
    */
-  it("finds the first configured tier even when core-1 is absent", () => {
+  it("finds a configured tier even when the preferred slot is absent", () => {
     setCoreModelOverrides({
-      "core-2": "z-ai/glm-5.2",
-      "core-3": "deepseek/deepseek-v4-pro",
+      "core-1": "z-ai/glm-5.2",
+      "core-2": "deepseek/deepseek-v4-pro",
     });
-    expect(getFirstConfiguredCoreTier()).toBe("core-2");
+    // core-3 is the preference and is unmapped here, so this falls through to slot
+    // order — which is what keeps a partial lineup working.
+    expect(getFirstConfiguredCoreTier()).toBe("core-1");
+  });
+
+  /**
+   * The default is a PRODUCT decision, not slot order. **core-3 as of 2026-09-09**
+   * (core-2 for the single day before that, core-1 by accident before THAT, because
+   * `CORE_TIER_ORDER` was doing double duty as display order and preference order).
+   *
+   * An unopinionated caller gets the tier we most want a new user's first turn to run
+   * on. Asserted against a THREE-slot lineup because that is the shipped shape, and
+   * because a two-slot fixture cannot tell "prefers core-3" from "prefers the last
+   * configured slot".
+   */
+  it("prefers core-3 over the lower slots when all three are configured", () => {
+    setCoreModelOverrides({
+      "core-1": "z-ai/glm-5.3",
+      "core-2": "openai/gpt-5.6-terra",
+      "core-3": "openai/gpt-6-astra",
+    });
+    expect(getFirstConfiguredCoreTier()).toBe("core-3");
+  });
+
+  it("still falls back in slot order when core-3 is unconfigured", () => {
+    // The preference must not become a requirement — a lineup without core-3 has to
+    // keep working rather than reporting "nothing configured".
+    setCoreModelOverrides({
+      "core-1": "z-ai/glm-5.3",
+      "core-2": "openai/gpt-5.6-terra",
+    });
+    expect(getFirstConfiguredCoreTier()).toBe("core-1");
   });
 
   it("is undefined when nothing is configured, so callers can say so plainly", () => {
@@ -358,6 +425,30 @@ describe("resolving a tier that is not in the lineup", () => {
     });
   });
 
+  /**
+   * Substitution must NOT use the default preference, and this is the test that says
+   * why. `getFirstConfiguredCoreTier` prefers core-3 because a caller with no opinion
+   * should get our best tier. A caller whose SAVED tier vanished is the opposite case:
+   * they chose, their choice is gone, and promoting them to the top of the lineup is a
+   * bill they never asked for — core-3 can cost several times core-1.
+   *
+   * So the two must disagree here, and asserting both in one test is what stops a
+   * future tidy-up from collapsing them back into one order.
+   */
+  it("substitutes in SLOT order, not the default preference", () => {
+    setCoreModelOverrides({
+      "core-1": "z-ai/glm-5.3",
+      "core-3": "openai/gpt-6-astra",
+    });
+    // The dropped middle slot falls back to the cheaper neighbour…
+    expect(resolveConfiguredCoreTier("core-2")).toEqual({
+      tier: "core-1",
+      substituted: true,
+    });
+    // …while an unopinionated caller still gets the top tier.
+    expect(getFirstConfiguredCoreTier()).toBe("core-3");
+  });
+
   it("normalizes a legacy alias before substituting", () => {
     setCoreModelOverrides({ "core-3": "deepseek/deepseek-v4-pro" });
     // compass-fast -> core-1, which is unconfigured, so it falls forward to core-3.
@@ -381,6 +472,49 @@ describe("getCoreModelIdForCoreTier rename", () => {
 
   it("still resolves the wire id under the new name", () => {
     setCoreModelOverrides({ "core-3": "deepseek/deepseek-v4-pro" });
-    expect(getCoreModelIdForCoreTier("core-3")).toBe("deepseek/deepseek-v4-pro");
+    expect(getCoreModelIdForCoreTier("core-3")).toBe(
+      "deepseek/deepseek-v4-pro",
+    );
+  });
+});
+
+/**
+ * The tier a NEW INSTALL lands on.
+ *
+ * THE BUG THIS EXISTS TO PREVENT, because it already happened once: "the default
+ * Core tier" was written down twice with nothing linking the two —
+ * `DEFAULT_CORE_TIER_ORDER` here, and `DEFAULT_SETTINGS.selectedModel` over in
+ * `main/settings.ts`. Moving the order to core-3 moved nothing a real user sees,
+ * since its only production caller is the BYOK-rescue path, while settings quietly
+ * kept every new install on core-1. The whole release read as shipped and the goal
+ * was untouched.
+ */
+describe("the new-user default tier", () => {
+  it("is a SLOT id, never a model id", () => {
+    // Owner constraint, and the reason the lineup can change without an app
+    // update: a model id here would pin new users to one model forever, and would
+    // stop resolving the day that model left the lineup.
+    expect(CORE_TIER_ORDER).toContain(DEFAULT_NEW_USER_CORE_TIER);
+    expect(DEFAULT_NEW_USER_CORE_TIER).toMatch(/^core-\d+$/);
+    expect(DEFAULT_NEW_USER_CORE_TIER).not.toContain("/");
+  });
+
+  it("is the same tier an unopinionated caller would be given", () => {
+    // The coupling itself. If these two ever disagree again, the product decision
+    // has silently split in half.
+    setCoreModelOverrides({
+      "core-1": "z-ai/glm-5.3",
+      "core-2": "openai/gpt-5.5-terra",
+      "core-3": "openai/gpt-6-astra",
+    });
+    expect(getFirstConfiguredCoreTier()).toBe(DEFAULT_NEW_USER_CORE_TIER);
+  });
+
+  it("survives its slot being dropped from the lineup", () => {
+    // A new install must not be stranded by a config change it never saw. The
+    // constant still names core-3; resolution falls forward in slot order.
+    setCoreModelOverrides({ "core-1": "z-ai/glm-5.3" });
+    const resolved = resolveConfiguredCoreTier(DEFAULT_NEW_USER_CORE_TIER);
+    expect(resolved).toEqual({ tier: "core-1", substituted: true });
   });
 });

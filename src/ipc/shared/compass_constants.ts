@@ -105,7 +105,16 @@ export function getCompassSyntheticModels(): LanguageModel[] {
  *
  * Matched case-insensitively after trimming, so `TBA`, `tba`, `n/a` and `none` all work.
  */
-const EMPTY_SLOT_SENTINELS = new Set(["tba", "tbd", "none", "n/a", "na", "-", "null", "undefined"]);
+const EMPTY_SLOT_SENTINELS = new Set([
+  "tba",
+  "tbd",
+  "none",
+  "n/a",
+  "na",
+  "-",
+  "null",
+  "undefined",
+]);
 
 /**
  * Trim an env value, treating blanks AND empty-slot placeholders as absent.
@@ -219,24 +228,81 @@ export const getOpenRouterModelIdForCoreTier = getCoreModelIdForCoreTier;
  * broke the BYOK-fallback path and any persisted selection pointing at it.
  */
 export function getFirstConfiguredCoreTier(): string | undefined {
-  return CORE_TIER_ORDER.find((tier) => !!getCoreModelIdForCoreTier(tier)?.trim());
+  return DEFAULT_CORE_TIER_ORDER.find(
+    (tier) => !!getCoreModelIdForCoreTier(tier)?.trim(),
+  );
 }
+
+/**
+ * Preference order when something needs "a Core model" and has no opinion.
+ *
+ * NOT `CORE_TIER_ORDER`. That is the display order — slot 1, 2, 3, 4 — and using it
+ * here made the lowest-numbered slot the de-facto default for every unopinionated
+ * caller. The default is a PRODUCT decision, and the rest follow in slot order as a
+ * fallback so this still degrades correctly when the preferred slot is unconfigured.
+ *
+ * **core-3 first (owner, 2026-09-09).** Was core-2 for one day, from 2026-09-08. The
+ * reasoning is unchanged — a new user's first turn should run on the tier we most want
+ * them to judge us by — and core-3 is now the top of the lineup rather than the middle
+ * of it.
+ *
+ * IT NAMES A SLOT, NOT A MODEL, and that is the whole point: which model sits behind a
+ * slot is `core-models.json`'s business and changes without an app update. It is also
+ * why moving this line moves every user who never picked a tier onto a different model
+ * — worth knowing when the slot's price differs, which is why the model-changed notice
+ * exists.
+ */
+const DEFAULT_CORE_TIER_ORDER = [
+  CORE_TIER_3,
+  ...CORE_TIER_ORDER.filter((t) => t !== CORE_TIER_3),
+] as const;
+
+/**
+ * The tier a brand-new install's `selectedModel` points at.
+ *
+ * Derived from the order above rather than written a second time. These were two
+ * independent literals, and the gap between them is why moving the preference
+ * order to core-3 did not move a single new user: `DEFAULT_SETTINGS.selectedModel`
+ * in `main/settings.ts` still said core-1, and the order's only production caller
+ * is the BYOK-rescue path. Deriving it means the next change to the default lands
+ * in both places or neither.
+ *
+ * A SLOT, not a model id — the whole reason the lineup can change without an app
+ * update. If this slot is ever unconfigured, `resolveConfiguredCoreTier` falls
+ * forward in slot order, so a persisted selection never becomes a dead end.
+ */
+export const DEFAULT_NEW_USER_CORE_TIER: string = DEFAULT_CORE_TIER_ORDER[0];
 
 /**
  * Resolve a requested Core tier to one that is actually configured.
  *
  * Returns the tier unchanged when it has a model. When it does not — a slot removed
  * from the lineup, or a selection persisted before the lineup changed — this falls
- * forward to the first configured tier instead of failing the turn. Changing the
- * lineup would otherwise break every user whose saved selection pointed at the
- * removed slot, on their very next message.
+ * forward to a configured tier instead of failing the turn. Changing the lineup would
+ * otherwise break every user whose saved selection pointed at the removed slot, on
+ * their very next message.
+ *
+ * SUBSTITUTION WALKS SLOT ORDER, NOT THE DEFAULT PREFERENCE — deliberately, and this
+ * is not the same question as `getFirstConfiguredCoreTier`. That one answers "a caller
+ * has no opinion, give it our best tier". This one answers "a caller's opinion no
+ * longer resolves", and those want opposite things: the user DID choose, their choice
+ * is gone, and silently promoting them to the top of the lineup is a bill they did not
+ * ask for. Slot order is ascending by capability and price, so this lands on the
+ * nearest cheaper option instead.
+ *
+ * It mattered little while the preference was core-2 and the lineup was flat-ish. It
+ * matters now: core-3 can be several times the price of core-1, so a dropped budget
+ * slot would otherwise move a cost-sensitive user straight onto the dearest model.
  */
 export function resolveConfiguredCoreTier(
   internalTierId: string,
 ): { tier: string; substituted: boolean } | undefined {
   const norm = normalizeCoreTierId(internalTierId);
-  if (getCoreModelIdForCoreTier(norm)?.trim()) return { tier: norm, substituted: false };
-  const fallback = getFirstConfiguredCoreTier();
+  if (getCoreModelIdForCoreTier(norm)?.trim())
+    return { tier: norm, substituted: false };
+  const fallback = CORE_TIER_ORDER.find(
+    (tier) => !!getCoreModelIdForCoreTier(tier)?.trim(),
+  );
   return fallback ? { tier: fallback, substituted: true } : undefined;
 }
 

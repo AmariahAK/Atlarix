@@ -21,7 +21,12 @@ describe("discardedTurnSnapshotIds", () => {
     // Edit message 1 → discards assistants 2,4,5,6. 5 has no atom entry, so it
     // falls back to its message id ("5") as a candidate — the disk read decides
     // whether it actually has a snapshot.
-    expect(discardedTurnSnapshotIds(msgs, 1, snap)).toEqual(["2", "4", "5", "6"]);
+    expect(discardedTurnSnapshotIds(msgs, 1, snap)).toEqual([
+      "2",
+      "4",
+      "5",
+      "6",
+    ]);
   });
 
   it("only counts turns after the edited message", () => {

@@ -36,7 +36,9 @@ describe("RevertTurnAction", () => {
   });
 
   it("renders nothing when the turn has no snapshot", () => {
-    renderWithProviders(<RevertTurnAction chatId={CHAT_ID} messageId={MSG_ID} />);
+    renderWithProviders(
+      <RevertTurnAction chatId={CHAT_ID} messageId={MSG_ID} />,
+    );
     expect(screen.queryByTitle("Revert this turn's file changes")).toBeNull();
   });
 
@@ -46,7 +48,9 @@ describe("RevertTurnAction", () => {
       turnSnapshotTurnIdByMessageIdAtom,
       new Map([[MSG_ID, String(MSG_ID)]]),
     );
-    renderWithProviders(<RevertTurnAction chatId={CHAT_ID} messageId={MSG_ID} />);
+    renderWithProviders(
+      <RevertTurnAction chatId={CHAT_ID} messageId={MSG_ID} />,
+    );
 
     const btn = screen.getByTitle("Revert this turn's file changes");
     expect(btn).toBeInTheDocument();

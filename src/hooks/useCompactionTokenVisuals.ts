@@ -48,7 +48,11 @@ export function useCompactionTokenVisuals(chatId: number | null): {
     const wasRunning = prevRunningRef.current;
     prevRunningRef.current = running;
 
-    if (last && last.status === "done" && last.id !== lastSeenDoneIdRef.current) {
+    if (
+      last &&
+      last.status === "done" &&
+      last.id !== lastSeenDoneIdRef.current
+    ) {
       lastSeenDoneIdRef.current = last.id;
       // PASS8 G2: re-fetch the token bar after any compaction-style activity completes.
       queryClient.invalidateQueries({ queryKey: TOKEN_COUNT_QUERY_KEY });

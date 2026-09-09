@@ -28,12 +28,16 @@ export function ToolExpandPanel({
     <div className={cn("border-t border-border px-2.5 py-2", className)}>
       {view.kind === "file_list" ? <ToolFileListExpand view={view} /> : null}
       {view.kind === "match_list" ? <ToolMatchListExpand view={view} /> : null}
-      {view.kind === "read_snippet" ? <ToolReadSnippetExpand view={view} /> : null}
+      {view.kind === "read_snippet" ? (
+        <ToolReadSnippetExpand view={view} />
+      ) : null}
       {view.kind === "diff" ? <ToolDiffExpand view={view} /> : null}
       {view.kind === "search_results" ? (
         <ToolSearchResultsExpand view={view} />
       ) : null}
-      {view.kind === "mcp_servers" ? <ToolMcpServersExpand view={view} /> : null}
+      {view.kind === "mcp_servers" ? (
+        <ToolMcpServersExpand view={view} />
+      ) : null}
       {view.kind === "mcp_result" ? <ToolMcpResultExpand view={view} /> : null}
       {view.kind === "mcp_auth" ? <ToolMcpAuthExpand view={view} /> : null}
       {view.kind === "table" ? <ToolTableExpand view={view} /> : null}

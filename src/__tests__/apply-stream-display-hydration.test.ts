@@ -73,7 +73,9 @@ function messageFixture(): Message {
 }
 
 function roundAgentsFor(id: number): string[] {
-  const threads = getDefaultStore().get(completedStreamThreadByAssistantMessageIdAtom);
+  const threads = getDefaultStore().get(
+    completedStreamThreadByAssistantMessageIdAtom,
+  );
   const round = (threads[id] ?? []).find((i) => i.kind === "subagent_round");
   if (!round || round.kind !== "subagent_round") return [];
   return round.agents.map((a) => a.id);

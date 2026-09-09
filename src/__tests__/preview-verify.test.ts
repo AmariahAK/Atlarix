@@ -30,7 +30,12 @@ const err = (
   type: BrowserSurfaceError["type"],
   timestamp: number,
   level?: BrowserSurfaceError["level"],
-): BrowserSurfaceError => ({ type, message: `${type}@${timestamp}`, timestamp, level });
+): BrowserSurfaceError => ({
+  type,
+  message: `${type}@${timestamp}`,
+  timestamp,
+  level,
+});
 
 describe("runtimeFailuresSince", () => {
   it("keeps error-level console but DROPS warnings (React/Next dev noise)", () => {
@@ -53,10 +58,7 @@ describe("runtimeFailuresSince", () => {
   });
 
   it("respects the sinceTs baseline (ignores older entries)", () => {
-    const entries = [
-      err("render-gone", 5),
-      err("network-failed", 50),
-    ];
+    const entries = [err("render-gone", 5), err("network-failed", 50)];
     expect(runtimeFailuresSince(entries, 20)).toEqual([
       expect.objectContaining({ type: "network-failed", timestamp: 50 }),
     ]);
@@ -131,7 +133,9 @@ describe("buildRuntimeNotice", () => {
 // `unrelated` marks them without hiding them, exactly like a plan step's `external`
 // state: still reported to the model, explicitly not its work, never blocking.
 describe("runtimeFailuresSince — unrelated tabs", () => {
-  const err = (over: Partial<BrowserSurfaceError> = {}): BrowserSurfaceError => ({
+  const err = (
+    over: Partial<BrowserSurfaceError> = {},
+  ): BrowserSurfaceError => ({
     type: "console-error",
     message: "boom",
     timestamp: 100,
@@ -153,9 +157,19 @@ describe("runtimeFailuresSince — unrelated tabs", () => {
   it("excludes unrelated load-failed / render-gone / network-failed too", () => {
     // These are "always blocking" by type, so the unrelated check must sit BEFORE
     // that branch, not after it.
-    for (const type of ["load-failed", "render-gone", "network-failed"] as const) {
-      expect(runtimeFailuresSince([err({ type, level: undefined, unrelated: true })])).toEqual([]);
-      expect(runtimeFailuresSince([err({ type, level: undefined })])).toHaveLength(1);
+    for (const type of [
+      "load-failed",
+      "render-gone",
+      "network-failed",
+    ] as const) {
+      expect(
+        runtimeFailuresSince([
+          err({ type, level: undefined, unrelated: true }),
+        ]),
+      ).toEqual([]);
+      expect(
+        runtimeFailuresSince([err({ type, level: undefined })]),
+      ).toHaveLength(1);
     }
   });
 
@@ -204,7 +218,10 @@ describe("the notice policy is a setting, not a constant", () => {
   it('"failures" narrows to faults, dropping ordinary output', () => {
     mockNoticePolicy = "failures";
     ensurePreviewBaseline("t1", 0);
-    mockErrors = [err("console-error", 100, "log"), err("console-error", 101, "info")];
+    mockErrors = [
+      err("console-error", 100, "log"),
+      err("console-error", 101, "info"),
+    ];
     expect(buildRuntimeNotice("t1")).toBeNull();
 
     mockErrors = [...mockErrors, err("network-failed", 102)];

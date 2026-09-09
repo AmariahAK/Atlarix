@@ -127,7 +127,9 @@ export function useStickToBottom(
             applyOverflowAnchor(true);
           }
         }
-        setShowJumpButton((prev) => (prev === !nearBottom ? prev : !nearBottom));
+        setShowJumpButton((prev) =>
+          prev === !nearBottom ? prev : !nearBottom,
+        );
       });
     };
     el.addEventListener("scroll", onScroll, { passive: true });

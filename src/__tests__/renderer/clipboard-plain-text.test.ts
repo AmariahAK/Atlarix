@@ -8,24 +8,30 @@ import { describe, expect, it } from "vitest";
 import { readClipboardPlainText } from "@/lib/chat/text-paste-attachment";
 
 function clip(data: Record<string, string>): DataTransfer {
-  return { getData: (type: string) => data[type] ?? "" } as unknown as DataTransfer;
+  return {
+    getData: (type: string) => data[type] ?? "",
+  } as unknown as DataTransfer;
 }
 
 describe("readClipboardPlainText", () => {
   it("returns text/plain when present (code-editor sources like Cursor)", () => {
-    expect(readClipboardPlainText(clip({ "text/plain": "hello world" }))).toBe("hello world");
+    expect(readClipboardPlainText(clip({ "text/plain": "hello world" }))).toBe(
+      "hello world",
+    );
   });
 
   it("falls back to text/html (stripped) when text/plain is empty (rich-text sources)", () => {
     const html = "<p>Line one</p><p>Line two</p>";
-    expect(readClipboardPlainText(clip({ "text/plain": "", "text/html": html }))).toBe(
-      "Line oneLine two",
-    );
+    expect(
+      readClipboardPlainText(clip({ "text/plain": "", "text/html": html })),
+    ).toBe("Line oneLine two");
   });
 
   it("prefers text/plain over html when plain has content", () => {
     expect(
-      readClipboardPlainText(clip({ "text/plain": "plain wins", "text/html": "<b>html</b>" })),
+      readClipboardPlainText(
+        clip({ "text/plain": "plain wins", "text/html": "<b>html</b>" }),
+      ),
     ).toBe("plain wins");
   });
 

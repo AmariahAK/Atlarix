@@ -40,7 +40,9 @@ const rawLoaderPlugin = {
         // Bare specifier (e.g. "axe-core/axe.min.js") — resolve through
         // node_modules like Vite does. Previously treated as importer-relative,
         // which ENOENT'd the first bare ?raw import (v14.8.6 visual-lint axe).
-        abs = createRequire(path.join(args.resolveDir, "resolve-anchor.js")).resolve(clean);
+        abs = createRequire(
+          path.join(args.resolveDir, "resolve-anchor.js"),
+        ).resolve(clean);
       }
       return { path: abs, namespace: "raw-file" };
     });
@@ -113,7 +115,10 @@ const assets = [
   // __dirname; if it isn't shipped here the headless CLI silently falls back to
   // the 6-line FALLBACK_AGENTS stub. Keep this filename in sync with that loader.
   { src: path.join(root, "AGENTS.md"), dest: "AGENTS.md" },
-  { src: path.join(root, "node_modules/tiktoken/lite/tiktoken_bg.wasm"), dest: "tiktoken_bg.wasm" },
+  {
+    src: path.join(root, "node_modules/tiktoken/lite/tiktoken_bg.wasm"),
+    dest: "tiktoken_bg.wasm",
+  },
   // The models.dev catalog snapshot. Headless resolved it relative to `cwd`,
   // which in a benchmark container is the TASK directory — so it was never found
   // and the catalog depended entirely on reaching models.dev over the network.
@@ -124,7 +129,10 @@ const assets = [
   // DIFFERENT wire shape — so the same command would mean different things
   // depending on whether the sandbox happened to have open egress. Shipping it
   // makes that resolution deterministic. 438KB gzipped.
-  { src: path.join(root, "build/models-snapshot.json.gz"), dest: "models-snapshot.json.gz" },
+  {
+    src: path.join(root, "build/models-snapshot.json.gz"),
+    dest: "models-snapshot.json.gz",
+  },
 ];
 // AGENTS.md is load-bearing: without it headless runs on the FALLBACK_AGENTS
 // stub (silent capability cliff). Fail the build loudly rather than ship a
@@ -135,10 +143,14 @@ for (const { src, dest } of assets) {
     fs.copyFileSync(src, path.join(outDir, dest));
     console.log(`[build-headless] copied ${dest} next to bundle`);
   } else if (REQUIRED.has(dest)) {
-    console.error(`[build-headless] FATAL: required asset ${src} not found — headless would fall back to the stub prompt`);
+    console.error(
+      `[build-headless] FATAL: required asset ${src} not found — headless would fall back to the stub prompt`,
+    );
     process.exit(1);
   } else {
-    console.warn(`[build-headless] WARN: ${src} not found — headless may degrade`);
+    console.warn(
+      `[build-headless] WARN: ${src} not found — headless may degrade`,
+    );
   }
 }
 

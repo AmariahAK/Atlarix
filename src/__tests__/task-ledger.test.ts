@@ -23,7 +23,10 @@ const PLAN = `# Build the auth flow
 describe("A1 — formatPlanChecklistForPrompt", () => {
   it("emits a compact block with counts, in-progress, and remaining", () => {
     const steps = parsePlanChecklist(PLAN);
-    const block = formatPlanChecklistForPrompt(steps, extractPlanChecklistTitle(PLAN));
+    const block = formatPlanChecklistForPrompt(
+      steps,
+      extractPlanChecklistTitle(PLAN),
+    );
     expect(block).toBeTruthy();
     expect(block).toContain("[Session plan]");
     expect(block).toContain("Build the auth flow");
@@ -69,7 +72,10 @@ describe("A2 — buildContinuationPrompt re-asserts the task", () => {
   });
 
   it("re-asserts the SAME task from the ledger when present, wrapped out-of-band", () => {
-    const out = buildContinuationPrompt({ ...ctx, taskLedger: "[Session plan] 1/4 steps done." });
+    const out = buildContinuationPrompt({
+      ...ctx,
+      taskLedger: "[Session plan] 1/4 steps done.",
+    });
     expect(out).toContain("<system-reminder>");
     expect(out).toContain("SAME task");
     expect(out).toContain("[Session plan] 1/4 steps done.");
@@ -99,8 +105,16 @@ describe("A5 — recordText semantic loop-guard", () => {
     s.setEnabled(true);
     expect(s.recordText("done").kind).toBe("none");
     expect(s.recordText("ok").kind).toBe("none");
-    expect(s.recordText("Now editing the router configuration for the new endpoint handler.").kind).toBe("none");
-    expect(s.recordText("Next I will run the test suite to verify the changes behave correctly.").kind).toBe("none");
+    expect(
+      s.recordText(
+        "Now editing the router configuration for the new endpoint handler.",
+      ).kind,
+    ).toBe("none");
+    expect(
+      s.recordText(
+        "Next I will run the test suite to verify the changes behave correctly.",
+      ).kind,
+    ).toBe("none");
   });
 
   it("is inert when disabled", () => {

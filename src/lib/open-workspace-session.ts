@@ -22,10 +22,7 @@ import {
   selectedChatIdAtom,
   openChatTabsAtom,
 } from "@/atoms/chatAtoms";
-import {
-  selectedAppIdAtom,
-  selectedWorkspaceInfoAtom,
-} from "@/atoms/appAtoms";
+import { selectedAppIdAtom, selectedWorkspaceInfoAtom } from "@/atoms/appAtoms";
 import { loadedSessionTruncatedAtom } from "@/atoms/sessionAtoms";
 import { pushRecentWorkspace } from "@/lib/workspace-recents";
 import { showError } from "@/lib/toast";
@@ -84,7 +81,9 @@ export function registerOpenChatTab(tab: {
 /** Remove a tab (and let the caller decide the next active chat). */
 export function removeOpenChatTab(chatId: number): void {
   const store = getDefaultStore();
-  store.set(openChatTabsAtom, (prev) => prev.filter((t) => t.chatId !== chatId));
+  store.set(openChatTabsAtom, (prev) =>
+    prev.filter((t) => t.chatId !== chatId),
+  );
 }
 
 /**
@@ -161,7 +160,9 @@ export async function startNewWorkspaceConversation(
     const ipc = IpcClient.getInstance();
     const app = await ipc.getApp(workspaceId);
     if (app.pathExists === false) {
-      showError("Workspace folder not found. Remove it from the list and try again.");
+      showError(
+        "Workspace folder not found. Remove it from the list and try again.",
+      );
       return null;
     }
 
@@ -299,7 +300,9 @@ export async function openWorkspaceByAppId(
 
     const app = await IpcClient.getInstance().getApp(appId);
     if (app.pathExists === false) {
-      showError("Workspace folder not found. Remove it from the list and try again.");
+      showError(
+        "Workspace folder not found. Remove it from the list and try again.",
+      );
       return null;
     }
 

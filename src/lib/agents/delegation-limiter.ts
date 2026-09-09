@@ -71,7 +71,46 @@ function drainQueue(slot: TurnSlot, maxConcurrent: number): void {
   }
 }
 
-export function releaseDelegationSlot(chatId: number, turnId: string, maxConcurrent: number): void {
+/**
+ * Fail every delegation parked in this CHAT's queues. Returns the count rejected.
+ *
+ * WHY THIS IS NEEDED AT ALL. Cancelling the running sub-agents does not touch this
+ * queue: a parked delegation is a pending promise, and the moment a cancelled sibling
+ * releases its slot, `drainQueue` resolves the next one and it opens a fresh call
+ * against the same empty wallet. With concurrency 5 and a per-turn cap of 5, that is
+ * every remaining sibling. `reject` was declared on the queue entry from the start and
+ * never called from anywhere — this is the path it was always for.
+ *
+ * SCOPED BY CHAT, NOT TURN, deliberately. It has to line up with
+ * `cancelAllSubagentTasksForChat`, and the caller that matters most — the parent
+ * turn's own 402 handler — holds no turn id at all. A chat runs one stream at a
+ * time (`activeStreams` is keyed by chat), so the chat's queues are this turn's
+ * queues.
+ *
+ * Each slot is deleted rather than left empty so a late `releaseDelegationSlot`
+ * cannot resurrect it and drain a queue we have just emptied.
+ */
+export function failQueuedDelegationsForChat(
+  chatId: number,
+  error: Error,
+): number {
+  const prefix = `${chatId}:`;
+  let rejected = 0;
+  for (const [key, slot] of [...slotsByKey.entries()]) {
+    if (!key.startsWith(prefix)) continue;
+    const queued = slot.queue.splice(0, slot.queue.length);
+    for (const entry of queued) entry.reject(error);
+    slotsByKey.delete(key);
+    rejected += queued.length;
+  }
+  return rejected;
+}
+
+export function releaseDelegationSlot(
+  chatId: number,
+  turnId: string,
+  maxConcurrent: number,
+): void {
   const slot = slotsByKey.get(slotKey(chatId, turnId));
   if (!slot) return;
   slot.active = Math.max(0, slot.active - 1);
@@ -126,4 +165,3 @@ export async function acquireDelegationSlot(
   // have started moments ago — space this one off that start too.
   await applyStagger(slot);
 }
-

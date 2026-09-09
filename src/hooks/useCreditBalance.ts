@@ -61,7 +61,9 @@ export function useCreditBalance(): CreditBalanceState {
   const bump = useAtomValue(compassUsageBumpAtom);
   const [balanceCents, setBalanceCents] = useState<number | null>(null);
   const [grantedCents, setGrantedCents] = useState<number | null>(null);
-  const [grantedTotalCents, setGrantedTotalCents] = useState<number | null>(null);
+  const [grantedTotalCents, setGrantedTotalCents] = useState<number | null>(
+    null,
+  );
   const [purchasedCents, setPurchasedCents] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -105,17 +107,27 @@ export function useCreditBalance(): CreditBalanceState {
         return;
       }
       setBalanceCents(Number(result.balanceCents ?? 0));
-      setGrantedCents(typeof result.grantedCents === "number" ? result.grantedCents : null);
-      setGrantedTotalCents(
-        typeof result.grantedTotalCents === "number" ? result.grantedTotalCents : null,
+      setGrantedCents(
+        typeof result.grantedCents === "number" ? result.grantedCents : null,
       );
-      setPurchasedCents(typeof result.purchasedCents === "number" ? result.purchasedCents : null);
+      setGrantedTotalCents(
+        typeof result.grantedTotalCents === "number"
+          ? result.grantedTotalCents
+          : null,
+      );
+      setPurchasedCents(
+        typeof result.purchasedCents === "number"
+          ? result.purchasedCents
+          : null,
+      );
     } catch (e) {
       setBalanceCents(null);
       setGrantedCents(null);
       setGrantedTotalCents(null);
       setPurchasedCents(null);
-      setError(e instanceof Error ? e.message : "Could not load credit balance");
+      setError(
+        e instanceof Error ? e.message : "Could not load credit balance",
+      );
     } finally {
       setLoading(false);
     }

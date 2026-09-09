@@ -1,16 +1,19 @@
-import { and, eq, or } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { installedSkills, mcpServers } from "@/db/schema";
+import { mcpServers } from "@/db/schema";
 import { oauthConnectedFromRow } from "@/lib/mcp/oauth-token-utils";
-import { normalizeSkillWorkspacePath } from "@/paths/paths";
 
-// No cap. This is a NAMES list — a truncated one told the model that skills 11+
-// simply did not exist, which is the worst possible failure for a summary whose
-// entire job is to say what is available. (The bodies were the expensive part
-// and they no longer travel in the prompt at all; see skill-index.ts.)
-
+/**
+ * MCP ONLY. Skills used to be here too — first as names from the `installed_skills`
+ * table, then briefly read from disk when that table was dropped — and both were
+ * removed in v14.45.
+ *
+ * The disk version is the interesting one to have deleted: it duplicated a directory
+ * enumeration `skill-index.ts` already performs every turn, to populate a field the
+ * prompt then stopped printing. Two reads for one number nobody used. Skills belong to
+ * `skill-index.ts`; this file is about MCP.
+ */
 export type WorkspaceCapabilitiesSummary = {
-  skillNames: string[];
   mcpServers: Array<{
     name: string;
     scope: string;
@@ -43,28 +46,7 @@ export async function loadWorkspaceCapabilitiesSummary(opts: {
       ),
     );
 
-  const skillRows = await db
-    .select({ name: installedSkills.name, scope: installedSkills.scope, workspacePath: installedSkills.workspacePath })
-    .from(installedSkills)
-    .where(
-      or(
-        eq(installedSkills.scope, "global"),
-        eq(installedSkills.scope, "workspace"),
-      ),
-    );
-
-  const normalizedWs = normalizeSkillWorkspacePath(opts.workspacePath);
-  const skillNames = skillRows
-    .filter(
-      (r) =>
-        r.scope === "global" ||
-        (r.workspacePath != null &&
-          normalizeSkillWorkspacePath(r.workspacePath) === normalizedWs),
-    )
-    .map((r) => r.name);
-
   return {
-    skillNames,
     mcpServers: mcpRows.map((r) => ({
       name: r.name,
       scope: r.scope,
@@ -80,38 +62,43 @@ export async function loadWorkspaceCapabilitiesSummary(opts: {
 export function formatWorkspaceCapabilitiesForPrompt(
   summary: WorkspaceCapabilitiesSummary,
 ): string {
-  // Only the DYNAMIC state lives here (which skills/MCP servers this workspace
-  // has, + oauth status). The static "how to invoke MCP/skills" guidance is in
-  // <tools_registry> (mode-tool-registry.ts) — not duplicated here.
-  const lines: string[] = [
-    "## Workspace integrations (installed skills + MCP)",
-    "",
+  /**
+   * SAYS NOTHING WHEN THERE IS NOTHING, and that is the change worth explaining.
+   *
+   * This used to emit, on every turn of every workspace with nothing configured:
+   *
+   *   ## Workspace integrations (skills + MCP)
+   *   **Skills:** none (a skill is a markdown file in `.atlarix/skills/`).
+   *   **MCP servers:** none enabled for this workspace.
+   *
+   * ~40 tokens to report two absences, forever — and duplicated, because
+   * `list_available_mcps` already answers "No MCP servers configured" at the moment the
+   * model asks. Informing the model that a thing does not exist is not the same as the
+   * model being able to find out; the second is what a tool is for.
+   *
+   * The skills half is gone entirely: `skill-index.ts` owns that line now.
+   *
+   * What remains is a COUNT of enabled MCP servers, for the same reason skills are a
+   * count — the details are one tool call away and the tool returns them, including the
+   * per-server auth state this section used to duplicate.
+   */
+  if (summary.mcpServers.length === 0) return "";
+
+  const needsAuth = summary.mcpServers.filter(
+    (s) => s.authType === "oauth" && !s.oauthConnected,
+  ).length;
+
+  const lines = [
+    `## MCP servers (${summary.mcpServers.length} enabled)`,
+    `Call \`list_available_mcps\` for their names and tools, then \`mcp_call\` to invoke one.`,
   ];
-
-  if (summary.skillNames.length > 0) {
-    lines.push(`**Installed skills (${summary.skillNames.length}):** ${summary.skillNames.join(", ")}`);
-  } else {
-    lines.push("**Installed skills:** none (browse Settings → Skills to install).");
+  if (needsAuth > 0) {
+    // The one detail worth pre-empting: an unconnected OAuth server fails at the
+    // moment of use with a remedy only the user can apply, and a model that learns
+    // that from a tool error tends to retry rather than say so.
+    lines.push(
+      `${needsAuth} of them need the user to sign in first (Settings → MCP → Connect) and will fail until then.`,
+    );
   }
-
-  if (summary.mcpServers.length > 0) {
-    lines.push("");
-    lines.push("**MCP servers (enabled):**");
-    for (const s of summary.mcpServers) {
-      const oauthNote =
-        s.authType === "oauth"
-          ? s.oauthConnected
-            ? "oauth: connected"
-            : "oauth: sign-in required (Settings → MCP → Connect)"
-          : s.authType && s.authType !== "none"
-            ? `auth: ${s.authType}`
-            : "auth: none";
-      lines.push(`- ${s.name} (${s.scope}) — ${oauthNote}`);
-    }
-  } else {
-    lines.push("");
-    lines.push("**MCP servers:** none enabled for this workspace.");
-  }
-
   return lines.join("\n");
 }

@@ -81,7 +81,8 @@ function agentRows(thread: StreamThreadItem[]) {
       kind: string;
       agents?: Array<{ id?: string; status?: string; summary?: string }>;
     };
-    if (round.kind !== "subagent_round" || !Array.isArray(round.agents)) continue;
+    if (round.kind !== "subagent_round" || !Array.isArray(round.agents))
+      continue;
     for (const a of round.agents) {
       out.push({ id: a.id ?? "", status: a.status, summary: a.summary });
     }
@@ -97,7 +98,10 @@ describe("a post-turn completion settles the frozen card", () => {
   });
 
   it("flips that row to done, and carries the result", () => {
-    const settled = mergeSubagentActivityIntoThread(startedThread(), completion());
+    const settled = mergeSubagentActivityIntoThread(
+      startedThread(),
+      completion(),
+    );
     const rows = agentRows(settled);
     expect(rows).toHaveLength(1);
     expect(rows[0]!.status).toBe("done");
@@ -107,7 +111,10 @@ describe("a post-turn completion settles the frozen card", () => {
   it("does not ADD a row — the ids must match, or the card would grow", () => {
     // If start and completion ever key differently, the merge appends instead of
     // updating and the header count goes UP rather than settling.
-    const settled = mergeSubagentActivityIntoThread(startedThread(), completion());
+    const settled = mergeSubagentActivityIntoThread(
+      startedThread(),
+      completion(),
+    );
     expect(agentRows(settled)).toHaveLength(1);
   });
 
@@ -163,7 +170,9 @@ describe("a post-turn completion settles the frozen card", () => {
         ),
       );
     }
-    expect(agentRows(thread).filter((r) => r.status === "running")).toHaveLength(5);
+    expect(
+      agentRows(thread).filter((r) => r.status === "running"),
+    ).toHaveLength(5);
 
     for (const id of ids) {
       thread = mergeSubagentActivityIntoThread(

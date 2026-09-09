@@ -4,7 +4,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 export const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
 };
 
 export type AuthedUser = { id: string; email: string | null };
@@ -15,7 +16,8 @@ export type AuthedUser = { id: string; email: string | null };
  * email from the request body for a privileged action.
  */
 export async function getAuthedUser(req: Request): Promise<AuthedUser | null> {
-  const authHeader = req.headers.get("Authorization") ?? req.headers.get("authorization") ?? "";
+  const authHeader =
+    req.headers.get("Authorization") ?? req.headers.get("authorization") ?? "";
   const jwt = authHeader.replace(/^Bearer\s+/i, "").trim();
   if (!jwt) return null;
 

@@ -43,7 +43,8 @@ function otherModeHeaders(activeLabel: string): string[] {
 describe("no mode's prompt names a tool it cannot call", () => {
   // Tools whose names appear in prose for reasons other than "you may call this":
   // pointing the user at another mode, or naming a tool to forbid it.
-  const MENTION_IS_NOT_A_CLAIM = /you have no |you CANNOT|switch to|not available in this mode|are BLOCKED/i;
+  const MENTION_IS_NOT_A_CLAIM =
+    /you have no |you CANNOT|switch to|not available in this mode|are BLOCKED/i;
 
   for (const mode of ALL_MODES) {
     it(`${mode} prompt only names callable tools`, () => {
@@ -53,7 +54,10 @@ describe("no mode's prompt names a tool it cannot call", () => {
         hasWorkspace: true,
       });
       // Strip the <tools_registry> block: it lists the allowlist verbatim by design.
-      const prose = stableHeader.replace(/<tools_registry[\s\S]*?<\/tools_registry>/g, "");
+      const prose = stableHeader.replace(
+        /<tools_registry[\s\S]*?<\/tools_registry>/g,
+        "",
+      );
 
       const offenders: string[] = [];
       for (const tool of ToolRegistry.getAll().map((t) => t.name)) {
@@ -94,7 +98,9 @@ describe("mode system consistency", () => {
         effectiveWorkMode: mode,
         hasWorkspace: true,
       });
-      expect(stableHeader).toContain(`<tools_registry mode="${mode}" label="${label}">`);
+      expect(stableHeader).toContain(
+        `<tools_registry mode="${mode}" label="${label}">`,
+      );
       expect(stableHeader).toContain("Workspace chat:");
       expect(stableHeader).not.toContain("Explore, Plan, Build");
     });
@@ -138,7 +144,9 @@ describe("mode system consistency", () => {
       hasWorkspace: true,
       registeredToolNames: ["read_file", "search"],
     });
-    expect(stableHeader).toContain("Native schemas bound now: read_file, search");
+    expect(stableHeader).toContain(
+      "Native schemas bound now: read_file, search",
+    );
   });
 
   it("run_command is offered in Ask-mode tool discovery (allowInAskMode)", () => {
@@ -192,7 +200,13 @@ describe("mode system consistency", () => {
   });
 
   it("read-only modes do not allow mutating tools", () => {
-    for (const tool of ["write_file", "edit_file", "delete_file", "rename_file", "write_multiple_files"]) {
+    for (const tool of [
+      "write_file",
+      "edit_file",
+      "delete_file",
+      "rename_file",
+      "write_multiple_files",
+    ]) {
       expect(isToolAllowedInMode(tool, "ask")).toBe(false);
       expect(isToolAllowedInMode(tool, "review")).toBe(false);
     }

@@ -5,11 +5,7 @@
  * pipeline is unchanged.
  */
 
-import {
-  ToolRegistry,
-  createParameters,
-  enumParam,
-} from "./registry";
+import { ToolRegistry, createParameters, enumParam } from "./registry";
 import {
   createPlanArtifact,
   getLatestPlanArtifact,

@@ -21,7 +21,9 @@ describe("parseContextMentions", () => {
   });
 
   it("ignores bare @, mid-word @, and plain text", () => {
-    const r = parseContextMentions("email foo@bar.com and @web are not mentions");
+    const r = parseContextMentions(
+      "email foo@bar.com and @web are not mentions",
+    );
     expect(r.files).toEqual([]);
     expect(r.dirs).toEqual([]);
   });
@@ -38,8 +40,16 @@ describe("extractMentionedContext", () => {
     dir = await fs.mkdtemp(path.join(os.tmpdir(), "mention-ctx-"));
     await fs.writeFile(path.join(dir, "hello.txt"), "hello world", "utf-8");
     await fs.mkdir(path.join(dir, "lib"), { recursive: true });
-    await fs.writeFile(path.join(dir, "lib", "a.ts"), "export const a = 1;", "utf-8");
-    await fs.writeFile(path.join(dir, "lib", "b.ts"), "export const b = 2;", "utf-8");
+    await fs.writeFile(
+      path.join(dir, "lib", "a.ts"),
+      "export const a = 1;",
+      "utf-8",
+    );
+    await fs.writeFile(
+      path.join(dir, "lib", "b.ts"),
+      "export const b = 2;",
+      "utf-8",
+    );
   });
 
   afterAll(async () => {
@@ -47,7 +57,9 @@ describe("extractMentionedContext", () => {
   });
 
   it("returns empty string when nothing is mentioned", async () => {
-    expect(await extractMentionedContext({ appPath: dir, files: [], dirs: [] })).toBe("");
+    expect(
+      await extractMentionedContext({ appPath: dir, files: [], dirs: [] }),
+    ).toBe("");
   });
 
   it("injects file contents for a mentioned file", async () => {

@@ -55,9 +55,13 @@ function PermissionTable({
         <tbody>
           {rows.map((row) => (
             <tr key={row.id} className="border-t border-border/60">
-              <td className="px-3 py-2 font-mono break-all">{row.scopeValue}</td>
+              <td className="px-3 py-2 font-mono break-all">
+                {row.scopeValue}
+              </td>
               <td className="px-3 py-2">
-                {row.decision === "always_allow" ? "Always allow" : "Always deny"}
+                {row.decision === "always_allow"
+                  ? "Always allow"
+                  : "Always deny"}
               </td>
               <td className="px-3 py-2 text-right">
                 <Button
@@ -81,9 +85,13 @@ function PermissionTable({
 export function WorkspaceFilePermissions() {
   const appId = useAtomValue(selectedAppIdAtom);
   const [rows, setRows] = useState<FilePermissionRow[]>([]);
-  const [scopeType, setScopeType] = useState<"file" | "directory" | "extension">("file");
+  const [scopeType, setScopeType] = useState<
+    "file" | "directory" | "extension"
+  >("file");
   const [scopeValue, setScopeValue] = useState("");
-  const [decision, setDecision] = useState<"always_allow" | "always_deny">("always_allow");
+  const [decision, setDecision] = useState<"always_allow" | "always_deny">(
+    "always_allow",
+  );
   const [loading, setLoading] = useState(false);
 
   const reload = useCallback(async () => {
@@ -131,7 +139,12 @@ export function WorkspaceFilePermissions() {
       scopeValue: value,
       decision,
     });
-    if (result && typeof result === "object" && "success" in result && !result.success) {
+    if (
+      result &&
+      typeof result === "object" &&
+      "success" in result &&
+      !result.success
+    ) {
       toast.error((result as { error?: string }).error ?? "Failed to save");
       return;
     }
@@ -150,16 +163,21 @@ export function WorkspaceFilePermissions() {
 
   return (
     <div className="bg-card rounded-xl shadow-sm p-6 border border-border mt-6">
-      <h2 className="text-lg font-medium text-foreground mb-1">File permissions</h2>
+      <h2 className="text-lg font-medium text-foreground mb-1">
+        File permissions
+      </h2>
       <p className="text-sm text-muted-foreground mb-4">
-        Remember allow or deny decisions for files, directories, or extensions in this workspace.
-        Protected paths (lockfiles, secrets, migrations, CI) always require inline approval.
+        Remember allow or deny decisions for files, directories, or extensions
+        in this workspace. Protected paths (lockfiles, secrets, migrations, CI)
+        always require inline approval.
       </p>
 
       <div className="flex flex-wrap gap-2 mb-4">
         <Select
           value={scopeType}
-          onValueChange={(v) => setScopeType(v as "file" | "directory" | "extension")}
+          onValueChange={(v) =>
+            setScopeType(v as "file" | "directory" | "extension")
+          }
         >
           <SelectTrigger className="w-[130px] h-9">
             <SelectValue />
@@ -184,7 +202,9 @@ export function WorkspaceFilePermissions() {
         />
         <Select
           value={decision}
-          onValueChange={(v) => setDecision(v as "always_allow" | "always_deny")}
+          onValueChange={(v) =>
+            setDecision(v as "always_allow" | "always_deny")
+          }
         >
           <SelectTrigger className="w-[140px] h-9">
             <SelectValue />
@@ -203,9 +223,21 @@ export function WorkspaceFilePermissions() {
         <p className="text-sm text-muted-foreground">Loading…</p>
       ) : (
         <>
-          <PermissionTable title="Files" rows={byType.file} onRevoke={handleRevoke} />
-          <PermissionTable title="Directories" rows={byType.directory} onRevoke={handleRevoke} />
-          <PermissionTable title="Extensions" rows={byType.extension} onRevoke={handleRevoke} />
+          <PermissionTable
+            title="Files"
+            rows={byType.file}
+            onRevoke={handleRevoke}
+          />
+          <PermissionTable
+            title="Directories"
+            rows={byType.directory}
+            onRevoke={handleRevoke}
+          />
+          <PermissionTable
+            title="Extensions"
+            rows={byType.extension}
+            onRevoke={handleRevoke}
+          />
         </>
       )}
     </div>
@@ -226,7 +258,9 @@ export function WorkspaceFilePermissions() {
  */
 export function WorkspaceGrantedFolders() {
   const appId = useAtomValue(selectedAppIdAtom);
-  const [folders, setFolders] = useState<Array<{ path: string; exists: boolean }>>([]);
+  const [folders, setFolders] = useState<
+    Array<{ path: string; exists: boolean }>
+  >([]);
   const [loading, setLoading] = useState(false);
 
   const reload = useCallback(async () => {
@@ -254,7 +288,10 @@ export function WorkspaceGrantedFolders() {
   const handleAdd = async () => {
     const picked = await chooseFolder();
     if (!picked) return; // cancelled, or the picker already explained itself
-    const result = await IpcClient.getInstance().grantFolder({ appId, path: picked });
+    const result = await IpcClient.getInstance().grantFolder({
+      appId,
+      path: picked,
+    });
     if (!result?.success) {
       toast.error(result?.error ?? "Couldn't grant that folder.");
       return;
@@ -264,17 +301,23 @@ export function WorkspaceGrantedFolders() {
   };
 
   const handleRevoke = async (folderPath: string) => {
-    await IpcClient.getInstance().revokeGrantedFolder({ appId, path: folderPath });
+    await IpcClient.getInstance().revokeGrantedFolder({
+      appId,
+      path: folderPath,
+    });
     void reload();
   };
 
   return (
     <div className="bg-card rounded-xl shadow-sm p-6 border border-border mt-6">
-      <h2 className="text-lg font-medium text-foreground mb-1">Folders outside this workspace</h2>
+      <h2 className="text-lg font-medium text-foreground mb-1">
+        Folders outside this workspace
+      </h2>
       <p className="text-sm text-muted-foreground mb-4">
-        By default Atlarix only writes inside the project folder you opened. Grant another folder
-        here to work across repositories — it applies to both file edits and sandboxed commands.
-        Every individual change still asks for approval; a grant only removes the outer wall.
+        By default Atlarix only writes inside the project folder you opened.
+        Grant another folder here to work across repositories — it applies to
+        both file edits and sandboxed commands. Every individual change still
+        asks for approval; a grant only removes the outer wall.
       </p>
 
       <div className="flex flex-wrap gap-2 mb-4">

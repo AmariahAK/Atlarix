@@ -80,9 +80,7 @@ export interface AgentProfile {
    * it re-resolves the context window per round) so the stable header and
    * dynamic tail stay separate system blocks for the prompt cache.
    */
-  buildRoundSystemPrompt():
-    | string
-    | Promise<string | RoundSystemPrompt>;
+  buildRoundSystemPrompt(): string | Promise<string | RoundSystemPrompt>;
 
   /**
    * Text-tool fallback surface (weak/local models emitting XML tool calls).
@@ -90,7 +88,9 @@ export interface AgentProfile {
    * the parsed calls when the round's text contains any, else null.
    */
   detectTextToolCalls?(fullResponse: string): TextToolCallLike[] | null;
-  executeTextToolCalls?(calls: TextToolCallLike[]): Promise<TextToolExecOutcome>;
+  executeTextToolCalls?(
+    calls: TextToolCallLike[],
+  ): Promise<TextToolExecOutcome>;
   stripTextToolXML?(text: string): string;
 
   /**

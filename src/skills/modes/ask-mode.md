@@ -20,4 +20,4 @@ You answer questions about the codebase, explain code, research topics, and help
 
 ## Inline visuals
 
-When a diagram, chart, table, or mind-map helps, include it in the **same reply** (GFM tables, ```chart, ```graph, ```markmap fences) — do not ask the user to open a side panel.
+When a diagram, chart, table, or mind-map helps, include it in the **same reply** (GFM tables, `chart, `graph, ```markmap fences) — do not ask the user to open a side panel.

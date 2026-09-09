@@ -6,18 +6,18 @@ import { AtlarixProSuccessDialog } from "@/components/AtlarixProSuccessDialog";
 import { useTheme } from "@/contexts/ThemeContext";
 import { IpcClient } from "@/ipc/ipc_client";
 
-
 export const TitleBar = () => {
-
   const { refreshSettings } = useSettings();
   const [isSuccessDialogOpen, setIsSuccessDialogOpen] = useState(false);
   const [showWindowControls, setShowWindowControls] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
-    const unsub = IpcClient.getInstance().onWindowFullscreenChanged(({ fullscreen }) => {
-      setIsFullscreen(fullscreen);
-    });
+    const unsub = IpcClient.getInstance().onWindowFullscreenChanged(
+      ({ fullscreen }) => {
+        setIsFullscreen(fullscreen);
+      },
+    );
     return unsub;
   }, []);
 
@@ -159,5 +159,3 @@ function WindowsControls() {
     </div>
   );
 }
-
-

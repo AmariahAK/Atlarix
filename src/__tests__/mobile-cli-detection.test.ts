@@ -31,7 +31,9 @@ describe("device CLI detection", () => {
     // A bare "adb" would be spawned through the PATH of whatever environment
     // Electron inherited, which on macOS is NOT the user's shell PATH.
     const adb = findDeviceCli("adb");
-    expect(adb === null || adb.startsWith("/") || /^[A-Za-z]:\\/.test(adb)).toBe(true);
+    expect(
+      adb === null || adb.startsWith("/") || /^[A-Za-z]:\\/.test(adb),
+    ).toBe(true);
   });
 
   it("answers the same way twice, and touches the filesystem only once", () => {

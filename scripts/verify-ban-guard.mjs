@@ -101,7 +101,9 @@ function extractTriggerSql() {
 }
 
 function serverReachable() {
-  const res = spawnSync("psql", ["-d", DB, "-c", "select 1"], { encoding: "utf8" });
+  const res = spawnSync("psql", ["-d", DB, "-c", "select 1"], {
+    encoding: "utf8",
+  });
   return res.status === 0;
 }
 
@@ -113,12 +115,16 @@ function main() {
     return 0;
   }
   if (!serverReachable()) {
-    console.log("[ban-guard] SKIP: no reachable Postgres (set PGHOST/PGPORT/…)");
+    console.log(
+      "[ban-guard] SKIP: no reachable Postgres (set PGHOST/PGPORT/…)",
+    );
     return 0;
   }
 
   const trigger = extractTriggerSql();
-  console.log("[ban-guard] extracted guard_users_sensitive_columns() from the migration");
+  console.log(
+    "[ban-guard] extracted guard_users_sensitive_columns() from the migration",
+  );
 
   // Everything lives in a throwaway schema, and `search_path` points the trigger's
   // unqualified `users` reference at it.
@@ -190,14 +196,20 @@ function main() {
   if (adminLift.out.trim().endsWith("NULL")) {
     console.log("[ban-guard] PASS  service_role can lift a ban");
   } else {
-    console.error(`[ban-guard] FAIL  service_role could not lift the ban: ${adminLift.out}`);
+    console.error(
+      `[ban-guard] FAIL  service_role could not lift the ban: ${adminLift.out}`,
+    );
     failures += 1;
   }
 
-  psql(`drop schema if exists ${SCHEMA} cascade; drop schema if exists auth cascade;`);
+  psql(
+    `drop schema if exists ${SCHEMA} cascade; drop schema if exists auth cascade;`,
+  );
 
   if (failures) {
-    console.error(`[ban-guard] ${failures} check(s) FAILED — the ban is decorative.`);
+    console.error(
+      `[ban-guard] ${failures} check(s) FAILED — the ban is decorative.`,
+    );
     return 1;
   }
   console.log("[ban-guard] OK (2/2)");
@@ -207,9 +219,17 @@ function main() {
 try {
   process.exit(main());
 } catch (err) {
-  console.error(`[ban-guard] ERROR: ${err instanceof Error ? err.message : err}`);
+  console.error(
+    `[ban-guard] ERROR: ${err instanceof Error ? err.message : err}`,
+  );
   try {
-    spawnSync("psql", ["-d", DB, "-q", "-c", `drop schema if exists ${SCHEMA} cascade; drop schema if exists auth cascade;`]);
+    spawnSync("psql", [
+      "-d",
+      DB,
+      "-q",
+      "-c",
+      `drop schema if exists ${SCHEMA} cascade; drop schema if exists auth cascade;`,
+    ]);
   } catch {
     /* best effort */
   }

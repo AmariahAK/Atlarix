@@ -15,7 +15,12 @@ export function useLoadApp(appId: number | null) {
 
   const appStaleMs = 5 * 60 * 1000;
 
-  const { data: appData, isLoading: loading, error, refetch: refreshApp } = useQuery({
+  const {
+    data: appData,
+    isLoading: loading,
+    error,
+    refetch: refreshApp,
+  } = useQuery({
     queryKey: ["app", appId],
     queryFn: async () => {
       if (appId === null) return null;

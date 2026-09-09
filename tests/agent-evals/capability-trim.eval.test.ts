@@ -34,11 +34,14 @@ afterAll(async () => {
 });
 
 type RecordedRequest = {
-  tools?: Array<{ function?: { name?: string; description?: string; parameters?: unknown } }>;
+  tools?: Array<{
+    function?: { name?: string; description?: string; parameters?: unknown };
+  }>;
 };
 
 const descOf = (req: RecordedRequest, name: string): string | undefined =>
-  (req.tools ?? []).find((t) => t.function?.name === name)?.function?.description;
+  (req.tools ?? []).find((t) => t.function?.name === name)?.function
+    ?.description;
 
 const offeredToolNames = (req: RecordedRequest): string[] =>
   (req.tools ?? [])
@@ -142,7 +145,9 @@ describe("v14.8.8 — per-tool guidance rides the capability-gated tool schema",
     });
     expectNoStreamError(fakeIpc.sends, chatId);
 
-    const req = (ctx.server.requestsFor("guidance-build") as RecordedRequest[])[0];
+    const req = (
+      ctx.server.requestsFor("guidance-build") as RecordedRequest[]
+    )[0];
     const runCmd = descOf(req, "run_command");
     expect(runCmd).toBeTruthy();
     // The guidance relocated out of AGENTS.md now lives on the tool itself.
@@ -176,7 +181,9 @@ describe("v14.8.8 — per-tool guidance rides the capability-gated tool schema",
     });
     expectNoStreamError(fakeIpc.sends, chatId);
 
-    const req = (ctx.server.requestsFor("guidance-ask") as RecordedRequest[])[0];
+    const req = (
+      ctx.server.requestsFor("guidance-ask") as RecordedRequest[]
+    )[0];
     // edit_file isn't in read-only ask mode → the model never sees its write/
     // replace guidance, with no conditional prose needed (it rides the gated
     // schema). This is the mechanism the AGENTS.md relocation relies on.

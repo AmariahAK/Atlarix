@@ -107,7 +107,11 @@ export interface AutonomousSessionCompletePayload {
 }
 
 /** Main → renderer: live task-ledger plan for PlanCard (scoped by chatId). */
-export type PlanUpdateStepStatus = "pending" | "in_progress" | "done" | "failed";
+export type PlanUpdateStepStatus =
+  | "pending"
+  | "in_progress"
+  | "done"
+  | "failed";
 
 export interface PlanUpdateStep {
   id: number;
@@ -549,46 +553,46 @@ export interface LanguageModelProvider {
 
 export type LanguageModel =
   | {
-    id: number;
-    apiName: string;
-    displayName: string;
-    description: string;
-    tag?: string;
-    tagColor?: string;
-    maxOutputTokens?: number;
-    contextWindow?: number;
-    temperature?: number;
-    dollarSigns?: number;
-    /**
-     * Whether the Deep-thinking toggle should be offered for this model.
-     *
-     * Resolved in MAIN and shipped on this payload, like `supportsToolChoice` below.
-     * The renderer cannot work it out for itself: both inputs — the models.dev
-     * reasoning registry and the Core tier→vendor routing map — are module-level
-     * state written only in the main process, so every renderer-side lookup came back
-     * empty and the toggle fell through to a provider allowlist that has never
-     * contained `compass`.
-     */
-    supportsDeepThinking?: boolean;
-    type: "custom";
-  }
+      id: number;
+      apiName: string;
+      displayName: string;
+      description: string;
+      tag?: string;
+      tagColor?: string;
+      maxOutputTokens?: number;
+      contextWindow?: number;
+      temperature?: number;
+      dollarSigns?: number;
+      /**
+       * Whether the Deep-thinking toggle should be offered for this model.
+       *
+       * Resolved in MAIN and shipped on this payload, like `supportsToolChoice` below.
+       * The renderer cannot work it out for itself: both inputs — the models.dev
+       * reasoning registry and the Core tier→vendor routing map — are module-level
+       * state written only in the main process, so every renderer-side lookup came back
+       * empty and the toggle fell through to a provider allowlist that has never
+       * contained `compass`.
+       */
+      supportsDeepThinking?: boolean;
+      type: "custom";
+    }
   | {
-    apiName: string;
-    displayName: string;
-    description: string;
-    tag?: string;
-    tagColor?: string;
-    maxOutputTokens?: number;
-    contextWindow?: number;
-    temperature?: number;
-    dollarSigns?: number;
-    /** Real USD price per 1M tokens from the models.dev catalog (when known). */
-    cost?: { input: number; output: number };
-    supportsToolChoice?: boolean;
-    /** See the `custom` variant above — resolved in main, never in the renderer. */
-    supportsDeepThinking?: boolean;
-    type: "local" | "cloud";
-  };
+      apiName: string;
+      displayName: string;
+      description: string;
+      tag?: string;
+      tagColor?: string;
+      maxOutputTokens?: number;
+      contextWindow?: number;
+      temperature?: number;
+      dollarSigns?: number;
+      /** Real USD price per 1M tokens from the models.dev catalog (when known). */
+      cost?: { input: number; output: number };
+      supportsToolChoice?: boolean;
+      /** See the `custom` variant above — resolved in main, never in the renderer. */
+      supportsDeepThinking?: boolean;
+      type: "local" | "cloud";
+    };
 
 export interface CreateCustomLanguageModelProviderParams {
   id: string;
@@ -646,7 +650,6 @@ export const UserBudgetInfoSchema = z.object({
   redactedUserId: z.string(),
 });
 export type UserBudgetInfo = z.infer<typeof UserBudgetInfoSchema>;
-
 
 export interface EnvVar {
   key: string;
@@ -795,47 +798,15 @@ export interface McpToolConsent {
   updatedAt: number;
 }
 
-// --- Skills Types (community registry installs) ---
-export interface SkillManifestFile {
-  name: string;
-  url: string;
-}
+// --- Skills Types (read only since v14.45 — the registry/install types are gone) ---
 
-export interface SkillManifestEntry {
-  id: string;
-  name: string;
-  description: string;
-  version: string;
-  author: string;
-  tags: string[];
-  compatibleModes: string[];
-  files: SkillManifestFile[];
-}
-
-export interface SkillRegistryIndex {
-  version: string;
-  updatedAt?: string;
-  skills: SkillManifestEntry[];
-}
-
-export interface InstallSkillParams {
-  skill: SkillManifestEntry;
-  scope: "workspace";
-  workspacePath?: string;
-}
-
-export interface UninstallSkillParams {
-  skillId: string;
-  scope: "workspace";
-  workspacePath?: string;
-}
-
-/** Workforce Feature 1: repo-scoped priority skill summary (from `.atlarix/skills/`). */
+/** One `.atlarix/skills/*.md`, as the settings list renders it. Metadata only. */
 export interface RepoSkillSummary {
   name: string;
   description: string;
   tags: string[];
   modes: string[];
+  /** Reflects a Team gate that no longer exists, so always false. */
   priority: boolean;
   version: string;
   filename: string;
@@ -845,20 +816,6 @@ export interface RepoSkillSummary {
 export interface ListRepoSkillsResult {
   skills: RepoSkillSummary[];
   isWorkforce: boolean;
-}
-
-export interface InstalledSkillRow {
-  id: string;
-  name: string;
-  version: string;
-  author: string;
-  description: string;
-  tags: string[];
-  compatibleModes: string[];
-  installedAt: Date | string;
-  scope: "workspace";
-  workspacePath: string | null;
-  cachedFiles: Array<{ name: string; localPath: string }>;
 }
 
 export interface CloneRepoParams {
@@ -884,13 +841,13 @@ export interface GithubRepository {
 
 export type CloneRepoReturnType =
   | {
-    app: App;
-    /** Initial chat row created with the cloned workspace */
-    chatId?: number;
-  }
+      app: App;
+      /** Initial chat row created with the cloned workspace */
+      chatId?: number;
+    }
   | {
-    error: string;
-  };
+      error: string;
+    };
 
 export interface SelectNodeFolderResult {
   path: string | null;

@@ -69,7 +69,9 @@ function seedMessage(
 const countMessages = (db: Database.Database, sessionId: string) =>
   (
     db
-      .prepare("SELECT count(*) AS n FROM session_messages WHERE session_id = ?")
+      .prepare(
+        "SELECT count(*) AS n FROM session_messages WHERE session_id = ?",
+      )
       .get(sessionId) as { n: number }
   ).n;
 
@@ -133,7 +135,9 @@ describe("2. query shape: the tool's lookups cannot reach an orphan", () => {
     expect(resolveThenRead(db, 1, "s-other")).toEqual([]);
     // Sanity: its own workspace still sees it, so the filter is doing the work
     // rather than the query being broken.
-    expect(resolveThenRead(db, 2, "s-other")).toEqual(["private to workspace two"]);
+    expect(resolveThenRead(db, 2, "s-other")).toEqual([
+      "private to workspace two",
+    ]);
   });
 
   it("returns nothing for an ORPHANED row whose session is gone (FKs bypassed)", () => {

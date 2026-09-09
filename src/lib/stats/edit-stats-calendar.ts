@@ -147,7 +147,8 @@ export function buildCalendarGrid(
   startFromData.setDate(startFromData.getDate() - startFromData.getDay());
 
   const weeksSpanned =
-    Math.round((end.getTime() - startFromData.getTime()) / (7 * MS_PER_DAY)) + 1;
+    Math.round((end.getTime() - startFromData.getTime()) / (7 * MS_PER_DAY)) +
+    1;
   const weekCount = Math.min(
     MAX_CALENDAR_WEEKS,
     Math.max(MIN_CALENDAR_WEEKS, weeksSpanned),

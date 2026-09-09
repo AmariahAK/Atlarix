@@ -181,7 +181,8 @@ export const CLOUD_PROVIDERS: Record<
   elastic: {
     displayName: "Elastic Agent Builder",
     hasFreeTier: false,
-    websiteUrl: "https://www.elastic.co/docs/explore-analyze/ai-features/elastic-agent-builder",
+    websiteUrl:
+      "https://www.elastic.co/docs/explore-analyze/ai-features/elastic-agent-builder",
     gatewayPrefix: "",
   },
   nvidia_nim: {
@@ -226,7 +227,8 @@ export const CLOUD_PROVIDERS: Record<
   minimax: {
     displayName: "MiniMax",
     hasFreeTier: false,
-    websiteUrl: "https://platform.minimax.io/user-center/basic-information/interface-key",
+    websiteUrl:
+      "https://platform.minimax.io/user-center/basic-information/interface-key",
     gatewayPrefix: "",
     // Pin the WIRE FORMAT, not just the URL. models.dev moved MiniMax to
     // `@ai-sdk/anthropic` at `/anthropic/v1`; MiniMax-M3 is the model the published
@@ -280,7 +282,9 @@ export function resolveProviderEnvVarNames(
   catalogEnvVars?: readonly string[],
 ): string[] {
   const preferred = PROVIDER_TO_ENV_VAR[providerId];
-  return [...new Set([preferred, ...(catalogEnvVars ?? [])].filter(Boolean))] as string[];
+  return [
+    ...new Set([preferred, ...(catalogEnvVars ?? [])].filter(Boolean)),
+  ] as string[];
 }
 
 export const LOCAL_PROVIDERS: Record<

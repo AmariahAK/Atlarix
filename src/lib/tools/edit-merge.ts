@@ -26,8 +26,7 @@ export function isElisionMarker(line: string): boolean {
   return (
     /^(?:\.{3}|…)(\s*(?:existing|unchanged|rest|code|keep|snip|omitted|previous|same|more|below|above|here)[\w -]*)?\s*(?:\.{3}|…)?$/i.test(
       body,
-    ) ||
-    /^(?:existing|unchanged|rest|code)[\w -]*(?:\.{3}|…)/i.test(body)
+    ) || /^(?:existing|unchanged|rest|code)[\w -]*(?:\.{3}|…)/i.test(body)
   );
 }
 
@@ -36,7 +35,8 @@ function firstNonEmpty(block: string): string {
 }
 function lastNonEmpty(block: string): string {
   const lines = block.split("\n");
-  for (let i = lines.length - 1; i >= 0; i--) if (lines[i].trim().length > 0) return lines[i];
+  for (let i = lines.length - 1; i >= 0; i--)
+    if (lines[i].trim().length > 0) return lines[i];
   return "";
 }
 
@@ -83,7 +83,8 @@ export function mergeElision(original: string, sketch: string): MergeResult {
   if (segments.length === 0) {
     return {
       ok: false,
-      error: "The merge content is only elision markers — include the actual changed code between them.",
+      error:
+        "The merge content is only elision markers — include the actual changed code between them.",
     };
   }
 

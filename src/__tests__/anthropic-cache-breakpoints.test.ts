@@ -52,7 +52,10 @@ describe("resolveCacheMarkerPlacement", () => {
 
   it("claude-family on bedrock/vertex → message-level", () => {
     expect(
-      resolveCacheMarkerPlacement("bedrock", "anthropic.claude-sonnet-4-6-v1:0"),
+      resolveCacheMarkerPlacement(
+        "bedrock",
+        "anthropic.claude-sonnet-4-6-v1:0",
+      ),
     ).toBe("message");
     expect(resolveCacheMarkerPlacement("vertex", "claude-sonnet-4-6")).toBe(
       "message",
@@ -303,7 +306,10 @@ describe("advanceCacheBreakpointsForStep (v13.3 per-step advancement)", () => {
     const stepMessages: ModelMessage[] = [
       ...initial(),
       { role: "assistant", content: "tool call round" },
-      { role: "tool", content: [{ type: "tool-result" }] } as unknown as ModelMessage,
+      {
+        role: "tool",
+        content: [{ type: "tool-result" }],
+      } as unknown as ModelMessage,
     ];
     const out = advanceCacheBreakpointsForStep(stepMessages, "message");
     // Header keeps its 1h marker; tail untouched.

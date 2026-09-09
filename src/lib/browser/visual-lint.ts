@@ -255,7 +255,11 @@ export async function runVisualLint(
     } | null;
     if (!raw) return null;
     // Merge hand-rolled + axe, rank by impact, cap.
-    const rank: Record<string, number> = { critical: 0, serious: 1, moderate: 2 };
+    const rank: Record<string, number> = {
+      critical: 0,
+      serious: 1,
+      moderate: 2,
+    };
     const defects = [...(raw.defects ?? []), ...(raw.axeViolations ?? [])]
       .sort((a, b) => (rank[a.impact] ?? 3) - (rank[b.impact] ?? 3))
       .slice(0, MAX_DEFECTS);
@@ -354,7 +358,10 @@ export async function runDesignSnapshot(
   wc: Electron.WebContents,
 ): Promise<DesignSnapshot | null> {
   try {
-    const raw = (await wc.executeJavaScript(DESIGN_SNAPSHOT_SCRIPT, true)) as DesignSnapshot | null;
+    const raw = (await wc.executeJavaScript(
+      DESIGN_SNAPSHOT_SCRIPT,
+      true,
+    )) as DesignSnapshot | null;
     if (!raw || !Array.isArray(raw.palette)) return null;
     return raw;
   } catch {
@@ -364,7 +371,8 @@ export async function runDesignSnapshot(
 
 /** Render a DesignSnapshot as compact text (the source of truth for a remake). */
 export function formatDesignSnapshot(d: DesignSnapshot): string {
-  const palette = d.palette.map((p) => `${p.color} (×${p.count})`).join(", ") || "none";
+  const palette =
+    d.palette.map((p) => `${p.color} (×${p.count})`).join(", ") || "none";
   return [
     `Design snapshot — ${d.url}`,
     `Palette (most-used first): ${palette}`,
@@ -388,7 +396,8 @@ export async function detectBlankRender(
 ): Promise<{ blank: boolean; reason: string } | null> {
   try {
     const url = wc.getURL();
-    if (!url || url === "about:blank" || url.startsWith("chrome-error://")) return null;
+    if (!url || url === "about:blank" || url.startsWith("chrome-error://"))
+      return null;
     return (await wc.executeJavaScript(
       `(() => {
         const b = document.body;

@@ -21,11 +21,7 @@
  * batch several accepts in one response.
  */
 
-import {
-  ToolRegistry,
-  createParameters,
-  stringParam,
-} from "./registry";
+import { ToolRegistry, createParameters, stringParam } from "./registry";
 import {
   deleteProposalSet,
   listProposalSetsForChat,
@@ -52,7 +48,9 @@ export function resolveSet(
 ): { set: ProposalSet } | { error: string } {
   const sets = listProposalSetsForChat(chatId);
   if (sets.length === 0) {
-    return { error: "No sub-agent proposals are awaiting review in this session." };
+    return {
+      error: "No sub-agent proposals are awaiting review in this session.",
+    };
   }
   const exactId = sets.find((s) => s.id === wanted);
   if (exactId) return { set: exactId };
@@ -82,7 +80,9 @@ export function resolveSet(
     };
   }
 
-  const partial = sets.filter((s) => s.agentName.toLowerCase().includes(needle));
+  const partial = sets.filter((s) =>
+    s.agentName.toLowerCase().includes(needle),
+  );
   if (partial.length === 1) return { set: partial[0] };
   if (partial.length > 1) {
     return {
@@ -130,7 +130,7 @@ ToolRegistry.register({
   name: "proposals",
   description:
     "Review and land the file changes a writer sub-agent proposed. A writer sub-agent never writes: its edits are captured, and you decide file by file. " +
-    'Identify a set with `proposal`: its id, the sub-agent\'s name, or part of that name. ' +
+    "Identify a set with `proposal`: its id, the sub-agent's name, or part of that name. " +
     'operation:"list" — every set awaiting review, with each file\'s +/- counts and whether it is still pending. ' +
     'operation:"show" — the unified diff for one `file` (or all files in the set when `file` is omitted). ' +
     'operation:"accept" — land ONE `file` exactly as proposed. You are not re-typing it: the harness writes the sub-agent\'s own bytes, and the change still passes the normal approval gate (a file that is not already allowed will ask the user). Batch several accept calls in one response. ' +
@@ -148,10 +148,10 @@ ToolRegistry.register({
           "list all sets awaiting review, show a file's diff, accept one file (writes it), or reject one file with a reason.",
       },
       proposal: stringParam(
-        "Which proposal set: its id, the sub-agent's name, or a distinctive part of that name. Omit only for operation:\"list\".",
+        'Which proposal set: its id, the sub-agent\'s name, or a distinctive part of that name. Omit only for operation:"list".',
       ),
       file: stringParam(
-        "Workspace-relative path of the file to show / accept / reject. A unique suffix works (e.g. \"session.ts\").",
+        'Workspace-relative path of the file to show / accept / reject. A unique suffix works (e.g. "session.ts").',
       ),
       reason: stringParam(
         "(reject) Why this change is wrong. Recorded so the decision is legible later.",

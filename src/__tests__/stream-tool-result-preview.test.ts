@@ -47,7 +47,9 @@ describe("formatToolResultPreview", () => {
   });
 
   it("formats read_file with first lines capped at 200 chars", () => {
-    const lines = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join("\n");
+    const lines = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join(
+      "\n",
+    );
     const raw = JSON.stringify({ success: true, result: lines });
     const preview = formatToolResultPreview("read_file", raw, "done");
     expect(preview).toContain("line 1");
@@ -57,12 +59,16 @@ describe("formatToolResultPreview", () => {
 
   it("formats write_file as lines written", () => {
     const raw = JSON.stringify({ success: true, result: "a\nb\nc" });
-    expect(formatToolResultPreview("write_file", raw, "done")).toBe("3 lines written");
+    expect(formatToolResultPreview("write_file", raw, "done")).toBe(
+      "3 lines written",
+    );
   });
 
   it("formats write_file as File saved when no countable content", () => {
     const raw = JSON.stringify({ success: true, message: "OK" });
-    expect(formatToolResultPreview("write_file", raw, "done")).toBe("File saved");
+    expect(formatToolResultPreview("write_file", raw, "done")).toBe(
+      "File saved",
+    );
   });
 
   it("formats edit_file replace with nested diff added/removed", () => {
@@ -76,7 +82,10 @@ describe("formatToolResultPreview", () => {
   it("formats edit_file insert with nested diff lines_added", () => {
     const raw = JSON.stringify({
       success: true,
-      result: { operation: "edit_file", diff: { lines_added: 4, inserted_at: 10 } },
+      result: {
+        operation: "edit_file",
+        diff: { lines_added: 4, inserted_at: 10 },
+      },
     });
     expect(formatToolResultPreview("edit_file", raw, "done")).toBe("+4");
   });
@@ -84,7 +93,10 @@ describe("formatToolResultPreview", () => {
   it("formats edit_file delete with nested diff lines_removed", () => {
     const raw = JSON.stringify({
       success: true,
-      result: { operation: "edit_file", diff: { lines_removed: 3, deleted_range: "2-4" } },
+      result: {
+        operation: "edit_file",
+        diff: { lines_removed: 3, deleted_range: "2-4" },
+      },
     });
     expect(formatToolResultPreview("edit_file", raw, "done")).toBe("-3");
   });
@@ -105,7 +117,9 @@ describe("formatToolResultPreview", () => {
       success: true,
       result: { total: 2, items: [{ path: "a.ts", type: "file" }] },
     });
-    expect(formatStreamToolResultPreview("explore_folder", raw, "done")).toMatch(/2 items/);
+    expect(
+      formatStreamToolResultPreview("explore_folder", raw, "done"),
+    ).toMatch(/2 items/);
   });
 
   it("summarizes list_available_mcps with server and tool counts (not Done)", () => {
@@ -156,7 +170,9 @@ describe("formatToolResultPreview", () => {
         ],
       },
     });
-    expect(formatToolResultPreview("web_search", raw, "done")).toBe("3 results");
+    expect(formatToolResultPreview("web_search", raw, "done")).toBe(
+      "3 results",
+    );
   });
 
   it("only falls back to Done when there is no usable payload", () => {
@@ -184,7 +200,11 @@ describe("summarizeToolResultForActivityDetail", () => {
         items: [{ path: "x.ts", type: "file" }],
       },
     });
-    const detail = summarizeToolResultForActivityDetail("explore_folder", result, "done");
+    const detail = summarizeToolResultForActivityDetail(
+      "explore_folder",
+      result,
+      "done",
+    );
     expect(detail).toMatch(/3 items/);
     expect(detail!.length).toBeLessThanOrEqual(500);
   });

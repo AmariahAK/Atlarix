@@ -125,9 +125,13 @@ export function AutomationForm({
 }) {
   const existingTrigger = existing?.trigger as AutomationTrigger | undefined;
   const [name, setName] = useState(existing?.name ?? "");
-  const [kind, setKind] = useState<AutomationTrigger["kind"]>(existingTrigger?.kind ?? "schedule");
+  const [kind, setKind] = useState<AutomationTrigger["kind"]>(
+    existingTrigger?.kind ?? "schedule",
+  );
   const [cron, setCron] = useState(
-    existingTrigger?.kind === "schedule" ? existingTrigger.cron : SCHEDULE_PRESETS[1].cron,
+    existingTrigger?.kind === "schedule"
+      ? existingTrigger.cron
+      : SCHEDULE_PRESETS[1].cron,
   );
   /**
    * The Pipelines tab is gone with the `pipeline` trigger kind — its only host
@@ -139,9 +143,13 @@ export function AutomationForm({
     existingTrigger?.kind === "mcp" ? existingTrigger.intervalMinutes : 15,
   );
   const [mcpServerId, setMcpServerId] = useState<number | null>(
-    existingTrigger?.kind === "mcp" ? existingTrigger.serverId : (mcpServers[0]?.id ?? null),
+    existingTrigger?.kind === "mcp"
+      ? existingTrigger.serverId
+      : (mcpServers[0]?.id ?? null),
   );
-  const [mcpTool, setMcpTool] = useState(existingTrigger?.kind === "mcp" ? existingTrigger.tool : "");
+  const [mcpTool, setMcpTool] = useState(
+    existingTrigger?.kind === "mcp" ? existingTrigger.tool : "",
+  );
   const [mcpArgs, setMcpArgs] = useState(
     existingTrigger?.kind === "mcp" && existingTrigger.args != null
       ? JSON.stringify(existingTrigger.args, null, 2)
@@ -235,7 +243,9 @@ export function AutomationForm({
           pushes its own Save button off-screen. */}
       <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{existing ? "Edit automation" : "New automation"}</DialogTitle>
+          <DialogTitle>
+            {existing ? "Edit automation" : "New automation"}
+          </DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-1.5">
@@ -248,7 +258,10 @@ export function AutomationForm({
             />
           </div>
 
-          <Tabs value={kind} onValueChange={(v) => setKind(v as AutomationTrigger["kind"])}>
+          <Tabs
+            value={kind}
+            onValueChange={(v) => setKind(v as AutomationTrigger["kind"])}
+          >
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="schedule">Schedule</TabsTrigger>
               <TabsTrigger value="mcp">MCP</TabsTrigger>
@@ -282,7 +295,9 @@ export function AutomationForm({
                       values={HOUR_OPTIONS.map((h) => [String(h), String(h)])}
                       selected={String(clock.hour12)}
                       onSelect={(v) =>
-                        setCron(cronWithClock(cron, { ...clock, hour12: Number(v) }))
+                        setCron(
+                          cronWithClock(cron, { ...clock, hour12: Number(v) }),
+                        )
                       }
                     />
                     <ScrollColumn
@@ -293,7 +308,9 @@ export function AutomationForm({
                       ])}
                       selected={String(clock.minute)}
                       onSelect={(v) =>
-                        setCron(cronWithClock(cron, { ...clock, minute: Number(v) }))
+                        setCron(
+                          cronWithClock(cron, { ...clock, minute: Number(v) }),
+                        )
                       }
                     />
                     <ScrollColumn
@@ -340,7 +357,6 @@ export function AutomationForm({
             </div>
           )}
 
-
           {kind === "mcp" && (
             <div className="space-y-2">
               <div className="space-y-1.5">
@@ -350,7 +366,9 @@ export function AutomationForm({
                   value={mcpServerId ?? ""}
                   onChange={(e) => setMcpServerId(Number(e.target.value))}
                 >
-                  {mcpServers.length === 0 && <option value="">No MCP servers configured</option>}
+                  {mcpServers.length === 0 && (
+                    <option value="">No MCP servers configured</option>
+                  )}
                   {mcpServers.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.name}
@@ -380,8 +398,9 @@ export function AutomationForm({
               </div>
               {selectedMcpServer && mcpTool.trim() && (
                 <p className="text-xs text-amber-600 dark:text-amber-500">
-                  Saving grants Atlarix standing consent to call {selectedMcpServer.name}/
-                  {mcpTool.trim()} unattended on this schedule.
+                  Saving grants Atlarix standing consent to call{" "}
+                  {selectedMcpServer.name}/{mcpTool.trim()} unattended on this
+                  schedule.
                 </p>
               )}
             </div>
@@ -389,7 +408,9 @@ export function AutomationForm({
 
           {kind === "mcp" && (
             <div className="space-y-1.5">
-              <Label htmlFor="automation-interval">Poll every (minutes, min 5)</Label>
+              <Label htmlFor="automation-interval">
+                Poll every (minutes, min 5)
+              </Label>
               <Input
                 id="automation-interval"
                 type="number"
@@ -404,24 +425,22 @@ export function AutomationForm({
           <div className="space-y-1.5">
             <Label>When it fires</Label>
             <div className="space-y-1.5">
-              {(
-                [
-                  {
-                    key: "notify-only" as const,
-                    title: "Notify only (default)",
-                    detail:
-                      "Post the event to the feed + ping you — no model involved. Present it to the AI yourself with \"Send to chat\".",
-                    disabled: false,
-                  },
-                  {
-                    key: "read-only" as const,
-                    title: "Run agent (read-only)",
-                    detail:
-                      "Runs an unattended agent turn with read-only tools and reports a summary. Costs one model turn per fire.",
-                    disabled: false,
-                  },
-                ]
-              ).map((opt) => (
+              {[
+                {
+                  key: "notify-only" as const,
+                  title: "Notify only (default)",
+                  detail:
+                    'Post the event to the feed + ping you — no model involved. Present it to the AI yourself with "Send to chat".',
+                  disabled: false,
+                },
+                {
+                  key: "read-only" as const,
+                  title: "Run agent (read-only)",
+                  detail:
+                    "Runs an unattended agent turn with read-only tools and reports a summary. Costs one model turn per fire.",
+                  disabled: false,
+                },
+              ].map((opt) => (
                 <label
                   key={opt.key}
                   className={cnRunMode(opt.disabled, runMode === opt.key)}
@@ -435,8 +454,12 @@ export function AutomationForm({
                     onChange={() => setRunMode(opt.key)}
                   />
                   <span>
-                    <span className="block text-sm font-medium">{opt.title}</span>
-                    <span className="block text-xs text-muted-foreground">{opt.detail}</span>
+                    <span className="block text-sm font-medium">
+                      {opt.title}
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      {opt.detail}
+                    </span>
                   </span>
                 </label>
               ))}
@@ -472,8 +495,12 @@ export function AutomationForm({
                     onChange={() => setNotifyAgent(opt.key)}
                   />
                   <span>
-                    <span className="block text-sm font-medium">{opt.title}</span>
-                    <span className="block text-xs text-muted-foreground">{opt.detail}</span>
+                    <span className="block text-sm font-medium">
+                      {opt.title}
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      {opt.detail}
+                    </span>
                   </span>
                 </label>
               ))}
@@ -500,7 +527,11 @@ export function AutomationForm({
             Cancel
           </Button>
           <Button onClick={save} disabled={!valid || saving}>
-            {saving ? "Saving…" : existing ? "Save changes" : "Create automation"}
+            {saving
+              ? "Saving…"
+              : existing
+                ? "Save changes"
+                : "Create automation"}
           </Button>
         </DialogFooter>
       </DialogContent>

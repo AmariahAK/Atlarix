@@ -8,7 +8,8 @@ export function getAtlarixWriteTags(fullResponse: string): {
   content: string;
   description?: string;
 }[] {
-  const atlarixWriteRegex = /<atlarix-write([^>]*)>([\s\S]*?)<\/atlarix-write>/gi;
+  const atlarixWriteRegex =
+    /<atlarix-write([^>]*)>([\s\S]*?)<\/atlarix-write>/gi;
   const pathRegex = /path="([^"]+)"/;
   const descriptionRegex = /description="([^"]+)"/;
 
@@ -96,4 +97,3 @@ export function getAtlarixCommandTags(fullResponse: string): string[] {
 
   return commands;
 }
-

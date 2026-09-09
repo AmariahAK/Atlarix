@@ -28,17 +28,20 @@ import { useSettings } from "@/hooks/useSettings";
 import { labelForWorkMode } from "@/lib/work-mode";
 import { useWorkModeSelection } from "@/hooks/useWorkModeSelection";
 import type { WorkMode } from "@/lib/schemas";
+import { isMacPlatform } from "@/lib/shortcuts";
 
 const WORK_MODE_CYCLE: WorkMode[] = ["ask", "plan", "build", "debug", "review"];
 
-const isInputLike = (el: EventTarget | null): boolean => {
-  if (!el || !(el instanceof HTMLElement)) return false;
-  const tag = el.tagName.toLowerCase();
-  if (tag === "input" || tag === "textarea") return true;
-  if (el.isContentEditable) return true;
-  return false;
-};
-
+/**
+ * THERE WAS AN `isInputLike` GUARD HERE, and it was unreachable.
+ *
+ * It sat at the very END of the keydown handler, after every chord branch — and each of
+ * those branches returns, so control never arrived. It read as "these shortcuts do not
+ * fire while you are typing", which is the opposite of the truth: every chord below is
+ * deliberately live in a focused composer (see the note on the work-mode cycle), and
+ * that is the behaviour users have. Removed rather than moved, because moving it to the
+ * top would be a real behaviour change and not the one it looked like it was making.
+ */
 export function usePanelShortcuts() {
   const rightPanelVisible = useAtomValue(rightPanelVisibleAtom);
   const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
@@ -55,7 +58,10 @@ export function usePanelShortcuts() {
   useEffect(() => {
     const openRightPanel = () => {
       setSuppressRightAutoOpen(false);
-      const w = Math.max(280, Math.min(700, Math.floor(window.innerWidth * 0.3)));
+      const w = Math.max(
+        280,
+        Math.min(700, Math.floor(window.innerWidth * 0.3)),
+      );
       setRightPanelWidth(w);
       setRightPanelVisible(true);
     };
@@ -81,7 +87,10 @@ export function usePanelShortcuts() {
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      const mod = typeof navigator !== "undefined" && navigator.platform?.toLowerCase().startsWith("mac") ? e.metaKey : e.ctrlKey;
+      // `isMacPlatform` is shared with `lib/shortcuts.ts`, which is what the tips line
+      // and the Help sheet format their key names from. Two copies of this predicate
+      // would let the hint say ⌘ while the handler listened for Ctrl.
+      const mod = isMacPlatform() ? e.metaKey : e.ctrlKey;
 
       // Cmd/Ctrl+B: toggle right panel (ungated). Works even when an input is
       // focused — like editors — since the chord can't insert text anyway.
@@ -148,8 +157,6 @@ export function usePanelShortcuts() {
         movePanelTab(1);
         return;
       }
-
-      if (isInputLike(e.target)) return;
     };
 
     window.addEventListener("keydown", handleKeyDown);

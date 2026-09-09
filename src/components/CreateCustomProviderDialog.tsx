@@ -149,7 +149,9 @@ export function CreateCustomProviderDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="apiBaseUrl">API Base URL (optional for manual providers)</Label>
+            <Label htmlFor="apiBaseUrl">
+              API Base URL (optional for manual providers)
+            </Label>
             <Input
               id="apiBaseUrl"
               value={apiBaseUrl}
@@ -158,7 +160,9 @@ export function CreateCustomProviderDialog({
               disabled={isLoading}
             />
             <p className="text-xs text-muted-foreground">
-              Base URL for the API. For providers with no list endpoint, use any placeholder; then add your API key and model name(s) in provider settings.
+              Base URL for the API. For providers with no list endpoint, use any
+              placeholder; then add your API key and model name(s) in provider
+              settings.
             </p>
           </div>
 

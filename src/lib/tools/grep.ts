@@ -221,7 +221,7 @@ ToolRegistry.register({
     "Search file CONTENTS with a regex (ripgrep). Returns matching lines grouped by file, " +
     "respecting .gitignore. Use glob to find files by NAME. Raise max_results for a wider sweep; " +
     "narrow with path/include to focus. " +
-    "Examples: grep({ pattern: \"handleLogin\" }), grep({ pattern: \"TODO|FIXME\", include: \"*.ts\" }).",
+    'Examples: grep({ pattern: "handleLogin" }), grep({ pattern: "TODO|FIXME", include: "*.ts" }).',
   requiresWorkspace: true,
   isCore: true,
   isReadOnly: true,
@@ -229,7 +229,9 @@ ToolRegistry.register({
   parameters: createParameters(
     {
       pattern: stringParam("Regex (ripgrep syntax) or literal text to find."),
-      path: stringParam("Optional: limit to a folder or file. Workspace-relative by default; to search outside the workspace, give its ABSOLUTE path."),
+      path: stringParam(
+        "Optional: limit to a folder or file. Workspace-relative by default; to search outside the workspace, give its ABSOLUTE path.",
+      ),
       include: stringParam(
         "Optional file glob filter (e.g. '*.ts', 'src/**/*.tsx').",
       ),
@@ -240,7 +242,12 @@ ToolRegistry.register({
         0,
         10,
       ),
-      max_results: numberParam("Max matching lines (default 20, max 200).", 20, 1, 200),
+      max_results: numberParam(
+        "Max matching lines (default 20, max 200).",
+        20,
+        1,
+        200,
+      ),
       max_bytes: numberParam(
         "Max UTF-8 bytes of formatted output (default 24000).",
         24_000,
@@ -270,7 +277,10 @@ ToolRegistry.register({
     workspaceId?: number;
   }) => {
     const maxResults = Math.min(200, Math.max(1, params.max_results ?? 20));
-    const contextLines = Math.min(10, Math.max(0, Number(params.context_lines) || 0));
+    const contextLines = Math.min(
+      10,
+      Math.max(0, Number(params.context_lines) || 0),
+    );
     const maxBytes = Math.min(
       500_000,
       Math.max(4096, Number(params.max_bytes) || 24_000),
@@ -284,12 +294,12 @@ ToolRegistry.register({
     // `../sibling` counts as outside: it was previously treated as a workspace
     // glob, which quietly matched nothing instead of searching where the caller
     // asked — a silent wrong answer, worse than the error it replaced.
-    const scope =
-      params.path?.trim()
-        ? resolveToolTargetPath(workspace, params.path)
-        : null;
+    const scope = params.path?.trim()
+      ? resolveToolTargetPath(workspace, params.path)
+      : null;
     const absoluteScope =
-      scope && (path.isAbsolute(params.path!.trim()) || scope.isOutsideWorkspace)
+      scope &&
+      (path.isAbsolute(params.path!.trim()) || scope.isOutsideWorkspace)
         ? scope.absPath
         : null;
     const searchRoot = absoluteScope ?? workspace;

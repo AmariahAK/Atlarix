@@ -58,7 +58,9 @@ describe("attachment filenames still cannot traverse or break the filesystem", (
     }
   });
   it("strips control characters", () => {
-    const out = clean(`a${String.fromCharCode(0)}b${String.fromCharCode(10)}c.txt`);
+    const out = clean(
+      `a${String.fromCharCode(0)}b${String.fromCharCode(10)}c.txt`,
+    );
     expect(out).not.toContain(String.fromCharCode(0));
   });
   it("still caps the length", () => {

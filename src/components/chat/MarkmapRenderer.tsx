@@ -28,7 +28,9 @@ interface MarkmapRendererProps {
 }
 
 function hslVar(name: string, fallback: string): string {
-  const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const raw = getComputedStyle(document.documentElement)
+    .getPropertyValue(name)
+    .trim();
   return raw ? `hsl(${raw})` : fallback;
 }
 
@@ -52,7 +54,10 @@ function markmapPalette(theme: "light" | "dark") {
   };
 }
 
-function markmapThemeCss(theme: "light" | "dark", palette: ReturnType<typeof markmapPalette>) {
+function markmapThemeCss(
+  theme: "light" | "dark",
+  palette: ReturnType<typeof markmapPalette>,
+) {
   if (theme === "dark") {
     return `
       .markmap-root.markmap-theme-dark .markmap {
@@ -157,7 +162,8 @@ export function MarkmapRenderer({
           void markmapRef.current?.fit();
         });
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Failed to render mind map";
+        const msg =
+          err instanceof Error ? err.message : "Failed to render mind map";
         setError(msg);
         destroyMarkmap();
       }
@@ -189,7 +195,8 @@ export function MarkmapRenderer({
 
   const bgClass = theme === "dark" ? "bg-zinc-900/80" : "bg-muted/30";
   const palette = markmapPalette(resolvedTheme);
-  const themeClass = theme === "dark" ? "markmap-theme-dark" : "markmap-theme-light";
+  const themeClass =
+    theme === "dark" ? "markmap-theme-dark" : "markmap-theme-light";
   const loading = isStreaming && !error && !hasRendered;
 
   return (
@@ -225,7 +232,11 @@ export function MarkmapRenderer({
           <Maximize2 className="h-4 w-4" />
         </button>
       </div>
-      <svg ref={svgRef} className="markmap h-full w-full" style={embedded ? undefined : { minHeight: 280 }} />
+      <svg
+        ref={svgRef}
+        className="markmap h-full w-full"
+        style={embedded ? undefined : { minHeight: 280 }}
+      />
     </div>
   );
 }

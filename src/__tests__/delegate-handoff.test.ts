@@ -81,6 +81,8 @@ describe("delegateScopeFromArgs", () => {
 
 describe("initialSubagentProgressPreview", () => {
   it("includes scope in mapping line", () => {
-    expect(initialSubagentProgressPreview("api/", "ignored")).toBe("Mapping: api/");
+    expect(initialSubagentProgressPreview("api/", "ignored")).toBe(
+      "Mapping: api/",
+    );
   });
 });

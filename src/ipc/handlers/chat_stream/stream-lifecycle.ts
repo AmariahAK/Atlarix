@@ -15,6 +15,7 @@ import { safeSend } from "@/ipc/utils/safe_sender";
 import {
   streamStopAbortReason,
   ASK_USER_STREAM_STOP,
+  TEARDOWN_STREAM_STOP,
 } from "@/lib/stream/stream-stop-sentinels";
 import { stripThinkBlocks } from "@/ipc/utils/thinking_tags";
 import { clearWaitTrackersForChat } from "../permissions/handlers";
@@ -69,11 +70,15 @@ export async function resolveAskUserToolResult(
     (marker as { __ask_user?: boolean }).__ask_user !== true &&
     (marker as { result?: unknown }).result &&
     typeof (marker as { result?: unknown }).result === "object" &&
-    ((marker as { result: { __ask_user?: boolean } }).result.__ask_user === true)
+    (marker as { result: { __ask_user?: boolean } }).result.__ask_user === true
   ) {
     marker = (marker as { result: unknown }).result;
   }
-  if (!marker || typeof marker !== "object" || (marker as { __ask_user?: boolean }).__ask_user !== true) {
+  if (
+    !marker ||
+    typeof marker !== "object" ||
+    (marker as { __ask_user?: boolean }).__ask_user !== true
+  ) {
     return null;
   }
   const q = marker as {
@@ -127,7 +132,7 @@ export function clearChatStreamStateForChat(chatId: number): void {
   const active = activeStreams.get(chatId);
   if (active) {
     try {
-      active.abort();
+      active.abort(streamStopAbortReason(TEARDOWN_STREAM_STOP));
     } catch {
       /* noop */
     }
@@ -210,7 +215,10 @@ export async function flushPartialStreamsForShutdown(): Promise<void> {
     try {
       await flushInterruptedDraft(chatId, sessionId, content, { force: true });
     } catch (e) {
-      logger.warn(`[partial-draft] shutdown flush failed for chat ${chatId}:`, e);
+      logger.warn(
+        `[partial-draft] shutdown flush failed for chat ${chatId}:`,
+        e,
+      );
     }
   }
 }
@@ -226,7 +234,7 @@ export function abortAllStreams(): void {
 
   for (const [chatId, controller] of activeStreams.entries()) {
     try {
-      controller.abort();
+      controller.abort(streamStopAbortReason(TEARDOWN_STREAM_STOP));
       logger.log(`[Cleanup] Aborted stream for chat ${chatId}`);
     } catch (error) {
       logger.warn(`[Cleanup] Error aborting stream ${chatId}:`, error);
@@ -247,7 +255,7 @@ export function abortAllStreams(): void {
 export function cancelStreamForAutomation(chatId: number): void {
   const abortController = activeStreams.get(chatId);
   if (abortController) {
-    abortController.abort();
+    abortController.abort(streamStopAbortReason(TEARDOWN_STREAM_STOP));
     activeStreams.delete(chatId);
     logger.log(`[automation] Aborted stream for chat ${chatId}`);
   }

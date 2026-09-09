@@ -44,8 +44,12 @@ describe("resolveSelectedWorkMode — one rule for the footer and the picker", (
 
   it("falls back to the chat mode when neither is set", () => {
     expect(resolveSelectedWorkMode({ selectedChatMode: "ask" })).toBe("ask");
-    expect(resolveSelectedWorkMode({ selectedChatMode: "build" })).toBe("build");
-    expect(resolveSelectedWorkMode({ selectedChatMode: "agent" })).toBe("build");
+    expect(resolveSelectedWorkMode({ selectedChatMode: "build" })).toBe(
+      "build",
+    );
+    expect(resolveSelectedWorkMode({ selectedChatMode: "agent" })).toBe(
+      "build",
+    );
     expect(resolveSelectedWorkMode({})).toBe("ask");
   });
 });
@@ -61,7 +65,10 @@ describe("resolveDisplayedWorkMode — the running turn wins while it runs", () 
 
   it("shows the selected mode when no turn is running", () => {
     expect(
-      resolveDisplayedWorkMode({ selected: "build", runningWorkMode: undefined }),
+      resolveDisplayedWorkMode({
+        selected: "build",
+        runningWorkMode: undefined,
+      }),
     ).toBe("build");
     expect(
       resolveDisplayedWorkMode({ selected: "plan", runningWorkMode: null }),

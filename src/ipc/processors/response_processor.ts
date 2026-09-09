@@ -1,6 +1,9 @@
 import { db } from "../../db";
 import { apps } from "../../db/schema";
-import { getStreamTransport, getStreamTransportAppId } from "@/lib/chat/stream-transport";
+import {
+  getStreamTransport,
+  getStreamTransportAppId,
+} from "@/lib/chat/stream-transport";
 import { eq } from "drizzle-orm";
 import fs from "node:fs";
 import { getAtlarixAppPath } from "../../paths/paths";
@@ -284,17 +287,17 @@ export async function processFullResponseActions(
   } finally {
     const appendedContent = `
     ${warnings
-        .map(
-          (warning) =>
-            `<atlarix-output type="warning" message="${warning.message}">${warning.error}</atlarix-output>`,
-        )
-        .join("\n")}
+      .map(
+        (warning) =>
+          `<atlarix-output type="warning" message="${warning.message}">${warning.error}</atlarix-output>`,
+      )
+      .join("\n")}
     ${errors
-        .map(
-          (error) =>
-            `<atlarix-output type="error" message="${error.message}">${error.error}</atlarix-output>`,
-        )
-        .join("\n")}
+      .map(
+        (error) =>
+          `<atlarix-output type="error" message="${error.message}">${error.error}</atlarix-output>`,
+      )
+      .join("\n")}
     `;
     if (appendedContent.length > 0 && ephemeralChat) {
       const target = ephemeralChat.messages.find((m) => m.id === messageId);

@@ -47,7 +47,9 @@ describe("extra_files_error carries no path — the comment that did not hold", 
     expect(extraFilesErrorClass(leaky[2]!)).toBe("not_a_repo");
     expect(extraFilesErrorClass(leaky[3]!)).toBe("conflict");
     // An unrecognised failure degrades to a constant, not to the raw text.
-    expect(extraFilesErrorClass("something nobody has seen before")).toBe("other");
+    expect(extraFilesErrorClass("something nobody has seen before")).toBe(
+      "other",
+    );
   });
 
   it("a username in an UNRECOGNISED error still cannot escape", () => {
@@ -88,7 +90,10 @@ describe("the EVENT itself, not just the helper", () => {
     });
 
     expect(capture).toHaveBeenCalledTimes(1);
-    const [name, props] = capture.mock.calls[0] as [string, Record<string, unknown>];
+    const [name, props] = capture.mock.calls[0] as [
+      string,
+      Record<string, unknown>,
+    ];
     expect(name).toBe("extra_files_error");
     // The count is the point of the event; the paths never were.
     expect(props.file_count).toBe(1);

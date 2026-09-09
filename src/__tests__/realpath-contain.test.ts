@@ -51,13 +51,23 @@ describe("assertRealpathContained", () => {
 
   it("allows the escaping target when its real dir is an allowed root", () => {
     expect(() =>
-      assertRealpathContained(path.join(ws, "leak.txt"), ws, [outside], "leak.txt"),
+      assertRealpathContained(
+        path.join(ws, "leak.txt"),
+        ws,
+        [outside],
+        "leak.txt",
+      ),
     ).not.toThrow();
   });
 
   it("fails open when the workspace root can't be canonicalized", () => {
     expect(() =>
-      assertRealpathContained("/nope/leak.txt", "/does/not/exist", [], "leak.txt"),
+      assertRealpathContained(
+        "/nope/leak.txt",
+        "/does/not/exist",
+        [],
+        "leak.txt",
+      ),
     ).not.toThrow();
   });
 });

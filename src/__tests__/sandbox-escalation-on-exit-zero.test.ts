@@ -22,7 +22,9 @@ const DOCKER_DENIAL =
 
 describe("sandboxEscalationDecision", () => {
   it("escalates a command that exited 0 while printing a denial — THE BUG", () => {
-    expect(sandboxEscalationDecision({ success: true, stdout: DOCKER_DENIAL })).toEqual({
+    expect(
+      sandboxEscalationDecision({ success: true, stdout: DOCKER_DENIAL }),
+    ).toEqual({
       escalate: true,
       allowRetry: false,
     });
@@ -31,13 +33,16 @@ describe("sandboxEscalationDecision", () => {
   it("never re-runs that command — it told us it succeeded", () => {
     // The grant still lands; only the automatic re-run is withheld.
     expect(
-      sandboxEscalationDecision({ success: true, stderr: DOCKER_DENIAL }).allowRetry,
+      sandboxEscalationDecision({ success: true, stderr: DOCKER_DENIAL })
+        .allowRetry,
     ).toBe(false);
   });
 
   it("still escalates AND retries an ordinary failure", () => {
     // The pre-existing behaviour, which is the case retrying was designed for.
-    expect(sandboxEscalationDecision({ success: false, stderr: DOCKER_DENIAL })).toEqual({
+    expect(
+      sandboxEscalationDecision({ success: false, stderr: DOCKER_DENIAL }),
+    ).toEqual({
       escalate: true,
       allowRetry: true,
     });
@@ -46,7 +51,9 @@ describe("sandboxEscalationDecision", () => {
   it("retries a failure even when no path could be attributed", () => {
     // `maybeEscalateSandboxDenial` does its own parse and returns null if there is
     // nothing to grant, so the gate must not second-guess it for failures.
-    expect(sandboxEscalationDecision({ success: false, stderr: "boom" })).toEqual({
+    expect(
+      sandboxEscalationDecision({ success: false, stderr: "boom" }),
+    ).toEqual({
       escalate: true,
       allowRetry: true,
     });
@@ -54,7 +61,10 @@ describe("sandboxEscalationDecision", () => {
 
   it("does nothing for a clean success — no card on every passing command", () => {
     expect(
-      sandboxEscalationDecision({ success: true, stdout: "Successfully built abc123" }),
+      sandboxEscalationDecision({
+        success: true,
+        stdout: "Successfully built abc123",
+      }),
     ).toEqual({ escalate: false, allowRetry: false });
   });
 
@@ -69,7 +79,11 @@ describe("sandboxEscalationDecision", () => {
 
   it("reads stderr as well as stdout", () => {
     expect(
-      sandboxEscalationDecision({ success: true, stderr: DOCKER_DENIAL, stdout: "" }).escalate,
+      sandboxEscalationDecision({
+        success: true,
+        stderr: DOCKER_DENIAL,
+        stdout: "",
+      }).escalate,
     ).toBe(true);
   });
 });

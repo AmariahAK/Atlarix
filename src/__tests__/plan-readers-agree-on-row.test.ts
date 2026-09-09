@@ -34,7 +34,9 @@ vi.mock("@/lib/plans/plan-artifacts", () => ({
     (status ? rows.find((r) => r.planStatus === status) : rows[0]) ?? null,
 }));
 
-const { getPlanCompletionFeedback } = await import("@/lib/tasks/plan-completion-gate");
+const { getPlanCompletionFeedback } = await import(
+  "@/lib/tasks/plan-completion-gate"
+);
 
 const row = (
   id: string,
@@ -88,7 +90,9 @@ describe("getPlanCompletionFeedback row selection", () => {
   it("counts in_progress as unaccounted for, alongside todo", async () => {
     // The live case: three steps left in_progress by a model that thought it was
     // finished. They must keep the gate open, or the turn ends mid-plan.
-    rows = [row("only", "building", "1. [~] started\n2. [ ] todo\n3. [x] done\n")];
+    rows = [
+      row("only", "building", "1. [~] started\n2. [ ] todo\n3. [x] done\n"),
+    ];
     const out = await getPlanCompletionFeedback("sess-1");
     expect(out).toContain("2 step(s) you haven't accounted for");
   });

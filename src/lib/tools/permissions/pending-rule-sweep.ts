@@ -37,7 +37,8 @@ export function selectOperationsCoveredByRules(
   const covered: PendingFileOperation[] = [];
   for (const op of pending) {
     if (!op.relativePath) continue;
-    if (resolve(op.operation, op.relativePath) === "auto_allow") covered.push(op);
+    if (resolve(op.operation, op.relativePath) === "auto_allow")
+      covered.push(op);
   }
   return covered;
 }

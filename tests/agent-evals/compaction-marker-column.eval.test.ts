@@ -134,8 +134,11 @@ describe("kind survives the trip back to the model", () => {
   });
 
   it("hydrateStreamTransport keeps it on the live message", async () => {
-    const { createStreamTransport, hydrateStreamTransport, getStreamTransport } =
-      await import("@/lib/chat/stream-transport");
+    const {
+      createStreamTransport,
+      hydrateStreamTransport,
+      getStreamTransport,
+    } = await import("@/lib/chat/stream-transport");
     const { appId } = await ctx.testDb.seedApp({
       path: "/tmp/marker-hydrate",
       name: "marker-hydrate",
@@ -220,26 +223,41 @@ describe("the marker is bookkeeping, so it stays out of what the user and model 
       workspaceId: appId,
       title: "Session",
     });
-    const sec = (n: number) => new Date(Math.floor(Date.now() / 1000) * 1000 + n * 1000);
+    const sec = (n: number) =>
+      new Date(Math.floor(Date.now() / 1000) * 1000 + n * 1000);
     // Distinct seconds: created_at is unixepoch(), so same-second rows tie and
     // the turn numbering below would be undefined.
     await db.insert(sessionMessages).values([
-      { id: `${name}-1`, sessionId: `${name}-s`, role: "user", content: "deploy to KISUMU-4", createdAt: sec(0) },
+      {
+        id: `${name}-1`,
+        sessionId: `${name}-s`,
+        role: "user",
+        content: "deploy to KISUMU-4",
+        createdAt: sec(0),
+      },
       {
         id: `${name}-2`,
         sessionId: `${name}-s`,
         role: "user",
         kind: "compaction_marker",
-        content: "[COMPACTION MARKER] gen=1\nthe user mentioned KISUMU-4\n[END COMPACTION]",
+        content:
+          "[COMPACTION MARKER] gen=1\nthe user mentioned KISUMU-4\n[END COMPACTION]",
         createdAt: sec(1),
       },
-      { id: `${name}-3`, sessionId: `${name}-s`, role: "assistant", content: "done with KISUMU-4", createdAt: sec(2) },
+      {
+        id: `${name}-3`,
+        sessionId: `${name}-s`,
+        role: "assistant",
+        content: "done with KISUMU-4",
+        createdAt: sec(2),
+      },
       {
         id: `${name}-4`,
         sessionId: `${name}-s`,
         role: "user",
         // A LEGACY marker: no kind, prefix only. Must be excluded too.
-        content: "[COMPACTION MARKER]\nlegacy summary of KISUMU-4\n[END COMPACTION]",
+        content:
+          "[COMPACTION MARKER]\nlegacy summary of KISUMU-4\n[END COMPACTION]",
         createdAt: sec(3),
       },
     ]);
@@ -253,7 +271,11 @@ describe("the marker is bookkeeping, so it stays out of what the user and model 
 
   it("session_search does not return marker rows as conversation", async () => {
     const { appId } = await seedWithMarker("ss-marker");
-    const hit = await search({ query: "KISUMU-4", session: "all", workspaceId: appId });
+    const hit = await search({
+      query: "KISUMU-4",
+      session: "all",
+      workspaceId: appId,
+    });
     expect(hit.success).toBe(true);
     // The two real turns match; neither summary does — including the legacy one,
     // which has no `kind` and is caught by the content clause.
@@ -291,7 +313,11 @@ describe("the marker is bookkeeping, so it stays out of what the user and model 
     );
     const thread = [
       { role: "user", content: "hello" },
-      { role: "user", content: "[COMPACTION MARKER] gen=1\nx", kind: "compaction_marker" },
+      {
+        role: "user",
+        content: "[COMPACTION MARKER] gen=1\nx",
+        kind: "compaction_marker",
+      },
       { role: "user", content: "[COMPACTION MARKER]\nlegacy" },
       { role: "assistant", content: "hi" },
     ];

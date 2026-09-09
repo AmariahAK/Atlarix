@@ -20,23 +20,26 @@ import { randomUUID } from "node:crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
 import log from "electron-log";
 import { db } from "@/db";
-import { apps, automationRuns, automations, mcpToolConsents } from "@/db/schema";
-import { SubscriptionManager } from "@/lib/SubscriptionManager";
+import {
+  apps,
+  automationRuns,
+  automations,
+  mcpToolConsents,
+} from "@/db/schema";
 import { broadcastToAllWindows } from "@/ipc/utils/broadcast_all_windows";
 import type { AutomationInput } from "./types";
 import {
-  AUTOMATIONS_FREE_MAX as FREE_MAX,
-  AUTOMATIONS_PRO_MAX as PRO_MAX,
-} from "@/lib/plan-caps";
+  AUTOMATIONS_WORKSPACE_MAX as WORKSPACE_MAX,
+  workspaceCapRefusal,
+} from "@/lib/workspace-caps";
 
 const logger = log.scope("automations-service");
 
 /**
- * Automations per workspace. Re-exported from `lib/plan-caps` so enforcement,
+ * Automations per workspace. Re-exported from `lib/workspace-caps` so enforcement,
  * the reported limit and the sentence the model reads cannot drift apart.
  */
-export const AUTOMATIONS_FREE_MAX = FREE_MAX;
-export const AUTOMATIONS_WORKSPACE_MAX = PRO_MAX;
+export const AUTOMATIONS_WORKSPACE_MAX = WORKSPACE_MAX;
 
 export type AutomationRow = typeof automations.$inferSelect;
 
@@ -72,7 +75,12 @@ async function upsertMcpConsentIfNeeded(input: AutomationInput): Promise<void> {
   const { serverId, tool } = input.trigger;
   await db
     .insert(mcpToolConsents)
-    .values({ serverId, toolName: tool, consent: "always", updatedAt: new Date() })
+    .values({
+      serverId,
+      toolName: tool,
+      consent: "always",
+      updatedAt: new Date(),
+    })
     .onConflictDoUpdate({
       target: [mcpToolConsents.serverId, mcpToolConsents.toolName],
       set: { consent: "always", updatedAt: new Date() },
@@ -139,7 +147,9 @@ export async function listAutomations(workspaceId: number): Promise<{
   };
 }
 
-export async function getAutomation(id: string): Promise<MappedAutomation | null> {
+export async function getAutomation(
+  id: string,
+): Promise<MappedAutomation | null> {
   const row = await db.query.automations.findFirst({
     where: eq(automations.id, id),
   });
@@ -150,7 +160,9 @@ export async function createAutomation(
   workspaceId: number,
   input: AutomationInput,
 ): Promise<{ id: string }> {
-  const app = await db.query.apps.findFirst({ where: eq(apps.id, workspaceId) });
+  const app = await db.query.apps.findFirst({
+    where: eq(apps.id, workspaceId),
+  });
   if (!app) throw new Error("Workspace not found");
 
   const existing = await db
@@ -159,14 +171,7 @@ export async function createAutomation(
     .where(eq(automations.workspaceId, workspaceId));
   const count = existing[0]?.count ?? 0;
   if (count >= AUTOMATIONS_WORKSPACE_MAX) {
-    throw new Error(
-      `Maximum ${AUTOMATIONS_WORKSPACE_MAX} automations per workspace. Remove one to add another.`,
-    );
-  }
-  if (!SubscriptionManager.isPro() && count >= AUTOMATIONS_FREE_MAX) {
-    throw new Error(
-      `Free tier is limited to ${AUTOMATIONS_FREE_MAX} automations per workspace. Upgrade to Pro for up to ${AUTOMATIONS_WORKSPACE_MAX}.`,
-    );
+    throw new Error(workspaceCapRefusal("automations"));
   }
 
   await upsertMcpConsentIfNeeded(input);

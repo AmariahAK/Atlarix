@@ -32,7 +32,10 @@ beforeAll(async () => {
   git(["init", "-q"]);
   git(["config", "user.email", "eval@atlarix.dev"]);
   git(["config", "user.name", "eval"]);
-  fs.writeFileSync(path.join(repoDir, "buggy.py"), "def add(a, b):\n    return a - b\n");
+  fs.writeFileSync(
+    path.join(repoDir, "buggy.py"),
+    "def add(a, b):\n    return a - b\n",
+  );
   git(["add", "-A"]);
   git(["commit", "-q", "-m", "init"]);
   baseCommit = git(["rev-parse", "HEAD"]).trim();
@@ -66,7 +69,8 @@ describe("swebench runner mechanics (no network)", () => {
     const chatId = await ctx.newChat();
     await runTurn(ctx, {
       chatId,
-      prompt: "sc=swe-smoke The add() function subtracts instead of adding. Fix it.",
+      prompt:
+        "sc=swe-smoke The add() function subtracts instead of adding. Fix it.",
       mode: "build",
       timeoutMs: AGENT_TURN_TIMEOUT_MS,
       during: autoApproveDuring(chatId, { timeoutMs: AGENT_TURN_TIMEOUT_MS }),

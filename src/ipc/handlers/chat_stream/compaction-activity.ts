@@ -97,7 +97,11 @@ export function emitCompactionActivity(
   };
   // The one the renderer reads. `label` must keep matching the compaction filter
   // (/summariz|compress|compact/i) — every label above does.
-  safeSend(sender, "chat:activity", { ...base, id: `${id}-bg`, type: "background" });
+  safeSend(sender, "chat:activity", {
+    ...base,
+    id: `${id}-bg`,
+    type: "background",
+  });
   safeSend(sender, "chat:activity", { ...base, id, type: "compaction" });
 }
 

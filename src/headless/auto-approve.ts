@@ -75,7 +75,11 @@ export async function autoApprove(opts: {
       const approvalMode: "once" | "deny" =
         isSystemScope || (isDangerous && !dangerAllowed) ? "deny" : "once";
       try {
-        await executePermission(sender.event, { chatId, operationId, approvalMode });
+        await executePermission(sender.event, {
+          chatId,
+          operationId,
+          approvalMode,
+        });
       } catch {
         /* keep approving the rest */
       }
@@ -83,7 +87,11 @@ export async function autoApprove(opts: {
   };
 
   const endWatch = sender
-    .waitFor("chat:response:end", (p) => (p as { chatId?: number })?.chatId === chatId, timeoutMs)
+    .waitFor(
+      "chat:response:end",
+      (p) => (p as { chatId?: number })?.chatId === chatId,
+      timeoutMs,
+    )
     .then(() => {
       ended = true;
     })

@@ -30,9 +30,7 @@ afterAll(async () => {
 describe("stream-transport contract (0.4)", () => {
   it("buffer and DB are in lockstep after a turn; persisted messages carry row ids", async () => {
     ctx.server.register(
-      scenario("transport-lockstep")
-        .text("Uthibitisho wa mkataba.")
-        .build(),
+      scenario("transport-lockstep").text("Uthibitisho wa mkataba.").build(),
     );
 
     const chatId = await ctx.newChat();

@@ -133,9 +133,7 @@ export function parsePlainTextToTerminalLines(text: string): TerminalLine[] {
       };
     }
     const kind: TerminalLine["kind"] =
-      row.startsWith("exit ") ||
-      row === "failed" ||
-      row.includes("timed out")
+      row.startsWith("exit ") || row === "failed" || row.includes("timed out")
         ? "status"
         : "output";
     return {
@@ -265,7 +263,10 @@ export function writeTerminalToDataTransfer(
   payload: AtlarixTerminalClipboardPayload,
 ): void {
   dataTransfer.setData("text/plain", payload.content);
-  dataTransfer.setData(ATLARIX_TERMINAL_CLIPBOARD_MIME, JSON.stringify(payload));
+  dataTransfer.setData(
+    ATLARIX_TERMINAL_CLIPBOARD_MIME,
+    JSON.stringify(payload),
+  );
 }
 
 export function attachmentTerminalKey(att: FileAttachment): string | null {

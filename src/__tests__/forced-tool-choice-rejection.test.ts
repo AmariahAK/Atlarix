@@ -33,7 +33,10 @@ const CATALOG = [
     modelId: "deepseek-v4-pro",
     profile: {
       reasoning: true,
-      options: [{ type: "toggle" }, { type: "effort", values: ["high", "max"] }],
+      options: [
+        { type: "toggle" },
+        { type: "effort", values: ["high", "max"] },
+      ],
     },
     supportsTemperature: true,
   },
@@ -165,7 +168,9 @@ describe("isForcedToolChoiceRejection", () => {
     // The point of the fallback is to survive a provider we have never met, so the
     // matcher must not encode any single vendor's wording.
     const anthropic = Object.assign(
-      new Error("tool_choice: {\"type\":\"tool\"} is not supported when thinking is enabled"),
+      new Error(
+        'tool_choice: {"type":"tool"} is not supported when thinking is enabled',
+      ),
       { statusCode: 400 },
     );
     const alibaba = Object.assign(
@@ -184,7 +189,10 @@ describe("isForcedToolChoiceRejection", () => {
     expect(
       isForcedToolChoiceRejection({
         statusCode: 400,
-        error: { message: "Bad Request", responseBody: '{"msg":"bad tool_choice"}' },
+        error: {
+          message: "Bad Request",
+          responseBody: '{"msg":"bad tool_choice"}',
+        },
       }),
     ).toBe(true);
   });
@@ -202,9 +210,12 @@ describe("isForcedToolChoiceRejection", () => {
   it("ignores a 5xx that happens to mention tool_choice", () => {
     // An upstream fault is not a request we can fix by dropping a parameter;
     // routing it into the fallback would mask a real outage as a schema problem.
-    const upstream = Object.assign(new Error("upstream error near tool_choice"), {
-      statusCode: 503,
-    });
+    const upstream = Object.assign(
+      new Error("upstream error near tool_choice"),
+      {
+        statusCode: 503,
+      },
+    );
     expect(isForcedToolChoiceRejection(upstream)).toBe(false);
   });
 });

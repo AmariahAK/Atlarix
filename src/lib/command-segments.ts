@@ -12,28 +12,30 @@
  * risky segment inside `cd x && rm -rf y` can't hide behind a benign prefix.
  */
 export function commandSegments(command: string): string[] {
-  return command
-    // surface command substitutions so an inner command is seen
-    .replace(/\$\(([^)]*)\)/g, " ; $1 ; ")
-    .replace(/`([^`]*)`/g, " ; $1 ; ")
-    // Split on real shell separators. `&&`/`||` first (so they aren't split by
-    // the single-operator alternatives), then a standalone `&` (background/
-    // sequencing operator — `a & b` runs BOTH sides, so `b` must be its own
-    // segment or a risky command could hide behind a benign `a`), then `;`,
-    // newline, and `|`. `&(?!&)` matches a single `&` but never the `&&` pair.
-    .split(/&&|\|\||&(?!&)|[;\n|]/)
-    .map((s) => s.trim())
-    .filter(Boolean)
-    // strip benign leading wrappers (cd DIR, env VAR=…, time, nice) — NOT sudo
-    .map((s) =>
-      s
-        .replace(
-          /^(?:cd\s+[^\s;&]+\s*|env\s+\w+=\S+\s+|time\s+|nice\s+(?:-n\s+-?\d+\s+)?)+/i,
-          "",
-        )
-        .trim(),
-    )
-    .filter(Boolean);
+  return (
+    command
+      // surface command substitutions so an inner command is seen
+      .replace(/\$\(([^)]*)\)/g, " ; $1 ; ")
+      .replace(/`([^`]*)`/g, " ; $1 ; ")
+      // Split on real shell separators. `&&`/`||` first (so they aren't split by
+      // the single-operator alternatives), then a standalone `&` (background/
+      // sequencing operator — `a & b` runs BOTH sides, so `b` must be its own
+      // segment or a risky command could hide behind a benign `a`), then `;`,
+      // newline, and `|`. `&(?!&)` matches a single `&` but never the `&&` pair.
+      .split(/&&|\|\||&(?!&)|[;\n|]/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      // strip benign leading wrappers (cd DIR, env VAR=…, time, nice) — NOT sudo
+      .map((s) =>
+        s
+          .replace(
+            /^(?:cd\s+[^\s;&]+\s*|env\s+\w+=\S+\s+|time\s+|nice\s+(?:-n\s+-?\d+\s+)?)+/i,
+            "",
+          )
+          .trim(),
+      )
+      .filter(Boolean)
+  );
 }
 
 // ── Quote-aware segmentation (for the permission gate) ───────────────────────

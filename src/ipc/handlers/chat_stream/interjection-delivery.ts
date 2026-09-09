@@ -35,8 +35,11 @@ export async function deliverInterjectionsToTranscript(args: {
   const { chatId, streamId, event, placeholderMessageId, interjections } = args;
   if (!interjections.length) return;
   try {
-    const { isStreamTransportId, getStreamTransport, insertUserInterjectionMessage } =
-      await import("@/lib/chat/stream-transport");
+    const {
+      isStreamTransportId,
+      getStreamTransport,
+      insertUserInterjectionMessage,
+    } = await import("@/lib/chat/stream-transport");
     if (!isStreamTransportId(chatId)) return;
 
     for (const item of interjections) {
@@ -46,14 +49,27 @@ export async function deliverInterjectionsToTranscript(args: {
           resolveOrBindWorkspaceSessionForStream,
           persistWorkspaceSessionUserMessage,
         } = await import("../workspace_session_handlers");
-        const sessionId = await resolveOrBindWorkspaceSessionForStream({ chatId });
-        const row = await persistWorkspaceSessionUserMessage(sessionId, item.text, {});
+        const sessionId = await resolveOrBindWorkspaceSessionForStream({
+          chatId,
+        });
+        const row = await persistWorkspaceSessionUserMessage(
+          sessionId,
+          item.text,
+          {},
+        );
         rowId = row?.id;
       } catch (err) {
         // A scratch chat may have no session. The in-memory row still renders.
-        logger.warn(`[interjection] could not persist to session: ${String(err)}`);
+        logger.warn(
+          `[interjection] could not persist to session: ${String(err)}`,
+        );
       }
-      insertUserInterjectionMessage(chatId, item.text, placeholderMessageId, rowId);
+      insertUserInterjectionMessage(
+        chatId,
+        item.text,
+        placeholderMessageId,
+        rowId,
+      );
     }
 
     const chat = getStreamTransport(chatId);

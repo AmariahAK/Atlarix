@@ -11,7 +11,10 @@ import { prepareMessageWithAttachments } from "@/ipc/handlers/chat_stream_handle
 
 const PNG_B64 = "iVBORw0KGgoAAAANSUhEUg".repeat(20);
 
-const baseMessage = { role: "user" as const, content: "what is in this image?" };
+const baseMessage = {
+  role: "user" as const,
+  content: "what is in this image?",
+};
 
 describe("prepareMessageWithAttachments — image embedding", () => {
   it("embeds current-turn images as native image parts with a text lead", async () => {
@@ -28,7 +31,11 @@ describe("prepareMessageWithAttachments — image embedding", () => {
     expect(String(parts[0]!.text)).toContain("what is in this image?");
     expect(String(parts[0]!.text)).toContain("FILES ATTACHED");
     expect(String(parts[0]!.text)).toContain("read_attachment is NOT needed");
-    expect(parts[1]).toEqual({ type: "image", image: PNG_B64, mediaType: "image/png" });
+    expect(parts[1]).toEqual({
+      type: "image",
+      image: PNG_B64,
+      mediaType: "image/png",
+    });
   });
 
   it("no images (non-vision caller passes []) → plain string content", async () => {
@@ -48,7 +55,11 @@ describe("prepareMessageWithAttachments — image embedding", () => {
       imageAttachments: [
         { filename: "doc.pdf", mimeType: "application/pdf", data: PNG_B64 },
         { filename: "icon.svg", mimeType: "image/svg+xml", data: PNG_B64 },
-        { filename: "huge.png", mimeType: "image/png", data: "x".repeat(6_800_001) },
+        {
+          filename: "huge.png",
+          mimeType: "image/png",
+          data: "x".repeat(6_800_001),
+        },
       ],
     });
     expect(typeof out.content).toBe("string");

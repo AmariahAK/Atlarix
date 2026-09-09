@@ -38,7 +38,9 @@ describe("addressing a sub-agent by name", () => {
             channel: "text",
             content: "reading the router",
           });
-          a.abortSignal?.addEventListener("abort", () => rej(new Error("aborted")));
+          a.abortSignal?.addEventListener("abort", () =>
+            rej(new Error("aborted")),
+          );
         }),
     );
 
@@ -64,7 +66,9 @@ describe("addressing a sub-agent by name", () => {
       agent: "router",
       _chatSessionId: chatId,
     });
-    const { clearSubagentsForChat } = await import("@/lib/agents/subagent-results");
+    const { clearSubagentsForChat } = await import(
+      "@/lib/agents/subagent-results"
+    );
     clearSubagentsForChat(chatId);
   });
 
@@ -76,13 +80,20 @@ describe("addressing a sub-agent by name", () => {
     vi.mocked(runSubagent).mockImplementation(
       (a: Parameters<typeof runSubagent>[0]) =>
         new Promise((_res, rej) => {
-          a.abortSignal?.addEventListener("abort", () => rej(new Error("aborted")));
+          a.abortSignal?.addEventListener("abort", () =>
+            rej(new Error("aborted")),
+          );
         }),
     );
 
     const task = ToolRegistry.get("task");
     for (const d of ["scan auth routes", "scan auth models"]) {
-      await task!.handler({ description: d, prompt: "x", background: true, chatId });
+      await task!.handler({
+        description: d,
+        prompt: "x",
+        background: true,
+        chatId,
+      });
     }
 
     const out = (await ToolRegistry.execute("subagents", {
@@ -101,7 +112,9 @@ describe("addressing a sub-agent by name", () => {
         _chatSessionId: chatId,
       });
     }
-    const { clearSubagentsForChat } = await import("@/lib/agents/subagent-results");
+    const { clearSubagentsForChat } = await import(
+      "@/lib/agents/subagent-results"
+    );
     clearSubagentsForChat(chatId);
   });
 
@@ -115,7 +128,9 @@ describe("addressing a sub-agent by name", () => {
       (a: Parameters<typeof runSubagent>[0]) =>
         new Promise((_res, rej) => {
           emit = a.emit;
-          a.abortSignal?.addEventListener("abort", () => rej(new Error("aborted")));
+          a.abortSignal?.addEventListener("abort", () =>
+            rej(new Error("aborted")),
+          );
         }),
     );
 
@@ -128,7 +143,12 @@ describe("addressing a sub-agent by name", () => {
     });
     await new Promise((r) => setTimeout(r, 10));
 
-    emit?.({ type: "subagent_thought", id: "a", channel: "text", content: "FIRST" });
+    emit?.({
+      type: "subagent_thought",
+      id: "a",
+      channel: "text",
+      content: "FIRST",
+    });
     const read = (o: Record<string, unknown>) =>
       ToolRegistry.execute("subagents", {
         operation: "output",
@@ -142,7 +162,12 @@ describe("addressing a sub-agent by name", () => {
     expect((await read({})).result?.output).toContain("nothing new");
     // tail still shows it, and must NOT move the cursor...
     expect((await read({ mode: "tail" })).result?.output).toContain("FIRST");
-    emit?.({ type: "subagent_thought", id: "b", channel: "text", content: "SECOND" });
+    emit?.({
+      type: "subagent_thought",
+      id: "b",
+      channel: "text",
+      content: "SECOND",
+    });
     // ...so the next incremental read sees only what actually arrived after.
     const next = (await read({})).result?.output ?? "";
     expect(next).toContain("SECOND");
@@ -153,7 +178,9 @@ describe("addressing a sub-agent by name", () => {
       agent: "cursor test",
       _chatSessionId: chatId,
     });
-    const { clearSubagentsForChat } = await import("@/lib/agents/subagent-results");
+    const { clearSubagentsForChat } = await import(
+      "@/lib/agents/subagent-results"
+    );
     clearSubagentsForChat(chatId);
   });
 });
@@ -235,7 +262,9 @@ describe("task no longer manages sub-agents", () => {
 
 describe("mode availability", () => {
   it("is callable in Plan mode, where background_jobs is not", async () => {
-    const { isToolAllowedInMode } = await import("@/lib/tools/mode-tool-registry");
+    const { isToolAllowedInMode } = await import(
+      "@/lib/tools/mode-tool-registry"
+    );
     // Plan can't run commands, so it has no business managing background
     // commands — but it delegates read-only sub-agents, so it must manage those.
     expect(isToolAllowedInMode("subagents", "plan")).toBe(true);

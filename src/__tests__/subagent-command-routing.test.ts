@@ -35,7 +35,8 @@ const fakeInterceptor = {
 };
 
 vi.mock("@/ipc/handlers/permissions/handlers", () => ({
-  getInterceptorForChat: () => (interceptorPresent ? fakeInterceptor : undefined),
+  getInterceptorForChat: () =>
+    interceptorPresent ? fakeInterceptor : undefined,
 }));
 
 /** Identity enrichment — the real one needs DB-backed workspace rules. */

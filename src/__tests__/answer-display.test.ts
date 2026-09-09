@@ -43,9 +43,16 @@ describe("extractVisibleAnswerMarkdown", () => {
 
 describe("sanitizeMarkdownForDisplay — fence awareness", () => {
   it("keeps blank lines INSIDE a fenced code block", () => {
-    const s = ["```py", "def a():", "    pass", "", "", "def b():", "    pass", "```"].join(
-      "\n",
-    );
+    const s = [
+      "```py",
+      "def a():",
+      "    pass",
+      "",
+      "",
+      "def b():",
+      "    pass",
+      "```",
+    ].join("\n");
     // Fenced body is passed through byte-identical; only prose newlines collapse.
     expect(sanitizeMarkdownForDisplay(s)).toBe(s);
   });
@@ -113,17 +120,23 @@ describe("orphan tool-result tails", () => {
   });
 
   it("strips a brace-closed tail too", () => {
-    const out = sanitizeMarkdownForDisplay('Done.\n","message":"Plan created."}\n');
+    const out = sanitizeMarkdownForDisplay(
+      'Done.\n","message":"Plan created."}\n',
+    );
     expect(out).toBe("Done.");
   });
 
-  it.each(["planId", "planStatus", "marker", "contentPreview", "stepCount", "progress"])(
-    "covers the %s key",
-    (key) => {
-      const out = sanitizeMarkdownForDisplay(`Text.\n","${key}":"whatever\n`);
-      expect(out).toBe("Text.");
-    },
-  );
+  it.each([
+    "planId",
+    "planStatus",
+    "marker",
+    "contentPreview",
+    "stepCount",
+    "progress",
+  ])("covers the %s key", (key) => {
+    const out = sanitizeMarkdownForDisplay(`Text.\n","${key}":"whatever\n`);
+    expect(out).toBe("Text.");
+  });
 
   /**
    * The assertion that matters most. Over-stripping silently deletes the user's own words,
@@ -136,7 +149,8 @@ describe("orphan tool-result tails", () => {
   });
 
   it("never touches a fenced example containing message/planId", () => {
-    const src = 'Example:\n```json\n{"success":true,"message":"Plan created.","planId":"p1"}\n```';
+    const src =
+      'Example:\n```json\n{"success":true,"message":"Plan created.","planId":"p1"}\n```';
     expect(sanitizeMarkdownForDisplay(src)).toBe(src);
   });
 

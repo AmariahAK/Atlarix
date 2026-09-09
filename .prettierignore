@@ -5,3 +5,23 @@ coverage
 drizzle/
 **/pnpm-lock.yaml
 **/snapshots/**
+
+# Recorded benchmark run artifacts — DATA, not source.
+#
+# ~1,064 JSON files of raw output from Terminal-Bench / SWE-bench runs, tracked so a
+# past result stays citable. Reformatting them would rewrite the records themselves
+# and make every future diff against them noise; their shape is whatever the harness
+# emitted, which is the point.
+benchmarks/results-*/
+
+# Machine-generated: regenerating overwrites any formatting applied here, so
+# formatting it only churns until the next `generate-bundled-sql-migrations` run.
+src/db/migrations/bundled.generated.ts
+
+# Captured test fixtures — DATA whose exact shape is the assertion.
+#
+# `brave-search-results.html` is a 385KB real Brave results page, and
+# `search-results-extractor.test.ts` parses it to prove the extractor survives real
+# markup. Reformatting it would rewrite the very structure under test, so a green
+# result would no longer mean anything about real pages.
+src/__tests__/fixtures/

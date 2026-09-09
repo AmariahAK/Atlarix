@@ -132,7 +132,9 @@ export function isLegacyMermaidContent(raw: string): boolean {
   const t = raw.trim();
   if (!t) return false;
   if (t.startsWith("{")) return false;
-  return /^(graph\s|flowchart\s|sequenceDiagram|classDiagram|stateDiagram|erDiagram|gantt\b)/im.test(t);
+  return /^(graph\s|flowchart\s|sequenceDiagram|classDiagram|stateDiagram|erDiagram|gantt\b)/im.test(
+    t,
+  );
 }
 
 export function normalizeDiagramAiOutput(rawText: string): string {

@@ -27,7 +27,9 @@ export type EditAttachmentTagSplit = {
   tags: ParsedAttachmentTag[];
 };
 
-export function splitAttachmentTagsForEdit(content: string): EditAttachmentTagSplit {
+export function splitAttachmentTagsForEdit(
+  content: string,
+): EditAttachmentTagSplit {
   const tags = findAttachmentTagsInContent(content);
   if (tags.length === 0) return { text: content, tags: [] };
   let text = "";

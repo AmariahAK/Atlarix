@@ -41,7 +41,9 @@ describe("droppedHistoryNotice", () => {
 
   it("uses singular wording for a single message", () => {
     const notice = droppedHistoryNotice(1);
-    expect(notice).toContain("1 earlier message in this conversation was removed");
+    expect(notice).toContain(
+      "1 earlier message in this conversation was removed",
+    );
     expect(notice).not.toContain("messages");
   });
 });

@@ -9,7 +9,14 @@ import type { LanguageModelProvider } from "@/ipc/ipc_types";
 
 import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
 import { useCustomLanguageModelProvider } from "@/hooks/useCustomLanguageModelProvider";
-import { GiftIcon, PlusIcon, Trash2, Edit, ChevronDown, ChevronUp } from "lucide-react";
+import {
+  GiftIcon,
+  PlusIcon,
+  Trash2,
+  Edit,
+  ChevronDown,
+  ChevronUp,
+} from "lucide-react";
 import { Skeleton } from "./ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
 import { AlertTriangle } from "lucide-react";
@@ -56,9 +63,7 @@ function filterProviders(
   const q = query.trim().toLowerCase();
   if (!q) return list;
   return list.filter(
-    (p) =>
-      p.name.toLowerCase().includes(q) ||
-      p.id.toLowerCase().includes(q),
+    (p) => p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q),
   );
 }
 
@@ -134,7 +139,10 @@ export function ProviderSettingsGrid() {
     return shuffledNonCompass.length > 0 ? shuffledNonCompass : filtered;
   }, [filtered, searchQuery, shuffledNonCompass]);
 
-  const totalPages = Math.max(1, Math.ceil(orderedForPaging.length / PAGE_SIZE));
+  const totalPages = Math.max(
+    1,
+    Math.ceil(orderedForPaging.length / PAGE_SIZE),
+  );
   const safePage = Math.min(page, totalPages);
   const pageSlice = orderedForPaging.slice(
     (safePage - 1) * PAGE_SIZE,
@@ -313,7 +321,6 @@ export function ProviderSettingsGrid() {
                 </Card>
               );
             })}
-
           </div>
 
           <button

@@ -15,9 +15,9 @@ export function resolveCanonicalAppId(
   if (appId == null) return appId;
   try {
     const client = getDb().$client;
-    const row = client.prepare("SELECT path FROM apps WHERE id = ?").get(appId) as
-      | { path?: string }
-      | undefined;
+    const row = client
+      .prepare("SELECT path FROM apps WHERE id = ?")
+      .get(appId) as { path?: string } | undefined;
     if (!row?.path) return appId;
     const norm = normalizeAppPath(row.path);
     const all = client

@@ -1,5 +1,6 @@
-
-export function parseRemoteUri(uri: string): { hostAlias: string; remotePath: string } | null {
+export function parseRemoteUri(
+  uri: string,
+): { hostAlias: string; remotePath: string } | null {
   const m = uri.match(/^atlarix-remote:\/\/ssh\+([^/]+)(\/.*)?$/);
   if (!m) return null;
   return {

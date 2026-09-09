@@ -1,10 +1,6 @@
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import log from "electron-log";
-import {
-  setupEvalContext,
-  runTurn,
-  type EvalContext,
-} from "../infra/turn";
+import { setupEvalContext, runTurn, type EvalContext } from "../infra/turn";
 import { scenario } from "../infra/scenario";
 import { expectNoStreamError, expectStreamEnded } from "../infra/assert";
 
@@ -48,9 +44,7 @@ afterAll(async () => {
 
 describe("preflight timing (S17)", () => {
   it("a build turn emits the preflight-breakdown waterfall at first dispatch", async () => {
-    ctx.server.register(
-      scenario("perf-waterfall").text("All good.").build(),
-    );
+    ctx.server.register(scenario("perf-waterfall").text("All good.").build());
 
     const chatId = await ctx.newChat();
     const { fakeIpc } = await runTurn(ctx, {

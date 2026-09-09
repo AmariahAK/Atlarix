@@ -59,7 +59,8 @@ const VALID_TYPES = new Set<string>([
 ]);
 
 function normStatus(s: unknown): ActivityStreamItem["status"] {
-  if (s === "running" || s === "done" || s === "error" || s === "active") return s;
+  if (s === "running" || s === "done" || s === "error" || s === "active")
+    return s;
   if (s === "complete") return "done";
   return "done";
 }
@@ -67,7 +68,9 @@ function normStatus(s: unknown): ActivityStreamItem["status"] {
 /**
  * Coerce main-process chat:activity payloads into ActivityStreamItem, or null if unsupported.
  */
-export function normalizeChatActivityPayload(raw: unknown): ActivityStreamItem | null {
+export function normalizeChatActivityPayload(
+  raw: unknown,
+): ActivityStreamItem | null {
   if (!raw || typeof raw !== "object") return null;
   const p = raw as Record<string, unknown>;
   let typeRaw = p.type;
@@ -119,10 +122,12 @@ export function normalizeChatActivityPayload(raw: unknown): ActivityStreamItem |
     threadId: p.threadId != null ? String(p.threadId) : undefined,
     chatId: typeof p.chatId === "number" ? p.chatId : undefined,
     sessionId: p.sessionId != null ? String(p.sessionId) : undefined,
-    participantCount: typeof p.participantCount === "number" ? p.participantCount : undefined,
+    participantCount:
+      typeof p.participantCount === "number" ? p.participantCount : undefined,
     preview: p.preview != null ? String(p.preview) : undefined,
     stepCount: typeof p.stepCount === "number" ? p.stepCount : undefined,
-    synthesisLength: typeof p.synthesisLength === "number" ? p.synthesisLength : undefined,
+    synthesisLength:
+      typeof p.synthesisLength === "number" ? p.synthesisLength : undefined,
     agentMessageType:
       p.agentMessageType != null ? String(p.agentMessageType) : undefined,
     toolName: p.toolName != null ? String(p.toolName) : undefined,
@@ -135,9 +140,7 @@ export function normalizeChatActivityPayload(raw: unknown): ActivityStreamItem |
     scope: p.scope != null ? String(p.scope) : undefined,
     parentToolId: p.parentToolId != null ? String(p.parentToolId) : undefined,
     parentDelegationId:
-      p.parentDelegationId != null
-        ? String(p.parentDelegationId)
-        : undefined,
+      p.parentDelegationId != null ? String(p.parentDelegationId) : undefined,
     roundId: p.roundId != null ? String(p.roundId) : undefined,
     structured: p.structured,
   };
@@ -251,7 +254,9 @@ export function normalizeChatActivityPayload(raw: unknown): ActivityStreamItem |
       const rawLab = String(p.label ?? "");
       const resolvedTool =
         tn || (/^[a-z][a-z0-9_]*$/i.test(rawLab) ? rawLab : "");
-      const human = resolvedTool ? getToolActivityLabel(resolvedTool) : rawLab || "Tool";
+      const human = resolvedTool
+        ? getToolActivityLabel(resolvedTool)
+        : rawLab || "Tool";
       const label = human.length > 60 ? `${human.slice(0, 57)}…` : human;
       return {
         ...base,

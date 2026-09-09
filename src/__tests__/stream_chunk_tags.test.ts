@@ -25,6 +25,62 @@ describe("parseMcpToolKey", () => {
   });
 });
 
+/**
+ * A TOP-LEVEL `error` part — the whole call failed, not one tool.
+ *
+ * Only `tool-error` was ever handled, so this fell through the part loop, produced
+ * an empty chunk, and was skipped: counted into `partCounts` (visible only under
+ * `streamDebug`) and otherwise invisible. No test had ever fed one.
+ *
+ * The consequence was not just silence. With no text accumulated, the tail of the
+ * function reached `applyEmptyFallback` and wrote "Something went wrong — please
+ * try again." into a message the round was about to RETRY — and on the
+ * empty-output path, which sends no `reset-partial`, that text was never cleared.
+ */
+describe("processStreamChunks: a top-level error part", () => {
+  const run = (
+    parts: Array<Record<string, unknown>>,
+  ): Promise<{ fullResponse: string }> => {
+    async function* fullStream() {
+      for (const part of parts) yield part as never;
+    }
+    return processStreamChunks({
+      fullStream: fullStream() as unknown as Parameters<
+        typeof processStreamChunks
+      >[0]["fullStream"],
+      fullResponse: "",
+      abortController: new AbortController(),
+      chatId: -1,
+      processResponseChunkUpdate: async ({ fullResponse }) => fullResponse,
+    });
+  };
+
+  it("does not paper over the failure with empty-response fallback text", async () => {
+    const { fullResponse } = await run([
+      { type: "error", error: new Error("terminated") },
+    ]);
+    expect(fullResponse).toBe("");
+    expect(fullResponse).not.toContain("Something went wrong");
+  });
+
+  it("still applies the fallback when the stream was merely empty", async () => {
+    // The discriminator has to be the error part, not the emptiness — a model that
+    // genuinely says nothing still needs something rendered.
+    const { fullResponse } = await run([{ type: "finish-step" }]);
+    expect(fullResponse).toContain("Something went wrong");
+  });
+
+  it("keeps whatever text arrived before the error", async () => {
+    // The round-level retry decides whether to reset this partial; discarding it
+    // here would pre-empt that.
+    const { fullResponse } = await run([
+      { type: "text-delta", text: "Partial answ" },
+      { type: "error", error: new Error("other side closed") },
+    ]);
+    expect(fullResponse).toContain("Partial answ");
+  });
+});
+
 describe("processStreamChunks", () => {
   it("embeds native tool-call and tool-result as atlarix tags", async () => {
     async function* fullStream() {
@@ -114,10 +170,19 @@ describe("processStreamChunks", () => {
       /<atlarix-sources>([\s\S]*?)<\/atlarix-sources>/,
     );
     expect(match).not.toBeNull();
-    const sources = JSON.parse(match![1]) as Array<{ url: string; title: string }>;
+    const sources = JSON.parse(match![1]) as Array<{
+      url: string;
+      title: string;
+    }>;
     expect(sources).toHaveLength(2);
-    expect(sources[0]).toEqual({ url: "https://example.com/a", title: "Example A" });
-    expect(sources[1]).toEqual({ url: "https://grounded.dev/b", title: "Grounded B" });
+    expect(sources[0]).toEqual({
+      url: "https://example.com/a",
+      title: "Example A",
+    });
+    expect(sources[1]).toEqual({
+      url: "https://grounded.dev/b",
+      title: "Grounded B",
+    });
   });
 
   it("emits no sources tag when the stream has no source parts", async () => {
@@ -284,12 +349,28 @@ describe("processStreamChunks", () => {
     // Space deltas past the ~120ms emit throttle so accumulation is observable
     // (rapid synchronous deltas coalesce, which is fine in production).
     async function* fullStream() {
-      yield { type: "tool-input-start" as const, toolCallId: "tc-w", toolName: "edit_file" };
-      yield { type: "tool-input-delta" as const, toolCallId: "tc-w", inputTextDelta: '{"operation":"write",' };
+      yield {
+        type: "tool-input-start" as const,
+        toolCallId: "tc-w",
+        toolName: "edit_file",
+      };
+      yield {
+        type: "tool-input-delta" as const,
+        toolCallId: "tc-w",
+        inputTextDelta: '{"operation":"write",',
+      };
       await new Promise((r) => setTimeout(r, 140));
-      yield { type: "tool-input-delta" as const, toolCallId: "tc-w", inputTextDelta: '"path":"a.ts","content":"hel' };
+      yield {
+        type: "tool-input-delta" as const,
+        toolCallId: "tc-w",
+        inputTextDelta: '"path":"a.ts","content":"hel',
+      };
       await new Promise((r) => setTimeout(r, 140));
-      yield { type: "tool-input-delta" as const, toolCallId: "tc-w", inputTextDelta: 'lo"}' };
+      yield {
+        type: "tool-input-delta" as const,
+        toolCallId: "tc-w",
+        inputTextDelta: 'lo"}',
+      };
       yield {
         type: "tool-call" as const,
         toolCallId: "tc-w",
@@ -297,7 +378,11 @@ describe("processStreamChunks", () => {
         input: { operation: "write", path: "a.ts", content: "hello" },
       };
       // A late delta after completion must NOT be emitted (buffer cleared).
-      yield { type: "tool-input-delta" as const, toolCallId: "tc-w", inputTextDelta: "stale" };
+      yield {
+        type: "tool-input-delta" as const,
+        toolCallId: "tc-w",
+        inputTextDelta: "stale",
+      };
     }
 
     const seen: string[] = [];
@@ -443,7 +528,11 @@ describe("processStreamChunks + a provider error in the finish reason", () => {
     await expect(
       run([
         { type: "text-delta", text: "partial answ" },
-        { type: "finish", finishReason: "unknown", rawFinishReason: "network_error" },
+        {
+          type: "finish",
+          finishReason: "unknown",
+          rawFinishReason: "network_error",
+        },
       ]),
     ).rejects.toThrow(/Provider finish_reason: network_error/);
   });
@@ -478,11 +567,11 @@ describe("processStreamChunks + a provider error in the finish reason", () => {
   // errors `isNetworkStreamError` recognizes. If this ever returns false the
   // fix is inert — the turn would still end quietly, just with a stack.
   it("is classified retryable, so the existing backoff arms", () => {
-    expect(isNetworkStreamError(new ProviderFinishReasonError("network_error"))).toBe(
-      true,
-    );
-    expect(isNetworkStreamError(new ProviderFinishReasonError("upstream_failure"))).toBe(
-      true,
-    );
+    expect(
+      isNetworkStreamError(new ProviderFinishReasonError("network_error")),
+    ).toBe(true);
+    expect(
+      isNetworkStreamError(new ProviderFinishReasonError("upstream_failure")),
+    ).toBe(true);
   });
 });

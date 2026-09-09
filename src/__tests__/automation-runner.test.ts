@@ -24,7 +24,11 @@ vi.mock("node-cron", () => ({
 const { state } = vi.hoisted(() => ({
   state: {
     automations: new Map<string, Record<string, unknown>>(),
-    staleRuns: [] as Array<{ id: string; sessionId: string | null; status: string }>,
+    staleRuns: [] as Array<{
+      id: string;
+      sessionId: string | null;
+      status: string;
+    }>,
     runUpdates: [] as Array<Record<string, unknown>>,
     sessionUpdates: [] as Array<Record<string, unknown>>,
   },
@@ -133,10 +137,14 @@ describe("automation runner", () => {
     state.staleRuns.push({ id: "r-stale", sessionId: "s1", status: "running" });
     startAutomationRunner(makeDeps());
     await sleep(50);
-    expect(state.runUpdates.some((u) => u.error === "interrupted by app quit")).toBe(true);
-    expect(state.sessionUpdates.some((u) => u.statusError === "interrupted by app quit")).toBe(
-      true,
-    );
+    expect(
+      state.runUpdates.some((u) => u.error === "interrupted by app quit"),
+    ).toBe(true);
+    expect(
+      state.sessionUpdates.some(
+        (u) => u.statusError === "interrupted by app quit",
+      ),
+    ).toBe(true);
   });
 
   it("re-enqueues an automation after its previous run completed", async () => {

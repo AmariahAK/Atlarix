@@ -16,20 +16,25 @@ let ws = "";
 let outsideFile = "";
 
 beforeEach(() => {
-  const base = realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "atlarix-edit-out-")));
+  const base = realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), "atlarix-edit-out-")),
+  );
   ws = path.join(base, "workspace");
   const other = path.join(base, "other-repo");
   fs.mkdirSync(ws, { recursive: true });
   fs.mkdirSync(other, { recursive: true });
   outsideFile = path.join(other, "loader.go");
-  fs.writeFileSync(outsideFile, "package loader\n\nconst Version = \"1\"\n");
+  fs.writeFileSync(outsideFile, 'package loader\n\nconst Version = "1"\n');
 });
 afterEach(() => {
   fs.rmSync(path.dirname(ws), { recursive: true, force: true });
 });
 
 async function edit(args: Record<string, unknown>) {
-  return (await ToolRegistry.execute("edit_file", { workspace: ws, ...args })) as {
+  return (await ToolRegistry.execute("edit_file", {
+    workspace: ws,
+    ...args,
+  })) as {
     preview?: { path: string; content: string };
     error?: string;
     denied?: boolean;
@@ -49,7 +54,9 @@ describe("edit_file outside the workspace (gated, not silent)", () => {
     expect(res.preview?.path).toBe(outsideFile);
     expect(res.preview?.content).toContain('const Version = "2"');
     // Nothing written until approval — the file on disk is untouched.
-    expect(fs.readFileSync(outsideFile, "utf-8")).toContain('const Version = "1"');
+    expect(fs.readFileSync(outsideFile, "utf-8")).toContain(
+      'const Version = "1"',
+    );
   });
 
   // Plan mode refuses EVERY edit, inside or outside the workspace. `edit_file`

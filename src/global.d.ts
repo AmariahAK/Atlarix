@@ -6,9 +6,15 @@ interface ElectronAPI {
   shell?: { openExternal: (url: string) => Promise<void> };
   ipcRenderer: {
     invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
-    on: (channel: string, listener: (...args: unknown[]) => void) => (() => void) | void;
+    on: (
+      channel: string,
+      listener: (...args: unknown[]) => void,
+    ) => (() => void) | void;
     send: (channel: string, ...args: unknown[]) => void;
-    removeListener: (channel: string, listener: (...args: unknown[]) => void) => void;
+    removeListener: (
+      channel: string,
+      listener: (...args: unknown[]) => void,
+    ) => void;
     removeAllListeners: (channel: string) => void;
   };
   webFrame?: {

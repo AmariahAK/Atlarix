@@ -67,8 +67,11 @@ function PersistentChatContainer() {
   const navigate = useNavigate();
   const [activeChatId, setActiveChatId] = useAtom(activeChatIdAtom);
   const currentApp = useAtomValue(currentAppAtom);
-  const { visible: rightPanelVisible, toggle: toggleRightPanel, show: showRightPanel } =
-    useRightPanelUserPreference();
+  const {
+    visible: rightPanelVisible,
+    toggle: toggleRightPanel,
+    show: showRightPanel,
+  } = useRightPanelUserPreference();
   const setSuppressAutoOpen = useSetAtom(rightPanelSuppressAutoOpenAtom);
   const setPinnedPanel = useSetAtom(pinnedPanelAtom);
   const setPreviewTab = useSetAtom(previewTabAtom);
@@ -85,35 +88,45 @@ function PersistentChatContainer() {
   const selectedAppId = useAtomValue(selectedAppIdAtom);
 
   // Determine if we're on the home page
-  const isHomePage = location.pathname === '/';
+  const isHomePage = location.pathname === "/";
 
   // Handle continuing the chat conversation (verify workspace path before send)
-  const handleContinueChat = useCallback(async (prompt: string, attachments?: FileAttachment[]) => {
-    if (!activeChatId || (!prompt.trim() && (attachments?.length ?? 0) === 0)) return;
-    if (mustSignIn) {
-      showError("Please sign in to use chat.");
-      return;
-    }
-    try {
-      const chat = await IpcClient.getInstance().getChat(activeChatId);
-      if (chat.appId != null) {
-        const app = await IpcClient.getInstance().getApp(chat.appId);
-        if (app.pathExists === false) {
-          const { showError } = await import("@/lib/toast");
-          showError("Workspace folder not found. It may have been moved or deleted. Remove it from the list and try again.");
-          return;
-        }
+  const handleContinueChat = useCallback(
+    async (prompt: string, attachments?: FileAttachment[]) => {
+      if (!activeChatId || (!prompt.trim() && (attachments?.length ?? 0) === 0))
+        return;
+      if (mustSignIn) {
+        showError("Please sign in to use chat.");
+        return;
       }
-      streamMessage({
-        prompt,
-        chatId: activeChatId,
-        attachments: attachments ?? [],
-      });
-    } catch (e) {
-      console.error("Continue chat check failed:", e);
-      streamMessage({ prompt, chatId: activeChatId, attachments: attachments ?? [] });
-    }
-  }, [activeChatId, streamMessage, mustSignIn]);
+      try {
+        const chat = await IpcClient.getInstance().getChat(activeChatId);
+        if (chat.appId != null) {
+          const app = await IpcClient.getInstance().getApp(chat.appId);
+          if (app.pathExists === false) {
+            const { showError } = await import("@/lib/toast");
+            showError(
+              "Workspace folder not found. It may have been moved or deleted. Remove it from the list and try again.",
+            );
+            return;
+          }
+        }
+        streamMessage({
+          prompt,
+          chatId: activeChatId,
+          attachments: attachments ?? [],
+        });
+      } catch (e) {
+        console.error("Continue chat check failed:", e);
+        streamMessage({
+          prompt,
+          chatId: activeChatId,
+          attachments: attachments ?? [],
+        });
+      }
+    },
+    [activeChatId, streamMessage, mustSignIn],
+  );
 
   const handleNewChat = useCallback(() => {
     const workspaceId = selectedAppId ?? pendingWorkspaceAppId;
@@ -161,7 +174,7 @@ function PersistentChatContainer() {
       className={cn(
         "absolute inset-0 flex flex-col z-10 bg-background",
         // Show when on home page AND has active chat
-        !isHomePage && "hidden"
+        !isHomePage && "hidden",
       )}
     >
       {/* Chat header + content */}
@@ -209,7 +222,9 @@ function PersistentChatContainer() {
               onClick={toggleRightPanel}
               className="flex items-center justify-center w-8 h-8 rounded-lg border border-border/60 bg-background/80 text-muted-foreground hover:text-foreground hover:bg-accent hover:border-border transition-colors shrink-0"
               title={rightPanelVisible ? "Hide panel" : "Show panel"}
-              aria-label={rightPanelVisible ? "Hide right panel" : "Show right panel"}
+              aria-label={
+                rightPanelVisible ? "Hide right panel" : "Show right panel"
+              }
             >
               {rightPanelVisible ? (
                 <ChevronRight className="w-4 h-4 shrink-0" aria-hidden />
@@ -260,7 +275,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   const setActiveChatId = useSetAtom(activeChatIdAtom);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { visible: rightPanelVisible, toggle: toggleRightPanel } = useRightPanelUserPreference();
+  const { visible: rightPanelVisible, toggle: toggleRightPanel } =
+    useRightPanelUserPreference();
   const activeChatId = useAtomValue(activeChatIdAtom);
   const location = useLocation();
 
@@ -281,7 +297,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       enabled: settings?.notificationSound?.enabled ?? true,
       volume: settings?.notificationSound?.volume ?? 0.7,
     });
-  }, [settings?.notificationSound?.enabled, settings?.notificationSound?.volume]);
+  }, [
+    settings?.notificationSound?.enabled,
+    settings?.notificationSound?.volume,
+  ]);
 
   // Home = "/". Show right panel on home when workspace or chat is active.
   const isOnChatPage = location.pathname === "/";
@@ -374,15 +393,17 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       };
     }
 
-    return () => { };
+    return () => {};
   }, [settings?.zoomLevel]);
 
   // Fix: Finding 4 — models.dev background refresh (non-blocking notice)
   useEffect(() => {
-    const unsub = IpcClient.getInstance().onModelsDevStatus(({ message, timedOut }) => {
-      if (!message?.trim()) return;
-      toast.message(message, { duration: timedOut ? 10_000 : 5_000 });
-    });
+    const unsub = IpcClient.getInstance().onModelsDevStatus(
+      ({ message, timedOut }) => {
+        if (!message?.trim()) return;
+        toast.message(message, { duration: timedOut ? 10_000 : 5_000 });
+      },
+    );
     return () => unsub();
   }, []);
 
@@ -419,7 +440,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   // model lists so the picker/display update live, no app restart needed.
   useEffect(() => {
     const unsub = IpcClient.getInstance().onCoreModelsChanged(() => {
-      queryClient.invalidateQueries({ queryKey: ["language-models-by-providers"] });
+      queryClient.invalidateQueries({
+        queryKey: ["language-models-by-providers"],
+      });
       queryClient.invalidateQueries({ queryKey: ["languageModelProviders"] });
     });
     return () => unsub();
@@ -458,53 +481,57 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <CommunityDialog />
           <CommunityPrompts />
           <div>
-          <SidebarProvider>
-            <TitleBar />
-            {showWorkspaceChrome ? <AppSidebar /> : null}
-            <div
-              id="layout-main-content-container"
-              className="relative flex h-screenish w-full overflow-hidden mt-12 mb-4 mr-4 border-t border-l border-border rounded-lg bg-background"
-            >
-              {/* Top-right panel toggle: always on chat page so panel works for web-only chats too */}
-              {isOnChatPage && showWorkspaceChrome && (
-                <button
-                  type="button"
-                  onClick={toggleRightPanel}
-                  className="absolute top-3 right-3 z-20 flex items-center justify-center w-9 h-9 rounded-lg border border-border/60 bg-background/80 text-muted-foreground hover:text-foreground hover:bg-accent hover:border-border transition-colors shadow-sm"
-                  title={rightPanelVisible ? "Hide panel" : "Show panel"}
-                  aria-label={rightPanelVisible ? "Hide right panel" : "Show right panel"}
-                >
-                  {rightPanelVisible ? (
-                    <ChevronRight className="w-4 h-4 shrink-0" aria-hidden />
-                  ) : (
-                    <ChevronLeft className="w-4 h-4 shrink-0" aria-hidden />
-                  )}
-                </button>
-              )}
-              {/* Main content: chat when active, else route content */}
-              <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
-                {/* Auto-update: download progress + ready-to-install banner */}
-                <UpdateBanner />
-                {/* Workspace folder missing (deleted outside app) */}
-                {isOnChatPage && <WorkspaceNotFoundBanner />}
-                {/* Chat overlay on home when a chat is active; full-page routes still render their outlet */}
-                <PersistentChatContainer />
-                <div className="relative z-0 flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
-                  {!suppressOutletForHomeChat && children}
+            <SidebarProvider>
+              <TitleBar />
+              {showWorkspaceChrome ? <AppSidebar /> : null}
+              <div
+                id="layout-main-content-container"
+                className="relative flex h-screenish w-full overflow-hidden mt-12 mb-4 mr-4 border-t border-l border-border rounded-lg bg-background"
+              >
+                {/* Top-right panel toggle: always on chat page so panel works for web-only chats too */}
+                {isOnChatPage && showWorkspaceChrome && (
+                  <button
+                    type="button"
+                    onClick={toggleRightPanel}
+                    className="absolute top-3 right-3 z-20 flex items-center justify-center w-9 h-9 rounded-lg border border-border/60 bg-background/80 text-muted-foreground hover:text-foreground hover:bg-accent hover:border-border transition-colors shadow-sm"
+                    title={rightPanelVisible ? "Hide panel" : "Show panel"}
+                    aria-label={
+                      rightPanelVisible
+                        ? "Hide right panel"
+                        : "Show right panel"
+                    }
+                  >
+                    {rightPanelVisible ? (
+                      <ChevronRight className="w-4 h-4 shrink-0" aria-hidden />
+                    ) : (
+                      <ChevronLeft className="w-4 h-4 shrink-0" aria-hidden />
+                    )}
+                  </button>
+                )}
+                {/* Main content: chat when active, else route content */}
+                <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
+                  {/* Auto-update: download progress + ready-to-install banner */}
+                  <UpdateBanner />
+                  {/* Workspace folder missing (deleted outside app) */}
+                  {isOnChatPage && <WorkspaceNotFoundBanner />}
+                  {/* Chat overlay on home when a chat is active; full-page routes still render their outlet */}
+                  <PersistentChatContainer />
+                  <div className="relative z-0 flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
+                    {!suppressOutletForHomeChat && children}
+                  </div>
                 </div>
-              </div>
-              {/* Right panel: on chat page whenever visible (works for workspace and web-only chats) */}
-              {rightPanelVisible && isOnChatPage && showWorkspaceChrome && (
-                <RightPanel />
-              )}
-              {/* Bottom-left "what's new". Inside this container, not `fixed` on
+                {/* Right panel: on chat page whenever visible (works for workspace and web-only chats) */}
+                {rightPanelVisible && isOnChatPage && showWorkspaceChrome && (
+                  <RightPanel />
+                )}
+                {/* Bottom-left "what's new". Inside this container, not `fixed` on
                   the window, so it sits within the sidebar and the layout's own
                   margins rather than floating over the title bar. Renders nothing
                   unless there is an undismissed note. */}
-              <WhatsNewPanel />
-            </div>
-            <Toaster richColors />
-          </SidebarProvider>
+                <WhatsNewPanel />
+              </div>
+              <Toaster richColors />
+            </SidebarProvider>
           </div>
         </DeepLinkProvider>
       </ThemeProvider>

@@ -8,6 +8,10 @@ import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, fireEvent, screen } from "@testing-library/react";
 import { chatErrorByIdAtom } from "@/atoms/chatAtoms";
+import {
+  COMPASS_REACHABILITY_ERROR,
+  coreExhaustedUserMessage,
+} from "@/shared/billing_copy";
 import { makeFakeIpc, renderWithProviders } from "./helpers";
 
 const fakeIpc = makeFakeIpc();
@@ -93,6 +97,51 @@ describe("chat error banner placement (v11.1)", () => {
       continueAfterQuestions: true,
     });
     expect(store.get(chatErrorByIdAtom).get(CHAT_ID)).toBeUndefined();
+  });
+
+  /**
+   * The Retry row used to render under EVERY error, including the one error it cannot
+   * possibly fix. On an exhausted wallet it re-sent the same request against the same
+   * empty balance — guaranteed to fail identically — while duplicating the credit card's
+   * own "Choose another model" button in its hint text.
+   *
+   * The pair below is the point: suppressed for an exhausted balance, KEPT for a
+   * reachability failure. Asserting only the first would let "hide Retry whenever the
+   * box has its own buttons" pass, which would take Retry away from the transient
+   * failure that most deserves it.
+   */
+  it("hides Retry when the balance is used up — retrying cannot change that", () => {
+    const { store } = renderWithProviders(
+      <SimpleInlineChat chatId={CHAT_ID} onSendMessage={() => {}} />,
+    );
+    act(() => {
+      store.set(
+        chatErrorByIdAtom,
+        new Map([[CHAT_ID, coreExhaustedUserMessage(924)]]),
+      );
+    });
+
+    expect(screen.getByTestId("chat-error-bottom")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(
+      screen.queryByText(/switch models using the selector below/i),
+    ).toBeNull();
+    // And the figure the proxy sent reaches the user.
+    expect(screen.getByText(/\$9\.24/)).toBeTruthy();
+  });
+
+  it("KEEPS Retry when Core was merely unreachable — that one is transient", () => {
+    const { store } = renderWithProviders(
+      <SimpleInlineChat chatId={CHAT_ID} onSendMessage={() => {}} />,
+    );
+    act(() => {
+      store.set(
+        chatErrorByIdAtom,
+        new Map([[CHAT_ID, COMPASS_REACHABILITY_ERROR]]),
+      );
+    });
+
+    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
   });
 
   it("Dismiss clears the error", () => {

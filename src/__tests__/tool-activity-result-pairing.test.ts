@@ -27,7 +27,8 @@ const berry: ToolActivityLike = {
   type: "tool_use",
   toolName: "web_search",
   toolCallId: "call-berry",
-  resultText: '{"sources":[{"url":"https://example.com/berry","title":"Our Real Work"}]}',
+  resultText:
+    '{"sources":[{"url":"https://example.com/berry","title":"Our Real Work"}]}',
 };
 
 const dostoevsky: ToolActivityLike = {
@@ -45,8 +46,9 @@ describe("concurrent calls of one tool keep their own results", () => {
   const activities = [berry, dostoevsky];
 
   it("gives each call its own result", () => {
-    expect(findToolActivityResult(activities, CHAT, "web_search", "call-berry"))
-      .toEqual({ resultText: berry.resultText, detail: undefined });
+    expect(
+      findToolActivityResult(activities, CHAT, "web_search", "call-berry"),
+    ).toEqual({ resultText: berry.resultText, detail: undefined });
     expect(
       findToolActivityResult(activities, CHAT, "web_search", "call-dostoevsky"),
     ).toEqual({ resultText: dostoevsky.resultText, detail: undefined });
@@ -65,12 +67,15 @@ describe("concurrent calls of one tool keep their own results", () => {
   it("is unaffected by which call finished last", () => {
     const reversed = [dostoevsky, berry];
     expect(
-      findToolActivityResult(reversed, CHAT, "web_search", "call-berry").resultText,
+      findToolActivityResult(reversed, CHAT, "web_search", "call-berry")
+        .resultText,
     ).toBe(berry.resultText);
   });
 
   it("returns nothing for a call id that has not reported yet", () => {
-    expect(findToolActivityResult(activities, CHAT, "web_search", "call-third")).toEqual({});
+    expect(
+      findToolActivityResult(activities, CHAT, "web_search", "call-third"),
+    ).toEqual({});
   });
 });
 
@@ -90,6 +95,8 @@ describe("the name fallback still works where there is no call id", () => {
 
   it("never crosses chats", () => {
     const otherChat: ToolActivityLike = { ...berry, chatId: CHAT + 1 };
-    expect(findToolActivityResult([otherChat], CHAT, "web_search", "call-berry")).toEqual({});
+    expect(
+      findToolActivityResult([otherChat], CHAT, "web_search", "call-berry"),
+    ).toEqual({});
   });
 });

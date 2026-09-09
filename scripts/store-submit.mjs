@@ -60,7 +60,9 @@ async function getToken() {
   );
   const data = await res.json();
   if (!data.access_token) {
-    throw new Error(`Token request failed: ${data.error_description || JSON.stringify(data)}`);
+    throw new Error(
+      `Token request failed: ${data.error_description || JSON.stringify(data)}`,
+    );
   }
   return data.access_token;
 }
@@ -84,7 +86,9 @@ async function api(token, method, path, body) {
 async function main() {
   statSync(UPLOAD_PATH);
   const filename = basename(UPLOAD_PATH);
-  console.log(`Package: ${filename} (${(statSync(UPLOAD_PATH).size / 1e6).toFixed(1)} MB)`);
+  console.log(
+    `Package: ${filename} (${(statSync(UPLOAD_PATH).size / 1e6).toFixed(1)} MB)`,
+  );
 
   console.log("Authenticating...");
   const token = await getToken();
@@ -131,7 +135,9 @@ async function main() {
     execSync(`zip -j "${zipPath}" "${UPLOAD_PATH}"`, { stdio: "inherit" });
   }
 
-  console.log(`Uploading to Azure Blob (${(statSync(zipPath).size / 1e6).toFixed(1)} MB)...`);
+  console.log(
+    `Uploading to Azure Blob (${(statSync(zipPath).size / 1e6).toFixed(1)} MB)...`,
+  );
   const zipBuffer = readFileSync(zipPath);
   const uploadRes = await fetch(sub.fileUploadUrl, {
     method: "PUT",
@@ -142,7 +148,9 @@ async function main() {
     body: zipBuffer,
   });
   if (!uploadRes.ok) {
-    throw new Error(`Upload failed: ${uploadRes.status} ${await uploadRes.text()}`);
+    throw new Error(
+      `Upload failed: ${uploadRes.status} ${await uploadRes.text()}`,
+    );
   }
   console.log("Upload complete.");
 

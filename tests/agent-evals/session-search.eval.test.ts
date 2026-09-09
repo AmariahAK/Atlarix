@@ -27,7 +27,9 @@ async function search(args: Record<string, unknown>) {
 describe("session_search over a real session", () => {
   it("finds a fact from an earlier turn, and pages full turns around it", async () => {
     ctx.server.register(
-      scenario("s-search").text("Understood, using the staging bucket.").build(),
+      scenario("s-search")
+        .text("Understood, using the staging bucket.")
+        .build(),
     );
 
     const chatId = await ctx.newChat();
@@ -223,12 +225,20 @@ describe("isolation, against the REAL query", () => {
       content: "delete me: KISUMU-3",
     });
 
-    const before = await search({ query: "KISUMU-3", session: "all", workspaceId: wsId });
+    const before = await search({
+      query: "KISUMU-3",
+      session: "all",
+      workspaceId: wsId,
+    });
     expect(before.result).toContain("KISUMU-3");
 
     await db.delete(chatSessions).where(eq(chatSessions.id, "doomed-session"));
 
-    const after = await search({ query: "KISUMU-3", session: "all", workspaceId: wsId });
+    const after = await search({
+      query: "KISUMU-3",
+      session: "all",
+      workspaceId: wsId,
+    });
     expect(after.success).toBe(true);
     expect(after.result).toContain("No sessions to search.");
   });

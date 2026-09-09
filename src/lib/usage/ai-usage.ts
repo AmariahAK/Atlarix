@@ -6,7 +6,10 @@ export type LooseAiUsage = {
   outputTokens?: number;
   reasoningTokens?: number;
   thinkingTokens?: number;
-  completionTokensDetails?: { reasoningTokens?: number; thinkingTokens?: number };
+  completionTokensDetails?: {
+    reasoningTokens?: number;
+    thinkingTokens?: number;
+  };
   outputTokensDetails?: { reasoningTokens?: number; thinkingTokens?: number };
 };
 
@@ -17,7 +20,9 @@ export function reasoningTokensFromAiUsage(
   if (!usage) return null;
   const u = usage as Record<string, unknown>;
   const direct =
-    (typeof usage.reasoningTokens === "number" ? usage.reasoningTokens : null) ??
+    (typeof usage.reasoningTokens === "number"
+      ? usage.reasoningTokens
+      : null) ??
     (typeof usage.thinkingTokens === "number" ? usage.thinkingTokens : null);
   if (typeof direct === "number" && direct > 0) {
     return Math.round(direct);
@@ -34,8 +39,14 @@ export function reasoningTokensFromAiUsage(
       (typeof ctd.thinkingTokens === "number" ? ctd.thinkingTokens : null);
     if (typeof r === "number" && r > 0) return Math.round(r);
   }
-  const nested = u["completion_tokens_details"] as { reasoning_tokens?: number } | undefined;
-  if (nested && typeof nested.reasoning_tokens === "number" && nested.reasoning_tokens > 0) {
+  const nested = u["completion_tokens_details"] as
+    | { reasoning_tokens?: number }
+    | undefined;
+  if (
+    nested &&
+    typeof nested.reasoning_tokens === "number" &&
+    nested.reasoning_tokens > 0
+  ) {
     return Math.round(nested.reasoning_tokens);
   }
   return null;

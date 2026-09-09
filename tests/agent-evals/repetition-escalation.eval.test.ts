@@ -20,7 +20,9 @@ import { expectNoStreamError, expectStreamEnded } from "../infra/assert";
 let ctx: EvalContext;
 
 beforeAll(async () => {
-  ctx = await setupEvalContext({ seedFiles: { "src/x.ts": "export const x = 1;\n" } });
+  ctx = await setupEvalContext({
+    seedFiles: { "src/x.ts": "export const x = 1;\n" },
+  });
 });
 
 afterAll(async () => {
@@ -37,7 +39,9 @@ describe("repetition escalation — guide, guide harder, circuit-break", () => {
     for (let i = 0; i < 10; i++) {
       b.toolCall("read_file", { path: "src/x.ts" });
     }
-    ctx.server.register(b.text("Summary: I was stuck re-reading x.ts.").repeatLast().build());
+    ctx.server.register(
+      b.text("Summary: I was stuck re-reading x.ts.").repeatLast().build(),
+    );
 
     const chatId = await ctx.newChat();
     const { fakeIpc } = await runTurn(ctx, {

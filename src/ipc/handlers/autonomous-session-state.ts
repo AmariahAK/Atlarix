@@ -17,18 +17,28 @@ const sessionLogs = new Map<string, AutonomousOp[]>();
 /** Serialized bus traffic for a turn (filled when AgentMessage carries turnId). */
 const agentActivityByTurn = new Map<string, Record<string, unknown>[]>();
 
-export function appendAutonomousOp(chatId: number, turnId: string, op: AutonomousOp): void {
+export function appendAutonomousOp(
+  chatId: number,
+  turnId: string,
+  op: AutonomousOp,
+): void {
   const k = sessionKey(chatId, turnId);
   const list = sessionLogs.get(k) ?? [];
   list.push(op);
   sessionLogs.set(k, list);
 }
 
-export function getAutonomousSessionLog(chatId: number, turnId: string): AutonomousOp[] {
+export function getAutonomousSessionLog(
+  chatId: number,
+  turnId: string,
+): AutonomousOp[] {
   return [...(sessionLogs.get(sessionKey(chatId, turnId)) ?? [])];
 }
 
-export function getAgentActivityForTurn(chatId: number, turnId: string): Record<string, unknown>[] {
+export function getAgentActivityForTurn(
+  chatId: number,
+  turnId: string,
+): Record<string, unknown>[] {
   return [...(agentActivityByTurn.get(sessionKey(chatId, turnId)) ?? [])];
 }
 
@@ -56,7 +66,9 @@ export function findAutonomousOp(
   turnId: string,
   operationId: string,
 ): AutonomousOp | undefined {
-  return sessionLogs.get(sessionKey(chatId, turnId))?.find((o) => o.operationId === operationId);
+  return sessionLogs
+    .get(sessionKey(chatId, turnId))
+    ?.find((o) => o.operationId === operationId);
 }
 
 export function autonomousOpFromPermissionExec(

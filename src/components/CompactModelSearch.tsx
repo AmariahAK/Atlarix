@@ -71,14 +71,14 @@ export function CompactModelSearch({
         {
           provider: providerId as LargeLanguageModel["provider"],
           name: model.apiName,
-          customModelId:
-            model.type === "custom" ? model.id : undefined,
+          customModelId: model.type === "custom" ? model.id : undefined,
         },
         {
           catalog,
           modelsByProviders: modelsByProviders ?? undefined,
-          ollamaDisplayName: ollamaModels.find((m) => m.modelName === model.apiName)
-            ?.displayName,
+          ollamaDisplayName: ollamaModels.find(
+            (m) => m.modelName === model.apiName,
+          )?.displayName,
           lmStudioDisplayName: lmStudioModels.find(
             (m) => m.modelName === model.apiName,
           )?.displayName,
@@ -113,7 +113,8 @@ export function CompactModelSearch({
           secondary.toLowerCase().includes(q) ||
           (model.displayName?.toLowerCase().includes(q) ?? false) ||
           (model.apiName?.toLowerCase().includes(q) ?? false);
-        if (match) list.push({ providerId, providerName, model, primary, secondary });
+        if (match)
+          list.push({ providerId, providerName, model, primary, secondary });
       }
     }
     return list.slice(0, 50);
@@ -127,7 +128,9 @@ export function CompactModelSearch({
   };
 
   const displayName =
-    selectedModel?.provider && selectedModel?.name ? modelDisplayName : "Select model";
+    selectedModel?.provider && selectedModel?.name
+      ? modelDisplayName
+      : "Select model";
 
   if (!settings) return null;
 
@@ -145,7 +148,9 @@ export function CompactModelSearch({
         onClick={(e) => e.preventDefault()}
       >
         <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-        <span className="truncate max-w-[180px]">{triggerLabel ?? displayName}</span>
+        <span className="truncate max-w-[180px]">
+          {triggerLabel ?? displayName}
+        </span>
       </button>
     );
   }
@@ -157,11 +162,13 @@ export function CompactModelSearch({
           type="button"
           className={cn(
             "inline-flex items-center gap-2 rounded-md border border-border bg-background px-2 py-1.5 text-sm hover:bg-accent focus:outline-none focus:ring-2 focus:ring-primary/20",
-            className
+            className,
           )}
         >
           <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-          <span className="truncate max-w-[180px]">{triggerLabel ?? displayName}</span>
+          <span className="truncate max-w-[180px]">
+            {triggerLabel ?? displayName}
+          </span>
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -187,35 +194,47 @@ export function CompactModelSearch({
         </div>
         <div className="max-h-[280px] overflow-y-auto p-1">
           {isLoading ? (
-            <p className="text-xs text-muted-foreground py-3 text-center">Loading...</p>
+            <p className="text-xs text-muted-foreground py-3 text-center">
+              Loading...
+            </p>
           ) : filteredOptions.length === 0 ? (
             <p className="text-xs text-muted-foreground py-3 text-center">
-              {searchQuery.trim() ? "No matches. Try openrouter, claude, grok…" : "Type to search providers and models."}
+              {searchQuery.trim()
+                ? "No matches. Try openrouter, claude, grok…"
+                : "Type to search providers and models."}
             </p>
           ) : (
             <div className="space-y-0.5">
-              {filteredOptions.map(({ providerId, model, primary, secondary }) => (
-                <button
-                  key={`${providerId}:${model.apiName}`}
-                  type="button"
-                  onClick={() =>
-                    onSelect({
-                      provider: providerId as LargeLanguageModel["provider"],
-                      name: model.apiName,
-                      ...(model.type === "custom" ? { customModelId: model.id } : {}),
-                    })
-                  }
-                  className={cn(
-                    "w-full text-left px-2 py-1.5 rounded text-sm hover:bg-accent transition-colors",
-                    selectedModel?.provider === providerId &&
-                      selectedModel?.name === model.apiName &&
-                      "bg-secondary"
-                  )}
-                >
-                  <span className="font-medium truncate block">{primary}</span>
-                  <span className="text-xs text-muted-foreground">{secondary}</span>
-                </button>
-              ))}
+              {filteredOptions.map(
+                ({ providerId, model, primary, secondary }) => (
+                  <button
+                    key={`${providerId}:${model.apiName}`}
+                    type="button"
+                    onClick={() =>
+                      onSelect({
+                        provider: providerId as LargeLanguageModel["provider"],
+                        name: model.apiName,
+                        ...(model.type === "custom"
+                          ? { customModelId: model.id }
+                          : {}),
+                      })
+                    }
+                    className={cn(
+                      "w-full text-left px-2 py-1.5 rounded text-sm hover:bg-accent transition-colors",
+                      selectedModel?.provider === providerId &&
+                        selectedModel?.name === model.apiName &&
+                        "bg-secondary",
+                    )}
+                  >
+                    <span className="font-medium truncate block">
+                      {primary}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {secondary}
+                    </span>
+                  </button>
+                ),
+              )}
             </div>
           )}
         </div>

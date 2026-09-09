@@ -3,7 +3,6 @@
  * Good enough for model-readable text from typical exports; not a renderer.
  */
 
-
 export type RtfExtractResult = {
   text: string;
   success: boolean;
@@ -20,7 +19,10 @@ export function extractTextFromRtfBuffer(buffer: Buffer): RtfExtractResult {
       // Binary blobs and embedded objects/pictures (drop group contents).
       // Groups look like `{\fonttbl ...}` or `{\*\themedata ...}` with one
       // level of nesting (font definitions etc.).
-      .replace(/\{(?:\\\*)?\\(?:pict|object|fonttbl|colortbl|stylesheet|info|themedata|datastore)[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g, "")
+      .replace(
+        /\{(?:\\\*)?\\(?:pict|object|fonttbl|colortbl|stylesheet|info|themedata|datastore)[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g,
+        "",
+      )
       // \'hh hex escapes → character.
       .replace(/\\'([0-9a-fA-F]{2})/g, (_, h: string) =>
         String.fromCharCode(parseInt(h, 16)),

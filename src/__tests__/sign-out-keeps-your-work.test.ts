@@ -18,7 +18,10 @@ let signedOutOfSupabase = 0;
 
 vi.mock("@/lib/auth/supabase-client", () => ({
   getSupabaseClient: () => ({ rpc: vi.fn() }),
-  getSubscriptionDetails: vi.fn(async () => ({ status: "active", endsAt: null })),
+  getSubscriptionDetails: vi.fn(async () => ({
+    status: "active",
+    endsAt: null,
+  })),
   getOnboardingCompleted: () => true,
   setOnboardingCompleted: () => {},
 }));
@@ -29,7 +32,11 @@ vi.mock("@/lib/SubscriptionManager", () => ({
     isLoggedIn: () => true,
     isPro: () => false,
     getEffectiveTier: () => "free",
-    canCreateWorkspace: async () => ({ allowed: true, maxAllowed: 1, currentCount: 0 }),
+    canCreateWorkspace: async () => ({
+      allowed: true,
+      maxAllowed: 1,
+      currentCount: 0,
+    }),
     getCurrentWorkspaceDetails: async () => null,
     signOut: async () => {
       signedOutOfSupabase++;
@@ -55,8 +62,8 @@ import { ipcMain } from "electron";
 import { registerAuthHandlers } from "@/ipc/handlers/auth_handlers";
 
 function signOutHandler() {
-  const calls = (ipcMain.handle as unknown as { mock: { calls: unknown[][] } }).mock
-    .calls;
+  const calls = (ipcMain.handle as unknown as { mock: { calls: unknown[][] } })
+    .mock.calls;
   const found = [...calls].reverse().find((c) => c[0] === "auth:sign-out");
   if (!found) throw new Error("auth:sign-out not registered");
   return found[1] as (e: unknown, p?: unknown) => Promise<unknown>;
@@ -113,8 +120,11 @@ describe("auth:sign-out", () => {
     // It deleted every workspace but the OLDEST on sign-in. The cap now gates
     // creation instead (ipc/utils/workspace-quota.ts), so this channel should be
     // gone rather than merely unused.
-    const calls = (ipcMain.handle as unknown as { mock: { calls: unknown[][] } })
-      .mock.calls;
-    expect(calls.some((c) => c[0] === "auth:enforce-workspace-limit")).toBe(false);
+    const calls = (
+      ipcMain.handle as unknown as { mock: { calls: unknown[][] } }
+    ).mock.calls;
+    expect(calls.some((c) => c[0] === "auth:enforce-workspace-limit")).toBe(
+      false,
+    );
   });
 });

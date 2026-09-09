@@ -16,6 +16,10 @@ import { FileUploadsState } from "@/ipc/utils/file_uploads_state";
 import { killForegroundCommandsForChat } from "@/lib/agent/background-commands";
 import { cancelAllSubagentTasksForChat } from "@/lib/tools/spawn-task";
 import {
+  USER_CANCEL_STREAM_STOP,
+  streamStopAbortReason,
+} from "@/lib/stream/stream-stop-sentinels";
+import {
   activeStreams,
   lastStreamRequest,
   streamTurnIdByChatId,
@@ -42,8 +46,10 @@ export function registerLifecycleHandlers(
     const abortController = activeStreams.get(chatId);
 
     if (abortController) {
-      // Abort the stream
-      abortController.abort();
+      // Abort the stream. WITH A REASON: a reason-less abort rejects detached SDK
+      // promises as a bare AbortError, which the process-level net cannot tell from a
+      // real fault — so pressing Stop filed Sentry errors.
+      abortController.abort(streamStopAbortReason(USER_CANCEL_STREAM_STOP));
       activeStreams.delete(chatId);
       logger.log(`Aborted stream for chat ${chatId}`);
     } else {
@@ -89,7 +95,7 @@ export function registerLifecycleHandlers(
     // Clean up uploads state for this chat
     try {
       FileUploadsState.getInstance().clear(chatId);
-    } catch { }
+    } catch {}
 
     return true;
   });
@@ -101,7 +107,7 @@ export function registerLifecycleHandlers(
     const controller = activeStreams.get(chatId);
     if (controller) {
       logger.log(`[chat:abort] User cancelled stream for chat ${chatId}`);
-      controller.abort();
+      controller.abort(streamStopAbortReason(USER_CANCEL_STREAM_STOP));
       activeStreams.delete(chatId);
       // Fix 4: also terminate any blocking foreground run_command + running
       // scout sub-agents so cancel stops in-flight work, not just the request.
@@ -115,9 +121,9 @@ export function registerLifecycleHandlers(
       // Do NOT delete partialResponses here — the stream's catch block will persist
       // the partial response to the DB and then clear it, so the user keeps the
       // cancelled response when they send a follow-up.
-      return { success: true, message: 'AI response cancelled' };
+      return { success: true, message: "AI response cancelled" };
     }
-    return { success: false, message: 'No active stream for this chat' };
+    return { success: false, message: "No active stream for this chat" };
   });
 
   // FIX 4: explicit "reconnect" after the auto-retry sequence gave up. The
@@ -157,7 +163,7 @@ export function registerLifecycleHandlers(
     "chat:edit-message",
     async (
       event,
-      payload: { chatId: number; userMessageId: number; newContent: string }
+      payload: { chatId: number; userMessageId: number; newContent: string },
     ) => {
       const { chatId, userMessageId, newContent } = payload;
       // Ephemeral chats (chatId < 0) live only in-memory (ephemeral-chat transport).
@@ -192,10 +198,16 @@ export function registerLifecycleHandlers(
           pasteAttachments: targetMsg?.pasteAttachments ?? null,
           modelContent: targetMsg?.modelContent ?? null,
         });
-        const expanded = expandAttachmentStubsToModelContent(newContent, pastes);
+        const expanded = expandAttachmentStubsToModelContent(
+          newContent,
+          pastes,
+        );
         newModelContent = expanded !== newContent ? expanded : null;
       } catch (e) {
-        logger.warn("Failed to regenerate model content for edited message:", e);
+        logger.warn(
+          "Failed to regenerate model content for edited message:",
+          e,
+        );
       }
 
       const ok = editTransportUserMessage(
@@ -240,6 +252,6 @@ export function registerLifecycleHandlers(
         });
       }
       return { success: true, persistedToSession };
-    }
+    },
   );
 }

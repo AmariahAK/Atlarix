@@ -91,9 +91,7 @@ describe("git read operations degrade gracefully when git is missing", () => {
   });
 
   it("getCurrentCommitHash returns empty string", async () => {
-    await expect(getCurrentCommitHash({ path: "/tmp/repo" })).resolves.toBe(
-      "",
-    );
+    await expect(getCurrentCommitHash({ path: "/tmp/repo" })).resolves.toBe("");
   });
 });
 

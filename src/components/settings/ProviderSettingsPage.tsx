@@ -6,7 +6,7 @@ import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
-import { } from "@/components/ui/accordion";
+import {} from "@/components/ui/accordion";
 
 import { Button } from "@/components/ui/button";
 import { IpcClient } from "@/ipc/ipc_client";
@@ -128,8 +128,8 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
     | undefined;
   const isVertexConfigured = Boolean(
     vertexSettings?.projectId &&
-    vertexSettings?.location &&
-    vertexSettings?.serviceAccountKey?.value,
+      vertexSettings?.location &&
+      vertexSettings?.serviceAccountKey?.value,
   );
 
   const elasticSettings = settings?.providerSettings?.elastic as
@@ -206,7 +206,6 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
       setIsSaving(false);
     }
   };
-
 
   // Effect to clear input error when input changes
   useEffect(() => {
@@ -314,10 +313,10 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
             <AlertTriangle className="h-4 w-4" />
             <AlertTitle>Keys stored without encryption</AlertTitle>
             <AlertDescription>
-              No OS keystore is available, so provider API keys and sign-in tokens
-              are saved unencrypted on this device. Install a system keyring (e.g.
-              gnome-keyring / libsecret on Linux) and restart — Atlarix will
-              re-encrypt them automatically.
+              No OS keystore is available, so provider API keys and sign-in
+              tokens are saved unencrypted on this device. Install a system
+              keyring (e.g. gnome-keyring / libsecret on Linux) and restart —
+              Atlarix will re-encrypt them automatically.
             </AlertDescription>
           </Alert>
         )}

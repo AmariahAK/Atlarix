@@ -201,7 +201,10 @@ export async function listWorkspaceFilesUnder(
   relDir: string,
 ): Promise<string[]> {
   const all = await listWorkspaceFiles(workspacePath);
-  const dir = relDir.replace(/\\/g, "/").replace(/^\.?\//, "").replace(/\/+$/, "");
+  const dir = relDir
+    .replace(/\\/g, "/")
+    .replace(/^\.?\//, "")
+    .replace(/\/+$/, "");
   if (!dir) return all;
   const prefix = `${dir}/`;
   return all

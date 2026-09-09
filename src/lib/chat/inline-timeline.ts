@@ -1,6 +1,9 @@
 import type { ActivityStreamItem } from "@/atoms/sourceAtoms";
 import type { CompletedTurnThinkingSnapshot } from "@/lib/thinking/extract-thinking-from-content";
-import { browserToolLabel, getToolActivityLabel } from "@/lib/tool-activity-labels";
+import {
+  browserToolLabel,
+  getToolActivityLabel,
+} from "@/lib/tool-activity-labels";
 import { formatToolResultPreview } from "@/lib/chat/stream-tool-display";
 
 export type InlineTimelineToolStatus = "running" | "done" | "error";
@@ -17,7 +20,6 @@ export type InlineTimelineItem =
       timestamp: number;
     };
 
-
 export function summarizeToolActivityItem(item: ActivityStreamItem): string {
   const name = (item.toolName ?? item.label ?? "tool").trim();
   // Browser/preview tools read best as a concrete past-tense action with the
@@ -32,7 +34,10 @@ export function summarizeToolActivityItem(item: ActivityStreamItem): string {
   if (detail.startsWith("{") || detail.startsWith("[")) {
     let failed = item.status === "error";
     try {
-      const parsed = JSON.parse(detail) as { success?: boolean; error?: unknown };
+      const parsed = JSON.parse(detail) as {
+        success?: boolean;
+        error?: unknown;
+      };
       failed = failed || parsed?.success === false || Boolean(parsed?.error);
     } catch {
       /* not strict JSON — let the formatter decide */
@@ -48,7 +53,7 @@ export function summarizeToolActivityItem(item: ActivityStreamItem): string {
         return `${base}: ${preview.split(/\r?\n/)[0]?.trim()}`;
       }
       // Read previews are already a full "Read …" sentence.
-      if (preview.startsWith('Read ')) return preview;
+      if (preview.startsWith("Read ")) return preview;
       detail = preview.split(/\r?\n/)[0]?.trim() ?? "";
     } else {
       detail = "";
@@ -62,12 +67,10 @@ export function summarizeToolActivityItem(item: ActivityStreamItem): string {
     if (range) return `Read ${path} L${range[1]}–${range[2]}`;
     return `Read ${detail.slice(0, 80)}`;
   }
-  if (
-    name === "search_code" ||
-    name === "search" ||
-    lower.includes("grep")
-  ) {
-    return detail ? `Grepped for ${detail.slice(0, 72)}` : "Ran codebase search";
+  if (name === "search_code" || name === "search" || lower.includes("grep")) {
+    return detail
+      ? `Grepped for ${detail.slice(0, 72)}`
+      : "Ran codebase search";
   }
   if (name === "explore_folder" || name === "list_files") {
     return detail ? `Explored ${detail.slice(0, 72)}` : "Explored files";

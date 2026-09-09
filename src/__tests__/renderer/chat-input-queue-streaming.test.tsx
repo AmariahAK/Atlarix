@@ -30,7 +30,9 @@ const CHAT_ID = 7;
 
 // Heavy/irrelevant deps stubbed — this test asserts composer behavior only.
 vi.mock("@/hooks/useSettings", () => ({
-  useSettings: () => ({ settings: { selectedModel: { name: "m", provider: "p" } } }),
+  useSettings: () => ({
+    settings: { selectedModel: { name: "m", provider: "p" } },
+  }),
 }));
 vi.mock("@/lib/auth/useAuth", () => ({
   useAuth: () => ({ isAuthenticated: true, loading: false }),
@@ -53,8 +55,12 @@ vi.mock("@/components/ChatInputControls", () => ({
   ChatInputControls: () => null,
 }));
 vi.mock("@/components/chat/TokenBar", () => ({ TokenBar: () => null }));
-vi.mock("@/components/chat/AttachmentsList", () => ({ AttachmentsList: () => null }));
-vi.mock("@/components/chat/SignInToChatNotice", () => ({ SignInToChatNotice: () => null }));
+vi.mock("@/components/chat/AttachmentsList", () => ({
+  AttachmentsList: () => null,
+}));
+vi.mock("@/components/chat/SignInToChatNotice", () => ({
+  SignInToChatNotice: () => null,
+}));
 
 /**
  * A stand-in for main's queue: the same list the real store keeps, so the
@@ -158,9 +164,13 @@ describe("chat input — mid-turn messages while streaming", () => {
   });
 
   it("swaps Send for Stop while streaming — never both", () => {
-    renderWithProviders(<SimpleChatInput chatId={CHAT_ID} onSubmit={() => {}} />);
+    renderWithProviders(
+      <SimpleChatInput chatId={CHAT_ID} onSubmit={() => {}} />,
+    );
     expect(
-      screen.getByTitle("Stop generation (Enter sends your message to the running turn)"),
+      screen.getByTitle(
+        "Stop generation (Enter sends your message to the running turn)",
+      ),
     ).toBeInTheDocument();
     expect(screen.queryByTitle("Send")).not.toBeInTheDocument();
   });
@@ -174,7 +184,9 @@ describe("chat input — mid-turn messages while streaming", () => {
     });
     expect(screen.getByTitle("Send")).toBeInTheDocument();
     expect(
-      screen.queryByTitle("Stop generation (Enter sends your message to the running turn)"),
+      screen.queryByTitle(
+        "Stop generation (Enter sends your message to the running turn)",
+      ),
     ).not.toBeInTheDocument();
   });
 
@@ -205,7 +217,10 @@ describe("chat input — mid-turn messages while streaming", () => {
     fireEvent.click(rows[1]!);
     await waitFor(() => {
       expect(
-        store.get(pendingInterjectionsByChatIdAtom).get(CHAT_ID)?.map((m) => m.text),
+        store
+          .get(pendingInterjectionsByChatIdAtom)
+          .get(CHAT_ID)
+          ?.map((m) => m.text),
       ).toEqual(["keep me"]);
     });
     expect(cancel).toHaveBeenCalledWith(CHAT_ID, "b");

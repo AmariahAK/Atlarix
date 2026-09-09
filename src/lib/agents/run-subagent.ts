@@ -30,6 +30,12 @@ import { estimateTokens } from "@/ipc/utils/token_utils";
 import { recordAuxUsage } from "@/lib/usage/turn-usage-aggregator";
 import { estimateModelMessagesTokens } from "@/lib/ai/native-history";
 import { ToolRegistry } from "@/lib/tools/registry";
+import {
+  isInsufficientCreditError,
+  requiredCentsFromError,
+} from "@/lib/billing/insufficient-credit";
+import { markCreditExhausted } from "@/lib/agents/credit-halt";
+import { coreExhaustedUserMessage } from "@/shared/billing_copy";
 import { loadSkill } from "../skills/skill-loader";
 import { runSubagentCommandViaParent } from "./subagent-command";
 import { readSettings } from "../../main/settings";
@@ -333,9 +339,10 @@ export async function runSubagent(
       const genericSkill = isImplement
         ? "subagents/subagent-writer"
         : "subagents/subagent";
-      systemPrompt = (
-        await loadSkill(genericSkill, workspace || undefined)
-      ).trim();
+      // BUNDLED ONLY. A repo could previously supply
+      // `.atlarix/skills/subagents/subagent-writer.md` and replace this ENTIRE prompt —
+      // for the write-capable variant. See `skill-loader.ts`.
+      systemPrompt = (await loadSkill(genericSkill)).trim();
     }
     if (!systemPrompt.trim()) {
       return { success: false, error: "Missing sub-agent system prompt" };
@@ -507,7 +514,8 @@ export async function runSubagent(
               success?: boolean;
               error?: string;
             };
-            if (parsed?.error || parsed?.success === false) toolStatus = "error";
+            if (parsed?.error || parsed?.success === false)
+              toolStatus = "error";
           } catch {
             /* plain text result */
           }
@@ -575,7 +583,13 @@ export async function runSubagent(
         // so the turn's growing tool tail must cache incrementally too.
         prepareStep:
           cacheMarkerPlacement !== "none"
-            ? ({ messages, stepNumber }: { messages: ModelMessage[]; stepNumber: number }) =>
+            ? ({
+                messages,
+                stepNumber,
+              }: {
+                messages: ModelMessage[];
+                stepNumber: number;
+              }) =>
                 stepNumber > 0
                   ? {
                       messages: advanceCacheBreakpointsForStep(
@@ -587,12 +601,28 @@ export async function runSubagent(
             : undefined,
       } as Parameters<typeof streamText>[0]);
 
+      /**
+       * The provider's real failure, if the stream reported one.
+       *
+       * THE `error` PART IS THE ONLY PLACE A CHILD EVER SEES IT. This loop used to
+       * handle just the two delta types, so the part carrying `statusCode: 402` and
+       * the response body was dropped on the floor; with no steps recorded the SDK
+       * then rejected with `NoOutputGeneratedError("Check the stream for errors")`,
+       * and by the time anything caught that, the status and body were gone. That is
+       * how an empty wallet reached the parent looking like an ordinary retryable
+       * tool failure — which the model then retried, each retry a fresh 402.
+       */
+      let streamError: unknown;
       for await (const part of stream.stream) {
-        const p = part as { type: string; text?: string };
+        const p = part as { type: string; text?: string; error?: unknown };
         if (p.type === "reasoning-delta" && p.text) {
           rolling.pushReasoning(p.text);
         } else if (p.type === "text-delta" && p.text) {
           rolling.pushText(p.text);
+        } else if (p.type === "error") {
+          // Keep the FIRST. Later error parts on a failing stream are usually
+          // consequences of the first, which is the one that names the cause.
+          streamError ??= p.error ?? p;
         }
       }
       rolling.finish();
@@ -604,7 +634,12 @@ export async function runSubagent(
         stream.usage,
         stream.response,
         stream.steps,
-      ]);
+      ]).catch((err: unknown) => {
+        // Prefer the captured cause over the SDK's generic rejection. Reached ONLY
+        // when the SDK itself failed, so a stream that emitted a recoverable error
+        // part and still produced text keeps its result untouched.
+        throw streamError ?? err;
+      });
       round += 1;
       return { text, finishReason, usage, response, steps };
     };
@@ -629,15 +664,21 @@ export async function runSubagent(
     let result = await runRound();
     totalSteps += result.steps?.length ?? 0;
     {
-      const recorded = recordAuxUsage(args.chatId, result.usage, "subagent:task", {
-        estimateTokens: () => {
-          anyRoundEstimated = true;
-          return estimateRoundTokens(msgs, result.text);
+      const recorded = recordAuxUsage(
+        args.chatId,
+        result.usage,
+        "subagent:task",
+        {
+          estimateTokens: () => {
+            anyRoundEstimated = true;
+            return estimateRoundTokens(msgs, result.text);
+          },
         },
-      });
+      );
       subagentTokens += recorded ?? 0;
     }
-    if (subagentTokens > 0) emit?.({ type: "subagent_tokens", tokens: subagentTokens });
+    if (subagentTokens > 0)
+      emit?.({ type: "subagent_tokens", tokens: subagentTokens });
 
     while (
       shouldContinue(result.finishReason, {
@@ -675,15 +716,21 @@ export async function runSubagent(
       result = await runRound();
       totalSteps += result.steps?.length ?? 0;
       {
-        const recorded = recordAuxUsage(args.chatId, result.usage, "subagent:task", {
-          estimateTokens: () => {
-            anyRoundEstimated = true;
-            return estimateRoundTokens(msgs, result.text);
+        const recorded = recordAuxUsage(
+          args.chatId,
+          result.usage,
+          "subagent:task",
+          {
+            estimateTokens: () => {
+              anyRoundEstimated = true;
+              return estimateRoundTokens(msgs, result.text);
+            },
           },
-        });
+        );
         subagentTokens += recorded ?? 0;
       }
-      if (subagentTokens > 0) emit?.({ type: "subagent_tokens", tokens: subagentTokens });
+      if (subagentTokens > 0)
+        emit?.({ type: "subagent_tokens", tokens: subagentTokens });
     }
 
     const toolNames: string[] = [];
@@ -713,12 +760,29 @@ export async function runSubagent(
     return {
       success: true,
       summary:
-        (result.text?.trim() || "(No summary produced)") + toolsFooter + tokensFooter,
+        (result.text?.trim() || "(No summary produced)") +
+        toolsFooter +
+        tokensFooter,
       stepsUsed: totalSteps,
       tokensUsed: subagentTokens,
     };
   } catch (err) {
     logger.error(`runSubagent failed (id=${delegationId}):`, err);
+    /**
+     * A child's 402 must stop the ROUND, not just this child.
+     *
+     * Latched HERE because this is the last frame holding the raw error, and because
+     * the return value alone is too late to be useful: siblings are already streaming
+     * and more may be parked behind the delegation limiter, so by the time the parent
+     * reads this result they would each have opened their own 402-bound call. The
+     * classified message is stored with the latch so every subsequent refusal in the
+     * turn says the same thing, including the required amount.
+     */
+    if (isInsufficientCreditError(err)) {
+      const message = coreExhaustedUserMessage(requiredCentsFromError(err));
+      markCreditExhausted(args.chatId, message);
+      return { success: false, error: message };
+    }
     return {
       success: false,
       error: err instanceof Error ? err.message : String(err),

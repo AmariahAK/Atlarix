@@ -27,14 +27,16 @@ export function terminalScopeKey(
 }
 
 /** Persisted terminal tabs per chat/workspace scope */
-export const terminalInstancesByScopeAtom = atom<Record<string, TerminalInstance[]>>(
-  {},
-);
+export const terminalInstancesByScopeAtom = atom<
+  Record<string, TerminalInstance[]>
+>({});
 
 /** Active terminal tab id per scope */
-export const activeTerminalInstanceByScopeAtom = atom<Record<string, string>>({});
-
-/** Maps agent operationId → terminal instance id per scope */
-export const terminalAgentOpMapByScopeAtom = atom<Record<string, Record<string, string>>>(
+export const activeTerminalInstanceByScopeAtom = atom<Record<string, string>>(
   {},
 );
+
+/** Maps agent operationId → terminal instance id per scope */
+export const terminalAgentOpMapByScopeAtom = atom<
+  Record<string, Record<string, string>>
+>({});

@@ -80,7 +80,11 @@ describe("readMemoryIndex", () => {
     // A leftover index must not advertise memory that isn't there.
     const dir = memoryDirFor(wsA);
     await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(path.join(dir, MEMORY_INDEX_FILE), "# Memory Index\n", "utf8");
+    await fs.writeFile(
+      path.join(dir, MEMORY_INDEX_FILE),
+      "# Memory Index\n",
+      "utf8",
+    );
     expect(await readMemoryIndex(wsA)).toBeNull();
   });
 
@@ -160,7 +164,9 @@ describe("appendIndexLine", () => {
 
 describe("migrateLegacyMemoryMd", () => {
   it("carries a pre-v14.23.0 memory.md into the store with an index line", async () => {
-    expect(await migrateLegacyMemoryMd(wsA, "# Stack\nVite + Electron")).toBe(true);
+    expect(await migrateLegacyMemoryMd(wsA, "# Stack\nVite + Electron")).toBe(
+      true,
+    );
     const note = await fs.readFile(
       path.join(memoryDirFor(wsA), "project-notes.md"),
       "utf8",

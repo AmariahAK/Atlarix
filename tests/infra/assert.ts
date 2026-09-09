@@ -68,10 +68,7 @@ export async function expectDbSessionMessage(
 }
 
 /** The terminal `chat:response:end` for a chat (every turn must send one). */
-export function expectStreamEnded(
-  sends: RecordedSend[],
-  chatId: number,
-): void {
+export function expectStreamEnded(sends: RecordedSend[], chatId: number): void {
   const ends = sends.filter(
     (s) => s.channel === "chat:response:end" && s.payload?.chatId === chatId,
   );

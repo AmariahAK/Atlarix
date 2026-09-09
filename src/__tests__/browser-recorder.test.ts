@@ -12,13 +12,38 @@ describe("browser session recorder (verifiable artifact)", () => {
   afterEach(() => clearBrowserRecording(CHAT));
 
   it("records actions in order and renders a reviewable walkthrough", () => {
-    recordBrowserAction(CHAT, "navigate", "https://app.test/login", "https://app.test/login");
-    recordBrowserAction(CHAT, "fill", 'input#email = "a@b.com"', "https://app.test/login");
-    recordBrowserAction(CHAT, "click", "button[type=submit]", "https://app.test/login");
-    recordBrowserAction(CHAT, "screenshot", "viewport @ app.test", "https://app.test/home");
+    recordBrowserAction(
+      CHAT,
+      "navigate",
+      "https://app.test/login",
+      "https://app.test/login",
+    );
+    recordBrowserAction(
+      CHAT,
+      "fill",
+      'input#email = "a@b.com"',
+      "https://app.test/login",
+    );
+    recordBrowserAction(
+      CHAT,
+      "click",
+      "button[type=submit]",
+      "https://app.test/login",
+    );
+    recordBrowserAction(
+      CHAT,
+      "screenshot",
+      "viewport @ app.test",
+      "https://app.test/home",
+    );
 
     const steps = getBrowserRecording(CHAT);
-    expect(steps.map((s) => s.type)).toEqual(["navigate", "fill", "click", "screenshot"]);
+    expect(steps.map((s) => s.type)).toEqual([
+      "navigate",
+      "fill",
+      "click",
+      "screenshot",
+    ]);
 
     const art = formatBrowserRecordingArtifact(CHAT)!;
     expect(art).toContain("Browser session walkthrough (4 steps)");

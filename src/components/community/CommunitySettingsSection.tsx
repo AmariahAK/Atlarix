@@ -19,7 +19,8 @@ export function CommunitySettingsSection() {
   // Otherwise the second person to sign in on a shared machine would be shown
   // someone else's answer and never get to give their own.
   const stored = settings?.acquisitionSource ?? null;
-  const answered = stored && stored.userId === (user?.id ?? null) ? stored : null;
+  const answered =
+    stored && stored.userId === (user?.id ?? null) ? stored : null;
 
   const openPeerPush = () => {
     void IpcClient.getInstance().recordPeerPushPrompt("clicked");
@@ -27,7 +28,10 @@ export function CommunitySettingsSection() {
   };
 
   return (
-    <div id="community" className="bg-card rounded-xl shadow-sm p-6 border border-border">
+    <div
+      id="community"
+      className="bg-card rounded-xl shadow-sm p-6 border border-border"
+    >
       <h2 className="text-lg font-medium text-foreground mb-4">Community</h2>
 
       <div className="space-y-6">
@@ -35,7 +39,9 @@ export function CommunitySettingsSection() {
           <Button
             variant="outline"
             className="gap-2"
-            onClick={() => void IpcClient.getInstance().openExternalUrl(DISCORD_INVITE_URL)}
+            onClick={() =>
+              void IpcClient.getInstance().openExternalUrl(DISCORD_INVITE_URL)
+            }
           >
             <MessageCircle className="h-4 w-4" aria-hidden />
             Join the Discord
@@ -46,8 +52,9 @@ export function CommunitySettingsSection() {
           </Button>
         </div>
         <p className="text-xs text-muted-foreground">
-          Questions, bugs and early builds get discussed in the Discord. A PeerPush review is the
-          single most useful thing you can do to help other developers find Atlarix.
+          Questions, bugs and early builds get discussed in the Discord. A
+          PeerPush review is the single most useful thing you can do to help
+          other developers find Atlarix.
         </p>
 
         <div className="border-t border-border pt-5">
@@ -55,8 +62,8 @@ export function CommunitySettingsSection() {
             Where did you hear about Atlarix?
           </h3>
           <p className="text-xs text-muted-foreground mb-3">
-            Asked once. It's the one thing analytics can't tell us — a download carries no trace of
-            the person or post that sent you here.
+            Asked once. It's the one thing analytics can't tell us — a download
+            carries no trace of the person or post that sent you here.
           </p>
           <AcquisitionSourceQuestion
             answeredSource={answered}

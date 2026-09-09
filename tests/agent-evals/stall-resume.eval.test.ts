@@ -18,7 +18,9 @@ import { expectNoStreamError, expectStreamEnded } from "../infra/assert";
 let ctx: EvalContext;
 
 beforeAll(async () => {
-  ctx = await setupEvalContext({ seedFiles: { "src/x.ts": "export const x = 1;\n" } });
+  ctx = await setupEvalContext({
+    seedFiles: { "src/x.ts": "export const x = 1;\n" },
+  });
 });
 
 afterAll(async () => {
@@ -63,6 +65,8 @@ describe("idle-stall detection and recovery", () => {
     // recovered round), and the turn produced its final answer.
     const reqs = ctx.server.requestsFor("stall-run") as RecordedRequest[];
     expect(reqs.length).toBeGreaterThanOrEqual(3);
-    expect(JSON.stringify(turn.fakeIpc.sends)).toContain("Resumed and finished.");
+    expect(JSON.stringify(turn.fakeIpc.sends)).toContain(
+      "Resumed and finished.",
+    );
   });
 });

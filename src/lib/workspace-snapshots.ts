@@ -33,7 +33,7 @@ export async function createSnapshot(
   appId: number,
   name: string,
   appPath: string,
-  chatMessages?: Array<{ role: string; content: string }>
+  chatMessages?: Array<{ role: string; content: string }>,
 ): Promise<{ id: number }> {
   const fullPath = path.isAbsolute(appPath) ? appPath : resolveAppPath(appPath);
 
@@ -70,7 +70,9 @@ export async function createSnapshot(
     })
     .returning({ id: workspaceSnapshots.id });
 
-  logger.log(`Created snapshot ${snapshot.id} for app ${appId}: ${Object.keys(files).length} files`);
+  logger.log(
+    `Created snapshot ${snapshot.id} for app ${appId}: ${Object.keys(files).length} files`,
+  );
   return { id: snapshot.id };
 }
 
@@ -92,13 +94,14 @@ export async function listSnapshots(appId: number): Promise<
     id: r.id,
     name: r.name,
     createdAt: r.createdAt,
-    fileCount: Object.keys((r.filesJson as Record<string, string>) || {}).length,
+    fileCount: Object.keys((r.filesJson as Record<string, string>) || {})
+      .length,
   }));
 }
 
 export async function restoreSnapshot(
   snapshotId: number,
-  appPath: string
+  appPath: string,
 ): Promise<{ success: boolean; error?: string }> {
   const [snapshot] = await db
     .select()
@@ -118,7 +121,9 @@ export async function restoreSnapshot(
       await fs.mkdir(path.dirname(abs), { recursive: true });
       await fs.writeFile(abs, content, "utf-8");
     }
-    logger.log(`Restored snapshot ${snapshotId}: ${Object.keys(files).length} files`);
+    logger.log(
+      `Restored snapshot ${snapshotId}: ${Object.keys(files).length} files`,
+    );
     return { success: true };
   } catch (e) {
     logger.error("Restore failed:", e);
@@ -141,6 +146,9 @@ export async function getSnapshotForRestore(snapshotId: number): Promise<{
   if (!snapshot) return null;
   return {
     promptContent: snapshot.promptContent,
-    chatMessages: snapshot.chatMessagesJson as Array<{ role: string; content: string }> | null,
+    chatMessages: snapshot.chatMessagesJson as Array<{
+      role: string;
+      content: string;
+    }> | null,
   };
 }

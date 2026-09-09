@@ -13,7 +13,10 @@ import { getStreamTransport } from "@/lib/chat/stream-transport";
 
 const logger = log.scope("chat_stream_handlers");
 
-export async function awaitWithTimeout(p: Promise<unknown>, ms: number): Promise<void> {
+export async function awaitWithTimeout(
+  p: Promise<unknown>,
+  ms: number,
+): Promise<void> {
   await Promise.race([
     p.catch(() => undefined),
     new Promise<void>((resolve) => setTimeout(resolve, ms)),
@@ -33,13 +36,18 @@ export async function awaitWithTimeout(p: Promise<unknown>, ms: number): Promise
  */
 export async function isTextFile(filePath: string): Promise<boolean> {
   const { open } = await import("node:fs/promises");
-  const { classifyContent, SNIFF_SAMPLE_BYTES } = await import("@/lib/file-content-type");
+  const { classifyContent, SNIFF_SAMPLE_BYTES } = await import(
+    "@/lib/file-content-type"
+  );
   let handle;
   try {
     handle = await open(filePath, "r");
     const buf = Buffer.alloc(SNIFF_SAMPLE_BYTES);
     const { bytesRead } = await handle.read(buf, 0, SNIFF_SAMPLE_BYTES, 0);
-    return classifyContent(new Uint8Array(buf.subarray(0, bytesRead))).kind === "text";
+    return (
+      classifyContent(new Uint8Array(buf.subarray(0, bytesRead))).kind ===
+      "text"
+    );
   } catch (err) {
     // Unreadable is not "binary" — say so and let the caller skip the preview.
     logger.warn(`isTextFile: could not sample ${filePath}: ${String(err)}`);
@@ -67,8 +75,7 @@ export async function performFullRevert(params: {
   error?: string;
   restoredFiles?: number;
 }> {
-  const { chatId, turnId, assistantMessageId, workspacePath } =
-    params;
+  const { chatId, turnId, assistantMessageId, workspacePath } = params;
   const skipMessageFlags = params.options?.skipMessageFlags ?? false;
   const filesFilter = params.options?.filesFilter;
 

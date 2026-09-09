@@ -77,7 +77,11 @@ export async function prepareMessageWithAttachments({
   attachmentInfoForModel: string;
   /** Current-turn image attachments to embed as native image parts. The
    * CALLER gates on vision capability — pass [] for non-vision dispatches. */
-  imageAttachments?: Array<{ filename: string; mimeType: string; data: string }>;
+  imageAttachments?: Array<{
+    filename: string;
+    mimeType: string;
+    data: string;
+  }>;
   /**
    * Current-turn PDFs to send as native document parts. The CALLER gates on
    * `detectPdfCapability` — pass [] and the local text extraction runs instead,
@@ -136,14 +140,18 @@ export async function prepareMessageWithAttachments({
     notes.push(
       `The attached image${embeddable.length > 1 ? "s are" : " is"} embedded below (${embeddable
         .map((a) => a.filename)
-        .join(", ")}) — you can view ${embeddable.length > 1 ? "them" : "it"} directly; read_attachment is NOT needed for embedded images.`,
+        .join(
+          ", ",
+        )}) — you can view ${embeddable.length > 1 ? "them" : "it"} directly; read_attachment is NOT needed for embedded images.`,
     );
   }
   if (embeddablePdfs.length > 0) {
     notes.push(
       `The attached PDF${embeddablePdfs.length > 1 ? "s are" : " is"} embedded below (${embeddablePdfs
         .map((a) => a.filename)
-        .join(", ")}) — you can read ${embeddablePdfs.length > 1 ? "them" : "it"} directly, including scanned pages, tables and layout; read_attachment is NOT needed for ${embeddablePdfs.length > 1 ? "them" : "it"}.`,
+        .join(
+          ", ",
+        )}) — you can read ${embeddablePdfs.length > 1 ? "them" : "it"} directly, including scanned pages, tables and layout; read_attachment is NOT needed for ${embeddablePdfs.length > 1 ? "them" : "it"}.`,
     );
   }
 

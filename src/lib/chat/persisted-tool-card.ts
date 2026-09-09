@@ -46,14 +46,17 @@ export function getPersistedToolSummary(
     noopSummary(part.toolName, part.resultText) ??
     getToolCompletedSummary(part.toolName, toolArgs);
   if (hint) {
-    const short =
-      hint.length > 56 ? `${hint.slice(0, 55)}…` : hint;
+    const short = hint.length > 56 ? `${hint.slice(0, 55)}…` : hint;
     return `${base} · ${short}`;
   }
   // For result-count tools (MCP / web), surface a concise count from the result
   // text so reloaded cards match the live summary (e.g. "3 MCP servers · 12 tools").
   if (COUNT_SUMMARY_TOOLS.has(part.toolName) && part.resultText?.trim()) {
-    const preview = formatToolResultPreview(part.toolName, part.resultText, "done");
+    const preview = formatToolResultPreview(
+      part.toolName,
+      part.resultText,
+      "done",
+    );
     if (preview && preview !== "Done" && !preview.includes("\n")) {
       const short = preview.length > 64 ? `${preview.slice(0, 63)}…` : preview;
       return `${base} · ${short}`;
@@ -75,19 +78,13 @@ export function getPersistedToolExpandView(
 ): ToolExpandView {
   if (part.status === "running") return { kind: "none" };
 
-  const status =
-    part.status === "error" ? "error" : ("done" as const);
+  const status = part.status === "error" ? "error" : ("done" as const);
 
   if (!part.resultText?.trim() && part.error?.trim()) {
     return { kind: "text", body: part.error.trim(), isError: true };
   }
 
-  return buildToolExpandView(
-    part.toolName,
-    part.args,
-    part.resultText,
-    status,
-  );
+  return buildToolExpandView(part.toolName, part.args, part.resultText, status);
 }
 
 export function persistedToolPartToStreamCard(

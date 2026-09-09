@@ -37,9 +37,15 @@ function coerceStringArray(raw: unknown): string[] | undefined {
       .map((l) => l.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, "").trim())
       .filter(Boolean);
     if (byNl.length > 1) return [...new Set(byNl)];
-    const byPipe = t.split(/\s*\|\s*/).map((s) => s.trim()).filter(Boolean);
+    const byPipe = t
+      .split(/\s*\|\s*/)
+      .map((s) => s.trim())
+      .filter(Boolean);
     if (byPipe.length > 1) return [...new Set(byPipe)];
-    const bySemi = t.split(/\s*;\s*/).map((s) => s.trim()).filter(Boolean);
+    const bySemi = t
+      .split(/\s*;\s*/)
+      .map((s) => s.trim())
+      .filter(Boolean);
     if (bySemi.length > 1) return [...new Set(bySemi)];
     try {
       const j = JSON.parse(t) as unknown;
@@ -74,8 +80,13 @@ function extractChoiceLinesFromQuestion(
     return { headline: head, options: bulletOrNumber };
   }
 
-  const mcCue = /\b(pick one|choose one|select one|which (?:option|one))\b/i.test(head);
-  if (mcCue && rest.length >= 2 && rest.every((l) => l.length > 0 && l.length <= 220)) {
+  const mcCue =
+    /\b(pick one|choose one|select one|which (?:option|one))\b/i.test(head);
+  if (
+    mcCue &&
+    rest.length >= 2 &&
+    rest.every((l) => l.length > 0 && l.length <= 220)
+  ) {
     return { headline: head, options: rest };
   }
 
@@ -83,15 +94,22 @@ function extractChoiceLinesFromQuestion(
 }
 
 /** e.g. "What … today? Pick one: A, B, C" on one line (uses last `:` before list). */
-function extractCommaChoicesAfterCue(question: string): { headline: string; options: string[] } | null {
-  if (!/\b(pick one|choose one|select one|which (?:option|one))\b/i.test(question)) {
+function extractCommaChoicesAfterCue(
+  question: string,
+): { headline: string; options: string[] } | null {
+  if (
+    !/\b(pick one|choose one|select one|which (?:option|one))\b/i.test(question)
+  ) {
     return null;
   }
   const lastColon = question.lastIndexOf(":");
   if (lastColon === -1) return null;
   const after = question.slice(lastColon + 1).trim();
   if (!after || /[\r\n]/.test(after)) return null;
-  const opts = after.split(/,\s+/).map((s) => s.trim()).filter(Boolean);
+  const opts = after
+    .split(/,\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
   if (opts.length < 2) return null;
   const headline = question.slice(0, lastColon).trim();
   return { headline: headline || question.trim(), options: opts };
@@ -128,7 +146,13 @@ export function normalizeAskUserQuestions(
         const rec = item as Record<string, unknown>;
         const norm = normalizeAskUserPayload({
           question:
-            rec.question ?? rec.text ?? rec.prompt ?? rec.header ?? rec.title ?? rec.label ?? "",
+            rec.question ??
+            rec.text ??
+            rec.prompt ??
+            rec.header ??
+            rec.title ??
+            rec.label ??
+            "",
           options: rec.options ?? rec.choices ?? rec.answers,
         });
         if (norm.question.trim()) out.push(norm);
@@ -145,7 +169,12 @@ export function normalizeAskUserPayload(args: Record<string, unknown>): {
   options?: string[];
 } {
   const rawQuestion = String(
-    args.question ?? args.prompt ?? args.text ?? args.header ?? args.title ?? "",
+    args.question ??
+      args.prompt ??
+      args.text ??
+      args.header ??
+      args.title ??
+      "",
   );
   const fromParams =
     coerceStringArray(args.options) ??

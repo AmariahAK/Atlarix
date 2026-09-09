@@ -72,7 +72,10 @@ describe("dispatch dedup leaves no duplicate web_search", () => {
 
   it("anthropic: client web_search replaced by the native tool under the same key", () => {
     const support = getNativeWebSearchSupport("anthropic", "claude-sonnet-4-5");
-    const out = applyDedup(baseTools, support) as Record<string, { __native?: boolean }>;
+    const out = applyDedup(baseTools, support) as Record<
+      string,
+      { __native?: boolean }
+    >;
     expect(out.web_search).toEqual({ __native: true });
     // exactly one web_search entry — object keys are unique by construction
     expect(Object.keys(out).filter((k) => k === "web_search")).toHaveLength(1);

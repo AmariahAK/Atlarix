@@ -49,13 +49,21 @@ describe("getMaxTokensWithFloor — reasoning-aware floor (#6)", () => {
 
   it("uses the catalog output limit when present", async () => {
     (findLanguageModel as any).mockResolvedValue({ maxOutputTokens: 64_000 });
-    expect(await getMaxTokensWithFloor(model, { reasoningCapable: true })).toBe(64_000);
+    expect(await getMaxTokensWithFloor(model, { reasoningCapable: true })).toBe(
+      64_000,
+    );
   });
 
   it("on a catalog miss, reasoning models get a higher floor than the default 8192", async () => {
-    (findLanguageModel as any).mockResolvedValue({ maxOutputTokens: undefined });
-    expect(await getMaxTokensWithFloor(model, { reasoningCapable: true })).toBe(32_000);
+    (findLanguageModel as any).mockResolvedValue({
+      maxOutputTokens: undefined,
+    });
+    expect(await getMaxTokensWithFloor(model, { reasoningCapable: true })).toBe(
+      32_000,
+    );
     expect(await getMaxTokensWithFloor(model)).toBe(8_192);
-    expect(await getMaxTokensWithFloor(model, { reasoningCapable: false })).toBe(8_192);
+    expect(
+      await getMaxTokensWithFloor(model, { reasoningCapable: false }),
+    ).toBe(8_192);
   });
 });

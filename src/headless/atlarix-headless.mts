@@ -102,16 +102,21 @@ async function main() {
 
   const workspace = arg("workspace") ?? process.cwd();
   const promptFile = arg("prompt-file");
-  const prompt = promptFile ? fs.readFileSync(promptFile, "utf8") : arg("prompt");
+  const prompt = promptFile
+    ? fs.readFileSync(promptFile, "utf8")
+    : arg("prompt");
   if (!prompt) {
     console.error("atlarix-headless: --prompt or --prompt-file is required");
     process.exit(2);
   }
-  const providerId = arg("provider-id") ?? process.env.ATLARIX_HEADLESS_PROVIDER_ID; // e.g. "openrouter"
+  const providerId =
+    arg("provider-id") ?? process.env.ATLARIX_HEADLESS_PROVIDER_ID; // e.g. "openrouter"
   const providerUrl =
     arg("provider-url") ?? process.env.ATLARIX_HEADLESS_PROVIDER_URL;
   const model =
-    arg("model") ?? process.env.ATLARIX_HEADLESS_MODEL ?? "deepseek/deepseek-v4-pro";
+    arg("model") ??
+    process.env.ATLARIX_HEADLESS_MODEL ??
+    "deepseek/deepseek-v4-pro";
   const apiKey = arg("api-key") ?? process.env.ATLARIX_HEADLESS_API_KEY;
   const openrouterProviderJson =
     arg("openrouter-provider") ?? process.env.ATLARIX_OPENROUTER_PROVIDER_JSON;
@@ -134,7 +139,8 @@ async function main() {
   // When set, the agent's final assistant message is written here; stderr stays
   // diagnostics-only. For a full trace use --trajectory-file instead — this is
   // just the last message.
-  const outputFile = arg("output-file") ?? process.env.ATLARIX_HEADLESS_OUTPUT_FILE;
+  const outputFile =
+    arg("output-file") ?? process.env.ATLARIX_HEADLESS_OUTPUT_FILE;
   const trajectoryFile =
     arg("trajectory-file") ?? process.env.ATLARIX_HEADLESS_TRAJECTORY_FILE;
 

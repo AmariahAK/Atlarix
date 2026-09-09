@@ -44,7 +44,10 @@ type McpCallFn = (args: {
   _mcpInvocationContext?: unknown;
 }) => Promise<Record<string, unknown>>;
 
-async function hasAlwaysConsent(serverId: number, toolName: string): Promise<boolean> {
+async function hasAlwaysConsent(
+  serverId: number,
+  toolName: string,
+): Promise<boolean> {
   const [row] = await db
     .select()
     .from(mcpToolConsents)
@@ -70,10 +73,14 @@ export async function pollMcp(
     .where(eq(mcpServers.id, trigger.serverId))
     .limit(1);
   if (!server) {
-    throw new Error(`MCP server #${trigger.serverId} no longer exists — edit or delete this automation`);
+    throw new Error(
+      `MCP server #${trigger.serverId} no longer exists — edit or delete this automation`,
+    );
   }
   if (!server.enabled) {
-    throw new Error(`MCP server "${server.name}" is disabled — enable it or edit this automation`);
+    throw new Error(
+      `MCP server "${server.name}" is disabled — enable it or edit this automation`,
+    );
   }
 
   const mcpCall =
@@ -93,11 +100,19 @@ export async function pollMcp(
       requireAuth: async () => false,
     },
   });
-  if (result && typeof result === "object" && "error" in result && result.error) {
+  if (
+    result &&
+    typeof result === "object" &&
+    "error" in result &&
+    result.error
+  ) {
     throw new Error(String(result.error));
   }
 
-  const raw = typeof result.result === "string" ? result.result : stableStringify(result.result);
+  const raw =
+    typeof result.result === "string"
+      ? result.result
+      : stableStringify(result.result);
   const hash = createHash("sha256").update(raw).digest("hex");
   const seeding = cursor == null;
   if (seeding || hash === cursor.hash) {

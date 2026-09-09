@@ -23,7 +23,8 @@ import { describe, expect, it } from "vitest";
 import { buildWorkstationIdentityBlock } from "@/lib/model-identity-prompt";
 
 const WORKSPACE = "/Users/dev/Projects/supabase-auth";
-const MEMORY = "/Users/dev/.atlarix/projects/Users-dev-Projects-supabase-auth-jdv5y5/memory";
+const MEMORY =
+  "/Users/dev/.atlarix/projects/Users-dev-Projects-supabase-auth-jdv5y5/memory";
 
 const block = (over: Record<string, unknown> = {}) =>
   buildWorkstationIdentityBlock({

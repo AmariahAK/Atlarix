@@ -49,7 +49,9 @@ export function isDefaultSessionTitle(title: string): boolean {
  * same is true of Arabic, Hebrew and Thai if they are ever added.
  */
 export function extractAtlarixChatSummary(content: string): string | null {
-  const match = content.match(/<atlarix-chat-summary>([\s\S]*?)<\/atlarix-chat-summary>/);
+  const match = content.match(
+    /<atlarix-chat-summary>([\s\S]*?)<\/atlarix-chat-summary>/,
+  );
   if (!match) return null;
   const raw = match[1]
     .trim()
@@ -60,7 +62,10 @@ export function extractAtlarixChatSummary(content: string): string | null {
   return raw.split(/\s+/).slice(0, 6).join(" ").slice(0, 80);
 }
 
-function setSessionTitleGenerating(sessionId: string, generating: boolean): void {
+function setSessionTitleGenerating(
+  sessionId: string,
+  generating: boolean,
+): void {
   const store = getDefaultStore();
   store.set(workspaceSessionTitleGeneratingAtom, (prev: Set<string>) => {
     const next = new Set(prev);
@@ -128,23 +133,29 @@ export function allowRetitleAfterFirstPromptEdit(chatId: number): void {
  * completes. Returns whether a real title landed, so the caller knows whether
  * this chat is done or should try again on the next turn.
  */
-export async function applyAIWorkspaceSessionTitle(sessionId: string): Promise<boolean> {
+export async function applyAIWorkspaceSessionTitle(
+  sessionId: string,
+): Promise<boolean> {
   setSessionTitleGenerating(sessionId, true);
   try {
     // `limit: 1` because only `session.titleSource` is read below. Unbounded, this
     // pulled every message body, modelContent and display snapshot in the session
     // across IPC — megabytes on a long session — and discarded all of it, after
     // every completed turn.
-    const { session } = await IpcClient.getInstance().getWorkspaceSession(sessionId, {
-      limit: 1,
-    });
+    const { session } = await IpcClient.getInstance().getWorkspaceSession(
+      sessionId,
+      {
+        limit: 1,
+      },
+    );
     // Ownership, not "is it still Untitled". Re-deriving a title the USER typed
     // would be worse than never re-titling; re-deriving one we generated is the
     // whole point when the prompt it came from has changed.
     // A title the user typed is theirs — done, and never retry.
     if (session.titleSource === "user") return true;
 
-    const { title } = await IpcClient.getInstance().generateWorkspaceSessionTitle(sessionId);
+    const { title } =
+      await IpcClient.getInstance().generateWorkspaceSessionTitle(sessionId);
     if (
       title &&
       !isDefaultSessionTitle(title) &&
@@ -156,7 +167,23 @@ export async function applyAIWorkspaceSessionTitle(sessionId: string): Promise<b
       updateOpenChatTabTitleForSession(sessionId, title);
       return true;
     }
-    return false;
+
+    // THE AI PATH PRODUCED NOTHING — fall back to the user's own words.
+    //
+    // Why this matters more than tidiness. Generation needs an assistant reply to
+    // summarise, so a turn that ERRORED yields no title. But the user's message has
+    // already persisted, which leaves the session in a state that is neither nameable
+    // nor reusable: `pickSessionReuse` only reuses a session with zero messages, so the
+    // next "New chat" creates ANOTHER "Untitled". Every failed turn stranded one, and
+    // they accumulated — two visible after two failures, observed 2026-09-08.
+    //
+    // The tempting fix is to loosen "empty" to "has no assistant reply" so those become
+    // reusable again. DO NOT: `pickSessionReuse` also DELETES, and on 2026-08-31 a
+    // correlation bug made every default-titled session look empty and cascaded real
+    // conversations through `session_messages`. The title check is what limited the blast
+    // radius. Naming the session instead solves the same symptom without widening
+    // anything that can delete.
+    return await applyFallbackSessionTitle(sessionId);
   } catch (e) {
     console.error("Failed to apply AI workspace session title:", e);
     return false;
@@ -165,3 +192,59 @@ export async function applyAIWorkspaceSessionTitle(sessionId: string): Promise<b
   }
 }
 
+/**
+ * A title from the user's first message, with no model call.
+ *
+ * Deliberately dumb: the text is already in hand, so this cannot fail the way generation
+ * can, which is the entire point — it is the path taken WHEN generation failed. Returns
+ * true only if a title actually landed, so the caller's attempt accounting is unchanged.
+ *
+ * `titleSource` stays "auto". The user did not name this, and marking it "user" would
+ * permanently block the real generated title from replacing it on a later successful turn.
+ */
+export async function applyFallbackSessionTitle(
+  sessionId: string,
+): Promise<boolean> {
+  try {
+    const ipc = IpcClient.getInstance();
+    const { messages } = await ipc.getWorkspaceSession(sessionId, { limit: 4 });
+    const firstUser = (messages ?? []).find(
+      (m: { role?: string }) => m.role === "user",
+    ) as { content?: unknown } | undefined;
+    const title = summariseFirstPrompt(
+      typeof firstUser?.content === "string" ? firstUser.content : "",
+    );
+    if (!title) return false;
+
+    await ipc.renameWorkspaceSession(sessionId, title);
+    getDefaultStore().set(workspaceSessionsRefreshAtom, (n) => n + 1);
+    updateOpenChatTabTitleForSession(sessionId, title);
+    return true;
+  } catch (e) {
+    console.error("Failed to apply fallback workspace session title:", e);
+    return false;
+  }
+}
+
+/**
+ * First line of a prompt, trimmed to something that fits a sidebar row.
+ *
+ * Attachment chips and pasted blocks arrive as part of the message, so this takes the
+ * FIRST non-empty line rather than the first N characters — "hey how are you?" is a
+ * better name than the opening of a 400-line paste. Returns null when there is nothing
+ * nameable, which is a real case: a session opened by pasting text alone strips to "".
+ */
+const FALLBACK_TITLE_MAX = 48;
+
+export function summariseFirstPrompt(content: string): string | null {
+  const line = content
+    .split("\n")
+    .map((l) => l.trim())
+    .find((l) => l.length > 0);
+  if (!line) return null;
+  const cleaned = line.replace(/\s+/g, " ").trim();
+  if (!cleaned || isDefaultSessionTitle(cleaned)) return null;
+  return cleaned.length > FALLBACK_TITLE_MAX
+    ? `${cleaned.slice(0, FALLBACK_TITLE_MAX - 1).trimEnd()}…`
+    : cleaned;
+}

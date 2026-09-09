@@ -16,7 +16,10 @@ import {
 } from "./win-ci-lib.mjs";
 
 const TAG = "win-ci-package";
-const WORKER = path.join(path.dirname(fileURLToPath(import.meta.url)), "win-ci-packager-worker.mjs");
+const WORKER = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "win-ci-packager-worker.mjs",
+);
 
 registerFatalHandlers(TAG);
 
@@ -48,7 +51,9 @@ if (packagerCode !== 0) {
 }
 
 if (!fs.existsSync(PACKAGE_DIR)) {
-  console.error(`::error::[${TAG}] Package dir missing after packager worker: ${PACKAGE_DIR}`);
+  console.error(
+    `::error::[${TAG}] Package dir missing after packager worker: ${PACKAGE_DIR}`,
+  );
   logFailureContext(TAG);
   process.exit(1);
 }

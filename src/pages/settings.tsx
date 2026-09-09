@@ -45,7 +45,6 @@ import {
   TriangleAlert,
 } from "lucide-react";
 
-
 /**
  * Settings — how the app behaves for you.
  *
@@ -156,7 +155,10 @@ export function BrowserSettings() {
           value={settings?.browserRuntimeNotice ?? "any"}
           onChange={(e) =>
             updateSettings({
-              browserRuntimeNotice: e.target.value as "off" | "failures" | "any",
+              browserRuntimeNotice: e.target.value as
+                | "off"
+                | "failures"
+                | "any",
             })
           }
           className="w-full max-w-xs rounded-md border border-border bg-background px-3 py-2 text-sm"
@@ -166,10 +168,10 @@ export function BrowserSettings() {
           <option value="off">Never</option>
         </select>
         <p className="text-xs text-muted-foreground">
-          One line per turn, with counts — never the entries themselves. It never
-          blocks the agent from finishing; it is a pointer the agent may follow or
-          ignore, and you can always send specific entries yourself from the
-          Console and Network tabs.
+          One line per turn, with counts — never the entries themselves. It
+          never blocks the agent from finishing; it is a pointer the agent may
+          follow or ignore, and you can always send specific entries yourself
+          from the Console and Network tabs.
         </p>
       </div>
     </div>
@@ -331,7 +333,9 @@ export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
               prompts, file names, or file contents. Anonymous when signed out.
               When signed in, it's linked to your account and includes your
               email and name, so your usage counts once across your devices.
-              Crash and error reports are sent separately and are not covered by this choice — they carry stack traces and device info, never your code or prompts.
+              Crash and error reports are sent separately and are not covered by
+              this choice — they carry stack traces and device info, never your
+              code or prompts.
             </p>
           </div>
           <Switch
@@ -385,7 +389,8 @@ export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
             value={settings?.appLanguage ?? "system"}
             onValueChange={(v) =>
               void updateSettings({
-                appLanguage: v === "system" ? undefined : (v as SupportedLocale),
+                appLanguage:
+                  v === "system" ? undefined : (v as SupportedLocale),
               })
             }
           >
@@ -393,7 +398,9 @@ export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="system">{t("language.systemDefault")}</SelectItem>
+              <SelectItem value="system">
+                {t("language.systemDefault")}
+              </SelectItem>
               {SUPPORTED_LOCALES.map((l) => (
                 <SelectItem key={l} value={l}>
                   {LOCALE_LABELS[l]}
@@ -408,7 +415,8 @@ export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
             Restart onboarding guide
           </Button>
           <p className="text-xs text-muted-foreground mt-2">
-            Show the welcome guide again (workspaces, work modes, models, the right panel).
+            Show the welcome guide again (workspaces, work modes, models, the
+            right panel).
           </p>
         </div>
       </div>
@@ -441,13 +449,16 @@ function CliLauncherSettings() {
       const result = await IpcClient.getInstance().installCli();
       if (result.success) {
         showSuccess(
-          result.message ?? "Installed — open a new terminal and try `atlarix .`",
+          result.message ??
+            "Installed — open a new terminal and try `atlarix .`",
         );
       } else if (result.cancelled) {
         /* user dismissed admin prompt */
       } else if (result.sudoCommand) {
         await navigator.clipboard.writeText(result.sudoCommand);
-        showError("Administrator access required — install command copied to clipboard");
+        showError(
+          "Administrator access required — install command copied to clipboard",
+        );
       } else {
         showError(result.error ?? "Could not install the atlarix command");
       }
@@ -489,20 +500,31 @@ function CliLauncherSettings() {
         <p className="text-sm font-medium text-foreground">Shell command</p>
         <p className="text-xs text-muted-foreground">
           Install <code className="text-[11px]">atlarix</code> in PATH, then run{" "}
-          <code className="text-[11px]">atlarix .</code> in any project folder — opens that workspace
-          if registered, or adds it automatically.
+          <code className="text-[11px]">atlarix .</code> in any project folder —
+          opens that workspace if registered, or adds it automatically.
         </p>
         {cliPath ? (
-          <p className="text-[11px] text-muted-foreground font-mono truncate">{cliPath}</p>
+          <p className="text-[11px] text-muted-foreground font-mono truncate">
+            {cliPath}
+          </p>
         ) : null}
       </div>
       <div className="flex flex-wrap gap-2">
         {installed ? (
-          <Button variant="outline" size="sm" disabled={busy} onClick={() => void handleUninstall()}>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={() => void handleUninstall()}
+          >
             Uninstall from PATH
           </Button>
         ) : (
-          <Button size="sm" disabled={busy} onClick={() => void handleInstall()}>
+          <Button
+            size="sm"
+            disabled={busy}
+            onClick={() => void handleInstall()}
+          >
             Install atlarix in PATH
           </Button>
         )}
@@ -538,7 +560,10 @@ function CliLauncherSettings() {
  */
 export function VoiceSettings() {
   return (
-    <div id="voice" className="bg-card rounded-xl shadow-sm p-6 border border-border">
+    <div
+      id="voice"
+      className="bg-card rounded-xl shadow-sm p-6 border border-border"
+    >
       <h2 className="text-lg font-medium text-foreground mb-4">Voice input</h2>
       <VoiceInputSettings />
     </div>
@@ -614,7 +639,10 @@ export function NotificationsSettings() {
             checked={settings?.buildVerification?.enabled !== false}
             onCheckedChange={(checked) =>
               updateSettings({
-                buildVerification: { ...settings?.buildVerification, enabled: checked },
+                buildVerification: {
+                  ...settings?.buildVerification,
+                  enabled: checked,
+                },
               })
             }
           />

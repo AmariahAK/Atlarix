@@ -8,7 +8,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { SubAgentRunEntry, StreamThreadItem } from "@/lib/chat/stream-thread";
+import type {
+  SubAgentRunEntry,
+  StreamThreadItem,
+} from "@/lib/chat/stream-thread";
 import {
   resolveSubagentCardLabel,
   compareThreadItems,
@@ -137,7 +140,10 @@ function NestedThreadItems({
   return (
     <div
       ref={scrollRef}
-      className={cn(streamCardScrollBody, "mt-2 space-y-1.5 border-t border-border/40 pt-2")}
+      className={cn(
+        streamCardScrollBody,
+        "mt-2 space-y-1.5 border-t border-border/40 pt-2",
+      )}
     >
       {flat.map((item) => {
         if (item.kind === "thought") {
@@ -220,7 +226,9 @@ export function SubAgentRunCard({
   const tokensLabel = tokensBadge(agent);
 
   return (
-    <div className={cn(streamToolCardShell, "rounded-lg border overflow-hidden")}>
+    <div
+      className={cn(streamToolCardShell, "rounded-lg border overflow-hidden")}
+    >
       <button
         type="button"
         className={cn(streamToolCardButtonMultiLine, "cursor-pointer")}
@@ -241,7 +249,10 @@ export function SubAgentRunCard({
             {tokensLabel}
           </span>
         ) : null}
-        <Maximize2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+        <Maximize2
+          className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+          aria-hidden
+        />
       </button>
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-lg max-h-[80vh] overflow-hidden flex flex-col">

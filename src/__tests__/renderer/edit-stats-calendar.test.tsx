@@ -34,7 +34,9 @@ function recentDays(count: number): EditStatsDayRow[] {
 describe("EditStatsCalendar", () => {
   it("renders a grid with a legend", () => {
     render(<EditStatsCalendar byDay={recentDays(10)} />);
-    expect(screen.getByRole("grid", { name: /code changes by day/i })).toBeTruthy();
+    expect(
+      screen.getByRole("grid", { name: /code changes by day/i }),
+    ).toBeTruthy();
     expect(screen.getByText("Less")).toBeTruthy();
     expect(screen.getByText("More")).toBeTruthy();
   });
@@ -45,9 +47,9 @@ describe("EditStatsCalendar", () => {
     const named = cells.filter((c) => c.getAttribute("aria-label"));
     expect(named.length).toBeGreaterThan(0);
     // The busiest seeded day is the oldest of the three (50 + 2*40 = 130 added).
-    expect(named.some((c) => /\+130\b/.test(c.getAttribute("aria-label") ?? ""))).toBe(
-      true,
-    );
+    expect(
+      named.some((c) => /\+130\b/.test(c.getAttribute("aria-label") ?? "")),
+    ).toBe(true);
   });
 
   it("says 'no changes' for a quiet past day, and nothing of the sort for a future one", () => {
@@ -62,7 +64,9 @@ describe("EditStatsCalendar", () => {
     const unlabelled = screen
       .getAllByRole("gridcell")
       .filter((c) => !c.getAttribute("aria-label"));
-    expect(unlabelled.every((c) => !/no changes/i.test(c.textContent ?? ""))).toBe(true);
+    expect(
+      unlabelled.every((c) => !/no changes/i.test(c.textContent ?? "")),
+    ).toBe(true);
   });
 
   it("shows one shared tooltip on hover, and clears it on leave", () => {
@@ -82,6 +86,8 @@ describe("EditStatsCalendar", () => {
 
   it("renders an empty history without crashing", () => {
     render(<EditStatsCalendar byDay={[]} />);
-    expect(screen.getByRole("grid", { name: /code changes by day/i })).toBeTruthy();
+    expect(
+      screen.getByRole("grid", { name: /code changes by day/i }),
+    ).toBeTruthy();
   });
 });

@@ -42,23 +42,23 @@ async function readPdfFile(
   buffer: Buffer,
 ): Promise<{ text: string; pages: number; success: boolean }> {
   return withPdfJsWarningFilter(async () => {
-  const { extractText, getDocumentProxy } = await import("unpdf");
-  const pdf = await getDocumentProxy(new Uint8Array(buffer));
-  const { totalPages, text } = await extractText(pdf, { mergePages: true });
-  const merged =
-    typeof text === "string"
-      ? text
-      : Array.isArray(text)
-        ? (text as string[]).join("\n\n")
-        : text != null
-          ? String(text)
-          : "";
-  const trimmed = merged.trim();
-  return {
-    text: trimmed,
-    pages: totalPages ?? 0,
-    success: Boolean(trimmed),
-  };
+    const { extractText, getDocumentProxy } = await import("unpdf");
+    const pdf = await getDocumentProxy(new Uint8Array(buffer));
+    const { totalPages, text } = await extractText(pdf, { mergePages: true });
+    const merged =
+      typeof text === "string"
+        ? text
+        : Array.isArray(text)
+          ? (text as string[]).join("\n\n")
+          : text != null
+            ? String(text)
+            : "";
+    const trimmed = merged.trim();
+    return {
+      text: trimmed,
+      pages: totalPages ?? 0,
+      success: Boolean(trimmed),
+    };
   });
 }
 
@@ -67,7 +67,10 @@ export async function extractTextFromPdfBuffer(
 ): Promise<PdfExtractResult> {
   const started = Date.now();
   const timeout = new Promise<PdfExtractResult>((resolve) => {
-    setTimeout(() => resolve(pdfExtractTimeoutResult()), PDF_EXTRACT_TIMEOUT_MS);
+    setTimeout(
+      () => resolve(pdfExtractTimeoutResult()),
+      PDF_EXTRACT_TIMEOUT_MS,
+    );
   });
 
   const result = await Promise.race([

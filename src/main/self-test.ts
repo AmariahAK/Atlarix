@@ -40,7 +40,10 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   return Promise.race([
     p,
     new Promise<T>((_, reject) =>
-      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms).unref?.(),
+      setTimeout(
+        () => reject(new Error(`${label} timed out after ${ms}ms`)),
+        ms,
+      ).unref?.(),
     ),
   ]);
 }
@@ -66,7 +69,10 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
       try {
         const seen = await new Promise<boolean>((resolve, reject) => {
           let buf = "";
-          const timer = setTimeout(() => reject(new Error("no marker within 20s")), 20_000);
+          const timer = setTimeout(
+            () => reject(new Error("no marker within 20s")),
+            20_000,
+          );
           timer.unref?.();
           pty.onData((d: string) => {
             buf += d;
@@ -117,7 +123,9 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
       const path = await import("node:path");
       const { default: Database } = await import("better-sqlite3");
 
-      const dir = await fsp.mkdtemp(path.join(os.tmpdir(), "atlarix-selftest-db-"));
+      const dir = await fsp.mkdtemp(
+        path.join(os.tmpdir(), "atlarix-selftest-db-"),
+      );
       const file = path.join(dir, "probe.db");
       try {
         const db = new Database(file);
@@ -125,7 +133,9 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
           // Round-trip real data: loading the binding is not the same as it
           // working, and a half-broken build can import and then fail to query.
           db.pragma("journal_mode = WAL");
-          db.exec("CREATE TABLE probe (id INTEGER PRIMARY KEY, v TEXT NOT NULL)");
+          db.exec(
+            "CREATE TABLE probe (id INTEGER PRIMARY KEY, v TEXT NOT NULL)",
+          );
           db.prepare("INSERT INTO probe (v) VALUES (?)").run(MARK);
           const row = db.prepare("SELECT v FROM probe WHERE id = 1").get() as
             | { v?: string }
@@ -151,12 +161,12 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
     run: async () => {
       const { startProxy } = await import("@/ipc/utils/start_proxy_server");
       const started = new Promise<string>((resolve) => {
-        void startProxy("http://127.0.0.1:9", { onStarted: (url) => resolve(url) }).then(
-          (worker) => {
-            // Terminate once started; the started promise resolves independently.
-            started.then(() => void worker.terminate());
-          },
-        );
+        void startProxy("http://127.0.0.1:9", {
+          onStarted: (url) => resolve(url),
+        }).then((worker) => {
+          // Terminate once started; the started promise resolves independently.
+          started.then(() => void worker.terminate());
+        });
       });
       const url = await started;
       return `proxy worker started (${url})`;
@@ -169,7 +179,9 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
     run: async () => {
       const { promisify } = await import("node:util");
       const { execFile } = await import("node:child_process");
-      const { resolveRipgrepPath } = await import("@/lib/tools/resolve-ripgrep");
+      const { resolveRipgrepPath } = await import(
+        "@/lib/tools/resolve-ripgrep"
+      );
       const rg = await resolveRipgrepPath();
       const { stdout } = await promisify(execFile)(rg, ["--version"]);
       if (!stdout.toLowerCase().includes("ripgrep")) {
@@ -194,11 +206,14 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
       const mod = await import("@/ipc/shared/provider-sdk-factories");
       const names = Object.keys(mod.PROVIDER_SDK_FACTORIES);
       if (names.length === 0) {
-        throw new Error("provider-sdk-factories loaded but the factory map is empty");
+        throw new Error(
+          "provider-sdk-factories loaded but the factory map is empty",
+        );
       }
       // Constructing one proves the SDK actually initialises, not merely that the
       // import resolved.
-      const openaiCompatible = mod.PROVIDER_SDK_FACTORIES[mod.OPENAI_COMPATIBLE_NPM];
+      const openaiCompatible =
+        mod.PROVIDER_SDK_FACTORIES[mod.OPENAI_COMPATIBLE_NPM];
       if (typeof openaiCompatible !== "function") {
         throw new Error("openai-compatible factory missing");
       }
@@ -255,12 +270,16 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
       const { promisify } = await import("node:util");
       const { execFile } = await import("node:child_process");
       const path = await import("node:path");
-      const { getAcceptableShell, isCmdShell } = await import("@/lib/shell/resolve-shell");
+      const { getAcceptableShell, isCmdShell } = await import(
+        "@/lib/shell/resolve-shell"
+      );
       const run = promisify(execFile);
 
       const shell = getAcceptableShell();
       const base = (
-        process.platform === "win32" ? path.win32.basename(shell) : path.basename(shell)
+        process.platform === "win32"
+          ? path.win32.basename(shell)
+          : path.basename(shell)
       ).toLowerCase();
       // cmd.exe takes /c and has no printf; POSIX shells (incl. Git bash on
       // Windows) take -c. Decided from the SHELL via the shared helper, never from
@@ -272,7 +291,9 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
       // Rejects on a non-zero exit, which is the assertion that matters here.
       const { stdout } = await run(shell, args, { windowsHide: true });
       if (!stdout.includes(MARK)) {
-        throw new Error(`${base} exited 0 but did not emit the marker: ${stdout.slice(0, 120)}`);
+        throw new Error(
+          `${base} exited 0 but did not emit the marker: ${stdout.slice(0, 120)}`,
+        );
       }
 
       // An external dev tool, best-effort: a bare test machine may genuinely
@@ -280,7 +301,9 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
       // point is to surface HOW git resolves from inside the package container.
       let git = "git=absent";
       try {
-        const { stdout: gitOut } = await run("git", ["--version"], { windowsHide: true });
+        const { stdout: gitOut } = await run("git", ["--version"], {
+          windowsHide: true,
+        });
         git = `git=${gitOut.trim()}`;
       } catch (e) {
         git = `git=unavailable (${e instanceof Error ? e.message.split("\n")[0] : String(e)})`;
@@ -303,12 +326,17 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
       const os = await import("node:os");
       const path = await import("node:path");
 
-      const target = path.join(os.homedir(), `.atlarix-self-test-${process.pid}`);
+      const target = path.join(
+        os.homedir(),
+        `.atlarix-self-test-${process.pid}`,
+      );
       await fsp.writeFile(target, MARK, "utf8");
       try {
         const readBack = await fsp.readFile(target, "utf8");
         if (readBack !== MARK) {
-          throw new Error(`wrote ${MARK} but read back ${JSON.stringify(readBack.slice(0, 60))}`);
+          throw new Error(
+            `wrote ${MARK} but read back ${JSON.stringify(readBack.slice(0, 60))}`,
+          );
         }
         // realpath AFTER a successful write: this is where the bytes actually went.
         const resolved = await fsp.realpath(target);
@@ -342,9 +370,15 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
       const fsp = await import("node:fs/promises");
       const os = await import("node:os");
       const path = await import("node:path");
-      const { runShellCommandStreaming } = await import("@/ipc/utils/runShellCommand");
-      const { wrapCommandInSandbox } = await import("@/lib/sandbox/wrap-command");
-      const { getAcceptableShell, isCmdShell } = await import("@/lib/shell/resolve-shell");
+      const { runShellCommandStreaming } = await import(
+        "@/ipc/utils/runShellCommand"
+      );
+      const { wrapCommandInSandbox } = await import(
+        "@/lib/sandbox/wrap-command"
+      );
+      const { getAcceptableShell, isCmdShell } = await import(
+        "@/lib/shell/resolve-shell"
+      );
 
       // Command syntax follows the RESOLVED SHELL, never `process.platform`.
       //
@@ -381,7 +415,10 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
         });
       /** Same command with no sandbox — the control arm of the differential. */
       const plain = (command: string) =>
-        runShellCommandStreaming(command, ws, { onOutput: () => {}, workspaceRoot: ws });
+        runShellCommandStreaming(command, ws, {
+          onOutput: () => {},
+          workspaceRoot: ws,
+        });
 
       const notes: string[] = [];
       try {
@@ -393,13 +430,19 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
           workspacePath: ws,
         });
         if (!wrapped.sandboxed) {
-          throw new Error(`sandbox not applied (${wrapped.note ?? "no reason given"})`);
+          throw new Error(
+            `sandbox not applied (${wrapped.note ?? "no reason given"})`,
+          );
         }
 
         // 1. Writes INSIDE the workspace must work, or the sandbox is unusable.
-        const inside = await sandboxed(isCmd ? "echo x> inside.txt" : "printf x > inside.txt");
+        const inside = await sandboxed(
+          isCmd ? "echo x> inside.txt" : "printf x > inside.txt",
+        );
         if (inside.exitCode !== 0) {
-          throw new Error(`write inside workspace FAILED (exit ${inside.exitCode}): ${inside.stderr.slice(0, 160)}`);
+          throw new Error(
+            `write inside workspace FAILED (exit ${inside.exitCode}): ${inside.stderr.slice(0, 160)}`,
+          );
         }
 
         // 2. Writes OUTSIDE every writable root must be denied, or it confines nothing.
@@ -407,7 +450,9 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
           isCmd ? `echo x> "${outside}"` : `printf x > "${outside}"`,
         );
         if (escaped.exitCode === 0) {
-          throw new Error(`write OUTSIDE the workspace SUCCEEDED (${outside}) — writes are not confined`);
+          throw new Error(
+            `write OUTSIDE the workspace SUCCEEDED (${outside}) — writes are not confined`,
+          );
         }
 
         // 3. Reads outside must still work. THIS is the assertion that would have
@@ -449,7 +494,9 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
             notes.push("truncate=absent (assertion skipped)");
           } else {
             await fsp.writeFile(outside, MARK, "utf8"); // the control arm emptied it
-            const truncSandboxed = await sandboxed(`truncate -s 0 "${outside}"`);
+            const truncSandboxed = await sandboxed(
+              `truncate -s 0 "${outside}"`,
+            );
             if (truncSandboxed.exitCode === 0) {
               throw new Error(
                 "truncate OUTSIDE the workspace SUCCEEDED — write confinement bypassable via truncate(2)",
@@ -485,7 +532,9 @@ export async function runSelfTest(
   const results: SelfTestReport["results"] = [];
   const fs = await import("node:fs");
   const timeoutMs = opts?.timeoutMs ?? PROBE_TIMEOUT_MS;
-  const outFile = opts?.noOutFile ? undefined : process.env.ATLARIX_SELF_TEST_OUT;
+  const outFile = opts?.noOutFile
+    ? undefined
+    : process.env.ATLARIX_SELF_TEST_OUT;
   // The pid is on EVERY line deliberately. On the v14.35.0 Windows run this log
   // contained self-test output AND a full `onReady()` boot — which is impossible in
   // one process, since onReady is only called inside `if (!IS_SELF_TEST)`. Two
@@ -508,7 +557,8 @@ export async function runSelfTest(
   for (const probe of probes) {
     const t0 = Date.now();
     try {
-      const detail = (await withTimeout(probe.run(), timeoutMs, probe.name)) ?? "";
+      const detail =
+        (await withTimeout(probe.run(), timeoutMs, probe.name)) ?? "";
       const ms = Date.now() - t0;
       results.push({ name: probe.name, ok: true, detail, ms });
       emit(`[self-test] ${probe.name}: OK (${ms}ms) ${detail}`);
@@ -522,6 +572,8 @@ export async function runSelfTest(
   }
 
   const failures = results.filter((r) => !r.ok).length;
-  emit(`[self-test] ${failures ? "FAILED" : "PASSED"} (${results.length - failures}/${results.length} probes)`);
+  emit(
+    `[self-test] ${failures ? "FAILED" : "PASSED"} (${results.length - failures}/${results.length} probes)`,
+  );
   return { code: failures ? 1 : 0, results };
 }

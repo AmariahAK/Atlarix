@@ -1,9 +1,5 @@
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
-import {
-  setupEvalContext,
-  runTurn,
-  type EvalContext,
-} from "../infra/turn";
+import { setupEvalContext, runTurn, type EvalContext } from "../infra/turn";
 import { scenario } from "../infra/scenario";
 import { exactTokenCountText } from "@/lib/context/token-counter";
 
@@ -271,10 +267,13 @@ describe("prompt budget — the fixed prefix, on the wire", () => {
         `(system=${m.systemTokens} descriptions=${m.toolDescriptionTokens} ` +
         `schemas=${m.toolSchemaTokens} over ${m.toolCount} tools)`;
 
-      expect(m.toolCount, `${detail} — no tools bound at all`).toBeGreaterThan(0);
-      expect(m.total, `${detail} — ABOVE ceiling ${budget.maxTotal}`).toBeLessThanOrEqual(
-        budget.maxTotal,
+      expect(m.toolCount, `${detail} — no tools bound at all`).toBeGreaterThan(
+        0,
       );
+      expect(
+        m.total,
+        `${detail} — ABOVE ceiling ${budget.maxTotal}`,
+      ).toBeLessThanOrEqual(budget.maxTotal);
       expect(
         m.total,
         `${detail} — BELOW floor ${budget.minTotal}; a mode that stopped binding ` +

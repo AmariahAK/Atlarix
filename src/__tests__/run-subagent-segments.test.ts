@@ -35,7 +35,9 @@ describe("makeRollingEmitter segment rotation (W8)", () => {
     rolling.pushReasoning("a"); // first push always flushes (lastEmit=0)
     rolling.pushReasoning("b"); // throttled
     rolling.rotate();
-    const seg0 = emitted.filter((e) => (e as { id: string }).id.endsWith("-s0"));
+    const seg0 = emitted.filter((e) =>
+      (e as { id: string }).id.endsWith("-s0"),
+    );
     const last = seg0[seg0.length - 1] as { content: string };
     expect(last.content).toBe("ab"); // nothing lost to the throttle
   });
@@ -70,7 +72,9 @@ describe("makeRollingEmitter segment rotation (W8)", () => {
     rolling.rotate();
     rolling.pushReasoning("second span");
     rolling.finish();
-    const seg1 = emitted.filter((e) => (e as { id: string }).id.endsWith("-s1"));
+    const seg1 = emitted.filter((e) =>
+      (e as { id: string }).id.endsWith("-s1"),
+    );
     for (const e of seg1) {
       expect((e as { content: string }).content).not.toContain("first span");
     }

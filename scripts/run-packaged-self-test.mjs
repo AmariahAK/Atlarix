@@ -25,7 +25,9 @@ const outDir = path.join(process.cwd(), "out");
 const packageDir = path.join(outDir, `${APP}-${platform}-${arch}`);
 
 if (!fs.existsSync(packageDir)) {
-  console.error(`[self-test] packaged app not found at ${packageDir} — run npm run package first`);
+  console.error(
+    `[self-test] packaged app not found at ${packageDir} — run npm run package first`,
+  );
   process.exit(1);
 }
 
@@ -45,7 +47,11 @@ if (!fs.existsSync(bin)) {
 const isCI = process.env.CI === "true" || process.env.CI === "1";
 const outFile = path.join(os.tmpdir(), `atlarix-self-test-${Date.now()}.log`);
 
-const env = { ...process.env, E2E_TEST_BUILD: "true", ATLARIX_SELF_TEST_OUT: outFile };
+const env = {
+  ...process.env,
+  E2E_TEST_BUILD: "true",
+  ATLARIX_SELF_TEST_OUT: outFile,
+};
 
 let cmd = bin;
 let args = ["--self-test"];
@@ -76,7 +82,9 @@ console.log(`[self-test] launching: ${cmd} ${args.join(" ")}`);
  * spawnSync can still wait on the pipe — which is a candidate explanation for the
  * hang itself, and why the pid is now stamped on every self-test line.
  */
-const DEADLINE_MS = Number(process.env.ATLARIX_SELF_TEST_DEADLINE_MS ?? 240_000);
+const DEADLINE_MS = Number(
+  process.env.ATLARIX_SELF_TEST_DEADLINE_MS ?? 240_000,
+);
 
 /**
  * The verdict comes from the PROBE REPORT, not from the process exiting.
@@ -101,7 +109,8 @@ const DEADLINE_MS = Number(process.env.ATLARIX_SELF_TEST_DEADLINE_MS ?? 240_000)
  * The report is read from the FILE sink, not stdout: a Windows GUI-subsystem exe
  * detaches stdout, so the file is the only place the lines reliably land.
  */
-const REPORT_RE = /\[self-test[^\]]*\]\s+(PASSED|FAILED)\s+\((\d+)\/(\d+) probes\)/;
+const REPORT_RE =
+  /\[self-test[^\]]*\]\s+(PASSED|FAILED)\s+\((\d+)\/(\d+) probes\)/;
 
 function readReport() {
   try {
@@ -117,7 +126,9 @@ function readReport() {
 function killTree(pid) {
   try {
     if (process.platform === "win32") {
-      spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
+      spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], {
+        stdio: "ignore",
+      });
     } else {
       process.kill(pid, "SIGKILL");
     }
@@ -138,19 +149,27 @@ const result = await new Promise((resolve) => {
   };
 
   child.on("error", (error) => finish({ error }));
-  child.on("exit", (status, signal) => finish({ status, signal, exitedOnItsOwn: true }));
+  child.on("exit", (status, signal) =>
+    finish({ status, signal, exitedOnItsOwn: true }),
+  );
 
   // Poll the sink so a finished report ends the wait even if the app never exits.
   const poll = setInterval(() => {
     const report = readReport();
     if (!report) return;
     killTree(child.pid);
-    finish({ status: report.verdict === "PASSED" ? 0 : 1, report, hadToKill: true });
+    finish({
+      status: report.verdict === "PASSED" ? 0 : 1,
+      report,
+      hadToKill: true,
+    });
   }, 500);
 
   const deadline = setTimeout(() => {
     killTree(child.pid);
-    finish({ error: Object.assign(new Error("deadline"), { code: "ETIMEDOUT" }) });
+    finish({
+      error: Object.assign(new Error("deadline"), { code: "ETIMEDOUT" }),
+    });
   }, DEADLINE_MS);
 });
 

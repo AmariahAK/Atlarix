@@ -15,7 +15,9 @@ import { expectNoStreamError, expectStreamEnded } from "../infra/assert";
 let ctx: EvalContext;
 
 beforeAll(async () => {
-  ctx = await setupEvalContext({ seedFiles: { "src/x.ts": "export const x = 1;\n" } });
+  ctx = await setupEvalContext({
+    seedFiles: { "src/x.ts": "export const x = 1;\n" },
+  });
 });
 
 afterAll(async () => {
@@ -29,17 +31,24 @@ describe("plan update_step — self-correcting errors + text addressing", () => 
         .toolCall("plan", {
           operation: "write",
           title: "Feature",
-          content: "1. [ ] Scaffold the module\n2. [ ] Wire the handler\n3. [ ] Run the tests\n",
+          content:
+            "1. [ ] Scaffold the module\n2. [ ] Wire the handler\n3. [ ] Run the tests\n",
         })
         // Drifted bookkeeping: the model thinks there's a step 9.
-        .toolCall("plan", { operation: "update_step", step_index: 9, state: "done" })
+        .toolCall("plan", {
+          operation: "update_step",
+          step_index: 9,
+          state: "done",
+        })
         // Self-corrects using text addressing (no plan(read) round-trip).
         .toolCall("plan", {
           operation: "update_step",
           step_text: "wire the handler",
           state: "done",
         })
-        .text("Marked progress; the remaining steps need the user's manual test.")
+        .text(
+          "Marked progress; the remaining steps need the user's manual test.",
+        )
         .repeatLast()
         .build(),
     );

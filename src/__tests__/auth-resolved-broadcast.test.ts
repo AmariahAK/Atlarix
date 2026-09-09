@@ -23,7 +23,10 @@ describe("auth:resolved payload", () => {
   it("still produces an answer when there is no session — THE BUG", () => {
     // The old behaviour was to emit NOTHING here. `user: null` is information:
     // signed out, render the sign-in affordance.
-    expect(buildAuthResolvedPayload(null)).toEqual({ user: null, plan: "free" });
+    expect(buildAuthResolvedPayload(null)).toEqual({
+      user: null,
+      plan: "free",
+    });
     expect(buildAuthResolvedPayload(undefined)).toEqual({
       user: null,
       plan: "free",

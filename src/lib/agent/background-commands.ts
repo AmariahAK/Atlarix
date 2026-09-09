@@ -488,7 +488,10 @@ export function readBackgroundOutputTail(
  * its natural exit is recorded (once) as a cancelled result. Returns false if
  * no such running job.
  */
-export function killBackgroundJob(chatId: number, operationId: string): boolean {
+export function killBackgroundJob(
+  chatId: number,
+  operationId: string,
+): boolean {
   const job = runningJobsByChat.get(chatId)?.get(operationId);
   if (!job) return false;
   cancelledOps.add(operationId);

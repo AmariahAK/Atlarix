@@ -7,7 +7,10 @@ import path from "node:path";
 import fs from "node:fs";
 import log from "electron-log";
 import { importWorkspaceFromPath } from "../ipc/handlers/import_workspace_core";
-import { createAppBrowserWindow, deliverToWindow } from "./create-app-browser-window";
+import {
+  createAppBrowserWindow,
+  deliverToWindow,
+} from "./create-app-browser-window";
 import {
   focusOrOpenWorkspaceWindow,
   getPrimaryWindow,
@@ -77,7 +80,9 @@ export async function openWorkspaceFromCliPath(
       path: resolved,
       appName,
     });
-    logger.log(`[openWorkspaceFromCliPath] Opened ${resolved} appId=${appId} chatId=${chatId}`);
+    logger.log(
+      `[openWorkspaceFromCliPath] Opened ${resolved} appId=${appId} chatId=${chatId}`,
+    );
 
     const payload: CliWorkspacePayload = {
       appId,
@@ -91,7 +96,9 @@ export async function openWorkspaceFromCliPath(
     pendingCliWorkspace = payload;
 
     if (options?.forceNewWindow) {
-      const win = focusOrOpenWorkspaceWindow(resolved, () => createAppBrowserWindow());
+      const win = focusOrOpenWorkspaceWindow(resolved, () =>
+        createAppBrowserWindow(),
+      );
       deliverToWindow(win, "workspace:opened-from-cli", payload);
       return;
     }

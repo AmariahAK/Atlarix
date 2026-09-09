@@ -13,7 +13,10 @@ import { isNetworkStreamError } from "@/ipc/handlers/chat_stream/network-retry";
  */
 
 const socketFault = () => {
-  const e = new Error("other side closed") as Error & { name: string; code: string };
+  const e = new Error("other side closed") as Error & {
+    name: string;
+    code: string;
+  };
   e.name = "SocketError";
   e.code = "UND_ERR_SOCKET";
   return e;
@@ -41,8 +44,12 @@ describe("isNetworkStreamError: undici socket faults", () => {
   it("still fails fast on a genuine bug", () => {
     // The point of absorbing network faults is that they are transient. A
     // programming error is not, and must keep ending the run.
-    expect(isNetworkStreamError(new TypeError("x is not a function"))).toBe(false);
-    expect(isNetworkStreamError(new Error("no such file or directory"))).toBe(false);
+    expect(isNetworkStreamError(new TypeError("x is not a function"))).toBe(
+      false,
+    );
+    expect(isNetworkStreamError(new Error("no such file or directory"))).toBe(
+      false,
+    );
   });
 
   it("never treats an abort as a fault", () => {
@@ -58,5 +65,43 @@ describe("isNetworkStreamError: undici socket faults", () => {
     const cyc = new Error("opaque") as Error & { cause?: unknown };
     cyc.cause = cyc;
     expect(isNetworkStreamError(cyc)).toBe(false);
+  });
+
+  /**
+   * The AI SDK's `onError` hands its callback an ENVELOPE, `{ error }`, not the
+   * error — and this classifier only ever unwrapped `cause`. So every
+   * request-phase transport failure read as `"[object Object]"`, matched nothing,
+   * and fell through to "This model failed", while the sibling classifier
+   * `isNoUsableModelOutputError` (which DOES unwrap `.error`) claimed it as a
+   * model that produced no output. That asymmetry between two classifiers looking
+   * at the same object is the whole bug: a dead socket was reported to the user as
+   * a model that would not answer, after two pointless retries telling it to stop
+   * thinking.
+   */
+  describe("the SDK's `{ error }` envelope", () => {
+    it("classifies a socket fault delivered inside an envelope", () => {
+      expect(isNetworkStreamError({ error: socketFault() })).toBe(true);
+    });
+
+    it("classifies the APICallError shape a request-phase failure really has", () => {
+      // What `handleFetchError` builds when fetch rejects before any header.
+      const apiCallError = Object.assign(
+        new Error("Cannot connect to API: other side closed"),
+        { name: "APICallError", isRetryable: true, cause: socketFault() },
+      );
+      expect(isNetworkStreamError({ error: apiCallError })).toBe(true);
+    });
+
+    it("does not turn a genuine bug into a retry just because it is wrapped", () => {
+      expect(
+        isNetworkStreamError({ error: new TypeError("x is not a function") }),
+      ).toBe(false);
+    });
+
+    it("terminates on a cyclic error chain", () => {
+      const cyc: { error?: unknown } = {};
+      cyc.error = cyc;
+      expect(isNetworkStreamError(cyc)).toBe(false);
+    });
   });
 });

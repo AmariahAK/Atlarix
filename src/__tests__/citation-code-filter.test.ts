@@ -55,11 +55,15 @@ describe("isCodeFileSourceUrl — kept", () => {
   });
 
   it("keeps a dotted path segment that isn't a file extension", () => {
-    expect(isCodeFileSourceUrl("https://example.com/v1.2/overview")).toBe(false);
+    expect(isCodeFileSourceUrl("https://example.com/v1.2/overview")).toBe(
+      false,
+    );
   });
 
   it("is case-insensitive about the extension", () => {
-    expect(isCodeFileSourceUrl("https://github.com/o/r/blob/main/Main.PY")).toBe(true);
+    expect(
+      isCodeFileSourceUrl("https://github.com/o/r/blob/main/Main.PY"),
+    ).toBe(true);
   });
 
   it("does not throw on a malformed url", () => {
@@ -68,6 +72,8 @@ describe("isCodeFileSourceUrl — kept", () => {
   });
 
   it("ignores a query string when judging the extension", () => {
-    expect(isCodeFileSourceUrl("https://example.com/page?file=a.ts")).toBe(false);
+    expect(isCodeFileSourceUrl("https://example.com/page?file=a.ts")).toBe(
+      false,
+    );
   });
 });

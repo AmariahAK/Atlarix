@@ -21,7 +21,8 @@ describe("systemReminder", () => {
   });
 
   it("preserves the inner content verbatim (e.g. tool-result markers)", () => {
-    const body = "Here are the results of the tools you called:\n<tool_result>ok</tool_result>";
+    const body =
+      "Here are the results of the tools you called:\n<tool_result>ok</tool_result>";
     expect(systemReminder(body)).toContain(body);
   });
 });

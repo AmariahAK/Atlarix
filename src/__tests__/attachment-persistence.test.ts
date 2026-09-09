@@ -27,7 +27,9 @@ describe("attachment-persistence", () => {
       displayName: "notes",
       content: "hello",
     };
-    expect(resolvePasteAttachmentId(paste)).toBe(resolvePasteAttachmentId(paste));
+    expect(resolvePasteAttachmentId(paste)).toBe(
+      resolvePasteAttachmentId(paste),
+    );
     expect(resolvePasteAttachmentId(paste)).toMatch(/^paste-[0-9a-f]{16}$/);
   });
 
@@ -169,7 +171,9 @@ describe("expandAttachmentStubsToModelContent — edited-message model rebuild (
     const display =
       '<atlarix-text-attachment filename="Unknown paste" />\n<atlarix-text-attachment filename="X">\nalready full\n</atlarix-text-attachment>';
     const out = expandAttachmentStubsToModelContent(display, pastes);
-    expect(out).toContain('<atlarix-text-attachment filename="Unknown paste" />');
+    expect(out).toContain(
+      '<atlarix-text-attachment filename="Unknown paste" />',
+    );
     expect(out).toContain("already full");
   });
 
@@ -177,6 +181,8 @@ describe("expandAttachmentStubsToModelContent — edited-message model rebuild (
     const { expandAttachmentStubsToModelContent } = await import(
       "@/lib/chat/paste-attachment-meta"
     );
-    expect(expandAttachmentStubsToModelContent("plain text", [])).toBe("plain text");
+    expect(expandAttachmentStubsToModelContent("plain text", [])).toBe(
+      "plain text",
+    );
   });
 });

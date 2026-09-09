@@ -105,7 +105,9 @@ type ParsedEnvelope = {
 };
 
 /** Unwrap tool JSON envelopes; never stringify nested objects for display. */
-export function parseToolResultEnvelope(raw: string | unknown): ParsedEnvelope | null {
+export function parseToolResultEnvelope(
+  raw: string | unknown,
+): ParsedEnvelope | null {
   if (raw == null) return null;
 
   if (typeof raw === "string") {
@@ -207,7 +209,8 @@ function firstExplanation(o: Record<string, unknown>): string | undefined {
  */
 function isNotAFailure(o: Record<string, unknown>): boolean {
   if (o.status === "noop") return true;
-  if (typeof o.loop_guidance === "string" && o.loop_guidance.trim()) return true;
+  if (typeof o.loop_guidance === "string" && o.loop_guidance.trim())
+    return true;
   return false;
 }
 
@@ -240,7 +243,9 @@ function envelopeFromObject(o: Record<string, unknown>): ParsedEnvelope {
   return { payload: o };
 }
 
-function extractShortField(payload: Record<string, unknown>): string | undefined {
+function extractShortField(
+  payload: Record<string, unknown>,
+): string | undefined {
   for (const key of ["message", "summary", "output"] as const) {
     const v = payload[key];
     if (typeof v === "string" && v.trim()) {
@@ -265,7 +270,9 @@ function pathFromItem(item: unknown): string {
   return "";
 }
 
-function formatExploreListPreview(payload: Record<string, unknown>): string | undefined {
+function formatExploreListPreview(
+  payload: Record<string, unknown>,
+): string | undefined {
   const total =
     typeof payload.total === "number"
       ? payload.total
@@ -351,7 +358,10 @@ function formatSearchMatchPreview(
   }
 
   if (plainText && !plainText.trim().startsWith("{")) {
-    const firstLine = plainText.split(/\r?\n/).find((l) => l.trim())?.trim();
+    const firstLine = plainText
+      .split(/\r?\n/)
+      .find((l) => l.trim())
+      ?.trim();
     if (firstLine && !firstLine.startsWith("{")) return capPreview(firstLine);
   }
 
@@ -372,7 +382,9 @@ function formatReadFilePreview(content: string): string {
     if (linesMatch) {
       return `Read ${short} — lines ${linesMatch[1].trim()}`;
     }
-    const totalMatch = content.match(/^Total lines:\s*(\d+)\s*\|\s*Showing:\s*(\d+)/m);
+    const totalMatch = content.match(
+      /^Total lines:\s*(\d+)\s*\|\s*Showing:\s*(\d+)/m,
+    );
     if (totalMatch) {
       return `Read ${short} — ${totalMatch[1]} lines (showing ${totalMatch[2]})`;
     }
@@ -383,7 +395,10 @@ function formatReadFilePreview(content: string): string {
     .split(/\r?\n/)
     .map((l) => l.trim())
     .find((l) => l.length > 0);
-  return capPreview(firstLine ?? content.replace(/\s+/g, " ").trim(), READ_FILE_PREVIEW_MAX);
+  return capPreview(
+    firstLine ?? content.replace(/\s+/g, " ").trim(),
+    READ_FILE_PREVIEW_MAX,
+  );
 }
 
 /**
@@ -444,9 +459,11 @@ function formatWritePreview(
         ? payload.content
         : undefined;
   if (newContent !== undefined) {
-    const oldContent = typeof payload.oldContent === "string" ? payload.oldContent : "";
+    const oldContent =
+      typeof payload.oldContent === "string" ? payload.oldContent : "";
     const isCreate =
-      payload.operation === "create" || (!oldContent && payload.operation !== "update");
+      payload.operation === "create" ||
+      (!oldContent && payload.operation !== "update");
     if (isCreate) {
       const n = newContent ? newContent.split(/\r?\n/).length : 0;
       return `+${n}`;
@@ -484,7 +501,9 @@ function formatWritePreview(
   return "File saved";
 }
 
-function formatMcpListPreview(payload: Record<string, unknown>): string | undefined {
+function formatMcpListPreview(
+  payload: Record<string, unknown>,
+): string | undefined {
   if (typeof payload.error === "string" && payload.error.trim()) {
     return payload.error.trim();
   }
@@ -500,7 +519,11 @@ function formatMcpListPreview(payload: Record<string, unknown>): string | undefi
   }
   let toolCount = 0;
   for (const s of servers) {
-    if (s && typeof s === "object" && Array.isArray((s as Record<string, unknown>).tools)) {
+    if (
+      s &&
+      typeof s === "object" &&
+      Array.isArray((s as Record<string, unknown>).tools)
+    ) {
       toolCount += ((s as Record<string, unknown>).tools as unknown[]).length;
     }
   }
@@ -510,11 +533,14 @@ function formatMcpListPreview(payload: Record<string, unknown>): string | undefi
     : serverLabel;
 }
 
-function formatMcpCallPreview(payload: Record<string, unknown>): string | undefined {
+function formatMcpCallPreview(
+  payload: Record<string, unknown>,
+): string | undefined {
   if (typeof payload.error === "string" && payload.error.trim()) {
     return payload.error.trim();
   }
-  const server = typeof payload.server === "string" ? payload.server.trim() : "";
+  const server =
+    typeof payload.server === "string" ? payload.server.trim() : "";
   const tool = typeof payload.tool === "string" ? payload.tool.trim() : "";
   if (server || tool) {
     return tool ? `${server || "mcp"}/${tool}` : server;
@@ -522,7 +548,9 @@ function formatMcpCallPreview(payload: Record<string, unknown>): string | undefi
   return extractShortField(payload);
 }
 
-function formatWebSearchPreview(payload: Record<string, unknown>): string | undefined {
+function formatWebSearchPreview(
+  payload: Record<string, unknown>,
+): string | undefined {
   const sources = payload.sources;
   if (Array.isArray(sources)) {
     const n = sources.length;
@@ -553,7 +581,10 @@ export function formatToolResultPreview(
   rawDetail: string | undefined,
   status: StreamThreadToolStatus,
 ): string | undefined {
-  if (rawDetail == null || (typeof rawDetail === "string" && !rawDetail.trim())) {
+  if (
+    rawDetail == null ||
+    (typeof rawDetail === "string" && !rawDetail.trim())
+  ) {
     return undefined;
   }
 
@@ -561,7 +592,8 @@ export function formatToolResultPreview(
   if (!envelope) return undefined;
 
   if (status === "error" || envelope.error) {
-    const msg = envelope.error ?? extractShortField(envelope.payload) ?? "Tool failed";
+    const msg =
+      envelope.error ?? extractShortField(envelope.payload) ?? "Tool failed";
     const path =
       typeof envelope.payload.path === "string" && envelope.payload.path.trim()
         ? envelope.payload.path.trim()
@@ -577,7 +609,10 @@ export function formatToolResultPreview(
     if (s) return capPreview(s);
   }
 
-  if (SEARCH_MATCH_TOOLS.has(registryName) && !EXPLORE_LIST_TOOLS.has(registryName)) {
+  if (
+    SEARCH_MATCH_TOOLS.has(registryName) &&
+    !EXPLORE_LIST_TOOLS.has(registryName)
+  ) {
     const s = formatSearchMatchPreview(payload, plain);
     if (s) return capPreview(s);
   }
@@ -632,7 +667,8 @@ export function summarizeToolResultForActivityDetail(
 ): string | undefined {
   const raw = resultToRawString(result);
   if (!raw.trim()) return undefined;
-  const streamStatus: StreamThreadToolStatus = status === "error" ? "error" : "done";
+  const streamStatus: StreamThreadToolStatus =
+    status === "error" ? "error" : "done";
   const preview = formatToolResultPreview(toolName, raw, streamStatus);
   if (!preview) return undefined;
   return capActivityDetail(preview);
@@ -706,7 +742,10 @@ export function formatToolStartPreview(
  * declares; guessing at "did anything happen" from any other result would be
  * exactly the kind of inference that produces a confidently wrong label.
  */
-export function noopSummary(toolName: string, resultText?: string): string | null {
+export function noopSummary(
+  toolName: string,
+  resultText?: string,
+): string | null {
   if (toolName !== "compress_context" || !resultText?.trim()) return null;
   try {
     const o = JSON.parse(resultText) as { status?: unknown };

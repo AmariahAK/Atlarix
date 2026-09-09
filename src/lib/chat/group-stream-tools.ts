@@ -1,4 +1,7 @@
-import type { StreamThreadItem, StreamThreadToolStatus } from "@/lib/chat/stream-thread";
+import type {
+  StreamThreadItem,
+  StreamThreadToolStatus,
+} from "@/lib/chat/stream-thread";
 import { isContextToolName } from "@/lib/chat/context-tools";
 
 export type StreamToolItem = Extract<StreamThreadItem, { kind: "tool" }>;

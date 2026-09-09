@@ -31,7 +31,9 @@ export function getPendingMcpOAuthSessionByState(
   return pendingByServerId.get(serverId);
 }
 
-export function setPendingMcpOAuthSession(session: PendingMcpOAuthSession): void {
+export function setPendingMcpOAuthSession(
+  session: PendingMcpOAuthSession,
+): void {
   const existing = pendingByServerId.get(session.serverId);
   if (existing?.timeoutId) clearTimeout(existing.timeoutId);
   pendingByServerId.set(session.serverId, session);
@@ -46,4 +48,3 @@ export function clearPendingMcpOAuthSession(serverId: number): void {
   pendingByState.delete(existing.state);
   pendingByServerId.delete(serverId);
 }
-

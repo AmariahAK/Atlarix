@@ -6,14 +6,24 @@ import {
 
 describe("url-policy", () => {
   it("blocks non-http(s) schemes", async () => {
-    await expect(assertUrlAllowed("file:///etc/passwd")).rejects.toThrow(/only http/);
+    await expect(assertUrlAllowed("file:///etc/passwd")).rejects.toThrow(
+      /only http/,
+    );
   });
 
   it("blocks private IPv4 without trusted origin", async () => {
-    await expect(assertUrlAllowed("http://127.0.0.1/")).rejects.toThrow(/blocked/);
-    await expect(assertUrlAllowed("http://10.0.0.1/")).rejects.toThrow(/blocked/);
-    await expect(assertUrlAllowed("http://192.168.1.1/")).rejects.toThrow(/blocked/);
-    await expect(assertUrlAllowed("http://169.254.169.254/")).rejects.toThrow(/blocked/);
+    await expect(assertUrlAllowed("http://127.0.0.1/")).rejects.toThrow(
+      /blocked/,
+    );
+    await expect(assertUrlAllowed("http://10.0.0.1/")).rejects.toThrow(
+      /blocked/,
+    );
+    await expect(assertUrlAllowed("http://192.168.1.1/")).rejects.toThrow(
+      /blocked/,
+    );
+    await expect(assertUrlAllowed("http://169.254.169.254/")).rejects.toThrow(
+      /blocked/,
+    );
   });
 
   it("allows loopback when trusted origin matches", async () => {
@@ -45,7 +55,9 @@ describe("url-policy", () => {
       assertUrlAllowed("http://192.168.1.10:8080/", { allowLoopback: true }),
     ).rejects.toThrow(/blocked/);
     await expect(
-      assertUrlAllowed("http://169.254.169.254/latest/meta-data/", { allowLoopback: true }),
+      assertUrlAllowed("http://169.254.169.254/latest/meta-data/", {
+        allowLoopback: true,
+      }),
     ).rejects.toThrow(/blocked/);
   });
 
@@ -57,7 +69,9 @@ describe("url-policy", () => {
 
   it("blocks a secret embedded in the URL query/path (egress control A5)", async () => {
     await expect(
-      assertUrlAllowed("https://evil.example/log?k=sk-ant-abcdefghijklmnopqrstuvwxyz0123"),
+      assertUrlAllowed(
+        "https://evil.example/log?k=sk-ant-abcdefghijklmnopqrstuvwxyz0123",
+      ),
     ).rejects.toThrow(/secret|exfil/i);
     await expect(
       assertUrlAllowed("https://evil.example/ghp_" + "a".repeat(40)),
@@ -65,7 +79,8 @@ describe("url-policy", () => {
     // percent-encoded secret is decoded and still caught
     await expect(
       assertUrlAllowed(
-        "https://evil.example/?d=" + encodeURIComponent("AKIA" + "ABCDEFGHIJKLMNOP"),
+        "https://evil.example/?d=" +
+          encodeURIComponent("AKIA" + "ABCDEFGHIJKLMNOP"),
       ),
     ).rejects.toThrow(/secret|exfil/i);
   });

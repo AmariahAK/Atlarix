@@ -26,14 +26,19 @@ const SIGNED_IN_SESSION = {
   },
 };
 
-const { supabaseSignOut, getUserPlan, getEffectiveTier, isUserBanned, handleAuthCallback } =
-  vi.hoisted(() => ({
-    supabaseSignOut: vi.fn(async () => {}),
-    getUserPlan: vi.fn(async () => "pro"),
-    getEffectiveTier: vi.fn(async () => "pro"),
-    isUserBanned: vi.fn(async () => false),
-    handleAuthCallback: vi.fn(),
-  }));
+const {
+  supabaseSignOut,
+  getUserPlan,
+  getEffectiveTier,
+  isUserBanned,
+  handleAuthCallback,
+} = vi.hoisted(() => ({
+  supabaseSignOut: vi.fn(async () => {}),
+  getUserPlan: vi.fn(async () => "pro"),
+  getEffectiveTier: vi.fn(async () => "pro"),
+  isUserBanned: vi.fn(async () => false),
+  handleAuthCallback: vi.fn(),
+}));
 
 vi.mock("@/lib/auth/supabase-client", () => ({
   getSession: vi.fn(async () => null),
@@ -47,7 +52,9 @@ vi.mock("@/lib/auth/supabase-client", () => ({
   handleAuthCallback,
 }));
 
-vi.mock("@/db", () => ({ db: { select: () => ({ from: () => ({ all: () => [] }) }) } }));
+vi.mock("@/db", () => ({
+  db: { select: () => ({ from: () => ({ all: () => [] }) }) },
+}));
 vi.mock("@/db/schema", () => ({ apps: {} }));
 
 // Both broadcasts go through the shared helper, so capturing it captures the
@@ -63,7 +70,10 @@ import { SubscriptionManager } from "@/lib/SubscriptionManager";
 type Sent = { channel: string; payload: unknown };
 
 function sentSoFar(): Sent[] {
-  return broadcast.mock.calls.map(([channel, payload]) => ({ channel, payload }));
+  return broadcast.mock.calls.map(([channel, payload]) => ({
+    channel,
+    payload,
+  }));
 }
 
 const resolved = () => sentSoFar().filter((s) => s.channel === "auth:resolved");

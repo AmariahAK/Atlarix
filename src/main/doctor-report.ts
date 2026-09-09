@@ -60,7 +60,8 @@ const EMAIL = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
  * The filename is usually the informative part ("better_sqlite3.node"), while
  * everything to its left is the user's identity and machine layout.
  */
-const POSIX_PATH = /(?:\/(?:Users|home|var|tmp|private|opt|Volumes|mnt)\/)[^\s"',;:)]+/g;
+const POSIX_PATH =
+  /(?:\/(?:Users|home|var|tmp|private|opt|Volumes|mnt)\/)[^\s"',;:)]+/g;
 const WINDOWS_PATH = /[A-Za-z]:\\[^\s"',;)]+/g;
 
 function lastSegment(p: string): string {

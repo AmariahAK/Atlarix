@@ -13,13 +13,13 @@ const MAX_FAVORITES = 3;
  * Get all favorite OpenRouter model IDs in display order
  */
 export async function getFavoriteOpenRouterModels(): Promise<string[]> {
-    const favorites = await db
-        .select({ modelId: openrouterFavorites.modelId })
-        .from(openrouterFavorites)
-        .orderBy(asc(openrouterFavorites.displayOrder))
-        .all();
+  const favorites = await db
+    .select({ modelId: openrouterFavorites.modelId })
+    .from(openrouterFavorites)
+    .orderBy(asc(openrouterFavorites.displayOrder))
+    .all();
 
-    return favorites.map((f) => f.modelId).slice(0, MAX_FAVORITES);
+  return favorites.map((f) => f.modelId).slice(0, MAX_FAVORITES);
 }
 
 /**
@@ -27,86 +27,98 @@ export async function getFavoriteOpenRouterModels(): Promise<string[]> {
  * Replaces all existing favorites with the provided list
  * @param modelIds - Array of model IDs (max 3: Fast/Balanced/Deep)
  */
-export async function setFavoriteOpenRouterModels(modelIds: string[]): Promise<void> {
-    if (modelIds.length > MAX_FAVORITES) {
-        throw new Error(`Maximum ${MAX_FAVORITES} favorites allowed`);
-    }
+export async function setFavoriteOpenRouterModels(
+  modelIds: string[],
+): Promise<void> {
+  if (modelIds.length > MAX_FAVORITES) {
+    throw new Error(`Maximum ${MAX_FAVORITES} favorites allowed`);
+  }
 
-    // Delete all existing favorites
-    await db.delete(openrouterFavorites).run();
+  // Delete all existing favorites
+  await db.delete(openrouterFavorites).run();
 
-    // Insert new favorites with display order
-    if (modelIds.length > 0) {
-        await db
-            .insert(openrouterFavorites)
-            .values(
-                modelIds.map((modelId, index) => ({
-                    modelId,
-                    displayOrder: index + 1,
-                }))
-            )
-            .run();
-    }
+  // Insert new favorites with display order
+  if (modelIds.length > 0) {
+    await db
+      .insert(openrouterFavorites)
+      .values(
+        modelIds.map((modelId, index) => ({
+          modelId,
+          displayOrder: index + 1,
+        })),
+      )
+      .run();
+  }
 }
 
 /**
  * Add a favorite OpenRouter model
  * @param modelId - Model ID to add
  */
-export async function addFavoriteOpenRouterModel(modelId: string): Promise<void> {
-    const existing = await db
-        .select({ id: openrouterFavorites.id })
-        .from(openrouterFavorites)
-        .all();
+export async function addFavoriteOpenRouterModel(
+  modelId: string,
+): Promise<void> {
+  const existing = await db
+    .select({ id: openrouterFavorites.id })
+    .from(openrouterFavorites)
+    .all();
 
-    if (existing.length >= MAX_FAVORITES) {
-        throw new Error(`Maximum ${MAX_FAVORITES} favorites allowed`);
-    }
+  if (existing.length >= MAX_FAVORITES) {
+    throw new Error(`Maximum ${MAX_FAVORITES} favorites allowed`);
+  }
 
-    // Check if already favorited
-    const alreadyFavorited = await db
-        .select({ id: openrouterFavorites.id })
-        .from(openrouterFavorites)
-        .where(eq(openrouterFavorites.modelId, modelId))
-        .get();
+  // Check if already favorited
+  const alreadyFavorited = await db
+    .select({ id: openrouterFavorites.id })
+    .from(openrouterFavorites)
+    .where(eq(openrouterFavorites.modelId, modelId))
+    .get();
 
-    if (alreadyFavorited) {
-        return; // Already in favorites
-    }
+  if (alreadyFavorited) {
+    return; // Already in favorites
+  }
 
-    // Add with next display order
-    const nextOrder = existing.length + 1;
-    await db
-        .insert(openrouterFavorites)
-        .values({
-            modelId,
-            displayOrder: nextOrder,
-        })
-        .run();
+  // Add with next display order
+  const nextOrder = existing.length + 1;
+  await db
+    .insert(openrouterFavorites)
+    .values({
+      modelId,
+      displayOrder: nextOrder,
+    })
+    .run();
 }
 
 /**
  * Remove a favorite OpenRouter model
  * @param modelId - Model ID to remove
  */
-export async function removeFavoriteOpenRouterModel(modelId: string): Promise<void> {
-    await db.delete(openrouterFavorites).where(eq(openrouterFavorites.modelId, modelId)).run();
+export async function removeFavoriteOpenRouterModel(
+  modelId: string,
+): Promise<void> {
+  await db
+    .delete(openrouterFavorites)
+    .where(eq(openrouterFavorites.modelId, modelId))
+    .run();
 
-    // Reorder remaining favorites
-    const remaining = await db
-        .select({ id: openrouterFavorites.id, modelId: openrouterFavorites.modelId })
-        .from(openrouterFavorites)
-        .orderBy(asc(openrouterFavorites.displayOrder))
-        .all();
+  // Reorder remaining favorites
+  const remaining = await db
+    .select({
+      id: openrouterFavorites.id,
+      modelId: openrouterFavorites.modelId,
+    })
+    .from(openrouterFavorites)
+    .orderBy(asc(openrouterFavorites.displayOrder))
+    .all();
 
-    // Update display order
-    for (let i = 0; i < remaining.length; i++) {
-        await db
-            .update(openrouterFavorites)
-            .set({ displayOrder: i + 1 })
-            .where(eq(openrouterFavorites.id, remaining[i].id))
-            .run();
-    }
+  // Update display order
+  for (let i = 0; i < remaining.length; i++) {
+    await db
+      .update(openrouterFavorites)
+      .set({ displayOrder: i + 1 })
+      .where(eq(openrouterFavorites.id, remaining[i].id))
+      .run();
+  }
 }
 
 /**
@@ -114,11 +126,11 @@ export async function removeFavoriteOpenRouterModel(modelId: string): Promise<vo
  * @param modelId - Model ID to check
  */
 export async function isModelFavorited(modelId: string): Promise<boolean> {
-    const result = await db
-        .select({ id: openrouterFavorites.id })
-        .from(openrouterFavorites)
-        .where(eq(openrouterFavorites.modelId, modelId))
-        .get();
+  const result = await db
+    .select({ id: openrouterFavorites.id })
+    .from(openrouterFavorites)
+    .where(eq(openrouterFavorites.modelId, modelId))
+    .get();
 
-    return result !== undefined;
+  return result !== undefined;
 }

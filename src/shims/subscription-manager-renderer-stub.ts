@@ -43,7 +43,11 @@ export class SubscriptionManager {
   static async signIn(
     _provider: "google" | "github",
   ): Promise<{ error: Error | null }> {
-    return { error: new Error("SubscriptionManager is only available in the main process") };
+    return {
+      error: new Error(
+        "SubscriptionManager is only available in the main process",
+      ),
+    };
   }
 
   static async signOut(): Promise<void> {}
@@ -56,7 +60,9 @@ export class SubscriptionManager {
     return {
       success: false,
       user: null,
-      error: new Error("SubscriptionManager is only available in the main process"),
+      error: new Error(
+        "SubscriptionManager is only available in the main process",
+      ),
     };
   }
 

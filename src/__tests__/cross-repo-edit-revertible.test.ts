@@ -44,12 +44,16 @@ async function put(abs: string, content: string) {
 const readOr = (abs: string) => fs.readFile(abs, "utf8").catch(() => null);
 
 beforeEach(async () => {
-  base = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "atlarix-xrepo-")));
+  base = await fs.realpath(
+    await fs.mkdtemp(path.join(os.tmpdir(), "atlarix-xrepo-")),
+  );
   workspace = path.join(base, "workspace");
   sibling = path.join(base, "sibling-repo");
   await fs.mkdir(workspace, { recursive: true });
   await fs.mkdir(sibling, { recursive: true });
-  shadowRoot = await fs.mkdtemp(path.join(os.tmpdir(), "atlarix-xrepo-shadow-"));
+  shadowRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), "atlarix-xrepo-shadow-"),
+  );
   _setShadowSnapshotsRootForTests(shadowRoot);
 });
 
@@ -83,14 +87,19 @@ describeWithGit("cross-repo edit is revertible through the interceptor", () => {
       }
     ).maybeCaptureWorkspaceSnapshot([
       (
-        interceptor as unknown as { toWorkspaceRelativePosix: (p: string) => string }
+        interceptor as unknown as {
+          toWorkspaceRelativePosix: (p: string) => string;
+        }
       ).toWorkspaceRelativePosix(outside),
     ]);
 
     await put(outside, 'const Version = "2"');
 
     expect(await snapshotExists(workspace, TURN)).toBe(true);
-    const result = await revertSnapshot({ workspacePath: workspace, turnId: TURN });
+    const result = await revertSnapshot({
+      workspacePath: workspace,
+      turnId: TURN,
+    });
     expect(result.success).toBe(true);
     expect(await readOr(outside)).toBe('const Version = "1"');
   });
@@ -104,7 +113,9 @@ describeWithGit("cross-repo edit is revertible through the interceptor", () => {
     const interceptor = interceptorWithGrant();
     const rel = (p: string) =>
       (
-        interceptor as unknown as { toWorkspaceRelativePosix: (x: string) => string }
+        interceptor as unknown as {
+          toWorkspaceRelativePosix: (x: string) => string;
+        }
       ).toWorkspaceRelativePosix(p);
     await (
       interceptor as unknown as {
@@ -119,7 +130,10 @@ describeWithGit("cross-repo edit is revertible through the interceptor", () => {
     expect(listed!.filesChanged).toContain("src/app.ts");
     expect(listed!.filesChanged.some((f) => f.startsWith("../"))).toBe(true);
 
-    const result = await revertSnapshot({ workspacePath: workspace, turnId: TURN });
+    const result = await revertSnapshot({
+      workspacePath: workspace,
+      turnId: TURN,
+    });
     expect(result.restoredFiles).toBe(2);
     expect(await readOr(inside)).toBe("inside v1");
     expect(await readOr(outside)).toBe("outside v1");

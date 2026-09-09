@@ -11,7 +11,9 @@ export type SshConnectionState = {
 
 const sessions = new Map<string, SshConnectionState>();
 
-export async function connectSshHost(hostAlias: string): Promise<SshConnectionState> {
+export async function connectSshHost(
+  hostAlias: string,
+): Promise<SshConnectionState> {
   logger.log(`Connecting SSH host: ${hostAlias}`);
   const state: SshConnectionState = {
     hostAlias,
@@ -26,9 +28,14 @@ export async function disconnectSshHost(hostAlias: string): Promise<void> {
   sessions.delete(hostAlias);
 }
 
-export async function testSshHost(hostAlias: string): Promise<{ ok: boolean; message: string }> {
+export async function testSshHost(
+  hostAlias: string,
+): Promise<{ ok: boolean; message: string }> {
   if (!hostAlias.trim()) {
     return { ok: false, message: "Host alias is required." };
   }
-  return { ok: true, message: `Host ${hostAlias} is reachable (stub). Full SSH in a future build.` };
+  return {
+    ok: true,
+    message: `Host ${hostAlias} is reachable (stub). Full SSH in a future build.`,
+  };
 }

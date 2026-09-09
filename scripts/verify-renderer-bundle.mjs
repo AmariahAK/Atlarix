@@ -78,14 +78,18 @@ async function main() {
   }
 
   if (hits.length > 0) {
-    console.error("Renderer bundle contains forbidden main-process references:\n");
+    console.error(
+      "Renderer bundle contains forbidden main-process references:\n",
+    );
     for (const { file, needle } of hits) {
       console.error(`  ${needle}  in  ${path.relative(process.cwd(), file)}`);
     }
     process.exit(1);
   }
 
-  console.log(`OK: scanned ${files.length} renderer file(s); no forbidden strings.`);
+  console.log(
+    `OK: scanned ${files.length} renderer file(s); no forbidden strings.`,
+  );
 }
 
 main().catch((err) => {

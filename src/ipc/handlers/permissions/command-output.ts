@@ -195,7 +195,10 @@ export function formatCommandOutput(
   // the excerpt list is capped at 20 lines, so it cannot grow without bound.
   const first = fill(Math.max(0, maxOutputBytes - noticeReserve));
   if (first.hi < first.lo) {
-    return truncateUtf8([...first.head, ...first.tail].join("\n"), maxOutputBytes);
+    return truncateUtf8(
+      [...first.head, ...first.tail].join("\n"),
+      maxOutputBytes,
+    );
   }
   const section = errorSection(notableIn(first.lo, first.hi));
   const { head, tail, lo, hi } = fill(

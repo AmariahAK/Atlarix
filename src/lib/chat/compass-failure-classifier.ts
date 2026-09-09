@@ -21,6 +21,10 @@ import {
   coreExhaustedUserMessage,
   coreUnavailableUserMessage,
 } from "@/shared/billing_copy";
+// The 402 parser lives in `lib/billing/insufficient-credit` because the sub-agent
+// path needs the same figure and never reaches this classifier. Imported rather
+// than duplicated: two parsers for one wire field is how they drift.
+import { requiredCentsFromBody } from "@/lib/billing/insufficient-credit";
 
 export interface CompassFailureClassification {
   message: string;
@@ -37,13 +41,19 @@ export function classifyCompassFailure(
     return { message: accountBannedUserMessage(), isCompassInfraError: false };
   }
   if (statusCode === 402 || /insufficient_credit/.test(bodyStr)) {
-    return { message: coreExhaustedUserMessage(), isCompassInfraError: false };
+    return {
+      message: coreExhaustedUserMessage(requiredCentsFromBody(bodyStr)),
+      isCompassInfraError: false,
+    };
   }
   if (statusCode === 503 || /core_unavailable/.test(bodyStr)) {
     return { message: coreUnavailableUserMessage(), isCompassInfraError: true };
   }
   if (statusCode === 401 || statusCode === 403) {
-    return { message: compassAuthExpiredUserMessage(), isCompassInfraError: false };
+    return {
+      message: compassAuthExpiredUserMessage(),
+      isCompassInfraError: false,
+    };
   }
   if (statusCode === 400 || statusCode === 422) {
     return {

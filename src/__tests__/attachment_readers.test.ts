@@ -10,7 +10,9 @@ import { buildToolExpandView } from "@/lib/chat/tool-expand-view";
 
 describe("attachment readers (v11)", () => {
   it("extracts structured CSV with headers and rows", async () => {
-    const csv = Buffer.from("name,age,city\nAda,36,London\nGrace,45,Arlington\n");
+    const csv = Buffer.from(
+      "name,age,city\nAda,36,London\nGrace,45,Arlington\n",
+    );
     const result = await extractCsvFromBuffer(csv);
     expect(result.success).toBe(true);
     expect(result.table?.headers).toEqual(["name", "age", "city"]);
@@ -33,7 +35,7 @@ describe("attachment readers (v11)", () => {
     const slide = (text: string) =>
       `<?xml version="1.0"?><p:sld xmlns:a="urn:a"><p:txBody><a:p><a:r><a:t>${text}</a:t></a:r></a:p></p:txBody></p:sld>`;
     const zipped = zipSync({
-      "[Content_Types].xml": strToU8("<?xml version=\"1.0\"?><Types/>"),
+      "[Content_Types].xml": strToU8('<?xml version="1.0"?><Types/>'),
       "ppt/slides/slide1.xml": strToU8(slide("Hello from slide one")),
       "ppt/slides/slide2.xml": strToU8(slide("Second slide & more")),
     });
@@ -61,8 +63,12 @@ describe("attachment readers (v11)", () => {
   });
 
   it("returns failure for non-zip pptx/odt buffers", () => {
-    expect(extractTextFromPptxBuffer(Buffer.from("not a zip")).success).toBe(false);
-    expect(extractTextFromOdtBuffer(Buffer.from("not a zip")).success).toBe(false);
+    expect(extractTextFromPptxBuffer(Buffer.from("not a zip")).success).toBe(
+      false,
+    );
+    expect(extractTextFromOdtBuffer(Buffer.from("not a zip")).success).toBe(
+      false,
+    );
   });
 
   it("strips RTF control words and decodes escapes", () => {
@@ -80,7 +86,9 @@ describe("attachment readers (v11)", () => {
   });
 
   it("rejects non-RTF buffers", () => {
-    expect(extractTextFromRtfBuffer(Buffer.from("plain text")).success).toBe(false);
+    expect(extractTextFromRtfBuffer(Buffer.from("plain text")).success).toBe(
+      false,
+    );
   });
 
   it("routes read_attachment spreadsheet results to the table card", () => {
@@ -138,7 +146,9 @@ import { ToolRegistry } from "@/lib/tools";
 import { AttachmentStore } from "@/lib/attachment-store";
 
 describe("read_attachment paging (W3)", () => {
-  const bigText = Array.from({ length: 5000 }, (_, i) => `line ${i + 1}`).join("\n");
+  const bigText = Array.from({ length: 5000 }, (_, i) => `line ${i + 1}`).join(
+    "\n",
+  );
 
   const addTextAttachment = (id: string, text: string) => {
     AttachmentStore.add({
@@ -239,7 +249,12 @@ describe("read_attachment paging (W3)", () => {
 // useless to the model. The `.ts` case is the originally reported bug (macOS reports
 // `.ts` as video/mp2t).
 describe("read_attachment content classification", () => {
-  const add = (id: string, filename: string, body: string | Buffer, mimeType = "text/plain") => {
+  const add = (
+    id: string,
+    filename: string,
+    body: string | Buffer,
+    mimeType = "text/plain",
+  ) => {
     const buf = Buffer.isBuffer(body) ? body : Buffer.from(body, "utf-8");
     AttachmentStore.add({
       id,
@@ -252,7 +267,11 @@ describe("read_attachment content classification", () => {
   };
 
   const read = async (id: string) =>
-    ((await ToolRegistry.execute("read_attachment", { attachmentId: id })) as any).result;
+    (
+      (await ToolRegistry.execute("read_attachment", {
+        attachmentId: id,
+      })) as any
+    ).result;
 
   it.each([
     ["typescript", "main.ts", "export const x: number = 1;\n"],
@@ -272,7 +291,12 @@ describe("read_attachment content classification", () => {
 
   it("still returns real binary content as binary", async () => {
     // A NUL-containing blob must NOT be coaxed into the text path.
-    add("cls-bin", "blob.dat", Buffer.from([1, 2, 0, 3, 4, 5]), "application/octet-stream");
+    add(
+      "cls-bin",
+      "blob.dat",
+      Buffer.from([1, 2, 0, 3, 4, 5]),
+      "application/octet-stream",
+    );
     const r = await read("cls-bin");
     expect(r.type).toBe("binary");
   });

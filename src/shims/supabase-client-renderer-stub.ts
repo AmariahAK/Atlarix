@@ -51,7 +51,9 @@ export async function getEffectiveTier(
 export async function signInWithOAuth(
   _provider: OAuthProvider,
 ): Promise<{ error: Error | null }> {
-  return { error: new Error("Supabase client is only available in the main process") };
+  return {
+    error: new Error("Supabase client is only available in the main process"),
+  };
 }
 
 export async function signOut(): Promise<void> {}

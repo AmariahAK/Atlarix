@@ -56,11 +56,15 @@ describe("a provider error in the finish reason", () => {
     expectStreamEnded(turn.fakeIpc.sends, chatId);
 
     // It actually retried — two requests, not one.
-    expect(ctx.server.requestsFor("finish-err").length).toBeGreaterThanOrEqual(2);
+    expect(ctx.server.requestsFor("finish-err").length).toBeGreaterThanOrEqual(
+      2,
+    );
 
     // And the real answer arrived. Without the guard this assertion is what
     // fails: the turn ends after the first response and never asks again.
-    expect(JSON.stringify(turn.fakeIpc.sends)).toContain("Recovered and finished.");
+    expect(JSON.stringify(turn.fakeIpc.sends)).toContain(
+      "Recovered and finished.",
+    );
   });
 
   // A provider that reports an ordinary reason must be untouched — a false

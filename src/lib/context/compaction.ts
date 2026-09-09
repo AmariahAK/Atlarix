@@ -74,7 +74,7 @@ export const PRUNE_MINIMUM_TOKENS = 20_000;
  * case: `overflowClampFor` defaults to 1 and only shrinks after an observed
  * provider overflow (see resolve-model-context-limit.ts).
  */
-const PRUNE_THRESHOLD = 0.60;
+const PRUNE_THRESHOLD = 0.6;
 /**
  * Everything below is derived from the USABLE budget, not fixed.
  *
@@ -185,7 +185,11 @@ const COMPACTION_RECOVERY_HINT =
  */
 async function persistCompactionSummaryToSession(
   chatId: number | undefined,
-  afterList: Array<{ role: string; content?: string | null; kind?: string | null }>,
+  afterList: Array<{
+    role: string;
+    content?: string | null;
+    kind?: string | null;
+  }>,
   sessionId?: string | null,
 ): Promise<boolean> {
   try {
@@ -215,7 +219,9 @@ async function persistCompactionSummaryToSession(
       summaryMsg.content,
       { kind: COMPACTION_MARKER_KIND },
     );
-    logger.info(`[compaction] Summary persisted to session ${resolvedSessionId}`);
+    logger.info(
+      `[compaction] Summary persisted to session ${resolvedSessionId}`,
+    );
     return true;
   } catch (err) {
     logger.warn("[compaction] Could not persist summary to session:", err);
@@ -316,11 +322,9 @@ interface MessageForCompaction {
 // SUMMARY TEMPLATE (OpenCode pattern with Resume From)
 // ═══════════════════════════════════════════════════════════════
 
-
 // ═══════════════════════════════════════════════════════════════
 // TIER CONTEXT LIMIT
 // ═══════════════════════════════════════════════════════════════
-
 
 // ═══════════════════════════════════════════════════════════════
 // TURN-BASED SELECTION (OpenCode pattern)
@@ -359,7 +363,9 @@ function splitTurn(
 
   for (let start = turn.start + 1; start < turn.end; start++) {
     const slice = msgs.slice(start, turn.end);
-    const size = exactTokenCount(slice.map(m => ({ role: m.role, content: m.content })));
+    const size = exactTokenCount(
+      slice.map((m) => ({ role: m.role, content: m.content })),
+    );
     if (size > budget) continue;
     return { start, id: msgs[start]!.id };
   }
@@ -471,11 +477,15 @@ function contentLooksLikeToolResult(content: string): boolean {
 function isToolProtected(content: string): boolean {
   if (content.length < 100) return false;
   return PRUNE_PROTECTED_TOOLS.some(
-    (tool) => content.includes(`tool="${tool}"`) || content.includes(`tool='${tool}'`)
+    (tool) =>
+      content.includes(`tool="${tool}"`) || content.includes(`tool='${tool}'`),
   );
 }
 
-function isContentProtectedForCompaction(content: string, filesWritten?: string[] | null): boolean {
+function isContentProtectedForCompaction(
+  content: string,
+  filesWritten?: string[] | null,
+): boolean {
   if (filesWritten && filesWritten.length > 0) return true;
   const markers = [
     "message_agent",
@@ -616,10 +626,11 @@ function stripMediaFromMessages(
 
   return msgs.map((m) => {
     if (idsToKeep.has(m.id)) return m;
-    const hasMedia = m.content.includes("[image:") ||
-                     m.content.includes("[attached") ||
-                     m.content.includes("data:image") ||
-                     m.content.includes(".pdf");
+    const hasMedia =
+      m.content.includes("[image:") ||
+      m.content.includes("[attached") ||
+      m.content.includes("data:image") ||
+      m.content.includes(".pdf");
     if (!hasMedia) return m;
     return {
       ...m,
@@ -681,7 +692,10 @@ export interface RunSteppedCompactionResult {
 export function countMessagesTokens(
   messages: Array<{ content: string | null | undefined }>,
 ): number {
-  return messages.reduce((acc, m) => acc + exactTokenCountText(m.content || ""), 0);
+  return messages.reduce(
+    (acc, m) => acc + exactTokenCountText(m.content || ""),
+    0,
+  );
 }
 
 /** Below this many history tokens a forced compaction is an honest no-op. */
@@ -847,8 +861,7 @@ export async function runSteppedCompaction(
     // v11.1 guard: don't re-summarize a head that is just the previous
     // summary (nothing new to fold in) — avoids degenerate double passes.
     const headIsOnlyPriorSummary =
-      headMessages.length === 1 &&
-      isCompactionSummaryMessage(headMessages[0]);
+      headMessages.length === 1 && isCompactionSummaryMessage(headMessages[0]);
 
     // GATE ON TOKEN MASS, NOT MESSAGE COUNT.
     //
@@ -862,8 +875,13 @@ export async function runSteppedCompaction(
     // What actually matters is whether the head holds enough to be worth a
     // provider call, which is a question about tokens.
     const headTokens = countMessagesTokens(headMessages);
-    const worthSummarising = headTokens >= Math.min(budgets.forceMinHistory, 1_000);
-    if (!headIsOnlyPriorSummary && headMessages.length > 0 && worthSummarising) {
+    const worthSummarising =
+      headTokens >= Math.min(budgets.forceMinHistory, 1_000);
+    if (
+      !headIsOnlyPriorSummary &&
+      headMessages.length > 0 &&
+      worthSummarising
+    ) {
       // The generation the NEXT marker carries: one past whatever the head's
       // prior summary claims (1 when there isn't one, so the first is gen=1).
       const priorGeneration =
@@ -884,9 +902,7 @@ export async function runSteppedCompaction(
         if (summaryTokens > cap) {
           const keepChars = cap * 4; // ~4 chars/token
           summary = `${summary.slice(0, keepChars)}\n[summary truncated]`;
-          logger.warn(
-            `Compaction summary exceeded ${cap} tokens — truncated`,
-          );
+          logger.warn(`Compaction summary exceeded ${cap} tokens — truncated`);
         }
       }
 
@@ -903,7 +919,13 @@ export async function runSteppedCompaction(
           : modelContext.slice(headMessages.length);
 
         modelContext = tailStartId
-          ? [...modelContext.slice(0, headMessages.length).filter(m => m.role === "system"), summaryMsg, ...tailMessages]
+          ? [
+              ...modelContext
+                .slice(0, headMessages.length)
+                .filter((m) => m.role === "system"),
+              summaryMsg,
+              ...tailMessages,
+            ]
           : [summaryMsg, ...tailMessages];
 
         const newTokens = countMessagesTokens(modelContext);
@@ -991,7 +1013,11 @@ export function isContextOverflowError(error: unknown): boolean {
   if (code && CONTEXT_OVERFLOW_ERROR_CODES.has(code)) return true;
 
   const message =
-    error instanceof Error ? error.message : typeof error === "string" ? error : "";
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : "";
   // APICallError carries the raw provider body — scan it too (some providers
   // put the useful wording only there).
   const responseBody =
@@ -1062,7 +1088,10 @@ export async function resolveUsableBudget(
     );
     return usableContextBudget({ contextWindow, maxOutputTokens });
   } catch (e) {
-    logger.warn("[compaction] could not resolve output reserve — using the full window", e);
+    logger.warn(
+      "[compaction] could not resolve output reserve — using the full window",
+      e,
+    );
     return contextWindow;
   }
 }
@@ -1114,7 +1143,8 @@ export async function summarizeMessagesWithCompactionPrompt(params: {
     )
     .join("\n\n");
 
-  const userPrompt = buildCompactionUserPromptPrefix(priorSummary ?? undefined) + formatted;
+  const userPrompt =
+    buildCompactionUserPromptPrefix(priorSummary ?? undefined) + formatted;
 
   try {
     const settings = readSettings();
@@ -1136,6 +1166,3 @@ export async function summarizeMessagesWithCompactionPrompt(params: {
     return null;
   }
 }
-
-
-

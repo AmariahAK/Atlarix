@@ -11,9 +11,9 @@
  * call from modules shared between the main and renderer processes.
  */
 export function isMainProcessNode(): boolean {
-    return (
-        typeof window === "undefined" &&
-        typeof process !== "undefined" &&
-        Boolean(process.versions?.node)
-    );
+  return (
+    typeof window === "undefined" &&
+    typeof process !== "undefined" &&
+    Boolean(process.versions?.node)
+  );
 }

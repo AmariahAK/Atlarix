@@ -68,7 +68,9 @@ describe("tool activity label coverage", () => {
   it("no label is left in the present participle once done", () => {
     // "Searching code" as a DONE label reads as still-running. The conjugation fallback
     // exists for this, but a hand-written entry can still get it wrong.
-    const stillRunning = liveTools.filter((t) => /\b\w+ing\b/i.test(getToolDoneLabel(t)));
+    const stillRunning = liveTools.filter((t) =>
+      /\b\w+ing\b/i.test(getToolDoneLabel(t)),
+    );
     // `Finding`/`Reading` are legitimate inside a noun phrase ("Read files"), so this only
     // catches a label that is *only* a participle phrase.
     const suspicious = stillRunning.filter((t) =>
@@ -85,7 +87,9 @@ describe("tool activity label coverage", () => {
   });
 
   it("no done label ends in an ellipsis", () => {
-    const withEllipsis = liveTools.filter((t) => /…\s*$/u.test(getToolDoneLabel(t)));
+    const withEllipsis = liveTools.filter((t) =>
+      /…\s*$/u.test(getToolDoneLabel(t)),
+    );
     expect(withEllipsis).toEqual([]);
   });
 });

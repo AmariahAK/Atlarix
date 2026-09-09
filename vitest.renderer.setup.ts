@@ -57,4 +57,5 @@ class NoopObserver {
 }
 (globalThis as Record<string, unknown>).ResizeObserver = NoopObserver;
 (globalThis as Record<string, unknown>).IntersectionObserver = NoopObserver;
-Element.prototype.scrollIntoView = Element.prototype.scrollIntoView ?? (() => {});
+Element.prototype.scrollIntoView =
+  Element.prototype.scrollIntoView ?? (() => {});

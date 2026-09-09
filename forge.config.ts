@@ -199,7 +199,10 @@ const ignore = (file: string) => {
   if (file.startsWith("/node_modules/@next")) return true;
   if (file.startsWith("/node_modules/dugite")) return true;
   for (const deny of RELEASE_DENY_PACKAGES) {
-    if (file === `/node_modules/${deny}` || file.startsWith(`/node_modules/${deny}/`)) {
+    if (
+      file === `/node_modules/${deny}` ||
+      file.startsWith(`/node_modules/${deny}/`)
+    ) {
       return true;
     }
   }
@@ -350,9 +353,17 @@ const config: ForgeConfig = {
       // packaging is unaffected.
       ...(process.platform === "win32" &&
       fs.existsSync(
-        path.join(__dirname, "native/atlarix-sandbox/target/release/atlarix-sandbox.exe"),
+        path.join(
+          __dirname,
+          "native/atlarix-sandbox/target/release/atlarix-sandbox.exe",
+        ),
       )
-        ? [path.join(__dirname, "native/atlarix-sandbox/target/release/atlarix-sandbox.exe")]
+        ? [
+            path.join(
+              __dirname,
+              "native/atlarix-sandbox/target/release/atlarix-sandbox.exe",
+            ),
+          ]
         : []),
       // Linux Landlock sandbox helper (cargo-built in CI; no code-signing needed).
       // Resolves at runtime via process.resourcesPath/atlarix-sandbox-linux
@@ -361,17 +372,22 @@ const config: ForgeConfig = {
       // Guarded so un-built packaging is unaffected; falls back to OS bwrap when absent.
       ...((process.platform === "linux" || process.platform === "win32") &&
       fs.existsSync(
-        path.join(__dirname, "native/atlarix-sandbox-linux/target/release/atlarix-sandbox-linux"),
+        path.join(
+          __dirname,
+          "native/atlarix-sandbox-linux/target/release/atlarix-sandbox-linux",
+        ),
       )
-        ? [path.join(__dirname, "native/atlarix-sandbox-linux/target/release/atlarix-sandbox-linux")]
+        ? [
+            path.join(
+              __dirname,
+              "native/atlarix-sandbox-linux/target/release/atlarix-sandbox-linux",
+            ),
+          ]
         : []),
     ],
   },
   rebuildConfig: {
-    extraModules: [
-      "better-sqlite3",
-      "@lydell/node-pty",
-    ],
+    extraModules: ["better-sqlite3", "@lydell/node-pty"],
     force: true,
   },
   makers: [
@@ -441,289 +457,304 @@ const config: ForgeConfig = {
       arch: string,
     ) => {
       try {
-      console.log(
-        `[packageAfterPrune] start platform=${platform} arch=${arch} buildPath=${buildPath}`,
-      );
-
-      const mainConfigPath = path.join(process.cwd(), "vite.main.config.mts");
-      const workerConfigPath = path.join(process.cwd(), "vite.worker.config.mts");
-      const viteMainConfig = await import(pathToFileURL(mainConfigPath).href);
-      const mainExternalsFallback: string[] = Array.isArray(viteMainConfig.mainRollupExternals)
-        ? [...viteMainConfig.mainRollupExternals]
-        : [];
-      const raw = viteMainConfig?.default?.build?.rollupOptions?.external;
-      let externalList: string[] = Array.isArray(raw)
-        ? raw.map(String)
-        : typeof raw === "function"
-          ? mainExternalsFallback
-          : mainExternalsFallback;
-      try {
-        const viteWorkerConfig = await import(pathToFileURL(workerConfigPath).href);
-        const workerRaw = viteWorkerConfig?.default?.build?.rollupOptions?.external;
-        if (Array.isArray(workerRaw)) {
-          externalList = [...externalList, ...workerRaw.map(String)];
-        }
-      } catch {
-        /* worker config optional */
-      }
-      const builtins = new Set([
-        "electron",
-        "fs",
-        "path",
-        "url",
-        "stream",
-        "zlib",
-        "crypto",
-        "os",
-        "child_process",
-      ]);
-      const npmRoots = new Set<string>();
-      for (const id of externalList) {
-        if (!id || id.startsWith("node:") || builtins.has(id)) continue;
-        npmRoots.add(rollupExternalIdToNpmPackageRoot(id));
-      }
-      const toInstall = [...npmRoots].filter((pkg) => {
-        const root = pkg.startsWith("@")
-          ? pkg.split("/").slice(0, 2).join("/")
-          : pkg.split("/")[0];
-        if (RENDERER_ONLY_PACKAGES.has(root)) return false;
-        // Set entries are short names; externals often list @tanstack/* and @shikijs/*.
-        if (pkg.startsWith("@tanstack/") || pkg.startsWith("@shikijs/"))
-          return false;
-        return true;
-      });
-      const fs = await import("node:fs/promises");
-
-      // Pruned trees can still carry vitest; npm may resolve vitest@3.2.5 → missing vite-node@3.2.5.
-      for (const pkg of ["vitest", "vite-node", "@vitest"]) {
-        await fs.rm(path.join(buildPath, "node_modules", pkg), {
-          recursive: true,
-          force: true,
-        });
-      }
-
-      // ── v11 SIZE FIX ────────────────────────────────────────────────────
-      // `npm install <pkgs>` reconciles the FULL tree from package.json, not
-      // just the named packages — a later install here was silently
-      // reinstalling every prod dependency (~700MB) straight into the asar.
-      // Rewrite the staged package.json to ONLY the runtime externals so no
-      // npm invocation here can ever resolve the app's full dependency tree.
-      const stagedPkgJsonPath = path.join(buildPath, "package.json");
-      const stagedPkg = JSON.parse(
-        await fs.readFile(stagedPkgJsonPath, "utf8"),
-      ) as Record<string, unknown> & { dependencies?: Record<string, string> };
-      const fullDeps: Record<string, string> = stagedPkg.dependencies ?? {};
-      const keepRoots = new Set<string>(toInstall);
-      for (const name of toInstall) {
-        if (!fullDeps[name]) {
-          console.warn(
-            `[packageAfterPrune] external "${name}" missing from package.json dependencies — npm will resolve latest`,
-          );
-        }
-      }
-      stagedPkg.dependencies = Object.fromEntries(
-        Object.entries(fullDeps).filter(([name]) => keepRoots.has(name)),
-      );
-      delete stagedPkg.devDependencies;
-      delete stagedPkg.optionalDependencies;
-      delete stagedPkg.peerDependencies;
-      // Overrides reference packages that no longer exist in the slimmed tree.
-      delete stagedPkg.overrides;
-      await fs.writeFile(stagedPkgJsonPath, JSON.stringify(stagedPkg, null, 2));
-      console.log(
-        `[packageAfterPrune] slimmed staged package.json to ${Object.keys(stagedPkg.dependencies as object).length} runtime dependencies`,
-      );
-      // ────────────────────────────────────────────────────────────────────
-
-      /**
-       * PIN EVERY ROOT TO THE VERSION THE LOCKFILE ALREADY RESOLVED.
-       *
-       * This install runs with `--no-package-lock`, so a bare `name` resolves
-       * that package's semver range to whatever is NEWEST at this instant. Two
-       * problems follow, and only the second one is loud:
-       *
-       *   1. The packaged app ships versions nobody tested. `npm test` ran
-       *      against the lockfile; the binary gets whatever npm felt like.
-       *      That is a reproducibility hole and a supply-chain one — an
-       *      unpinned newest-version install straight into a shipped artifact.
-       *   2. It races publication. v14.38.3's MSIX build failed with
-       *      `notarget @ai-sdk/openai@4.0.51` — a version published SEVEN
-       *      SECONDS earlier, picked up from the packument before its tarball
-       *      had propagated to that runner's CDN edge.
-       *
-       * The lockfile is the version we tested, so install exactly that. A root
-       * with no lockfile entry keeps the old behaviour and says so, rather than
-       * failing a release over a package we cannot pin.
-       */
-      // `await` and `fs.readFile`, NOT `fs.readFileSync`.
-      //
-      // This block has silently never worked. `const fs = await
-      // import("node:fs/promises")` earlier in this hook SHADOWS the top-level
-      // `import fs from "node:fs"`, and the promises API has no `readFileSync` —
-      // so the try always threw, the catch always fired, and every release
-      // installed all 31 roots UNPINNED ("0 pinned from package-lock" in the
-      // build log, which is the tell). The staged app therefore shipped whatever
-      // npm resolved at build time rather than the versions that were tested.
-      const pinnedRoots: string[] = await (async () => {
-        try {
-          const lock = JSON.parse(
-            await fs.readFile(path.join(process.cwd(), "package-lock.json"), "utf8"),
-          ) as { packages?: Record<string, { version?: string }> };
-          const packages = lock.packages ?? {};
-          return toInstall.map((name) => {
-            const version = packages[`node_modules/${name}`]?.version;
-            if (!version) {
-              console.warn(
-                `[packageAfterPrune] "${name}" has no package-lock entry — installing UNPINNED (npm will take newest)`,
-              );
-              return name;
-            }
-            return `${name}@${version}`;
-          });
-        } catch (e) {
-          console.warn(
-            `[packageAfterPrune] could not read package-lock.json (${
-              e instanceof Error ? e.message : String(e)
-            }) — installing every root unpinned`,
-          );
-          return toInstall;
-        }
-      })();
-
-      if (toInstall.length > 0) {
         console.log(
-          `[packageAfterPrune] npm install (${toInstall.length} roots, ${
-            pinnedRoots.filter((r) => r.includes("@", 1)).length
-          } pinned from package-lock) — may take several minutes on Windows CI`,
+          `[packageAfterPrune] start platform=${platform} arch=${arch} buildPath=${buildPath}`,
         );
-        // Omit dev + optional deps so nested tooling (Playwright, typings, etc.) does not land in the packaged app.
-        const commands = [
+
+        const mainConfigPath = path.join(process.cwd(), "vite.main.config.mts");
+        const workerConfigPath = path.join(
+          process.cwd(),
+          "vite.worker.config.mts",
+        );
+        const viteMainConfig = await import(pathToFileURL(mainConfigPath).href);
+        const mainExternalsFallback: string[] = Array.isArray(
+          viteMainConfig.mainRollupExternals,
+        )
+          ? [...viteMainConfig.mainRollupExternals]
+          : [];
+        const raw = viteMainConfig?.default?.build?.rollupOptions?.external;
+        let externalList: string[] = Array.isArray(raw)
+          ? raw.map(String)
+          : typeof raw === "function"
+            ? mainExternalsFallback
+            : mainExternalsFallback;
+        try {
+          const viteWorkerConfig = await import(
+            pathToFileURL(workerConfigPath).href
+          );
+          const workerRaw =
+            viteWorkerConfig?.default?.build?.rollupOptions?.external;
+          if (Array.isArray(workerRaw)) {
+            externalList = [...externalList, ...workerRaw.map(String)];
+          }
+        } catch {
+          /* worker config optional */
+        }
+        const builtins = new Set([
+          "electron",
+          "fs",
+          "path",
+          "url",
+          "stream",
+          "zlib",
+          "crypto",
+          "os",
+          "child_process",
+        ]);
+        const npmRoots = new Set<string>();
+        for (const id of externalList) {
+          if (!id || id.startsWith("node:") || builtins.has(id)) continue;
+          npmRoots.add(rollupExternalIdToNpmPackageRoot(id));
+        }
+        const toInstall = [...npmRoots].filter((pkg) => {
+          const root = pkg.startsWith("@")
+            ? pkg.split("/").slice(0, 2).join("/")
+            : pkg.split("/")[0];
+          if (RENDERER_ONLY_PACKAGES.has(root)) return false;
+          // Set entries are short names; externals often list @tanstack/* and @shikijs/*.
+          if (pkg.startsWith("@tanstack/") || pkg.startsWith("@shikijs/"))
+            return false;
+          return true;
+        });
+        const fs = await import("node:fs/promises");
+
+        // Pruned trees can still carry vitest; npm may resolve vitest@3.2.5 → missing vite-node@3.2.5.
+        for (const pkg of ["vitest", "vite-node", "@vitest"]) {
+          await fs.rm(path.join(buildPath, "node_modules", pkg), {
+            recursive: true,
+            force: true,
+          });
+        }
+
+        // ── v11 SIZE FIX ────────────────────────────────────────────────────
+        // `npm install <pkgs>` reconciles the FULL tree from package.json, not
+        // just the named packages — a later install here was silently
+        // reinstalling every prod dependency (~700MB) straight into the asar.
+        // Rewrite the staged package.json to ONLY the runtime externals so no
+        // npm invocation here can ever resolve the app's full dependency tree.
+        const stagedPkgJsonPath = path.join(buildPath, "package.json");
+        const stagedPkg = JSON.parse(
+          await fs.readFile(stagedPkgJsonPath, "utf8"),
+        ) as Record<string, unknown> & {
+          dependencies?: Record<string, string>;
+        };
+        const fullDeps: Record<string, string> = stagedPkg.dependencies ?? {};
+        const keepRoots = new Set<string>(toInstall);
+        for (const name of toInstall) {
+          if (!fullDeps[name]) {
+            console.warn(
+              `[packageAfterPrune] external "${name}" missing from package.json dependencies — npm will resolve latest`,
+            );
+          }
+        }
+        stagedPkg.dependencies = Object.fromEntries(
+          Object.entries(fullDeps).filter(([name]) => keepRoots.has(name)),
+        );
+        delete stagedPkg.devDependencies;
+        delete stagedPkg.optionalDependencies;
+        delete stagedPkg.peerDependencies;
+        // Overrides reference packages that no longer exist in the slimmed tree.
+        delete stagedPkg.overrides;
+        await fs.writeFile(
+          stagedPkgJsonPath,
+          JSON.stringify(stagedPkg, null, 2),
+        );
+        console.log(
+          `[packageAfterPrune] slimmed staged package.json to ${Object.keys(stagedPkg.dependencies as object).length} runtime dependencies`,
+        );
+        // ────────────────────────────────────────────────────────────────────
+
+        /**
+         * PIN EVERY ROOT TO THE VERSION THE LOCKFILE ALREADY RESOLVED.
+         *
+         * This install runs with `--no-package-lock`, so a bare `name` resolves
+         * that package's semver range to whatever is NEWEST at this instant. Two
+         * problems follow, and only the second one is loud:
+         *
+         *   1. The packaged app ships versions nobody tested. `npm test` ran
+         *      against the lockfile; the binary gets whatever npm felt like.
+         *      That is a reproducibility hole and a supply-chain one — an
+         *      unpinned newest-version install straight into a shipped artifact.
+         *   2. It races publication. v14.38.3's MSIX build failed with
+         *      `notarget @ai-sdk/openai@4.0.51` — a version published SEVEN
+         *      SECONDS earlier, picked up from the packument before its tarball
+         *      had propagated to that runner's CDN edge.
+         *
+         * The lockfile is the version we tested, so install exactly that. A root
+         * with no lockfile entry keeps the old behaviour and says so, rather than
+         * failing a release over a package we cannot pin.
+         */
+        // `await` and `fs.readFile`, NOT `fs.readFileSync`.
+        //
+        // This block has silently never worked. `const fs = await
+        // import("node:fs/promises")` earlier in this hook SHADOWS the top-level
+        // `import fs from "node:fs"`, and the promises API has no `readFileSync` —
+        // so the try always threw, the catch always fired, and every release
+        // installed all 31 roots UNPINNED ("0 pinned from package-lock" in the
+        // build log, which is the tell). The staged app therefore shipped whatever
+        // npm resolved at build time rather than the versions that were tested.
+        const pinnedRoots: string[] = await (async () => {
+          try {
+            const lock = JSON.parse(
+              await fs.readFile(
+                path.join(process.cwd(), "package-lock.json"),
+                "utf8",
+              ),
+            ) as { packages?: Record<string, { version?: string }> };
+            const packages = lock.packages ?? {};
+            return toInstall.map((name) => {
+              const version = packages[`node_modules/${name}`]?.version;
+              if (!version) {
+                console.warn(
+                  `[packageAfterPrune] "${name}" has no package-lock entry — installing UNPINNED (npm will take newest)`,
+                );
+                return name;
+              }
+              return `${name}@${version}`;
+            });
+          } catch (e) {
+            console.warn(
+              `[packageAfterPrune] could not read package-lock.json (${
+                e instanceof Error ? e.message : String(e)
+              }) — installing every root unpinned`,
+            );
+            return toInstall;
+          }
+        })();
+
+        if (toInstall.length > 0) {
+          console.log(
+            `[packageAfterPrune] npm install (${toInstall.length} roots, ${
+              pinnedRoots.filter((r) => r.includes("@", 1)).length
+            } pinned from package-lock) — may take several minutes on Windows CI`,
+          );
+          // Omit dev + optional deps so nested tooling (Playwright, typings, etc.) does not land in the packaged app.
+          const commands = [
+            "install",
+            "--omit=dev",
+            "--omit=optional",
+            "--omit=peer",
+            "--no-package-lock",
+            "--no-save",
+            "--no-audit",
+            "--no-fund",
+            ...npmTargetPlatformArgs(platform, arch),
+            ...pinnedRoots,
+          ];
+          await runNpmInstall(buildPath, commands);
+        }
+
+        // Reconcile the slimmed tree WITHOUT --omit=optional AND WITHOUT
+        // --omit=peer: native platform bindings ship as optionalDependencies
+        // (@lydell/node-pty-<platform> — without this the packaged PTY dies with
+        // "posix_spawnp failed"), and shipped externals declare peers that they
+        // require() at runtime (e.g. @ai-sdk/* → zod → "Cannot find module
+        // 'zod/v4'"). Historically the ast-grep install step reconciled this
+        // implicitly; that step is gone, so do it explicitly. The deny sweep
+        // below runs AFTER this install, so banned transitives still never ship.
+        await runNpmInstall(buildPath, [
           "install",
           "--omit=dev",
-          "--omit=optional",
-          "--omit=peer",
           "--no-package-lock",
           "--no-save",
           "--no-audit",
           "--no-fund",
           ...npmTargetPlatformArgs(platform, arch),
-          ...pinnedRoots,
+        ]);
+        {
+          const ptyBinding = `@lydell/node-pty-${platform}-${arch}`;
+          try {
+            await fs.access(path.join(buildPath, "node_modules", ptyBinding));
+            console.log(
+              `[packageAfterPrune] optional-deps reconcile OK (${ptyBinding} present)`,
+            );
+          } catch {
+            throw new Error(
+              `Missing ${ptyBinding} after optional-deps reconcile — the packaged terminal would be broken`,
+            );
+          }
+          // Shipped AI SDK externals require zod/v4 at runtime (peer dep) — a
+          // packaged-only "Cannot find module 'zod/v4'" if the reconcile dropped it.
+          try {
+            await fs.access(path.join(buildPath, "node_modules", "zod", "v4"));
+          } catch {
+            throw new Error(
+              "Missing zod/v4 after reconcile — @ai-sdk/* would fail with 'Cannot find module zod/v4'",
+            );
+          }
+        }
+
+        const RENDERER_ONLY_DIRS = [
+          "lucide-react",
+          "date-fns",
+          "posthog-js",
+          "posthog-node",
+          "react-shiki",
+          "shiki",
+          "core-js",
+          "markmap-lib",
+          "markmap-view",
+          "markmap-common",
+          "echarts",
+          "zrender",
+          "d3",
+          "@shikijs",
+          "@tanstack",
+          // v11: dugite removed from dependencies; nothing to conditionally keep.
+          "dugite",
         ];
-        await runNpmInstall(buildPath, commands);
-      }
-
-      // Reconcile the slimmed tree WITHOUT --omit=optional AND WITHOUT
-      // --omit=peer: native platform bindings ship as optionalDependencies
-      // (@lydell/node-pty-<platform> — without this the packaged PTY dies with
-      // "posix_spawnp failed"), and shipped externals declare peers that they
-      // require() at runtime (e.g. @ai-sdk/* → zod → "Cannot find module
-      // 'zod/v4'"). Historically the ast-grep install step reconciled this
-      // implicitly; that step is gone, so do it explicitly. The deny sweep
-      // below runs AFTER this install, so banned transitives still never ship.
-      await runNpmInstall(buildPath, [
-        "install",
-        "--omit=dev",
-        "--no-package-lock",
-        "--no-save",
-        "--no-audit",
-        "--no-fund",
-        ...npmTargetPlatformArgs(platform, arch),
-      ]);
-      {
-        const ptyBinding = `@lydell/node-pty-${platform}-${arch}`;
-        try {
-          await fs.access(path.join(buildPath, "node_modules", ptyBinding));
-          console.log(`[packageAfterPrune] optional-deps reconcile OK (${ptyBinding} present)`);
-        } catch {
-          throw new Error(
-            `Missing ${ptyBinding} after optional-deps reconcile — the packaged terminal would be broken`,
-          );
+        for (const pkg of RENDERER_ONLY_DIRS) {
+          const pkgPath = path.join(buildPath, "node_modules", pkg);
+          await fs.rm(pkgPath, { recursive: true, force: true });
         }
-        // Shipped AI SDK externals require zod/v4 at runtime (peer dep) — a
-        // packaged-only "Cannot find module 'zod/v4'" if the reconcile dropped it.
-        try {
-          await fs.access(path.join(buildPath, "node_modules", "zod", "v4"));
-        } catch {
-          throw new Error(
-            "Missing zod/v4 after reconcile — @ai-sdk/* would fail with 'Cannot find module zod/v4'",
-          );
+
+        for (const pkg of RELEASE_DENY_PACKAGES) {
+          const pkgPath = path.join(buildPath, "node_modules", pkg);
+          await fs.rm(pkgPath, { recursive: true, force: true });
         }
-      }
-
-      const RENDERER_ONLY_DIRS = [
-        "lucide-react",
-        "date-fns",
-        "posthog-js",
-        "posthog-node",
-        "react-shiki",
-        "shiki",
-        "core-js",
-        "markmap-lib",
-        "markmap-view",
-        "markmap-common",
-        "echarts",
-        "zrender",
-        "d3",
-        "@shikijs",
-        "@tanstack",
-        // v11: dugite removed from dependencies; nothing to conditionally keep.
-        "dugite",
-      ];
-      for (const pkg of RENDERER_ONLY_DIRS) {
-        const pkgPath = path.join(buildPath, "node_modules", pkg);
-        await fs.rm(pkgPath, { recursive: true, force: true });
-      }
-
-      for (const pkg of RELEASE_DENY_PACKAGES) {
-        const pkgPath = path.join(buildPath, "node_modules", pkg);
-        await fs.rm(pkgPath, { recursive: true, force: true });
-      }
-      // v11: geist is no longer a dependency (fonts vendored); rm guards stale trees.
-      for (const pkg of ["next", "@next", "geist"]) {
-        await fs.rm(path.join(buildPath, "node_modules", pkg), {
+        // v11: geist is no longer a dependency (fonts vendored); rm guards stale trees.
+        for (const pkg of ["next", "@next", "geist"]) {
+          await fs.rm(path.join(buildPath, "node_modules", pkg), {
+            recursive: true,
+            force: true,
+          });
+        }
+        await fs.rm(path.join(buildPath, "node_modules", "@playwright"), {
           recursive: true,
           force: true,
         });
-      }
-      await fs.rm(path.join(buildPath, "node_modules", "@playwright"), {
-        recursive: true,
-        force: true,
-      });
-      await fs.rm(path.join(buildPath, "node_modules", "@vitest"), {
-        recursive: true,
-        force: true,
-      });
-
-      // npm installs above reconcile the (slimmed) package.json, which can
-      // resurrect deny-listed transitives — e.g. typescript (23MB). Re-run the
-      // deny sweep AFTER the last install so nothing banned ships.
-      for (const pkg of RELEASE_DENY_PACKAGES) {
-        await fs.rm(path.join(buildPath, "node_modules", pkg), {
+        await fs.rm(path.join(buildPath, "node_modules", "@vitest"), {
           recursive: true,
           force: true,
         });
-      }
 
-      // On Windows CI, force rebuild after npm install — ABI skip checks can throw when
-      // forge's rebuildConfig ran before hook-installed modules landed.
-      const rebuildForce =
-        platform === "win32" && process.env.GITHUB_ACTIONS === "true";
-      const rebuildModules = [
-        "better-sqlite3",
-        "@lydell/node-pty",
-      ];
+        // npm installs above reconcile the (slimmed) package.json, which can
+        // resurrect deny-listed transitives — e.g. typescript (23MB). Re-run the
+        // deny sweep AFTER the last install so nothing banned ships.
+        for (const pkg of RELEASE_DENY_PACKAGES) {
+          await fs.rm(path.join(buildPath, "node_modules", pkg), {
+            recursive: true,
+            force: true,
+          });
+        }
 
-      await rebuild({
-        buildPath,
-        electronVersion,
-        platform: platform as NodeJS.Platform,
-        arch,
-        force: rebuildForce,
-        extraModules: rebuildModules,
-      });
+        // On Windows CI, force rebuild after npm install — ABI skip checks can throw when
+        // forge's rebuildConfig ran before hook-installed modules landed.
+        const rebuildForce =
+          platform === "win32" && process.env.GITHUB_ACTIONS === "true";
+        const rebuildModules = ["better-sqlite3", "@lydell/node-pty"];
 
-      await stripSourceMapsFromBuild(buildPath);
-      console.log(`[packageAfterPrune] done buildPath=${buildPath}`);
+        await rebuild({
+          buildPath,
+          electronVersion,
+          platform: platform as NodeJS.Platform,
+          arch,
+          force: rebuildForce,
+          extraModules: rebuildModules,
+        });
+
+        await stripSourceMapsFromBuild(buildPath);
+        console.log(`[packageAfterPrune] done buildPath=${buildPath}`);
       } catch (err) {
         console.error("[packageAfterPrune] FATAL ERROR:", err);
         if (err instanceof Error && err.stack) {
@@ -756,9 +787,13 @@ const config: ForgeConfig = {
         if (!appName) continue;
         const appPath = path.join(outDir, appName);
         try {
-          execFileSync("codesign", ["--force", "--deep", "--sign", "-", appPath], {
-            stdio: "inherit",
-          });
+          execFileSync(
+            "codesign",
+            ["--force", "--deep", "--sign", "-", appPath],
+            {
+              stdio: "inherit",
+            },
+          );
           execFileSync("xattr", ["-cr", appPath]);
           console.log(`[postPackage] ad-hoc re-signed local build: ${appPath}`);
         } catch (err) {

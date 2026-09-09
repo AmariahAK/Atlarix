@@ -27,14 +27,30 @@ function unescapeJsonFragment(s: string): string {
     const next = s[i + 1];
     if (next === undefined) break; // dangling backslash at the truncated end
     switch (next) {
-      case "n": out += "\n"; break;
-      case "t": out += "\t"; break;
-      case "r": out += "\r"; break;
-      case '"': out += '"'; break;
-      case "\\": out += "\\"; break;
-      case "/": out += "/"; break;
-      case "b": out += "\b"; break;
-      case "f": out += "\f"; break;
+      case "n":
+        out += "\n";
+        break;
+      case "t":
+        out += "\t";
+        break;
+      case "r":
+        out += "\r";
+        break;
+      case '"':
+        out += '"';
+        break;
+      case "\\":
+        out += "\\";
+        break;
+      case "/":
+        out += "/";
+        break;
+      case "b":
+        out += "\b";
+        break;
+      case "f":
+        out += "\f";
+        break;
       case "u": {
         const hex = s.slice(i + 2, i + 6);
         if (hex.length === 4 && /^[0-9a-fA-F]{4}$/.test(hex)) {
@@ -45,7 +61,8 @@ function unescapeJsonFragment(s: string): string {
         }
         break;
       }
-      default: out += next;
+      default:
+        out += next;
     }
     i += 1; // consumed the escaped char
   }
@@ -94,7 +111,9 @@ export function extractPartialToolArgs(
     const path = readStringValue(argsTextSoFar, "path");
     if (path) result.path = path;
 
-    const op = argsTextSoFar.match(/"operation"\s*:\s*"(write|replace|insert|delete|section)"/);
+    const op = argsTextSoFar.match(
+      /"operation"\s*:\s*"(write|replace|insert|delete|section)"/,
+    );
     if (op) result.operation = op[1];
 
     // write → `content`; replace/insert/section → `new_content`. The `"content"`

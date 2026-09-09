@@ -42,7 +42,9 @@ export function deserializeApiKeyFromDb(
 }
 
 /** True when value is legacy plaintext needing migration. */
-export function isPlaintextApiKeyInDb(stored: string | null | undefined): boolean {
+export function isPlaintextApiKeyInDb(
+  stored: string | null | undefined,
+): boolean {
   if (!stored?.trim()) return false;
   return !isSecretJson(stored);
 }

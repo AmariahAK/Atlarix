@@ -60,7 +60,8 @@ describe("the background-job auto-wake", () => {
       await Promise.resolve();
     });
 
-    const calls = (fakeIpc.streamMessage as ReturnType<typeof vi.fn>).mock.calls;
+    const calls = (fakeIpc.streamMessage as ReturnType<typeof vi.fn>).mock
+      .calls;
     expect(calls.length).toBeGreaterThan(0);
     const opts = calls[calls.length - 1][1];
     expect(opts.chatId).toBe(CHAT);

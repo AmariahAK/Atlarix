@@ -1,5 +1,12 @@
 import { sql } from "drizzle-orm";
-import { index, integer, primaryKey, sqliteTable, text, unique } from "drizzle-orm/sqlite-core";
+import {
+  index,
+  primaryKey,
+  integer,
+  sqliteTable,
+  text,
+  unique,
+} from "drizzle-orm/sqlite-core";
 import { relations } from "drizzle-orm";
 
 export const apps = sqliteTable("apps", {
@@ -277,7 +284,9 @@ export const atlarixHooks = sqliteTable("atlarix_hooks", {
   command: text("command").notNull(),
   argsJson: text("args_json"),
   workspaceId: integer("workspace_id"),
-  enabled: integer("enabled", { mode: "boolean" }).notNull().default(sql`1`),
+  enabled: integer("enabled", { mode: "boolean" })
+    .notNull()
+    .default(sql`1`),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),
@@ -337,20 +346,26 @@ export const workspaceFilePermissionsRelations = relations(
   }),
 );
 
-export const chatSessionsRelations = relations(chatSessions, ({ one, many }) => ({
-  workspace: one(apps, {
-    fields: [chatSessions.workspaceId],
-    references: [apps.id],
+export const chatSessionsRelations = relations(
+  chatSessions,
+  ({ one, many }) => ({
+    workspace: one(apps, {
+      fields: [chatSessions.workspaceId],
+      references: [apps.id],
+    }),
+    messages: many(sessionMessages),
   }),
-  messages: many(sessionMessages),
-}));
+);
 
-export const sessionMessagesRelations = relations(sessionMessages, ({ one }) => ({
-  session: one(chatSessions, {
-    fields: [sessionMessages.sessionId],
-    references: [chatSessions.id],
+export const sessionMessagesRelations = relations(
+  sessionMessages,
+  ({ one }) => ({
+    session: one(chatSessions, {
+      fields: [sessionMessages.sessionId],
+      references: [chatSessions.id],
+    }),
   }),
-}));
+);
 
 export const language_model_providers = sqliteTable(
   "language_model_providers",
@@ -426,7 +441,9 @@ export const workspaceModifications = sqliteTable("workspace_modifications", {
     .default(sql`0`),
   summaryOfPeriod: text("summary_of_period"),
   todoReference: text("todo_reference"),
-  filesModified: text("files_modified", { mode: "json" }).$type<string[] | null>(),
+  filesModified: text("files_modified", { mode: "json" }).$type<
+    string[] | null
+  >(),
   changesDescription: text("changes_description"),
   aiSummary: text("ai_summary"),
 });
@@ -438,7 +455,9 @@ export const cleanupLog = sqliteTable("cleanup_log", {
     .notNull()
     .default(sql`(unixepoch())`),
   sessionsDeleted: integer("sessions_deleted").notNull().default(0),
-  modificationsSummarized: integer("modifications_summarized").notNull().default(0),
+  modificationsSummarized: integer("modifications_summarized")
+    .notNull()
+    .default(0),
 });
 
 // Define relations for new tables
@@ -546,7 +565,9 @@ export const mcpToolConsents = sqliteTable(
 export const searchProviders = sqliteTable("search_providers", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   provider: text("provider").notNull().unique(), // 'searxng', 'tavily', 'serper', etc.
-  enabled: integer("enabled", { mode: "boolean" }).notNull().default(sql`0`),
+  enabled: integer("enabled", { mode: "boolean" })
+    .notNull()
+    .default(sql`0`),
   config: text("config", { mode: "json" }).$type<{
     url?: string;
     apiKey?: string;
@@ -580,17 +601,24 @@ export const dailyLogs = sqliteTable("daily_logs", {
     .default(sql`(unixepoch())`),
 
   // AI-generated summary bullets (3-5 items)
-  microChanges: text("micro_changes", { mode: "json" }).$type<string[] | null>(),
+  microChanges: text("micro_changes", { mode: "json" }).$type<
+    string[] | null
+  >(),
 
   // SELECTIVE logging - only state-changing tools
-  significantActions: text("significant_actions", { mode: "json" }).$type<{
-    tool: string;
-    target?: string;
-    summary: string;
-    timestamp: string; // ISO string
-  }[] | null>(),
+  significantActions: text("significant_actions", { mode: "json" }).$type<
+    | {
+        tool: string;
+        target?: string;
+        summary: string;
+        timestamp: string; // ISO string
+      }[]
+    | null
+  >(),
 
-  filesTouched: text("files_touched", { mode: "json" }).$type<string[] | null>(),
+  filesTouched: text("files_touched", { mode: "json" }).$type<
+    string[] | null
+  >(),
   diagramChanged: integer("diagram_changed", { mode: "boolean" })
     .notNull()
     .default(sql`0`),
@@ -617,16 +645,18 @@ export const workspaceSnapshots = sqliteTable(
       .notNull()
       .references(() => apps.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
-    filesJson: text("files_json", { mode: "json" }).$type<Record<string, string>>().notNull(),
+    filesJson: text("files_json", { mode: "json" })
+      .$type<Record<string, string>>()
+      .notNull(),
     promptContent: text("prompt_content"),
-    chatMessagesJson: text("chat_messages_json", { mode: "json" }).$type<Array<{ role: string; content: string }>>(),
+    chatMessagesJson: text("chat_messages_json", { mode: "json" }).$type<
+      Array<{ role: string; content: string }>
+    >(),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`),
   },
-  (table) => [
-    index("workspace_snapshots_app_id_idx").on(table.appId),
-  ],
+  (table) => [index("workspace_snapshots_app_id_idx").on(table.appId)],
 );
 
 // --- Workflow Templates (Atlaflow template library) ---
@@ -664,12 +694,17 @@ export const pivotNodes = sqliteTable(
     filePath: text("file_path").notNull(),
     rangeStart: integer("range_start"),
     rangeEnd: integer("range_end"),
-    metadata: text("metadata", { mode: "json" }).$type<Record<string, unknown>>(),
+    metadata: text("metadata", { mode: "json" }).$type<
+      Record<string, unknown>
+    >(),
   },
   (table) => [
     index("pivot_nodes_workspace_idx").on(table.workspaceId),
-    unique("pivot_nodes_workspace_external_unique").on(table.workspaceId, table.externalId),
-  ]
+    unique("pivot_nodes_workspace_external_unique").on(
+      table.workspaceId,
+      table.externalId,
+    ),
+  ],
 );
 
 export const pivotEdges = sqliteTable(
@@ -684,9 +719,11 @@ export const pivotEdges = sqliteTable(
     edgeType: text("edge_type", {
       enum: ["import", "call", "extends", "api"],
     }).notNull(),
-    metadata: text("metadata", { mode: "json" }).$type<Record<string, unknown>>(),
+    metadata: text("metadata", { mode: "json" }).$type<
+      Record<string, unknown>
+    >(),
   },
-  (table) => [index("pivot_edges_workspace_idx").on(table.workspaceId)]
+  (table) => [index("pivot_edges_workspace_idx").on(table.workspaceId)],
 );
 
 export const pivotContainers = sqliteTable("pivot_containers", {
@@ -696,7 +733,10 @@ export const pivotContainers = sqliteTable("pivot_containers", {
     .references(() => apps.id, { onDelete: "cascade" }),
   label: text("label").notNull(),
   intent: text("intent"),
-  position: text("position", { mode: "json" }).$type<{ x: number; y: number }>(),
+  position: text("position", { mode: "json" }).$type<{
+    x: number;
+    y: number;
+  }>(),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),
@@ -713,7 +753,10 @@ export const pivotBeacons = sqliteTable("pivot_beacons", {
   }).notNull(),
   description: text("description"),
   filePath: text("file_path"),
-  position: text("position", { mode: "json" }).$type<{ x: number; y: number }>(),
+  position: text("position", { mode: "json" }).$type<{
+    x: number;
+    y: number;
+  }>(),
 });
 
 export const blueprintSnapshots = sqliteTable(
@@ -731,7 +774,7 @@ export const blueprintSnapshots = sqliteTable(
       enum: ["rte", "user", "ai_cluster"],
     }).notNull(),
   },
-  (table) => [index("blueprint_snapshots_workspace_idx").on(table.workspaceId)]
+  (table) => [index("blueprint_snapshots_workspace_idx").on(table.workspaceId)],
 );
 
 /** v5.0 Section 2: project memory snapshots */
@@ -751,11 +794,19 @@ export const projectSnapshots = sqliteTable(
     gitCommitHash: text("git_commit_hash"),
     sessionSummary: text("session_summary"),
     trigger: text("trigger", {
-      enum: ["blueprint_change", "plan_update", "build_complete", "session_end"],
+      enum: [
+        "blueprint_change",
+        "plan_update",
+        "build_complete",
+        "session_end",
+      ],
     }).notNull(),
   },
   (table) => [
-    index("project_snapshots_workspace_created_idx").on(table.workspaceId, table.createdAt),
+    index("project_snapshots_workspace_created_idx").on(
+      table.workspaceId,
+      table.createdAt,
+    ),
   ],
 );
 
@@ -772,7 +823,10 @@ export const projectMemory = sqliteTable(
       .default(sql`(unixepoch())`),
   },
   (table) => [
-    primaryKey({ columns: [table.workspaceId, table.key], name: "project_memory_pk" }),
+    primaryKey({
+      columns: [table.workspaceId, table.key],
+      name: "project_memory_pk",
+    }),
     index("project_memory_workspace_idx").on(table.workspaceId),
   ],
 );
@@ -793,39 +847,15 @@ export const reviewPatterns = sqliteTable(
       .notNull()
       .default(sql`(unixepoch())`),
   },
-  (table) => [index("review_patterns_workspace_idx").on(table.workspaceId)]
+  (table) => [index("review_patterns_workspace_idx").on(table.workspaceId)],
 );
 
-// --- Skills (Community registry installs) ---
+// --- Skills ---
 //
-// WORKSPACE SCOPE ONLY. Global installs were retired and their rows purged by
-// migration `0049_workspace_only_remote.sql`; `skills:install` hardcodes
-// `scope: "workspace"` and every query filters on it.
-//
-// The `scope` column STAYS despite having one legal value, because it is part of
-// the composite primary key below — SQLite cannot drop a primary-key member
-// without rebuilding the table, which is real migration risk for no user-visible
-// gain. `workspacePath` stays nullable for the same reason (it was nullable
-// *because* of global scope).
-export const installedSkills = sqliteTable(
-  "installed_skills",
-  {
-    id: text("id").notNull(),
-    name: text("name").notNull(),
-    version: text("version").notNull(),
-    author: text("author").notNull(),
-    description: text("description").notNull(),
-    tags: text("tags").notNull(), // JSON: string[]
-    compatibleModes: text("compatible_modes").notNull(), // JSON: string[]
-    installedAt: integer("installed_at", { mode: "timestamp" }).notNull(),
-    scope: text("scope").notNull(), // always "workspace" — see the note above
-    workspacePath: text("workspace_path"), // nullable only for legacy reasons
-    cachedFiles: text("cached_files").notNull(), // JSON: { name, localPath }[]
-  },
-  (table) => ({
-    pk: primaryKey({ columns: [table.id, table.scope, table.workspacePath] }),
-  }),
-);
+// There is no skills table. The in-app marketplace and its `installed_skills` table were
+// deleted in v14.45 (migration `0076`); skills are `.atlarix/skills/*.md` files in the
+// user's own repo, read from disk by `priority-skill-loader.ts`. Nothing about them is
+// persisted here, deliberately — the files ARE the state.
 
 // PASS6: pivot* + blueprintSnapshots relations restored.
 export const pivotNodesRelations = relations(pivotNodes, ({ one }) => ({
@@ -842,13 +872,16 @@ export const pivotEdgesRelations = relations(pivotEdges, ({ one }) => ({
   }),
 }));
 
-export const pivotContainersRelations = relations(pivotContainers, ({ one, many }) => ({
-  workspace: one(apps, {
-    fields: [pivotContainers.workspaceId],
-    references: [apps.id],
+export const pivotContainersRelations = relations(
+  pivotContainers,
+  ({ one, many }) => ({
+    workspace: one(apps, {
+      fields: [pivotContainers.workspaceId],
+      references: [apps.id],
+    }),
+    beacons: many(pivotBeacons),
   }),
-  beacons: many(pivotBeacons),
-}));
+);
 
 export const pivotBeaconsRelations = relations(pivotBeacons, ({ one }) => ({
   container: one(pivotContainers, {
@@ -857,19 +890,25 @@ export const pivotBeaconsRelations = relations(pivotBeacons, ({ one }) => ({
   }),
 }));
 
-export const blueprintSnapshotsRelations = relations(blueprintSnapshots, ({ one }) => ({
-  workspace: one(apps, {
-    fields: [blueprintSnapshots.workspaceId],
-    references: [apps.id],
+export const blueprintSnapshotsRelations = relations(
+  blueprintSnapshots,
+  ({ one }) => ({
+    workspace: one(apps, {
+      fields: [blueprintSnapshots.workspaceId],
+      references: [apps.id],
+    }),
   }),
-}));
+);
 
-export const projectSnapshotsRelations = relations(projectSnapshots, ({ one }) => ({
-  workspace: one(apps, {
-    fields: [projectSnapshots.workspaceId],
-    references: [apps.id],
+export const projectSnapshotsRelations = relations(
+  projectSnapshots,
+  ({ one }) => ({
+    workspace: one(apps, {
+      fields: [projectSnapshots.workspaceId],
+      references: [apps.id],
+    }),
   }),
-}));
+);
 
 export const projectMemoryRelations = relations(projectMemory, ({ one }) => ({
   workspace: one(apps, {

@@ -28,13 +28,10 @@ function scopeFromParams(params: ScopeParams): string {
 }
 
 export function registerTerminalInstancesHandlers(): void {
-  handle(
-    "terminal-instances:list",
-    async (_event, params: ScopeParams) => {
-      const scopeKey = scopeFromParams(params);
-      return { scopeKey, instances: listTerminalInstances(scopeKey) };
-    },
-  );
+  handle("terminal-instances:list", async (_event, params: ScopeParams) => {
+    const scopeKey = scopeFromParams(params);
+    return { scopeKey, instances: listTerminalInstances(scopeKey) };
+  });
 
   handle(
     "terminal-instances:read",
@@ -95,10 +92,7 @@ export function registerTerminalInstancesHandlers(): void {
 
   handle(
     "terminal-instances:sync-scope",
-    async (
-      _event,
-      params: ScopeParams & { state: TerminalScopeState },
-    ) => {
+    async (_event, params: ScopeParams & { state: TerminalScopeState }) => {
       const scopeKey = scopeFromParams(params);
       setTerminalScopeState(scopeKey, params.state);
       return { ok: true as const };

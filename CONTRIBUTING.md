@@ -7,6 +7,7 @@ Thank you for your interest in Atlarix!
 **Atlarix is proprietary software. All rights reserved.**
 
 While the source code may be viewable, this software is NOT open source. You may NOT:
+
 - Publish or redistribute this software
 - Create derivative works
 - Use this software commercially
@@ -19,9 +20,10 @@ For licensing inquiries, please contact: amariah@norahlabs.com
 ## 🐛 Reporting Bugs
 
 If you find a bug, please open an issue on GitHub with:
+
 - Steps to reproduce
 - Expected behavior
-- Actual behavior  
+- Actual behavior
 - Screenshots (if applicable)
 - System information (OS, Node version, etc.)
 
@@ -30,6 +32,7 @@ If you find a bug, please open an issue on GitHub with:
 ## 💡 Suggesting Features
 
 We welcome feature suggestions! Please open an issue with:
+
 - Clear description of the feature
 - Use case / benefit
 - Any relevant examples or mockups
@@ -41,6 +44,7 @@ We welcome feature suggestions! Please open an issue with:
 Found a typo or unclear documentation? Please open a PR with improvements!
 
 Documentation locations:
+
 - `/README.md` - Main documentation
 - `/docs/` - Additional guides
 - Inline code comments
@@ -84,6 +88,7 @@ npm test
 ### Commit Messages
 
 Use conventional commits:
+
 - `feat:` - New feature
 - `fix:` - Bug fix
 - `docs:` - Documentation changes

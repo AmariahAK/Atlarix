@@ -20,7 +20,9 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const LOG_FILE = join(ROOT, "scripts", ".outreach-first-run-2026-08.log.json");
 
 const EXCLUDED_EMAILS = new Set(
-  ["amariah.abish@gmail.com", "amani.kamau06@gmail.com"].map((e) => e.toLowerCase()),
+  ["amariah.abish@gmail.com", "amani.kamau06@gmail.com"].map((e) =>
+    e.toLowerCase(),
+  ),
 );
 
 const SUBJECT = "Windows is fixed, and Atlarix is on the Microsoft Store";
@@ -35,7 +37,8 @@ const args = new Set(process.argv.slice(2));
 const DRY_RUN = args.has("--dry-run");
 const FORCE = args.has("--force");
 const onlyIdx = process.argv.indexOf("--only");
-const ONLY_EMAIL = onlyIdx >= 0 ? process.argv[onlyIdx + 1]?.trim().toLowerCase() : null;
+const ONLY_EMAIL =
+  onlyIdx >= 0 ? process.argv[onlyIdx + 1]?.trim().toLowerCase() : null;
 const limitIdx = process.argv.indexOf("--limit");
 const LIMIT = limitIdx >= 0 ? Number(process.argv[limitIdx + 1]) : null;
 
@@ -189,7 +192,10 @@ async function fetchAllUsers(supabase) {
   let page = 1;
   const perPage = 1000;
   while (true) {
-    const { data, error } = await supabase.auth.admin.listUsers({ page, perPage });
+    const { data, error } = await supabase.auth.admin.listUsers({
+      page,
+      perPage,
+    });
     if (error) throw error;
     const batch = data?.users ?? [];
     all.push(...batch);
@@ -232,11 +238,21 @@ function buildRecipientList(users) {
   // It used to sort by email, which made `--limit` select a semi-random slice —
   // fine for a send-to-everyone campaign, wrong for any campaign aimed at recent
   // signups, and silently so.
-  recipients.sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+  recipients.sort((a, b) =>
+    (b.createdAt ?? "").localeCompare(a.createdAt ?? ""),
+  );
   return recipients;
 }
 
-async function sendViaResend({ apiKey, from, replyTo, to, subject, text, html }) {
+async function sendViaResend({
+  apiKey,
+  from,
+  replyTo,
+  to,
+  subject,
+  text,
+  html,
+}) {
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
@@ -269,7 +285,8 @@ async function main() {
   const supabaseUrl = requireEnv("NEXT_PUBLIC_SUPABASE_URL");
   // New Supabase API-key system: the secret key replaces the legacy service_role JWT.
   const serviceKey =
-    process.env.NEXT_PUBLIC_SUPABASE_SECRET_KEY?.trim() || requireEnv("SUPABASE_SERVICE_ROLE_KEY");
+    process.env.NEXT_PUBLIC_SUPABASE_SECRET_KEY?.trim() ||
+    requireEnv("SUPABASE_SERVICE_ROLE_KEY");
   const resendKey = requireEnv("RESEND_API_KEY");
 
   const replyTo = process.env.OUTREACH_REPLY_TO?.trim() || DEFAULT_REPLY_TO;
@@ -303,14 +320,18 @@ async function main() {
 
   const sentLog = await loadSentLog();
   const sentEmails = new Set(
-    sentLog.filter((e) => e.status === "sent").map((e) => e.email?.toLowerCase()),
+    sentLog
+      .filter((e) => e.status === "sent")
+      .map((e) => e.email?.toLowerCase()),
   );
 
   const pending = FORCE
     ? recipients
     : recipients.filter((r) => !sentEmails.has(r.email));
 
-  console.log(`Recipients after filters (excl. your 2 emails): ${recipients.length}`);
+  console.log(
+    `Recipients after filters (excl. your 2 emails): ${recipients.length}`,
+  );
   console.log(`Already sent (skipped): ${recipients.length - pending.length}`);
   console.log(`To send this run: ${pending.length}`);
 
@@ -354,7 +375,9 @@ async function main() {
   });
 
   if (!probeResult.ok && fallbackFrom && fallbackFrom !== from) {
-    console.warn(`Preferred From failed (${probeResult.error}); using EMAIL_SOURCE + reply_to`);
+    console.warn(
+      `Preferred From failed (${probeResult.error}); using EMAIL_SOURCE + reply_to`,
+    );
     from = fallbackFrom;
     useFallbackFrom = true;
     probeResult = await sendViaResend({
@@ -380,7 +403,9 @@ async function main() {
     from,
     replyTo,
   });
-  console.log(`Probe OK (id=${probeResult.id})${useFallbackFrom ? " [fallback From]" : ""}`);
+  console.log(
+    `Probe OK (id=${probeResult.id})${useFallbackFrom ? " [fallback From]" : ""}`,
+  );
 
   const rest = pending.slice(1);
   let sent = 1;
@@ -423,7 +448,9 @@ async function main() {
     }
   }
 
-  console.log(`\nDone. Sent: ${sent}, Failed: ${failed}, Total targeted: ${pending.length}`);
+  console.log(
+    `\nDone. Sent: ${sent}, Failed: ${failed}, Total targeted: ${pending.length}`,
+  );
 }
 
 main().catch((err) => {

@@ -14,10 +14,17 @@
  *   node scripts/swebench-grade.mjs preds-opencode.jsonl
  */
 import { execFileSync } from "node:child_process";
-import { loadInstances, prepareRepo, capturePatch, openPredictions, parseArgs } from "./lib.mjs";
+import {
+  loadInstances,
+  prepareRepo,
+  capturePatch,
+  openPredictions,
+  parseArgs,
+} from "./lib.mjs";
 
 const args = parseArgs();
-if (!args.instances) throw new Error("--instances (or SWEBENCH_INSTANCES) is required");
+if (!args.instances)
+  throw new Error("--instances (or SWEBENCH_INSTANCES) is required");
 
 const OPENCODE_BIN = process.env.OPENCODE_BIN ?? "opencode";
 const MODEL = process.env.OPENCODE_MODEL ?? "deepseek/deepseek-v4-pro";
@@ -32,17 +39,25 @@ for (let i = 0; i < instances.length; i++) {
   try {
     // opencode headless: run a single non-interactive task in the repo cwd.
     // (`opencode run "<prompt>"` — adjust flags to your opencode version.)
-    execFileSync(OPENCODE_BIN, ["run", "--model", MODEL, inst.problem_statement], {
-      cwd: dir,
-      stdio: "inherit",
-      timeout: args.timeoutMs,
-      env: { ...process.env, DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY },
-    });
+    execFileSync(
+      OPENCODE_BIN,
+      ["run", "--model", MODEL, inst.problem_statement],
+      {
+        cwd: dir,
+        stdio: "inherit",
+        timeout: args.timeoutMs,
+        env: { ...process.env, DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY },
+      },
+    );
   } catch (e) {
     console.warn(`[opencode] ${inst.instance_id} run error:`, e?.message ?? e);
   }
   const patch = capturePatch(dir, inst.base_commit);
   preds.append(inst.instance_id, patch, `opencode/${MODEL}`);
-  console.log(`[opencode] ${i + 1}/${instances.length} ${inst.instance_id} patch=${patch.length}B`);
+  console.log(
+    `[opencode] ${i + 1}/${instances.length} ${inst.instance_id} patch=${patch.length}B`,
+  );
 }
-console.log(`[opencode] wrote ${args.out} — grade: node scripts/swebench-grade.mjs ${args.out}`);
+console.log(
+  `[opencode] wrote ${args.out} — grade: node scripts/swebench-grade.mjs ${args.out}`,
+);

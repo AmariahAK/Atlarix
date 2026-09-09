@@ -35,7 +35,11 @@ function extractFrom(html: string, pageUrl: string): ExtractedSearchResult[] {
     "URL",
     `return ${SEARCH_RESULTS_SCRIPT}`,
   );
-  return run(window.document, window.location, window.URL) as ExtractedSearchResult[];
+  return run(
+    window.document,
+    window.location,
+    window.URL,
+  ) as ExtractedSearchResult[];
 }
 
 let results: ExtractedSearchResult[];
@@ -45,7 +49,10 @@ beforeAll(() => {
     path.join(__dirname, "fixtures", "brave-search-results.html"),
     "utf8",
   );
-  results = extractFrom(html, "https://search.brave.com/search?q=electron+43+breaking+changes");
+  results = extractFrom(
+    html,
+    "https://search.brave.com/search?q=electron+43+breaking+changes",
+  );
 });
 
 describe("SEARCH_RESULTS_SCRIPT against a real Brave results page", () => {
@@ -64,9 +71,13 @@ describe("SEARCH_RESULTS_SCRIPT against a real Brave results page", () => {
   it("EXCLUDES the engine's own links — the chrome must never look like a result", () => {
     // Brave's own page is full of tempting anchors: Premium, the API, the
     // transparency report, security disclosure. None is a search result.
-    const hosts = results.map((r) => new URL(r.url).hostname.replace(/^www\./, ""));
+    const hosts = results.map((r) =>
+      new URL(r.url).hostname.replace(/^www\./, ""),
+    );
     expect(hosts.some((h) => h === "search.brave.com")).toBe(false);
-    expect(hosts.some((h) => h === "brave.com" || h.endsWith(".brave.com"))).toBe(false);
+    expect(
+      hosts.some((h) => h === "brave.com" || h.endsWith(".brave.com")),
+    ).toBe(false);
   });
 
   it("de-duplicates by URL — engines repeat a destination as title plus sitelink", () => {
@@ -76,7 +87,10 @@ describe("SEARCH_RESULTS_SCRIPT against a real Brave results page", () => {
 
   it("surfaces results relevant to the query, not just any link", () => {
     // The captured query was "electron 43 breaking changes".
-    const blob = results.map((r) => `${r.title} ${r.url}`).join(" ").toLowerCase();
+    const blob = results
+      .map((r) => `${r.title} ${r.url}`)
+      .join(" ")
+      .toLowerCase();
     expect(blob).toContain("electron");
   });
 
@@ -92,10 +106,13 @@ describe("SEARCH_RESULTS_SCRIPT against a real Brave results page", () => {
 });
 
 describe("SEARCH_RESULTS_SCRIPT edge cases", () => {
-  const page = (body: string) => `<!doctype html><html><body>${body}</body></html>`;
+  const page = (body: string) =>
+    `<!doctype html><html><body>${body}</body></html>`;
 
   it("returns [] for a page with no results rather than throwing", () => {
-    expect(extractFrom(page("<p>nothing here</p>"), "https://search.brave.com/")).toEqual([]);
+    expect(
+      extractFrom(page("<p>nothing here</p>"), "https://search.brave.com/"),
+    ).toEqual([]);
   });
 
   it("returns [] for a challenge page — the tier must fall through, not guess", () => {

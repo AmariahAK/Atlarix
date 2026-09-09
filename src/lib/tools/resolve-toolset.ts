@@ -69,13 +69,8 @@ export interface ResolvedToolset {
 export function resolveToolsetForSession(
   input: ResolveToolsetInput,
 ): ResolvedToolset {
-  const {
-    branch,
-    effectiveWorkMode,
-    hasWorkspace,
-    model,
-    userAgentTools,
-  } = input;
+  const { branch, effectiveWorkMode, hasWorkspace, model, userAgentTools } =
+    input;
 
   // Stage 1 — registry metadata (branch-specific starting surface).
   let candidates: ToolMetadata[];
@@ -154,6 +149,9 @@ export function resolveToolsetForSession(
     "ask_user",
     "mcp_call",
     "list_available_mcps",
+    // Every operation needs an approval card, and headless has no surface to
+    // show one on — offering it would only ever end in a blocked turn.
+    "manage_mcp_server",
     "web_search",
     "read_url",
     "read_attachment",

@@ -22,8 +22,12 @@ import { sequentialPackagerHooks } from "./win-ci-packager-hooks.mjs";
 const require = createRequire(import.meta.url);
 installWindowsCiElectronExtractPatch();
 const { runHook } = require("@electron-forge/core/dist/util/hook.js");
-const { readMutatedPackageJson } = require("@electron-forge/core/dist/util/read-package-json.js");
-const { getElectronVersion } = require("@electron-forge/core-utils/dist/electron-version.js");
+const {
+  readMutatedPackageJson,
+} = require("@electron-forge/core/dist/util/read-package-json.js");
+const {
+  getElectronVersion,
+} = require("@electron-forge/core-utils/dist/electron-version.js");
 const outDirFn = resolveCjsDefault("@electron-forge/core/dist/util/out-dir.js");
 const { packager } = require("@electron/packager");
 const { rebuild } = require("@electron/rebuild");
@@ -31,7 +35,11 @@ const { rebuild } = require("@electron/rebuild");
 export const PLATFORM = "win32";
 export const ARCH = "x64";
 export const APP = "Atlarix";
-export const PACKAGE_DIR = path.join(process.cwd(), "out", `${APP}-${PLATFORM}-${ARCH}`);
+export const PACKAGE_DIR = path.join(
+  process.cwd(),
+  "out",
+  `${APP}-${PLATFORM}-${ARCH}`,
+);
 export const PACKAGER_TMP = path.join(process.cwd(), ".cache", "packager-tmp");
 export const MAIN_JS = path.join(process.cwd(), ".vite", "build", "main.js");
 
@@ -47,8 +55,12 @@ const fatalRegistered = new Set();
 
 export function logFailureContext(tag) {
   console.error(`[${tag}] cwd=${process.cwd()}`);
-  console.error(`[${tag}] out/ exists=${fs.existsSync(path.join(process.cwd(), "out"))}`);
-  console.error(`[${tag}] .vite/build/main.js exists=${fs.existsSync(MAIN_JS)}`);
+  console.error(
+    `[${tag}] out/ exists=${fs.existsSync(path.join(process.cwd(), "out"))}`,
+  );
+  console.error(
+    `[${tag}] .vite/build/main.js exists=${fs.existsSync(MAIN_JS)}`,
+  );
   console.error(`[${tag}] expected package dir=${PACKAGE_DIR}`);
 }
 
@@ -75,7 +87,9 @@ export function registerFatalHandlers(tag) {
 
 export function assertMainJs(tag) {
   if (!fs.existsSync(MAIN_JS)) {
-    console.error(`::error::[${tag}] Missing .vite/build/main.js — run win-ci-vite.mjs first`);
+    console.error(
+      `::error::[${tag}] Missing .vite/build/main.js — run win-ci-vite.mjs first`,
+    );
     logFailureContext(tag);
     process.exit(1);
   }
@@ -88,7 +102,9 @@ export async function buildProductionViteBundles(tag) {
   await runForgePrePackageBuilds({ platform: PLATFORM, arch: ARCH });
 
   if (!fs.existsSync(MAIN_JS)) {
-    console.error(`::error::[${tag}] Missing .vite/build/main.js after Forge prePackage builds`);
+    console.error(
+      `::error::[${tag}] Missing .vite/build/main.js after Forge prePackage builds`,
+    );
     logFailureContext(tag);
     process.exit(1);
   }
@@ -118,7 +134,14 @@ export async function packageAppDirect(tag) {
       }
     },
     async (buildPath, ev, pPlatform, pArch) => {
-      await runHook(forgeConfig, "packageAfterCopy", buildPath, ev, pPlatform, pArch);
+      await runHook(
+        forgeConfig,
+        "packageAfterCopy",
+        buildPath,
+        ev,
+        pPlatform,
+        pArch,
+      );
     },
     async (buildPath, ev, pPlatform, pArch) => {
       if (process.env.GITHUB_ACTIONS !== "true") {
@@ -133,19 +156,33 @@ export async function packageAppDirect(tag) {
       }
     },
     async (buildPath, _ev, _pPlatform, _pArch) => {
-      const copiedPackageJSON = await readMutatedPackageJson(buildPath, forgeConfig);
+      const copiedPackageJSON = await readMutatedPackageJson(
+        buildPath,
+        forgeConfig,
+      );
       if (copiedPackageJSON.config?.forge) {
         delete copiedPackageJSON.config.forge;
       }
-      await fsExtra.writeJson(path.join(buildPath, "package.json"), copiedPackageJSON, {
-        spaces: 2,
-      });
+      await fsExtra.writeJson(
+        path.join(buildPath, "package.json"),
+        copiedPackageJSON,
+        {
+          spaces: 2,
+        },
+      );
     },
   ];
 
   const afterPruneHooks = [
     async (buildPath, ev, pPlatform, pArch) => {
-      await runHook(forgeConfig, "packageAfterPrune", buildPath, ev, pPlatform, pArch);
+      await runHook(
+        forgeConfig,
+        "packageAfterPrune",
+        buildPath,
+        ev,
+        pPlatform,
+        pArch,
+      );
     },
   ];
 
@@ -177,7 +214,14 @@ export async function packageAppDirect(tag) {
     afterPrune: sequentialPackagerHooks(afterPruneHooks),
     afterExtract: sequentialPackagerHooks([
       async (buildPath, ev, pPlatform, pArch) => {
-        await runHook(forgeConfig, "packageAfterExtract", buildPath, ev, pPlatform, pArch);
+        await runHook(
+          forgeConfig,
+          "packageAfterExtract",
+          buildPath,
+          ev,
+          pPlatform,
+          pArch,
+        );
       },
     ]),
     out: calculatedOutDir,
@@ -246,14 +290,22 @@ export async function packageAppDirect(tag) {
 
 export function runMakeSkipPackage(tag) {
   console.log(`[${tag}] electron-forge make --skip-package`);
-  const forgeCli = require.resolve("@electron-forge/cli/dist/electron-forge.js");
-  const result = spawnSync(process.execPath, [forgeCli, "make", "--skip-package"], {
-    stdio: "inherit",
-    env: process.env,
-    shell: process.platform === "win32",
-  });
+  const forgeCli = require.resolve(
+    "@electron-forge/cli/dist/electron-forge.js",
+  );
+  const result = spawnSync(
+    process.execPath,
+    [forgeCli, "make", "--skip-package"],
+    {
+      stdio: "inherit",
+      env: process.env,
+      shell: process.platform === "win32",
+    },
+  );
   if (result.status !== 0) {
-    console.error(`::error::[${tag}] make --skip-package failed (exit ${result.status ?? "?"})`);
+    console.error(
+      `::error::[${tag}] make --skip-package failed (exit ${result.status ?? "?"})`,
+    );
     logFailureContext(tag);
     process.exit(result.status ?? 1);
   }

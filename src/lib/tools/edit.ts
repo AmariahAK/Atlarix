@@ -22,7 +22,11 @@ import log from "electron-log";
 import { assertReadablePath } from "@/lib/security/env-secret-paths";
 import { resolveToolTargetPath } from "@/ipc/utils/safeWorkspaceRelativePath";
 import { ToolRegistry } from "./registry";
-import { findReplacement, reindentReplacement, unescapeString } from "./edit-match";
+import {
+  findReplacement,
+  reindentReplacement,
+  unescapeString,
+} from "./edit-match";
 import { mergeElision } from "./edit-merge";
 import { suggestClosestPath } from "./workspace-file-hints";
 import {
@@ -83,11 +87,20 @@ interface EditFileArgs {
 }
 
 function normalizeRelativePath(input: string): string {
-  return input.replace(/^\/workspace\//, "").replace(/^workspace\//, "").replace(/^\/+/, "");
+  return input
+    .replace(/^\/workspace\//, "")
+    .replace(/^workspace\//, "")
+    .replace(/^\/+/, "");
 }
 
 /** Parameter names models actually emit for the target file, in precedence order. */
-const PATH_ARG_ALIASES = ["path", "file_path", "filePath", "filename", "file"] as const;
+const PATH_ARG_ALIASES = [
+  "path",
+  "file_path",
+  "filePath",
+  "filename",
+  "file",
+] as const;
 
 /**
  * Canonicalise the target-file argument.
@@ -146,7 +159,10 @@ async function readFileSafe(
     // just-renamed path gives the model a concrete next step, not a dead end.
     let msg = `File not found: ${normalizedPath}`;
     if (workspaceRoot) {
-      const suggestion = await suggestClosestPath(workspaceRoot, normalizedPath).catch(() => null);
+      const suggestion = await suggestClosestPath(
+        workspaceRoot,
+        normalizedPath,
+      ).catch(() => null);
       if (suggestion) {
         msg += ` — did you mean "${suggestion}"? Re-read it with read_file to get the exact current content before editing.`;
       }
@@ -166,7 +182,16 @@ function permissionPayload(args: {
   /** Audit note (fuzzy-match drift) surfaced to the model + activity card. */
   notice?: string;
 }) {
-  const { normalizedPath, newContent, oldContent, description, reasoning, diff, operation, notice } = args;
+  const {
+    normalizedPath,
+    newContent,
+    oldContent,
+    description,
+    reasoning,
+    diff,
+    operation,
+    notice,
+  } = args;
   return {
     __permission_required: true,
     operation,
@@ -193,7 +218,8 @@ async function runWrite(
   const { content, description } = args;
   if (content === undefined) {
     return {
-      error: "operation=write requires content (the full file body to create or overwrite)",
+      error:
+        "operation=write requires content (the full file body to create or overwrite)",
       operation: "edit_file",
     };
   }
@@ -205,8 +231,10 @@ async function runWrite(
   if (escapeVerdict === "ambiguous") {
     return { error: OVER_ESCAPE_AMBIGUOUS_ERROR, operation: "edit_file" };
   }
-  const effectiveContent = escapeVerdict === "repair" ? repairOverEscaped(content) : content;
-  const escapeNotice = escapeVerdict === "repair" ? OVER_ESCAPE_REPAIR_NOTICE : undefined;
+  const effectiveContent =
+    escapeVerdict === "repair" ? repairOverEscaped(content) : content;
+  const escapeNotice =
+    escapeVerdict === "repair" ? OVER_ESCAPE_REPAIR_NOTICE : undefined;
   if (escapeNotice) {
     logger.warn(`[edit_file] auto-corrected over-escaped content for write`);
   }
@@ -243,7 +271,12 @@ async function runWrite(
   // file — so it is the one that most needs the agent to have seen what it is discarding.
   // Creating a NEW file is exempt by construction: there is nothing to have read.
   if (fileType === "update" && oldContent !== undefined) {
-    const staleness = freshnessError(args, normalizedPath, oldContent, "overwrite");
+    const staleness = freshnessError(
+      args,
+      normalizedPath,
+      oldContent,
+      "overwrite",
+    );
     if (staleness) return staleness;
   }
 
@@ -256,7 +289,8 @@ async function runWrite(
       ...(oldContent !== undefined ? { oldContent } : {}),
       description: escapeNotice
         ? `${description ?? (fileType === "update" ? "Overwrite file" : "Create file")} (over-escaped content auto-corrected)`
-        : (description ?? (fileType === "update" ? "Overwrite file" : "Create file")),
+        : (description ??
+          (fileType === "update" ? "Overwrite file" : "Create file")),
       type: fileType,
       lines: effectiveContent.split("\n").length,
       ...(escapeNotice ? { notice: escapeNotice } : {}),
@@ -302,7 +336,13 @@ function describeMatchStrategy(strategy: string): string {
 /** Result of applying ONE replace to an in-memory content string. */
 type ApplyReplaceResult =
   | { ok: false; error: Record<string, unknown> }
-  | { ok: true; content: string; notice?: string; added: number; removed: number };
+  | {
+      ok: true;
+      content: string;
+      notice?: string;
+      added: number;
+      removed: number;
+    };
 
 /**
  * Apply a single old→new replace to `content` (in memory) via the robust match
@@ -324,7 +364,11 @@ function freshnessError(
   normalizedPath: string,
   currentContent: string,
   kind: "edit" | "overwrite" = "edit",
-): { error: string; operation: "edit_file"; retry: { reason: string; guidance: string } } | null {
+): {
+  error: string;
+  operation: "edit_file";
+  retry: { reason: string; guidance: string };
+} | null {
   const scope = resolveReadScope(args);
   const verdict = checkFreshness(scope, normalizedPath, currentContent);
   if (verdict.ok) return null;
@@ -335,7 +379,10 @@ function freshnessError(
         `Read ${normalizedPath} before ${action} it — call read_file first, then retry this edit. ` +
         `Editing a file you have not read is how the wrong region gets changed.`,
       operation: "edit_file",
-      retry: { reason: "not_read", guidance: `read_file ${normalizedPath}, then retry` },
+      retry: {
+        reason: "not_read",
+        guidance: `read_file ${normalizedPath}, then retry`,
+      },
     };
   }
   return {
@@ -343,7 +390,10 @@ function freshnessError(
       `${normalizedPath} has changed since you last read it, so your view of it is out of date. ` +
       `Re-read it with read_file and retry against the current content.`,
     operation: "edit_file",
-    retry: { reason: "stale_read", guidance: `re-read ${normalizedPath}, then retry` },
+    retry: {
+      reason: "stale_read",
+      guidance: `re-read ${normalizedPath}, then retry`,
+    },
   };
 }
 
@@ -357,10 +407,15 @@ function applyOneReplace(
   // ambiguous partial over-escaping rather than corrupt the file.
   const newEscapeVerdict = analyzeEscaping(newRaw);
   if (newEscapeVerdict === "ambiguous") {
-    return { ok: false, error: { error: OVER_ESCAPE_AMBIGUOUS_ERROR, operation: "edit_file" } };
+    return {
+      ok: false,
+      error: { error: OVER_ESCAPE_AMBIGUOUS_ERROR, operation: "edit_file" },
+    };
   }
-  const effectiveNew = newEscapeVerdict === "repair" ? repairOverEscaped(newRaw) : newRaw;
-  const escapeNotice = newEscapeVerdict === "repair" ? OVER_ESCAPE_REPAIR_NOTICE : undefined;
+  const effectiveNew =
+    newEscapeVerdict === "repair" ? repairOverEscaped(newRaw) : newRaw;
+  const escapeNotice =
+    newEscapeVerdict === "repair" ? OVER_ESCAPE_REPAIR_NOTICE : undefined;
 
   // §D: robust match cascade — a near-miss self-heals instead of erroring, with
   // uniqueness + disproportion rails so we never edit the wrong region.
@@ -369,13 +424,18 @@ function applyOneReplace(
   if (match.kind === "none") {
     const lines = content.split("\n");
     const firstLineOfOld = oldRaw.split("\n")[0].trim();
-    const similarLine = lines.findIndex((l) => l.includes(firstLineOfOld.slice(0, 30)));
+    const similarLine = lines.findIndex((l) =>
+      l.includes(firstLineOfOld.slice(0, 30)),
+    );
     let hint = "";
     let nearMiss: { line: number; preview: string } | undefined;
     if (similarLine !== -1) {
       const from = Math.max(0, similarLine - 2);
       const to = Math.min(lines.length, similarLine + 3);
-      nearMiss = { line: similarLine + 1, preview: lines.slice(from, to).join("\n") };
+      nearMiss = {
+        line: similarLine + 1,
+        preview: lines.slice(from, to).join("\n"),
+      };
       // No "the file changed since you read it" claim here any more. The read-before-edit
       // gate above has already established that the agent's view IS current, so reaching
       // this point means `old_content` simply doesn't match what is really in the file —
@@ -423,7 +483,10 @@ function applyOneReplace(
       error: {
         error: `Refusing this replace: the closest match in ${normalizedPath} spans far more than old_content, so applying it would likely clobber the wrong region. Re-read the target and pass the exact, complete old_content.`,
         operation: "edit_file",
-        retry: { reason: "disproportionate_match", guidance: "re-read and pass exact old_content" },
+        retry: {
+          reason: "disproportionate_match",
+          guidance: "re-read and pass exact old_content",
+        },
       },
     };
   }
@@ -448,7 +511,10 @@ function applyOneReplace(
   let effectiveReplacement = effectiveNew;
   if (match.fuzzy) {
     const matchLine = content.slice(0, match.index).split("\n").length;
-    const matchedText = content.slice(match.index, match.index + match.matchLength);
+    const matchedText = content.slice(
+      match.index,
+      match.index + match.matchLength,
+    );
     const notes: string[] = [];
 
     // The find side was un-escaped to locate the region, so un-escape the write
@@ -472,10 +538,16 @@ function applyOneReplace(
       );
     }
 
-    const reindented = reindentReplacement(matchedText, oldForIndent, effectiveReplacement);
+    const reindented = reindentReplacement(
+      matchedText,
+      oldForIndent,
+      effectiveReplacement,
+    );
     if (reindented.changed) {
       effectiveReplacement = reindented.text;
-      notes.push("new_content was re-anchored to the file's actual indentation");
+      notes.push(
+        "new_content was re-anchored to the file's actual indentation",
+      );
     }
 
     fuzzyNotice =
@@ -489,7 +561,8 @@ function applyOneReplace(
     );
   }
 
-  const notice = [fuzzyNotice, escapeNotice].filter(Boolean).join(" ") || undefined;
+  const notice =
+    [fuzzyNotice, escapeNotice].filter(Boolean).join(" ") || undefined;
   const newContent =
     content.slice(0, match.index) +
     effectiveReplacement +
@@ -527,11 +600,20 @@ async function runReplace(
   }
   for (const e of edits) {
     if (!e.old_content || e.new_content === undefined) {
-      return { error: "each edit needs old_content and new_content", operation: "edit_file" };
+      return {
+        error: "each edit needs old_content and new_content",
+        operation: "edit_file",
+      };
     }
   }
 
-  const r = await readFileSafe(fullPath, normalizedPath, "edit_file", workspace, args._proposalSetId);
+  const r = await readFileSafe(
+    fullPath,
+    normalizedPath,
+    "edit_file",
+    workspace,
+    args._proposalSetId,
+  );
   if (!r.ok) return r.error;
 
   let content = r.content;
@@ -539,7 +621,12 @@ async function runReplace(
   let totalAdded = 0;
   let totalRemoved = 0;
   for (let i = 0; i < edits.length; i++) {
-    const res = applyOneReplace(content, edits[i].old_content, edits[i].new_content, normalizedPath);
+    const res = applyOneReplace(
+      content,
+      edits[i].old_content,
+      edits[i].new_content,
+      normalizedPath,
+    );
     if (!res.ok) {
       // Atomic: abort the whole set — nothing is written.
       if (edits.length > 1) {
@@ -559,16 +646,20 @@ async function runReplace(
     normalizedPath,
     newContent: content,
     oldContent: r.content,
-    description: notice ? `${description ?? label} (${notice})` : (description ?? label),
+    description: notice
+      ? `${description ?? label} (${notice})`
+      : (description ?? label),
     ...(notice ? { notice } : {}),
     operation: "edit_file",
     diff: {
       removed: totalRemoved,
       added: totalAdded,
       old_snippet:
-        edits[0].old_content.slice(0, 200) + (edits[0].old_content.length > 200 ? "..." : ""),
+        edits[0].old_content.slice(0, 200) +
+        (edits[0].old_content.length > 200 ? "..." : ""),
       new_snippet:
-        edits[0].new_content.slice(0, 200) + (edits[0].new_content.length > 200 ? "..." : ""),
+        edits[0].new_content.slice(0, 200) +
+        (edits[0].new_content.length > 200 ? "..." : ""),
     },
     reasoning: `Replace in ${normalizedPath}: ${description ?? "(no description)"} (${edits.length} edit${edits.length > 1 ? "s" : ""})`,
   });
@@ -598,10 +689,18 @@ async function runMerge(
   if (escapeVerdict === "ambiguous") {
     return { error: OVER_ESCAPE_AMBIGUOUS_ERROR, operation: "edit_file" };
   }
-  const effective = escapeVerdict === "repair" ? repairOverEscaped(content) : content;
-  const escapeNotice = escapeVerdict === "repair" ? OVER_ESCAPE_REPAIR_NOTICE : undefined;
+  const effective =
+    escapeVerdict === "repair" ? repairOverEscaped(content) : content;
+  const escapeNotice =
+    escapeVerdict === "repair" ? OVER_ESCAPE_REPAIR_NOTICE : undefined;
 
-  const r = await readFileSafe(fullPath, normalizedPath, "edit_file", workspace, args._proposalSetId);
+  const r = await readFileSafe(
+    fullPath,
+    normalizedPath,
+    "edit_file",
+    workspace,
+    args._proposalSetId,
+  );
   if (!r.ok) return r.error;
 
   const merged = mergeElision(r.content, effective);
@@ -632,7 +731,9 @@ async function runMerge(
 
   const notice =
     [
-      merged.fullRewrite ? undefined : "Merged via elision markers — re-read the file to verify.",
+      merged.fullRewrite
+        ? undefined
+        : "Merged via elision markers — re-read the file to verify.",
       escapeNotice,
     ]
       .filter(Boolean)
@@ -642,7 +743,8 @@ async function runMerge(
     normalizedPath,
     newContent: merged.merged,
     oldContent: r.content,
-    description: description ?? (merged.fullRewrite ? "Rewrite file" : "Merge edit"),
+    description:
+      description ?? (merged.fullRewrite ? "Rewrite file" : "Merge edit"),
     ...(notice ? { notice } : {}),
     operation: "edit_file",
     diff: {
@@ -684,20 +786,26 @@ Read the file first — \`replace\` matches its current bytes, and you'll be tol
         type: "string",
         enum: ["write", "replace", "merge"],
         description:
-          "\"replace\" for a surgical change to an EXISTING file (the default choice); \"merge\" for a larger edit using '... existing code ...' markers; \"write\" only to CREATE a new file or fully rewrite one.",
+          '"replace" for a surgical change to an EXISTING file (the default choice); "merge" for a larger edit using \'... existing code ...\' markers; "write" only to CREATE a new file or fully rewrite one.',
       },
-      description: { type: "string", description: "Brief description of what this edit does." },
+      description: {
+        type: "string",
+        description: "Brief description of what this edit does.",
+      },
       content: {
         type: "string",
-        description: "(write) Full file body to create or overwrite. (merge) The file's new form with '// ... existing code ...' markers for unchanged spans. Use real newlines.",
+        description:
+          "(write) Full file body to create or overwrite. (merge) The file's new form with '// ... existing code ...' markers for unchanged spans. Use real newlines.",
       },
       old_content: {
         type: "string",
-        description: "(replace) Content to find and replace. Include enough surrounding context to match one unique spot; minor indentation/whitespace drift is tolerated.",
+        description:
+          "(replace) Content to find and replace. Include enough surrounding context to match one unique spot; minor indentation/whitespace drift is tolerated.",
       },
       new_content: {
         type: "string",
-        description: "(replace) Replacement content. Required for operation=replace. Use real newlines.",
+        description:
+          "(replace) Replacement content. Required for operation=replace. Use real newlines.",
       },
       edits: {
         type: "array",
@@ -706,8 +814,14 @@ Read the file first — \`replace\` matches its current bytes, and you'll be tol
         items: {
           type: "object",
           properties: {
-            old_content: { type: "string", description: "Content to find (unique context)." },
-            new_content: { type: "string", description: "Replacement content." },
+            old_content: {
+              type: "string",
+              description: "Content to find (unique context).",
+            },
+            new_content: {
+              type: "string",
+              description: "Replacement content.",
+            },
           },
           required: ["old_content", "new_content"],
         },
@@ -725,7 +839,11 @@ Read the file first — \`replace\` matches its current bytes, and you'll be tol
     const filePath = resolvePathArg(rawArgs);
 
     if (chatMode === "ask") {
-      return { error: "Edit operations not allowed in Ask mode. Switch to Build mode.", operation: "edit_file", denied: true };
+      return {
+        error: "Edit operations not allowed in Ask mode. Switch to Build mode.",
+        operation: "edit_file",
+        denied: true,
+      };
     }
 
     // Plan mode cannot edit files AT ALL. `edit_file` is absent from
@@ -746,8 +864,16 @@ Read the file first — \`replace\` matches its current bytes, and you'll be tol
       };
     }
 
-    if (!filePath) return { error: "Missing required parameter: path", operation: "edit_file" };
-    if (!operation) return { error: "Missing required parameter: operation", operation: "edit_file" };
+    if (!filePath)
+      return {
+        error: "Missing required parameter: path",
+        operation: "edit_file",
+      };
+    if (!operation)
+      return {
+        error: "Missing required parameter: operation",
+        operation: "edit_file",
+      };
 
     // An EXPLICIT target — an absolute path, or a relative one written with `../`
     // — addresses that exact location (cross-repo edits); it's still gated by the
@@ -790,7 +916,10 @@ Read the file first — \`replace\` matches its current bytes, and you'll be tol
         case "merge":
           return runMerge(rawArgs, normalizedPath, fullPath, workspace);
         default:
-          return { error: `Unknown operation: ${operation}. Use write | replace | merge.`, operation: "edit_file" };
+          return {
+            error: `Unknown operation: ${operation}. Use write | replace | merge.`,
+            operation: "edit_file",
+          };
       }
     })();
 
@@ -822,10 +951,14 @@ async function annotateAgentMemoryCompaction(
 ): Promise<unknown> {
   if (!workspace || isAgentMemoryDisabled()) return result;
   const envelope = result as
-    | { __permission_required?: boolean; preview?: { content?: string; notice?: string } }
+    | {
+        __permission_required?: boolean;
+        preview?: { content?: string; notice?: string };
+      }
     | undefined;
   const content = envelope?.preview?.content;
-  if (!envelope?.__permission_required || typeof content !== "string") return result;
+  if (!envelope?.__permission_required || typeof content !== "string")
+    return result;
   if (!isAgentMemoryPath(workspace, fullPath)) return result;
 
   const noteName = path.basename(fullPath);

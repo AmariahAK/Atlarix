@@ -4,29 +4,46 @@
  * State management for the context-aware right panel
  */
 
-import { atom } from 'jotai';
-import { type ParsedError } from '@/lib/devServerErrorParser';
-import type { PlanChangesPayload } from '@/lib/plan-changes/plan-changes';
+import { atom } from "jotai";
+import { type ParsedError } from "@/lib/devServerErrorParser";
+import type { PlanChangesPayload } from "@/lib/plan-changes/plan-changes";
 
 // ═══════════════════════════════════════════════════════════
 // PANEL TYPES
 // ═══════════════════════════════════════════════════════════
 
 export type PanelType =
-    | 'web-search'      // Source cards + iframe preview
-    | 'code-preview'    // Live preview iframe (frontend); 'plan' rides as a tab here
-    | 'terminal'        // Command output
-    | 'files'           // File explorer (default)
-    | 'tools'           // Tool execution activity
-    | 'empty';          // No content
+  | "web-search" // Source cards + iframe preview
+  | "code-preview" // Live preview iframe (frontend); 'plan' rides as a tab here
+  | "terminal" // Command output
+  | "files" // File explorer (default)
+  | "tools" // Tool execution activity
+  | "empty"; // No content
 
-export type PanelTab = 'sources' | 'tools' | 'debug' | 'preview' | 'terminal' | 'logs' | 'files' | 'approve' | 'permission' | 'errors' | 'network' | 'permissions' | 'search' | 'chat' | 'plan' | 'browser' | 'automations';
+export type PanelTab =
+  | "sources"
+  | "tools"
+  | "debug"
+  | "preview"
+  | "terminal"
+  | "logs"
+  | "files"
+  | "approve"
+  | "permission"
+  | "errors"
+  | "network"
+  | "permissions"
+  | "search"
+  | "chat"
+  | "plan"
+  | "browser"
+  | "automations";
 
 export interface PanelContext {
-    type: PanelType;
-    tabs: PanelTab[];
-    activeTab: PanelTab;
-    data?: any;
+  type: PanelType;
+  tabs: PanelTab[];
+  activeTab: PanelTab;
+  data?: any;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -39,27 +56,27 @@ export interface PanelContext {
 
 /** Valid AI panel intents - semantic descriptions of what to show */
 export type AIPanelIntent =
-    | 'show-permissions'    // Approvals are inline in chat → maps to 'code-preview'
-    | 'show-file-changes'   // Diffs are inline in chat → maps to 'code-preview'
-    | 'show-web-search'     // Show web search results → maps to 'web-search'
-    | 'show-terminal'       // Show command output → maps to 'terminal'
-    | 'show-plan'           // Show ATLARIX plan execution panel → maps to 'plan'
-    | 'show-files'          // Show file explorer → maps to 'files'
-    | 'show-preview'        // Show dev server preview → maps to 'code-preview'
-    | 'hide'                // Clear/hide panel → maps to 'empty'
-    | 'empty';              // No specific content → maps to 'empty'
+  | "show-permissions" // Approvals are inline in chat → maps to 'code-preview'
+  | "show-file-changes" // Diffs are inline in chat → maps to 'code-preview'
+  | "show-web-search" // Show web search results → maps to 'web-search'
+  | "show-terminal" // Show command output → maps to 'terminal'
+  | "show-plan" // Show ATLARIX plan execution panel → maps to 'plan'
+  | "show-files" // Show file explorer → maps to 'files'
+  | "show-preview" // Show dev server preview → maps to 'code-preview'
+  | "hide" // Clear/hide panel → maps to 'empty'
+  | "empty"; // No specific content → maps to 'empty'
 
 export interface AIPanelIntentState {
-    intent: AIPanelIntent;
-    context?: {
-        operationId?: string;    // For a file operation or permission
-        searchId?: string;       // For web-search
-        commandId?: string;      // For terminal
-        chatId?: number;         // For permission queue panel
-        message?: string;        // User-facing explanation
-    };
-    timestamp: number;
-    source: 'ai' | 'user' | 'system';  // Who triggered the change
+  intent: AIPanelIntent;
+  context?: {
+    operationId?: string; // For a file operation or permission
+    searchId?: string; // For web-search
+    commandId?: string; // For terminal
+    chatId?: number; // For permission queue panel
+    message?: string; // User-facing explanation
+  };
+  timestamp: number;
+  source: "ai" | "user" | "system"; // Who triggered the change
 }
 
 /** AI panel intent state - specifies WHAT to show, frontend maps to HOW */
@@ -69,56 +86,59 @@ export const aiPanelIntentAtom = atom<AIPanelIntentState | null>(null);
  * Map AI semantic intent to actual panel type (UI component).
  * This is the key function that bridges AI intent to correct UI.
  */
-export function mapIntentToView(intent: AIPanelIntent | null): PanelType | null {
-    if (!intent) return null;
+export function mapIntentToView(
+  intent: AIPanelIntent | null,
+): PanelType | null {
+  if (!intent) return null;
 
-    switch (intent) {
-        case 'show-permissions':
-        case 'show-file-changes':
-            // Approvals and diffs render inline in chat; show the workspace panel
-            return 'code-preview';
+  switch (intent) {
+    case "show-permissions":
+    case "show-file-changes":
+      // Approvals and diffs render inline in chat; show the workspace panel
+      return "code-preview";
 
-        case 'show-web-search':
-            return 'web-search';
+    case "show-web-search":
+      return "web-search";
 
-        case 'show-terminal':
-            return 'terminal';
+    case "show-terminal":
+      return "terminal";
 
-        case 'show-files':
-            return 'files';
+    case "show-files":
+      return "files";
 
-        case 'show-preview':
-            return 'code-preview';
+    case "show-preview":
+      return "code-preview";
 
-        case 'show-plan':
-            // v13.1: plan is a tab within the workspace panel (the renderer sets
-            // previewTabAtom('plan')), not its own takeover panel type.
-            return 'code-preview';
+    case "show-plan":
+      // v13.1: plan is a tab within the workspace panel (the renderer sets
+      // previewTabAtom('plan')), not its own takeover panel type.
+      return "code-preview";
 
-        case 'hide':
-        case 'empty':
-            return 'empty';
+    case "hide":
+    case "empty":
+      return "empty";
 
-        default:
-            // Unknown intent - let heuristics handle it
-            console.warn(`[mapIntentToView] Unknown AI intent: ${intent}, falling back to heuristics`);
-            return null;
-    }
+    default:
+      // Unknown intent - let heuristics handle it
+      console.warn(
+        `[mapIntentToView] Unknown AI intent: ${intent}, falling back to heuristics`,
+      );
+      return null;
+  }
 }
-
 
 // ═══════════════════════════════════════════════════════════
 // SOURCE ATOMS (Web Search)
 // ═══════════════════════════════════════════════════════════
 
 export interface SourceItem {
-    id: string;
-    title: string;
-    url: string;
-    snippet: string;
-    favicon?: string;
-    source: string;     // stackoverflow, github, reddit, etc.
-    score?: number;
+  id: string;
+  title: string;
+  url: string;
+  snippet: string;
+  favicon?: string;
+  source: string; // stackoverflow, github, reddit, etc.
+  score?: number;
 }
 
 /** Currently selected source for preview */
@@ -132,14 +152,14 @@ export const sourceListAtom = atom<SourceItem[]>([]);
 // ═══════════════════════════════════════════════════════════
 
 export interface ToolExecution {
-    id: string;
-    name: string;
-    status: 'running' | 'completed' | 'error';
-    startTime: number;
-    endTime?: number;
-    duration?: number;
-    result?: any;
-    error?: string;
+  id: string;
+  name: string;
+  status: "running" | "completed" | "error";
+  startTime: number;
+  endTime?: number;
+  duration?: number;
+  result?: any;
+  error?: string;
 }
 
 /** Tool execution history for timeline display */
@@ -149,39 +169,39 @@ export const toolTimelineAtom = atom<ToolExecution[]>([]);
 export interface ActivityStreamItem {
   id: string;
   type:
-    | 'model_selection'
-    | 'delegation'
-    | 'delegation_start'
-    | 'delegation_complete'
-    | 'delegation_error'
-    | 'self_review'
-    | 'background'
-    | 'tool_use'
-    | 'turn_summary'
-    | 'mode_change'
-    | 'agent_message'
-    | 'routing_decision'
-    | 'classifier_routing'
-    | 'orchestrator_blocker'
-    | 'parallel_prefetch_start'
-    | 'parallel_prefetch_complete'
-    | 'build_verification_complete'
-    | 'plan_created'
-    | 'duration_limit_reached'
-    | 'loop_detected'
-    | 'loop_repetition_aborted'
-    | 'stream_stall_aborted'
-    | 'tier_selection'
-    | 'tier_escalation'
-    | 'reasoning_started'
-    | 'reasoning_complete'
-    | 'subagent_start'
-    | 'subagent_progress'
-    | 'subagent_thought'
-    | 'subagent_tokens'
-    | 'subagent_complete';
+    | "model_selection"
+    | "delegation"
+    | "delegation_start"
+    | "delegation_complete"
+    | "delegation_error"
+    | "self_review"
+    | "background"
+    | "tool_use"
+    | "turn_summary"
+    | "mode_change"
+    | "agent_message"
+    | "routing_decision"
+    | "classifier_routing"
+    | "orchestrator_blocker"
+    | "parallel_prefetch_start"
+    | "parallel_prefetch_complete"
+    | "build_verification_complete"
+    | "plan_created"
+    | "duration_limit_reached"
+    | "loop_detected"
+    | "loop_repetition_aborted"
+    | "stream_stall_aborted"
+    | "tier_selection"
+    | "tier_escalation"
+    | "reasoning_started"
+    | "reasoning_complete"
+    | "subagent_start"
+    | "subagent_progress"
+    | "subagent_thought"
+    | "subagent_tokens"
+    | "subagent_complete";
   label: string;
-  status: 'running' | 'done' | 'error' | 'active';
+  status: "running" | "done" | "error" | "active";
   tokens?: number;
   cost?: number;
   timestamp: number;
@@ -255,14 +275,12 @@ export interface AgentBusExchange {
 
 export const activityStreamItemsAtom = atom<ActivityStreamItem[]>([]);
 
-
-
 // ═══════════════════════════════════════════════════════════
 // PANEL STATE ATOMS
 // ═══════════════════════════════════════════════════════════
 
 /** Active tab in right panel */
-export const previewTabAtom = atom<PanelTab>('sources');
+export const previewTabAtom = atom<PanelTab>("sources");
 
 /** Pinned panel type (prevents auto-switching) */
 export const pinnedPanelAtom = atom<PanelType | null>(null);
@@ -273,37 +291,37 @@ export const pinnedPanelAtom = atom<PanelType | null>(null);
  * keyboard shortcuts (Cmd/Ctrl+I ← / Cmd/Ctrl+O →) move between tabs without
  * re-deriving the order. `tabs` matches exactly what the strip renders.
  */
-export const rightPanelOrderedTabsAtom = atom<{ tabs: PanelTab[]; active: PanelTab }>({
-    tabs: [],
-    active: 'sources',
+export const rightPanelOrderedTabsAtom = atom<{
+  tabs: PanelTab[];
+  active: PanelTab;
+}>({
+  tabs: [],
+  active: "sources",
 });
 
 /** Open state of the Cmd/Ctrl+J model-picker sheet (lifted from ChatInputControls
  *  so the global shortcut hub can open it). */
 export const modelSheetOpenAtom = atom<boolean>(false);
 
-
 // ═══════════════════════════════════════════════════════════
 // FILE DIFF ATOMS (Code Changes)
 // ═══════════════════════════════════════════════════════════
 
 export interface FileProposal {
-    id: string;
-    chatId: number;  // Track which chat session this proposal belongs to
-    path: string;    // File path or empty for commands
-    operation: 'create' | 'modify' | 'delete' | 'rename' | 'command';
-    oldContent?: string;
-    newContent?: string;
-    description?: string;
-    approved?: boolean;
-    command?: string;  // For command operations
-    workingDir?: string;  // Working directory for commands
+  id: string;
+  chatId: number; // Track which chat session this proposal belongs to
+  path: string; // File path or empty for commands
+  operation: "create" | "modify" | "delete" | "rename" | "command";
+  oldContent?: string;
+  newContent?: string;
+  description?: string;
+  approved?: boolean;
+  command?: string; // For command operations
+  workingDir?: string; // Working directory for commands
 }
 
 /** Pending file proposals awaiting approval */
 export const pendingProposalsAtom = atom<FileProposal[]>([]);
-
-
 
 // Diagram atoms removed with the diagram subsystem — architecture viz is inline markmap/graph in chat.
 
@@ -312,15 +330,15 @@ export const pendingProposalsAtom = atom<FileProposal[]>([]);
 // ═══════════════════════════════════════════════════════════
 
 export interface TerminalOutput {
-    operationId: string;    // Unique ID for this command execution
-    command: string;        // The command being run
-    output: string;         // Combined stdout/stderr output
-    status: 'running' | 'completed' | 'error';
-    exitCode?: number;
-    duration?: number;      // Execution time in ms
-    startTime: number;      // When command started (Date.now())
-    /** A long-running/background process (server) — gets its own terminal tab. */
-    background?: boolean;
+  operationId: string; // Unique ID for this command execution
+  command: string; // The command being run
+  output: string; // Combined stdout/stderr output
+  status: "running" | "completed" | "error";
+  exitCode?: number;
+  duration?: number; // Execution time in ms
+  startTime: number; // When command started (Date.now())
+  /** A long-running/background process (server) — gets its own terminal tab. */
+  background?: boolean;
 }
 
 /** Map of operationId → TerminalOutput for multiple concurrent commands */
@@ -366,7 +384,6 @@ export const workspacePlanPanelAtom = atom<{
   pinnedPlanId: null,
 });
 
-
 export const rightPanelSuppressAutoOpenAtom = atom<boolean>(false);
 
 /** Panel width in pixels (for resize). Persisted in localStorage (atlarix-right-panel-width) by RightPanel. */
@@ -392,9 +409,9 @@ export interface BackgroundJobView {
  * event (renderer refreshes via background-jobs-list). Drives the indicator
  * chip while you chat; emptied as jobs finish/cancel.
  */
-export const backgroundJobsByChatIdAtom = atom<Record<number, BackgroundJobView[]>>(
-  {},
-);
+export const backgroundJobsByChatIdAtom = atom<
+  Record<number, BackgroundJobView[]>
+>({});
 
 /** A running sub-agent (v14.21) — the `task` equivalent of BackgroundJobView. */
 export interface SubagentJobView {
@@ -427,11 +444,13 @@ export const browserErrorsAtom = atom<ParsedError[]>([]);
 
 /** Stable signature for an error (message + file + line). Used to re-show dismissed errors when the same error recurs. */
 export function getErrorSignature(error: ParsedError): string {
-  return `${error.message}|${error.file ?? ''}|${error.line ?? ''}`;
+  return `${error.message}|${error.file ?? ""}|${error.line ?? ""}`;
 }
 
 /** Signatures of errors the user has marked done. When the same error is seen again (same message/file/line), it is re-shown and removed from this set. */
-export const dismissedErrorSignaturesAtom = atom<Set<string>>(new Set<string>());
+export const dismissedErrorSignaturesAtom = atom<Set<string>>(
+  new Set<string>(),
+);
 
 /** Visible browser errors: current list minus those whose signature is in the dismissed set. */
 export const visibleBrowserErrorsAtom = atom((get) => {
@@ -450,7 +469,7 @@ export const visibleBrowserErrorsAtom = atom((get) => {
 // something broke.
 
 export type PageConsoleEntry =
-  import('@/ipc/utils/browser_view_manager').BrowserSurfaceError;
+  import("@/ipc/utils/browser_view_manager").BrowserSurfaceError;
 
 /** Rolling page-console stream. Capped in the listener, not here. */
 export const pageConsoleAtom = atom<PageConsoleEntry[]>([]);
@@ -482,14 +501,19 @@ export const networkUnreadCountAtom = atom(0);
  */
 export const planUnreadAtom = atom(false);
 
-export type ConsoleLevelFilter = 'problems' | 'all' | 'errors' | 'warnings' | 'logs';
+export type ConsoleLevelFilter =
+  | "problems"
+  | "all"
+  | "errors"
+  | "warnings"
+  | "logs";
 
 /**
  * Defaults to `problems` — errors + warnings + load/crash/request failures —
  * which is exactly what the tab showed before every level was captured. Nothing
  * changes on screen until the user asks for more.
  */
-export const consoleLevelFilterAtom = atom<ConsoleLevelFilter>('problems');
+export const consoleLevelFilterAtom = atom<ConsoleLevelFilter>("problems");
 
 export const visiblePageConsoleAtom = atom((get) => {
   const entries = get(pageConsoleAtom);
@@ -498,25 +522,32 @@ export const visiblePageConsoleAtom = atom((get) => {
   // hiding them is how you end up reading one page's logs under another page's
   // heading, which is the confusion they exist to remove.
   const keep = (e: PageConsoleEntry, matches: boolean) =>
-    e.type === 'navigated' || matches;
-  if (filter === 'all') return entries;
-  if (filter === 'errors') {
+    e.type === "navigated" || matches;
+  if (filter === "all") return entries;
+  if (filter === "errors") {
     return entries.filter((e) =>
-      keep(e, e.level === 'error' || e.type !== 'console-error'),
+      keep(e, e.level === "error" || e.type !== "console-error"),
     );
   }
-  if (filter === 'warnings') return entries.filter((e) => keep(e, e.level === 'warning'));
-  if (filter === 'logs') {
+  if (filter === "warnings")
+    return entries.filter((e) => keep(e, e.level === "warning"));
+  if (filter === "logs") {
     return entries.filter((e) =>
       keep(
         e,
-        e.type === 'console-error' && e.level !== 'error' && e.level !== 'warning',
+        e.type === "console-error" &&
+          e.level !== "error" &&
+          e.level !== "warning",
       ),
     );
   }
   // 'problems' (default): errors, warnings, and non-console failures.
   return entries.filter((e) =>
-    keep(e, e.type !== 'console-error' || e.level === 'error' || e.level === 'warning'),
+    keep(
+      e,
+      e.type !== "console-error" ||
+        e.level === "error" ||
+        e.level === "warning",
+    ),
   );
 });
-

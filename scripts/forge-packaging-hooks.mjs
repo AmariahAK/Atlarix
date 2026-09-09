@@ -55,8 +55,14 @@ async function runHookListr(forgeConfig, hookName, platform, arch) {
 /**
  * @param {{ dir?: string, platform: string, arch: string }} opts
  */
-export async function runForgePrePackageBuilds({ dir = process.cwd(), platform, arch }) {
-  console.log(`[forge-packaging-hooks] loading forge.config (${platform}/${arch})`);
+export async function runForgePrePackageBuilds({
+  dir = process.cwd(),
+  platform,
+  arch,
+}) {
+  console.log(
+    `[forge-packaging-hooks] loading forge.config (${platform}/${arch})`,
+  );
   const forgeConfig = await loadForgeConfig(dir);
   await runHookListr(forgeConfig, "generateAssets", platform, arch);
   await runHookListr(forgeConfig, "prePackage", platform, arch);

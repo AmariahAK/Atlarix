@@ -61,6 +61,7 @@ const LABELS: Record<string, string> = {
   record_debug_hypothesis: "Recording debug hypothesis…",
   memory: "Recalling memory…",
   list_available_mcps: "Listing MCP servers…",
+  manage_mcp_server: "Preparing MCP server change…",
   mcp_call: "Calling MCP tool…",
   // PASS8 B2: get_workspace_overview removed (phantom — never registered).
   get_plan_scope: "Scoping plan…",
@@ -112,7 +113,10 @@ function clampSubject(s: string, max = 40): string {
 }
 
 /** Pull a human-readable subject (file path, query, command) out of tool args. */
-function subjectFromArgs(toolName: string, args: Record<string, unknown>): string | null {
+function subjectFromArgs(
+  toolName: string,
+  args: Record<string, unknown>,
+): string | null {
   const str = (v: unknown): string | null =>
     typeof v === "string" && v.trim() ? v.trim() : null;
   // grep/glob first: their `pattern` is the subject, and grep's `path` arg is the
@@ -131,13 +135,20 @@ function subjectFromArgs(toolName: string, args: Record<string, unknown>): strin
     }
   }
   const path =
-    str(args.path) ?? str(args.file_path) ?? str(args.filePath) ?? str(args.folder_path);
+    str(args.path) ??
+    str(args.file_path) ??
+    str(args.filePath) ??
+    str(args.folder_path);
   if (path) {
     // Keep status line short: trailing 2 segments are enough to orient.
     const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
     return parts.length > 2 ? parts.slice(-2).join("/") : parts.join("/");
   }
-  if (toolName === "web_search" || toolName === "search" || toolName === "search_code") {
+  if (
+    toolName === "web_search" ||
+    toolName === "search" ||
+    toolName === "search_code"
+  ) {
     const q = str(args.query) ?? str(args.q);
     if (q) return q.length > 40 ? `${q.slice(0, 40)}…` : q;
   }
@@ -198,7 +209,8 @@ export function browserToolLabel(
 ): string | null {
   if (!BROWSER_TOOLS.has(toolName)) return null;
   const a = args ?? {};
-  const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : "");
+  const str = (v: unknown) =>
+    typeof v === "string" && v.trim() ? v.trim() : "";
   const isPreview = a.target === "preview";
   const suffix = isPreview ? " · preview" : "";
   const noun = isPreview ? "preview" : "page";
@@ -231,9 +243,15 @@ export function browserToolLabel(
       text: [`Reading ${noun} text`, `Read ${noun} text`],
       visual: [`Checking ${noun} layout`, `Checked ${noun} layout`],
       design: [`Reading ${noun} design`, `Read ${noun} design`],
-      screenshot: [`Capturing ${noun} screenshot`, `Captured ${noun} screenshot`],
+      screenshot: [
+        `Capturing ${noun} screenshot`,
+        `Captured ${noun} screenshot`,
+      ],
       console: [`Reading ${noun} console`, `Read ${noun} console`],
-      network: [`Reading ${noun} network errors`, `Read ${noun} network errors`],
+      network: [
+        `Reading ${noun} network errors`,
+        `Read ${noun} network errors`,
+      ],
     };
     const [run, done] = map[mode] ?? map.read;
     return tense === "running" ? `${run}…` : done;
@@ -259,7 +277,9 @@ export function browserToolLabel(
   if (verb === "batch") {
     const n = Array.isArray(a.steps) ? a.steps.length : 0;
     const what = n ? ` ${n} step${n === 1 ? "" : "s"}` : "";
-    return tense === "running" ? `Running${what} in the browser…` : `Ran${what} in the browser`;
+    return tense === "running"
+      ? `Running${what} in the browser…`
+      : `Ran${what} in the browser`;
   }
 
   // The five act verbs, whether they arrived as `browser({action})` or as the
@@ -273,26 +293,41 @@ export function browserToolLabel(
   {
     const action = verb === "interact" ? str(a.action) : verb;
     if (action === "fill") {
-      const what = str(a.value) ? ` "${shortText(str(a.value), 24)}"` : " field";
-      return (tense === "running" ? `Filling${what}` : `Filled${what}`) + suffix;
+      const what = str(a.value)
+        ? ` "${shortText(str(a.value), 24)}"`
+        : " field";
+      return (
+        (tense === "running" ? `Filling${what}` : `Filled${what}`) + suffix
+      );
     }
     if (action === "click") {
       const label = str(a.ref) || str(a.selector);
       const what = label ? ` ${shortText(label, 24)}` : " element";
-      return (tense === "running" ? `Clicking${what}` : `Clicked${what}`) + suffix;
+      return (
+        (tense === "running" ? `Clicking${what}` : `Clicked${what}`) + suffix
+      );
     }
     if (action === "key") {
       const key = str(a.text) ? ` ${shortText(str(a.text), 16)}` : " a key";
-      return (tense === "running" ? `Pressing${key}` : `Pressed${key}`) + suffix;
+      return (
+        (tense === "running" ? `Pressing${key}` : `Pressed${key}`) + suffix
+      );
     }
     if (action === "hover") {
       const label = str(a.ref) || str(a.selector);
       const what = label ? ` ${shortText(label, 24)}` : " element";
-      return (tense === "running" ? `Hovering${what}` : `Hovered${what}`) + suffix;
+      return (
+        (tense === "running" ? `Hovering${what}` : `Hovered${what}`) + suffix
+      );
     }
     if (action === "scroll") {
-      const dir = str(a.ref) || str(a.selector) ? " into view" : ` ${str(a.direction) || "down"}`;
-      return (tense === "running" ? `Scrolling${dir}` : `Scrolled${dir}`) + suffix;
+      const dir =
+        str(a.ref) || str(a.selector)
+          ? " into view"
+          : ` ${str(a.direction) || "down"}`;
+      return (
+        (tense === "running" ? `Scrolling${dir}` : `Scrolled${dir}`) + suffix
+      );
     }
     return (tense === "running" ? "Acting on page" : "Acted on page") + suffix;
   }
@@ -311,7 +346,8 @@ export function getToolActivityLabelWithArgs(
     if (browser) return `${browser.replace(/…$/u, "")}…`;
     // v13.8: edit_file absorbed write_file — a whole-file write reads as
     // "Writing …", surgical ops as "Editing …".
-    const isWholeFileWrite = toolName === "edit_file" && args.operation === "write";
+    const isWholeFileWrite =
+      toolName === "edit_file" && args.operation === "write";
     const subject = subjectFromArgs(toolName, args);
     if (subject) {
       const verb = isWholeFileWrite ? "Writing" : ARG_VERBS[toolName];
@@ -378,6 +414,7 @@ const DONE_LABELS: Record<string, string> = {
   record_debug_hypothesis: "Recorded hypothesis",
   memory: "Recalled memory",
   list_available_mcps: "Listed MCP servers",
+  manage_mcp_server: "Proposed MCP server change",
   mcp_call: "Called MCP tool",
   get_plan_scope: "Scoped plan",
   read_implementation_plan: "Read plan",

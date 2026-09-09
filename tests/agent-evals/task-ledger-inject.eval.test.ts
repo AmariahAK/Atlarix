@@ -15,7 +15,9 @@ import { expectNoStreamError, expectStreamEnded } from "../infra/assert";
 let ctx: EvalContext;
 
 beforeAll(async () => {
-  ctx = await setupEvalContext({ seedFiles: { "src/x.ts": "export const x = 1;\n" } });
+  ctx = await setupEvalContext({
+    seedFiles: { "src/x.ts": "export const x = 1;\n" },
+  });
 });
 
 afterAll(async () => {
@@ -35,7 +37,11 @@ describe("task ledger recency injection", () => {
             "1. [ ] Scaffold routes\n2. [ ] Wire the login handler\n3. [ ] Add session cookies\n",
         })
         // A1a: update_step with NO planId — the session's latest plan is assumed.
-        .toolCall("plan", { operation: "update_step", step_index: 1, state: "done" })
+        .toolCall("plan", {
+          operation: "update_step",
+          step_index: 1,
+          state: "done",
+        })
         .text("Plan created and step 1 done.")
         .repeatLast()
         .build(),
@@ -43,7 +49,9 @@ describe("task ledger recency injection", () => {
     // repeatLast: turn 2 runs in Build with the plan still holding pending steps,
     // so the v14.8.9 plan-completeness gate correctly nudges "continue" — absorb
     // those bounded nudges (the assertion below is on the FIRST request).
-    ctx.server.register(scenario("ledger-next").text("Continuing.").repeatLast().build());
+    ctx.server.register(
+      scenario("ledger-next").text("Continuing.").repeatLast().build(),
+    );
 
     const chatId = await ctx.newChat();
 
@@ -62,7 +70,9 @@ describe("task ledger recency injection", () => {
     expectNoStreamError(turn2.fakeIpc.sends, chatId);
     expectStreamEnded(turn2.fakeIpc.sends, chatId);
 
-    const turn2Req = (ctx.server.requestsFor("ledger-next") as RecordedRequest[])[0];
+    const turn2Req = (
+      ctx.server.requestsFor("ledger-next") as RecordedRequest[]
+    )[0];
     const blob = JSON.stringify(turn2Req);
     expect(blob).toContain("[Session plan]");
     // v14.8.8: the harness-injected block is framed out-of-band, not as a user turn.

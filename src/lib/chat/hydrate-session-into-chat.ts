@@ -18,7 +18,10 @@
 import { getDefaultStore } from "jotai";
 import { IpcClient } from "@/ipc/ipc_client";
 import type { Message } from "@/ipc/ipc_types";
-import type { PasteAttachmentMeta, StoredFileAttachment } from "@/ipc/ipc_types";
+import type {
+  PasteAttachmentMeta,
+  StoredFileAttachment,
+} from "@/ipc/ipc_types";
 import type { DisplaySnapshotV1 } from "@/lib/chat/display-snapshot";
 import {
   chatMessagesByIdAtom,
@@ -87,9 +90,7 @@ export function sessionMessagesToUiMessages(
 }
 
 export type HydratedSession = {
-  session: Awaited<
-    ReturnType<IpcClient["getWorkspaceSession"]>
-  >["session"];
+  session: Awaited<ReturnType<IpcClient["getWorkspaceSession"]>>["session"];
   uiMessages: Message[];
   truncated: boolean;
 };

@@ -24,7 +24,10 @@ export function mentionToken(att: MentionAttachment): string {
 }
 
 /** Human label for the chip. */
-export function mentionDisplayName(kind: "file" | "dir", relpath: string): string {
+export function mentionDisplayName(
+  kind: "file" | "dir",
+  relpath: string,
+): string {
   return kind === "dir" ? `${relpath}/` : relpath;
 }
 
@@ -52,7 +55,8 @@ export function extractMentions(content: string): {
   text: string;
   mentions: ParsedMention[];
 } {
-  if (!content || !content.includes("@")) return { text: content, mentions: [] };
+  if (!content || !content.includes("@"))
+    return { text: content, mentions: [] };
 
   const mentions: ParsedMention[] = [];
   const seen = new Set<string>();

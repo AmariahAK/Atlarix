@@ -79,4 +79,3 @@ export function resolveStreamAppId(chatId: number): number | undefined {
   bindChatToAppId(chatId, selected);
   return selected;
 }
-

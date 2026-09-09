@@ -45,8 +45,7 @@ export function CommunityDialog() {
     loadInviteInfo();
   }, [open, loadInviteInfo]);
 
-  const title =
-    info?.ok === true ? info.name : "Atlarix Community";
+  const title = info?.ok === true ? info.name : "Atlarix Community";
   const description =
     info?.ok === true && info.description
       ? info.description

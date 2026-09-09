@@ -87,8 +87,12 @@ describe("listWorkspaceFiles", () => {
     // `.github/`, `.cargo/audit.toml`… with the repo's actual contents below the
     // fold. Deterministic and useless.
     const files = await listWorkspaceFiles(ws);
-    const firstVisible = files.findIndex((f) => !f.split("/").some((s) => s.startsWith(".")));
-    const firstHidden = files.findIndex((f) => f.split("/").some((s) => s.startsWith(".")));
+    const firstVisible = files.findIndex(
+      (f) => !f.split("/").some((s) => s.startsWith(".")),
+    );
+    const firstHidden = files.findIndex((f) =>
+      f.split("/").some((s) => s.startsWith(".")),
+    );
     expect(firstVisible).toBeLessThan(firstHidden);
     expect(files[0]).toBe("README.md");
   });
@@ -107,7 +111,9 @@ describe("listWorkspaceFiles", () => {
   });
 
   it("returns [] for a missing workspace instead of throwing", async () => {
-    expect(await listWorkspaceFiles(path.join(ws, "does-not-exist"))).toEqual([]);
+    expect(await listWorkspaceFiles(path.join(ws, "does-not-exist"))).toEqual(
+      [],
+    );
     expect(await listWorkspaceFiles("")).toEqual([]);
   });
 });

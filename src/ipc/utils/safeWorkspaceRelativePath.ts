@@ -49,7 +49,7 @@ export function safeRelativePathUnderWorkspace(raw: string): string {
   if (s === "") {
     s = ".";
   }
-  if (s.startsWith("\\\\") || s.startsWith('\\\\?\\')) {
+  if (s.startsWith("\\\\") || s.startsWith("\\\\?\\")) {
     throw new Error(
       "Invalid path: UNC paths are not allowed. Use a path relative to the project root (e.g. src/App.tsx).",
     );
@@ -63,7 +63,9 @@ export function safeRelativePathUnderWorkspace(raw: string): string {
   const normalized = path.normalize(s);
   const segs = segmentsOf(normalized);
   if (segs.some((seg) => seg === "..")) {
-    throw new Error('Invalid path: ".." is not allowed. Use a path relative to the project root.');
+    throw new Error(
+      'Invalid path: ".." is not allowed. Use a path relative to the project root.',
+    );
   }
 
   const first = segs[0];
@@ -79,7 +81,10 @@ export function safeRelativePathUnderWorkspace(raw: string): string {
 /**
  * Resolve a tool-supplied path to an absolute path guaranteed under workspaceRoot.
  */
-export function resolvePathUnderWorkspace(workspaceRoot: string, raw: string): string {
+export function resolvePathUnderWorkspace(
+  workspaceRoot: string,
+  raw: string,
+): string {
   const root = path.resolve(workspaceRoot);
   const rel = safeRelativePathUnderWorkspace(raw);
   const full = path.resolve(root, rel);
@@ -131,7 +136,8 @@ export function resolveToolTargetPath(
     const absPath = realpathDeepest(path.resolve(trimmed));
     const relCheck = path.relative(root, absPath);
     const isOutsideWorkspace =
-      relCheck !== "" && (relCheck.startsWith("..") || path.isAbsolute(relCheck));
+      relCheck !== "" &&
+      (relCheck.startsWith("..") || path.isAbsolute(relCheck));
     return { absPath, isOutsideWorkspace };
   }
 
@@ -154,10 +160,14 @@ export function resolveToolTargetPath(
     const absPath = realpathDeepest(path.resolve(root, trimmed));
     const relCheck = path.relative(root, absPath);
     const isOutsideWorkspace =
-      relCheck !== "" && (relCheck.startsWith("..") || path.isAbsolute(relCheck));
+      relCheck !== "" &&
+      (relCheck.startsWith("..") || path.isAbsolute(relCheck));
     return { absPath, isOutsideWorkspace };
   }
 
   // Everything else → confined under the workspace (unchanged security posture).
-  return { absPath: resolvePathUnderWorkspace(root, trimmed), isOutsideWorkspace: false };
+  return {
+    absPath: resolvePathUnderWorkspace(root, trimmed),
+    isOutsideWorkspace: false,
+  };
 }

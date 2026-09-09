@@ -89,13 +89,15 @@ describe("detectVisionCapability (de-hardcoded media gate)", () => {
     expect(detectVisionCapability("ollama")).toBe(false);
     expect(detectVisionCapability(undefined)).toBe(false);
     // Even with an OpenRouter-shaped id, no cached catalog row → false.
-    expect(detectVisionCapability("openrouter", "some-vendor/uncached-model")).toBe(
-      false,
-    );
+    expect(
+      detectVisionCapability("openrouter", "some-vendor/uncached-model"),
+    ).toBe(false);
   });
 
   it("providerSupportsToolMedia delegates to detectVisionCapability", () => {
-    expect(providerSupportsToolMedia("anthropic", "claude-haiku-4-5")).toBe(true);
+    expect(providerSupportsToolMedia("anthropic", "claude-haiku-4-5")).toBe(
+      true,
+    );
     expect(providerSupportsToolMedia("ollama", "llava")).toBe(false);
   });
 });

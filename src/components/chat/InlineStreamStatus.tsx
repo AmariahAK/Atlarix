@@ -8,7 +8,10 @@ import {
   toolIndicatorAtom,
   waitingOnCommandByChatIdAtom,
 } from "@/atoms/chatAtoms";
-import { activityStreamItemsAtom, aiPanelIntentAtom } from "@/atoms/sourceAtoms";
+import {
+  activityStreamItemsAtom,
+  aiPanelIntentAtom,
+} from "@/atoms/sourceAtoms";
 import {
   permissionQueueAtom,
   getOperationsByStatus,
@@ -86,7 +89,9 @@ export function InlineStreamStatus({
   const setState = useSetAtom(toolIndicatorAtom);
   const { settings } = useSettings();
   // Scoped to this chat so another chat's stream flush doesn't re-render this.
-  const isStreamingThisChat = useAtomValue(isStreamingForChatAtom(chatId ?? -1));
+  const isStreamingThisChat = useAtomValue(
+    isStreamingForChatAtom(chatId ?? -1),
+  );
   const activityItems = useAtomValue(activityStreamItemsAtom);
   const waitingByChatId = useAtomValue(waitingOnCommandByChatIdAtom);
   const reconnectingByChatId = useAtomValue(reconnectingByChatIdAtom);
@@ -99,10 +104,8 @@ export function InlineStreamStatus({
   // live preview); the user can still collapse it.
   const [outputExpanded, setOutputExpanded] = useState(true);
 
-  const isTargetStreaming =
-    chatId != null && isStreamingThisChat === true;
+  const isTargetStreaming = chatId != null && isStreamingThisChat === true;
   const waiting = chatId != null ? waitingByChatId.get(chatId) : undefined;
-
 
   // 1s ticker for the elapsed displays (waiting chip / still-working note).
   const [now, setNow] = useState(() => Date.now());
@@ -136,10 +139,10 @@ export function InlineStreamStatus({
     if (!last) return undefined;
     // A finished compaction is only interesting for a moment. After that the
     // ordinary status line is more useful than a stale banner.
-    if (last.status === "done" && now - (last.timestamp ?? 0) > 6000) return undefined;
+    if (last.status === "done" && now - (last.timestamp ?? 0) > 6000)
+      return undefined;
     return last;
   }, [activityItems, chatId, now]);
-
 
   const autonomousOverride = useMemo(
     () => subagentsActiveForChat(activityItems, chatId ?? undefined),
@@ -163,37 +166,39 @@ export function InlineStreamStatus({
   // Tool start/end IPC is handled in useStreamChat only (avoids double count).
   useEffect(() => {
     if (!active) return;
-    const unsub = IpcClient.getInstance().onStreamPhase(({ chatId: evChatId, phase, label }) => {
-      setState((prev) => {
-        if (phase === "done") {
-          if (prev.activeChatId !== evChatId) return prev;
-          return {
-            ...prev,
-            active: false,
-            toolName: null,
-            toolId: null,
-            toolArgs: null,
-            count: 0,
-            phaseLabel: null,
-            liveOutputLines: [],
-            liveErrorLines: [],
-            liveProgressLines: [],
-          };
-        }
-        if (phase === "thinking") {
-          return {
-            ...prev,
-            phaseLabel: label.trim() || "Thinking…",
-            activeChatId: evChatId,
-          };
-        }
-        if (phase === "responding") {
-          if (prev.activeChatId !== evChatId) return prev;
-          return { ...prev, phaseLabel: null };
-        }
-        return prev;
-      });
-    });
+    const unsub = IpcClient.getInstance().onStreamPhase(
+      ({ chatId: evChatId, phase, label }) => {
+        setState((prev) => {
+          if (phase === "done") {
+            if (prev.activeChatId !== evChatId) return prev;
+            return {
+              ...prev,
+              active: false,
+              toolName: null,
+              toolId: null,
+              toolArgs: null,
+              count: 0,
+              phaseLabel: null,
+              liveOutputLines: [],
+              liveErrorLines: [],
+              liveProgressLines: [],
+            };
+          }
+          if (phase === "thinking") {
+            return {
+              ...prev,
+              phaseLabel: label.trim() || "Thinking…",
+              activeChatId: evChatId,
+            };
+          }
+          if (phase === "responding") {
+            if (prev.activeChatId !== evChatId) return prev;
+            return { ...prev, phaseLabel: null };
+          }
+          return prev;
+        });
+      },
+    );
     return unsub;
   }, [setState, active]);
 
@@ -264,10 +269,11 @@ export function InlineStreamStatus({
     displayLine = `${displayLine} · still working (${formatWaitElapsed(turnAgeMs)})`;
   }
 
-  const showLiveOutput =
-    state.count > 0 && state.liveOutputLines.length > 0;
+  const showLiveOutput = state.count > 0 && state.liveOutputLines.length > 0;
   const liveText = (
-    state.liveErrorLines.length > 0 ? state.liveErrorLines : state.liveOutputLines
+    state.liveErrorLines.length > 0
+      ? state.liveErrorLines
+      : state.liveOutputLines
   ).join("\n");
 
   // Live partial-args preview: the file content building up while the model
@@ -334,7 +340,10 @@ export function InlineStreamStatus({
           onClick={() =>
             setPanelIntent({
               intent: "show-terminal",
-              context: { commandId: waiting.commandId, chatId: chatId ?? undefined },
+              context: {
+                commandId: waiting.commandId,
+                chatId: chatId ?? undefined,
+              },
               timestamp: Date.now(),
               source: "user",
             })
@@ -355,7 +364,8 @@ export function InlineStreamStatus({
         <button
           type="button"
           onClick={() => {
-            if (chatId != null) IpcClient.getInstance().cancelChatStream(chatId);
+            if (chatId != null)
+              IpcClient.getInstance().cancelChatStream(chatId);
           }}
           className="ml-1.5 align-middle text-[10px] underline-offset-2 hover:underline hover:text-foreground"
           title="Stop the turn (the running command continues to its own timeout)"
@@ -433,7 +443,9 @@ export function InlineStreamStatus({
             </div>
           ) : null}
           <pre className="mt-0.5 px-2 py-1.5 max-h-40 overflow-auto text-[10px] font-mono bg-[var(--diff-add-bg,theme(colors.emerald.500/10))] border border-border rounded whitespace-pre-wrap break-words">
-            {liveWritePreview.more > 0 ? `… (+${liveWritePreview.more} lines above)\n` : ""}
+            {liveWritePreview.more > 0
+              ? `… (+${liveWritePreview.more} lines above)\n`
+              : ""}
             {liveWritePreview.text}
           </pre>
         </div>

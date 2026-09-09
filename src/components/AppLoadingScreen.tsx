@@ -5,7 +5,5 @@
 import AtlarixAnimation from "@/components/atlarix/AtlarixAnimation";
 
 export function AppLoadingScreen() {
-  return (
-    <AtlarixAnimation size="full" phase="thinking" />
-  );
+  return <AtlarixAnimation size="full" phase="thinking" />;
 }

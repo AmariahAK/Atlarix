@@ -23,7 +23,9 @@ describe("stopping a turn cancels every sub-agent in it", () => {
     await import("@/lib/tools/index");
     const { ToolRegistry } = await import("@/lib/tools/registry");
     const { runSubagent } = await import("@/lib/agents/run-subagent");
-    const { cancelAllSubagentTasksForChat } = await import("@/lib/tools/spawn-task");
+    const { cancelAllSubagentTasksForChat } = await import(
+      "@/lib/tools/spawn-task"
+    );
     const { clearSubagentsForChat, hasPendingSubagentResults } = await import(
       "@/lib/agents/subagent-results"
     );
@@ -39,10 +41,12 @@ describe("stopping a turn cancels every sub-agent in it", () => {
         });
       });
     let lastSignal: AbortSignal | undefined;
-    vi.mocked(runSubagent).mockImplementation((a: { abortSignal?: AbortSignal }) => {
-      lastSignal = a.abortSignal;
-      return runsUntilAborted(`run${aborted.length}`)() as never;
-    });
+    vi.mocked(runSubagent).mockImplementation(
+      (a: { abortSignal?: AbortSignal }) => {
+        lastSignal = a.abortSignal;
+        return runsUntilAborted(`run${aborted.length}`)() as never;
+      },
+    );
 
     const tool = ToolRegistry.get("task");
     for (const description of ["scout one", "scout two"]) {
@@ -70,7 +74,9 @@ describe("stopping a turn cancels every sub-agent in it", () => {
 
   it("drops any proposal sets the cancelled turn was holding", async () => {
     const proposals = await import("@/lib/agents/subagent-proposals");
-    const { cancelAllSubagentTasksForChat } = await import("@/lib/tools/spawn-task");
+    const { cancelAllSubagentTasksForChat } = await import(
+      "@/lib/tools/spawn-task"
+    );
     const chatId = 9102;
 
     // A writer that finished earlier in the turn, whose proposals the main
@@ -84,7 +90,12 @@ describe("stopping a turn cancels every sub-agent in it", () => {
     proposals.recordEditProposal(setId, {
       __permission_required: true,
       operation: "edit_file",
-      preview: { path: "a.ts", content: "next\n", oldContent: "prev\n", type: "update" },
+      preview: {
+        path: "a.ts",
+        content: "next\n",
+        oldContent: "prev\n",
+        type: "update",
+      },
     });
     expect(proposals.listProposalSetsForChat(chatId)).toHaveLength(1);
 
@@ -96,7 +107,9 @@ describe("stopping a turn cancels every sub-agent in it", () => {
 
   it("leaves another chat's proposals alone", async () => {
     const proposals = await import("@/lib/agents/subagent-proposals");
-    const { cancelAllSubagentTasksForChat } = await import("@/lib/tools/spawn-task");
+    const { cancelAllSubagentTasksForChat } = await import(
+      "@/lib/tools/spawn-task"
+    );
 
     const mine = proposals.createProposalSet({
       chatId: 9103,

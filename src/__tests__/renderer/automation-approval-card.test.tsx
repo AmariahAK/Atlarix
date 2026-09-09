@@ -62,9 +62,7 @@ describe("automation approval card", () => {
   });
 
   it("warns that a read-only automation costs a model turn per fire", () => {
-    renderWithOps([
-      { ...base, id: "op-3", automationRunMode: "read-only" },
-    ]);
+    renderWithOps([{ ...base, id: "op-3", automationRunMode: "read-only" }]);
     expect(screen.getByText(/costs one turn per fire/i)).toBeTruthy();
   });
 

@@ -6,14 +6,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  ArrowLeft,
-  ArrowRight,
-  Globe,
-  Plus,
-  RotateCw,
-  X,
-} from "lucide-react";
+import { ArrowLeft, ArrowRight, Globe, Plus, RotateCw, X } from "lucide-react";
 import { IpcClient } from "@/ipc/ipc_client";
 import type { BrowserPanelState } from "@/ipc/utils/browser_view_manager";
 import { cn } from "@/lib/utils";
@@ -25,7 +18,9 @@ export function BrowserPanel() {
   const placeholderRef = useRef<HTMLDivElement | null>(null);
 
   const activeTab =
-    state?.tabs.find((t) => t.id === state.activeTabId) ?? state?.tabs[0] ?? null;
+    state?.tabs.find((t) => t.id === state.activeTabId) ??
+    state?.tabs[0] ??
+    null;
 
   // Reflect the active tab's URL in the bar unless the user is editing it.
   useEffect(() => {
@@ -87,7 +82,9 @@ export function BrowserPanel() {
         {(state?.tabs ?? []).map((tab) => (
           <button
             key={tab.id}
-            onClick={() => void IpcClient.getInstance().browserSetActiveTab(tab.id)}
+            onClick={() =>
+              void IpcClient.getInstance().browserSetActiveTab(tab.id)
+            }
             className={cn(
               "group flex max-w-44 items-center gap-1.5 rounded-t-md px-2.5 py-1 text-xs",
               tab.id === state?.activeTabId
@@ -97,7 +94,9 @@ export function BrowserPanel() {
             title={tab.url}
           >
             <Globe className="h-3 w-3 shrink-0" />
-            <span className="truncate">{tab.title || tab.url || "New tab"}</span>
+            <span className="truncate">
+              {tab.title || tab.url || "New tab"}
+            </span>
             <X
               className="h-3 w-3 shrink-0 opacity-0 group-hover:opacity-70 hover:!opacity-100"
               onClick={(e) => {

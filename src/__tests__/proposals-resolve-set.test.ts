@@ -21,7 +21,10 @@ import { resolveSet } from "@/lib/tools/proposals";
 
 const CHAT = -60;
 
-function makeSet(agentName: string, taskId = "2aad200b-2cae-458a-965d-596832c38213") {
+function makeSet(
+  agentName: string,
+  taskId = "2aad200b-2cae-458a-965d-596832c38213",
+) {
   return createProposalSet({
     chatId: CHAT,
     taskId,

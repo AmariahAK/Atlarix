@@ -37,7 +37,11 @@ export function autoApproveDuring(
         const isDangerous = Boolean(s.payload?.request?.preview?.isDangerous);
         const approvalMode = isDangerous && !dangerAllowed ? "deny" : "once";
         try {
-          await executePermission({} as never, { chatId, operationId, approvalMode });
+          await executePermission({} as never, {
+            chatId,
+            operationId,
+            approvalMode,
+          });
         } catch {
           /* keep approving the rest even if one fails */
         }

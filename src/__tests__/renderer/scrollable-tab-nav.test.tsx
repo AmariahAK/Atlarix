@@ -32,10 +32,20 @@ function arrow(dir: "left" | "right", label = "Settings"): HTMLElement {
 import { ScrollableTabNav } from "@/components/ScrollableTabNav";
 
 /** Force a strip geometry, the way a real browser would report it. */
-function setGeometry(opts: { scrollWidth: number; clientWidth: number; scrollLeft?: number }) {
+function setGeometry(opts: {
+  scrollWidth: number;
+  clientWidth: number;
+  scrollLeft?: number;
+}) {
   const strip = screen.getByRole("navigation");
-  Object.defineProperty(strip, "scrollWidth", { value: opts.scrollWidth, configurable: true });
-  Object.defineProperty(strip, "clientWidth", { value: opts.clientWidth, configurable: true });
+  Object.defineProperty(strip, "scrollWidth", {
+    value: opts.scrollWidth,
+    configurable: true,
+  });
+  Object.defineProperty(strip, "clientWidth", {
+    value: opts.clientWidth,
+    configurable: true,
+  });
   Object.defineProperty(strip, "scrollLeft", {
     value: opts.scrollLeft ?? 0,
     writable: true,
@@ -47,7 +57,9 @@ function setGeometry(opts: { scrollWidth: number; clientWidth: number; scrollLef
 
 const TABS = (
   <>
-    <a href="#a" aria-current="page">General</a>
+    <a href="#a" aria-current="page">
+      General
+    </a>
     <a href="#b">Diagnostics</a>
     <a href="#c">Danger zone</a>
   </>
@@ -80,23 +92,15 @@ describe("ScrollableTabNav", () => {
   it("shows only the RIGHT arrow at the start of an overflowing strip", () => {
     render(<ScrollableTabNav label="Settings">{TABS}</ScrollableTabNav>);
     setGeometry({ scrollWidth: 900, clientWidth: 400, scrollLeft: 0 });
-    expect(
-      arrow("left").className,
-    ).toContain("invisible");
-    expect(
-      arrow("right").className,
-    ).not.toContain("invisible");
+    expect(arrow("left").className).toContain("invisible");
+    expect(arrow("right").className).not.toContain("invisible");
   });
 
   it("shows only the LEFT arrow at the end", () => {
     render(<ScrollableTabNav label="Settings">{TABS}</ScrollableTabNav>);
     setGeometry({ scrollWidth: 900, clientWidth: 400, scrollLeft: 500 });
-    expect(
-      arrow("left").className,
-    ).not.toContain("invisible");
-    expect(
-      arrow("right").className,
-    ).toContain("invisible");
+    expect(arrow("left").className).not.toContain("invisible");
+    expect(arrow("right").className).toContain("invisible");
   });
 
   it("shows both arrows in the middle", () => {
@@ -111,9 +115,7 @@ describe("ScrollableTabNav", () => {
     // scrollWidth can exceed clientWidth by a fraction with no real overflow.
     render(<ScrollableTabNav label="Settings">{TABS}</ScrollableTabNav>);
     setGeometry({ scrollWidth: 401, clientWidth: 400 });
-    expect(
-      arrow("right").className,
-    ).toContain("invisible");
+    expect(arrow("right").className).toContain("invisible");
   });
 
   it("takes a hidden arrow out of the tab order", () => {
@@ -130,14 +132,20 @@ describe("ScrollableTabNav", () => {
     render(<ScrollableTabNav label="Integrations">{TABS}</ScrollableTabNav>);
     setGeometry({ scrollWidth: 900, clientWidth: 400, scrollLeft: 250 });
     expect(arrow("left", "Integrations")).toBeTruthy();
-    expect(screen.getByRole("navigation", { name: "Integrations" })).toBeTruthy();
+    expect(
+      screen.getByRole("navigation", { name: "Integrations" }),
+    ).toBeTruthy();
   });
 
   it("scrolls by most of a screenful, not all of it", () => {
     // A tab straddling the edge should stay partly visible, so the strip's
     // continuity is obvious rather than jumping to a fresh-looking set.
     render(<ScrollableTabNav label="Settings">{TABS}</ScrollableTabNav>);
-    const strip = setGeometry({ scrollWidth: 900, clientWidth: 400, scrollLeft: 0 });
+    const strip = setGeometry({
+      scrollWidth: 900,
+      clientWidth: 400,
+      scrollLeft: 0,
+    });
     let scrolledBy: number | undefined;
     strip.scrollBy = ((opts: ScrollToOptions) => {
       scrolledBy = opts.left;

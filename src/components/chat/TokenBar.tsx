@@ -73,14 +73,16 @@ export function TokenBar({ chatId }: TokenBarProps) {
   const auxTokensByChat = useAtomValue(lastAuxTokensByChatIdAtom);
   const lastAuxTokens = chatId != null ? auxTokensByChat[chatId] : undefined;
   const auxBySourceByChat = useAtomValue(lastAuxBySourceByChatIdAtom);
-  const lastAuxBySource = chatId != null ? auxBySourceByChat[chatId] : undefined;
+  const lastAuxBySource =
+    chatId != null ? auxBySourceByChat[chatId] : undefined;
   const turnCostByChat = useAtomValue(lastTurnCostUsdByChatIdAtom);
   const lastTurnCostUsd = chatId != null ? turnCostByChat[chatId] : undefined;
   // Fix 6: cumulative session spend/tokens (running total across all turns).
   const sessionCostByChat = useAtomValue(sessionCostUsdByChatIdAtom);
   const sessionCostUsd = chatId != null ? sessionCostByChat[chatId] : undefined;
   const sessionTokensByChat = useAtomValue(sessionTokensByChatIdAtom);
-  const sessionTokens = chatId != null ? sessionTokensByChat[chatId] : undefined;
+  const sessionTokens =
+    chatId != null ? sessionTokensByChat[chatId] : undefined;
 
   // Live per-turn usage (Claude-Code-style): the provider's REAL context/output
   // tokens drive the headline, so the meter is live and provider-accurate (not
@@ -226,7 +228,8 @@ export function TokenBar({ chatId }: TokenBarProps) {
         ? actualMaxTokens
         : null;
 
-  const budget = contextReport?.contextWindow ?? effectiveBudget ?? contextWindow;
+  const budget =
+    contextReport?.contextWindow ?? effectiveBudget ?? contextWindow;
   const percentUsed = Math.min((totalTokens / budget) * 100, 100);
   const usesCore = selectionUsesCompass(settings?.selectedModel);
   const coreCreditLabel =
@@ -260,17 +263,17 @@ export function TokenBar({ chatId }: TokenBarProps) {
         </div>
       )}
       <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="flex items-center gap-2 w-full min-w-0">
-                <TokenCircle
-                  used={totalTokens}
-                  total={budget}
-                  size={24}
-                  pulse={pulse}
-                  flashSuccess={flashSuccess}
-                />
-                {/*
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="flex items-center gap-2 w-full min-w-0">
+              <TokenCircle
+                used={totalTokens}
+                total={budget}
+                size={24}
+                pulse={pulse}
+                flashSuccess={flashSuccess}
+              />
+              {/*
                   THE RING AND A PERCENTAGE — NOT A RAW COUNT.
 
                   This used to lead with `{totalTokens} / {budgetLabel}`. Once the
@@ -287,215 +290,221 @@ export function TokenBar({ chatId }: TokenBarProps) {
                   shouting. And the app's own arithmetic keeps the honest total,
                   because the budget enforcer and the compactor depend on it.
                 */}
-                <div className="flex flex-col min-w-0 leading-tight">
-                  <span className="text-muted-foreground tabular-nums truncate">
-                    {Math.round(percentUsed)}% of {budgetLabel}
-                    {budgetSource === "override" && (
-                      <span className="text-muted-foreground/70 ml-0.5">(capped)</span>
-                    )}
-                  </span>
-                  <span className="text-[10px] text-muted-foreground/80">
-                    context
-                    {coreCreditLabel ? (
-                      <span className="ml-1.5 text-muted-foreground/70 tabular-nums">
-                        · Core {coreCreditLabel}
-                      </span>
-                    ) : null}
-                    {/* Fix 6: running session spend — actual provider burn,
+              <div className="flex flex-col min-w-0 leading-tight">
+                <span className="text-muted-foreground tabular-nums truncate">
+                  {Math.round(percentUsed)}% of {budgetLabel}
+                  {budgetSource === "override" && (
+                    <span className="text-muted-foreground/70 ml-0.5">
+                      (capped)
+                    </span>
+                  )}
+                </span>
+                <span className="text-[10px] text-muted-foreground/80">
+                  context
+                  {coreCreditLabel ? (
+                    <span className="ml-1.5 text-muted-foreground/70 tabular-nums">
+                      · Core {coreCreditLabel}
+                    </span>
+                  ) : null}
+                  {/* Fix 6: running session spend — actual provider burn,
                         which the occupancy meter above does NOT reflect. */}
-                    {typeof sessionCostUsd === "number" && sessionCostUsd > 0 ? (
-                      <span className="ml-1.5 text-emerald-500 tabular-nums">
-                        · ${sessionCostUsd < 0.01
-                          ? sessionCostUsd.toFixed(4)
-                          : sessionCostUsd.toFixed(2)}{" "}
-                        session
-                      </span>
-                    ) : typeof sessionTokens === "number" && sessionTokens > 0 ? (
-                      <span className="ml-1.5 text-muted-foreground/70 tabular-nums">
-                        · {sessionTokens.toLocaleString()} tok session
-                      </span>
-                    ) : null}
-                  </span>
-                </div>
+                  {typeof sessionCostUsd === "number" && sessionCostUsd > 0 ? (
+                    <span className="ml-1.5 text-emerald-500 tabular-nums">
+                      · $
+                      {sessionCostUsd < 0.01
+                        ? sessionCostUsd.toFixed(4)
+                        : sessionCostUsd.toFixed(2)}{" "}
+                      session
+                    </span>
+                  ) : typeof sessionTokens === "number" && sessionTokens > 0 ? (
+                    <span className="ml-1.5 text-muted-foreground/70 tabular-nums">
+                      · {sessionTokens.toLocaleString()} tok session
+                    </span>
+                  ) : null}
+                </span>
               </div>
-            </TooltipTrigger>
-            <TooltipContent side="top" className="w-64 p-2">
-              <div className="space-y-1">
-                {/* Naming the mode matters now that the prefix is metered per
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="w-64 p-2">
+            <div className="space-y-1">
+              {/* Naming the mode matters now that the prefix is metered per
                     mode: Build binds every tool where Plan binds a subset, so
                     the same conversation prices differently and the reader
                     should not have to guess which mode produced the number. */}
-                <div className="font-medium">
-                  Token usage
-                  <span className="font-normal text-muted-foreground">
-                    {" · "}
-                    {labelForWorkMode(meteredWorkMode)}
-                  </span>
-                </div>
-                <div className="grid grid-cols-[20px_1fr_auto] gap-x-2 items-center">
-                  <MessageSquare size={12} className="text-blue-500" />
-                  <span>Conversation</span>
-                  <span>{conversationTokens.toLocaleString()}</span>
+              <div className="font-medium">
+                Token usage
+                <span className="font-normal text-muted-foreground">
+                  {" · "}
+                  {labelForWorkMode(meteredWorkMode)}
+                </span>
+              </div>
+              <div className="grid grid-cols-[20px_1fr_auto] gap-x-2 items-center">
+                <MessageSquare size={12} className="text-blue-500" />
+                <span>Conversation</span>
+                <span>{conversationTokens.toLocaleString()}</span>
 
-                  <FileText size={12} className="text-green-500" />
-                  <span>Files read</span>
-                  <span>{filesReadRow.toLocaleString()}</span>
+                <FileText size={12} className="text-green-500" />
+                <span>Files read</span>
+                <span>{filesReadRow.toLocaleString()}</span>
 
-                  <Search size={12} className="text-orange-500" />
-                  <span>Search results</span>
-                  <span>{searchResultRow.toLocaleString()}</span>
+                <Search size={12} className="text-orange-500" />
+                <span>Search results</span>
+                <span>{searchResultRow.toLocaleString()}</span>
 
-                  <Terminal size={12} className="text-sky-500" />
-                  <span>Other tool output</span>
-                  <span>{otherToolOutputRow.toLocaleString()}</span>
+                <Terminal size={12} className="text-sky-500" />
+                <span>Other tool output</span>
+                <span>{otherToolOutputRow.toLocaleString()}</span>
 
-                  <Sparkles size={12} className="text-fuchsia-500" />
-                  <span>Skills &amp; instructions</span>
-                  <span>{contextSectionTokens.toLocaleString()}</span>
+                <Sparkles size={12} className="text-fuchsia-500" />
+                <span>Skills &amp; instructions</span>
+                <span>{contextSectionTokens.toLocaleString()}</span>
 
-                  {/* The fixed prefix, split three ways. It used to be one
+                {/* The fixed prefix, split three ways. It used to be one
                       "System prompt" row carrying the instructions alone, which
                       hid ~10,000 tokens of tool descriptions and parameter
                       schemas that are billed on every turn. These three rows
                       PARTITION the prefix — they do not add to it — so the Total
                       below is unchanged in meaning. */}
-                  <Bot size={12} className="text-purple-500" />
-                  <span>System prompt</span>
-                  <span>{systemInstructionTokens.toLocaleString()}</span>
+                <Bot size={12} className="text-purple-500" />
+                <span>System prompt</span>
+                <span>{systemInstructionTokens.toLocaleString()}</span>
 
-                  <Wrench size={12} className="text-purple-400" />
-                  <span>Tool descriptions</span>
-                  <span>{toolDescriptionTokens.toLocaleString()}</span>
+                <Wrench size={12} className="text-purple-400" />
+                <span>Tool descriptions</span>
+                <span>{toolDescriptionTokens.toLocaleString()}</span>
 
-                  <Braces size={12} className="text-purple-300" />
-                  <span>Tool schemas</span>
-                  <span>{toolSchemaTokens.toLocaleString()}</span>
+                <Braces size={12} className="text-purple-300" />
+                <span>Tool schemas</span>
+                <span>{toolSchemaTokens.toLocaleString()}</span>
 
-                  <AlignLeft size={12} className="text-yellow-500" />
-                  <span>Current input</span>
-                  <span>{inputTokens.toLocaleString()}</span>
+                <AlignLeft size={12} className="text-yellow-500" />
+                <span>Current input</span>
+                <span>{inputTokens.toLocaleString()}</span>
+              </div>
+              <div className="pt-1 border-t border-border">
+                <div className="flex justify-between font-medium">
+                  <span>Total</span>
+                  <span>{breakdownTotal.toLocaleString()}</span>
                 </div>
-                <div className="pt-1 border-t border-border">
-                  <div className="flex justify-between font-medium">
-                    <span>Total</span>
-                    <span>{breakdownTotal.toLocaleString()}</span>
-                  </div>
-                  {/* The figure the RING is drawn from, stated once. The headline
+                {/* The figure the RING is drawn from, stated once. The headline
                       shows a percentage now, so without this line the number
                       behind the ring would be visible nowhere — and it is not
                       always `breakdownTotal` above: `totalTokens` prefers the
                       provider's live report or the dispatched size when either
                       exists. Two honest measurements, both named. */}
-                  <div className="flex justify-between text-muted-foreground">
-                    <span>Context used</span>
-                    <span className="tabular-nums">
-                      {totalTokens.toLocaleString()} / {budget.toLocaleString()}
-                    </span>
-                  </div>
-                  {/* The provider counts with its own tokenizer and includes
+                <div className="flex justify-between text-muted-foreground">
+                  <span>Context used</span>
+                  <span className="tabular-nums">
+                    {totalTokens.toLocaleString()} / {budget.toLocaleString()}
+                  </span>
+                </div>
+                {/* The provider counts with its own tokenizer and includes
                       cache/reasoning tokens the breakdown can't attribute, so it
                       rarely matches to the token. Showing it as its own line —
                       rather than as "Total" over rows that sum to something else
                       — is the difference between two honest measurements and one
                       card that contradicts itself. */}
-                  {providerReportedTokens != null &&
-                  providerReportedTokens !== breakdownTotal ? (
-                    <div className="flex justify-between text-[10px] text-muted-foreground/80">
-                      <span>Provider-reported</span>
-                      <span>{providerReportedTokens.toLocaleString()}</span>
-                    </div>
-                  ) : null}
-                </div>
-                {lastAuxTokens != null && lastAuxTokens > 0 ? (
-                  <div className="pt-1 border-t border-border">
-                    <div className="grid grid-cols-[20px_1fr_auto] gap-x-2 items-center">
-                      <BotIcon size={12} className="text-cyan-500" />
-                      <span>Background work (last turn)</span>
-                      <span>{lastAuxTokens.toLocaleString()}</span>
-                    </div>
-                    {/* Named per source: this line previously read "Sub-agents" while
+                {providerReportedTokens != null &&
+                providerReportedTokens !== breakdownTotal ? (
+                  <div className="flex justify-between text-[10px] text-muted-foreground/80">
+                    <span>Provider-reported</span>
+                    <span>{providerReportedTokens.toLocaleString()}</span>
+                  </div>
+                ) : null}
+              </div>
+              {lastAuxTokens != null && lastAuxTokens > 0 ? (
+                <div className="pt-1 border-t border-border">
+                  <div className="grid grid-cols-[20px_1fr_auto] gap-x-2 items-center">
+                    <BotIcon size={12} className="text-cyan-500" />
+                    <span>Background work (last turn)</span>
+                    <span>{lastAuxTokens.toLocaleString()}</span>
+                  </div>
+                  {/* Named per source: this line previously read "Sub-agents" while
                         also counting compaction, so app-initiated spend looked like
                         work the user had asked for. */}
-                    {(lastAuxBySource ?? []).map(
-                      ({ source, tokens, calls, estimatedTokens }) => (
-                        <div
-                          key={source}
-                          className="grid grid-cols-[20px_1fr_auto] gap-x-2 items-center text-muted-foreground"
-                        >
-                          <span />
-                          <span className="pl-1">
-                            {source === "subagents"
-                              ? `Sub-agents (${calls} call${calls === 1 ? "" : "s"})`
-                              : source === "compaction"
-                                ? "Context compaction"
-                                : "Other"}
-                          </span>
-                          {/* A "~" whenever any of this figure was ESTIMATED rather than
+                  {(lastAuxBySource ?? []).map(
+                    ({ source, tokens, calls, estimatedTokens }) => (
+                      <div
+                        key={source}
+                        className="grid grid-cols-[20px_1fr_auto] gap-x-2 items-center text-muted-foreground"
+                      >
+                        <span />
+                        <span className="pl-1">
+                          {source === "subagents"
+                            ? `Sub-agents (${calls} call${calls === 1 ? "" : "s"})`
+                            : source === "compaction"
+                              ? "Context compaction"
+                              : "Other"}
+                        </span>
+                        {/* A "~" whenever any of this figure was ESTIMATED rather than
                               reported by the provider. Some providers (free routes
                               especially) return no usage; those calls used to be dropped
                               from the total entirely, so the number was quietly too low.
                               They are counted now — but an estimate shown as measured
                               spend would be the worse bug of the two, so it is marked. */}
-                          <span
-                            title={
-                              (estimatedTokens ?? 0) > 0
-                                ? `${estimatedTokens.toLocaleString()} of these tokens are estimated — the provider reported no usage for at least one call`
-                                : undefined
-                            }
-                          >
-                            {(estimatedTokens ?? 0) > 0 ? "~" : ""}
-                            {tokens.toLocaleString()}
-                          </span>
-                        </div>
-                      ),
-                    )}
+                        <span
+                          title={
+                            (estimatedTokens ?? 0) > 0
+                              ? `${estimatedTokens.toLocaleString()} of these tokens are estimated — the provider reported no usage for at least one call`
+                              : undefined
+                          }
+                        >
+                          {(estimatedTokens ?? 0) > 0 ? "~" : ""}
+                          {tokens.toLocaleString()}
+                        </span>
+                      </div>
+                    ),
+                  )}
+                </div>
+              ) : null}
+              {lastTurnCostUsd != null && lastTurnCostUsd > 0 ? (
+                <div className="pt-1 border-t border-border grid grid-cols-[20px_1fr_auto] gap-x-2 items-center">
+                  <DollarSign size={12} className="text-emerald-500" />
+                  <span>Est. cost (last turn)</span>
+                  <span>
+                    {lastTurnCostUsd < 0.01
+                      ? `<$0.01`
+                      : `$${lastTurnCostUsd.toFixed(2)}`}
+                  </span>
+                </div>
+              ) : null}
+              {contextReport && contextReport.trimReport.length > 0 ? (
+                <div className="pt-1 border-t border-border space-y-0.5">
+                  <div className="flex items-center gap-1 font-medium">
+                    <Scissors size={12} className="text-muted-foreground" />
+                    <span>Pruned at last dispatch</span>
                   </div>
-                ) : null}
-                {lastTurnCostUsd != null && lastTurnCostUsd > 0 ? (
-                  <div className="pt-1 border-t border-border grid grid-cols-[20px_1fr_auto] gap-x-2 items-center">
-                    <DollarSign size={12} className="text-emerald-500" />
-                    <span>Est. cost (last turn)</span>
-                    <span>
-                      {lastTurnCostUsd < 0.01
-                        ? `<$0.01`
-                        : `$${lastTurnCostUsd.toFixed(2)}`}
-                    </span>
-                  </div>
-                ) : null}
-                {contextReport && contextReport.trimReport.length > 0 ? (
-                  <div className="pt-1 border-t border-border space-y-0.5">
-                    <div className="flex items-center gap-1 font-medium">
-                      <Scissors size={12} className="text-muted-foreground" />
-                      <span>Pruned at last dispatch</span>
+                  {contextReport.trimReport.slice(0, 4).map((line, i) => (
+                    <div
+                      key={i}
+                      className="text-[10px] text-muted-foreground break-words"
+                    >
+                      {line}
                     </div>
-                    {contextReport.trimReport.slice(0, 4).map((line, i) => (
-                      <div key={i} className="text-[10px] text-muted-foreground break-words">
-                        {line}
-                      </div>
-                    ))}
-                    {contextReport.trimReport.length > 4 ? (
-                      <div className="text-[10px] text-muted-foreground/70">
-                        +{contextReport.trimReport.length - 4} more
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-                {contextReport &&
-                contextReport.sections.some((s) => !s.included || s.truncated) ? (
-                  <div className="text-[10px] text-muted-foreground/80">
-                    {contextReport.sections
-                      .filter((s) => !s.included || s.truncated)
-                      .map(
-                        (s) =>
-                          `${sectionLabel(s.name)}${s.truncated ? " (truncated)" : " (dropped)"}`,
-                      )
-                      .join(", ")}
-                  </div>
-                ) : null}
-              </div>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+                  ))}
+                  {contextReport.trimReport.length > 4 ? (
+                    <div className="text-[10px] text-muted-foreground/70">
+                      +{contextReport.trimReport.length - 4} more
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+              {contextReport &&
+              contextReport.sections.some((s) => !s.included || s.truncated) ? (
+                <div className="text-[10px] text-muted-foreground/80">
+                  {contextReport.sections
+                    .filter((s) => !s.included || s.truncated)
+                    .map(
+                      (s) =>
+                        `${sectionLabel(s.name)}${s.truncated ? " (truncated)" : " (dropped)"}`,
+                    )
+                    .join(", ")}
+                </div>
+              ) : null}
+            </div>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
       {error && (
         <div className="text-red-500 text-xs mt-1">Failed to count tokens</div>
       )}

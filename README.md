@@ -1,4 +1,5 @@
 # Atlarix
+
 ## The Private AI Workstation
 
 Atlarix is the agent workstation for engineering teams — managed cloud models
@@ -31,11 +32,11 @@ any repo size. The agent has a workspace. You have control.
 **Website:** [atlarix.dev](https://atlarix.dev)  
 **Current release:** **v14.43.0**
 
-**Downloads:** Installers for **macOS**, **Linux**, and **Windows** are on [atlarix.dev](https://atlarix.dev). *(Windows builds are currently unsigned; code signing is coming soon.)*
+**Downloads:** Installers for **macOS**, **Linux**, and **Windows** are on [atlarix.dev](https://atlarix.dev). _(Windows builds are currently unsigned; code signing is coming soon.)_
 
-**Open ecosystem (source / installers / registries):** community **Agent Behaviors** live in [AmariahAK/atlarix-skills](https://github.com/AmariahAK/atlarix-skills); the **MCP marketplace index** is [AmariahAK/atlarix-mcps](https://github.com/AmariahAK/atlarix-mcps); official desktop builds are published from [AmariahAK/atlarix-releases](https://github.com/AmariahAK/atlarix-releases). The Atlarix app itself is proprietary.
+**Open ecosystem (source / installers / registries):** the **MCP marketplace index** is [AmariahAK/atlarix-mcps](https://github.com/AmariahAK/atlarix-mcps); official desktop builds are published from [AmariahAK/atlarix-releases](https://github.com/AmariahAK/atlarix-releases). The Atlarix app itself is proprietary.
 
-Release notes: **[docs/CHANGELOG.md](docs/CHANGELOG.md)** (current: 14.25+). Older entries: **[docs/CHANGELOG_PREVIOUS.md](docs/CHANGELOG_PREVIOUS.md)**.
+Release notes: **[docs/CHANGELOG.md](docs/CHANGELOG.md)** — the last ten releases in full. Everything older is one line per version in **[docs/CHANGELOG_PREVIOUS.md](docs/CHANGELOG_PREVIOUS.md)**; the prose is in git history.
 
 ---
 
@@ -51,18 +52,18 @@ Release notes: **[docs/CHANGELOG.md](docs/CHANGELOG.md)** (current: 14.25+). Old
 - **Parallel workers:** The `task` tool spawns scoped workers — read-only **explorer** and **architect** (recon, planning, web search) plus writer **implementer** agents whose edits never touch disk and come back as per-file **proposals** the main agent reviews and accepts — up to five run **concurrently** per turn, with their live thinking, narration, and tool activity streaming into per-worker cards. Long-running workers move to the background automatically and can be listed, watched, or cancelled.
 - **Background commands:** A foreground command still running after **~15s auto-promotes to the background** (kept alive, not killed) so the agent keeps working; the exit result is delivered back automatically. The agent can also detach explicitly (`run_command background:true`), and a still-foreground command surfaces a **"Waiting on command"** state where you can queue a message that sends when the turn resumes.
 - **User-defined agents & portable config:** `.atlarix/agents/<name>.md` (system prompt + tools + model) shows up in the picker; `.atlarix/permissions.json` deny rules are committable and enforced at the single tool-execution funnel — plus a global `~/.atlarix/` layer.
-- **Verified edits:** In **Build** and **Debug** the agent discovers and runs the project's *own* checks (package.json scripts, `tsc`/`eslint`, `ruff`/`mypy`/`pytest`) through the terminal — every command run inside the per-OS sandbox — and writes tests for non-trivial logic. It is held to not declaring a task complete while those checks report errors. Verification uses the project's real tooling, so it works on any machine with the language runtime installed.
+- **Verified edits:** In **Build** and **Debug** the agent discovers and runs the project's _own_ checks (package.json scripts, `tsc`/`eslint`, `ruff`/`mypy`/`pytest`) through the terminal — every command run inside the per-OS sandbox — and writes tests for non-trivial logic. It is held to not declaring a task complete while those checks report errors. Verification uses the project's real tooling, so it works on any machine with the language runtime installed.
 - **Native tool history:** Tool calls/results ride as provider-native blocks (not flattened text) — weak and local models perform notably better, and multi-step prompt caching holds.
 - **Approvals & command sandbox:** File writes wait for explicit approval with a diff preview — accept or reject **individual hunks**, not just whole files, all **inline in chat** (no separate panel). Shell commands run inside a per-OS write-confining sandbox and only the genuinely dangerous ones ask; Explore/Plan/Review are read-only. Allow-once / always-allow decisions are **scoped to the workspace** — approvals saved in one project never carry to another.
-- **Work beyond one folder:** The workspace is the default scope, not a wall. The agent reads and searches another project by absolute path with no ceremony; the first *write* to a folder outside the workspace asks you once for that folder, and the grant then covers both file edits and shell commands. Cross-repo edits are snapshotted like any other, so **Revert covers them too**.
+- **Work beyond one folder:** The workspace is the default scope, not a wall. The agent reads and searches another project by absolute path with no ceremony; the first _write_ to a folder outside the workspace asks you once for that folder, and the grant then covers both file edits and shell commands. Cross-repo edits are snapshotted like any other, so **Revert covers them too**.
 - **Voice-to-text:** Dictate to the composer — free on-device **Whisper** by default (private, no key), or use your own cloud key (OpenAI / Groq / Gemini — never billed to Atlarix Core).
-- **Automations:** Schedule unattended runs on a cron or MCP trigger from the Automations tab, with a triage feed of past runs — **2 per workspace on Free, 10 on Pro**.
+- **Automations:** Schedule unattended runs on a cron or MCP trigger from the Automations tab, with a triage feed of past runs — up to **10 per workspace**.
 - **Interactive questions:** The agent can ask you **up to 5 questions in one inline card** (options + free text) and the stream genuinely pauses until you answer — no invented answers, no missed prompts.
 - **Native web search:** On providers with built-in search (Anthropic, OpenAI, Gemini 2+) the provider's own search tool runs at dispatch with **inline citations that survive reload**; everywhere else a built-in search chain provides a universal fallback, with optional local private search via Docker.
 - **Prompt caching:** Dispatches are cache-friendly out of the box — Anthropic API key turns place `cache_control` breakpoints over the stable system header and conversation history, cutting repeat-turn input cost and latency.
 - **Real terminal:** User terminal tabs are full interactive shells (xterm.js + PTY) — Tab completion, arrows, colors, vim/top. Tabs and scrollback **persist across app restarts**, and tab labels track the shell's live cwd. Agent commands run separately with captured output and approvals.
 
-**Providers:** **Atlarix Core** (managed open-weight models, configured remotely rather than pinned to a release) plus your own API keys across 145+ providers (OpenAI, Anthropic, Gemini, and more) and local models (Ollama, LM Studio).
+**Providers:** **Atlarix Core** (managed models, configured remotely rather than pinned to a release) plus your own API keys across 145+ providers (OpenAI, Anthropic, Gemini, and more) and local models (Ollama, LM Studio).
 
 ---
 
@@ -75,13 +76,13 @@ Retrieval is **purely lexical — no index, no embeddings, no map tool, no backg
 ### AI Agents & Modes
 
 - **Work modes:** Explore, Plan, Build, Debug, Review.
-- **Atlarix Core:** Managed cloud models, named in the picker by what they actually are. The lineup is configured remotely ([`core-models.json`](https://github.com/AmariahAK/atlarix-releases/blob/main/core-models.json)) rather than fixed in a release, so it changes without an app update — today it is **GLM 5.3** and **DeepSeek V4 Pro**. Every plan can use every Core model; there is no tier gating and no model is reserved for a paid plan. Pro includes Core for everyday work and draws on a prepaid credit balance beyond that; Free draws on that balance from the start (top up from $10).
+- **Atlarix Core:** Managed cloud models, named in the picker by what they actually are. The lineup is configured remotely ([`core-models.json`](https://github.com/AmariahAK/atlarix-releases/blob/main/core-models.json)) rather than fixed in a release, so it changes without an app update — today it is **GLM 5.3**, **GPT 5.6 Terra** and **GPT 6 Astra**. Every plan can use every Core model; there is no tier gating and no model is reserved for a paid plan. Pro includes Core for everyday work and draws on a prepaid credit balance beyond that; Free draws on that balance from the start (top up from $10).
 
 ### Workspace Tools & Extensions
 
 - **Core tools:** A deliberately minimal tool surface — `read_file`, a single `edit_file` (one tool for create/overwrite via `operation:"write"` plus surgical `operation:"replace"` with self-healing match), **`glob`** + **`grep`** (bundled ripgrep), `run_command` (incl. `git` CLI and background commands), web search/read, `task` parallel workers, `plan`, MCP, attachments, and the in-app browser tools (`browser_inspect` to read a page, `browser` to act on it). Explore/Plan/Review run a read-only sandbox profile.
-- **MCP:** MCP servers are configured **per workspace** — **Free** connects **1** (manual config); **Pro** gets the marketplace plus up to **10** per workspace (one-click OAuth connect from the marketplace). On-demand **`list_available_mcps`** / **`mcp_call`** in workspace chat.
-- **Agent Behaviors:** Install from [atlarix-skills](https://github.com/AmariahAK/atlarix-skills). Optional **`.atlarix/skills/`** in the repo.
+- **MCP:** MCP servers are configured **per workspace** — up to **10** each, added manually or in one click from the marketplace (including OAuth connectors). On-demand **`list_available_mcps`** / **`mcp_call`** in workspace chat.
+- **Skills:** Markdown files in **`.atlarix/skills/`** that teach Atlarix a repeatable job — write one, or ask Atlarix to. Their names and descriptions are in the prompt; the file itself is read only when it is relevant, so the count costs you nothing.
 
 ### Diagnostics & panels
 
@@ -141,7 +142,7 @@ then tag. Nothing else can fire from a branch push: every build and publish job 
 
 `main` remains GitHub's default branch, because the release tooling, the [atlarix-releases](https://github.com/AmariahAK/atlarix-releases) repo, and clone URLs all assume it — so new pull requests open against `main` and want retargeting to `dev`. This split is a **convention held by CI and discipline, not an enforced gate**: branch protection needs GitHub Pro on a private repository, and this one is on the free plan.
 
-1. Bump **`package.json` `version`** and add a section to [`docs/CHANGELOG.md`](docs/CHANGELOG.md). Archive older sections to [`docs/CHANGELOG_PREVIOUS.md`](docs/CHANGELOG_PREVIOUS.md) when the main file grows too long — keep roughly the last ten releases. Only the CURRENT version's section is read by the release tooling, so archiving is safe.
+1. Bump **`package.json` `version`** and add a section to [`docs/CHANGELOG.md`](docs/CHANGELOG.md), keeping roughly the last **ten** releases there. Older ones get **one line** each in [`docs/CHANGELOG_PREVIOUS.md`](docs/CHANGELOG_PREVIOUS.md) — not their prose, which stays in git history. Only the CURRENT version's section is read by the release tooling, so archiving is safe. This policy existed and was ignored until the file held 26 releases; trim on the way past ten, not later.
 2. Refresh the bundled model catalog: `npm run models:snapshot` (writes `build/models-snapshot.json.gz`) and commit it. This is the offline floor for the model picker — a stale snapshot self-heals on first successful refresh, so this is a nice-to-have, not a blocker.
 3. Merge `dev` into `main`, push, and **wait for the `quality` run to go green** — then tag:
    ```bash
@@ -208,22 +209,33 @@ After `npm install`, **`postinstall`** runs `patch-package` and the Electron ins
 
 ## Pricing
 
-| Tier      | Price   | Workspaces | Highlights |
-|-----------|---------|------------|------------|
-| **Free**  | $0      | 1          | Every Core model (pay-as-you-go credits); your own API keys and local models free; core tools; **1** MCP server per workspace (manual config); **2** automations per workspace |
-| **Pro**   | $19/mo  | Unlimited  | Everything in Free + **Atlarix Core included for everyday work** + Agent Behaviors + MCP marketplace + one-click OAuth connectors; **10** MCP servers and **10** automations per workspace |
+**The app is free.** Every feature is on every plan — unlimited workspaces, the Agent
+Behaviors and MCP marketplaces, one-click OAuth connectors, automations, workspace
+snapshots, the full tool surface. Your own API keys and local models (Ollama, LM Studio)
+cost nothing, on any plan, forever.
 
-**Every plan runs every model.** Every Core model is available on Free and Pro alike — the lineup is configured remotely, so it is whatever `core-models.json` currently names rather than a fixed count — and **your own API keys and local models are free on every plan**.
+What you pay for is **Atlarix Core** — the managed models we host and meter. Top up a
+prepaid balance from **$10** and it is billed as you use it, with the exact cost of every
+call shown in the app.
 
-**Pro includes Atlarix Core for everyday work**, and heavier use draws on pay-as-you-go credit you top up, metered as you go. Free uses that same credit from the start (each new account gets a one-time **$1** trial credit; top-ups start at **$10**). See [docs/compass-limits.md](docs/compass-limits.md).
+|          | Price  | What it is                                                                                                                    |
+| -------- | ------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| **Free** | $0     | The whole app. Core on pay-as-you-go credit.                                                                                  |
+| **Pro**  | $19/mo | The whole app, plus **Atlarix Reviewer**, plus Atlarix Core included for everyday work. Heavier use draws on the same credit. |
 
-### Atlarix Reviewer — a separate product
+**One subscription, one balance.** Pro covers the desktop app and Atlarix Reviewer from a
+single monthly Core allowance — they are not billed separately and they do not hold
+separate balances. See [docs/compass-limits.md](docs/compass-limits.md).
 
-**$19 per developer / month.** A GitHub App that reviews every pull request on the repositories you choose and posts its findings as review comments — file, line, what is wrong, and the fix. It never writes to your code, and it never executes, builds or tests it.
+### Atlarix Reviewer
 
-Reviews run on Atlarix Core and are **included for everyday reviewing**, the same way Pro works; heavier use draws on the same pay-as-you-go credit, metered per review. Your account page itemises what reviewing has spent separately from the app.
+A GitHub App that reviews every pull request on the repositories you choose and posts its
+findings as review comments — file, line, what is wrong, and the fix. It never writes to
+your code, and it never executes, builds or tests it.
 
-Pro and Reviewer are **separate subscriptions** — holding one does not include the other.
+Reviews run on Atlarix Core, so they need a funded balance: either the allowance that
+comes with Pro, or pay-as-you-go credit. Your account page itemises what reviewing has
+spent separately from the app.
 
 ---
 

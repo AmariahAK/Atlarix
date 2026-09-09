@@ -6,10 +6,9 @@ interface AtlarixCodeSearchResultProps {
   children?: React.ReactNode;
 }
 
-export const AtlarixCodeSearchResult: React.FC<AtlarixCodeSearchResultProps> = ({
-  children,
-  node: _node,
-}) => {
+export const AtlarixCodeSearchResult: React.FC<
+  AtlarixCodeSearchResultProps
+> = ({ children, node: _node }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
   // Parse file paths from children content

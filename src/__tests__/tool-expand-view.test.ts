@@ -45,7 +45,12 @@ describe("buildToolExpandView", () => {
         ],
       },
     });
-    const view = buildToolExpandView("explore_folder", { path: "." }, raw, "done");
+    const view = buildToolExpandView(
+      "explore_folder",
+      { path: "." },
+      raw,
+      "done",
+    );
     expect(view.kind).toBe("file_list");
     if (view.kind === "file_list") {
       expect(view.total).toBe(2);
@@ -64,7 +69,12 @@ describe("buildToolExpandView", () => {
         ],
       },
     });
-    const view = buildToolExpandView("search_code", { query: "x" }, raw, "done");
+    const view = buildToolExpandView(
+      "search_code",
+      { query: "x" },
+      raw,
+      "done",
+    );
     expect(view.kind).toBe("match_list");
     if (view.kind === "match_list") {
       expect(view.totalMatches).toBe(3);
@@ -80,7 +90,12 @@ describe("buildToolExpandView", () => {
       newContent: "a\nb\n",
       operation: "update",
     });
-    const view = buildToolExpandView("write_file", { path: "src/x.ts" }, raw, "done");
+    const view = buildToolExpandView(
+      "write_file",
+      { path: "src/x.ts" },
+      raw,
+      "done",
+    );
     expect(view.kind).toBe("diff");
     if (view.kind === "diff") {
       expect(view.fileName).toBe("x.ts");
@@ -96,7 +111,12 @@ describe("buildToolExpandView", () => {
       oldContent: "",
       newContent: "node_modules/\n.env\n__pycache__/",
     });
-    const view = buildToolExpandView("edit_file", { path: ".gitignore", operation: "write" }, raw, "done");
+    const view = buildToolExpandView(
+      "edit_file",
+      { path: ".gitignore", operation: "write" },
+      raw,
+      "done",
+    );
     expect(view.kind).toBe("diff");
     if (view.kind === "diff") {
       expect(view.operation).toBe("create");
@@ -115,7 +135,11 @@ describe("buildToolExpandView", () => {
       added: 3,
       removed: 0,
     });
-    const args = { operation: "write", path: ".gitignore", content: "node_modules/\n.env\ndist/" };
+    const args = {
+      operation: "write",
+      path: ".gitignore",
+      content: "node_modules/\n.env\ndist/",
+    };
     const view = buildToolExpandView("edit_file", args, raw, "done");
     expect(view.kind).toBe("diff");
     if (view.kind === "diff") {
@@ -126,8 +150,19 @@ describe("buildToolExpandView", () => {
   });
 
   it("renders a surgical replace diff from args old/new fragments", () => {
-    const raw = JSON.stringify({ success: true, path: "a.ts", operation: "update", added: 1, removed: 1 });
-    const args = { operation: "replace", path: "a.ts", old_content: "const x = 1;", new_content: "const x = 2;" };
+    const raw = JSON.stringify({
+      success: true,
+      path: "a.ts",
+      operation: "update",
+      added: 1,
+      removed: 1,
+    });
+    const args = {
+      operation: "replace",
+      path: "a.ts",
+      old_content: "const x = 1;",
+      new_content: "const x = 2;",
+    };
     const view = buildToolExpandView("edit_file", args, raw, "done");
     expect(view.kind).toBe("diff");
     if (view.kind === "diff") {
@@ -143,7 +178,12 @@ describe("buildToolExpandView", () => {
       output: "1 failing",
       exitCode: 1,
     });
-    const view = buildToolExpandView("run_command", { command: "npm test" }, raw, "done");
+    const view = buildToolExpandView(
+      "run_command",
+      { command: "npm test" },
+      raw,
+      "done",
+    );
     expect(view.kind).toBe("command");
     if (view.kind === "command") {
       expect(view.command).toBe("npm test");
@@ -162,7 +202,12 @@ describe("buildToolExpandView", () => {
       ),
       exitCode: 0,
     });
-    const view = buildToolExpandView("run_command", { command: "git push" }, raw, "done");
+    const view = buildToolExpandView(
+      "run_command",
+      { command: "git push" },
+      raw,
+      "done",
+    );
     expect(view.kind).toBe("command");
     if (view.kind === "command") {
       expect(view.body).toContain("a0e765244..0974d3882");
@@ -179,11 +224,20 @@ describe("buildToolExpandView", () => {
       mimeType: "image/png",
       data: "QUJD",
       sessionSteps: [
-        { type: "navigate", detail: "https://example.com", url: "https://example.com" },
+        {
+          type: "navigate",
+          detail: "https://example.com",
+          url: "https://example.com",
+        },
         { type: "click", detail: "e3", url: "https://example.com" },
       ],
     });
-    const view = buildToolExpandView("browser_inspect", { mode: "screenshot" }, raw, "done");
+    const view = buildToolExpandView(
+      "browser_inspect",
+      { mode: "screenshot" },
+      raw,
+      "done",
+    );
     expect(view.kind).toBe("browser_recording");
     if (view.kind === "browser_recording") {
       expect(view.steps).toHaveLength(2);
@@ -208,7 +262,11 @@ describe("buildToolExpandView", () => {
       result: {
         text: "…",
         sources: [
-          { title: "React Hooks", url: "https://react.dev/hooks", content: "intro" },
+          {
+            title: "React Hooks",
+            url: "https://react.dev/hooks",
+            content: "intro",
+          },
           { title: "MDN", url: "https://developer.mozilla.org" },
         ],
       },
@@ -258,7 +316,9 @@ describe("buildToolExpandView", () => {
       JSON.stringify({ success: true, result: { text: "something else" } }),
       "done",
     );
-    expect(view.kind === "text" && view.body.startsWith("No results")).toBe(false);
+    expect(view.kind === "text" && view.body.startsWith("No results")).toBe(
+      false,
+    );
   });
 
   it("formats list_available_mcps as mcp_servers", () => {
@@ -413,7 +473,12 @@ describe("buildToolExpandView — task (sub-agent delegation)", () => {
       "completed",
       `<summary>Audit the parser</summary><task_result>${REPORT}</task_result>`,
     );
-    const view = buildToolExpandView("task", { description: "Audit" }, raw, "done");
+    const view = buildToolExpandView(
+      "task",
+      { description: "Audit" },
+      raw,
+      "done",
+    );
     expect(view.kind).toBe("text");
     if (view.kind === "text") {
       expect(view.markdown).toBe(true);
@@ -486,9 +551,16 @@ describe("mobile tools render in the browser cards", () => {
       data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
       device: "Pixel 7",
     });
-    const view = buildToolExpandView("mobile_inspect", { mode: "screenshot" }, raw, "done");
+    const view = buildToolExpandView(
+      "mobile_inspect",
+      { mode: "screenshot" },
+      raw,
+      "done",
+    );
     expect(view?.kind).toBe("browser_screenshot");
-    expect((view as { dataUrl?: string }).dataUrl).toMatch(/^data:image\/png;base64,/);
+    expect((view as { dataUrl?: string }).dataUrl).toMatch(
+      /^data:image\/png;base64,/,
+    );
   });
 
   it("a mobile hierarchy read falls through to the TEXT card", () => {
@@ -497,7 +569,8 @@ describe("mobile tools render in the browser cards", () => {
     const raw = JSON.stringify({
       success: true,
       device: "Pixel 7",
-      summary: '3 element(s) on Pixel 7 (android). Act on any ref with mobile.\n[m1] Button "Continue"',
+      summary:
+        '3 element(s) on Pixel 7 (android). Act on any ref with mobile.\n[m1] Button "Continue"',
     });
     const view = buildToolExpandView("mobile_inspect", {}, raw, "done");
     expect(view?.kind).not.toBe("browser_screenshot");
@@ -514,7 +587,12 @@ describe("mobile tools render in the browser cards", () => {
       title: "Pixel 7",
       content: "Tapped Continue. Re-read the screen if this navigated.",
     });
-    const view = buildToolExpandView("mobile", { action: "tap", ref: "m1" }, raw, "done");
+    const view = buildToolExpandView(
+      "mobile",
+      { action: "tap", ref: "m1" },
+      raw,
+      "done",
+    );
     expect(view).toBeTruthy();
     expect(JSON.stringify(view)).toContain("Tapped Continue");
   });
@@ -540,7 +618,12 @@ describe("tool_help renders what it fetched", () => {
       tool: "browser",
       usage: "Act on the page in Atlarix's built-in browser.",
     });
-    const view = buildToolExpandView("tool_help", { tool: "browser" }, raw, "done");
+    const view = buildToolExpandView(
+      "tool_help",
+      { tool: "browser" },
+      raw,
+      "done",
+    );
     expect(view?.kind).toBe("text");
     const body = (view as { body?: string }).body ?? "";
     expect(body).not.toBe("Done");
@@ -555,8 +638,16 @@ describe("tool_help renders what it fetched", () => {
   });
 
   it("falls through on a failure so the error still shows", () => {
-    const raw = JSON.stringify({ success: false, error: 'No tool named "nope".' });
-    const view = buildToolExpandView("tool_help", { tool: "nope" }, raw, "done");
+    const raw = JSON.stringify({
+      success: false,
+      error: 'No tool named "nope".',
+    });
+    const view = buildToolExpandView(
+      "tool_help",
+      { tool: "nope" },
+      raw,
+      "done",
+    );
     expect(JSON.stringify(view)).toContain("No tool named");
   });
 });

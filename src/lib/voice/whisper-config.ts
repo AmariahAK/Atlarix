@@ -94,6 +94,8 @@ export interface WhisperPipelineOptions {
  * agree, so any future divergence has one place to live — and one place for the test that
  * asserts WASM never gets an int8 dtype.
  */
-export function buildPipelineOptions(device: WhisperDevice): WhisperPipelineOptions {
+export function buildPipelineOptions(
+  device: WhisperDevice,
+): WhisperPipelineOptions {
   return { device, dtype: WHISPER_DTYPE };
 }

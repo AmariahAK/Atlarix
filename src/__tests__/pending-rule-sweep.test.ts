@@ -18,15 +18,21 @@ import {
   type SweepVerdict,
 } from "@/lib/tools/permissions/pending-rule-sweep";
 
-const op = (id: string, relativePath: string, operation = "edit_file"): PendingFileOperation => ({
+const op = (
+  id: string,
+  relativePath: string,
+  operation = "edit_file",
+): PendingFileOperation => ({
   id,
   operation,
   relativePath,
 });
 
 /** Stands in for the persisted rules the real preflight reads. */
-const byExtension = (ext: string) => (_operation: string, rel: string): SweepVerdict =>
-  rel.endsWith(ext) ? "auto_allow" : "prompt";
+const byExtension =
+  (ext: string) =>
+  (_operation: string, rel: string): SweepVerdict =>
+    rel.endsWith(ext) ? "auto_allow" : "prompt";
 
 describe("selectOperationsCoveredByRules", () => {
   /** The exact case reported: "always allow .ts" must clear the queued .ts edits. */
@@ -62,7 +68,11 @@ describe("selectOperationsCoveredByRules", () => {
 
   /** Several queued edits to the SAME file — the other reported shape. */
   it("sweeps repeated edits to one file", () => {
-    const pending = [op("1", "src/css.ts"), op("2", "src/css.ts"), op("3", "src/other.ts")];
+    const pending = [
+      op("1", "src/css.ts"),
+      op("2", "src/css.ts"),
+      op("3", "src/other.ts"),
+    ];
     const covered = selectOperationsCoveredByRules(pending, (_o, rel) =>
       rel === "src/css.ts" ? "auto_allow" : "prompt",
     );
@@ -84,12 +94,17 @@ describe("selectOperationsCoveredByRules", () => {
 
   it("returns nothing when the new rule covers nothing queued", () => {
     const pending = [op("1", "src/a.py")];
-    expect(selectOperationsCoveredByRules(pending, byExtension(".ts"))).toEqual([]);
+    expect(selectOperationsCoveredByRules(pending, byExtension(".ts"))).toEqual(
+      [],
+    );
     expect(selectOperationsCoveredByRules([], byExtension(".ts"))).toEqual([]);
   });
 
   it("skips an operation with no usable path rather than guessing", () => {
-    const covered = selectOperationsCoveredByRules([op("1", "")], () => "auto_allow");
+    const covered = selectOperationsCoveredByRules(
+      [op("1", "")],
+      () => "auto_allow",
+    );
     expect(covered).toEqual([]);
   });
 });
@@ -103,6 +118,8 @@ describe("describeSweptOperations", () => {
   });
 
   it("singularises", () => {
-    expect(describeSweptOperations(["a.ts"])).toBe("1 more edit auto-approved by this rule");
+    expect(describeSweptOperations(["a.ts"])).toBe(
+      "1 more edit auto-approved by this rule",
+    );
   });
 });

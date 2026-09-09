@@ -22,10 +22,16 @@ const ALLOWED_NODE_MODULE_PREFIXES = [
 function isAllowedNodeModulesPath(file) {
   if (file === "/node_modules") return true;
   if (!file.startsWith("/node_modules/")) return false;
-  if (process.env.ATLARIX_BUNDLE_GIT === "1" && file.startsWith("/node_modules/dugite")) {
+  if (
+    process.env.ATLARIX_BUNDLE_GIT === "1" &&
+    file.startsWith("/node_modules/dugite")
+  ) {
     return true;
   }
-  if (process.env.E2E_TEST_BUILD === "true" && file.startsWith("/node_modules/dugite")) {
+  if (
+    process.env.E2E_TEST_BUILD === "true" &&
+    file.startsWith("/node_modules/dugite")
+  ) {
     return true;
   }
   return ALLOWED_NODE_MODULE_PREFIXES.some(

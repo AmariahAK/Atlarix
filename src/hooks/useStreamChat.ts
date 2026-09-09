@@ -1,8 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
-import type {
-  Message,
-  FileAttachment,
-} from "@/ipc/ipc_types";
+import type { Message, FileAttachment } from "@/ipc/ipc_types";
 import { useAtom, useAtomValue, useSetAtom, getDefaultStore } from "jotai";
 import {
   normalizeChatActivityPayload,
@@ -312,15 +309,23 @@ function persistAndClearLiveStreamThread(
   });
 }
 
-function captureThinkingSnapshotForChat(_chatId: number, messages: Message[]): void {
-  const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+function captureThinkingSnapshotForChat(
+  _chatId: number,
+  messages: Message[],
+): void {
+  const lastAssistant = [...messages]
+    .reverse()
+    .find((m) => m.role === "assistant");
   if (!lastAssistant?.content) return;
   const snap = extractThinkingFromContent(lastAssistant.content);
   if (!hasThinkingSnapshotContent(snap)) return;
-  getDefaultStore().set(completedTurnThinkingByAssistantMessageIdAtom, (prev) => ({
-    ...prev,
-    [lastAssistant.id]: snap,
-  }));
+  getDefaultStore().set(
+    completedTurnThinkingByAssistantMessageIdAtom,
+    (prev) => ({
+      ...prev,
+      [lastAssistant.id]: snap,
+    }),
+  );
 }
 
 export function useStreamChat({
@@ -328,7 +333,9 @@ export function useStreamChat({
 }: { hasChatId?: boolean } = {}) {
   const setMessagesById = useSetAtom(chatMessagesByIdAtom);
   const setToolIndicator = useSetAtom(toolIndicatorAtom);
-  const setStreamLastActivityAtByChatId = useSetAtom(streamLastActivityAtByChatIdAtom);
+  const setStreamLastActivityAtByChatId = useSetAtom(
+    streamLastActivityAtByChatIdAtom,
+  );
   const setReconnectingByChatId = useSetAtom(reconnectingByChatIdAtom);
   const setLiveToolInputByChatId = useSetAtom(liveToolInputByChatIdAtom);
   const setResponseDoneAnimation = useSetAtom(responseDoneAnimationAtom);
@@ -361,7 +368,9 @@ export function useStreamChat({
   const setPreviewTab = useSetAtom(previewTabAtom);
   const setTerminalOutputs = useSetAtom(terminalOutputsAtom);
   const setPermissionQueue = useSetAtom(permissionQueueAtom);
-  const setLastTurnHadToolCallsByChatId = useSetAtom(lastTurnHadToolCallsByChatIdAtom);
+  const setLastTurnHadToolCallsByChatId = useSetAtom(
+    lastTurnHadToolCallsByChatIdAtom,
+  );
   const posthog = usePostHog();
   let chatId: number | undefined;
 
@@ -378,7 +387,9 @@ export function useStreamChat({
   const { invalidateTokenCount } = useContextTokenCount(chatId ?? null);
 
   const setRestartedAfterMessageId = useSetAtom(restartedAfterMessageIdAtom);
-  const setPendingUserQuestionByChatId = useSetAtom(pendingUserQuestionByChatIdAtom);
+  const setPendingUserQuestionByChatId = useSetAtom(
+    pendingUserQuestionByChatIdAtom,
+  );
 
   // PASS6: throttle setMessagesById during streaming (max ~20/s) to avoid renderer OOM.
   /** AI workspace session title runs once per chat after the first assistant turn is persisted. */
@@ -427,14 +438,16 @@ export function useStreamChat({
    * another wake immediately and rebuild the loop in IPC instead of streams.
    */
   useEffect(() => {
-    const unsub = IpcClient.getInstance().onStreamDropped(({ chatId: evChatId }) => {
-      setIsStreamingById((prev) => {
-        if (prev.get(evChatId) !== true) return prev;
-        const next = new Map(prev);
-        next.set(evChatId, false);
-        return next;
-      });
-    });
+    const unsub = IpcClient.getInstance().onStreamDropped(
+      ({ chatId: evChatId }) => {
+        setIsStreamingById((prev) => {
+          if (prev.get(evChatId) !== true) return prev;
+          const next = new Map(prev);
+          next.set(evChatId, false);
+          return next;
+        });
+      },
+    );
     return unsub;
   }, [setIsStreamingById]);
 
@@ -470,12 +483,13 @@ export function useStreamChat({
   // Late-bound handle so the stream-end queue flush (registered above the
   // definition) can call streamMessage without a dependency cycle.
   const streamMessageRef = useRef<
-    ((args: {
-      prompt: string;
-      chatId: number;
-      continueAfterQuestions?: boolean;
-      systemWake?: boolean;
-    }) => Promise<unknown>) | null
+    | ((args: {
+        prompt: string;
+        chatId: number;
+        continueAfterQuestions?: boolean;
+        systemWake?: boolean;
+      }) => Promise<unknown>)
+    | null
   >(null);
   /** Chats with an in-flight background-completion wake (avoid double-starting). */
   const bgWakeInFlightRef = useRef<Set<number>>(new Set());
@@ -502,7 +516,6 @@ export function useStreamChat({
   // it can't clear isStreaming or flush the queued message for the live turn.
   const streamDispatchCounterRef = useRef(0);
   const latestDispatchByChatRef = useRef<Map<number, number>>(new Map());
-
 
   /**
    * Settle a sub-agent card that finished AFTER its turn ended.
@@ -540,7 +553,9 @@ export function useStreamChat({
       // A LIVE turn already routes these through its own listener; applying them
       // twice would fight over the same row.
       if (item.chatId != null) {
-        const live = getDefaultStore().get(isStreamingByIdAtom).get(item.chatId);
+        const live = getDefaultStore()
+          .get(isStreamingByIdAtom)
+          .get(item.chatId);
         if (live === true) return;
       }
       getDefaultStore().set(
@@ -568,77 +583,80 @@ export function useStreamChat({
   // fires even after the turn that started the job has ended.
   useEffect(() => {
     const ipc = IpcClient.getInstance();
-    const unsub = ipc.onBackgroundJobUpdate(({ chatId: evChatId, status, source }) => {
-      // Indicator refresh is source-specific: the background-jobs list is for
-      // COMMANDS, and sub-agents have their own list (v14.21 — before that,
-      // sub-agent events refreshed nothing, so a running sub-agent was
-      // invisible and uncancellable from the UI).
-      if (source === "subagent") {
-        void ipc.subagentJobsList(evChatId).then((subs) => {
-          getDefaultStore().set(subagentJobsByChatIdAtom, (prev) => ({
-            ...prev,
-            [evChatId]: subs.map((s) => ({
-              taskId: s.taskId,
-              description: s.description,
-              elapsedMs: s.elapsedMs,
-              lastOutput: s.lastOutput,
-              stalled: s.stalled,
-            })),
-          }));
-        });
-      } else {
-        void ipc.backgroundJobsList(evChatId).then((jobs) => {
-          getDefaultStore().set(backgroundJobsByChatIdAtom, (prev) => ({
-            ...prev,
-            [evChatId]: jobs.map((j) => ({
-              operationId: j.operationId,
-              command: j.command,
-              startedAt: j.startedAt,
-              elapsedMs: j.elapsedMs,
-              stalled: j.stalled,
-              wakeMatched: j.wakeMatched,
-            })),
-          }));
-        });
-      }
-      // Auto-wake on a finished (not cancelled) job/task, a "stalled" advisory
-      // (A4: a quiet still-running job → "this looks stuck, decide"), or a
-      // "scheduled" self-wake firing (R1). Only when idle and no wake is already
-      // in flight; a live turn already drains via prepareStep. The wake path is
-      // shared by all sources and guarded by the one bgWakeInFlightRef.
-      if (
-        status !== "finished" &&
-        status !== "stalled" &&
-        status !== "scheduled" &&
-        status !== "condition_met"
-      )
-        return;
-      // These three checks are a cheap LOCAL filter, not the decision.
-      //
-      // This listener keys on the chat id in the EVENT, not the chat this window
-      // is showing, while all three guards read per-window state — a jotai store
-      // and two hook refs. A second window therefore looked up a chat it had never
-      // seen, found nothing, concluded "not streaming", and woke a chat the first
-      // window was mid-turn on. Main now refuses that (`shouldDropSystemWake`);
-      // `systemWake: true` below is what marks the request as refusable.
-      const streaming = getDefaultStore().get(isStreamingByIdAtom).get(evChatId) === true;
-      if (
-        streaming ||
-        bgWakeInFlightRef.current.has(evChatId) ||
-        // The user stopped this chat — a job reporting in must not restart the agent.
-        userStoppedChatsRef.current.has(evChatId)
-      )
-        return;
-      bgWakeInFlightRef.current.add(evChatId);
-      void Promise.resolve(
-        streamMessageRef.current?.({
-          prompt: "",
-          chatId: evChatId,
-          continueAfterQuestions: true,
-          systemWake: true,
-        }),
-      ).finally(() => bgWakeInFlightRef.current.delete(evChatId));
-    });
+    const unsub = ipc.onBackgroundJobUpdate(
+      ({ chatId: evChatId, status, source }) => {
+        // Indicator refresh is source-specific: the background-jobs list is for
+        // COMMANDS, and sub-agents have their own list (v14.21 — before that,
+        // sub-agent events refreshed nothing, so a running sub-agent was
+        // invisible and uncancellable from the UI).
+        if (source === "subagent") {
+          void ipc.subagentJobsList(evChatId).then((subs) => {
+            getDefaultStore().set(subagentJobsByChatIdAtom, (prev) => ({
+              ...prev,
+              [evChatId]: subs.map((s) => ({
+                taskId: s.taskId,
+                description: s.description,
+                elapsedMs: s.elapsedMs,
+                lastOutput: s.lastOutput,
+                stalled: s.stalled,
+              })),
+            }));
+          });
+        } else {
+          void ipc.backgroundJobsList(evChatId).then((jobs) => {
+            getDefaultStore().set(backgroundJobsByChatIdAtom, (prev) => ({
+              ...prev,
+              [evChatId]: jobs.map((j) => ({
+                operationId: j.operationId,
+                command: j.command,
+                startedAt: j.startedAt,
+                elapsedMs: j.elapsedMs,
+                stalled: j.stalled,
+                wakeMatched: j.wakeMatched,
+              })),
+            }));
+          });
+        }
+        // Auto-wake on a finished (not cancelled) job/task, a "stalled" advisory
+        // (A4: a quiet still-running job → "this looks stuck, decide"), or a
+        // "scheduled" self-wake firing (R1). Only when idle and no wake is already
+        // in flight; a live turn already drains via prepareStep. The wake path is
+        // shared by all sources and guarded by the one bgWakeInFlightRef.
+        if (
+          status !== "finished" &&
+          status !== "stalled" &&
+          status !== "scheduled" &&
+          status !== "condition_met"
+        )
+          return;
+        // These three checks are a cheap LOCAL filter, not the decision.
+        //
+        // This listener keys on the chat id in the EVENT, not the chat this window
+        // is showing, while all three guards read per-window state — a jotai store
+        // and two hook refs. A second window therefore looked up a chat it had never
+        // seen, found nothing, concluded "not streaming", and woke a chat the first
+        // window was mid-turn on. Main now refuses that (`shouldDropSystemWake`);
+        // `systemWake: true` below is what marks the request as refusable.
+        const streaming =
+          getDefaultStore().get(isStreamingByIdAtom).get(evChatId) === true;
+        if (
+          streaming ||
+          bgWakeInFlightRef.current.has(evChatId) ||
+          // The user stopped this chat — a job reporting in must not restart the agent.
+          userStoppedChatsRef.current.has(evChatId)
+        )
+          return;
+        bgWakeInFlightRef.current.add(evChatId);
+        void Promise.resolve(
+          streamMessageRef.current?.({
+            prompt: "",
+            chatId: evChatId,
+            continueAfterQuestions: true,
+            systemWake: true,
+          }),
+        ).finally(() => bgWakeInFlightRef.current.delete(evChatId));
+      },
+    );
     return unsub;
   }, []);
 
@@ -681,9 +699,7 @@ export function useStreamChat({
       const hasAttachments =
         attachments?.some(
           (a) =>
-            a.file != null ||
-            a.textPaste?.content ||
-            a.terminalPaste?.content,
+            a.file != null || a.textPaste?.content || a.terminalPaste?.content,
         ) ?? false;
       if (
         !continueAfterQuestions &&
@@ -764,20 +780,22 @@ export function useStreamChat({
           return n;
         });
         toolEndStackRef.current.delete(chatId);
-        getDefaultStore().set(livePlanUpdateByAssistantMessageIdAtom, (prev) => {
-          const n = new Map(prev);
-          for (const [messageId, payload] of n) {
-            if (payload.chatId === chatId) {
-              n.delete(messageId);
+        getDefaultStore().set(
+          livePlanUpdateByAssistantMessageIdAtom,
+          (prev) => {
+            const n = new Map(prev);
+            for (const [messageId, payload] of n) {
+              if (payload.chatId === chatId) {
+                n.delete(messageId);
+              }
             }
-          }
-          return n;
-        });
+            return n;
+          },
+        );
 
         // Register permission handler for this chat
-        const unsubscribeUserQuestion = IpcClient.getInstance().onUserQuestionRequest(
-          chatId,
-          (payload) => {
+        const unsubscribeUserQuestion =
+          IpcClient.getInstance().onUserQuestionRequest(chatId, (payload) => {
             queueMicrotask(() => {
               // v11.1: the asking turn ENDS at the question — no freeze
               // baseline needed; there is no live stream to suppress.
@@ -791,12 +809,10 @@ export function useStreamChat({
                 },
               }));
             });
-          },
-        );
+          });
 
-        const unsubscribePermission = IpcClient.getInstance().onPermissionRequest(
-          chatId,
-          (payload) => {
+        const unsubscribePermission =
+          IpcClient.getInstance().onPermissionRequest(chatId, (payload) => {
             // Convert permission request to FileProposal format
             const request = payload.request;
             const previews = Array.isArray(request.preview)
@@ -808,29 +824,40 @@ export function useStreamChat({
               .filter((p: any) => p.path) // File operations have a path
               .map((p: any) => ({
                 id: payload.operationId,
-                chatId,  // Include the chat session ID for approval
+                chatId, // Include the chat session ID for approval
                 path: p.path,
-                operation: p.type === 'delete' ? 'delete' :
-                  p.type === 'rename' ? 'rename' :
-                    p.type === 'update' ? 'modify' : 'create',
+                operation:
+                  p.type === "delete"
+                    ? "delete"
+                    : p.type === "rename"
+                      ? "rename"
+                      : p.type === "update"
+                        ? "modify"
+                        : "create",
                 newContent: p.content,
                 description: p.description,
                 approved: false,
               }));
 
             // Handle command operations (check operation type, not preview fields)
-            const commandProposals: FileProposal[] = request.operation === 'run_command'
-              ? [{
-                id: payload.operationId,
-                chatId,
-                path: '',  // Commands don't have a path
-                operation: 'command' as const,
-                command: (request.preview as any).command,
-                workingDir: (request.preview as any).workingDirectory || '.',
-                description: (request.preview as any).description || `Run: ${(request.preview as any).command}`,
-                approved: false,
-              }]
-              : [];
+            const commandProposals: FileProposal[] =
+              request.operation === "run_command"
+                ? [
+                    {
+                      id: payload.operationId,
+                      chatId,
+                      path: "", // Commands don't have a path
+                      operation: "command" as const,
+                      command: (request.preview as any).command,
+                      workingDir:
+                        (request.preview as any).workingDirectory || ".",
+                      description:
+                        (request.preview as any).description ||
+                        `Run: ${(request.preview as any).command}`,
+                      approved: false,
+                    },
+                  ]
+                : [];
 
             // Stash the diff content (old + new, uncapped) from the permission
             // preview onto the matching thread tool item's toolArgs, so the
@@ -842,7 +869,11 @@ export function useStreamChat({
               if (!p || typeof p.path !== "string") continue;
               if (p.content == null && p.oldContent == null) continue;
               const op =
-                p.type === "create" ? "create" : p.type === "delete" ? "delete" : "update";
+                p.type === "create"
+                  ? "create"
+                  : p.type === "delete"
+                    ? "delete"
+                    : "update";
               mergeWritePreviewIntoThread(
                 chatId,
                 p.path,
@@ -865,8 +896,10 @@ export function useStreamChat({
 
             setPendingProposals((prev) => {
               // Deduplicate by operation ID - don't re-add if already exists
-              const existingIds = new Set(prev.map(p => p.id));
-              const newProposals = allProposals.filter(p => !existingIds.has(p.id));
+              const existingIds = new Set(prev.map((p) => p.id));
+              const newProposals = allProposals.filter(
+                (p) => !existingIds.has(p.id),
+              );
 
               added = newProposals.length;
               hadPendingAlready = prev.length > 0;
@@ -905,8 +938,7 @@ export function useStreamChat({
             // `pendingProposalsAtom` is still populated above: it has a live
             // reader in `useWorkspacePlanPanel`. This removes an unreachable
             // surface, not a data path.
-          }
-        );
+          });
 
         // Register terminal output handler for this chat
         const pendingToolLiveRef = {
@@ -921,7 +953,12 @@ export function useStreamChat({
           const rawLines = pendingToolLiveRef.rawLines;
           const errLines = pendingToolLiveRef.errLines;
           const progLines = pendingToolLiveRef.progLines;
-          if (rawLines.length === 0 && errLines.length === 0 && progLines.length === 0) return;
+          if (
+            rawLines.length === 0 &&
+            errLines.length === 0 &&
+            progLines.length === 0
+          )
+            return;
 
           pendingToolLiveRef.rawLines = [];
           pendingToolLiveRef.errLines = [];
@@ -936,7 +973,11 @@ export function useStreamChat({
               ...prev,
               liveOutputLines: pushRing(prev.liveOutputLines, rawLines, maxRaw),
               liveErrorLines: pushRing(prev.liveErrorLines, errLines, maxErr),
-              liveProgressLines: pushRing(prev.liveProgressLines, progLines, maxProg),
+              liveProgressLines: pushRing(
+                prev.liveProgressLines,
+                progLines,
+                maxProg,
+              ),
             };
           });
         };
@@ -953,14 +994,20 @@ export function useStreamChat({
             if (incomingLines.length > 0) {
               // Dedupe (cheap): avoid repeating the exact same last incoming line endlessly.
               const lastIncoming = pendingToolLiveRef.lastIncomingLine;
-              if (incomingLines.length === 1 && lastIncoming && incomingLines[0] === lastIncoming) {
+              if (
+                incomingLines.length === 1 &&
+                lastIncoming &&
+                incomingLines[0] === lastIncoming
+              ) {
                 // no-op
               } else {
-                pendingToolLiveRef.lastIncomingLine = incomingLines[incomingLines.length - 1] ?? lastIncoming;
+                pendingToolLiveRef.lastIncomingLine =
+                  incomingLines[incomingLines.length - 1] ?? lastIncoming;
                 for (const ln of incomingLines) {
                   pendingToolLiveRef.rawLines.push(ln);
                   if (isErrorLikeLine(ln)) pendingToolLiveRef.errLines.push(ln);
-                  if (!isSpammyProgressLine(ln)) pendingToolLiveRef.progLines.push(ln);
+                  if (!isSpammyProgressLine(ln))
+                    pendingToolLiveRef.progLines.push(ln);
                 }
               }
 
@@ -978,7 +1025,7 @@ export function useStreamChat({
               const output: TerminalOutput = {
                 operationId: payload.commandId,
                 command: payload.command,
-                output: payload.output || '',
+                output: payload.output || "",
                 status: payload.status,
                 exitCode: payload.exitCode,
                 background: payload.background === true,
@@ -995,24 +1042,25 @@ export function useStreamChat({
             // Show terminal panel when commands are running
             // BUT: Don't force-switch if this is a permission-based command
             // (The AI intent system handles panel switching for those)
-            if (payload.status === 'running' && !payload.isPermissionBased) {
+            if (payload.status === "running" && !payload.isPermissionBased) {
               maybeAutoOpenRightPanel();
-              setPreviewTab('terminal');
+              setPreviewTab("terminal");
             }
 
             // Clear completed/error commands from map after a delay
-            if (payload.status === 'completed' || payload.status === 'error') {
+            if (payload.status === "completed" || payload.status === "error") {
               // Show error toast to inform user when command fails — but ONLY for
               // user-initiated commands. Agent/LLM-run command failures are normal
               // agentic flow (the model reacts to them itself) and already surface
               // as in-chat tool cards + the Errors tab, so a popup would just be
               // noise. Legacy/undefined source still pops (treated as user-facing).
-              if (payload.status === 'error' && payload.source !== 'agent') {
-                const shortCmd = payload.command.length > 50
-                  ? payload.command.substring(0, 50) + '...'
-                  : payload.command;
+              if (payload.status === "error" && payload.source !== "agent") {
+                const shortCmd =
+                  payload.command.length > 50
+                    ? payload.command.substring(0, 50) + "..."
+                    : payload.command;
                 showError(
-                  `Command failed: ${shortCmd}\n\n${payload.output || `Exit code: ${payload.exitCode ?? 'unknown'}`}`
+                  `Command failed: ${shortCmd}\n\n${payload.output || `Exit code: ${payload.exitCode ?? "unknown"}`}`,
                 );
               }
 
@@ -1022,288 +1070,294 @@ export function useStreamChat({
                   next.delete(payload.commandId);
                   return next;
                 });
-              }, 5000);  // Keep visible for 5 seconds after completion
+              }, 5000); // Keep visible for 5 seconds after completion
             }
-          }
+          },
         );
 
         // Register operation status listener for permission queue UI
-        const unsubscribeOperationStatus = IpcClient.getInstance().onOperationStatus(
-          (payload) => {
+        const unsubscribeOperationStatus =
+          IpcClient.getInstance().onOperationStatus((payload) => {
             // Update permission queue state based on operation status
             setPermissionQueue((prev) => {
               return updateOperationStatus(prev, payload.operationId, {
-                status: payload.status as QueuedOperation['status'],
+                status: payload.status as QueuedOperation["status"],
                 progress: payload.progress,
                 duration: payload.duration,
                 error: payload.error,
               });
             });
-          }
+          });
+
+        const unsubPlanArtifact = IpcClient.getInstance().onPlanArtifactUpdated(
+          (payload) => {
+            // v13.1: plan is a coexisting tab. Only steer the panel to the Plan
+            // tab on FIRST activation of a given plan — repeated content updates
+            // must not yank a user who switched to Terminal mid-build.
+            const isNewPlan =
+              getDefaultStore().get(workspacePlanPanelAtom).planId !==
+              payload.planId;
+            getDefaultStore().set(workspacePlanPanelAtom, (prev) => ({
+              ...prev,
+              planId: payload.planId,
+              content: payload.content,
+              planStatus: payload.planStatus,
+              sessionId: payload.sessionId,
+            }));
+            if (isNewPlan) {
+              getDefaultStore().set(aiPanelIntentAtom, {
+                intent: "show-plan",
+                timestamp: Date.now(),
+                source: "system",
+              });
+              getDefaultStore().set(previewTabAtom, "plan");
+              if (!getDefaultStore().get(rightPanelSuppressAutoOpenAtom)) {
+                getDefaultStore().set(rightPanelVisibleAtom, true);
+              }
+            }
+          },
         );
 
-        const unsubPlanArtifact = IpcClient.getInstance().onPlanArtifactUpdated((payload) => {
-          // v13.1: plan is a coexisting tab. Only steer the panel to the Plan
-          // tab on FIRST activation of a given plan — repeated content updates
-          // must not yank a user who switched to Terminal mid-build.
-          const isNewPlan =
-            getDefaultStore().get(workspacePlanPanelAtom).planId !== payload.planId;
-          getDefaultStore().set(workspacePlanPanelAtom, (prev) => ({
-            ...prev,
-            planId: payload.planId,
-            content: payload.content,
-            planStatus: payload.planStatus,
-            sessionId: payload.sessionId,
-          }));
-          if (isNewPlan) {
-            getDefaultStore().set(aiPanelIntentAtom, {
-              intent: "show-plan",
-              timestamp: Date.now(),
-              source: "system",
-            });
-            getDefaultStore().set(previewTabAtom, "plan");
-            if (!getDefaultStore().get(rightPanelSuppressAutoOpenAtom)) {
-              getDefaultStore().set(rightPanelVisibleAtom, true);
-            }
-          }
-        });
+        const unsubscribeChatActivity = IpcClient.getInstance().onChatActivity(
+          (payload: unknown) => {
+            if (!payload || typeof payload !== "object") return;
+            const p = payload as {
+              chatId?: number;
+              type?: string;
+              id?: unknown;
+              label?: unknown;
+              timestamp?: number;
+              fromAgent?: unknown;
+              toAgent?: unknown;
+              modelId?: unknown;
+              responseMs?: unknown;
+            };
+            if (typeof p.chatId !== "number" || p.chatId !== chatId) return;
 
-        const unsubscribeChatActivity = IpcClient.getInstance().onChatActivity((payload: unknown) => {
-          if (!payload || typeof payload !== "object") return;
-          const p = payload as {
-            chatId?: number;
-            type?: string;
-            id?: unknown;
-            label?: unknown;
-            timestamp?: number;
-            fromAgent?: unknown;
-            toAgent?: unknown;
-            modelId?: unknown;
-            responseMs?: unknown;
-          };
-          if (typeof p.chatId !== "number" || p.chatId !== chatId) return;
-
-          const item = normalizeChatActivityPayload(payload);
-          if (item) {
-            getDefaultStore().set(activityStreamItemsAtom, (prev) =>
-              upsertActivityStreamItem(prev, item),
-            );
-            const isSubagent =
-              item.type === "subagent_start" ||
-              item.type === "subagent_progress" ||
-              item.type === "subagent_thought" ||
-              item.type === "subagent_tokens" ||
-              item.type === "subagent_complete";
-            if (isSubagent) {
-              getDefaultStore().set(streamThreadByChatIdAtom, (prev) => {
-                const n = new Map(prev);
-                const cur = n.get(chatId) ?? [];
-                n.set(chatId, mergeSubagentActivityIntoThread(cur, item));
-                return n;
-              });
-            } else {
-              const parentDelegationId =
-                item.parentDelegationId?.trim() || undefined;
-              const isNestedTool =
-                parentDelegationId &&
-                item.type === "tool_use";
-              if (isNestedTool) {
+            const item = normalizeChatActivityPayload(payload);
+            if (item) {
+              getDefaultStore().set(activityStreamItemsAtom, (prev) =>
+                upsertActivityStreamItem(prev, item),
+              );
+              const isSubagent =
+                item.type === "subagent_start" ||
+                item.type === "subagent_progress" ||
+                item.type === "subagent_thought" ||
+                item.type === "subagent_tokens" ||
+                item.type === "subagent_complete";
+              if (isSubagent) {
                 getDefaultStore().set(streamThreadByChatIdAtom, (prev) => {
                   const n = new Map(prev);
                   const cur = n.get(chatId) ?? [];
-                  n.set(
-                    chatId,
-                    mergeNestedToolActivityIntoSubagentRound(
-                      cur,
-                      parentDelegationId,
-                      item,
-                    ),
-                  );
+                  n.set(chatId, mergeSubagentActivityIntoThread(cur, item));
                   return n;
                 });
               } else {
-                const threadItem = streamThreadItemFromActivity(item);
-                if (threadItem) {
+                const parentDelegationId =
+                  item.parentDelegationId?.trim() || undefined;
+                const isNestedTool =
+                  parentDelegationId && item.type === "tool_use";
+                if (isNestedTool) {
                   getDefaultStore().set(streamThreadByChatIdAtom, (prev) => {
                     const n = new Map(prev);
                     const cur = n.get(chatId) ?? [];
-                    let next = cur;
-                    if (
-                      threadItem.kind === "tool" &&
-                      threadItem.status !== "running"
-                    ) {
-                      next = handleStreamToolEnd(cur, {
-                        // Display name stays the tool name; matching prefers the
-                        // per-call id (Fix 2) so the right card of two same-named
-                        // calls is finalized, with name/last-running fallback.
-                        toolId: item.toolName ?? threadItem.id,
-                        toolCallId: item.toolCallId ?? threadItem.id,
-                        toolName: item.toolName,
-                        status: threadItem.status,
-                        detail: item.detail,
-                        resultText: item.resultText ?? threadItem.resultText,
-                        expand: threadItem.expand,
-                      });
-                    } else {
-                      next = upsertStreamThreadItem(cur, threadItem);
-                    }
-                    n.set(chatId, next);
+                    n.set(
+                      chatId,
+                      mergeNestedToolActivityIntoSubagentRound(
+                        cur,
+                        parentDelegationId,
+                        item,
+                      ),
+                    );
                     return n;
                   });
+                } else {
+                  const threadItem = streamThreadItemFromActivity(item);
+                  if (threadItem) {
+                    getDefaultStore().set(streamThreadByChatIdAtom, (prev) => {
+                      const n = new Map(prev);
+                      const cur = n.get(chatId) ?? [];
+                      let next = cur;
+                      if (
+                        threadItem.kind === "tool" &&
+                        threadItem.status !== "running"
+                      ) {
+                        next = handleStreamToolEnd(cur, {
+                          // Display name stays the tool name; matching prefers the
+                          // per-call id (Fix 2) so the right card of two same-named
+                          // calls is finalized, with name/last-running fallback.
+                          toolId: item.toolName ?? threadItem.id,
+                          toolCallId: item.toolCallId ?? threadItem.id,
+                          toolName: item.toolName,
+                          status: threadItem.status,
+                          detail: item.detail,
+                          resultText: item.resultText ?? threadItem.resultText,
+                          expand: threadItem.expand,
+                        });
+                      } else {
+                        next = upsertStreamThreadItem(cur, threadItem);
+                      }
+                      n.set(chatId, next);
+                      return n;
+                    });
+                  }
                 }
               }
             }
-          }
 
-          if (p.type === "plan_created") {
-            getDefaultStore().set(aiPanelIntentAtom, {
-              intent: "show-plan",
-              timestamp: Date.now(),
-              source: "system",
-            });
-            getDefaultStore().set(previewTabAtom, "plan");
-            if (!getDefaultStore().get(rightPanelSuppressAutoOpenAtom)) {
-              getDefaultStore().set(rightPanelVisibleAtom, true);
+            if (p.type === "plan_created") {
+              getDefaultStore().set(aiPanelIntentAtom, {
+                intent: "show-plan",
+                timestamp: Date.now(),
+                source: "system",
+              });
+              getDefaultStore().set(previewTabAtom, "plan");
+              if (!getDefaultStore().get(rightPanelSuppressAutoOpenAtom)) {
+                getDefaultStore().set(rightPanelVisibleAtom, true);
+              }
             }
-          }
-
-        });
-
-        const unsubscribeToolIndicator = IpcClient.getInstance().onToolIndicator(
-          (start) => {
-            if (start.chatId !== chatId) return;
-            const registryName =
-              start.toolId?.trim() || start.toolName?.trim() || "tool";
-            // `task` sub-agents render in the sub-agent round panel — no
-            // generic tool card for the wrapping tool itself.
-            if (registryName === "task") {
-              return;
-            }
-            const stack = toolEndStackRef.current.get(chatId) ?? [];
-            // Keep the per-call id on the LIFO entry so the end leg can match it
-            // precisely (the stack remains the fallback when no callId is sent).
-            stack.push({
-              toolId: registryName,
-              toolName: registryName,
-              toolCallId: start.toolCallId,
-            });
-            toolEndStackRef.current.set(chatId, stack);
-            const threadItem = streamThreadItemFromToolStart({
-              toolId: registryName,
-              toolCallId: start.toolCallId,
-              // Carry the tool-call args (incl. write content) onto the thread
-              // item so the completed/persisted card renders its diff from the
-              // model's OWN args — never re-sent to the model (display-only).
-              toolArgs: start.toolArgs ?? undefined,
-            });
-            getDefaultStore().set(streamThreadByChatIdAtom, (prev) => {
-              const n = new Map(prev);
-              const cur = n.get(chatId) ?? [];
-              n.set(chatId, upsertStreamThreadItem(cur, threadItem));
-              return n;
-            });
-            // The authoritative tool card is now open — drop the streaming
-            // partial-args preview for this chat.
-            setLiveToolInputByChatId((prev) => {
-              if (!prev.has(chatId)) return prev;
-              const n = new Map(prev);
-              n.delete(chatId);
-              return n;
-            });
-            setToolIndicator((prev) => ({
-              ...prev,
-              active: true,
-              toolName: start.toolName,
-              toolId: start.toolId ?? null,
-              toolArgs: start.toolArgs ?? null,
-              phaseLabel: null,
-              count: prev.count + 1,
-              activeChatId: chatId,
-              liveOutputLines: [],
-              liveErrorLines: [],
-              liveProgressLines: [],
-              liveViewMode: "error_first",
-            }));
-          },
-          (end) => {
-            if (end.chatId !== chatId) return;
-            const endName =
-              end.toolId?.trim() ||
-              end.toolName?.trim() ||
-              "";
-            if (endName === "task") {
-              return;
-            }
-            const stack = toolEndStackRef.current.get(chatId) ?? [];
-            // Prefer the stack entry matching this call id (Fix 2 — handles
-            // tools that complete out of order); LIFO pop is the no-callId
-            // fallback for legacy/text-tool ends.
-            let popped: { toolId: string; toolName: string; toolCallId?: string } | undefined;
-            if (end.toolCallId) {
-              const matchIdx = stack.findIndex(
-                (e) => e.toolCallId === end.toolCallId,
-              );
-              popped =
-                matchIdx >= 0 ? stack.splice(matchIdx, 1)[0] : stack.pop();
-            } else {
-              popped = stack.pop();
-            }
-            const toolName =
-              popped?.toolName ?? end.toolName ?? end.toolId ?? "";
-            if (
-              end.status !== "error" &&
-              (toolName === "edit_file" ||
-                toolName === "write_file" ||
-                toolName === "write_multiple_files" ||
-                toolName === "run_command")
-            ) {
-              refreshApp();
-            }
-            if (stack.length === 0) {
-              toolEndStackRef.current.delete(chatId);
-            } else {
-              toolEndStackRef.current.set(chatId, stack);
-            }
-            const registryName =
-              popped?.toolName?.trim() ||
-              end.toolName?.trim() ||
-              end.toolId?.trim() ||
-              "";
-            // The call id first: `chat:tool:end` carries it, and it is the only thing
-            // that tells two concurrent calls of one tool apart.
-            const endCallId = (end.toolCallId ?? popped?.toolCallId)?.trim();
-            const activityResult =
-              registryName || endCallId
-                ? findLatestToolActivityResult(chatId, registryName, endCallId)
-                : {};
-            getDefaultStore().set(streamThreadByChatIdAtom, (prev) => {
-              const n = new Map(prev);
-              const cur = n.get(chatId) ?? [];
-              n.set(
-                chatId,
-                handleStreamToolEnd(cur, {
-                  toolId: end.toolId ?? popped?.toolId,
-                  toolCallId: end.toolCallId ?? popped?.toolCallId,
-                  toolName: popped?.toolName,
-                  status: end.status === "error" ? "error" : "done",
-                  detail: activityResult.detail,
-                  resultText: activityResult.resultText,
-                }),
-              );
-              return n;
-            });
-            setToolIndicator((prev) => {
-              const newCount = Math.max(0, prev.count - 1);
-              return {
-                ...prev,
-                active: newCount > 0,
-                count: newCount,
-                phaseLabel: newCount === 0 ? null : prev.phaseLabel,
-                toolArgs: newCount === 0 ? null : prev.toolArgs,
-              };
-            });
           },
         );
+
+        const unsubscribeToolIndicator =
+          IpcClient.getInstance().onToolIndicator(
+            (start) => {
+              if (start.chatId !== chatId) return;
+              const registryName =
+                start.toolId?.trim() || start.toolName?.trim() || "tool";
+              // `task` sub-agents render in the sub-agent round panel — no
+              // generic tool card for the wrapping tool itself.
+              if (registryName === "task") {
+                return;
+              }
+              const stack = toolEndStackRef.current.get(chatId) ?? [];
+              // Keep the per-call id on the LIFO entry so the end leg can match it
+              // precisely (the stack remains the fallback when no callId is sent).
+              stack.push({
+                toolId: registryName,
+                toolName: registryName,
+                toolCallId: start.toolCallId,
+              });
+              toolEndStackRef.current.set(chatId, stack);
+              const threadItem = streamThreadItemFromToolStart({
+                toolId: registryName,
+                toolCallId: start.toolCallId,
+                // Carry the tool-call args (incl. write content) onto the thread
+                // item so the completed/persisted card renders its diff from the
+                // model's OWN args — never re-sent to the model (display-only).
+                toolArgs: start.toolArgs ?? undefined,
+              });
+              getDefaultStore().set(streamThreadByChatIdAtom, (prev) => {
+                const n = new Map(prev);
+                const cur = n.get(chatId) ?? [];
+                n.set(chatId, upsertStreamThreadItem(cur, threadItem));
+                return n;
+              });
+              // The authoritative tool card is now open — drop the streaming
+              // partial-args preview for this chat.
+              setLiveToolInputByChatId((prev) => {
+                if (!prev.has(chatId)) return prev;
+                const n = new Map(prev);
+                n.delete(chatId);
+                return n;
+              });
+              setToolIndicator((prev) => ({
+                ...prev,
+                active: true,
+                toolName: start.toolName,
+                toolId: start.toolId ?? null,
+                toolArgs: start.toolArgs ?? null,
+                phaseLabel: null,
+                count: prev.count + 1,
+                activeChatId: chatId,
+                liveOutputLines: [],
+                liveErrorLines: [],
+                liveProgressLines: [],
+                liveViewMode: "error_first",
+              }));
+            },
+            (end) => {
+              if (end.chatId !== chatId) return;
+              const endName = end.toolId?.trim() || end.toolName?.trim() || "";
+              if (endName === "task") {
+                return;
+              }
+              const stack = toolEndStackRef.current.get(chatId) ?? [];
+              // Prefer the stack entry matching this call id (Fix 2 — handles
+              // tools that complete out of order); LIFO pop is the no-callId
+              // fallback for legacy/text-tool ends.
+              let popped:
+                | { toolId: string; toolName: string; toolCallId?: string }
+                | undefined;
+              if (end.toolCallId) {
+                const matchIdx = stack.findIndex(
+                  (e) => e.toolCallId === end.toolCallId,
+                );
+                popped =
+                  matchIdx >= 0 ? stack.splice(matchIdx, 1)[0] : stack.pop();
+              } else {
+                popped = stack.pop();
+              }
+              const toolName =
+                popped?.toolName ?? end.toolName ?? end.toolId ?? "";
+              if (
+                end.status !== "error" &&
+                (toolName === "edit_file" ||
+                  toolName === "write_file" ||
+                  toolName === "write_multiple_files" ||
+                  toolName === "run_command")
+              ) {
+                refreshApp();
+              }
+              if (stack.length === 0) {
+                toolEndStackRef.current.delete(chatId);
+              } else {
+                toolEndStackRef.current.set(chatId, stack);
+              }
+              const registryName =
+                popped?.toolName?.trim() ||
+                end.toolName?.trim() ||
+                end.toolId?.trim() ||
+                "";
+              // The call id first: `chat:tool:end` carries it, and it is the only thing
+              // that tells two concurrent calls of one tool apart.
+              const endCallId = (end.toolCallId ?? popped?.toolCallId)?.trim();
+              const activityResult =
+                registryName || endCallId
+                  ? findLatestToolActivityResult(
+                      chatId,
+                      registryName,
+                      endCallId,
+                    )
+                  : {};
+              getDefaultStore().set(streamThreadByChatIdAtom, (prev) => {
+                const n = new Map(prev);
+                const cur = n.get(chatId) ?? [];
+                n.set(
+                  chatId,
+                  handleStreamToolEnd(cur, {
+                    toolId: end.toolId ?? popped?.toolId,
+                    toolCallId: end.toolCallId ?? popped?.toolCallId,
+                    toolName: popped?.toolName,
+                    status: end.status === "error" ? "error" : "done",
+                    detail: activityResult.detail,
+                    resultText: activityResult.resultText,
+                  }),
+                );
+                return n;
+              });
+              setToolIndicator((prev) => {
+                const newCount = Math.max(0, prev.count - 1);
+                return {
+                  ...prev,
+                  active: newCount > 0,
+                  count: newCount,
+                  phaseLabel: newCount === 0 ? null : prev.phaseLabel,
+                  toolArgs: newCount === 0 ? null : prev.toolArgs,
+                };
+              });
+            },
+          );
 
         // Keep the activity clock fresh during silent stream phases (e.g. a
         // long `edit_file` whole-file write streams its content as one
@@ -1333,13 +1387,15 @@ export function useStreamChat({
         // actually retries a dropped/stalled round. Surface "Reconnecting…" then
         // (cleared by the next pulse above and on turn end).
         const unsubscribeResetPartial =
-          IpcClient.getInstance().onStreamResetPartial(({ chatId: evChatId }) => {
-            setReconnectingByChatId((prev) => {
-              const n = new Map(prev);
-              n.set(evChatId, true);
-              return n;
-            });
-          });
+          IpcClient.getInstance().onStreamResetPartial(
+            ({ chatId: evChatId }) => {
+              setReconnectingByChatId((prev) => {
+                const n = new Map(prev);
+                n.set(evChatId, true);
+                return n;
+              });
+            },
+          );
 
         // Live partial tool-call args → streaming preview (e.g. an edit_file
         // write's content building up) before the approval card opens. Best-
@@ -1361,29 +1417,30 @@ export function useStreamChat({
         // merge its (display-only) old/new content into the matching tool card
         // the same way the manual-approval preview does. Accurate overwrite diff
         // at ZERO model tokens (the snapshot is never sent to the model).
-        const unsubscribeWritePreview = IpcClient.getInstance().onStreamWritePreview(
-          ({
-            chatId: evChatId,
-            path,
-            operation,
-            oldContent,
-            content,
-            hunks,
-            addedCount,
-            removedCount,
-          }) => {
-            mergeWritePreviewIntoThread(
-              evChatId,
+        const unsubscribeWritePreview =
+          IpcClient.getInstance().onStreamWritePreview(
+            ({
+              chatId: evChatId,
               path,
               operation,
               oldContent,
               content,
-              hunks && addedCount != null && removedCount != null
-                ? { hunks, addedCount, removedCount }
-                : undefined,
-            );
-          },
-        );
+              hunks,
+              addedCount,
+              removedCount,
+            }) => {
+              mergeWritePreviewIntoThread(
+                evChatId,
+                path,
+                operation,
+                oldContent,
+                content,
+                hunks && addedCount != null && removedCount != null
+                  ? { hunks, addedCount, removedCount }
+                  : undefined,
+              );
+            },
+          );
 
         cleanupStreamListeners = () => {
           if (toolLiveFlushTimer) {
@@ -1422,9 +1479,8 @@ export function useStreamChat({
           displayPrompt,
           fileAttachments,
         } = buildPromptWithTextPastes(prompt, attachments);
-        const pasteAttachments = collectPasteAttachmentsFromFileAttachments(
-          attachments,
-        );
+        const pasteAttachments =
+          collectPasteAttachmentsFromFileAttachments(attachments);
 
         const streamAppId = resolveStreamAppId(chatId);
         let workspaceSessionId: string | null = null;
@@ -1480,7 +1536,8 @@ export function useStreamChat({
           next.set(
             chatId,
             resolveEffectiveWorkMode({
-              workModeOverride: workModeOverride ?? sessionWorkMode ?? undefined,
+              workModeOverride:
+                workModeOverride ?? sessionWorkMode ?? undefined,
               intentMode: settings?.intentMode,
               workModePreference: settings?.workModePreference,
               selectedChatMode: settings?.selectedChatMode ?? "ask",
@@ -1545,55 +1602,58 @@ export function useStreamChat({
               if (Array.isArray(msg.sources)) sourceCount += msg.sources.length;
             }
             if (th.sourcesCountByChatId.get(chatId) !== sourceCount) {
-            th.sourcesCountByChatId.set(chatId, sourceCount);
-            // Extract and enrich sources from messages
-            const allSources: SourceItem[] = [];
-            const seenUrls = new Set<string>();
+              th.sourcesCountByChatId.set(chatId, sourceCount);
+              // Extract and enrich sources from messages
+              const allSources: SourceItem[] = [];
+              const seenUrls = new Set<string>();
 
-            for (const msg of messagesForUi) {
-              if (msg.sources && Array.isArray(msg.sources)) {
-                for (const source of msg.sources) {
-                  const src = source as any;
-                  const url = src.url || '';
+              for (const msg of messagesForUi) {
+                if (msg.sources && Array.isArray(msg.sources)) {
+                  for (const source of msg.sources) {
+                    const src = source as any;
+                    const url = src.url || "";
 
-                  // Skip duplicates
-                  if (seenUrls.has(url)) continue;
-                  seenUrls.add(url);
+                    // Skip duplicates
+                    if (seenUrls.has(url)) continue;
+                    seenUrls.add(url);
 
-                  // Filter spam GitHub Issues (score ≤ 1.0)
-                  const isGitHubIssue = url.includes('github.com') && url.includes('/issues/');
-                  const score = src.score || 0;
-                  if (isGitHubIssue && score <= 1.0) continue;
+                    // Filter spam GitHub Issues (score ≤ 1.0)
+                    const isGitHubIssue =
+                      url.includes("github.com") && url.includes("/issues/");
+                    const score = src.score || 0;
+                    if (isGitHubIssue && score <= 1.0) continue;
 
-
-                  allSources.push({
-                    id: src.id || `${url}-${allSources.length}`,
-                    title: src.title || 'Untitled',
-                    url: url,
-                    snippet: src.snippet || src.content || '',
-                    // Use Perplexica's favicon method (full URL, not just domain)
-                    favicon: `https://s2.googleusercontent.com/s2/favicons?domain_url=${encodeURIComponent(url)}&sz=32`,
-                    source: src.source || 'web',
-                    score: score,
-                  });
+                    allSources.push({
+                      id: src.id || `${url}-${allSources.length}`,
+                      title: src.title || "Untitled",
+                      url: url,
+                      snippet: src.snippet || src.content || "",
+                      // Use Perplexica's favicon method (full URL, not just domain)
+                      favicon: `https://s2.googleusercontent.com/s2/favicons?domain_url=${encodeURIComponent(url)}&sz=32`,
+                      source: src.source || "web",
+                      score: score,
+                    });
+                  }
                 }
               }
-            }
 
-            // Sort by score descending (highest first)
-            allSources.sort((a, b) => (b.score || 0) - (a.score || 0));
+              // Sort by score descending (highest first)
+              allSources.sort((a, b) => (b.score || 0) - (a.score || 0));
 
-            if (allSources.length > 0 && isForegroundChatId(chatId)) {
-              setSourceList(allSources);
-              maybeAutoOpenRightPanel();
-            }
+              if (allSources.length > 0 && isForegroundChatId(chatId)) {
+                setSourceList(allSources);
+                maybeAutoOpenRightPanel();
+              }
 
-            if (lastAsst?.id != null && allSources.length > 0) {
-              getDefaultStore().set(sourcesByAssistantMessageIdAtom, (prev) => ({
-                ...prev,
-                [lastAsst.id]: allSources,
-              }));
-            }
+              if (lastAsst?.id != null && allSources.length > 0) {
+                getDefaultStore().set(
+                  sourcesByAssistantMessageIdAtom,
+                  (prev) => ({
+                    ...prev,
+                    [lastAsst.id]: allSources,
+                  }),
+                );
+              }
             } // end sources rebuild (skipped when count unchanged)
 
             if (lastAsst?.content) {
@@ -1625,7 +1685,10 @@ export function useStreamChat({
                   const len = th.lastAssistantRawByChatId.get(cid)?.length ?? 0;
                   if (len > maxLen) maxLen = len;
                 }
-                if (maxLen > ADAPTIVE_FLUSH_LEN_THRESHOLD && th.tick % 2 !== 0) {
+                if (
+                  maxLen > ADAPTIVE_FLUSH_LEN_THRESHOLD &&
+                  th.tick % 2 !== 0
+                ) {
                   return; // skip this tick; pending is retained for the next one
                 }
                 const snapshot = new Map(th.pending);
@@ -1646,24 +1709,32 @@ export function useStreamChat({
             if (latestDispatchByChatRef.current.get(chatId) !== dispatchId) {
               return;
             }
-            const liveMap = getDefaultStore().get(livePlanUpdateByAssistantMessageIdAtom);
+            const liveMap = getDefaultStore().get(
+              livePlanUpdateByAssistantMessageIdAtom,
+            );
             for (const [messageId, live] of liveMap) {
               if (live.chatId === response.chatId && live.steps.length > 0) {
-                getDefaultStore().set(planSnapshotByAssistantMessageIdAtom, (prev) => ({
-                  ...prev,
-                  [messageId]: live,
-                }));
+                getDefaultStore().set(
+                  planSnapshotByAssistantMessageIdAtom,
+                  (prev) => ({
+                    ...prev,
+                    [messageId]: live,
+                  }),
+                );
               }
             }
-            getDefaultStore().set(livePlanUpdateByAssistantMessageIdAtom, (prev) => {
-              const n = new Map(prev);
-              for (const [messageId, live] of n) {
-                if (live.chatId === response.chatId) {
-                  n.delete(messageId);
+            getDefaultStore().set(
+              livePlanUpdateByAssistantMessageIdAtom,
+              (prev) => {
+                const n = new Map(prev);
+                for (const [messageId, live] of n) {
+                  if (live.chatId === response.chatId) {
+                    n.delete(messageId);
+                  }
                 }
-              }
-              return n;
-            });
+                return n;
+              },
+            );
             cleanupStreamListeners?.();
 
             const thEnd = messageStreamThrottleRef.current;
@@ -1705,14 +1776,20 @@ export function useStreamChat({
               typeof response.reasoningTokens === "number" &&
               response.reasoningTokens > 0
             ) {
-              getDefaultStore().set(lastReasoningTokensByChatIdAtom, (prev) => ({
-                ...prev,
-                [response.chatId]: response.reasoningTokens!,
-              }));
+              getDefaultStore().set(
+                lastReasoningTokensByChatIdAtom,
+                (prev) => ({
+                  ...prev,
+                  [response.chatId]: response.reasoningTokens!,
+                }),
+              );
             }
 
             // v10: sub-agent/compaction tokens from this turn (context meter).
-            if (typeof response.auxTokens === "number" && response.auxTokens > 0) {
+            if (
+              typeof response.auxTokens === "number" &&
+              response.auxTokens > 0
+            ) {
               getDefaultStore().set(lastAuxTokensByChatIdAtom, (prev) => ({
                 ...prev,
                 [response.chatId]: response.auxTokens!,
@@ -1720,7 +1797,10 @@ export function useStreamChat({
             }
 
             // Per-source split of those tokens, so the meter can name what spent them.
-            if (Array.isArray(response.auxBySource) && response.auxBySource.length > 0) {
+            if (
+              Array.isArray(response.auxBySource) &&
+              response.auxBySource.length > 0
+            ) {
               getDefaultStore().set(lastAuxBySourceByChatIdAtom, (prev) => ({
                 ...prev,
                 [response.chatId]: response.auxBySource!,
@@ -1739,14 +1819,20 @@ export function useStreamChat({
             // not last-turn-only). A resend loop bills the provider per request,
             // which only this total reflects. Provider-agnostic: cost adds when
             // a price is known, tokens always accumulate.
-            if (typeof response.turnCostUsd === "number" && response.turnCostUsd > 0) {
+            if (
+              typeof response.turnCostUsd === "number" &&
+              response.turnCostUsd > 0
+            ) {
               getDefaultStore().set(sessionCostUsdByChatIdAtom, (prev) => ({
                 ...prev,
                 [response.chatId]:
                   (prev[response.chatId] ?? 0) + response.turnCostUsd!,
               }));
             }
-            if (typeof response.turnTokens === "number" && response.turnTokens > 0) {
+            if (
+              typeof response.turnTokens === "number" &&
+              response.turnTokens > 0
+            ) {
               getDefaultStore().set(sessionTokensByChatIdAtom, (prev) => ({
                 ...prev,
                 [response.chatId]:
@@ -1923,7 +2009,9 @@ export function useStreamChat({
             }));
 
             const msgs =
-              getDefaultStore().get(chatMessagesByIdAtom).get(response.chatId) ?? [];
+              getDefaultStore()
+                .get(chatMessagesByIdAtom)
+                .get(response.chatId) ?? [];
             const rawFromRef =
               messageStreamThrottleRef.current.lastAssistantRawByChatId.get(
                 response.chatId,
@@ -1949,15 +2037,20 @@ export function useStreamChat({
                 Number.isFinite(Number(snapshotTurnId)) &&
                 Number(snapshotTurnId) === lastAssistantForSnapshot.id
               ) {
-                getDefaultStore().set(turnSnapshotTurnIdByMessageIdAtom, (prev) => {
-                  const n = new Map(prev);
-                  n.set(lastAssistantForSnapshot.id, snapshotTurnId);
-                  return n;
-                });
+                getDefaultStore().set(
+                  turnSnapshotTurnIdByMessageIdAtom,
+                  (prev) => {
+                    const n = new Map(prev);
+                    n.set(lastAssistantForSnapshot.id, snapshotTurnId);
+                    return n;
+                  },
+                );
               }
             }
             if (rawFromRef) {
-              const lastAssistant = [...msgs].reverse().find((m) => m.role === "assistant");
+              const lastAssistant = [...msgs]
+                .reverse()
+                .find((m) => m.role === "assistant");
               if (lastAssistant) {
                 const snap = extractThinkingFromContent(rawFromRef);
                 if (hasThinkingSnapshotContent(snap)) {
@@ -1973,13 +2066,17 @@ export function useStreamChat({
             messageStreamThrottleRef.current.lastAssistantRawByChatId.delete(
               response.chatId,
             );
-            const lastAssistant = [...msgs].reverse().find((m) => m.role === "assistant");
+            const lastAssistant = [...msgs]
+              .reverse()
+              .find((m) => m.role === "assistant");
             if (lastAssistant) {
               const thinkingSnap =
-                getDefaultStore().get(completedTurnThinkingByAssistantMessageIdAtom)[
-                  lastAssistant.id
-                ] ?? null;
-              const activitySnap = getDefaultStore().get(activityStreamItemsAtom);
+                getDefaultStore().get(
+                  completedTurnThinkingByAssistantMessageIdAtom,
+                )[lastAssistant.id] ?? null;
+              const activitySnap = getDefaultStore().get(
+                activityStreamItemsAtom,
+              );
               // v14.8.10 Fix S2: the rebuild is a PERSISTENCE fallback, not a
               // regrouper — never overwrite an already-attached timeline, and
               // scope the activity to THIS turn (items since dispatch) so an
@@ -1998,10 +2095,13 @@ export function useStreamChat({
                 thinkingSnap,
               );
               if (timeline.length > 0 && !hasExistingTimeline) {
-                getDefaultStore().set(inlineTimelineByMessageIdAtom, (prev) => ({
-                  ...prev,
-                  [lastAssistant.id]: timeline,
-                }));
+                getDefaultStore().set(
+                  inlineTimelineByMessageIdAtom,
+                  (prev) => ({
+                    ...prev,
+                    [lastAssistant.id]: timeline,
+                  }),
+                );
               }
               // (snapshot turn id is recorded above, outside this branch)
             }
@@ -2016,7 +2116,9 @@ export function useStreamChat({
               }
               return emptyToolIndicatorState();
             });
-            const summarization = getDefaultStore().get(summarizationProgressAtom);
+            const summarization = getDefaultStore().get(
+              summarizationProgressAtom,
+            );
             if (
               summarization.chatId == null ||
               summarization.chatId === response.chatId
@@ -2041,9 +2143,9 @@ export function useStreamChat({
 
             const frozenThread =
               lastAssistant?.id != null
-                ? getDefaultStore().get(
+                ? (getDefaultStore().get(
                     completedStreamThreadByAssistantMessageIdAtom,
-                  )[lastAssistant.id] ?? []
+                  )[lastAssistant.id] ?? [])
                 : [];
             const inlineForSnap =
               lastAssistant?.id != null
@@ -2062,7 +2164,9 @@ export function useStreamChat({
             // content, so tool order is already preserved there; this restores
             // thought positions so the frozen view interleaves like streaming.
             const interleavedForSnap =
-              rawFromRef && /<think>/i.test(rawFromRef) ? rawFromRef : undefined;
+              rawFromRef && /<think>/i.test(rawFromRef)
+                ? rawFromRef
+                : undefined;
             // Set the live atom so the just-finished turn renders interleaved
             // immediately (the snapshot below only takes effect on reload).
             if (interleavedForSnap && lastAssistant?.id != null) {
@@ -2158,7 +2262,9 @@ export function useStreamChat({
                   "assistant",
                   assistantContent,
                   snapshotJson ?? undefined,
-                  Object.keys(persistExtras).length > 0 ? persistExtras : undefined,
+                  Object.keys(persistExtras).length > 0
+                    ? persistExtras
+                    : undefined,
                 );
                 // Shared module state, not a component ref: editing the first
                 // prompt must be able to reopen this from the composer.
@@ -2167,7 +2273,8 @@ export function useStreamChat({
                   // meant a turn with nothing nameable in it — a session opened by
                   // pasting text, whose first message strips to "" — spent the one
                   // attempt and left the session "Untitled" for good.
-                  const named = await applyAIWorkspaceSessionTitle(sessionIdForPersist);
+                  const named =
+                    await applyAIWorkspaceSessionTitle(sessionIdForPersist);
                   if (named) markTitleGenerated(response.chatId);
                   else noteTitleAttemptFailed(response.chatId);
                 }
@@ -2181,7 +2288,10 @@ export function useStreamChat({
                   showInfo("Background session finished");
                 }
               } catch (e) {
-                console.error("Failed to persist assistant session message:", e);
+                console.error(
+                  "Failed to persist assistant session message:",
+                  e,
+                );
               }
             })();
 
@@ -2198,7 +2308,10 @@ export function useStreamChat({
             });
 
             // v3.5: Brief "done" phase of Atlarix animation when response completes
-            setResponseDoneAnimation({ chatId: response.chatId, until: Date.now() + 2000 });
+            setResponseDoneAnimation({
+              chatId: response.chatId,
+              until: Date.now() + 2000,
+            });
 
             // PASS6: trim renderer message window after a completed turn (not during streaming).
             setMessagesById((prev) => {
@@ -2218,24 +2331,32 @@ export function useStreamChat({
             if (latestDispatchByChatRef.current.get(chatId) !== dispatchId) {
               return;
             }
-            const liveMapErr = getDefaultStore().get(livePlanUpdateByAssistantMessageIdAtom);
+            const liveMapErr = getDefaultStore().get(
+              livePlanUpdateByAssistantMessageIdAtom,
+            );
             for (const [messageId, liveErr] of liveMapErr) {
               if (liveErr.chatId === chatId && liveErr.steps.length > 0) {
-                getDefaultStore().set(planSnapshotByAssistantMessageIdAtom, (prev) => ({
-                  ...prev,
-                  [messageId]: liveErr,
-                }));
+                getDefaultStore().set(
+                  planSnapshotByAssistantMessageIdAtom,
+                  (prev) => ({
+                    ...prev,
+                    [messageId]: liveErr,
+                  }),
+                );
               }
             }
-            getDefaultStore().set(livePlanUpdateByAssistantMessageIdAtom, (prev) => {
-              const n = new Map(prev);
-              for (const [messageId, live] of n) {
-                if (live.chatId === chatId) {
-                  n.delete(messageId);
+            getDefaultStore().set(
+              livePlanUpdateByAssistantMessageIdAtom,
+              (prev) => {
+                const n = new Map(prev);
+                for (const [messageId, live] of n) {
+                  if (live.chatId === chatId) {
+                    n.delete(messageId);
+                  }
                 }
-              }
-              return n;
-            });
+                return n;
+              },
+            );
             cleanupStreamListeners?.();
             const thErr = messageStreamThrottleRef.current;
             if (thErr.timer != null) {
@@ -2286,9 +2407,13 @@ export function useStreamChat({
             const msgsErr =
               getDefaultStore().get(chatMessagesByIdAtom).get(chatId) ?? [];
             const rawErr =
-              messageStreamThrottleRef.current.lastAssistantRawByChatId.get(chatId);
+              messageStreamThrottleRef.current.lastAssistantRawByChatId.get(
+                chatId,
+              );
             if (rawErr) {
-              const lastAssistant = [...msgsErr].reverse().find((m) => m.role === "assistant");
+              const lastAssistant = [...msgsErr]
+                .reverse()
+                .find((m) => m.role === "assistant");
               if (lastAssistant) {
                 const snap = extractThinkingFromContent(rawErr);
                 if (hasThinkingSnapshotContent(snap)) {
@@ -2301,16 +2426,20 @@ export function useStreamChat({
             } else {
               captureThinkingSnapshotForChat(chatId, msgsErr);
             }
-            messageStreamThrottleRef.current.lastAssistantRawByChatId.delete(chatId);
+            messageStreamThrottleRef.current.lastAssistantRawByChatId.delete(
+              chatId,
+            );
             const lastAssistantErr = [...msgsErr]
               .reverse()
               .find((m) => m.role === "assistant");
             if (lastAssistantErr) {
               const thinkingSnap =
-                getDefaultStore().get(completedTurnThinkingByAssistantMessageIdAtom)[
-                  lastAssistantErr.id
-                ] ?? null;
-              const activityErr = getDefaultStore().get(activityStreamItemsAtom);
+                getDefaultStore().get(
+                  completedTurnThinkingByAssistantMessageIdAtom,
+                )[lastAssistantErr.id] ?? null;
+              const activityErr = getDefaultStore().get(
+                activityStreamItemsAtom,
+              );
               // Fix S2: same scoping as the end path — persistence fallback
               // only, this turn's activity only.
               const turnStartedAtErr =
@@ -2326,10 +2455,13 @@ export function useStreamChat({
                 thinkingSnap,
               );
               if (timeline.length > 0 && !hasExistingTimelineErr) {
-                getDefaultStore().set(inlineTimelineByMessageIdAtom, (prev) => ({
-                  ...prev,
-                  [lastAssistantErr.id]: timeline,
-                }));
+                getDefaultStore().set(
+                  inlineTimelineByMessageIdAtom,
+                  (prev) => ({
+                    ...prev,
+                    [lastAssistantErr.id]: timeline,
+                  }),
+                );
               }
               // Interrupted turn: keep the partial reply interleaved in-session.
               if (rawErr && /<think>/i.test(rawErr)) {
@@ -2347,8 +2479,13 @@ export function useStreamChat({
               }
               return emptyToolIndicatorState();
             });
-            const summarizationErr = getDefaultStore().get(summarizationProgressAtom);
-            if (summarizationErr.chatId == null || summarizationErr.chatId === chatId) {
+            const summarizationErr = getDefaultStore().get(
+              summarizationProgressAtom,
+            );
+            if (
+              summarizationErr.chatId == null ||
+              summarizationErr.chatId === chatId
+            ) {
               getDefaultStore().set(summarizationProgressAtom, {
                 active: false,
                 chatId: null,

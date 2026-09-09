@@ -29,7 +29,10 @@ const logger = log.scope("stream-transport");
  */
 let ephemeralMessageIdCounter = Date.now();
 export function nextEphemeralMessageId(): number {
-  ephemeralMessageIdCounter = Math.max(ephemeralMessageIdCounter + 1, Date.now());
+  ephemeralMessageIdCounter = Math.max(
+    ephemeralMessageIdCounter + 1,
+    Date.now(),
+  );
   return ephemeralMessageIdCounter;
 }
 
@@ -331,4 +334,3 @@ export function appendTransportMessage(
     } as Message);
   }
 }
-

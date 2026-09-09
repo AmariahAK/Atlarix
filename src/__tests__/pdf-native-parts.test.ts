@@ -49,14 +49,21 @@ const png = (filename: string, data = "iVBORw0KGgo=") => ({
 });
 
 function partsOf(content: unknown): Array<Record<string, unknown>> {
-  return Array.isArray(content) ? (content as Array<Record<string, unknown>>) : [];
+  return Array.isArray(content)
+    ? (content as Array<Record<string, unknown>>)
+    : [];
 }
 
 describe("detectPdfCapability", () => {
   beforeEach(() => {
     registerModelsDevVision([
       // Sees images, accepts documents.
-      { providerId: "openai", modelId: "gpt-4o", acceptsImages: true, acceptsPdf: true },
+      {
+        providerId: "openai",
+        modelId: "gpt-4o",
+        acceptsImages: true,
+        acceptsPdf: true,
+      },
       // Sees images but does NOT accept documents — the case a provider-level
       // allowlist would get wrong, on the same provider as the row above.
       {
@@ -86,13 +93,17 @@ describe("detectPdfCapability", () => {
 
   /** Unknown must mean "extract locally", which is the long-standing behaviour. */
   it("is false for an unknown model and for a missing id", () => {
-    expect(detectPdfCapability("openai", "some-model-nobody-published")).toBe(false);
+    expect(detectPdfCapability("openai", "some-model-nobody-published")).toBe(
+      false,
+    );
     expect(detectPdfCapability("anthropic", "")).toBe(false);
     expect(detectPdfCapability(undefined, undefined)).toBe(false);
   });
 
   it("resolves a vendor-prefixed id by its tail", () => {
-    expect(detectPdfCapability("openrouter", "anthropic/claude-sonnet-4-6")).toBe(true);
+    expect(
+      detectPdfCapability("openrouter", "anthropic/claude-sonnet-4-6"),
+    ).toBe(true);
   });
 
   /**
@@ -134,7 +145,10 @@ describe("prepareMessageWithAttachments — PDF parts", () => {
    * every non-PDF dispatch silently changes shape.
    */
   it("returns plain string content when there is nothing to embed", async () => {
-    const out = await prepareMessageWithAttachments({ ...base, pdfAttachments: [] });
+    const out = await prepareMessageWithAttachments({
+      ...base,
+      pdfAttachments: [],
+    });
     expect(typeof out.content).toBe("string");
     expect(out.content).toBe("summarise this");
   });
@@ -159,14 +173,19 @@ describe("prepareMessageWithAttachments — PDF parts", () => {
       ...base,
       pdfAttachments: [pdf("report.pdf")],
     });
-    const text = String(partsOf(out.content).find((p) => p.type === "text")?.text ?? "");
+    const text = String(
+      partsOf(out.content).find((p) => p.type === "text")?.text ?? "",
+    );
     expect(text).not.toMatch(/attached image/i);
     expect(text).toMatch(/attached PDF/i);
   });
 
   it("drops an oversized PDF rather than sending it", async () => {
     const huge = pdf("huge.pdf", "A".repeat(4_200_000));
-    const out = await prepareMessageWithAttachments({ ...base, pdfAttachments: [huge] });
+    const out = await prepareMessageWithAttachments({
+      ...base,
+      pdfAttachments: [huge],
+    });
     // Falls all the way back to plain text — i.e. the extraction path.
     expect(typeof out.content).toBe("string");
   });
@@ -176,7 +195,9 @@ describe("prepareMessageWithAttachments — PDF parts", () => {
       ...base,
       pdfAttachments: [pdf("a.pdf"), pdf("b.pdf"), pdf("c.pdf"), pdf("d.pdf")],
     });
-    expect(partsOf(out.content).filter((p) => p.type === "file")).toHaveLength(3);
+    expect(partsOf(out.content).filter((p) => p.type === "file")).toHaveLength(
+      3,
+    );
   });
 
   it("ignores a non-PDF mime type handed to the PDF slot", async () => {
@@ -192,7 +213,7 @@ describe("PDF rejection detection", () => {
   it("recognises a provider refusing the document part", () => {
     const err = {
       error: {
-        responseBody: 'unknown variant `input_file`, expected `text` at line 1',
+        responseBody: "unknown variant `input_file`, expected `text` at line 1",
       },
     };
     expect(isPdfContentRejectionError(err)).toBe(true);
@@ -200,12 +221,16 @@ describe("PDF rejection detection", () => {
 
   it("recognises a provider naming pdf support directly", () => {
     expect(
-      isPdfContentRejectionError({ message: "This model does not support pdf input" }),
+      isPdfContentRejectionError({
+        message: "This model does not support pdf input",
+      }),
     ).toBe(true);
   });
 
   it("ignores unrelated failures", () => {
-    expect(isPdfContentRejectionError({ message: "rate limit exceeded" })).toBe(false);
+    expect(isPdfContentRejectionError({ message: "rate limit exceeded" })).toBe(
+      false,
+    );
     expect(isPdfContentRejectionError(undefined)).toBe(false);
   });
 
@@ -215,7 +240,9 @@ describe("PDF rejection detection", () => {
    * never be reached for an error mentioning both.
    */
   it("an image-only rejection is not claimed as a PDF one", () => {
-    const err = { error: { responseBody: "unknown variant `image_url`, expected `text`" } };
+    const err = {
+      error: { responseBody: "unknown variant `image_url`, expected `text`" },
+    };
     expect(isImageContentRejectionError(err)).toBe(true);
     expect(isPdfContentRejectionError(err)).toBe(false);
   });

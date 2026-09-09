@@ -1,11 +1,7 @@
 import { ipcMain, app } from "electron";
-import { assertWorkspaceQuota, noteWorkspaceCreated } from "@/ipc/utils/workspace-quota";
+import { noteWorkspaceCreated } from "@/ipc/utils/workspace-quota";
 import { perfMark } from "@/lib/perf-marks";
-import {
-  db,
-  getDatabasePath,
-  reinitializeDatabaseAfterReset,
-} from "../../db";
+import { db, getDatabasePath, reinitializeDatabaseAfterReset } from "../../db";
 import {
   apps,
   chatSessions,
@@ -171,7 +167,8 @@ async function executeAppLocalNode({
       .join(", ");
 
     logger.error(
-      `Failed to spawn process for app ${appId}. Command="${command}", CWD="${appPath}", ${details}\nSTDERR:\n${errorOutput || "(empty)"
+      `Failed to spawn process for app ${appId}. Command="${command}", CWD="${appPath}", ${details}\nSTDERR:\n${
+        errorOutput || "(empty)"
       }`,
     );
 
@@ -287,11 +284,13 @@ async function killProcessOnPort(port: number): Promise<void> {
   }
 }
 
-
 export function registerAppHandlers() {
   handle("apps:touch-last-opened", async (_, appId: number) => {
     const now = new Date();
-    await db.update(apps).set({ lastOpenedAt: now, updatedAt: now }).where(eq(apps.id, appId));
+    await db
+      .update(apps)
+      .set({ lastOpenedAt: now, updatedAt: now })
+      .where(eq(apps.id, appId));
     return { ok: true };
   });
 
@@ -357,7 +356,6 @@ export function registerAppHandlers() {
       // A copy is a new workspace and counts against the plan, same as opening a
       // folder. This path had NO cap check at all — only the import path did, so
       // duplicating was a way past a limit the product otherwise enforces.
-      await assertWorkspaceQuota();
       const [newDbApp] = await db
         .insert(apps)
         .values({
@@ -407,9 +405,10 @@ export function registerAppHandlers() {
     const status = pathExists ? ("active" as const) : ("missing" as const);
     return {
       ...app,
-      remoteConnection: (app.remoteConnection ?? null) as
-        | Record<string, unknown>
-        | null,
+      remoteConnection: (app.remoteConnection ?? null) as Record<
+        string,
+        unknown
+      > | null,
       pathExists,
       status,
     };
@@ -643,7 +642,9 @@ export function registerAppHandlers() {
         });
 
         if (!app) {
-          throw new Error(`Workspace not found (ID: ${appId}). It may have already been deleted.`);
+          throw new Error(
+            `Workspace not found (ID: ${appId}). It may have already been deleted.`,
+          );
         }
 
         // Stop the app if it's running
@@ -665,7 +666,9 @@ export function registerAppHandlers() {
 
           // Finally delete the app (chats cascade delete automatically)
           await db.delete(apps).where(eq(apps.id, appId));
-          logger.info(`Deleted workspace "${app.name}" (ID: ${appId}) from database`);
+          logger.info(
+            `Deleted workspace "${app.name}" (ID: ${appId}) from database`,
+          );
         } catch (error: any) {
           logger.error(`Error deleting app ${appId} from database:`, error);
           throw new Error(
@@ -680,7 +683,10 @@ export function registerAppHandlers() {
         if (isAtlarixManagedWorkspacePath(workspacePath)) {
           try {
             if (fs.existsSync(workspacePath)) {
-              await fsPromises.rm(workspacePath, { recursive: true, force: true });
+              await fsPromises.rm(workspacePath, {
+                recursive: true,
+                force: true,
+              });
               logger.log(`Deleted managed workspace files at ${workspacePath}`);
             }
           } catch (error: any) {
@@ -697,11 +703,16 @@ export function registerAppHandlers() {
             legacyInternalPath !== workspacePath &&
             fs.existsSync(legacyInternalPath)
           ) {
-            await fsPromises.rm(legacyInternalPath, { recursive: true, force: true });
+            await fsPromises.rm(legacyInternalPath, {
+              recursive: true,
+              force: true,
+            });
             logger.log(`Deleted legacy copied files at ${legacyInternalPath}`);
           }
         } catch (error: any) {
-          logger.warn(`Could not delete legacy path ${legacyInternalPath}: ${error.message}`);
+          logger.warn(
+            `Could not delete legacy path ${legacyInternalPath}: ${error.message}`,
+          );
         }
 
         // Clean up any remaining database records (workspaceModifications by path)
@@ -709,15 +720,22 @@ export function registerAppHandlers() {
           await onWorkspaceRemoved(workspacePath);
           logger.info(`Database cleanup completed for: ${workspacePath}`);
         } catch (error: any) {
-          logger.error(`Error during workspace cleanup for ${workspacePath}:`, error);
+          logger.error(
+            `Error during workspace cleanup for ${workspacePath}:`,
+            error,
+          );
           // Don't fail - main deletion already succeeded
         }
 
         // Clear workspace count cache so next check gets fresh count
         try {
-          const { SubscriptionManager } = await import("../../lib/SubscriptionManager");
+          const { SubscriptionManager } = await import(
+            "../../lib/SubscriptionManager"
+          );
           SubscriptionManager.clearWorkspaceCache();
-          logger.info(`Cleared workspace count cache after deleting workspace ${appId}`);
+          logger.info(
+            `Cleared workspace count cache after deleting workspace ${appId}`,
+          );
         } catch (error) {
           logger.warn(`Could not clear workspace cache: ${error}`);
           // Don't fail - main deletion succeeded

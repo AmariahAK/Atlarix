@@ -41,7 +41,9 @@ describe("wrapUntrustedData", () => {
 describe("stripUntrustedDataEnvelope", () => {
   it("round-trips wrapped content back to the original body (display path)", () => {
     const body = "line one\nline two\n[ok] done";
-    expect(stripUntrustedDataEnvelope(wrapUntrustedData("command-output", body))).toBe(body);
+    expect(
+      stripUntrustedDataEnvelope(wrapUntrustedData("command-output", body)),
+    ).toBe(body);
   });
 
   it("round-trips a body that contained a neutralized control tag", () => {

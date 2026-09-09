@@ -47,14 +47,20 @@ describe("parseWslPath — recognised", () => {
   });
 
   it("maps the distro share root to /", () => {
-    expect(parseWslPath("\\\\wsl$\\Ubuntu")).toEqual({ distro: "Ubuntu", linuxPath: "/" });
-    expect(parseWslPath("\\\\wsl$\\Ubuntu\\")).toEqual({ distro: "Ubuntu", linuxPath: "/" });
+    expect(parseWslPath("\\\\wsl$\\Ubuntu")).toEqual({
+      distro: "Ubuntu",
+      linuxPath: "/",
+    });
+    expect(parseWslPath("\\\\wsl$\\Ubuntu\\")).toEqual({
+      distro: "Ubuntu",
+      linuxPath: "/",
+    });
   });
 
   it("preserves spaces in paths", () => {
-    expect(parseWslPath("\\\\wsl$\\Ubuntu\\home\\me\\my project")?.linuxPath).toBe(
-      "/home/me/my project",
-    );
+    expect(
+      parseWslPath("\\\\wsl$\\Ubuntu\\home\\me\\my project")?.linuxPath,
+    ).toBe("/home/me/my project");
   });
 });
 

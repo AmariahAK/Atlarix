@@ -44,7 +44,12 @@ export function CreditSplitBar({
 }) {
   // Absent is not zero. An older server that reports no split must render as
   // nothing rather than as an empty allowance, which is a different claim.
-  if (grantedCents == null || grantedTotalCents == null || grantedTotalCents <= 0) return null;
+  if (
+    grantedCents == null ||
+    grantedTotalCents == null ||
+    grantedTotalCents <= 0
+  )
+    return null;
 
   const total = Math.max(0, grantedTotalCents);
   // Clamped to the total: a refund keeps the invariant, but a hand-edited row
@@ -58,7 +63,9 @@ export function CreditSplitBar({
       {meter ? (
         <div className="space-y-1.5">
           <div className="flex items-baseline justify-between gap-3 text-xs">
-            <span className="text-muted-foreground">{USAGE_LABELS.included}</span>
+            <span className="text-muted-foreground">
+              {USAGE_LABELS.included}
+            </span>
             <span className="font-medium tabular-nums text-foreground">
               {describeAllowanceUsed(meter.used, meter.total)}
             </span>
@@ -74,7 +81,9 @@ export function CreditSplitBar({
                 touched — which is a different statement. */}
             <div
               className="h-full rounded-full bg-primary"
-              style={{ width: meter.pct > 0 ? `${Math.max(meter.pct, 1.5)}%` : "0%" }}
+              style={{
+                width: meter.pct > 0 ? `${Math.max(meter.pct, 1.5)}%` : "0%",
+              }}
             />
           </div>
 
@@ -87,7 +96,6 @@ export function CreditSplitBar({
           </div>
         </div>
       ) : null}
-
     </div>
   );
 }

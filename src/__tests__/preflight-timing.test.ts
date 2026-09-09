@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { computePreflightGaps, type PreflightSpan } from "@/lib/agent/preflight-timing";
+import {
+  computePreflightGaps,
+  type PreflightSpan,
+} from "@/lib/agent/preflight-timing";
 
 /**
  * W10 (v14.8.11): unaccounted-TTFT attribution. Pure gap math over recorded
@@ -58,7 +61,9 @@ describe("computePreflightGaps", () => {
       span("a", 0, 100),
       span("b", 400, 500),
     ];
-    expect(computePreflightGaps(spans, 500)).toEqual([{ afterSpan: "a", ms: 300 }]);
+    expect(computePreflightGaps(spans, 500)).toEqual([
+      { afterSpan: "a", ms: 300 },
+    ]);
   });
 
   it("empty span list yields no gaps (nothing to attribute)", () => {

@@ -40,7 +40,12 @@ describe("stream-thread", () => {
       status: "running" as const,
       ts: 1,
     };
-    const done = { ...running, status: "done" as const, summary: "Read files", ts: 2 };
+    const done = {
+      ...running,
+      status: "done" as const,
+      summary: "Read files",
+      ts: 2,
+    };
     const items = upsertStreamThreadItem(
       upsertStreamThreadItem([], running),
       done,
@@ -102,7 +107,12 @@ describe("stream-thread", () => {
       status: "done" as const,
       ts: 1,
     };
-    const runningAgain = { ...done, status: "running" as const, summary: "Reading files…", ts: 2 };
+    const runningAgain = {
+      ...done,
+      status: "running" as const,
+      summary: "Reading files…",
+      ts: 2,
+    };
     const items = upsertStreamThreadItem([done], runningAgain);
     expect(items).toHaveLength(1);
     expect(items[0]?.kind === "tool" && items[0].status).toBe("done");
@@ -199,7 +209,9 @@ describe("stream-thread", () => {
       },
     ];
     const next = finalizeAllRunningStreamTools(items);
-    expect(next.every((i) => i.kind !== "tool" || i.status === "done")).toBe(true);
+    expect(next.every((i) => i.kind !== "tool" || i.status === "done")).toBe(
+      true,
+    );
   });
 
   it("completeLastRunningStreamTool marks latest running tool done", () => {
@@ -549,9 +561,9 @@ describe("stream-thread", () => {
     expect(flat[0]?.kind).toBe("subagent_round");
     if (flat[0]?.kind === "subagent_round") {
       expect(flat[0].agents[0]?.nestedItems).toHaveLength(2);
-      expect(flat[0].agents[0]?.nestedItems.every((i) => i.kind === "tool")).toBe(
-        true,
-      );
+      expect(
+        flat[0].agents[0]?.nestedItems.every((i) => i.kind === "tool"),
+      ).toBe(true);
     }
   });
 
@@ -676,10 +688,7 @@ describe("stream-thread", () => {
 
   it("pickSubagentDisplayLabel prefers scoped title over Agent team stub", () => {
     expect(
-      pickSubagentDisplayLabel(
-        "Agent team: Explore assigned",
-        "explore · api",
-      ),
+      pickSubagentDisplayLabel("Agent team: Explore assigned", "explore · api"),
     ).toBe("explore · api");
     expect(
       mergeSubAgentRunEntries(
@@ -812,11 +821,13 @@ describe("stream-thread", () => {
       ],
     });
     expect(round?.agents).toHaveLength(2);
-    expect(round?.agents.some((a) => a.id === "delegation-1" && a.status === "done")).toBe(
-      true,
-    );
     expect(
-      round?.agents.some((a) => a.id === "delegation-2" && a.status === "running"),
+      round?.agents.some((a) => a.id === "delegation-1" && a.status === "done"),
+    ).toBe(true);
+    expect(
+      round?.agents.some(
+        (a) => a.id === "delegation-2" && a.status === "running",
+      ),
     ).toBe(true);
     expect(round?.status).toBe("running");
   });
@@ -977,9 +988,9 @@ describe("stream-thread", () => {
     ]);
     expect(before).toHaveLength(2);
     expect(after).toHaveLength(2);
-    expect(after.some((p) => p.type === "tool" && p.toolName === "spawn_sub_agent")).toBe(
-      false,
-    );
+    expect(
+      after.some((p) => p.type === "tool" && p.toolName === "spawn_sub_agent"),
+    ).toBe(false);
   });
 
   it("synthesizeSubagentRoundFromParts includes failed spawn_sub_agent results", () => {
@@ -1063,9 +1074,9 @@ describe("proseAlreadyRendered", () => {
         { type: "markdown", content: prose },
       ]),
     ).toBe(true);
-    expect(
-      proseAlreadyRendered(prose, [{ type: "tool", content: "x" }]),
-    ).toBe(false);
+    expect(proseAlreadyRendered(prose, [{ type: "tool", content: "x" }])).toBe(
+      false,
+    );
   });
 });
 

@@ -35,7 +35,11 @@ vi.mock("@/hooks/useStreamChat", () => ({
 vi.mock("@/hooks/useSettings", () => ({
   useSettings: () => ({ updateSettings: vi.fn(), settings: {} }),
 }));
-vi.mock("react-markdown", () => ({ default: ({ children }: { children?: unknown }) => <div>{String(children ?? "")}</div> }));
+vi.mock("react-markdown", () => ({
+  default: ({ children }: { children?: unknown }) => (
+    <div>{String(children ?? "")}</div>
+  ),
+}));
 vi.mock("remark-gfm", () => ({ default: () => {} }));
 
 const { PlanExecutionPanel } = await import(
@@ -71,7 +75,9 @@ beforeEach(() => {
 
 describe("Plan panel switcher", () => {
   it("is hidden when the session has only one plan", async () => {
-    listPlanArtifactsForSession.mockResolvedValue([plan("p-new", "Ship the release")]);
+    listPlanArtifactsForSession.mockResolvedValue([
+      plan("p-new", "Ship the release"),
+    ]);
     seedPanel();
 
     render(<PlanExecutionPanel />);
@@ -91,8 +97,12 @@ describe("Plan panel switcher", () => {
 
     const select = await screen.findByTestId("plan-switcher");
     expect(select).toBeTruthy();
-    expect(screen.getByRole("option", { name: /Fix the sandbox — Built/ })).toBeTruthy();
-    expect(screen.getByRole("option", { name: /Latest \(2 plans\)/ })).toBeTruthy();
+    expect(
+      screen.getByRole("option", { name: /Fix the sandbox — Built/ }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("option", { name: /Latest \(2 plans\)/ }),
+    ).toBeTruthy();
   });
 
   it("PINS the chosen plan, so an activation elsewhere cannot yank the panel", async () => {
@@ -119,14 +129,20 @@ describe("Plan panel switcher", () => {
       plan("p-new", "Ship the release"),
       plan("p-old", "Fix the sandbox", "built"),
     ]);
-    seedPanel({ planId: "p-old", title: "Fix the sandbox", pinnedPlanId: "p-old" });
+    seedPanel({
+      planId: "p-old",
+      title: "Fix the sandbox",
+      pinnedPlanId: "p-old",
+    });
 
     render(<PlanExecutionPanel />);
     const select = await screen.findByTestId("plan-switcher");
     fireEvent.change(select, { target: { value: "" } });
 
     await waitFor(() =>
-      expect(getDefaultStore().get(workspacePlanPanelAtom).pinnedPlanId).toBeNull(),
+      expect(
+        getDefaultStore().get(workspacePlanPanelAtom).pinnedPlanId,
+      ).toBeNull(),
     );
   });
 });

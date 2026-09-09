@@ -39,7 +39,9 @@ export function stripQuestionsBlockFromResponse(fullResponse: string): string {
           depth--;
           if (depth === 0) {
             const endArr = qOpen + j + 1;
-            text = (text.slice(0, qOpen) + text.slice(endArr)).replace(/\n{3,}/g, "\n\n").trim();
+            text = (text.slice(0, qOpen) + text.slice(endArr))
+              .replace(/\n{3,}/g, "\n\n")
+              .trim();
             break;
           }
         }
@@ -66,15 +68,17 @@ export function cleanFullResponse(text: string): string {
   let cleaned = text.replace(
     /<atlarix-[^<>]*(?:"[^"]*"[^<>]*)*>/g,
     (match: string) => {
-    // Find all attribute values (within quotes) and replace < with ＜ and > with ＞
-    const processedMatch = match.replace(
-      /="([^"]*)"/g,
-      (attrMatch: string, attrValue: string) => {
-        const cleanedValue = attrValue.replace(/</g, "＜").replace(/>/g, "＞");
-        return `="${cleanedValue}"`;
-      },
-    );
-    return processedMatch;
+      // Find all attribute values (within quotes) and replace < with ＜ and > with ＞
+      const processedMatch = match.replace(
+        /="([^"]*)"/g,
+        (attrMatch: string, attrValue: string) => {
+          const cleanedValue = attrValue
+            .replace(/</g, "＜")
+            .replace(/>/g, "＞");
+          return `="${cleanedValue}"`;
+        },
+      );
+      return processedMatch;
     },
   );
 
@@ -126,7 +130,8 @@ function deduplicateContent(text: string): string {
 
   // Check if this content is exactly duplicated
   const halfLength = Math.floor(contentAfterThink.length / 2);
-  if (halfLength > 50) { // Only check if content is significant
+  if (halfLength > 50) {
+    // Only check if content is significant
     const firstHalf = contentAfterThink.slice(0, halfLength);
     const secondHalf = contentAfterThink.slice(halfLength);
 
@@ -145,7 +150,8 @@ function deduplicateContent(text: string): string {
  */
 function deduplicateSimpleContent(text: string): string {
   const halfLength = Math.floor(text.length / 2);
-  if (halfLength > 100) { // Only check if content is significant
+  if (halfLength > 100) {
+    // Only check if content is significant
     const firstHalf = text.slice(0, halfLength);
     const secondHalf = text.slice(halfLength);
 

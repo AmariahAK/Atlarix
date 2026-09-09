@@ -32,7 +32,9 @@ vi.mock("@/lib/context/token-counter", () => ({
 // the lineup per-test — otherwise the result depends on ambient env, which is exactly how
 // these cases passed locally and failed on CI, where ATLARIX_CORE_MODEL_* are real secrets.
 const modelsDev = vi.hoisted(() => ({
-  getModelsDevLimits: vi.fn(async () => null as { context?: number; output?: number } | null),
+  getModelsDevLimits: vi.fn(
+    async () => null as { context?: number; output?: number } | null,
+  ),
   getModelsDevReasoningProfile: vi.fn(async () => null),
   getModelsDevTemperatureSupport: vi.fn(async () => null),
 }));
@@ -69,7 +71,9 @@ describe("getEffectiveBudget — Compass awareness", () => {
     vi.clearAllMocks();
     clearCompassContextWindow(TEST_CHAT_ID);
     // No configured Core lineup and no catalog row unless a test opts in.
-    savedCoreEnv = Object.fromEntries(CORE_ENV_KEYS.map((k) => [k, process.env[k]]));
+    savedCoreEnv = Object.fromEntries(
+      CORE_ENV_KEYS.map((k) => [k, process.env[k]]),
+    );
     for (const k of CORE_ENV_KEYS) delete process.env[k];
     __resetCoreModelOverridesForTests();
     modelsDev.getModelsDevLimits.mockResolvedValue(null);
@@ -96,7 +100,10 @@ describe("getEffectiveBudget — Compass awareness", () => {
   });
 
   it("returns the compass-fallback (200_000) when no TTFT and no resolvable Core model", async () => {
-    const { budget, source } = await getEffectiveBudget("compass", TEST_CHAT_ID);
+    const { budget, source } = await getEffectiveBudget(
+      "compass",
+      TEST_CHAT_ID,
+    );
     expect(budget).toBe(200_000);
     expect(source).toBe("model");
   });
@@ -108,7 +115,10 @@ describe("getEffectiveBudget — Compass awareness", () => {
     setCoreModelRouting({
       "core-1": { provider: "deepseek", apiModelId: "deepseek-v4-pro" },
     });
-    modelsDev.getModelsDevLimits.mockResolvedValue({ context: 1_000_000, output: 384_000 });
+    modelsDev.getModelsDevLimits.mockResolvedValue({
+      context: 1_000_000,
+      output: 384_000,
+    });
     mockReadSettings.mockReturnValue({
       selectedModel: { name: "core-1", provider: "compass" },
       tokenBudgetOverrides: {},
@@ -116,12 +126,18 @@ describe("getEffectiveBudget — Compass awareness", () => {
 
     const { budget } = await getEffectiveBudget("compass", TEST_CHAT_ID);
     expect(budget).toBe(1_000_000);
-    expect(modelsDev.getModelsDevLimits).toHaveBeenCalledWith("deepseek", "deepseek-v4-pro");
+    expect(modelsDev.getModelsDevLimits).toHaveBeenCalledWith(
+      "deepseek",
+      "deepseek-v4-pro",
+    );
   });
 
   it("returns the live per-chat value captured at TTFT (e.g. 1M) instead of the catalog limit", async () => {
     setCompassContextWindow(TEST_CHAT_ID, 1_000_000);
-    const { budget, source } = await getEffectiveBudget("compass", TEST_CHAT_ID);
+    const { budget, source } = await getEffectiveBudget(
+      "compass",
+      TEST_CHAT_ID,
+    );
     expect(budget).toBe(1_000_000);
     expect(source).toBe("model");
   });
@@ -132,7 +148,10 @@ describe("getEffectiveBudget — Compass awareness", () => {
       tokenBudgetOverrides: { compass: 64_000 },
     } as any);
     setCompassContextWindow(TEST_CHAT_ID, 1_000_000);
-    const { budget, source } = await getEffectiveBudget("compass", TEST_CHAT_ID);
+    const { budget, source } = await getEffectiveBudget(
+      "compass",
+      TEST_CHAT_ID,
+    );
     expect(budget).toBe(64_000);
     expect(source).toBe("override");
   });

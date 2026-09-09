@@ -71,20 +71,36 @@ describe("doom-loop detector (staged)", () => {
     const s = createAgenticRepetitionState();
     s.setEnabled(true);
     // Same tool, DIFFERENT args each time (e.g. paging) — never a doom loop.
-    expect(s.record("read_file", { path: "x.ts", offset: 1 }).kind).toBe("none");
-    expect(s.record("read_file", { path: "x.ts", offset: 100 }).kind).toBe("none");
-    expect(s.record("read_file", { path: "x.ts", offset: 200 }).kind).toBe("none");
-    expect(s.record("read_file", { path: "x.ts", offset: 300 }).kind).toBe("none");
+    expect(s.record("read_file", { path: "x.ts", offset: 1 }).kind).toBe(
+      "none",
+    );
+    expect(s.record("read_file", { path: "x.ts", offset: 100 }).kind).toBe(
+      "none",
+    );
+    expect(s.record("read_file", { path: "x.ts", offset: 200 }).kind).toBe(
+      "none",
+    );
+    expect(s.record("read_file", { path: "x.ts", offset: 300 }).kind).toBe(
+      "none",
+    );
   });
 
   it("does NOT trip on consecutive edits to the SAME FILE with different content (the v14.8.9 key bug)", () => {
     const s = createAgenticRepetitionState();
     s.setEnabled(true);
     // Full args are the key — 3 different edits to one file are legit progress.
-    expect(s.record("edit_file", { path: "App.tsx", content: "a" }).kind).toBe("none");
-    expect(s.record("edit_file", { path: "App.tsx", content: "b" }).kind).toBe("none");
-    expect(s.record("edit_file", { path: "App.tsx", content: "c" }).kind).toBe("none");
-    expect(s.record("edit_file", { path: "App.tsx", content: "d" }).kind).toBe("none");
+    expect(s.record("edit_file", { path: "App.tsx", content: "a" }).kind).toBe(
+      "none",
+    );
+    expect(s.record("edit_file", { path: "App.tsx", content: "b" }).kind).toBe(
+      "none",
+    );
+    expect(s.record("edit_file", { path: "App.tsx", content: "c" }).kind).toBe(
+      "none",
+    );
+    expect(s.record("edit_file", { path: "App.tsx", content: "d" }).kind).toBe(
+      "none",
+    );
   });
 
   it("resets the run when a different call interrupts (consecutive only)", () => {
@@ -113,16 +129,16 @@ describe("doom-loop detector (staged)", () => {
   it("abort resets so a fresh doom loop starts over at correction", () => {
     const s = createAgenticRepetitionState();
     s.setEnabled(true);
-    expect(repeatRecord(s, 9, "write_file", { path: "y.ts", content: "a" }).kind).toBe(
-      "loop_abort",
-    );
+    expect(
+      repeatRecord(s, 9, "write_file", { path: "y.ts", content: "a" }).kind,
+    ).toBe("loop_abort");
     // Immediately after the abort, the next identical call starts a fresh run.
-    expect(repeatRecord(s, 2, "write_file", { path: "y.ts", content: "a" }).kind).toBe(
-      "none",
-    );
-    expect(repeatRecord(s, 1, "write_file", { path: "y.ts", content: "a" }).kind).toBe(
-      "loop_correct",
-    );
+    expect(
+      repeatRecord(s, 2, "write_file", { path: "y.ts", content: "a" }).kind,
+    ).toBe("none");
+    expect(
+      repeatRecord(s, 1, "write_file", { path: "y.ts", content: "a" }).kind,
+    ).toBe("loop_correct");
   });
 
   it("setEnabled(true) clears any prior run", () => {
@@ -157,11 +173,19 @@ describe("doom-loop detector (staged)", () => {
   });
 
   it("buildLoopCorrectionMessage tailors the steer and invites stopping on attempt 2", () => {
-    const a1 = buildLoopCorrectionMessage({ attempt: 1, toolName: "edit_file", count: 3 });
+    const a1 = buildLoopCorrectionMessage({
+      attempt: 1,
+      toolName: "edit_file",
+      count: 3,
+    });
     expect(a1).toContain("NOT executed");
     expect(a1).toContain("re-read the file");
     expect(a1).not.toContain("end your turn");
-    const a2 = buildLoopCorrectionMessage({ attempt: 2, toolName: "grep", count: 6 });
+    const a2 = buildLoopCorrectionMessage({
+      attempt: 2,
+      toolName: "grep",
+      count: 6,
+    });
     expect(a2).toContain("read the likely file directly");
     expect(a2).toContain("end your turn");
   });

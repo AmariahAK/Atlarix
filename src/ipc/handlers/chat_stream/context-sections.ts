@@ -41,14 +41,14 @@ export interface ContextSectionParams {
 export async function loadModeSkillSection(
   p: ContextSectionParams,
 ): Promise<ContextSection | null> {
-  const { effectiveWorkMode, preflight, hasWorkspace, appPath } = p;
+  const { effectiveWorkMode, preflight } = p;
   try {
     const modeSkillName = getSkillNameForMode(effectiveWorkMode);
+    // BUNDLED ONLY — no workspace argument, deliberately. A repo used to be able to
+    // replace this text, which lands ahead of the base system prompt and cannot be
+    // pruned; see `skill-loader.ts`.
     const modeSkillBody = await preflight.time("mode-skill", () =>
-      loadSkill(
-        modeSkillName,
-        hasWorkspace && appPath ? appPath : undefined,
-      ),
+      loadSkill(modeSkillName),
     );
     if (!modeSkillBody.trim()) return null;
     return {
@@ -180,16 +180,17 @@ export async function loadActivePlanSection(
     return { section: null, taskLedgerBlock: null };
   }
   try {
-    const { getLatestPlanArtifact } = await import("@/lib/plans/plan-artifacts");
+    const { getLatestPlanArtifact } = await import(
+      "@/lib/plans/plan-artifacts"
+    );
     const activePlan = await preflight.time(
       "plan-artifact",
       async () =>
-        (await getLatestPlanArtifact(
-          req.workspaceSessionId!,
-          "building",
-        )) ?? (await getLatestPlanArtifact(req.workspaceSessionId!)),
+        (await getLatestPlanArtifact(req.workspaceSessionId!, "building")) ??
+        (await getLatestPlanArtifact(req.workspaceSessionId!)),
     );
-    if (!activePlan?.content?.trim()) return { section: null, taskLedgerBlock: null };
+    if (!activePlan?.content?.trim())
+      return { section: null, taskLedgerBlock: null };
     // #A1: build the compact recency ledger block from the same fetch.
     let taskLedgerBlock: string | null;
     try {
@@ -239,12 +240,32 @@ export async function loadAtlarixMdSection(
     );
     if (!instructions) return null;
 
-    const file =
-      instructions.source === "atlarix"
-        ? ".atlarix/atlarix.md"
-        : instructions.source === "agents"
-          ? "AGENTS.md"
-          : "CLAUDE.md";
+    /**
+     * EXHAUSTIVE, not a ternary chain with a default.
+     *
+     * This used to fall through to "CLAUDE.md" for anything it did not recognise, so
+     * adding a source silently mislabelled it — the model would be told to read a file
+     * that does not exist in the project. A `satisfies`-style exhaustive map makes a
+     * new source a COMPILE error instead.
+     *
+     * `rules` names a directory rather than a file, and says how many are in it,
+     * because "read them with read_file" is a single-file instruction that becomes
+     * wrong for a set.
+     */
+    const file: string = ((): string => {
+      switch (instructions.source) {
+        case "rules": {
+          const n = instructions.fileCount ?? 1;
+          return `.atlarix/rules/ (${n} file${n === 1 ? "" : "s"})`;
+        }
+        case "atlarix":
+          return ".atlarix/atlarix.md";
+        case "agents":
+          return "AGENTS.md";
+        case "claude":
+          return "CLAUDE.md";
+      }
+    })();
     const sizeKb = Math.max(1, Math.round(instructions.content.length / 1024));
     const headings = extractHeadings(instructions.content);
 
@@ -265,7 +286,9 @@ export async function loadAtlarixMdSection(
     const content = [
       `## Project instructions — ${file} (${sizeKb} KB)`,
       `These are the user's standing rules for this project and they OVERRIDE your defaults.`,
-      `Read them with read_file before you change code or make a design decision, and follow them.`,
+      instructions.source === "rules"
+        ? `Read them with read_file — glob the directory, they all apply — before you change code or make a design decision, and follow them.`
+        : `Read them with read_file before you change code or make a design decision, and follow them.`,
       headings.length ? `Sections: ${headings.join(" · ")}` : "",
     ]
       .filter(Boolean)

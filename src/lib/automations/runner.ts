@@ -13,7 +13,11 @@
  */
 
 import log from "electron-log";
-import { schedule, validate as validateCron, type ScheduledTask } from "node-cron";
+import {
+  schedule,
+  validate as validateCron,
+  type ScheduledTask,
+} from "node-cron";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { automationRuns, automations, chatSessions } from "@/db/schema";
@@ -49,7 +53,11 @@ const cronTasks = new Map<string, ScheduledTask>();
 const pollTimers = new Map<string, ReturnType<typeof setInterval>>();
 
 /** Single global FIFO — one unattended run at a time, deduped per automation. */
-const queue: Array<{ automationId: string; context: string | null; reason: string }> = [];
+const queue: Array<{
+  automationId: string;
+  context: string | null;
+  reason: string;
+}> = [];
 const queuedOrRunning = new Set<string>();
 let draining = false;
 
@@ -59,7 +67,9 @@ export function enqueueRun(
   reason: "schedule" | "poll" | "manual",
 ): void {
   if (queuedOrRunning.has(automationId)) {
-    logger.info(`automation ${automationId} already queued/running — skipping ${reason} fire`);
+    logger.info(
+      `automation ${automationId} already queued/running — skipping ${reason} fire`,
+    );
     return;
   }
   queuedOrRunning.add(automationId);
@@ -77,7 +87,10 @@ async function drainQueue(): Promise<void> {
         const deps = runnerDeps ?? (runnerDeps = await defaultDeps());
         await deps.executeRun(item.automationId, item.context);
       } catch (e) {
-        logger.error(`automation ${item.automationId} run failed to execute:`, e);
+        logger.error(
+          `automation ${item.automationId} run failed to execute:`,
+          e,
+        );
       } finally {
         queuedOrRunning.delete(item.automationId);
       }
@@ -133,7 +146,10 @@ async function retireUnparseableAutomation(
 
 // `unknown`: a pipeline host owns its own cursor shape, and the runner only
 // stores it. Narrowing here would mean this file knowing every host's internals.
-async function persistCursor(automationId: string, cursor: unknown): Promise<void> {
+async function persistCursor(
+  automationId: string,
+  cursor: unknown,
+): Promise<void> {
   await db
     .update(automations)
     .set({ cursor: JSON.stringify(cursor), updatedAt: new Date() })
@@ -141,7 +157,10 @@ async function persistCursor(automationId: string, cursor: unknown): Promise<voi
 }
 
 /** Record a poller failure as an error run so the feed shows what to fix (once per streak). */
-async function recordPollError(automationId: string, message: string): Promise<void> {
+async function recordPollError(
+  automationId: string,
+  message: string,
+): Promise<void> {
   const latest = await db.query.automationRuns.findFirst({
     where: eq(automationRuns.automationId, automationId),
     orderBy: (runs, { desc }) => [desc(runs.startedAt)],
@@ -162,7 +181,10 @@ async function recordPollError(automationId: string, message: string): Promise<v
   try {
     const { broadcastAutomationRunUpdate } = await import("./notify");
     const row = await db.query.automationRuns.findFirst({
-      where: and(eq(automationRuns.automationId, automationId), eq(automationRuns.error, message)),
+      where: and(
+        eq(automationRuns.automationId, automationId),
+        eq(automationRuns.error, message),
+      ),
       orderBy: (runs, { desc }) => [desc(runs.startedAt)],
     });
     if (row) await broadcastAutomationRunUpdate(row.id);
@@ -187,7 +209,9 @@ async function pollOnce(automationId: string): Promise<void> {
   try {
     // MCP is the only polled kind now — `schedule` returned above, and the
     // `pipeline` branch went with the trigger kind (see types.ts).
-    const cursor = automation.cursor ? (JSON.parse(automation.cursor) as McpCursor) : null;
+    const cursor = automation.cursor
+      ? (JSON.parse(automation.cursor) as McpCursor)
+      : null;
     if (automation.workspaceId == null) return;
     const result = await deps.pollMcp(trigger, cursor, automation.workspaceId);
     await persistCursor(automationId, result.nextCursor);
@@ -223,7 +247,9 @@ async function arm(automationId: string): Promise<void> {
 
   if (trigger.kind === "schedule") {
     if (!validateCron(trigger.cron)) {
-      logger.warn(`automation "${automation.name}" has invalid cron "${trigger.cron}" — not armed`);
+      logger.warn(
+        `automation "${automation.name}" has invalid cron "${trigger.cron}" — not armed`,
+      );
       return;
     }
     const task = schedule(trigger.cron, () => {
@@ -231,10 +257,16 @@ async function arm(automationId: string): Promise<void> {
     });
     cronTasks.set(automationId, task);
   } else {
-    const minutes = Math.max(trigger.intervalMinutes, MIN_POLL_INTERVAL_MINUTES);
-    const timer = setInterval(() => {
-      void pollOnce(automationId);
-    }, minutes * 60 * 1000);
+    const minutes = Math.max(
+      trigger.intervalMinutes,
+      MIN_POLL_INTERVAL_MINUTES,
+    );
+    const timer = setInterval(
+      () => {
+        void pollOnce(automationId);
+      },
+      minutes * 60 * 1000,
+    );
     timer.unref?.();
     pollTimers.set(automationId, timer);
     // Boot/creation poll — seeds the cursor (never fires on backlog).
@@ -244,7 +276,9 @@ async function arm(automationId: string): Promise<void> {
 }
 
 /** Re-arm after create/update/toggle; disarms on delete/disable. */
-export async function refreshAutomationSchedule(automationId: string): Promise<void> {
+export async function refreshAutomationSchedule(
+  automationId: string,
+): Promise<void> {
   await arm(automationId);
 }
 
@@ -275,7 +309,9 @@ async function recoverInterruptedRuns(): Promise<void> {
     }
   }
   if (stale.length > 0) {
-    logger.info(`recovered ${stale.length} automation run(s) interrupted by app quit`);
+    logger.info(
+      `recovered ${stale.length} automation run(s) interrupted by app quit`,
+    );
   }
 }
 
@@ -284,11 +320,16 @@ export function startAutomationRunner(deps?: RunnerDeps): void {
   void (async () => {
     try {
       await recoverInterruptedRuns();
-      const all = await db.select().from(automations).where(eq(automations.enabled, true));
+      const all = await db
+        .select()
+        .from(automations)
+        .where(eq(automations.enabled, true));
       for (const a of all) {
         await arm(a.id);
       }
-      logger.info(`automation runner started (${all.length} enabled automation(s))`);
+      logger.info(
+        `automation runner started (${all.length} enabled automation(s))`,
+      );
     } catch (e) {
       logger.error("automation runner failed to start:", e);
     }

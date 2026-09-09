@@ -7,7 +7,6 @@
 
 import { unzipSync, strFromU8 } from "fflate";
 
-
 export type OfficeXmlExtractResult = {
   text: string;
   /** Slide count for pptx; 1 for odt. */
@@ -17,21 +16,23 @@ export type OfficeXmlExtractResult = {
 
 /** Decode XML entities and collapse the whitespace left behind by tag stripping. */
 function xmlToText(xml: string): string {
-  return xml
-    // Paragraph-ish boundaries become newlines before tags are dropped.
-    .replace(/<\/(?:a:p|text:p|text:h)>/g, "\n")
-    .replace(/<text:line-break\s*\/>/g, "\n")
-    .replace(/<text:tab\s*\/>/g, "\t")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&#(\d+);/g, (_, d: string) => String.fromCodePoint(Number(d)))
-    .replace(/[ \t]+/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  return (
+    xml
+      // Paragraph-ish boundaries become newlines before tags are dropped.
+      .replace(/<\/(?:a:p|text:p|text:h)>/g, "\n")
+      .replace(/<text:line-break\s*\/>/g, "\n")
+      .replace(/<text:tab\s*\/>/g, "\t")
+      .replace(/<[^>]+>/g, "")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'")
+      .replace(/&#(\d+);/g, (_, d: string) => String.fromCodePoint(Number(d)))
+      .replace(/[ \t]+/g, " ")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim()
+  );
 }
 
 // W3 (v14.8.11): no total cap — read_attachment pages the full text per call.
@@ -39,7 +40,9 @@ function clip(text: string): string {
   return text;
 }
 
-export function extractTextFromPptxBuffer(buffer: Buffer): OfficeXmlExtractResult {
+export function extractTextFromPptxBuffer(
+  buffer: Buffer,
+): OfficeXmlExtractResult {
   try {
     const files = unzipSync(new Uint8Array(buffer));
     // ppt/slides/slide1.xml ... slideN.xml, in deck order.
@@ -65,7 +68,9 @@ export function extractTextFromPptxBuffer(buffer: Buffer): OfficeXmlExtractResul
   }
 }
 
-export function extractTextFromOdtBuffer(buffer: Buffer): OfficeXmlExtractResult {
+export function extractTextFromOdtBuffer(
+  buffer: Buffer,
+): OfficeXmlExtractResult {
   try {
     const files = unzipSync(new Uint8Array(buffer));
     const content = files["content.xml"];

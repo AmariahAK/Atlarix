@@ -20,8 +20,9 @@ export const automationsAtom = atom<AutomationListItem[]>([]);
 export const automationRunsAtom = atom<AutomationRunView[]>([]);
 
 /** Unread badge on the Automations tab icon. */
-export const automationsUnreadCountAtom = atom((get) =>
-  get(automationRunsAtom).filter((r) => r.unread && !r.archived).length,
+export const automationsUnreadCountAtom = atom(
+  (get) =>
+    get(automationRunsAtom).filter((r) => r.unread && !r.archived).length,
 );
 
 /** Set by the OS-notification click handler so the feed can scroll/highlight. */

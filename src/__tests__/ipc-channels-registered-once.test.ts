@@ -5,6 +5,7 @@
  * ---------------
  * Electron's real `ipcMain.handle` THROWS on a duplicate:
  * `Error: Attempted to register a second handler for 'auth:check-workspace-limit'`
+ * (that channel is gone as of 2026-09-08; the failure mode is not)
  * — thrown during module load, before any window exists, so the app dies at
  * launch with a JavaScript-error dialog and nothing else.
  *
@@ -56,18 +57,24 @@ beforeEach(() => {
 });
 
 describe("IPC channel registration", () => {
-  it("registers `auth:check-workspace-limit` exactly once", async () => {
-    // The specific regression: an edit to auth_handlers.ts duplicated this block
-    // and the app crashed on launch with "Attempted to register a second
-    // handler". Named explicitly so a failure points straight at the cause.
-    const { registerAuthHandlers } = await import("@/ipc/handlers/auth_handlers");
+  it("registers `auth:get-plan-info` exactly once", async () => {
+    // The original regression was on `auth:check-workspace-limit`: an edit to
+    // auth_handlers.ts duplicated the block and the app crashed on launch with
+    // "Attempted to register a second handler". That channel was deleted on
+    // 2026-09-08 with the workspace cap, so this now names a live channel from the
+    // same file — the property being guarded is the file's, not that channel's.
+    const { registerAuthHandlers } = await import(
+      "@/ipc/handlers/auth_handlers"
+    );
     registerAuthHandlers();
-    const dupes = handled.filter((c) => c === "auth:check-workspace-limit");
+    const dupes = handled.filter((c) => c === "auth:get-plan-info");
     expect(dupes).toHaveLength(1);
   });
 
   it("registers every auth channel exactly once", async () => {
-    const { registerAuthHandlers } = await import("@/ipc/handlers/auth_handlers");
+    const { registerAuthHandlers } = await import(
+      "@/ipc/handlers/auth_handlers"
+    );
     registerAuthHandlers();
     const seen = new Map<string, number>();
     for (const c of handled) seen.set(c, (seen.get(c) ?? 0) + 1);
@@ -79,14 +86,19 @@ describe("IPC channel registration", () => {
 
   it("still registers the channels the renderer depends on", async () => {
     // A guard that only counts duplicates would pass on an empty list.
-    const { registerAuthHandlers } = await import("@/ipc/handlers/auth_handlers");
+    const { registerAuthHandlers } = await import(
+      "@/ipc/handlers/auth_handlers"
+    );
     registerAuthHandlers();
     expect(handled).toContain("auth:sign-out");
-    expect(handled).toContain("auth:check-workspace-limit");
+    expect(handled).toContain("auth:get-plan-info");
+    expect(handled).toContain("auth:get-current-user");
   });
 
   it("does NOT register the deleted workspace-limit enforcer", async () => {
-    const { registerAuthHandlers } = await import("@/ipc/handlers/auth_handlers");
+    const { registerAuthHandlers } = await import(
+      "@/ipc/handlers/auth_handlers"
+    );
     registerAuthHandlers();
     expect(handled).not.toContain("auth:enforce-workspace-limit");
   });

@@ -17,7 +17,10 @@ import {
   selectedAppIdAtom,
   selectedWorkspaceInfoAtom,
 } from "@/atoms/appAtoms";
-import { getChatBoundAppId, resolveChatWorkspaceAppId } from "@/lib/chat-workspace-binding";
+import {
+  getChatBoundAppId,
+  resolveChatWorkspaceAppId,
+} from "@/lib/chat-workspace-binding";
 import { openWorkspaceFromDialog } from "@/lib/open-workspace";
 import { toast } from "sonner";
 import {
@@ -117,7 +120,8 @@ export function ChatInputControls({ chatId }: { chatId?: number }) {
     const pendingName =
       selectedWorkspaceInfo?.id === pendingWorkspaceAppId
         ? selectedWorkspaceInfo.name
-        : apps.find((a) => a.id === pendingWorkspaceAppId)?.name ?? "Workspace";
+        : (apps.find((a) => a.id === pendingWorkspaceAppId)?.name ??
+          "Workspace");
     contextLine = `${contextLine} · ${pendingName} ready for next chat`;
   } else if (activeInChatId != null && boundAppId === activeInChatId) {
     const wsName =
@@ -146,7 +150,8 @@ export function ChatInputControls({ chatId }: { chatId?: number }) {
     tokenResult?.effectiveBudget ??
     tokenResult?.contextWindow ??
     0;
-  const contextPercent = budgetTokens > 0 ? Math.min(100, (usedTokens / budgetTokens) * 100) : 0;
+  const contextPercent =
+    budgetTokens > 0 ? Math.min(100, (usedTokens / budgetTokens) * 100) : 0;
   const delegationBudget =
     settings?.aiConfiguration?.delegation?.tokenBudgetPerTurn ??
     settings?.aiConfiguration?.autonomous?.tokenBudgetPerTurn;
@@ -183,7 +188,10 @@ export function ChatInputControls({ chatId }: { chatId?: number }) {
   return (
     <div className="flex flex-col gap-1">
       {!appId && !hasUserMessageInThread && (
-        <NoWorkspaceBanner className="mb-1" onOpenWorkspace={handleOpenWorkspace} />
+        <NoWorkspaceBanner
+          className="mb-1"
+          onOpenWorkspace={handleOpenWorkspace}
+        />
       )}
 
       {/* Compact context line + non-clickable context usage bar */}
@@ -193,7 +201,10 @@ export function ChatInputControls({ chatId }: { chatId?: number }) {
       >
         <span>{contextLine}</span>
         {tokenWarning && (
-          <span className="text-amber-600 dark:text-amber-400" title={tokenWarning}>
+          <span
+            className="text-amber-600 dark:text-amber-400"
+            title={tokenWarning}
+          >
             ({tokenWarning})
           </span>
         )}
@@ -216,6 +227,7 @@ export function ChatInputControls({ chatId }: { chatId?: number }) {
               size={20}
               pulse={pulse}
               flashSuccess={flashSuccess}
+              spin={isStreamingHere}
             />
             {/* A percentage, matching TokenBar. This showed the raw count, and
                 once the meter started counting the tool surface honestly an
@@ -230,29 +242,19 @@ export function ChatInputControls({ chatId }: { chatId?: number }) {
       </div>
 
       <div className="flex items-center gap-2 flex-wrap">
-        {rightPanelVisible && (
-          <CompactModelSearch className="shrink-0" />
-        )}
+        {rightPanelVisible && <CompactModelSearch className="shrink-0" />}
         <span className="inline-flex" data-tour="tour-model-picker">
           <ChatConfigDropdown
             onOpenModelPicker={
-              rightPanelVisible
-                ? undefined
-                : () => setModelSheetOpen(true)
+              rightPanelVisible ? undefined : () => setModelSheetOpen(true)
             }
           />
         </span>
 
         {/* Always mounted (not gated on panel visibility) so Cmd/Ctrl+J can open
             the full model picker in any state. Closed = renders nothing visible. */}
-        <Sheet
-          open={modelSheetOpen}
-          onOpenChange={setModelSheetOpen}
-        >
-          <SheetContent
-            side="right"
-            className="sm:max-w-md overflow-y-auto"
-          >
+        <Sheet open={modelSheetOpen} onOpenChange={setModelSheetOpen}>
+          <SheetContent side="right" className="sm:max-w-md overflow-y-auto">
             <SheetHeader>
               <SheetTitle>Change model</SheetTitle>
             </SheetHeader>
@@ -263,7 +265,6 @@ export function ChatInputControls({ chatId }: { chatId?: number }) {
         <span className="inline-flex" data-tour="tour-ask-build">
           <ChatIntentSelector />
         </span>
-
       </div>
     </div>
   );

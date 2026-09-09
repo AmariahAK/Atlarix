@@ -58,7 +58,8 @@ export interface TeamEmailParams {
 }
 
 function buildHtml(params: TeamEmailParams): string {
-  const { type, teamName, inviterName, inviterEmail, memberNameOrEmail } = params;
+  const { type, teamName, inviterName, inviterEmail, memberNameOrEmail } =
+    params;
   const inviter = inviterName || inviterEmail || "A team owner";
   let content = "";
   switch (type) {
@@ -147,7 +148,10 @@ export async function sendTeamEmail(params: {
     return { ok: true };
   } catch (err) {
     logger.error("[Resend] Send exception:", err);
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 
@@ -155,7 +159,9 @@ export async function sendTeamEmail(params: {
  * Build and send a team notification email (invite, accepted, rejected, left).
  * Fire-and-forget: errors are logged, not thrown.
  */
-export async function sendTeamNotificationEmail(params: TeamEmailParams): Promise<void> {
+export async function sendTeamNotificationEmail(
+  params: TeamEmailParams,
+): Promise<void> {
   const html = buildHtml(params);
   const subject = getSubject(params);
   const result = await sendTeamEmail({ to: params.to, subject, html });

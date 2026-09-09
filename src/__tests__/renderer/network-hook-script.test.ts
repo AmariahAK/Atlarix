@@ -74,10 +74,9 @@ describe("fetch wrapper", () => {
     win.fetch = original;
 
     install();
-    const returned = await win.fetch!(
-      "https://api.test/thing",
-      { method: "POST" } as RequestInit,
-    );
+    const returned = await win.fetch!("https://api.test/thing", {
+      method: "POST",
+    } as RequestInit);
 
     // The page still gets the real response object, unread.
     expect(returned).toBe(response);
@@ -131,12 +130,15 @@ describe("fetch wrapper", () => {
     });
 
     install();
-    await expect(
-      win.fetch!("https://api.test/down"),
-    ).rejects.toThrow("Failed to fetch");
+    await expect(win.fetch!("https://api.test/down")).rejects.toThrow(
+      "Failed to fetch",
+    );
 
     await vi.waitFor(() => expect(captured).toHaveLength(1));
-    expect(captured[0]).toMatchObject({ failed: true, errorText: "Failed to fetch" });
+    expect(captured[0]).toMatchObject({
+      failed: true,
+      errorText: "Failed to fetch",
+    });
   });
 
   it("installs once per document", async () => {
@@ -227,7 +229,10 @@ describe("XHR wrapper", () => {
     xhr.send();
     xhr.finish(0, "");
 
-    expect(captured[0]).toMatchObject({ failed: true, url: "https://api.test/blocked" });
+    expect(captured[0]).toMatchObject({
+      failed: true,
+      url: "https://api.test/blocked",
+    });
   });
 
   it("does not read responseText for a binary responseType", () => {

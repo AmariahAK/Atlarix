@@ -38,17 +38,21 @@ const SYSTEM_SCOPE_PATTERNS: SystemScopeMatch[] = [
   {
     id: "sudo",
     pattern: /^sudo\b/,
-    explanation: "runs with elevated privileges (sudo) — it can modify system files anywhere.",
+    explanation:
+      "runs with elevated privileges (sudo) — it can modify system files anywhere.",
   },
   {
     id: "brew",
-    pattern: /^brew\s+(install|uninstall|reinstall|upgrade|tap|link|unlink|pin)\b/,
-    explanation: "changes Homebrew packages under /opt/homebrew or /usr/local (outside the project).",
+    pattern:
+      /^brew\s+(install|uninstall|reinstall|upgrade|tap|link|unlink|pin)\b/,
+    explanation:
+      "changes Homebrew packages under /opt/homebrew or /usr/local (outside the project).",
   },
   {
     id: "apt",
     pattern: /^(apt|apt-get)\s+(install|remove|purge|upgrade|full-upgrade)\b/,
-    explanation: "installs/removes system packages via apt (outside the project).",
+    explanation:
+      "installs/removes system packages via apt (outside the project).",
   },
   {
     id: "rpm-pkg",
@@ -58,12 +62,14 @@ const SYSTEM_SCOPE_PATTERNS: SystemScopeMatch[] = [
   {
     id: "pacman",
     pattern: /^pacman\s+-[SRU]/,
-    explanation: "installs/removes system packages via pacman (outside the project).",
+    explanation:
+      "installs/removes system packages via pacman (outside the project).",
   },
   {
     id: "apk",
     pattern: /^apk\s+(add|del)\b/,
-    explanation: "installs/removes Alpine system packages (outside the project).",
+    explanation:
+      "installs/removes Alpine system packages (outside the project).",
   },
   {
     id: "snap-flatpak",
@@ -73,12 +79,14 @@ const SYSTEM_SCOPE_PATTERNS: SystemScopeMatch[] = [
   {
     id: "rustup",
     pattern: /^rustup\b/,
-    explanation: "changes your Rust toolchain under ~/.rustup and ~/.cargo (outside the project).",
+    explanation:
+      "changes your Rust toolchain under ~/.rustup and ~/.cargo (outside the project).",
   },
   {
     id: "cargo-install",
     pattern: /^cargo\s+(install|uninstall)\b/,
-    explanation: "installs/removes a binary in ~/.cargo/bin (outside the project).",
+    explanation:
+      "installs/removes a binary in ~/.cargo/bin (outside the project).",
   },
   {
     id: "npm-global",
@@ -98,12 +106,14 @@ const SYSTEM_SCOPE_PATTERNS: SystemScopeMatch[] = [
   {
     id: "pipx",
     pattern: /^pipx\s+(install|uninstall|upgrade|reinstall)\b/,
-    explanation: "installs/removes a Python app via pipx (outside the project).",
+    explanation:
+      "installs/removes a Python app via pipx (outside the project).",
   },
   {
     id: "pip-user",
     pattern: /^pip3?\s+install\b.*\s--user(\s|$)/,
-    explanation: "installs a Python package into ~/.local (outside the project).",
+    explanation:
+      "installs a Python package into ~/.local (outside the project).",
   },
   {
     id: "gem-install",
@@ -118,12 +128,14 @@ const SYSTEM_SCOPE_PATTERNS: SystemScopeMatch[] = [
   {
     id: "windows-pkg",
     pattern: /^(choco|winget|scoop)\s+(install|uninstall|upgrade)\b/i,
-    explanation: "installs/removes a system package on Windows (outside the project).",
+    explanation:
+      "installs/removes a system package on Windows (outside the project).",
   },
   {
     id: "version-manager",
     pattern: /^(asdf|sdk|nvm|pyenv|rbenv)\s+(install|uninstall|use|global)\b/,
-    explanation: "changes a language version manager's toolchain (outside the project).",
+    explanation:
+      "changes a language version manager's toolchain (outside the project).",
   },
 ];
 
@@ -148,14 +160,18 @@ function isOutsideWorkspace(target: string, workspaceRoot: string): boolean {
  * path are intentionally NOT flagged (the sandbox permits reads and this gate is
  * about CHANGING things outside the project).
  */
-function targetsOutsideWorkspace(command: string, workspaceRoot: string): boolean {
+function targetsOutsideWorkspace(
+  command: string,
+  workspaceRoot: string,
+): boolean {
   // Without a workspace root we can't judge "outside" — fall back to installer/
   // sudo detection only (callers that lack the root, e.g. the always-allow gate,
   // pass ""). Callers with the root (interceptor, UI enrich) get the full check.
   if (!workspaceRoot) return false;
   // `cd <abs-or-~>` that escapes the workspace (mirrors interceptor.ts widening).
   const cd = command.match(/(?:^|[\s;&|])cd\s+(~?\/[^\s;&|]+|~)(?:\s|$|[;&|])/);
-  if (cd?.[1] && isOutsideWorkspace(expandHome(cd[1]), workspaceRoot)) return true;
+  if (cd?.[1] && isOutsideWorkspace(expandHome(cd[1]), workspaceRoot))
+    return true;
   // Redirection write to an absolute / home path outside the workspace. Special
   // device sinks (`/dev/null`, `/dev/stderr`, `2>&1` targets, etc.) are no-op
   // "writes" — a `grep … 2>/dev/null` is a plain read, not a system change, so
@@ -172,7 +188,10 @@ function targetsOutsideWorkspace(command: string, workspaceRoot: string): boolea
 }
 
 /** Match id(s) for a system-scope command, or [] when it isn't system-scope. */
-function getSystemScopeMatchIds(command: string, workspaceRoot: string): string[] {
+function getSystemScopeMatchIds(
+  command: string,
+  workspaceRoot: string,
+): string[] {
   const trimmed = (command || "").trim();
   if (!trimmed) return [];
   const ids = new Set<string>();
@@ -183,7 +202,8 @@ function getSystemScopeMatchIds(command: string, workspaceRoot: string): string[
     }
   }
   // Outside-path (cd/redirection): against the full command (cd isn't stripped there).
-  if (targetsOutsideWorkspace(trimmed, workspaceRoot)) ids.add("outside-workspace-path");
+  if (targetsOutsideWorkspace(trimmed, workspaceRoot))
+    ids.add("outside-workspace-path");
   return [...ids].sort();
 }
 
@@ -192,7 +212,10 @@ function getSystemScopeMatchIds(command: string, workspaceRoot: string): string[
  * on-device install/toolchain change, `sudo`, or a write to a path outside the
  * workspace. `workspaceRoot` anchors the outside-path check.
  */
-export function isSystemScopeCommand(command: string, workspaceRoot: string): boolean {
+export function isSystemScopeCommand(
+  command: string,
+  workspaceRoot: string,
+): boolean {
   return getSystemScopeMatchIds(command, workspaceRoot).length > 0;
 }
 
@@ -217,11 +240,16 @@ export function isOutsidePathOnlySystemScope(
 }
 
 /** Plain-English "why this touches your system" for the approval card. */
-export function getSystemScopeExplanation(command: string, workspaceRoot: string): string {
+export function getSystemScopeExplanation(
+  command: string,
+  workspaceRoot: string,
+): string {
   const trimmed = (command || "").trim();
   if (!trimmed) return "";
   for (const seg of commandSegments(trimmed)) {
-    const match = SYSTEM_SCOPE_PATTERNS.find(({ pattern }) => pattern.test(seg));
+    const match = SYSTEM_SCOPE_PATTERNS.find(({ pattern }) =>
+      pattern.test(seg),
+    );
     if (match) return `This ${match.explanation}`;
   }
   if (targetsOutsideWorkspace(trimmed, workspaceRoot)) {
@@ -231,7 +259,10 @@ export function getSystemScopeExplanation(command: string, workspaceRoot: string
 }
 
 /** First-token category (for logs/keys) — parallels dangerous-commands. */
-export function systemScopeLabel(command: string, workspaceRoot: string): string | null {
+export function systemScopeLabel(
+  command: string,
+  workspaceRoot: string,
+): string | null {
   const ids = getSystemScopeMatchIds(command, workspaceRoot);
   return ids.length ? `system-scope:${ids.join("+")}` : null;
 }

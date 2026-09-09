@@ -44,7 +44,8 @@ import {
 
 type Args = Record<string, unknown>;
 const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : "");
-const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+const num = (v: unknown) =>
+  typeof v === "number" && Number.isFinite(v) ? v : undefined;
 
 /** Pull the current hierarchy. Android only. */
 async function readHierarchy(
@@ -105,10 +106,15 @@ async function readHierarchy(
 async function resolveRef(
   device: MobileDevice,
   ref: string,
-): Promise<{ ok: true; element: MobileElement } | { ok: false; error: string }> {
+): Promise<
+  { ok: true; element: MobileElement } | { ok: false; error: string }
+> {
   const h = await readHierarchy(device);
   if (!h.ok) return h;
-  const { elements } = parseUiHierarchy(h.xml, { interactiveOnly: false, max: 500 });
+  const { elements } = parseUiHierarchy(h.xml, {
+    interactiveOnly: false,
+    max: 500,
+  });
   const hit = elements.find((e) => e.ref === ref);
   if (!hit) {
     return {
@@ -141,9 +147,9 @@ ToolRegistry.register({
     // design rests on. Measured and shortened 2026-09-04. Keep it under 200 with no
     // internal ". ", or the binding loses its point again.
     "Read an Android emulator or iOS Simulator screen as TEXT — with no `mode` it returns the UI hierarchy: every interactive element with a stable `ref` for the `mobile` tool, in a few hundred tokens.\n" +
-    "mode:\"screenshot\" — a literal PNG and a LAST RESORT (thousands of tokens): only when the user needs the actual image (a design to match, a rendering artefact, a custom-drawn surface). NEVER to answer \"what do you see\" or to find an element — the hierarchy already does that, in text.\n" +
-    "mode:\"logs\" — a bounded tail of the device log, filtered to warnings and errors by default. This is where a crash's stack trace is.\n" +
-    "mode:\"devices\" — what is running, when you need to name one.\n" +
+    'mode:"screenshot" — a literal PNG and a LAST RESORT (thousands of tokens): only when the user needs the actual image (a design to match, a rendering artefact, a custom-drawn surface). NEVER to answer "what do you see" or to find an element — the hierarchy already does that, in text.\n' +
+    'mode:"logs" — a bounded tail of the device log, filtered to warnings and errors by default. This is where a crash\'s stack trace is.\n' +
+    'mode:"devices" — what is running, when you need to name one.\n' +
     "iOS Simulator has NO hierarchy and NO input (a `simctl` limitation, not a transient failure): screenshots and logs work, refs and taps do not.",
   parameters: {
     type: "object",
@@ -151,30 +157,34 @@ ToolRegistry.register({
       mode: {
         type: "string",
         enum: ["hierarchy", "screenshot", "logs", "devices"],
-        description: "Default \"hierarchy\" (text, cheap). \"screenshot\" is a PNG and a last resort.",
+        description:
+          'Default "hierarchy" (text, cheap). "screenshot" is a PNG and a last resort.',
       },
       device: {
         type: "string",
         description:
-          "Which device (id or name, from mode:\"devices\"). Optional with one running; REQUIRED once several are.",
+          'Which device (id or name, from mode:"devices"). Optional with one running; REQUIRED once several are.',
       },
       query: {
         type: "string",
-        description: "With mode:\"hierarchy\", rank to the elements matching plain words (\"submit button\", \"email field\").",
+        description:
+          'With mode:"hierarchy", rank to the elements matching plain words ("submit button", "email field").',
       },
       lines: {
         type: "number",
-        description: "With mode:\"logs\", how many recent lines (default 120, max 400).",
+        description:
+          'With mode:"logs", how many recent lines (default 120, max 400).',
       },
       level: {
         type: "string",
         enum: ["error", "warn", "all"],
-        description: "With mode:\"logs\", minimum level. Default \"warn\" (warnings and errors).",
+        description:
+          'With mode:"logs", minimum level. Default "warn" (warnings and errors).',
       },
       package: {
         type: "string",
         description:
-          "With mode:\"logs\", narrow to one app (Android package or iOS bundle id). Strongly recommended — a device log is the whole OS, and filtering is the difference between megabytes of system noise and your app's own errors.",
+          'With mode:"logs", narrow to one app (Android package or iOS bundle id). Strongly recommended — a device log is the whole OS, and filtering is the difference between megabytes of system noise and your app\'s own errors.',
       },
     },
     required: [],
@@ -185,7 +195,9 @@ ToolRegistry.register({
     const mode = str(args.mode) || "hierarchy";
 
     if (mode === "devices") {
-      const { listMobileDevices, describeDevices } = await import("@/lib/mobile/devices");
+      const { listMobileDevices, describeDevices } = await import(
+        "@/lib/mobile/devices"
+      );
       const devices = await listMobileDevices();
       return {
         success: true,
@@ -207,14 +219,21 @@ ToolRegistry.register({
       // captureSimulatorScreenshot.
       const r =
         device.platform === "android"
-          ? await runDeviceCli("adb", ["-s", device.id, "exec-out", "screencap", "-p"], {
-              timeoutMs: 30_000,
-              binary: true,
-            })
+          ? await runDeviceCli(
+              "adb",
+              ["-s", device.id, "exec-out", "screencap", "-p"],
+              {
+                timeoutMs: 30_000,
+                binary: true,
+              },
+            )
           : await captureSimulatorScreenshot(device.id);
       if (!r.ok) return { success: false, error: r.error };
       if (r.buffer.length === 0) {
-        return { success: false, error: "The capture came back empty. Is the screen on?" };
+        return {
+          success: false,
+          error: "The capture came back empty. Is the screen on?",
+        };
       }
       // Downscale, for the same reason browser_inspect does: a live iPhone 17
       // simulator screenshot measured 2.8 MB, which is ~3.8 MB of base64 and far
@@ -225,7 +244,9 @@ ToolRegistry.register({
           const image = nativeImage.createFromBuffer(r.buffer);
           if (image.isEmpty()) return r.buffer;
           const { width } = image.getSize();
-          return width > 1280 ? image.resize({ width: 1280 }).toPNG() : r.buffer;
+          return width > 1280
+            ? image.resize({ width: 1280 }).toPNG()
+            : r.buffer;
         } catch {
           // Headless/Electron-free contexts: send what we captured rather than
           // failing over a size optimisation.
@@ -291,7 +312,8 @@ ToolRegistry.register({
       if (device.platform === "android") {
         // `-d` dumps and exits; without it logcat streams forever and the tool
         // call hangs until its timeout.
-        const spec = level === "all" ? "*:V" : level === "error" ? "*:E" : "*:W";
+        const spec =
+          level === "all" ? "*:V" : level === "error" ? "*:E" : "*:W";
         // Same filter as iOS, by pid. `logcat -t N` already bounds the volume,
         // so this is about SIGNAL: without it the tail is mostly system chatter
         // and your app's stack trace may have scrolled past it.
@@ -321,7 +343,16 @@ ToolRegistry.register({
         }
         const r = await runDeviceCli(
           "adb",
-          ["-s", device.id, "logcat", "-d", "-t", String(lines), ...pidFlag, spec],
+          [
+            "-s",
+            device.id,
+            "logcat",
+            "-d",
+            "-t",
+            String(lines),
+            ...pidFlag,
+            spec,
+          ],
           { timeoutMs: 25_000 },
         );
         if (!r.ok) return { success: false, error: r.error };
@@ -333,7 +364,8 @@ ToolRegistry.register({
           content:
             text ||
             `No ${level}-level entries in the last ${lines} lines` +
-              (pkg ? ` for "${pkg}"` : "") + ".",
+              (pkg ? ` for "${pkg}"` : "") +
+              ".",
         };
       }
       // A simulator's log is the WHOLE OS, not your app: 3.2 MB over 2 minutes
@@ -344,7 +376,9 @@ ToolRegistry.register({
         ? [
             "--predicate",
             `process CONTAINS "${proc.split(".").pop() ?? proc}"` +
-              (level === "all" ? "" : ' AND (messageType == "Error" OR messageType == "Fault")'),
+              (level === "all"
+                ? ""
+                : ' AND (messageType == "Error" OR messageType == "Fault")'),
           ]
         : iosLogPredicate(level);
       const r = await runDeviceCli(
@@ -397,7 +431,10 @@ ToolRegistry.register({
         success: true,
         device: device.label,
         title: device.label,
-        content: formatUiHierarchy({ elements: hits, total: hits.length }, device),
+        content: formatUiHierarchy(
+          { elements: hits, total: hits.length },
+          device,
+        ),
       };
     }
     return {
@@ -423,14 +460,14 @@ ToolRegistry.register({
     // Same reason as above: this sentence is the whole binding on a peripheral
     // turn, so it names the actions AND the ref requirement rather than
     // introducing the tool.
-    "Act on a running Android emulator by element `ref` from mobile_inspect — action:\"tap\" / \"type\" / \"key\" / \"swipe\" / \"launch\" (there is no coordinate form).\n" +
-    "action:\"tap\" — tap the element at `ref`.\n" +
-    "action:\"type\" — focus `ref` and enter `text`.\n" +
-    "action:\"key\" — press a device key via `key`: \"back\", \"home\", \"enter\", \"tab\", \"delete\", or \"recents\".\n" +
-    "action:\"swipe\" — `direction` up/down/left/right to scroll the screen, or pass `ref` to swipe that element.\n" +
-    "action:\"launch\" — start an app by `package` (Android) or bundle id (iOS).\n" +
+    'Act on a running Android emulator by element `ref` from mobile_inspect — action:"tap" / "type" / "key" / "swipe" / "launch" (there is no coordinate form).\n' +
+    'action:"tap" — tap the element at `ref`.\n' +
+    'action:"type" — focus `ref` and enter `text`.\n' +
+    'action:"key" — press a device key via `key`: "back", "home", "enter", "tab", "delete", or "recents".\n' +
+    'action:"swipe" — `direction` up/down/left/right to scroll the screen, or pass `ref` to swipe that element.\n' +
+    'action:"launch" — start an app by `package` (Android) or bundle id (iOS).\n' +
     "Refs are valid for ONE screen: they are re-resolved against the live screen on every call, so a ref that has scrolled away fails loudly rather than tapping the wrong thing. There are no coordinates on purpose — a coordinate is correct for one screen size and wrong everywhere else, and it fails by succeeding on empty space.\n" +
-    "iOS Simulator has no input injection (a `simctl` limitation): only action:\"launch\" works there.",
+    'iOS Simulator has no input injection (a `simctl` limitation): only action:"launch" works there.',
   parameters: {
     type: "object",
     properties: {
@@ -438,8 +475,14 @@ ToolRegistry.register({
         type: "string",
         enum: ["tap", "type", "key", "swipe", "launch"],
       },
-      ref: { type: "string", description: "Element ref from mobile_inspect (e.g. \"m3\")." },
-      text: { type: "string", description: "With action:\"type\", what to enter." },
+      ref: {
+        type: "string",
+        description: 'Element ref from mobile_inspect (e.g. "m3").',
+      },
+      text: {
+        type: "string",
+        description: 'With action:"type", what to enter.',
+      },
       key: {
         type: "string",
         enum: ["back", "home", "enter", "tab", "delete", "recents"],
@@ -447,12 +490,17 @@ ToolRegistry.register({
       direction: {
         type: "string",
         enum: ["up", "down", "left", "right"],
-        description: "With action:\"swipe\". \"down\" reveals content further down the screen.",
+        description:
+          'With action:"swipe". "down" reveals content further down the screen.',
       },
-      package: { type: "string", description: "With action:\"launch\": Android package or iOS bundle id." },
+      package: {
+        type: "string",
+        description: 'With action:"launch": Android package or iOS bundle id.',
+      },
       device: {
         type: "string",
-        description: "Optional with one device running; REQUIRED once several are.",
+        description:
+          "Optional with one device running; REQUIRED once several are.",
       },
     },
     required: ["action"],
@@ -475,7 +523,11 @@ ToolRegistry.register({
     if (action === "launch") {
       const pkg = str(args.package);
       if (!pkg) {
-        return { success: false, error: 'action:"launch" needs `package` (Android package or iOS bundle id).' };
+        return {
+          success: false,
+          error:
+            'action:"launch" needs `package` (Android package or iOS bundle id).',
+        };
       }
       if (!isValidPackageId(pkg)) {
         return {
@@ -503,7 +555,16 @@ ToolRegistry.register({
       if (device.platform === "android") {
         const resolved = await runDeviceCli(
           "adb",
-          ["-s", device.id, "shell", "cmd", "package", "resolve-activity", "--brief", pkg],
+          [
+            "-s",
+            device.id,
+            "shell",
+            "cmd",
+            "package",
+            "resolve-activity",
+            "--brief",
+            pkg,
+          ],
           { timeoutMs: 15_000 },
         );
         // `<pkg>/<activity>` — reject anything that is not that shape rather
@@ -587,9 +648,13 @@ ToolRegistry.register({
     if (action === "swipe" && !str(args.ref)) {
       // A screen-relative swipe needs the screen size, which varies per device —
       // so read it rather than assuming a phone.
-      const size = await runDeviceCli("adb", ["-s", device.id, "shell", "wm", "size"], {
-        timeoutMs: 10_000,
-      });
+      const size = await runDeviceCli(
+        "adb",
+        ["-s", device.id, "shell", "wm", "size"],
+        {
+          timeoutMs: 10_000,
+        },
+      );
       const m = size.ok ? size.stdout.match(/(\d+)x(\d+)/) : null;
       const w = m ? Number(m[1]) : 1080;
       const h = m ? Number(m[2]) : 1920;
@@ -607,7 +672,10 @@ ToolRegistry.register({
       };
       const p = path[dir];
       if (!p) {
-        return { success: false, error: `Unknown direction "${dir}". Use up, down, left, or right.` };
+        return {
+          success: false,
+          error: `Unknown direction "${dir}". Use up, down, left, or right.`,
+        };
       }
       const r = await runDeviceCli(
         "adb",
@@ -619,7 +687,9 @@ ToolRegistry.register({
         success: true,
         device: device.label,
         title: device.label,
-        content: withNote(`Swiped ${dir}. Re-read the screen — refs from before this call are stale.`),
+        content: withNote(
+          `Swiped ${dir}. Re-read the screen — refs from before this call are stale.`,
+        ),
       };
     }
 
@@ -646,13 +716,16 @@ ToolRegistry.register({
         success: true,
         device: device.label,
         title: device.label,
-        content: withNote(`Tapped ${label}. Re-read the screen if this navigated.`),
+        content: withNote(
+          `Tapped ${label}. Re-read the screen if this navigated.`,
+        ),
       };
     }
 
     if (action === "type") {
       const text = str(args.text);
-      if (!text) return { success: false, error: 'action:"type" needs `text`.' };
+      if (!text)
+        return { success: false, error: 'action:"type" needs `text`.' };
       const tap = await runDeviceCli(
         "adb",
         ["-s", device.id, "shell", "input", "tap", String(x), String(y)],

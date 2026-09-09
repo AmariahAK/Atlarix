@@ -1,9 +1,5 @@
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
-import {
-  setupEvalContext,
-  runTurn,
-  type EvalContext,
-} from "../infra/turn";
+import { setupEvalContext, runTurn, type EvalContext } from "../infra/turn";
 import { scenario } from "../infra/scenario";
 import { expectNoStreamError, expectStreamEnded } from "../infra/assert";
 
@@ -120,7 +116,9 @@ describe("permission ruleset — deny rules at the single funnel", () => {
 
       // Denied at the funnel — no approval prompt, structured error to the model.
       expect(fakeIpc.sentOn("permission-request").length).toBe(0);
-      const blob = JSON.stringify(ctx.server.requestsFor("global-ruleset-deny"));
+      const blob = JSON.stringify(
+        ctx.server.requestsFor("global-ruleset-deny"),
+      );
       expect(blob).toContain("Blocked by permission rule");
       expect(blob).toContain("run_command(curl *)");
     } finally {
@@ -128,7 +126,6 @@ describe("permission ruleset — deny rules at the single funnel", () => {
       ctx.ws.write(".atlarix/permissions.json", JSON.stringify({ deny: [] }));
     }
   }, 30_000);
-
 
   it("a retired tool name executes, and a rule on the CURRENT name still blocks it", async () => {
     // TWO defects found together while consolidating browser 6→2 (v14.41).
@@ -184,7 +181,6 @@ describe("permission ruleset — deny rules at the single funnel", () => {
     ctx.ws.write(".atlarix/permissions.json", JSON.stringify({ deny: [] }));
   }, 30_000);
 
-
   it("a rule written against a RETIRED name keeps blocking it", async () => {
     // The other direction, and the reason the gate checks BOTH names rather
     // than canonicalising once: making the alias executable would otherwise
@@ -227,5 +223,4 @@ describe("permission ruleset — deny rules at the single funnel", () => {
 
     ctx.ws.write(".atlarix/permissions.json", JSON.stringify({ deny: [] }));
   }, 30_000);
-
 });

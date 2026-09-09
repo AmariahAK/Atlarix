@@ -10,7 +10,11 @@ import {
 // Capture the onTokenUsage handler the hook registers so the test can drive
 // backend emits. This is the whole point of the hook living in an always-mounted
 // component: the meter must update from these events WITHOUT any popover mounted.
-type Buckets = { filesRead: number; searchResults: number; otherToolOutput: number };
+type Buckets = {
+  filesRead: number;
+  searchResults: number;
+  otherToolOutput: number;
+};
 type Emit = {
   chatId: number;
   inputTokens: number | null;
@@ -120,7 +124,11 @@ describe("live per-tool buckets", () => {
       outputTokens: 10,
       toolBuckets: { filesRead: 800, searchResults: 0, otherToolOutput: 0 },
     });
-    expect(readBuckets()).toEqual({ filesRead: 800, searchResults: 0, otherToolOutput: 0 });
+    expect(readBuckets()).toEqual({
+      filesRead: 800,
+      searchResults: 0,
+      otherToolOutput: 0,
+    });
 
     tokenHandler!({
       chatId: CHAT_ID,
@@ -128,7 +136,11 @@ describe("live per-tool buckets", () => {
       outputTokens: 20,
       toolBuckets: { filesRead: 800, searchResults: 350, otherToolOutput: 0 },
     });
-    expect(readBuckets()).toEqual({ filesRead: 800, searchResults: 350, otherToolOutput: 0 });
+    expect(readBuckets()).toEqual({
+      filesRead: 800,
+      searchResults: 350,
+      otherToolOutput: 0,
+    });
   });
 
   it("assigns the running total rather than accumulating it", () => {

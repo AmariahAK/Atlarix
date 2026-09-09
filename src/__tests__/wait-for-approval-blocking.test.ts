@@ -12,7 +12,9 @@ describe("waitForApproval — v14.7 indefinite mid-loop block", () => {
     const stillPending = Symbol("still-pending");
     const raced = await Promise.race([
       wait.then(() => "resolved" as const),
-      new Promise<typeof stillPending>((r) => setTimeout(() => r(stillPending), 50)),
+      new Promise<typeof stillPending>((r) =>
+        setTimeout(() => r(stillPending), 50),
+      ),
     ]);
     // The old grace window (4s → "undecided") is gone; after 50ms it's still blocked.
     expect(raced).toBe(stillPending);
@@ -21,7 +23,9 @@ describe("waitForApproval — v14.7 indefinite mid-loop block", () => {
   it("rejects (AbortError) when the turn's signal aborts (Stop)", async () => {
     const interceptor = new PermissionInterceptor("/tmp/atlarix-test-ws");
     const ac = new AbortController();
-    const wait = interceptor.waitForApproval("op-abort", { abortSignal: ac.signal });
+    const wait = interceptor.waitForApproval("op-abort", {
+      abortSignal: ac.signal,
+    });
     ac.abort();
     await expect(wait).rejects.toThrow();
   });

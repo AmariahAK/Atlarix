@@ -1,5 +1,13 @@
 import { useNavigate } from "@tanstack/react-router";
-import { ChevronDown, ChevronRight, Plus, Folder, MessageSquare, Search, EyeOff } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Plus,
+  Folder,
+  MessageSquare,
+  Search,
+  EyeOff,
+} from "lucide-react";
 import { Trash2 } from "lucide-react";
 import { useAtom, useSetAtom } from "jotai";
 import { selectedAppIdAtom, selectedWorkspaceInfoAtom } from "@/atoms/appAtoms";
@@ -51,13 +59,12 @@ export function AppList({ show }: { show?: boolean }) {
   const setActiveChatId = useSetAtom(activeChatIdAtom);
   const [activeWorkspaceSessionId] = useAtom(activeWorkspaceSessionIdAtom);
 
-  // Pro (unlimited) + the main-process workspace-limit signal.
-  const canAddWorkspace = useMemo(() => {
-    if (!isAuthenticated || !status) return false;
-    if (status.canCreateWorkspace) return true;
-    if (status.plan === "pro") return true;
-    return apps.length < 1;
-  }, [status, apps.length, isAuthenticated]);
+  // Workspaces are unlimited on every plan (2026-09-08). Signed in is the only
+  // requirement — a workspace is still an account-scoped row.
+  const canAddWorkspace = useMemo(
+    () => isAuthenticated && !!status,
+    [status, isAuthenticated],
+  );
 
   // Load chats for each workspace
   useEffect(() => {
@@ -67,9 +74,8 @@ export function AppList({ show }: { show?: boolean }) {
       const workspacesWithChats = await Promise.all(
         apps.map(async (app) => {
           try {
-            const sessions = await IpcClient.getInstance().listWorkspaceSessions(
-              app.id,
-            );
+            const sessions =
+              await IpcClient.getInstance().listWorkspaceSessions(app.id);
             const chats = sessions.map(
               (s: { id: string; title: string | null; createdAt: Date }) => ({
                 id: s.id as unknown as number,
@@ -83,7 +89,7 @@ export function AppList({ show }: { show?: boolean }) {
             return {
               id: app.id,
               name: app.name,
-              path: app.path || '',
+              path: app.path || "",
               chats: chats.slice(0, 10),
               isExpanded: app.id === selectedAppId,
               workspaceStatus,
@@ -92,14 +98,14 @@ export function AppList({ show }: { show?: boolean }) {
             return {
               id: app.id,
               name: app.name,
-              path: app.path || '',
+              path: app.path || "",
               chats: [],
               isExpanded: false,
               workspaceStatus:
                 app.status ?? (app.pathExists === false ? "missing" : "active"),
             };
           }
-        })
+        }),
       );
       setWorkspaces(workspacesWithChats);
     };
@@ -138,9 +144,11 @@ export function AppList({ show }: { show?: boolean }) {
   }
 
   const toggleWorkspace = (workspaceId: number) => {
-    setWorkspaces(prev => prev.map(w =>
-      w.id === workspaceId ? { ...w, isExpanded: !w.isExpanded } : w
-    ));
+    setWorkspaces((prev) =>
+      prev.map((w) =>
+        w.id === workspaceId ? { ...w, isExpanded: !w.isExpanded } : w,
+      ),
+    );
   };
 
   const handleNewConversationInWorkspace = async (workspaceId: number) => {
@@ -199,7 +207,11 @@ export function AppList({ show }: { show?: boolean }) {
                 className="h-6 w-6 p-0 opacity-0 group-hover/header:opacity-100 transition-opacity hover:text-destructive"
                 title="Delete ALL Workspaces"
                 onClick={async () => {
-                  if (confirm("WARNING: DELETE ALL WORKSPACES? This removes all workspaces from Atlarix.")) {
+                  if (
+                    confirm(
+                      "WARNING: DELETE ALL WORKSPACES? This removes all workspaces from Atlarix.",
+                    )
+                  ) {
                     for (const app of apps) {
                       clearDeletedWorkspaceClientState(app.id, queryClient);
                       try {
@@ -216,7 +228,8 @@ export function AppList({ show }: { show?: boolean }) {
                     navigate({ to: "/" });
                     try {
                       const ipc = window.electron?.ipcRenderer;
-                      if (ipc?.invoke) await ipc.invoke("onboarding:set-completed", false);
+                      if (ipc?.invoke)
+                        await ipc.invoke("onboarding:set-completed", false);
                     } catch {
                       // ignore
                     }
@@ -234,21 +247,6 @@ export function AppList({ show }: { show?: boolean }) {
                 className="h-6 w-6 p-0"
                 title="Add workspace (browse folder)"
                 onClick={() => void handleBrowseWorkspace()}
-              >
-                <Plus className="h-4 w-4" />
-              </Button>
-            )}
-            {/* Show disabled + button with tooltip for Free tier users at limit */}
-            {selectedAppId == null &&
-              isAuthenticated &&
-              status?.plan === "free" &&
-              apps.length >= 1 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 w-6 p-0 opacity-50 cursor-not-allowed"
-                title="Upgrade to Pro for unlimited workspaces"
-                disabled
               >
                 <Plus className="h-4 w-4" />
               </Button>
@@ -300,7 +298,8 @@ export function AppList({ show }: { show?: boolean }) {
                     try {
                       await IpcClient.getInstance().deleteApp(ws.id);
                     } catch (err) {
-                      const errorMessage = err instanceof Error ? err.message : "";
+                      const errorMessage =
+                        err instanceof Error ? err.message : "";
                       if (
                         !errorMessage.includes("not found") &&
                         !errorMessage.includes("already been deleted")
@@ -312,164 +311,179 @@ export function AppList({ show }: { show?: boolean }) {
                     if (apps.length <= 1) {
                       try {
                         const ipc = window.electron?.ipcRenderer;
-                        if (ipc?.invoke) await ipc.invoke("onboarding:set-completed", false);
+                        if (ipc?.invoke)
+                          await ipc.invoke("onboarding:set-completed", false);
                       } catch {
                         /* ignore */
                       }
                     }
                   };
                   return (
-                  <div
-                    key={ws.id}
-                    className={`border-b border-border/50 ${isMissing ? "opacity-50" : ""}`}
-                  >
-                    {/* Workspace Header */}
                     <div
-                      className={`group flex items-center gap-1 px-2 py-1.5 transition-colors ${isMissing ? "cursor-default" : "cursor-pointer hover:bg-accent/50"} ${selectedAppId === ws.id && !isMissing ? "bg-accent" : ""
-                        }`}
-                      onClick={() => {
-                        if (isMissing) return;
-                        setSelectedAppId(ws.id);
-                        setSelectedWorkspaceInfo({
-                          id: ws.id,
-                          name: ws.name,
-                          path: ws.path,
-                        });
-                        setWorkspaces((prev) =>
-                          prev.map((w) =>
-                            w.id === ws.id
-                              ? { ...w, isExpanded: true }
-                              : { ...w, isExpanded: false },
-                          ),
-                        );
-                      }}
-                      onDoubleClick={() => {
-                        if (isMissing) return;
-                        handleNewChatInWorkspace(ws.id);
-                      }}
+                      key={ws.id}
+                      className={`border-b border-border/50 ${isMissing ? "opacity-50" : ""}`}
                     >
-                      <button
-                        type="button"
-                        disabled={isMissing}
-                        onClick={(e) => {
-                          e.stopPropagation();
+                      {/* Workspace Header */}
+                      <div
+                        className={`group flex items-center gap-1 px-2 py-1.5 transition-colors ${isMissing ? "cursor-default" : "cursor-pointer hover:bg-accent/50"} ${
+                          selectedAppId === ws.id && !isMissing
+                            ? "bg-accent"
+                            : ""
+                        }`}
+                        onClick={() => {
                           if (isMissing) return;
-                          toggleWorkspace(ws.id);
+                          setSelectedAppId(ws.id);
+                          setSelectedWorkspaceInfo({
+                            id: ws.id,
+                            name: ws.name,
+                            path: ws.path,
+                          });
+                          setWorkspaces((prev) =>
+                            prev.map((w) =>
+                              w.id === ws.id
+                                ? { ...w, isExpanded: true }
+                                : { ...w, isExpanded: false },
+                            ),
+                          );
                         }}
-                        className="p-0.5 hover:bg-accent rounded disabled:opacity-40 disabled:pointer-events-none"
+                        onDoubleClick={() => {
+                          if (isMissing) return;
+                          handleNewChatInWorkspace(ws.id);
+                        }}
                       >
-                        {ws.isExpanded ? (
-                          <ChevronDown className="h-3 w-3" />
-                        ) : (
-                          <ChevronRight className="h-3 w-3" />
-                        )}
-                      </button>
-
-                      <Folder className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0" />
-
-                      <span className="flex-1 text-sm font-medium truncate">
-                        {ws.name}
-                      </span>
-
-                      {isMissing ? (
-                        <Badge variant="outline" className="text-[10px] h-4 shrink-0 text-muted-foreground">
-                          Folder not found
-                        </Badge>
-                      ) : null}
-
-                      {ws.chats.length > 0 && !isMissing ? (
-                        <Badge variant="secondary" className="text-[10px] h-4">
-                          {ws.chats.length}
-                        </Badge>
-                      ) : null}
-
-                      {isMissing ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-7 text-xs shrink-0 pointer-events-auto"
-                          onClick={async (e) => {
-                            e.stopPropagation();
-                            if (
-                              confirm(
-                                `Remove workspace "${ws.name}" from Atlarix? The folder is missing on disk.`,
-                              )
-                            ) {
-                              await runDeleteWorkspace();
-                            }
-                          }}
-                        >
-                          Remove
-                        </Button>
-                      ) : (
-                      <div className={`flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity ${selectedAppId === ws.id ? "opacity-100" : ""}`}>
                         <button
                           type="button"
+                          disabled={isMissing}
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleNewChatInWorkspace(ws.id);
+                            if (isMissing) return;
+                            toggleWorkspace(ws.id);
                           }}
-                          className="p-1 hover:bg-emerald-500/20 rounded text-muted-foreground hover:text-emerald-500"
-                          title="New chat in workspace"
+                          className="p-0.5 hover:bg-accent rounded disabled:opacity-40 disabled:pointer-events-none"
                         >
-                          <Plus className="h-3.5 w-3.5" />
+                          {ws.isExpanded ? (
+                            <ChevronDown className="h-3 w-3" />
+                          ) : (
+                            <ChevronRight className="h-3 w-3" />
+                          )}
                         </button>
 
-                        <button
-                          type="button"
-                          onClick={async (e) => {
-                            e.stopPropagation();
-                            if (confirm(`Delete workspace "${ws.name}"? This will remove it from Atlarix.`)) {
-                              await runDeleteWorkspace();
-                            }
-                          }}
-                          className="p-1 hover:bg-destructive/10 rounded text-muted-foreground hover:text-destructive"
-                          title="Delete workspace"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                        <Folder className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0" />
+
+                        <span className="flex-1 text-sm font-medium truncate">
+                          {ws.name}
+                        </span>
+
+                        {isMissing ? (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] h-4 shrink-0 text-muted-foreground"
+                          >
+                            Folder not found
+                          </Badge>
+                        ) : null}
+
+                        {ws.chats.length > 0 && !isMissing ? (
+                          <Badge
+                            variant="secondary"
+                            className="text-[10px] h-4"
+                          >
+                            {ws.chats.length}
+                          </Badge>
+                        ) : null}
+
+                        {isMissing ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-xs shrink-0 pointer-events-auto"
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              if (
+                                confirm(
+                                  `Remove workspace "${ws.name}" from Atlarix? The folder is missing on disk.`,
+                                )
+                              ) {
+                                await runDeleteWorkspace();
+                              }
+                            }}
+                          >
+                            Remove
+                          </Button>
+                        ) : (
+                          <div
+                            className={`flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity ${selectedAppId === ws.id ? "opacity-100" : ""}`}
+                          >
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleNewChatInWorkspace(ws.id);
+                              }}
+                              className="p-1 hover:bg-emerald-500/20 rounded text-muted-foreground hover:text-emerald-500"
+                              title="New chat in workspace"
+                            >
+                              <Plus className="h-3.5 w-3.5" />
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                if (
+                                  confirm(
+                                    `Delete workspace "${ws.name}"? This will remove it from Atlarix.`,
+                                  )
+                                ) {
+                                  await runDeleteWorkspace();
+                                }
+                              }}
+                              className="p-1 hover:bg-destructive/10 rounded text-muted-foreground hover:text-destructive"
+                              title="Delete workspace"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        )}
                       </div>
+
+                      {/* Sessions — when expanded */}
+                      {ws.isExpanded && !isMissing && (
+                        <div className="pl-6 pr-2 pt-1">
+                          <div className="text-[10px] font-medium text-muted-foreground px-1 mb-1">
+                            Sessions
+                          </div>
+                          <div data-onboarding="workspace-sessions">
+                            <WorkspaceSessionList
+                              workspaceId={ws.id}
+                              activeSessionId={
+                                selectedAppId === ws.id
+                                  ? activeWorkspaceSessionId
+                                  : null
+                              }
+                            />
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="w-full justify-start text-xs mt-2 h-8"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleNewConversationInWorkspace(ws.id);
+                            }}
+                          >
+                            <MessageSquare className="h-3.5 w-3.5 mr-2" />
+                            New conversation
+                          </Button>
+                        </div>
                       )}
                     </div>
-
-                    {/* Sessions — when expanded */}
-                    {ws.isExpanded && !isMissing && (
-                      <div className="pl-6 pr-2 pt-1">
-                        <div className="text-[10px] font-medium text-muted-foreground px-1 mb-1">
-                          Sessions
-                        </div>
-                        <div data-onboarding="workspace-sessions">
-                          <WorkspaceSessionList
-                            workspaceId={ws.id}
-                            activeSessionId={
-                              selectedAppId === ws.id
-                                ? activeWorkspaceSessionId
-                                : null
-                            }
-                          />
-                        </div>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="w-full justify-start text-xs mt-2 h-8"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void handleNewConversationInWorkspace(ws.id);
-                          }}
-                        >
-                          <MessageSquare className="h-3.5 w-3.5 mr-2" />
-                          New conversation
-                        </Button>
-                      </div>
-                    )}
-                  </div>
                   );
                 })}
               </SidebarMenu>
             )}
-
           </div>
         </SidebarGroupContent>
       </SidebarGroup>

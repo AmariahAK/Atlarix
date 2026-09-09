@@ -44,8 +44,8 @@ export function IntegrationsCoAuthorPage() {
         </div>
         <p className="text-xs text-muted-foreground max-w-xl">
           When enabled, every commit made through Atlarix includes a
-          Co-authored-by trailer for atlarix-agent. Commits are always authored by
-          your own git config — Atlarix never passes <code>--author</code> or
+          Co-authored-by trailer for atlarix-agent. Commits are always authored
+          by your own git config — Atlarix never passes <code>--author</code> or
           changes your identity.
         </p>
       </div>

@@ -23,7 +23,9 @@ let ws = "";
 let sibling = "";
 
 beforeAll(() => {
-  base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "atlarix-sib-")));
+  base = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), "atlarix-sib-")),
+  );
   ws = path.join(base, "wisdom-drop");
   sibling = path.join(base, "telios");
   fs.mkdirSync(path.join(ws, "src"), { recursive: true });
@@ -54,7 +56,9 @@ describe("globbing a sibling project", () => {
   });
 
   it("gives the same answer as the absolute path", async () => {
-    const viaRelative = text(await glob({ pattern: "**/*", path: "../telios" }));
+    const viaRelative = text(
+      await glob({ pattern: "**/*", path: "../telios" }),
+    );
     const viaAbsolute = text(await glob({ pattern: "**/*", path: sibling }));
     expect(viaRelative).toBe(viaAbsolute);
   });
@@ -76,7 +80,11 @@ describe("globbing a sibling project", () => {
     fs.mkdirSync(tied, { recursive: true });
     for (const name of ["zebra.md", "alpha.md", "middle.md"]) {
       fs.writeFileSync(path.join(tied, name), "x");
-      fs.utimesSync(path.join(tied, name), new Date(1_700_000_000_000), new Date(1_700_000_000_000));
+      fs.utimesSync(
+        path.join(tied, name),
+        new Date(1_700_000_000_000),
+        new Date(1_700_000_000_000),
+      );
     }
 
     const first = text(await glob({ pattern: "**/*", path: tied }));
@@ -105,8 +113,8 @@ describe("globbing a sibling project", () => {
   it("an absolute-looking relative paste is still refused", async () => {
     // Not a location to allow — a dropped leading slash is a typo, and resolving
     // it under the workspace would silently target the wrong tree.
-    expect(text(await glob({ pattern: "*", path: "Users/me/elsewhere" }))).toMatch(
-      /outside|escape|not.*allow|fail/i,
-    );
+    expect(
+      text(await glob({ pattern: "*", path: "Users/me/elsewhere" })),
+    ).toMatch(/outside|escape|not.*allow|fail/i);
   });
 });

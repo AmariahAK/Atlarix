@@ -1,5 +1,9 @@
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
-import { setupEvalContext, getIpcHandler, type EvalContext } from "../infra/turn";
+import {
+  setupEvalContext,
+  getIpcHandler,
+  type EvalContext,
+} from "../infra/turn";
 import { scenario } from "../infra/scenario";
 import { writeTestSettings } from "../infra/settings";
 import { makeFakeIpcEvent } from "../infra/ipc";
@@ -18,7 +22,9 @@ import { expectNoStreamError, expectStreamEnded } from "../infra/assert";
 let ctx: EvalContext;
 
 beforeAll(async () => {
-  ctx = await setupEvalContext({ seedFiles: { "src/x.ts": "export const x = 1;\n" } });
+  ctx = await setupEvalContext({
+    seedFiles: { "src/x.ts": "export const x = 1;\n" },
+  });
 });
 
 afterAll(async () => {
@@ -34,7 +40,9 @@ describe("supersede cascade", () => {
         .repeatLast()
         .build(),
     );
-    ctx.server.register(scenario("supersede-second").text("Second turn answer.").build());
+    ctx.server.register(
+      scenario("supersede-second").text("Second turn answer.").build(),
+    );
 
     writeTestSettings({
       selectedChatMode: "build",
@@ -51,12 +59,22 @@ describe("supersede cascade", () => {
     const fakeB = makeFakeIpcEvent();
 
     // Dispatch A (returns immediately; runStream continues in background)…
-    await handler(fakeA.event, { chatId, prompt: "sc=supersede-first Do the first thing." });
+    await handler(fakeA.event, {
+      chatId,
+      prompt: "sc=supersede-first Do the first thing.",
+    });
     // …then immediately supersede it with B on the SAME chat.
-    await handler(fakeB.event, { chatId, prompt: "sc=supersede-second Actually, do this instead." });
+    await handler(fakeB.event, {
+      chatId,
+      prompt: "sc=supersede-second Actually, do this instead.",
+    });
 
     // B must reach a clean terminal.
-    await fakeB.waitFor("chat:response:end", (p) => p?.chatId === chatId, 25_000);
+    await fakeB.waitFor(
+      "chat:response:end",
+      (p) => p?.chatId === chatId,
+      25_000,
+    );
 
     expectNoStreamError(fakeB.sends, chatId);
     expectStreamEnded(fakeB.sends, chatId);

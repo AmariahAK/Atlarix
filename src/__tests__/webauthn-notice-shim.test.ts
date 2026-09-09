@@ -29,7 +29,10 @@ import {
   WEBAUTHN_NOTICE_SCRIPT,
   WEBAUTHN_UNSUPPORTED_MESSAGE,
 } from "@/lib/browser/webauthn-notice";
-import { ERROR_SENTINEL, tryParseErrorSentinel } from "@/lib/browser/error-hook";
+import {
+  ERROR_SENTINEL,
+  tryParseErrorSentinel,
+} from "@/lib/browser/error-hook";
 
 /** Run the injected script against a fake page and hand back its moving parts. */
 function installShim() {
@@ -126,10 +129,14 @@ describe("WEBAUTHN_NOTICE_SCRIPT", () => {
     // regardless and told those users to go and use a different browser.
     const { logged, navigator } = installShim();
     await navigator.credentials.create({
-      publicKey: { authenticatorSelection: { authenticatorAttachment: "cross-platform" } },
+      publicKey: {
+        authenticatorSelection: { authenticatorAttachment: "cross-platform" },
+      },
     });
     await navigator.credentials.get({
-      publicKey: { allowCredentials: [{ id: "x", transports: ["usb", "nfc"] }] },
+      publicKey: {
+        allowCredentials: [{ id: "x", transports: ["usb", "nfc"] }],
+      },
     });
     expect(logged).toEqual([]);
   });
@@ -137,7 +144,9 @@ describe("WEBAUTHN_NOTICE_SCRIPT", () => {
   it("still reports when the platform authenticator is explicitly required", async () => {
     const { logged, navigator } = installShim();
     await navigator.credentials.create({
-      publicKey: { authenticatorSelection: { authenticatorAttachment: "platform" } },
+      publicKey: {
+        authenticatorSelection: { authenticatorAttachment: "platform" },
+      },
     });
     expect(logged).toHaveLength(1);
   });

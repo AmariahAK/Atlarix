@@ -77,7 +77,8 @@ export function StreamToolCallCard({
         className={cn(
           streamToolCardButton,
           expandable && "cursor-pointer",
-          !expandable && "cursor-default hover:bg-transparent dark:hover:bg-transparent",
+          !expandable &&
+            "cursor-default hover:bg-transparent dark:hover:bg-transparent",
         )}
         aria-expanded={expandable ? open : undefined}
       >
@@ -101,12 +102,14 @@ export function StreamToolCallCard({
         ) : null}
         {resolvedExpand.kind === "diff" ? (
           <span className="shrink-0 flex items-center gap-1 text-[10px] font-medium tabular-nums">
-            {resolvedExpand.addedCount != null && resolvedExpand.addedCount > 0 ? (
+            {resolvedExpand.addedCount != null &&
+            resolvedExpand.addedCount > 0 ? (
               <span className="text-emerald-600 dark:text-emerald-500">
                 +{resolvedExpand.addedCount}
               </span>
             ) : null}
-            {resolvedExpand.removedCount != null && resolvedExpand.removedCount > 0 ? (
+            {resolvedExpand.removedCount != null &&
+            resolvedExpand.removedCount > 0 ? (
               <span className="text-red-600 dark:text-red-400">
                 -{resolvedExpand.removedCount}
               </span>

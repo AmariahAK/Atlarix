@@ -82,7 +82,9 @@ describe("injectAgentGitIdentity", () => {
   });
 
   it("does not touch non-commit git commands", () => {
-    expect(injectAgentGitIdentity("git status", "DeepSeek V4")).toBe("git status");
+    expect(injectAgentGitIdentity("git status", "DeepSeek V4")).toBe(
+      "git status",
+    );
     expect(injectAgentGitIdentity("npm test", "DeepSeek V4")).toBe("npm test");
   });
 

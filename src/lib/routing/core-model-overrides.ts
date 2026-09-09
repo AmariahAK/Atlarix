@@ -192,13 +192,18 @@ async function saveToCache(raw: unknown): Promise<void> {
  * the overrides. On any failure, fall back to the on-disk cache; if that's also
  * missing, leave the store as-is (env fallback). Never throws.
  */
-export async function refreshCoreModelOverrides(): Promise<void> {
+/**
+ * One fetch attempt. Separated so the retry above it stays readable.
+ *
+ * Cache-bust: the raw.githubusercontent CDN can serve a stale body for minutes after
+ * a commit. A unique query param + no-store defeats it so a `core-models.json` edit
+ * is picked up promptly. (Measured 2026-09-09: the buster is NOT what makes the
+ * origin 503 — 10/10 succeeded with it against 9/10 without.)
+ */
+async function fetchCoreModelsOnce(): Promise<unknown> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-    // Cache-bust: the raw.githubusercontent CDN can serve a stale body for
-    // minutes after a commit. A unique query param + no-store defeats it so a
-    // `core-models.json` edit is picked up promptly.
     const url = `${REMOTE_URL}${REMOTE_URL.includes("?") ? "&" : "?"}t=${Date.now()}`;
     const res = await fetch(url, {
       headers: {
@@ -209,10 +214,54 @@ export async function refreshCoreModelOverrides(): Promise<void> {
       cache: "no-store",
       signal: controller.signal,
     });
-    clearTimeout(timeout);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
-    const raw = await res.json();
+/**
+ * How many times to try before falling back to the cache.
+ *
+ * WHY A RETRY EXISTS AT ALL. `raw.githubusercontent.com` returns intermittent
+ * `503 Backend.max_conn reached` — measured at roughly 1 in 10 requests on
+ * 2026-09-09, and it hit this app four times in one day (09:32, 10:14, 13:27, 13:45).
+ * A single attempt therefore meant that on about one launch in ten the lineup silently
+ * came from a cache up to an hour stale, which is precisely how a shipped
+ * `core-models.json` change appeared not to have shipped: the app showed the PREVIOUS
+ * tier-3 model and nothing said why.
+ *
+ * Three attempts takes that from ~10% to ~0.1%. Deliberately small and short: this
+ * runs at startup, the cache fallback below is a correct answer rather than a failure,
+ * and the hourly refresh will try again regardless.
+ */
+const FETCH_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 400;
+
+export async function refreshCoreModelOverrides(): Promise<void> {
+  try {
+    let raw: unknown;
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= FETCH_ATTEMPTS; attempt++) {
+      try {
+        raw = await fetchCoreModelsOnce();
+        lastError = undefined;
+        break;
+      } catch (e) {
+        lastError = e;
+        // Do not sleep after the final attempt — nobody is waiting on it.
+        if (attempt < FETCH_ATTEMPTS) {
+          logger.warn(
+            `core-models fetch attempt ${attempt}/${FETCH_ATTEMPTS} failed, retrying`,
+            e,
+          );
+          await new Promise((r) => setTimeout(r, RETRY_DELAY_MS * attempt));
+        }
+      }
+    }
+    if (lastError) throw lastError;
+
     const map = parseCoreModelsPayload(raw);
     if (map) {
       await saveToCache(raw);
@@ -223,7 +272,9 @@ export async function refreshCoreModelOverrides(): Promise<void> {
       );
       return;
     }
-    logger.warn("core-models.json had no usable overrides — keeping env fallback");
+    logger.warn(
+      "core-models.json had no usable overrides — keeping env fallback",
+    );
   } catch (e) {
     logger.warn("core-models fetch failed, trying cache", e);
     const cachedRaw = await loadRawFromCache();

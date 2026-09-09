@@ -69,7 +69,9 @@ describe("reasoning reaches the provider", () => {
   }, 30_000);
 
   it("Deep OFF sends one step below it — never a level the model did not list", async () => {
-    ctx.server.register(scenario("reasoning-deep-off").text("ok done.").build());
+    ctx.server.register(
+      scenario("reasoning-deep-off").text("ok done.").build(),
+    );
     const chatId = await ctx.newChat();
     await runTurn(ctx, {
       chatId,

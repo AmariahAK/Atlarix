@@ -46,7 +46,7 @@ describe("formatA11ySnapshot", () => {
     expect(out).toContain('value="abc"');
   });
 
-  it("renders the combined read (content + controls) for filter:\"all\"", () => {
+  it('renders the combined read (content + controls) for filter:"all"', () => {
     const snap: A11ySnapshot = {
       url: "https://app.test/",
       title: "Docs",
@@ -56,8 +56,20 @@ describe("formatA11ySnapshot", () => {
       filter: "all",
       viewport: "1280x800",
       elements: [
-        { ref: "e1", role: "h1", name: "", text: "Getting started", kind: "content" },
-        { ref: "e2", role: "p", name: "", text: "Install the CLI first.", kind: "content" },
+        {
+          ref: "e1",
+          role: "h1",
+          name: "",
+          text: "Getting started",
+          kind: "content",
+        },
+        {
+          ref: "e2",
+          role: "p",
+          name: "",
+          text: "Install the CLI first.",
+          kind: "content",
+        },
         { ref: "e3", role: "button", name: "Copy", kind: "control" },
       ],
     };
@@ -115,7 +127,12 @@ describe("formatA11yFind", () => {
   });
 
   it("tells the model what to do next when nothing matched", () => {
-    const res: A11yFindResult = { ...base, total: 0, truncated: false, matches: [] };
+    const res: A11yFindResult = {
+      ...base,
+      total: 0,
+      truncated: false,
+      matches: [],
+    };
     const out = formatA11yFind(res);
     expect(out).toContain('No elements matched "sign in"');
     expect(out).toContain("browser_inspect");

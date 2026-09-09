@@ -39,9 +39,10 @@ describe("plan artifact display", () => {
   });
 
   it("drops duplicated long plan tables after artifact marker", () => {
-    const longPlan = `${marker}\n${body}\n\n## 1. Foo\n\n| # | Item |\n|---|------|\n| 1.1 | x |\n`.repeat(
-      20,
-    );
+    const longPlan =
+      `${marker}\n${body}\n\n## 1. Foo\n\n| # | Item |\n|---|------|\n| 1.1 | x |\n`.repeat(
+        20,
+      );
     const stripped = stripPlanArtifactEchoFromDisplay(longPlan);
     expect(stripped).not.toContain("| 1.1 |");
     expect(stripped).toContain("executive summary");

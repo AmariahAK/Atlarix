@@ -1,5 +1,8 @@
 import { sanitizePromptInput } from "./prompt-hygiene";
-import { assertUserMessageAllowed, ChatPromptSafetyError } from "./profanity-filter";
+import {
+  assertUserMessageAllowed,
+  ChatPromptSafetyError,
+} from "./profanity-filter";
 
 export { ChatPromptSafetyError };
 

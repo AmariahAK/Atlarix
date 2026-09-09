@@ -46,8 +46,7 @@ function gitInstallHint(): string {
   }
 }
 
-export const GIT_NOT_INSTALLED_MESSAGE =
-  `Git is not installed (or not on PATH). Install Git — ${gitInstallHint()} — to enable version control features.`;
+export const GIT_NOT_INSTALLED_MESSAGE = `Git is not installed (or not on PATH). Install Git — ${gitInstallHint()} — to enable version control features.`;
 
 /** Exit 127 is exec()'s sentinel for "no usable git binary" (see above). */
 export function isGitMissingResult(result: IGitResult): boolean {
@@ -70,7 +69,10 @@ export function resetGitAvailabilityCacheForTests(): void {
   gitAvailabilityProbe = null;
 }
 
-function resolveGitBinary(): { gitPath: string; extraEnv: Record<string, string> } {
+function resolveGitBinary(): {
+  gitPath: string;
+  extraEnv: Record<string, string>;
+} {
   const local = process.env.LOCAL_GIT_DIRECTORY?.trim();
   if (local) {
     if (process.platform === "win32") {
@@ -110,7 +112,11 @@ export function execStreaming(
     try {
       child = spawn(gitPath, args, {
         cwd,
-        env: { ...process.env, ...extraEnv, ...options?.env } as NodeJS.ProcessEnv,
+        env: {
+          ...process.env,
+          ...extraEnv,
+          ...options?.env,
+        } as NodeJS.ProcessEnv,
         signal: options?.signal,
         windowsHide: true,
       });
@@ -148,7 +154,11 @@ export function execStreaming(
 
     child.on("error", (error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") {
-        settle({ exitCode: 127, stdout: "", stderr: GIT_NOT_INSTALLED_MESSAGE });
+        settle({
+          exitCode: 127,
+          stdout: "",
+          stderr: GIT_NOT_INSTALLED_MESSAGE,
+        });
         return;
       }
       // Aborted via signal, or spawn failure: surface a code, never reject.
@@ -183,13 +193,19 @@ export function exec(
         encoding: "utf8",
         // git log/show output on large repos can be hefty.
         maxBuffer: 64 * 1024 * 1024,
-        env: { ...process.env, ...extraEnv, ...options?.env } as NodeJS.ProcessEnv,
+        env: {
+          ...process.env,
+          ...extraEnv,
+          ...options?.env,
+        } as NodeJS.ProcessEnv,
         signal: options?.signal,
         windowsHide: true,
       },
       (error, stdout, stderr) => {
         if (error) {
-          const err = error as NodeJS.ErrnoException & { code?: string | number };
+          const err = error as NodeJS.ErrnoException & {
+            code?: string | number;
+          };
           if (err.code === "ENOENT") {
             resolve({
               exitCode: 127,

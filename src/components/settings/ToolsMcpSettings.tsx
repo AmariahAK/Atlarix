@@ -14,7 +14,6 @@ import {
 } from "@/components/ui/select";
 import { useMcp, type Transport } from "@/hooks/useMcp";
 import { McpOAuthServerActions } from "@/components/McpOAuthPrompt";
-import { useAuth } from "@/lib/auth/useAuth";
 import { showError, showInfo, showSuccess } from "@/lib/toast";
 import {
   ChevronsDownUp,
@@ -30,10 +29,12 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { UrlInputField, UrlReadOnlyRow } from "@/components/settings/UrlDisplayField";
+import {
+  UrlInputField,
+  UrlReadOnlyRow,
+} from "@/components/settings/UrlDisplayField";
 import { IpcClient } from "@/ipc/ipc_client";
 import { useSettings } from "@/hooks/useSettings";
-import { useUpgrade } from "@/hooks/useUpgrade";
 import { useDeepLink } from "@/contexts/DeepLinkContext";
 import { AddMcpServerDeepLinkData } from "@/ipc/deep_link_data";
 
@@ -331,18 +332,13 @@ export function ToolsMcpSettings({
     isDeleting,
     refetchAll,
   } = useMcp(filter);
-  const { status: authStatus, loading: authLoading } = useAuth();
   const { settings, updateSettings } = useSettings();
-  const { handleUpgrade } = useUpgrade();
   const [sandboxDiag, setSandboxDiag] = useState<{
     platform: string;
     firejailFound: boolean;
     firejailPath: string | null;
     sandboxWouldBeActive: boolean;
   } | null>(null);
-  const plan = authStatus?.plan;
-  // Only enforce the free-tier limit when we know the user is on the free plan.
-  const mcpAtFreeLimit = !authLoading && plan === "free" && servers.length >= 1;
   const atMaxServers = maxServers != null && servers.length >= maxServers;
   const countLabel =
     maxServers != null ? `${servers.length}/${maxServers}` : null;
@@ -353,7 +349,9 @@ export function ToolsMcpSettings({
   const [command, setCommand] = useState("");
   const [args, setArgs] = useState<string>("");
   const [url, setUrl] = useState("");
-  const [httpAuthMode, setHttpAuthMode] = useState<"api_key" | "oauth">("api_key");
+  const [httpAuthMode, setHttpAuthMode] = useState<"api_key" | "oauth">(
+    "api_key",
+  );
   const [apiKey, setApiKey] = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
   const [enabled, setEnabled] = useState(true);
@@ -405,10 +403,6 @@ export function ToolsMcpSettings({
   }, [settings?.sandboxMcpStdio, settings?.mcpStdioFirejail?.customBinaryPath]);
 
   const onCreate = async () => {
-    if (mcpAtFreeLimit) {
-      showError("Free tier is limited to 1 MCP server. Upgrade to Pro for unlimited.");
-      return;
-    }
     const parsedArgs = (() => {
       const trimmed = args.trim();
       if (!trimmed) return null;
@@ -436,7 +430,9 @@ export function ToolsMcpSettings({
             ? null
             : apiKey.trim() || null,
         authType:
-          transport === "http" && httpAuthMode === "oauth" ? "oauth" : undefined,
+          transport === "http" && httpAuthMode === "oauth"
+            ? "oauth"
+            : undefined,
         enabled,
         scope: "workspace",
         appId: appId ?? null,
@@ -520,7 +516,6 @@ export function ToolsMcpSettings({
     }
   };
 
-
   return (
     <div className="space-y-6">
       {countLabel != null && (
@@ -596,64 +591,49 @@ export function ToolsMcpSettings({
             </>
           )}
           {!(transport === "http" && httpAuthMode === "oauth") && (
-          <div className="col-span-2 space-y-1.5">
-            <Label>API Key (optional)</Label>
-            <div className="relative">
-              <Input
-                type={showApiKey ? "text" : "password"}
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder="sk-... or your server's API key"
-                className="pr-10"
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="absolute right-0 top-0 h-full px-3"
-                onClick={() => setShowApiKey((v) => !v)}
-              >
-                {showApiKey ? (
-                  <EyeOff className="h-4 w-4" />
-                ) : (
-                  <Eye className="h-4 w-4" />
-                )}
-              </Button>
+            <div className="col-span-2 space-y-1.5">
+              <Label>API Key (optional)</Label>
+              <div className="relative">
+                <Input
+                  type={showApiKey ? "text" : "password"}
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder="sk-... or your server's API key"
+                  className="pr-10"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="absolute right-0 top-0 h-full px-3"
+                  onClick={() => setShowApiKey((v) => !v)}
+                >
+                  {showApiKey ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Only required for servers that need authentication. Stored
+                locally on your machine.
+              </p>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Only required for servers that need authentication. Stored
-              locally on your machine.
-            </p>
-          </div>
           )}
           <div className="flex items-center gap-2">
             <Switch checked={enabled} onCheckedChange={setEnabled} />
             <Label>Enabled</Label>
           </div>
         </div>
-        {mcpAtFreeLimit && (
-          <div className="rounded-md border border-amber-500/50 bg-amber-50 dark:bg-amber-900/20 p-3 text-sm text-amber-800 dark:text-amber-200">
-            Free tier is limited to 1 MCP server.{" "}
-            <button
-              type="button"
-              onClick={() => handleUpgrade()}
-              className="font-medium underline hover:no-underline"
-            >
-              Upgrade to Pro
-            </button>{" "}
-            for unlimited MCP servers.
-          </div>
-        )}
         <div>
-          <Button
-            onClick={onCreate}
-            disabled={!name.trim() || mcpAtFreeLimit || atMaxServers}
-          >
+          <Button onClick={onCreate} disabled={!name.trim() || atMaxServers}>
             Add server
           </Button>
           {atMaxServers && maxServers != null && (
             <p className="text-xs text-muted-foreground mt-2">
-              Maximum {maxServers} {scope} MCP server{maxServers !== 1 ? "s" : ""} reached.
+              Maximum {maxServers} {scope} MCP server
+              {maxServers !== 1 ? "s" : ""} reached.
             </p>
           )}
         </div>
@@ -664,137 +644,147 @@ export function ToolsMcpSettings({
           const isExpanded = expandedServerIds.has(s.id);
           const toolCount = (toolsByServer[s.id] || []).length;
           return (
-          <div key={s.id} className="border rounded-lg p-3">
-            <div className="flex items-center justify-between gap-2">
-              <button
-                type="button"
-                className="flex items-start gap-2 min-w-0 flex-1 text-left"
-                onClick={() => toggleServerExpanded(s.id)}
-              >
-                {isExpanded ? (
-                  <ChevronsDownUp className="h-4 w-4 shrink-0 mt-0.5 text-muted-foreground" />
-                ) : (
-                  <ChevronsUpDown className="h-4 w-4 shrink-0 mt-0.5 text-muted-foreground" />
-                )}
-                <div className="min-w-0">
-                  <div className="font-medium">{s.name}</div>
-                  <div className="text-xs text-muted-foreground flex flex-wrap items-center gap-x-1">
-                    <span>{s.transport}</span>
-                    {s.transport === "http" && s.url ? (
-                      <UrlReadOnlyRow url={s.url} />
-                    ) : null}
-                    {s.command ? <span className="truncate">· {s.command}</span> : null}
-                    {Array.isArray(s.args) && s.args.length ? (
-                      <span className="truncate">· {s.args.join(" ")}</span>
-                    ) : null}
-                    {toolCount > 0 ? (
-                      <span>· {toolCount} tool{toolCount === 1 ? "" : "s"}</span>
-                    ) : null}
-                  </div>
-                </div>
-              </button>
-              <div className="flex flex-wrap items-center gap-2 shrink-0">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => onTestConnection(s.id)}
-                  disabled={testingId === s.id}
+            <div key={s.id} className="border rounded-lg p-3">
+              <div className="flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  className="flex items-start gap-2 min-w-0 flex-1 text-left"
+                  onClick={() => toggleServerExpanded(s.id)}
                 >
-                  <Wifi className="h-4 w-4 mr-1" />
-                  {testingId === s.id ? "Testing…" : "Test connection"}
-                </Button>
-                <Switch
-                  checked={!!s.enabled}
-                  onCheckedChange={() => toggleServerEnabled(s.id, !!s.enabled)}
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={isDeleting}
-                  onClick={() => void onDeleteServer(s.id)}
-                >
-                  Delete
-                </Button>
-              </div>
-            </div>
-            {isExpanded ? (
-              <>
-            {s.authType === "oauth" && (
-              <div className="mt-3">
-                <McpOAuthServerActions
-                  serverId={s.id}
-                  serverName={s.name}
-                  oauthConnected={s.oauthConnected}
-                  onChanged={() => void refetchAll()}
-                />
-              </div>
-            )}
-            {s.transport === "stdio" && (
-              <div className="mt-3">
-                <div className="text-sm font-medium mb-2">
-                  Environment Variables
-                </div>
-                <EnvVarsEditor
-                  serverId={s.id}
-                  envJson={s.envJson}
-                  disabled={!s.enabled}
-                  isSaving={!!isUpdatingServer}
-                  onSave={async (pairs) => {
-                    await updateServer({
-                      id: s.id,
-                      envJson: arrayToEnvObject(pairs),
-                    });
-                  }}
-                />
-              </div>
-            )}
-            <div className="mt-3">
-              <ScrollArea className="max-h-[280px] pr-2">
-                <div className="space-y-2">
-              {(toolsByServer[s.id] || []).map((t) => (
-                <div key={t.name} className="border rounded p-2">
-                  <div className="flex items-center gap-4">
-                    <div className="font-mono text-sm truncate">{t.name}</div>
-                    <div className="flex items-center gap-2">
-                      <Select
-                        value={consents[`${s.id}:${t.name}`] || "ask"}
-                        onValueChange={(v) =>
-                          onSetToolConsent(s.id, t.name, v as any)
-                        }
-                      >
-                        <SelectTrigger className="w-[140px] h-8">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="ask">Ask</SelectItem>
-                          <SelectItem value="always">Always allow</SelectItem>
-                          <SelectItem value="denied">Deny</SelectItem>
-                        </SelectContent>
-                      </Select>
+                  {isExpanded ? (
+                    <ChevronsDownUp className="h-4 w-4 shrink-0 mt-0.5 text-muted-foreground" />
+                  ) : (
+                    <ChevronsUpDown className="h-4 w-4 shrink-0 mt-0.5 text-muted-foreground" />
+                  )}
+                  <div className="min-w-0">
+                    <div className="font-medium">{s.name}</div>
+                    <div className="text-xs text-muted-foreground flex flex-wrap items-center gap-x-1">
+                      <span>{s.transport}</span>
+                      {s.transport === "http" && s.url ? (
+                        <UrlReadOnlyRow url={s.url} />
+                      ) : null}
+                      {s.command ? (
+                        <span className="truncate">· {s.command}</span>
+                      ) : null}
+                      {Array.isArray(s.args) && s.args.length ? (
+                        <span className="truncate">· {s.args.join(" ")}</span>
+                      ) : null}
+                      {toolCount > 0 ? (
+                        <span>
+                          · {toolCount} tool{toolCount === 1 ? "" : "s"}
+                        </span>
+                      ) : null}
                     </div>
                   </div>
-                  {t.description && (
-                    <div className="mt-1 text-xs max-w-[500px] text-muted-foreground truncate">
-                      {t.description}
+                </button>
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onTestConnection(s.id)}
+                    disabled={testingId === s.id}
+                  >
+                    <Wifi className="h-4 w-4 mr-1" />
+                    {testingId === s.id ? "Testing…" : "Test connection"}
+                  </Button>
+                  <Switch
+                    checked={!!s.enabled}
+                    onCheckedChange={() =>
+                      toggleServerEnabled(s.id, !!s.enabled)
+                    }
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={isDeleting}
+                    onClick={() => void onDeleteServer(s.id)}
+                  >
+                    Delete
+                  </Button>
+                </div>
+              </div>
+              {isExpanded ? (
+                <>
+                  {s.authType === "oauth" && (
+                    <div className="mt-3">
+                      <McpOAuthServerActions
+                        serverId={s.id}
+                        serverName={s.name}
+                        oauthConnected={s.oauthConnected}
+                        onChanged={() => void refetchAll()}
+                      />
                     </div>
                   )}
-                </div>
-              ))}
-              {(toolsByServer[s.id] || []).length === 0 && (
-                <div className="text-xs text-muted-foreground">
-                  {toolsErrorsByServer[s.id]?.needsOAuth
-                    ? "Sign-in required — use Connect above to authorize this server."
-                    : toolsErrorsByServer[s.id]?.error
-                      ? toolsErrorsByServer[s.id].error
-                      : "No tools discovered."}
-                </div>
-              )}
-                </div>
-              </ScrollArea>
+                  {s.transport === "stdio" && (
+                    <div className="mt-3">
+                      <div className="text-sm font-medium mb-2">
+                        Environment Variables
+                      </div>
+                      <EnvVarsEditor
+                        serverId={s.id}
+                        envJson={s.envJson}
+                        disabled={!s.enabled}
+                        isSaving={!!isUpdatingServer}
+                        onSave={async (pairs) => {
+                          await updateServer({
+                            id: s.id,
+                            envJson: arrayToEnvObject(pairs),
+                          });
+                        }}
+                      />
+                    </div>
+                  )}
+                  <div className="mt-3">
+                    <ScrollArea className="max-h-[280px] pr-2">
+                      <div className="space-y-2">
+                        {(toolsByServer[s.id] || []).map((t) => (
+                          <div key={t.name} className="border rounded p-2">
+                            <div className="flex items-center gap-4">
+                              <div className="font-mono text-sm truncate">
+                                {t.name}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Select
+                                  value={consents[`${s.id}:${t.name}`] || "ask"}
+                                  onValueChange={(v) =>
+                                    onSetToolConsent(s.id, t.name, v as any)
+                                  }
+                                >
+                                  <SelectTrigger className="w-[140px] h-8">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="ask">Ask</SelectItem>
+                                    <SelectItem value="always">
+                                      Always allow
+                                    </SelectItem>
+                                    <SelectItem value="denied">Deny</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
+                            {t.description && (
+                              <div className="mt-1 text-xs max-w-[500px] text-muted-foreground truncate">
+                                {t.description}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                        {(toolsByServer[s.id] || []).length === 0 && (
+                          <div className="text-xs text-muted-foreground">
+                            {toolsErrorsByServer[s.id]?.needsOAuth
+                              ? "Sign-in required — use Connect above to authorize this server."
+                              : toolsErrorsByServer[s.id]?.error
+                                ? toolsErrorsByServer[s.id].error
+                                : "No tools discovered."}
+                          </div>
+                        )}
+                      </div>
+                    </ScrollArea>
+                  </div>
+                </>
+              ) : null}
             </div>
-              </>
-            ) : null}
-          </div>
           );
         })}
         {servers.length === 0 && (
@@ -827,69 +817,80 @@ export function ToolsMcpSettings({
           />
         </summary>
         <div className="px-4 pb-4">
-        <div className="rounded-lg border border-border/60 p-4 space-y-3">
-          <div className="text-sm font-medium">Stdio MCP sandbox (Linux)</div>
-          <div className="flex items-center justify-between gap-4">
-            <Label htmlFor="sandbox-mcp-stdio" className="text-sm text-muted-foreground">
-              Wrap stdio MCP servers in firejail when available
-            </Label>
-            <Switch
-              id="sandbox-mcp-stdio"
-              checked={settings?.sandboxMcpStdio === true}
-              onCheckedChange={(checked) => updateSettings({ sandboxMcpStdio: checked })}
-            />
+          <div className="rounded-lg border border-border/60 p-4 space-y-3">
+            <div className="text-sm font-medium">Stdio MCP sandbox (Linux)</div>
+            <div className="flex items-center justify-between gap-4">
+              <Label
+                htmlFor="sandbox-mcp-stdio"
+                className="text-sm text-muted-foreground"
+              >
+                Wrap stdio MCP servers in firejail when available
+              </Label>
+              <Switch
+                id="sandbox-mcp-stdio"
+                checked={settings?.sandboxMcpStdio === true}
+                onCheckedChange={(checked) =>
+                  updateSettings({ sandboxMcpStdio: checked })
+                }
+              />
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <Label
+                htmlFor="firejail-net"
+                className="text-sm text-muted-foreground"
+              >
+                Allow network inside sandbox
+              </Label>
+              <Switch
+                id="firejail-net"
+                disabled={!settings?.sandboxMcpStdio}
+                checked={settings?.mcpStdioFirejail?.allowNetwork === true}
+                onCheckedChange={(checked) =>
+                  updateSettings({
+                    mcpStdioFirejail: {
+                      ...settings?.mcpStdioFirejail,
+                      allowNetwork: checked,
+                    },
+                  })
+                }
+              />
+            </div>
+            <div className="space-y-1">
+              <Label
+                htmlFor="firejail-path"
+                className="text-xs text-muted-foreground"
+              >
+                Custom firejail binary path (optional)
+              </Label>
+              <Input
+                id="firejail-path"
+                disabled={!settings?.sandboxMcpStdio}
+                placeholder="/usr/bin/firejail"
+                value={settings?.mcpStdioFirejail?.customBinaryPath ?? ""}
+                onChange={(e) =>
+                  updateSettings({
+                    mcpStdioFirejail: {
+                      ...settings?.mcpStdioFirejail,
+                      customBinaryPath: e.target.value || undefined,
+                    },
+                  })
+                }
+              />
+            </div>
+            {sandboxDiag ? (
+              <p className="text-xs text-muted-foreground">
+                {sandboxDiag.platform !== "linux"
+                  ? "Firejail sandbox applies on Linux only; stdio spawns are unchanged on this platform."
+                  : sandboxDiag.sandboxWouldBeActive
+                    ? `Sandbox active (firejail: ${sandboxDiag.firejailPath}).`
+                    : settings?.sandboxMcpStdio
+                      ? sandboxDiag.firejailFound
+                        ? "Firejail found but sandbox is off — enable the toggle above."
+                        : "Firejail not found. Install with your package manager (e.g. apt install firejail)."
+                      : "Sandbox disabled."}
+              </p>
+            ) : null}
           </div>
-          <div className="flex items-center justify-between gap-4">
-            <Label htmlFor="firejail-net" className="text-sm text-muted-foreground">
-              Allow network inside sandbox
-            </Label>
-            <Switch
-              id="firejail-net"
-              disabled={!settings?.sandboxMcpStdio}
-              checked={settings?.mcpStdioFirejail?.allowNetwork === true}
-              onCheckedChange={(checked) =>
-                updateSettings({
-                  mcpStdioFirejail: {
-                    ...settings?.mcpStdioFirejail,
-                    allowNetwork: checked,
-                  },
-                })
-              }
-            />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="firejail-path" className="text-xs text-muted-foreground">
-              Custom firejail binary path (optional)
-            </Label>
-            <Input
-              id="firejail-path"
-              disabled={!settings?.sandboxMcpStdio}
-              placeholder="/usr/bin/firejail"
-              value={settings?.mcpStdioFirejail?.customBinaryPath ?? ""}
-              onChange={(e) =>
-                updateSettings({
-                  mcpStdioFirejail: {
-                    ...settings?.mcpStdioFirejail,
-                    customBinaryPath: e.target.value || undefined,
-                  },
-                })
-              }
-            />
-          </div>
-          {sandboxDiag ? (
-            <p className="text-xs text-muted-foreground">
-              {sandboxDiag.platform !== "linux"
-                ? "Firejail sandbox applies on Linux only; stdio spawns are unchanged on this platform."
-                : sandboxDiag.sandboxWouldBeActive
-                  ? `Sandbox active (firejail: ${sandboxDiag.firejailPath}).`
-                  : settings?.sandboxMcpStdio
-                    ? sandboxDiag.firejailFound
-                      ? "Firejail found but sandbox is off — enable the toggle above."
-                      : "Firejail not found. Install with your package manager (e.g. apt install firejail)."
-                    : "Sandbox disabled."}
-            </p>
-          ) : null}
-        </div>
         </div>
       </details>
     </div>

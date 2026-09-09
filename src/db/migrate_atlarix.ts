@@ -48,7 +48,9 @@ function ensureAtlarixMigrationsTable(sqlite: Database.Database): void {
  * Copy legacy Drizzle journal rows into __atlarix_migrations by hash → name.
  * Unknown hashes: logger.error + Sentry + throw (never silent).
  */
-export function bridgeDrizzleMigrationsIfNeeded(sqlite: Database.Database): void {
+export function bridgeDrizzleMigrationsIfNeeded(
+  sqlite: Database.Database,
+): void {
   const drizzleExists = sqlite
     .prepare(
       "SELECT 1 FROM sqlite_master WHERE type='table' AND name='__drizzle_migrations'",
@@ -111,9 +113,7 @@ export function seedVerifiedAtlarixMigrationsIfNeeded(
   sqlite: Database.Database,
 ): void {
   const appsExists = sqlite
-    .prepare(
-      "SELECT 1 FROM sqlite_master WHERE type='table' AND name='apps'",
-    )
+    .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='apps'")
     .get();
   if (!appsExists) {
     return;
@@ -155,18 +155,15 @@ export function seedVerifiedAtlarixMigrationsIfNeeded(
   tx();
 
   if (seeded > 0) {
-    logger.log(`[Schema Fix] Recorded ${seeded} migration(s) in ${ATLARIX_MIGRATIONS_TABLE}.`);
+    logger.log(
+      `[Schema Fix] Recorded ${seeded} migration(s) in ${ATLARIX_MIGRATIONS_TABLE}.`,
+    );
   }
 }
 
-function isMigrationApplied(
-  sqlite: Database.Database,
-  name: string,
-): boolean {
+function isMigrationApplied(sqlite: Database.Database, name: string): boolean {
   const row = sqlite
-    .prepare(
-      `SELECT 1 FROM ${ATLARIX_MIGRATIONS_TABLE} WHERE name = ? LIMIT 1`,
-    )
+    .prepare(`SELECT 1 FROM ${ATLARIX_MIGRATIONS_TABLE} WHERE name = ? LIMIT 1`)
     .get(name);
   return !!row;
 }
@@ -216,9 +213,7 @@ export function applyEmbeddedSqlMigrations(sqlite: Database.Database): void {
 
 export function countAtlarixMigrations(sqlite: Database.Database): number {
   const hasTable = sqlite
-    .prepare(
-      `SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`,
-    )
+    .prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`)
     .get(ATLARIX_MIGRATIONS_TABLE);
   if (!hasTable) {
     return 0;

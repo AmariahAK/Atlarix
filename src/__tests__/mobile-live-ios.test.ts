@@ -7,10 +7,14 @@ import { runDeviceCli, findDeviceCli } from "@/lib/mobile/device-tools";
 function hasBootedSimulator(): boolean {
   if (process.platform !== "darwin") return false;
   try {
-    const out = execFileSync("/usr/bin/xcrun", ["simctl", "list", "devices", "booted"], {
-      encoding: "utf8",
-      timeout: 15_000,
-    });
+    const out = execFileSync(
+      "/usr/bin/xcrun",
+      ["simctl", "list", "devices", "booted"],
+      {
+        encoding: "utf8",
+        timeout: 15_000,
+      },
+    );
     return /\(Booted\)/.test(out);
   } catch {
     return false;
@@ -45,10 +49,17 @@ describe.skipIf(!hasBootedSimulator())("LIVE iOS simulator", () => {
   }, 30_000);
 
   it("takes a REAL screenshot via the file path", async () => {
-    const { captureSimulatorScreenshot } = await import("@/lib/mobile/device-tools");
+    const { captureSimulatorScreenshot } = await import(
+      "@/lib/mobile/device-tools"
+    );
     const d = await listMobileDevices();
     const r = await captureSimulatorScreenshot(d[0]!.id);
-    console.log("[live] screenshot ok=", r.ok, "bytes=", r.ok ? r.buffer.length : 0);
+    console.log(
+      "[live] screenshot ok=",
+      r.ok,
+      "bytes=",
+      r.ok ? r.buffer.length : 0,
+    );
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.buffer.length).toBeGreaterThan(1000);
@@ -65,8 +76,15 @@ describe.skipIf(!hasBootedSimulator())("LIVE iOS simulator", () => {
     const r = await runDeviceCli(
       "xcrun",
       [
-        "simctl", "spawn", d[0]!.id, "log", "show",
-        "--last", IOS_LOG_WINDOW, "--style", "compact",
+        "simctl",
+        "spawn",
+        d[0]!.id,
+        "log",
+        "show",
+        "--last",
+        IOS_LOG_WINDOW,
+        "--style",
+        "compact",
         ...iosLogPredicate("warn"),
       ],
       { timeoutMs: 40_000 },
@@ -82,9 +100,17 @@ describe.skipIf(!hasBootedSimulator())("LIVE iOS simulator", () => {
     const r = await runDeviceCli(
       "xcrun",
       [
-        "simctl", "spawn", d[0]!.id, "log", "show",
-        "--last", "30s", "--style", "compact",
-        "--predicate", 'process CONTAINS "SpringBoard" AND (messageType == "Error" OR messageType == "Fault")',
+        "simctl",
+        "spawn",
+        d[0]!.id,
+        "log",
+        "show",
+        "--last",
+        "30s",
+        "--style",
+        "compact",
+        "--predicate",
+        'process CONTAINS "SpringBoard" AND (messageType == "Error" OR messageType == "Fault")',
       ],
       { timeoutMs: 40_000 },
     );
@@ -103,10 +129,25 @@ describe.skipIf(!hasBootedSimulator())("LIVE iOS simulator", () => {
     const d = await listMobileDevices();
     const r = await runDeviceCli(
       "xcrun",
-      ["simctl", "spawn", d[0]!.id, "log", "show", "--last", "2m", "--style", "compact"],
+      [
+        "simctl",
+        "spawn",
+        d[0]!.id,
+        "log",
+        "show",
+        "--last",
+        "2m",
+        "--style",
+        "compact",
+      ],
       { timeoutMs: 30_000 },
     );
-    console.log("[live] logs ok=", r.ok, "chars=", r.ok ? r.stdout.length : r.error);
+    console.log(
+      "[live] logs ok=",
+      r.ok,
+      "chars=",
+      r.ok ? r.stdout.length : r.error,
+    );
     expect(r.ok).toBe(true);
   }, 60_000);
 });

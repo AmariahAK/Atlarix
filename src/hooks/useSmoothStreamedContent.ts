@@ -113,7 +113,10 @@ export function safeRevealLength(content: string, revealed: number): number {
 }
 
 function prefersReducedMotion(): boolean {
-  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+  if (
+    typeof window === "undefined" ||
+    typeof window.matchMedia !== "function"
+  ) {
     return false;
   }
   try {
@@ -150,7 +153,8 @@ export function useSmoothStreamedContent(
   contentRef.current = content;
   streamingRef.current = isStreaming;
 
-  const tickMs = content.length > LONG_ANSWER_CHARS ? LONG_ANSWER_TICK_MS : TICK_MS;
+  const tickMs =
+    content.length > LONG_ANSWER_CHARS ? LONG_ANSWER_TICK_MS : TICK_MS;
 
   useEffect(() => {
     if (reduceMotion) return;

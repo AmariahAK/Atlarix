@@ -37,7 +37,9 @@ function presentationForInternalTier(
   const coreModelId = getCoreModelIdForCoreTier(internalTierId)?.trim() ?? "";
   const modelDisplayName = coreModelId
     ? formatModelApiNameForDisplay(coreModelId)
-    : formatModelApiNameForDisplay(internalTierId.replace(/^(compass|core)-/, "Core "));
+    : formatModelApiNameForDisplay(
+        internalTierId.replace(/^(compass|core)-/, "Core "),
+      );
   const providerSlug = providerSlugFromCoreModelId(coreModelId);
   return {
     internalTierId,
@@ -73,10 +75,16 @@ export function findCatalogEntryByInternalTierId(
 export function resolveAtlarixCoreIdentity(
   internalTierId: string,
   catalog?: AtlarixCoreTierPresentation[],
-): { modelDisplayName: string; providerSlug: string; labelWithProvider: string } {
+): {
+  modelDisplayName: string;
+  providerSlug: string;
+  labelWithProvider: string;
+} {
   const resolvedCatalog =
     catalog ??
-    (typeof process !== "undefined" ? buildAtlarixCoreTierCatalog() : undefined);
+    (typeof process !== "undefined"
+      ? buildAtlarixCoreTierCatalog()
+      : undefined);
   const entry = resolvedCatalog
     ? findCatalogEntryByInternalTierId(resolvedCatalog, internalTierId)
     : undefined;
@@ -87,7 +95,10 @@ export function resolveAtlarixCoreIdentity(
       labelWithProvider: entry.labelWithProvider,
     };
   }
-  const fallbackName = normalizeCoreTierId(internalTierId).replace(/^core-/, "Core ");
+  const fallbackName = normalizeCoreTierId(internalTierId).replace(
+    /^core-/,
+    "Core ",
+  );
   const modelDisplayName = formatModelApiNameForDisplay(fallbackName);
   const slug = "openrouter";
   return {
@@ -108,7 +119,11 @@ export function displayLabelForCompassTier(
     : undefined;
   if (entry) return entry.labelWithProvider;
   const fromList = languageModelDisplayName?.trim();
-  if (fromList && !/^(compass|core)\s/i.test(fromList) && !/^(compass|core)-/i.test(fromList)) {
+  if (
+    fromList &&
+    !/^(compass|core)\s/i.test(fromList) &&
+    !/^(compass|core)-/i.test(fromList)
+  ) {
     return fromList;
   }
   return formatModelWithProvider(

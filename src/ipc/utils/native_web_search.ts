@@ -116,4 +116,3 @@ export function reservedNativeToolNames(
   if (support.kind === "tool") names.push(support.key);
   return names;
 }
-

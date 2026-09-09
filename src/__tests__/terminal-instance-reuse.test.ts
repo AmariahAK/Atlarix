@@ -155,9 +155,9 @@ describe("agent terminal reuse", () => {
       commandHint: "npm test",
     });
     expect(second.success && !second.created).toBe(true);
-    expect(first.success && second.success && first.instanceId === second.instanceId).toBe(
-      true,
-    );
+    expect(
+      first.success && second.success && first.instanceId === second.instanceId,
+    ).toBe(true);
   });
 
   it("a renderer sync cannot delete main's agent instances or its op map", () => {
@@ -191,9 +191,9 @@ describe("agent terminal reuse", () => {
     expect(state.instances.filter((i) => i.owner === "agent")).toHaveLength(1);
     // The op map survived, so a later command still routes to the same tab.
     const again = runCommand(scope, "npm run dev");
-    expect(again.success && agent.success && again.instanceId === agent.instanceId).toBe(
-      true,
-    );
+    expect(
+      again.success && agent.success && again.instanceId === agent.instanceId,
+    ).toBe(true);
   });
 
   it("an explicit terminal name gets its own tab, reused across calls", () => {
@@ -229,14 +229,14 @@ describe("agent terminal reuse", () => {
       commandHint: "npm run e2e",
       terminal: "e2e",
     });
-    expect(shared.success && named.success && shared.instanceId !== named.instanceId).toBe(
-      true,
-    );
+    expect(
+      shared.success && named.success && shared.instanceId !== named.instanceId,
+    ).toBe(true);
     // …and a later plain command still lands in the shared one, not the named.
     const back = runCommand(scope, "git status");
-    expect(back.success && shared.success && back.instanceId === shared.instanceId).toBe(
-      true,
-    );
+    expect(
+      back.success && shared.success && back.instanceId === shared.instanceId,
+    ).toBe(true);
   });
 
   it("matches a target by id as well as by name", () => {
@@ -251,7 +251,9 @@ describe("agent terminal reuse", () => {
       operationId: "op_2",
       terminal: made.success ? made.instanceId : "",
     });
-    expect(byId.success && made.success && byId.instanceId === made.instanceId).toBe(true);
+    expect(
+      byId.success && made.success && byId.instanceId === made.instanceId,
+    ).toBe(true);
   });
 
   it("creates an unknown target rather than failing the command", () => {

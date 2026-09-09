@@ -26,16 +26,16 @@ import { extractImageMedia } from "@/lib/ai/tool-model-output";
  * type was the only thing left alive in it.
  */
 export interface Tool {
-    type: "function";
-    function: {
-        name: string;
-        description: string;
-        parameters: {
-            type: "object";
-            properties: Record<string, unknown>;
-            required?: string[];
-        };
+  type: "function";
+  function: {
+    name: string;
+    description: string;
+    parameters: {
+      type: "object";
+      properties: Record<string, unknown>;
+      required?: string[];
     };
+  };
 }
 
 // Token budgets: outputs whose ESTIMATED tokens exceed the budget (or whose raw
@@ -74,10 +74,10 @@ const NEVER_TRUNCATE = new Set<string>(["browser_screenshot"]);
 // thrown away unread. It now allocates its own budget across the pages it actually
 // has and points at `read_url` for the rest (a warm cache hit, 15-minute TTL).
 const SELF_PAGINATED_TOOLS = new Set<string>([
-    "read_file",
-    "read_attachment",
-    "session_search",
-    "web_search",
+  "read_file",
+  "read_attachment",
+  "session_search",
+  "web_search",
 ]);
 
 /**
@@ -95,15 +95,16 @@ const SELF_PAGINATED_TOOLS = new Set<string>([
  * the same tool names, which is exactly why they are easy to conflate.
  */
 const TRUNCATION_HINTS: Record<string, string> = {
-    mcp_call:
-        "call the same MCP tool with narrower arguments, or ask the server for a specific field.",
-    read_url: "call read_url again with a smaller max_length, or a more specific URL.",
-    grep: "narrow the path/include, or lower max_results.",
-    glob: "narrow the pattern, or lower the limit.",
+  mcp_call:
+    "call the same MCP tool with narrower arguments, or ask the server for a specific field.",
+  read_url:
+    "call read_url again with a smaller max_length, or a more specific URL.",
+  grep: "narrow the path/include, or lower max_results.",
+  glob: "narrow the pattern, or lower the limit.",
 };
 const TRUNCATION_HINT_DEFAULT =
-    "for a file, call read_file again with offset/limit on the same path; " +
-    "for a command, narrow it (pipe through head/grep or target a specific path).";
+  "for a file, call read_file again with offset/limit on the same path; " +
+  "for a command, narrow it (pipe through head/grep or target a specific path).";
 
 /**
  * The largest string-valued field of an object, by character count.
@@ -122,15 +123,15 @@ const TRUNCATION_HINT_DEFAULT =
  * where the closing tag lives.
  */
 function largestStringField(o: Record<string, unknown>): string | null {
-    let key: string | null = null;
-    let len = -1;
-    for (const [k, v] of Object.entries(o)) {
-        if (typeof v === "string" && v.length > len) {
-            key = k;
-            len = v.length;
-        }
+  let key: string | null = null;
+  let len = -1;
+  for (const [k, v] of Object.entries(o)) {
+    if (typeof v === "string" && v.length > len) {
+      key = k;
+      len = v.length;
     }
-    return key;
+  }
+  return key;
 }
 
 /**
@@ -144,87 +145,101 @@ function largestStringField(o: Record<string, unknown>): string | null {
  * the same reason (they pull main-process settings into the module graph).
  */
 export async function maybeTruncateToolOutput(
-    toolName: string,
-    result: unknown,
+  toolName: string,
+  result: unknown,
 ): Promise<{ value: unknown; truncated: boolean; totalChars: number }> {
+  if (
+    NEVER_TRUNCATE.has(toolName) ||
+    SELF_PAGINATED_TOOLS.has(toolName) ||
+    extractImageMedia(result)
+  ) {
+    return { value: result, truncated: false, totalChars: 0 };
+  }
+  const resultStr =
+    typeof result === "string" ? result : JSON.stringify(result);
+  if (!resultStr || resultStr.length <= TOOL_OUTPUT_CHAR_FLOOR) {
+    return {
+      value: result,
+      truncated: false,
+      totalChars: resultStr?.length ?? 0,
+    };
+  }
+  if (!isMainProcessNode()) {
+    return { value: result, truncated: false, totalChars: resultStr.length };
+  }
+
+  try {
+    const truncateLib = await import("@/lib/truncate");
+    // Tokenize only mid-sized outputs; anything past the byte ceiling is
+    // over budget by definition (≈4 chars/token).
+    if (resultStr.length <= TOOL_OUTPUT_BYTE_CEILING) {
+      const { estimateTokens } = await import("@/ipc/utils/token_utils");
+      if (estimateTokens(resultStr) <= TOOL_OUTPUT_TOKEN_BUDGET) {
+        return {
+          value: result,
+          truncated: false,
+          totalChars: resultStr.length,
+        };
+      }
+    }
+
+    const hint = TRUNCATION_HINTS[toolName] ?? TRUNCATION_HINT_DEFAULT;
+    const noticeFor = (omitted: number, total: number) =>
+      `\n\n[output truncated: ${omitted.toLocaleString("en-US")} of ` +
+      `${total.toLocaleString("en-US")} chars omitted. To see more: ${hint}]`;
+
+    // OBJECT RESULTS ARE TRUNCATED IN THEIR LARGEST STRING FIELD, not in their
+    // serialization — see `largestStringField` for why cutting the JSON is
+    // corrupting rather than merely lossy.
     if (
-        NEVER_TRUNCATE.has(toolName) ||
-        SELF_PAGINATED_TOOLS.has(toolName) ||
-        extractImageMedia(result)
+      result !== null &&
+      typeof result === "object" &&
+      !Array.isArray(result)
     ) {
-        return { value: result, truncated: false, totalChars: 0 };
-    }
-    const resultStr = typeof result === "string" ? result : JSON.stringify(result);
-    if (!resultStr || resultStr.length <= TOOL_OUTPUT_CHAR_FLOOR) {
-        return { value: result, truncated: false, totalChars: resultStr?.length ?? 0 };
-    }
-    if (!isMainProcessNode()) {
-        return { value: result, truncated: false, totalChars: resultStr.length };
-    }
-
-    try {
-        const truncateLib = await import("@/lib/truncate");
-        // Tokenize only mid-sized outputs; anything past the byte ceiling is
-        // over budget by definition (≈4 chars/token).
-        if (resultStr.length <= TOOL_OUTPUT_BYTE_CEILING) {
-            const { estimateTokens } = await import("@/ipc/utils/token_utils");
-            if (estimateTokens(resultStr) <= TOOL_OUTPUT_TOKEN_BUDGET) {
-                return { value: result, truncated: false, totalChars: resultStr.length };
-            }
-        }
-
-        const hint = TRUNCATION_HINTS[toolName] ?? TRUNCATION_HINT_DEFAULT;
-        const noticeFor = (omitted: number, total: number) =>
-            `\n\n[output truncated: ${omitted.toLocaleString("en-US")} of ` +
-            `${total.toLocaleString("en-US")} chars omitted. To see more: ${hint}]`;
-
-        // OBJECT RESULTS ARE TRUNCATED IN THEIR LARGEST STRING FIELD, not in their
-        // serialization — see `largestStringField` for why cutting the JSON is
-        // corrupting rather than merely lossy.
-        if (result !== null && typeof result === "object" && !Array.isArray(result)) {
-            const obj = result as Record<string, unknown>;
-            const field = largestStringField(obj);
-            if (field) {
-                const original = obj[field] as string;
-                // Budget the FIELD, not the envelope: the rest of the object
-                // (ids, urls, a sources array) is small and must survive whole.
-                const overhead = resultStr.length - original.length;
-                const { text: preview, omittedChars } =
-                    truncateLib.headTailTruncateToTokens(
-                        original,
-                        TOOL_OUTPUT_PREVIEW_HEAD_TOKENS,
-                        TOOL_OUTPUT_PREVIEW_TAIL_TOKENS,
-                    );
-                if (omittedChars > 0) {
-                    return {
-                        value: {
-                            ...obj,
-                            [field]: `${preview}${noticeFor(omittedChars, original.length)}`,
-                        },
-                        truncated: true,
-                        totalChars: resultStr.length,
-                    };
-                }
-                // The big field fit, so the overage is structural (a huge array,
-                // many keys). Nothing safe to cut in place — fall through.
-                void overhead;
-            }
-        }
-
-        const { text: preview, omittedChars } = truncateLib.headTailTruncateToTokens(
-            resultStr,
+      const obj = result as Record<string, unknown>;
+      const field = largestStringField(obj);
+      if (field) {
+        const original = obj[field] as string;
+        // Budget the FIELD, not the envelope: the rest of the object
+        // (ids, urls, a sources array) is small and must survive whole.
+        const overhead = resultStr.length - original.length;
+        const { text: preview, omittedChars } =
+          truncateLib.headTailTruncateToTokens(
+            original,
             TOOL_OUTPUT_PREVIEW_HEAD_TOKENS,
             TOOL_OUTPUT_PREVIEW_TAIL_TOKENS,
-        );
-        return {
-            value: `${preview}${noticeFor(omittedChars, resultStr.length)}`,
+          );
+        if (omittedChars > 0) {
+          return {
+            value: {
+              ...obj,
+              [field]: `${preview}${noticeFor(omittedChars, original.length)}`,
+            },
             truncated: true,
             totalChars: resultStr.length,
-        };
-    } catch {
-        // If truncation fails (e.g. tokenizer unavailable), return the original.
-        return { value: result, truncated: false, totalChars: resultStr.length };
+          };
+        }
+        // The big field fit, so the overage is structural (a huge array,
+        // many keys). Nothing safe to cut in place — fall through.
+        void overhead;
+      }
     }
+
+    const { text: preview, omittedChars } =
+      truncateLib.headTailTruncateToTokens(
+        resultStr,
+        TOOL_OUTPUT_PREVIEW_HEAD_TOKENS,
+        TOOL_OUTPUT_PREVIEW_TAIL_TOKENS,
+      );
+    return {
+      value: `${preview}${noticeFor(omittedChars, resultStr.length)}`,
+      truncated: true,
+      totalChars: resultStr.length,
+    };
+  } catch {
+    // If truncation fails (e.g. tokenizer unavailable), return the original.
+    return { value: result, truncated: false, totalChars: resultStr.length };
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -235,25 +250,25 @@ export async function maybeTruncateToolOutput(
 // allowlist + workspace/core flags below.
 
 export interface ToolMetadata {
-    name: string;
-    description: string;
-    parameters: any;
-    handler: (args: any, context?: any) => Promise<any>;
-    requiresWorkspace?: boolean; // True if tool needs a workspace to function
-    isCore?: boolean; // True if tool should be shown by default (with workspace)
-    isReadOnly?: boolean; // True if tool only reads data (safe for Ask mode)
-    /** When false isReadOnly: still offer in Ask mode (e.g. plan file writes with approval). */
-    allowInAskMode?: boolean;
-    /**
-     * Former names this tool still answers to. Resolved by `get()` but NEVER
-     * advertised: they don't appear in `getAll()`, any toolset, or any prompt.
-     *
-     * Renaming a tool otherwise breaks two things at once — persisted sessions whose
-     * history contains the old name, and any model that learned it. Absorbing the old
-     * name in the resolver fixes both without spending prompt budget telling the model
-     * about a name it shouldn't use.
-     */
-    aliases?: string[];
+  name: string;
+  description: string;
+  parameters: any;
+  handler: (args: any, context?: any) => Promise<any>;
+  requiresWorkspace?: boolean; // True if tool needs a workspace to function
+  isCore?: boolean; // True if tool should be shown by default (with workspace)
+  isReadOnly?: boolean; // True if tool only reads data (safe for Ask mode)
+  /** When false isReadOnly: still offer in Ask mode (e.g. plan file writes with approval). */
+  allowInAskMode?: boolean;
+  /**
+   * Former names this tool still answers to. Resolved by `get()` but NEVER
+   * advertised: they don't appear in `getAll()`, any toolset, or any prompt.
+   *
+   * Renaming a tool otherwise breaks two things at once — persisted sessions whose
+   * history contains the old name, and any model that learned it. Absorbing the old
+   * name in the resolver fixes both without spending prompt budget telling the model
+   * about a name it shouldn't use.
+   */
+  aliases?: string[];
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -261,228 +276,233 @@ export interface ToolMetadata {
 // ═══════════════════════════════════════════════════════════
 
 export class ToolRegistry {
-    private static tools: Map<string, ToolMetadata> = new Map();
-    /**
-     * Retired name → current name. Deliberately a SEPARATE map from `tools`: putting
-     * aliases in there would make `getAll()` return the same tool twice, which every
-     * toolset, the golden-toolset eval, and the registry audit read.
-     */
-    private static aliases: Map<string, string> = new Map();
+  private static tools: Map<string, ToolMetadata> = new Map();
+  /**
+   * Retired name → current name. Deliberately a SEPARATE map from `tools`: putting
+   * aliases in there would make `getAll()` return the same tool twice, which every
+   * toolset, the golden-toolset eval, and the registry audit read.
+   */
+  private static aliases: Map<string, string> = new Map();
 
-    /**
-     * Register a tool
-     */
-    static register(metadata: ToolMetadata): void {
-        this.tools.set(metadata.name, metadata);
-        for (const alias of metadata.aliases ?? []) {
-            this.aliases.set(alias, metadata.name);
+  /**
+   * Register a tool
+   */
+  static register(metadata: ToolMetadata): void {
+    this.tools.set(metadata.name, metadata);
+    for (const alias of metadata.aliases ?? []) {
+      this.aliases.set(alias, metadata.name);
+    }
+  }
+
+  /**
+   * Get a tool by name, resolving a retired name to its current tool.
+   */
+  static get(name: string): ToolMetadata | undefined {
+    const direct = this.tools.get(name);
+    if (direct) return direct;
+    const canonical = this.aliases.get(name);
+    return canonical ? this.tools.get(canonical) : undefined;
+  }
+
+  /** The current name for a possibly-retired one (identity when not an alias). */
+  static resolveName(name: string): string {
+    return this.tools.has(name) ? name : (this.aliases.get(name) ?? name);
+  }
+
+  /**
+   * Get all tools
+   */
+  static getAll(): ToolMetadata[] {
+    return Array.from(this.tools.values());
+  }
+
+  /**
+   * Get tools filtered by workspace context
+   * @param hasWorkspace - Whether a workspace is active
+   * @returns Appropriate tools for the context
+   */
+  static getToolsForContext(hasWorkspace: boolean): ToolMetadata[] {
+    if (!hasWorkspace) {
+      // Chat-only mode: only tools that don't require workspace
+      return this.getAll().filter((tool) => !tool.requiresWorkspace);
+    } else {
+      // Workspace (Build) mode: the whole context surface. resolve-toolset
+      // narrows it, and tool-reveal.ts tiers the descriptions per mode.
+      return this.getAll();
+    }
+  }
+
+  /**
+   * Get tools for Ask mode (read-only tools only)
+   * Includes: read_file, glob, grep, web_search, read_url, etc.
+   * Excludes: write_file, delete_file, run_command, code generation tools
+   * @returns Read-only tools safe for Ask mode
+   */
+  static getToolsForAskMode(): ToolMetadata[] {
+    return this.getAll().filter(
+      (tool) => tool.isReadOnly === true || tool.allowInAskMode === true,
+    );
+  }
+
+  /**
+   * Get tools for no-workspace (chat-only) mode: read-only only, no workspace required.
+   * No file writes, no commands, no delegation. Code can be shown in responses but no write/run tools.
+   */
+  static getToolsForNoWorkspace(): ToolMetadata[] {
+    return this.getAll().filter(
+      (tool) => tool.isReadOnly === true && !tool.requiresWorkspace,
+    );
+  }
+
+  /**
+   * Convert to AI SDK format
+   */
+  static toAISDKFormat(): Tool[] {
+    return this.getAll().map((tool) => ({
+      type: "function" as const,
+      function: {
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters,
+      },
+    }));
+  }
+
+  /**
+   * Convert filtered tools to AI SDK format
+   * @param hasWorkspace - Whether a workspace is active
+   */
+  static toAISDKFormatForContext(hasWorkspace: boolean): Tool[] {
+    return this.getToolsForContext(hasWorkspace).map((tool) => ({
+      type: "function" as const,
+      function: {
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters,
+      },
+    }));
+  }
+
+  /**
+   * Execute a tool.
+   *
+   * - FIX 3 (graceful errors): missing required params return INVALID_PARAMS,
+   *   thrown handler errors return TOOL_ERROR. No tool ever throws here.
+   * - Permission gates (`__permission_required === true`) are returned
+   *   unwrapped so the downstream interceptor in
+   *   `permissions/interceptor.ts` can still detect them.
+   */
+  static async execute(name: string, args: any): Promise<any> {
+    const tool = this.get(name);
+    if (!tool) {
+      return {
+        success: false,
+        error: "TOOL_ERROR",
+        tool: name,
+        message: `Tool not found: ${name}. Please try a different approach.`,
+      };
+    }
+
+    return guardToolCall({
+      toolName: name,
+      args,
+      parametersSchema: tool.parameters,
+      // `runWith` receives the alias-canonicalised args (guard.ts), so a
+      // model that sent `file_path` instead of `path` still reaches the
+      // handler with the canonical key filled in.
+      runWith: async (args: unknown) => {
+        let raw: unknown;
+        try {
+          raw = await tool.handler(args);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          return {
+            success: false,
+            error: "TOOL_ERROR",
+            tool: name,
+            message: `Tool execution failed: ${message}`,
+            partial: null,
+            suggestion:
+              resolveRecoverySuggestion({ toolName: name, message }) ??
+              "Check parameters and workspace path. Use explore_folder or list_files to locate files.",
+          };
         }
-    }
 
-    /**
-     * Get a tool by name, resolving a retired name to its current tool.
-     */
-    static get(name: string): ToolMetadata | undefined {
-        const direct = this.tools.get(name);
-        if (direct) return direct;
-        const canonical = this.aliases.get(name);
-        return canonical ? this.tools.get(canonical) : undefined;
-    }
-
-    /** The current name for a possibly-retired one (identity when not an alias). */
-    static resolveName(name: string): string {
-        return this.tools.has(name) ? name : (this.aliases.get(name) ?? name);
-    }
-
-    /**
-     * Get all tools
-     */
-    static getAll(): ToolMetadata[] {
-        return Array.from(this.tools.values());
-    }
-
-    /**
-     * Get tools filtered by workspace context
-     * @param hasWorkspace - Whether a workspace is active
-     * @returns Appropriate tools for the context
-     */
-    static getToolsForContext(hasWorkspace: boolean): ToolMetadata[] {
-        if (!hasWorkspace) {
-            // Chat-only mode: only tools that don't require workspace
-            return this.getAll().filter(
-                (tool) => !tool.requiresWorkspace
-            );
-        } else {
-            // Workspace (Build) mode: the whole context surface. resolve-toolset
-            // narrows it, and tool-reveal.ts tiers the descriptions per mode.
-            return this.getAll();
-        }
-    }
-
-    /**
-     * Get tools for Ask mode (read-only tools only)
-     * Includes: read_file, glob, grep, web_search, read_url, etc.
-     * Excludes: write_file, delete_file, run_command, code generation tools
-     * @returns Read-only tools safe for Ask mode
-     */
-    static getToolsForAskMode(): ToolMetadata[] {
-        return this.getAll().filter(
-            (tool) => tool.isReadOnly === true || tool.allowInAskMode === true
-        );
-    }
-
-    /**
-     * Get tools for no-workspace (chat-only) mode: read-only only, no workspace required.
-     * No file writes, no commands, no delegation. Code can be shown in responses but no write/run tools.
-     */
-    static getToolsForNoWorkspace(): ToolMetadata[] {
-        return this.getAll().filter(
-            (tool) => tool.isReadOnly === true && !tool.requiresWorkspace
-        );
-    }
-
-    /**
-     * Convert to AI SDK format
-     */
-    static toAISDKFormat(): Tool[] {
-        return this.getAll().map((tool) => ({
-            type: "function" as const,
-            function: {
-                name: tool.name,
-                description: tool.description,
-                parameters: tool.parameters,
-            },
-        }));
-    }
-
-    /**
-     * Convert filtered tools to AI SDK format
-     * @param hasWorkspace - Whether a workspace is active
-     */
-    static toAISDKFormatForContext(hasWorkspace: boolean): Tool[] {
-        return this.getToolsForContext(hasWorkspace).map((tool) => ({
-            type: "function" as const,
-            function: {
-                name: tool.name,
-                description: tool.description,
-                parameters: tool.parameters,
-            },
-        }));
-    }
-
-    /**
-     * Execute a tool.
-     *
-     * - FIX 3 (graceful errors): missing required params return INVALID_PARAMS,
-     *   thrown handler errors return TOOL_ERROR. No tool ever throws here.
-     * - Permission gates (`__permission_required === true`) are returned
-     *   unwrapped so the downstream interceptor in
-     *   `permissions/interceptor.ts` can still detect them.
-     */
-    static async execute(
-        name: string,
-        args: any,
-    ): Promise<any> {
-        const tool = this.get(name);
-        if (!tool) {
-            return {
-                success: false,
-                error: "TOOL_ERROR",
-                tool: name,
-                message: `Tool not found: ${name}. Please try a different approach.`,
-            };
+        // If this is a permission request, return it directly (unwrapped)
+        // so the interceptor can detect __permission_required flag.
+        if (
+          raw &&
+          typeof raw === "object" &&
+          (raw as { __permission_required?: boolean }).__permission_required
+        ) {
+          return raw;
         }
 
-        return guardToolCall({
-            toolName: name,
-            args,
-            parametersSchema: tool.parameters,
-            // `runWith` receives the alias-canonicalised args (guard.ts), so a
-            // model that sent `file_path` instead of `path` still reaches the
-            // handler with the canonical key filled in.
-            runWith: async (args: unknown) => {
-                let raw: unknown;
-                try {
-                    raw = await tool.handler(args);
-                } catch (err) {
-                    const message = err instanceof Error ? err.message : String(err);
-                    return {
-                        success: false,
-                        error: "TOOL_ERROR",
-                        tool: name,
-                        message: `Tool execution failed: ${message}`,
-                        partial: null,
-                        suggestion:
-                            resolveRecoverySuggestion({ toolName: name, message }) ??
-                            "Check parameters and workspace path. Use explore_folder or list_files to locate files.",
-                    };
-                }
+        // ask_user pause marker must also escape the success envelope —
+        // the stream paths detect `__ask_user` at the TOP level to show
+        // the question UI and block until the user answers. (This being
+        // nested inside `{ success, result }` made the model receive the
+        // raw marker and invent answers.)
+        if (
+          raw &&
+          typeof raw === "object" &&
+          (raw as { __ask_user?: boolean }).__ask_user === true
+        ) {
+          return raw;
+        }
 
-                // If this is a permission request, return it directly (unwrapped)
-                // so the interceptor can detect __permission_required flag.
-                if (raw && typeof raw === "object" && (raw as { __permission_required?: boolean }).__permission_required) {
-                    return raw;
-                }
+        // Treat as a failure when the tool says so explicitly
+        // (success:false) OR returns a bare { error: "<msg>" } without a
+        // success flag (the legacy edit_file/plan convention). v14.8.7 §F:
+        // the latter previously slipped through as success:true with the
+        // error nested in `result` — so the model saw a "successful" call
+        // that had actually failed, and never got the recovery hint.
+        if (isFailedToolResult(raw)) {
+          const fail = raw as {
+            error?: string;
+            message?: string;
+            suggestion?: string;
+            partial?: unknown;
+          };
+          const failMessage =
+            fail.message ?? fail.error ?? "Tool returned an error";
+          return {
+            success: false,
+            tool: name,
+            error: fail.error ?? "TOOL_ERROR",
+            message: failMessage,
+            partial: fail.partial ?? null,
+            ...fail,
+            // After the spread so a bare structured error still gains
+            // the per-tool recovery hint (model knows what to try next).
+            suggestion: resolveRecoverySuggestion({
+              toolName: name,
+              message: failMessage,
+              existingSuggestion: fail.suggestion,
+            }),
+          };
+        }
 
-                // ask_user pause marker must also escape the success envelope —
-                // the stream paths detect `__ask_user` at the TOP level to show
-                // the question UI and block until the user answers. (This being
-                // nested inside `{ success, result }` made the model receive the
-                // raw marker and invent answers.)
-                if (raw && typeof raw === "object" && (raw as { __ask_user?: boolean }).__ask_user === true) {
-                    return raw;
-                }
+        const truncation = await maybeTruncateToolOutput(name, raw);
 
-                // Treat as a failure when the tool says so explicitly
-                // (success:false) OR returns a bare { error: "<msg>" } without a
-                // success flag (the legacy edit_file/plan convention). v14.8.7 §F:
-                // the latter previously slipped through as success:true with the
-                // error nested in `result` — so the model saw a "successful" call
-                // that had actually failed, and never got the recovery hint.
-                if (isFailedToolResult(raw)) {
-                    const fail = raw as {
-                        error?: string;
-                        message?: string;
-                        suggestion?: string;
-                        partial?: unknown;
-                    };
-                    const failMessage =
-                        fail.message ?? fail.error ?? "Tool returned an error";
-                    return {
-                        success: false,
-                        tool: name,
-                        error: fail.error ?? "TOOL_ERROR",
-                        message: failMessage,
-                        partial: fail.partial ?? null,
-                        ...fail,
-                        // After the spread so a bare structured error still gains
-                        // the per-tool recovery hint (model knows what to try next).
-                        suggestion: resolveRecoverySuggestion({
-                            toolName: name,
-                            message: failMessage,
-                            existingSuggestion: fail.suggestion,
-                        }),
-                    };
-                }
+        return {
+          success: true,
+          result: truncation.value,
+          _truncatedOutput: truncation.truncated,
+          _originalSize: truncation.truncated
+            ? truncation.totalChars
+            : undefined,
+        };
+      },
+    });
+  }
 
-                const truncation = await maybeTruncateToolOutput(name, raw);
-
-                return {
-                    success: true,
-                    result: truncation.value,
-                    _truncatedOutput: truncation.truncated,
-                    _originalSize: truncation.truncated ? truncation.totalChars : undefined,
-                };
-            },
-        });
-    }
-
-    /**
-     * Clear all tools (for testing)
-     */
-    static clear(): void {
-        this.tools.clear();
-    }
+  /**
+   * Clear all tools (for testing)
+   */
+  static clear(): void {
+    this.tools.clear();
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -492,102 +512,105 @@ export class ToolRegistry {
 /**
  * Create parameter schema for a tool
  */
-export function createParameters(properties: Record<string, any>, required: string[] = []): any {
-    return {
-        type: "object",
-        properties,
-        required,
-    };
+export function createParameters(
+  properties: Record<string, any>,
+  required: string[] = [],
+): any {
+  return {
+    type: "object",
+    properties,
+    required,
+  };
 }
 
 /**
  * Create a simple string parameter
  */
 export function stringParam(description: string): any {
-    return {
-        type: "string",
-        description,
-    };
+  return {
+    type: "string",
+    description,
+  };
 }
 
 /**
  * Create an array parameter
  */
 export function arrayParam(itemType: string, description: string): any {
-    return {
-        type: "array",
-        items: { type: itemType },
-        description,
-    };
+  return {
+    type: "array",
+    items: { type: itemType },
+    description,
+  };
 }
 
 /**
  * Create a boolean parameter
  */
 export function booleanParam(description: string): any {
-    return {
-        type: "boolean",
-        description,
-    };
+  return {
+    type: "boolean",
+    description,
+  };
 }
 
 export function numberParam(
-    nameOrDescription: string,
-    requiredOrDefault?: boolean | number,
-    defaultOrMin?: number,
-    minOrMax?: number,
-    max?: number,
+  nameOrDescription: string,
+  requiredOrDefault?: boolean | number,
+  defaultOrMin?: number,
+  minOrMax?: number,
+  max?: number,
 ): any {
-    let name: string;
-    let defaultValue: number | undefined;
-    let min: number | undefined;
-    let maxVal: number | undefined;
+  let name: string;
+  let defaultValue: number | undefined;
+  let min: number | undefined;
+  let maxVal: number | undefined;
 
-    if (typeof requiredOrDefault === "boolean") {
-        name = nameOrDescription;
-        defaultValue = defaultOrMin;
-        min = minOrMax;
-        maxVal = max;
-    } else {
-        name = nameOrDescription;
-        defaultValue = requiredOrDefault;
-        min = defaultOrMin;
-        maxVal = minOrMax;
-    }
+  if (typeof requiredOrDefault === "boolean") {
+    name = nameOrDescription;
+    defaultValue = defaultOrMin;
+    min = minOrMax;
+    maxVal = max;
+  } else {
+    name = nameOrDescription;
+    defaultValue = requiredOrDefault;
+    min = defaultOrMin;
+    maxVal = minOrMax;
+  }
 
-    const param: any = { type: "number", description: name };
-    if (defaultValue !== undefined) param.default = defaultValue;
-    if (min !== undefined) param.minimum = min;
-    if (maxVal !== undefined) param.maximum = maxVal;
-    return param;
+  const param: any = { type: "number", description: name };
+  if (defaultValue !== undefined) param.default = defaultValue;
+  if (min !== undefined) param.minimum = min;
+  if (maxVal !== undefined) param.maximum = maxVal;
+  return param;
 }
 
 export function enumParam(
-    nameOrDescription: string,
-    requiredOrDefault?: boolean | string,
-    defaultOrOptions?: string | string[],
-    options?: string[],
+  nameOrDescription: string,
+  requiredOrDefault?: boolean | string,
+  defaultOrOptions?: string | string[],
+  options?: string[],
 ): any {
-    let name: string;
-    let defaultValue: string | undefined;
-    let opts: string[] | undefined;
+  let name: string;
+  let defaultValue: string | undefined;
+  let opts: string[] | undefined;
 
-    if (typeof requiredOrDefault === "boolean") {
-        name = nameOrDescription;
-        defaultValue = defaultOrOptions as string | undefined;
-        opts = options;
-    } else if (typeof requiredOrDefault === "string") {
-        name = nameOrDescription;
-        defaultValue = requiredOrDefault;
-        opts = defaultOrOptions as string[] | undefined;
-    } else {
-        name = nameOrDescription;
-        defaultValue = undefined;
-        opts = requiredOrDefault as string[] | undefined;
-    }
+  if (typeof requiredOrDefault === "boolean") {
+    name = nameOrDescription;
+    defaultValue = defaultOrOptions as string | undefined;
+    opts = options;
+  } else if (typeof requiredOrDefault === "string") {
+    name = nameOrDescription;
+    defaultValue = requiredOrDefault;
+    opts = defaultOrOptions as string[] | undefined;
+  } else {
+    name = nameOrDescription;
+    defaultValue = undefined;
+    opts = requiredOrDefault as string[] | undefined;
+  }
 
-    const param: any = { type: "string", description: name };
-    if (defaultValue !== undefined) param.default = defaultValue;
-    if (opts) param.enum = opts;
-    return param;
+  const param: any = { type: "string", description: name };
+  if (defaultValue !== undefined) param.default = defaultValue;
+  if (opts) param.enum = opts;
+  return param;
 }

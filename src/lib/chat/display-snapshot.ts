@@ -46,7 +46,11 @@ export function buildDisplaySnapshotV1(args: {
   interleavedContent?: string | null;
 }): DisplaySnapshotV1 | null {
   const interleaved = args.interleavedContent?.trim() || "";
-  if (!args.completedThread.length && !args.inlineTimeline?.length && !interleaved) {
+  if (
+    !args.completedThread.length &&
+    !args.inlineTimeline?.length &&
+    !interleaved
+  ) {
     return null;
   }
   return {

@@ -33,7 +33,9 @@ export function registerEditStatsHandlers(): void {
       // it belongs to is not something the card can render anyway.
       .innerJoin(apps, eq(apps.id, editStats.workspaceId))
       .groupBy(editStats.workspaceId, apps.name, apps.path)
-      .orderBy(desc(sql`sum(${editStats.linesAdded} + ${editStats.linesRemoved})`));
+      .orderBy(
+        desc(sql`sum(${editStats.linesAdded} + ${editStats.linesRemoved})`),
+      );
 
     const byModelRows = await db
       .select({
@@ -46,7 +48,9 @@ export function registerEditStatsHandlers(): void {
       .from(editStats)
       .innerJoin(apps, eq(apps.id, editStats.workspaceId))
       .groupBy(editStats.provider, editStats.modelId)
-      .orderBy(desc(sql`sum(${editStats.linesAdded} + ${editStats.linesRemoved})`));
+      .orderBy(
+        desc(sql`sum(${editStats.linesAdded} + ${editStats.linesRemoved})`),
+      );
 
     // The contribution calendar. One row per day across every workspace — the
     // faithful analogue of GitHub's graph, which spans all of your repositories.

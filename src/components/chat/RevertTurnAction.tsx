@@ -47,7 +47,10 @@ export function RevertTurnAction({
   const openDialog = async () => {
     setLoading(true);
     try {
-      const f = await IpcClient.getInstance().getSnapshotFiles({ chatId, turnId });
+      const f = await IpcClient.getInstance().getSnapshotFiles({
+        chatId,
+        turnId,
+      });
       setFiles(f);
       setOpen(true);
     } catch (err) {
@@ -101,7 +104,9 @@ export function RevertTurnAction({
       <AlertDialog open={open} onOpenChange={setOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Revert this turn's file changes?</AlertDialogTitle>
+            <AlertDialogTitle>
+              Revert this turn's file changes?
+            </AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-2 text-xs">
                 <p>
@@ -111,7 +116,7 @@ export function RevertTurnAction({
                     : ""}
                   .
                 </p>
-                {files && (files.filesChanged.length > 0) ? (
+                {files && files.filesChanged.length > 0 ? (
                   <pre className="max-h-32 overflow-auto rounded border border-border bg-muted/40 p-2 font-mono">
                     {files.filesChanged.join("\n")}
                   </pre>

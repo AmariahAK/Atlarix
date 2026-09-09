@@ -16,7 +16,12 @@
  * read-only recon and web research, so it needs to manage what it delegated.
  */
 
-import { ToolRegistry, createParameters, numberParam, stringParam } from "./registry";
+import {
+  ToolRegistry,
+  createParameters,
+  numberParam,
+  stringParam,
+} from "./registry";
 import {
   cancelSubagentTask,
   listRunningSubagentTasks,
@@ -129,7 +134,8 @@ ToolRegistry.register({
         : { success: false, error: res.reason };
     }
 
-    const mode = String(args.mode ?? "new").toLowerCase() === "tail" ? "tail" : "new";
+    const mode =
+      String(args.mode ?? "new").toLowerCase() === "tail" ? "tail" : "new";
     const maxChars = Math.min(
       MAX_OUTPUT_CHARS,
       Math.max(200, Number(args.max_chars) || DEFAULT_OUTPUT_CHARS),

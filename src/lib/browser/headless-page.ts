@@ -84,7 +84,9 @@ function getSlot(partition: string): PageSlot {
  */
 export function isHiddenPageAvailable(): boolean {
   const BW = (electron as { BrowserWindow?: unknown }).BrowserWindow;
-  return typeof BW === "function" && typeof electron.app?.isReady === "function";
+  return (
+    typeof BW === "function" && typeof electron.app?.isReady === "function"
+  );
 }
 
 /** Every window this module owns, across all partitions. */
@@ -141,7 +143,8 @@ function installLastWindowWatch(): void {
   try {
     const { BrowserWindow, app } = electron;
     const watch = (w: Win) => {
-      if (!ourWindows().has(w) && !w.isDestroyed()) w.once("closed", destroyIfLastWindow);
+      if (!ourWindows().has(w) && !w.isDestroyed())
+        w.once("closed", destroyIfLastWindow);
     };
     // Windows that already exist: the main window is created long before the
     // first search or read, so `browser-window-created` alone would never see it.
@@ -172,7 +175,9 @@ function getWindow(slot: PageSlot, partition: string): Win {
   // isolated partition, sandboxed, no preload, no node, downloads and permissions
   // denied. This window renders a hostile third-party page and does nothing else.
   const ses = session.fromPartition(partition, { cache: true });
-  const hardened = ses as Electron.Session & { __atlarixHiddenPageHardened?: boolean };
+  const hardened = ses as Electron.Session & {
+    __atlarixHiddenPageHardened?: boolean;
+  };
   if (!hardened.__atlarixHiddenPageHardened) {
     hardened.__atlarixHiddenPageHardened = true;
     ses.setPermissionRequestHandler((_wc, _permission, cb) => cb(false));
@@ -206,7 +211,11 @@ function getWindow(slot: PageSlot, partition: string): Win {
 }
 
 /** Load `url` and resolve once the DOM is ready, or reject on timeout. */
-async function loadPage(win: Win, url: string, navTimeoutMs: number): Promise<void> {
+async function loadPage(
+  win: Win,
+  url: string,
+  navTimeoutMs: number,
+): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => {
       cleanup();
@@ -240,12 +249,19 @@ async function loadPage(win: Win, url: string, navTimeoutMs: number): Promise<vo
   });
 }
 
-async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+async function withTimeout<T>(
+  p: Promise<T>,
+  ms: number,
+  label: string,
+): Promise<T> {
   let timer: NodeJS.Timeout;
   return (await Promise.race([
     p,
     new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+      timer = setTimeout(
+        () => reject(new Error(`${label} timed out after ${ms}ms`)),
+        ms,
+      );
       timer.unref?.();
     }),
   ]).finally(() => clearTimeout(timer!))) as T;

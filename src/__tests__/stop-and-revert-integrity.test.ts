@@ -46,15 +46,19 @@ describe("resolveReadScope — which record a call belongs to", () => {
     // A sub-agent edits against its OWN overlay. If it shared the parent's record, the
     // parent having read a file would satisfy a gate for content the sub-agent never saw.
     expect(
-      resolveReadScope({ _proposalSetId: "p1", _scopeSessionId: SESSION, _scopeChatId: 3 }),
+      resolveReadScope({
+        _proposalSetId: "p1",
+        _scopeSessionId: SESSION,
+        _scopeChatId: 3,
+      }),
     ).toBe("prop:p1");
   });
 
   it("prefers the session UUID over the transport chat id", () => {
     // Chat ids are remade every app relaunch; the session id is stable.
-    expect(resolveReadScope({ _scopeSessionId: SESSION, _scopeChatId: 3 })).toBe(
-      `sess:${SESSION}`,
-    );
+    expect(
+      resolveReadScope({ _scopeSessionId: SESSION, _scopeChatId: 3 }),
+    ).toBe(`sess:${SESSION}`);
   });
 
   it("falls back to a chat id, including the one sub-agents pass", () => {
@@ -72,7 +76,9 @@ describe("checkFreshness", () => {
 
   it("passes when the content matches what was read", () => {
     recordFileRead(scope, "admin.go", "package main\n");
-    expect(checkFreshness(scope, "admin.go", "package main\n")).toEqual({ ok: true });
+    expect(checkFreshness(scope, "admin.go", "package main\n")).toEqual({
+      ok: true,
+    });
   });
 
   it("reports never_read for a file this scope has not read", () => {
@@ -84,7 +90,9 @@ describe("checkFreshness", () => {
 
   it("reports stale when the bytes moved under the agent", () => {
     recordFileRead(scope, "admin.go", "package main\n");
-    expect(checkFreshness(scope, "admin.go", "package main\n// changed\n")).toEqual({
+    expect(
+      checkFreshness(scope, "admin.go", "package main\n// changed\n"),
+    ).toEqual({
       ok: false,
       reason: "stale",
     });
@@ -196,7 +204,9 @@ describe("edit_file end-to-end gate", () => {
       content: "package main\n",
     });
     expect(String(res.error)).toContain("has changed since you last read it");
-    expect((res.retry as { reason?: string } | undefined)?.reason).toBe("stale_read");
+    expect((res.retry as { reason?: string } | undefined)?.reason).toBe(
+      "stale_read",
+    );
     // Crucially it does NOT speculate about WHO changed it — that guess is what made a
     // model conclude the user had already applied its fix.
     expect(String(res.error)).not.toContain("YOU already edited");
@@ -222,7 +232,9 @@ describe("edit_file end-to-end gate", () => {
       content: "package main\n",
     });
     expect(String(res.error)).toContain(`Read ${REL} before overwriting it`);
-    expect((res.retry as { reason?: string } | undefined)?.reason).toBe("not_read");
+    expect((res.retry as { reason?: string } | undefined)?.reason).toBe(
+      "not_read",
+    );
   });
 
   it("does NOT gate creating a new file — there is nothing to have read", async () => {

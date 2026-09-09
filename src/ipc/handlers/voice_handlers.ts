@@ -79,7 +79,9 @@ async function resolveTranscriptionBaseUrl(
   return undefined;
 }
 
-type TranscribeResult = { ok: true; text: string } | { ok: false; error: string };
+type TranscribeResult =
+  | { ok: true; text: string }
+  | { ok: false; error: string };
 
 /** OpenAI + Groq share the OpenAI `/audio/transcriptions` multipart contract. */
 async function transcribeOpenAiCompatible(
@@ -100,7 +102,9 @@ async function transcribeOpenAiCompatible(
     body: form,
   });
   if (!res.ok) {
-    throw new Error(`${res.status} ${await res.text().catch(() => res.statusText)}`);
+    throw new Error(
+      `${res.status} ${await res.text().catch(() => res.statusText)}`,
+    );
   }
   const json = (await res.json()) as { text?: string };
   return (json.text ?? "").trim();
@@ -122,8 +126,15 @@ async function transcribeGemini(
         contents: [
           {
             parts: [
-              { text: "Transcribe this audio verbatim. Output only the transcript text." },
-              { inline_data: { mime_type: audio.mimeType, data: audio.dataBase64 } },
+              {
+                text: "Transcribe this audio verbatim. Output only the transcript text.",
+              },
+              {
+                inline_data: {
+                  mime_type: audio.mimeType,
+                  data: audio.dataBase64,
+                },
+              },
             ],
           },
         ],
@@ -131,7 +142,9 @@ async function transcribeGemini(
     },
   );
   if (!res.ok) {
-    throw new Error(`${res.status} ${await res.text().catch(() => res.statusText)}`);
+    throw new Error(
+      `${res.status} ${await res.text().catch(() => res.statusText)}`,
+    );
   }
   const json = (await res.json()) as {
     candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;

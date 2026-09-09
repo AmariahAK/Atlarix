@@ -40,7 +40,9 @@ let workspace = "";
 function params() {
   return {
     effectiveWorkMode: "build",
-    preflight: { time: async <T>(_l: string, fn: () => Promise<T> | T) => await fn() },
+    preflight: {
+      time: async <T>(_l: string, fn: () => Promise<T> | T) => await fn(),
+    },
     hasWorkspace: true,
     appPath: workspace,
     effectiveAppId: 1,
@@ -77,7 +79,12 @@ describe("memory location on an empty store", () => {
   it("does not leave the agent to guess the human-readable path", () => {
     // The exact directory the agent invented on a real machine. It must not be what
     // the prompt implies, and the published path must not merely be a placeholder.
-    const guessed = path.join(root, "projects", path.basename(workspace), "memory");
+    const guessed = path.join(
+      root,
+      "projects",
+      path.basename(workspace),
+      "memory",
+    );
     const text = identity();
     expect(text).not.toContain(guessed);
     expect(text).not.toContain("<slug>");

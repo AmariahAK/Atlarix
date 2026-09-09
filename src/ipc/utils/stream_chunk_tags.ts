@@ -1,7 +1,4 @@
-import {
-  type TextStreamPart,
-  type ToolSet,
-} from "ai";
+import { type TextStreamPart, type ToolSet } from "ai";
 import log from "electron-log";
 import { AI_STREAM_EMPTY_RESPONSE_FALLBACK } from "@/shared/texts";
 import { isNoUsableModelOutputError } from "../utils/no_usable_model_output";
@@ -72,7 +69,8 @@ export function computeAdaptiveStallBudget(
   const minSamples = opts.minSamples ?? ADAPTIVE_STALL_MIN_SAMPLES;
   if (gapsMs.length < minSamples) return opts.ceiling;
   const sorted = [...gapsMs].sort((a, b) => a - b);
-  const p95 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))]!;
+  const p95 =
+    sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))]!;
   // Ceiling is the HARD outer bound (never exceed it — and if a caller passes a
   // ceiling below the floor, e.g. a test injecting a tiny timeout, the ceiling
   // still wins). Floor is the soft minimum for a normal (600s-ceiling) stream.
@@ -140,8 +138,7 @@ export type ProcessStreamChunksParams = {
 
 function detectHallucinatedAtlarixToolTag(text: string): boolean {
   return (
-    /<atlarix-tool_calls\b/i.test(text) ||
-    /<atlarix-tool-call\b/i.test(text)
+    /<atlarix-tool_calls\b/i.test(text) || /<atlarix-tool-call\b/i.test(text)
   );
 }
 
@@ -185,6 +182,9 @@ export async function processStreamChunks({
   const chunkGaps: number[] = [];
   /** Tools currently executing locally (tool-call seen, tool-result pending). */
   let toolExecutionInFlight = 0;
+  /** A top-level `error` part arrived: the CALL failed, so an empty response is
+   * explained and must not be papered over with fallback text. */
+  let sawStreamError = false;
   let lastHeartbeatLogAt = Date.now();
   let loggedHallucinatedTag = false;
   const partCounts: Record<string, number> = {};
@@ -194,7 +194,10 @@ export async function processStreamChunks({
   let lastToolInputNotifyAt = 0;
   // Per tool-call accumulator of the raw JSON argument text streamed so far, so
   // the UI can render a live preview before the tool-call completes.
-  const toolInputBuffers = new Map<string, { toolName: string; text: string }>();
+  const toolInputBuffers = new Map<
+    string,
+    { toolName: string; text: string }
+  >();
   let lastToolInputDeltaEmitAt = 0;
   const streamDebug = isStreamDebugLoggingEnabled();
 
@@ -203,9 +206,14 @@ export async function processStreamChunks({
     const buf = toolInputBuffers.get(toolCallId);
     if (!buf) return;
     const now = Date.now();
-    if (!force && now - lastToolInputDeltaEmitAt < TOOL_INPUT_DELTA_EMIT_MS) return;
+    if (!force && now - lastToolInputDeltaEmitAt < TOOL_INPUT_DELTA_EMIT_MS)
+      return;
     lastToolInputDeltaEmitAt = now;
-    onToolInputDelta({ toolCallId, toolName: buf.toolName, argsTextSoFar: buf.text });
+    onToolInputDelta({
+      toolCallId,
+      toolName: buf.toolName,
+      argsTextSoFar: buf.text,
+    });
   };
 
   const markFirstModelActivity = () => {
@@ -225,7 +233,10 @@ export async function processStreamChunks({
   const notifyToolInputProgress = (force = false) => {
     if (!onToolInputProgress && !onStreamActivityPulse) return;
     const now = Date.now();
-    if (!force && now - lastToolInputNotifyAt < TOOL_INPUT_PROGRESS_INTERVAL_MS) {
+    if (
+      !force &&
+      now - lastToolInputNotifyAt < TOOL_INPUT_PROGRESS_INTERVAL_MS
+    ) {
       return;
     }
     lastToolInputNotifyAt = now;
@@ -234,55 +245,61 @@ export async function processStreamChunks({
     onStreamActivityPulse?.();
   };
 
-  const stallTimer = setInterval(() => {
-    if (abortController.signal.aborted) return;
-    // v10.1: a locally-executing tool (sub-agent delegation, long run_command,
-    // ask_user waiting for the user) produces NO stream chunks by design — the
-    // model resumes only after the tool returns. Don't treat that as a stall;
-    // tools enforce their own timeouts.
-    if (toolExecutionInFlight > 0) {
-      lastChunkAt = Date.now();
-      // Keep the renderer's activity clock fresh while a long tool runs (a
-      // 60s+ command, a sub-agent) so it shows "still working", not a false
-      // "Reconnecting…". The tool enforces its own timeout; this is display-only.
-      onStreamActivityPulse?.();
-      return;
-    }
-    const now = Date.now();
-    const sinceChunk = now - lastChunkAt;
-    // Before the first chunk (slow TTFB / silent reasoning) allow a generous
-    // first-byte budget; once the model has started streaming, a shorter idle
-    // budget catches a genuinely dropped/dead connection. Provider-agnostic.
-    const budget = hasReceivedChunk
-      ? computeAdaptiveStallBudget(chunkGaps, {
-          floor: ADAPTIVE_STALL_FLOOR_MS,
-          ceiling: stallTimeoutMs,
-          k: ADAPTIVE_STALL_K,
-        })
-      : firstByteTimeoutMs;
-    if (sinceChunk >= budget) {
-      stalled = true;
-      logger.warn(
-        `[stream] chat ${chatId} stalled — no chunk for ${sinceChunk}ms (${
-          hasReceivedChunk ? "idle" : "first-byte"
-        } budget ${budget}ms)`,
-      );
-      onStreamStall?.();
-      abortController.abort();
-      return;
-    }
-    if (
-      streamDebug &&
-      now - lastHeartbeatLogAt >= HEARTBEAT_LOG_INTERVAL_MS
-    ) {
-      lastHeartbeatLogAt = now;
-      logger.log(
-        `[stream heartbeat] chat ${chatId} active — ${sinceChunk}ms since last chunk (parts: ${JSON.stringify(partCounts)})`,
-      );
-    }
-    // Tick at most every 15s, but never coarser than the smallest active budget
-    // (tests inject small timeouts; production stays checked every 15s).
-  }, Math.max(10, Math.min(stallTimeoutMs, firstByteTimeoutMs, HEARTBEAT_LOG_INTERVAL_MS)));
+  const stallTimer = setInterval(
+    () => {
+      if (abortController.signal.aborted) return;
+      // v10.1: a locally-executing tool (sub-agent delegation, long run_command,
+      // ask_user waiting for the user) produces NO stream chunks by design — the
+      // model resumes only after the tool returns. Don't treat that as a stall;
+      // tools enforce their own timeouts.
+      if (toolExecutionInFlight > 0) {
+        lastChunkAt = Date.now();
+        // Keep the renderer's activity clock fresh while a long tool runs (a
+        // 60s+ command, a sub-agent) so it shows "still working", not a false
+        // "Reconnecting…". The tool enforces its own timeout; this is display-only.
+        onStreamActivityPulse?.();
+        return;
+      }
+      const now = Date.now();
+      const sinceChunk = now - lastChunkAt;
+      // Before the first chunk (slow TTFB / silent reasoning) allow a generous
+      // first-byte budget; once the model has started streaming, a shorter idle
+      // budget catches a genuinely dropped/dead connection. Provider-agnostic.
+      const budget = hasReceivedChunk
+        ? computeAdaptiveStallBudget(chunkGaps, {
+            floor: ADAPTIVE_STALL_FLOOR_MS,
+            ceiling: stallTimeoutMs,
+            k: ADAPTIVE_STALL_K,
+          })
+        : firstByteTimeoutMs;
+      if (sinceChunk >= budget) {
+        stalled = true;
+        logger.warn(
+          `[stream] chat ${chatId} stalled — no chunk for ${sinceChunk}ms (${
+            hasReceivedChunk ? "idle" : "first-byte"
+          } budget ${budget}ms)`,
+        );
+        onStreamStall?.();
+        abortController.abort();
+        return;
+      }
+      if (
+        streamDebug &&
+        now - lastHeartbeatLogAt >= HEARTBEAT_LOG_INTERVAL_MS
+      ) {
+        lastHeartbeatLogAt = now;
+        logger.log(
+          `[stream heartbeat] chat ${chatId} active — ${sinceChunk}ms since last chunk (parts: ${JSON.stringify(partCounts)})`,
+        );
+      }
+      // Tick at most every 15s, but never coarser than the smallest active budget
+      // (tests inject small timeouts; production stays checked every 15s).
+    },
+    Math.max(
+      10,
+      Math.min(stallTimeoutMs, firstByteTimeoutMs, HEARTBEAT_LOG_INTERVAL_MS),
+    ),
+  );
 
   // v10.1: provider-executed search citations. Anthropic/Gemini native search
   // emit `source` parts; Gemini grounding also surfaces via finish-step
@@ -313,12 +330,39 @@ export async function processStreamChunks({
       partCounts[part.type] = (partCounts[part.type] ?? 0) + 1;
 
       if (part.type === "source") {
-        const src = part as { sourceType?: string; url?: string; title?: string };
+        const src = part as {
+          sourceType?: string;
+          url?: string;
+          title?: string;
+        };
         if (src.sourceType === "url") collectSource(src.url, src.title);
       }
 
       if (part.type === "tool-error") {
         toolExecutionInFlight = Math.max(0, toolExecutionInFlight - 1);
+      }
+
+      /**
+       * A TOP-LEVEL stream error — the whole call failed, not one tool.
+       *
+       * Only `tool-error` was ever handled, so this fell through to the tail of the
+       * loop, contributed an empty `chunk`, and was skipped: counted in `partCounts`
+       * (visible only under `streamDebug`) and otherwise invisible. A transport
+       * failure therefore looked identical to a model that said nothing.
+       *
+       * Not thrown from here. The round's `onError` classifies it and round-retry
+       * decides, and throwing would pre-empt that with a less-informed verdict. What
+       * this must do is stop `applyEmptyFallback` from writing "no response" text
+       * into a message that is about to be retried and re-rendered.
+       */
+      if (part.type === "error") {
+        sawStreamError = true;
+        const err = (part as { error?: unknown }).error;
+        logger.warn(
+          `[stream] top-level stream error part: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
       }
 
       if (part.type === "finish-step") {
@@ -341,9 +385,17 @@ export async function processStreamChunks({
         // Gemini grounding backup path: groundingChunks in providerMetadata.
         const meta = (part as { providerMetadata?: Record<string, unknown> })
           .providerMetadata;
-        const grounding = (meta?.google as
-          | { groundingMetadata?: { groundingChunks?: Array<{ web?: { uri?: string; title?: string } }> } }
-          | undefined)?.groundingMetadata;
+        const grounding = (
+          meta?.google as
+            | {
+                groundingMetadata?: {
+                  groundingChunks?: Array<{
+                    web?: { uri?: string; title?: string };
+                  }>;
+                };
+              }
+            | undefined
+        )?.groundingMetadata;
         for (const chunk of grounding?.groundingChunks ?? []) {
           collectSource(chunk?.web?.uri, chunk?.web?.title);
         }
@@ -513,7 +565,10 @@ export async function processStreamChunks({
   } catch (err) {
     if (abortController.signal.aborted && stalled) {
       logger.warn(`Stream for chat ${chatId} aborted due to stall`);
-    } else if (isNoUsableModelOutputError(err) && !abortController.signal.aborted) {
+    } else if (
+      isNoUsableModelOutputError(err) &&
+      !abortController.signal.aborted
+    ) {
       logger.warn(
         `Stream for chat ${chatId} produced no usable text (mapped to fallback):`,
         err,
@@ -554,7 +609,15 @@ export async function processStreamChunks({
     fullResponse = await processResponseChunkUpdate({ fullResponse });
   }
 
-  if (!abortController.signal.aborted && !fullResponse.trim()) {
+  // `sawStreamError` is the third condition, and it matters: the round is about to
+  // be retried and re-rendered, so writing "no response" text here paints a failure
+  // message the user watches get replaced by a real answer — and on the empty-output
+  // path (which sends no `reset-partial`) it was not even replaced.
+  if (
+    !abortController.signal.aborted &&
+    !fullResponse.trim() &&
+    !sawStreamError
+  ) {
     await applyEmptyFallback();
   }
 

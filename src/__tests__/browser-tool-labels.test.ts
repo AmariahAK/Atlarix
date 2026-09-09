@@ -26,31 +26,42 @@ describe("browserToolLabel", () => {
     expect(getToolDoneLabel("browser_find", { query: "login button" })).toBe(
       'Found "login button"',
     );
-    expect(getToolDoneLabel("browser_tabs", { operation: "create" })).toBe("Opened a new tab");
-    expect(getToolDoneLabel("browser_tabs", { operation: "switch" })).toBe("Switched tab");
+    expect(getToolDoneLabel("browser_tabs", { operation: "create" })).toBe(
+      "Opened a new tab",
+    );
+    expect(getToolDoneLabel("browser_tabs", { operation: "switch" })).toBe(
+      "Switched tab",
+    );
     expect(getToolDoneLabel("browser_batch", { steps: [{}, {}] })).toBe(
       "Ran 2 steps in the browser",
     );
   });
 
   it("labels the new interact verbs", () => {
-    expect(getToolDoneLabel("browser_interact", { action: "key", text: "Enter" })).toBe(
-      "Pressed Enter",
-    );
-    expect(getToolDoneLabel("browser_interact", { action: "hover", ref: "e3" })).toBe(
-      "Hovered e3",
-    );
-    expect(getToolDoneLabel("browser_interact", { action: "scroll", direction: "down" })).toBe(
-      "Scrolled down",
-    );
+    expect(
+      getToolDoneLabel("browser_interact", { action: "key", text: "Enter" }),
+    ).toBe("Pressed Enter");
+    expect(
+      getToolDoneLabel("browser_interact", { action: "hover", ref: "e3" }),
+    ).toBe("Hovered e3");
+    expect(
+      getToolDoneLabel("browser_interact", {
+        action: "scroll",
+        direction: "down",
+      }),
+    ).toBe("Scrolled down");
   });
 
   it("labels each browser_inspect mode, defaulting to the combined read", () => {
-    expect(getToolDoneLabel("browser_inspect", { mode: "visual" })).toBe("Checked page layout");
+    expect(getToolDoneLabel("browser_inspect", { mode: "visual" })).toBe(
+      "Checked page layout",
+    );
     expect(getToolDoneLabel("browser_inspect", { mode: "network" })).toBe(
       "Read page network errors",
     );
-    expect(getToolDoneLabel("browser_inspect", { mode: "snapshot" })).toBe("Inspected page");
+    expect(getToolDoneLabel("browser_inspect", { mode: "snapshot" })).toBe(
+      "Inspected page",
+    );
   });
 
   it("interact fill reads as 'Filled \"…\"' with preview suffix", () => {
@@ -71,30 +82,47 @@ describe("browserToolLabel", () => {
 
   it("interact click reads as 'Clicked …' and respects target", () => {
     expect(
-      getToolDoneLabel("browser_interact", { action: "click", ref: "e11", target: "preview" }),
+      getToolDoneLabel("browser_interact", {
+        action: "click",
+        ref: "e11",
+        target: "preview",
+      }),
     ).toBe("Clicked e11 · preview");
     expect(
-      getToolDoneLabel("browser_interact", { action: "click", selector: ".btn" }),
+      getToolDoneLabel("browser_interact", {
+        action: "click",
+        selector: ".btn",
+      }),
     ).toBe("Clicked .btn");
   });
 
   it("inspect mode + target shape the label", () => {
-    expect(getToolDoneLabel("browser_inspect", { mode: "snapshot", target: "preview" })).toBe(
-      "Inspected preview",
-    );
-    expect(getToolDoneLabel("browser_inspect", { mode: "console", target: "preview" })).toBe(
-      "Read preview console",
-    );
-    expect(getToolActivityLabelWithArgs("browser_inspect", { mode: "text" })).toBe(
-      "Reading page text…",
-    );
+    expect(
+      getToolDoneLabel("browser_inspect", {
+        mode: "snapshot",
+        target: "preview",
+      }),
+    ).toBe("Inspected preview");
+    expect(
+      getToolDoneLabel("browser_inspect", {
+        mode: "console",
+        target: "preview",
+      }),
+    ).toBe("Read preview console");
+    expect(
+      getToolActivityLabelWithArgs("browser_inspect", { mode: "text" }),
+    ).toBe("Reading page text…");
   });
 
   it("navigate shows the host/path and preview target", () => {
     expect(
-      getToolDoneLabel("browser_navigate", { url: "http://localhost:3000/auth/register" }),
+      getToolDoneLabel("browser_navigate", {
+        url: "http://localhost:3000/auth/register",
+      }),
     ).toBe("Opened localhost:3000/auth/register");
-    expect(getToolDoneLabel("browser_navigate", { target: "preview" })).toBe("Opened preview");
+    expect(getToolDoneLabel("browser_navigate", { target: "preview" })).toBe(
+      "Opened preview",
+    );
   });
 
   it("returns null for non-browser tools (so other labels are untouched)", () => {
@@ -132,9 +160,9 @@ describe("the 'Runned' fallback is dead for EVERY tool, not just browser ones", 
 
 describe("grep/glob search labels surface the pattern", () => {
   it("grep running + done include the pattern", () => {
-    expect(getToolActivityLabelWithArgs("grep", { pattern: "handleLogin" })).toBe(
-      "Searching for handleLogin…",
-    );
+    expect(
+      getToolActivityLabelWithArgs("grep", { pattern: "handleLogin" }),
+    ).toBe("Searching for handleLogin…");
     expect(getToolDoneLabel("grep", { pattern: "handleLogin" })).toBe(
       "Searched for handleLogin",
     );
@@ -142,11 +170,14 @@ describe("grep/glob search labels surface the pattern", () => {
 
   it("grep folds in the include filter", () => {
     expect(
-      getToolActivityLabelWithArgs("grep", { pattern: "TODO|FIXME", include: "*.ts" }),
+      getToolActivityLabelWithArgs("grep", {
+        pattern: "TODO|FIXME",
+        include: "*.ts",
+      }),
     ).toBe("Searching for TODO|FIXME in *.ts…");
-    expect(getToolDoneLabel("grep", { pattern: "TODO|FIXME", include: "*.ts" })).toBe(
-      "Searched for TODO|FIXME in *.ts",
-    );
+    expect(
+      getToolDoneLabel("grep", { pattern: "TODO|FIXME", include: "*.ts" }),
+    ).toBe("Searched for TODO|FIXME in *.ts");
   });
 
   it("glob running + done include the pattern", () => {

@@ -29,7 +29,9 @@ describe("isContextOverflowError", () => {
   });
 
   it("does not classify unrelated errors", () => {
-    expect(isContextOverflowError(new Error("rate limit exceeded"))).toBe(false);
+    expect(isContextOverflowError(new Error("rate limit exceeded"))).toBe(
+      false,
+    );
     expect(isContextOverflowError(new Error("ECONNREFUSED"))).toBe(false);
     expect(isContextOverflowError(new Error("invalid api key"))).toBe(false);
     expect(isContextOverflowError(null)).toBe(false);
@@ -107,7 +109,10 @@ describe("durable compaction summary slicing", () => {
 
   it("ignores assistant messages that quote the marker", () => {
     const messages = [
-      { role: "assistant", content: `${COMPACTION_SUMMARY_PREFIX} quoted in reply` },
+      {
+        role: "assistant",
+        content: `${COMPACTION_SUMMARY_PREFIX} quoted in reply`,
+      },
       { role: "user", content: "q" },
     ];
     expect(sliceFromLastCompactionSummary(messages)).toBe(messages);
@@ -181,7 +186,10 @@ describe("compaction summary chaining", () => {
 
   it("ignores an assistant message that merely quotes the marker", () => {
     const messages = [
-      { role: "assistant", content: `${COMPACTION_SUMMARY_PREFIX} quoted back` },
+      {
+        role: "assistant",
+        content: `${COMPACTION_SUMMARY_PREFIX} quoted back`,
+      },
     ];
     // Same rule sliceFromLastCompactionSummary applies: only user rows count.
     expect(extractPriorSummary(messages).prior).toBeNull();
@@ -256,7 +264,11 @@ describe("overflow feedback clamp", () => {
 });
 
 describe("runSteppedCompaction gates (W6 v14.8.11)", () => {
-  const msg = (id: number, role: string, content: string) => ({ id, role, content });
+  const msg = (id: number, role: string, content: string) => ({
+    id,
+    role,
+    content,
+  });
   const filler = (n: number) => "word ".repeat(n);
 
   it("counts message lists per-message (meter scope), not role-joined", () => {
@@ -270,14 +282,26 @@ describe("runSteppedCompaction gates (W6 v14.8.11)", () => {
   });
 
   it("alreadyUsedTokens raises the usage ratio (system prompt + input now count)", async () => {
-    const messages = [msg(1, "user", filler(2000)), msg(2, "assistant", filler(2000))];
+    const messages = [
+      msg(1, "user", filler(2000)),
+      msg(2, "assistant", filler(2000)),
+    ];
     const historyTokens = countMessagesTokens(messages);
     const tierLimit = historyTokens * 2; // messages-only ratio = 0.5 (< 0.60 gate)
-    const withoutOverhead = await runSteppedCompaction(messages, tierLimit, "test-provider");
+    const withoutOverhead = await runSteppedCompaction(
+      messages,
+      tierLimit,
+      "test-provider",
+    );
     expect(withoutOverhead.usageRatio).toBeLessThan(0.6);
-    const withOverhead = await runSteppedCompaction(messages, tierLimit, "test-provider", {
-      alreadyUsedTokens: historyTokens, // + overhead → ratio 1.0
-    });
+    const withOverhead = await runSteppedCompaction(
+      messages,
+      tierLimit,
+      "test-provider",
+      {
+        alreadyUsedTokens: historyTokens, // + overhead → ratio 1.0
+      },
+    );
     expect(withOverhead.usageRatio).toBeGreaterThanOrEqual(1);
   });
 
@@ -292,9 +316,16 @@ describe("runSteppedCompaction gates (W6 v14.8.11)", () => {
   });
 
   it("non-forced call below the 60% gate stays a no-op (auto path unchanged)", async () => {
-    const messages = [msg(1, "user", filler(2000)), msg(2, "assistant", filler(2000))];
+    const messages = [
+      msg(1, "user", filler(2000)),
+      msg(2, "assistant", filler(2000)),
+    ];
     const tierLimit = countMessagesTokens(messages) * 10;
-    const out = await runSteppedCompaction(messages, tierLimit, "test-provider");
+    const out = await runSteppedCompaction(
+      messages,
+      tierLimit,
+      "test-provider",
+    );
     expect(out.compactionApplied).toBe(false);
   });
 });

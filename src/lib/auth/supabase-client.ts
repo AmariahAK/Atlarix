@@ -4,29 +4,38 @@
  * Central Supabase client for authentication and user management.
  * All user data (diagrams, prompts) stays LOCAL in SQLite.
  * Supabase only stores: user_id, email, plan, lemon_customer_id
- * 
+ *
  * Created: v1.0.0 (2026-01-14)
  */
 
-import { createClient, SupabaseClient, Session, User, SupportedStorage } from '@supabase/supabase-js';
-import log from 'electron-log';
-import { clipboard, dialog, shell } from 'electron';
-import { createSecureSupabaseStorage, clearSupabaseSecureStorage } from './supabase-secure-storage';
-import { resolveOfflineEntitlement } from './offline-entitlement';
+import {
+  createClient,
+  SupabaseClient,
+  Session,
+  User,
+  SupportedStorage,
+} from "@supabase/supabase-js";
+import log from "electron-log";
+import { clipboard, dialog, shell } from "electron";
+import {
+  createSecureSupabaseStorage,
+  clearSupabaseSecureStorage,
+} from "./supabase-secure-storage";
+import { resolveOfflineEntitlement } from "./offline-entitlement";
 
-const logger = log.scope('supabase');
+const logger = log.scope("supabase");
 
 // ============================================
 // CONFIGURATION
 // ============================================
 
 // Deep link protocol for OAuth callback
-export const DEEP_LINK_PROTOCOL = 'atlarix';
+export const DEEP_LINK_PROTOCOL = "atlarix";
 // Inbound spelling: what `new URL(...).pathname` reads as when the OS hands us
 // `atlarix://auth/callback` (hostname `auth`, pathname `/callback`) OR the
 // three-slash `atlarix:///auth/callback` (empty hostname, pathname
 // `/auth/callback`). main.ts accepts both.
-export const AUTH_CALLBACK_PATH = '/auth/callback';
+export const AUTH_CALLBACK_PATH = "/auth/callback";
 /**
  * OUTBOUND: the `redirectTo` handed to Supabase.
  *
@@ -69,20 +78,20 @@ export const SUPABASE_REQUEST_TIMEOUT_MS = 8_000;
  * unreachable before.
  */
 export async function fetchWithTimeout(
-    input: RequestInfo | URL,
-    init?: RequestInit,
-    // Injectable so tests don't have to wait the real 8s. `AbortSignal.timeout`
-    // is a platform timer that vitest's fake timers do not drive, so this is the
-    // only way to exercise the deadline quickly.
-    timeoutMs: number = SUPABASE_REQUEST_TIMEOUT_MS,
+  input: RequestInfo | URL,
+  init?: RequestInit,
+  // Injectable so tests don't have to wait the real 8s. `AbortSignal.timeout`
+  // is a platform timer that vitest's fake timers do not drive, so this is the
+  // only way to exercise the deadline quickly.
+  timeoutMs: number = SUPABASE_REQUEST_TIMEOUT_MS,
 ): Promise<Response> {
-    const timeout = AbortSignal.timeout(timeoutMs);
-    // Don't discard a caller's own signal (supabase-js passes one for its own
-    // cancellation); whichever aborts first wins.
-    const signal = init?.signal
-        ? AbortSignal.any([init.signal, timeout])
-        : timeout;
-    return fetch(input, { ...init, signal });
+  const timeout = AbortSignal.timeout(timeoutMs);
+  // Don't discard a caller's own signal (supabase-js passes one for its own
+  // cancellation); whichever aborts first wins.
+  const signal = init?.signal
+    ? AbortSignal.any([init.signal, timeout])
+    : timeout;
+  return fetch(input, { ...init, signal });
 }
 
 /**
@@ -91,49 +100,54 @@ export async function fetchWithTimeout(
  * Falls back to embedded defaults for production builds where .env isn't bundled
  */
 export function getSupabaseClient(): SupabaseClient {
-    if (!supabaseClient) {
-        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ||
-            process.env.SUPABASE_URL;
-        // Publishable key is the current Supabase API-key system; the legacy anon
-        // JWT is kept only as a fallback for older local .env files.
-        const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY ||
-            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!supabaseClient) {
+    const supabaseUrl =
+      process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+    // Publishable key is the current Supabase API-key system; the legacy anon
+    // JWT is kept only as a fallback for older local .env files.
+    const supabaseAnonKey =
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY ||
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-        if (!supabaseUrl || !supabaseAnonKey) {
-            logger.warn('[Supabase] Missing credentials - set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY in .env or CI');
-            throw new Error('Supabase URL and anon key are required. Add them to .env (see .env.example).');
-        }
-
-        // safeStorage-backed session persistence (see supabase-secure-storage.ts)
-        fileStorage = createSecureSupabaseStorage();
-
-        supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
-            auth: {
-                storage: fileStorage,
-                persistSession: true,
-                autoRefreshToken: true,
-                detectSessionInUrl: false, // We handle deep links manually
-            },
-            global: {
-                // supabase-js sets NO default request timeout, so a black-hole
-                // network (captive portal, VPN, hotel wifi — DNS resolves, TCP
-                // never completes) hangs every call until the OS TCP timeout,
-                // ~75s on macOS. Every caller below is written to degrade on a
-                // FAILURE (`return 'free'`, `return null`), and none of them
-                // degrade on a HANG — so bounding the request is what makes all
-                // that existing error handling actually reachable.
-                fetch: fetchWithTimeout,
-            },
-            // No `realtime` options: nothing subscribes to a channel any more, so
-            // supabase-js never opens the socket those options would configure.
-            // Tuning a keepalive for a connection that is never made is a setting
-            // that reads as protection and provides none.
-        });
-
-        logger.log('[Supabase] Client initialized with secure storage');
+    if (!supabaseUrl || !supabaseAnonKey) {
+      logger.warn(
+        "[Supabase] Missing credentials - set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY in .env or CI",
+      );
+      throw new Error(
+        "Supabase URL and anon key are required. Add them to .env (see .env.example).",
+      );
     }
 
-    return supabaseClient;
+    // safeStorage-backed session persistence (see supabase-secure-storage.ts)
+    fileStorage = createSecureSupabaseStorage();
+
+    supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        storage: fileStorage,
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: false, // We handle deep links manually
+      },
+      global: {
+        // supabase-js sets NO default request timeout, so a black-hole
+        // network (captive portal, VPN, hotel wifi — DNS resolves, TCP
+        // never completes) hangs every call until the OS TCP timeout,
+        // ~75s on macOS. Every caller below is written to degrade on a
+        // FAILURE (`return 'free'`, `return null`), and none of them
+        // degrade on a HANG — so bounding the request is what makes all
+        // that existing error handling actually reachable.
+        fetch: fetchWithTimeout,
+      },
+      // No `realtime` options: nothing subscribes to a channel any more, so
+      // supabase-js never opens the socket those options would configure.
+      // Tuning a keepalive for a connection that is never made is a setting
+      // that reads as protection and provides none.
+    });
+
+    logger.log("[Supabase] Client initialized with secure storage");
+  }
+
+  return supabaseClient;
 }
 
 // ============================================
@@ -156,13 +170,13 @@ let _authFlowStartedAt: number | null = null;
 const AUTH_FLOW_MAX_AGE_MS = 10 * 60_000;
 
 function markAuthFlowStarted(): void {
-    _authFlowStartedAt = Date.now();
+  _authFlowStartedAt = Date.now();
 }
 function consumeActiveAuthFlow(): boolean {
-    const startedAt = _authFlowStartedAt;
-    _authFlowStartedAt = null; // single-use: consume on any callback attempt
-    if (startedAt == null) return false;
-    return Date.now() - startedAt <= AUTH_FLOW_MAX_AGE_MS;
+  const startedAt = _authFlowStartedAt;
+  _authFlowStartedAt = null; // single-use: consume on any callback attempt
+  if (startedAt == null) return false;
+  return Date.now() - startedAt <= AUTH_FLOW_MAX_AGE_MS;
 }
 
 /**
@@ -170,113 +184,137 @@ function consumeActiveAuthFlow(): boolean {
  * atlarix://auth/callback deep link is successfully received).
  */
 export function cancelPendingOAuthTimeout(): void {
-    if (_oauthTimeoutHandle !== null) {
-        clearTimeout(_oauthTimeoutHandle);
-        _oauthTimeoutHandle = null;
-        logger.log('[Supabase] OAuth inbound timeout cancelled — deep link received');
-    }
+  if (_oauthTimeoutHandle !== null) {
+    clearTimeout(_oauthTimeoutHandle);
+    _oauthTimeoutHandle = null;
+    logger.log(
+      "[Supabase] OAuth inbound timeout cancelled — deep link received",
+    );
+  }
 }
 
-export type OAuthProvider = 'google' | 'github' | 'discord';
+export type OAuthProvider = "google" | "github" | "discord";
 
 /**
  * Start OAuth flow - opens browser for authentication
  * User will be redirected back to atlarix://auth/callback
  */
-export async function signInWithOAuth(provider: OAuthProvider): Promise<{ error: Error | null }> {
-    let supabase: SupabaseClient;
-    try {
-        supabase = getSupabaseClient();
-    } catch (err) {
-        logger.warn('[Supabase] Cannot sign in: missing or invalid Supabase config.', err instanceof Error ? err.message : String(err));
-        return { error: new Error('Supabase is not configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY to .env (see .env.example).') };
-    }
-    try {
-        // Log the redirect we ask for. It is not a secret, and it is the one
-        // value that makes an allowlist mismatch diagnosable: a redirect Supabase
-        // does not recognise is silently REPLACED with the Site URL, so without
-        // this line the failure has no fingerprint anywhere.
-        logger.log(`[Supabase] Starting OAuth with ${provider}, redirectTo=${AUTH_CALLBACK_URL}`);
+export async function signInWithOAuth(
+  provider: OAuthProvider,
+): Promise<{ error: Error | null }> {
+  let supabase: SupabaseClient;
+  try {
+    supabase = getSupabaseClient();
+  } catch (err) {
+    logger.warn(
+      "[Supabase] Cannot sign in: missing or invalid Supabase config.",
+      err instanceof Error ? err.message : String(err),
+    );
+    return {
+      error: new Error(
+        "Supabase is not configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY to .env (see .env.example).",
+      ),
+    };
+  }
+  try {
+    // Log the redirect we ask for. It is not a secret, and it is the one
+    // value that makes an allowlist mismatch diagnosable: a redirect Supabase
+    // does not recognise is silently REPLACED with the Site URL, so without
+    // this line the failure has no fingerprint anywhere.
+    logger.log(
+      `[Supabase] Starting OAuth with ${provider}, redirectTo=${AUTH_CALLBACK_URL}`,
+    );
 
-        const { data, error } = await supabase.auth.signInWithOAuth({
-            provider,
-            options: {
-                redirectTo: AUTH_CALLBACK_URL,
-                skipBrowserRedirect: true, // We'll open the browser ourselves
-            },
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: {
+        redirectTo: AUTH_CALLBACK_URL,
+        skipBrowserRedirect: true, // We'll open the browser ourselves
+      },
+    });
+
+    if (error) {
+      logger.error(`[Supabase] OAuth error:`, error);
+      return { error };
+    }
+
+    if (data?.url) {
+      // C4: record that THIS app started a sign-in flow, so an unsolicited
+      // auth callback (no flow pending) is rejected in handleAuthCallback.
+      markAuthFlowStarted();
+      // Open the OAuth URL in the user's default browser
+      logger.log(`[Supabase] Opening OAuth URL in browser`);
+      let browserOpened = false;
+      try {
+        await shell.openExternal(data.url);
+        browserOpened = true;
+        logger.log("[Supabase] shell.openExternal succeeded");
+      } catch (openErr) {
+        logger.error("[Supabase] shell.openExternal failed:", openErr);
+      }
+
+      // Inbound deep-link timeout: if atlarix://auth/callback is not received within
+      // 60 seconds (e.g. deep link handler not registered on Linux / VM environments),
+      // show a fallback dialog so the user can copy the OAuth URL manually.
+      if (browserOpened) {
+        const oauthUrlForFallback = data.url;
+        _oauthTimeoutHandle = setTimeout(async () => {
+          _oauthTimeoutHandle = null;
+          logger.warn(
+            "[Supabase] OAuth inbound timeout — deep link not received after 60s",
+          );
+          const linuxCommands =
+            process.platform === "linux"
+              ? "\n\nTo register the deep link handler on Linux, run in Terminal:\n  xdg-mime default atlarix.desktop x-scheme-handler/atlarix\n  update-desktop-database ~/.local/share/applications\n\nThen try signing in again."
+              : "";
+          const { response } = await dialog.showMessageBox({
+            type: "info",
+            title: "Sign-in not completing?",
+            message:
+              "Atlarix has been waiting 60 seconds for the OAuth callback.\n\nThe deep link handler may not be registered on your system.",
+            detail: `OAuth URL (open this in your browser if the redirect didn't work):\n${oauthUrlForFallback}${linuxCommands}`,
+            buttons: ["Copy Link", "Dismiss"],
+            defaultId: 0,
+            cancelId: 1,
+          });
+          if (response === 0) {
+            clipboard.writeText(oauthUrlForFallback);
+            logger.log(
+              "[Supabase] OAuth URL copied via 60s inbound timeout fallback",
+            );
+          }
+        }, 60_000);
+      }
+
+      // Linux/AppImage fallback: allow the user to copy the URL manually if browser launch fails.
+      if (!browserOpened && process.platform === "linux") {
+        logger.warn(
+          "[Supabase] Browser open failed on Linux — showing fallback dialog",
+        );
+        const { response } = await dialog.showMessageBox({
+          type: "info",
+          title: "Open this link to sign in",
+          message:
+            "Atlarix could not open your browser automatically.\n\nCopy the link below and paste it into your browser:",
+          detail: data.url,
+          buttons: ["Copy Link", "Cancel"],
+          defaultId: 0,
+          cancelId: 1,
         });
-
-        if (error) {
-            logger.error(`[Supabase] OAuth error:`, error);
-            return { error };
+        if (response === 0) {
+          clipboard.writeText(data.url);
+          logger.log(
+            "[Supabase] OAuth URL copied to clipboard via fallback dialog",
+          );
         }
-
-        if (data?.url) {
-            // C4: record that THIS app started a sign-in flow, so an unsolicited
-            // auth callback (no flow pending) is rejected in handleAuthCallback.
-            markAuthFlowStarted();
-            // Open the OAuth URL in the user's default browser
-            logger.log(`[Supabase] Opening OAuth URL in browser`);
-            let browserOpened = false;
-            try {
-                await shell.openExternal(data.url);
-                browserOpened = true;
-                logger.log('[Supabase] shell.openExternal succeeded');
-            } catch (openErr) {
-                logger.error('[Supabase] shell.openExternal failed:', openErr);
-            }
-
-            // Inbound deep-link timeout: if atlarix://auth/callback is not received within
-            // 60 seconds (e.g. deep link handler not registered on Linux / VM environments),
-            // show a fallback dialog so the user can copy the OAuth URL manually.
-            if (browserOpened) {
-                const oauthUrlForFallback = data.url;
-                _oauthTimeoutHandle = setTimeout(async () => {
-                    _oauthTimeoutHandle = null;
-                    logger.warn('[Supabase] OAuth inbound timeout — deep link not received after 60s');
-                    const linuxCommands = process.platform === 'linux'
-                        ? '\n\nTo register the deep link handler on Linux, run in Terminal:\n  xdg-mime default atlarix.desktop x-scheme-handler/atlarix\n  update-desktop-database ~/.local/share/applications\n\nThen try signing in again.'
-                        : '';
-                    const { response } = await dialog.showMessageBox({
-                        type: 'info',
-                        title: 'Sign-in not completing?',
-                        message: 'Atlarix has been waiting 60 seconds for the OAuth callback.\n\nThe deep link handler may not be registered on your system.',
-                        detail: `OAuth URL (open this in your browser if the redirect didn't work):\n${oauthUrlForFallback}${linuxCommands}`,
-                        buttons: ['Copy Link', 'Dismiss'],
-                        defaultId: 0,
-                        cancelId: 1,
-                    });
-                    if (response === 0) {
-                        clipboard.writeText(oauthUrlForFallback);
-                        logger.log('[Supabase] OAuth URL copied via 60s inbound timeout fallback');
-                    }
-                }, 60_000);
-            }
-
-            // Linux/AppImage fallback: allow the user to copy the URL manually if browser launch fails.
-            if (!browserOpened && process.platform === 'linux') {
-                logger.warn('[Supabase] Browser open failed on Linux — showing fallback dialog');
-                const { response } = await dialog.showMessageBox({
-                    type: 'info',
-                    title: 'Open this link to sign in',
-                    message: 'Atlarix could not open your browser automatically.\n\nCopy the link below and paste it into your browser:',
-                    detail: data.url,
-                    buttons: ['Copy Link', 'Cancel'],
-                    defaultId: 0,
-                    cancelId: 1,
-                });
-                if (response === 0) {
-                    clipboard.writeText(data.url);
-                    logger.log('[Supabase] OAuth URL copied to clipboard via fallback dialog');
-                }
-            }
-        }
-
-        return { error: null };
-    } catch (err) {
-        logger.error(`[Supabase] OAuth exception:`, err);
-        return { error: err instanceof Error ? err : new Error('Unknown error') };
+      }
     }
+
+    return { error: null };
+  } catch (err) {
+    logger.error(`[Supabase] OAuth exception:`, err);
+    return { error: err instanceof Error ? err : new Error("Unknown error") };
+  }
 }
 
 /**
@@ -284,148 +322,156 @@ export async function signInWithOAuth(provider: OAuthProvider): Promise<{ error:
  * Called when app receives atlarix://auth/callback?access_token=...
  */
 export async function handleAuthCallback(url: string): Promise<{
-    session: Session | null;
-    user: User | null;
-    error: Error | null;
+  session: Session | null;
+  user: User | null;
+  error: Error | null;
 }> {
-    try {
-        const supabase = getSupabaseClient();
+  try {
+    const supabase = getSupabaseClient();
 
-        logger.log(`[Supabase] Handling auth callback`);
+    logger.log(`[Supabase] Handling auth callback`);
 
-        // C4: reject callbacks that don't correspond to a sign-in this app just
-        // started — defeats the mailed-link login-CSRF (account takeover).
-        if (!consumeActiveAuthFlow()) {
-            logger.warn('[Supabase] Rejected auth callback — no sign-in flow was in progress (possible CSRF).');
-            return {
-                session: null,
-                user: null,
-                error: new Error(
-                    'Unexpected sign-in link. No sign-in was in progress on this device — if you did not just start signing in, you can ignore this.',
-                ),
-            };
-        }
-
-        // Parse the URL to extract tokens
-        const urlObj = new URL(url);
-        const hashParams = new URLSearchParams(urlObj.hash.substring(1));
-        const accessToken = hashParams.get('access_token');
-        const refreshToken = hashParams.get('refresh_token');
-
-        if (!accessToken) {
-            // Check for error in callback
-            const error = hashParams.get('error');
-            const errorDescription = hashParams.get('error_description');
-            if (error) {
-                return {
-                    session: null,
-                    user: null,
-                    error: new Error(errorDescription || error),
-                };
-            }
-            return {
-                session: null,
-                user: null,
-                error: new Error('No access token in callback'),
-            };
-        }
-
-        // Set the session with the tokens
-        const { data, error } = await supabase.auth.setSession({
-            access_token: accessToken,
-            refresh_token: refreshToken || '',
-        });
-
-        if (error) {
-            logger.error(`[Supabase] Set session error:`, error);
-            return { session: null, user: null, error };
-        }
-
-        // An account is keyed on its email — the users table, plan lookups, the
-        // realtime plan channel and every billing path assume one. Discord only
-        // releases an email when the account has VERIFIED one, so a provider can
-        // hand back a session with no email at all. Letting that through creates
-        // a half-account that signs in but can't be billed or plan-checked, and
-        // fails later somewhere far from the cause. Refuse it here, and say why.
-        if (!data.user?.email) {
-            logger.warn('[Supabase] Provider returned no email — refusing the session.');
-            try {
-                await supabase.auth.signOut();
-            } catch {
-                /* best-effort: don't leave a half-session behind */
-            }
-            return {
-                session: null,
-                user: null,
-                error: new Error(
-                    "Your account didn't share an email address with Atlarix. On Discord this usually means the email isn't verified — verify it in Discord's settings, or sign in with Google or GitHub instead.",
-                ),
-            };
-        }
-
-        logger.log(`[Supabase] Session set successfully for ${data.user.email}`);
-
-        // Ensure user exists in our users table
-        await ensureUserExists(data.user);
-
-        return {
-            session: data.session,
-            user: data.user,
-            error: null,
-        };
-    } catch (err) {
-        logger.error(`[Supabase] Callback exception:`, err);
-        return {
-            session: null,
-            user: null,
-            error: err instanceof Error ? err : new Error('Unknown error'),
-        };
+    // C4: reject callbacks that don't correspond to a sign-in this app just
+    // started — defeats the mailed-link login-CSRF (account takeover).
+    if (!consumeActiveAuthFlow()) {
+      logger.warn(
+        "[Supabase] Rejected auth callback — no sign-in flow was in progress (possible CSRF).",
+      );
+      return {
+        session: null,
+        user: null,
+        error: new Error(
+          "Unexpected sign-in link. No sign-in was in progress on this device — if you did not just start signing in, you can ignore this.",
+        ),
+      };
     }
+
+    // Parse the URL to extract tokens
+    const urlObj = new URL(url);
+    const hashParams = new URLSearchParams(urlObj.hash.substring(1));
+    const accessToken = hashParams.get("access_token");
+    const refreshToken = hashParams.get("refresh_token");
+
+    if (!accessToken) {
+      // Check for error in callback
+      const error = hashParams.get("error");
+      const errorDescription = hashParams.get("error_description");
+      if (error) {
+        return {
+          session: null,
+          user: null,
+          error: new Error(errorDescription || error),
+        };
+      }
+      return {
+        session: null,
+        user: null,
+        error: new Error("No access token in callback"),
+      };
+    }
+
+    // Set the session with the tokens
+    const { data, error } = await supabase.auth.setSession({
+      access_token: accessToken,
+      refresh_token: refreshToken || "",
+    });
+
+    if (error) {
+      logger.error(`[Supabase] Set session error:`, error);
+      return { session: null, user: null, error };
+    }
+
+    // An account is keyed on its email — the users table, plan lookups, the
+    // realtime plan channel and every billing path assume one. Discord only
+    // releases an email when the account has VERIFIED one, so a provider can
+    // hand back a session with no email at all. Letting that through creates
+    // a half-account that signs in but can't be billed or plan-checked, and
+    // fails later somewhere far from the cause. Refuse it here, and say why.
+    if (!data.user?.email) {
+      logger.warn(
+        "[Supabase] Provider returned no email — refusing the session.",
+      );
+      try {
+        await supabase.auth.signOut();
+      } catch {
+        /* best-effort: don't leave a half-session behind */
+      }
+      return {
+        session: null,
+        user: null,
+        error: new Error(
+          "Your account didn't share an email address with Atlarix. On Discord this usually means the email isn't verified — verify it in Discord's settings, or sign in with Google or GitHub instead.",
+        ),
+      };
+    }
+
+    logger.log(`[Supabase] Session set successfully for ${data.user.email}`);
+
+    // Ensure user exists in our users table
+    await ensureUserExists(data.user);
+
+    return {
+      session: data.session,
+      user: data.user,
+      error: null,
+    };
+  } catch (err) {
+    logger.error(`[Supabase] Callback exception:`, err);
+    return {
+      session: null,
+      user: null,
+      error: err instanceof Error ? err : new Error("Unknown error"),
+    };
+  }
 }
 
 /**
  * Get current session
  */
 export async function getSession(): Promise<Session | null> {
-    try {
-        const supabase = getSupabaseClient();
-        const { data: { session } } = await supabase.auth.getSession();
-        return session;
-    } catch {
-        return null;
-    }
+  try {
+    const supabase = getSupabaseClient();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    return session;
+  } catch {
+    return null;
+  }
 }
 
 /**
  * Get current user
  */
 export async function getUser(): Promise<User | null> {
-    try {
-        const supabase = getSupabaseClient();
-        const { data: { user } } = await supabase.auth.getUser();
-        return user;
-    } catch {
-        return null;
-    }
+  try {
+    const supabase = getSupabaseClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    return user;
+  } catch {
+    return null;
+  }
 }
 
 /**
  * Sign out
  */
 export async function signOut(): Promise<void> {
+  try {
+    const supabase = getSupabaseClient();
+    await supabase.auth.signOut();
+    await clearSupabaseSecureStorage();
+    logger.log("[Supabase] Signed out");
+  } catch (err) {
+    logger.error("[Supabase] Sign out error:", err);
     try {
-        const supabase = getSupabaseClient();
-        await supabase.auth.signOut();
-        await clearSupabaseSecureStorage();
-        logger.log('[Supabase] Signed out');
-    } catch (err) {
-        logger.error('[Supabase] Sign out error:', err);
-        try {
-            await clearSupabaseSecureStorage();
-        } catch {
-            /* ignore */
-        }
+      await clearSupabaseSecureStorage();
+    } catch {
+      /* ignore */
     }
+  }
 }
 
 /**
@@ -443,76 +489,79 @@ export async function signOut(): Promise<void> {
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export interface RestoreAuthSessionOptions {
-    /**
-     * Fired the moment a stored session is in hand — BEFORE the expiry check and the
-     * refresh backoff below.
-     *
-     * The account used to surface only after this whole function resolved, which meant
-     * a signed-in user stared at a logged-out UI for up to ~4.4s on a cold launch
-     * (400ms empty-read retry + `[0, 1000, 3000]` of refresh backoff + three network
-     * round-trips). The stored session is already authoritative enough to render an
-     * account; the refresh only rotates the token. Awaited, so the caller can finish
-     * its own setup before the refresh starts competing for the network.
-     */
-    onStoredSession?: (session: Session) => void | Promise<void>;
+  /**
+   * Fired the moment a stored session is in hand — BEFORE the expiry check and the
+   * refresh backoff below.
+   *
+   * The account used to surface only after this whole function resolved, which meant
+   * a signed-in user stared at a logged-out UI for up to ~4.4s on a cold launch
+   * (400ms empty-read retry + `[0, 1000, 3000]` of refresh backoff + three network
+   * round-trips). The stored session is already authoritative enough to render an
+   * account; the refresh only rotates the token. Awaited, so the caller can finish
+   * its own setup before the refresh starts competing for the network.
+   */
+  onStoredSession?: (session: Session) => void | Promise<void>;
 }
 
 export async function restoreAuthSessionOnStartup(
-    opts?: RestoreAuthSessionOptions,
+  opts?: RestoreAuthSessionOptions,
 ): Promise<void> {
-    try {
-        const supabase = getSupabaseClient();
+  try {
+    const supabase = getSupabaseClient();
 
-        // (1) Read the stored session, retrying once if the first read comes back
-        // empty — secure storage can be momentarily unavailable right at launch.
-        let session = (await supabase.auth.getSession()).data.session;
-        if (!session) {
-            await sleep(400);
-            session = (await supabase.auth.getSession()).data.session;
-        }
-        if (!session) {
-            logger.log('[Supabase] No stored session on startup');
-            return;
-        }
-
-        // Surface the account before spending anything on the network. A throw here
-        // must not cost us the refresh below, so it's caught separately.
-        try {
-            await opts?.onStoredSession?.(session);
-        } catch (cbErr) {
-            logger.warn(
-                '[Supabase] onStoredSession callback failed (non-fatal):',
-                cbErr instanceof Error ? cbErr.message : cbErr,
-            );
-        }
-
-        const exp = session.expires_at;
-        if (!exp) return;
-        const expiresMs = exp * 1000;
-        const skewMs = 120_000;
-        if (expiresMs >= Date.now() + skewMs) return; // still valid — nothing to do
-
-        // (2) Refresh with bounded backoff. A transient failure must NOT drop the
-        // session — keep it and let autoRefreshToken try again in the background.
-        const delaysMs = [0, 1_000, 3_000];
-        for (let attempt = 0; attempt < delaysMs.length; attempt++) {
-            if (delaysMs[attempt]) await sleep(delaysMs[attempt]);
-            const { data, error } = await supabase.auth.refreshSession();
-            if (!error && data.session) {
-                logger.log('[Supabase] Session refreshed on startup');
-                return;
-            }
-            logger.warn(
-                `[Supabase] Startup refresh attempt ${attempt + 1}/${delaysMs.length} failed:`,
-                error?.message ?? 'no session returned',
-            );
-        }
-        logger.warn(
-            '[Supabase] Startup refresh exhausted — keeping the stored session; autoRefreshToken will retry.',
-        );
-    } catch (err) {
-        logger.warn('[Supabase] restoreAuthSessionOnStartup skipped:', err instanceof Error ? err.message : err);
+    // (1) Read the stored session, retrying once if the first read comes back
+    // empty — secure storage can be momentarily unavailable right at launch.
+    let session = (await supabase.auth.getSession()).data.session;
+    if (!session) {
+      await sleep(400);
+      session = (await supabase.auth.getSession()).data.session;
     }
+    if (!session) {
+      logger.log("[Supabase] No stored session on startup");
+      return;
+    }
+
+    // Surface the account before spending anything on the network. A throw here
+    // must not cost us the refresh below, so it's caught separately.
+    try {
+      await opts?.onStoredSession?.(session);
+    } catch (cbErr) {
+      logger.warn(
+        "[Supabase] onStoredSession callback failed (non-fatal):",
+        cbErr instanceof Error ? cbErr.message : cbErr,
+      );
+    }
+
+    const exp = session.expires_at;
+    if (!exp) return;
+    const expiresMs = exp * 1000;
+    const skewMs = 120_000;
+    if (expiresMs >= Date.now() + skewMs) return; // still valid — nothing to do
+
+    // (2) Refresh with bounded backoff. A transient failure must NOT drop the
+    // session — keep it and let autoRefreshToken try again in the background.
+    const delaysMs = [0, 1_000, 3_000];
+    for (let attempt = 0; attempt < delaysMs.length; attempt++) {
+      if (delaysMs[attempt]) await sleep(delaysMs[attempt]);
+      const { data, error } = await supabase.auth.refreshSession();
+      if (!error && data.session) {
+        logger.log("[Supabase] Session refreshed on startup");
+        return;
+      }
+      logger.warn(
+        `[Supabase] Startup refresh attempt ${attempt + 1}/${delaysMs.length} failed:`,
+        error?.message ?? "no session returned",
+      );
+    }
+    logger.warn(
+      "[Supabase] Startup refresh exhausted — keeping the stored session; autoRefreshToken will retry.",
+    );
+  } catch (err) {
+    logger.warn(
+      "[Supabase] restoreAuthSessionOnStartup skipped:",
+      err instanceof Error ? err.message : err,
+    );
+  }
 }
 
 // ============================================
@@ -520,61 +569,58 @@ export async function restoreAuthSessionOnStartup(
 // ============================================
 
 export interface AtlarixUser {
-    id: string;
-    email: string;
-    plan: 'free' | 'pro';
-    lemonCustomerId: string | null;
-    createdAt: string;
+  id: string;
+  email: string;
+  plan: "free" | "pro";
+  lemonCustomerId: string | null;
+  createdAt: string;
 }
 
 /**
  * Ensure user exists in our users table (create if not exists)
  */
 async function ensureUserExists(user: User): Promise<void> {
-    try {
-        const supabase = getSupabaseClient();
+  try {
+    const supabase = getSupabaseClient();
 
-        // Check if user exists
-        const { data: existingUser } = await supabase
-            .from('users')
-            .select('id')
-            .eq('id', user.id)
-            .single();
+    // Check if user exists
+    const { data: existingUser } = await supabase
+      .from("users")
+      .select("id")
+      .eq("id", user.id)
+      .single();
 
-        if (!existingUser) {
-            // Create user record (onboarding_completed false for new users)
-            const { error } = await supabase
-                .from('users')
-                .insert({
-                    id: user.id,
-                    email: user.email,
-                    plan: 'free',
-                    onboarding_completed: false,
-                });
+    if (!existingUser) {
+      // Create user record (onboarding_completed false for new users)
+      const { error } = await supabase.from("users").insert({
+        id: user.id,
+        email: user.email,
+        plan: "free",
+        onboarding_completed: false,
+      });
 
-            if (error) {
-                logger.error('[Supabase] Failed to create user:', error);
-            } else {
-                logger.log(`[Supabase] Created user record for ${user.email}`);
-            }
-        }
-    } catch (err) {
-        logger.error('[Supabase] ensureUserExists error:', err);
+      if (error) {
+        logger.error("[Supabase] Failed to create user:", error);
+      } else {
+        logger.log(`[Supabase] Created user record for ${user.email}`);
+      }
     }
+  } catch (err) {
+    logger.error("[Supabase] ensureUserExists error:", err);
+  }
 }
 
-export type UserPlanDb = 'free' | 'pro';
+export type UserPlanDb = "free" | "pro";
 
 type PlanRowInput = {
-    plan: string;
-    effective_tier?: string | null;
-    subscription_ends_at?: string | null;
-    subscription_status?: string | null;
-    lemon_subscription_id?: string | null;
-    lemon_variant_id?: string | null;
-    banned_at?: string | null;
+  plan: string;
+  effective_tier?: string | null;
+  subscription_ends_at?: string | null;
+  subscription_status?: string | null;
+  lemon_subscription_id?: string | null;
+  lemon_variant_id?: string | null;
+  banned_at?: string | null;
 };
-
 
 /**
  * When plan/effective_tier are still "free" but LemonSqueezy rows show a paid period,
@@ -582,44 +628,56 @@ type PlanRowInput = {
  * For active/on_trial we do not require subscription_ends_at (renewal date is often null in DB).
  */
 function inferPaidTierWhenStoredFree(row: PlanRowInput): UserPlanDb | null {
-    const plan = (row.plan as UserPlanDb) || 'free';
-    const eff = (row.effective_tier as UserPlanDb) || plan;
-    if (plan !== 'free' || eff !== 'free') return null;
-    if (!row.lemon_subscription_id) return null;
-    const st = (row.subscription_status || '').toLowerCase();
-    const paidish = ['active', 'on_trial', 'cancelled', 'paused', 'past_due'].includes(st);
-    if (!paidish) return null;
+  const plan = (row.plan as UserPlanDb) || "free";
+  const eff = (row.effective_tier as UserPlanDb) || plan;
+  if (plan !== "free" || eff !== "free") return null;
+  if (!row.lemon_subscription_id) return null;
+  const st = (row.subscription_status || "").toLowerCase();
+  const paidish = [
+    "active",
+    "on_trial",
+    "cancelled",
+    "paused",
+    "past_due",
+  ].includes(st);
+  if (!paidish) return null;
 
-    if (st === 'active' || st === 'on_trial') {
-        return 'pro';
-    }
+  if (st === "active" || st === "on_trial") {
+    return "pro";
+  }
 
-    const endsMs = row.subscription_ends_at ? new Date(row.subscription_ends_at).getTime() : 0;
-    if (!endsMs || Number.isNaN(endsMs) || Date.now() >= endsMs) return null;
-    return 'pro';
+  const endsMs = row.subscription_ends_at
+    ? new Date(row.subscription_ends_at).getTime()
+    : 0;
+  if (!endsMs || Number.isNaN(endsMs) || Date.now() >= endsMs) return null;
+  return "pro";
 }
 
 /** Paid access: trust active/on_trial; otherwise use subscription_ends_at vs now. */
 function computeEntitledPlan(row: PlanRowInput): UserPlanDb {
-    const st = (row.subscription_status || '').toLowerCase();
-    const activelyBilled = st === 'active' || st === 'on_trial';
+  const st = (row.subscription_status || "").toLowerCase();
+  const activelyBilled = st === "active" || st === "on_trial";
 
-    const inferred = inferPaidTierWhenStoredFree(row);
-    if (inferred) {
-        if (!activelyBilled) {
-            const ends = row.subscription_ends_at ? new Date(row.subscription_ends_at).getTime() : 0;
-            if (ends && Date.now() > ends) return 'free';
-        }
-        return inferred;
+  const inferred = inferPaidTierWhenStoredFree(row);
+  if (inferred) {
+    if (!activelyBilled) {
+      const ends = row.subscription_ends_at
+        ? new Date(row.subscription_ends_at).getTime()
+        : 0;
+      if (ends && Date.now() > ends) return "free";
     }
+    return inferred;
+  }
 
-    const plan = (row.plan as UserPlanDb) || 'free';
-    const eff = (row.effective_tier as UserPlanDb) || plan;
-    const tier: UserPlanDb = eff === 'pro' ? eff : plan;
-    if (tier === 'free') return 'free';
-    const ends = row.subscription_ends_at ? new Date(row.subscription_ends_at).getTime() : 0;
-    if (!activelyBilled && ends && Date.now() > ends) return 'free';
-    return tier;
+  const plan = (row.plan as UserPlanDb) || "free";
+  const eff = (row.effective_tier as UserPlanDb) || plan;
+  const tier: UserPlanDb = eff === "pro" ? eff : plan;
+  if (tier === "free") return "free";
+  const ends = row.subscription_ends_at
+    ? new Date(row.subscription_ends_at).getTime()
+    : 0;
+  if (!activelyBilled && ends && Date.now() > ends) return "free";
+  return tier;
 }
 
 /**
@@ -637,58 +695,58 @@ function computeEntitledPlan(row: PlanRowInput): UserPlanDb {
  * new column belongs in its own query that tolerates absence (see `isUserBanned`).
  */
 const PLAN_ROW_SELECT_BASE =
-    'plan, effective_tier, subscription_ends_at, subscription_status, lemon_subscription_id';
+  "plan, effective_tier, subscription_ends_at, subscription_status, lemon_subscription_id";
 const PLAN_ROW_SELECT_WITH_VARIANT = `${PLAN_ROW_SELECT_BASE}, lemon_variant_id`;
 
 async function fetchPlanRowForUser(
-    supabase: ReturnType<typeof getSupabaseClient>,
-    userId: string,
+  supabase: ReturnType<typeof getSupabaseClient>,
+  userId: string,
 ): Promise<{ data: PlanRowInput | null; error: Error | null }> {
-    let data: PlanRowInput | null = null;
-    let error: unknown = null;
-    {
-        const r1 = await supabase
-            .from('users')
-            .select(PLAN_ROW_SELECT_WITH_VARIANT)
-            .eq('id', userId)
-            .maybeSingle();
-        data = r1.data as PlanRowInput | null;
-        error = r1.error;
-    }
+  let data: PlanRowInput | null = null;
+  let error: unknown = null;
+  {
+    const r1 = await supabase
+      .from("users")
+      .select(PLAN_ROW_SELECT_WITH_VARIANT)
+      .eq("id", userId)
+      .maybeSingle();
+    data = r1.data as PlanRowInput | null;
+    error = r1.error;
+  }
 
-    if (error) {
-        const r2 = await supabase
-            .from('users')
-            .select(PLAN_ROW_SELECT_BASE)
-            .eq('id', userId)
-            .maybeSingle();
-        data = r2.data as PlanRowInput | null;
-        error = r2.error;
-    }
+  if (error) {
+    const r2 = await supabase
+      .from("users")
+      .select(PLAN_ROW_SELECT_BASE)
+      .eq("id", userId)
+      .maybeSingle();
+    data = r2.data as PlanRowInput | null;
+    error = r2.error;
+  }
 
-    return { data, error: error as Error | null };
+  return { data, error: error as Error | null };
 }
 
 /**
  * Get user's plan from database
  */
 export async function getUserPlan(userId: string): Promise<UserPlanDb> {
-    try {
-        const supabase = getSupabaseClient();
-        const { data, error } = await fetchPlanRowForUser(supabase, userId);
+  try {
+    const supabase = getSupabaseClient();
+    const { data, error } = await fetchPlanRowForUser(supabase, userId);
 
-        if (error) {
-            logger.warn('[Supabase] getUserPlan error:', error.message);
-            return offlinePlanOr('free', userId);
-        }
-        // A reachable server with no row genuinely means no entitlement — do NOT
-        // fall back to the cache here, only when the request itself failed.
-        if (!data) return 'free';
-        return computeEntitledPlan(data);
-    } catch (err) {
-        logger.warn('[Supabase] getUserPlan exception:', err);
-        return offlinePlanOr('free', userId);
+    if (error) {
+      logger.warn("[Supabase] getUserPlan error:", error.message);
+      return offlinePlanOr("free", userId);
     }
+    // A reachable server with no row genuinely means no entitlement — do NOT
+    // fall back to the cache here, only when the request itself failed.
+    if (!data) return "free";
+    return computeEntitledPlan(data);
+  } catch (err) {
+    logger.warn("[Supabase] getUserPlan exception:", err);
+    return offlinePlanOr("free", userId);
+  }
 }
 
 /**
@@ -707,27 +765,27 @@ export async function getUserPlan(userId: string): Promise<UserPlanDb> {
  * reason.
  */
 export async function isUserBanned(userId: string): Promise<boolean> {
-    try {
-        const supabase = getSupabaseClient();
-        // Its OWN narrow query, deliberately not folded into the plan read. The
-        // plan read is load-bearing for entitlement; this one is not, so it must
-        // not be able to break it. Costs one extra round-trip per session
-        // establish (updateSession, not per checkSession) — a price worth paying
-        // to keep a non-essential column out of an essential query.
-        const { data, error } = await supabase
-            .from('users')
-            .select('banned_at')
-            .eq('id', userId)
-            .maybeSingle();
-        // Fails open on ANY error, including "column does not exist" before the
-        // migration is deployed. A ban is enforced server-side by the proxy; this
-        // is only the UX half, so a failure here must never lock anyone out.
-        if (error || !data) return false;
-        return !!(data as { banned_at?: string | null }).banned_at;
-    } catch (err) {
-        logger.warn('[Supabase] isUserBanned exception:', err);
-        return false;
-    }
+  try {
+    const supabase = getSupabaseClient();
+    // Its OWN narrow query, deliberately not folded into the plan read. The
+    // plan read is load-bearing for entitlement; this one is not, so it must
+    // not be able to break it. Costs one extra round-trip per session
+    // establish (updateSession, not per checkSession) — a price worth paying
+    // to keep a non-essential column out of an essential query.
+    const { data, error } = await supabase
+      .from("users")
+      .select("banned_at")
+      .eq("id", userId)
+      .maybeSingle();
+    // Fails open on ANY error, including "column does not exist" before the
+    // migration is deployed. A ban is enforced server-side by the proxy; this
+    // is only the UX half, so a failure here must never lock anyone out.
+    if (error || !data) return false;
+    return !!(data as { banned_at?: string | null }).banned_at;
+  } catch (err) {
+    logger.warn("[Supabase] isUserBanned exception:", err);
+    return false;
+  }
 }
 
 /**
@@ -735,23 +793,30 @@ export async function isUserBanned(userId: string): Promise<boolean> {
  * expired. Always the fallback, never the first choice: a reachable server wins.
  */
 function offlinePlanOr(fallback: UserPlanDb, userId: string): UserPlanDb {
-    try {
-        const { readSettings } = requireSettings();
-        const cached = resolveOfflineEntitlement(readSettings().lastKnownEntitlement, userId);
-        if (cached) {
-            logger.log(`[Supabase] offline — honouring last known plan: ${cached.plan}`);
-            return cached.plan;
-        }
-    } catch {
-        /* settings unavailable (wrong process) — fall through */
+  try {
+    const { readSettings } = requireSettings();
+    const cached = resolveOfflineEntitlement(
+      readSettings().lastKnownEntitlement,
+      userId,
+    );
+    if (cached) {
+      logger.log(
+        `[Supabase] offline — honouring last known plan: ${cached.plan}`,
+      );
+      return cached.plan;
     }
-    return fallback;
+  } catch {
+    /* settings unavailable (wrong process) — fall through */
+  }
+  return fallback;
 }
 
 /** Lazy require so this module stays importable from the renderer stub path. */
-function requireSettings(): { readSettings: () => import('@/lib/schemas').UserSettings } {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require('@/main/settings');
+function requireSettings(): {
+  readSettings: () => import("@/lib/schemas").UserSettings;
+} {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require("@/main/settings");
 }
 
 /**
@@ -769,14 +834,17 @@ function requireSettings(): { readSettings: () => import('@/lib/schemas').UserSe
 // realtime plan-change (the realtime sub + invalidatePlanCaches handle the common case).
 const EFFECTIVE_TIER_TTL_MS = 30 * 60 * 1000;
 let _tierCache: { userId: string; tier: UserPlanDb; at: number } | null = null;
-let _subDetailCache:
-    | { email: string; status: string | null; endsAt: string | null; at: number }
-    | null = null;
+let _subDetailCache: {
+  email: string;
+  status: string | null;
+  endsAt: string | null;
+  at: number;
+} | null = null;
 
 /** Drop cached plan state (on sign-out, realtime plan change, or forced refresh). */
 export function invalidatePlanCaches(): void {
-    _tierCache = null;
-    _subDetailCache = null;
+  _tierCache = null;
+  _subDetailCache = null;
 }
 
 /**
@@ -785,56 +853,64 @@ export function invalidatePlanCaches(): void {
  * hit Supabase. The realtime plan-change subscription invalidates on change.
  */
 export async function getSubscriptionDetails(
-    email: string,
+  email: string,
 ): Promise<{ status: string | null; endsAt: string | null }> {
-    const c = _subDetailCache;
-    if (c && c.email === email && Date.now() - c.at < EFFECTIVE_TIER_TTL_MS) {
-        return { status: c.status, endsAt: c.endsAt };
-    }
-    try {
-        const supabase = getSupabaseClient();
-        const { data } = await supabase
-            .from('users')
-            .select('subscription_status, subscription_ends_at')
-            .eq('email', email)
-            .single();
-        const status = (data?.subscription_status as string | null) ?? null;
-        const endsAt = (data?.subscription_ends_at as string | null) ?? null;
-        _subDetailCache = { email, status, endsAt, at: Date.now() };
-        return { status, endsAt };
-    } catch (err) {
-        logger.warn('[Supabase] getSubscriptionDetails error:', err);
-        return { status: null, endsAt: null };
-    }
+  const c = _subDetailCache;
+  if (c && c.email === email && Date.now() - c.at < EFFECTIVE_TIER_TTL_MS) {
+    return { status: c.status, endsAt: c.endsAt };
+  }
+  try {
+    const supabase = getSupabaseClient();
+    const { data } = await supabase
+      .from("users")
+      .select("subscription_status, subscription_ends_at")
+      .eq("email", email)
+      .single();
+    const status = (data?.subscription_status as string | null) ?? null;
+    const endsAt = (data?.subscription_ends_at as string | null) ?? null;
+    _subDetailCache = { email, status, endsAt, at: Date.now() };
+    return { status, endsAt };
+  } catch (err) {
+    logger.warn("[Supabase] getSubscriptionDetails error:", err);
+    return { status: null, endsAt: null };
+  }
 }
 
 /**
  * Effective tier from the user's own plan row. Equals the entitled plan now that
  * the Team tier is removed (kept as a function for API compatibility + caching).
  */
-export async function getEffectiveTier(userId: string, ownPlan?: UserPlanDb): Promise<UserPlanDb> {
-    const cached = _tierCache;
-    if (cached && cached.userId === userId && Date.now() - cached.at < EFFECTIVE_TIER_TTL_MS) {
-        return cached.tier;
-    }
-    // The effective tier equals the entitled plan (Team tier removed). When the
-    // caller already fetched + computed it (updateSession passes getUserPlan's
-    // result as ownPlan), trust and cache it — avoids a SECOND read of the same
-    // `users` row per auth event. Callers without ownPlan still fetch below.
-    if (ownPlan) {
-        _tierCache = { userId, tier: ownPlan, at: Date.now() };
-        return ownPlan;
-    }
-    try {
-        const supabase = getSupabaseClient();
-        const { data, error } = await fetchPlanRowForUser(supabase, userId);
-        const tier: UserPlanDb = error || !data ? (ownPlan || 'free') : computeEntitledPlan(data);
-        _tierCache = { userId, tier, at: Date.now() };
-        return tier;
-    } catch (err) {
-        logger.warn('[Supabase] getEffectiveTier exception:', err);
-        return ownPlan || offlinePlanOr('free', userId);
-    }
+export async function getEffectiveTier(
+  userId: string,
+  ownPlan?: UserPlanDb,
+): Promise<UserPlanDb> {
+  const cached = _tierCache;
+  if (
+    cached &&
+    cached.userId === userId &&
+    Date.now() - cached.at < EFFECTIVE_TIER_TTL_MS
+  ) {
+    return cached.tier;
+  }
+  // The effective tier equals the entitled plan (Team tier removed). When the
+  // caller already fetched + computed it (updateSession passes getUserPlan's
+  // result as ownPlan), trust and cache it — avoids a SECOND read of the same
+  // `users` row per auth event. Callers without ownPlan still fetch below.
+  if (ownPlan) {
+    _tierCache = { userId, tier: ownPlan, at: Date.now() };
+    return ownPlan;
+  }
+  try {
+    const supabase = getSupabaseClient();
+    const { data, error } = await fetchPlanRowForUser(supabase, userId);
+    const tier: UserPlanDb =
+      error || !data ? ownPlan || "free" : computeEntitledPlan(data);
+    _tierCache = { userId, tier, at: Date.now() };
+    return tier;
+  } catch (err) {
+    logger.warn("[Supabase] getEffectiveTier exception:", err);
+    return ownPlan || offlinePlanOr("free", userId);
+  }
 }
 
 /**
@@ -842,59 +918,69 @@ export async function getEffectiveTier(userId: string, ownPlan?: UserPlanDb): Pr
  * Returns false if no row or column missing.
  */
 export async function getOnboardingCompleted(userId: string): Promise<boolean> {
-    try {
-        const supabase = getSupabaseClient();
-        const { data, error } = await supabase
-            .from('users')
-            .select('onboarding_completed')
-            .eq('id', userId)
-            .maybeSingle();
+  try {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase
+      .from("users")
+      .select("onboarding_completed")
+      .eq("id", userId)
+      .maybeSingle();
 
-        if (error) {
-            logger.warn('[Supabase] getOnboardingCompleted error:', error.message);
-            return false;
-        }
-        return data?.onboarding_completed === true;
-    } catch (err) {
-        logger.warn('[Supabase] getOnboardingCompleted exception:', err);
-        return false;
+    if (error) {
+      logger.warn("[Supabase] getOnboardingCompleted error:", error.message);
+      return false;
     }
+    return data?.onboarding_completed === true;
+  } catch (err) {
+    logger.warn("[Supabase] getOnboardingCompleted exception:", err);
+    return false;
+  }
 }
 
 /**
  * Set onboarding completed for a user.
  */
-export async function setOnboardingCompleted(userId: string, value: boolean): Promise<void> {
-    try {
-        const supabase = getSupabaseClient();
-        const { error } = await supabase
-            .from('users')
-            .update({ onboarding_completed: value })
-            .eq('id', userId);
+export async function setOnboardingCompleted(
+  userId: string,
+  value: boolean,
+): Promise<void> {
+  try {
+    const supabase = getSupabaseClient();
+    const { error } = await supabase
+      .from("users")
+      .update({ onboarding_completed: value })
+      .eq("id", userId);
 
-        if (error) {
-            logger.error('[Supabase] setOnboardingCompleted error:', error.message);
-        } else {
-            logger.log('[Supabase] onboarding_completed set to', value, 'for user', userId);
-        }
-    } catch (err) {
-        logger.error('[Supabase] setOnboardingCompleted exception:', err);
+    if (error) {
+      logger.error("[Supabase] setOnboardingCompleted error:", error.message);
+    } else {
+      logger.log(
+        "[Supabase] onboarding_completed set to",
+        value,
+        "for user",
+        userId,
+      );
     }
+  } catch (err) {
+    logger.error("[Supabase] setOnboardingCompleted exception:", err);
+  }
 }
 
 /**
  * Listen for auth state changes
  */
 export function onAuthStateChange(
-    callback: (session: Session | null, event: string) => void,
+  callback: (session: Session | null, event: string) => void,
 ): () => void {
-    const supabase = getSupabaseClient();
+  const supabase = getSupabaseClient();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-        callback(session, event);
-    });
+  const {
+    data: { subscription },
+  } = supabase.auth.onAuthStateChange((event, session) => {
+    callback(session, event);
+  });
 
-    return () => subscription.unsubscribe();
+  return () => subscription.unsubscribe();
 }
 
 // ============================================
@@ -902,18 +988,18 @@ export function onAuthStateChange(
 // ============================================
 
 export interface SubscriptionData {
-    plan: 'free' | 'pro';
-    subscriptionStatus: 'active' | 'cancelled' | null;
-    subscriptionEndsAt: string | null;
-    effectiveTier?: 'free' | 'pro';
-    /**
-     * True when this account is banned.
-     *
-     * Carried on the realtime channel, which is what makes a ban take effect on a
-     * SIGNED-IN client rather than only at the next sign-in — a ban that waits for
-     * a re-login is not a ban. The reason is never included.
-     */
-    banned?: boolean;
+  plan: "free" | "pro";
+  subscriptionStatus: "active" | "cancelled" | null;
+  subscriptionEndsAt: string | null;
+  effectiveTier?: "free" | "pro";
+  /**
+   * True when this account is banned.
+   *
+   * Carried on the realtime channel, which is what makes a ban take effect on a
+   * SIGNED-IN client rather than only at the next sign-in — a ban that waits for
+   * a re-login is not a ban. The reason is never included.
+   */
+  banned?: boolean;
 }
 
 /**
@@ -934,31 +1020,36 @@ export interface SubscriptionData {
  * was only ever updating the UI faster — it was never what stopped a banned account
  * spending.
  */
-export async function fetchPlanSnapshot(userEmail: string): Promise<SubscriptionData | null> {
-    try {
-        const { data, error } = await getSupabaseClient()
-            .from('users')
-            .select('plan, subscription_status, subscription_ends_at, effective_tier, banned_at')
-            .eq('email', userEmail)
-            .maybeSingle();
-        if (error || !data) return null;
-        const row = data as {
-            plan?: string | null;
-            subscription_status?: string | null;
-            subscription_ends_at?: string | null;
-            effective_tier?: string | null;
-            banned_at?: string | null;
-        };
-        return {
-            plan: (row.plan as 'free' | 'pro') ?? 'free',
-            subscriptionStatus: (row.subscription_status as 'active' | 'cancelled' | null) ?? null,
-            subscriptionEndsAt: row.subscription_ends_at ?? null,
-            effectiveTier: (row.effective_tier as 'free' | 'pro') || undefined,
-            banned: Boolean(row.banned_at),
-        };
-    } catch {
-        // Never throws. A failed read means "no news", and the 30-minute TTL on
-        // `_tierCache` still bounds how stale the cached answer can get.
-        return null;
-    }
+export async function fetchPlanSnapshot(
+  userEmail: string,
+): Promise<SubscriptionData | null> {
+  try {
+    const { data, error } = await getSupabaseClient()
+      .from("users")
+      .select(
+        "plan, subscription_status, subscription_ends_at, effective_tier, banned_at",
+      )
+      .eq("email", userEmail)
+      .maybeSingle();
+    if (error || !data) return null;
+    const row = data as {
+      plan?: string | null;
+      subscription_status?: string | null;
+      subscription_ends_at?: string | null;
+      effective_tier?: string | null;
+      banned_at?: string | null;
+    };
+    return {
+      plan: (row.plan as "free" | "pro") ?? "free",
+      subscriptionStatus:
+        (row.subscription_status as "active" | "cancelled" | null) ?? null,
+      subscriptionEndsAt: row.subscription_ends_at ?? null,
+      effectiveTier: (row.effective_tier as "free" | "pro") || undefined,
+      banned: Boolean(row.banned_at),
+    };
+  } catch {
+    // Never throws. A failed read means "no news", and the 30-minute TTL on
+    // `_tierCache` still bounds how stale the cached answer can get.
+    return null;
+  }
 }

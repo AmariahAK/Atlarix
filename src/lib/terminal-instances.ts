@@ -15,7 +15,9 @@ export const AGENT_FG_KEY = "__agent_fg__";
 /** Label for that shared tab — it is a session, not a single command. */
 export const AGENT_FG_LABEL = "Agent";
 
-export function defaultUserInstanceLabel(instances: TerminalInstance[]): string {
+export function defaultUserInstanceLabel(
+  instances: TerminalInstance[],
+): string {
   const n = instances.filter((i) => i.owner === "user").length + 1;
   return `Shell ${n}`;
 }

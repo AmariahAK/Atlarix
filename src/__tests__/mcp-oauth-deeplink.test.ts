@@ -7,9 +7,7 @@ import {
 describe("mcp-oauth-service deep link parsing", () => {
   it("detects MCP OAuth callback URLs", () => {
     expect(
-      isMcpOAuthDeepLink(
-        "atlarix://mcp/oauth/callback?code=abc&state=xyz",
-      ),
+      isMcpOAuthDeepLink("atlarix://mcp/oauth/callback?code=abc&state=xyz"),
     ).toBe(true);
     expect(isMcpOAuthDeepLink("atlarix://auth/callback")).toBe(false);
   });

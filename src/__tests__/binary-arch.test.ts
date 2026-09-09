@@ -74,17 +74,20 @@ afterAll(() => {
 
 describe("readBinaryArchs", () => {
   it("reads a 64-bit Mach-O", () => {
-    expect(readBinaryArchs(write("m-arm", macho64(CPU_ARM64)))).toEqual(["arm64"]);
-    expect(readBinaryArchs(write("m-x64", macho64(CPU_X86_64)))).toEqual(["x64"]);
+    expect(readBinaryArchs(write("m-arm", macho64(CPU_ARM64)))).toEqual([
+      "arm64",
+    ]);
+    expect(readBinaryArchs(write("m-x64", macho64(CPU_X86_64)))).toEqual([
+      "x64",
+    ]);
   });
 
   it("reads every slice of a universal binary", () => {
     // The case that made the fat path worth writing: a universal binary satisfies
     // either arch, so a naive "first slice wins" reader would reject a valid file.
-    expect(readBinaryArchs(write("fat", fat([CPU_X86_64, CPU_ARM64])))).toEqual([
-      "x64",
-      "arm64",
-    ]);
+    expect(readBinaryArchs(write("fat", fat([CPU_X86_64, CPU_ARM64])))).toEqual(
+      ["x64", "arm64"],
+    );
   });
 
   it("reads a PE image", () => {
@@ -100,12 +103,16 @@ describe("readBinaryArchs", () => {
   it("reports an unknown machine rather than guessing", () => {
     // Silently mapping an unrecognised value to a plausible arch is how a guard
     // starts passing things it should reject.
-    expect(readBinaryArchs(write("w-odd.exe", pe(0x1234)))[0]).toMatch(/^machine:0x1234$/);
+    expect(readBinaryArchs(write("w-odd.exe", pe(0x1234)))[0]).toMatch(
+      /^machine:0x1234$/,
+    );
   });
 
   it("throws on a file that is not an executable", () => {
     const p = write("text.txt", Buffer.from("#!/bin/sh\necho hi\n".repeat(8)));
-    expect(() => readBinaryArchs(p)).toThrow(/not a recognised Mach-O, PE or ELF/);
+    expect(() => readBinaryArchs(p)).toThrow(
+      /not a recognised Mach-O, PE or ELF/,
+    );
   });
 
   it("throws on a truncated file rather than reading past the end", () => {
@@ -124,13 +131,17 @@ describe("archForTriple", () => {
   });
 
   it("throws on an unknown triple", () => {
-    expect(() => archForTriple("riscv64gc-unknown-linux-gnu")).toThrow(/unknown target triple/);
+    expect(() => archForTriple("riscv64gc-unknown-linux-gnu")).toThrow(
+      /unknown target triple/,
+    );
   });
 });
 
 describe("assertBinaryArch", () => {
   it("passes when the arch matches, and when a universal binary contains it", () => {
-    expect(() => assertBinaryArch(write("ok", macho64(CPU_ARM64)), "arm64")).not.toThrow();
+    expect(() =>
+      assertBinaryArch(write("ok", macho64(CPU_ARM64)), "arm64"),
+    ).not.toThrow();
     expect(() =>
       assertBinaryArch(write("fat2", fat([CPU_X86_64, CPU_ARM64])), "x64"),
     ).not.toThrow();

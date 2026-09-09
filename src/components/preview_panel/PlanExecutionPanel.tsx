@@ -29,7 +29,8 @@ function statusLabel(status: PlanArtifactStatus | null): string {
 
 function StatusHeaderIcon({ status }: { status: PlanArtifactStatus | null }) {
   if (status === "building") return <Hammer className="h-4 w-4" aria-hidden />;
-  if (status === "built") return <CircleCheck className="h-4 w-4 text-emerald-500" aria-hidden />;
+  if (status === "built")
+    return <CircleCheck className="h-4 w-4 text-emerald-500" aria-hidden />;
   return <ClipboardList className="h-4 w-4" aria-hidden />;
 }
 
@@ -229,7 +230,8 @@ export function PlanExecutionPanel() {
                   />
                   {dirtySinceBuild ? (
                     <p className="text-xs text-amber-600 dark:text-amber-400">
-                      Unsaved edits — click Save so the agent picks them up on its next step.
+                      Unsaved edits — click Save so the agent picks them up on
+                      its next step.
                     </p>
                   ) : null}
                   <div className="flex flex-wrap gap-2">
@@ -270,15 +272,22 @@ export function PlanExecutionPanel() {
                     ) : null}
                   </div>
                   {draft.trim() ? (
-                    <div className={cn(CHAT_MESSAGE_MARKDOWN_PROSE, "text-sm max-w-none opacity-90 border-t pt-3")}>
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{draft}</ReactMarkdown>
+                    <div
+                      className={cn(
+                        CHAT_MESSAGE_MARKDOWN_PROSE,
+                        "text-sm max-w-none opacity-90 border-t pt-3",
+                      )}
+                    >
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {draft}
+                      </ReactMarkdown>
                     </div>
                   ) : null}
                 </>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  No plan selected. Click a plan card in chat to open it here, or ask the
-                  agent in Plan mode to draft one.
+                  No plan selected. Click a plan card in chat to open it here,
+                  or ask the agent in Plan mode to draft one.
                 </p>
               )}
             </div>

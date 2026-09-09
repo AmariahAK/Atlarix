@@ -11,9 +11,9 @@
  * no data.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { IpcClient } from '@/ipc/ipc_client';
-import type { BrowserNetworkSnapshot } from '@/lib/browser/network-entry';
+import { useCallback, useEffect, useRef, useState } from "react";
+import { IpcClient } from "@/ipc/ipc_client";
+import type { BrowserNetworkSnapshot } from "@/lib/browser/network-entry";
 
 /** Fast enough to feel live while reading, slow enough to cost nothing. */
 const POLL_MS = 1000;
@@ -46,7 +46,10 @@ export function useBrowserNetwork(active: boolean) {
 
   useEffect(() => {
     alive.current = true;
-    if (!active) return () => { alive.current = false; };
+    if (!active)
+      return () => {
+        alive.current = false;
+      };
     void refresh();
     const timer = setInterval(() => void refresh(), POLL_MS);
     return () => {
