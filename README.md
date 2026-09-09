@@ -36,7 +36,7 @@ any repo size. The agent has a workspace. You have control.
 
 **Open ecosystem (source / installers / registries):** the **MCP marketplace index** is [AmariahAK/atlarix-mcps](https://github.com/AmariahAK/atlarix-mcps); official desktop builds are published from [AmariahAK/atlarix-releases](https://github.com/AmariahAK/atlarix-releases). The Atlarix app itself is proprietary.
 
-Release notes: **[docs/CHANGELOG.md](docs/CHANGELOG.md)** (current: 14.25+). Older entries: **[docs/CHANGELOG_PREVIOUS.md](docs/CHANGELOG_PREVIOUS.md)**.
+Release notes: **[docs/CHANGELOG.md](docs/CHANGELOG.md)** — the last ten releases in full. Everything older is one line per version in **[docs/CHANGELOG_PREVIOUS.md](docs/CHANGELOG_PREVIOUS.md)**; the prose is in git history.
 
 ---
 
@@ -142,7 +142,7 @@ then tag. Nothing else can fire from a branch push: every build and publish job 
 
 `main` remains GitHub's default branch, because the release tooling, the [atlarix-releases](https://github.com/AmariahAK/atlarix-releases) repo, and clone URLs all assume it — so new pull requests open against `main` and want retargeting to `dev`. This split is a **convention held by CI and discipline, not an enforced gate**: branch protection needs GitHub Pro on a private repository, and this one is on the free plan.
 
-1. Bump **`package.json` `version`** and add a section to [`docs/CHANGELOG.md`](docs/CHANGELOG.md). Archive older sections to [`docs/CHANGELOG_PREVIOUS.md`](docs/CHANGELOG_PREVIOUS.md) when the main file grows too long — keep roughly the last ten releases. Only the CURRENT version's section is read by the release tooling, so archiving is safe.
+1. Bump **`package.json` `version`** and add a section to [`docs/CHANGELOG.md`](docs/CHANGELOG.md), keeping roughly the last **ten** releases there. Older ones get **one line** each in [`docs/CHANGELOG_PREVIOUS.md`](docs/CHANGELOG_PREVIOUS.md) — not their prose, which stays in git history. Only the CURRENT version's section is read by the release tooling, so archiving is safe. This policy existed and was ignored until the file held 26 releases; trim on the way past ten, not later.
 2. Refresh the bundled model catalog: `npm run models:snapshot` (writes `build/models-snapshot.json.gz`) and commit it. This is the offline floor for the model picker — a stale snapshot self-heals on first successful refresh, so this is a nice-to-have, not a blocker.
 3. Merge `dev` into `main`, push, and **wait for the `quality` run to go green** — then tag:
    ```bash
