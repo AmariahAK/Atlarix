@@ -77,6 +77,16 @@ export function ComposerTip({
       className="mt-2 px-1 flex items-start gap-1.5 text-xs text-muted-foreground/80"
     >
       <LightbulbIcon className="h-3.5 w-3.5 shrink-0 mt-px" />
+      {/*
+        Says the line IS a tip. Without it the bulb alone reads as stray UI — a chord and
+        a sentence with no label looks like a status message.
+
+        From the catalog, not a literal: this is prose 13 locales will translate, and the
+        component's contract above is that none of its text is written here. Note it does
+        NOT need a CSS `uppercase` class — Turkish dotted/dotless I makes forced casing
+        wrong in one of those locales, so the catalog carries the display form.
+      */}
+      <span className="shrink-0 font-medium tracking-wide">{t("label")}</span>
       <span className="min-w-0">
         {tip.keys ? (
           <>

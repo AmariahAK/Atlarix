@@ -1,6 +1,7 @@
 {
-  "shortcut": "{{keys}} — {{action}}",
-  "shortcutScoped": "{{keys}} — {{action}} (in {{scope}})",
+  "label": "TIP",
+  "shortcut": "{{keys}} \u2014 {{action}}",
+  "shortcutScoped": "{{keys}} \u2014 {{action}} (in {{scope}})",
   "shortcuts": {
     "toggle-right-panel": "show or hide the right panel",
     "cycle-work-mode": "cycle work mode",
@@ -15,12 +16,12 @@
   },
   "feature": {
     "memory": "Doing a lot of work? Ask Atlarix to remember the key things, so the next session picks up where you left off.",
-    "sessionRecall": "Ask about something from earlier in this chat — it can search the transcript, even after compacting.",
+    "sessionRecall": "Ask about something from earlier in this chat \u2014 it can search the transcript, even after compacting.",
     "previousSession": "Ask Atlarix to read a previous session by name when you want accurate context on earlier work.",
     "autocomplete": "Type / for commands, or @ to point at a file.",
-    "mcp": "Connect MCP servers in Settings → Integrations to give Atlarix your own tools.",
+    "mcp": "Connect MCP servers in Settings \u2192 Integrations to give Atlarix your own tools.",
     "skills": "Install skills per workspace in Settings to teach Atlarix a repeatable job.",
-    "voice": "Dictate instead of typing — Whisper runs on your machine, so it needs no key.",
+    "voice": "Dictate instead of typing \u2014 Whisper runs on your machine, so it needs no key.",
     "automations": "Put recurring work on a schedule with automations.",
     "subagents": "Hand independent work to sub-agents and let them run in parallel."
   },
