@@ -29,6 +29,10 @@ import {
   totalTokensFromAiUsage,
 } from "@/lib/usage/ai-usage";
 import { classifyCompassFailure } from "@/lib/chat/compass-failure-classifier";
+import { isInsufficientCreditError } from "@/lib/billing/insufficient-credit";
+import { markCreditExhausted } from "@/lib/agents/credit-halt";
+import { failQueuedDelegationsForChat } from "@/lib/agents/delegation-limiter";
+import { cancelAllSubagentTasksForChat } from "@/lib/tools/spawn-task";
 import {
   getNativeWebSearchSupport,
   reservedNativeToolNames,
@@ -1000,6 +1004,41 @@ export async function simpleStreamText(
                   const classified = classifyCompassFailure(statusCode, bodyStr);
                   message = classified.message;
                   isCompassInfraError = classified.isCompassInfraError;
+                  /**
+                   * The PARENT ran out of credit — so its children must stop too.
+                   *
+                   * This handler used to send the error and drop the abort controller
+                   * without cancelling a single sub-agent, so a refused parent left
+                   * its whole fan-out streaming: five children still spending against
+                   * a wallet that had just declined the parent. Credit exhaustion is
+                   * the fourth thing that ends a round, after user Stop, user Abort
+                   * and the automation timeout.
+                   *
+                   * The turn's `abortController` is deliberately NOT aborted here.
+                   * Children hold their own abort handles (`taskAbort` in spawn-task),
+                   * which is why cancelling them takes the task store rather than this
+                   * signal — and the model call has already failed, so there is no
+                   * in-flight work of our own left for an abort to reach. Firing it
+                   * would only push this failure through the user-cancel teardown,
+                   * whose revert semantics are guarded by their own tests, for no
+                   * behaviour we need.
+                   */
+                  if (isInsufficientCreditError(error)) {
+                    markCreditExhausted(req.chatId, message);
+                    const queued = failQueuedDelegationsForChat(
+                      req.chatId,
+                      new Error(message),
+                    );
+                    const running = cancelAllSubagentTasksForChat(
+                      req.chatId,
+                      message,
+                    );
+                    if (running > 0 || queued > 0) {
+                      logger.warn(
+                        `[compass] credit exhausted on the parent — stopped ${running} running and ${queued} queued sub-agent(s) for chat ${req.chatId}`,
+                      );
+                    }
+                  }
                 } else {
                   message = modelFailureUserMessage(message);
                 }

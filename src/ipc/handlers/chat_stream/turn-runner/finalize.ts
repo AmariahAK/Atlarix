@@ -30,6 +30,7 @@ import { stripThinkBlocks } from "@/ipc/utils/thinking_tags";
 import { listBackgroundJobs } from "@/lib/agent/background-commands";
 import { clearMutationOutcomes } from "@/lib/agent/mutation-verify";
 import { runningSubagentCount } from "@/lib/agents/subagent-results";
+import { clearCreditHalt } from "@/lib/agents/credit-halt";
 import {
   boundNativeHistoryForPersist,
   estimateModelMessagesTokens,
@@ -323,6 +324,11 @@ export async function finalizeTurn(
             markLedgerStreamComplete(streamTurnId);
             clearMutationOutcomes(streamTurnId);
             ctx.inFlightDelegationKeys.clear();
+            // The credit latch stops a round that is already failing; it must not
+            // decide the NEXT one, because the user may have topped up in between and
+            // there is no way here to know whether they did. Cleared per turn so each
+            // new turn gets exactly one real attempt.
+            clearCreditHalt(req.chatId);
             notifyPlanUiForTurnIfPresent(streamTurnId);
             // v10 token accuracy: fold sub-agent + compaction usage into this
             // turn's totals so the usage meter is exact.

@@ -22,8 +22,11 @@ import {
 import { MAX_SUBAGENTS_PER_TURN } from "@/lib/agents/agent-runtime";
 import {
   acquireDelegationSlot,
+  failQueuedDelegationsForChat,
   releaseDelegationSlot,
 } from "@/lib/agents/delegation-limiter";
+import { creditHaltReason } from "@/lib/agents/credit-halt";
+import { cancelAllSubagentTasksForChat } from "@/lib/tools/spawn-task";
 import type { WorkMode } from "@/lib/schemas";
 import type { SubagentActivityEmit } from "@/lib/agents/run-subagent";
 
@@ -41,8 +44,21 @@ export type DelegationStreamContext = {
   onDelegationStart?: () => void;
   tryAcquireDedupeKey?: (key: string) => boolean;
   releaseDedupeKey?: (key: string) => void;
-  maxConcurrentDelegations?: number;
 };
+
+/**
+ * Stop the rest of this round once the wallet is empty.
+ *
+ * Two distinct populations, and cancelling only the first is what left a fan-out
+ * running: the sub-agents already streaming (aborted through the task store) and the
+ * ones parked behind the concurrency limiter, which no cancellation path touched.
+ */
+function haltRoundForCredit(ctx: DelegationStreamContext): void {
+  const reason = creditHaltReason(ctx.chatId);
+  if (!reason) return;
+  failQueuedDelegationsForChat(ctx.chatId, new Error(reason));
+  cancelAllSubagentTasksForChat(ctx.chatId, reason);
+}
 
 function newDelegationId(agentId: string): string {
   const suffix =
@@ -87,6 +103,21 @@ export function attachDelegationToolsToSet(
       taskTool.parameters ?? {},
     ) as never,
     execute: async (args: Record<string, unknown>) => {
+      /**
+       * The credit latch is checked FIRST, ahead of the per-turn cap.
+       *
+       * Once the wallet is empty, "the round stopped because you are out of credit"
+       * is the only useful thing to say. Falling through to the cap's refusal would
+       * tell the model to "fold the work into fewer prompts" — advice that cannot
+       * help, and that invites it to keep spawning. Cancelling a round without this
+       * latch does not stop it either: nothing here touches the per-turn count or
+       * the dedupe set, so the model could simply call `task` again.
+       */
+      const haltReason = creditHaltReason(ctx.chatId);
+      if (haltReason) {
+        return JSON.stringify({ success: false, error: haltReason });
+      }
+
       const activeCount = ctx.getDelegationCount?.() ?? 0;
       if (activeCount >= MAX_SUBAGENTS_PER_TURN) {
         return JSON.stringify({
@@ -113,8 +144,11 @@ export function attachDelegationToolsToSet(
         toolId: "task",
         toolName: getToolActivityLabel("task"),
       });
-      const maxConcurrent =
-        ctx.maxConcurrentDelegations ?? MAX_SUBAGENTS_PER_TURN;
+      // The concurrency cap IS the per-turn cap. `ctx.maxConcurrentDelegations`
+      // used to be read here and no caller ever set it — neither build-branch nor
+      // ask-branch passed it — so the schema field behind it did nothing. Both are
+      // gone; this names the real constant instead of implying a knob.
+      const maxConcurrent = MAX_SUBAGENTS_PER_TURN;
       const id = newDelegationId(agentId);
       const startTime = Date.now();
       const startPayload = buildSubagentStartPayload({
@@ -128,21 +162,37 @@ export function attachDelegationToolsToSet(
         timestamp: startTime,
       });
 
-      await acquireDelegationSlot(ctx.chatId, ctx.turnId, maxConcurrent, () => {
-        ctx.safeSend(ctx.sender, "chat:activity", {
-          type: "subagent_progress",
-          id,
-          chatId: ctx.chatId,
-          agent: agentId,
-          agentType: agentId,
-          parentDelegationId: id,
-          roundId: ctx.turnId,
-          status: "running",
-          timestamp: Date.now(),
-          preview: "Queued — waiting for a sub-agent slot…",
-          label: "Queued",
+      try {
+        await acquireDelegationSlot(ctx.chatId, ctx.turnId, maxConcurrent, () => {
+          ctx.safeSend(ctx.sender, "chat:activity", {
+            type: "subagent_progress",
+            id,
+            chatId: ctx.chatId,
+            agent: agentId,
+            agentType: agentId,
+            parentDelegationId: id,
+            roundId: ctx.turnId,
+            status: "running",
+            timestamp: Date.now(),
+            preview: "Queued — waiting for a sub-agent slot…",
+            label: "Queued",
+          });
         });
-      });
+      } catch (err) {
+        // The queue was failed while this delegation was parked — the round halted
+        // behind our back. Hand back what we took by hand: the `finally` below
+        // belongs to the block we never entered, so nothing else releases the dedupe
+        // key or closes the tool card. No `releaseDelegationSlot` — a rejected queue
+        // entry never held a slot, and the slot record is already gone.
+        ctx.releaseDedupeKey?.(dedupeKey);
+        ctx.safeSend(ctx.sender, "chat:tool:end", { chatId: ctx.chatId });
+        return JSON.stringify({
+          success: false,
+          error:
+            creditHaltReason(ctx.chatId) ??
+            (err instanceof Error ? err.message : String(err)),
+        });
+      }
 
       try {
         ctx.safeSend(ctx.sender, "chat:activity", startPayload);
@@ -318,6 +368,10 @@ export function attachDelegationToolsToSet(
 
         return resultStr;
       } finally {
+        // ORDER IS LOAD-BEARING. `releaseDelegationSlot` drains the queue, so a
+        // parked sibling would be granted a slot and open its own 402-bound call
+        // before anything got the chance to stop it. Halt first, then release.
+        haltRoundForCredit(ctx);
         ctx.releaseDedupeKey?.(dedupeKey);
         releaseDelegationSlot(ctx.chatId, ctx.turnId, maxConcurrent);
         ctx.safeSend(ctx.sender, "chat:tool:end", { chatId: ctx.chatId });

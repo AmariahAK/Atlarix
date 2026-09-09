@@ -269,11 +269,23 @@ export function cancelSubagentTask(
   return { ok: true };
 }
 
+/** Default cancel reason: the user pressed Stop, which is the original caller. */
+const USER_STOPPED_REASON = "Cancelled by the user (turn stopped).";
+
 /**
  * Cancel EVERY running sub-agent for a chat — called when the user stops the
  * turn so scout tasks stop spending tokens (Fix 4). Returns the count cancelled.
+ *
+ * `reason` is what each cancelled task reports to the model. It exists because
+ * credit exhaustion became a fourth caller (after user Stop, user Abort and the
+ * automation timeout) and the default would tell the model the user stopped the
+ * turn — sending it to apologise for an interruption that never happened instead
+ * of reporting an empty wallet.
  */
-export function cancelAllSubagentTasksForChat(chatId: number): number {
+export function cancelAllSubagentTasksForChat(
+  chatId: number,
+  reason: string = USER_STOPPED_REASON,
+): number {
   // The turn is over, so no one is going to review a pending proposal set —
   // holding those file bodies in the main process would just be a leak.
   dropProposalSetsForChat(chatId);
@@ -282,7 +294,7 @@ export function cancelAllSubagentTasksForChat(chatId: number): number {
     if (rec.chatId !== chatId || rec.state !== "running") continue;
     rec.cancelled = true;
     rec.state = "error";
-    rec.error = "Cancelled by the user (turn stopped).";
+    rec.error = reason;
     rec.finishedAt = Date.now();
     try {
       rec.abort?.abort();
@@ -539,6 +551,12 @@ ToolRegistry.register({
 
         const rec = taskStore.get(taskId);
         if (!rec) return;
+        // Keep an already-terminal message. Cancelling aborts the child's model
+        // stream, so the abort surfaces here as an ordinary failed outcome carrying
+        // an `AbortError` — and writing that over the cancel reason made every
+        // cancelled sub-agent read to the model as a retryable crash. The background
+        // path has always guarded this; the foreground path did not.
+        if (rec.cancelled || rec.finishedAt) return;
         if (outcome.success) {
           rec.state = "completed";
           rec.resultText = (outcome.summary ?? "") + proposalBlock;
