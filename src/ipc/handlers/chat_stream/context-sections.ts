@@ -41,11 +41,14 @@ export interface ContextSectionParams {
 export async function loadModeSkillSection(
   p: ContextSectionParams,
 ): Promise<ContextSection | null> {
-  const { effectiveWorkMode, preflight, hasWorkspace, appPath } = p;
+  const { effectiveWorkMode, preflight } = p;
   try {
     const modeSkillName = getSkillNameForMode(effectiveWorkMode);
+    // BUNDLED ONLY — no workspace argument, deliberately. A repo used to be able to
+    // replace this text, which lands ahead of the base system prompt and cannot be
+    // pruned; see `skill-loader.ts`.
     const modeSkillBody = await preflight.time("mode-skill", () =>
-      loadSkill(modeSkillName, hasWorkspace && appPath ? appPath : undefined),
+      loadSkill(modeSkillName),
     );
     if (!modeSkillBody.trim()) return null;
     return {

@@ -14,11 +14,16 @@
  * `AgentProfile` parameterized from disk — a custom system block + a tool-
  * allowlist intersection + a model override on top of its base work mode.
  *
- * NOTE the distinction (documented in docs/atlarix-contract.md): a file here
- * is a FULL AGENT the user SELECTS; the mode-skill override files
- * (`.atlarix/agents/<modes/build-mode>.md`, loaded by skill-loader) REPLACE a
- * built-in mode's guidance. Reserved mode-skill names are skipped by the
- * user-agent loader so the two never collide.
+ * A file here is a FULL AGENT the user SELECTS. That is the only per-project
+ * customisation of agent behaviour there is.
+ *
+ * THIS NOTE USED TO DESCRIBE A "mode-skill override" as a sibling feature, and it
+ * was wrong three ways, which is worth recording because the wrongness is what let
+ * the thing survive unexamined. It cited `docs/atlarix-contract.md`, a file that
+ * does not exist. It named `.atlarix/agents/`, while the loader actually read
+ * `.atlarix/skills/`. And it framed as a feature something that let any cloned repo
+ * replace Atlarix's own operating instructions — removed in v14.45, see the header
+ * of `src/lib/skills/skill-loader.ts`.
  */
 
 import fs from "node:fs";
@@ -29,7 +34,19 @@ import { BUILTIN_AGENTS, listBuiltinAgents } from "./builtin-agents";
 
 const logger = log.scope("user-agents");
 
-/** Mode-skill override names (skill-loader's territory) — not user agents. */
+/**
+ * Mode names, reserved so a user agent cannot impersonate a work mode.
+ *
+ * It is NOT a security control and never was, despite reading like one: it guards
+ * `.atlarix/agents/` against these five stems, and the mode-skill loader never read
+ * that directory. With the workspace override gone (v14.45) there is nothing left to
+ * collide with — the reservation stays because a selectable agent called "build-mode"
+ * would still be confusing in the picker, which is the honest reason for it.
+ *
+ * Note the spellings do not match `skill-registry.ts`'s `modes/build-mode`, so no
+ * shared constant ties the two lists together and no test enforces parity. Adding a
+ * sixth work mode will not update this set.
+ */
 const RESERVED_AGENT_NAMES = new Set([
   "ask-mode",
   "plan-mode",

@@ -339,9 +339,10 @@ export async function runSubagent(
       const genericSkill = isImplement
         ? "subagents/subagent-writer"
         : "subagents/subagent";
-      systemPrompt = (
-        await loadSkill(genericSkill, workspace || undefined)
-      ).trim();
+      // BUNDLED ONLY. A repo could previously supply
+      // `.atlarix/skills/subagents/subagent-writer.md` and replace this ENTIRE prompt —
+      // for the write-capable variant. See `skill-loader.ts`.
+      systemPrompt = (await loadSkill(genericSkill)).trim();
     }
     if (!systemPrompt.trim()) {
       return { success: false, error: "Missing sub-agent system prompt" };
