@@ -566,15 +566,19 @@ record plus the traps worth keeping; narrative is in `docs/CHANGELOG.md`.
       the case visible when correlated against a client-side error timestamp. The real
       mitigation is the retry above — a recovered turn means the tokens were not wasted.
 
-- [ ] **A response body that just ENDS is accepted as a complete answer.** Found while
-      building the request-phase test, not reported by a user. A server that writes a delta
-      and then closes the body with no terminating chunk produces **no error, no retry, and
-      one request** — the model's half-sentence is delivered as the final answer. Same class
-      as the `finish_reason` case already fixed, and the same failure mode: silence. The
-      classifier cannot help, because there is nothing to classify; it needs a completeness
-      check on the stream itself. Reproducible in one line via
-      `testing/fake-llm-server/scenario.ts` — see the `socket_reset` docblock, which records
-      why the mid-stream variant was removed and what it turned up.
+- **ACCEPTED, not a bug to chase (owner, 2026-09-09): a response body that just ENDS is
+  taken as a complete answer.** Found while building the request-phase test, never reported
+  by a user. A server that writes a delta then closes the body with no terminating chunk
+  produces **no error, no retry, and one request** — the model's half-sentence is delivered
+  as the final answer. Same class as the `finish_reason` case, and the same failure mode:
+  silence.
+
+  **Owner's call: a turn is allowed to end this way.** Do not force a completeness check on
+  the stream to prevent it. **Revisit only if it is OBSERVED MULTIPLE TIMES in the wild** —
+  which is the bar, deliberately, because the fix would mean judging every provider's stream
+  against a shape we invented. Reproducible in one line via
+  `testing/fake-llm-server/scenario.ts` if that day comes; the `socket_reset` docblock
+  records why the mid-stream variant was removed and what it turned up.
 
 - [ ] **Launchpad: a stopped login must not force a page refresh.** When the login is
       interrupted or cancelled, the page is left in a state the user can only escape by
@@ -1058,18 +1062,26 @@ would leave 4, so keeping the route keeps this comfortable). Run `knip` after �
 something on the KEEP list was reached through a marketplace code path**, which is the thing
 to look for rather than to patch away.
 
-### OPEN, and found while designing this: `agentIsWriter` measures WORKSPACE writes only
+### SETTLED (owner, 2026-09-09): `agentIsWriter` means WORKSPACE writes, and every agent gets MCP
 
-A read-only sub-agent keeps `run_command`, which is contained by the write-confining sandbox.
-**`mcp_call` is not containable that way, because the effect is remote.** So a sub-agent that
-`agentIsWriter` calls read-only can post to Slack, open a PR, or send mail — anything a
-configured MCP server exposes. The real gate is per-tool `requireConsent` in `mcp.ts`, which
-exists and works; **nothing in the codebase says so**, and the naming actively suggests
-otherwise.
+A read-only sub-agent keeps `run_command`, contained by the write-confining sandbox.
+**`mcp_call` is not containable that way, because the effect is remote** — so an agent
+`agentIsWriter` calls read-only can post to Slack, open a PR, or send mail. Raised as a
+possible gap; **decided as intended behaviour.**
 
-Not a v14.45 item and not caused by the import — it is true today. What it needs is a
-decision on whether "read-only" should mean "no side effects" (in which case an MCP-capable
-agent is not read-only) or stay "no workspace writes" with the naming and docs made honest.
+- **Every sub-agent gets MCP access, writer or not.** MCP is a capability the user configured
+  and it should be AVAILABLE, not rationed by a flag that was never about side effects.
+- **We accept we cannot control what an MCP server does.** A server is someone else's code
+  behind someone else's API; enumerating what is "safe" inside one is not a thing we can do
+  honestly, and pretending to would be worse than not trying. **Do not gate `mcp_call` on
+  writer status, and do not add an allowlist of "read-only" MCP tools.**
+- **What `agentIsWriter` means, precisely: no WORKSPACE writes.** It has never meant "no side
+  effects", and it does not now. The gate on MCP side effects is per-tool `requireConsent` in
+  `mcp.ts` — the user is asked on first use of each tool, which is the right place for a
+  decision only the user can make.
+
+**The only thing owed is honesty about the name**, since `agentIsWriter` reads like a safety
+property and is not one. Nothing to restrict; do not re-file this as a vulnerability.
 **Decide before anything starts relying on `agentIsWriter` as a safety property.**
 
 ## 🔜 Next session — the queue
@@ -1794,13 +1806,27 @@ would reopen the hole with nothing in the repo to show. **A payout rule belongs 
 payout** — and not as an allowlist of provider names, since adding a fourth provider later would
 silently stop paying the credit and nobody reports a dollar they never knew existed.
 
-- [ ] **Trial-credit residual — open, not urgent at $23.** The dedupe key is
-      `(kind='trial', ref=user_id)`, so the scarce thing is an account, and Google/GitHub accounts
-      are free. The durable answer ties the grant to something costlier — a payment method, or
-      account age — not a challenge; Turnstile could not have helped regardless, since that signup
-      happens on Google's site. The owner separately wants the credit raised to ~$5 "gated on a
-      verified account", which is the same decision from the other end. **Decision first, then
-      code.**
+- [x] **Trial credit — GONE, and VERIFIED gone (2026-09-09).** Owner decision: no free credit
+      for anyone, new or existing. This turned out to be already done and only the docs were
+      behind: migration `20260908140000` drops `claim_signup_credit`, and the client channel
+      was removed with it.
+
+      **Verified against the live service, not the ledger** — `POST /rest/v1/rpc/
+      claim_signup_credit` returns **404 `PGRST202`** ("no matches were found in the schema
+      cache"). That distinction matters here: a row in `supabase_migrations.schema_migrations`
+      is a CLAIM that a migration ran, and this file already records a case where the ledger
+      and reality disagreed. The anon key is a public credential, so probing the service is
+      the honest check.
+
+      **Credit already granted was deliberately left alone** — see the migration's own
+      docblock: clawing $1 back across 116 accounts is a bad-will trade for ~$100 and would
+      need a migration reasoning about partly-spent balances to avoid driving wallets
+      negative. "Remove for existing users" means nobody receives it again, which is now true.
+
+      **Dead with it:** the ~$23 abuse residual (nothing left to claim), and the idea of
+      raising it to ~$5 gated on a verified account. **Do not re-propose either.** Old
+      desktop builds calling the dropped RPC fail silently by design — `auth_handlers.ts`
+      returns `{ ok: false }` and `useAuth.ts` uses `.catch(() => {})`.
 
 ## 🔐 Security follow-ups — owner-triaged, deferred
 
