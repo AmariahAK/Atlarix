@@ -79,6 +79,7 @@ import { warmWhatsNew } from "./main/whats-new";
 import { seedEphemeralCounterFromSessions } from "./ipc/handlers/workspace_session_handlers";
 import { isNoUsableModelOutputError } from "./ipc/utils/no_usable_model_output";
 import { isStreamStopAbort } from "./lib/stream/stream-stop-sentinels";
+import { isNetworkStreamError } from "./ipc/handlers/chat_stream/network-retry";
 import {
   openWorkspaceFromCliPath,
   parseDirectoryArgFromArgv,
@@ -121,6 +122,27 @@ process.on("unhandledRejection", (reason: unknown) => {
   if (isStreamStopAbort(reason)) {
     logger.warn(
       "[main] Swallowed post-finalization stream-stop abort rejection:",
+      reason,
+    );
+    return;
+  }
+  /**
+   * A transient network failure the retry layer already OWNS.
+   *
+   * Observed 2026-09-09: one dropped connection mid-stream (`TypeError: terminated`
+   * out of undici) logged "Network error on attempt 1/3, retrying" — the turn
+   * recovered and the user saw a brief reconnect — and STILL filed two Sentry
+   * errors, because the detached SDK promises reject separately from the retry.
+   * An expected, recovered condition should not look like a defect.
+   *
+   * `isNetworkStreamError` is the retry layer's own predicate, so this cannot
+   * disagree with what actually gets retried: it excludes AbortError and refuses
+   * deterministic 4xx. If the retries EXHAUST, the turn fails through its own error
+   * path and the user is told — that reporting is unaffected by this.
+   */
+  if (isNetworkStreamError(reason)) {
+    logger.warn(
+      "[main] Swallowed transient network rejection (owned by the stream retry):",
       reason,
     );
     return;

@@ -2,6 +2,7 @@ import type { ErrorEvent, EventHint } from "@sentry/core";
 import { sentryMessageMatchesIgnoredPattern } from "@/lib/sentry-ignore-patterns";
 import { normalizeSentryErrorText } from "@/lib/sentry-decode-message";
 import { isNoUsableModelOutputError } from "@/ipc/utils/no_usable_model_output";
+import { isNetworkStreamError } from "@/ipc/handlers/chat_stream/network-retry";
 import {
   isStreamStopAbort,
   textHasStreamStopSentinel,
@@ -62,6 +63,10 @@ export function sentryBeforeSendDropExpected(
   // Structured match catches the benign empty-output family even when the
   // serialized message text varies (AI SDK wraps/nests these).
   if (isNoUsableModelOutputError(original)) return null;
+  // A transient network drop the stream retry already owns and recovered from.
+  // Captured here as well as in the process net because Sentry's own
+  // onunhandledrejection integration reports independently of it.
+  if (isNetworkStreamError(original)) return null;
   if (original instanceof Error) {
     parts.push(original.message, original.name);
   } else if (typeof original === "string") {
