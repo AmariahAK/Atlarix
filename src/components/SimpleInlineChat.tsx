@@ -34,6 +34,7 @@ import { ChatErrorBox } from "@/components/chat/ChatErrorBox";
 import { Button } from "@/components/ui/button";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { LoadedSessionBanner } from "@/components/chat/LoadedSessionBanner";
+import { CoreSlotChangeBanner } from "@/components/chat/CoreSlotChangeBanner";
 import { InlineStreamStatus } from "@/components/chat/InlineStreamStatus";
 import { discardedTurnSnapshotIds } from "@/lib/chat/discarded-turn-snapshots";
 import { CORE_EXHAUSTED_MARKER } from "@/shared/billing_copy";
@@ -430,6 +431,7 @@ export function SimpleInlineChat({
     return (
         <div className="flex flex-col h-full min-h-0 w-full max-w-4xl mx-auto overflow-hidden relative">
             <LoadedSessionBanner />
+            <CoreSlotChangeBanner />
 
             {virtualizeHistory && (visibleMessages.length > 0 || isStreaming) ? (
                 <VirtualizedMessageList

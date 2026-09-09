@@ -184,6 +184,10 @@ const validInvokeChannels = [
   "openrouter:remove-favorite",
   "openrouter:is-favorited",
   "compass:is-build-configured",
+  // The Core slot-change notice: which model sits behind a slot changes without an
+  // app update, so the renderer has to ask whether it moved since the user last saw.
+  "compass:get-slot-change-notice",
+  "compass:ack-slot-change",
   "edit-stats:summary",
   // Models.dev (dynamic model catalog)
   "models-dev:refresh",

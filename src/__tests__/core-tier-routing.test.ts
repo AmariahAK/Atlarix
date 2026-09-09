@@ -37,6 +37,8 @@ import {
   __resetCoreModelOverridesForTests,
 } from "@/ipc/shared/core-model-override-store";
 import {
+  CORE_TIER_ORDER,
+  DEFAULT_NEW_USER_CORE_TIER,
   getCoreModelIdForCoreTier,
   getOpenRouterModelIdForCoreTier,
   getCoreModelsDevTargetForTier,
@@ -437,5 +439,46 @@ describe("getCoreModelIdForCoreTier rename", () => {
   it("still resolves the wire id under the new name", () => {
     setCoreModelOverrides({ "core-3": "deepseek/deepseek-v4-pro" });
     expect(getCoreModelIdForCoreTier("core-3")).toBe("deepseek/deepseek-v4-pro");
+  });
+});
+
+/**
+ * The tier a NEW INSTALL lands on.
+ *
+ * THE BUG THIS EXISTS TO PREVENT, because it already happened once: "the default
+ * Core tier" was written down twice with nothing linking the two —
+ * `DEFAULT_CORE_TIER_ORDER` here, and `DEFAULT_SETTINGS.selectedModel` over in
+ * `main/settings.ts`. Moving the order to core-3 moved nothing a real user sees,
+ * since its only production caller is the BYOK-rescue path, while settings quietly
+ * kept every new install on core-1. The whole release read as shipped and the goal
+ * was untouched.
+ */
+describe("the new-user default tier", () => {
+  it("is a SLOT id, never a model id", () => {
+    // Owner constraint, and the reason the lineup can change without an app
+    // update: a model id here would pin new users to one model forever, and would
+    // stop resolving the day that model left the lineup.
+    expect(CORE_TIER_ORDER).toContain(DEFAULT_NEW_USER_CORE_TIER);
+    expect(DEFAULT_NEW_USER_CORE_TIER).toMatch(/^core-\d+$/);
+    expect(DEFAULT_NEW_USER_CORE_TIER).not.toContain("/");
+  });
+
+  it("is the same tier an unopinionated caller would be given", () => {
+    // The coupling itself. If these two ever disagree again, the product decision
+    // has silently split in half.
+    setCoreModelOverrides({
+      "core-1": "z-ai/glm-5.3",
+      "core-2": "openai/gpt-5.5-terra",
+      "core-3": "openai/gpt-6-astra",
+    });
+    expect(getFirstConfiguredCoreTier()).toBe(DEFAULT_NEW_USER_CORE_TIER);
+  });
+
+  it("survives its slot being dropped from the lineup", () => {
+    // A new install must not be stranded by a config change it never saw. The
+    // constant still names core-3; resolution falls forward in slot order.
+    setCoreModelOverrides({ "core-1": "z-ai/glm-5.3" });
+    const resolved = resolveConfiguredCoreTier(DEFAULT_NEW_USER_CORE_TIER);
+    expect(resolved).toEqual({ tier: "core-1", substituted: true });
   });
 });

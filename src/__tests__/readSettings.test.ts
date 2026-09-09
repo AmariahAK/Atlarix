@@ -9,6 +9,7 @@ import {
 } from "@/main/settings";
 import { getUserDataPath } from "@/paths/paths";
 import { UserSettings } from "@/lib/schemas";
+import { DEFAULT_NEW_USER_CORE_TIER } from "@/ipc/shared/compass_constants";
 
 // Mock dependencies (electron stub lives in vitest.setup.ts)
 vi.mock("node:fs");
@@ -40,6 +41,14 @@ describe("readSettings", () => {
   });
 
   describe("when settings file does not exist", () => {
+    /**
+     * NOTE for whoever next moves the new-user default tier: the `selectedModel`
+     * inside the inline snapshots below is a LITERAL, because a snapshot cannot
+     * interpolate a constant. Regenerate them (`-u`) rather than reading a failure
+     * here as a bug. The guard that actually stops the default drifting apart from
+     * the preference order lives in `core-tier-routing.test.ts`; these snapshots only
+     * record what a fresh settings file comes out as.
+     */
     it("should create default settings file and return default settings", () => {
       mockFs.existsSync.mockReturnValue(false);
       mockFs.writeFileSync.mockImplementation(() => {});
@@ -69,7 +78,7 @@ describe("readSettings", () => {
           "releaseChannel": "stable",
           "selectedChatMode": "ask",
           "selectedModel": {
-            "name": "core-1",
+            "name": "core-3",
             "provider": "compass",
           },
           "telemetryConsent": "unset",
@@ -254,7 +263,7 @@ describe("readSettings", () => {
           "releaseChannel": "stable",
           "selectedChatMode": "ask",
           "selectedModel": {
-            "name": "core-1",
+            "name": "core-3",
             "provider": "compass",
           },
           "telemetryConsent": "unset",
@@ -272,7 +281,10 @@ describe("readSettings", () => {
 
       expect(result).toMatchObject({
         selectedModel: {
-          name: "core-1",
+          // The constant, not a literal: this is the new-user default, and writing
+          // it down a third time is what let it drift from the preference order in
+          // the first place. `core-tier-routing.test.ts` owns the drift guard.
+          name: DEFAULT_NEW_USER_CORE_TIER,
           provider: "compass",
         },
         releaseChannel: "stable",
@@ -295,7 +307,10 @@ describe("readSettings", () => {
 
       expect(result).toMatchObject({
         selectedModel: {
-          name: "core-1",
+          // The constant, not a literal: this is the new-user default, and writing
+          // it down a third time is what let it drift from the preference order in
+          // the first place. `core-tier-routing.test.ts` owns the drift guard.
+          name: DEFAULT_NEW_USER_CORE_TIER,
           provider: "compass",
         },
         releaseChannel: "stable",
@@ -329,7 +344,10 @@ describe("readSettings", () => {
 
       expect(result).toMatchObject({
         selectedModel: {
-          name: "core-1",
+          // The constant, not a literal: this is the new-user default, and writing
+          // it down a third time is what let it drift from the preference order in
+          // the first place. `core-tier-routing.test.ts` owns the drift guard.
+          name: DEFAULT_NEW_USER_CORE_TIER,
           provider: "compass",
         },
         releaseChannel: "stable",

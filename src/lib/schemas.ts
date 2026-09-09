@@ -405,6 +405,21 @@ export const UserSettingsSchema = z.object({
    * installed. That is why there is no entry in DEFAULT_SETTINGS.
    */
   appLanguage: z.enum(SUPPORTED_LOCALES).optional(),
+  /**
+   * The Core model this user was last known to be running on.
+   *
+   * A RESOLVED MODEL ID, not a tier: which model sits behind a slot changes without
+   * an app update, and this exists to notice exactly that. Comparing tiers would see
+   * nothing when `core-3` was reassigned; comparing the resolved id also catches a
+   * substituted slot and a moved new-install default, because it is what the turn
+   * really ran on.
+   *
+   * NO ENTRY IN DEFAULT_SETTINGS, for the reason `appLanguage` above records: absent
+   * has to mean "no baseline yet, say nothing", and a default would make every fresh
+   * install announce a change it never experienced. Advancing it IS the dismissal, so
+   * there is no second store to drift against.
+   */
+  lastSeenCoreModel: z.string().optional(),
   /** @deprecated superseded by the binary `deepThinking` toggle (v14.8.5). */
   thinkingBudget: z.enum(["low", "medium", "high"]).optional(),
   /**

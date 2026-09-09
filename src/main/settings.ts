@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { getUserDataPath } from "../paths/paths";
+import { DEFAULT_NEW_USER_CORE_TIER } from "../ipc/shared/compass_constants";
 import {
   UserSettingsSchema,
   type UserSettings,
@@ -94,8 +95,20 @@ function getSafeStorage(): SafeStorageApi | null {
 // IF YOU NEED TO UPDATE THIS, YOU'RE PROBABLY DOING SOMETHING WRONG!
 // Need to maintain backwards compatibility!
 const DEFAULT_SETTINGS: UserSettings = {
+  /**
+   * The tier a brand-new install lands on — A SLOT, never a model id, so which
+   * model sits behind it stays `core-models.json`'s business and changes without
+   * an app update.
+   *
+   * WHY THIS IS THE CONSTANT AND NOT A LITERAL. "The default Core tier" was
+   * written down in two unrelated places that had no link between them: here, and
+   * `DEFAULT_CORE_TIER_ORDER` in compass_constants. Moving the latter to core-3
+   * therefore moved nothing a real user sees — its only production caller is the
+   * BYOK-rescue path — while this line quietly kept every new install on core-1.
+   * One of the two had to become the other's source of truth.
+   */
   selectedModel: {
-    name: "core-1",
+    name: DEFAULT_NEW_USER_CORE_TIER,
     provider: "compass",
   },
   providerSettings: {},

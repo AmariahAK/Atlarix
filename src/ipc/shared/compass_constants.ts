@@ -247,6 +247,22 @@ const DEFAULT_CORE_TIER_ORDER = [
 ] as const;
 
 /**
+ * The tier a brand-new install's `selectedModel` points at.
+ *
+ * Derived from the order above rather than written a second time. These were two
+ * independent literals, and the gap between them is why moving the preference
+ * order to core-3 did not move a single new user: `DEFAULT_SETTINGS.selectedModel`
+ * in `main/settings.ts` still said core-1, and the order's only production caller
+ * is the BYOK-rescue path. Deriving it means the next change to the default lands
+ * in both places or neither.
+ *
+ * A SLOT, not a model id — the whole reason the lineup can change without an app
+ * update. If this slot is ever unconfigured, `resolveConfiguredCoreTier` falls
+ * forward in slot order, so a persisted selection never becomes a dead end.
+ */
+export const DEFAULT_NEW_USER_CORE_TIER: string = DEFAULT_CORE_TIER_ORDER[0];
+
+/**
  * Resolve a requested Core tier to one that is actually configured.
  *
  * Returns the tier unchanged when it has a model. When it does not — a slot removed

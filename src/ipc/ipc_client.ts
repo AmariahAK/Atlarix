@@ -3507,6 +3507,24 @@ export class IpcClient {
     return this.ipcRenderer.invoke("compass:get-tier-catalog");
   }
 
+  /**
+   * Whether the model behind this user's Core slot changed since they last saw it.
+   *
+   * Null means "say nothing" — not on Core, no baseline yet, or unchanged. The main
+   * side seeds the baseline on the first ask, so a fresh install stays quiet now and
+   * is still armed for the next lineup change.
+   */
+  public async getCoreSlotChangeNotice(): Promise<
+    import("@/lib/routing/core-slot-change").CoreSlotChange | null
+  > {
+    return this.ipcRenderer.invoke("compass:get-slot-change-notice");
+  }
+
+  /** Mark the Core slot change as seen. Advancing the baseline IS the dismissal. */
+  public async ackCoreSlotChange(): Promise<{ success: boolean }> {
+    return this.ipcRenderer.invoke("compass:ack-slot-change");
+  }
+
   /** Lines the agent has written, aggregated per workspace and per model. */
   public async getEditStatsSummary(): Promise<
     import("@/ipc/ipc_types").EditStatsSummary
