@@ -160,19 +160,94 @@ export function extractHeadings(content: string, max = 12): string[] {
 }
 
 /** Where the project instructions came from (drives the injected heading). */
-export type ProjectInstructionsSource = "atlarix" | "agents" | "claude";
+export type ProjectInstructionsSource =
+  | "rules"
+  | "atlarix"
+  | "agents"
+  | "claude";
+
+/** `.atlarix/rules/` — the canonical home for project instructions since v14.45. */
+export function getRulesDirPath(workspacePath: string): string {
+  return path.join(workspacePath, ".atlarix", "rules");
+}
 
 /**
- * v13.1: project-instruction interop. Prefer `.atlarix/atlarix.md` (canonical,
- * with legacy migration); when it's absent/empty, fall back to a repo's
- * `AGENTS.md` (the cross-agent standard) then `CLAUDE.md` so Atlarix is
- * drop-in friendly on repos already configured for other agents. Read-only —
- * never copies the fallback into `.atlarix/`.
+ * Every `.md` in `.atlarix/rules/`, concatenated in filename order.
+ *
+ * Rules are plural — a project accumulates them per concern (testing, style, the way
+ * migrations are written), and one file made people either maintain a monolith or keep
+ * the rest out of the agent's reach.
+ *
+ * DELIBERATELY NOT RECURSIVE, and no per-file applicability. Every file here applies,
+ * always; a directory whose files each declared when they applied would be a different
+ * and much larger feature, and this one is worth having first. Subdirectories are
+ * skipped rather than walked so nesting cannot quietly change what is in scope.
+ *
+ * Sorted by codepoint, not `localeCompare`: this decides the ORDER instructions reach
+ * the model, and a locale-sensitive sort would order differently on different machines
+ * for the same repo.
+ *
+ * Creates nothing. `readAtlarixMd` below mkdirs `.atlarix/` as a migration side effect;
+ * this must not add a second one, or every workspace that merely gets READ ends up with
+ * a rules directory it never asked for.
  */
-export async function readProjectInstructions(
+export async function readRulesDir(
   workspacePath: string,
-): Promise<{ content: string; source: ProjectInstructionsSource } | null> {
+): Promise<{ content: string; fileCount: number } | null> {
   if (!workspacePath) return null;
+  const dir = getRulesDirPath(workspacePath);
+
+  let entries: import("node:fs").Dirent[];
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true });
+  } catch {
+    return null; // No `.atlarix/rules/` — the common case, not an error.
+  }
+
+  const names = entries
+    .filter((e) => e.isFile() && e.name.toLowerCase().endsWith(".md"))
+    .map((e) => e.name)
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+
+  const parts: string[] = [];
+  for (const name of names) {
+    // Per-file isolation: one unreadable rule must not silently discard the others.
+    const body = await safeRead(path.join(dir, name));
+    if (body) parts.push(body);
+  }
+  if (!parts.length) return null;
+
+  return { content: parts.join("\n\n"), fileCount: parts.length };
+}
+
+/**
+ * v13.1: project-instruction interop, widened in v14.45.
+ *
+ * Prefer `.atlarix/rules/` (canonical), then `.atlarix/atlarix.md` — which STAYS, and
+ * is not a deprecation to be tidied away later: every existing user has one, and
+ * dropping the rung would silently delete their instructions rather than fail visibly.
+ * Then a repo's `AGENTS.md` (the cross-agent standard) and `CLAUDE.md`, so Atlarix is
+ * drop-in friendly on repos configured for other agents.
+ *
+ * First non-empty wins, and it is read-only — a fallback is never copied into
+ * `.atlarix/`.
+ */
+export async function readProjectInstructions(workspacePath: string): Promise<{
+  content: string;
+  source: ProjectInstructionsSource;
+  /** Only set for `rules`, whose pointer names a directory and its size. */
+  fileCount?: number;
+} | null> {
+  if (!workspacePath) return null;
+
+  const rules = await readRulesDir(workspacePath);
+  if (rules) {
+    return {
+      content: rules.content,
+      source: "rules",
+      fileCount: rules.fileCount,
+    };
+  }
 
   const atlarix = await readAtlarixMd(workspacePath);
   if (atlarix) return { content: atlarix, source: "atlarix" };
@@ -231,7 +306,7 @@ export async function buildProjectDocsPromptHint(
   void opts;
   return [
     "<project_docs>",
-    "Rules in `.atlarix/atlarix.md` apply when the file is non-empty; if absent or empty, proceed without it. Your context carries a pointer to it with its section list — read the file itself with read_file before changing code or making a design decision.",
+    "Rules in `.atlarix/rules/` (or the older `.atlarix/atlarix.md`) apply when present; if absent or empty, proceed without them. Your context carries a pointer with the section list — read the files themselves with read_file before changing code or making a design decision.",
     "</project_docs>",
   ].join("\n");
 }
