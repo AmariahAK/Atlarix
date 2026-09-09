@@ -49,6 +49,18 @@ export function scenario(id: string) {
       responses.push({ kind: "stall", preText });
       return builder;
     },
+    /**
+     * Kill the TCP connection before a single header — the REQUEST phase.
+     *
+     * The shape no other kind could produce: `error()` is an HTTP status (headers
+     * already sent) and `stall()` hangs a healthy socket. Script a real response
+     * next to assert the network retry recovers. See the `socket_reset` docblock
+     * in `fake-llm-server/scenario.ts` for why there is no mid-stream twin.
+     */
+    socketResetBeforeHeaders() {
+      responses.push({ kind: "socket_reset", when: "before_headers" });
+      return builder;
+    },
     /** Keep serving the final response when the script runs out (loop evals). */
     repeatLast() {
       repeatLast = true;

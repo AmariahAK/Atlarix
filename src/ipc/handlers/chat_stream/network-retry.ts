@@ -66,7 +66,7 @@ export function jitteredDelay(
  * short-circuit elsewhere; this helper is defensive about the message-only
  * cases the AI SDK surfaces when fetch socket dies.
  */
-export function isNetworkStreamError(err: unknown): boolean {
+export function isNetworkStreamError(err: unknown, depth = 0): boolean {
   if (!err) return false;
   if ((err as { name?: string })?.name === "AbortError") return false;
   // A provider error delivered as a successful finish reason (HTTP 200, clean
@@ -119,20 +119,33 @@ export function isNetworkStreamError(err: unknown): boolean {
   )
     return true;
 
-  // Follow `cause`. undici wraps a socket fault in an outer error whose own
-  // message can be uninformative while the cause names it exactly; checking only
-  // the top level classified a real disconnect as a programming bug. Depth-capped
-  // because a cause chain can be cyclic.
-  const cause = (err as { cause?: unknown })?.cause;
-  if (cause && cause !== err) {
-    let depth = 0;
-    let node: unknown = cause;
-    while (node && depth < 4) {
-      if (isNetworkStreamError(node)) return true;
-      const next = (node as { cause?: unknown })?.cause;
-      if (next === node) break;
-      node = next;
-      depth++;
+  /**
+   * Follow `cause` AND `error`.
+   *
+   * `cause`: undici wraps a socket fault in an outer error whose own message can be
+   * uninformative while the cause names it exactly; checking only the top level
+   * classified a real disconnect as a programming bug.
+   *
+   * `error`: the AI SDK's `onError` hands its callback an ENVELOPE — `{ error }`,
+   * not the error — so this returned false for every request-phase transport
+   * failure. `String(envelope)` is `"[object Object]"`, which the message regex
+   * above knows nothing about, so `onError`'s network branch never fired and the
+   * failure fell through to "This model failed". Its sibling
+   * `isNoUsableModelOutputError` DOES unwrap `.error`, which is precisely how a
+   * dead socket came to be classified as a model that produced no output. The two
+   * must agree on the shape they are handed.
+   *
+   * Depth-capped rather than iterative: both chains can be cyclic, and the cap is
+   * what makes the recursion safe.
+   */
+  if (depth < 4) {
+    for (const key of ["cause", "error"] as const) {
+      // Annotated: without it TS7022 — `nested` would be inferred from an
+      // expression that recurses into this same function.
+      const nested: unknown = (err as Record<string, unknown> | null)?.[key];
+      if (nested && nested !== err && isNetworkStreamError(nested, depth + 1)) {
+        return true;
+      }
     }
   }
   return false;

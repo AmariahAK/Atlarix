@@ -476,6 +476,23 @@ export async function simpleStreamText(
   const recordStepMessages = (msgs: readonly ModelMessage[] | undefined) => {
     if (msgs && msgs.length) completedStepMessages.push(...msgs);
   };
+  /**
+   * The transport failure `onError` classified, kept so round-retry can act on it.
+   *
+   * WHY THIS HAS TO BE RECORDED. The SDK does not hand us this error. When the
+   * request dies before any step completes, it enqueues an `error` part (which
+   * reaches `onError` below), then its flush sees `recordedSteps.length === 0` and
+   * rejects the result promises with a SYNTHETIC `NoOutputGeneratedError` —
+   * discarding the original `APICallError` entirely, not even as a `cause`. So the
+   * only thing `await bundle.finishReason` can throw is "no output generated", the
+   * empty-output branch claims it, and the network branch that exists to retry
+   * exactly this is unreachable. A reset was reported to the user as a model that
+   * would not answer, twice, one second apart.
+   *
+   * Cleared per round by construction: a new `simpleStreamText` call is a new
+   * closure, so a recovered attempt cannot inherit the previous one's verdict.
+   */
+  let recordedNetworkError: unknown = null;
   /** Running per-tool token attribution for THIS turn's live meter. */
   const turnBuckets = {
     filesRead: 0,
@@ -933,7 +950,13 @@ export async function simpleStreamText(
       // outer retry wrapper. Don't surface the generic error box —
       // the wrapper will emit `chat:stream:reset-partial` and retry,
       // or eventually emit `chat:stream:disconnected`.
+      //
+      // RECORDING IT IS WHAT MAKES THAT COMMENT TRUE. Returning alone left the
+      // wrapper with only the SDK's synthetic `NoOutputGeneratedError` to inspect
+      // (see `recordedNetworkError`), so for a request-phase failure it retried on
+      // the empty-output path and never on this one.
       if (isNetworkStreamError(error)) {
+        recordedNetworkError = error;
         logger.warn(
           "[stream] onError: network/transport failure (will retry silently)",
           error,
@@ -1080,6 +1103,12 @@ export async function simpleStreamText(
     /** Completed-step native messages captured for stall-resume.
      * Snapshot (not live) so a later read can't see post-abort mutation. */
     getResumeMessages: (): ModelMessage[] => completedStepMessages.slice(),
+    /**
+     * The transport failure this round saw, or null. Read by round-retry when the
+     * SDK's substitute error arrives, so the network branch can arm — see
+     * `recordedNetworkError` above for why the substitution happens at all.
+     */
+    getRecordedNetworkError: (): unknown => recordedNetworkError,
   };
 }
 

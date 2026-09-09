@@ -44,7 +44,34 @@ export type ScenarioResponse =
    * rawFinishReason guard in stream_chunk_tags → the existing silent retry.
    * Script a real response after it to assert the retry succeeds.
    */
-  | { kind: "finish_reason"; reason: string; preText?: string };
+  | { kind: "finish_reason"; reason: string; preText?: string }
+  /**
+   * Kill the TCP connection before a single byte of response — the REQUEST phase,
+   * which nothing else here could express. `kind: "error"` is an HTTP status, so
+   * headers have already arrived; `stall` hangs a healthy socket. Neither reaches
+   * the code that handles a dead one.
+   *
+   * The fetch itself rejects, no step ever completes, and the SDK replaces the
+   * transport error with a synthetic `NoOutputGeneratedError` — the shape that made
+   * a reset surface to the user as a model that would not answer.
+   *
+   * Script a real response after it to assert the retry recovers.
+   *
+   * THERE IS DELIBERATELY NO MID-STREAM VARIANT, and both ways of writing one were
+   * tried:
+   * - Destroying the socket after a delta makes undici throw `TypeError:
+   *   terminated` synchronously out of its own socket-close handler. That is an
+   *   UNCAUGHT exception rather than a rejection, so no app code can catch it and
+   *   every suite touching the primitive reports an unhandled error.
+   * - Ending the response with no terminating chunk produces no error at all: the
+   *   SDK accepts the truncated body as a complete answer, one request, clean
+   *   finish. (Worth knowing on its own — that is silent truncation, the same class
+   *   as the `finish_reason` case, and it is filed in docs/TODO.md.)
+   *
+   * The mid-stream phase is covered instead by `provider-finish-error.eval`, which
+   * reaches the same network-retry branch through a throw of our own.
+   */
+  | { kind: "socket_reset"; when: "before_headers" };
 
 export interface Scenario {
   id: string;
@@ -284,6 +311,12 @@ export function handleScenarioChatCompletion(
       });
       return;
     }
+    case "socket_reset":
+      // Nothing written at all: no status, no headers, no body. The client's
+      // fetch must reject before it can see a response, which is what makes this
+      // the request phase rather than a 5xx.
+      res.socket?.destroy();
+      return;
     case "error":
       res.status(response.status).json({
         error: {

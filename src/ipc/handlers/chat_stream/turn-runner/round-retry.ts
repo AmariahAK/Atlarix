@@ -109,8 +109,12 @@ export async function runStreamRoundWithEmptyOutputRetry(
         once: true,
       });
     }
+    // Hoisted out of the try ONLY so the catch can ask it what transport
+    // failure it saw — the SDK throws a substitute error that no longer
+    // carries that. Fresh per iteration, so a retry can't read a stale verdict.
+    let bundle: SimpleStreamTextBundle | undefined;
     try {
-      const bundle = await params.runSimpleStream({
+      bundle = await params.runSimpleStream({
         abortSignal: roundAbort.signal,
       });
       const chunkResult = await processStreamChunks({
@@ -198,10 +202,40 @@ export async function runStreamRoundWithEmptyOutputRetry(
       // Only await finishReason on a non-stalled (non-aborted) bundle.
       const finishReason = await bundle.finishReason;
       return { bundle, fullResponse, finishReason };
-    } catch (err) {
+    } catch (caught) {
       // User abort always wins over any retry path.
       if (params.abortController.signal.aborted) {
-        throw err;
+        throw caught;
+      }
+
+      /**
+       * UNWRAP THE SDK'S SUBSTITUTE ERROR — this must happen BEFORE the
+       * empty-output branch, or it changes nothing.
+       *
+       * A request-phase transport failure (the socket dies before any step
+       * completes) never reaches this catch as itself. The SDK enqueues an `error`
+       * part, then its flush sees zero completed steps and rejects the result
+       * promises with a synthetic `NoOutputGeneratedError`, discarding the original
+       * `APICallError` — not even as a `cause`. So `isEmptyOutputStreamError`
+       * matched first, the round retried twice 1s apart while telling the model it
+       * had "produced only internal reasoning", and then reported
+       * `EmptyModelOutputAfterRetryError`: a dead socket surfaced to the user as a
+       * model that would not answer. The 2s/5s/10s network retry below — which
+       * exists for precisely this — was unreachable.
+       *
+       * `onError` classified it correctly at the time, so we ask the round what it
+       * recorded and prefer that over the substitute. Only when the caught error IS
+       * the substitute: a genuine empty output records nothing and is unaffected.
+       */
+      const recordedNetworkError = bundle?.getRecordedNetworkError?.();
+      const err =
+        recordedNetworkError != null && isEmptyOutputStreamError(caught)
+          ? recordedNetworkError
+          : caught;
+      if (err !== caught) {
+        logger.warn(
+          "[stream] The SDK reported 'no output generated' for a transport failure — retrying as a network error instead",
+        );
       }
 
       // The provider refused the forced tool_choice (the wake turn's

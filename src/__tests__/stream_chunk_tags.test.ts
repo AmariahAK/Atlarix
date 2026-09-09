@@ -25,6 +25,62 @@ describe("parseMcpToolKey", () => {
   });
 });
 
+/**
+ * A TOP-LEVEL `error` part — the whole call failed, not one tool.
+ *
+ * Only `tool-error` was ever handled, so this fell through the part loop, produced
+ * an empty chunk, and was skipped: counted into `partCounts` (visible only under
+ * `streamDebug`) and otherwise invisible. No test had ever fed one.
+ *
+ * The consequence was not just silence. With no text accumulated, the tail of the
+ * function reached `applyEmptyFallback` and wrote "Something went wrong — please
+ * try again." into a message the round was about to RETRY — and on the
+ * empty-output path, which sends no `reset-partial`, that text was never cleared.
+ */
+describe("processStreamChunks: a top-level error part", () => {
+  const run = (
+    parts: Array<Record<string, unknown>>,
+  ): Promise<{ fullResponse: string }> => {
+    async function* fullStream() {
+      for (const part of parts) yield part as never;
+    }
+    return processStreamChunks({
+      fullStream: fullStream() as unknown as Parameters<
+        typeof processStreamChunks
+      >[0]["fullStream"],
+      fullResponse: "",
+      abortController: new AbortController(),
+      chatId: -1,
+      processResponseChunkUpdate: async ({ fullResponse }) => fullResponse,
+    });
+  };
+
+  it("does not paper over the failure with empty-response fallback text", async () => {
+    const { fullResponse } = await run([
+      { type: "error", error: new Error("terminated") },
+    ]);
+    expect(fullResponse).toBe("");
+    expect(fullResponse).not.toContain("Something went wrong");
+  });
+
+  it("still applies the fallback when the stream was merely empty", async () => {
+    // The discriminator has to be the error part, not the emptiness — a model that
+    // genuinely says nothing still needs something rendered.
+    const { fullResponse } = await run([{ type: "finish-step" }]);
+    expect(fullResponse).toContain("Something went wrong");
+  });
+
+  it("keeps whatever text arrived before the error", async () => {
+    // The round-level retry decides whether to reset this partial; discarding it
+    // here would pre-empt that.
+    const { fullResponse } = await run([
+      { type: "text-delta", text: "Partial answ" },
+      { type: "error", error: new Error("other side closed") },
+    ]);
+    expect(fullResponse).toContain("Partial answ");
+  });
+});
+
 describe("processStreamChunks", () => {
   it("embeds native tool-call and tool-result as atlarix tags", async () => {
     async function* fullStream() {

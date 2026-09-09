@@ -182,6 +182,9 @@ export async function processStreamChunks({
   const chunkGaps: number[] = [];
   /** Tools currently executing locally (tool-call seen, tool-result pending). */
   let toolExecutionInFlight = 0;
+  /** A top-level `error` part arrived: the CALL failed, so an empty response is
+   * explained and must not be papered over with fallback text. */
+  let sawStreamError = false;
   let lastHeartbeatLogAt = Date.now();
   let loggedHallucinatedTag = false;
   const partCounts: Record<string, number> = {};
@@ -337,6 +340,29 @@ export async function processStreamChunks({
 
       if (part.type === "tool-error") {
         toolExecutionInFlight = Math.max(0, toolExecutionInFlight - 1);
+      }
+
+      /**
+       * A TOP-LEVEL stream error — the whole call failed, not one tool.
+       *
+       * Only `tool-error` was ever handled, so this fell through to the tail of the
+       * loop, contributed an empty `chunk`, and was skipped: counted in `partCounts`
+       * (visible only under `streamDebug`) and otherwise invisible. A transport
+       * failure therefore looked identical to a model that said nothing.
+       *
+       * Not thrown from here. The round's `onError` classifies it and round-retry
+       * decides, and throwing would pre-empt that with a less-informed verdict. What
+       * this must do is stop `applyEmptyFallback` from writing "no response" text
+       * into a message that is about to be retried and re-rendered.
+       */
+      if (part.type === "error") {
+        sawStreamError = true;
+        const err = (part as { error?: unknown }).error;
+        logger.warn(
+          `[stream] top-level stream error part: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
       }
 
       if (part.type === "finish-step") {
@@ -583,7 +609,15 @@ export async function processStreamChunks({
     fullResponse = await processResponseChunkUpdate({ fullResponse });
   }
 
-  if (!abortController.signal.aborted && !fullResponse.trim()) {
+  // `sawStreamError` is the third condition, and it matters: the round is about to
+  // be retried and re-rendered, so writing "no response" text here paints a failure
+  // message the user watches get replaced by a real answer — and on the empty-output
+  // path (which sends no `reset-partial`) it was not even replaced.
+  if (
+    !abortController.signal.aborted &&
+    !fullResponse.trim() &&
+    !sawStreamError
+  ) {
     await applyEmptyFallback();
   }
 
