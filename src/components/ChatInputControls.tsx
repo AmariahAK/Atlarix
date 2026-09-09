@@ -227,6 +227,7 @@ export function ChatInputControls({ chatId }: { chatId?: number }) {
               size={20}
               pulse={pulse}
               flashSuccess={flashSuccess}
+              spin={isStreamingHere}
             />
             {/* A percentage, matching TokenBar. This showed the raw count, and
                 once the meter started counting the tool surface honestly an
