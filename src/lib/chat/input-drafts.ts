@@ -40,7 +40,8 @@ function readStore(): DraftStore {
     const raw = localStorage.getItem(KEY);
     if (!raw) return {};
     const parsed: unknown = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+      return {};
     return parsed as DraftStore;
   } catch {
     // Unreadable or unparseable: behave as if there were no drafts. Do not try

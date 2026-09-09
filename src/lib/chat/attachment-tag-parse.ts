@@ -48,8 +48,10 @@ function findAttachmentTagOpen(
   openEnd: number;
   attrs: string;
 } | null {
-  let best: { tag: (typeof ATTACHMENT_TAG_NAMES)[number]; index: number } | null =
-    null;
+  let best: {
+    tag: (typeof ATTACHMENT_TAG_NAMES)[number];
+    index: number;
+  } | null = null;
   for (const tag of ATTACHMENT_TAG_NAMES) {
     const needle = `<${tag}`;
     const idx = content.indexOf(needle, fromIndex);
@@ -72,7 +74,9 @@ function findAttachmentTagOpen(
 }
 
 /** Scan `content` for attachment tags (self-closing or paired). */
-export function findAttachmentTagsInContent(content: string): ParsedAttachmentTag[] {
+export function findAttachmentTagsInContent(
+  content: string,
+): ParsedAttachmentTag[] {
   const results: ParsedAttachmentTag[] = [];
   let cursor = 0;
 
@@ -117,4 +121,3 @@ export function findAttachmentTagsInContent(content: string): ParsedAttachmentTa
 
   return results;
 }
-

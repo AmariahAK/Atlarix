@@ -105,7 +105,16 @@ export function getCompassSyntheticModels(): LanguageModel[] {
  *
  * Matched case-insensitively after trimming, so `TBA`, `tba`, `n/a` and `none` all work.
  */
-const EMPTY_SLOT_SENTINELS = new Set(["tba", "tbd", "none", "n/a", "na", "-", "null", "undefined"]);
+const EMPTY_SLOT_SENTINELS = new Set([
+  "tba",
+  "tbd",
+  "none",
+  "n/a",
+  "na",
+  "-",
+  "null",
+  "undefined",
+]);
 
 /**
  * Trim an env value, treating blanks AND empty-slot placeholders as absent.
@@ -219,7 +228,9 @@ export const getOpenRouterModelIdForCoreTier = getCoreModelIdForCoreTier;
  * broke the BYOK-fallback path and any persisted selection pointing at it.
  */
 export function getFirstConfiguredCoreTier(): string | undefined {
-  return DEFAULT_CORE_TIER_ORDER.find((tier) => !!getCoreModelIdForCoreTier(tier)?.trim());
+  return DEFAULT_CORE_TIER_ORDER.find(
+    (tier) => !!getCoreModelIdForCoreTier(tier)?.trim(),
+  );
 }
 
 /**
@@ -287,9 +298,10 @@ export function resolveConfiguredCoreTier(
   internalTierId: string,
 ): { tier: string; substituted: boolean } | undefined {
   const norm = normalizeCoreTierId(internalTierId);
-  if (getCoreModelIdForCoreTier(norm)?.trim()) return { tier: norm, substituted: false };
-  const fallback = CORE_TIER_ORDER.find((tier) =>
-    !!getCoreModelIdForCoreTier(tier)?.trim(),
+  if (getCoreModelIdForCoreTier(norm)?.trim())
+    return { tier: norm, substituted: false };
+  const fallback = CORE_TIER_ORDER.find(
+    (tier) => !!getCoreModelIdForCoreTier(tier)?.trim(),
   );
   return fallback ? { tier: fallback, substituted: true } : undefined;
 }

@@ -53,10 +53,12 @@ export type DatabaseFailureAdvice = {
  * "was compiled against a different Node.js version using NODE_MODULE_VERSION 141.
  *  This version of Node.js requires NODE_MODULE_VERSION 148."
  */
-const NATIVE_MODULE = /NODE_MODULE_VERSION|was compiled against|\.node['"\s]|dlopen|invalid ELF|not a valid Win32 application|Symbol not found|image not found|better[_-]sqlite3/i;
+const NATIVE_MODULE =
+  /NODE_MODULE_VERSION|was compiled against|\.node['"\s]|dlopen|invalid ELF|not a valid Win32 application|Symbol not found|image not found|better[_-]sqlite3/i;
 
 /** Space, permissions, or a path we cannot open at all. */
-const STORAGE = /ENOSPC|EACCES|EPERM|EROFS|EMFILE|ENOENT|SQLITE_CANTOPEN|unable to open database file|disk I\/O error|readonly database|attempt to write a readonly/i;
+const STORAGE =
+  /ENOSPC|EACCES|EPERM|EROFS|EMFILE|ENOENT|SQLITE_CANTOPEN|unable to open database file|disk I\/O error|readonly database|attempt to write a readonly/i;
 
 export function describeDatabaseInitFailure(
   error: unknown,

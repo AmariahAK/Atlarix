@@ -49,7 +49,9 @@ export function isDefaultSessionTitle(title: string): boolean {
  * same is true of Arabic, Hebrew and Thai if they are ever added.
  */
 export function extractAtlarixChatSummary(content: string): string | null {
-  const match = content.match(/<atlarix-chat-summary>([\s\S]*?)<\/atlarix-chat-summary>/);
+  const match = content.match(
+    /<atlarix-chat-summary>([\s\S]*?)<\/atlarix-chat-summary>/,
+  );
   if (!match) return null;
   const raw = match[1]
     .trim()
@@ -60,7 +62,10 @@ export function extractAtlarixChatSummary(content: string): string | null {
   return raw.split(/\s+/).slice(0, 6).join(" ").slice(0, 80);
 }
 
-function setSessionTitleGenerating(sessionId: string, generating: boolean): void {
+function setSessionTitleGenerating(
+  sessionId: string,
+  generating: boolean,
+): void {
   const store = getDefaultStore();
   store.set(workspaceSessionTitleGeneratingAtom, (prev: Set<string>) => {
     const next = new Set(prev);
@@ -128,23 +133,29 @@ export function allowRetitleAfterFirstPromptEdit(chatId: number): void {
  * completes. Returns whether a real title landed, so the caller knows whether
  * this chat is done or should try again on the next turn.
  */
-export async function applyAIWorkspaceSessionTitle(sessionId: string): Promise<boolean> {
+export async function applyAIWorkspaceSessionTitle(
+  sessionId: string,
+): Promise<boolean> {
   setSessionTitleGenerating(sessionId, true);
   try {
     // `limit: 1` because only `session.titleSource` is read below. Unbounded, this
     // pulled every message body, modelContent and display snapshot in the session
     // across IPC — megabytes on a long session — and discarded all of it, after
     // every completed turn.
-    const { session } = await IpcClient.getInstance().getWorkspaceSession(sessionId, {
-      limit: 1,
-    });
+    const { session } = await IpcClient.getInstance().getWorkspaceSession(
+      sessionId,
+      {
+        limit: 1,
+      },
+    );
     // Ownership, not "is it still Untitled". Re-deriving a title the USER typed
     // would be worse than never re-titling; re-deriving one we generated is the
     // whole point when the prompt it came from has changed.
     // A title the user typed is theirs — done, and never retry.
     if (session.titleSource === "user") return true;
 
-    const { title } = await IpcClient.getInstance().generateWorkspaceSessionTitle(sessionId);
+    const { title } =
+      await IpcClient.getInstance().generateWorkspaceSessionTitle(sessionId);
     if (
       title &&
       !isDefaultSessionTitle(title) &&
@@ -181,7 +192,6 @@ export async function applyAIWorkspaceSessionTitle(sessionId: string): Promise<b
   }
 }
 
-
 /**
  * A title from the user's first message, with no model call.
  *
@@ -192,7 +202,9 @@ export async function applyAIWorkspaceSessionTitle(sessionId: string): Promise<b
  * `titleSource` stays "auto". The user did not name this, and marking it "user" would
  * permanently block the real generated title from replacing it on a later successful turn.
  */
-export async function applyFallbackSessionTitle(sessionId: string): Promise<boolean> {
+export async function applyFallbackSessionTitle(
+  sessionId: string,
+): Promise<boolean> {
   try {
     const ipc = IpcClient.getInstance();
     const { messages } = await ipc.getWorkspaceSession(sessionId, { limit: 4 });

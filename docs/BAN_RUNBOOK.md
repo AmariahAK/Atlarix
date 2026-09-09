@@ -28,7 +28,7 @@ rather than naming Core, so it no longer implies a narrower scope than it has.
 Atlarix runs offline by design, so the client gate is bypassable by an older build or
 no network — a determined banned user with their own API key can still run the app.
 That is why the hard stop lives at the proxy, server-side, and why we do not invest in
-client-side blocking beyond refusing to proceed. Do not add a BYOK *key* block: it
+client-side blocking beyond refusing to proceed. Do not add a BYOK _key_ block: it
 would be theatre, and it would punish someone whose Supabase read merely failed
 (which is why `isUserBanned` fails OPEN).
 

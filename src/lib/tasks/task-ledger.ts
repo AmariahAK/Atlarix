@@ -74,11 +74,18 @@ export function notifyPlanUiForTurnIfPresent(turnId: string): void {
  * ids used as stable per-turn keys; only `plan:*` style ids are user-facing in ATLARIX_PLAN.md.
  */
 export function sanitizeLedgerDirSegment(turnId: string): string {
-  return turnId.replace(/[:/\\]+/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "") || "ledger";
+  return (
+    turnId
+      .replace(/[:/\\]+/g, "_")
+      .replace(/_+/g, "_")
+      .replace(/^_|_$/g, "") || "ledger"
+  );
 }
 
 /** Stable turn id for the workspace-scoped plan ledger. Invalid ids (null, undefined, non-finite, ≤0) → null — callers skip silently. */
-export function planLedgerTurnId(workspaceId: number | undefined | null): string | null {
+export function planLedgerTurnId(
+  workspaceId: number | undefined | null,
+): string | null {
   if (
     workspaceId == null ||
     !Number.isFinite(workspaceId) ||
@@ -108,14 +115,22 @@ function scheduleLivingPlanSync(turnId: string): void {
 }
 
 function ledgerRootDir(workspacePath: string, turnId: string): string {
-  return path.join(atlasDir(workspacePath), TASK_STATE_SUBDIR, sanitizeLedgerDirSegment(turnId));
+  return path.join(
+    atlasDir(workspacePath),
+    TASK_STATE_SUBDIR,
+    sanitizeLedgerDirSegment(turnId),
+  );
 }
 
 export async function persistLedgerToDisk(ledger: TaskLedger): Promise<void> {
   if (!ledger.workspacePath) return;
   const root = ledgerRootDir(ledger.workspacePath, ledger.turnId);
   await fs.mkdir(root, { recursive: true });
-  await fs.writeFile(path.join(root, "ledger.json"), JSON.stringify(ledger, null, 2), "utf8");
+  await fs.writeFile(
+    path.join(root, "ledger.json"),
+    JSON.stringify(ledger, null, 2),
+    "utf8",
+  );
 }
 
 export function getLedger(turnId: string): TaskLedger | undefined {
@@ -168,7 +183,6 @@ export function createLedger(params: {
   return ledger;
 }
 
-
 export function markLedgerStreamComplete(turnId: string): void {
   const L = memoryLedgers.get(turnId);
   if (!L) return;
@@ -199,7 +213,9 @@ export function recordToolOnLedger(
   const L = memoryLedgers.get(turnId);
   if (!L || L.finishReason === "cancelled") return;
   const step =
-    L.steps.find((s) => s.id === L.currentStepId && s.status === "in_progress") ??
+    L.steps.find(
+      (s) => s.id === L.currentStepId && s.status === "in_progress",
+    ) ??
     L.steps.find((s) => s.status === "in_progress") ??
     L.steps[L.steps.length - 1];
   if (!step) return;
@@ -274,7 +290,8 @@ export function appendLedgerFilesWritten(
   const L = memoryLedgers.get(turnId);
   if (!L) return;
   const step =
-    L.steps.find((s) => s.status === "in_progress") ?? L.steps[L.steps.length - 1];
+    L.steps.find((s) => s.status === "in_progress") ??
+    L.steps[L.steps.length - 1];
   if (!step) return;
   step.filesWritten = [...new Set([...(step.filesWritten ?? []), ...paths])];
   if (L.workspacePath) void persistLedgerToDisk(L);

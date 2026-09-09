@@ -1,8 +1,7 @@
 import { delegateScopeFromArgs } from "@/lib/chat/delegate-handoff";
 
 export function subagentLabel(agentId: string): string {
-  const short =
-    agentId.length > 28 ? `${agentId.slice(0, 25)}…` : agentId;
+  const short = agentId.length > 28 ? `${agentId.slice(0, 25)}…` : agentId;
   const titled = short.replace(/^./, (c) => c.toUpperCase());
   const label = `Sub-agent: ${titled}`;
   return label.length > 60 ? `${label.slice(0, 57)}…` : label;
@@ -72,7 +71,9 @@ export function buildSubagentCompletePayload(args: {
   };
 }
 
-export function scopeFromDelegateArgs(args: Record<string, unknown>): string | undefined {
+export function scopeFromDelegateArgs(
+  args: Record<string, unknown>,
+): string | undefined {
   return delegateScopeFromArgs({
     context: typeof args.context === "string" ? args.context : undefined,
     default_focus_path:

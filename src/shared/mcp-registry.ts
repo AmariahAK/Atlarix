@@ -121,12 +121,16 @@ export function parseInstallUrl(installUrl: string): {
 }
 
 /** Resolve OAuth scopes for an entry, preferring the structured `oauth.scopes`. */
-export function getMcpOAuthScopes(entry: McpRegistryEntry): string[] | undefined {
+export function getMcpOAuthScopes(
+  entry: McpRegistryEntry,
+): string[] | undefined {
   return entry.oauth?.scopes ?? entry.oauthScopes;
 }
 
 /** Validate registry entry shape for OAuth HTTP MCPs. */
-export function validateMcpRegistryEntry(entry: McpRegistryEntry): string | null {
+export function validateMcpRegistryEntry(
+  entry: McpRegistryEntry,
+): string | null {
   if (entry.authType === "oauth") {
     if (!entry.url?.trim()) {
       return "OAuth MCP registry entries require a url (HTTP endpoint).";

@@ -26,7 +26,9 @@ describe("guardToolCall — permission bypass invariant", () => {
         path: "/etc/hosts",
       }),
     });
-    expect((result as { __permission_required?: boolean }).__permission_required).toBe(true);
+    expect(
+      (result as { __permission_required?: boolean }).__permission_required,
+    ).toBe(true);
     expect((result as { operation?: string }).operation).toBe("write");
     expect((result as { path?: string }).path).toBe("/etc/hosts");
   });
@@ -61,7 +63,10 @@ describe("guardToolCall — param validation", () => {
 
   it("treats explicit null/undefined as missing", () => {
     expect(
-      getMissingRequiredParams({ required: ["a", "b"] }, { a: null, b: undefined }),
+      getMissingRequiredParams(
+        { required: ["a", "b"] },
+        { a: null, b: undefined },
+      ),
     ).toEqual(["a", "b"]);
   });
 
@@ -124,7 +129,10 @@ describe("coerceParamTypes — absorbs the unambiguous", () => {
   });
 
   it("unwraps then coerces in one pass", () => {
-    const { args } = coerceParamTypes(schema, { path: "a", max_length: ["500"] });
+    const { args } = coerceParamTypes(schema, {
+      path: "a",
+      max_length: ["500"],
+    });
     expect((args as { max_length: number }).max_length).toBe(500);
   });
 

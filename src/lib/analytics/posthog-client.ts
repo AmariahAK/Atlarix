@@ -41,7 +41,9 @@ export function setPostHogConfig(apiKey: string, analyticsId: string): void {
  * Start the client if — and only if — the user has opted in. Safe to call
  * repeatedly; it is both the bootstrap path and the opt-in hook.
  */
-export function ensurePostHogInitialized(): ReturnType<typeof posthog.init> | null {
+export function ensurePostHogInitialized(): ReturnType<
+  typeof posthog.init
+> | null {
   if (client) return client;
   if (!pendingConfig) return null;
   if (!isTelemetryOptedIn()) return null;

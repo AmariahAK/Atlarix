@@ -49,7 +49,10 @@ async function listIos(): Promise<MobileDevice[]> {
   if (!r.ok) return [];
   try {
     const parsed = JSON.parse(r.stdout) as {
-      devices?: Record<string, Array<{ udid?: string; name?: string; state?: string }>>;
+      devices?: Record<
+        string,
+        Array<{ udid?: string; name?: string; state?: string }>
+      >;
     };
     const out: MobileDevice[] = [];
     for (const rows of Object.values(parsed.devices ?? {})) {

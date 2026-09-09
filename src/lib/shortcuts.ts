@@ -46,7 +46,12 @@ export type ShortcutCombo = {
  * they are marked and the test asserts on that exemption list — the exemptions cannot
  * grow silently.
  */
-export type ShortcutOwner = "panel" | "sidebar" | "app-search" | "menu" | "composer";
+export type ShortcutOwner =
+  | "panel"
+  | "sidebar"
+  | "app-search"
+  | "menu"
+  | "composer";
 
 export type KeyboardShortcut = {
   id: string;

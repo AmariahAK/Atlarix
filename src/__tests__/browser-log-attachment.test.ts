@@ -23,7 +23,9 @@ import { buildPastePromptsFromAttachments } from "@/lib/chat/attachment-tag-bloc
 import { splitAttachmentTagsForEdit } from "@/lib/chat/edit-attachment-tags";
 import { isTextPasteAttachment } from "@/lib/chat/text-paste-attachment";
 
-const longLog = Array.from({ length: 40 }, (_, i) => `[log] line ${i}`).join("\n");
+const longLog = Array.from({ length: 40 }, (_, i) => `[log] line ${i}`).join(
+  "\n",
+);
 
 describe("shouldAttachBrowserLog", () => {
   /** One console row is smaller than the chip that would represent it. */
@@ -39,9 +41,9 @@ describe("shouldAttachBrowserLog", () => {
 
 describe("browserLogDisplayName", () => {
   it("names the source, the page and the size", () => {
-    expect(browserLogDisplayName("Console", "https://www.youtube.com/watch?v=x", 12)).toBe(
-      "Console · youtube.com · 12 entries",
-    );
+    expect(
+      browserLogDisplayName("Console", "https://www.youtube.com/watch?v=x", 12),
+    ).toBe("Console · youtube.com · 12 entries");
     expect(browserLogDisplayName("Network", "https://github.com", 43)).toBe(
       "Network · github.com · 43 requests",
     );
@@ -149,13 +151,16 @@ describe("a browser log is an ordinary attachment", () => {
    * recognise would be left in the textarea as literal XML.
    */
   it("survives message editing as a chip rather than raw text", () => {
-    const { displayPrompt } = buildPastePromptsFromAttachments("what failed here?", [
-      attachment,
-    ]);
+    const { displayPrompt } = buildPastePromptsFromAttachments(
+      "what failed here?",
+      [attachment],
+    );
     const { text, tags } = splitAttachmentTagsForEdit(displayPrompt);
     expect(text).toBe("what failed here?");
     expect(tags).toHaveLength(1);
     expect(tags[0].tag).toBe("atlarix-text-attachment");
-    expect(tags[0].attributes.filename).toBe("Network · github.com · 43 requests");
+    expect(tags[0].attributes.filename).toBe(
+      "Network · github.com · 43 requests",
+    );
   });
 });

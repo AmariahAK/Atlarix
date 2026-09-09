@@ -84,10 +84,7 @@ export function extractThinkingFromContent(
   const thoughts: string[] = [];
   const reasoningParts: string[] = [];
   const modelReasoningParts: string[] = [];
-  const toolMap = new Map<
-    string,
-    ToolCallInfo & { seqIndex: number }
-  >();
+  const toolMap = new Map<string, ToolCallInfo & { seqIndex: number }>();
   const toolNameCounts: Record<string, number> = {};
   const isStreaming = options?.isStreaming ?? false;
 
@@ -167,7 +164,9 @@ export function extractThinkingFromContent(
   };
 }
 
-export function hasThinkingSnapshotContent(s: CompletedTurnThinkingSnapshot): boolean {
+export function hasThinkingSnapshotContent(
+  s: CompletedTurnThinkingSnapshot,
+): boolean {
   return (
     s.thoughts.length > 0 ||
     Boolean(s.reasoningFromTags) ||

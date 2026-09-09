@@ -27,7 +27,7 @@ a reviewer posts a review → the pipeline trigger fires
 ```
 
 **This works with any reviewer** — CodeRabbit, Cursor Bugbot, or a human. That is the point: the two
-products are *composable*, not coupled, and the loop closes through GitHub's public review API rather
+products are _composable_, not coupled, and the loop closes through GitHub's public review API rather
 than a private channel. So this has standalone value for Atlarix users today and does not wait on
 anything in the other repository.
 

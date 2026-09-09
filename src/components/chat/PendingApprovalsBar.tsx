@@ -58,10 +58,12 @@ export function describePending(ops: QueuedOperation[]): string {
   const grants = ops.filter((o) => o.operation === "sandbox_escalation").length;
   const parts: string[] = [];
   if (files > 0) parts.push(`${files} file${files === 1 ? "" : "s"}`);
-  if (commands > 0) parts.push(`${commands} command${commands === 1 ? "" : "s"}`);
+  if (commands > 0)
+    parts.push(`${commands} command${commands === 1 ? "" : "s"}`);
   // Counted explicitly: a grant is neither a file nor a command, so a mixed batch
   // used to report a total that its own breakdown did not account for.
-  if (grants > 0) parts.push(`${grants} folder grant${grants === 1 ? "" : "s"}`);
+  if (grants > 0)
+    parts.push(`${grants} folder grant${grants === 1 ? "" : "s"}`);
   const what = parts.length > 0 ? ` (${parts.join(", ")})` : "";
   return `${ops.length} approvals waiting${what}`;
 }
@@ -81,7 +83,10 @@ export function PendingApprovalsBar({ chatId }: { chatId: number }) {
   return (
     <div className="mx-3 mb-1 flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[11px]">
       <ShieldQuestion className="size-3 shrink-0 text-amber-500" aria-hidden />
-      <span className="truncate flex-1 text-foreground" title={describePending(pending)}>
+      <span
+        className="truncate flex-1 text-foreground"
+        title={describePending(pending)}
+      >
         {describePending(pending)}
       </span>
       <Button

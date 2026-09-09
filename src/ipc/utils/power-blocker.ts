@@ -22,7 +22,10 @@ let refCount = 0;
 /** Acquire the power-save blocker (idempotent past the first active stream). */
 export function acquirePowerSaveBlocker(): void {
   refCount += 1;
-  if (refCount === 1 && (blockerId === null || !powerSaveBlocker.isStarted(blockerId))) {
+  if (
+    refCount === 1 &&
+    (blockerId === null || !powerSaveBlocker.isStarted(blockerId))
+  ) {
     try {
       blockerId = powerSaveBlocker.start("prevent-app-suspension");
       logger.log(`Started power-save blocker (id=${blockerId}) — task active`);
@@ -53,7 +56,9 @@ function stopBlocker(): void {
     try {
       if (powerSaveBlocker.isStarted(blockerId)) {
         powerSaveBlocker.stop(blockerId);
-        logger.log(`Stopped power-save blocker (id=${blockerId}) — no active tasks`);
+        logger.log(
+          `Stopped power-save blocker (id=${blockerId}) — no active tasks`,
+        );
       }
     } catch (error) {
       logger.warn("Failed to stop power-save blocker:", error);

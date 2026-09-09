@@ -49,7 +49,12 @@ const LOOP_RESULT = JSON.stringify({
 
 describe("a no-op is not a failure", () => {
   it("shows the compactor's own explanation, and NOT in red", () => {
-    const view = buildToolExpandView("compress_context", {}, NOOP_RESULT, "done");
+    const view = buildToolExpandView(
+      "compress_context",
+      {},
+      NOOP_RESULT,
+      "done",
+    );
     expect(view?.kind).toBe("text");
     const v = view as { body?: string; isError?: boolean };
     expect(v.body).toContain("Already compact");
@@ -60,7 +65,12 @@ describe("a no-op is not a failure", () => {
   });
 
   it("shows the loop guard's guidance, and NOT in red", () => {
-    const view = buildToolExpandView("read_url", { url: "https://x" }, LOOP_RESULT, "done");
+    const view = buildToolExpandView(
+      "read_url",
+      { url: "https://x" },
+      LOOP_RESULT,
+      "done",
+    );
     const v = view as { body?: string; isError?: boolean };
     expect(v.body).toContain("3 times in a row");
     expect(v.body).toContain("NOT executed");
@@ -71,7 +81,9 @@ describe("a no-op is not a failure", () => {
     // "Context compacted" for a call that compacted nothing. The replacement is
     // the wording the compaction BANNER has used since v14.8.11, so the two
     // surfaces cannot drift.
-    expect(noopSummary("compress_context", NOOP_RESULT)).toBe("Context already compact");
+    expect(noopSummary("compress_context", NOOP_RESULT)).toBe(
+      "Context already compact",
+    );
   });
 
   it("leaves a real compaction alone", () => {
@@ -117,12 +129,19 @@ describe("a real failure is still a real failure", () => {
         JSON.stringify({ success: false, [field]: `explained via ${field}` }),
         "done",
       );
-      expect((view as { body?: string }).body, field).toBe(`explained via ${field}`);
+      expect((view as { body?: string }).body, field).toBe(
+        `explained via ${field}`,
+      );
     }
   });
 
   it("falls back to 'Tool failed' ONLY when nothing explains it", () => {
-    const view = buildToolExpandView("some_tool", {}, JSON.stringify({ success: false }), "done");
+    const view = buildToolExpandView(
+      "some_tool",
+      {},
+      JSON.stringify({ success: false }),
+      "done",
+    );
     const v = view as { body?: string; isError?: boolean };
     expect(v.body).toBe("Tool failed");
     expect(v.isError).toBe(true);
@@ -146,12 +165,18 @@ describe("the native envelope's sentinels", () => {
     message: "Tool returned an error",
     partial: null,
     reason: "Nearing 60% context.",
-    summary: "Already compact: history is 7474 tokens — nothing worth compacting.",
+    summary:
+      "Already compact: history is 7474 tokens — nothing worth compacting.",
     status: "noop",
   });
 
   it("skips the sentinels and reaches the tool's own words", () => {
-    const view = buildToolExpandView("compress_context", {}, nativeNoop, "done");
+    const view = buildToolExpandView(
+      "compress_context",
+      {},
+      nativeNoop,
+      "done",
+    );
     const v = view as { body?: string; isError?: boolean };
     expect(v.body).toContain("Already compact");
     expect(v.body).not.toContain("TOOL_ERROR");
@@ -164,7 +189,11 @@ describe("the native envelope's sentinels", () => {
     const view = buildToolExpandView(
       "some_tool",
       {},
-      JSON.stringify({ success: false, error: "TOOL_ERROR", message: "Tool returned an error" }),
+      JSON.stringify({
+        success: false,
+        error: "TOOL_ERROR",
+        message: "Tool returned an error",
+      }),
       "done",
     );
     const v = view as { body?: string; isError?: boolean };

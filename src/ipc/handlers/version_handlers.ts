@@ -93,7 +93,9 @@ export function registerVersionHandlers() {
 
       // Git is optional - if not initialized, version features unavailable
       if (!fs.existsSync(path.join(appPath, ".git"))) {
-        throw new Error("Git repository not initialized - version features unavailable");
+        throw new Error(
+          "Git repository not initialized - version features unavailable",
+        );
       }
 
       try {

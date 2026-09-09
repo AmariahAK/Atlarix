@@ -36,7 +36,9 @@ describe("background-commands (v13 7A / v14 jobs)", () => {
     const chatId = 9001;
     recordBackgroundCommandStart(chatId, "op-1", "npm run build", Date.now());
     expect(hasRunningBackgroundCommands(chatId)).toBe(true);
-    expect(listBackgroundJobs(chatId).map((j) => j.operationId)).toEqual(["op-1"]);
+    expect(listBackgroundJobs(chatId).map((j) => j.operationId)).toEqual([
+      "op-1",
+    ]);
 
     recordBackgroundCommandResult(chatId, "op-1", {
       command: "npm run build",
@@ -209,7 +211,12 @@ describe("background-commands output-idle watchdog (A4)", () => {
       if (cid === chatId) statuses.push(ev.status);
     });
 
-    recordBackgroundCommandStart(chatId, "op-idle", "ssh prod tail -f log", Date.now());
+    recordBackgroundCommandStart(
+      chatId,
+      "op-idle",
+      "ssh prod tail -f log",
+      Date.now(),
+    );
     expect(statuses).toEqual(["running"]);
 
     // 120s of silence — under the 180s (3 min) threshold, no advisory yet.
@@ -257,9 +264,15 @@ describe("background-commands output-idle watchdog (A4)", () => {
       if (cid === chatId) statuses.push(ev.status);
     });
 
-    recordBackgroundCommandStart(chatId, "op-watch", "npm run dev", Date.now(), {
-      pattern: "compiled successfully",
-    });
+    recordBackgroundCommandStart(
+      chatId,
+      "op-watch",
+      "npm run dev",
+      Date.now(),
+      {
+        pattern: "compiled successfully",
+      },
+    );
     // Output arrives WITHOUT the pattern → no match yet on the next scan.
     updateBackgroundOutput(chatId, "op-watch", "starting dev server...\n");
     vi.advanceTimersByTime(60_000);
@@ -267,7 +280,11 @@ describe("background-commands output-idle watchdog (A4)", () => {
     expect(hasPendingStalledAdvisories(chatId)).toBe(false);
 
     // Pattern appears → next scan fires exactly one condition_met.
-    updateBackgroundOutput(chatId, "op-watch", "starting dev server...\ncompiled successfully in 1.2s\n");
+    updateBackgroundOutput(
+      chatId,
+      "op-watch",
+      "starting dev server...\ncompiled successfully in 1.2s\n",
+    );
     vi.advanceTimersByTime(60_000);
     expect(statuses.filter((s) => s === "condition_met")).toHaveLength(1);
     const advisory = takePendingStalledAdvisories(chatId)!;
@@ -291,8 +308,18 @@ describe("background-commands output-idle watchdog (A4)", () => {
     setBackgroundJobNotifier((cid, ev) => {
       if (cid === chatId) statuses.push(ev.status);
     });
-    recordBackgroundCommandStart(chatId, "op-late", "tail -f app.log", Date.now());
-    expect(setWakeCondition(chatId, "op-late", { pattern: "ERROR|FATAL", regex: true })).toBe(true);
+    recordBackgroundCommandStart(
+      chatId,
+      "op-late",
+      "tail -f app.log",
+      Date.now(),
+    );
+    expect(
+      setWakeCondition(chatId, "op-late", {
+        pattern: "ERROR|FATAL",
+        regex: true,
+      }),
+    ).toBe(true);
     expect(setWakeCondition(chatId, "nope", { pattern: "x" })).toBe(false);
 
     updateBackgroundOutput(chatId, "op-late", "info: ok\nFATAL: boom\n");
@@ -372,7 +399,12 @@ describe("background-commands output-idle watchdog (A4)", () => {
       if (cid === chatId) statuses.push(ev.status);
     });
 
-    recordBackgroundCommandStart(chatId, "op-mid", "tail -f app.log", Date.now());
+    recordBackgroundCommandStart(
+      chatId,
+      "op-mid",
+      "tail -f app.log",
+      Date.now(),
+    );
     // First quiet stretch → the ONE pre-opt-out notice fires.
     vi.advanceTimersByTime(240_000);
     expect(statuses.filter((s) => s === "stalled")).toHaveLength(1);
@@ -463,7 +495,12 @@ describe("background-commands wait-timer coordination (WS1)", () => {
       if (cid === chatId) statuses.push(ev.status);
     });
 
-    recordBackgroundCommandStart(chatId, "op-spin", "curl -O big.iso", Date.now());
+    recordBackgroundCommandStart(
+      chatId,
+      "op-spin",
+      "curl -O big.iso",
+      Date.now(),
+    );
     // Cross 180s of silence → exactly one stall advisory.
     vi.advanceTimersByTime(360_000);
     expect(statuses.filter((s) => s === "stalled")).toHaveLength(1);
@@ -471,7 +508,11 @@ describe("background-commands wait-timer coordination (WS1)", () => {
     // A progress-bar redraw (carriage-return, NO new line) is liveness for the
     // idle clock but must NOT re-arm the advisory — otherwise the ping re-fires
     // forever on a job that's actually progressing.
-    updateBackgroundOutput(chatId, "op-spin", "Downloading 40%\rDownloading 41%");
+    updateBackgroundOutput(
+      chatId,
+      "op-spin",
+      "Downloading 40%\rDownloading 41%",
+    );
     vi.advanceTimersByTime(360_000);
     expect(statuses.filter((s) => s === "stalled")).toHaveLength(1);
 

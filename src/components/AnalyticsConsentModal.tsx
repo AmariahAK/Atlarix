@@ -24,10 +24,7 @@ export function AnalyticsConsentModal() {
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-      <div
-        className="fixed inset-0 bg-black/50 backdrop-blur-sm"
-        aria-hidden
-      />
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" aria-hidden />
       <div
         role="dialog"
         aria-modal="true"
@@ -64,7 +61,9 @@ export function AnalyticsConsentModal() {
           devices. You can change this anytime in Settings.
         </p>
         <p className="mt-3 text-sm text-muted-foreground">
-          Crash and error reports are sent separately and are not covered by this choice — they carry stack traces and device info, never your code or prompts.
+          Crash and error reports are sent separately and are not covered by
+          this choice — they carry stack traces and device info, never your code
+          or prompts.
         </p>
         <div className="mt-6 flex gap-3 justify-end">
           <Button variant="secondary" onClick={handleNo}>

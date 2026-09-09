@@ -141,57 +141,68 @@ Did / Expected / Got / Evidence / Reproduces (yes N/N, no, or once)
 Then nothing else. No preamble, no summary paragraph.`;
 
 /** Name → built-in agent. Keys are the selectable `subagent_type` ids. */
-export const BUILTIN_AGENTS: Readonly<Record<string, UserAgent>> = Object.freeze({
-  explorer: {
-    name: "explorer",
-    description: "Read-only reconnaissance — map an area or answer a scoped question.",
-    mode: "ask",
-    tools: ["read_file", "glob", "grep", "web_search", "read_url"],
-    systemPrompt: EXPLORER_PROMPT,
-  },
-  architect: {
-    name: "architect",
-    description: "Read-only planning — returns an implementation plan, does not edit.",
-    mode: "plan",
-    tools: ["read_file", "glob", "grep", "web_search", "read_url"],
-    systemPrompt: ARCHITECT_PROMPT,
-  },
-  implementer: {
-    name: "implementer",
-    // web_search/read_url included so a named implementer isn't quietly less
-    // capable than a generic task({write:true}) writer (which keeps them).
-    description: "Writer — implements a scoped change; returns per-file proposals for review.",
-    mode: "build",
-    tools: ["read_file", "glob", "grep", "edit_file", "web_search", "read_url"],
-    systemPrompt: IMPLEMENTER_PROMPT,
-  },
-  qa: {
-    name: "qa",
-    description:
-      "Exploratory QA — exercises a RUNNING app and reports evidence-backed findings. Gets the requirement, not the diff.",
-    // `build` so its commands and browser tools resolve, NOT so it can write:
-    // `tools` has no `edit_file`, and every command it runs is forced into the
-    // read-only sandbox (see subagent-command.ts). A QA worker that could edit
-    // would "fix" what it found, leaving the finding unverifiable and the change
-    // unreviewed.
-    mode: "build",
-    tools: [
-      "read_file",
-      "glob",
-      "grep",
-      "web_search",
-      "read_url",
-      "run_command",
-      "background_jobs",
-      "browser",
-      "browser_inspect",
-      "browser_test",
-      "mobile",
-      "mobile_inspect",
-    ],
-    systemPrompt: QA_PROMPT,
-  },
-});
+export const BUILTIN_AGENTS: Readonly<Record<string, UserAgent>> =
+  Object.freeze({
+    explorer: {
+      name: "explorer",
+      description:
+        "Read-only reconnaissance — map an area or answer a scoped question.",
+      mode: "ask",
+      tools: ["read_file", "glob", "grep", "web_search", "read_url"],
+      systemPrompt: EXPLORER_PROMPT,
+    },
+    architect: {
+      name: "architect",
+      description:
+        "Read-only planning — returns an implementation plan, does not edit.",
+      mode: "plan",
+      tools: ["read_file", "glob", "grep", "web_search", "read_url"],
+      systemPrompt: ARCHITECT_PROMPT,
+    },
+    implementer: {
+      name: "implementer",
+      // web_search/read_url included so a named implementer isn't quietly less
+      // capable than a generic task({write:true}) writer (which keeps them).
+      description:
+        "Writer — implements a scoped change; returns per-file proposals for review.",
+      mode: "build",
+      tools: [
+        "read_file",
+        "glob",
+        "grep",
+        "edit_file",
+        "web_search",
+        "read_url",
+      ],
+      systemPrompt: IMPLEMENTER_PROMPT,
+    },
+    qa: {
+      name: "qa",
+      description:
+        "Exploratory QA — exercises a RUNNING app and reports evidence-backed findings. Gets the requirement, not the diff.",
+      // `build` so its commands and browser tools resolve, NOT so it can write:
+      // `tools` has no `edit_file`, and every command it runs is forced into the
+      // read-only sandbox (see subagent-command.ts). A QA worker that could edit
+      // would "fix" what it found, leaving the finding unverifiable and the change
+      // unreviewed.
+      mode: "build",
+      tools: [
+        "read_file",
+        "glob",
+        "grep",
+        "web_search",
+        "read_url",
+        "run_command",
+        "background_jobs",
+        "browser",
+        "browser_inspect",
+        "browser_test",
+        "mobile",
+        "mobile_inspect",
+      ],
+      systemPrompt: QA_PROMPT,
+    },
+  });
 
 /** All built-in agents (stable order). */
 export function listBuiltinAgents(): UserAgent[] {

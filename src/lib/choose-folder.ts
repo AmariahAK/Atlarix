@@ -15,7 +15,9 @@ import { showError } from "@/lib/toast";
 export async function chooseFolder(): Promise<string | null> {
   const bridge = window.electron?.ipcRenderer;
   if (!bridge) {
-    showError("Couldn't open the folder picker — type the folder path instead.");
+    showError(
+      "Couldn't open the folder picker — type the folder path instead.",
+    );
     return null;
   }
   try {
@@ -25,7 +27,9 @@ export async function chooseFolder(): Promise<string | null> {
     if (result?.canceled) return null; // deliberate: silent on cancel
     const picked = result?.filePaths?.[0];
     if (!picked) {
-      showError("Couldn't open the folder picker — type the folder path instead.");
+      showError(
+        "Couldn't open the folder picker — type the folder path instead.",
+      );
       return null;
     }
     return picked;

@@ -22,7 +22,6 @@ const LEGACY_DOT_ATLARIX_MD = "ATLARIX.md";
 const LEGACY_SPEC_FILE = "spec.md";
 const ROOT_LEGACY_ATLARIX_MD = "atlarix.md";
 
-
 export function getAtlarixDirPath(workspacePath: string): string {
   return path.join(workspacePath, ATLARIX_DIR);
 }
@@ -73,14 +72,20 @@ async function safeRenameToOld(filePath: string): Promise<void> {
   }
 }
 
-export async function migrateLegacyAtlarixFiles(workspacePath: string): Promise<void> {
+export async function migrateLegacyAtlarixFiles(
+  workspacePath: string,
+): Promise<void> {
   if (!workspacePath) return;
   await ensureAtlarixDir(workspacePath);
 
   const canonicalPath = getAtlarixMdPath(workspacePath);
   const legacyDotPath = legacyDotAtlarixMdPath(workspacePath);
   const rootAtlarixPath = rootLegacyAtlarixMdPath(workspacePath);
-  const legacySpecPath = path.join(workspacePath, ATLARIX_DIR, LEGACY_SPEC_FILE);
+  const legacySpecPath = path.join(
+    workspacePath,
+    ATLARIX_DIR,
+    LEGACY_SPEC_FILE,
+  );
   // NOTE: `.atlarix/memory.md` is a live, first-class knowledge file (v10) —
   // it is intentionally NOT part of this legacy migration.
 
@@ -119,14 +124,18 @@ export async function migrateLegacyAtlarixFiles(workspacePath: string): Promise<
  * These readers now return the file verbatim. The only caller that puts content in the
  * prompt is the pointer builder, which uses headings and a byte count, not the body.
  */
-export async function readAtlarixMd(workspacePath: string): Promise<string | null> {
+export async function readAtlarixMd(
+  workspacePath: string,
+): Promise<string | null> {
   if (!workspacePath) return null;
   await migrateLegacyAtlarixFiles(workspacePath);
   return (await safeRead(getAtlarixMdPath(workspacePath))) || null;
 }
 
 /** Legacy single-file memory. Read only to MIGRATE it into the per-note store. */
-export async function readMemoryMd(workspacePath: string): Promise<string | null> {
+export async function readMemoryMd(
+  workspacePath: string,
+): Promise<string | null> {
   if (!workspacePath) return null;
   return (await safeRead(getMemoryMdPath(workspacePath))) || null;
 }
@@ -185,7 +194,9 @@ export type MemoryMdStat = {
 };
 
 /** Lightweight stat for the prompt hint — never reads the file body. */
-export async function statMemoryMd(workspacePath: string): Promise<MemoryMdStat | null> {
+export async function statMemoryMd(
+  workspacePath: string,
+): Promise<MemoryMdStat | null> {
   if (!workspacePath) return null;
   try {
     const st = await fs.stat(getMemoryMdPath(workspacePath));

@@ -11,7 +11,11 @@ function mention(kind: "file" | "dir", relpath: string): FileAttachment {
   return {
     type: "chat-context",
     id: `${kind}:${relpath}`,
-    mention: { kind, relpath, displayName: kind === "dir" ? `${relpath}/` : relpath },
+    mention: {
+      kind,
+      relpath,
+      displayName: kind === "dir" ? `${relpath}/` : relpath,
+    },
   };
 }
 
@@ -61,7 +65,9 @@ describe("extractMentions", () => {
   });
 
   it("handles several mentions mid-sentence without mangling the words", () => {
-    const { text, mentions } = extractMentions("compare @file:a.ts and @file:b.ts please");
+    const { text, mentions } = extractMentions(
+      "compare @file:a.ts and @file:b.ts please",
+    );
     expect(text).toBe("compare and please");
     expect(mentions).toEqual([
       { kind: "file", relpath: "a.ts" },
@@ -90,7 +96,9 @@ describe("extractMentions", () => {
   });
 
   it("dedupes a repeated mention but keeps first-seen order", () => {
-    const { mentions } = extractMentions("@file:b.ts then @file:a.ts then @file:b.ts");
+    const { mentions } = extractMentions(
+      "@file:b.ts then @file:a.ts then @file:b.ts",
+    );
     expect(mentions).toEqual([
       { kind: "file", relpath: "b.ts" },
       { kind: "file", relpath: "a.ts" },
@@ -98,7 +106,13 @@ describe("extractMentions", () => {
   });
 
   it("passes ordinary text through untouched", () => {
-    for (const s of ["no mentions here", "email me@example.com", "", "@ alone", "@file:"]) {
+    for (const s of [
+      "no mentions here",
+      "email me@example.com",
+      "",
+      "@ alone",
+      "@file:",
+    ]) {
       const { text, mentions } = extractMentions(s);
       expect(mentions).toEqual([]);
       expect(text).toBe(s.trim());

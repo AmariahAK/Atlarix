@@ -13,9 +13,7 @@
  */
 
 import type { ModelMessage } from "ai";
-import {
-  compactAgenticMessagesIfNeeded,
-} from "@/lib/routing/tier_context_budget";
+import { compactAgenticMessagesIfNeeded } from "@/lib/routing/tier_context_budget";
 import { compactionWouldTrigger } from "@/lib/context/mid-loop-threshold";
 
 export interface MidLoopCompactionActivityPayload {
@@ -48,7 +46,6 @@ export interface RunMidLoopCompactionParams {
   /** Optional logger callbacks. */
   onInfo?: (msg: string) => void;
   onWarn?: (msg: string, err?: unknown) => void;
-
 }
 
 export interface RunMidLoopCompactionResult {

@@ -99,13 +99,18 @@ function WorkspaceSkillsCard({
 }) {
   return (
     <Accordion type="single" collapsible className="w-full">
-      <AccordionItem value={`ws:${workspace.path}`} className="border rounded-lg">
+      <AccordionItem
+        value={`ws:${workspace.path}`}
+        className="border rounded-lg"
+      >
         <AccordionTrigger className="px-4">
           <div className="flex items-center gap-3 min-w-0 w-full pr-2">
             <Folder className="w-5 h-5 text-muted-foreground flex-shrink-0" />
             <div className="min-w-0 flex-1">
               <div className="font-medium truncate">{workspace.name}</div>
-              <div className="text-xs text-muted-foreground truncate">{workspace.path}</div>
+              <div className="text-xs text-muted-foreground truncate">
+                {workspace.path}
+              </div>
             </div>
             <Badge variant="outline" className="shrink-0">
               {installed.length}/{MAX_WORKSPACE}
@@ -114,7 +119,9 @@ function WorkspaceSkillsCard({
         </AccordionTrigger>
         <AccordionContent className="px-4">
           {installed.length === 0 ? (
-            <div className="text-sm text-muted-foreground">No workspace skills installed.</div>
+            <div className="text-sm text-muted-foreground">
+              No workspace skills installed.
+            </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {installed.map((row) => (
@@ -189,7 +196,9 @@ function SkillCard({
       <div className="pt-2 space-y-1">
         <Button
           onClick={onInstallWorkspace}
-          disabled={workspaceInstallDisabled || installed || isInstallingWorkspace}
+          disabled={
+            workspaceInstallDisabled || installed || isInstallingWorkspace
+          }
           className="w-full"
           variant={installed ? "outline" : "default"}
         >
@@ -201,10 +210,13 @@ function SkillCard({
         </Button>
         {workspaceInstallDisabled ? (
           <div className="text-xs text-muted-foreground">
-            Open a workspace from the welcome screen or sidebar to install skills.
+            Open a workspace from the welcome screen or sidebar to install
+            skills.
           </div>
         ) : installErrorWorkspace ? (
-          <div className="text-xs text-destructive">{installErrorWorkspace}</div>
+          <div className="text-xs text-destructive">
+            {installErrorWorkspace}
+          </div>
         ) : null}
       </div>
     </div>
@@ -243,7 +255,9 @@ function InstalledSkillCard({
             <AlertDialogHeader>
               <AlertDialogTitle>Remove skill?</AlertDialogTitle>
               <AlertDialogDescription>
-                This will uninstall <span className="font-medium">{row.name}</span> and delete its cached files for this scope.
+                This will uninstall{" "}
+                <span className="font-medium">{row.name}</span> and delete its
+                cached files for this scope.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -287,7 +301,9 @@ export function SkillsSettingsPage() {
   const [fetching, setFetching] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
-  const [installedWorkspace, setInstalledWorkspace] = useState<InstalledSkillRow[]>([]);
+  const [installedWorkspace, setInstalledWorkspace] = useState<
+    InstalledSkillRow[]
+  >([]);
   const [orphanedSkills, setOrphanedSkills] = useState<InstalledSkillRow[]>([]);
 
   const [search, setSearch] = useState("");
@@ -297,7 +313,9 @@ export function SkillsSettingsPage() {
   const [activeSearch, setActiveSearch] = useState("");
 
   const [installingKey, setInstallingKey] = useState<string | null>(null);
-  const [installErrors, setInstallErrors] = useState<Record<string, string>>({});
+  const [installErrors, setInstallErrors] = useState<Record<string, string>>(
+    {},
+  );
 
   const [repoSkillsInfo, setRepoSkillsInfo] = useState<{
     total: number;
@@ -342,7 +360,10 @@ export function SkillsSettingsPage() {
           setRepoSkillsInfo({ total, priority, isWorkforce: res.isWorkforce });
         }
       } catch (e) {
-        console.warn(`Failed to load repo skills for workspace ${selectedAppId}:`, e);
+        console.warn(
+          `Failed to load repo skills for workspace ${selectedAppId}:`,
+          e,
+        );
         if (!cancelled) setRepoSkillsInfo(null);
       }
     })();
@@ -359,7 +380,9 @@ export function SkillsSettingsPage() {
     setFetching(true);
     setFetchError(null);
     try {
-      const idx = (await ipc.skillsFetchRegistry(registryUrl)) as SkillRegistryIndex;
+      const idx = (await ipc.skillsFetchRegistry(
+        registryUrl,
+      )) as SkillRegistryIndex;
       setRegistry(idx);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -375,13 +398,15 @@ export function SkillsSettingsPage() {
 
   const allTags = useMemo(() => {
     const skills = registry?.skills ?? [];
-    return uniq(skills.flatMap((s) => normalizeTags(s.tags))).sort((a, b) => a.localeCompare(b));
+    return uniq(skills.flatMap((s) => normalizeTags(s.tags))).sort((a, b) =>
+      a.localeCompare(b),
+    );
   }, [registry]);
 
   const allModes = useMemo(() => {
     const skills = registry?.skills ?? [];
-    return uniq(skills.flatMap((s) => normalizeModes(s.compatibleModes))).sort((a, b) =>
-      a.localeCompare(b),
+    return uniq(skills.flatMap((s) => normalizeModes(s.compatibleModes))).sort(
+      (a, b) => a.localeCompare(b),
     );
   }, [registry]);
 
@@ -397,7 +422,8 @@ export function SkillsSettingsPage() {
         if (!normalizeTags(s.tags).includes(tagFilter)) return false;
       }
       if (modeFilter) {
-        if (!normalizeModes(s.compatibleModes).includes(modeFilter)) return false;
+        if (!normalizeModes(s.compatibleModes).includes(modeFilter))
+          return false;
       }
       return true;
     });
@@ -462,7 +488,10 @@ export function SkillsSettingsPage() {
         await ipc.skillsUninstall({
           skillId: row.id,
           scope: row.scope,
-          workspacePath: row.scope === "workspace" ? (row.workspacePath ?? undefined) : undefined,
+          workspacePath:
+            row.scope === "workspace"
+              ? (row.workspacePath ?? undefined)
+              : undefined,
         });
         showSuccess(`Removed ${row.name}`);
         await refreshInstalled();
@@ -481,251 +510,304 @@ export function SkillsSettingsPage() {
    */
   return (
     <div className="space-y-8">
-        <div>
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-primary" />
-            <h2 className="text-xl font-semibold text-foreground">Skills</h2>
-          </div>
-          <p className="text-muted-foreground mt-1 text-sm">
-            Up to {MAX_WORKSPACE} per workspace.
-          </p>
+      <div>
+        <div className="flex items-center gap-2">
+          <Sparkles className="w-5 h-5 text-primary" />
+          <h2 className="text-xl font-semibold text-foreground">Skills</h2>
         </div>
+        <p className="text-muted-foreground mt-1 text-sm">
+          Up to {MAX_WORKSPACE} per workspace.
+        </p>
+      </div>
 
-        {!selectedAppId ? null : (
+      {!selectedAppId ? null : (
         <>
-        <Accordion type="multiple" defaultValue={["registry", "browse", "active"]} className="w-full">
-          <AccordionItem value="registry" className="border rounded-xl">
-            <AccordionTrigger className="px-6">
-              <div className="text-base font-semibold">Registry & Filters</div>
-            </AccordionTrigger>
-            <AccordionContent className="px-6">
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <div className="md:col-span-2 space-y-2">
-                    <Label>Registry URL</Label>
-                    <Input value={registryUrl} onChange={(e) => setRegistryUrl(e.target.value)} />
-                  </div>
-                  <div className="flex items-end">
-                    <Button onClick={onFetchRegistry} disabled={fetching} className="w-full">
-                      {fetching ? "Fetching..." : "Fetch skills"}
-                    </Button>
-                  </div>
+          <Accordion
+            type="multiple"
+            defaultValue={["registry", "browse", "active"]}
+            className="w-full"
+          >
+            <AccordionItem value="registry" className="border rounded-xl">
+              <AccordionTrigger className="px-6">
+                <div className="text-base font-semibold">
+                  Registry & Filters
                 </div>
-
-                {fetchError ? (
-                  <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
-                    {fetchError}
-                  </div>
-                ) : null}
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <div className="space-y-2">
-                    <Label>Search</Label>
-                    <Input
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                      placeholder="Search skills..."
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Filter by tag</Label>
-                    <select
-                      value={tagFilter}
-                      onChange={(e) => setTagFilter(e.target.value)}
-                      className="w-full h-9 rounded-md border bg-transparent px-3 text-sm"
-                    >
-                      <option value="">All</option>
-                      {allTags.map((t) => (
-                        <option key={t} value={t}>
-                          {t}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Filter by mode</Label>
-                    <select
-                      value={modeFilter}
-                      onChange={(e) => setModeFilter(e.target.value)}
-                      className="w-full h-9 rounded-md border bg-transparent px-3 text-sm"
-                    >
-                      <option value="">All</option>
-                      {allModes.map((m) => (
-                        <option key={m} value={m}>
-                          {m}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                {currentWorkspace ? (
-                  <div className="space-y-2">
-                    <Label>Current workspace</Label>
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Folder className="w-4 h-4 shrink-0" />
-                      <div className="min-w-0">
-                        <div className="font-medium text-foreground truncate">{currentWorkspace.name}</div>
-                        <div className="text-xs truncate">{currentWorkspace.path}</div>
-                      </div>
+              </AccordionTrigger>
+              <AccordionContent className="px-6">
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="md:col-span-2 space-y-2">
+                      <Label>Registry URL</Label>
+                      <Input
+                        value={registryUrl}
+                        onChange={(e) => setRegistryUrl(e.target.value)}
+                      />
                     </div>
-                    {repoSkillsInfo ? (
-                      <div className="text-xs text-muted-foreground">
-                        <span>
-                          {repoSkillsInfo.total} repo skill
-                          {repoSkillsInfo.total === 1 ? "" : "s"} from{" "}
-                          <code className="text-[10px]">.atlarix/skills/</code>
-                        </span>
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
-            </AccordionContent>
-          </AccordionItem>
-        </Accordion>
-
-        <Tabs defaultValue="browse" className="pt-2">
-          <TabsList>
-            <TabsTrigger value="browse">Browse</TabsTrigger>
-            <TabsTrigger value="active">Active Skills</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="browse">
-            <div className="space-y-4">
-              {!registry ? (
-                <div className="text-sm text-muted-foreground">
-                  Fetch the registry to browse available skills.
-                </div>
-              ) : (
-                <Accordion type="single" collapsible defaultValue="browseList" className="w-full">
-                  <AccordionItem value="browseList" className="border rounded-xl">
-                    <AccordionTrigger className="px-6">
-                      <div className="text-base font-semibold">Browse</div>
-                    </AccordionTrigger>
-                    <AccordionContent className="px-6">
-                      <ScrollArea className="h-[680px]">
-                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pr-3 pb-3">
-                    <div className="text-sm text-muted-foreground">
-                      Showing <span className="text-foreground font-medium">{pagedSkills.length}</span>{" "}
-                      of <span className="text-foreground font-medium">{filteredSkills.length}</span>{" "}
-                      skills
+                    <div className="flex items-end">
+                      <Button
+                        onClick={onFetchRegistry}
+                        disabled={fetching}
+                        className="w-full"
+                      >
+                        {fetching ? "Fetching..." : "Fetch skills"}
+                      </Button>
                     </div>
-                    <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                  </div>
+
+                  {fetchError ? (
+                    <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+                      {fetchError}
+                    </div>
+                  ) : null}
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="space-y-2">
+                      <Label>Search</Label>
                       <Input
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                         placeholder="Search skills..."
-                        className="h-8 sm:w-[220px]"
                       />
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setPage((p) => Math.max(1, p - 1))}
-                          disabled={page <= 1}
-                        >
-                          Prev
-                        </Button>
-                        <div className="text-sm text-muted-foreground">
-                          Page{" "}
-                          <span className="text-foreground font-medium">
-                            {Math.min(page, totalPages)}
-                          </span>{" "}
-                          of <span className="text-foreground font-medium">{totalPages}</span>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Filter by tag</Label>
+                      <select
+                        value={tagFilter}
+                        onChange={(e) => setTagFilter(e.target.value)}
+                        className="w-full h-9 rounded-md border bg-transparent px-3 text-sm"
+                      >
+                        <option value="">All</option>
+                        {allTags.map((t) => (
+                          <option key={t} value={t}>
+                            {t}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Filter by mode</Label>
+                      <select
+                        value={modeFilter}
+                        onChange={(e) => setModeFilter(e.target.value)}
+                        className="w-full h-9 rounded-md border bg-transparent px-3 text-sm"
+                      >
+                        <option value="">All</option>
+                        {allModes.map((m) => (
+                          <option key={m} value={m}>
+                            {m}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {currentWorkspace ? (
+                    <div className="space-y-2">
+                      <Label>Current workspace</Label>
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Folder className="w-4 h-4 shrink-0" />
+                        <div className="min-w-0">
+                          <div className="font-medium text-foreground truncate">
+                            {currentWorkspace.name}
+                          </div>
+                          <div className="text-xs truncate">
+                            {currentWorkspace.path}
+                          </div>
                         </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                          disabled={page >= totalPages}
-                        >
-                          Next
-                        </Button>
                       </div>
+                      {repoSkillsInfo ? (
+                        <div className="text-xs text-muted-foreground">
+                          <span>
+                            {repoSkillsInfo.total} repo skill
+                            {repoSkillsInfo.total === 1 ? "" : "s"} from{" "}
+                            <code className="text-[10px]">
+                              .atlarix/skills/
+                            </code>
+                          </span>
+                        </div>
+                      ) : null}
                     </div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pr-3 pb-6">
-                    {pagedSkills.map((s) => {
-                      const kW = `${s.id}:workspace`;
-                      return (
-                        <SkillCard
-                          key={s.id}
-                          skill={s}
-                          installed={installedLookup.has(s.id)}
-                          workspaceInstallDisabled={workspaceInstallDisabled}
-                          onInstallWorkspace={() => {
-                            if (!workspacePath) return;
-                            void install(s, workspacePath);
-                          }}
-                          installErrorWorkspace={installErrors[kW] || null}
-                          isInstallingWorkspace={installingKey === kW}
-                        />
-                      );
-                    })}
-                    {filteredSkills.length === 0 ? (
-                      <div className="text-sm text-muted-foreground">
-                        No skills match your filters.
-                      </div>
-                    ) : null}
-                  </div>
-                      </ScrollArea>
-                    </AccordionContent>
-                  </AccordionItem>
-                </Accordion>
-              )}
-            </div>
-          </TabsContent>
-
-          <TabsContent value="active">
-            <div className="space-y-3">
-              <Label>Search installed skills</Label>
-              <Input
-                value={activeSearch}
-                onChange={(e) => setActiveSearch(e.target.value)}
-                placeholder="Search installed skills..."
-              />
-            </div>
-            {currentWorkspace ? (
-              <WorkspaceSkillsCard
-                workspace={currentWorkspace}
-                installed={installedWorkspaceFiltered}
-                onRemove={remove}
-              />
-            ) : null}
-          </TabsContent>
-        </Tabs>
-
-        {orphanedSkills.length > 0 && (
-          <div className="space-y-3 rounded-lg border border-amber-500/40 bg-amber-500/5 p-4">
-            <div>
-              <h3 className="text-sm font-semibold text-foreground">Unlinked workspace skills</h3>
-              <p className="text-xs text-muted-foreground mt-1">
-                Installed for a workspace path that no longer exists. Remove them to free skill slots.
-              </p>
-            </div>
-            <div className="space-y-2">
-              {orphanedSkills.map((row) => (
-                <div
-                  key={`${row.id}:${row.workspacePath ?? ""}`}
-                  className="flex items-center justify-between gap-3 rounded-md border border-border bg-card/50 p-3"
-                >
-                  <div className="min-w-0">
-                    <div className="font-medium text-sm truncate">{row.name}</div>
-                    <div className="text-xs text-muted-foreground truncate">
-                      {row.workspacePath ?? "unknown path"}
-                    </div>
-                  </div>
-                  <Button variant="outline" size="sm" onClick={() => void remove(row)}>
-                    Remove
-                  </Button>
+                  ) : null}
                 </div>
-              ))}
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+
+          <Tabs defaultValue="browse" className="pt-2">
+            <TabsList>
+              <TabsTrigger value="browse">Browse</TabsTrigger>
+              <TabsTrigger value="active">Active Skills</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="browse">
+              <div className="space-y-4">
+                {!registry ? (
+                  <div className="text-sm text-muted-foreground">
+                    Fetch the registry to browse available skills.
+                  </div>
+                ) : (
+                  <Accordion
+                    type="single"
+                    collapsible
+                    defaultValue="browseList"
+                    className="w-full"
+                  >
+                    <AccordionItem
+                      value="browseList"
+                      className="border rounded-xl"
+                    >
+                      <AccordionTrigger className="px-6">
+                        <div className="text-base font-semibold">Browse</div>
+                      </AccordionTrigger>
+                      <AccordionContent className="px-6">
+                        <ScrollArea className="h-[680px]">
+                          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pr-3 pb-3">
+                            <div className="text-sm text-muted-foreground">
+                              Showing{" "}
+                              <span className="text-foreground font-medium">
+                                {pagedSkills.length}
+                              </span>{" "}
+                              of{" "}
+                              <span className="text-foreground font-medium">
+                                {filteredSkills.length}
+                              </span>{" "}
+                              skills
+                            </div>
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                              <Input
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                                placeholder="Search skills..."
+                                className="h-8 sm:w-[220px]"
+                              />
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() =>
+                                    setPage((p) => Math.max(1, p - 1))
+                                  }
+                                  disabled={page <= 1}
+                                >
+                                  Prev
+                                </Button>
+                                <div className="text-sm text-muted-foreground">
+                                  Page{" "}
+                                  <span className="text-foreground font-medium">
+                                    {Math.min(page, totalPages)}
+                                  </span>{" "}
+                                  of{" "}
+                                  <span className="text-foreground font-medium">
+                                    {totalPages}
+                                  </span>
+                                </div>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() =>
+                                    setPage((p) => Math.min(totalPages, p + 1))
+                                  }
+                                  disabled={page >= totalPages}
+                                >
+                                  Next
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pr-3 pb-6">
+                            {pagedSkills.map((s) => {
+                              const kW = `${s.id}:workspace`;
+                              return (
+                                <SkillCard
+                                  key={s.id}
+                                  skill={s}
+                                  installed={installedLookup.has(s.id)}
+                                  workspaceInstallDisabled={
+                                    workspaceInstallDisabled
+                                  }
+                                  onInstallWorkspace={() => {
+                                    if (!workspacePath) return;
+                                    void install(s, workspacePath);
+                                  }}
+                                  installErrorWorkspace={
+                                    installErrors[kW] || null
+                                  }
+                                  isInstallingWorkspace={installingKey === kW}
+                                />
+                              );
+                            })}
+                            {filteredSkills.length === 0 ? (
+                              <div className="text-sm text-muted-foreground">
+                                No skills match your filters.
+                              </div>
+                            ) : null}
+                          </div>
+                        </ScrollArea>
+                      </AccordionContent>
+                    </AccordionItem>
+                  </Accordion>
+                )}
+              </div>
+            </TabsContent>
+
+            <TabsContent value="active">
+              <div className="space-y-3">
+                <Label>Search installed skills</Label>
+                <Input
+                  value={activeSearch}
+                  onChange={(e) => setActiveSearch(e.target.value)}
+                  placeholder="Search installed skills..."
+                />
+              </div>
+              {currentWorkspace ? (
+                <WorkspaceSkillsCard
+                  workspace={currentWorkspace}
+                  installed={installedWorkspaceFiltered}
+                  onRemove={remove}
+                />
+              ) : null}
+            </TabsContent>
+          </Tabs>
+
+          {orphanedSkills.length > 0 && (
+            <div className="space-y-3 rounded-lg border border-amber-500/40 bg-amber-500/5 p-4">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">
+                  Unlinked workspace skills
+                </h3>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Installed for a workspace path that no longer exists. Remove
+                  them to free skill slots.
+                </p>
+              </div>
+              <div className="space-y-2">
+                {orphanedSkills.map((row) => (
+                  <div
+                    key={`${row.id}:${row.workspacePath ?? ""}`}
+                    className="flex items-center justify-between gap-3 rounded-md border border-border bg-card/50 p-3"
+                  >
+                    <div className="min-w-0">
+                      <div className="font-medium text-sm truncate">
+                        {row.name}
+                      </div>
+                      <div className="text-xs text-muted-foreground truncate">
+                        {row.workspacePath ?? "unknown path"}
+                      </div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void remove(row)}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )}
         </>
-        )}
+      )}
     </div>
   );
 }

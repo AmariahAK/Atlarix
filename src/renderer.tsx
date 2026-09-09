@@ -49,14 +49,21 @@ function eventRejectionDetails(reason: Event): {
 } {
   const target = reason.target as unknown;
   const el = target && typeof target === "object" ? (target as Element) : null;
-  const tagName = el && "tagName" in el ? String((el as Element).tagName ?? "") : undefined;
+  const tagName =
+    el && "tagName" in el ? String((el as Element).tagName ?? "") : undefined;
   const src =
-    el && "getAttribute" in el ? (el as Element).getAttribute?.("src") ?? undefined : undefined;
+    el && "getAttribute" in el
+      ? ((el as Element).getAttribute?.("src") ?? undefined)
+      : undefined;
   const href =
-    el && "getAttribute" in el ? (el as Element).getAttribute?.("href") ?? undefined : undefined;
+    el && "getAttribute" in el
+      ? ((el as Element).getAttribute?.("href") ?? undefined)
+      : undefined;
   const id = el && "id" in el ? String((el as Element).id ?? "") : undefined;
   const className =
-    el && "className" in el ? String((el as Element).className ?? "") : undefined;
+    el && "className" in el
+      ? String((el as Element).className ?? "")
+      : undefined;
   return { type: reason.type, tagName, src, href, id, className };
 }
 
@@ -87,11 +94,14 @@ window.addEventListener("unhandledrejection", (ev) => {
       msg = String(reason);
     }
     if (msg && msg !== "[object Object]" && msg !== "[object Event]") {
-      Sentry.captureException(new Error(`Unhandled promise rejection: ${msg.slice(0, 1000)}`), {
-        level: "warning",
-        tags: { kind: "non_error_rejection", area: "renderer" },
-        extra: { reasonType: typeof reason },
-      });
+      Sentry.captureException(
+        new Error(`Unhandled promise rejection: ${msg.slice(0, 1000)}`),
+        {
+          level: "warning",
+          tags: { kind: "non_error_rejection", area: "renderer" },
+          extra: { reasonType: typeof reason },
+        },
+      );
       // Avoid duplicate capture from default handlers for this normalized case.
       ev.preventDefault();
     }
@@ -272,7 +282,7 @@ async function bootstrap() {
     setPostHogConfig(posthogConfig.posthogApiKey, posthogConfig.analyticsId);
     ensurePostHogInitialized();
   }
-    createRoot(document.getElementById("root")!).render(
+  createRoot(document.getElementById("root")!).render(
     <StrictMode>
       <SentryErrorBoundary fallback={<SentryFallback />}>
         {/* Outside QueryClientProvider so a translated string is available to
@@ -280,16 +290,16 @@ async function bootstrap() {
             initialised SYNCHRONOUSLY with the English catalog, so there is no
             frame where the UI shows raw keys. */}
         <I18nextProvider i18n={i18n}>
-        <QueryClientProvider client={queryClient}>
-          <PostHogProvider client={getPostHogClient() ?? posthog}>
-            <PostHogIdentityBridge />
-            <DevServerProvider>
-              <DbReadyGate>
-                <App />
-              </DbReadyGate>
-            </DevServerProvider>
-          </PostHogProvider>
-        </QueryClientProvider>
+          <QueryClientProvider client={queryClient}>
+            <PostHogProvider client={getPostHogClient() ?? posthog}>
+              <PostHogIdentityBridge />
+              <DevServerProvider>
+                <DbReadyGate>
+                  <App />
+                </DbReadyGate>
+              </DevServerProvider>
+            </PostHogProvider>
+          </QueryClientProvider>
         </I18nextProvider>
       </SentryErrorBoundary>
     </StrictMode>,

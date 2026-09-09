@@ -11,6 +11,10 @@ export function recordToolDuration(toolName: string, ms: number): void {
   while (entries.length > MAX) entries.shift();
 }
 
-export function getToolPerfSnapshot(): { name: string; ms: number; at: number }[] {
+export function getToolPerfSnapshot(): {
+  name: string;
+  ms: number;
+  at: number;
+}[] {
   return [...entries];
 }

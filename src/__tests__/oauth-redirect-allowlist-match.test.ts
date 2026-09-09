@@ -15,7 +15,10 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { AUTH_CALLBACK_URL, DEEP_LINK_PROTOCOL } from "@/lib/auth/supabase-client";
+import {
+  AUTH_CALLBACK_URL,
+  DEEP_LINK_PROTOCOL,
+} from "@/lib/auth/supabase-client";
 import { AUTH_CALLBACK_URL as RENDERER_AUTH_CALLBACK_URL } from "@/shims/supabase-client-renderer-stub";
 
 /** The entry that must exist in Supabase → Auth → URL Configuration. */
@@ -27,7 +30,9 @@ describe("OAuth redirect matches the Supabase allowlist", () => {
   });
 
   it("is not the three-slash spelling that falls back to the Site URL", () => {
-    expect(AUTH_CALLBACK_URL).not.toBe(`${DEEP_LINK_PROTOCOL}:///auth/callback`);
+    expect(AUTH_CALLBACK_URL).not.toBe(
+      `${DEEP_LINK_PROTOCOL}:///auth/callback`,
+    );
     expect(AUTH_CALLBACK_URL.split("://")[1]?.startsWith("/")).toBe(false);
   });
 
@@ -39,7 +44,9 @@ describe("OAuth redirect matches the Supabase allowlist", () => {
     // handleDeepLinkReturn matches `hostname === "auth"` OR
     // `pathname.startsWith("/auth/callback")`. The two-slash spelling takes the
     // hostname branch; assert it rather than trusting the fallback.
-    const parsed = new URL(`${AUTH_CALLBACK_URL}#access_token=t&refresh_token=r`);
+    const parsed = new URL(
+      `${AUTH_CALLBACK_URL}#access_token=t&refresh_token=r`,
+    );
     expect(parsed.protocol).toBe("atlarix:");
     expect(parsed.hostname).toBe("auth");
     expect(parsed.hash).toContain("access_token=t");

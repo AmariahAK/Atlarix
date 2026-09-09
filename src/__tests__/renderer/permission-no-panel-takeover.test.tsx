@@ -26,7 +26,11 @@ import { act, cleanup, render } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { getDefaultStore } from "jotai";
 import { makeFakeIpc, type PermissionRequestPayload } from "./helpers";
-import { rightPanelVisibleAtom, pendingProposalsAtom, previewTabAtom } from "@/atoms/sourceAtoms";
+import {
+  rightPanelVisibleAtom,
+  pendingProposalsAtom,
+  previewTabAtom,
+} from "@/atoms/sourceAtoms";
 import { selectedChatIdAtom } from "@/atoms/chatAtoms";
 
 const fakeIpc = makeFakeIpc();
@@ -43,16 +47,21 @@ const CHAT = -77;
  * so a test that only mounts the hook registers nothing and every assertion
  * below passes vacuously. The send is what arms it.
  */
-let send: ((p: { prompt: string; chatId: number }) => Promise<void>) | null = null;
+let send: ((p: { prompt: string; chatId: number }) => Promise<void>) | null =
+  null;
 
 function Host() {
   const { streamMessage } = useStreamChat({ hasChatId: true });
-  send = streamMessage as typeof send extends null ? never : NonNullable<typeof send>;
+  send = streamMessage as typeof send extends null
+    ? never
+    : NonNullable<typeof send>;
   return null;
 }
 
 function mountHost() {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   return render(
     <QueryClientProvider client={queryClient}>
       <Host />
@@ -113,7 +122,11 @@ describe("a permission request does not open the right panel", () => {
     await armed();
     await act(async () => {
       fakeIpc.emitPermissionRequest(
-        permission("edit_file", { path: "src/a.ts", type: "update", content: "x" }),
+        permission("edit_file", {
+          path: "src/a.ts",
+          type: "update",
+          content: "x",
+        }),
       );
     });
     expect(store.get(rightPanelVisibleAtom)).toBe(false);
@@ -123,7 +136,11 @@ describe("a permission request does not open the right panel", () => {
     await armed();
     await act(async () => {
       fakeIpc.emitPermissionRequest(
-        permission("edit_file", { path: "src/a.ts", type: "update", content: "x" }),
+        permission("edit_file", {
+          path: "src/a.ts",
+          type: "update",
+          content: "x",
+        }),
       );
     });
     const proposals = store.get(pendingProposalsAtom);
@@ -154,7 +171,11 @@ describe("a permission request does not open the right panel", () => {
     await armed();
     await act(async () => {
       fakeIpc.emitPermissionRequest(
-        permission("edit_file", { path: "src/a.ts", type: "update", content: "x" }),
+        permission("edit_file", {
+          path: "src/a.ts",
+          type: "update",
+          content: "x",
+        }),
       );
     });
     expect(store.get(previewTabAtom)).not.toBe("permissions");

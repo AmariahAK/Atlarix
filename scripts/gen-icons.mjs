@@ -52,7 +52,8 @@ function readPngSize(file) {
   try {
     const buf = Buffer.alloc(24);
     fs.readSync(fd, buf, 0, 24, 0);
-    if (buf.toString("ascii", 1, 4) !== "PNG") throw new Error(`${file} is not a PNG`);
+    if (buf.toString("ascii", 1, 4) !== "PNG")
+      throw new Error(`${file} is not a PNG`);
     return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
   } finally {
     fs.closeSync(fd);
@@ -64,12 +65,28 @@ function resize(src, dest, size) {
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   // `-z height width` forces exact dimensions. `--resampleHeightWidth` preserves
   // aspect and can land a pixel off, which MSIX rejects outright.
-  execFileSync("sips", ["-s", "format", "png", "-z", String(size), String(size), src, "--out", dest], {
-    stdio: ["ignore", "ignore", "inherit"],
-  });
+  execFileSync(
+    "sips",
+    [
+      "-s",
+      "format",
+      "png",
+      "-z",
+      String(size),
+      String(size),
+      src,
+      "--out",
+      dest,
+    ],
+    {
+      stdio: ["ignore", "ignore", "inherit"],
+    },
+  );
   const got = readPngSize(dest);
   if (got.width !== size || got.height !== size) {
-    throw new Error(`${path.basename(dest)}: expected ${size}x${size}, got ${got.width}x${got.height}`);
+    throw new Error(
+      `${path.basename(dest)}: expected ${size}x${size}, got ${got.width}x${got.height}`,
+    );
   }
   return got;
 }
@@ -126,16 +143,22 @@ const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "atlarix-icons-"));
 try {
   // ── Extract the source of truth ────────────────────────────────────────────
   const extracted = path.join(tmpDir, "source.iconset");
-  execFileSync("iconutil", ["-c", "iconset", ICNS, "-o", extracted], { stdio: "inherit" });
+  execFileSync("iconutil", ["-c", "iconset", ICNS, "-o", extracted], {
+    stdio: "inherit",
+  });
   const master = path.join(extracted, "icon_512x512@2x.png");
   if (!fs.existsSync(master)) {
-    throw new Error(`${ICNS} has no 1024x1024 (icon_512x512@2x) representation`);
+    throw new Error(
+      `${ICNS} has no 1024x1024 (icon_512x512@2x) representation`,
+    );
   }
   const src = readPngSize(master);
   if (src.width !== src.height) {
     throw new Error(`source must be square; got ${src.width}x${src.height}`);
   }
-  console.log(`[${TAG}] source ${path.relative(ROOT, ICNS)} → master ${src.width}x${src.height}`);
+  console.log(
+    `[${TAG}] source ${path.relative(ROOT, ICNS)} → master ${src.width}x${src.height}`,
+  );
 
   // ── macOS iconset (re-synced so the folder can't drift from the .icns) ─────
   fs.rmSync(ICONSET_DIR, { recursive: true, force: true });
@@ -143,7 +166,9 @@ try {
   for (const entry of fs.readdirSync(extracted)) {
     fs.copyFileSync(path.join(extracted, entry), path.join(ICONSET_DIR, entry));
   }
-  console.log(`[${TAG}] iconset: ${fs.readdirSync(ICONSET_DIR).length} file(s) re-synced`);
+  console.log(
+    `[${TAG}] iconset: ${fs.readdirSync(ICONSET_DIR).length} file(s) re-synced`,
+  );
 
   // ── Linux / packager PNG ──────────────────────────────────────────────────
   const png = resize(master, PNG_OUT, 1024);
@@ -157,7 +182,9 @@ try {
   });
   const ico = buildIco(frames);
   fs.writeFileSync(ICO_OUT, ico);
-  console.log(`[${TAG}] logo.ico ${frames.length} frames (${ICO_SIZES.join(", ")}), ${ico.length} bytes`);
+  console.log(
+    `[${TAG}] logo.ico ${frames.length} frames (${ICO_SIZES.join(", ")}), ${ico.length} bytes`,
+  );
 
   // ── MSIX package logos ────────────────────────────────────────────────────
   for (const { name, size } of MSIX_TARGETS) {
@@ -165,7 +192,9 @@ try {
     console.log(`[${TAG}] msix/${name} ${got.width}x${got.height}`);
   }
 
-  console.log(`[${TAG}] done — all icons derived from ${path.relative(ROOT, ICNS)}`);
+  console.log(
+    `[${TAG}] done — all icons derived from ${path.relative(ROOT, ICNS)}`,
+  );
 } finally {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 }

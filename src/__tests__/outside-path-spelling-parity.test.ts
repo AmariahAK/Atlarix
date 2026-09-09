@@ -37,7 +37,9 @@ let sibling = "";
 const MARKER = "cross-repo-marker-9c1f";
 
 beforeEach(() => {
-  base = realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "atlarix-spelling-")));
+  base = realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), "atlarix-spelling-")),
+  );
   ws = path.join(base, "workspace");
   sibling = path.join(base, "sibling-repo");
   fs.mkdirSync(path.join(ws, "src"), { recursive: true });
@@ -57,7 +59,10 @@ afterEach(() => {
 function spellings(): { label: string; value: string }[] {
   return [
     { label: "absolute", value: path.join(sibling, "pkg", "loader.go") },
-    { label: "parent-relative", value: path.join("..", "sibling-repo", "pkg", "loader.go") },
+    {
+      label: "parent-relative",
+      value: path.join("..", "sibling-repo", "pkg", "loader.go"),
+    },
   ];
 }
 
@@ -79,7 +84,9 @@ describe("read_file: both spellings reach the same outside file", () => {
       workspace: ws,
       path: "src/inside.ts",
     });
-    expect(typeof res === "string" ? res : JSON.stringify(res)).toContain("export const a = 1");
+    expect(typeof res === "string" ? res : JSON.stringify(res)).toContain(
+      "export const a = 1",
+    );
   });
 });
 
@@ -95,7 +102,11 @@ describe("edit_file: both spellings reach the same outside file", () => {
           new_content: 'const Version = "2"',
         }),
       ),
-    )) as { preview?: { path: string }; __permission_required?: boolean; error?: string }[];
+    )) as {
+      preview?: { path: string };
+      __permission_required?: boolean;
+      error?: string;
+    }[];
 
     const expected = path.join(sibling, "pkg", "loader.go");
     for (const [i, res] of results.entries()) {
@@ -130,7 +141,8 @@ describe("glob: a directory prefix in the pattern is absorbed, not refused", () 
       pattern: path.join(sibling, "**", "*.go"),
     });
     const a = typeof viaPath === "string" ? viaPath : JSON.stringify(viaPath);
-    const b = typeof viaPattern === "string" ? viaPattern : JSON.stringify(viaPattern);
+    const b =
+      typeof viaPattern === "string" ? viaPattern : JSON.stringify(viaPattern);
     expect(a).toContain("loader.go");
     expect(b).toContain("loader.go");
   });
@@ -150,7 +162,11 @@ describe("grep: both spellings search the same outside tree", () => {
   it("absolute and ../ both find the marker", async () => {
     const results = await Promise.all(
       [sibling, path.join("..", "sibling-repo")].map((p) =>
-        ToolRegistry.execute("grep", { workspace: ws, pattern: MARKER, path: p }),
+        ToolRegistry.execute("grep", {
+          workspace: ws,
+          pattern: MARKER,
+          path: p,
+        }),
       ),
     );
     for (const res of results) {
@@ -185,7 +201,9 @@ describe("absorbPatternDirectoryPrefix", () => {
   });
 
   it("handles an absolute prefix without losing the root", () => {
-    expect(absorbPatternDirectoryPrefix(`${sep}abs${sep}dir${sep}**/*.ts`, ".")).toEqual({
+    expect(
+      absorbPatternDirectoryPrefix(`${sep}abs${sep}dir${sep}**/*.ts`, "."),
+    ).toEqual({
       pattern: "**/*.ts",
       searchPath: `${sep}abs${sep}dir`,
     });
@@ -202,9 +220,11 @@ describe("absorbPatternDirectoryPrefix", () => {
     // The caller said WHERE to look; a directory-looking pattern must not override
     // it, or `glob({pattern:"../x/*", path:"/somewhere"})` would silently search
     // somewhere other than what was asked for.
-    expect(absorbPatternDirectoryPrefix("../telios/*.go", "/explicit")).toEqual({
-      pattern: "../telios/*.go",
-      searchPath: "/explicit",
-    });
+    expect(absorbPatternDirectoryPrefix("../telios/*.go", "/explicit")).toEqual(
+      {
+        pattern: "../telios/*.go",
+        searchPath: "/explicit",
+      },
+    );
   });
 });

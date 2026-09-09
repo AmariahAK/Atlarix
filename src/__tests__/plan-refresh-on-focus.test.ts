@@ -38,7 +38,12 @@ async function freshManager(session: Record<string, unknown> | null) {
   };
 }
 
-const SESSION = { email: "a@b.c", plan: "free", effectiveTier: "free", banned: false };
+const SESSION = {
+  email: "a@b.c",
+  plan: "free",
+  effectiveTier: "free",
+  banned: false,
+};
 
 describe("refreshPlanFromServer", () => {
   beforeEach(() => {

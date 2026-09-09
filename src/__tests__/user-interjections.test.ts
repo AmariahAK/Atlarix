@@ -66,8 +66,12 @@ describe("user-interjections", () => {
   it("isolates chats", () => {
     recordUserInterjection(A, { id: "1", text: "for A" });
     recordUserInterjection(B, { id: "2", text: "for B" });
-    expect(takePendingUserInterjections(A)?.map((m) => m.text)).toEqual(["for A"]);
-    expect(takePendingUserInterjections(B)?.map((m) => m.text)).toEqual(["for B"]);
+    expect(takePendingUserInterjections(A)?.map((m) => m.text)).toEqual([
+      "for A",
+    ]);
+    expect(takePendingUserInterjections(B)?.map((m) => m.text)).toEqual([
+      "for B",
+    ]);
   });
 
   it("is idempotent on id, so a renderer retry cannot double-deliver", () => {
@@ -85,7 +89,9 @@ describe("user-interjections", () => {
     recordUserInterjection(A, { id: "1", text: "keep" });
     recordUserInterjection(A, { id: "2", text: "drop" });
     expect(cancelUserInterjection(A, "2")).toBe(true);
-    expect(takePendingUserInterjections(A)?.map((m) => m.text)).toEqual(["keep"]);
+    expect(takePendingUserInterjections(A)?.map((m) => m.text)).toEqual([
+      "keep",
+    ]);
   });
 
   it("reports false when cancelling something already delivered", () => {

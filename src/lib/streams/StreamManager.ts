@@ -5,7 +5,10 @@
 
 export type StreamSource = "terminal" | "pipeline";
 
-export type TerminalStreamMode = "error_first" | "progress_first" | "raw_capped";
+export type TerminalStreamMode =
+  | "error_first"
+  | "progress_first"
+  | "raw_capped";
 
 export interface Stream {
   id: string;
@@ -47,7 +50,7 @@ export function openStream(
     timeoutMs?: number;
     jobId?: number;
     mode?: TerminalStreamMode;
-  } = {}
+  } = {},
 ): string {
   const {
     chatId = null,
@@ -99,7 +102,10 @@ export function closeStream(streamId: string): void {
   }
 }
 
-export function getCollectedLines(streamId: string): { lines: string[]; active: boolean } {
+export function getCollectedLines(streamId: string): {
+  lines: string[];
+  active: boolean;
+} {
   const stream = streams.get(streamId);
   if (!stream) {
     return { lines: [], active: false };
@@ -107,7 +113,11 @@ export function getCollectedLines(streamId: string): { lines: string[]; active: 
   return { lines: [...stream.collectedLines], active: stream.active };
 }
 
-export function listActiveStreams(): Array<{ id: string; source: StreamSource; chatId: number | null }> {
+export function listActiveStreams(): Array<{
+  id: string;
+  source: StreamSource;
+  chatId: number | null;
+}> {
   return Array.from(streams.values())
     .filter((s) => s.active)
     .map((s) => ({ id: s.id, source: s.source, chatId: s.chatId }));
@@ -117,7 +127,8 @@ export function listActiveStreams(): Array<{ id: string; source: StreamSource; c
 export function feedTerminalOutput(chatId: number, output: string): void {
   const text = typeof output === "string" ? output : String(output);
   const lines = text.split(/\r?\n/);
-  const defaultErrorRe = /\b(error|failed|exception|traceback|fatal|warn(ing)?)\b/i;
+  const defaultErrorRe =
+    /\b(error|failed|exception|traceback|fatal|warn(ing)?)\b/i;
 
   for (const stream of streams.values()) {
     if (!stream.active || stream.source !== "terminal") continue;
@@ -131,7 +142,10 @@ export function feedTerminalOutput(chatId: number, output: string): void {
       if (stream.lastLine && s === stream.lastLine) return;
       stream.lastLine = s;
       const bytes = Buffer.byteLength(s, "utf8") + 1;
-      if (stream.collectedLines.length >= stream.maxLines || stream.collectedBytes + bytes > stream.maxBytes) {
+      if (
+        stream.collectedLines.length >= stream.maxLines ||
+        stream.collectedBytes + bytes > stream.maxBytes
+      ) {
         stream.active = false;
         if (stream.timeoutHandle) {
           clearTimeout(stream.timeoutHandle);
@@ -163,7 +177,11 @@ export function feedTerminalOutput(chatId: number, output: string): void {
           }
         } else if (mode === "progress_first") {
           // Keep most lines but avoid obvious spammy progress bars.
-          if (!/^\s*(\d+%|\[=+>\s*\]\s*\d+%|(?:\u25A0|\u25A1|\u2591|\u2592|\u2593)+)\s*$/.test(line)) {
+          if (
+            !/^\s*(\d+%|\[=+>\s*\]\s*\d+%|(?:\u25A0|\u25A1|\u2591|\u2592|\u2593)+)\s*$/.test(
+              line,
+            )
+          ) {
             pushLine(line);
           }
         } else {

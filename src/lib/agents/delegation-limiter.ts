@@ -90,7 +90,10 @@ function drainQueue(slot: TurnSlot, maxConcurrent: number): void {
  * Each slot is deleted rather than left empty so a late `releaseDelegationSlot`
  * cannot resurrect it and drain a queue we have just emptied.
  */
-export function failQueuedDelegationsForChat(chatId: number, error: Error): number {
+export function failQueuedDelegationsForChat(
+  chatId: number,
+  error: Error,
+): number {
   const prefix = `${chatId}:`;
   let rejected = 0;
   for (const [key, slot] of [...slotsByKey.entries()]) {
@@ -103,7 +106,11 @@ export function failQueuedDelegationsForChat(chatId: number, error: Error): numb
   return rejected;
 }
 
-export function releaseDelegationSlot(chatId: number, turnId: string, maxConcurrent: number): void {
+export function releaseDelegationSlot(
+  chatId: number,
+  turnId: string,
+  maxConcurrent: number,
+): void {
   const slot = slotsByKey.get(slotKey(chatId, turnId));
   if (!slot) return;
   slot.active = Math.max(0, slot.active - 1);
@@ -158,4 +165,3 @@ export async function acquireDelegationSlot(
   // have started moments ago — space this one off that start too.
   await applyStagger(slot);
 }
-

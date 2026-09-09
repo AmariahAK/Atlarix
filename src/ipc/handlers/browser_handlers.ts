@@ -80,7 +80,9 @@ export function registerBrowserHandlers(): void {
       return { ok: false, error: "Only http(s) URLs are allowed." };
     }
     const ok = navigate(scope, null, url);
-    return ok ? { ok: true } : { ok: false, error: "No browser tab available." };
+    return ok
+      ? { ok: true }
+      : { ok: false, error: "No browser tab available." };
   });
 
   ipcMain.handle("browser:back", (e) => {
@@ -178,7 +180,9 @@ export function registerBrowserHandlers(): void {
       if (!scope) return { unavailable: "This window is gone." };
       const view = getTabViewById(scope, Number(tabId));
       if (!view || view.webContents.isDestroyed()) {
-        return { unavailable: "That tab is closed, so its bodies are gone with it." };
+        return {
+          unavailable: "That tab is closed, so its bodies are gone with it.",
+        };
       }
       return await fetchResponseBody(view.webContents, String(requestId));
     },

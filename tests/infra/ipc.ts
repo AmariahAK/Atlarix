@@ -60,7 +60,10 @@ export function makeFakeIpcEvent(): FakeIpcEvent {
     sends.push(send);
     for (let i = waiters.length - 1; i >= 0; i--) {
       const waiter = waiters[i];
-      if (waiter.channel === channel && (!waiter.pred || waiter.pred(payload))) {
+      if (
+        waiter.channel === channel &&
+        (!waiter.pred || waiter.pred(payload))
+      ) {
         waiters.splice(i, 1);
         waiter.resolve(send);
       }

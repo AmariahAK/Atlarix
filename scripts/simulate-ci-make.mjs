@@ -85,7 +85,9 @@ function run(cmd, args, env, label) {
     shell: process.platform === "win32",
   });
   const elapsed = Math.round((Date.now() - started) / 1000);
-  console.log(`=== ${label} finished in ${elapsed}s exit=${result.status ?? 1} ===`);
+  console.log(
+    `=== ${label} finished in ${elapsed}s exit=${result.status ?? 1} ===`,
+  );
   return result.status ?? 1;
 }
 
@@ -120,16 +122,30 @@ if (!verifyOnly) {
         : platform === "darwin"
           ? ["run", "make", "--", `--arch=${arch}`]
           : ["run", "make"];
-    const makeExit = run("npm", makeArgs, env, "npm run make (broken CI simulate)");
+    const makeExit = run(
+      "npm",
+      makeArgs,
+      env,
+      "npm run make (broken CI simulate)",
+    );
     if (makeExit !== 0) process.exit(makeExit);
   } else {
     const archArgs =
-      platform === "darwin" ? ["--", `--arch=${arch}`] : platform === "win32" ? [] : [];
+      platform === "darwin"
+        ? ["--", `--arch=${arch}`]
+        : platform === "win32"
+          ? []
+          : [];
 
     let exit = run("npm", ["run", "clean"], env, "npm run clean");
     if (exit !== 0) process.exit(exit);
 
-    exit = run("npm", ["run", "ci:package", ...archArgs], env, "npm run ci:package");
+    exit = run(
+      "npm",
+      ["run", "ci:package", ...archArgs],
+      env,
+      "npm run ci:package",
+    );
     if (exit !== 0) process.exit(exit);
 
     exit = verify(env, "package", platform, arch);
@@ -147,7 +163,9 @@ if (!verifyOnly) {
 
 const verifyExit = verify(env, "make", platform, arch);
 const outDir = path.join(process.cwd(), "out");
-console.log(`\n[simulate-ci-make] out/ exists=${fs.existsSync(outDir)} verify exit=${verifyExit}`);
+console.log(
+  `\n[simulate-ci-make] out/ exists=${fs.existsSync(outDir)} verify exit=${verifyExit}`,
+);
 
 if (verifyExit === 0) {
   console.log("\n✓ Local CI simulation passed.");

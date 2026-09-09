@@ -21,8 +21,16 @@ beforeEach(() => resetAuxUsage(CHAT));
 
 describe("recordAuxUsage", () => {
   it("accumulates totals and per-label calls", () => {
-    recordAuxUsage(CHAT, { inputTokens: 100, outputTokens: 20 }, "subagent:task");
-    recordAuxUsage(CHAT, { inputTokens: 50, outputTokens: 10 }, "subagent:task");
+    recordAuxUsage(
+      CHAT,
+      { inputTokens: 100, outputTokens: 20 },
+      "subagent:task",
+    );
+    recordAuxUsage(
+      CHAT,
+      { inputTokens: 50, outputTokens: 10 },
+      "subagent:task",
+    );
     const totals = takeAuxUsage(CHAT)!;
     expect(totals.totalTokens).toBe(180);
     expect(totals.calls).toBe(2);
@@ -55,7 +63,11 @@ describe("recordAuxUsage", () => {
   });
 
   it("keeps labels separate", () => {
-    recordAuxUsage(CHAT, { inputTokens: 100, outputTokens: 0 }, "subagent:task");
+    recordAuxUsage(
+      CHAT,
+      { inputTokens: 100, outputTokens: 0 },
+      "subagent:task",
+    );
     recordAuxUsage(CHAT, { inputTokens: 900, outputTokens: 0 }, "compaction");
     const totals = takeAuxUsage(CHAT)!;
     expect(totals.byLabel["subagent:task"]!.tokens).toBe(100);
@@ -63,7 +75,9 @@ describe("recordAuxUsage", () => {
   });
 
   it("ignores unusable input without throwing", () => {
-    expect(recordAuxUsage(null, { inputTokens: 1, outputTokens: 1 }, "x")).toBeNull();
+    expect(
+      recordAuxUsage(null, { inputTokens: 1, outputTokens: 1 }, "x"),
+    ).toBeNull();
     expect(recordAuxUsage(CHAT, undefined, "x")).toBeNull();
     expect(recordAuxUsage(CHAT, {}, "x")).toBeNull();
     expect(takeAuxUsage(CHAT)).toBeNull();
@@ -78,7 +92,11 @@ describe("recordAuxUsage", () => {
 
 describe("summarizeAuxBySource", () => {
   it("separates sub-agents from compaction — the mislabel this fixes", () => {
-    recordAuxUsage(CHAT, { inputTokens: 100, outputTokens: 0 }, "subagent:task");
+    recordAuxUsage(
+      CHAT,
+      { inputTokens: 100, outputTokens: 0 },
+      "subagent:task",
+    );
     recordAuxUsage(CHAT, { inputTokens: 900, outputTokens: 0 }, "compaction");
     const summary = summarizeAuxBySource(takeAuxUsage(CHAT));
     expect(summary).toEqual([
@@ -89,19 +107,35 @@ describe("summarizeAuxBySource", () => {
 
   it("groups every subagent label into one bucket, preserving the call count", () => {
     recordAuxUsage(CHAT, { inputTokens: 10, outputTokens: 0 }, "subagent:task");
-    recordAuxUsage(CHAT, { inputTokens: 20, outputTokens: 0 }, "subagent:reviewer");
+    recordAuxUsage(
+      CHAT,
+      { inputTokens: 20, outputTokens: 0 },
+      "subagent:reviewer",
+    );
     const summary = summarizeAuxBySource(takeAuxUsage(CHAT));
-    expect(summary).toEqual([{ source: "subagents", tokens: 30, calls: 2, estimatedTokens: 0 }]);
+    expect(summary).toEqual([
+      { source: "subagents", tokens: 30, calls: 2, estimatedTokens: 0 },
+    ]);
   });
 
   it("orders largest first, so the dominant spender reads first", () => {
     recordAuxUsage(CHAT, { inputTokens: 5, outputTokens: 0 }, "compaction");
-    recordAuxUsage(CHAT, { inputTokens: 500, outputTokens: 0 }, "subagent:task");
-    expect(summarizeAuxBySource(takeAuxUsage(CHAT))[0]!.source).toBe("subagents");
+    recordAuxUsage(
+      CHAT,
+      { inputTokens: 500, outputTokens: 0 },
+      "subagent:task",
+    );
+    expect(summarizeAuxBySource(takeAuxUsage(CHAT))[0]!.source).toBe(
+      "subagents",
+    );
   });
 
   it("buckets an unrecognized label as 'other' rather than dropping it", () => {
-    recordAuxUsage(CHAT, { inputTokens: 7, outputTokens: 0 }, "title-generation");
+    recordAuxUsage(
+      CHAT,
+      { inputTokens: 7, outputTokens: 0 },
+      "title-generation",
+    );
     expect(summarizeAuxBySource(takeAuxUsage(CHAT))).toEqual([
       { source: "other", tokens: 7, calls: 1, estimatedTokens: 0 },
     ]);
@@ -112,11 +146,18 @@ describe("summarizeAuxBySource", () => {
   });
 
   it("sums to the reported total, so the breakdown can't disagree with the headline", () => {
-    recordAuxUsage(CHAT, { inputTokens: 100, outputTokens: 20 }, "subagent:task");
+    recordAuxUsage(
+      CHAT,
+      { inputTokens: 100, outputTokens: 20 },
+      "subagent:task",
+    );
     recordAuxUsage(CHAT, { inputTokens: 300, outputTokens: 5 }, "compaction");
     recordAuxUsage(CHAT, { inputTokens: 7, outputTokens: 0 }, "something-else");
     const totals = takeAuxUsage(CHAT)!;
-    const summed = summarizeAuxBySource(totals).reduce((a, s) => a + s.tokens, 0);
+    const summed = summarizeAuxBySource(totals).reduce(
+      (a, s) => a + s.tokens,
+      0,
+    );
     expect(summed).toBe(totals.totalTokens);
   });
 });
@@ -131,7 +172,9 @@ describe("a call the provider reports nothing for", () => {
    * watching their spend is on.
    */
   it("is COUNTED, with its size estimated", () => {
-    recordAuxUsage(CHAT, undefined, "subagent:task", { estimateTokens: () => 5_000 });
+    recordAuxUsage(CHAT, undefined, "subagent:task", {
+      estimateTokens: () => 5_000,
+    });
     const totals = takeAuxUsage(CHAT)!;
 
     expect(totals).toBeTruthy();
@@ -166,7 +209,9 @@ describe("a call the provider reports nothing for", () => {
 
   it("never lets an estimate override a provider figure", () => {
     // A measured number always wins, however large the guess beside it.
-    recordAuxUsage(CHAT, { totalTokens: 100 }, "subagent:task", { estimateTokens: () => 999_999 });
+    recordAuxUsage(CHAT, { totalTokens: 100 }, "subagent:task", {
+      estimateTokens: () => 999_999,
+    });
     const totals = takeAuxUsage(CHAT)!;
     expect(totals.totalTokens).toBe(100);
     expect(totals.totalEstimatedTokens).toBe(0);
@@ -176,7 +221,9 @@ describe("a call the provider reports nothing for", () => {
   it("surfaces a turn whose auxiliary spend was ONLY estimated", () => {
     // `takeAuxUsage` used to gate on `totalTokens > 0`, so a turn whose every
     // auxiliary call came from a silent provider drained as null and vanished.
-    recordAuxUsage(CHAT, null, "subagent:task", { estimateTokens: () => 2_500 });
+    recordAuxUsage(CHAT, null, "subagent:task", {
+      estimateTokens: () => 2_500,
+    });
     const totals = takeAuxUsage(CHAT);
     expect(totals).not.toBeNull();
     expect(totals!.calls).toBe(1);
@@ -187,7 +234,9 @@ describe("a call the provider reports nothing for", () => {
     recordAuxUsage(CHAT, { totalTokens: 78_640 }, "subagent:task");
     recordAuxUsage(CHAT, { totalTokens: 25_600 }, "subagent:task");
     recordAuxUsage(CHAT, { totalTokens: 27_049 }, "subagent:task");
-    recordAuxUsage(CHAT, undefined, "subagent:task", { estimateTokens: () => 30_000 });
+    recordAuxUsage(CHAT, undefined, "subagent:task", {
+      estimateTokens: () => 30_000,
+    });
 
     const totals = takeAuxUsage(CHAT)!;
     expect(totals.calls).toBe(4); // was 3

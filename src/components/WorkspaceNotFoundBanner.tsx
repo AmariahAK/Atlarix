@@ -55,7 +55,8 @@ export function WorkspaceNotFoundBanner() {
       <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
         <AlertCircle className="h-4 w-4 shrink-0" />
         <span>
-          Workspace folder not found. It may have been moved or deleted outside Atlarix.
+          Workspace folder not found. It may have been moved or deleted outside
+          Atlarix.
         </span>
       </div>
       <Button

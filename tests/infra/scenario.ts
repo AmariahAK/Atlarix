@@ -17,7 +17,10 @@ export function scenario(id: string) {
   let repeatLast = false;
 
   const builder = {
-    text(text: string, usage?: Extract<ScenarioResponse, { kind: "text" }>["usage"]) {
+    text(
+      text: string,
+      usage?: Extract<ScenarioResponse, { kind: "text" }>["usage"],
+    ) {
       responses.push({ kind: "text", text, usage });
       return builder;
     },

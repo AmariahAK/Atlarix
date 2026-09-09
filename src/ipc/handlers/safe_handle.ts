@@ -32,7 +32,9 @@ export function createLoggedHandler(logger: log.LogFunctions) {
           throw new Error(`[${channel}] rejected: untrusted sender frame`);
         }
         if (verboseIpc) {
-          logger.log(`IPC: ${channel} called with args: ${JSON.stringify(args)}`);
+          logger.log(
+            `IPC: ${channel} called with args: ${JSON.stringify(args)}`,
+          );
         }
         try {
           const result = await fn(event, ...args);

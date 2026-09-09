@@ -55,7 +55,9 @@ describe("resolveToolsetForSession unattended", () => {
     const names = resolve("ask", true);
     expect(names).not.toContain("ask_user");
     for (const tool of DRIVES_A_VIEW) {
-      expect(names, `${tool} must not be offered unattended`).not.toContain(tool);
+      expect(names, `${tool} must not be offered unattended`).not.toContain(
+        tool,
+      );
     }
   });
 
@@ -63,7 +65,9 @@ describe("resolveToolsetForSession unattended", () => {
     const names = resolve("build", true);
     expect(names).not.toContain("ask_user");
     for (const tool of DRIVES_A_VIEW) {
-      expect(names, `${tool} must not be offered unattended`).not.toContain(tool);
+      expect(names, `${tool} must not be offered unattended`).not.toContain(
+        tool,
+      );
     }
     expect(names).toContain("edit_file"); // writes still available (proposal runs)
   });

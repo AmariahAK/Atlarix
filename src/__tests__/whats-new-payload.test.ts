@@ -74,7 +74,12 @@ describe("parseUpdatesPayload", () => {
     // The renderer opens this in the user's real browser on a click. A file: or
     // javascript: URL published into a remote JSON must never reach that call,
     // and validating in main means the renderer cannot forget to.
-    for (const link of ["http://example.com", "javascript:alert(1)", "file:///etc/passwd", "//evil"]) {
+    for (const link of [
+      "http://example.com",
+      "javascript:alert(1)",
+      "file:///etc/passwd",
+      "//evil",
+    ]) {
       const parsed = parseUpdatesPayload({
         entries: [{ id: "x", title: "t", body: "b", link }],
       });
@@ -86,7 +91,9 @@ describe("parseUpdatesPayload", () => {
   it("drops the link label along with a rejected link", () => {
     // A label with no link is a button that does nothing.
     const parsed = parseUpdatesPayload({
-      entries: [{ id: "x", title: "t", body: "b", link: "http://x", linkLabel: "Read" }],
+      entries: [
+        { id: "x", title: "t", body: "b", link: "http://x", linkLabel: "Read" },
+      ],
     });
     expect(parsed!.linkLabel).toBeUndefined();
   });
@@ -95,7 +102,11 @@ describe("parseUpdatesPayload", () => {
     const parsed = parseUpdatesPayload({
       entries: [{ id: " 14.38.0 ", title: " Title ", body: " Body " }],
     });
-    expect(parsed).toMatchObject({ id: "14.38.0", title: "Title", body: "Body" });
+    expect(parsed).toMatchObject({
+      id: "14.38.0",
+      title: "Title",
+      body: "Body",
+    });
   });
 });
 

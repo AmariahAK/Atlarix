@@ -10,13 +10,24 @@ describe("sanitizeJsonSchemaForProvider", () => {
     // prop -> schema with no `type`/`properties` wrapper. Previously this fell
     // back to an empty permissive schema, dropping every parameter.
     const bare = {
-      workspace: { type: "string", description: "Project directory", required: false },
-      workspaceId: { type: "number", description: "Workspace ID", required: true },
+      workspace: {
+        type: "string",
+        description: "Project directory",
+        required: false,
+      },
+      workspaceId: {
+        type: "number",
+        description: "Workspace ID",
+        required: true,
+      },
     };
     const out = sanitizeJsonSchemaForProvider(bare) as Record<string, any>;
     expect(out.type).toBe("object");
     expect(Object.keys(out.properties)).toEqual(["workspace", "workspaceId"]);
-    expect(out.properties.workspace).toEqual({ type: "string", description: "Project directory" });
+    expect(out.properties.workspace).toEqual({
+      type: "string",
+      description: "Project directory",
+    });
     // `required: true` props are hoisted into the top-level required array.
     expect(out.required).toEqual(["workspaceId"]);
   });
@@ -93,7 +104,11 @@ describe("sanitizeJsonSchemaForProvider", () => {
   });
 
   it("returns the permissive schema for non-object input", () => {
-    expect(sanitizeJsonSchemaForProvider(null)).toBe(PERMISSIVE_TOOL_JSON_SCHEMA);
-    expect(sanitizeJsonSchemaForProvider("nope")).toBe(PERMISSIVE_TOOL_JSON_SCHEMA);
+    expect(sanitizeJsonSchemaForProvider(null)).toBe(
+      PERMISSIVE_TOOL_JSON_SCHEMA,
+    );
+    expect(sanitizeJsonSchemaForProvider("nope")).toBe(
+      PERMISSIVE_TOOL_JSON_SCHEMA,
+    );
   });
 });

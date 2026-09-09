@@ -66,7 +66,7 @@ export function HelpDialog({ isOpen, onClose }: HelpDialogProps) {
     const files = e.target.files;
     if (files) {
       const imageFiles = Array.from(files).filter((f) =>
-        f.type.startsWith("image/")
+        f.type.startsWith("image/"),
       );
       setAttachments((prev) => [...prev, ...imageFiles].slice(0, 5)); // Max 5 images
     }
@@ -109,7 +109,7 @@ System Info:
           : "";
 
       const mailto = `mailto:support@atlarix.dev?subject=${encodeURIComponent(
-        bugFormData.subject
+        bugFormData.subject,
       )}&body=${encodeURIComponent(emailBody + attachmentNote)}`;
 
       // Open default email client
@@ -263,17 +263,17 @@ System Info:
         </DialogDescription>
         <div className="flex flex-col space-y-4 w-full">
           <div className="flex flex-col space-y-2">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  IpcClient.getInstance().openExternalUrl(
-                    "https://www.atlarix.dev/docs"
-                  );
-                }}
-                className="w-full py-6 bg-(--background-lightest)"
-              >
-                <BookOpenIcon className="mr-2 h-5 w-5" /> Open Docs
-              </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                IpcClient.getInstance().openExternalUrl(
+                  "https://www.atlarix.dev/docs",
+                );
+              }}
+              className="w-full py-6 bg-(--background-lightest)"
+            >
+              <BookOpenIcon className="mr-2 h-5 w-5" /> Open Docs
+            </Button>
             <p className="text-sm text-muted-foreground px-2">
               Get help with common questions and issues.
             </p>
@@ -282,13 +282,16 @@ System Info:
           <div className="flex flex-col space-y-2">
             <Button
               variant="outline"
-              onClick={() => IpcClient.getInstance().openExternalUrl(DISCORD_INVITE_URL)}
+              onClick={() =>
+                IpcClient.getInstance().openExternalUrl(DISCORD_INVITE_URL)
+              }
               className="w-full py-6 bg-(--background-lightest)"
             >
               <MessageSquare className="mr-2 h-5 w-5" /> Community (Discord)
             </Button>
             <p className="text-sm text-muted-foreground px-2">
-              Chat with other builders, get updates, and ask questions in our Discord server.
+              Chat with other builders, get updates, and ask questions in our
+              Discord server.
             </p>
           </div>
 

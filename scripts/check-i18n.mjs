@@ -77,7 +77,8 @@ const valuesOf = (obj, prefix = "") =>
       ? valuesOf(v, `${prefix}${k}.`)
       : [[`${prefix}${k}`, String(v)]],
   );
-const placeholders = (s) => [...s.matchAll(/\{\{\s*([\w.]+)/g)].map((m) => m[1]).sort();
+const placeholders = (s) =>
+  [...s.matchAll(/\{\{\s*([\w.]+)/g)].map((m) => m[1]).sort();
 
 const readCatalog = (locale, ns) => {
   const f = path.join(LOCALES_DIR, locale, `${ns}.json`);
@@ -92,7 +93,10 @@ const readCatalog = (locale, ns) => {
 
 const enDir = path.join(LOCALES_DIR, "en-us");
 const namespaces = fs.existsSync(enDir)
-  ? fs.readdirSync(enDir).filter((f) => f.endsWith(".json")).map((f) => f.replace(/\.json$/, ""))
+  ? fs
+      .readdirSync(enDir)
+      .filter((f) => f.endsWith(".json"))
+      .map((f) => f.replace(/\.json$/, ""))
   : [];
 if (namespaces.length === 0) fail("no English catalogs found");
 
@@ -151,7 +155,10 @@ function walk(dir, out = []) {
  */
 const PROSE = />(\s*[A-Z][A-Za-z]+(?:[ ,'’-][A-Za-z]+)+[.?!]?\s*)</g;
 const files = fs.existsSync(path.join(ROOT, "src/components"))
-  ? [...walk(path.join(ROOT, "src/components")), ...walk(path.join(ROOT, "src/pages"))]
+  ? [
+      ...walk(path.join(ROOT, "src/components")),
+      ...walk(path.join(ROOT, "src/pages")),
+    ]
   : [];
 let hardcoded = 0;
 for (const f of files) {

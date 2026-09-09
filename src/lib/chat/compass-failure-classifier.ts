@@ -50,7 +50,10 @@ export function classifyCompassFailure(
     return { message: coreUnavailableUserMessage(), isCompassInfraError: true };
   }
   if (statusCode === 401 || statusCode === 403) {
-    return { message: compassAuthExpiredUserMessage(), isCompassInfraError: false };
+    return {
+      message: compassAuthExpiredUserMessage(),
+      isCompassInfraError: false,
+    };
   }
   if (statusCode === 400 || statusCode === 422) {
     return {

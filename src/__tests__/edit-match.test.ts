@@ -27,7 +27,9 @@ describe("findReplacement cascade", () => {
     if (r.kind !== "match") return;
     expect(r.fuzzy).toBe(true);
     expect(r.strategy).toBe("line-trimmed");
-    expect(content.slice(r.index, r.index + r.matchLength)).toBe("    value = 1\n    return value");
+    expect(content.slice(r.index, r.index + r.matchLength)).toBe(
+      "    value = 1\n    return value",
+    );
   });
 
   it("escape-normalized match yields the file's real newlines", () => {
@@ -35,15 +37,19 @@ describe("findReplacement cascade", () => {
     expect(r.kind).toBe("match");
     if (r.kind !== "match") return;
     expect(r.fuzzy).toBe(true);
-    expect(content.slice(r.index, r.index + r.matchLength)).toBe("    value = 1\n    return value");
+    expect(content.slice(r.index, r.index + r.matchLength)).toBe(
+      "    value = 1\n    return value",
+    );
   });
 
   it("unicode-punctuation match yields the file's original typography", () => {
-    const c = 'title: “Hello — world”\n';
+    const c = "title: “Hello — world”\n";
     const r = findReplacement(c, 'title: "Hello - world"');
     expect(r.kind).toBe("match");
     if (r.kind !== "match") return;
-    expect(c.slice(r.index, r.index + r.matchLength)).toBe("title: “Hello — world”");
+    expect(c.slice(r.index, r.index + r.matchLength)).toBe(
+      "title: “Hello — world”",
+    );
   });
 
   it("ambiguous fuzzy candidates are skipped, not guessed", () => {
@@ -55,7 +61,9 @@ describe("findReplacement cascade", () => {
   });
 
   it("disproportionate block-anchor spans are refused", () => {
-    const filler = Array.from({ length: 30 }, (_, i) => `  filler${i}()`).join("\n");
+    const filler = Array.from({ length: 30 }, (_, i) => `  filler${i}()`).join(
+      "\n",
+    );
     const c = `start() {\n${filler}\nend()\n`;
     const r = findReplacement(c, "start() {\nmiddle()\nend()");
     expect(["disproportionate", "none"]).toContain(r.kind);
@@ -64,7 +72,11 @@ describe("findReplacement cascade", () => {
 
 describe("reindentReplacement", () => {
   it("verbatim when there is no indent drift (escape/unicode fuzz)", () => {
-    const r = reindentReplacement("    value = 1", "    value = 1", "    value = 2");
+    const r = reindentReplacement(
+      "    value = 1",
+      "    value = 1",
+      "    value = 2",
+    );
     expect(r).toEqual({ text: "    value = 2", changed: false });
   });
 
@@ -103,10 +115,13 @@ describe("reindentReplacement", () => {
   it("novel lines nested deeper than any old line extrapolate by unit", () => {
     const matched = "\tif ok {\n\t\trun()\n\t}";
     const old = "  if ok {\n    run()\n  }";
-    const next = "  if ok {\n    run()\n    if deep {\n      inner()\n    }\n  }";
+    const next =
+      "  if ok {\n    run()\n    if deep {\n      inner()\n    }\n  }";
     const r = reindentReplacement(matched, old, next);
     expect(r.changed).toBe(true);
-    expect(r.text).toBe("\tif ok {\n\t\trun()\n\t\tif deep {\n\t\t\tinner()\n\t\t}\n\t}");
+    expect(r.text).toBe(
+      "\tif ok {\n\t\trun()\n\t\tif deep {\n\t\t\tinner()\n\t\t}\n\t}",
+    );
   });
 
   it("repeated closers map monotonically", () => {
@@ -119,7 +134,11 @@ describe("reindentReplacement", () => {
   });
 
   it("single-line matched span only re-anchors the first line", () => {
-    const r = reindentReplacement("\t\tcancel()", "        cancel()", "        snapshot()");
+    const r = reindentReplacement(
+      "\t\tcancel()",
+      "        cancel()",
+      "        snapshot()",
+    );
     expect(r.changed).toBe(true);
     expect(r.text).toBe("\t\tsnapshot()");
   });
@@ -152,7 +171,11 @@ describe("reindentReplacement", () => {
   });
 
   it("falls back verbatim when line counts do not align", () => {
-    const r = reindentReplacement("\ta()\n\tb()\n\tc()", "  a()\n  b()", "  a()\n  z()");
+    const r = reindentReplacement(
+      "\ta()\n\tb()\n\tc()",
+      "  a()\n  b()",
+      "  a()\n  z()",
+    );
     expect(r).toEqual({ text: "  a()\n  z()", changed: false });
   });
 

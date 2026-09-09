@@ -144,7 +144,7 @@ function parseFrontmatter(raw: string): ParsedFrontmatter {
 
 function stripQuotes(s: string): string {
   if (
-    (s.startsWith("\"") && s.endsWith("\"")) ||
+    (s.startsWith('"') && s.endsWith('"')) ||
     (s.startsWith("'") && s.endsWith("'"))
   ) {
     return s.slice(1, -1);
@@ -175,7 +175,9 @@ export async function loadPrioritySkillsForWorkspace(
 
   let entries: import("fs").Dirent[];
   try {
-    entries = (await fs.readdir(skillsDir, { withFileTypes: true })) as unknown as import("fs").Dirent[];
+    entries = (await fs.readdir(skillsDir, {
+      withFileTypes: true,
+    })) as unknown as import("fs").Dirent[];
   } catch {
     return []; // No .atlarix/skills/ — normal, not an error.
   }
@@ -208,13 +210,15 @@ export async function loadPrioritySkillsForWorkspace(
           typeof data.name === "string" && data.name.trim()
             ? data.name.trim()
             : entry.name.replace(/\.(md|txt)$/i, ""),
-        description: typeof data.description === "string" ? data.description : "",
+        description:
+          typeof data.description === "string" ? data.description : "",
         tags,
         modes,
         priority: isWorkforce ? data.priority === true : false,
-        version: typeof data.version === "string" && data.version.trim()
-          ? data.version.trim()
-          : "1.0.0",
+        version:
+          typeof data.version === "string" && data.version.trim()
+            ? data.version.trim()
+            : "1.0.0",
         content: content.trim(),
         filename: entry.name,
       };
@@ -249,8 +253,6 @@ export function filterSkillsForMode(
   const wanted = normalizeMode(currentMode);
   return skills.filter(
     (s) =>
-      s.modes.includes("*") ||
-      s.modes.some((m) => normalizeMode(m) === wanted),
+      s.modes.includes("*") || s.modes.some((m) => normalizeMode(m) === wanted),
   );
 }
-

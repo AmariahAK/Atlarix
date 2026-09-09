@@ -37,8 +37,11 @@ async function chooseAccount(
       const labels = accounts.map(
         (a, i) => a.displayName || a.name || `Account ${i + 1}`,
       );
-      const { response } = await showMessageBox({ buttons: [...labels, "Cancel"] });
-      chosen = response < labels.length ? accounts[response]!.credentialId : null;
+      const { response } = await showMessageBox({
+        buttons: [...labels, "Cancel"],
+      });
+      chosen =
+        response < labels.length ? accounts[response]!.credentialId : null;
     }
   } catch {
     chosen = null;
@@ -53,7 +56,11 @@ describe("passkey account chooser", () => {
   it("answers a single credential directly, with no dialog", async () => {
     const cb = vi.fn();
     const box = vi.fn();
-    await chooseAccount({ ...rp, accounts: [{ credentialId: "only" }] }, cb, box);
+    await chooseAccount(
+      { ...rp, accounts: [{ credentialId: "only" }] },
+      cb,
+      box,
+    );
     expect(box).not.toHaveBeenCalled();
     expect(cb).toHaveBeenCalledExactlyOnceWith("only");
   });
@@ -79,7 +86,9 @@ describe("passkey account chooser", () => {
     const cb = vi.fn();
     // Declare the parameter: an argument-less `vi.fn` types `mock.calls` as an
     // empty tuple, so reading calls[0][0] fails to compile even though it runs.
-    const box = vi.fn(async (_opts: { buttons: string[] }) => ({ response: 0 }));
+    const box = vi.fn(async (_opts: { buttons: string[] }) => ({
+      response: 0,
+    }));
     await chooseAccount(
       {
         ...rp,

@@ -9,7 +9,9 @@ import { makeFakeSender } from "@/headless/fake-sender";
 
 describe("parseAutomationOutcome", () => {
   it("maps the NOTHING_TO_REPORT sentinel", () => {
-    expect(parseAutomationOutcome("I checked everything.\n\nNOTHING_TO_REPORT")).toEqual({
+    expect(
+      parseAutomationOutcome("I checked everything.\n\nNOTHING_TO_REPORT"),
+    ).toEqual({
       status: "nothing-to-report",
       summary: null,
     });
@@ -30,7 +32,10 @@ describe("parseAutomationOutcome", () => {
   });
 
   it("handles empty/null output", () => {
-    expect(parseAutomationOutcome(null)).toEqual({ status: "ok", summary: null });
+    expect(parseAutomationOutcome(null)).toEqual({
+      status: "ok",
+      summary: null,
+    });
   });
 });
 
@@ -59,9 +64,9 @@ describe("AutomationInputSchema run modes", () => {
     // state it. Cheap to change afterwards; never assumed up front.
     const { notifyAgent: _omitted, ...withoutNotifyAgent } = base;
     expect(() => AutomationInputSchema.parse(withoutNotifyAgent)).toThrow();
-    expect(AutomationInputSchema.parse({ ...base, notifyAgent: true }).notifyAgent).toBe(
-      true,
-    );
+    expect(
+      AutomationInputSchema.parse({ ...base, notifyAgent: true }).notifyAgent,
+    ).toBe(true);
     expect(AutomationInputSchema.parse(base).notifyAgent).toBe(false);
   });
 
@@ -76,7 +81,11 @@ describe("AutomationInputSchema run modes", () => {
       AutomationInputSchema.parse({ ...base, runMode: "read-only" }),
     ).toThrow(/need a prompt/);
     expect(
-      AutomationInputSchema.parse({ ...base, runMode: "read-only", prompt: "audit" }).prompt,
+      AutomationInputSchema.parse({
+        ...base,
+        runMode: "read-only",
+        prompt: "audit",
+      }).prompt,
     ).toBe("audit");
   });
 });
@@ -89,7 +98,11 @@ describe("automationAutoApprove", () => {
       const calls: Array<{ operationId: string; approvalMode?: string }> = [];
       const executePermission = async (
         _event: unknown,
-        args: { chatId: number; operationId: string; approvalMode?: "once" | "deny" },
+        args: {
+          chatId: number;
+          operationId: string;
+          approvalMode?: "once" | "deny";
+        },
       ) => {
         calls.push(args);
         return { success: true };

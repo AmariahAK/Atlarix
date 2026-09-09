@@ -384,9 +384,9 @@ describe("readSettings", () => {
 
       const result = readSettings();
 
-      expect(result.aiConfiguration?.contextSummarization?.summarizationModel).toBe(
-        "same",
-      );
+      expect(
+        result.aiConfiguration?.contextSummarization?.summarizationModel,
+      ).toBe("same");
       expect(result.aiConfiguration?.selfReview?.reviewModel).toBe("same");
       expect(result.aiConfiguration?.guided?.agentModel).toBe("same");
     });

@@ -81,7 +81,9 @@ describe("consolidateSubagentRoundsInThread", () => {
       round("subagent-round", [agent("a"), agent("b")], 10),
       round("turn-42", [agent("c")], 20),
     ]);
-    const ids = roundsIn(merged)[0]!.agents.map((a) => a.id).sort();
+    const ids = roundsIn(merged)[0]!
+      .agents.map((a) => a.id)
+      .sort();
     expect(ids).toEqual(["a", "b", "c"]);
   });
 
@@ -90,10 +92,11 @@ describe("consolidateSubagentRoundsInThread", () => {
       round("subagent-round", [agent("a")], 10),
       round("turn-42", [agent("a"), agent("b")], 20),
     ]);
-    expect(roundsIn(merged)[0]!.agents.map((a) => a.id).sort()).toEqual([
-      "a",
-      "b",
-    ]);
+    expect(
+      roundsIn(merged)[0]!
+        .agents.map((a) => a.id)
+        .sort(),
+    ).toEqual(["a", "b"]);
   });
 
   it("adopts the id of the round that still has a RUNNING agent", () => {
@@ -129,10 +132,9 @@ describe("consolidateSubagentRoundsInThread", () => {
       thought("t2", 3),
       round("r2", [agent("b")], 4),
     ]);
-    expect(merged.filter((i) => i.kind === "thought").map((i) => i.id)).toEqual([
-      "t1",
-      "t2",
-    ]);
+    expect(merged.filter((i) => i.kind === "thought").map((i) => i.id)).toEqual(
+      ["t1", "t2"],
+    );
   });
 
   it("moves the merged round to the END — documented, because it reorders", () => {

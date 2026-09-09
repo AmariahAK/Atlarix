@@ -26,11 +26,7 @@ afterAll(async () => {
 
 describe("session delete cleanup", () => {
   it("prunes the ephemeral chat and returns the transport id", async () => {
-    ctx.server.register(
-      scenario("delete-cleanup")
-        .text("Stored.")
-        .build(),
-    );
+    ctx.server.register(scenario("delete-cleanup").text("Stored.").build());
 
     const chatId = await ctx.newChat();
     const { fakeIpc } = await runTurn(ctx, {

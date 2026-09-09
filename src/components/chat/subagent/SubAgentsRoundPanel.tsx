@@ -1,7 +1,10 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronUp, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { SubAgentRunEntry, StreamThreadToolStatus } from "@/lib/chat/stream-thread";
+import type {
+  SubAgentRunEntry,
+  StreamThreadToolStatus,
+} from "@/lib/chat/stream-thread";
 import { SubAgentRunCard } from "./SubAgentRunCard";
 import {
   streamCardScrollBody,
@@ -67,7 +70,12 @@ export function SubAgentsRoundPanel({
   const expanded = userToggled ?? !(allSettled && !isStreaming);
 
   return (
-    <div className={cn(streamToolCardShell, "rounded-lg border my-1.5 overflow-hidden")}>
+    <div
+      className={cn(
+        streamToolCardShell,
+        "rounded-lg border my-1.5 overflow-hidden",
+      )}
+    >
       <button
         type="button"
         className={cn(streamToolCardButton, "w-full cursor-pointer text-left")}
@@ -83,9 +91,19 @@ export function SubAgentsRoundPanel({
           </span>
         ) : null}
         {expanded ? (
-          <ChevronUp className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground", status !== "running" && "ml-auto")} />
+          <ChevronUp
+            className={cn(
+              "h-3.5 w-3.5 shrink-0 text-muted-foreground",
+              status !== "running" && "ml-auto",
+            )}
+          />
         ) : (
-          <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground", status !== "running" && "ml-auto")} />
+          <ChevronDown
+            className={cn(
+              "h-3.5 w-3.5 shrink-0 text-muted-foreground",
+              status !== "running" && "ml-auto",
+            )}
+          />
         )}
       </button>
       {expanded ? (

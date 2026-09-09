@@ -9,7 +9,10 @@ interface AtlarixThinkProps {
   children?: React.ReactNode;
 }
 
-export const AtlarixThink: React.FC<AtlarixThinkProps> = ({ children, node }) => {
+export const AtlarixThink: React.FC<AtlarixThinkProps> = ({
+  children,
+  node,
+}) => {
   const state = node?.properties?.state as CustomTagState;
   const inProgress = state === "pending";
   // Default to collapsed - user can expand if they want to see the thought
@@ -19,14 +22,14 @@ export const AtlarixThink: React.FC<AtlarixThinkProps> = ({ children, node }) =>
   const tokenSavingsMatch =
     typeof children === "string"
       ? children.match(
-        /^atlarix-token-savings\?original-tokens=([0-9.]+)&smart-context-tokens=([0-9.]+)$/,
-      )
+          /^atlarix-token-savings\?original-tokens=([0-9.]+)&smart-context-tokens=([0-9.]+)$/,
+        )
       : null;
 
   // Get preview text (first 100 chars) for collapsed state
   const getPreviewText = () => {
     if (typeof children === "string") {
-      const text = children.replace(/[#*`]/g, '').trim();
+      const text = children.replace(/[#*`]/g, "").trim();
       return text.length > 100 ? text.substring(0, 100) + "..." : text;
     }
     return "Click to view thought process...";
@@ -46,8 +49,9 @@ export const AtlarixThink: React.FC<AtlarixThinkProps> = ({ children, node }) =>
 
   return (
     <div
-      className={`relative bg-(--background-lightest) dark:bg-zinc-900 hover:bg-(--background-lighter) rounded-lg px-4 py-2 border my-2 cursor-pointer ${inProgress ? "border-purple-500 animate-pulse" : "border-border"
-        }`}
+      className={`relative bg-(--background-lightest) dark:bg-zinc-900 hover:bg-(--background-lighter) rounded-lg px-4 py-2 border my-2 cursor-pointer ${
+        inProgress ? "border-purple-500 animate-pulse" : "border-border"
+      }`}
       onClick={() => setIsExpanded(!isExpanded)}
       role="button"
       aria-expanded={isExpanded}

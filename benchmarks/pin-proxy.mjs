@@ -43,17 +43,34 @@ const UPSTREAM = "https://openrouter.ai/api"; // request path already carries /v
 //     on price.
 //   minimax/minimax-m3       -> MiniMax fp8 ($0.30/$1.20), first-party, 4/4 clean.
 const PINS = {
-  "deepseek/deepseek-v4-pro": { order: ["gmicloud/fp8"], allow_fallbacks: false, quantizations: ["fp8"] },
-  "minimax/minimax-m3": { order: ["minimax/fp8"], allow_fallbacks: false, quantizations: ["fp8"] },
+  "deepseek/deepseek-v4-pro": {
+    order: ["gmicloud/fp8"],
+    allow_fallbacks: false,
+    quantizations: ["fp8"],
+  },
+  "minimax/minimax-m3": {
+    order: ["minimax/fp8"],
+    allow_fallbacks: false,
+    quantizations: ["fp8"],
+  },
 };
 
 const HOP_BY_HOP = new Set([
-  "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
-  "te", "trailer", "transfer-encoding", "upgrade", "content-length", "content-encoding",
+  "connection",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+  "content-length",
+  "content-encoding",
 ]);
 
 let reqCount = 0;
-const log = (o) => console.log(JSON.stringify({ t: new Date().toISOString(), ...o }));
+const log = (o) =>
+  console.log(JSON.stringify({ t: new Date().toISOString(), ...o }));
 
 const server = http.createServer(async (req, res) => {
   const id = ++reqCount;
@@ -62,8 +79,11 @@ const server = http.createServer(async (req, res) => {
     for await (const c of req) chunks.push(c);
     let bodyBuf = Buffer.concat(chunks);
 
-    const isChat = req.method === "POST" && /\/chat\/completions\/?$/.test(req.url.split("?")[0]);
-    let pinned = null, model = null;
+    const isChat =
+      req.method === "POST" &&
+      /\/chat\/completions\/?$/.test(req.url.split("?")[0]);
+    let pinned = null,
+      model = null;
     if (isChat && bodyBuf.length) {
       let body;
       try {
@@ -82,7 +102,15 @@ const server = http.createServer(async (req, res) => {
       }
       bodyBuf = Buffer.from(JSON.stringify(body));
     }
-    log({ id, event: "request", method: req.method, url: req.url, model, pinned, injected: !!pinned });
+    log({
+      id,
+      event: "request",
+      method: req.method,
+      url: req.url,
+      model,
+      pinned,
+      injected: !!pinned,
+    });
 
     const headers = {
       authorization: `Bearer ${KEY}`,
@@ -116,9 +144,14 @@ const server = http.createServer(async (req, res) => {
     log({ id, event: "response", status: upstream.status });
   } catch (e) {
     log({ id, event: "error", err: String(e && e.stack ? e.stack : e) });
-    if (!res.headersSent) res.writeHead(502, { "content-type": "application/json" });
-    res.end(`{"error":"pin-proxy upstream error: ${String(e).replace(/"/g, "'")}"}`);
+    if (!res.headersSent)
+      res.writeHead(502, { "content-type": "application/json" });
+    res.end(
+      `{"error":"pin-proxy upstream error: ${String(e).replace(/"/g, "'")}"}`,
+    );
   }
 });
 
-server.listen(PORT, "0.0.0.0", () => log({ event: "listening", port: PORT, pins: Object.keys(PINS) }));
+server.listen(PORT, "0.0.0.0", () =>
+  log({ event: "listening", port: PORT, pins: Object.keys(PINS) }),
+);

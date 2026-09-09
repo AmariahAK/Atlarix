@@ -42,7 +42,9 @@ import { ATLARIX_CO_AUTHOR_TRAILER } from "@/ipc/utils/git_author";
  * git policy) because it is driven by the `includeAtlarixCoAuthor` setting, and
  * tool descriptions are fixed at registration.
  */
-export function getCommitAuthoringNote(includeCoAuthorTrailer: boolean): string {
+export function getCommitAuthoringNote(
+  includeCoAuthorTrailer: boolean,
+): string {
   const base =
     "When you create git commits, let the user's own git config author them — do not pass `--author` or set `user.name`/`user.email`. Never change the user's git config.";
   if (!includeCoAuthorTrailer) return base;
@@ -200,10 +202,11 @@ Whatever a sub-agent returns — an architect's draft, a scout's findings, web r
   }
 }
 
-export type RenderModePromptBundleOptions = RenderActiveModeToolsRegistryOptions & {
-  /** When true (default), add the co-author trailer guidance to the git note (Build/Debug only). */
-  includeCoAuthorTrailer?: boolean;
-};
+export type RenderModePromptBundleOptions =
+  RenderActiveModeToolsRegistryOptions & {
+    /** When true (default), add the co-author trailer guidance to the git note (Build/Debug only). */
+    includeCoAuthorTrailer?: boolean;
+  };
 
 /** Single active-mode block: header + work_mode + tools_registry + git note. */
 export function renderModePromptBundle(
@@ -226,13 +229,17 @@ export function renderModePromptBundle(
     // never touches the browser. That also fixes it structurally rather than by
     // deleting information: `browser_test` guidance rides browser_test, so it is
     // only ever shown to a mode that actually has it.
-    canCommit ? getCommitAuthoringNote(opts?.includeCoAuthorTrailer !== false) : "",
+    canCommit
+      ? getCommitAuthoringNote(opts?.includeCoAuthorTrailer !== false)
+      : "",
   ]
     .filter((s) => s.length > 0)
     .join("\n\n");
 }
 
 /** Tools that imply web research rules in the stable header. */
-export function modeAllowlistIncludesWebResearch(mode: ModeRegistryKey): boolean {
+export function modeAllowlistIncludesWebResearch(
+  mode: ModeRegistryKey,
+): boolean {
   return mode === "ask" || mode === "build" || mode === "plan";
 }

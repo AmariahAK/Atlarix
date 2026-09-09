@@ -12,7 +12,11 @@ export function fenceDelimiter(
 ): { char: string; len: number; info: string } | null {
   const m = /^ {0,3}(`{3,}|~{3,})[ \t]*(.*)$/.exec(line);
   if (!m || m[1] === undefined) return null;
-  return { char: m[1][0] as string, len: m[1].length, info: (m[2] ?? "").trim() };
+  return {
+    char: m[1][0] as string,
+    len: m[1].length,
+    info: (m[2] ?? "").trim(),
+  };
 }
 
 /**
@@ -23,7 +27,10 @@ export function fenceDelimiter(
  * treated as content, not a delimiter. Keeps line/blank-line/JSON strippers
  * from corrupting code the model wrote on purpose.
  */
-export function mapOutsideFences(content: string, fn: (s: string) => string): string {
+export function mapOutsideFences(
+  content: string,
+  fn: (s: string) => string,
+): string {
   if (!content) return "";
   const lines = content.split("\n");
   const out: string[] = [];
@@ -57,7 +64,9 @@ export function mapOutsideFences(content: string, fn: (s: string) => string): st
 }
 
 /** Strip hallucinated Atlarix tool XML from a streaming text-delta (no trim). */
-export function stripHallucinatedAtlarixToolTagsFromDelta(text: string): string {
+export function stripHallucinatedAtlarixToolTagsFromDelta(
+  text: string,
+): string {
   if (!text) return "";
   let out = text;
   out = out.replace(/<\/?atlarix-tool_calls\b[^>]*>/gi, "");
@@ -115,7 +124,10 @@ const ORPHAN_TAIL_KEYS =
 export function stripOrphanToolResultTail(content: string): string {
   if (!content) return "";
   return content.replace(
-    new RegExp(`"?,?\\s*"(?:${ORPHAN_TAIL_KEYS})"\\s*:\\s*"[^"]*"[^{}\\n]*\\}`, "gi"),
+    new RegExp(
+      `"?,?\\s*"(?:${ORPHAN_TAIL_KEYS})"\\s*:\\s*"[^"]*"[^{}\\n]*\\}`,
+      "gi",
+    ),
     "",
   );
 }
@@ -150,7 +162,8 @@ export function isToolJsonLine(line: string): boolean {
   try {
     const o = JSON.parse(t) as Record<string, unknown>;
     if (!o || typeof o !== "object") return false;
-    if ("success" in o && ("result" in o || "error" in o || "message" in o)) return true;
+    if ("success" in o && ("result" in o || "error" in o || "message" in o))
+      return true;
     if ("focus_path" in o || "max_depth" in o) return true;
     if ("path" in o && typeof o.path === "string" && !("content" in o)) {
       const keys = Object.keys(o);
@@ -204,14 +217,11 @@ function findJsonObjectEnd(text: string, start: number): number | null {
 }
 
 /** True when parsed object looks like ToolRegistry `{ success, result?, cost? }`. */
-export function isToolResultEnvelopeObject(o: Record<string, unknown>): boolean {
+export function isToolResultEnvelopeObject(
+  o: Record<string, unknown>,
+): boolean {
   if (!("success" in o)) return false;
-  return (
-    "result" in o ||
-    "error" in o ||
-    "message" in o ||
-    "cost" in o
-  );
+  return "result" in o || "error" in o || "message" in o || "cost" in o;
 }
 
 /** Parse a substring as a tool result envelope, if applicable. */
@@ -272,7 +282,8 @@ export function stripMultilineToolJsonEnvelopes(content: string): string {
       // Unterminated. If it opens like tool JSON the model echoed a result and
       // got cut off — drop the remainder rather than rendering a mid-JSON
       // fragment. Otherwise it's ordinary prose containing a brace: keep it.
-      if (!opensLikeToolResultJson(content.slice(brace))) out += content.slice(brace);
+      if (!opensLikeToolResultJson(content.slice(brace)))
+        out += content.slice(brace);
       break;
     }
     const slice = content.slice(brace, end);
@@ -298,7 +309,9 @@ export function stripMultilineToolJsonEnvelopes(content: string): string {
 /** Split text into markdown spans and bare tool JSON envelopes (in order). */
 export function splitByToolResultEnvelopes(
   content: string,
-): Array<{ kind: "markdown"; text: string } | { kind: "envelope"; raw: string }> {
+): Array<
+  { kind: "markdown"; text: string } | { kind: "envelope"; raw: string }
+> {
   if (!content) return [];
   const out: Array<
     { kind: "markdown"; text: string } | { kind: "envelope"; raw: string }
@@ -462,7 +475,9 @@ export function extractVisibleAnswerMarkdown(raw: string): string {
 /** Sanitize markdown segments shown in the chat bubble. */
 export function sanitizeMarkdownForDisplay(content: string): string {
   if (!content) return "";
-  const cleaned = stripOrphanToolTagFragments(stripTextEmittedToolCallBlocks(content));
+  const cleaned = stripOrphanToolTagFragments(
+    stripTextEmittedToolCallBlocks(content),
+  );
   // Fence-aware envelope strip (mirrors stripOrphanToolTagFragments): a real
   // `{ "success": true, "result": … }` example inside a code fence must survive.
   return mapOutsideFences(cleaned, stripMultilineToolJsonEnvelopes).trim();

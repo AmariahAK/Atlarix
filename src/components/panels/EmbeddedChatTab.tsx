@@ -36,14 +36,15 @@ export function EmbeddedChatTab() {
 
   const handleContinueChat = useCallback(
     async (prompt: string, attachments?: FileAttachment[]) => {
-      if (!activeChatId || (!prompt.trim() && (attachments?.length ?? 0) === 0)) return;
+      if (!activeChatId || (!prompt.trim() && (attachments?.length ?? 0) === 0))
+        return;
       try {
         const chat = await IpcClient.getInstance().getChat(activeChatId);
         if (chat.appId != null) {
           const app = await IpcClient.getInstance().getApp(chat.appId);
           if (app.pathExists === false) {
             showError(
-              "Workspace folder not found. It may have been moved or deleted. Remove it from the list and try again."
+              "Workspace folder not found. It may have been moved or deleted. Remove it from the list and try again.",
             );
             return;
           }
@@ -54,10 +55,14 @@ export function EmbeddedChatTab() {
           attachments: attachments ?? [],
         });
       } catch {
-        streamMessage({ prompt, chatId: activeChatId, attachments: attachments ?? [] });
+        streamMessage({
+          prompt,
+          chatId: activeChatId,
+          attachments: attachments ?? [],
+        });
       }
     },
-    [activeChatId, streamMessage]
+    [activeChatId, streamMessage],
   );
 
   const handleNewChat = useCallback(() => {
@@ -93,7 +98,9 @@ export function EmbeddedChatTab() {
     return (
       <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-6 text-center">
         <p className="text-sm">No active chat.</p>
-        <p className="text-xs mt-2">Start or select a chat from the main area.</p>
+        <p className="text-xs mt-2">
+          Start or select a chat from the main area.
+        </p>
       </div>
     );
   }

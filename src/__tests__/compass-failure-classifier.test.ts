@@ -11,7 +11,10 @@
  */
 import { describe, it, expect } from "vitest";
 import { classifyCompassFailure } from "@/lib/chat/compass-failure-classifier";
-import { CORE_EXHAUSTED_MARKER, CORE_REACHABILITY_MARKER } from "@/shared/billing_copy";
+import {
+  CORE_EXHAUSTED_MARKER,
+  CORE_REACHABILITY_MARKER,
+} from "@/shared/billing_copy";
 
 describe("classifyCompassFailure", () => {
   it("a 403 account_banned is a BAN, not an expired session", () => {
@@ -31,7 +34,10 @@ describe("classifyCompassFailure", () => {
   });
 
   it("402 insufficient_credit says top up, not banned", () => {
-    const { message } = classifyCompassFailure(402, '{"error":"insufficient_credit"}');
+    const { message } = classifyCompassFailure(
+      402,
+      '{"error":"insufficient_credit"}',
+    );
     // Asserted through the MARKER the error box matches on, not a hand-typed
     // phrase: this test previously pinned a substring of copy that lives in
     // another module, so rewording that copy failed here for a reason the
@@ -83,12 +89,18 @@ describe("classifyCompassFailure", () => {
 
   it("a ban never reads as insufficient credit, even at 402", () => {
     // Defence in depth: if a ban ever surfaced with a 402 status, the body still wins.
-    const { message } = classifyCompassFailure(402, '{"error":"account_banned"}');
+    const { message } = classifyCompassFailure(
+      402,
+      '{"error":"account_banned"}',
+    );
     expect(message).toContain("support@atlarix.dev");
   });
 
   it("503 core_unavailable is OUR problem", () => {
-    const { isCompassInfraError } = classifyCompassFailure(503, "core_unavailable");
+    const { isCompassInfraError } = classifyCompassFailure(
+      503,
+      "core_unavailable",
+    );
     expect(isCompassInfraError).toBe(true);
   });
 
@@ -102,7 +114,10 @@ describe("classifyCompassFailure", () => {
   });
 
   it("anything unrecognised degrades to reachability, flagged as ours", () => {
-    const { message, isCompassInfraError } = classifyCompassFailure(undefined, "");
+    const { message, isCompassInfraError } = classifyCompassFailure(
+      undefined,
+      "",
+    );
     expect(message).toContain(CORE_REACHABILITY_MARKER);
     expect(isCompassInfraError).toBe(true);
   });

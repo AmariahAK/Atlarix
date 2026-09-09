@@ -26,7 +26,9 @@ function arg(flag, fallback) {
 
 const predictions = process.argv[2];
 if (!predictions || predictions.startsWith("--")) {
-  console.error("Usage: node scripts/swebench-grade.mjs <predictions.jsonl> [--dataset <name>] [--split <split>] [--workers <n>]");
+  console.error(
+    "Usage: node scripts/swebench-grade.mjs <predictions.jsonl> [--dataset <name>] [--split <split>] [--workers <n>]",
+  );
   process.exit(1);
 }
 if (!fs.existsSync(predictions)) {
@@ -37,10 +39,15 @@ if (!fs.existsSync(predictions)) {
 const dataset = arg("--dataset", "princeton-nlp/SWE-bench_Lite");
 const split = arg("--split", "test");
 const workers = arg("--workers", "4");
-const runId = arg("--run-id", `atlarix-${new Date().toISOString().replace(/[:.]/g, "-")}`);
+const runId = arg(
+  "--run-id",
+  `atlarix-${new Date().toISOString().replace(/[:.]/g, "-")}`,
+);
 
 console.log(`[grade] predictions=${path.resolve(predictions)}`);
-console.log(`[grade] dataset=${dataset} split=${split} workers=${workers} run_id=${runId}`);
+console.log(
+  `[grade] dataset=${dataset} split=${split} workers=${workers} run_id=${runId}`,
+);
 console.log("[grade] invoking official swebench harness (Docker)…\n");
 
 const res = spawnSync(

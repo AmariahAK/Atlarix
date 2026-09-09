@@ -171,7 +171,7 @@ The default read is the UI hierarchy **as text** — every element with a refere
 hundred tokens — not a screenshot. A screenshot is thousands of tokens and answers fewer
 questions; it is there for when you genuinely need the image. Actions address elements by
 reference, never by coordinate: a coordinate is right for one screen size and taps empty
-space on every other, and it fails by *succeeding*, which is the worst way for a test to
+space on every other, and it fails by _succeeding_, which is the worst way for a test to
 fail.
 
 iOS is honest about what it cannot do. Screenshots and logs work; the hierarchy and input
@@ -223,7 +223,7 @@ trigger is disabled and tells you why, rather than sitting enabled and never fir
 
 **Two defects found while doing the above, both in the same seam.** Retired tool names are
 supposed to keep working, and the registry did map each old name to its new tool — but the
-code that dispatches a tool call checked the model's name against the list of *current*
+code that dispatches a tool call checked the model's name against the list of _current_
 tools first, so an old name died there as "Unknown tool" and the mapping was decoration.
 That is fixed. And once old names actually run, a permission rule you wrote against one had
 to keep biting: a rule denying `browser` now also stops the retired names, and a rule you
@@ -471,7 +471,7 @@ now applies only to deleting a session, never to reusing one. Existing stray ses
 up rather than accumulating.
 
 **`session_search` can now read the conversation you are in.** The new tool defaults to searching the
-current conversation, and that default did not work — it could only search *every* conversation in
+current conversation, and that default did not work — it could only search _every_ conversation in
 the project. Fixed, so the narrow, obvious thing the tool advertises is the thing it does.
 
 ## [14.38.4] (2026-08-29) — Sign-in works again, and signing out no longer leaves a window signed in
@@ -604,7 +604,6 @@ and the panel only decides whether you can see it.
 line about what changed and a link to the full changelog. It stays dismissed, and a new note brings
 it back — one note at a time, no badges, no counts.
 
-
 **Long conversations stop forgetting what they were for.** When a chat runs long enough to be
 summarized more than once, each new summary was rebuilt from a mangled copy of the previous one —
 flattened onto a single line and cut off partway through, which reliably threw away the sections
@@ -717,7 +716,7 @@ all. Now it asks which account you want, and a security key with several credent
 
 **And when a site asks for a passkey Atlarix can't provide, it tells you what will work.** Atlarix's
 browser has no authenticator of its own on any platform, so a site asking specifically for a passkey
-*stored on this device* can't be satisfied here. Instead of a silent wait you now get a note saying
+_stored on this device_ can't be satisfied here. Instead of a silent wait you now get a note saying
 to choose "use a phone or tablet" and scan the QR code with the device your passkey is on, or to use
 a security key. Both of those go through the browser normally, and the passkey on your phone is the
 same one you set up elsewhere.
@@ -726,7 +725,7 @@ same one you set up elsewhere.
 was very likely finding nothing — not fewer results, none. The free services it fell back on have
 quietly stopped being usable for this: one of them only ever returned encyclopaedia summaries rather
 than search results, and the rest now refuse requests that don't come from a real browser. Atlarix
-*is* a real browser, so it now searches with the one it already ships, invisibly and in the
+_is_ a real browser, so it now searches with the one it already ships, invisibly and in the
 background. On three ordinary programming questions that previously returned nothing at all, it
 returned 24, 29 and 25 results. This is not the AI browsing on your behalf and it never opens a tab
 you can see — it is the search underneath, doing what it always claimed to.
@@ -813,7 +812,7 @@ are now unconditional.
 
 **The Plan panel says which plan it is showing, and lets you switch.** A session can hold several
 plans, but the panel only ever showed the newest one — so one plan was presented as though it were
-*the* plan, with nothing on screen saying the others existed. There is now a list at the top when a
+_the_ plan, with nothing on screen saying the others existed. There is now a list at the top when a
 session has more than one, and picking an older one keeps it on screen: Atlarix starting work on a
 different plan no longer yanks the panel away from what you were reading. Choosing "Latest" hands it
 back to following along.
@@ -827,13 +826,13 @@ a step it cannot uniquely identify.
 each mark rewrote the whole plan from a copy read moments earlier, so the last one to finish erased
 the others and those steps reverted to unstarted. Marking a step could also be refused outright when
 its text contained formatting (bold, backticks, a symbol like ×), because the match had to be
-character-for-character. And a plan whose steps were all *in progress* displayed as "0 of 6 done"
+character-for-character. And a plan whose steps were all _in progress_ displayed as "0 of 6 done"
 with no mention of the six underway, which is indistinguishable from a plan that has been wiped.
 Together those three made Atlarix distrust its own checklist: it would conclude the tracker was
 broken, rewrite the plan from scratch, and lose the record of what it had already finished.
 
 The last piece of the same problem: on a long task Atlarix works in several passes, and at the start
-of each new pass it was handed the step counts from the *beginning* of the whole task rather than
+of each new pass it was handed the step counts from the _beginning_ of the whole task rather than
 the current ones. So it could tick three steps, then immediately be told only one was done, and
 start arguing with a stale number instead of carrying on.
 
@@ -902,11 +901,11 @@ turn ends, so one click can never become a standing grant.
   sessions, and nothing on disk changes. The stronger warning is kept for the one case that really
   does delete a folder, and it now shows you the path. Both use an in-app dialog rather than the
   system pop-up that looked like an OS warning.
-- Fixed: on Windows, removing a workspace that Atlarix itself created showed the *reassuring*
+- Fixed: on Windows, removing a workspace that Atlarix itself created showed the _reassuring_
   message and then deleted the folder anyway.
 
 **Atlarix can now QA its own work.** After building something, it can hand a worker the
-requirement and the URL — deliberately *not* the diff — and have it go exercise the running app
+requirement and the URL — deliberately _not_ the diff — and have it go exercise the running app
 independently. It gets a real terminal and the real browser, because running the thing is the
 whole point: a tester that has to ask someone else to run each command is not testing, it is
 writing a script. What it cannot do is change anything. It has no ability to edit files, and every
@@ -914,8 +913,8 @@ command it runs is confined by the operating system to reading only, so it can r
 and hit your API but cannot touch your repo.
 
 It reports what it saw, with the evidence: a status code, a console line, a log excerpt. Finding
-nothing is a real result and it is allowed to say so — *"exercised these three things, all
-worked"* is a complete answer. "Broken" and "couldn't reach it" stay separate, because they are
+nothing is a real result and it is allowed to say so — _"exercised these three things, all
+worked"_ is a complete answer. "Broken" and "couldn't reach it" stay separate, because they are
 different problems. Everything it reports is a claim Atlarix then reproduces before acting on it,
 the same way it already reviews a sub-agent's proposed code changes.
 
@@ -950,13 +949,13 @@ settings change in one window was never announced to the others. It read like a 
 and it was not.
 
 A turn now carries the mode it started in, from beginning to end. This was not one bug but five
-places that each re-derived the mode from global settings; the worst of them gave *unattended
-automations* Build-mode tool access whenever your saved preference happened to be Build.
+places that each re-derived the mode from global settings; the worst of them gave _unattended
+automations_ Build-mode tool access whenever your saved preference happened to be Build.
 
 **Plans have real names again.** A plan's title used to be spliced into its markdown and scraped
 back out, and the splice was skipped whenever the plan body opened with a heading. Since most
 models open a plan with `## Goal`, most plans lost the name the model gave them and displayed as
-*"Goal"*. Titles are now stored, required when a plan is created, and shown in the Plan panel — so
+_"Goal"_. Titles are now stored, required when a plan is created, and shown in the Plan panel — so
 a session with several plans says which one you are looking at.
 
 **Every mode now shows the model a smaller tool surface.** Tool instructions had grown to roughly
@@ -972,7 +971,7 @@ not know to go looking for more.
   error message printed that id and told the model to use it, then refused it.
 - Marking a plan step done no longer silently does nothing when the model appends a stray
   character to the step text.
-- The Plan panel drops its *Add step* and *Mark built* buttons: both did what asking the agent
+- The Plan panel drops its _Add step_ and _Mark built_ buttons: both did what asking the agent
   already does, and a hand-set status is a state the agent never agreed to.
 
 ## [14.33.0] (2026-08-17) — Automations that actually tell the agent
@@ -990,7 +989,7 @@ sub-agents already did.
 
 Automations still never interrupt you. A finished run waits for the next thing you ask rather
 than starting a turn on its own — an automation cannot decide to spend your credits while you are
-not looking, which is what the *notify the agent* switch has always been for.
+not looking, which is what the _notify the agent_ switch has always been for.
 
 **Atlarix can now run an automation on demand.** Ask it to try the automation it just set up and
 it will fire that one immediately instead of waiting for the schedule, so you find out it works
@@ -1010,7 +1009,7 @@ release.** The browser fixes all came from using them; the other four came from 
 of ten "worth looking at" items and finding that six of them were already handled.
 
 **A scanned PDF is now readable.** Attached PDFs were always converted to text locally, which works
-for a text document and produces *nothing at all* for a scan or a photographed page — the agent
+for a text document and produces _nothing at all_ for a scan or a photographed page — the agent
 would tell you it couldn't read it. Models that accept documents natively now receive the PDF
 itself, so scans, tables and multi-column layouts come through. Everything else is unchanged: if
 your model doesn't take documents, the text extraction runs exactly as before. Which models qualify
@@ -1038,7 +1037,7 @@ restarted 84 times in six minutes, the app beachballed, and the chat filled with
 responses; closing the second window fixed it. Each restart also killed the turn before it
 could finish, so it never recovered on its own.
 
-Every window was listening for *every* chat's background jobs, but each could only see its
+Every window was listening for _every_ chat's background jobs, but each could only see its
 own view of what was running — so a window with no knowledge of a chat concluded nothing was
 happening there and restarted it. That decision now happens in one place that can see all
 windows. Multiple windows, multiple projects and multiple concurrent sessions work as
@@ -1046,7 +1045,7 @@ intended. Pressing **Stop** is also now respected across windows: another window
 longer resume a chat you just stopped.
 
 **"Always allow" now means it.** If the agent queued several file changes at once, choosing
-*Always allow this file* / *this folder* / *this extension* on one of them left all the others
+_Always allow this file_ / _this folder_ / _this extension_ on one of them left all the others
 still asking — the rule was saved, but nothing went back for the changes already waiting. It
 now clears every queued change the new rule covers, and says how many in one line rather than
 another pile of cards. Denials are never applied this way: if you're part-way through a batch,
@@ -1054,7 +1053,7 @@ nothing gets silently rejected.
 
 **Approvals no longer scroll out of sight.** A bar above the message box shows what's waiting
 for as long as something is, so a long turn can't bury the approval you're being asked for.
-The cards stay in the conversation where the diffs are — *Review* jumps you to them.
+The cards stay in the conversation where the diffs are — _Review_ jumps you to them.
 
 **The agent gets better guidance when an edit doesn't apply.** It was being told its text had
 to match "exactly, whitespace included" — which was never true, since spacing is already
@@ -1063,7 +1062,7 @@ difference, which in practice was usually content belonging to a similarly-named
 told what actually went wrong.
 
 **Finding a workspace.** Past five projects the Recent workspaces list gains a search box and
-scrolls — searching names *and* paths, so two checkouts of the same repo are still tellable
+scrolls — searching names _and_ paths, so two checkouts of the same repo are still tellable
 apart. Below five it's unchanged, since the whole list is already in front of you.
 
 **Reopening a session no longer hijacks the side panel.** It used to jump to the Plan tab and
@@ -1076,10 +1075,10 @@ Console and Network do.
 
 - **Sending Console or Network output adds an attachment, not a wall of text.** It used to paste
   every line straight into your message box on top of whatever you were typing. Anything substantial
-  now arrives as a named chip — *Network · github.com · 43 requests* — that you can see, remove, and
+  now arrives as a named chip — _Network · github.com · 43 requests_ — that you can see, remove, and
   keep while editing the message. Short sends still go inline.
 - **One card per page, not per tab.** A tab you'd navigated from YouTube to GitHub showed a single
-  card *titled* "github.com" that also contained YouTube's output — and "Send to Atlarix" on it sent
+  card _titled_ "github.com" that also contained YouTube's output — and "Send to Atlarix" on it sent
   both. Each page load is now its own card, named after the page that actually produced it, so
   sending one sends only that page. Navigating still clears nothing.
 - **The Network tab gained the page boundary it never had.** Console at least drew a divider;
@@ -1093,7 +1092,7 @@ worth building.
 
 **Nothing the browser sees can end a turn any more.** Until now, a failed request or a console error
 in a page could stop the agent from finishing and nag it to fix what it found. The problem is that
-Atlarix cannot tell *whose* error it is. A frontend on `:5173` calling its own API on `:8080` is one
+Atlarix cannot tell _whose_ error it is. A frontend on `:5173` calling its own API on `:8080` is one
 app across two origins. A staging URL is the app you are testing. An embedded payment script is
 someone else's code until the day it is yours. Every rule we could write is wrong in one direction
 or the other — and in practice it went wrong in the expensive direction: the agent opened YouTube
@@ -1111,7 +1110,7 @@ nothing at all.
   YouTube did and what GitHub did can never be read as the same thing. Bodies are fetched only when
   you ask for one, and if the browser has already discarded it the tab says so rather than showing
   you an empty box.
-- **You decide what the agent looks at.** *Send to Atlarix* on a single row, on a whole tab, or on
+- **You decide what the agent looks at.** _Send to Atlarix_ on a single row, on a whole tab, or on
   everything currently shown — it is added to your message box behind a separator, so it never eats
   what you were already typing. Unread badges on Console and Network tell you something arrived
   without interrupting you.
@@ -1147,7 +1146,7 @@ which, it turns out, was every machine that ever tried. The previous release doc
 as a hardware limitation of "some GPUs". That was wrong twice over.
 
 What actually happened: ONNX Runtime's default graph optimizations crash on Whisper's merged
-*int8* decoder, so the CPU path could never build a session **on any platform, including
+_int8_ decoder, so the CPU path could never build a session **on any platform, including
 macOS**. Macs only looked fine because WebGPU works there and the CPU path was never reached.
 Windows and Linux machines without usable WebGPU hit it every single time — and, because
 nothing could recover from a failed session build, hit it again on every retry and every
@@ -1155,7 +1154,7 @@ restart.
 
 - **The model is now the same 4-bit variant on GPU and CPU.** No int8 anywhere, so the
   crashing optimization never runs. Transcripts are identical to before, and dictation on the
-  GPU is marginally *faster* than it was.
+  GPU is marginally _faster_ than it was.
 - **One download instead of two or three: ~285 MB, once.** Falling back from GPU to CPU used
   to fetch a completely different set of weights, so an affected machine downloaded ~800 MB
   before showing you an error. A fallback now re-downloads nothing.
@@ -1213,7 +1212,7 @@ code after v14.28.0 shipped, not from a user report, and both are Windows-only.
 
 **If you use Atlarix on Windows, agent commands involving git, bash, or most tools in
 `C:\Program Files` were failing.** The write-confining sandbox used AppContainer, which
-denies *reads* by default — the opposite of what it needed to do. `bash.exe` returned
+denies _reads_ by default — the opposite of what it needed to do. `bash.exe` returned
 "Access is denied" and git couldn't open `/dev/null`. It has been rebuilt on Windows'
 Mandatory Integrity Control (Low integrity level), which allows reads and execution while
 still confining writes to your workspace.
@@ -1270,7 +1269,7 @@ downloaded weights. If on-device transcription doesn't work for you, the BYOK en
 
 > **Superseded — fixed in v14.30.0, and the explanation above is wrong.** It was not the GPU
 > and not the 4-bit operator. ONNX Runtime's default graph optimizations crash on Whisper's
-> merged *int8* decoder, so the **CPU fallback** could never build a session on any platform —
+> merged _int8_ decoder, so the **CPU fallback** could never build a session on any platform —
 > including macOS, where it was simply never reached because WebGPU works there. See the
 > v14.30.0 notes.
 
@@ -1381,7 +1380,7 @@ the tabs were a second copy, and keeping them tidy had grown four special-case r
 timer. Removing them surfaced three real bugs: reading a background job's output returned nothing
 unless you happened to have the Terminal tab open, a request for 50 lines could return 900, and
 when the AI asked for output it already had, it was told to look at a list of terminals — a list
-that included *your* shells, which it had no business reading. Your own terminal tabs are
+that included _your_ shells, which it had no business reading. Your own terminal tabs are
 untouched, and now genuinely private.
 
 ## [14.26.0] (2026-08-05) — One engine for every file lookup, one answer per permission question

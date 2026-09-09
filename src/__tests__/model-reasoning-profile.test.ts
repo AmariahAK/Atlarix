@@ -41,7 +41,10 @@ const CATALOG = [
     modelId: "deepseek-v4-pro",
     profile: {
       reasoning: true,
-      options: [{ type: "toggle" }, { type: "effort", values: ["high", "max"] }],
+      options: [
+        { type: "toggle" },
+        { type: "effort", values: ["high", "max"] },
+      ],
     },
     supportsTemperature: true,
   },
@@ -56,7 +59,10 @@ const CATALOG = [
     modelId: "kimi-k3",
     profile: {
       reasoning: true,
-      options: [{ type: "toggle" }, { type: "effort", values: ["low", "high", "max"] }],
+      options: [
+        { type: "toggle" },
+        { type: "effort", values: ["low", "high", "max"] },
+      ],
     },
     // The live row: kimi-k3 does NOT accept a temperature parameter.
     supportsTemperature: false,
@@ -79,21 +85,23 @@ beforeEach(() => {
 
 describe("normalizedEffortValues", () => {
   it("orders and dedupes declared values", () => {
-    expect(normalizedEffortValues([{ type: "effort", values: ["max", "low", "high"] }])).toEqual([
-      "low",
-      "high",
-      "max",
-    ]);
+    expect(
+      normalizedEffortValues([
+        { type: "effort", values: ["max", "low", "high"] },
+      ]),
+    ).toEqual(["low", "high", "max"]);
   });
 
   it("maps provider 'xhigh' onto max", () => {
-    expect(normalizedEffortValues([{ type: "effort", values: ["xhigh"] }])).toEqual(["max"]);
+    expect(
+      normalizedEffortValues([{ type: "effort", values: ["xhigh"] }]),
+    ).toEqual(["max"]);
   });
 
   it("drops values outside the canonical ladder", () => {
-    expect(normalizedEffortValues([{ type: "effort", values: ["turbo", "high"] }])).toEqual([
-      "high",
-    ]);
+    expect(
+      normalizedEffortValues([{ type: "effort", values: ["turbo", "high"] }]),
+    ).toEqual(["high"]);
   });
 
   it("is empty when there is no effort channel", () => {
@@ -181,8 +189,13 @@ describe("resolveReasoningRequest — effort channel", () => {
       ["moonshot", "kimi-k3", ["low", "high", "max"]],
     ] as const) {
       for (const deepThinking of [true, false]) {
-        const req = resolveReasoningRequest({ providerId, modelId, deepThinking });
-        if (req.kind !== "effort") throw new Error("expected an effort request");
+        const req = resolveReasoningRequest({
+          providerId,
+          modelId,
+          deepThinking,
+        });
+        if (req.kind !== "effort")
+          throw new Error("expected an effort request");
         expect(allowed).toContain(req.effort);
       }
     }
@@ -193,13 +206,20 @@ describe("resolveReasoningRequest — effort channel", () => {
       {
         providerId: "x",
         modelId: "one-level",
-        profile: { reasoning: true, options: [{ type: "effort", values: ["high"] }] },
+        profile: {
+          reasoning: true,
+          options: [{ type: "effort", values: ["high"] }],
+        },
         supportsTemperature: true,
       },
     ]);
     for (const deepThinking of [true, false]) {
       expect(
-        resolveReasoningRequest({ providerId: "x", modelId: "one-level", deepThinking }),
+        resolveReasoningRequest({
+          providerId: "x",
+          modelId: "one-level",
+          deepThinking,
+        }),
       ).toEqual({ kind: "effort", effort: "high" });
     }
   });
@@ -302,13 +322,19 @@ describe("UI gating helpers", () => {
 
   it("hides the Deep toggle where it would do nothing", () => {
     // Reasons natively but exposes no control — a toggle would be a lie.
-    expect(hasMeaningfulReasoningControl("minimax", "MiniMax-M2.7")).toBe(false);
-    expect(hasMeaningfulReasoningControl("deepseek", "deepseek-chat")).toBe(false);
+    expect(hasMeaningfulReasoningControl("minimax", "MiniMax-M2.7")).toBe(
+      false,
+    );
+    expect(hasMeaningfulReasoningControl("deepseek", "deepseek-chat")).toBe(
+      false,
+    );
   });
 
   it("shows it where there is a real control", () => {
     expect(hasMeaningfulReasoningControl("minimax", "MiniMax-M3")).toBe(true);
-    expect(hasMeaningfulReasoningControl("deepseek", "deepseek-v4-pro")).toBe(true);
+    expect(hasMeaningfulReasoningControl("deepseek", "deepseek-v4-pro")).toBe(
+      true,
+    );
     expect(hasMeaningfulReasoningControl("qwen", "qwen3.7-max")).toBe(true);
   });
 });

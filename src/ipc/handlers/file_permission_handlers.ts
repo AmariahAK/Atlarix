@@ -143,7 +143,10 @@ export function registerFilePermissionHandlers(): void {
           `upsert failed app=${appId} type=${scopeType} value=${scopeValue}:`,
           e,
         );
-        return { success: false, error: "Couldn't save permission (storage may be full)." };
+        return {
+          success: false,
+          error: "Couldn't save permission (storage may be full).",
+        };
       }
       logger.log(
         `upsert app=${appId} type=${scopeType} value=${scopeValue} decision=${decision}`,
@@ -165,7 +168,11 @@ export function registerFilePermissionHandlers(): void {
       if (!appId || !scopeValue?.trim()) {
         return { success: false };
       }
-      const removed = revokeWorkspaceFilePermission(appId, scopeType, scopeValue);
+      const removed = revokeWorkspaceFilePermission(
+        appId,
+        scopeType,
+        scopeValue,
+      );
       return { success: removed };
     },
   );
@@ -201,11 +208,18 @@ export function registerFilePermissionHandlers(): void {
 
   ipcMain.handle(
     "file-permissions:grant-folder",
-    (_event: IpcMainInvokeEvent, { appId, path: rawPath }: { appId: number; path: string }) => {
+    (
+      _event: IpcMainInvokeEvent,
+      { appId, path: rawPath }: { appId: number; path: string },
+    ) => {
       const target = rawPath?.trim();
-      if (!appId || !target) return { success: false, error: "Invalid workspace or folder." };
+      if (!appId || !target)
+        return { success: false, error: "Invalid workspace or folder." };
       if (!nodePath.isAbsolute(target)) {
-        return { success: false, error: "Choose a folder using its full path." };
+        return {
+          success: false,
+          error: "Choose a folder using its full path.",
+        };
       }
       let resolved: string;
       try {
@@ -222,7 +236,10 @@ export function registerFilePermissionHandlers(): void {
         upsertSandboxWritablePath(appId, resolved);
       } catch (e) {
         logger.warn(`grant folder failed app=${appId} path=${resolved}:`, e);
-        return { success: false, error: "Couldn't save the grant (storage may be full)." };
+        return {
+          success: false,
+          error: "Couldn't save the grant (storage may be full).",
+        };
       }
       logger.log(`granted folder app=${appId} path=${resolved}`);
       return { success: true, path: resolved };
@@ -231,12 +248,17 @@ export function registerFilePermissionHandlers(): void {
 
   ipcMain.handle(
     "file-permissions:revoke-granted-folder",
-    (_event: IpcMainInvokeEvent, { appId, path: target }: { appId: number; path: string }) => {
+    (
+      _event: IpcMainInvokeEvent,
+      { appId, path: target }: { appId: number; path: string },
+    ) => {
       if (!appId || !target?.trim()) return { success: false };
       // Takes effect immediately: the interceptor re-reads this list per
       // outside-path write rather than caching it per session.
       const removed = revokeSandboxWritablePath(appId, target.trim());
-      logger.log(`revoked folder app=${appId} path=${target} removed=${removed}`);
+      logger.log(
+        `revoked folder app=${appId} path=${target} removed=${removed}`,
+      );
       return { success: removed };
     },
   );

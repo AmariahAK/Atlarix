@@ -44,7 +44,8 @@ import {
 } from "@/lib/agents/credit-halt";
 import { MAX_SUBAGENTS_PER_TURN } from "@/lib/agents/agent-runtime";
 
-const REFUSAL = "Your balance is used up. This turn needs at least $9.24 available.";
+const REFUSAL =
+  "Your balance is used up. This turn needs at least $9.24 available.";
 
 type Harness = {
   callTask: (n: number) => Promise<string>;

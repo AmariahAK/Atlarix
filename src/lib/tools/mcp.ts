@@ -79,7 +79,9 @@ function formatMcpError(
   return { error: err instanceof Error ? err.message : String(err) };
 }
 
-async function listConfiguredMcps(workspaceId: number | null | undefined): Promise<ListedMcpServer[]> {
+async function listConfiguredMcps(
+  workspaceId: number | null | undefined,
+): Promise<ListedMcpServer[]> {
   /**
    * MCP servers are per-workspace, full stop.
    *
@@ -108,7 +110,10 @@ async function listConfiguredMcps(workspaceId: number | null | undefined): Promi
   for (const s of servers) {
     try {
       const client = await mcpManager.getClient(s.id);
-      const toolSet = (await client.tools()) as Record<string, { description?: string }>;
+      const toolSet = (await client.tools()) as Record<
+        string,
+        { description?: string }
+      >;
       out.push({
         id: s.id,
         name: s.name,
@@ -190,11 +195,18 @@ ToolRegistry.register({
   parameters: {
     type: "object",
     properties: {
-      server: { type: "string", description: "MCP server name (from list_available_mcps)." },
-      tool: { type: "string", description: "Tool name within that server (from list_available_mcps)." },
+      server: {
+        type: "string",
+        description: "MCP server name (from list_available_mcps).",
+      },
+      tool: {
+        type: "string",
+        description: "Tool name within that server (from list_available_mcps).",
+      },
       arguments: {
         type: "object",
-        description: "Arguments object passed to the MCP tool (must match the tool's input schema).",
+        description:
+          "Arguments object passed to the MCP tool (must match the tool's input schema).",
       },
     },
     required: ["server", "tool"],
@@ -207,7 +219,10 @@ ToolRegistry.register({
     _mcpInvocationContext?: McpInvocationContext;
   }) => {
     if (!args.server || !args.tool) {
-      return { error: "mcp_call requires { server, tool }. Use list_available_mcps to discover both." };
+      return {
+        error:
+          "mcp_call requires { server, tool }. Use list_available_mcps to discover both.",
+      };
     }
 
     // Per-workspace only — see listConfiguredMcps. Without a workspace there is
@@ -246,7 +261,10 @@ ToolRegistry.register({
       const client = await mcpManager.getClient(server.id);
       const toolSet = (await client.tools()) as unknown as Record<
         string,
-        { description?: string; execute?: (a: unknown, c?: unknown) => Promise<unknown> }
+        {
+          description?: string;
+          execute?: (a: unknown, c?: unknown) => Promise<unknown>;
+        }
       >;
       const tool = toolSet[args.tool!];
       if (!tool || typeof tool.execute !== "function") {
@@ -264,12 +282,15 @@ ToolRegistry.register({
           inputPreview: JSON.stringify(args.arguments ?? {}).slice(0, 500),
         });
         if (!ok) {
-          return { error: `User declined running MCP tool ${server.name}/${args.tool}.` };
+          return {
+            error: `User declined running MCP tool ${server.name}/${args.tool}.`,
+          };
         }
       }
 
       const result = await tool.execute(args.arguments ?? {}, undefined);
-      const resultStr = typeof result === "string" ? result : JSON.stringify(result);
+      const resultStr =
+        typeof result === "string" ? result : JSON.stringify(result);
       return {
         server: server.name,
         tool: args.tool,
@@ -283,7 +304,9 @@ ToolRegistry.register({
       return {
         error: formatted.error,
         ...(formatted.needsOAuth ? { needsOAuth: true } : {}),
-        ...(formatted.authRequired ? { authRequired: formatted.authRequired } : {}),
+        ...(formatted.authRequired
+          ? { authRequired: formatted.authRequired }
+          : {}),
       };
     };
 

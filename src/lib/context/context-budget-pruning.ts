@@ -4,7 +4,10 @@
  */
 
 import { truncateToTokens } from "@/lib/truncate";
-import type { ContextSection, ContextSectionName } from "@/lib/context/ContextAssembler";
+import type {
+  ContextSection,
+  ContextSectionName,
+} from "@/lib/context/ContextAssembler";
 import type { ContextBudgetHealth } from "@/lib/context/context-budget-tracker";
 
 /**
@@ -84,7 +87,10 @@ export function pruneContextSectionsForBudget(
           return { ...section, content: "" };
         }
         if (health === "critical") {
-          return { ...section, content: truncateToTokens(section.content, 500) };
+          return {
+            ...section,
+            content: truncateToTokens(section.content, 500),
+          };
         }
         return { ...section };
       }
@@ -96,10 +102,10 @@ export function pruneContextSectionsForBudget(
         if (health === "critical") {
           return { ...section, content: firstParagraph(section.content) };
         }
-      return { ...section };
-    }
+        return { ...section };
+      }
 
-    return { ...section };
+      return { ...section };
     })
     .filter((s) => s.content.trim().length > 0 || PROTECTED_NAMES.has(s.name));
 }

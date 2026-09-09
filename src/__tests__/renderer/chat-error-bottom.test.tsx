@@ -123,7 +123,9 @@ describe("chat error banner placement (v11.1)", () => {
 
     expect(screen.getByTestId("chat-error-bottom")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
-    expect(screen.queryByText(/switch models using the selector below/i)).toBeNull();
+    expect(
+      screen.queryByText(/switch models using the selector below/i),
+    ).toBeNull();
     // And the figure the proxy sent reaches the user.
     expect(screen.getByText(/\$9\.24/)).toBeTruthy();
   });
@@ -133,7 +135,10 @@ describe("chat error banner placement (v11.1)", () => {
       <SimpleInlineChat chatId={CHAT_ID} onSendMessage={() => {}} />,
     );
     act(() => {
-      store.set(chatErrorByIdAtom, new Map([[CHAT_ID, COMPASS_REACHABILITY_ERROR]]));
+      store.set(
+        chatErrorByIdAtom,
+        new Map([[CHAT_ID, COMPASS_REACHABILITY_ERROR]]),
+      );
     });
 
     expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();

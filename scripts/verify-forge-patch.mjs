@@ -6,8 +6,14 @@ import fs from "node:fs";
 import path from "node:path";
 
 const root = process.cwd();
-const packageApi = path.join(root, "node_modules/@electron-forge/core/dist/api/package.js");
-const makeApi = path.join(root, "node_modules/@electron-forge/core/dist/api/make.js");
+const packageApi = path.join(
+  root,
+  "node_modules/@electron-forge/core/dist/api/package.js",
+);
+const makeApi = path.join(
+  root,
+  "node_modules/@electron-forge/core/dist/api/make.js",
+);
 
 function readOrFail(file) {
   if (!fs.existsSync(file)) {
@@ -23,7 +29,11 @@ const make = readOrFail(makeApi);
 const checks = [
   [pkg, "packager output missing at", "package.js: output path verification"],
   [pkg, "await packagingRunner.run()", "package.js: await packaging listr run"],
-  [pkg, "const packagingRunner = (0, tracer_1.delayTraceTillSignal)", "package.js: packaging listr runner"],
+  [
+    pkg,
+    "const packagingRunner = (0, tracer_1.delayTraceTillSignal)",
+    "package.js: packaging listr runner",
+  ],
   [
     pkg,
     "process.platform !== 'win32' && Boolean(process.env.CI)",

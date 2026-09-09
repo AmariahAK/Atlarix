@@ -35,7 +35,9 @@ describe("normalizeThinkingTags", () => {
   });
 
   it("preserves opener attributes (the parser reads them)", () => {
-    const out = normalizeThinkingTags(`<thinking signature="abc">a${ING_CLOSE}`);
+    const out = normalizeThinkingTags(
+      `<thinking signature="abc">a${ING_CLOSE}`,
+    );
     expect(out).toContain('<redacted_thinking signature="abc">');
   });
 
@@ -117,7 +119,9 @@ describe("extractThinkingFromContent — reasoning must not swallow the answer",
   it("captures ONLY the reasoning for a <think> block", () => {
     // Regression: modelReasoning was "SECRET</think>Tail" for every model that
     // emits <think> (DeepSeek included), so the Thoughts card showed the answer.
-    const snap = extractThinkingFromContent(`Intro${T_OPEN}SECRET${T_CLOSE}Tail`);
+    const snap = extractThinkingFromContent(
+      `Intro${T_OPEN}SECRET${T_CLOSE}Tail`,
+    );
     expect(snap.modelReasoning).toBe("SECRET");
     expect(snap.modelReasoning).not.toContain("Tail");
     expect(snap.modelReasoning).not.toContain("think");
@@ -141,7 +145,10 @@ describe("parseAssistantMessageParts — the tail keeps its own markdown part", 
       false,
     );
     const markdown = parts
-      .filter((p): p is { type: "markdown"; content: string } => p.type === "markdown")
+      .filter(
+        (p): p is { type: "markdown"; content: string } =>
+          p.type === "markdown",
+      )
       .map((p) => p.content);
     expect(markdown).toContain("Intro");
     expect(markdown).toContain("Tail");
@@ -151,7 +158,10 @@ describe("parseAssistantMessageParts — the tail keeps its own markdown part", 
   it("does not leak an orphan closer into a markdown part", () => {
     const parts = parseAssistantMessageParts(`Intro${T_CLOSE}Tail`, false);
     const joined = parts
-      .filter((p): p is { type: "markdown"; content: string } => p.type === "markdown")
+      .filter(
+        (p): p is { type: "markdown"; content: string } =>
+          p.type === "markdown",
+      )
       .map((p) => p.content)
       .join("");
     expect(joined).toBe("IntroTail");

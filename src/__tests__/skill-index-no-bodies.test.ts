@@ -61,7 +61,9 @@ async function writeSkill(filename: string, frontmatter: string, body: string) {
 
 beforeEach(async () => {
   workspace = await fs.mkdtemp(path.join(os.tmpdir(), "atlarix-skill-index-"));
-  await fs.mkdir(path.join(workspace, ".atlarix", "skills"), { recursive: true });
+  await fs.mkdir(path.join(workspace, ".atlarix", "skills"), {
+    recursive: true,
+  });
 });
 
 afterEach(async () => {
@@ -72,7 +74,7 @@ describe("skills index — pointers, not bodies", () => {
   it("emits name, description and read path, and never the body", async () => {
     await writeSkill(
       "house-style.md",
-      'name: house-style\ndescription: Our TypeScript conventions.',
+      "name: house-style\ndescription: Our TypeScript conventions.",
       `# House style\n\n${BODY_CANARY}\n\nAlways use tabs.`,
     );
 
@@ -100,7 +102,9 @@ describe("skills index — pointers, not bodies", () => {
       `${BODY_CANARY}\n${"filler line for the body. ".repeat(8000)}`,
     );
 
-    const prompt = formatSkillIndexForPrompt(await buildSkillIndex(workspace, "build"));
+    const prompt = formatSkillIndexForPrompt(
+      await buildSkillIndex(workspace, "build"),
+    );
     expect(prompt).toContain("giant");
     expect(prompt).not.toContain(BODY_CANARY);
     expect(prompt.length).toBeLessThan(800);
@@ -122,7 +126,9 @@ describe("skills index — pointers, not bodies", () => {
     expect(prompt).toContain("Skills available (15)");
     for (let i = 0; i < 15; i++) {
       expect(prompt).toContain(`skill-${i}`);
-      expect(prompt).toContain(`.atlarix/skills/skill-${String(i).padStart(2, "0")}.md`);
+      expect(prompt).toContain(
+        `.atlarix/skills/skill-${String(i).padStart(2, "0")}.md`,
+      );
     }
     expect(prompt).not.toContain(BODY_CANARY);
   });
@@ -137,16 +143,19 @@ describe("skills index — pointers, not bodies", () => {
     ["single-quoted", "compatibleModes: ['Debug']"],
     ["bare scalars", "compatibleModes: [Debug]"],
     ["block list", "compatibleModes:\n  - Debug"],
-  ])("honours a mode restriction written as %s", async (_label, frontmatterLine) => {
-    await writeSkill(
-      "debug-only.md",
-      `name: debug-only\ndescription: Only for debugging.\n${frontmatterLine}`,
-      "body",
-    );
+  ])(
+    "honours a mode restriction written as %s",
+    async (_label, frontmatterLine) => {
+      await writeSkill(
+        "debug-only.md",
+        `name: debug-only\ndescription: Only for debugging.\n${frontmatterLine}`,
+        "body",
+      );
 
-    expect(await buildSkillIndex(workspace, "debug")).toHaveLength(1);
-    expect(await buildSkillIndex(workspace, "ask")).toHaveLength(0);
-  });
+      expect(await buildSkillIndex(workspace, "debug")).toHaveLength(1);
+      expect(await buildSkillIndex(workspace, "ask")).toHaveLength(0);
+    },
+  );
 
   it("keeps multi-item flow sequences intact", async () => {
     await writeSkill(
@@ -172,7 +181,9 @@ describe("skills index — pointers, not bodies", () => {
   });
 
   it("renders nothing when the workspace has no skills", async () => {
-    expect(formatSkillIndexForPrompt(await buildSkillIndex(workspace, "build"))).toBe("");
+    expect(
+      formatSkillIndexForPrompt(await buildSkillIndex(workspace, "build")),
+    ).toBe("");
   });
 
   // OWNER DIRECTIVE: a granted folder gives the agent FILES, never AUTHORITY.
@@ -189,7 +200,9 @@ describe("skills index — pointers, not bodies", () => {
 
     const other = await fs.mkdtemp(path.join(os.tmpdir(), "atlarix-other-ws-"));
     try {
-      await fs.mkdir(path.join(other, ".atlarix", "skills"), { recursive: true });
+      await fs.mkdir(path.join(other, ".atlarix", "skills"), {
+        recursive: true,
+      });
       await fs.writeFile(
         path.join(other, ".atlarix", "skills", "theirs.md"),
         `---\nname: theirs\ndescription: From another repo.\n---\n\n${BODY_CANARY}\n`,

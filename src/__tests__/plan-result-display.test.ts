@@ -75,7 +75,12 @@ describe("plan results are recognisable tool envelopes", () => {
 
 describe("plan tool cards say something useful", () => {
   it("write renders status, progress and the checklist", () => {
-    const view = buildToolExpandView("plan", {}, JSON.stringify(RESULTS.write), "done");
+    const view = buildToolExpandView(
+      "plan",
+      {},
+      JSON.stringify(RESULTS.write),
+      "done",
+    );
     expect(view.kind).toBe("text");
     const body = (view as { body: string }).body;
     expect(body).toContain("Plan updated.");
@@ -93,14 +98,17 @@ describe("plan tool cards say something useful", () => {
     // checklist arrives partial. The card must not imply the plan is shorter.
     const long = `# Big plan\n\n${Array.from(
       { length: 12 },
-      (_, i) => `${i + 1}. [ ] **Step ${i + 1} with a deliberately long description to eat characters**`,
+      (_, i) =>
+        `${i + 1}. [ ] **Step ${i + 1} with a deliberately long description to eat characters**`,
     ).join("\n")}\n`;
     const raw = JSON.stringify({
       ...RESULTS.write,
       contentPreview: long.slice(0, 400),
       progress: "0/12 steps done",
     });
-    const body = (buildToolExpandView("plan", {}, raw, "done") as { body: string }).body;
+    const body = (
+      buildToolExpandView("plan", {}, raw, "done") as { body: string }
+    ).body;
     expect(body).toContain("0/12 steps done");
     expect(body).toMatch(/… \d+ more/);
   });
@@ -108,9 +116,13 @@ describe("plan tool cards say something useful", () => {
   for (const op of ["update_step", "set_status"] as const) {
     it(`${op} renders its message rather than a bare "Done"`, () => {
       const raw = JSON.stringify(RESULTS[op]);
-      const body = (buildToolExpandView("plan", {}, raw, "done") as { body: string }).body;
+      const body = (
+        buildToolExpandView("plan", {}, raw, "done") as { body: string }
+      ).body;
       expect(body).toContain(RESULTS[op].message);
-      expect(formatToolResultPreview("plan", raw, "done")).toBe(RESULTS[op].message);
+      expect(formatToolResultPreview("plan", raw, "done")).toBe(
+        RESULTS[op].message,
+      );
     });
   }
 });
@@ -151,7 +163,9 @@ describe("the display fallback rejects JSON fragments, not just whole objects", 
 
   it("does not render a mid-object fragment as a preview", () => {
     const raw = JSON.stringify({ success: true, output: fragment });
-    expect(formatToolResultPreview("some_unbranched_tool", raw, "done")).toBe("Done");
+    expect(formatToolResultPreview("some_unbranched_tool", raw, "done")).toBe(
+      "Done",
+    );
   });
 
   it("does not render a mid-object fragment in the expand view", () => {
@@ -161,7 +175,10 @@ describe("the display fallback rejects JSON fragments, not just whole objects", 
   });
 
   it("still renders an ordinary sentence containing a colon", () => {
-    const raw = JSON.stringify({ success: true, message: "Done: 3 files updated." });
+    const raw = JSON.stringify({
+      success: true,
+      message: "Done: 3 files updated.",
+    });
     expect(formatToolResultPreview("some_unbranched_tool", raw, "done")).toBe(
       "Done: 3 files updated.",
     );
@@ -180,7 +197,8 @@ describe("prose containing braces is left alone", () => {
   });
 
   it("keeps a JSON object that is not a tool result", () => {
-    const prose = 'The response was {"name":"atlarix","version":"14.21.0"} exactly.';
+    const prose =
+      'The response was {"name":"atlarix","version":"14.21.0"} exactly.';
     expect(stripMultilineToolJsonEnvelopes(prose)).toContain('"name"');
   });
 });

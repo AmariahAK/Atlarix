@@ -48,7 +48,9 @@ export type ReasoningProviderPatch = {
   anthropic?: AnthropicProviderOptions;
 };
 
-function openRouterRowSuggestsReasoning(row: OpenRouterModelRowExtended | undefined): boolean {
+function openRouterRowSuggestsReasoning(
+  row: OpenRouterModelRowExtended | undefined,
+): boolean {
   if (!row) return false;
   const sp = row.supported_parameters;
   if (Array.isArray(sp)) {
@@ -75,7 +77,9 @@ function openRouterPrefixSuggestsReasoning(modelIdLower: string): boolean {
  * registry that keys on the bare id. Returning the slashed wire id left Core invisible
  * to all of them.
  */
-export function resolveReasoningCatalogModelId(effectiveModel: LargeLanguageModel): string {
+export function resolveReasoningCatalogModelId(
+  effectiveModel: LargeLanguageModel,
+): string {
   const name = (effectiveModel.name ?? "").trim();
   if (effectiveModel.provider === "compass") {
     return (
@@ -100,7 +104,8 @@ export function resolveCapabilityProviderId(
   const provider = (effectiveModel.provider ?? "").trim();
   if (provider !== "compass") return provider;
   return (
-    getCoreModelsDevTargetForTier(effectiveModel.name ?? "")?.providerId ?? provider
+    getCoreModelsDevTargetForTier(effectiveModel.name ?? "")?.providerId ??
+    provider
   );
 }
 
@@ -123,7 +128,10 @@ export function detectReasoningCapability(
   let useOpenRouterReasoning = false;
   if (pid === "openrouter" || pid === "compass") {
     const row = id.includes("/") ? getCachedOpenRouterModelRow(id) : undefined;
-    if (openRouterRowSuggestsReasoning(row) || openRouterPrefixSuggestsReasoning(lower)) {
+    if (
+      openRouterRowSuggestsReasoning(row) ||
+      openRouterPrefixSuggestsReasoning(lower)
+    ) {
       useOpenRouterReasoning = true;
     }
   }
@@ -214,7 +222,9 @@ export function isReasoningCapableModel(
       cap.useOpenAiReasoningSummary
     );
   };
-  return offersAChannel(capabilityProvider) || offersAChannel(model.provider ?? "");
+  return (
+    offersAChannel(capabilityProvider) || offersAChannel(model.provider ?? "")
+  );
 }
 
 /**

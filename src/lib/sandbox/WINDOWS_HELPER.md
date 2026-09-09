@@ -33,17 +33,17 @@ does not support that.
 
 Observed on Windows 10 the first time the helper actually ran:
 
-| Command | Result |
-| --- | --- |
-| `where git` | exit 0 |
-| `"C:\Program Files\Git\bin\git.exe" --version` | **exit 128** — `could not open '/dev/null'` |
-| `git --version` (×3 more, via PATH / cmd / bare) | exit 128 — same `/dev/null` error every time |
-| `"C:\Program Files\Git\bin\bash.exe" -c …` | `Access is denied` |
-| `powershell.exe -Command …` | `Cannot find drive 'Microsoft.PowerShell.Core\FileSystem'` |
+| Command                                          | Result                                                     |
+| ------------------------------------------------ | ---------------------------------------------------------- |
+| `where git`                                      | exit 0                                                     |
+| `"C:\Program Files\Git\bin\git.exe" --version`   | **exit 128** — `could not open '/dev/null'`                |
+| `git --version` (×3 more, via PATH / cmd / bare) | exit 128 — same `/dev/null` error every time               |
+| `"C:\Program Files\Git\bin\bash.exe" -c …`       | `Access is denied`                                         |
+| `powershell.exe -Command …`                      | `Cannot find drive 'Microsoft.PowerShell.Core\FileSystem'` |
 
 **`git.exe` under `C:\Program Files` EXECUTED** — exit 128 is a runtime failure, not a
 launch failure. So Program Files was readable and executable by the container, and
-"third-party installs lack an `ALL APPLICATION PACKAGES` ACE" is *not* what broke it.
+"third-party installs lack an `ALL APPLICATION PACKAGES` ACE" is _not_ what broke it.
 
 The blocker was the **device and object namespace**. `/dev/null` (→ `\\.\NUL`) failed on
 every single git invocation; PowerShell could not enumerate drives; MSYS's bash could not
@@ -58,8 +58,8 @@ agent will reach for. But the **device map and object namespace have no per-path
 grant**, and there is no capability SID for "let me open NUL". Repairing the file
 dimension would not have touched the other three.
 
-This is exactly what Cursor's engineering blog means by primitives *"tailored to browsers
-[that] do not support general-purpose developer tools"*: a browser renderer never opens
+This is exactly what Cursor's engineering blog means by primitives _"tailored to browsers
+[that] do not support general-purpose developer tools"_: a browser renderer never opens
 `NUL`, enumerates drives, or allocates MSYS shared memory. A developer toolchain does all
 three.
 
@@ -104,10 +104,11 @@ to create Windows user accounts — poor for a Store app. See `docs/TODO.md`.
    low-integrity equivalent), so the concatenation was a shortcut around a missing
    variable — and it is wrong wherever AppData is redirected, which enterprise Folder
    Redirection and roaming profiles both do. That would fail in the worst way: a
-   directory *we* create at a guessed path carries no Low label, so `%TEMP%` would be
+   directory _we_ create at a guessed path carries no Low label, so `%TEMP%` would be
    unwritable, reproducing the exact failure this redirection exists to prevent.
    Resolution failure is fatal (exit 87) rather than best-effort, so `--probe` catches
    it and the caller falls back to unconfined-with-a-warning.
+
 4. `CreateProcessAsUserW` with the lowered token, running the command through the
    **same shell the unsandboxed path would use** (`--shell`). Without that,
    `getAcceptableShell()` picked Git bash for unsandboxed runs while the helper
@@ -137,7 +138,7 @@ is the cost of using MIC for this.
 **`--probe` runs once per session, not per command.** `wrap-command.ts` caches the
 verdict and, on failure, reports the sandbox as unavailable so the existing
 `enforce`/warn path in `runShellCommand.ts` decides what to do. This is deliberately
-a *synthetic* probe before any user command — never a retry after a user command
+a _synthetic_ probe before any user command — never a retry after a user command
 fails. Retry-on-denial would downgrade to unsandboxed on exactly the commands that
 matter, and a crafted command could trigger the downgrade on purpose.
 

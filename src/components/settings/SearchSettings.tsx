@@ -72,17 +72,27 @@ export function SearchSettings() {
     if (!normalized) return;
     setTest({ kind: "testing" });
     try {
-      const health = await IpcClient.getInstance().checkSearxngHealth(normalized);
+      const health =
+        await IpcClient.getInstance().checkSearxngHealth(normalized);
       if (!health.success) {
-        setTest({ kind: "failed", error: health.error ?? "No response from that URL." });
+        setTest({
+          kind: "failed",
+          error: health.error ?? "No response from that URL.",
+        });
         return;
       }
-      await IpcClient.getInstance().syncSearxngConfig({ url: normalized, enabled: true });
+      await IpcClient.getInstance().syncSearxngConfig({
+        url: normalized,
+        enabled: true,
+      });
       setSavedUrl(normalized);
       setUrl(normalized);
       setTest({ kind: "ok", resultsCount: health.resultsCount });
     } catch (e) {
-      setTest({ kind: "failed", error: e instanceof Error ? e.message : String(e) });
+      setTest({
+        kind: "failed",
+        error: e instanceof Error ? e.message : String(e),
+      });
     }
   }, [url]);
 
@@ -100,7 +110,9 @@ export function SearchSettings() {
     return (
       <div className="flex items-center gap-2">
         <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-        <span className="text-sm text-muted-foreground">Loading search settings…</span>
+        <span className="text-sm text-muted-foreground">
+          Loading search settings…
+        </span>
       </div>
     );
   }
@@ -110,18 +122,23 @@ export function SearchSettings() {
       <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/30 p-3">
         <Info className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />
         <p className="text-sm text-muted-foreground">
-          Web search works out of the box — Atlarix searches using its own built-in browser, so
-          there is nothing to install or configure.
+          Web search works out of the box — Atlarix searches using its own
+          built-in browser, so there is nothing to install or configure.
         </p>
       </div>
 
       <div className="space-y-2">
-        <label htmlFor="searxng-url" className="text-sm font-medium text-foreground">
-          Self-hosted SearxNG <span className="text-muted-foreground">(optional)</span>
+        <label
+          htmlFor="searxng-url"
+          className="text-sm font-medium text-foreground"
+        >
+          Self-hosted SearxNG{" "}
+          <span className="text-muted-foreground">(optional)</span>
         </label>
         <p className="text-sm text-muted-foreground">
-          Already run your own SearxNG? Point Atlarix at it and searches will go there instead.
-          This is also the only search available to the headless CLI, which has no browser.
+          Already run your own SearxNG? Point Atlarix at it and searches will go
+          there instead. This is also the only search available to the headless
+          CLI, which has no browser.
         </p>
         <div className="flex gap-2">
           <Input
@@ -143,7 +160,9 @@ export function SearchSettings() {
             disabled={test.kind === "testing" || !url.trim()}
             className="gap-2 whitespace-nowrap"
           >
-            {test.kind === "testing" && <Loader2 className="h-3 w-3 animate-spin" />}
+            {test.kind === "testing" && (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            )}
             {test.kind === "testing" ? "Testing…" : "Test & Save"}
           </Button>
           {savedUrl && (
@@ -157,18 +176,23 @@ export function SearchSettings() {
           <p className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
             <CheckCircle className="h-4 w-4" />
             Connected and saved
-            {typeof test.resultsCount === "number" && ` — test query returned ${test.resultsCount} results`}
+            {typeof test.resultsCount === "number" &&
+              ` — test query returned ${test.resultsCount} results`}
           </p>
         )}
         {test.kind === "failed" && (
           <p className="flex items-start gap-2 text-sm text-red-600 dark:text-red-400">
             <XCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
-            <span>Could not reach that URL — {test.error} Search will keep using the built-in browser.</span>
+            <span>
+              Could not reach that URL — {test.error} Search will keep using the
+              built-in browser.
+            </span>
           </p>
         )}
         {savedUrl && test.kind === "idle" && (
           <p className="text-sm text-muted-foreground">
-            Currently using <span className="font-mono text-foreground">{savedUrl}</span>
+            Currently using{" "}
+            <span className="font-mono text-foreground">{savedUrl}</span>
           </p>
         )}
       </div>

@@ -25,10 +25,7 @@ function seedRunningTool(path: string): void {
     ts: 1,
     toolArgs: { path, operation: "write" },
   };
-  getDefaultStore().set(
-    streamThreadByChatIdAtom,
-    new Map([[CHAT_ID, [item]]]),
-  );
+  getDefaultStore().set(streamThreadByChatIdAtom, new Map([[CHAT_ID, [item]]]));
 }
 
 function currentToolArgs(): Record<string, unknown> | undefined {
@@ -63,12 +60,24 @@ describe("mergeWritePreviewIntoThread (auto-approved overwrite)", () => {
     seedRunningTool("src/x.ts");
     const oldContent = "old 1\nold 2\nold 3";
     const newContent = "new 1\nnew 2";
-    mergeWritePreviewIntoThread(CHAT_ID, "src/x.ts", "update", oldContent, newContent);
+    mergeWritePreviewIntoThread(
+      CHAT_ID,
+      "src/x.ts",
+      "update",
+      oldContent,
+      newContent,
+    );
 
     const view = buildToolExpandView(
       "edit_file",
       currentToolArgs(),
-      JSON.stringify({ success: true, path: "src/x.ts", operation: "update", added: 2, removed: 3 }),
+      JSON.stringify({
+        success: true,
+        path: "src/x.ts",
+        operation: "update",
+        added: 2,
+        removed: 3,
+      }),
       "done",
     );
     expect(view.kind).toBe("diff");

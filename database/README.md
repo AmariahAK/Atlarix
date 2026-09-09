@@ -1,6 +1,7 @@
 # Atlarix Database Setup - Fresh Installation
 
 ## ⚠️ WARNING
+
 This will **DELETE ALL existing data** in your norahlabs database and create a fresh Atlarix authentication system.
 
 ## Quick Setup
@@ -20,33 +21,34 @@ psql "postgresql://user:password@host:5432/norahlabs_db" -f database/setup_fresh
 Create `scripts/setup-db.js`:
 
 ```javascript
-const { Pool } = require('pg');
-const fs = require('fs');
-require('dotenv').config();
+const { Pool } = require("pg");
+const fs = require("fs");
+require("dotenv").config();
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   // For hosted databases (Fly.io, Heroku, etc.)
-  ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : false
+  ssl:
+    process.env.DATABASE_SSL === "true" ? { rejectUnauthorized: false } : false,
 });
 
 async function setupDatabase() {
-  console.log('🔄 Setting up fresh Atlarix database...');
-  
-  const sql = fs.readFileSync('database/setup_fresh.sql', 'utf8');
-  
+  console.log("🔄 Setting up fresh Atlarix database...");
+
+  const sql = fs.readFileSync("database/setup_fresh.sql", "utf8");
+
   try {
     await pool.query(sql);
-    console.log('✅ Database setup completed successfully!');
-    console.log('\nCreated tables:');
-    console.log('  - atlarix_users');
-    console.log('  - atlarix_subscriptions');
-    console.log('  - atlarix_version_entitlements');
-    console.log('  - atlarix_devices');
-    console.log('  - atlarix_prompt_usage');
-    console.log('  - atlarix_webhook_logs');
+    console.log("✅ Database setup completed successfully!");
+    console.log("\nCreated tables:");
+    console.log("  - atlarix_users");
+    console.log("  - atlarix_subscriptions");
+    console.log("  - atlarix_version_entitlements");
+    console.log("  - atlarix_devices");
+    console.log("  - atlarix_prompt_usage");
+    console.log("  - atlarix_webhook_logs");
   } catch (error) {
-    console.error('❌ Database setup failed:', error.message);
+    console.error("❌ Database setup failed:", error.message);
     process.exit(1);
   } finally {
     await pool.end();
@@ -57,6 +59,7 @@ setupDatabase();
 ```
 
 Then run:
+
 ```bash
 npm install pg
 node scripts/setup-db.js
@@ -89,12 +92,13 @@ After setup, verify tables exist:
 \dt atlarix_*
 
 -- Or with SQL
-SELECT table_name 
-FROM information_schema.tables 
+SELECT table_name
+FROM information_schema.tables
 WHERE table_name LIKE 'atlarix_%';
 ```
 
 Expected output:
+
 ```
  atlarix_devices
  atlarix_prompt_usage
@@ -107,6 +111,7 @@ Expected output:
 ## What's Created
 
 ### Tables
+
 - **atlarix_users** - OAuth user accounts (Google/GitHub)
 - **atlarix_subscriptions** - Plan management (Free/Monthly/Annual)
 - **atlarix_version_entitlements** - Version access for licenses
@@ -115,11 +120,14 @@ Expected output:
 - **atlarix_webhook_logs** - Lemon Squeezy event history
 
 ### Views
+
 - **atlarix_active_users** - Users with subscription info
 - **atlarix_prompt_stats** - Daily usage statistics
 
 ### Indexes
+
 All tables have proper indexes for:
+
 - User lookups by email
 - OAuth provider queries
 - Device management
@@ -137,6 +145,7 @@ All tables have proper indexes for:
 ## Troubleshooting
 
 ### "Permission denied" error
+
 ```sql
 -- Grant permissions to your API user
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO your_api_user;
@@ -144,12 +153,14 @@ GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO your_api_user;
 ```
 
 ### "Extension uuid-ossp does not exist"
+
 ```sql
 -- Install extension (requires superuser)
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 ```
 
 ### Connection refused
+
 - Check DATABASE_URL is correct
 - Verify firewall allows port 5432
 - Ensure database server is running

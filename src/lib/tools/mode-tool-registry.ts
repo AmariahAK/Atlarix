@@ -254,9 +254,7 @@ export function renderActiveModeToolsRegistry(
   opts?: RenderActiveModeToolsRegistryOptions,
 ): string {
   const label = MODE_LABELS[mode];
-  const lines: string[] = [
-    `<tools_registry mode="${mode}" label="${label}">`,
-  ];
+  const lines: string[] = [`<tools_registry mode="${mode}" label="${label}">`];
 
   if (mode === "build" || mode === "debug") {
     lines.push(
@@ -273,14 +271,12 @@ export function renderActiveModeToolsRegistry(
     );
     lines.push(WORKSPACE_INTEGRATION_TOOL_NAMES.join(", "));
     lines.push(
-      "Call list_available_mcps first, then mcp_call as needed. Skills are listed one line each under \"Skills available\" — read a skill's file with read_file when its line applies to the task; the bodies are not in your context.",
+      'Call list_available_mcps first, then mcp_call as needed. Skills are listed one line each under "Skills available" — read a skill\'s file with read_file when its line applies to the task; the bodies are not in your context.',
     );
   }
 
   if (opts?.registeredNames?.length) {
-    lines.push(
-      `Native schemas bound now: ${opts.registeredNames.join(", ")}`,
-    );
+    lines.push(`Native schemas bound now: ${opts.registeredNames.join(", ")}`);
   }
 
   lines.push(
@@ -290,4 +286,3 @@ export function renderActiveModeToolsRegistry(
   lines.push("</tools_registry>");
   return lines.join("\n");
 }
-

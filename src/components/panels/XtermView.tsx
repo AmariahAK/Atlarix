@@ -17,7 +17,10 @@ import "@xterm/xterm/css/xterm.css";
 import { IpcClient } from "@/ipc/ipc_client";
 import { Button } from "@/components/ui/button";
 import { writeTerminalToDataTransfer } from "@/lib/chat/terminal-line-buffer";
-import { openUrlInBrowserTab, isOpenableInBrowserTab } from "@/lib/browser/open-in-browser-tab";
+import {
+  openUrlInBrowserTab,
+  isOpenableInBrowserTab,
+} from "@/lib/browser/open-in-browser-tab";
 
 /**
  * Route a clicked terminal link: plain click on an http(s) URL (including the
@@ -242,7 +245,10 @@ export function XtermView({
       // Persist scrollback so it survives app restarts.
       saveScrollback(entry, instanceId);
       // Detach (keep buffer); the PTY + cached term survive for re-attach.
-      if (entry.term.element && entry.term.element.parentElement === container) {
+      if (
+        entry.term.element &&
+        entry.term.element.parentElement === container
+      ) {
         container.removeChild(entry.term.element);
       }
     };
@@ -322,7 +328,12 @@ export function XtermView({
       <div ref={containerRef} className="h-full w-full px-2 pt-1" />
       {exited ? (
         <div className="absolute bottom-2 left-1/2 -translate-x-1/2">
-          <Button size="sm" variant="secondary" className="h-6 text-[11px]" onClick={handleRestart}>
+          <Button
+            size="sm"
+            variant="secondary"
+            className="h-6 text-[11px]"
+            onClick={handleRestart}
+          >
             Restart shell
           </Button>
         </div>

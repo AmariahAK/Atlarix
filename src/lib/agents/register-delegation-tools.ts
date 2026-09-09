@@ -163,21 +163,26 @@ export function attachDelegationToolsToSet(
       });
 
       try {
-        await acquireDelegationSlot(ctx.chatId, ctx.turnId, maxConcurrent, () => {
-          ctx.safeSend(ctx.sender, "chat:activity", {
-            type: "subagent_progress",
-            id,
-            chatId: ctx.chatId,
-            agent: agentId,
-            agentType: agentId,
-            parentDelegationId: id,
-            roundId: ctx.turnId,
-            status: "running",
-            timestamp: Date.now(),
-            preview: "Queued — waiting for a sub-agent slot…",
-            label: "Queued",
-          });
-        });
+        await acquireDelegationSlot(
+          ctx.chatId,
+          ctx.turnId,
+          maxConcurrent,
+          () => {
+            ctx.safeSend(ctx.sender, "chat:activity", {
+              type: "subagent_progress",
+              id,
+              chatId: ctx.chatId,
+              agent: agentId,
+              agentType: agentId,
+              parentDelegationId: id,
+              roundId: ctx.turnId,
+              status: "running",
+              timestamp: Date.now(),
+              preview: "Queued — waiting for a sub-agent slot…",
+              label: "Queued",
+            });
+          },
+        );
       } catch (err) {
         // The queue was failed while this delegation was parked — the round halted
         // behind our back. Hand back what we took by hand: the `finally` below
@@ -340,8 +345,11 @@ export function attachDelegationToolsToSet(
         // {"success":true,"result":"<task …"} verbatim at its bottom. Unwrap
         // the envelope + <task>/<summary>/<task_result> markup; the model-
         // facing return (resultStr, below) is untouched.
-        const { summary: innerResult, isError, isRunning } =
-          extractDelegationDisplaySummary(result, resultStr);
+        const {
+          summary: innerResult,
+          isError,
+          isRunning,
+        } = extractDelegationDisplaySummary(result, resultStr);
 
         // A backgrounded or auto-promoted task RETURNS while its sub-agent is
         // still working. Settling the card here marked it "completed" the

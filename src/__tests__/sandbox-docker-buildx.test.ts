@@ -53,7 +53,9 @@ describe.runIf(isMac)("macOS sandbox grants buildx its state dir", () => {
     delete process.env.DOCKER_CONFIG;
     // Curated entries are granted even when missing, so this holds on a machine
     // that has never run Docker.
-    expect(profileFor()).toContain(path.join(os.homedir(), ".docker", "buildx"));
+    expect(profileFor()).toContain(
+      path.join(os.homedir(), ".docker", "buildx"),
+    );
   });
 
   it("follows a redirected DOCKER_CONFIG", () => {

@@ -143,7 +143,10 @@ describe("built-in agents + write derivation", () => {
     writeAgent("freeform", `---\nmode: build\n---\nbody`);
     expect(agentIsWriter(loadUserAgent(dir, "freeform")!)).toBe(true);
     // edit_file listed but on a read-only profile → not a writer
-    writeAgent("odd", `---\nmode: ask\ntools: [read_file, edit_file]\n---\nbody`);
+    writeAgent(
+      "odd",
+      `---\nmode: ask\ntools: [read_file, edit_file]\n---\nbody`,
+    );
     expect(agentIsWriter(loadUserAgent(dir, "odd")!)).toBe(false);
   });
 

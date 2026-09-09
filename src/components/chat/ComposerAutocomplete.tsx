@@ -228,7 +228,9 @@ export function useComposerAutocomplete(opts: {
             i === index ? "bg-accent" : "hover:bg-accent/50",
           )}
         >
-          <span className="text-sm font-medium truncate w-full">{item.label}</span>
+          <span className="text-sm font-medium truncate w-full">
+            {item.label}
+          </span>
           {item.detail ? (
             <span className="truncate text-xs text-muted-foreground w-full">
               {item.detail}

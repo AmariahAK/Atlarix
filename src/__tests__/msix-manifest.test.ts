@@ -15,7 +15,12 @@ import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 
-const TEMPLATE = path.join(process.cwd(), "build", "msix", "AppxManifest.template.xml");
+const TEMPLATE = path.join(
+  process.cwd(),
+  "build",
+  "msix",
+  "AppxManifest.template.xml",
+);
 const raw = fs.readFileSync(TEMPLATE, "utf8");
 
 /** Assigned by Partner Center for the reserved "Atlarix" name. Not ours to change. */
@@ -36,8 +41,12 @@ describe("AppxManifest template — XML validity", () => {
   });
 
   it("declares every namespace prefix it uses, and marks them ignorable", () => {
-    const used = new Set([...raw.matchAll(/<\/?([a-z][\w]*):/g)].map((m) => m[1]));
-    const declared = new Set([...raw.matchAll(/xmlns:([\w]+)=/g)].map((m) => m[1]));
+    const used = new Set(
+      [...raw.matchAll(/<\/?([a-z][\w]*):/g)].map((m) => m[1]),
+    );
+    const declared = new Set(
+      [...raw.matchAll(/xmlns:([\w]+)=/g)].map((m) => m[1]),
+    );
     expect([...used].filter((p) => !declared.has(p))).toEqual([]);
 
     const ignorable = new Set(
@@ -76,7 +85,9 @@ describe("AppxManifest template — Store identity", () => {
     // The local test certificate's subject must equal this EXACTLY or Windows
     // refuses the install (see docs/MSIX_RUNBOOK.md).
     expect(raw).toContain(`Publisher="${IDENTITY_PUBLISHER}"`);
-    expect(raw).toContain(`<PublisherDisplayName>${PUBLISHER_DISPLAY_NAME}</PublisherDisplayName>`);
+    expect(raw).toContain(
+      `<PublisherDisplayName>${PUBLISHER_DISPLAY_NAME}</PublisherDisplayName>`,
+    );
   });
 
   it("targets x64 and a Windows 10 build old enough for the test machine", () => {
@@ -119,7 +130,9 @@ describe("AppxManifest template — declarations the runtime depends on", () => 
   });
 
   it("references only logo assets that gen-icons.mjs actually produces", () => {
-    const referenced = [...raw.matchAll(/Assets\\([\w.]+\.png)/g)].map((m) => m[1]);
+    const referenced = [...raw.matchAll(/Assets\\([\w.]+\.png)/g)].map(
+      (m) => m[1],
+    );
     expect(referenced.length).toBeGreaterThan(0);
     const assetsDir = path.join(process.cwd(), "build", "msix", "assets");
     for (const asset of new Set(referenced)) {

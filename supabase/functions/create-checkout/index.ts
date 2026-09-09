@@ -28,7 +28,11 @@ function envTrim(key: string): string | undefined {
 }
 
 function proVariantId(): string | null {
-  return envTrim("LEMONSQUEEZY_PRO_VARIANT_ID") ?? envTrim("LEMONSQUEEZY_VARIANT_ID") ?? null;
+  return (
+    envTrim("LEMONSQUEEZY_PRO_VARIANT_ID") ??
+    envTrim("LEMONSQUEEZY_VARIANT_ID") ??
+    null
+  );
 }
 
 /** Where a finished checkout should send the buyer back to. */
@@ -49,13 +53,16 @@ const DEFAULT_RETURN_ORIGIN = "https://www.atlarix.dev";
  * it is simply no longer reached from a checkout, because there is no Reviewer checkout.
  */
 function returnUrlFor(mode: string): string {
-  const origin = (envTrim("ACCOUNT_RETURN_ORIGIN") ?? DEFAULT_RETURN_ORIGIN).replace(/\/+$/, "");
+  const origin = (
+    envTrim("ACCOUNT_RETURN_ORIGIN") ?? DEFAULT_RETURN_ORIGIN
+  ).replace(/\/+$/, "");
   if (mode === "credit") return `${origin}/account?purchase=credit`;
   return `${origin}/account?purchase=pro`;
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method === "OPTIONS")
+    return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
   const user = await getAuthedUser(req);
@@ -67,7 +74,8 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json();
     if (body?.mode === "credit") mode = body.mode;
-    if (typeof body?.amount_cents === "number") amountCents = Math.floor(body.amount_cents);
+    if (typeof body?.amount_cents === "number")
+      amountCents = Math.floor(body.amount_cents);
   } catch {
     // default to subscription
   }
@@ -103,9 +111,13 @@ Deno.serve(async (req) => {
   let variantId: string | null;
   if (mode === "credit") {
     variantId = envTrim("LEMONSQUEEZY_CREDIT_VARIANT_ID") ?? null;
-    if (!variantId) return json({ error: "checkout_not_configured_for_credit" }, 500);
+    if (!variantId)
+      return json({ error: "checkout_not_configured_for_credit" }, 500);
     if (!Number.isFinite(amountCents) || amountCents < MIN_TOPUP_CENTS) {
-      return json({ error: "amount_below_minimum", min_cents: MIN_TOPUP_CENTS }, 400);
+      return json(
+        { error: "amount_below_minimum", min_cents: MIN_TOPUP_CENTS },
+        400,
+      );
     }
     // Per-checkout price override — one credit product, app-chosen amount.
     // NOT set for the subscription mode: a subscription's price is the product's
@@ -114,7 +126,8 @@ Deno.serve(async (req) => {
     attributes.custom_price = amountCents;
   } else {
     variantId = proVariantId();
-    if (!variantId) return json({ error: "checkout_not_configured_for_pro" }, 500);
+    if (!variantId)
+      return json({ error: "checkout_not_configured_for_pro" }, 500);
   }
 
   const checkoutData = {
@@ -144,7 +157,9 @@ Deno.serve(async (req) => {
       const url = data?.data?.attributes?.url;
       if (url) return json({ url });
     }
-    console.error(`[create-checkout] LemonSqueezy error ${response.status}: ${await response.text()}`);
+    console.error(
+      `[create-checkout] LemonSqueezy error ${response.status}: ${await response.text()}`,
+    );
     return json({ error: "checkout_failed" }, 502);
   } catch (e) {
     console.error("[create-checkout] exception:", e);

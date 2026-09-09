@@ -37,7 +37,10 @@ export function readTourState(): TourState {
     return {
       ...defaults,
       ...raw,
-      featureTours: raw.featureTours && typeof raw.featureTours === "object" ? raw.featureTours : {},
+      featureTours:
+        raw.featureTours && typeof raw.featureTours === "object"
+          ? raw.featureTours
+          : {},
     };
   } catch (e) {
     logger.warn("readTourState failed:", e);
@@ -50,7 +53,10 @@ export function writeTourState(partial: Partial<TourState>): TourState {
   const next: TourState = {
     ...cur,
     ...partial,
-    featureTours: partial.featureTours !== undefined ? partial.featureTours : cur.featureTours,
+    featureTours:
+      partial.featureTours !== undefined
+        ? partial.featureTours
+        : cur.featureTours,
   };
   try {
     fs.writeFileSync(filePath(), JSON.stringify(next, null, 2), "utf8");

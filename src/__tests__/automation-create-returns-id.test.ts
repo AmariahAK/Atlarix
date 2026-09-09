@@ -71,9 +71,9 @@ describe("automations create hands its id back to the model", () => {
 
     await interceptor.executeOperation("op-2");
 
-    expect(
-      (request.preview as { automationId?: string }).automationId,
-    ).toBe("auto_abc123");
+    expect((request.preview as { automationId?: string }).automationId).toBe(
+      "auto_abc123",
+    );
   });
 
   it("does not invent an id when the service returns none", async () => {

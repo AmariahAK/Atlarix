@@ -20,7 +20,9 @@ import {
   type SessionMessageRow,
 } from "@/ipc/handlers/workspace_session_handlers";
 
-function row(over: Partial<SessionMessageRow> & { id: string }): SessionMessageRow {
+function row(
+  over: Partial<SessionMessageRow> & { id: string },
+): SessionMessageRow {
   return {
     sessionId: "s1",
     role: "assistant",
@@ -53,26 +55,30 @@ describe("joinTransportRows", () => {
   });
 
   it("drops a ref with no matching row instead of emitting a blank message", () => {
-    const out = joinTransportRows([row({ id: "a" })], [
-      { id: -1, sessionRowId: "a" },
-      { id: -2, sessionRowId: "deleted-since-load" },
-    ]);
+    const out = joinTransportRows(
+      [row({ id: "a" })],
+      [
+        { id: -1, sessionRowId: "a" },
+        { id: -2, sessionRowId: "deleted-since-load" },
+      ],
+    );
     expect(out).toHaveLength(1);
     expect(out[0]?.sessionRowId).toBe("a");
   });
 
   it("drops a ref with no sessionRowId at all", () => {
-    const out = joinTransportRows([row({ id: "a" })], [
-      { id: -1, sessionRowId: null },
-      { id: -2 },
-    ]);
+    const out = joinTransportRows(
+      [row({ id: "a" })],
+      [{ id: -1, sessionRowId: null }, { id: -2 }],
+    );
     expect(out).toEqual([]);
   });
 
   it("carries maxTokensUsed through — the meter's ground truth", () => {
-    const out = joinTransportRows([row({ id: "a", maxTokensUsed: 130_411 })], [
-      { id: -1, sessionRowId: "a" },
-    ]);
+    const out = joinTransportRows(
+      [row({ id: "a", maxTokensUsed: 130_411 })],
+      [{ id: -1, sessionRowId: "a" }],
+    );
     expect(out[0]?.maxTokensUsed).toBe(130_411);
   });
 
@@ -80,9 +86,10 @@ describe("joinTransportRows", () => {
     // Losing this is losing every file body, grep hit and command output the model
     // was holding, which is most of a coding session's context.
     const envelope = '{"messages":[{"role":"tool","content":"…"}]}';
-    const out = joinTransportRows([row({ id: "a", modelContent: envelope })], [
-      { id: -1, sessionRowId: "a" },
-    ]);
+    const out = joinTransportRows(
+      [row({ id: "a", modelContent: envelope })],
+      [{ id: -1, sessionRowId: "a" }],
+    );
     expect(out[0]?.modelContent).toBe(envelope);
   });
 
@@ -104,14 +111,22 @@ describe("joinTransportRows", () => {
       [{ id: -1, sessionRowId: "a" }],
     );
     expect(out[0]?.attachments).toEqual([
-      { id: "att-1", filename: "spec.pdf", mimeType: "application/pdf", size: 1234 },
+      {
+        id: "att-1",
+        filename: "spec.pdf",
+        mimeType: "application/pdf",
+        size: 1234,
+      },
     ]);
   });
 
   it("normalizes absent optional fields to null rather than undefined", () => {
     // The transport spreads these conditionally; `undefined` vs `null` decides
     // whether a key is present at all.
-    const out = joinTransportRows([row({ id: "a" })], [{ id: -1, sessionRowId: "a" }]);
+    const out = joinTransportRows(
+      [row({ id: "a" })],
+      [{ id: -1, sessionRowId: "a" }],
+    );
     expect(out[0]?.displaySnapshot).toBeNull();
     expect(out[0]?.modelContent).toBeNull();
     expect(out[0]?.attachments).toBeNull();

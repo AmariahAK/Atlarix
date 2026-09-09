@@ -45,10 +45,7 @@ export async function loadModeSkillSection(
   try {
     const modeSkillName = getSkillNameForMode(effectiveWorkMode);
     const modeSkillBody = await preflight.time("mode-skill", () =>
-      loadSkill(
-        modeSkillName,
-        hasWorkspace && appPath ? appPath : undefined,
-      ),
+      loadSkill(modeSkillName, hasWorkspace && appPath ? appPath : undefined),
     );
     if (!modeSkillBody.trim()) return null;
     return {
@@ -180,16 +177,17 @@ export async function loadActivePlanSection(
     return { section: null, taskLedgerBlock: null };
   }
   try {
-    const { getLatestPlanArtifact } = await import("@/lib/plans/plan-artifacts");
+    const { getLatestPlanArtifact } = await import(
+      "@/lib/plans/plan-artifacts"
+    );
     const activePlan = await preflight.time(
       "plan-artifact",
       async () =>
-        (await getLatestPlanArtifact(
-          req.workspaceSessionId!,
-          "building",
-        )) ?? (await getLatestPlanArtifact(req.workspaceSessionId!)),
+        (await getLatestPlanArtifact(req.workspaceSessionId!, "building")) ??
+        (await getLatestPlanArtifact(req.workspaceSessionId!)),
     );
-    if (!activePlan?.content?.trim()) return { section: null, taskLedgerBlock: null };
+    if (!activePlan?.content?.trim())
+      return { section: null, taskLedgerBlock: null };
     // #A1: build the compact recency ledger block from the same fetch.
     let taskLedgerBlock: string | null;
     try {

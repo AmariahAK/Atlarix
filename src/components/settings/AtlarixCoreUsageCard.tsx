@@ -68,12 +68,14 @@ export function AtlarixCoreUsageCard({
   // headline of "$0.00" on an account with a balance would be worse than a
   // slightly broad one.
   const headlineCents = purchasedCents ?? balanceCents;
-  const balanceLabel = typeof headlineCents === "number" ? formatCents(headlineCents) : null;
+  const balanceLabel =
+    typeof headlineCents === "number" ? formatCents(headlineCents) : null;
   // A negative balance means a prior refund was clawed back after the credit had
   // already been spent — the reserve gate blocks Core until a top-up covers it.
   // Against the headline, which is now purchased credit — that is the column a
   // refund can drive below zero. An allowance is floored at zero by the schema.
-  const balanceIsNegative = typeof headlineCents === "number" && headlineCents < 0;
+  const balanceIsNegative =
+    typeof headlineCents === "number" && headlineCents < 0;
   const tallyLabel = `$${(tallyCents / 100).toFixed(2)}`;
 
   const addToTally = (cents: number) => {
@@ -142,9 +144,13 @@ export function AtlarixCoreUsageCard({
   const controlsDisabled = loading || needsSignIn || topUpPending;
 
   return (
-    <div className={`space-y-3 rounded-lg border border-border p-4 ${className}`}>
+    <div
+      className={`space-y-3 rounded-lg border border-border p-4 ${className}`}
+    >
       {showIntro ? (
-        <p className="text-xs text-muted-foreground leading-relaxed">{CORE_PAYMENT_SUMMARY}</p>
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          {CORE_PAYMENT_SUMMARY}
+        </p>
       ) : null}
 
       <div className="flex items-center justify-between text-sm gap-2">
@@ -167,7 +173,9 @@ export function AtlarixCoreUsageCard({
             {error}
           </span>
         ) : needsSignIn ? (
-          <span className="text-muted-foreground text-xs">Sign in to view balance</span>
+          <span className="text-muted-foreground text-xs">
+            Sign in to view balance
+          </span>
         ) : balanceLabel ? (
           <span
             className={`font-semibold tabular-nums text-base ${
@@ -184,7 +192,10 @@ export function AtlarixCoreUsageCard({
       {/* The split sits directly under the total it explains. It draws nothing
           when the server reported no split, or when there is nothing to spend. */}
       {!loading && !error && !needsSignIn ? (
-        <CreditSplitBar grantedCents={grantedCents} grantedTotalCents={grantedTotalCents} />
+        <CreditSplitBar
+          grantedCents={grantedCents}
+          grantedTotalCents={grantedTotalCents}
+        />
       ) : null}
 
       {balanceIsNegative ? (
@@ -235,13 +246,23 @@ export function AtlarixCoreUsageCard({
         {tallyCents > 0 ? (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-primary/20 bg-primary/5 px-3 py-2">
             <span className="text-sm">
-              You'll pay <span className="font-semibold tabular-nums">{tallyLabel}</span>
+              You'll pay{" "}
+              <span className="font-semibold tabular-nums">{tallyLabel}</span>
               {tallyCents < MIN_TOPUP_CENTS ? (
-                <span className="text-xs text-muted-foreground"> (min $10)</span>
+                <span className="text-xs text-muted-foreground">
+                  {" "}
+                  (min $10)
+                </span>
               ) : null}
             </span>
             <div className="flex items-center gap-2">
-              <Button type="button" size="sm" variant="ghost" onClick={resetTally} disabled={topUpPending}>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={resetTally}
+                disabled={topUpPending}
+              >
                 Reset
               </Button>
               <Button

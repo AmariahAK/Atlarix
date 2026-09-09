@@ -37,12 +37,17 @@ function toolResult(toolName: string, text: string): ModelMessage {
 function toolCall(toolName: string, input: unknown): ModelMessage {
   return {
     role: "assistant",
-    content: [{ type: "tool-call", toolCallId: `call-${toolName}`, toolName, input }],
+    content: [
+      { type: "tool-call", toolCallId: `call-${toolName}`, toolName, input },
+    ],
   } as unknown as ModelMessage;
 }
 
 function assistantText(text: string): ModelMessage {
-  return { role: "assistant", content: [{ type: "text", text }] } as ModelMessage;
+  return {
+    role: "assistant",
+    content: [{ type: "text", text }],
+  } as ModelMessage;
 }
 
 const BIG = (label: string, n: number) => `${label} `.repeat(n);
@@ -87,7 +92,9 @@ describe("bucketNativeTokensByTool", () => {
     expect(search.searchResults).toBeGreaterThan(0);
     expect(search.filesRead).toBe(0);
 
-    const files = bucketNativeTokensByTool([toolResult("read_attachment", BIG("x", 50))]);
+    const files = bucketNativeTokensByTool([
+      toolResult("read_attachment", BIG("x", 50)),
+    ]);
     expect(files.filesRead).toBeGreaterThan(0);
     expect(files.searchResults).toBe(0);
   });
@@ -95,7 +102,9 @@ describe("bucketNativeTokensByTool", () => {
   it("sends an unrecognised tool to 'other' rather than dropping it", () => {
     // A newly-added tool must never vanish from the meter just because nobody
     // remembered to map it.
-    const b = bucketNativeTokensByTool([toolResult("some_brand_new_tool", BIG("x", 80))]);
+    const b = bucketNativeTokensByTool([
+      toolResult("some_brand_new_tool", BIG("x", 80)),
+    ]);
     expect(b.otherToolOutput).toBeGreaterThan(0);
     expect(b.filesRead + b.searchResults).toBe(0);
   });

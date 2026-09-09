@@ -31,7 +31,9 @@ const requireElectron = createRequire(
 );
 
 /** @internal Vitest — wire the same mocked `electron.safeStorage` as `import { safeStorage } from "electron"`. */
-export function __injectSafeStorageForTests(api: SafeStorageApi | null | undefined): void {
+export function __injectSafeStorageForTests(
+  api: SafeStorageApi | null | undefined,
+): void {
   safeStorageTestOverride = api;
   safeStorageCache = undefined;
 }
@@ -368,7 +370,11 @@ export function writeSettings(settings: Partial<UserSettings>): void {
     if (raw?.providerSettings) {
       for (const provider in rawProviders) {
         if (newSettings.providerSettings[provider]) continue;
-        if (callerTouchedProviders && settings.providerSettings?.[provider] != null) continue;
+        if (
+          callerTouchedProviders &&
+          settings.providerSettings?.[provider] != null
+        )
+          continue;
         const rawProvider = rawProviders[provider];
         if (rawProvider?.apiKey || rawProvider?.serviceAccountKey) {
           newSettings.providerSettings[provider] =
@@ -424,7 +430,9 @@ export function reEncryptPlaintextSecretsIfPossible(): void {
      */
     let hasPlaintext = false;
     for (const p in s.providerSettings ?? {}) {
-      const ps = s.providerSettings[p] as { apiKey?: Secret } & VertexProviderSetting;
+      const ps = s.providerSettings[p] as {
+        apiKey?: Secret;
+      } & VertexProviderSetting;
       if (isPlain(ps.apiKey)) hasPlaintext = true;
       if (p === "vertex" && isPlain(ps.serviceAccountKey)) hasPlaintext = true;
     }

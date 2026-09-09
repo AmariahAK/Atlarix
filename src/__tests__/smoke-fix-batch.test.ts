@@ -16,13 +16,27 @@ import { buildToolModelOutput } from "@/lib/ai/tool-model-output";
 describe("vision detection via models.dev modalities", () => {
   it("native DeepSeek v4 (multimodal) is detected once modalities are registered", () => {
     // Before registration: unknown → text-only (the live hallucination case).
-    expect(detectVisionCapability("deepseek", "deepseek-v4-pro-test")).toBe(false);
+    expect(detectVisionCapability("deepseek", "deepseek-v4-pro-test")).toBe(
+      false,
+    );
     registerModelsDevVision([
-      { providerId: "deepseek", modelId: "deepseek-v4-pro-test", acceptsImages: true },
-      { providerId: "deepseek", modelId: "deepseek-old-text-only", acceptsImages: false },
+      {
+        providerId: "deepseek",
+        modelId: "deepseek-v4-pro-test",
+        acceptsImages: true,
+      },
+      {
+        providerId: "deepseek",
+        modelId: "deepseek-old-text-only",
+        acceptsImages: false,
+      },
     ]);
-    expect(detectVisionCapability("deepseek", "deepseek-v4-pro-test")).toBe(true);
-    expect(detectVisionCapability("deepseek", "deepseek-old-text-only")).toBe(false);
+    expect(detectVisionCapability("deepseek", "deepseek-v4-pro-test")).toBe(
+      true,
+    );
+    expect(detectVisionCapability("deepseek", "deepseek-old-text-only")).toBe(
+      false,
+    );
   });
 
   it("bare and vendor-prefixed ids both resolve", () => {
@@ -30,7 +44,9 @@ describe("vision detection via models.dev modalities", () => {
       { providerId: "zai", modelId: "glm-5v-test", acceptsImages: true },
     ]);
     expect(detectVisionCapability(undefined, "glm-5v-test")).toBe(true);
-    expect(detectVisionCapability(undefined, "somevendor/glm-5v-test")).toBe(true);
+    expect(detectVisionCapability(undefined, "somevendor/glm-5v-test")).toBe(
+      true,
+    );
   });
 
   it("hardcoded native vision providers still short-circuit true", () => {
@@ -63,7 +79,11 @@ describe("extractDelegationDisplaySummary", () => {
     '<task id="abc" state="completed">\n<summary>Update cron</summary><task_result>**Changes made:** two lines updated.\n\n```diff\n-old\n+new\n```</task_result>\n</task>';
 
   it("unwraps the registry envelope down to the task_result markdown", () => {
-    const envelope = { success: true, result: taskXml, _truncatedOutput: false };
+    const envelope = {
+      success: true,
+      result: taskXml,
+      _truncatedOutput: false,
+    };
     const { summary, isError } = extractDelegationDisplaySummary(
       envelope,
       JSON.stringify(envelope),
@@ -76,7 +96,8 @@ describe("extractDelegationDisplaySummary", () => {
   });
 
   it("detects error state through the envelope (the escaped-quote regex bug)", () => {
-    const errXml = '<task id="x" state="error">\n<summary>failed</summary>\n</task>';
+    const errXml =
+      '<task id="x" state="error">\n<summary>failed</summary>\n</task>';
     const envelope = { success: true, result: errXml, _truncatedOutput: false };
     const { summary, isError } = extractDelegationDisplaySummary(
       envelope,
@@ -113,7 +134,11 @@ describe("tokenizer memo", () => {
 describe("tool-result media vs user-message embed split (round 2)", () => {
   it("vision-capable OpenAI-compat provider (native DeepSeek): tool result steers to the embed, never claims delivery", () => {
     registerModelsDevVision([
-      { providerId: "deepseek", modelId: "deepseek-v4-pro-split", acceptsImages: true },
+      {
+        providerId: "deepseek",
+        modelId: "deepseek-v4-pro-split",
+        acceptsImages: true,
+      },
     ]);
     const out = buildToolModelOutput(
       "read_attachment",

@@ -29,18 +29,24 @@ beforeEach(() => {
   fakeIpc.onCoreModelsChanged = vi.fn(() => () => {});
 });
 
-const banner = () => document.querySelector('[data-testid="core-slot-change-banner"]');
+const banner = () =>
+  document.querySelector('[data-testid="core-slot-change-banner"]');
 
 describe("the Core slot-change banner", () => {
   it("renders nothing when there is no change to report", async () => {
     renderWithProviders(<CoreSlotChangeBanner />);
     // The common case by far — every launch after the first, and every BYOK user.
-    await waitFor(() => expect(fakeIpc.getCoreSlotChangeNotice).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(fakeIpc.getCoreSlotChangeNotice).toHaveBeenCalled(),
+    );
     expect(banner()).toBeNull();
   });
 
   it("names both models, so the user can see which way the cost moved", async () => {
-    fakeIpc.getCoreSlotChangeNotice = vi.fn(async () => ({ from: SOL, to: ASTRA }));
+    fakeIpc.getCoreSlotChangeNotice = vi.fn(async () => ({
+      from: SOL,
+      to: ASTRA,
+    }));
     renderWithProviders(<CoreSlotChangeBanner />);
 
     const el = await screen.findByTestId("core-slot-change-banner");
@@ -53,7 +59,10 @@ describe("the Core slot-change banner", () => {
   });
 
   it("acknowledges when dismissed, so it cannot return next launch", async () => {
-    fakeIpc.getCoreSlotChangeNotice = vi.fn(async () => ({ from: SOL, to: ASTRA }));
+    fakeIpc.getCoreSlotChangeNotice = vi.fn(async () => ({
+      from: SOL,
+      to: ASTRA,
+    }));
     renderWithProviders(<CoreSlotChangeBanner />);
     await screen.findByTestId("core-slot-change-banner");
 
@@ -68,7 +77,10 @@ describe("the Core slot-change banner", () => {
   });
 
   it("still closes when the acknowledgement fails", async () => {
-    fakeIpc.getCoreSlotChangeNotice = vi.fn(async () => ({ from: SOL, to: ASTRA }));
+    fakeIpc.getCoreSlotChangeNotice = vi.fn(async () => ({
+      from: SOL,
+      to: ASTRA,
+    }));
     fakeIpc.ackCoreSlotChange = vi.fn(async () => {
       throw new Error("settings write failed");
     });
@@ -89,7 +101,9 @@ describe("the Core slot-change banner", () => {
       throw new Error("main is unhappy");
     });
     renderWithProviders(<CoreSlotChangeBanner />);
-    await waitFor(() => expect(fakeIpc.getCoreSlotChangeNotice).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(fakeIpc.getCoreSlotChangeNotice).toHaveBeenCalled(),
+    );
     // A notice is a nicety. It must never be the reason a chat looks broken.
     expect(banner()).toBeNull();
   });
@@ -104,9 +118,14 @@ describe("the Core slot-change banner", () => {
     });
     fakeIpc.getCoreSlotChangeNotice = vi.fn(async () => null);
     renderWithProviders(<CoreSlotChangeBanner />);
-    await waitFor(() => expect(fakeIpc.getCoreSlotChangeNotice).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(fakeIpc.getCoreSlotChangeNotice).toHaveBeenCalled(),
+    );
 
-    fakeIpc.getCoreSlotChangeNotice = vi.fn(async () => ({ from: SOL, to: ASTRA }));
+    fakeIpc.getCoreSlotChangeNotice = vi.fn(async () => ({
+      from: SOL,
+      to: ASTRA,
+    }));
     fire?.();
 
     expect(await screen.findByTestId("core-slot-change-banner")).toBeTruthy();

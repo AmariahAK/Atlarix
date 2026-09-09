@@ -59,10 +59,16 @@ describe("model label when the provider has no key", () => {
     // ollama/lmstudio have their own branches and never reached the buggy path,
     // which is why "local" was unreachable-but-wrong rather than merely wrong.
     expect(
-      resolveModelDisplayLabel({ name: "qwen3", provider: "ollama" }, {}).toLowerCase(),
+      resolveModelDisplayLabel(
+        { name: "qwen3", provider: "ollama" },
+        {},
+      ).toLowerCase(),
     ).toContain("ollama");
     expect(
-      resolveModelDisplayLabel({ name: "qwen3", provider: "lmstudio" }, {}).toLowerCase(),
+      resolveModelDisplayLabel(
+        { name: "qwen3", provider: "lmstudio" },
+        {},
+      ).toLowerCase(),
     ).toContain("lmstudio");
   });
 

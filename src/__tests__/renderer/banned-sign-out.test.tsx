@@ -62,7 +62,9 @@ beforeEach(() => {
   invoke.mockClear();
   Object.defineProperty(window, "electron", {
     configurable: true,
-    value: { ipcRenderer: { invoke, on: () => () => {}, removeListener: () => {} } },
+    value: {
+      ipcRenderer: { invoke, on: () => () => {}, removeListener: () => {} },
+    },
   });
 });
 
@@ -82,7 +84,9 @@ describe("signOut while banned", () => {
     // `if (banned)` branch re-rendered the same dead-end screen.
     expect(result.current.banned).toBe(false);
     expect(result.current.isAuthenticated).toBe(false);
-    expect(invoke).toHaveBeenCalledWith("auth:sign-out", { removeLocalData: false });
+    expect(invoke).toHaveBeenCalledWith("auth:sign-out", {
+      removeLocalData: false,
+    });
   });
 
   it("passes removeLocalData through, so the shared dialog still works", async () => {
@@ -93,7 +97,9 @@ describe("signOut while banned", () => {
       await result.current.signOut(true);
     });
 
-    expect(invoke).toHaveBeenCalledWith("auth:sign-out", { removeLocalData: true });
+    expect(invoke).toHaveBeenCalledWith("auth:sign-out", {
+      removeLocalData: true,
+    });
     expect(result.current.banned).toBe(false);
   });
 });
@@ -115,14 +121,20 @@ function launcherBranch(state: { banned: boolean; isAuthenticated: boolean }) {
 
 describe("welcome-launcher branch order", () => {
   it("shows the ban to a signed-in banned account", () => {
-    expect(launcherBranch({ banned: true, isAuthenticated: true })).toBe("banned");
+    expect(launcherBranch({ banned: true, isAuthenticated: true })).toBe(
+      "banned",
+    );
   });
 
   it("banned OUTRANKS signed-out — the reason a stale flag was fatal", () => {
-    expect(launcherBranch({ banned: true, isAuthenticated: false })).toBe("banned");
+    expect(launcherBranch({ banned: true, isAuthenticated: false })).toBe(
+      "banned",
+    );
   });
 
   it("reaches sign-in once the ban is cleared, which is what signOut must produce", () => {
-    expect(launcherBranch({ banned: false, isAuthenticated: false })).toBe("sign-in");
+    expect(launcherBranch({ banned: false, isAuthenticated: false })).toBe(
+      "sign-in",
+    );
   });
 });

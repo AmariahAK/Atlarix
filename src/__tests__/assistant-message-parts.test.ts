@@ -42,9 +42,13 @@ describe("parseAssistantMessageParts", () => {
     const types = parts.map((p) => p.type);
 
     expect(types.indexOf("tool")).toBeLessThan(types.indexOf("plan_artifact"));
-    expect(types.indexOf("plan_artifact")).toBeLessThan(types.indexOf("markdown"));
+    expect(types.indexOf("plan_artifact")).toBeLessThan(
+      types.indexOf("markdown"),
+    );
     const md = parts.find((p) => p.type === "markdown");
-    expect(md && md.type === "markdown" ? md.content : "").toContain("Final answer");
+    expect(md && md.type === "markdown" ? md.content : "").toContain(
+      "Final answer",
+    );
   });
 
   it("dedupes plan artifact markers by planId", () => {
@@ -70,7 +74,9 @@ describe("parseAssistantMessageParts", () => {
       "get_repo_overview",
     );
     const md = parts.find((p) => p.type === "markdown");
-    expect(md && md.type === "markdown" ? md.content : "").toContain("Final answer");
+    expect(md && md.type === "markdown" ? md.content : "").toContain(
+      "Final answer",
+    );
   });
 
   it("dedupes consecutive identical tool envelopes", () => {
@@ -97,7 +103,9 @@ describe("parseAssistantMessageParts", () => {
     const grouped = groupAssistantDisplayParts(parts);
     expect(grouped.some((g) => g.kind === "context_group")).toBe(true);
     const group = grouped.find((g) => g.kind === "context_group");
-    expect(group && group.kind === "context_group" ? group.tools.length : 0).toBe(3);
+    expect(
+      group && group.kind === "context_group" ? group.tools.length : 0,
+    ).toBe(3);
   });
 
   it("suppresses trailing answer when markdown parts exist", () => {
@@ -109,9 +117,7 @@ describe("parseAssistantMessageParts", () => {
     const hasMarkdown = parts.some((p) => p.type === "markdown");
     expect(hasMarkdown).toBe(true);
     const trailing = extractVisibleAnswerMarkdown(content);
-    expect(
-      proseAlreadyRendered(trailing, parts) || hasMarkdown,
-    ).toBe(true);
+    expect(proseAlreadyRendered(trailing, parts) || hasMarkdown).toBe(true);
   });
 
   it("detects when trailing prose is not yet in markdown parts", () => {
@@ -151,9 +157,9 @@ describe("parseAssistantMessageParts", () => {
     const parts = parseAssistantMessageParts(content, false);
     const tools = parts.filter((p) => p.type === "tool");
     expect(tools).toHaveLength(2);
-    expect(tools.every((t) => t.type === "tool" && t.status === "success")).toBe(
-      true,
-    );
+    expect(
+      tools.every((t) => t.type === "tool" && t.status === "success"),
+    ).toBe(true);
   });
 
   it("parses chat-only tagged content with thought, tool, and trailing answer", () => {
@@ -178,9 +184,7 @@ describe("parseAssistantMessageParts", () => {
     expect(trailing).toContain("forecast");
     const md = parts.find((p) => p.type === "markdown");
     const inMarkdown =
-      md && md.type === "markdown"
-        ? md.content.includes("forecast")
-        : false;
+      md && md.type === "markdown" ? md.content.includes("forecast") : false;
     expect(inMarkdown || trailing.includes("forecast")).toBe(true);
   });
 
@@ -225,7 +229,9 @@ describe("parseAssistantMessageParts", () => {
     ].join("\n");
     const parts = parseAssistantMessageParts(content, false);
     const tool = parts.find((p) => p.type === "tool");
-    expect(tool && tool.type === "tool" ? tool.resultText : "").toContain("export const");
+    expect(tool && tool.type === "tool" ? tool.resultText : "").toContain(
+      "export const",
+    );
     if (!tool || tool.type !== "tool") return;
     const expand = getPersistedToolExpandView(tool);
     expect(isToolExpandable(expand)).toBe(true);
@@ -341,7 +347,8 @@ describe("parseAssistantMessageParts pure-prose fast path", () => {
   });
 
   it("does NOT take the fast path when a tag is present", () => {
-    const withTag = "Thinking done.\n\n<think>hidden</think>\n\nVisible answer.";
+    const withTag =
+      "Thinking done.\n\n<think>hidden</think>\n\nVisible answer.";
     const parts = parseAssistantMessageParts(withTag, false);
     expect(parts.some((p) => p.type === "thought")).toBe(true);
   });

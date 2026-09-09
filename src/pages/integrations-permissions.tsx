@@ -13,10 +13,7 @@
 
 import { useAtomValue } from "jotai";
 import { Folder } from "lucide-react";
-import {
-  selectedAppIdAtom,
-  selectedWorkspaceInfoAtom,
-} from "@/atoms/appAtoms";
+import { selectedAppIdAtom, selectedWorkspaceInfoAtom } from "@/atoms/appAtoms";
 import { WorkspaceTerminalPermissions } from "@/components/settings/WorkspaceTerminalPermissions";
 import {
   WorkspaceFilePermissions,

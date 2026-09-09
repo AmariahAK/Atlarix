@@ -14,7 +14,8 @@ import { expectStreamEnded } from "../infra/assert";
 const mcpFake = vi.hoisted(() => ({ executeCalls: 0 }));
 
 vi.mock("@/ipc/utils/mcp_manager", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/ipc/utils/mcp_manager")>();
+  const actual =
+    await importOriginal<typeof import("@/ipc/utils/mcp_manager")>();
   return {
     ...actual,
     mcpManager: {
@@ -88,9 +89,9 @@ describe("unattended mcp_call consent gate", () => {
     });
     expect(mcpFake.executeCalls).toBe(0); // never executed
     const requests = ctx.server.requestsFor("mcp-noconsent") as any[];
-    expect(JSON.stringify(requests[requests.length - 1]).toLowerCase()).toContain(
-      "declined",
-    );
+    expect(
+      JSON.stringify(requests[requests.length - 1]).toLowerCase(),
+    ).toContain("declined");
     expectStreamEnded(fakeIpc.sends, chatId);
   });
 

@@ -95,7 +95,9 @@ export function createProposalSet(args: {
   return id;
 }
 
-export function getProposalSet(id: string | undefined | null): ProposalSet | null {
+export function getProposalSet(
+  id: string | undefined | null,
+): ProposalSet | null {
   if (!id) return null;
   return sets.get(id) ?? null;
 }
@@ -140,7 +142,8 @@ export function __clearAllProposalSets(): void {
 
 function setBytes(set: ProposalSet): number {
   let total = 0;
-  for (const f of set.files.values()) total += Buffer.byteLength(f.content, "utf8");
+  for (const f of set.files.values())
+    total += Buffer.byteLength(f.content, "utf8");
   return total;
 }
 
@@ -208,7 +211,11 @@ function refreshProposalReadRecord(
   content: string,
 ): void {
   if (!setId) return;
-  recordFileWrite(resolveReadScope({ _proposalSetId: setId }), relPath, content);
+  recordFileWrite(
+    resolveReadScope({ _proposalSetId: setId }),
+    relPath,
+    content,
+  );
 }
 
 export function recordEditProposal(
@@ -230,7 +237,8 @@ export function recordEditProposal(
 
   const rel = env.preview?.path;
   const content = env.preview?.content;
-  if (typeof rel !== "string" || !rel || typeof content !== "string") return null;
+  if (typeof rel !== "string" || !rel || typeof content !== "string")
+    return null;
 
   const bytes = Buffer.byteLength(content, "utf8");
   if (bytes > MAX_PROPOSED_FILE_BYTES) {
@@ -251,7 +259,8 @@ export function recordEditProposal(
     // original base and type. `preview.oldContent` here is the overlay's own
     // previous content (readFileSafe served it), so adopting it as the base
     // would quietly erase the real pre-run state we need at accept time.
-    const projected = setBytes(set) - Buffer.byteLength(existing.content, "utf8") + bytes;
+    const projected =
+      setBytes(set) - Buffer.byteLength(existing.content, "utf8") + bytes;
     if (projected > MAX_PROPOSAL_SET_BYTES) {
       throw new Error(
         `This sub-agent's proposed changes exceed ${Math.round(MAX_PROPOSAL_SET_BYTES / 1024 / 1024)}MB in total. Narrow the scope.`,
@@ -279,7 +288,9 @@ export function recordEditProposal(
   const oldContent = env.preview?.oldContent;
   const baseContent = typeof oldContent === "string" ? oldContent : null;
   const type: "create" | "update" =
-    env.preview?.type === "create" || baseContent === null ? "create" : "update";
+    env.preview?.type === "create" || baseContent === null
+      ? "create"
+      : "update";
 
   set.files.set(fullPath, {
     relPath: rel,

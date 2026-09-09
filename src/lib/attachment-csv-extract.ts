@@ -64,7 +64,8 @@ export function matrixToTable(matrix: string[][]): CsvTableData | null {
       .map((r) => r.slice(0, MAX_TABLE_COLUMNS).map(cellToString)),
     totalRows: totalRows - 1,
     totalColumns,
-    truncated: totalRows - 1 > MAX_TABLE_ROWS || totalColumns > MAX_TABLE_COLUMNS,
+    truncated:
+      totalRows - 1 > MAX_TABLE_ROWS || totalColumns > MAX_TABLE_COLUMNS,
   };
 }
 
@@ -123,7 +124,9 @@ function parseCsvText(text: string): string[][] {
     skipEmptyLines: false,
     delimiter,
   });
-  const rows = (full.data ?? []).map((r) => (Array.isArray(r) ? r.map(cellToString) : []));
+  const rows = (full.data ?? []).map((r) =>
+    Array.isArray(r) ? r.map(cellToString) : [],
+  );
   // Drop ONLY a trailing all-empty row (the artefact of the final newline).
   while (rows.length > 0 && rows[rows.length - 1]!.every((c) => c === "")) {
     rows.pop();
@@ -131,7 +134,9 @@ function parseCsvText(text: string): string[][] {
   return rows;
 }
 
-export async function extractCsvFromBuffer(buffer: Buffer): Promise<CsvExtractResult> {
+export async function extractCsvFromBuffer(
+  buffer: Buffer,
+): Promise<CsvExtractResult> {
   const empty: CsvExtractResult = {
     text: "",
     table: null,

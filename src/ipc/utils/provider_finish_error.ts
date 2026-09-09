@@ -47,7 +47,8 @@ export class ProviderFinishReasonError extends Error {
  * `content_filter` and `length` are NOT here. Both are real, deterministic
  * outcomes with their own handling — a retry would hit the identical wall.
  */
-const ERROR_FINISH_REASON = /^(?:.*[_\-\s])?(?:error|failure|failed|timeout|timedout|unavailable|overloaded|exhausted|aborted|interrupted|cancelled|canceled|disconnect(?:ed)?|reset)(?:[_\-\s].*)?$/i;
+const ERROR_FINISH_REASON =
+  /^(?:.*[_\-\s])?(?:error|failure|failed|timeout|timedout|unavailable|overloaded|exhausted|aborted|interrupted|cancelled|canceled|disconnect(?:ed)?|reset)(?:[_\-\s].*)?$/i;
 
 /**
  * The provider's raw finish reason, if it names a failure.

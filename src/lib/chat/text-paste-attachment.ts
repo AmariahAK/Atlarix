@@ -3,7 +3,9 @@ import { buildPastePromptsFromAttachments } from "@/lib/chat/attachment-tag-bloc
 
 export function isTextPasteAttachment(
   attachment: FileAttachment,
-): attachment is FileAttachment & { textPaste: { content: string; displayName: string } } {
+): attachment is FileAttachment & {
+  textPaste: { content: string; displayName: string };
+} {
   return Boolean(attachment.textPaste?.content);
 }
 

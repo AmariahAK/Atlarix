@@ -22,18 +22,18 @@ const validInvokeChannels = [
   "chat:cancel",
   "chat:stream",
   "chat:stream:reconnect", // FIX 4: re-dispatch the last chat:stream after silent retries failed
-  "chat:abort",  // User can stop AI to save tokens
+  "chat:abort", // User can stop AI to save tokens
   "chat:submit-user-question-answer", // ask_user tool: submit answer from UI
-  "chat:interject",        // mid-turn user message: record for delivery on the next step
+  "chat:interject", // mid-turn user message: record for delivery on the next step
   "chat:interject-cancel", // withdraw one still-undelivered mid-turn message
-  "chat:interject-list",   // authoritative pending queue (main owns it, not the renderer)
-  "chat:interject-flush",  // take-once drain for the stream-end fallback turn
+  "chat:interject-list", // authoritative pending queue (main owns it, not the renderer)
+  "chat:interject-flush", // take-once drain for the stream-end fallback turn
   "workspace:open-in-new-window",
   "workspace:bind-window", // tells main which workspace THIS window is showing
   "window:open-blank",
   "workspace:consume-pending-cli",
-  "chat:edit-message",             // v3.9: edit user message and truncate after
-  "chat:revert-to-message",        // v3.9: revert conversation to assistant message
+  "chat:edit-message", // v3.9: edit user message and truncate after
+  "chat:revert-to-message", // v3.9: revert conversation to assistant message
   "autonomous:revert-op",
   "autonomous:accept-all",
   "revert:snapshot",
@@ -41,10 +41,10 @@ const validInvokeChannels = [
   "snapshot:exists",
   "snapshot:files",
   "snapshot:files-range",
-  "stream:open",                  // v3.9: open terminal/pipeline stream
-  "stream:close",                 // v3.9: close stream
-  "stream:get-lines",             // v3.9: get collected lines
-  "stream:feed-terminal",         // v3.9: feed terminal output (main process)
+  "stream:open", // v3.9: open terminal/pipeline stream
+  "stream:close", // v3.9: close stream
+  "stream:get-lines", // v3.9: get collected lines
+  "stream:feed-terminal", // v3.9: feed terminal output (main process)
   "chat:count-tokens",
   "sessions:list",
   "sessions:hydrate-transport",
@@ -286,8 +286,8 @@ const validInvokeChannels = [
   "auth:get-current-user",
   "auth:get-plan-info",
   "auth:upgrade",
-  "auth:add-credit",          // PAYG: open a credit top-up checkout
-  "auth:get-credit-balance",  // PAYG: read the user's Core credit balance (cents)
+  "auth:add-credit", // PAYG: open a credit top-up checkout
+  "auth:get-credit-balance", // PAYG: read the user's Core credit balance (cents)
   "auth:refresh-plan",
   "auth:manage-subscription",
   "auth:cancel-subscription",
@@ -302,10 +302,10 @@ const validInvokeChannels = [
   "community:record-acquisition-source",
   "community:peerpush-prompt",
   // Auto-updater
-  "update:defer",        // write defer flag to userData; install on next cold start
-  "update:install-now",  // quit and install downloaded update immediately
-  "update:get-status",   // read current update diagnostics
-  "update:check-now",    // manual "check for updates now"
+  "update:defer", // write defer flag to userData; install on next cold start
+  "update:install-now", // quit and install downloaded update immediately
+  "update:get-status", // read current update diagnostics
+  "update:check-now", // manual "check for updates now"
 ];
 
 const validReceiveChannels = [
@@ -319,8 +319,8 @@ const validReceiveChannels = [
   "chat:tool:end",
   "chat:stream:phase",
   // FIX 4: mid-stream network drop UX
-  "chat:stream:disconnected",   // backend exhausted silent retries
-  "chat:stream:reset-partial",  // backend will (re)start streaming; clear in-flight buffer
+  "chat:stream:disconnected", // backend exhausted silent retries
+  "chat:stream:reset-partial", // backend will (re)start streaming; clear in-flight buffer
   "theme:system-updated",
   "models-dev:status",
   "core-models:changed",
@@ -328,13 +328,13 @@ const validReceiveChannels = [
   "window:fullscreen-changed",
   "app:output",
   "deep-link-received",
-  "plan-changed",              // Realtime plan updates from Supabase
-  "settings:changed",          // main → EVERY renderer: user settings were written. Without it a second window keeps a stale copy (useSettings loads once per window into an atom) — the reason zoom drifted between windows.
-  "auth:resolved",             // main → renderer: the startup session restore SETTLED (user or null). Unlike plan-changed this always fires — a restore that found nothing is still an answer the renderer needs.
-  "oauth-callback-success",    // OAuth callback from main process
+  "plan-changed", // Realtime plan updates from Supabase
+  "settings:changed", // main → EVERY renderer: user settings were written. Without it a second window keeps a stale copy (useSettings loads once per window into an atom) — the reason zoom drifted between windows.
+  "auth:resolved", // main → renderer: the startup session restore SETTLED (user or null). Unlike plan-changed this always fires — a restore that found nothing is still an answer the renderer needs.
+  "oauth-callback-success", // OAuth callback from main process
   "force-close-detected",
-  "db-ready",                  // Main: DB initialized, renderer can show app
-  "apps:status-changed",       // Main: workspace folder presence changed (focus refresh)
+  "db-ready", // Main: DB initialized, renderer can show app
+  "apps:status-changed", // Main: workspace folder presence changed (focus refresh)
   // Help bot
   // MCP consent request from main to renderer
   "command-permission-blocked",
@@ -355,19 +355,19 @@ const validReceiveChannels = [
   "terminal-instances:updated",
   "terminal-instances:cleared",
   "workspace:opened-from-cli",
-  "operation-status",         // Permission queue status updates
-  "auto-recovery-needed",     // AI self-healing on failures
+  "operation-status", // Permission queue status updates
+  "auto-recovery-needed", // AI self-healing on failures
   // AI-controlled right panel (Hybrid Intent System)
-  "right-panel:set-intent",  // New: semantic intent-based
-  "right-panel:set-view",    // Legacy: kept for backwards compatibility
+  "right-panel:set-intent", // New: semantic intent-based
+  "right-panel:set-view", // Legacy: kept for backwards compatibility
   // Dev server output streaming
-  "dev-server:output",       // Live dev server console output
+  "dev-server:output", // Live dev server console output
   // Browser console error capture (CDP debugger)
   // Smart Agentic Loop (iteration progress)
-  "chat:iteration:progress",    // Progress updates (iteration count, tools)
-  "chat:iteration:warning",     // Warning: task running long, continue?
+  "chat:iteration:progress", // Progress updates (iteration count, tools)
+  "chat:iteration:warning", // Warning: task running long, continue?
   "chat:iteration:limit-reached", // Hit max iterations
-  "chat:iteration:timeout",     // Hit time limit (10 min)
+  "chat:iteration:timeout", // Hit time limit (10 min)
   // v2.1: Activity Stream (model selection, delegation, compaction, tool use)
   "chat:activity",
   "chat:context-report", // v10: context meter (per-section sizes + trims)
@@ -395,11 +395,11 @@ const validReceiveChannels = [
   // OAuth callback from main process
   "open-community-dialog",
   // Auto-updater
-  "update:downloading",   // update is being fetched in background; payload: { version: string }
-  "update:downloaded",    // update ready to install; payload: { version: string }
-  "update:available",     // notify-only: newer release on GitHub; payload: { currentVersion, latestVersion, releaseUrl }
-  "update:status",        // live update diagnostics for the Settings panel
-  "cli:launcher-stale",   // the installed `atlarix` launcher is stale + root-owned; offer a one-click reinstall
+  "update:downloading", // update is being fetched in background; payload: { version: string }
+  "update:downloaded", // update ready to install; payload: { version: string }
+  "update:available", // notify-only: newer release on GitHub; payload: { currentVersion, latestVersion, releaseUrl }
+  "update:status", // live update diagnostics for the Settings panel
+  "cli:launcher-stale", // the installed `atlarix` launcher is stale + root-owned; offer a one-click reinstall
 ] as const;
 
 type ValidInvokeChannel = (typeof validInvokeChannels)[number];

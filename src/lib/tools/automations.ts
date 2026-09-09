@@ -63,14 +63,17 @@ type AutomationsToolArgs = {
 };
 
 /** Shape a create/update payload, so both paths validate identically. */
-function buildInput(args: AutomationsToolArgs, existing?: {
-  name: string;
-  trigger: unknown;
-  prompt: string;
-  runMode: "notify-only" | "read-only";
-  notifyAgent: boolean;
-  enabled: boolean;
-}): AutomationInput {
+function buildInput(
+  args: AutomationsToolArgs,
+  existing?: {
+    name: string;
+    trigger: unknown;
+    prompt: string;
+    runMode: "notify-only" | "read-only";
+    notifyAgent: boolean;
+    enabled: boolean;
+  },
+): AutomationInput {
   return AutomationInputSchema.parse({
     name: args.name ?? existing?.name,
     enabled: args.enabled ?? existing?.enabled ?? true,
@@ -86,19 +89,19 @@ ToolRegistry.register({
   name: "automations",
   description:
     "Standing background watches on a schedule, a GitHub event, or an MCP tool poll — the thing to reach for when the user keeps checking something by hand. " +
-    "operation:\"list\" — every automation in this workspace with its trigger, runMode, notifyAgent and last run. Free; start here. " +
-    "operation:\"create\" — name + trigger + run_mode + notify_agent. Once the user approves, the result hands back `automation_id` — use that id to run it, not a name (two automations may share one). " +
-    "operation:\"update\" — automation_id plus only the fields you are changing. " +
-    "operation:\"delete\" — automation_id. " +
-    "operation:\"run\" — automation_id; fire ONE automation now instead of waiting for its trigger. This is how you check the one you just created actually works, so use it right after create rather than telling the user to wait. Behaves like run_command: a quick run returns its outcome inline, a slow one moves to the background and reaches you when it finishes. You always get the result, even when notify_agent is false. " +
-    "operation:\"set_notify\" — automation_id + notify_agent; the cheap way to change only who hears about runs. " +
+    'operation:"list" — every automation in this workspace with its trigger, runMode, notifyAgent and last run. Free; start here. ' +
+    'operation:"create" — name + trigger + run_mode + notify_agent. Once the user approves, the result hands back `automation_id` — use that id to run it, not a name (two automations may share one). ' +
+    'operation:"update" — automation_id plus only the fields you are changing. ' +
+    'operation:"delete" — automation_id. ' +
+    'operation:"run" — automation_id; fire ONE automation now instead of waiting for its trigger. This is how you check the one you just created actually works, so use it right after create rather than telling the user to wait. Behaves like run_command: a quick run returns its outcome inline, a slow one moves to the background and reaches you when it finishes. You always get the result, even when notify_agent is false. ' +
+    'operation:"set_notify" — automation_id + notify_agent; the cheap way to change only who hears about runs. ' +
     "\n" +
     "`notify_agent` is REQUIRED on create and is the most important choice you make: " +
     "true means each finished run is delivered to you in your next turn (right for CI, tests, builds — things to ACT on); " +
     "false means the user is notified and you are not, so the automation cannot spend tokens (right for Slack/MCP inbox noise the user triages themselves, then tells you about). " +
     "Say which you chose and why IN YOUR REPLY, not only in the call — it decides whether this costs money while nobody is watching, and the user should not have to infer it. Either of you can flip it later with set_notify. " +
     "\n" +
-    "`run_mode` is separate: \"notify-only\" (default) posts the fired trigger with no model involved; \"read-only\" runs an unattended agent turn with read-only tools and costs a model turn per fire — it needs a `prompt`. " +
+    '`run_mode` is separate: "notify-only" (default) posts the fired trigger with no model involved; "read-only" runs an unattended agent turn with read-only tools and costs a model turn per fire — it needs a `prompt`. ' +
     "\n" +
     "PROPOSE, DO NOT SELF-START. Offer an automation when you have watched the user do the same check repeatedly, and create it once they agree. Do not set up watches on GitHub, Slack, CI or anything else the user has not asked for. create/update/delete all require the user's approval before anything is written. " +
     "An MCP trigger also records standing consent for that tool (the poller runs unattended and cannot prompt) — say so when you propose one. " +
@@ -122,8 +125,10 @@ ToolRegistry.register({
         "set_notify",
         "run",
       ]),
-      automation_id: stringParam("Which automation (update / delete / set_notify / run)."),
-      name: stringParam("Short human name, e.g. \"CI failures on main\"."),
+      automation_id: stringParam(
+        "Which automation (update / delete / set_notify / run).",
+      ),
+      name: stringParam('Short human name, e.g. "CI failures on main".'),
       trigger: {
         type: "object",
         // The `pipeline` shape is deliberately NOT advertised. Its only host was
@@ -134,11 +139,11 @@ ToolRegistry.register({
         // `assertPollableHost` then refuses. An MCP trigger is the
         // host-agnostic way to poll any API.
         description:
-          "One of: {kind:\"schedule\", cron:\"0 9 * * 1-5\"} · " +
+          'One of: {kind:"schedule", cron:"0 9 * * 1-5"} · ' +
           `{kind:"mcp", serverId:<number>, tool:"<tool>", args:{…}, intervalMinutes:>=${MIN_POLL_INTERVAL_MINUTES}}`,
       },
       prompt: stringParam(
-        "What the agent should do on each fire. Required when run_mode is \"read-only\"; unused for \"notify-only\".",
+        'What the agent should do on each fire. Required when run_mode is "read-only"; unused for "notify-only".',
       ),
       run_mode: enumParam(
         "Does a fire run the model unattended?",
@@ -148,7 +153,9 @@ ToolRegistry.register({
       notify_agent: booleanParam(
         "Does a finished run reach YOU (true) or only the user (false)? Required on create — there is no default, because this is what decides whether the automation can spend tokens.",
       ),
-      enabled: booleanParam("Whether the automation is armed. Defaults to true."),
+      enabled: booleanParam(
+        "Whether the automation is armed. Defaults to true.",
+      ),
       // `workspaceId` is injected by the turn runner and NOT advertised; the
       // handler below still reads `args.workspaceId`.
     },
@@ -201,7 +208,8 @@ ToolRegistry.register({
       if (!args.automation_id) {
         return {
           success: false,
-          error: 'operation:"run" requires automation_id (see operation:"list").',
+          error:
+            'operation:"run" requires automation_id (see operation:"list").',
         };
       }
       const existing = await getAutomation(args.automation_id);
@@ -217,7 +225,9 @@ ToolRegistry.register({
           error: `"${existing.name}" is disabled — enable it with operation:"update" before running it.`,
         };
       }
-      const { executeAutomationRun } = await import("@/lib/automations/execute-run");
+      const { executeAutomationRun } = await import(
+        "@/lib/automations/execute-run"
+      );
       // forceNotifyAgent: you asked for this run, so you hear the outcome even
       // when notify_agent is false for its unattended fires.
       const runPromise = executeAutomationRun(
@@ -233,7 +243,10 @@ ToolRegistry.register({
           () => true,
         ),
         new Promise<boolean>((resolve) => {
-          promoteTimer = setTimeout(() => resolve(false), AUTOMATION_RUN_PROMOTE_AFTER_MS);
+          promoteTimer = setTimeout(
+            () => resolve(false),
+            AUTOMATION_RUN_PROMOTE_AFTER_MS,
+          );
         }),
       ]);
       if (promoteTimer) clearTimeout(promoteTimer);
@@ -268,7 +281,8 @@ ToolRegistry.register({
         run_id: result.runId,
         status: row?.status ?? "ok",
         summary: row?.summary ?? null,
-        error: row?.status === "error" ? (row?.summary ?? "run failed") : undefined,
+        error:
+          row?.status === "error" ? (row?.summary ?? "run failed") : undefined,
       };
     }
 
@@ -296,7 +310,9 @@ ToolRegistry.register({
               action: "delete" as const,
               name: existing.name,
               automationId: existing.id,
-              triggerSummary: describeTrigger(existing.trigger as AutomationTrigger),
+              triggerSummary: describeTrigger(
+                existing.trigger as AutomationTrigger,
+              ),
               description: `Delete the automation "${existing.name}"`,
             },
           };
@@ -304,7 +320,8 @@ ToolRegistry.register({
         if (typeof args.notify_agent !== "boolean") {
           return {
             success: false,
-            error: 'operation:"set_notify" requires notify_agent (true or false).',
+            error:
+              'operation:"set_notify" requires notify_agent (true or false).',
           };
         }
         return {
@@ -314,7 +331,9 @@ ToolRegistry.register({
             action: "update" as const,
             name: existing.name,
             automationId: existing.id,
-            triggerSummary: describeTrigger(existing.trigger as AutomationTrigger),
+            triggerSummary: describeTrigger(
+              existing.trigger as AutomationTrigger,
+            ),
             runMode: existing.runMode,
             notifyAgent: args.notify_agent,
             description: args.notify_agent
@@ -351,7 +370,8 @@ ToolRegistry.register({
       if (!args.automation_id) {
         return {
           success: false,
-          error: 'operation:"update" requires automation_id (see operation:"list").',
+          error:
+            'operation:"update" requires automation_id (see operation:"list").',
         };
       }
       const existing = await getAutomation(args.automation_id);
@@ -377,7 +397,9 @@ ToolRegistry.register({
         changes.push(`runMode: ${existing.runMode} → ${input.runMode}`);
       }
       if (input.notifyAgent !== existing.notifyAgent) {
-        changes.push(`notifyAgent: ${existing.notifyAgent} → ${input.notifyAgent}`);
+        changes.push(
+          `notifyAgent: ${existing.notifyAgent} → ${input.notifyAgent}`,
+        );
       }
       if (input.enabled !== existing.enabled) {
         changes.push(`enabled: ${existing.enabled} → ${input.enabled}`);

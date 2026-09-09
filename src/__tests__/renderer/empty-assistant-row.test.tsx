@@ -62,7 +62,11 @@ beforeEach(() => {
 describe("an assistant row with nothing in it", () => {
   it("renders nothing at all when there is no content, no stream and no parts", () => {
     const { container } = renderWithProviders(
-      <SimpleMessage message={assistantMessage("")} isStreaming={false} chatId={CHAT_ID} />,
+      <SimpleMessage
+        message={assistantMessage("")}
+        isStreaming={false}
+        chatId={CHAT_ID}
+      />,
     );
     // Not "renders an empty box" — renders NOTHING.
     expect(container.textContent?.trim()).toBe("");
@@ -74,7 +78,11 @@ describe("an assistant row with nothing in it", () => {
     // that has started but produced no token yet shows InlineStreamStatus. It is also
     // exactly why that guard missed the refusal case — an error sets streaming false.
     const { container } = renderWithProviders(
-      <SimpleMessage message={assistantMessage("")} isStreaming={true} chatId={CHAT_ID} />,
+      <SimpleMessage
+        message={assistantMessage("")}
+        isStreaming={true}
+        chatId={CHAT_ID}
+      />,
     );
     expect(bubble(container)).not.toBeNull();
   });
@@ -99,7 +107,11 @@ describe("an assistant row with nothing in it", () => {
       [MSG_ID]: [{ kind: "tool", id: "t1" }],
     } as never);
     const { container } = renderWithProviders(
-      <SimpleMessage message={assistantMessage("")} isStreaming={false} chatId={CHAT_ID} />,
+      <SimpleMessage
+        message={assistantMessage("")}
+        isStreaming={false}
+        chatId={CHAT_ID}
+      />,
     );
     expect(bubble(container)).not.toBeNull();
   });
@@ -109,7 +121,11 @@ describe("an assistant row with nothing in it", () => {
       [MSG_ID]: [{ url: "https://example.com", title: "Docs" }],
     } as never);
     const { container } = renderWithProviders(
-      <SimpleMessage message={assistantMessage("")} isStreaming={false} chatId={CHAT_ID} />,
+      <SimpleMessage
+        message={assistantMessage("")}
+        isStreaming={false}
+        chatId={CHAT_ID}
+      />,
     );
     expect(bubble(container)).not.toBeNull();
   });

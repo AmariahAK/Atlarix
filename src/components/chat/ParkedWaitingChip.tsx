@@ -26,7 +26,9 @@ function describe(commands: number, subagents: number): string {
 }
 
 export function ParkedWaitingChip({ chatId }: { chatId: number }) {
-  const [parkedByChatId, setParkedByChatId] = useAtom(parkedWaitingByChatIdAtom);
+  const [parkedByChatId, setParkedByChatId] = useAtom(
+    parkedWaitingByChatIdAtom,
+  );
   const jobsByChat = useAtomValue(backgroundJobsByChatIdAtom);
   const parked = parkedByChatId.get(chatId);
   if (!parked) return null;

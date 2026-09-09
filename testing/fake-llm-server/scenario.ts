@@ -289,8 +289,7 @@ export function handleScenarioChatCompletion(
         error: {
           message:
             response.message ?? `Scripted error (status ${response.status})`,
-          type:
-            response.status === 429 ? "rate_limit_error" : "scripted_error",
+          type: response.status === 429 ? "rate_limit_error" : "scripted_error",
           param: null,
           code:
             response.status === 429 ? "rate_limit_exceeded" : "scripted_error",

@@ -59,34 +59,42 @@ afterAll(() => {
 });
 
 describe("reinitializeDatabaseAfterReset", () => {
-  it("leaves the db usable after the file is closed and deleted", () => {
-    initializeDatabase();
-    expect(isDbInitialized()).toBe(true);
+  it(
+    "leaves the db usable after the file is closed and deleted",
+    () => {
+      initializeDatabase();
+      expect(isDbInitialized()).toBe(true);
 
-    const dbPath = getDatabasePath();
-    expect(fs.existsSync(dbPath)).toBe(true);
+      const dbPath = getDatabasePath();
+      expect(fs.existsSync(dbPath)).toBe(true);
 
-    // Exactly what the reset-all handler does.
-    db.$client.close();
-    for (const suffix of ["", "-wal", "-shm"]) {
-      fs.rmSync(`${dbPath}${suffix}`, { force: true });
-    }
-    expect(fs.existsSync(dbPath)).toBe(false);
+      // Exactly what the reset-all handler does.
+      db.$client.close();
+      for (const suffix of ["", "-wal", "-shm"]) {
+        fs.rmSync(`${dbPath}${suffix}`, { force: true });
+      }
+      expect(fs.existsSync(dbPath)).toBe(false);
 
-    reinitializeDatabaseAfterReset();
+      reinitializeDatabaseAfterReset();
 
-    // A fresh file exists...
-    expect(fs.existsSync(dbPath)).toBe(true);
-    expect(isDbInitialized()).toBe(true);
-    // ...and a real query runs instead of throwing "connection is not open".
-    // Reading through the `db` proxy is the point: that is the handle every caller
-    // uses, and it is what pointed at the dead connection before.
-    expect(() => db.$client.prepare("SELECT 1").get()).not.toThrow();
-  }, SLOW_DB_TIMEOUT_MS);
+      // A fresh file exists...
+      expect(fs.existsSync(dbPath)).toBe(true);
+      expect(isDbInitialized()).toBe(true);
+      // ...and a real query runs instead of throwing "connection is not open".
+      // Reading through the `db` proxy is the point: that is the handle every caller
+      // uses, and it is what pointed at the dead connection before.
+      expect(() => db.$client.prepare("SELECT 1").get()).not.toThrow();
+    },
+    SLOW_DB_TIMEOUT_MS,
+  );
 
-  it("is idempotent — a second call does not close the live handle", () => {
-    reinitializeDatabaseAfterReset();
-    expect(isDbInitialized()).toBe(true);
-    expect(() => db.$client.prepare("SELECT 1").get()).not.toThrow();
-  }, SLOW_DB_TIMEOUT_MS);
+  it(
+    "is idempotent — a second call does not close the live handle",
+    () => {
+      reinitializeDatabaseAfterReset();
+      expect(isDbInitialized()).toBe(true);
+      expect(() => db.$client.prepare("SELECT 1").get()).not.toThrow();
+    },
+    SLOW_DB_TIMEOUT_MS,
+  );
 });

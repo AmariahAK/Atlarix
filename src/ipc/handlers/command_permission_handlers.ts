@@ -24,7 +24,11 @@ export type RunCommandPermissionGate =
   | { action: "prompt"; category: string; dangerous: boolean };
 
 /** Per-segment verdict + the store key that would flip it (for "always allow"). */
-type SegmentVerdict = { state: "allow" | "deny" | "prompt"; key: string; dangerous: boolean };
+type SegmentVerdict = {
+  state: "allow" | "deny" | "prompt";
+  key: string;
+  dangerous: boolean;
+};
 
 /**
  * Classify ONE command segment. Reference model (Codex + Claude Code): the OS
@@ -41,14 +45,21 @@ function classifySegment(
 ): SegmentVerdict {
   if (isDangerousCommand(segment)) {
     const key = dangerLabelKey(segment) ?? getCommandCategory(segment);
-    const decision = appId != null ? getWorkspaceCommandPermission(appId, key) : null;
+    const decision =
+      appId != null ? getWorkspaceCommandPermission(appId, key) : null;
     const state =
-      decision === "always_deny" ? "deny" : decision === "always_allow" ? "allow" : "prompt";
+      decision === "always_deny"
+        ? "deny"
+        : decision === "always_allow"
+          ? "allow"
+          : "prompt";
     return { state, key, dangerous: true };
   }
   const key = getCommandCategory(segment);
-  const decision = appId != null ? getWorkspaceCommandPermission(appId, key) : null;
-  if (decision === "always_deny") return { state: "deny", key, dangerous: false };
+  const decision =
+    appId != null ? getWorkspaceCommandPermission(appId, key) : null;
+  if (decision === "always_deny")
+    return { state: "deny", key, dangerous: false };
   // Default: auto-run. The mode's OS sandbox contains it (read-only source in
   // Explore/Plan/Review; workspace-write in Build/Debug). A write the mode
   // disallows fails cleanly at the OS layer — never a pre-emptive dead-end.
@@ -73,7 +84,11 @@ export function resolveRunCommandPermissionGate(
   // Unparseable (substitution in double quotes / unbalanced quotes) or empty →
   // fail safe to a prompt with a coarse category label.
   if (!segments || segments.length === 0) {
-    return { action: "prompt", category: getCommandCategory(command), dangerous: isDangerousCommand(command) };
+    return {
+      action: "prompt",
+      category: getCommandCategory(command),
+      dangerous: isDangerousCommand(command),
+    };
   }
 
   const verdicts = segments.map((seg) => classifySegment(seg, appId));
@@ -100,7 +115,11 @@ export function resolveRunCommandPermissionGate(
   }
   // At least one segment needs approval → prompt, keyed to the first blocker so
   // "always allow" saves the rule that unblocks the command.
-  return { action: "prompt", category: firstBlocking.key, dangerous: anyDangerous };
+  return {
+    action: "prompt",
+    category: firstBlocking.key,
+    dangerous: anyDangerous,
+  };
 }
 
 export type RunCommandCategoryPreflight =
@@ -174,10 +193,18 @@ export function registerCommandPermissionHandlers(): void {
         // Degrade instead of throwing raw SqliteError out of IPC (e.g. disk full
         // → the rollback journal can't be created). The renderer gets a clean
         // failure it can surface, not an unhandled rejection.
-        logger.warn(`[command-permissions] upsert failed app=${appId} cat=${cat}:`, e);
-        return { success: false, error: "Couldn't save permission (storage may be full)." };
+        logger.warn(
+          `[command-permissions] upsert failed app=${appId} cat=${cat}:`,
+          e,
+        );
+        return {
+          success: false,
+          error: "Couldn't save permission (storage may be full).",
+        };
       }
-      logger.log(`[command-permissions] upsert app=${appId} cat=${cat} decision=${decision}`);
+      logger.log(
+        `[command-permissions] upsert app=${appId} cat=${cat} decision=${decision}`,
+      );
       return { success: true };
     },
   );

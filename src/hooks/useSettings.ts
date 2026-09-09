@@ -97,8 +97,12 @@ export function useSettings() {
       // through, rather than in each of them.
       if (newSettings.providerSettings !== undefined) {
         await Promise.all([
-          queryClient.invalidateQueries({ queryKey: ["language-models-by-providers"] }),
-          queryClient.invalidateQueries({ queryKey: ["languageModelProviders"] }),
+          queryClient.invalidateQueries({
+            queryKey: ["language-models-by-providers"],
+          }),
+          queryClient.invalidateQueries({
+            queryKey: ["languageModelProviders"],
+          }),
         ]);
       }
 

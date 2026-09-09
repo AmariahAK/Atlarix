@@ -58,7 +58,10 @@ export function usePanelShortcuts() {
   useEffect(() => {
     const openRightPanel = () => {
       setSuppressRightAutoOpen(false);
-      const w = Math.max(280, Math.min(700, Math.floor(window.innerWidth * 0.3)));
+      const w = Math.max(
+        280,
+        Math.min(700, Math.floor(window.innerWidth * 0.3)),
+      );
       setRightPanelWidth(w);
       setRightPanelVisible(true);
     };

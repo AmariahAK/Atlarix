@@ -66,15 +66,24 @@ describe("chat render-cap (F2)", () => {
   it("mounts only the last RENDER_CAP messages + a 'Show earlier' button, then reveals more on click", () => {
     const total = 150;
     const { store } = renderWithProviders(
-      <SimpleInlineChat chatId={CHAT_ID} onSendMessage={() => {}} virtualizeHistory={false} />,
+      <SimpleInlineChat
+        chatId={CHAT_ID}
+        onSendMessage={() => {}}
+        virtualizeHistory={false}
+      />,
     );
     act(() => {
-      store.set(chatMessagesByIdAtom, new Map([[CHAT_ID, makeMessages(total) as never]]));
+      store.set(
+        chatMessagesByIdAtom,
+        new Map([[CHAT_ID, makeMessages(total) as never]]),
+      );
     });
 
     // Only the last 120 render; 30 are hidden behind the button.
     expect(screen.getAllByTestId("message")).toHaveLength(RENDER_CAP);
-    const showEarlier = screen.getByRole("button", { name: /Show earlier messages \(30 hidden\)/i });
+    const showEarlier = screen.getByRole("button", {
+      name: /Show earlier messages \(30 hidden\)/i,
+    });
     expect(showEarlier).toBeInTheDocument();
 
     // Reveal the rest → all 150 render, button gone.
@@ -87,10 +96,17 @@ describe("chat render-cap (F2)", () => {
 
   it("renders all messages with no button when under the cap", () => {
     const { store } = renderWithProviders(
-      <SimpleInlineChat chatId={CHAT_ID} onSendMessage={() => {}} virtualizeHistory={false} />,
+      <SimpleInlineChat
+        chatId={CHAT_ID}
+        onSendMessage={() => {}}
+        virtualizeHistory={false}
+      />,
     );
     act(() => {
-      store.set(chatMessagesByIdAtom, new Map([[CHAT_ID, makeMessages(20) as never]]));
+      store.set(
+        chatMessagesByIdAtom,
+        new Map([[CHAT_ID, makeMessages(20) as never]]),
+      );
     });
     expect(screen.getAllByTestId("message")).toHaveLength(20);
     expect(
@@ -103,7 +119,10 @@ describe("chat render-cap (F2)", () => {
       <SimpleInlineChat chatId={CHAT_ID} onSendMessage={() => {}} />,
     );
     act(() => {
-      store.set(chatMessagesByIdAtom, new Map([[CHAT_ID, makeMessages(5) as never]]));
+      store.set(
+        chatMessagesByIdAtom,
+        new Map([[CHAT_ID, makeMessages(5) as never]]),
+      );
     });
     // Default path renders the (mocked) virtualizer, not the render-all list.
     expect(screen.getByTestId("virtualized-list")).toBeInTheDocument();

@@ -157,10 +157,20 @@ export function createAgenticRepetitionState(): AgenticRepetitionState {
       // backstop. The count is NOT reset on a correction trip: only a different
       // call resets it (see header).
       if (consecutive === CORRECT_1_THRESHOLD) {
-        return { kind: "loop_correct", attempt: 1, toolName, count: consecutive };
+        return {
+          kind: "loop_correct",
+          attempt: 1,
+          toolName,
+          count: consecutive,
+        };
       }
       if (consecutive === CORRECT_2_THRESHOLD) {
-        return { kind: "loop_correct", attempt: 2, toolName, count: consecutive };
+        return {
+          kind: "loop_correct",
+          attempt: 2,
+          toolName,
+          count: consecutive,
+        };
       }
       if (consecutive >= ABORT_THRESHOLD) {
         // Reset so one doom loop fires exactly one force-finish.

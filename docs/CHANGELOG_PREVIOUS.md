@@ -19,7 +19,7 @@ context, so "Message History" undercounted structurally. Two of its five rows (`
 `Mentioned files`) were also hardcoded to zero: one a leftover from the retrieval teardown,
 the other never wired. The breakdown is now seven rows that partition the real total —
 **Conversation, Files read, Search results, Other tool output, Skills & instructions,
-System prompt, Current input** — and they sum to it. Tool traffic is carved *out of*
+System prompt, Current input** — and they sum to it. Tool traffic is carved _out of_
 history rather than added on top, because tool results already are history.
 
 - **A staleness bug that fixed itself only on the next message.** The delta cache keyed on
@@ -36,7 +36,7 @@ history rather than added on top, because tool results already are history.
 dispatch — 10 skills / 6 KB each / 24 KB total, roughly 6k tokens a turn whether or not the
 task touched any of them — and repo skills under `.atlarix/skills/` went in whole with no
 cap at all. Now one line per skill (name, description, path); the agent reads the file with
-`read_file` when a line applies. Cost scales with the *number* of skills, not their size.
+`read_file` when a line applies. Cost scales with the _number_ of skills, not their size.
 
 - **Nothing is truncated any more.** `cap()` used to cut a body mid-file, the 11th skill
   vanished without a trace, and even the names summary stopped at 10. A truncated
@@ -99,7 +99,7 @@ footnote also prints human labels now instead of internal section names.
 
 **Cross-workspace edits.** Reads already reached anywhere; `run_command` writes could
 escalate, grant a folder and remember it; but `edit_file` hard-threw at the boundary —
-*after* you had read and approved the diff — telling you to re-import the folder as the
+_after_ you had read and approved the diff — telling you to re-import the folder as the
 project. The two lanes kept **disjoint grant lists** and never consulted each other. Now
 there is one list: grant a folder once, from the approval card or **Settings → Workflow →
 Folders outside this workspace**, and it covers both file edits and sandboxed commands.
@@ -133,14 +133,14 @@ outer wall, not the approval.
 **Build offers a plan when you didn't bring one.** Starting a broad piece of work with no
 structure meant the agent free-ran through a dozen files and you only saw the shape at the
 end. Build now writes a plan first when a request spans several steps or more than a couple
-of files — and explicitly doesn't for a one-line fix. Debug does the same, but only *after*
+of files — and explicitly doesn't for a one-line fix. Debug does the same, but only _after_
 the hypothesis: planning a bug you haven't diagnosed just commits you to a guess.
 
 **The prompt called Debug mode "Fix".** The mode picker says Debug; the prompt's own label
 map said Fix, and the mode header interpolates it — so the shipped prompt read "You are in
 Fix mode (the UI labels it Fix…)", asserting something about the UI that was false, and a
 user asking to switch to Debug was naming a mode the model had another word for. An earlier
-pass had consolidated the prompt's *internal* copies onto one map without noticing that map
+pass had consolidated the prompt's _internal_ copies onto one map without noticing that map
 was itself a rival to the UI's. Labels now come from the same function the picker renders,
 and a parity test covers every mode.
 
@@ -156,7 +156,7 @@ outside the workspace asks for that folder once, exactly like a cross-repo edit.
 
 - **The sandbox is widened, not dropped.** It still comes off for a genuine installer
   (`brew install`, `sudo`, `npm -g`) whose writes nobody can enumerate — but a command that is
-  system-scope *only* because it touches an outside path now stays sandboxed, with the granted
+  system-scope _only_ because it touches an outside path now stays sandboxed, with the granted
   folder passed in. An approved `cd` used to mean unrestricted write access to the whole disk.
 - **The agent is told a `cd` didn't stick.** Nothing said so, so a model that prefixed one
   carried on believing it had moved and every relative path afterwards resolved somewhere
@@ -175,7 +175,7 @@ at a neighbouring repo hit the error and then spent `pwd`, `ls ..` and a `find` 
 a path it could have used from the start. `../` now resolves the way the shell would, in
 `glob`, `grep` and `read_file` alike. grep in particular used to treat `../sibling` as a
 workspace glob and quietly match nothing — a silent wrong answer, worse than the error. A `..`
-hidden inside a glob *pattern* is still refused, an absolute path that lost its leading slash
+hidden inside a glob _pattern_ is still refused, an absolute path that lost its leading slash
 is still treated as the typo it is, and **writing** to a sibling still requires the folder
 grant.
 
@@ -256,10 +256,10 @@ clones. It is just no longer possible to get stuck reaching it.
   cases — private-or-wrong-URL, SSH key refused, host unreachable, repository missing, git not
   installed — instead of one sentence for all of them. Every path is redacted first: the
   authenticated clone URL embeds the OAuth token and git echoes URLs back in stderr, so the same
-  redaction covers the IPC reply *and* the log file (`src/ipc/handlers/github_handlers.ts`,
+  redaction covers the IPC reply _and_ the log file (`src/ipc/handlers/github_handlers.ts`,
   `src/shared/git_remote_url.ts`).
 - **A GitHub API hiccup no longer masquerades as a missing repository.** The pre-flight repo check
-  turned *any* `fetch` failure — offline, proxy, rate limit — into "Repository not found or you do
+  turned _any_ `fetch` failure — offline, proxy, rate limit — into "Repository not found or you do
   not have access to it." Only a definitive 404/403 stops the clone now; anything else falls
   through and lets git report the truth.
 - **The advice matches the host.** An authentication failure on a non-GitHub remote no longer tells
@@ -300,7 +300,7 @@ Three things in this release share a shape: the app knew something, and then ove
 
 The plan checklist has always had a `blocked` state. It was parsed, it had its own line in the
 agent's progress ledger, and the `plan` tool offered it. But the gate that keeps a Build turn going
-until the plan is finished counted *anything not `done`* as unfinished work — so when the agent
+until the plan is finished counted _anything not `done`_ as unfinished work — so when the agent
 correctly marked a step as blocked, the harness told it to carry on with that step, and kept telling
 it, up to twelve times in a turn. If a step needed **you** — rotate a key in a dashboard, test on
 hardware the agent doesn't have — there was no way to say so and be believed.
@@ -313,7 +313,7 @@ the end-of-turn safety net had been quietly flipping `blocked` steps to `done` o
 a file — turning "I couldn't do this" into "done" without anyone asking.
 
 The second was providers. Twenty were hardcoded, eleven of them as the identical three lines with a
-different URL, while models.dev already publishes 172 providers *and* which SDK each one speaks.
+different URL, while models.dev already publishes 172 providers _and_ which SDK each one speaks.
 Dispatch now reads that field, so adding a provider no longer needs a release. The hand-written table
 that remains holds only what a catalog cannot know — the console link where you actually create a
 key, and a handful of deliberate pins where the catalog and shipped behaviour disagree.
@@ -345,7 +345,7 @@ the richest output in the app had no display branch at all.
   to be on an allowlist.
 - **Stop now actually stops.** Pressing Stop mid-task could restart the agent: the app wakes a new
   turn when detached work reports in, and a stop left that condition true. The revived agent had no
-  memory of being stopped — in one report it re-read the file it had just edited, decided *you* had
+  memory of being stopped — in one report it re-read the file it had just edited, decided _you_ had
   made the change, and pushed to git. Detached work still finishes in the background and its results
   reach you on your next message; the agent just no longer resumes on its own.
 - **Revert stays available on a turn you stopped.** The file changes were always saved, but the
@@ -426,8 +426,8 @@ the richest output in the app had no display branch at all.
 ## [14.22.0] (2026-07-28) — Edits that don't corrupt files, and a harness that tells you the truth
 
 This release started with one bad edit. A model sent `old_content` and `new_content` carrying
-backslash-escaped quotes; the match cascade un-escaped the *find* side to locate the code, then
-wrote the *replacement* through verbatim — putting literal `\"` inside Go raw-string literals,
+backslash-escaped quotes; the match cascade un-escaped the _find_ side to locate the code, then
+wrote the _replacement_ through verbatim — putting literal `\"` inside Go raw-string literals,
 which cannot contain escapes. The file stopped compiling. The agent was then told the match had
 succeeded "with indent/EOL tolerance", which was the wrong explanation, so it spent the next
 twenty-five turns looking at whitespace and encoding while the real cause sat in plain sight.
@@ -481,7 +481,7 @@ per turn are now stated twice. The Build-mode header is 28.9% smaller with no ru
   validation (`src/lib/tools/guard.ts`). The standing prompt clause telling the model our name
   is `path` is gone — it cost tokens every turn and still missed.
 - **Tool guidance moved onto the tools.** The browser block (1,872 chars, rendered in four of
-  five modes) now lives on the seven browser tools; git *policy* lives on `run_command`; web
+  five modes) now lives on the seven browser tools; git _policy_ lives on `run_command`; web
   research rules live on `web_search` / `read_url`. Tool descriptions are conditional, so a
   turn that doesn't use a tool no longer pays for its guidance.
 - **Mode rules are stated twice, not four times.** `<work_mode>` is gone for Explore, Build,
@@ -491,7 +491,7 @@ per turn are now stated twice. The Build-mode header is 28.9% smaller with no ru
 - **Six prompt/harness contradictions fixed.** Plan mode advertised `run_command` and
   `edit_file`, neither of which it has; browser guidance was suppressed for Plan although it
   has all six browser tools; `preview_test` was recommended to read-only modes; and the debug
-  mode's label read "Fix" in the UI and "Debug" in the prompt *in the same render*. Mode labels
+  mode's label read "Fix" in the UI and "Debug" in the prompt _in the same render_. Mode labels
   now derive from the registry so they cannot diverge again.
 - **`edit_file`'s description carries the contract and preconditions only.** The failure
   taxonomy is delivered by the result channel, which already reports the actual near-miss with
@@ -536,7 +536,7 @@ can watch progress or stop one without waiting.
 - **Delegated code changes are reviewed before they land.** Previously a sub-agent worked in a
   hidden copy of your project and handed back one big diff, truncated if it was long. Now each
   file arrives separately with its own diff. If two sub-agents changed different parts of the
-  same file, both can be accepted; if they changed the *same* lines, that is flagged as a
+  same file, both can be accepted; if they changed the _same_ lines, that is flagged as a
   conflict rather than silently resolved.
 - **If a file changes while a proposal is waiting**, the change is re-fitted onto your newer
   version when it still fits, and refused with an explanation when it doesn't — it will not
@@ -616,7 +616,7 @@ is fine.
 
 - **Your answer no longer ends up inside the "Thoughts" card.** Every model that wraps its
   reasoning in `<think>` tags — DeepSeek included — was having the visible reply captured as
-  part of its thinking, so reasoning and answer appeared mixed together. A reply that *opened*
+  part of its thinking, so reasoning and answer appeared mixed together. A reply that _opened_
   with reasoning could vanish entirely. Four separate places normalised those tags the same
   wrong way; they now share one implementation, so they cannot drift apart again.
 - **A stray `</think>` no longer appears in the middle of a reply.** Some models send the
@@ -626,7 +626,7 @@ is fine.
   at roughly an eighth of its real capacity, throwing away context that never needed to go.
   DeepSeek on Core now resolves its true ~1M window.
 - **Thinking settings reach the model in the shape it actually accepts.** Reasoning options were
-  picked per *provider*, so every model from a given provider got the same request — which is why
+  picked per _provider_, so every model from a given provider got the same request — which is why
   MiniMax M3's thinking behaved oddly while its sibling looked fine. Each model's own declared
   capability is now used, and a model is never sent an effort level it does not support.
 - **Models that reject a `temperature` setting are no longer sent one** (Kimi K3 among them).
@@ -659,14 +659,14 @@ is fine.
 
 ### Fixed
 
-- **You stay signed in across restarts.** v14.16.0 moved the startup session restore to *after* the
+- **You stay signed in across restarts.** v14.16.0 moved the startup session restore to _after_ the
   window appears — the change that stopped the app hanging for minutes on a bad network. The
   renderer therefore starts signed-out and is corrected once the session lands, but the handler
-  receiving that correction could only ever *update* an existing signed-in state, never establish
+  receiving that correction could only ever _update_ an existing signed-in state, never establish
   one. So the correction was dropped and you were asked to sign in again, with a perfectly valid
   session sitting in the app the whole time. It now re-reads the session from the main process
   rather than trusting the notification, which carries plan details but no identity. A second fault
-  with the same effect is fixed too: the user's identity was only recorded *after* their plan had
+  with the same effect is fixed too: the user's identity was only recorded _after_ their plan had
   been looked up, so a failed lookup — exactly what happens offline — discarded the session.
 - **A provider's models appear the moment you save its API key.** Model lists are cached for five
   minutes and were only refreshed by a few specific events; saving a key wasn't one of them. Add a
@@ -700,7 +700,6 @@ around it doesn't cooperate — no network, a background tab, a provider returni
   response can no longer make models disappear from the picker.
 - **Dictation, voice settings and analytics identity** corrected.
 
-
 ### Added
 
 - **The browser agent can keep several pages open.** New `browser_tabs`
@@ -719,7 +718,7 @@ around it doesn't cooperate — no network, a background tab, a provider returni
   value-vs-label mismatch that used to make a fill silently no-op.
 - **`browser_batch`** — run several predictable steps in one call (fill, fill, press Enter). Sequential,
   halts on the first failure, refs only. `preview_test` keeps its own asserted pass/fail path.
-- **One-call page read.** `browser_inspect` with no mode now returns page content *and* interactive
+- **One-call page read.** `browser_inspect` with no mode now returns page content _and_ interactive
   refs together, so reading a page in order to act on it is one call rather than two plus a choice the
   model regularly got wrong. `filter:"interactive"` narrows to controls. Nothing was removed —
   `snapshot`, `text`, `visual`, `design`, `console` and `screenshot` all still work.
@@ -752,7 +751,7 @@ around it doesn't cooperate — no network, a background tab, a provider returni
   surface. The old path parked the view at `x:-20000`, which never produced a frame: a view whose
   rect doesn't intersect its window has no compositor surface. It appeared to work only because a
   tab that had been on screen still held its last painted frame.
-- **Element refs no longer shift under the agent.** Refs were reassigned by DOM walk order on *every*
+- **Element refs no longer shift under the agent.** Refs were reassigned by DOM walk order on _every_
   read, so a node inserted near the top of the page silently renumbered everything after it — `e7`
   became a different element and a click landed on the wrong thing. Refs are now held in a `WeakMap`
   in the page realm, keyed on the element itself, so a ref means the same element for the life of the
@@ -771,8 +770,8 @@ around it doesn't cooperate — no network, a background tab, a provider returni
 
 - **The app no longer hangs at launch without a network.** `restoreAuthSessionOnStartup()` and
   `SubscriptionManager.initialize()` both ran **before** `createWindow()`, both hit Supabase, and
-  neither was timeboxed — the surrounding `try/catch` caught nothing useful, because *a hang is not an
-  exception*. Cleanly offline was survivable (DNS fails fast), but on a black-hole network (captive
+  neither was timeboxed — the surrounding `try/catch` caught nothing useful, because _a hang is not an
+  exception_. Cleanly offline was survivable (DNS fails fast), but on a black-hole network (captive
   portal, hotel wifi, VPN) every request hung to the OS TCP timeout (~75s on macOS) and the session
   refresh retried three times: **minutes with no window at all**, which reads as "the app won't open".
   Both now run as background work after the window exists, and the renderer is corrected over the
@@ -798,7 +797,7 @@ around it doesn't cooperate — no network, a background tab, a provider returni
   the on-device model was `whisper-base` (74M — "roughly the right words" is its signature) and is now
   `whisper-small`; mic capture ran with the browser's call-tuned DSP (`noiseSuppression` and
   `autoGainControl` default to ON under `{ audio: true }`, and both hurt ASR) and now requests them
-  off at mono 16 kHz; the spoken language was **never passed**, so Whisper re-ran language *detection*
+  off at mono 16 kHz; the spoken language was **never passed**, so Whisper re-ran language _detection_
   on every clip, and it now resolves from a new setting or the OS locale; decoding was greedy and now
   uses 4-way beam search. First on-device use downloads ~409 MB instead of ~206 MB, cached permanently.
 - **Voice settings are findable.** The transcription engine, spoken language, and dictate/live mode now
@@ -816,13 +815,13 @@ around it doesn't cooperate — no network, a background tab, a provider returni
   third — inflating every per-user number, retention worst of all. Sign-in now sends `alias`
   (anonymous → user id, once per install) and attributes everything after to the user id, in both
   main and renderer. Person properties carry plan/tier — and, since a later owner decision,
-  your email and name when signed in, so usage counts once across devices. *(Corrected
+  your email and name when signed in, so usage counts once across devices. _(Corrected
   2026-09-01: this line originally read "never email, name, or avatar", which the code
-  already contradicted. See v14.39.1.)*
+  already contradicted. See v14.39.1.)_
 - **`persistence` changed from `memory` to `localStorage+cookie`** so `$session_id` survives a restart;
-  session-scoped metrics were previously meaningless. *(Corrected 2026-09-01: consent gating
+  session-scoped metrics were previously meaningless. _(Corrected 2026-09-01: consent gating
   was NOT unchanged in effect — persisting meant `init` wrote a distinct id to localStorage
-  and a cookie before consent existed. Fixed in v14.39.1 by gating initialisation.)*
+  and a cookie before consent existed. Fixed in v14.39.1 by gating initialisation.)_
 - **Events renamed to one convention** (three coexisted): `compass:turn_completed`/`_failed` →
   `core_turn_completed`/`core_turn_failed`, `app:initial-load` → `app_ui_ready`,
   `auth:chat_stream_blocked` → `auth_chat_stream_blocked`, `action:*` → `action_*`, `extra-files:*` →
@@ -847,7 +846,7 @@ models or refine fields — never remove them.
 
 - **Truncated provider responses can no longer empty the picker.** Anthropic's `/models` paginates at
   20, Google's at 50, Cohere's at 20 — each returned a partial list at HTTP 200, and because the old
-  code only consulted the catalog when native fetch *threw*, the fallback never fired and models
+  code only consulted the catalog when native fetch _threw_, the fallback never fired and models
   silently vanished while the correct list sat in memory. Bedrock listed zero for the mirror reason.
   New `mergeByApiName` (`src/lib/models/merge-provider-models.ts`) unions catalog + native, so the
   worst case is now "a new model shows up an hour late" instead of "models are invisible".
@@ -951,7 +950,7 @@ The **Preview tab is gone** — the app you build now runs in a regular Browser 
   credit wallet at the standard markup, no separate setup. Per-tier opt-out via a `webSearch` map in the
   hosted `core-models.json` (a tier set `false` keeps the client SearxNG tool). `native_web_search.ts`,
   `core-model-override(-store).ts`.
-- **Outside-workspace tool access.** The workspace is now a default *scope*, not a wall: `read_file` /
+- **Outside-workspace tool access.** The workspace is now a default _scope_, not a wall: `read_file` /
   `grep` / `glob` accept absolute paths anywhere (reads auto-allowed), and `edit_file` accepts an absolute
   path outside the workspace but still routes through the diff + approval gate — no more `sed`/`python`
   shell-edit workarounds for cross-repo/dependency work. New `resolveToolTargetPath`
@@ -1054,6 +1053,7 @@ The **Preview tab is gone** — the app you build now runs in a regular Browser 
 `npm run check` 0/0, vitest green.
 
 ### Added
+
 - **Markdown structure rule.** The `<output_style>` block now tells every model never to place
   multi-line code, a fenced block, or a line-breaking template literal inside a table cell or
   inline backticks (GitHub-flavored markdown cannot render either — the row/span breaks apart);
@@ -1064,8 +1064,9 @@ The **Preview tab is gone** — the app you build now runs in a regular Browser 
   reusing the existing reversible `unescapeAttachmentTagBody` inverse.
 
 ### Fixed
+
 - **`<untrusted-data>` envelope no longer leaks into the UI.** The injection-defense envelope
-  that wraps external tool output (command output, MCP, web/browser, automation) so the *model*
+  that wraps external tool output (command output, MCP, web/browser, automation) so the _model_
   treats it as data was being shown verbatim to users in tool cards. It is now stripped on the
   display path across command, read, MCP, web-search, browser, and preview/summary views
   (`src/lib/chat/tool-expand-view.ts`, `src/lib/chat/stream-tool-display.ts`,
@@ -1077,6 +1078,7 @@ The **Preview tab is gone** — the app you build now runs in a regular Browser 
   was applied and to top up before using Core (`src/components/settings/AtlarixCoreUsageCard.tsx`).
 
 ### Tests
+
 - Round-trip + passthrough coverage for `stripUntrustedDataEnvelope`
   (`src/__tests__/untrusted-data.test.ts`) and a command-card envelope-strip assertion
   (`src/__tests__/tool-expand-view.test.ts`).
@@ -1086,12 +1088,14 @@ The **Preview tab is gone** — the app you build now runs in a regular Browser 
 `npm run check` 0/0, vitest green.
 
 ### Added
+
 - **Markdown output guidance.** The `<output_style>` block now tells every model its
   user-visible replies render as GitHub-flavored markdown — use headings, lists, fenced code
   with a language tag, and tables where they aid clarity, without over-formatting short
   answers (`src/prompts/system_prompt.ts`).
 
 ### Fixed
+
 - **Atlarix is credited as co-author, not author.** Commits are authored by the user's own
   git config again; Atlarix is credited only via the `Co-authored-by:` trailer. Both the
   terminal `git commit` path (`src/ipc/handlers/permissions/interceptor.ts`) and the
@@ -1106,12 +1110,14 @@ The **Preview tab is gone** — the app you build now runs in a regular Browser 
   threaded from `src/prompts/system_prompt.ts`).
 
 ### Changed
+
 - **Security scope trimmed.** Dropped four deferred "protect the user from their own agent"
   items from the roadmap (egress gating, sandbox read-confinement, spawned-command env-var
   allowlist, automation allowlist-flip) — matching opencode / Claude Code. Owner-protection
   (payments, keychain, IPC gating) and the prompt-level untrusted-data defense are unchanged.
 
 ### Tests
+
 - Real-git worktree suites (`subagent-cancel`, `subagent-worktree`) given the repo's 30s I/O
   budget on their hooks/tests to end chronic load-flakiness (default 5s test / 10s hook was
   too tight for real `git init`/commit/`worktree add` subprocesses under parallel load).
@@ -1121,6 +1127,7 @@ The **Preview tab is gone** — the app you build now runs in a regular Browser 
 `npm run check` 0/0, vitest green.
 
 ### Added
+
 - **Model-picker real pricing.** `$/M` from the models.dev catalog is merged into every provider's
   natively-fetched models, and OpenRouter's own per-token pricing is parsed directly — the picker's
   `PriceBadge` shows real cost instead of "Free". Locals stay "Free", Core "Paid".
@@ -1136,6 +1143,7 @@ The **Preview tab is gone** — the app you build now runs in a regular Browser 
   detection instead of the silence heuristic.
 
 ### Changed
+
 - **Wait-timer merge.** A background job's stall watchdog is snoozed while the model has an active
   `schedule_wakeup`; carriage-return progress redraws no longer re-arm the advisory; the idle threshold is
   180s→300s and the advisory is reframed toward patience (quiet builds are normal — don't cancel). Fixes the
@@ -1146,6 +1154,7 @@ The **Preview tab is gone** — the app you build now runs in a regular Browser 
 - **`ask`→"Explore" skill matching** is case/label-tolerant (reads `modes` and `compatibleModes`).
 
 ### Fixed
+
 - **Paste** — a long paste no longer freezes the app or lands as inline text: the clipboard is read once,
   `preventDefault` is synchronous, and large pastes become a chip instantly.
 - **Images** — a provider that rejects image input (text-only chat API, e.g. DeepSeek) now returns a clear
@@ -1155,6 +1164,7 @@ The **Preview tab is gone** — the app you build now runs in a regular Browser 
 - Removed the dead LLM error-fallback in the Errors tab (deterministic SARIF + matcher path kept).
 
 ### Security
+
 - **Plaintext-keychain fallback hardened** — the settings file is `chmod 600` on POSIX, a renderer banner
   warns when no OS keystore is available, and secrets are re-encrypted once a keystore returns.
 - **Privileged IPC gated** — `terminal:run` and execute/reject-all-permissions now go through the
@@ -1166,13 +1176,14 @@ The **Preview tab is gone** — the app you build now runs in a regular Browser 
 Supabase migrations + launchpad). Backend migrations applied to prod; proxy + edge functions deployed.
 
 ### Changed
+
 - **Pricing reframe — no tier bundles AI.** Atlarix is a harness, not an AI provider: **Atlarix Core is
   pay-as-you-go prepaid credit on every tier**. The **Team/`workforce` tier is removed** (its one-click
   OAuth connectors fold into Pro); "Studio"→"Pro", "Solo"→"Free". Free = full harness on BYOK/local +
   bounded scale (1 workspace, 1 MCP/ws, 2 automations); Pro ($19/mo) = unlimited workspaces, 10 MCP/ws,
   10 automations, marketplace + connectors.
-- **Metering → credit wallet.** The monthly token *allowance* (`compass_tokens`) is replaced by a dollar
-  *balance* (`credit_wallet` + append-only `credit_transactions`, idempotent SECURITY DEFINER RPCs). The
+- **Metering → credit wallet.** The monthly token _allowance_ (`compass_tokens`) is replaced by a dollar
+  _balance_ (`credit_wallet` + append-only `credit_transactions`, idempotent SECURITY DEFINER RPCs). The
   proxy meters the **real OpenRouter cost + 40% markup**, and **gates each call on a per-call cost
   reserve** (est input + max output × price × markup) — a user always affords the call they start; it
   never aborts mid-stream. Two exhaustion cases split cleanly: user out of credit → **402
@@ -1180,6 +1191,7 @@ Supabase migrations + launchpad). Backend migrations applied to prod; proxy + ed
   "overloaded" message + owner Discord alert (`CORE_ALERT_WEBHOOK_URL`).
 
 ### Added
+
 - **PAYG wallet UI** — credit balance + **additive top-up tally** ($10/$20/$50/custom, running total +
   reset + confirm, $10 min) via a single LemonSqueezy "Atlarix Core Credit" product with per-checkout
   `custom_price`; `order_created`/`order_refunded` webhook credits/claws back. Balance shown in the token
@@ -1191,6 +1203,7 @@ Supabase migrations + launchpad). Backend migrations applied to prod; proxy + ed
   → any model), DB-closing guard, optimistic stop + mid-stream edit.
 
 ### Fixed
+
 - OAuth **avatar CSP** (GitHub/Google profile pictures were blocked → placeholder).
 - Model picker labels Atlarix Core as **"Paid"** (was "Free").
 - Wallet RPC idempotency index (`ON CONFLICT (kind, ref)` needs a non-partial unique index — the partial
@@ -1198,11 +1211,13 @@ Supabase migrations + launchpad). Backend migrations applied to prod; proxy + ed
 - Two chat nits: empty state reads "What are we building?"; the duplicate New-chat header removed.
 
 ### Removed
+
 - Team/`workforce` tier surface (team-service, team handlers, invite banner, upgrade-choice dialog,
   workforce checkout/IPC). Dead **DB-Studio-legacy** plumbing. Launchpad Team pages + stale allowance/
   Blueprint docs claims.
 
 ### Migrations (Supabase `oubgrpkqyyjwytspycpd`, applied to prod)
+
 - `20260714120000_credit_wallet` (wallet + RPCs) · `20260714140000_fix_credit_conflict_index` (index fix)
   · `20260714130000_pricing_reframe_teardown` (drop teams + compass allowance, tiers → `free|pro`, rewrite
   the users guard trigger).
@@ -1212,6 +1227,7 @@ Supabase migrations + launchpad). Backend migrations applied to prod; proxy + ed
 Net **−362 lines**; `npm run check` 0/0, vitest 1566 green, knip clean, packaged self-test 4/4.
 
 ### Changed
+
 - **Command permissions rebuilt on the Codex sandbox + Claude Code ask model.** Deleted the
   hardcoded read/mutate/git command taxonomies (`command-mutation.ts`, `command-default-allow.ts`,
   `git-init-command-guard.ts`) that false-blocked valid commands (`git fetch`, `docker build`) in
@@ -1229,6 +1245,7 @@ Net **−362 lines**; `npm run check` 0/0, vitest 1566 green, knip clean, packag
   `completion-detector.ts`.
 
 ### Fixed
+
 - **UI heat + streaming render overhaul** — react-virtuoso message virtualization (default-on,
   kill-switch), adaptive flush cadence, tail-bounded markdown re-parse, atom-fanout narrowing,
   one-time stale-index cleanup (`main/startup/cleanup-legacy-index-dirs.ts`), and a grep/glob
@@ -1243,6 +1260,7 @@ Net **−362 lines**; `npm run check` 0/0, vitest 1566 green, knip clean, packag
 ## [14.9.1] (2026-07-10) — Bundle ripgrep (self-contained grep/glob)
 
 ### Fixed
+
 - **`grep`/`glob` no longer depend on the user having `rg` on their PATH.** They
   now use a bundled ripgrep binary via `@vscode/ripgrep` (the same package VS
   Code / Claude Code ship), resolved through `lib/tools/resolve-ripgrep.ts` with
@@ -1260,6 +1278,7 @@ multi-provider parity. Net **−5,246 lines**; vitest 1621 green, oxlint 0, ts/k
 packaged self-test 4/4.
 
 ### Fixed
+
 - **fd-leak + high CPU/heat on large repos (root cause).** The `search-index-watcher`
   (chokidar 4) on macOS used `fs.watch`/kqueue = **one open fd per watched file** → ~12,365
   fds on a Jenkins-scale repo → `spawn EBADF` on every child process, plus sustained heat
@@ -1267,6 +1286,7 @@ packaged self-test 4/4.
   the main process now stays calm and fd count stays flat (~113) under real load.
 
 ### Changed
+
 - **Retrieval collapsed to pure ripgrep** — same shape as Claude Code / opencode / codex.
   Deleted `search-index-watcher` (chokidar), FTS5/SQLite/BM25 (`fts5-index`, `fts5-core`,
   `bm25_semantic_index`, `retrieval-common`, `package-boundaries`), the grep reranker
@@ -1282,6 +1302,7 @@ packaged self-test 4/4.
   test files.
 
 ### Added
+
 - **opencode-parity multi-provider.** `getLanguageModelProviders`
   (`ipc/shared/language_model_helpers.ts`) now merges a third source — the full models.dev
   catalog (`getModelsDevProviderCatalog`, `lib/models_dev.ts`): every provider carrying a
@@ -1315,6 +1336,7 @@ secrets at all**. From a 20-agent audit of the Supabase backend + Core-key handl
 residual high CPU/heat under a hot suspect (terminal-output streaming).
 
 ### Atlarix Core → hosted proxy (SB-02 / SB-06)
+
 - The managed OpenRouter key **no longer ships in the app**. Core requests now route through a
   new server-side proxy (`atlarix-proxy`, Hono on Railway): it verifies the caller's Supabase
   JWT, enforces the monthly Compass quota, forwards on the master key (server-only), and meters
@@ -1326,6 +1348,7 @@ residual high CPU/heat under a hot suspect (terminal-output streaming).
   switching Core models stays a one-file edit — no redeploy.
 
 ### No server secrets in the client bundle (A1 / A2 / A3)
+
 - `vite.main.config.mts` `define` **stripped of** `COMPASS_OPENROUTER_API_KEY`,
   `LEMONSQUEEZY_API_KEY`, `LEMONSQUEEZY_WEBHOOK_SECRET`, `RESEND_API_KEY`.
 - Checkout, subscription-cancel, and transactional email moved to Supabase edge functions
@@ -1333,6 +1356,7 @@ residual high CPU/heat under a hot suspect (terminal-output streaming).
   `lemonsqueezy.ts`, `auth_handlers.ts` cancel, and `email/resend.ts` now call those functions.
 
 ### Entitlement + billing hardening (SB-01 / SB-03 / SB-04 / SB-07 / SB-10)
+
 - Migration `20260710120000`: authoritative `teams.tier`, guard triggers that block client team
   creation, membership `team_id` redirects, and self-inserted active memberships, plus a rewritten
   `guard_users_sensitive_columns` that validates `effective_tier` **independently** against the
@@ -1347,6 +1371,7 @@ release. **Known-open (tracked in `docs/TODO.md`):** residual high CPU/heat unde
 (terminal-output streaming), and the embedded-secrets rotation (C-1) still pending a backend.
 
 ### Security (from a full 5-agent audit)
+
 - **grep tool no longer shell-injectable** — `src/lib/tools/grep.ts` builds an `execFile` argv (no shell).
 - **Egress + SSRF** — `read_url` and `browser_navigate` both route through `assertUrlAllowed`, which now
   also blocks URLs carrying a secret shape (`src/lib/security/url-policy.ts`); web-search fetches use `safeFetch`.
@@ -1359,6 +1384,7 @@ release. **Known-open (tracked in `docs/TODO.md`):** residual high CPU/heat unde
   a packaged-only CSP, and glob `..` rejection.
 
 ### Command permissions — reference-grade per-segment model (opencode / Claude Code)
+
 - The gate now evaluates **per segment**: a command auto-runs only if EVERY segment is allowed (a user rule OR
   a built-in default read); **deny wins**; dangerous segments still key on `danger:<id>`; system-scope never
   silently auto-allows. A user "always allow npm" now composes inside `npm test && ls`.
@@ -1367,6 +1393,7 @@ release. **Known-open (tracked in `docs/TODO.md`):** residual high CPU/heat unde
   Settings → Terminal permissions (`WorkspaceTerminalPermissions.tsx`).
 
 ### UX
+
 - **Paste from any source** — a large paste now becomes an attachment chip even from rich-text apps (Notes/TextEdit):
   `text/plain` falls back to stripped `text/html` (`src/lib/chat/text-paste-attachment.ts`, `useAttachments.ts`).
 - **One completion sound** — task-done no longer double-plays the in-app chime alongside the OS notification (`useStreamChat.ts`).
@@ -1374,6 +1401,7 @@ release. **Known-open (tracked in `docs/TODO.md`):** residual high CPU/heat unde
   stay light (`SimpleInlineChat.tsx`). Streaming scroll-follow hardened against the "scroll fight" (`useStickToBottom.ts`).
 
 ### Performance (cross-platform)
+
 - **File watcher → `chokidar`** (pure-JS; no native compile) with the composed `.gitignore`/`.atlarixignore` ignorer
   applied as chokidar's `ignored` so node_modules/.git are PRUNED at traversal and never watched — replaces the
   recursive `fs.watch` firehose (which flooded the main thread and threw on Linux). (`src/lib/search/search-index-watcher.ts`;
@@ -1383,6 +1411,7 @@ release. **Known-open (tracked in `docs/TODO.md`):** residual high CPU/heat unde
 - **Memory** — ctags symbol cache LRU-capped (3 workspaces); FTS5 DB handles LRU-capped (4, safe close).
 
 ### Cleanup
+
 - Removed the dead legacy `/chat` page + its orphan chain (~12 files; `ChatInterface`, `InputBar`, `ChatHandler`,
   legacy providers).
 
@@ -1648,7 +1677,7 @@ Reliability + capability pass. tsc/oxlint/knip clean; vitest **1441**.
 - **Stall recovery continues from the partial round** — completed steps captured via `onAbort` and
   replayed (no re-running every tool call).
 - **Removed the redundant rolling 7-exchange session-memory summary** — context defers to the full history
-  + token-overflow compaction (like opencode/Claude Code).
+  - token-overflow compaction (like opencode/Claude Code).
 
 ### Fixed
 
@@ -1748,7 +1777,7 @@ Major pass on the agent's execution surface. tsc/oxlint clean; vitest **1326**.
 - **Capability-based vision gate** — `detectVisionCapability` replaces the hardcoded 3-provider allowlist.
 - **Command persistence + safety overhaul** — removed the kill-timeouts + fake "dev server started";
   safety is now mode policy + a compound-aware `isMutatingCommand` backstop + the dangerous-commands gate
-  + `.atlarix/permissions.json` (no large hardcoded classifier).
+  - `.atlarix/permissions.json` (no large hardcoded classifier).
 - **Readable, arg-aware tool cards.**
 - **AGENTS / mode prompts realigned** to the real tool surface.
 - **Rate-limit error card links to troubleshooting** (no upgrade button).
@@ -2040,7 +2069,7 @@ Added NVIDIA NIM, Cohere, Perplexity, and Cerebras providers with model browsing
 
 Auto-updater support: a macOS stapled-ZIP feed and Linux deb/rpm update notifications (AppImage stays on electron-updater).
 
-## v7.0.4 — Chat config panel never clips + agent cannot read .env* files (2026-04-26)
+## v7.0.4 — Chat config panel never clips + agent cannot read .env\* files (2026-04-26)
 
 The chat config dropdown always opens below the trigger without clipping, and `read_file` now blocks `.env*` secret basenames.
 
@@ -2136,7 +2165,7 @@ Wrapped Supabase OAuth `shell.openExternal` in try/catch with a Linux Copy-Link 
 
 Replaced filesystem Drizzle migrations with embedded SQL bundled into the main process, with a SHA-256 bridge for legacy `__drizzle_migrations` rows.
 
-## v5.1.5 — Move ensure* safety nets after migrate() (2026-03-31)
+## v5.1.5 — Move ensure\* safety nets after migrate() (2026-03-31)
 
 Moved all `ensure*` table-bootstrap calls to run after `migrate()` so fresh-DB migrations don't collide with pre-created tables.
 

@@ -18,7 +18,11 @@ import { targetPathsForOperation } from "@/ipc/handlers/permissions/operation-ta
 import type { PermissionRequest } from "@/lib/tools/permissions/schema";
 
 const req = (operation: string, preview: unknown): PermissionRequest =>
-  ({ __permission_required: true, operation, preview }) as unknown as PermissionRequest;
+  ({
+    __permission_required: true,
+    operation,
+    preview,
+  }) as unknown as PermissionRequest;
 
 describe("formatCommandOutput", () => {
   it("returns a marker rather than an empty string when nothing was output", () => {
@@ -164,10 +168,16 @@ describe("targetPathsForOperation", () => {
   // The removed names are no longer special-cased, but they are still gated —
   // by the fail-closed default rather than by a label of their own.
   it("still gates the retired operation names via that default", () => {
-    for (const op of ["write_file", "replace_code", "insert_code", "delete_lines"]) {
-      expect(targetPathsForOperation(req(op, { path: "src/a.ts" })), op).toEqual([
-        "src/a.ts",
-      ]);
+    for (const op of [
+      "write_file",
+      "replace_code",
+      "insert_code",
+      "delete_lines",
+    ]) {
+      expect(
+        targetPathsForOperation(req(op, { path: "src/a.ts" })),
+        op,
+      ).toEqual(["src/a.ts"]);
     }
   });
 
@@ -212,9 +222,9 @@ describe("targetPathsForOperation", () => {
   });
 
   it("drops blank and non-string paths instead of emitting empties", () => {
-    expect(
-      targetPathsForOperation(req("write_file", { path: "   " })),
-    ).toEqual([]);
+    expect(targetPathsForOperation(req("write_file", { path: "   " }))).toEqual(
+      [],
+    );
     expect(targetPathsForOperation(req("write_file", {}))).toEqual([]);
     expect(
       targetPathsForOperation(req("write_file", { path: 42 as never })),

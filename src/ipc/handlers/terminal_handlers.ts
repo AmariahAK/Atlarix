@@ -57,7 +57,11 @@ function broadcastTerminalOutput(payload: {
   }
 }
 
-function trimOutputForResult(stdout: string, stderr: string, maxBytes = 8000): string {
+function trimOutputForResult(
+  stdout: string,
+  stderr: string,
+  maxBytes = 8000,
+): string {
   const combined = [stdout, stderr].filter(Boolean).join("\n").trim();
   if (Buffer.byteLength(combined, "utf8") <= maxBytes) return combined;
   return combined.slice(-maxBytes);
@@ -93,7 +97,9 @@ export function registerTerminalHandlers(): void {
       const source = params.source ?? "user";
       const operationId = `${source}-${randomUUID()}`;
 
-      logger.log(`[terminal:run] ${source}: ${command}${cwd ? ` in ${cwd}` : ""}`);
+      logger.log(
+        `[terminal:run] ${source}: ${command}${cwd ? ` in ${cwd}` : ""}`,
+      );
 
       broadcastTerminalOutput({
         chatId,
@@ -111,7 +117,11 @@ export function registerTerminalHandlers(): void {
         const result = await new Promise<CommandResult>((resolve, reject) => {
           timeoutHandle = setTimeout(() => {
             killShellProcess(proc);
-            reject(new Error(`Command timed out after ${Math.round(timeoutMs / 1000)}s`));
+            reject(
+              new Error(
+                `Command timed out after ${Math.round(timeoutMs / 1000)}s`,
+              ),
+            );
           }, timeoutMs);
 
           runShellCommandStreaming(command, cwd, {

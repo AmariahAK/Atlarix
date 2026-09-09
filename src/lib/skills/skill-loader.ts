@@ -55,11 +55,14 @@ export async function loadSkill(
   const cached = skillCache.get(cacheKey);
   if (cached !== undefined) return cached;
 
-  const builtInPath = path.join(resolveBuiltinSkillsRoot(), ...safeName.split("/")) + ".md";
+  const builtInPath =
+    path.join(resolveBuiltinSkillsRoot(), ...safeName.split("/")) + ".md";
   // Shared fragments ({{REUSE_FIRST_LADDER}}) resolve here, so the writer
   // sub-agent's reuse-first discipline is the SAME text the main agent gets
   // rather than a second copy that can drift.
-  const content = applySharedPromptFragments(await fs.readFile(builtInPath, "utf8"));
+  const content = applySharedPromptFragments(
+    await fs.readFile(builtInPath, "utf8"),
+  );
   skillCache.set(cacheKey, content);
   return content;
 }

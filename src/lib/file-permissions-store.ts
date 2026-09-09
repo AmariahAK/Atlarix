@@ -5,7 +5,10 @@
 import { and, eq, ne } from "drizzle-orm";
 import { db } from "@/db";
 import { workspaceFilePermissions } from "@/db/schema";
-import type { FilePermissionDecision, FileScopeType } from "@/lib/file-permission-scope";
+import type {
+  FilePermissionDecision,
+  FileScopeType,
+} from "@/lib/file-permission-scope";
 import { normalizeScopeValue } from "@/lib/file-permission-scope";
 import { resolveCanonicalAppId } from "@/ipc/utils/canonical-app";
 
@@ -26,7 +29,9 @@ export type WorkspaceFilePermissionRow = {
   createdAt: Date | null;
 };
 
-export function listWorkspaceFilePermissions(appId: number): WorkspaceFilePermissionRow[] {
+export function listWorkspaceFilePermissions(
+  appId: number,
+): WorkspaceFilePermissionRow[] {
   const rows = db
     .select()
     .from(workspaceFilePermissions)
@@ -133,7 +138,10 @@ export function listSandboxWritablePaths(rawAppId: number): string[] {
 }
 
 /** Grant the command sandbox write access to `absPath` for this workspace. */
-export function upsertSandboxWritablePath(rawAppId: number, absPath: string): void {
+export function upsertSandboxWritablePath(
+  rawAppId: number,
+  absPath: string,
+): void {
   const appId = resolveCanonicalAppId(rawAppId) ?? rawAppId;
   const value = absPath.trim();
   if (!value) return;
@@ -162,7 +170,10 @@ export function upsertSandboxWritablePath(rawAppId: number, absPath: string): vo
 }
 
 /** Revoke a previously granted sandbox writable path. */
-export function revokeSandboxWritablePath(rawAppId: number, absPath: string): boolean {
+export function revokeSandboxWritablePath(
+  rawAppId: number,
+  absPath: string,
+): boolean {
   const appId = resolveCanonicalAppId(rawAppId) ?? rawAppId;
   const value = absPath.trim();
   if (!value) return false;

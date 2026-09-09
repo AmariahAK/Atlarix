@@ -323,7 +323,10 @@ export function readTerminalInstance(
 ) {
   const inst = getScope(scopeKey).instances.find((i) => i.id === instanceId);
   if (!inst) {
-    return { success: false as const, error: `Terminal instance not found: ${instanceId}` };
+    return {
+      success: false as const,
+      error: `Terminal instance not found: ${instanceId}`,
+    };
   }
   const slice = inst.lines.slice(-Math.max(1, maxLines));
   return {
@@ -368,14 +371,19 @@ export function openTerminalInstance(
     const existing =
       scope.instances.find((i) => i.id === wanted) ??
       scope.instances.find(
-        (i) => i.owner === "agent" && i.label.toLowerCase() === wanted.toLowerCase(),
+        (i) =>
+          i.owner === "agent" && i.label.toLowerCase() === wanted.toLowerCase(),
       );
     if (existing) {
       if (opts.operationId) scope.agentOpMap[opts.operationId] = existing.id;
       scope.activeInstanceId = existing.id;
       schedulePersist();
       broadcastScope(scopeKey);
-      return { success: true as const, instanceId: existing.id, created: false };
+      return {
+        success: true as const,
+        instanceId: existing.id,
+        created: false,
+      };
     }
     // Unknown target — create it under that name rather than failing. A typo
     // costs a tab, whereas rejecting would cost the command.
@@ -427,9 +435,9 @@ export function openTerminalInstance(
       (opts.owner === "user"
         ? defaultUserInstanceLabel(scope.instances)
         : isSharedForeground
-          // Named for the session, not the command that happened to open it —
-          // every later foreground command lands in this same tab.
-          ? AGENT_FG_LABEL
+          ? // Named for the session, not the command that happened to open it —
+            // every later foreground command lands in this same tab.
+            AGENT_FG_LABEL
           : defaultAgentInstanceLabel(opts.commandHint ?? "", scope.instances)),
     operationId: opts.operationId,
     registerAsSharedForeground: isSharedForeground,
@@ -467,21 +475,35 @@ function createInstanceInScope(
   scope.activeInstanceId = id;
   schedulePersist();
   broadcastScope(scopeKey);
-  return { success: true as const, instanceId: id, created: true, label: opts.label };
+  return {
+    success: true as const,
+    instanceId: id,
+    created: true,
+    label: opts.label,
+  };
 }
 
 export function closeTerminalInstance(scopeKey: string, instanceId: string) {
   const scope = getScope(scopeKey);
   const target = scope.instances.find((i) => i.id === instanceId);
   if (!target) {
-    return { success: false as const, error: `Terminal instance not found: ${instanceId}` };
+    return {
+      success: false as const,
+      error: `Terminal instance not found: ${instanceId}`,
+    };
   }
   const userCount = scope.instances.filter((i) => i.owner === "user").length;
   if (target.owner === "user" && userCount <= 1) {
-    return { success: false as const, error: "Cannot close the last user shell." };
+    return {
+      success: false as const,
+      error: "Cannot close the last user shell.",
+    };
   }
   if (scope.instances.length <= 1) {
-    return { success: false as const, error: "Cannot close the last terminal." };
+    return {
+      success: false as const,
+      error: "Cannot close the last terminal.",
+    };
   }
 
   scope.instances = scope.instances.filter((i) => i.id !== instanceId);

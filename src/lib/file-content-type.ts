@@ -43,7 +43,11 @@ export interface ContentClassification {
 }
 
 /** Compare `bytes` against a byte signature at `offset`. */
-function startsWith(bytes: Uint8Array, signature: number[], offset = 0): boolean {
+function startsWith(
+  bytes: Uint8Array,
+  signature: number[],
+  offset = 0,
+): boolean {
   if (bytes.length < offset + signature.length) return false;
   for (let i = 0; i < signature.length; i++) {
     if (bytes[offset + i] !== signature[i]) return false;
@@ -72,13 +76,16 @@ function startsWithAscii(bytes: Uint8Array, text: string, offset = 0): boolean {
  */
 export function detectImageMime(bytes: Uint8Array): string | null {
   // PNG: \x89PNG\r\n\x1a\n
-  if (startsWith(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return "image/png";
+  if (startsWith(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+    return "image/png";
   // JPEG: FF D8 FF
   if (startsWith(bytes, [0xff, 0xd8, 0xff])) return "image/jpeg";
   // GIF87a / GIF89a
-  if (startsWithAscii(bytes, "GIF87a") || startsWithAscii(bytes, "GIF89a")) return "image/gif";
+  if (startsWithAscii(bytes, "GIF87a") || startsWithAscii(bytes, "GIF89a"))
+    return "image/gif";
   // WEBP: "RIFF" .... "WEBP"
-  if (startsWithAscii(bytes, "RIFF") && startsWithAscii(bytes, "WEBP", 8)) return "image/webp";
+  if (startsWithAscii(bytes, "RIFF") && startsWithAscii(bytes, "WEBP", 8))
+    return "image/webp";
   // BMP: "BM"
   if (startsWithAscii(bytes, "BM")) return "image/bmp";
   // ICO: 00 00 01 00
@@ -96,8 +103,10 @@ export function detectImageMime(bytes: Uint8Array): string | null {
 export function detectDocumentSignature(
   bytes: Uint8Array,
 ): { mime: string; container: "pdf" | "rtf" | "zip" } | null {
-  if (startsWithAscii(bytes, "%PDF-")) return { mime: "application/pdf", container: "pdf" };
-  if (startsWithAscii(bytes, "{\\rtf")) return { mime: "application/rtf", container: "rtf" };
+  if (startsWithAscii(bytes, "%PDF-"))
+    return { mime: "application/pdf", container: "pdf" };
+  if (startsWithAscii(bytes, "{\\rtf"))
+    return { mime: "application/rtf", container: "rtf" };
   // Local file header "PK\x03\x04". Empty (PK\x05\x06) and spanned (PK\x07\x08)
   // archives count too — an empty .docx is still a .docx.
   if (
@@ -148,7 +157,10 @@ export function decodesAsUtf8(sample: Uint8Array): boolean {
  * `SNIFF_SAMPLE_BYTES` are examined either way.
  */
 export function classifyContent(bytes: Uint8Array): ContentClassification {
-  const sample = bytes.length > SNIFF_SAMPLE_BYTES ? bytes.subarray(0, SNIFF_SAMPLE_BYTES) : bytes;
+  const sample =
+    bytes.length > SNIFF_SAMPLE_BYTES
+      ? bytes.subarray(0, SNIFF_SAMPLE_BYTES)
+      : bytes;
 
   const image = detectImageMime(sample);
   if (image) return { kind: "image", mime: image };
@@ -160,8 +172,10 @@ export function classifyContent(bytes: Uint8Array): ContentClassification {
   // `touch new.ts` unreadable.
   if (sample.length === 0) return { kind: "text", mime: "text/plain" };
 
-  if (looksBinary(sample)) return { kind: "binary", mime: "application/octet-stream" };
-  if (!decodesAsUtf8(sample)) return { kind: "binary", mime: "application/octet-stream" };
+  if (looksBinary(sample))
+    return { kind: "binary", mime: "application/octet-stream" };
+  if (!decodesAsUtf8(sample))
+    return { kind: "binary", mime: "application/octet-stream" };
 
   return { kind: "text", mime: "text/plain" };
 }

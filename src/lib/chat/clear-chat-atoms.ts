@@ -83,7 +83,9 @@ export function clearChatAtomsForChat(
   const deleteMessageKeyedRecord = (a: any) => {
     if (messageIds.size === 0) return;
     store.set(a, (prev: Record<number, unknown>) => {
-      const keys = Object.keys(prev).map(Number).filter((k) => messageIds.has(k));
+      const keys = Object.keys(prev)
+        .map(Number)
+        .filter((k) => messageIds.has(k));
       if (keys.length === 0) return prev;
       const next = { ...prev };
       for (const k of keys) delete next[k];
@@ -164,7 +166,8 @@ export function clearChatAtomsForChat(
       return next;
     });
   } else {
-    if (store.get(activeChatIdAtom) === chatId) store.set(activeChatIdAtom, null);
+    if (store.get(activeChatIdAtom) === chatId)
+      store.set(activeChatIdAtom, null);
     if (store.get(selectedChatIdAtom) === chatId) {
       store.set(selectedChatIdAtom, null);
     }

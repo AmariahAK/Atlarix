@@ -8,7 +8,14 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ExternalLink, KeyRound, Loader2, RefreshCw, Search, ShieldCheck } from "lucide-react";
+import {
+  ExternalLink,
+  KeyRound,
+  Loader2,
+  RefreshCw,
+  Search,
+  ShieldCheck,
+} from "lucide-react";
 import { showError, showSuccess } from "@/lib/toast";
 
 import { Button } from "@/components/ui/button";
@@ -70,8 +77,12 @@ export function McpMarketplaceTab({
 
   // Track which registry ids are already installed and at what scope, so the
   // card can show "Installed" instead of "Connect".
-  const [installed, setInstalled] = useState<Map<string, InstalledIndexEntry[]>>(new Map());
-  const [installDialog, setInstallDialog] = useState<InstallDialogState | null>(null);
+  const [installed, setInstalled] = useState<
+    Map<string, InstalledIndexEntry[]>
+  >(new Map());
+  const [installDialog, setInstallDialog] = useState<InstallDialogState | null>(
+    null,
+  );
   const [installing, setInstalling] = useState(false);
   const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
   const [workspaceCount, setWorkspaceCount] = useState(0);
@@ -144,10 +155,18 @@ export function McpMarketplaceTab({
     if (!registry) return [];
     const q = search.trim().toLowerCase();
     return registry.mcps.filter((m) => {
-      if (tagFilter !== "all" && !(m.tags ?? []).includes(tagFilter)) return false;
-      if (categoryFilter !== "all" && m.category?.trim() !== categoryFilter) return false;
+      if (tagFilter !== "all" && !(m.tags ?? []).includes(tagFilter))
+        return false;
+      if (categoryFilter !== "all" && m.category?.trim() !== categoryFilter)
+        return false;
       if (!q) return true;
-      const haystack = [m.name, m.description, m.id, m.category ?? "", ...(m.tags ?? [])]
+      const haystack = [
+        m.name,
+        m.description,
+        m.id,
+        m.category ?? "",
+        ...(m.tags ?? []),
+      ]
         .join(" ")
         .toLowerCase();
       return haystack.includes(q);
@@ -285,14 +304,27 @@ export function McpMarketplaceTab({
             ))}
           </SelectContent>
         </Select>
-        <Button variant="outline" size="sm" onClick={fetchRegistry} disabled={fetching}>
-          {fetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={fetchRegistry}
+          disabled={fetching}
+        >
+          {fetching ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <RefreshCw className="h-4 w-4" />
+          )}
         </Button>
       </div>
 
       <p className="text-xs text-muted-foreground">
-        Registry: <code className="bg-muted px-1 rounded">{DEFAULT_MCP_REGISTRY_URL}</code> ·{" "}
-        {registry?.mcps.length ?? 0} MCPs · {workspaceName}: {workspaceCount}/{MAX_WORKSPACE_MCP}
+        Registry:{" "}
+        <code className="bg-muted px-1 rounded">
+          {DEFAULT_MCP_REGISTRY_URL}
+        </code>{" "}
+        · {registry?.mcps.length ?? 0} MCPs · {workspaceName}: {workspaceCount}/
+        {MAX_WORKSPACE_MCP}
       </p>
 
       {fetchError && (
@@ -304,8 +336,15 @@ export function McpMarketplaceTab({
       <ScrollArea className="max-h-[640px] pr-2">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pb-3 pr-2">
           <div className="text-sm text-muted-foreground">
-            Showing <span className="text-foreground font-medium">{pagedFiltered.length}</span> of{" "}
-            <span className="text-foreground font-medium">{filtered.length}</span> MCPs
+            Showing{" "}
+            <span className="text-foreground font-medium">
+              {pagedFiltered.length}
+            </span>{" "}
+            of{" "}
+            <span className="text-foreground font-medium">
+              {filtered.length}
+            </span>{" "}
+            MCPs
           </div>
           <div className="flex items-center gap-2">
             <Button
@@ -317,7 +356,11 @@ export function McpMarketplaceTab({
               Prev
             </Button>
             <div className="text-sm text-muted-foreground">
-              Page <span className="text-foreground font-medium">{Math.min(page, totalPages)}</span> of{" "}
+              Page{" "}
+              <span className="text-foreground font-medium">
+                {Math.min(page, totalPages)}
+              </span>{" "}
+              of{" "}
               <span className="text-foreground font-medium">{totalPages}</span>
             </div>
             <Button
@@ -347,7 +390,10 @@ export function McpMarketplaceTab({
                         <ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" />
                       )}
                       {entry.authType === "oauth" && (
-                        <KeyRound className="h-3.5 w-3.5 text-muted-foreground" aria-label="OAuth" />
+                        <KeyRound
+                          className="h-3.5 w-3.5 text-muted-foreground"
+                          aria-label="OAuth"
+                        />
                       )}
                     </div>
                     <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
@@ -399,7 +445,9 @@ export function McpMarketplaceTab({
                       size="sm"
                       className="w-full"
                       onClick={() => onConnect(entry)}
-                      disabled={workspaceCount >= MAX_WORKSPACE_MCP || installing}
+                      disabled={
+                        workspaceCount >= MAX_WORKSPACE_MCP || installing
+                      }
                     >
                       {workspaceCount >= MAX_WORKSPACE_MCP
                         ? "Capacity reached"
@@ -422,7 +470,10 @@ export function McpMarketplaceTab({
         </div>
       </ScrollArea>
 
-      <Dialog open={installDialog != null} onOpenChange={(open) => !open && setInstallDialog(null)}>
+      <Dialog
+        open={installDialog != null}
+        onOpenChange={(open) => !open && setInstallDialog(null)}
+      >
         {installDialog && (
           <DialogContent className="max-w-md">
             <DialogHeader>
@@ -430,7 +481,9 @@ export function McpMarketplaceTab({
               <DialogDescription>
                 {installDialog.entry.description}
                 <br />
-                <span className="text-xs">Source: {installDialog.entry.source}</span>
+                <span className="text-xs">
+                  Source: {installDialog.entry.source}
+                </span>
               </DialogDescription>
             </DialogHeader>
 
@@ -441,61 +494,73 @@ export function McpMarketplaceTab({
 
               {(installDialog.entry.envVars ?? []).length > 0 &&
                 installDialog.entry.authType !== "oauth" && (
-                <div className="space-y-2">
-                  <div className="text-xs text-muted-foreground">
-                    Required environment variables — stored locally, never sent to Atlarix servers.
-                  </div>
-                  {installDialog.entry.envVars.map((v) => (
-                    <div key={v.key} className="space-y-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <Label htmlFor={`env-${v.key}`} className="text-xs">
-                          {v.label}{" "}
-                          <code className="bg-muted px-1 rounded text-[10px]">{v.key}</code>
-                        </Label>
-                        {v.url && (
-                          <a
-                            href={v.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-[10px] text-primary hover:underline"
-                          >
-                            Get it
-                          </a>
-                        )}
-                      </div>
-                      <Input
-                        id={`env-${v.key}`}
-                        type={v.secret ? "password" : "text"}
-                        value={installDialog.env[v.key] ?? ""}
-                        placeholder={v.placeholder}
-                        onChange={(e) =>
-                          setInstallDialog({
-                            ...installDialog,
-                            env: { ...installDialog.env, [v.key]: e.target.value },
-                          })
-                        }
-                      />
+                  <div className="space-y-2">
+                    <div className="text-xs text-muted-foreground">
+                      Required environment variables — stored locally, never
+                      sent to Atlarix servers.
                     </div>
-                  ))}
-                </div>
-              )}
+                    {installDialog.entry.envVars.map((v) => (
+                      <div key={v.key} className="space-y-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <Label htmlFor={`env-${v.key}`} className="text-xs">
+                            {v.label}{" "}
+                            <code className="bg-muted px-1 rounded text-[10px]">
+                              {v.key}
+                            </code>
+                          </Label>
+                          {v.url && (
+                            <a
+                              href={v.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[10px] text-primary hover:underline"
+                            >
+                              Get it
+                            </a>
+                          )}
+                        </div>
+                        <Input
+                          id={`env-${v.key}`}
+                          type={v.secret ? "password" : "text"}
+                          value={installDialog.env[v.key] ?? ""}
+                          placeholder={v.placeholder}
+                          onChange={(e) =>
+                            setInstallDialog({
+                              ...installDialog,
+                              env: {
+                                ...installDialog.env,
+                                [v.key]: e.target.value,
+                              },
+                            })
+                          }
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
 
               {installDialog.entry.authType === "oauth" && (
                 <p className="text-xs text-muted-foreground">
-                  After install, your browser will open to sign in to this remote MCP
-                  server. Credentials are stored locally on this device.
+                  After install, your browser will open to sign in to this
+                  remote MCP server. Credentials are stored locally on this
+                  device.
                 </p>
               )}
             </div>
 
             <DialogFooter className="gap-2">
-              <Button variant="outline" onClick={() => setInstallDialog(null)} disabled={installing}>
+              <Button
+                variant="outline"
+                onClick={() => setInstallDialog(null)}
+                disabled={installing}
+              >
                 Cancel
               </Button>
               <Button onClick={onSubmitInstall} disabled={installing}>
                 {installing ? (
                   <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Installing…
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />{" "}
+                    Installing…
                   </>
                 ) : (
                   "Install"
@@ -507,8 +572,9 @@ export function McpMarketplaceTab({
       </Dialog>
 
       <p className="text-xs text-muted-foreground">
-        Pro connectors (Slack, Jira, Sentry, etc.) install as standard MCP servers from this
-        registry. Manage their credentials per-entry above; rotate by removing and reconnecting.
+        Pro connectors (Slack, Jira, Sentry, etc.) install as standard MCP
+        servers from this registry. Manage their credentials per-entry above;
+        rotate by removing and reconnecting.
       </p>
     </div>
   );

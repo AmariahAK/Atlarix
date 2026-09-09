@@ -27,7 +27,9 @@ export function createAppBrowserWindow(): BrowserWindow {
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     void win.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
   } else {
-    void win.loadFile(path.join(__dirname, "../renderer/main_window/index.html"));
+    void win.loadFile(
+      path.join(__dirname, "../renderer/main_window/index.html"),
+    );
   }
 
   win.webContents.once("did-finish-load", () => {

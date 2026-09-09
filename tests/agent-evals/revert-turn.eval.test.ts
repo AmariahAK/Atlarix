@@ -96,6 +96,8 @@ describe("revert turn file changes (v13.1)", () => {
 
     const { getStreamTransport } = await import("@/lib/chat/stream-transport");
     const msgs = getStreamTransport(chatId)?.messages ?? [];
-    expect(msgs.some((m) => (m as { isReverted?: boolean }).isReverted)).toBe(false);
+    expect(msgs.some((m) => (m as { isReverted?: boolean }).isReverted)).toBe(
+      false,
+    );
   }, 30_000);
 });

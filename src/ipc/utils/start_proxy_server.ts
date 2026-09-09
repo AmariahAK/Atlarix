@@ -58,15 +58,12 @@ export async function startProxy(
     onStarted,
   } = opts;
 
-  const worker = new Worker(
-    resolveProxyWorkerPath(),
-    {
-      workerData: {
-        targetOrigin,
-        port,
-      },
+  const worker = new Worker(resolveProxyWorkerPath(), {
+    workerData: {
+      targetOrigin,
+      port,
     },
-  );
+  });
 
   worker.on("message", (m) => {
     logger.info("[proxy]", m);

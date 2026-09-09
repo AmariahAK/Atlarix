@@ -5,7 +5,7 @@ import {
 } from "@/lib/chat/display-snapshot";
 
 const RAW =
-  "A<think>r1</think><atlarix-tool-call tool=\"read_file\"></atlarix-tool-call><think>r2</think>B";
+  'A<think>r1</think><atlarix-tool-call tool="read_file"></atlarix-tool-call><think>r2</think>B';
 
 describe("display-snapshot interleavedContent (message ordering fix)", () => {
   it("round-trips interleavedContent through build → stringify → parse", () => {

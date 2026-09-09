@@ -31,24 +31,17 @@ export function registerDisplaySnapshotHandlers(): void {
       if (!isStreamTransportId(chatId)) {
         throw new Error("Display snapshots require an active workspace stream");
       }
-      const ok = setTransportMessageDisplaySnapshot(
-        chatId,
-        messageId,
-        parsed,
-      );
+      const ok = setTransportMessageDisplaySnapshot(chatId, messageId, parsed);
       if (!ok) throw new Error("Ephemeral message not found");
       return { ok: true as const };
     },
   );
 
-  handle(
-    "messages:save-display-snapshot",
-    async () => {
-      throw new Error(
-        "Legacy message display snapshots were removed; use session-messages:save-display-snapshot",
-      );
-    },
-  );
+  handle("messages:save-display-snapshot", async () => {
+    throw new Error(
+      "Legacy message display snapshots were removed; use session-messages:save-display-snapshot",
+    );
+  });
 
   handle(
     "session-messages:save-display-snapshot",

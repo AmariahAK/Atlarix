@@ -275,7 +275,9 @@ export function trackAcquisitionSource(source: string, detail?: string): void {
  * we can observe that someone opened the review page, never that they actually
  * reviewed. Reporting a click as a review would overstate the conversion.
  */
-export function trackPeerPushPrompt(action: "shown" | "clicked" | "dismissed"): void {
+export function trackPeerPushPrompt(
+  action: "shown" | "clicked" | "dismissed",
+): void {
   captureSafe("peerpush_prompt", { action });
 }
 

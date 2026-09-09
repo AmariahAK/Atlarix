@@ -68,11 +68,17 @@ export function registerSettingsHandlers() {
     "community:record-acquisition-source",
     async (
       _,
-      { source, detail, userId }: { source: string; detail?: string; userId?: string },
+      {
+        source,
+        detail,
+        userId,
+      }: { source: string; detail?: string; userId?: string },
     ) => {
       const clean = String(source ?? "").trim();
       if (!clean) return { ok: false as const };
-      const trimmedDetail = String(detail ?? "").trim().slice(0, ACQUISITION_DETAIL_MAX);
+      const trimmedDetail = String(detail ?? "")
+        .trim()
+        .slice(0, ACQUISITION_DETAIL_MAX);
       writeSettings({
         acquisitionSource: {
           // Main is authoritative, but fall back to the id the renderer is
@@ -81,7 +87,8 @@ export function registerSettingsHandlers() {
           // would be re-asked on every launch forever.
           // `||`, not `??`: an empty string must fall through to the next
           // candidate, and `?? ` would treat "" as a valid id.
-          userId: getSignedInUserId() || String(userId ?? "").trim() || "anonymous",
+          userId:
+            getSignedInUserId() || String(userId ?? "").trim() || "anonymous",
           source: clean,
           ...(trimmedDetail ? { detail: trimmedDetail } : {}),
           answeredAt: Date.now(),

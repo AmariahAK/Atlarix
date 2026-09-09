@@ -157,7 +157,8 @@ export function isForcedToolChoiceRejection(err: unknown): boolean {
   const parts = [
     (err as { message?: unknown })?.message,
     (err as { responseBody?: unknown })?.responseBody,
-    (err as { error?: { message?: unknown; responseBody?: unknown } })?.error?.message,
+    (err as { error?: { message?: unknown; responseBody?: unknown } })?.error
+      ?.message,
     (err as { error?: { message?: unknown; responseBody?: unknown } })?.error
       ?.responseBody,
   ];

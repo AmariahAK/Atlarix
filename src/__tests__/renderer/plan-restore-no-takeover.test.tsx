@@ -176,7 +176,9 @@ describe("plan restore", () => {
       act(() => {
         fireActivated?.(PLAN);
       });
-      expect(store.get(workspacePlanPanelAtom).pinnedPlanId).toBe("plan-chosen");
+      expect(store.get(workspacePlanPanelAtom).pinnedPlanId).toBe(
+        "plan-chosen",
+      );
     });
   });
 });

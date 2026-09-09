@@ -41,8 +41,7 @@ vi.mock("@/paths/paths", async (importOriginal) => {
   const { getUserDataDirOverride } = await import("./user-data-override");
   return {
     ...actual,
-    getUserDataPath: () =>
-      getUserDataDirOverride() ?? actual.getUserDataPath(),
+    getUserDataPath: () => getUserDataDirOverride() ?? actual.getUserDataPath(),
   };
 });
 

@@ -36,7 +36,10 @@ export type MessageAttachmentRecord = {
  * traversal attempt still loses its separators and has nothing to traverse with.
  */
 export function sanitizeAttachmentFilename(name: string): string {
-  return name.replace(/[^\p{L}\p{N}\p{M}\s.\-()·]/gu, "_").slice(0, 120) || "attachment";
+  return (
+    name.replace(/[^\p{L}\p{N}\p{M}\s.\-()·]/gu, "_").slice(0, 120) ||
+    "attachment"
+  );
 }
 
 /** Browser + main-process safe stable hash (no node:crypto). */
@@ -86,7 +89,9 @@ export function ensurePasteAttachmentIds(
   return out;
 }
 
-export function pasteToAttachmentData(paste: PasteAttachmentMeta): AttachmentData {
+export function pasteToAttachmentData(
+  paste: PasteAttachmentMeta,
+): AttachmentData {
   const id = resolvePasteAttachmentId(paste);
   const body =
     paste.kind === "terminal"

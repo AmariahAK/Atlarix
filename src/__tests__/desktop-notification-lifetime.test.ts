@@ -24,7 +24,9 @@ class FakeNotification {
   private once = new Map<string, Handler>();
   private on = new Map<string, Handler>();
 
-  constructor(public options: { title: string; body: string; silent?: boolean }) {
+  constructor(
+    public options: { title: string; body: string; silent?: boolean },
+  ) {
     FakeNotification.instances.push(this);
   }
   static isSupported() {

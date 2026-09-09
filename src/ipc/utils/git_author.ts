@@ -4,8 +4,7 @@ import { getActiveModelDisplayName } from "./active-model-identity";
 export const ATLARIX_GIT_AUTHOR_NAME = "atlarix-agent";
 export const ATLARIX_GIT_AUTHOR_EMAIL = "agent@atlarix.dev";
 
-export const ATLARIX_CO_AUTHOR_TRAILER =
-  `Co-authored-by: ${ATLARIX_GIT_AUTHOR_NAME} <${ATLARIX_GIT_AUTHOR_EMAIL}>`;
+export const ATLARIX_CO_AUTHOR_TRAILER = `Co-authored-by: ${ATLARIX_GIT_AUTHOR_NAME} <${ATLARIX_GIT_AUTHOR_EMAIL}>`;
 
 /** "<Model Display Name> agent" when a model is known, else "atlarix-agent". */
 export function gitAuthorNameForModel(

@@ -56,8 +56,9 @@ describe("bucketThresholds — quantiles, not equal slices", () => {
       Math.min(4, Math.max(1, Math.ceil((t / max) * 4))),
     );
     expect(new Set(linearLevels).size).toBe(2); // 1 and 4 only — the bug
-    expect(new Set(totals.map((t) => levelFor(t, bucketThresholds(totals)))).size)
-      .toBeGreaterThan(2);
+    expect(
+      new Set(totals.map((t) => levelFor(t, bucketThresholds(totals)))).size,
+    ).toBeGreaterThan(2);
   });
 
   it("ignores zero days when choosing the cuts", () => {
@@ -213,7 +214,9 @@ describe("describeCalendarCell — one sentence for tooltip and screen reader", 
   const cells = grid.weeks.flat();
 
   it("names the counts on an active day", () => {
-    const text = describeCalendarCell(cells.find((c) => c.day === "2026-08-20")!);
+    const text = describeCalendarCell(
+      cells.find((c) => c.day === "2026-08-20")!,
+    );
     expect(text).toContain("300");
     expect(text).toContain("25");
     expect(text).toContain("4 edits");
@@ -226,7 +229,8 @@ describe("describeCalendarCell — one sentence for tooltip and screen reader", 
 
   it("does not claim 'no changes' for a day that has not happened", () => {
     const future = cells.find((c) => !c.inRange);
-    if (future) expect(describeCalendarCell(future)).not.toContain("no changes");
+    if (future)
+      expect(describeCalendarCell(future)).not.toContain("no changes");
   });
 
   it("uses the singular for a single edit", () => {

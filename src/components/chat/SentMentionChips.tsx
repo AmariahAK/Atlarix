@@ -17,7 +17,10 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight, File, Folder } from "lucide-react";
 import { IpcClient } from "@/ipc/ipc_client";
-import { mentionDisplayName, type ParsedMention } from "@/lib/chat/mention-attachment";
+import {
+  mentionDisplayName,
+  type ParsedMention,
+} from "@/lib/chat/mention-attachment";
 import { cn } from "@/lib/utils";
 
 /** Long files are clipped in the preview; read_attachment/the agent see the whole file. */
@@ -43,7 +46,9 @@ function MentionChip({ mention }: { mention: ParsedMention }) {
     setLoading(true);
     setError(null);
     try {
-      const result = await IpcClient.getInstance().readFileContent(mention.relpath);
+      const result = await IpcClient.getInstance().readFileContent(
+        mention.relpath,
+      );
       const text = typeof result?.content === "string" ? result.content : "";
       setContent(
         text.length > PREVIEW_CHAR_LIMIT
@@ -92,7 +97,9 @@ function MentionChip({ mention }: { mention: ParsedMention }) {
           ) : error ? (
             // Say why. The file may have been moved or deleted since it was sent,
             // which is worth distinguishing from "preview is broken".
-            <p className="text-xs text-destructive">Could not read this file: {error}</p>
+            <p className="text-xs text-destructive">
+              Could not read this file: {error}
+            </p>
           ) : (
             <pre className="whitespace-pre-wrap break-words text-[11px] leading-snug text-foreground/80">
               {content || "(empty file)"}

@@ -2,7 +2,10 @@
  * File-scope permission preflight for chat stream handlers (mirrors run_command gate placement).
  */
 
-import type { FileOperationPreview, PermissionRequest } from "@/lib/tools/permissions/schema";
+import type {
+  FileOperationPreview,
+  PermissionRequest,
+} from "@/lib/tools/permissions/schema";
 import { normalizeRelativePath } from "@/lib/file-permission-scope";
 import {
   extractRelativePathsFromPreview,
@@ -43,10 +46,15 @@ export async function applyFileScopePreflightInStream(
   // every real request has taken for several releases.
 
   const preview = permRequest.preview as FileOperationPreview;
-  const paths = extractRelativePathsFromPreview(permRequest.operation, permRequest.preview);
+  const paths = extractRelativePathsFromPreview(
+    permRequest.operation,
+    permRequest.preview,
+  );
   const primary =
     permRequest.operation === "rename_file"
-      ? normalizeRelativePath(preview?.toPath || preview?.path || paths[0] || "")
+      ? normalizeRelativePath(
+          preview?.toPath || preview?.path || paths[0] || "",
+        )
       : normalizeRelativePath(paths[0] ?? preview?.path ?? "");
 
   if (!primary) {
@@ -57,7 +65,11 @@ export async function applyFileScopePreflightInStream(
     };
   }
 
-  const pre = runFilePermissionPreflight(permRequest.operation, primary, effectiveAppId);
+  const pre = runFilePermissionPreflight(
+    permRequest.operation,
+    primary,
+    effectiveAppId,
+  );
   if (pre.type === "auto_deny") {
     emitActivity(pre.label, primary);
     emitBlocked(`Edit blocked (${primary}) — change in Settings`);

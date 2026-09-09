@@ -1,5 +1,12 @@
 import type { ToolExpandView } from "@/lib/chat/tool-expand-view";
-import { Globe, MousePointerClick, Keyboard, Eye, Camera, Compass } from "lucide-react";
+import {
+  Globe,
+  MousePointerClick,
+  Keyboard,
+  Eye,
+  Camera,
+  Compass,
+} from "lucide-react";
 
 /**
  * Browser session record — the ordered list of what the agent did in the
@@ -33,7 +40,8 @@ export function ToolBrowserRecordingExpand({
       <div className="flex items-center gap-1.5 px-1 text-[10px] text-muted-foreground">
         <Globe className="h-3 w-3 shrink-0" />
         <span>
-          Browser session · {view.steps.length} step{view.steps.length === 1 ? "" : "s"}
+          Browser session · {view.steps.length} step
+          {view.steps.length === 1 ? "" : "s"}
         </span>
       </div>
       <ol className="space-y-0.5">
@@ -51,10 +59,15 @@ export function ToolBrowserRecordingExpand({
               <span className="shrink-0 font-medium text-foreground/80">
                 {STEP_LABEL[step.type] ?? step.type}
               </span>
-              <span className="min-w-0 flex-1 truncate text-muted-foreground" title={step.detail}>
+              <span
+                className="min-w-0 flex-1 truncate text-muted-foreground"
+                title={step.detail}
+              >
                 {step.detail}
                 {step.url ? (
-                  <span className="ml-1 text-muted-foreground/50">· {step.url}</span>
+                  <span className="ml-1 text-muted-foreground/50">
+                    · {step.url}
+                  </span>
                 ) : null}
               </span>
             </li>

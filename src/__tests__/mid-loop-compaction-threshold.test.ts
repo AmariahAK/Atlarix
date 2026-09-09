@@ -40,7 +40,10 @@ describe("usableContextBudget — window minus the room the reply needs", () => 
     // 1M window, 32,000 reasoning reserve: the real limit is far under the 40%
     // clamp, so it is what applies.
     expect(
-      usableContextBudget({ contextWindow: 1_048_576, maxOutputTokens: 32_000 }),
+      usableContextBudget({
+        contextWindow: 1_048_576,
+        maxOutputTokens: 32_000,
+      }),
     ).toBe(1_016_576);
   });
 
@@ -98,7 +101,9 @@ describe("compactionBudgets — no floor may exceed the budget it protects withi
 
   it("holds even for absurdly small budgets", () => {
     for (const usable of [1, 10, 500, 999]) {
-      expect(assertBudgetsFitWithin(compactionBudgets(usable), usable)).toEqual([]);
+      expect(assertBudgetsFitWithin(compactionBudgets(usable), usable)).toEqual(
+        [],
+      );
     }
   });
 

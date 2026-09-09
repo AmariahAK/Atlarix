@@ -33,11 +33,14 @@ function chatIdThatShowsATip(): number {
         mustSignIn={false}
       />,
     );
-    const shown = container.querySelector('[data-testid="composer-tip"]') !== null;
+    const shown =
+      container.querySelector('[data-testid="composer-tip"]') !== null;
     unmount();
     if (shown) return id;
   }
-  throw new Error("no chat id produced a tip — the pool or the probability is broken");
+  throw new Error(
+    "no chat id produced a tip — the pool or the probability is broken",
+  );
 }
 
 describe("ComposerTip eligibility", () => {

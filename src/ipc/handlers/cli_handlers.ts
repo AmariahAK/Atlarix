@@ -105,7 +105,9 @@ function cliNagAlreadyShown(): boolean {
     const { file } = cliTargetPath();
     const key = String(fs.statSync(file).mtimeMs);
     const marker = path.join(getUserDataPath(), "cli-launcher-nag.txt");
-    const prev = fs.existsSync(marker) ? fs.readFileSync(marker, "utf8").trim() : "";
+    const prev = fs.existsSync(marker)
+      ? fs.readFileSync(marker, "utf8").trim()
+      : "";
     if (prev === key) return true;
     fs.writeFileSync(marker, key, "utf8");
     return false;
@@ -120,10 +122,14 @@ export function refreshCliLauncherIfStale(): { needsManualUpdate: boolean } {
     const { file } = cliTargetPath();
     if (!fs.existsSync(file)) return { needsManualUpdate: false };
     const current = fs.readFileSync(file, "utf8");
-    if (current.includes(CLI_LAUNCHER_FIX_MARKER)) return { needsManualUpdate: false }; // already fixed
-    if (!current.includes(CLI_LAUNCHER_SIGNATURE)) return { needsManualUpdate: false }; // not our script — don't touch
+    if (current.includes(CLI_LAUNCHER_FIX_MARKER))
+      return { needsManualUpdate: false }; // already fixed
+    if (!current.includes(CLI_LAUNCHER_SIGNATURE))
+      return { needsManualUpdate: false }; // not our script — don't touch
     const content =
-      process.platform === "darwin" ? macLauncherScript() : linuxLauncherScript();
+      process.platform === "darwin"
+        ? macLauncherScript()
+        : linuxLauncherScript();
     fs.writeFileSync(file, content, { mode: 0o755 });
     logger.info("Refreshed stale atlarix CLI launcher with the TTY-detach fix");
     return { needsManualUpdate: false };
@@ -140,7 +146,9 @@ export function refreshCliLauncherIfStale(): { needsManualUpdate: boolean } {
       // recurring env nag. If the launcher changes (user reinstalls), the key
       // differs and we nag again; otherwise we stay quiet.
       if (cliNagAlreadyShown()) {
-        logger.debug("atlarix CLI launcher still stale (nag already shown) — suppressing repeat");
+        logger.debug(
+          "atlarix CLI launcher still stale (nag already shown) — suppressing repeat",
+        );
         return { needsManualUpdate: false };
       }
       logger.warn(
@@ -212,7 +220,10 @@ function runSudoCommand(
   });
 }
 
-function runSudoInstall(file: string, content: string): Promise<{ ok: boolean; cancelled?: boolean; error?: string }> {
+function runSudoInstall(
+  file: string,
+  content: string,
+): Promise<{ ok: boolean; cancelled?: boolean; error?: string }> {
   const tmp = path.join(os.tmpdir(), `atlarix-cli-install-${process.pid}`);
   try {
     fs.writeFileSync(tmp, content, { mode: 0o755 });
@@ -232,7 +243,9 @@ function runSudoInstall(file: string, content: string): Promise<{ ok: boolean; c
   }
 }
 
-function runSudoUninstall(file: string): Promise<{ ok: boolean; cancelled?: boolean; error?: string }> {
+function runSudoUninstall(
+  file: string,
+): Promise<{ ok: boolean; cancelled?: boolean; error?: string }> {
   if (process.platform === "win32") {
     return Promise.resolve({
       ok: false,
@@ -242,7 +255,10 @@ function runSudoUninstall(file: string): Promise<{ ok: boolean; cancelled?: bool
   return runSudoCommand(`rm -f ${shellEscapePath(file)}`);
 }
 
-async function promptSudoInstall(file: string, content: string): Promise<CliInstallResult> {
+async function promptSudoInstall(
+  file: string,
+  content: string,
+): Promise<CliInstallResult> {
   const sudoCmd = sudoInstallCommand(file, content);
 
   const { response } = await dialog.showMessageBox({
@@ -285,7 +301,12 @@ async function promptSudoInstall(file: string, content: string): Promise<CliInst
     detail: `Run this in Terminal:\n\n${sudoCmd}`,
     buttons: ["OK"],
   });
-  return { success: false, needsSudo: true, sudoCommand: sudoCmd, error: elevated.error };
+  return {
+    success: false,
+    needsSudo: true,
+    sudoCommand: sudoCmd,
+    error: elevated.error,
+  };
 }
 
 async function promptSudoUninstall(file: string): Promise<CliInstallResult> {
@@ -330,7 +351,12 @@ async function promptSudoUninstall(file: string): Promise<CliInstallResult> {
     detail: `Run this in Terminal:\n\n${sudoCmd}`,
     buttons: ["OK"],
   });
-  return { success: false, needsSudo: true, sudoCommand: sudoCmd, error: elevated.error };
+  return {
+    success: false,
+    needsSudo: true,
+    sudoCommand: sudoCmd,
+    error: elevated.error,
+  };
 }
 
 export function registerCliHandlers(): void {
@@ -366,7 +392,10 @@ export function registerCliHandlers(): void {
         return promptSudoInstall(file, content);
       }
       logger.warn("cli:install failed:", err);
-      return { success: false, error: err instanceof Error ? err.message : String(err) };
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
     }
   });
 
@@ -385,7 +414,10 @@ export function registerCliHandlers(): void {
         return promptSudoUninstall(file);
       }
       logger.warn("cli:uninstall failed:", err);
-      return { success: false, error: err instanceof Error ? err.message : String(err) };
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
     }
   });
 
@@ -399,6 +431,7 @@ export function registerCliHandlers(): void {
   // screen even when the push event raced ahead of the listener.
   handle(
     "workspace:consume-pending-cli",
-    async (): Promise<CliWorkspacePayload | null> => consumePendingCliWorkspace(),
+    async (): Promise<CliWorkspacePayload | null> =>
+      consumePendingCliWorkspace(),
   );
 }

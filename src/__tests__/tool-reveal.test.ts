@@ -56,9 +56,9 @@ describe("tool reveal tiering", () => {
 
   it("never tiers an already-pointer-sized description", () => {
     // Trimming a 300-char description buys nothing and costs an indirection.
-    expect(revealTierForMode("some_tiny_tool", "Short and to the point.", "build")).toBe(
-      "core",
-    );
+    expect(
+      revealTierForMode("some_tiny_tool", "Short and to the point.", "build"),
+    ).toBe("core");
   });
 
   it("a peripheral description keeps meaning AND names the way to get the rest", () => {

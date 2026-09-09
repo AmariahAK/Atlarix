@@ -24,7 +24,10 @@ import {
 const enc = (s: string) => new TextEncoder().encode(s);
 /** Bytes with a signature prefix followed by filler, as a real file would have. */
 const withPrefix = (sig: number[], len = 64) =>
-  new Uint8Array([...sig, ...Array.from({ length: len }, (_, i) => (i % 251) + 1)]);
+  new Uint8Array([
+    ...sig,
+    ...Array.from({ length: len }, (_, i) => (i % 251) + 1),
+  ]);
 
 describe("detectImageMime — magic bytes, not names", () => {
   it.each([
@@ -43,15 +46,28 @@ describe("detectImageMime — magic bytes, not names", () => {
 
   it("detects WEBP, which needs the tag at offset 8", () => {
     // "RIFF" + 4 size bytes + "WEBP" — a naive prefix check would miss it.
-    const webp = new Uint8Array([...enc("RIFF"), 1, 2, 3, 4, ...enc("WEBPVP8 ")]);
+    const webp = new Uint8Array([
+      ...enc("RIFF"),
+      1,
+      2,
+      3,
+      4,
+      ...enc("WEBPVP8 "),
+    ]);
     expect(detectImageMime(webp)).toBe("image/webp");
     // RIFF alone is not an image (it is also WAV/AVI).
-    expect(detectImageMime(new Uint8Array([...enc("RIFF"), 1, 2, 3, 4, ...enc("WAVE")]))).toBeNull();
+    expect(
+      detectImageMime(
+        new Uint8Array([...enc("RIFF"), 1, 2, 3, 4, ...enc("WAVE")]),
+      ),
+    ).toBeNull();
   });
 
   it("is not fooled by a wrong extension — a JPEG named .png is still a JPEG", () => {
     // The scenario extensions get wrong and content gets right.
-    expect(detectImageMime(withPrefix([0xff, 0xd8, 0xff, 0xe0]))).toBe("image/jpeg");
+    expect(detectImageMime(withPrefix([0xff, 0xd8, 0xff, 0xe0]))).toBe(
+      "image/jpeg",
+    );
   });
 
   it("returns null for text, so source files never look like images", () => {
@@ -61,22 +77,34 @@ describe("detectImageMime — magic bytes, not names", () => {
   it("does not treat SVG as an image (it has no magic number)", () => {
     // Deliberate: providers reject image/svg+xml as image input, and the markup is
     // more useful to the model as text.
-    expect(detectImageMime(enc('<svg xmlns="http://www.w3.org/2000/svg"></svg>'))).toBeNull();
+    expect(
+      detectImageMime(enc('<svg xmlns="http://www.w3.org/2000/svg"></svg>')),
+    ).toBeNull();
   });
 });
 
 describe("detectDocumentSignature", () => {
   it("detects PDF", () => {
-    expect(detectDocumentSignature(enc("%PDF-1.7\n%âãÏÓ"))?.container).toBe("pdf");
+    expect(detectDocumentSignature(enc("%PDF-1.7\n%âãÏÓ"))?.container).toBe(
+      "pdf",
+    );
   });
   it("detects RTF", () => {
-    expect(detectDocumentSignature(enc("{\\rtf1\\ansi"))?.container).toBe("rtf");
+    expect(detectDocumentSignature(enc("{\\rtf1\\ansi"))?.container).toBe(
+      "rtf",
+    );
   });
   it("detects ZIP containers, including empty and spanned archives", () => {
     // .docx/.xlsx/.pptx/.odt are all ZIPs — an empty one is still a document.
-    expect(detectDocumentSignature(withPrefix([0x50, 0x4b, 0x03, 0x04]))?.container).toBe("zip");
-    expect(detectDocumentSignature(withPrefix([0x50, 0x4b, 0x05, 0x06]))?.container).toBe("zip");
-    expect(detectDocumentSignature(withPrefix([0x50, 0x4b, 0x07, 0x08]))?.container).toBe("zip");
+    expect(
+      detectDocumentSignature(withPrefix([0x50, 0x4b, 0x03, 0x04]))?.container,
+    ).toBe("zip");
+    expect(
+      detectDocumentSignature(withPrefix([0x50, 0x4b, 0x05, 0x06]))?.container,
+    ).toBe("zip");
+    expect(
+      detectDocumentSignature(withPrefix([0x50, 0x4b, 0x07, 0x08]))?.container,
+    ).toBe("zip");
   });
   it("returns null for plain text", () => {
     expect(detectDocumentSignature(enc("hello"))).toBeNull();
@@ -102,7 +130,9 @@ describe("looksBinary / decodesAsUtf8", () => {
 describe("classifyContent — the reported bug", () => {
   it("classifies TypeScript source as TEXT, not video", () => {
     // macOS reports `.ts` as video/mp2t. Content says otherwise.
-    const ts = enc("export interface Foo { bar: string }\nconst x: number = 1;\n");
+    const ts = enc(
+      "export interface Foo { bar: string }\nconst x: number = 1;\n",
+    );
     expect(classifyContent(ts)).toEqual({ kind: "text", mime: "text/plain" });
   });
 
@@ -115,10 +145,10 @@ describe("classifyContent — the reported bug", () => {
       "<script>let x = 1;</script>\n", // .svelte
       "$ErrorActionPreference = 'Stop'\n", // .ps1
       'resource "aws_s3_bucket" "b" {}\n', // .tf
-      "const std = @import(\"std\");\n", // .zig
-      "fun main() { println(\"hi\") }\n", // .kt
+      'const std = @import("std");\n', // .zig
+      'fun main() { println("hi") }\n', // .kt
       "body { color: red }\n", // .scss / .less
-      "syntax = \"proto3\";\n", // .proto
+      'syntax = "proto3";\n', // .proto
     ];
     for (const s of samples) {
       expect(isTextContent(enc(s))).toBe(true);
@@ -129,28 +159,41 @@ describe("classifyContent — the reported bug", () => {
     // Dockerfile / Makefile / LICENSE / CODEOWNERS could never match an allowlist.
     expect(isTextContent(enc("FROM node:24\nRUN npm ci\n"))).toBe(true);
     expect(isTextContent(enc("all:\n\tgcc -o out main.c\n"))).toBe(true);
-    expect(isTextContent(enc("MIT License\n\nPermission is hereby granted...\n"))).toBe(true);
+    expect(
+      isTextContent(enc("MIT License\n\nPermission is hereby granted...\n")),
+    ).toBe(true);
   });
 
   it("classifies real binary content as binary", () => {
-    expect(classifyContent(new Uint8Array([1, 2, 0, 3, 4])).kind).toBe("binary");
-    expect(classifyContent(new Uint8Array([0xc3, 0x28, 0xa0, 0xa1])).kind).toBe("binary");
+    expect(classifyContent(new Uint8Array([1, 2, 0, 3, 4])).kind).toBe(
+      "binary",
+    );
+    expect(classifyContent(new Uint8Array([0xc3, 0x28, 0xa0, 0xa1])).kind).toBe(
+      "binary",
+    );
   });
 
   it("treats an empty file as text", () => {
     // `touch new.ts` must be readable, not an opaque blob.
-    expect(classifyContent(new Uint8Array([]))).toEqual({ kind: "text", mime: "text/plain" });
+    expect(classifyContent(new Uint8Array([]))).toEqual({
+      kind: "text",
+      mime: "text/plain",
+    });
   });
 
   it("prefers a signature over the text heuristics", () => {
     expect(classifyContent(enc("%PDF-1.7\nstuff")).kind).toBe("document");
-    expect(classifyContent(withPrefix([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])).kind).toBe(
-      "image",
-    );
+    expect(
+      classifyContent(
+        withPrefix([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      ).kind,
+    ).toBe("image");
   });
 
   it("returns SVG as text so the model gets readable source", () => {
-    const svg = enc('<?xml version="1.0"?><svg viewBox="0 0 1 1"><path d="M0 0"/></svg>');
+    const svg = enc(
+      '<?xml version="1.0"?><svg viewBox="0 0 1 1"><path d="M0 0"/></svg>',
+    );
     expect(classifyContent(svg)).toEqual({ kind: "text", mime: "text/plain" });
   });
 });
@@ -164,7 +207,8 @@ describe("classifyContent — sampling", () => {
     //
     // Build content so a 3-byte character (— U+2014, 0xE2 0x80 0x94) is split by the
     // 8192-byte cut: 8191 ASCII bytes, then the em dash.
-    const padded = "a".repeat(SNIFF_SAMPLE_BYTES - 1) + "—" + "tail".repeat(100);
+    const padded =
+      "a".repeat(SNIFF_SAMPLE_BYTES - 1) + "—" + "tail".repeat(100);
     const bytes = enc(padded);
     expect(bytes.length).toBeGreaterThan(SNIFF_SAMPLE_BYTES);
     expect(classifyContent(bytes).kind).toBe("text");
@@ -178,7 +222,11 @@ describe("classifyContent — sampling", () => {
   });
 
   it("catches a NUL inside the sample", () => {
-    const bytes = new Uint8Array([...enc("x".repeat(100)), 0, ...enc("y".repeat(100))]);
+    const bytes = new Uint8Array([
+      ...enc("x".repeat(100)),
+      0,
+      ...enc("y".repeat(100)),
+    ]);
     expect(classifyContent(bytes).kind).toBe("binary");
   });
 });

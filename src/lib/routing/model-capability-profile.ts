@@ -124,7 +124,12 @@ export function registerModelsDevVision(
   }>,
 ): void {
   for (const e of entries) {
-    registerModality(modelsDevVisionById, e.providerId, e.modelId, e.acceptsImages);
+    registerModality(
+      modelsDevVisionById,
+      e.providerId,
+      e.modelId,
+      e.acceptsImages,
+    );
     registerModality(
       modelsDevPdfById,
       e.providerId,

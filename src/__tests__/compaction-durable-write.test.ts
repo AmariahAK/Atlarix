@@ -75,7 +75,11 @@ function bigHistory(turns = 14) {
   const filler = (n: number) => "word ".repeat(n);
   const msgs: Array<{ id: number; role: string; content: string }> = [];
   for (let i = 0; i < turns; i++) {
-    msgs.push({ id: i * 2 + 1, role: "user", content: `ask ${i} ${filler(400)}` });
+    msgs.push({
+      id: i * 2 + 1,
+      role: "user",
+      content: `ask ${i} ${filler(400)}`,
+    });
     msgs.push({
       id: i * 2 + 2,
       role: "assistant",
@@ -95,7 +99,9 @@ describe("the marker is a PERSISTED DATA FORMAT, not an internal name", () => {
     // characters is a storage format shared with past versions; changing it needs
     // a migration, not an edit.
     expect(COMPACTION_SUMMARY_PREFIX).toBe("[COMPACTION MARKER]");
-    expect(isCompactionSummaryMessage("[COMPACTION MARKER] gen=3\nbody")).toBe(true);
+    expect(isCompactionSummaryMessage("[COMPACTION MARKER] gen=3\nbody")).toBe(
+      true,
+    );
     // Legacy rows predate `gen=` and must still match.
     expect(isCompactionSummaryMessage("[COMPACTION MARKER]\nbody")).toBe(true);
   });
@@ -104,7 +110,9 @@ describe("the marker is a PERSISTED DATA FORMAT, not an internal name", () => {
     // If these ever converge, a mid-loop summary written to finish a tool
     // iteration becomes the point a reopened session resumes from.
     expect(IN_TASK_SUMMARY_PREFIX).not.toContain(COMPACTION_SUMMARY_PREFIX);
-    expect(isCompactionSummaryMessage(`${IN_TASK_SUMMARY_PREFIX}\nbody`)).toBe(false);
+    expect(isCompactionSummaryMessage(`${IN_TASK_SUMMARY_PREFIX}\nbody`)).toBe(
+      false,
+    );
   });
 });
 
@@ -120,10 +128,15 @@ describe("runSteppedCompaction owns the durable write", () => {
     const messages = bigHistory();
     const tierLimit = Math.floor(countMessagesTokens(messages) * 0.5);
 
-    const out = await runSteppedCompaction(messages, tierLimit, "test-provider", {
-      chatId: -42,
-      workspaceSessionId: "stream-session-1",
-    });
+    const out = await runSteppedCompaction(
+      messages,
+      tierLimit,
+      "test-provider",
+      {
+        chatId: -42,
+        workspaceSessionId: "stream-session-1",
+      },
+    );
 
     expect(out.strategy).toBe("summarized");
     expect(out.summaryPersisted).toBe(true);
@@ -140,9 +153,14 @@ describe("runSteppedCompaction owns the durable write", () => {
     const messages = bigHistory();
     const tierLimit = Math.floor(countMessagesTokens(messages) * 0.5);
 
-    const out = await runSteppedCompaction(messages, tierLimit, "test-provider", {
-      chatId: -7,
-    });
+    const out = await runSteppedCompaction(
+      messages,
+      tierLimit,
+      "test-provider",
+      {
+        chatId: -7,
+      },
+    );
 
     expect(out.summaryPersisted).toBe(true);
     expect(sessionHandlers.resolveSpy).toHaveBeenCalledTimes(1);
@@ -161,9 +179,14 @@ describe("runSteppedCompaction owns the durable write", () => {
     const messages = bigHistory();
     const tierLimit = Math.floor(countMessagesTokens(messages) * 0.5);
 
-    const out = await runSteppedCompaction(messages, tierLimit, "test-provider", {
-      chatId: -99,
-    });
+    const out = await runSteppedCompaction(
+      messages,
+      tierLimit,
+      "test-provider",
+      {
+        chatId: -99,
+      },
+    );
 
     // The compaction itself still helped this turn; the caller must simply know
     // it will not survive a reload.
@@ -177,10 +200,15 @@ describe("runSteppedCompaction owns the durable write", () => {
     // Comfortably under the summarize threshold: nothing to persist.
     const tierLimit = countMessagesTokens(messages) * 10;
 
-    const out = await runSteppedCompaction(messages, tierLimit, "test-provider", {
-      chatId: -42,
-      workspaceSessionId: "stream-session-1",
-    });
+    const out = await runSteppedCompaction(
+      messages,
+      tierLimit,
+      "test-provider",
+      {
+        chatId: -42,
+        workspaceSessionId: "stream-session-1",
+      },
+    );
 
     expect(out.strategy).not.toBe("summarized");
     expect(out.summaryPersisted).toBe(false);
@@ -247,10 +275,15 @@ describe("the recovery hint reaches the agent but not the next summary", () => {
     const messages = bigHistory();
     const tierLimit = Math.floor(countMessagesTokens(messages) * 0.5);
 
-    const gen1 = await runSteppedCompaction(messages, tierLimit, "test-provider", {
-      chatId: -42,
-      workspaceSessionId: "s1",
-    });
+    const gen1 = await runSteppedCompaction(
+      messages,
+      tierLimit,
+      "test-provider",
+      {
+        chatId: -42,
+        workspaceSessionId: "s1",
+      },
+    );
     const marker = gen1.modelContext.find((m) =>
       isCompactionSummaryMessage(m.content),
     )!;
@@ -376,7 +409,10 @@ describe("enforceContextBudget is the BACKSTOP — it must not summarize", () =>
       content: m.content,
       ...(i >= 8 ? { commitHash: `sha-${i}` } : {}),
     }));
-    const out = await enforce(history, Math.floor(countMessagesTokens(history) * 0.9));
+    const out = await enforce(
+      history,
+      Math.floor(countMessagesTokens(history) * 0.9),
+    );
     const kept = out.limitedMessageHistory.filter(
       (m) => (m as { commitHash?: string }).commitHash,
     );

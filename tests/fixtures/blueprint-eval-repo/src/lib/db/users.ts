@@ -1,7 +1,10 @@
 import { dbQuery } from "./client";
 
 export async function saveUser(user: { email: string; passwordHash: string }) {
-  await dbQuery("INSERT INTO users (email, password_hash) VALUES (?, ?)", [user.email, user.passwordHash]);
+  await dbQuery("INSERT INTO users (email, password_hash) VALUES (?, ?)", [
+    user.email,
+    user.passwordHash,
+  ]);
   return { id: "u1", ...user };
 }
 

@@ -89,7 +89,7 @@ export function registerLifecycleHandlers(
     // Clean up uploads state for this chat
     try {
       FileUploadsState.getInstance().clear(chatId);
-    } catch { }
+    } catch {}
 
     return true;
   });
@@ -115,9 +115,9 @@ export function registerLifecycleHandlers(
       // Do NOT delete partialResponses here — the stream's catch block will persist
       // the partial response to the DB and then clear it, so the user keeps the
       // cancelled response when they send a follow-up.
-      return { success: true, message: 'AI response cancelled' };
+      return { success: true, message: "AI response cancelled" };
     }
-    return { success: false, message: 'No active stream for this chat' };
+    return { success: false, message: "No active stream for this chat" };
   });
 
   // FIX 4: explicit "reconnect" after the auto-retry sequence gave up. The
@@ -157,7 +157,7 @@ export function registerLifecycleHandlers(
     "chat:edit-message",
     async (
       event,
-      payload: { chatId: number; userMessageId: number; newContent: string }
+      payload: { chatId: number; userMessageId: number; newContent: string },
     ) => {
       const { chatId, userMessageId, newContent } = payload;
       // Ephemeral chats (chatId < 0) live only in-memory (ephemeral-chat transport).
@@ -192,10 +192,16 @@ export function registerLifecycleHandlers(
           pasteAttachments: targetMsg?.pasteAttachments ?? null,
           modelContent: targetMsg?.modelContent ?? null,
         });
-        const expanded = expandAttachmentStubsToModelContent(newContent, pastes);
+        const expanded = expandAttachmentStubsToModelContent(
+          newContent,
+          pastes,
+        );
         newModelContent = expanded !== newContent ? expanded : null;
       } catch (e) {
-        logger.warn("Failed to regenerate model content for edited message:", e);
+        logger.warn(
+          "Failed to regenerate model content for edited message:",
+          e,
+        );
       }
 
       const ok = editTransportUserMessage(
@@ -240,6 +246,6 @@ export function registerLifecycleHandlers(
         });
       }
       return { success: true, persistedToSession };
-    }
+    },
   );
 }

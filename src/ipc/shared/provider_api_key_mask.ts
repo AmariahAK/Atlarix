@@ -13,7 +13,9 @@ export function maskApiKeyPreview(apiKey: string): string {
   return `${"•".repeat(Math.min(12, trimmed.length - 4))}${visible}`;
 }
 
-export function toProviderApiKeyStatus(apiKey: string | undefined): ProviderApiKeyStatus {
+export function toProviderApiKeyStatus(
+  apiKey: string | undefined,
+): ProviderApiKeyStatus {
   if (!apiKey?.trim()) {
     return { configured: false };
   }

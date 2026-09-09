@@ -1,7 +1,5 @@
 {
-  "ignorePatterns": [
-    "tests/fixtures/**/*"
-  ],
+  "ignorePatterns": ["tests/fixtures/**/*"],
   "rules": {
     "eslint/no-unused-vars": "error",
     "eslint/no-empty-pattern": "off",
@@ -16,7 +14,5 @@
     "react/use-memo": "off",
     "react/static-components": "off"
   },
-  "plugins": [
-    "react"
-  ]
+  "plugins": ["react"]
 }

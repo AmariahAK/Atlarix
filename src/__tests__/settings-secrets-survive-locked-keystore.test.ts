@@ -68,7 +68,9 @@ describe("provider secrets vs. a locked keystore", () => {
     const { writeSettings } = await freshModule();
     writeSettings({
       providerSettings: {
-        openai: { apiKey: { value: "sk-real-key", encryptionType: "plaintext" } },
+        openai: {
+          apiKey: { value: "sk-real-key", encryptionType: "plaintext" },
+        },
       },
     });
     const stored = readFileJson().providerSettings.openai.apiKey;
@@ -90,20 +92,24 @@ describe("provider secrets vs. a locked keystore", () => {
     const { writeSettings } = await freshModule();
     writeSettings({
       providerSettings: {
-        openai: { apiKey: { value: "sk-real-key", encryptionType: "plaintext" } },
+        openai: {
+          apiKey: { value: "sk-real-key", encryptionType: "plaintext" },
+        },
       },
     });
 
     keystoreReadable = false;
     const locked = await freshModule();
-    expect(locked.readSettings().providerSettings.openai?.apiKey).toBeUndefined();
+    expect(
+      locked.readSettings().providerSettings.openai?.apiKey,
+    ).toBeUndefined();
     locked.writeSettings({ selectedTheme: "dark" } as never);
 
     keystoreReadable = true;
     const recovered = await freshModule();
-    expect(recovered.readSettings().providerSettings.openai?.apiKey?.value).toBe(
-      "sk-real-key",
-    );
+    expect(
+      recovered.readSettings().providerSettings.openai?.apiKey?.value,
+    ).toBe("sk-real-key");
   });
 
   it("still honours an explicit key change", async () => {
@@ -137,8 +143,12 @@ describe("provider secrets vs. a locked keystore", () => {
     const { writeSettings } = await freshModule();
     writeSettings({
       providerSettings: {
-        openai: { apiKey: { value: "openai-key", encryptionType: "plaintext" } },
-        anthropic: { apiKey: { value: "anthropic-key", encryptionType: "plaintext" } },
+        openai: {
+          apiKey: { value: "openai-key", encryptionType: "plaintext" },
+        },
+        anthropic: {
+          apiKey: { value: "anthropic-key", encryptionType: "plaintext" },
+        },
       },
     });
     const anthropicBefore = readFileJson().providerSettings.anthropic.apiKey;
@@ -147,11 +157,15 @@ describe("provider secrets vs. a locked keystore", () => {
     const locked = await freshModule();
     locked.writeSettings({
       providerSettings: {
-        openai: { apiKey: { value: "openai-rotated", encryptionType: "plaintext" } },
+        openai: {
+          apiKey: { value: "openai-rotated", encryptionType: "plaintext" },
+        },
       },
     });
 
     // The untouched provider keeps its ciphertext even though nothing could read it.
-    expect(readFileJson().providerSettings.anthropic.apiKey).toEqual(anthropicBefore);
+    expect(readFileJson().providerSettings.anthropic.apiKey).toEqual(
+      anthropicBefore,
+    );
   });
 });

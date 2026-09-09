@@ -80,7 +80,11 @@ const toolResult = (label: string, tokens: number) => {
  */
 function ownersSession() {
   return [
-    { id: 1, role: "user", content: "hey how are you, could u tell me about this project in depth" },
+    {
+      id: 1,
+      role: "user",
+      content: "hey how are you, could u tell me about this project in depth",
+    },
     { id: 2, role: "assistant", content: toolResult("explore-1", 1_800) },
     { id: 3, role: "user", content: "continue" },
     { id: 4, role: "assistant", content: toolResult("explore-2", 2_200) },
@@ -90,7 +94,10 @@ function ownersSession() {
 // The owner's real configuration: a 16,000 cap on a reasoning-capable model, so
 // the reply reserve is clamped and `usable` lands at 9,600.
 const CAP = 16_000;
-const USABLE = usableContextBudget({ contextWindow: CAP, maxOutputTokens: 32_000 });
+const USABLE = usableContextBudget({
+  contextWindow: CAP,
+  maxOutputTokens: 32_000,
+});
 
 describe("a small window is still a workable window", () => {
   beforeEach(() => {
@@ -165,7 +172,10 @@ describe("a small window is still a workable window", () => {
     const b = compactionBudgets(USABLE);
     expect(b.pruneProtectRecent).toBeLessThan(b.microcompactKeepTokens);
     const filler = (n: number) =>
-      Array.from({ length: n }, (_, i) => `narrative sentence ${i} explaining things.`).join(" ");
+      Array.from(
+        { length: n },
+        (_, i) => `narrative sentence ${i} explaining things.`,
+      ).join(" ");
     // Measured: toolResult(120) ≈ 1,344 tok, so the pair ≈ 2,688 — inside
     // microcompact's 3,360 keep-window, past the pruner's 2,400 protection. The
     // 4,416-token filler pushes the total past the 5,760 trigger without giving
@@ -177,7 +187,9 @@ describe("a small window is still a workable window", () => {
       { id: 4, role: "assistant", content: toolResult("new", 120) },
     ];
     const before = countMessagesTokens(msgs);
-    const out = await runSteppedCompaction(msgs, USABLE, "test", { chatId: -42 });
+    const out = await runSteppedCompaction(msgs, USABLE, "test", {
+      chatId: -42,
+    });
     const freed = before - countMessagesTokens(out.modelContext);
 
     expect(out.strategy).toBe("pruned");
@@ -193,7 +205,10 @@ describe("a small window is still a workable window", () => {
     // split fit either, nothing was protected, head became everything, and the
     // count precondition then refused. Nothing compacted at any fill level.
     const prose = (label: string, n: number) =>
-      Array.from({ length: n }, (_, i) => `${label} sentence ${i} about the code.`).join(" ");
+      Array.from(
+        { length: n },
+        (_, i) => `${label} sentence ${i} about the code.`,
+      ).join(" ");
     const msgs = [
       { id: 1, role: "user", content: "explain the project" },
       { id: 2, role: "assistant", content: prose("first", 1_500) },

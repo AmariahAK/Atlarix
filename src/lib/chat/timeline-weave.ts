@@ -52,7 +52,10 @@ export function weaveIpcItemsIntoParts(args: {
 
   // Anchor content tool parts to thread tool items by (toolName, occurrence).
   const threadTools = anchorsFrom
-    .filter((i): i is Extract<StreamThreadItem, { kind: "tool" }> => i.kind === "tool")
+    .filter(
+      (i): i is Extract<StreamThreadItem, { kind: "tool" }> =>
+        i.kind === "tool",
+    )
     .sort(compareThreadItems);
   const occurrence = new Map<string, number>();
   const anchors: Array<{ partIndex: number; ts: number }> = [];
@@ -87,7 +90,10 @@ export function weaveIpcItemsIntoParts(args: {
     if (!placed) tail.push(item);
   }
 
-  const weave = (parts: AssistantMessagePart[], offset: number): WovenEntry[] => {
+  const weave = (
+    parts: AssistantMessagePart[],
+    offset: number,
+  ): WovenEntry[] => {
     const out: WovenEntry[] = [];
     for (let i = 0; i < parts.length; i++) {
       const inserts = insertionsByPartIndex.get(offset + i);

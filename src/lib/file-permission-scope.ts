@@ -189,10 +189,18 @@ export function resolveFilePermissionGate(
   for (const row of dirRows) {
     if (!pathUnderDirectory(rel, row.scopeValue)) continue;
     if (row.decision === "always_deny") {
-      return { action: "auto_deny", matchedScope: row.scopeValue, scopeType: "directory" };
+      return {
+        action: "auto_deny",
+        matchedScope: row.scopeValue,
+        scopeType: "directory",
+      };
     }
     if (row.decision === "always_allow" && !isDeleteOrRename) {
-      return { action: "auto_allow", matchedScope: row.scopeValue, scopeType: "directory" };
+      return {
+        action: "auto_allow",
+        matchedScope: row.scopeValue,
+        scopeType: "directory",
+      };
     }
     break;
   }
@@ -201,10 +209,18 @@ export function resolveFilePermissionGate(
     matchesExtension(rel, row.scopeValue),
   );
   if (extDecision === "always_deny") {
-    return { action: "auto_deny", matchedScope: extension, scopeType: "extension" };
+    return {
+      action: "auto_deny",
+      matchedScope: extension,
+      scopeType: "extension",
+    };
   }
   if (extDecision === "always_allow" && !isDeleteOrRename) {
-    return { action: "auto_allow", matchedScope: extension, scopeType: "extension" };
+    return {
+      action: "auto_allow",
+      matchedScope: extension,
+      scopeType: "extension",
+    };
   }
 
   return {
@@ -220,7 +236,10 @@ export function resolveFilePermissionGate(
   };
 }
 
-export function normalizeScopeValue(scopeType: FileScopeType, value: string): string {
+export function normalizeScopeValue(
+  scopeType: FileScopeType,
+  value: string,
+): string {
   const v = value.trim();
   if (scopeType === "extension") {
     return v.startsWith(".") ? v.toLowerCase() : `.${v.toLowerCase()}`;

@@ -67,14 +67,14 @@ workspaces, both marketplaces, one-click connectors, automations and workspace s
 are available whether or not anyone has paid. What remains are resource caps, and they
 exist because a workspace with fifty MCP servers is one nobody can reason about.
 
-| Capability              | Every plan         |
-|-------------------------|--------------------|
-| Atlarix Core            | Pay-as-you-go credit |
-| Workspaces              | Unlimited          |
-| MCP servers / workspace | 10                 |
-| Automations / workspace | 10                 |
+| Capability              | Every plan                           |
+| ----------------------- | ------------------------------------ |
+| Atlarix Core            | Pay-as-you-go credit                 |
+| Workspaces              | Unlimited                            |
+| MCP servers / workspace | 10                                   |
+| Automations / workspace | 10                                   |
 | Agent Behaviors         | 10 / workspace, marketplace included |
-| BYOK / local models     | Free               |
+| BYOK / local models     | Free                                 |
 
 What Pro buys is **Atlarix Reviewer plus a monthly Core allowance**, over one shared
 balance — not a feature tier.

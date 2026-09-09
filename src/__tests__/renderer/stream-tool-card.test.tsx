@@ -26,7 +26,9 @@ import { AssistantMessageBody } from "@/components/chat/AssistantMessageBody";
 const CHAT_ID = 7;
 const MESSAGE_ID = 1001;
 
-function toolItem(overrides: Partial<Extract<StreamThreadItem, { kind: "tool" }>> = {}) {
+function toolItem(
+  overrides: Partial<Extract<StreamThreadItem, { kind: "tool" }>> = {},
+) {
   return {
     kind: "tool" as const,
     id: "tool-1",
@@ -57,10 +59,7 @@ describe("stream → tool card", () => {
       />,
     );
     act(() => {
-      store.set(
-        streamThreadByChatIdAtom,
-        new Map([[CHAT_ID, [toolItem()]]]),
-      );
+      store.set(streamThreadByChatIdAtom, new Map([[CHAT_ID, [toolItem()]]]));
     });
     expect(screen.getByText("Read src/main.ts")).toBeInTheDocument();
   });
@@ -78,7 +77,10 @@ describe("stream → tool card", () => {
       store.set(
         streamThreadByChatIdAtom,
         new Map([
-          [CHAT_ID, [toolItem({ status: "done", summary: "Read files (1)", endTs: 5 })]],
+          [
+            CHAT_ID,
+            [toolItem({ status: "done", summary: "Read files (1)", endTs: 5 })],
+          ],
         ]),
       );
     });
@@ -130,10 +132,14 @@ describe("stream → tool card", () => {
     );
     act(() => {
       store.set(completedStreamThreadByAssistantMessageIdAtom, {
-        [MESSAGE_ID]: [toolItem({ status: "done", summary: "Searched the web (3 results)" })],
+        [MESSAGE_ID]: [
+          toolItem({ status: "done", summary: "Searched the web (3 results)" }),
+        ],
       });
     });
-    expect(screen.getByText("Searched the web (3 results)")).toBeInTheDocument();
+    expect(
+      screen.getByText("Searched the web (3 results)"),
+    ).toBeInTheDocument();
     expect(screen.getByText("All done.")).toBeInTheDocument();
   });
 
@@ -189,7 +195,9 @@ describe("stream → tool card", () => {
       expect(header).toBeInTheDocument();
       // …the agents are one click away…
       fireEvent.click(header);
-      expect(screen.getByText(/Scout · traced the save flow/)).toBeInTheDocument();
+      expect(
+        screen.getByText(/Scout · traced the save flow/),
+      ).toBeInTheDocument();
       // …and the delegate tool card must not repeat it at the tail.
       expect(screen.queryByText("Sub-agent finished")).not.toBeInTheDocument();
     });
@@ -218,7 +226,9 @@ describe("stream → tool card", () => {
       // under test is "the panel renders at all on this branch", which still holds.
       const header = screen.getByRole("button", { name: /1 completed/i });
       fireEvent.click(header);
-      expect(screen.getByText(/Scout · traced the save flow/)).toBeInTheDocument();
+      expect(
+        screen.getByText(/Scout · traced the save flow/),
+      ).toBeInTheDocument();
     });
 
     it("still renders a delegate row when NO panel represents it", () => {

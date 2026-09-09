@@ -22,7 +22,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("electron", () => ({
   app: { getPath: () => "/tmp", isPackaged: false },
-  powerSaveBlocker: { start: () => 1, stop: () => undefined, isStarted: () => false },
+  powerSaveBlocker: {
+    start: () => 1,
+    stop: () => undefined,
+    isStarted: () => false,
+  },
 }));
 vi.mock("electron-log", () => {
   const scope = () => ({
@@ -174,7 +178,10 @@ describe("the two-window incident", () => {
     // Window B knows nothing about chat -28; it asks anyway. Main answers.
     const verdict = shouldDropSystemWake(
       { systemWake: true },
-      { isStreaming: isChatStreamLive(CHAT), userStopped: isChatUserStopped(CHAT) },
+      {
+        isStreaming: isChatStreamLive(CHAT),
+        userStopped: isChatUserStopped(CHAT),
+      },
     );
     expect(verdict).toBe("already-streaming");
     activeStreams.delete(CHAT);
@@ -187,7 +194,10 @@ describe("the two-window incident", () => {
     expect(
       shouldDropSystemWake(
         { systemWake: true },
-        { isStreaming: isChatStreamLive(CHAT), userStopped: isChatUserStopped(CHAT) },
+        {
+          isStreaming: isChatStreamLive(CHAT),
+          userStopped: isChatUserStopped(CHAT),
+        },
       ),
     ).toBe("user-stopped");
   });
@@ -196,7 +206,10 @@ describe("the two-window incident", () => {
     expect(
       shouldDropSystemWake(
         { systemWake: true },
-        { isStreaming: isChatStreamLive(CHAT), userStopped: isChatUserStopped(CHAT) },
+        {
+          isStreaming: isChatStreamLive(CHAT),
+          userStopped: isChatUserStopped(CHAT),
+        },
       ),
     ).toBeNull();
   });

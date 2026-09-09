@@ -91,7 +91,7 @@ describe("edit_file escape symmetry (replace)", () => {
       path.join(ws, GO_FILE),
       "func TestX(t *testing.T) {\n" +
         "\ttests := []struct{}{\n" +
-        "\t\t{newSeries(testSize, identity, `{app=\"foo\"}`)},\n" +
+        '\t\t{newSeries(testSize, identity, `{app="foo"}`)},\n' +
         "\t}\n" +
         "}\n",
     );
@@ -123,10 +123,7 @@ describe("edit_file escape symmetry (replace)", () => {
   });
 
   it("leaves a genuine escape in new_content alone when the match was exact", async () => {
-    fs.writeFileSync(
-      path.join(ws, "quoted.go"),
-      'func f() {\n\ts := "a"\n}\n',
-    );
+    fs.writeFileSync(path.join(ws, "quoted.go"), 'func f() {\n\ts := "a"\n}\n');
     const result: any = await ToolRegistry.execute("edit_file", {
       path: "quoted.go",
       operation: "replace",

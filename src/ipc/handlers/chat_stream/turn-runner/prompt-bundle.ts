@@ -84,7 +84,10 @@ export async function buildPromptBundle(
   logger.info(
     `[ContextAssembler] mode=${effectiveWorkMode} cacheHit=${assembledContext.cache.hit} sections=${assembledContext.assembledPromptSections.filter((s) => s.included).length}/${assembledContext.assembledPromptSections.length}`,
   );
-  const trimReport = [...(extraTrimNotes ?? []), ...assembledContext.trimReport];
+  const trimReport = [
+    ...(extraTrimNotes ?? []),
+    ...assembledContext.trimReport,
+  ];
   if (trimReport.length > 0) {
     logger.info(`[ContextAssembler] trims: ${trimReport.join(" | ")}`);
   }
@@ -101,9 +104,7 @@ export async function buildPromptBundle(
   } satisfies ChatContextReport);
   const hasInjectedArchitectureContext =
     assembledContext.assembledPromptSections.some(
-      (s) =>
-        s.included &&
-        (s.name === "workspaceAnalysis"),
+      (s) => s.included && s.name === "workspaceAnalysis",
     );
   // The @-mention context block (file contents / folder listings) is
   // injected as a prefix message below, not into the cached system prompt.
@@ -117,9 +118,7 @@ export async function buildPromptBundle(
 
   const hasImageAttachments =
     req.attachments &&
-    req.attachments.some((attachment) =>
-      attachment.type.startsWith("image/"),
-    );
+    req.attachments.some((attachment) => attachment.type.startsWith("image/"));
 
   const hasUploadedAttachments =
     req.attachments &&

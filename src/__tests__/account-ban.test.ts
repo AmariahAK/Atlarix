@@ -68,6 +68,8 @@ describe("accountBannedUserMessage", () => {
   });
 
   it("does not tell the user to sign in again — that fixes nothing", () => {
-    expect(accountBannedUserMessage()).not.toMatch(/sign in again|session expired/i);
+    expect(accountBannedUserMessage()).not.toMatch(
+      /sign in again|session expired/i,
+    );
   });
 });

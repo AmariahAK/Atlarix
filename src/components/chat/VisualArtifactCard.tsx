@@ -51,7 +51,9 @@ export function VisualArtifactCard({
           >
             <div
               className={cn(
-                isCanvas ? "h-full w-full min-h-0 flex flex-col" : "w-full min-w-0 p-2",
+                isCanvas
+                  ? "h-full w-full min-h-0 flex flex-col"
+                  : "w-full min-w-0 p-2",
               )}
             >
               {children}

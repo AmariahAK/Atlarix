@@ -44,7 +44,9 @@ describe("the tip pool", () => {
     // so offering it elsewhere would be advertising a no-op.
     const outside = buildTipPool({ ...FULL, inWorkspaceChat: false }, t);
     const inside = buildTipPool(FULL, t);
-    expect(outside.some((p) => p.id === "shortcut:cycle-work-mode")).toBe(false);
+    expect(outside.some((p) => p.id === "shortcut:cycle-work-mode")).toBe(
+      false,
+    );
     expect(inside.some((p) => p.id === "shortcut:cycle-work-mode")).toBe(true);
   });
 
@@ -60,7 +62,9 @@ describe("the tip pool", () => {
     const shortcutTips = pool.filter((p) => p.id.startsWith("shortcut:"));
     expect(shortcutTips.length).toBeGreaterThan(0);
     for (const tip of shortcutTips) {
-      const row = advertisedShortcuts().find((s) => `shortcut:${s.id}` === tip.id)!;
+      const row = advertisedShortcuts().find(
+        (s) => `shortcut:${s.id}` === tip.id,
+      )!;
       expect(row).toBeTruthy();
       // Mac formatting, since FULL.isMac — proves the chord came from formatCombo and
       // not from prose someone typed into the catalog.
@@ -94,7 +98,10 @@ describe("picking a tip", () => {
 
   it("can differ between keys, so a new chat is a fresh draw", () => {
     const results = new Set(
-      Array.from({ length: 60 }, (_, i) => pickTip(`launch-1:chat-${i}`, pool)?.id ?? null),
+      Array.from(
+        { length: 60 },
+        (_, i) => pickTip(`launch-1:chat-${i}`, pool)?.id ?? null,
+      ),
     );
     // More than one distinct outcome, or the hash is not distributing at all.
     expect(results.size).toBeGreaterThan(3);

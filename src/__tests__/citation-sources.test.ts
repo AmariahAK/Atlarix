@@ -47,8 +47,14 @@ describe("extractInlineSourcesFromContent (provider-native + Atlarix Core)", () 
     const content =
       "Here's the news…\n<atlarix-sources>" +
       JSON.stringify([
-        { url: "https://www.channelnewsasia.com/a", title: "Singapore GenAI labels - CNA" },
-        { url: "https://timesofindia.indiatimes.com/b", title: "OpenAI CFO - Times of India" },
+        {
+          url: "https://www.channelnewsasia.com/a",
+          title: "Singapore GenAI labels - CNA",
+        },
+        {
+          url: "https://timesofindia.indiatimes.com/b",
+          title: "OpenAI CFO - Times of India",
+        },
       ]) +
       "</atlarix-sources>";
     const sources = extractInlineSourcesFromContent(content);

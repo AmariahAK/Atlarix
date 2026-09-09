@@ -27,7 +27,9 @@ describe("summariseFirstPrompt", () => {
   });
 
   it("collapses whitespace so a wrapped prompt does not become a ragged title", () => {
-    expect(summariseFirstPrompt("  add   15    new quotes  ")).toBe("add 15 new quotes");
+    expect(summariseFirstPrompt("  add   15    new quotes  ")).toBe(
+      "add 15 new quotes",
+    );
   });
 
   it("truncates on a boundary and marks it, rather than cutting mid-title", () => {

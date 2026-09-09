@@ -85,7 +85,12 @@ export function recordSubagentStart(chatId: number, taskId: string): void {
 export function recordSubagentResult(
   chatId: number,
   taskId: string,
-  result: { description: string; state: "completed" | "error"; body: string; durationMs: number },
+  result: {
+    description: string;
+    state: "completed" | "error";
+    body: string;
+    durationMs: number;
+  },
 ): void {
   runningByChat.get(chatId)?.delete(taskId);
   const list = resultsByChat.get(chatId) ?? [];

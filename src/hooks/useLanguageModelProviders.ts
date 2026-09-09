@@ -60,7 +60,7 @@ export function useLanguageModelProviders() {
       const azureSettings = providerSettings as AzureProviderSetting;
       const hasSavedSettings = Boolean(
         (azureSettings?.apiKey?.value ?? "").trim() &&
-        (azureSettings?.resourceName ?? "").trim(),
+          (azureSettings?.resourceName ?? "").trim(),
       );
       if (hasSavedSettings) {
         return true;
@@ -88,7 +88,7 @@ export function useLanguageModelProviders() {
 
   const isAnyProviderSetup = () => {
     // Check if a local provider is selected (ollama, lmstudio don't need API keys)
-    const localProviders = ['ollama', 'lmstudio'];
+    const localProviders = ["ollama", "lmstudio"];
     const selectedProvider = settings?.selectedModel?.provider;
     if (selectedProvider && localProviders.includes(selectedProvider)) {
       return true;

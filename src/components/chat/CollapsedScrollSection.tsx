@@ -36,7 +36,8 @@ export function CollapsedScrollSection({
         className={cn(
           streamToolCardButton,
           hasBody && "cursor-pointer",
-          !hasBody && "cursor-default hover:bg-transparent dark:hover:bg-transparent",
+          !hasBody &&
+            "cursor-default hover:bg-transparent dark:hover:bg-transparent",
         )}
       >
         {hasBody ? (
@@ -50,7 +51,11 @@ export function CollapsedScrollSection({
         )}
         <ToolStatusIcon status={status} />
         <span className={streamToolCardSummary}>
-          {status === "running" ? <TextShimmer>{summary}</TextShimmer> : summary}
+          {status === "running" ? (
+            <TextShimmer>{summary}</TextShimmer>
+          ) : (
+            summary
+          )}
         </span>
       </button>
       {open && hasBody ? (

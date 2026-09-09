@@ -107,7 +107,11 @@ export interface AutonomousSessionCompletePayload {
 }
 
 /** Main → renderer: live task-ledger plan for PlanCard (scoped by chatId). */
-export type PlanUpdateStepStatus = "pending" | "in_progress" | "done" | "failed";
+export type PlanUpdateStepStatus =
+  | "pending"
+  | "in_progress"
+  | "done"
+  | "failed";
 
 export interface PlanUpdateStep {
   id: number;
@@ -549,46 +553,46 @@ export interface LanguageModelProvider {
 
 export type LanguageModel =
   | {
-    id: number;
-    apiName: string;
-    displayName: string;
-    description: string;
-    tag?: string;
-    tagColor?: string;
-    maxOutputTokens?: number;
-    contextWindow?: number;
-    temperature?: number;
-    dollarSigns?: number;
-    /**
-     * Whether the Deep-thinking toggle should be offered for this model.
-     *
-     * Resolved in MAIN and shipped on this payload, like `supportsToolChoice` below.
-     * The renderer cannot work it out for itself: both inputs — the models.dev
-     * reasoning registry and the Core tier→vendor routing map — are module-level
-     * state written only in the main process, so every renderer-side lookup came back
-     * empty and the toggle fell through to a provider allowlist that has never
-     * contained `compass`.
-     */
-    supportsDeepThinking?: boolean;
-    type: "custom";
-  }
+      id: number;
+      apiName: string;
+      displayName: string;
+      description: string;
+      tag?: string;
+      tagColor?: string;
+      maxOutputTokens?: number;
+      contextWindow?: number;
+      temperature?: number;
+      dollarSigns?: number;
+      /**
+       * Whether the Deep-thinking toggle should be offered for this model.
+       *
+       * Resolved in MAIN and shipped on this payload, like `supportsToolChoice` below.
+       * The renderer cannot work it out for itself: both inputs — the models.dev
+       * reasoning registry and the Core tier→vendor routing map — are module-level
+       * state written only in the main process, so every renderer-side lookup came back
+       * empty and the toggle fell through to a provider allowlist that has never
+       * contained `compass`.
+       */
+      supportsDeepThinking?: boolean;
+      type: "custom";
+    }
   | {
-    apiName: string;
-    displayName: string;
-    description: string;
-    tag?: string;
-    tagColor?: string;
-    maxOutputTokens?: number;
-    contextWindow?: number;
-    temperature?: number;
-    dollarSigns?: number;
-    /** Real USD price per 1M tokens from the models.dev catalog (when known). */
-    cost?: { input: number; output: number };
-    supportsToolChoice?: boolean;
-    /** See the `custom` variant above — resolved in main, never in the renderer. */
-    supportsDeepThinking?: boolean;
-    type: "local" | "cloud";
-  };
+      apiName: string;
+      displayName: string;
+      description: string;
+      tag?: string;
+      tagColor?: string;
+      maxOutputTokens?: number;
+      contextWindow?: number;
+      temperature?: number;
+      dollarSigns?: number;
+      /** Real USD price per 1M tokens from the models.dev catalog (when known). */
+      cost?: { input: number; output: number };
+      supportsToolChoice?: boolean;
+      /** See the `custom` variant above — resolved in main, never in the renderer. */
+      supportsDeepThinking?: boolean;
+      type: "local" | "cloud";
+    };
 
 export interface CreateCustomLanguageModelProviderParams {
   id: string;
@@ -646,7 +650,6 @@ export const UserBudgetInfoSchema = z.object({
   redactedUserId: z.string(),
 });
 export type UserBudgetInfo = z.infer<typeof UserBudgetInfoSchema>;
-
 
 export interface EnvVar {
   key: string;
@@ -884,13 +887,13 @@ export interface GithubRepository {
 
 export type CloneRepoReturnType =
   | {
-    app: App;
-    /** Initial chat row created with the cloned workspace */
-    chatId?: number;
-  }
+      app: App;
+      /** Initial chat row created with the cloned workspace */
+      chatId?: number;
+    }
   | {
-    error: string;
-  };
+      error: string;
+    };
 
 export interface SelectNodeFolderResult {
   path: string | null;

@@ -22,10 +22,7 @@ import {
   parseDisplaySnapshot,
   type DisplaySnapshotV1,
 } from "@/lib/chat/display-snapshot";
-import type {
-  PasteAttachmentMeta,
-  StoredFileAttachment,
-} from "../ipc_types";
+import type { PasteAttachmentMeta, StoredFileAttachment } from "../ipc_types";
 import {
   attachmentInfoFromStoredFile,
   hydrateAttachmentStoreFromMessages,
@@ -121,7 +118,9 @@ function mapSession(row: typeof chatSessions.$inferSelect): ChatSessionRow {
   };
 }
 
-function mapMessage(row: typeof sessionMessages.$inferSelect): SessionMessageRow {
+function mapMessage(
+  row: typeof sessionMessages.$inferSelect,
+): SessionMessageRow {
   return {
     id: row.id,
     sessionId: row.sessionId,
@@ -200,7 +199,6 @@ export async function persistEditedSessionMessageById(
   return "updated";
 }
 
-
 /**
  * Which rows the trim may delete, oldest-first, given the whole ordered list.
  *
@@ -237,7 +235,10 @@ async function trimSessionMessagesIfNeeded(sessionId: string): Promise<void> {
     // an older one. `rowid` is insertion order.
     .orderBy(asc(sessionMessages.createdAt), sql`rowid asc`);
 
-  const idsToDelete = selectTrimmableMessageIds(rows, SESSION_STORE_MESSAGE_MAX);
+  const idsToDelete = selectTrimmableMessageIds(
+    rows,
+    SESSION_STORE_MESSAGE_MAX,
+  );
   if (idsToDelete.length > 0) {
     await db
       .delete(sessionMessages)
@@ -332,7 +333,9 @@ export async function upsertInterruptedAssistantDraft(
 }
 
 /** Remove an interrupted draft row once the turn completes (or is superseded). */
-export async function deleteInterruptedAssistantDraft(rowId: string): Promise<void> {
+export async function deleteInterruptedAssistantDraft(
+  rowId: string,
+): Promise<void> {
   await db.delete(sessionMessages).where(eq(sessionMessages.id, rowId));
 }
 
@@ -398,7 +401,9 @@ export async function resolveOrBindWorkspaceSessionForStream(input: {
   if (provided) return provided;
 
   if (!isStreamTransportId(input.chatId)) {
-    throw new Error("workspaceSessionId is required for workspace chat streams");
+    throw new Error(
+      "workspaceSessionId is required for workspace chat streams",
+    );
   }
 
   const byTransport = await db.query.chatSessions.findFirst({
@@ -406,10 +411,11 @@ export async function resolveOrBindWorkspaceSessionForStream(input: {
   });
   if (byTransport) return byTransport.id;
 
-  const appId =
-    input.workspaceAppId ?? getStreamTransportAppId(input.chatId);
+  const appId = input.workspaceAppId ?? getStreamTransportAppId(input.chatId);
   if (appId == null || !getStreamTransport(input.chatId)) {
-    throw new Error("workspaceSessionId is required for workspace chat streams");
+    throw new Error(
+      "workspaceSessionId is required for workspace chat streams",
+    );
   }
 
   const latest = await db.query.chatSessions.findFirst({
@@ -649,7 +655,11 @@ async function verifyTrulyEmptySession(
   }
 
   if (!DEFAULT_SESSION_TITLES.has(row.title)) {
-    return { row, empty: false, reason: `title "${row.title}" is not a default` };
+    return {
+      row,
+      empty: false,
+      reason: `title "${row.title}" is not a default`,
+    };
   }
 
   return { row, empty: true, reason: "empty" };
@@ -687,7 +697,10 @@ export async function startWorkspaceSession(workspaceId: number): Promise<{
       logger.log(
         `[session-reuse] workspace ${workspaceId} candidates: ` +
           rows
-            .map((r) => `${r.id.slice(0, 8)}(msgs=${String(r.messageCount)},"${r.title}")`)
+            .map(
+              (r) =>
+                `${r.id.slice(0, 8)}(msgs=${String(r.messageCount)},"${r.title}")`,
+            )
             .join(" ") +
           ` → reuse=${reuseId ? reuseId.slice(0, 8) : "none"} prune=[${pruneIds
             .map((p) => p.slice(0, 8))
@@ -722,7 +735,9 @@ export async function startWorkspaceSession(workspaceId: number): Promise<{
       }
     }
     if (safeToPrune.length > 0) {
-      await db.delete(chatSessions).where(inArray(chatSessions.id, safeToPrune));
+      await db
+        .delete(chatSessions)
+        .where(inArray(chatSessions.id, safeToPrune));
       logger.log(
         `Pruned ${safeToPrune.length} stale empty session(s) for workspace ${workspaceId}`,
       );
@@ -800,10 +815,7 @@ export function registerWorkspaceSessionHandlers(): void {
 
   handle(
     "sessions:resolve-for-transport",
-    async (
-      _event,
-      payload: { chatId: number; workspaceId?: number },
-    ) => {
+    async (_event, payload: { chatId: number; workspaceId?: number }) => {
       return resolveOrBindWorkspaceSessionForStream({
         chatId: payload.chatId,
         workspaceAppId: payload.workspaceId,
@@ -839,7 +851,10 @@ export function registerWorkspaceSessionHandlers(): void {
         .all();
       const out = rows
         .filter((r) => !!r.snapshotTurnId)
-        .map((r) => ({ rowId: r.id, snapshotTurnId: r.snapshotTurnId as string }));
+        .map((r) => ({
+          rowId: r.id,
+          snapshotTurnId: r.snapshotTurnId as string,
+        }));
       if (process.env.ATLARIX_DIAG_146 === "1") {
         logger.info(
           `[DIAG_146] snapshot-turn-ids chat=${payload.chatId} session=${session.id} assistantRows=${rows.length} withSnapshot=${out.length}`,
@@ -953,11 +968,7 @@ export function registerWorkspaceSessionHandlers(): void {
 
   handle(
     "sessions:get",
-    async (
-      _event,
-      sessionId: string,
-      opts?: { limit?: number },
-    ) => {
+    async (_event, sessionId: string, opts?: { limit?: number }) => {
       const session = await db.query.chatSessions.findFirst({
         where: eq(chatSessions.id, sessionId),
       });
@@ -1005,7 +1016,9 @@ export function registerWorkspaceSessionHandlers(): void {
       );
       hydrateAttachmentStoreFromMessages(
         messages,
-        typeof session.streamChatId === "number" ? session.streamChatId : undefined,
+        typeof session.streamChatId === "number"
+          ? session.streamChatId
+          : undefined,
         session.id,
       );
       if (sessionLoadDiagEnabled()) {
@@ -1058,7 +1071,11 @@ export function registerWorkspaceSessionHandlers(): void {
 
       const messages = joinTransportRows(dbRows.map(mapMessage), payload.rows);
 
-      hydrateAttachmentStoreFromMessages(messages, payload.chatId, payload.sessionId);
+      hydrateAttachmentStoreFromMessages(
+        messages,
+        payload.chatId,
+        payload.sessionId,
+      );
       hydrateStreamTransport(payload.chatId, messages);
       if (sessionLoadDiagEnabled()) {
         const b = measureSessionPayloadBytes(messages);
@@ -1080,7 +1097,14 @@ export function registerWorkspaceSessionHandlers(): void {
       content: string,
       displaySnapshot?: string,
       extras?: SessionMessageExtras,
-    ) => addSessionMessageDirect(sessionId, role, content, displaySnapshot, extras),
+    ) =>
+      addSessionMessageDirect(
+        sessionId,
+        role,
+        content,
+        displaySnapshot,
+        extras,
+      ),
   );
 
   handle("messages:mark-complete", async (_event, rowId: string) => {
@@ -1120,7 +1144,8 @@ export function registerWorkspaceSessionHandlers(): void {
     // session stayed "Untitled" forever.
     const firstUser = rows.find(
       (m) =>
-        m.role === "user" && stripContentForTitleSource(m.content ?? "", "user").trim(),
+        m.role === "user" &&
+        stripContentForTitleSource(m.content ?? "", "user").trim(),
     );
 
     const userText = firstUser
@@ -1161,7 +1186,12 @@ export function registerWorkspaceSessionHandlers(): void {
         /<atlarix-chat-summary>([\s\S]*?)<\/atlarix-chat-summary>/,
       );
       if (summaryMatch?.[1]?.trim()) {
-        newTitle = summaryMatch[1].trim().split(/\s+/).slice(0, 6).join(" ").slice(0, 80);
+        newTitle = summaryMatch[1]
+          .trim()
+          .split(/\s+/)
+          .slice(0, 6)
+          .join(" ")
+          .slice(0, 80);
       }
     }
 

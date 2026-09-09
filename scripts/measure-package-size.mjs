@@ -31,11 +31,15 @@ function countAsarLines(asarPath, predicate) {
   });
 }
 
-const outRoot = path.resolve(process.argv[2] ?? path.join(process.cwd(), "out"));
+const outRoot = path.resolve(
+  process.argv[2] ?? path.join(process.cwd(), "out"),
+);
 
 function duHuman(target) {
   try {
-    return execSync(`du -sh "${target}"`, { encoding: "utf8" }).split("\t")[0].trim();
+    return execSync(`du -sh "${target}"`, { encoding: "utf8" })
+      .split("\t")[0]
+      .trim();
   } catch {
     return "?";
   }
@@ -130,8 +134,12 @@ async function main() {
     ]);
     console.log("\nAsar audit:");
     console.log(`  .map files:     ${mapCount >= 0 ? mapCount : "?"}`);
-    console.log(`  /scaffold paths: ${scaffoldCount >= 0 ? scaffoldCount : "?"}`);
-    console.log(`  playwright refs: ${playwrightCount >= 0 ? playwrightCount : "?"}`);
+    console.log(
+      `  /scaffold paths: ${scaffoldCount >= 0 ? scaffoldCount : "?"}`,
+    );
+    console.log(
+      `  playwright refs: ${playwrightCount >= 0 ? playwrightCount : "?"}`,
+    );
   } catch (err) {
     console.warn("Asar audit skipped:", err.message);
   }

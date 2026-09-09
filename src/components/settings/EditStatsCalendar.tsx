@@ -89,7 +89,11 @@ export function EditStatsCalendar({
               ))}
             </div>
 
-            <div className="flex gap-[3px]" role="grid" aria-label="Code changes by day">
+            <div
+              className="flex gap-[3px]"
+              role="grid"
+              aria-label="Code changes by day"
+            >
               {grid.weeks.map((week, wi) => (
                 <div key={wi} className="grid grid-rows-7 gap-[3px]" role="row">
                   {week.map((cell) =>

@@ -114,10 +114,19 @@ describe("processStreamChunks", () => {
       /<atlarix-sources>([\s\S]*?)<\/atlarix-sources>/,
     );
     expect(match).not.toBeNull();
-    const sources = JSON.parse(match![1]) as Array<{ url: string; title: string }>;
+    const sources = JSON.parse(match![1]) as Array<{
+      url: string;
+      title: string;
+    }>;
     expect(sources).toHaveLength(2);
-    expect(sources[0]).toEqual({ url: "https://example.com/a", title: "Example A" });
-    expect(sources[1]).toEqual({ url: "https://grounded.dev/b", title: "Grounded B" });
+    expect(sources[0]).toEqual({
+      url: "https://example.com/a",
+      title: "Example A",
+    });
+    expect(sources[1]).toEqual({
+      url: "https://grounded.dev/b",
+      title: "Grounded B",
+    });
   });
 
   it("emits no sources tag when the stream has no source parts", async () => {
@@ -284,12 +293,28 @@ describe("processStreamChunks", () => {
     // Space deltas past the ~120ms emit throttle so accumulation is observable
     // (rapid synchronous deltas coalesce, which is fine in production).
     async function* fullStream() {
-      yield { type: "tool-input-start" as const, toolCallId: "tc-w", toolName: "edit_file" };
-      yield { type: "tool-input-delta" as const, toolCallId: "tc-w", inputTextDelta: '{"operation":"write",' };
+      yield {
+        type: "tool-input-start" as const,
+        toolCallId: "tc-w",
+        toolName: "edit_file",
+      };
+      yield {
+        type: "tool-input-delta" as const,
+        toolCallId: "tc-w",
+        inputTextDelta: '{"operation":"write",',
+      };
       await new Promise((r) => setTimeout(r, 140));
-      yield { type: "tool-input-delta" as const, toolCallId: "tc-w", inputTextDelta: '"path":"a.ts","content":"hel' };
+      yield {
+        type: "tool-input-delta" as const,
+        toolCallId: "tc-w",
+        inputTextDelta: '"path":"a.ts","content":"hel',
+      };
       await new Promise((r) => setTimeout(r, 140));
-      yield { type: "tool-input-delta" as const, toolCallId: "tc-w", inputTextDelta: 'lo"}' };
+      yield {
+        type: "tool-input-delta" as const,
+        toolCallId: "tc-w",
+        inputTextDelta: 'lo"}',
+      };
       yield {
         type: "tool-call" as const,
         toolCallId: "tc-w",
@@ -297,7 +322,11 @@ describe("processStreamChunks", () => {
         input: { operation: "write", path: "a.ts", content: "hello" },
       };
       // A late delta after completion must NOT be emitted (buffer cleared).
-      yield { type: "tool-input-delta" as const, toolCallId: "tc-w", inputTextDelta: "stale" };
+      yield {
+        type: "tool-input-delta" as const,
+        toolCallId: "tc-w",
+        inputTextDelta: "stale",
+      };
     }
 
     const seen: string[] = [];
@@ -443,7 +472,11 @@ describe("processStreamChunks + a provider error in the finish reason", () => {
     await expect(
       run([
         { type: "text-delta", text: "partial answ" },
-        { type: "finish", finishReason: "unknown", rawFinishReason: "network_error" },
+        {
+          type: "finish",
+          finishReason: "unknown",
+          rawFinishReason: "network_error",
+        },
       ]),
     ).rejects.toThrow(/Provider finish_reason: network_error/);
   });
@@ -478,11 +511,11 @@ describe("processStreamChunks + a provider error in the finish reason", () => {
   // errors `isNetworkStreamError` recognizes. If this ever returns false the
   // fix is inert — the turn would still end quietly, just with a stack.
   it("is classified retryable, so the existing backoff arms", () => {
-    expect(isNetworkStreamError(new ProviderFinishReasonError("network_error"))).toBe(
-      true,
-    );
-    expect(isNetworkStreamError(new ProviderFinishReasonError("upstream_failure"))).toBe(
-      true,
-    );
+    expect(
+      isNetworkStreamError(new ProviderFinishReasonError("network_error")),
+    ).toBe(true);
+    expect(
+      isNetworkStreamError(new ProviderFinishReasonError("upstream_failure")),
+    ).toBe(true);
   });
 });

@@ -1,5 +1,11 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
-import { AlertTriangle, Check, PlusIcon, Search, TrashIcon } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  PlusIcon,
+  Search,
+  TrashIcon,
+} from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -176,8 +182,8 @@ export function ModelsSection({ providerId }: ModelsSectionProps) {
       <h2 className="text-2xl font-semibold mb-2">Models</h2>
       <p className="text-muted-foreground mb-4 text-sm">
         Browse built-in and custom models for this provider. Click a row or{" "}
-        <span className="font-medium text-foreground">Use</span> to set the
-        chat model. Use search and pagination for long lists.
+        <span className="font-medium text-foreground">Use</span> to set the chat
+        model. Use search and pagination for long lists.
       </p>
 
       {modelsLoading && (
@@ -240,124 +246,124 @@ export function ModelsSection({ providerId }: ModelsSectionProps) {
                     model,
                   );
                   return (
-                  <tr
-                    key={model.apiName + String(model.type)}
-                    className={cn(
-                      "border-b border-border/80 cursor-pointer transition-colors hover:bg-muted/30",
-                      rowSelected && "bg-muted/50",
-                    )}
-                    onClick={() => handleModelRowActivate(model)}
-                    onDoubleClick={() => handleModelDoubleClick(model)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        handleModelRowActivate(model);
-                      }
-                    }}
-                    tabIndex={0}
-                  >
-                    <td className="px-3 py-2 align-top">
-                      <div className="font-medium">{model.displayName}</div>
-                      {model.description ? (
-                        <div className="text-xs text-muted-foreground line-clamp-2 mt-0.5 max-w-[28rem]">
-                          {model.description}
-                        </div>
-                      ) : null}
-                      <div className="text-xs text-muted-foreground font-mono mt-1 sm:hidden truncate max-w-[12rem]">
-                        {model.apiName}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 align-top hidden sm:table-cell">
-                      <span className="font-mono text-xs text-muted-foreground break-all">
-                        {model.apiName}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 align-top whitespace-nowrap">
-                      <span
-                        className={cn(
-                          "inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium",
-                          model.type === "custom"
-                            ? "bg-amber-500/15 text-amber-800 dark:text-amber-200"
-                            : "bg-primary/10 text-primary",
-                        )}
-                      >
-                        {model.type === "cloud" ? "Built-in" : model.type}
-                      </span>
-                      {model.tag ? (
-                        <span className="ml-1 inline-flex rounded-full bg-muted px-2 py-0.5 text-[11px]">
-                          {model.tag}
-                        </span>
-                      ) : null}
-                    </td>
-                    <td className="px-3 py-2 align-top hidden md:table-cell text-xs text-muted-foreground whitespace-nowrap">
-                      {model.contextWindow != null
-                        ? `${model.contextWindow.toLocaleString()} tok`
-                        : "—"}
-                    </td>
-                    <td className="px-3 py-2 align-top text-right">
-                      <div className="flex justify-end gap-1 flex-wrap">
-                        <Button
-                          type="button"
-                          variant={rowSelected ? "secondary" : "outline"}
-                          size="sm"
-                          className="h-8 px-2"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void applyAsChatModel(model);
-                          }}
-                          aria-label={`Use ${model.displayName} as chat model`}
-                        >
-                          {rowSelected ? (
-                            <Check className="h-4 w-4" aria-hidden />
-                          ) : (
-                            "Use"
-                          )}
-                        </Button>
-                        {model.type === "custom" ? (
-                          <>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleEditClick(model);
-                              }}
-                              aria-label={`Edit ${model.displayName}`}
-                            >
-                              <svg
-                                className="h-4 w-4"
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                                aria-hidden
-                              >
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth={2}
-                                  d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-                                />
-                              </svg>
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-destructive hover:text-destructive"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeleteClick(model.apiName);
-                              }}
-                              disabled={isDeleting}
-                              aria-label={`Delete ${model.displayName}`}
-                            >
-                              <TrashIcon className="h-4 w-4" />
-                            </Button>
-                          </>
+                    <tr
+                      key={model.apiName + String(model.type)}
+                      className={cn(
+                        "border-b border-border/80 cursor-pointer transition-colors hover:bg-muted/30",
+                        rowSelected && "bg-muted/50",
+                      )}
+                      onClick={() => handleModelRowActivate(model)}
+                      onDoubleClick={() => handleModelDoubleClick(model)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          handleModelRowActivate(model);
+                        }
+                      }}
+                      tabIndex={0}
+                    >
+                      <td className="px-3 py-2 align-top">
+                        <div className="font-medium">{model.displayName}</div>
+                        {model.description ? (
+                          <div className="text-xs text-muted-foreground line-clamp-2 mt-0.5 max-w-[28rem]">
+                            {model.description}
+                          </div>
                         ) : null}
-                      </div>
-                    </td>
-                  </tr>
+                        <div className="text-xs text-muted-foreground font-mono mt-1 sm:hidden truncate max-w-[12rem]">
+                          {model.apiName}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 align-top hidden sm:table-cell">
+                        <span className="font-mono text-xs text-muted-foreground break-all">
+                          {model.apiName}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 align-top whitespace-nowrap">
+                        <span
+                          className={cn(
+                            "inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium",
+                            model.type === "custom"
+                              ? "bg-amber-500/15 text-amber-800 dark:text-amber-200"
+                              : "bg-primary/10 text-primary",
+                          )}
+                        >
+                          {model.type === "cloud" ? "Built-in" : model.type}
+                        </span>
+                        {model.tag ? (
+                          <span className="ml-1 inline-flex rounded-full bg-muted px-2 py-0.5 text-[11px]">
+                            {model.tag}
+                          </span>
+                        ) : null}
+                      </td>
+                      <td className="px-3 py-2 align-top hidden md:table-cell text-xs text-muted-foreground whitespace-nowrap">
+                        {model.contextWindow != null
+                          ? `${model.contextWindow.toLocaleString()} tok`
+                          : "—"}
+                      </td>
+                      <td className="px-3 py-2 align-top text-right">
+                        <div className="flex justify-end gap-1 flex-wrap">
+                          <Button
+                            type="button"
+                            variant={rowSelected ? "secondary" : "outline"}
+                            size="sm"
+                            className="h-8 px-2"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void applyAsChatModel(model);
+                            }}
+                            aria-label={`Use ${model.displayName} as chat model`}
+                          >
+                            {rowSelected ? (
+                              <Check className="h-4 w-4" aria-hidden />
+                            ) : (
+                              "Use"
+                            )}
+                          </Button>
+                          {model.type === "custom" ? (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleEditClick(model);
+                                }}
+                                aria-label={`Edit ${model.displayName}`}
+                              >
+                                <svg
+                                  className="h-4 w-4"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  viewBox="0 0 24 24"
+                                  aria-hidden
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                                  />
+                                </svg>
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-destructive hover:text-destructive"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteClick(model.apiName);
+                                }}
+                                disabled={isDeleting}
+                                aria-label={`Delete ${model.displayName}`}
+                              >
+                                <TrashIcon className="h-4 w-4" />
+                              </Button>
+                            </>
+                          ) : null}
+                        </div>
+                      </td>
+                    </tr>
                   );
                 })}
               </tbody>
@@ -389,9 +395,7 @@ export function ModelsSection({ providerId }: ModelsSectionProps) {
                 variant="outline"
                 size="sm"
                 disabled={safePage >= totalPages - 1}
-                onClick={() =>
-                  setPage((p) => Math.min(totalPages - 1, p + 1))
-                }
+                onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
               >
                 Next
               </Button>

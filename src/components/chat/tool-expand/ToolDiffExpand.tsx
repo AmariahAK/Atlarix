@@ -7,8 +7,7 @@ export function ToolDiffExpand({
 }: {
   view: Extract<ToolExpandView, { kind: "diff" }>;
 }) {
-  const hasFullDiff =
-    view.oldContent.length > 0 || view.newContent.length > 0;
+  const hasFullDiff = view.oldContent.length > 0 || view.newContent.length > 0;
 
   if (!hasFullDiff && view.snippetFallback) {
     return (

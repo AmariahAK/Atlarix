@@ -50,7 +50,10 @@ export interface EnforceContextBudgetResult {
 }
 
 function totalPrefixTokens(prefixes: readonly ModelMessage[]): number {
-  return prefixes.reduce((acc, m) => acc + estimateTokens(String(m.content ?? "")), 0);
+  return prefixes.reduce(
+    (acc, m) => acc + estimateTokens(String(m.content ?? "")),
+    0,
+  );
 }
 
 /**
@@ -142,7 +145,10 @@ function replaceContextAssemblerBlob(
   );
 }
 
-function trimContextAssemblerBlobOneStep(blob: string, userPrompt: string): string | null {
+function trimContextAssemblerBlobOneStep(
+  blob: string,
+  userPrompt: string,
+): string | null {
   const t = blob.trim();
   if (t.length < 80) return null;
 
@@ -219,7 +225,8 @@ function trimContextAssemblerBlobOneStep(blob: string, userPrompt: string): stri
 export async function enforceContextBudget(
   params: EnforceContextBudgetParams,
 ): Promise<EnforceContextBudgetResult> {
-  const { settings, codebasePrefixMessages, otherCodebasePrefixMessages } = params;
+  const { settings, codebasePrefixMessages, otherCodebasePrefixMessages } =
+    params;
 
   let systemPrompt = params.systemPrompt;
   let limitedMessageHistory = params.limitedMessageHistory;
@@ -269,7 +276,9 @@ export async function enforceContextBudget(
     const entries = nonSystemEntries(limitedMessageHistory);
     const pStart = protectedEntryStartIndex(entries);
     const firstProtectedOriginalIndex =
-      pStart < entries.length ? entries[pStart].i : limitedMessageHistory.length;
+      pStart < entries.length
+        ? entries[pStart].i
+        : limitedMessageHistory.length;
     const head = limitedMessageHistory.slice(0, firstProtectedOriginalIndex);
     const tail = limitedMessageHistory.slice(firstProtectedOriginalIndex);
     const headConversation = head.filter(
@@ -357,23 +366,37 @@ export async function compactAgenticMessagesIfNeeded(
   const protect = params.protectExchanges ?? 3;
   const usable = params.usableTokens ?? params.tierLimit;
 
-  const tokensOf = (m: ModelMessage) => estimateTokens(modelMessageText(m.content));
+  const tokensOf = (m: ModelMessage) =>
+    estimateTokens(modelMessageText(m.content));
   const total = (msgs: ModelMessage[]) =>
     msgs.reduce((acc, m) => acc + tokensOf(m), 0) + params.systemPromptEstimate;
 
   const beforeTokens = total(params.messages);
   if (beforeTokens <= usable) {
-    return { messages: params.messages, compacted: false, beforeTokens, afterTokens: beforeTokens };
+    return {
+      messages: params.messages,
+      compacted: false,
+      beforeTokens,
+      afterTokens: beforeTokens,
+    };
   }
 
   // Locate the protected suffix: walk back from the tail collecting `protect`
   // assistant->user pairs of user+assistant exchanges (mirrors the
   // `protectedEntryStartIndex` heuristic in this file).
   const entries = nonSystemEntries(
-    params.messages.map((m) => ({ role: m.role, content: modelMessageText(m.content) })),
+    params.messages.map((m) => ({
+      role: m.role,
+      content: modelMessageText(m.content),
+    })),
   );
   if (entries.length === 0) {
-    return { messages: params.messages, compacted: false, beforeTokens, afterTokens: beforeTokens };
+    return {
+      messages: params.messages,
+      compacted: false,
+      beforeTokens,
+      afterTokens: beforeTokens,
+    };
   }
   let e = entries.length - 1;
   let exchanges = 0;
@@ -400,7 +423,12 @@ export async function compactAgenticMessagesIfNeeded(
 
   // Without anything to summarize, just return as-is.
   if (headConversation.length === 0) {
-    return { messages: params.messages, compacted: false, beforeTokens, afterTokens: beforeTokens };
+    return {
+      messages: params.messages,
+      compacted: false,
+      beforeTokens,
+      afterTokens: beforeTokens,
+    };
   }
 
   // THE one summarizer (there were two near-identical copies; the one that pruned
@@ -414,7 +442,12 @@ export async function compactAgenticMessagesIfNeeded(
     chatId: params.chatId,
   });
   if (!summary) {
-    return { messages: params.messages, compacted: false, beforeTokens, afterTokens: beforeTokens };
+    return {
+      messages: params.messages,
+      compacted: false,
+      beforeTokens,
+      afterTokens: beforeTokens,
+    };
   }
 
   // Deliberately the IN-TASK prefix, not COMPACTION_SUMMARY_PREFIX, and

@@ -61,7 +61,8 @@ export function upsertWorkspaceCommandPermission(
   // Write under the canonical (oldest) row for this folder so the rule lands on
   // the same app the chat enforces under (Bug 5).
   const appId = resolveCanonicalAppId(rawAppId) ?? rawAppId;
-  const normalized = getCommandCategory(category) || category.trim().toLowerCase();
+  const normalized =
+    getCommandCategory(category) || category.trim().toLowerCase();
   if (!normalized) return;
 
   const existing = db

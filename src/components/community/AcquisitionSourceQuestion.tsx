@@ -50,7 +50,8 @@ export function AcquisitionSourceQuestion({
   }
 
   const needsDetail = selected === OTHER_SOURCE_ID;
-  const canSubmit = !!selected && (!needsDetail || detail.trim().length > 0) && !saving;
+  const canSubmit =
+    !!selected && (!needsDetail || detail.trim().length > 0) && !saving;
 
   const submit = async () => {
     if (!selected || saving) return;
@@ -101,7 +102,11 @@ export function AcquisitionSourceQuestion({
         />
       ) : null}
 
-      <Button size={compact ? "sm" : "default"} disabled={!canSubmit} onClick={() => void submit()}>
+      <Button
+        size={compact ? "sm" : "default"}
+        disabled={!canSubmit}
+        onClick={() => void submit()}
+      >
         {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
         Send
       </Button>

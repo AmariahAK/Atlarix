@@ -112,7 +112,9 @@ export function workspaceCapRefusal(kind: WorkspaceCapKind): string {
  * renderer's rebuilt label and NOT the message the handler actually threw, so the drop
  * never fired for the skills cap at all.
  */
-export const WORKSPACE_CAP_SENTRY_PATTERNS: RegExp[] = [/workspace limit reached/i];
+export const WORKSPACE_CAP_SENTRY_PATTERNS: RegExp[] = [
+  /workspace limit reached/i,
+];
 
 /**
  * The sentence the model reads in a tool description.

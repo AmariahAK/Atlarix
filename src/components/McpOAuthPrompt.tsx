@@ -13,19 +13,19 @@ export function McpOAuthPrompt() {
     const ipc = IpcClient.getInstance();
 
     const offRedirect = ipc.onMcpOAuthRedirect(({ serverId, serverName }) => {
-        toast(`Sign in to ${serverName}`, {
-          id: `mcp-oauth-${serverId}`,
-          description: "Complete sign-in in your browser, then return to Atlarix.",
-          duration: 60_000,
-          cancel: {
-            label: "Cancel",
-            onClick: () => {
-              void ipc.cancelMcpOAuth(serverId);
-            },
+      toast(`Sign in to ${serverName}`, {
+        id: `mcp-oauth-${serverId}`,
+        description:
+          "Complete sign-in in your browser, then return to Atlarix.",
+        duration: 60_000,
+        cancel: {
+          label: "Cancel",
+          onClick: () => {
+            void ipc.cancelMcpOAuth(serverId);
           },
-        });
-      },
-    );
+        },
+      });
+    });
 
     const offSuccess = ipc.onMcpOAuthSuccess(({ serverId, serverName }) => {
       toast.dismiss(`mcp-oauth-${serverId}`);
@@ -56,7 +56,9 @@ export function McpOAuthPrompt() {
     const offAuthRequired = ipc.onMcpAuthRequired(
       ({ serverId, serverName, reason }) => {
         const verb =
-          reason === "invalid" ? "re-enter the credentials" : "add the credentials";
+          reason === "invalid"
+            ? "re-enter the credentials"
+            : "add the credentials";
         toast(`Configure ${serverName}`, {
           id: `mcp-auth-${serverId}`,
           description: `This MCP server needs credentials — ${verb} in Settings → MCP, then the agent will retry.`,
@@ -107,7 +109,9 @@ export function McpOAuthServerActions({
           void ipc
             .startMcpOAuth({ serverId })
             .then(() => onChanged?.())
-            .catch((e) => toast.error(e instanceof Error ? e.message : String(e)));
+            .catch((e) =>
+              toast.error(e instanceof Error ? e.message : String(e)),
+            );
         }}
       >
         {oauthConnected ? "Reconnect" : "Connect"}
@@ -123,7 +127,9 @@ export function McpOAuthServerActions({
                 toast.success(`Disconnected ${serverName}`);
                 onChanged?.();
               })
-              .catch((e) => toast.error(e instanceof Error ? e.message : String(e)));
+              .catch((e) =>
+                toast.error(e instanceof Error ? e.message : String(e)),
+              );
           }}
         >
           Disconnect

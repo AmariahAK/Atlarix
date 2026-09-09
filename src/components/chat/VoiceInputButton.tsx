@@ -29,7 +29,10 @@ interface VoiceInputButtonProps {
   onInsertText: (text: string, isFinal: boolean) => void;
 }
 
-export function VoiceInputButton({ disabled, onInsertText }: VoiceInputButtonProps) {
+export function VoiceInputButton({
+  disabled,
+  onInsertText,
+}: VoiceInputButtonProps) {
   const { settings } = useSettings();
   const provider = settings?.voiceTranscriptionProvider ?? "local";
   const mode = settings?.voiceInputMode ?? "dictate";
@@ -102,9 +105,7 @@ export function VoiceInputButton({ disabled, onInsertText }: VoiceInputButtonPro
             variant="ghost"
             size="icon"
             className={
-              isRecording
-                ? "mx-1 text-red-500 hover:text-red-600"
-                : "mx-1"
+              isRecording ? "mx-1 text-red-500 hover:text-red-600" : "mx-1"
             }
             disabled={disabled || (busy && !isRecording)}
             onClick={() => (isRecording ? stop() : void start())}

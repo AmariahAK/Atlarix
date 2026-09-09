@@ -14,7 +14,6 @@
   }
 }
 
-
 /* Load Geist Font — vendored woff2 (v11: dropped the `geist` npm package,
    which pulled in next/@next, ~284MB of dev install weight). */
 
@@ -101,7 +100,7 @@ html[data-fullscreen="true"] #layout-main-content-container {
 }
 
 :root {
-  --docs-bg: #F0F4F8;
+  --docs-bg: #f0f4f8;
   --default-font-family: "Geist", sans-serif;
   --default-mono-font-family: "Geist Mono", monospace;
 
@@ -110,22 +109,22 @@ html[data-fullscreen="true"] #layout-main-content-container {
      ═══════════════════════════════════════════════════════════ */
 
   /* Background Palette - Neutral off-white (avoid yellow/cream cast) */
-  --background-lightest: #FFFFFF;
-  --background-lighter: #FFFFFF;
-  --background: #FAFAFA;
-  --background-darker: #F2F2F2;
-  --background-darkest: #E8E8E8;
+  --background-lightest: #ffffff;
+  --background-lighter: #ffffff;
+  --background: #fafafa;
+  --background-darker: #f2f2f2;
+  --background-darkest: #e8e8e8;
 
   /* Text Colors */
-  --foreground: #052E16;
-  --card: #FFFFFF;
-  --card-foreground: #052E16;
-  --popover: #FFFFFF;
-  --popover-foreground: #052E16;
+  --foreground: #052e16;
+  --card: #ffffff;
+  --card-foreground: #052e16;
+  --popover: #ffffff;
+  --popover-foreground: #052e16;
 
   /* Primary = Emerald */
   --primary: #059669;
-  --primary-foreground: #FFFFFF;
+  --primary-foreground: #ffffff;
 
   /*
    * The user's own chat bubble.
@@ -142,37 +141,37 @@ html[data-fullscreen="true"] #layout-main-content-container {
    * neutral bubble) but at a lightness a wall of text can sit on. The
    * foreground agrees with prose-invert instead of fighting it.
    */
-  --user-bubble: #D1FAE5;
-  --user-bubble-foreground: #052E16;
-  --user-bubble-border: #A7F3D0;
+  --user-bubble: #d1fae5;
+  --user-bubble-foreground: #052e16;
+  --user-bubble-border: #a7f3d0;
 
   /* Secondary = Golden */
-  --secondary: #D97706;
-  --secondary-foreground: #FFFFFF;
+  --secondary: #d97706;
+  --secondary-foreground: #ffffff;
 
   /* Muted */
-  --muted: #F2F2F2;
+  --muted: #f2f2f2;
   --muted-foreground: #166534;
 
   /* Accent = Amber Gold */
-  --accent: #F59E0B;
-  --accent-foreground: #FFFFFF;
+  --accent: #f59e0b;
+  --accent-foreground: #ffffff;
 
   /* Destructive */
-  --destructive: #DC2626;
-  --destructive-foreground: #FFFFFF;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
 
   /* Borders & Inputs */
-  --border: #E6E6E6;
-  --input: #F2F2F2;
+  --border: #e6e6e6;
+  --input: #f2f2f2;
   --ring: #059669;
 
   /* Charts */
-  --chart-1: #10B981;
-  --chart-2: #F59E0B;
+  --chart-1: #10b981;
+  --chart-2: #f59e0b;
   --chart-3: #059669;
-  --chart-4: #D97706;
-  --chart-5: #F43F5E;
+  --chart-4: #d97706;
+  --chart-5: #f43f5e;
 
   /*
    * Contribution-calendar ramp — SEQUENTIAL (magnitude): one hue, monotone in
@@ -184,22 +183,22 @@ html[data-fullscreen="true"] #layout-main-content-container {
    * the surface, which is what a sequential heatmap is FOR (the low end recedes);
    * the per-cell tooltip and aria-label carry the values that the colour cannot.
    */
-  --calendar-0: #EAEAEA;
-  --calendar-1: #A7F3D0;
-  --calendar-2: #34D399;
+  --calendar-0: #eaeaea;
+  --calendar-1: #a7f3d0;
+  --calendar-2: #34d399;
   --calendar-3: #059669;
-  --calendar-4: #065F46;
+  --calendar-4: #065f46;
 
   --radius: 0.625rem;
 
   /* Sidebar */
-  --sidebar: #FAFAFA;
-  --sidebar-foreground: #052E16;
+  --sidebar: #fafafa;
+  --sidebar-foreground: #052e16;
   --sidebar-primary: #059669;
-  --sidebar-primary-foreground: #FFFFFF;
-  --sidebar-accent: #F2F2F2;
-  --sidebar-accent-foreground: #052E16;
-  --sidebar-border: #E6E6E6;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #f2f2f2;
+  --sidebar-accent-foreground: #052e16;
+  --sidebar-border: #e6e6e6;
   --sidebar-ring: #059669;
 
   /* Diff Colors */
@@ -207,9 +206,9 @@ html[data-fullscreen="true"] #layout-main-content-container {
   --diff-add-text: #059669;
   --diff-add-line: rgba(16, 185, 129, 0.5);
   --diff-remove-bg: rgba(244, 63, 94, 0.15);
-  --diff-remove-text: #E11D48;
+  --diff-remove-text: #e11d48;
   --diff-remove-line: rgba(244, 63, 94, 0.5);
-  --diff-context-text: #6B7280;
+  --diff-context-text: #6b7280;
 }
 
 .prose {
@@ -217,65 +216,65 @@ html[data-fullscreen="true"] #layout-main-content-container {
 }
 
 .dark {
-  --docs-bg: #0D0D1A;
+  --docs-bg: #0d0d1a;
 
   /* ═══════════════════════════════════════════════════════════
      EMERALD DARK THEME - Forest Night + Emerald/Amber
      ═══════════════════════════════════════════════════════════ */
 
   /* Background Palette - Forest Night */
-  --background-lightest: #1C3A28;
+  --background-lightest: #1c3a28;
   --background-lighter: #162419;
-  --background: #0F1A14;
-  --background-darker: #0A130E;
-  --background-darkest: #050A07;
+  --background: #0f1a14;
+  --background-darker: #0a130e;
+  --background-darkest: #050a07;
 
   /* Text Colors */
-  --foreground: #ECFDF5;
+  --foreground: #ecfdf5;
   --card: #162419;
-  --card-foreground: #ECFDF5;
-  --popover: #1C3A28;
-  --popover-foreground: #ECFDF5;
+  --card-foreground: #ecfdf5;
+  --popover: #1c3a28;
+  --popover-foreground: #ecfdf5;
 
   /* Primary = Emerald */
-  --primary: #10B981;
-  --primary-foreground: #0F1A14;
+  --primary: #10b981;
+  --primary-foreground: #0f1a14;
 
   /* The user's own chat bubble — see the light-theme note above for why this
    * is not `--primary`. Deep enough for pale prose text to sit on (~8.8:1),
    * and still clearly greener than the assistant's `--muted` (#162419). */
-  --user-bubble: #124B36;
-  --user-bubble-foreground: #D1FAE5;
-  --user-bubble-border: #1B6B4C;
+  --user-bubble: #124b36;
+  --user-bubble-foreground: #d1fae5;
+  --user-bubble-border: #1b6b4c;
 
   /* Secondary = Amber Gold */
-  --secondary: #F59E0B;
-  --secondary-foreground: #0F1A14;
+  --secondary: #f59e0b;
+  --secondary-foreground: #0f1a14;
 
   /* Muted */
   --muted: #162419;
-  --muted-foreground: #6EE7B7;
+  --muted-foreground: #6ee7b7;
 
   /* Accent = Amber Gold */
-  --accent: #F59E0B;
-  --accent-foreground: #0F1A14;
+  --accent: #f59e0b;
+  --accent-foreground: #0f1a14;
 
   /* Destructive */
-  --destructive: #F43F5E;
-  --destructive-foreground: #E2E8F0;
+  --destructive: #f43f5e;
+  --destructive-foreground: #e2e8f0;
 
   /* Borders & Inputs */
   /* Slightly brighter than card so controls are distinct */
-  --border: #2A4A36;
-  --input: #1F3326;
-  --ring: #10B981;
+  --border: #2a4a36;
+  --input: #1f3326;
+  --ring: #10b981;
 
   /* Charts */
-  --chart-1: #10B981;
-  --chart-2: #F59E0B;
+  --chart-1: #10b981;
+  --chart-2: #f59e0b;
   --chart-3: #059669;
-  --chart-4: #D97706;
-  --chart-5: #F43F5E;
+  --chart-4: #d97706;
+  --chart-5: #f43f5e;
 
   /*
    * Same ramp, ANCHOR FLIPPED for the dark surface: dark->light, so "more" is still
@@ -285,30 +284,30 @@ html[data-fullscreen="true"] #layout-main-content-container {
    * Chosen for this surface rather than derived by inverting the light ramp; an
    * automatic flip lands the low end on colours that vanish into the card.
    */
-  --calendar-0: #1E3325;
-  --calendar-1: #0E4429;
-  --calendar-2: #12805A;
-  --calendar-3: #10B981;
-  --calendar-4: #6EE7B7;
+  --calendar-0: #1e3325;
+  --calendar-1: #0e4429;
+  --calendar-2: #12805a;
+  --calendar-3: #10b981;
+  --calendar-4: #6ee7b7;
 
   /* Sidebar */
-  --sidebar: #0F1A14;
-  --sidebar-foreground: #ECFDF5;
-  --sidebar-primary: #10B981;
-  --sidebar-primary-foreground: #0F1A14;
+  --sidebar: #0f1a14;
+  --sidebar-foreground: #ecfdf5;
+  --sidebar-primary: #10b981;
+  --sidebar-primary-foreground: #0f1a14;
   --sidebar-accent: #162419;
-  --sidebar-accent-foreground: #ECFDF5;
+  --sidebar-accent-foreground: #ecfdf5;
   --sidebar-border: #162419;
-  --sidebar-ring: #10B981;
+  --sidebar-ring: #10b981;
 
   /* Diff Colors - Dark Theme */
   --diff-add-bg: rgba(16, 185, 129, 0.2);
-  --diff-add-text: #6EE7B7;
+  --diff-add-text: #6ee7b7;
   --diff-add-line: rgba(16, 185, 129, 0.6);
   --diff-remove-bg: rgba(244, 63, 94, 0.2);
-  --diff-remove-text: #FDA4AF;
+  --diff-remove-text: #fda4af;
   --diff-remove-line: rgba(244, 63, 94, 0.6);
-  --diff-context-text: #9CA3AF;
+  --diff-context-text: #9ca3af;
 }
 
 @theme inline {
@@ -492,7 +491,6 @@ html[data-fullscreen="true"] #layout-main-content-container {
 
 /* Axis Line Effect - Emerald → Amber Gradient (5-8% opacity) */
 @keyframes axis-line-pulse {
-
   0%,
   100% {
     opacity: 0.05;
@@ -510,13 +508,13 @@ html[data-fullscreen="true"] #layout-main-content-container {
 }
 
 .axis-line::before {
-  content: '';
+  content: "";
   position: absolute;
   left: 0;
   top: 0;
   width: 2px;
   height: 100%;
-  background: linear-gradient(180deg, #10B981 0%, #F59E0B 100%);
+  background: linear-gradient(180deg, #10b981 0%, #f59e0b 100%);
   opacity: 0.06;
   animation: axis-line-pulse 3s ease-in-out infinite;
 }
@@ -525,12 +523,11 @@ html[data-fullscreen="true"] #layout-main-content-container {
 .axis-line-horizontal::before {
   width: 100%;
   height: 1px;
-  background: linear-gradient(90deg, #10B981 0%, #F59E0B 100%);
+  background: linear-gradient(90deg, #10b981 0%, #f59e0b 100%);
 }
 
 /* Emerald Thinking Indicator Animation */
 @keyframes atlarix-thinking {
-
   0%,
   100% {
     background-position: 0% 50%;
@@ -542,10 +539,7 @@ html[data-fullscreen="true"] #layout-main-content-container {
 }
 
 .atlarix-thinking {
-  background: linear-gradient(90deg,
-      #F59E0B 0%,
-      #10B981 50%,
-      #F59E0B 100%);
+  background: linear-gradient(90deg, #f59e0b 0%, #10b981 50%, #f59e0b 100%);
   background-size: 200% 100%;
   animation: atlarix-thinking 2s ease-in-out infinite;
   -webkit-background-clip: text;
@@ -565,7 +559,7 @@ html[data-fullscreen="true"] #layout-main-content-container {
 
 /* Emerald Code Block Accent */
 .atlarix-code-accent {
-  border-left: 3px solid #10B981;
+  border-left: 3px solid #10b981;
   background: #162419;
   padding-left: 1rem;
 }
@@ -657,17 +651,17 @@ html[data-fullscreen="true"] #layout-main-content-container {
 .dark .mermaid-container svg text,
 .dark .mermaid-container svg .nodeLabel,
 .dark .mermaid-container svg .label {
-  fill: #ECFDF5 !important;
+  fill: #ecfdf5 !important;
 }
 
 .dark .mermaid-container svg .node rect,
 .dark .mermaid-container svg .node circle,
 .dark .mermaid-container svg .node polygon {
-  stroke: #10B981 !important;
+  stroke: #10b981 !important;
 }
 
 .dark .mermaid-container svg .edgePath path {
-  stroke: #6EE7B7 !important;
+  stroke: #6ee7b7 !important;
 }
 
 /* Diagram preview area specifics */

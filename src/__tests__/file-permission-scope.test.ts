@@ -53,8 +53,12 @@ describe("no path is special any more", () => {
     if (g.action !== "prompt") return;
     // The dead-end: all three were false for any protected path.
     expect(g.canAlwaysAllowFile).toBe(true);
-    expect(g.canAlwaysAllowDirectory || getParentDirectory(rel) === "").toBe(true);
-    expect(g.canAlwaysAllowExtension || getPathExtension(rel) === "").toBe(true);
+    expect(g.canAlwaysAllowDirectory || getParentDirectory(rel) === "").toBe(
+      true,
+    );
+    expect(g.canAlwaysAllowExtension || getPathExtension(rel) === "").toBe(
+      true,
+    );
     expect(g.isProtected).toBe(false);
   });
 
@@ -71,14 +75,22 @@ describe("no path is special any more", () => {
 describe("stored decisions are still enforced", () => {
   it("auto-allows on a file-scope row", () => {
     const g = gate(".github/workflows/x.yml", [
-      { scopeType: "file", scopeValue: ".github/workflows/x.yml", decision: "always_allow" },
+      {
+        scopeType: "file",
+        scopeValue: ".github/workflows/x.yml",
+        decision: "always_allow",
+      },
     ]);
     expect(g.action).toBe("auto_allow");
   });
 
   it("auto-allows on a directory-scope row", () => {
     const g = gate(".github/workflows/x.yml", [
-      { scopeType: "directory", scopeValue: ".github/workflows", decision: "always_allow" },
+      {
+        scopeType: "directory",
+        scopeValue: ".github/workflows",
+        decision: "always_allow",
+      },
     ]);
     expect(g.action).toBe("auto_allow");
   });
@@ -102,7 +114,11 @@ describe("stored decisions are still enforced", () => {
   it("prompts when no row matches", () => {
     expect(
       gate("src/a.ts", [
-        { scopeType: "file", scopeValue: "src/other.ts", decision: "always_allow" },
+        {
+          scopeType: "file",
+          scopeValue: "src/other.ts",
+          decision: "always_allow",
+        },
       ]).action,
     ).toBe("prompt");
   });
@@ -115,12 +131,14 @@ describe("isProtectedRelativePath is now only a usability check", () => {
     expect(isProtectedRelativePath(".")).toBe(true);
   });
 
-  it.each([".env", "package.json", ".github/workflows/x.yml", "drizzle/0001.sql"])(
-    "no longer flags %s",
-    (rel) => {
-      expect(isProtectedRelativePath(rel)).toBe(false);
-    },
-  );
+  it.each([
+    ".env",
+    "package.json",
+    ".github/workflows/x.yml",
+    "drizzle/0001.sql",
+  ])("no longer flags %s", (rel) => {
+    expect(isProtectedRelativePath(rel)).toBe(false);
+  });
 });
 
 describe("path helpers", () => {

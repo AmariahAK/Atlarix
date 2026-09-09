@@ -15,7 +15,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { rpc, getSubscriptionDetails } = vi.hoisted(() => ({
   rpc: vi.fn(),
-  getSubscriptionDetails: vi.fn(async () => ({ status: "active", endsAt: null })),
+  getSubscriptionDetails: vi.fn(async () => ({
+    status: "active",
+    endsAt: null,
+  })),
 }));
 
 vi.mock("@/lib/auth/supabase-client", () => ({
@@ -48,8 +51,8 @@ import { registerAuthHandlers } from "@/ipc/handlers/auth_handlers";
 type Handler = (event: unknown, payload?: unknown) => Promise<unknown>;
 
 function latestHandler(channel: string): Handler {
-  const calls = (ipcMain.handle as unknown as { mock: { calls: unknown[][] } }).mock
-    .calls;
+  const calls = (ipcMain.handle as unknown as { mock: { calls: unknown[][] } })
+    .mock.calls;
   const found = [...calls].reverse().find((c) => c[0] === channel);
   if (!found) throw new Error(`no handler registered for ${channel}`);
   return found[1] as Handler;
@@ -68,7 +71,9 @@ describe("auth IPC coalescing — one Supabase call per burst", () => {
   beforeEach(async () => {
     rpc.mockReset();
     getSubscriptionDetails.mockClear();
-    (ipcMain.handle as unknown as { mock: { calls: unknown[][] } }).mock.calls.length = 0;
+    (
+      ipcMain.handle as unknown as { mock: { calls: unknown[][] } }
+    ).mock.calls.length = 0;
     registerAuthHandlers();
     // Reset the remembered claim so each test starts from a signed-out state.
     await latestHandler("auth:sign-out")({});
@@ -80,7 +85,12 @@ describe("auth IPC coalescing — one Supabase call per burst", () => {
     rpc.mockImplementation(() => gate.promise);
 
     const handler = latestHandler("auth:get-credit-balance");
-    const all = Promise.all([handler({}), handler({}), handler({}), handler({})]);
+    const all = Promise.all([
+      handler({}),
+      handler({}),
+      handler({}),
+      handler({}),
+    ]);
     gate.release({ data: { ok: true, balance_cents: 1234 }, error: null });
 
     const results = (await all) as { balanceCents: number }[];
@@ -125,7 +135,10 @@ describe("auth IPC coalescing — one Supabase call per burst", () => {
     // A server older than this client returns only the total. Coalescing the
     // missing halves to 0 would render "$0.00 of $0.00 used" — a confident claim
     // that the allowance is empty, from a server that said nothing about it.
-    rpc.mockResolvedValueOnce({ data: { ok: true, balance_cents: 500 }, error: null });
+    rpc.mockResolvedValueOnce({
+      data: { ok: true, balance_cents: 500 },
+      error: null,
+    });
 
     const handler = latestHandler("auth:get-credit-balance");
     const r = (await handler({})) as {
@@ -142,8 +155,14 @@ describe("auth IPC coalescing — one Supabase call per burst", () => {
   });
 
   it("does NOT cache the balance past settlement — a later read is fresh", async () => {
-    rpc.mockResolvedValueOnce({ data: { ok: true, balance_cents: 500 }, error: null });
-    rpc.mockResolvedValueOnce({ data: { ok: true, balance_cents: 2000 }, error: null });
+    rpc.mockResolvedValueOnce({
+      data: { ok: true, balance_cents: 500 },
+      error: null,
+    });
+    rpc.mockResolvedValueOnce({
+      data: { ok: true, balance_cents: 2000 },
+      error: null,
+    });
 
     const handler = latestHandler("auth:get-credit-balance");
     const first = (await handler({})) as { balanceCents: number };
@@ -169,7 +188,10 @@ describe("auth IPC coalescing — one Supabase call per burst", () => {
     const all = Promise.all([handler({}), handler({}), handler({})]);
     gate.release({ status: "active", endsAt: null });
 
-    const results = (await all) as { success: boolean; subscriptionStatus: string }[];
+    const results = (await all) as {
+      success: boolean;
+      subscriptionStatus: string;
+    }[];
     expect(getSubscriptionDetails).toHaveBeenCalledTimes(1);
     for (const r of results) {
       expect(r.success).toBe(true);

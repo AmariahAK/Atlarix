@@ -21,7 +21,10 @@ import {
   validateMcpRegistryEntry,
   type McpRegistryIndex,
 } from "@/shared/mcp-registry";
-import { serializeApiKeyForDb, encryptEnvForDb } from "@/lib/security/db-secrets";
+import {
+  serializeApiKeyForDb,
+  encryptEnvForDb,
+} from "@/lib/security/db-secrets";
 import {
   sanitizeMcpServerForIpc,
   sanitizeMcpServersForIpc,
@@ -98,10 +101,7 @@ export function registerMcpHandlers() {
       .where(
         and(
           eq(mcpServers.scope, "workspace"),
-          or(
-            isNull(mcpServers.appId),
-            notInArray(mcpServers.appId, appIds),
-          ),
+          or(isNull(mcpServers.appId), notInArray(mcpServers.appId, appIds)),
         ),
       );
     return sanitizeMcpServersForIpc(rows);
@@ -132,18 +132,24 @@ export function registerMcpHandlers() {
         .select()
         .from(mcpServers)
         .where(
-          and(
-            eq(mcpServers.scope, "workspace"),
-            eq(mcpServers.appId, appId),
-          ),
+          and(eq(mcpServers.scope, "workspace"), eq(mcpServers.appId, appId)),
         );
       if (workspaceCount.length >= MCP_WORKSPACE_MAX) {
         throw new Error(
           `Maximum ${MCP_WORKSPACE_MAX} MCP servers per workspace. Remove one to add another.`,
         );
       }
-      const { name, transport, command, args, envJson, url, apiKey, enabled, authType } =
-        params;
+      const {
+        name,
+        transport,
+        command,
+        args,
+        envJson,
+        url,
+        apiKey,
+        enabled,
+        authType,
+      } = params;
       const resolvedAuthType =
         authType ??
         (apiKey?.trim()
@@ -203,7 +209,8 @@ export function registerMcpHandlers() {
       if (params.command !== undefined) update.command = params.command;
       if (params.args !== undefined) update.args = params.args || null;
       if (params.cwd !== undefined) update.cwd = params.cwd;
-      if (params.envJson !== undefined) update.envJson = encryptEnvForDb(params.envJson);
+      if (params.envJson !== undefined)
+        update.envJson = encryptEnvForDb(params.envJson);
       if (params.url !== undefined) update.url = params.url;
       if (params.apiKey !== undefined) {
         update.apiKey = params.apiKey?.trim()
@@ -376,7 +383,11 @@ export function registerMcpHandlers() {
     async (
       _event,
       params?: { url?: string },
-    ): Promise<{ success: boolean; registry?: McpRegistryIndex; error?: string }> => {
+    ): Promise<{
+      success: boolean;
+      registry?: McpRegistryIndex;
+      error?: string;
+    }> => {
       const url = params?.url || DEFAULT_MCP_REGISTRY_URL;
       try {
         const res = await fetch(url, {
@@ -393,7 +404,10 @@ export function registerMcpHandlers() {
         }
         const json = (await res.json()) as McpRegistryIndex;
         if (!json || json.version !== "1" || !Array.isArray(json.mcps)) {
-          return { success: false, error: "Registry payload is not a v1 index" };
+          return {
+            success: false,
+            error: "Registry payload is not a v1 index",
+          };
         }
         return { success: true, registry: json };
       } catch (e) {
@@ -439,10 +453,7 @@ export function registerMcpHandlers() {
           .select()
           .from(mcpServers)
           .where(
-            and(
-              eq(mcpServers.scope, "workspace"),
-              eq(mcpServers.appId, appId),
-            ),
+            and(eq(mcpServers.scope, "workspace"), eq(mcpServers.appId, appId)),
           );
         if (workspaceCount.length >= MCP_WORKSPACE_MAX) {
           return {

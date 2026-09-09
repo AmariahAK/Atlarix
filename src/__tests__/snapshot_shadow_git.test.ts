@@ -75,7 +75,10 @@ describeWithGit("shadow-git snapshots", () => {
     await write("src/a.ts", "MUTATED A");
     await write("src/b.ts", "MUTATED B");
 
-    const result = await revertSnapshot({ workspacePath: workspace, turnId: "turn:1" });
+    const result = await revertSnapshot({
+      workspacePath: workspace,
+      turnId: "turn:1",
+    });
     expect(result.success).toBe(true);
     expect(result.restoredFiles).toBe(2);
     expect(await read("src/a.ts")).toBe("original A");
@@ -230,13 +233,24 @@ describeWithGit("legacy .bak store (removed in v10.1)", () => {
     await fs.mkdir(path.join(legacyDir, "files"), { recursive: true });
     await fs.writeFile(
       path.join(legacyDir, "manifest.json"),
-      JSON.stringify({ turnId: "turn:8", timestamp: new Date().toISOString(), filesChanged: ["legacy.txt"] }),
+      JSON.stringify({
+        turnId: "turn:8",
+        timestamp: new Date().toISOString(),
+        filesChanged: ["legacy.txt"],
+      }),
       "utf8",
     );
-    await fs.writeFile(path.join(legacyDir, "files", "legacy.txt.bak"), "old bytes", "utf8");
+    await fs.writeFile(
+      path.join(legacyDir, "files", "legacy.txt.bak"),
+      "old bytes",
+      "utf8",
+    );
 
     expect(await snapshotExists(workspace, "turn:8")).toBe(false);
-    const result = await revertSnapshot({ workspacePath: workspace, turnId: "turn:8" });
+    const result = await revertSnapshot({
+      workspacePath: workspace,
+      turnId: "turn:8",
+    });
     expect(result.success).toBe(false);
     expect(await read("legacy.txt")).toBe("current");
   });

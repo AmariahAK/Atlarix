@@ -69,11 +69,15 @@ export async function resolveAskUserToolResult(
     (marker as { __ask_user?: boolean }).__ask_user !== true &&
     (marker as { result?: unknown }).result &&
     typeof (marker as { result?: unknown }).result === "object" &&
-    ((marker as { result: { __ask_user?: boolean } }).result.__ask_user === true)
+    (marker as { result: { __ask_user?: boolean } }).result.__ask_user === true
   ) {
     marker = (marker as { result: unknown }).result;
   }
-  if (!marker || typeof marker !== "object" || (marker as { __ask_user?: boolean }).__ask_user !== true) {
+  if (
+    !marker ||
+    typeof marker !== "object" ||
+    (marker as { __ask_user?: boolean }).__ask_user !== true
+  ) {
     return null;
   }
   const q = marker as {
@@ -210,7 +214,10 @@ export async function flushPartialStreamsForShutdown(): Promise<void> {
     try {
       await flushInterruptedDraft(chatId, sessionId, content, { force: true });
     } catch (e) {
-      logger.warn(`[partial-draft] shutdown flush failed for chat ${chatId}:`, e);
+      logger.warn(
+        `[partial-draft] shutdown flush failed for chat ${chatId}:`,
+        e,
+      );
     }
   }
 }

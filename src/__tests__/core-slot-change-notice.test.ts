@@ -45,14 +45,18 @@ afterEach(() => __resetCoreModelOverridesForTests());
 
 describe("the model a selection actually resolves to", () => {
   it("reads through the slot to the configured model", () => {
-    expect(effectiveCoreModelId({ provider: "compass", name: "core-3" })).toBe(ASTRA);
+    expect(effectiveCoreModelId({ provider: "compass", name: "core-3" })).toBe(
+      ASTRA,
+    );
   });
 
   it("follows the same fall-forward the turn uses when a slot is dropped", () => {
     // The whole reason it resolves rather than reads: a selection pointing at a
     // slot the lineup no longer maps must report the model that will really answer.
     setCoreModelOverrides({ "core-1": GLM });
-    expect(effectiveCoreModelId({ provider: "compass", name: "core-3" })).toBe(GLM);
+    expect(effectiveCoreModelId({ provider: "compass", name: "core-3" })).toBe(
+      GLM,
+    );
   });
 
   it("says nothing for a BYOK user — their model did not change", () => {
@@ -83,14 +87,20 @@ describe("whether to show the notice", () => {
      * default moves them. Comparing the tier→model map sees two identical maps and
      * reports nothing.
      */
-    const before = effectiveCoreModelId({ provider: "compass", name: "core-1" });
+    const before = effectiveCoreModelId({
+      provider: "compass",
+      name: "core-1",
+    });
     const after = effectiveCoreModelId({
       provider: "compass",
       name: DEFAULT_NEW_USER_CORE_TIER,
     });
     expect(before).toBe(GLM);
     expect(after).toBe(ASTRA);
-    expect(computeCoreSlotChange(before, after)).toEqual({ from: GLM, to: ASTRA });
+    expect(computeCoreSlotChange(before, after)).toEqual({
+      from: GLM,
+      to: ASTRA,
+    });
   });
 
   it("stays silent with no baseline — a fresh install never experienced a change", () => {
@@ -116,6 +126,9 @@ describe("whether to show the notice", () => {
     // be versioned per change, and a stale one would suppress a notice about a move
     // the user never saw. A baseline cannot go stale — it always names where they are.
     expect(computeCoreSlotChange(ASTRA, ASTRA)).toBeNull();
-    expect(computeCoreSlotChange(ASTRA, TERRA)).toEqual({ from: ASTRA, to: TERRA });
+    expect(computeCoreSlotChange(ASTRA, TERRA)).toEqual({
+      from: ASTRA,
+      to: TERRA,
+    });
   });
 });

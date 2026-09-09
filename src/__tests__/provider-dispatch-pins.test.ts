@@ -43,11 +43,36 @@ const PINS: Array<{
   note?: string;
 }> = [
   // ── were `createOpenAICompatible` with a hardcoded URL (the 11 deleted cases) ──
-  { id: "togetherai", baseUrl: "https://api.together.xyz/v1", catalogNpm: "@ai-sdk/togetherai", npm: "@ai-sdk/togetherai" },
-  { id: "groq", baseUrl: "https://api.groq.com/openai/v1", catalogNpm: "@ai-sdk/groq", npm: "@ai-sdk/groq" },
-  { id: "mistral", baseUrl: "https://api.mistral.ai/v1", catalogNpm: "@ai-sdk/mistral", npm: "@ai-sdk/mistral" },
-  { id: "perplexity", baseUrl: "https://api.perplexity.ai", catalogNpm: "@ai-sdk/perplexity", npm: "@ai-sdk/perplexity" },
-  { id: "cerebras", baseUrl: "https://api.cerebras.ai/v1", catalogNpm: "@ai-sdk/cerebras", npm: "@ai-sdk/cerebras" },
+  {
+    id: "togetherai",
+    baseUrl: "https://api.together.xyz/v1",
+    catalogNpm: "@ai-sdk/togetherai",
+    npm: "@ai-sdk/togetherai",
+  },
+  {
+    id: "groq",
+    baseUrl: "https://api.groq.com/openai/v1",
+    catalogNpm: "@ai-sdk/groq",
+    npm: "@ai-sdk/groq",
+  },
+  {
+    id: "mistral",
+    baseUrl: "https://api.mistral.ai/v1",
+    catalogNpm: "@ai-sdk/mistral",
+    npm: "@ai-sdk/mistral",
+  },
+  {
+    id: "perplexity",
+    baseUrl: "https://api.perplexity.ai",
+    catalogNpm: "@ai-sdk/perplexity",
+    npm: "@ai-sdk/perplexity",
+  },
+  {
+    id: "cerebras",
+    baseUrl: "https://api.cerebras.ai/v1",
+    catalogNpm: "@ai-sdk/cerebras",
+    npm: "@ai-sdk/cerebras",
+  },
   {
     id: "huggingface",
     baseUrl: "https://router.huggingface.co/v1",
@@ -98,9 +123,24 @@ const PINS: Array<{
   },
 
   // ── first-party vendor SDKs: no base URL, the SDK knows its own host ──
-  { id: "openai", baseUrl: null, catalogNpm: "@ai-sdk/openai", npm: "@ai-sdk/openai" },
-  { id: "anthropic", baseUrl: null, catalogNpm: "@ai-sdk/anthropic", npm: "@ai-sdk/anthropic" },
-  { id: "google", baseUrl: null, catalogNpm: "@ai-sdk/google", npm: "@ai-sdk/google" },
+  {
+    id: "openai",
+    baseUrl: null,
+    catalogNpm: "@ai-sdk/openai",
+    npm: "@ai-sdk/openai",
+  },
+  {
+    id: "anthropic",
+    baseUrl: null,
+    catalogNpm: "@ai-sdk/anthropic",
+    npm: "@ai-sdk/anthropic",
+  },
+  {
+    id: "google",
+    baseUrl: null,
+    catalogNpm: "@ai-sdk/google",
+    npm: "@ai-sdk/google",
+  },
   { id: "xai", baseUrl: null, catalogNpm: "@ai-sdk/xai", npm: "@ai-sdk/xai" },
 ];
 
@@ -121,7 +161,9 @@ describe("provider dispatch pins — resolved base URL", () => {
   });
 
   it("an unpinned provider with no catalog URL resolves to nothing (not a guess)", () => {
-    expect(resolveProviderBaseUrl("some-new-provider", undefined)).toBeUndefined();
+    expect(
+      resolveProviderBaseUrl("some-new-provider", undefined),
+    ).toBeUndefined();
   });
 });
 
@@ -144,7 +186,13 @@ describe("provider dispatch pins — wire format", () => {
   it("an SDK we don't bundle falls back to the OpenAI-compatible factory", () => {
     // Groq/Mistral/Perplexity/Cerebras/Together name dedicated SDKs we deliberately
     // don't ship; each must still resolve to a working factory via its pinned URL.
-    for (const id of ["groq", "mistral", "perplexity", "cerebras", "togetherai"]) {
+    for (const id of [
+      "groq",
+      "mistral",
+      "perplexity",
+      "cerebras",
+      "togetherai",
+    ]) {
       const npm = resolveProviderNpm(id, undefined);
       expect(hasProviderSdkFactory(npm)).toBe(false);
       expect(resolveProviderSdkFactory(npm)).toBe(
@@ -180,18 +228,22 @@ describe("provider env vars", () => {
   });
 
   it("de-duplicates when the curated name is also the catalog's first", () => {
-    const names = resolveProviderEnvVarNames("anthropic", ["ANTHROPIC_API_KEY"]);
+    const names = resolveProviderEnvVarNames("anthropic", [
+      "ANTHROPIC_API_KEY",
+    ]);
     expect(names).toEqual(["ANTHROPIC_API_KEY"]);
   });
 
   it("falls back to the catalog list for a provider with no curated name", () => {
-    expect(resolveProviderEnvVarNames("some-new-provider", ["NEW_KEY"])).toEqual([
-      "NEW_KEY",
-    ]);
+    expect(
+      resolveProviderEnvVarNames("some-new-provider", ["NEW_KEY"]),
+    ).toEqual(["NEW_KEY"]);
   });
 
   it("returns an empty list rather than a bogus name when nothing is known", () => {
-    expect(resolveProviderEnvVarNames("some-new-provider", undefined)).toEqual([]);
+    expect(resolveProviderEnvVarNames("some-new-provider", undefined)).toEqual(
+      [],
+    );
   });
 });
 

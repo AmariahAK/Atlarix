@@ -67,7 +67,9 @@ describe("tool card default-open (v13)", () => {
         }}
       />,
     );
-    expect(screen.queryByText("export const main = 1;")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("export const main = 1;"),
+    ).not.toBeInTheDocument();
   });
 
   it("running cards never mount expand content", () => {
@@ -98,7 +100,9 @@ describe("tool card default-open (v13)", () => {
       ),
     ).toBe(true);
     expect(defaultOpenFor({ kind: "text", body: "x" }, "done")).toBe(false);
-    expect(defaultOpenFor({ kind: "command", body: "x" }, "running")).toBe(false);
+    expect(defaultOpenFor({ kind: "command", body: "x" }, "running")).toBe(
+      false,
+    );
     expect(defaultOpenFor({ kind: "none" }, "error")).toBe(true);
   });
 });

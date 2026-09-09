@@ -40,16 +40,18 @@ export { ToolRegistry };
  * Call this once at app startup.
  */
 export function initializeTools(): void {
-    const all = ToolRegistry.getAll();
-    const names = all.map((t) => t.name).sort();
-    console.log(`[Atlarix] ${names.length} tools registered:\n  ${names.join("\n  ")}`);
+  const all = ToolRegistry.getAll();
+  const names = all.map((t) => t.name).sort();
+  console.log(
+    `[Atlarix] ${names.length} tools registered:\n  ${names.join("\n  ")}`,
+  );
 }
 
 /**
  * Get tool statistics
  */
 export function getToolStats() {
-    return {
-        total: ToolRegistry.getAll().length,
-    };
+  return {
+    total: ToolRegistry.getAll().length,
+  };
 }

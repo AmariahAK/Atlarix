@@ -97,9 +97,10 @@ export const AtlarixWrite: React.FC<AtlarixWriteProps> = ({
       )}
       {!inProgress && !aborted && (
         <div className="mt-2 border-t border-border/40 pt-2 text-[10px] text-muted-foreground">
-          To apply: use <span className="font-semibold text-foreground">Approve</span> /{" "}
-          <span className="font-semibold text-foreground">Reject</span> on the pending proposal in the
-          composer or preview panel.
+          To apply: use{" "}
+          <span className="font-semibold text-foreground">Approve</span> /{" "}
+          <span className="font-semibold text-foreground">Reject</span> on the
+          pending proposal in the composer or preview panel.
         </div>
       )}
       {isContentVisible && (

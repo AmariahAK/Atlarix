@@ -51,7 +51,8 @@ describe("the delegation queue is drained, not left to start anyway", () => {
 
   it("rejects a sibling parked behind the concurrency limit", async () => {
     const { chatId, turnId } = freshTurn();
-    for (let i = 0; i < MAX; i++) await acquireDelegationSlot(chatId, turnId, MAX);
+    for (let i = 0; i < MAX; i++)
+      await acquireDelegationSlot(chatId, turnId, MAX);
 
     let settled: "granted" | "rejected" | "pending" = "pending";
     const sixth = acquireDelegationSlot(chatId, turnId, MAX).then(
@@ -65,7 +66,9 @@ describe("the delegation queue is drained, not left to start anyway", () => {
     await tick();
     expect(settled).toBe("pending");
 
-    expect(failQueuedDelegationsForChat(chatId, new Error("wallet empty"))).toBe(1);
+    expect(
+      failQueuedDelegationsForChat(chatId, new Error("wallet empty")),
+    ).toBe(1);
     await sixth;
     expect(settled).toBe("rejected");
   });
@@ -77,7 +80,8 @@ describe("the delegation queue is drained, not left to start anyway", () => {
     // same empty wallet. Emptying the queue is what buys this; the slot deletion
     // below is a separate property with its own test.
     const { chatId, turnId } = freshTurn();
-    for (let i = 0; i < MAX; i++) await acquireDelegationSlot(chatId, turnId, MAX);
+    for (let i = 0; i < MAX; i++)
+      await acquireDelegationSlot(chatId, turnId, MAX);
 
     let granted = 0;
     const parked = acquireDelegationSlot(chatId, turnId, MAX).then(
@@ -109,7 +113,8 @@ describe("the delegation queue is drained, not left to start anyway", () => {
      * A hung tool call is worse than a refused one — it has no message and no end.
      */
     const { chatId, turnId } = freshTurn();
-    for (let i = 0; i < MAX; i++) await acquireDelegationSlot(chatId, turnId, MAX);
+    for (let i = 0; i < MAX; i++)
+      await acquireDelegationSlot(chatId, turnId, MAX);
     const parked = acquireDelegationSlot(chatId, turnId, MAX).catch(() => {});
     await tick();
     failQueuedDelegationsForChat(chatId, new Error("wallet empty"));
@@ -132,9 +137,11 @@ describe("the delegation queue is drained, not left to start anyway", () => {
       await acquireDelegationSlot(mine.chatId, mine.turnId, MAX);
       await acquireDelegationSlot(theirs.chatId, theirs.turnId, MAX);
     }
-    const mineParked = acquireDelegationSlot(mine.chatId, mine.turnId, MAX).catch(
-      () => "rejected",
-    );
+    const mineParked = acquireDelegationSlot(
+      mine.chatId,
+      mine.turnId,
+      MAX,
+    ).catch(() => "rejected");
     let theirsSettled = false;
     const theirsParked = acquireDelegationSlot(
       theirs.chatId,
@@ -150,7 +157,9 @@ describe("the delegation queue is drained, not left to start anyway", () => {
     );
     await tick();
 
-    expect(failQueuedDelegationsForChat(mine.chatId, new Error("empty"))).toBe(1);
+    expect(failQueuedDelegationsForChat(mine.chatId, new Error("empty"))).toBe(
+      1,
+    );
     expect(await mineParked).toBe("rejected");
     expect(theirsSettled).toBe(false);
 
@@ -169,7 +178,10 @@ describe("the per-chat credit latch", () => {
   afterEach(() => __resetCreditHaltsForTests());
 
   it("records the refusal and reports it back", () => {
-    markCreditExhausted(41, "Your balance is used up. This turn needs at least $9.24.");
+    markCreditExhausted(
+      41,
+      "Your balance is used up. This turn needs at least $9.24.",
+    );
     expect(creditHaltReason(41)).toContain("balance is used up");
   });
 

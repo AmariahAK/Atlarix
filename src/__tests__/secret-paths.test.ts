@@ -25,7 +25,9 @@ describe("assertReadablePath (workspace confinement)", () => {
       "../README.md",
       "/etc/passwd",
     ]) {
-      expect(() => assertReadablePath(p, WS)).toThrow(PATH_ESCAPE_BLOCK_MESSAGE);
+      expect(() => assertReadablePath(p, WS)).toThrow(
+        PATH_ESCAPE_BLOCK_MESSAGE,
+      );
     }
   });
 });

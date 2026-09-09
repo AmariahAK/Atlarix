@@ -47,7 +47,8 @@ export function registerProHandlers() {
     logger.info("Attempting to fetch user budget information.");
     try {
       const userBudgetInfo = await fetchUserBudget();
-      if (userBudgetInfo) logger.info("Successfully fetched user budget information.");
+      if (userBudgetInfo)
+        logger.info("Successfully fetched user budget information.");
       return userBudgetInfo;
     } catch (error: any) {
       logger.error(`Error fetching user budget: ${error.message}`, error);

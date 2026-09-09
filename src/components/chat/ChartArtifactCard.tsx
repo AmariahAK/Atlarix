@@ -14,7 +14,9 @@ export function ChartArtifactCard({
 }) {
   const spec = useMemo(() => parseChartSpec(code), [code]);
   const title = useMemo(
-    () => inferArtifactTitle("chart", code) ?? (spec ? "Chart" : "Chart (invalid spec)"),
+    () =>
+      inferArtifactTitle("chart", code) ??
+      (spec ? "Chart" : "Chart (invalid spec)"),
     [code, spec],
   );
   const loading = isStreaming && !spec;
@@ -26,7 +28,9 @@ export function ChartArtifactCard({
         {spec ? (
           <ChartBody spec={spec} />
         ) : !loading ? (
-          <pre className="text-xs text-muted-foreground whitespace-pre-wrap">{code}</pre>
+          <pre className="text-xs text-muted-foreground whitespace-pre-wrap">
+            {code}
+          </pre>
         ) : null}
       </div>
     </VisualArtifactCard>

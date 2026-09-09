@@ -41,8 +41,20 @@ describe("resolveAppLocale", () => {
 
   it("NEVER returns a locale outside SUPPORTED_LOCALES", () => {
     const inputs = [
-      "sw-KE", "xx", "und", "en", "EN-GB", "zh", "zh-Hant-TW", "pt-PT",
-      "", "   ", "null", "en_US", "de-DE-1996", "i-klingon",
+      "sw-KE",
+      "xx",
+      "und",
+      "en",
+      "EN-GB",
+      "zh",
+      "zh-Hant-TW",
+      "pt-PT",
+      "",
+      "   ",
+      "null",
+      "en_US",
+      "de-DE-1996",
+      "i-klingon",
     ];
     for (const setting of [...inputs, undefined, null]) {
       for (const os of [...inputs, undefined, null]) {
@@ -94,7 +106,17 @@ describe("normalizeLocaleTag", () => {
   });
 
   it("returns null for anything unshipped", () => {
-    for (const t of ["sw", "ar", "he", "xx-YY", "und", "", "   ", null, undefined]) {
+    for (const t of [
+      "sw",
+      "ar",
+      "he",
+      "xx-YY",
+      "und",
+      "",
+      "   ",
+      null,
+      undefined,
+    ]) {
       expect(normalizeLocaleTag(t)).toBeNull();
     }
   });

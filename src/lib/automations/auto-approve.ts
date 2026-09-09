@@ -48,10 +48,15 @@ export async function automationAutoApprove(opts: {
       // `cargo install x`) must not auto-run on the user's real machine on a
       // schedule (A7/H-6). Interactive runs still get the distinct system-scope
       // prompt; only the unattended path hard-denies.
-      const mustDeny = Boolean(preview?.isDangerous) || Boolean(preview?.systemScope);
+      const mustDeny =
+        Boolean(preview?.isDangerous) || Boolean(preview?.systemScope);
       const approvalMode: "once" | "deny" = mustDeny ? "deny" : "once";
       try {
-        await executePermission(sender.event, { chatId, operationId, approvalMode });
+        await executePermission(sender.event, {
+          chatId,
+          operationId,
+          approvalMode,
+        });
       } catch {
         /* keep approving the rest */
       }
@@ -59,7 +64,11 @@ export async function automationAutoApprove(opts: {
   };
 
   const endWatch = sender
-    .waitFor("chat:response:end", (p) => (p as { chatId?: number })?.chatId === chatId, timeoutMs)
+    .waitFor(
+      "chat:response:end",
+      (p) => (p as { chatId?: number })?.chatId === chatId,
+      timeoutMs,
+    )
     .then(() => {
       ended = true;
     })

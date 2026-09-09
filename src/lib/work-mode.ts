@@ -72,7 +72,9 @@ export function resolveSelectedWorkMode(params: {
   if (params.sessionWorkMode) return params.sessionWorkMode;
   if (params.workModePreference) return params.workModePreference;
   const chatMode =
-    params.selectedChatMode === "agent" ? "build" : params.selectedChatMode ?? "ask";
+    params.selectedChatMode === "agent"
+      ? "build"
+      : (params.selectedChatMode ?? "ask");
   return chatMode === "ask" ? "ask" : "build";
 }
 
@@ -114,7 +116,9 @@ export function resolveEffectiveWorkMode(params: {
 
   const intent = params.intentMode ?? chatMode;
   if (intent !== "auto") {
-    return params.workModePreference ?? (chatMode === "build" ? "build" : "ask");
+    return (
+      params.workModePreference ?? (chatMode === "build" ? "build" : "ask")
+    );
   }
   return chatMode === "build" ? "build" : "ask";
 }

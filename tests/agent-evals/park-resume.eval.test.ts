@@ -17,11 +17,7 @@
  * timing (which A0 + spawn-task cover).
  */
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
-import {
-  setupEvalContext,
-  runTurn,
-  type EvalContext,
-} from "../infra/turn";
+import { setupEvalContext, runTurn, type EvalContext } from "../infra/turn";
 import { scenario } from "../infra/scenario";
 import { expectNoStreamError, expectStreamEnded } from "../infra/assert";
 import type { RecordedSend } from "../infra/ipc";
@@ -52,7 +48,10 @@ function parkedOnEnd(
   const ends = sends.filter(
     (s) => s.channel === "chat:response:end" && s.payload?.chatId === chatId,
   );
-  expect(ends.length, "expected at least one chat:response:end").toBeGreaterThanOrEqual(1);
+  expect(
+    ends.length,
+    "expected at least one chat:response:end",
+  ).toBeGreaterThanOrEqual(1);
   // parked omitted === false; any end carrying parked:true means parked.
   const anyParked = ends.some((e) => e.payload?.parked === true);
   return anyParked === expected;

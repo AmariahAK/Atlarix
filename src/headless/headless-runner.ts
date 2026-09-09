@@ -128,7 +128,11 @@ export async function runHeadlessAgent(
     }
     await db
       .insert(schema.language_model_providers)
-      .values({ id: PROVIDER_ID, name: "Atlarix Headless", api_base_url: opts.provider.baseUrl })
+      .values({
+        id: PROVIDER_ID,
+        name: "Atlarix Headless",
+        api_base_url: opts.provider.baseUrl,
+      })
       .onConflictDoNothing();
     await db
       .insert(schema.language_models)
@@ -141,14 +145,21 @@ export async function runHeadlessAgent(
   }
 
   // OpenRouter provider-routing pin (consumed in chat_stream_handlers).
-  if (opts.provider.id === "openrouter" && opts.provider.openrouterProviderJson) {
-    process.env.ATLARIX_OPENROUTER_PROVIDER_JSON = opts.provider.openrouterProviderJson;
+  if (
+    opts.provider.id === "openrouter" &&
+    opts.provider.openrouterProviderJson
+  ) {
+    process.env.ATLARIX_OPENROUTER_PROVIDER_JSON =
+      opts.provider.openrouterProviderJson;
   }
 
   // Seed the workspace app row at the target directory.
   const appRows = await db
     .insert(schema.apps)
-    .values({ name: path.basename(opts.workspaceDir) || "headless", path: opts.workspaceDir })
+    .values({
+      name: path.basename(opts.workspaceDir) || "headless",
+      path: opts.workspaceDir,
+    })
     .returning({ id: schema.apps.id });
   const appId = appRows[0].id;
 
@@ -234,7 +245,12 @@ export async function runHeadlessAgent(
       (p) => (p as { chatId?: number })?.chatId === chatId,
       timeoutMs,
     );
-    const approvePromise = autoApprove({ sender, executePermission, chatId, timeoutMs });
+    const approvePromise = autoApprove({
+      sender,
+      executePermission,
+      chatId,
+      timeoutMs,
+    });
 
     let completed = true;
     try {

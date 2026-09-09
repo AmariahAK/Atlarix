@@ -15,7 +15,9 @@ export function resolveCjsDefault(id) {
   throw new Error(`Could not resolve default export from ${id}`);
 }
 
-const loadForgeConfigFn = resolveCjsDefault("@electron-forge/core/dist/util/forge-config.js");
+const loadForgeConfigFn = resolveCjsDefault(
+  "@electron-forge/core/dist/util/forge-config.js",
+);
 
 /** @param {string} [dir] */
 export async function loadForgeConfig(dir = process.cwd()) {

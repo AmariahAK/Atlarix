@@ -14,14 +14,14 @@ describe("chat naming", () => {
 
   it("rejects tool-call JSON as a title", () => {
     const bad =
-      'json{  action: get_blueprint,  path: spacinsider-cli/blueprint.md}';
+      "json{  action: get_blueprint,  path: spacinsider-cli/blueprint.md}";
     expect(looksLikeToolOrStructuredDebrisTitle(bad)).toBe(true);
     expect(isLowQualityGeneratedTitle(bad)).toBe(true);
   });
 
   it("falls back to first user message when AI returns tool debris", () => {
     const title = resolveGeneratedChatTitle(
-      'json{ action: get_blueprint, path: spacinsider-cli/blueprint.md}',
+      "json{ action: get_blueprint, path: spacinsider-cli/blueprint.md}",
       [
         {
           role: "user",

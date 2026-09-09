@@ -26,7 +26,9 @@ describe("recognising an empty wallet", () => {
   });
 
   it("matches a 402 one wrapper deep — the stream error-part shape", () => {
-    expect(isInsufficientCreditError({ error: { statusCode: 402 } })).toBe(true);
+    expect(isInsufficientCreditError({ error: { statusCode: 402 } })).toBe(
+      true,
+    );
   });
 
   it("matches the body marker even with no status at all", () => {
@@ -64,9 +66,9 @@ describe("recognising an empty wallet", () => {
     expect(() =>
       extractCoreErrorParts({ statusCode: 402, responseBody: circular }),
     ).not.toThrow();
-    expect(isInsufficientCreditError({ statusCode: 402, responseBody: circular })).toBe(
-      true,
-    );
+    expect(
+      isInsufficientCreditError({ statusCode: 402, responseBody: circular }),
+    ).toBe(true);
   });
 });
 
@@ -90,7 +92,13 @@ describe("the required amount", () => {
   });
 
   it("degrades to null rather than throwing", () => {
-    for (const body of ["", "not json", "{}", '{"required_cents":null}', "[]"]) {
+    for (const body of [
+      "",
+      "not json",
+      "{}",
+      '{"required_cents":null}',
+      "[]",
+    ]) {
       expect(requiredCentsFromBody(body)).toBeNull();
     }
   });
@@ -106,7 +114,9 @@ describe("the required amount", () => {
       requiredCentsFromError({ responseBody: '{"required_cents":924}' }),
     ).toBe(924);
     expect(
-      requiredCentsFromError({ error: { responseBody: '{"required_cents":31}' } }),
+      requiredCentsFromError({
+        error: { responseBody: '{"required_cents":31}' },
+      }),
     ).toBe(31);
   });
 });

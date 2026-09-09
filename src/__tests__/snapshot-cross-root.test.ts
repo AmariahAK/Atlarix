@@ -38,7 +38,9 @@ const gitAvailable = await gitExec(["--version"], os.tmpdir())
   .catch(() => false);
 const describeWithGit = gitAvailable ? describe : describe.skip;
 if (!gitAvailable) {
-  console.warn("[snapshot-cross-root.test] system git unavailable — suite skipped");
+  console.warn(
+    "[snapshot-cross-root.test] system git unavailable — suite skipped",
+  );
 }
 
 let base: string;
@@ -54,14 +56,18 @@ async function put(abs: string, content: string) {
 const readOr = (abs: string) => fs.readFile(abs, "utf8").catch(() => null);
 
 beforeEach(async () => {
-  base = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "atlarix-xroot-")));
+  base = await fs.realpath(
+    await fs.mkdtemp(path.join(os.tmpdir(), "atlarix-xroot-")),
+  );
   workspace = path.join(base, "workspace");
   sibling = path.join(base, "sibling-repo");
   ungranted = path.join(base, "somewhere-else");
   await fs.mkdir(workspace, { recursive: true });
   await fs.mkdir(sibling, { recursive: true });
   await fs.mkdir(ungranted, { recursive: true });
-  shadowRoot = await fs.mkdtemp(path.join(os.tmpdir(), "atlarix-xroot-shadow-"));
+  shadowRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), "atlarix-xroot-shadow-"),
+  );
   _setShadowSnapshotsRootForTests(shadowRoot);
 });
 
@@ -162,7 +168,10 @@ describeWithGit("cross-root capture and revert", () => {
     await put(inside, "MUTATED inside");
     await put(outside, "MUTATED outside");
 
-    const result = await revertSnapshot({ workspacePath: workspace, turnId: "turn:1" });
+    const result = await revertSnapshot({
+      workspacePath: workspace,
+      turnId: "turn:1",
+    });
     expect(result.success).toBe(true);
     expect(result.restoredFiles).toBe(2);
     expect(await readOr(inside)).toBe("original inside");
@@ -190,7 +199,10 @@ describeWithGit("cross-root capture and revert", () => {
     await put(b, "B!");
     await put(outside, "C!");
 
-    const result = await revertSnapshot({ workspacePath: workspace, turnId: "turn:2" });
+    const result = await revertSnapshot({
+      workspacePath: workspace,
+      turnId: "turn:2",
+    });
     expect(result.restoredFiles).toBe(3);
     expect(await readOr(a)).toBe("A");
     expect(await readOr(b)).toBe("B");
@@ -292,7 +304,10 @@ describeWithGit("cross-root capture and revert", () => {
     // No shadow repo was minted for it, and nothing claims to be revertible.
     expect(await snapshotExists(workspace, "turn:7")).toBe(false);
     await put(rogue, "after");
-    const result = await revertSnapshot({ workspacePath: workspace, turnId: "turn:7" });
+    const result = await revertSnapshot({
+      workspacePath: workspace,
+      turnId: "turn:7",
+    });
     expect(result.success).toBe(false);
     expect(await readOr(rogue)).toBe("after"); // untouched by revert
   });

@@ -51,10 +51,14 @@ describe("isImageContentRejectionError", () => {
       ),
     ).toBe(true);
     expect(
-      isImageContentRejectionError(new Error("This model does not support images")),
+      isImageContentRejectionError(
+        new Error("This model does not support images"),
+      ),
     ).toBe(true);
     expect(
-      isImageContentRejectionError(new Error("input_image content is unsupported")),
+      isImageContentRejectionError(
+        new Error("input_image content is unsupported"),
+      ),
     ).toBe(true);
   });
 
@@ -63,12 +67,14 @@ describe("isImageContentRejectionError", () => {
     expect(
       isImageContentRejectionError(new Error("rate limit exceeded (429)")),
     ).toBe(false);
-    expect(isImageContentRejectionError(new Error("context length exceeded"))).toBe(
-      false,
-    );
+    expect(
+      isImageContentRejectionError(new Error("context length exceeded")),
+    ).toBe(false);
     // Mentions "image" but not a rejection — must not trip.
     expect(
-      isImageContentRejectionError(new Error("generated an image successfully")),
+      isImageContentRejectionError(
+        new Error("generated an image successfully"),
+      ),
     ).toBe(false);
     expect(isImageContentRejectionError(undefined)).toBe(false);
     expect(isImageContentRejectionError(null)).toBe(false);

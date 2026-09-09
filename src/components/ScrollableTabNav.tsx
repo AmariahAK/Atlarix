@@ -89,7 +89,10 @@ export function ScrollableTabNav({ label, className, children }: Props) {
     if (!el) return;
     // Most of a screenful, not all of it: a tab straddling the edge should stay
     // partly visible so the strip's continuity is obvious.
-    el.scrollBy({ left: dir * Math.max(160, el.clientWidth * 0.8), behavior: "smooth" });
+    el.scrollBy({
+      left: dir * Math.max(160, el.clientWidth * 0.8),
+      behavior: "smooth",
+    });
   };
 
   const arrow = (dir: -1 | 1, hidden: boolean) => {
@@ -106,7 +109,9 @@ export function ScrollableTabNav({ label, className, children }: Props) {
           hidden && "invisible pointer-events-none",
         )}
         onClick={() => nudge(dir)}
-        aria-label={dir === -1 ? `Scroll ${label} left` : `Scroll ${label} right`}
+        aria-label={
+          dir === -1 ? `Scroll ${label} left` : `Scroll ${label} right`
+        }
         aria-hidden={hidden || undefined}
         tabIndex={hidden ? -1 : 0}
       >

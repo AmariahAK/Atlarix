@@ -51,25 +51,43 @@ describe("filterSkillsForMode", () => {
 
   it("applies a compatibleModes:[Explore] skill in ask mode", () => {
     expect(
-      names(filterSkillsForMode([skill({ name: "Explore-only", modes: ["Explore"] })], "ask")),
+      names(
+        filterSkillsForMode(
+          [skill({ name: "Explore-only", modes: ["Explore"] })],
+          "ask",
+        ),
+      ),
     ).toEqual(["Explore-only"]);
   });
 
   it("matches Title-case display labels against the lowercase enum", () => {
     expect(
-      names(filterSkillsForMode([skill({ name: "Builder", modes: ["Build", "Review"] })], "build")),
+      names(
+        filterSkillsForMode(
+          [skill({ name: "Builder", modes: ["Build", "Review"] })],
+          "build",
+        ),
+      ),
     ).toEqual(["Builder"]);
   });
 
   it("excludes a skill whose modes do not cover the current mode", () => {
     expect(
-      filterSkillsForMode([skill({ name: "Debug-only", modes: ["Debug"] })], "ask"),
+      filterSkillsForMode(
+        [skill({ name: "Debug-only", modes: ["Debug"] })],
+        "ask",
+      ),
     ).toEqual([]);
   });
 
   it("a wildcard mode still applies everywhere", () => {
     expect(
-      names(filterSkillsForMode([skill({ name: "Everywhere", modes: ["*"] })], "review")),
+      names(
+        filterSkillsForMode(
+          [skill({ name: "Everywhere", modes: ["*"] })],
+          "review",
+        ),
+      ),
     ).toEqual(["Everywhere"]);
   });
 });
@@ -126,7 +144,8 @@ describe("formatSkillIndexForPrompt", () => {
       entry({
         name: "guides/memory",
         source: "guide",
-        readPath: "/Applications/Atlarix.app/Contents/Resources/skills/guides/memory.md",
+        readPath:
+          "/Applications/Atlarix.app/Contents/Resources/skills/guides/memory.md",
       }),
     ]);
     expect(out).toContain("## Skills available (1)");
@@ -143,7 +162,11 @@ describe("formatSkillIndexForPrompt", () => {
 
   it("omits the skills section when only guides exist", () => {
     const out = formatSkillIndexForPrompt([
-      entry({ name: "guides/memory", source: "guide", readPath: "/app/skills/guides/memory.md" }),
+      entry({
+        name: "guides/memory",
+        source: "guide",
+        readPath: "/app/skills/guides/memory.md",
+      }),
     ]);
     expect(out).toContain("Built-in guides (1)");
     expect(out).not.toContain("## Skills available");

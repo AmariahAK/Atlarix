@@ -14,7 +14,7 @@ export function formatSmallRepoInventory(paths: string[]): string {
   if (paths.length === 0) {
     return (
       "No tracked files were discovered in this workspace (empty git index or wrong folder). " +
-      "Use explore_folder on \".\" or list_files before guessing paths."
+      'Use explore_folder on "." or list_files before guessing paths.'
     );
   }
   const quoted = paths.map((p) => `"${p}"`).join(", ");
@@ -101,7 +101,11 @@ export async function suggestClosestPath(
   const threshold = Math.max(2, Math.floor(targetBase.length * 0.34));
   const scored: { path: string; d: number }[] = [];
   for (const f of pool) {
-    const d = boundedLevenshtein(targetBase, basenameOf(f).toLowerCase(), threshold);
+    const d = boundedLevenshtein(
+      targetBase,
+      basenameOf(f).toLowerCase(),
+      threshold,
+    );
     if (d <= threshold) scored.push({ path: f, d });
   }
   if (scored.length === 0) return null;

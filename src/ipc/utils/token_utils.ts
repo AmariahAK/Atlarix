@@ -20,7 +20,10 @@ export const estimateMessagesTokens = (messages: Message[]): number => {
   // W6 (v14.8.11): per-message sum, matching the context meter's scope — the
   // old role-joined exactTokenCount inflated counts with `role:` prefixes and
   // made the summarize nudge disagree with the meter (v14.8.5 #3).
-  return messages.reduce((acc, m) => acc + exactTokenCountText(m.content || ""), 0);
+  return messages.reduce(
+    (acc, m) => acc + exactTokenCountText(m.content || ""),
+    0,
+  );
 };
 
 // v10.1: dead cache-aware usage helpers removed (normalizeTokenUsage,
@@ -54,7 +57,10 @@ function contextWindowMemoKey(m: LargeLanguageModel): string {
  */
 const compassContextWindowByChat = new Map<number, number>();
 
-export function setCompassContextWindow(chatId: number, contextWindow: number): void {
+export function setCompassContextWindow(
+  chatId: number,
+  contextWindow: number,
+): void {
   if (Number.isFinite(contextWindow) && contextWindow > 0) {
     compassContextWindowByChat.set(chatId, contextWindow);
   }
@@ -109,7 +115,10 @@ export async function getContextWindowDetailed(
     // a vendor-native id, so a directly-routed tier silently got the 200K floor.
     const coreTarget = getCoreModelsDevTargetForTier(target.name);
     if (coreTarget) {
-      const limits = await getModelsDevLimits(coreTarget.providerId, coreTarget.modelId);
+      const limits = await getModelsDevLimits(
+        coreTarget.providerId,
+        coreTarget.modelId,
+      );
       if (limits?.context && limits.context > 0) {
         return { contextWindow: limits.context, source: "compass-fallback" };
       }
@@ -191,7 +200,10 @@ export async function getMaxTokens(
   if (model.provider === "compass") {
     const coreTarget = getCoreModelsDevTargetForTier(model.name);
     if (coreTarget) {
-      const limits = await getModelsDevLimits(coreTarget.providerId, coreTarget.modelId);
+      const limits = await getModelsDevLimits(
+        coreTarget.providerId,
+        coreTarget.modelId,
+      );
       if (limits?.output && limits.output > 0) return limits.output;
     }
   }
@@ -236,7 +248,8 @@ export async function getTemperature(
 ): Promise<number | undefined> {
   const providerId =
     model.provider === "compass"
-      ? (getCoreModelsDevTargetForTier(model.name)?.providerId ?? model.provider)
+      ? (getCoreModelsDevTargetForTier(model.name)?.providerId ??
+        model.provider)
       : model.provider;
   const modelId =
     model.provider === "compass"

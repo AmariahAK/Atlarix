@@ -1,7 +1,11 @@
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import { makeTestDb, type TestDb } from "../infra/db";
 import { makeTempWorkspace, type TempWorkspace } from "../infra/workspace";
-import { startFakeLlmServer, scenario, type FakeLlmServer } from "../infra/scenario";
+import {
+  startFakeLlmServer,
+  scenario,
+  type FakeLlmServer,
+} from "../infra/scenario";
 
 /**
  * Phase-0/1 harness probe (docs/TODO.md Tier 4).
@@ -43,8 +47,7 @@ describe("agent-evals harness probe", () => {
     );
     const { appId } = await testDb.seedApp({ path: ws.dir });
 
-    const providers =
-      await testDb.db.query.language_model_providers.findMany();
+    const providers = await testDb.db.query.language_model_providers.findMany();
     expect(providers.map((p) => p.id)).toContain(providerId);
     const models = await testDb.db.query.language_models.findMany();
     expect(models.some((m) => m.apiName === modelName)).toBe(true);

@@ -8,7 +8,8 @@ import {
   isStreamingForChatAtom,
 } from "@/atoms/chatAtoms";
 
-const msg = (id: number): Message => ({ id, role: "user", content: `m${id}` } as Message);
+const msg = (id: number): Message =>
+  ({ id, role: "user", content: `m${id}` }) as Message;
 
 describe("per-chat scoped selector atoms (Fix 3.2 re-render fanout)", () => {
   it("messagesForChatAtom(1) does NOT notify when only chat 2's slice changes", () => {

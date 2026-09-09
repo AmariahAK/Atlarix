@@ -12,4 +12,3 @@
  * unintended limit on autonomous/headless runs.
  */
 export const STREAM_TOOL_LOOP_DURATION_CAP_MS = Number.POSITIVE_INFINITY;
-

@@ -52,7 +52,9 @@ describe("redactSecretsInText", () => {
   });
 
   it("is idempotent and handles empty input", () => {
-    const once = redactSecretsInText("token ghp_0123456789abcdef0123456789abcdef0123");
+    const once = redactSecretsInText(
+      "token ghp_0123456789abcdef0123456789abcdef0123",
+    );
     expect(redactSecretsInText(once)).toBe(once);
     expect(redactSecretsInText("")).toBe("");
   });

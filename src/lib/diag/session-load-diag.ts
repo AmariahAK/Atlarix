@@ -68,7 +68,11 @@ const defaultSink: Sink = (line) => {
 export async function diagSpan<T>(
   label: string,
   fn: () => Promise<T> | T,
-  opts?: { sink?: Sink; bytes?: (result: T) => number; count?: (result: T) => number },
+  opts?: {
+    sink?: Sink;
+    bytes?: (result: T) => number;
+    count?: (result: T) => number;
+  },
 ): Promise<T> {
   if (!sessionLoadDiagEnabled()) return await fn();
   const started = performance.now();
@@ -92,7 +96,11 @@ export async function diagSpan<T>(
 export function diagSpanSync<T>(
   label: string,
   fn: () => T,
-  opts?: { sink?: Sink; bytes?: (result: T) => number; count?: (result: T) => number },
+  opts?: {
+    sink?: Sink;
+    bytes?: (result: T) => number;
+    count?: (result: T) => number;
+  },
 ): T {
   if (!sessionLoadDiagEnabled()) return fn();
   const started = performance.now();
@@ -113,7 +121,10 @@ export function diagSpanSync<T>(
 }
 
 /** A manual stopwatch, for spans whose start and end aren't in one function. */
-export function diagStopwatch(label: string, sink?: Sink): { stop: (note?: string) => void } {
+export function diagStopwatch(
+  label: string,
+  sink?: Sink,
+): { stop: (note?: string) => void } {
   if (!sessionLoadDiagEnabled()) return { stop: () => {} };
   const started = performance.now();
   return {
@@ -133,7 +144,12 @@ export function measureSessionPayloadBytes(
     modelContent?: string | null;
     displaySnapshot?: unknown;
   }[],
-): { total: number; content: number; modelContent: number; displaySnapshot: number } {
+): {
+  total: number;
+  content: number;
+  modelContent: number;
+  displaySnapshot: number;
+} {
   let content = 0;
   let modelContent = 0;
   let displaySnapshot = 0;

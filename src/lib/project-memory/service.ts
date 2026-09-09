@@ -26,7 +26,10 @@ export type ProjectSnapshotTrigger =
 const MAX_SNAPSHOTS_PER_WORKSPACE = 100;
 const touchedWorkspaces = new Set<number>();
 /** Coalesce burst plan writes (e.g. duplicate permission ops) into one snapshot per workspace. */
-const planUpdateSnapshotDebounce = new Map<number, ReturnType<typeof setTimeout>>();
+const planUpdateSnapshotDebounce = new Map<
+  number,
+  ReturnType<typeof setTimeout>
+>();
 const PLAN_UPDATE_SNAPSHOT_DEBOUNCE_MS = 400;
 
 function markTouched(workspaceId: number): void {
@@ -49,7 +52,8 @@ async function gatherPayload(workspacePath: string): Promise<{
   const planMd = await readPlanMd(workspacePath);
   let gitCommitHash: string | null = null;
   try {
-    gitCommitHash = (await getCurrentCommitHash({ path: workspacePath })) ?? null;
+    gitCommitHash =
+      (await getCurrentCommitHash({ path: workspacePath })) ?? null;
   } catch {
     gitCommitHash = null;
   }
@@ -75,7 +79,8 @@ export async function insertProjectSnapshot(params: {
   sessionSummary?: string | null;
   blueprintJson?: string;
 }): Promise<void> {
-  const { workspaceId, workspacePath, trigger, sessionSummary, blueprintJson } = params;
+  const { workspaceId, workspacePath, trigger, sessionSummary, blueprintJson } =
+    params;
   markTouched(workspaceId);
   try {
     const payload = await gatherPayload(workspacePath);
@@ -97,14 +102,21 @@ export async function insertProjectSnapshot(params: {
   }
 }
 
-export async function recordPlanUpdateSnapshot(workspaceId: number, workspacePath: string): Promise<void> {
+export async function recordPlanUpdateSnapshot(
+  workspaceId: number,
+  workspacePath: string,
+): Promise<void> {
   const prev = planUpdateSnapshotDebounce.get(workspaceId);
   if (prev) clearTimeout(prev);
   planUpdateSnapshotDebounce.set(
     workspaceId,
     setTimeout(() => {
       planUpdateSnapshotDebounce.delete(workspaceId);
-      void insertProjectSnapshot({ workspaceId, workspacePath, trigger: "plan_update" });
+      void insertProjectSnapshot({
+        workspaceId,
+        workspacePath,
+        trigger: "plan_update",
+      });
     }, PLAN_UPDATE_SNAPSHOT_DEBOUNCE_MS),
   );
 }
@@ -126,7 +138,11 @@ export async function flushSessionEndSnapshots(): Promise<void> {
   const ids = [...touchedWorkspaces];
   touchedWorkspaces.clear();
   for (const workspaceId of ids) {
-    const [app] = await db.select().from(apps).where(eq(apps.id, workspaceId)).limit(1);
+    const [app] = await db
+      .select()
+      .from(apps)
+      .where(eq(apps.id, workspaceId))
+      .limit(1);
     if (!app) continue;
     const workspacePath = getAtlarixAppPath(app.path);
     await insertProjectSnapshot({
@@ -147,7 +163,12 @@ export async function getProjectSnapshotRow(
       workspaceId: projectSnapshots.workspaceId,
     })
     .from(projectSnapshots)
-    .where(and(eq(projectSnapshots.id, snapshotId), eq(projectSnapshots.workspaceId, workspaceId)))
+    .where(
+      and(
+        eq(projectSnapshots.id, snapshotId),
+        eq(projectSnapshots.workspaceId, workspaceId),
+      ),
+    )
     .limit(1);
   if (!row) return null;
   return { planMd: row.planMd };
@@ -159,11 +180,16 @@ export async function applyProjectSnapshotRevert(
   snapshotId: number,
 ): Promise<{ success: boolean; error?: string }> {
   const row = await getProjectSnapshotRow(snapshotId, workspaceId);
-  if (!row) return { success: false, error: "Snapshot not found for this workspace" };
+  if (!row)
+    return { success: false, error: "Snapshot not found for this workspace" };
   try {
     if (row.planMd != null) {
       await fs.mkdir(path.join(workspacePath, ".atlarix"), { recursive: true });
-      await fs.writeFile(path.join(workspacePath, PLAN_FILE), row.planMd, "utf-8");
+      await fs.writeFile(
+        path.join(workspacePath, PLAN_FILE),
+        row.planMd,
+        "utf-8",
+      );
     }
     return { success: true };
   } catch (e) {

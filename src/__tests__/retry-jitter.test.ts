@@ -92,7 +92,9 @@ describe("jitteredDelay", () => {
     it("falls back to the base schedule for null/undefined/negative", () => {
       for (const bad of [null, undefined, -1]) {
         const d = jitteredDelay(0, bad);
-        expect(d).toBeGreaterThanOrEqual(Math.floor(RECONNECT_DELAYS_MS[0] / 2));
+        expect(d).toBeGreaterThanOrEqual(
+          Math.floor(RECONNECT_DELAYS_MS[0] / 2),
+        );
         expect(d).toBeLessThanOrEqual(RECONNECT_DELAYS_MS[0]);
       }
     });

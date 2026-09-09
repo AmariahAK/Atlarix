@@ -1,9 +1,5 @@
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
-import {
-  setupEvalContext,
-  runTurn,
-  type EvalContext,
-} from "../infra/turn";
+import { setupEvalContext, runTurn, type EvalContext } from "../infra/turn";
 import { scenario } from "../infra/scenario";
 
 /**
@@ -67,29 +63,82 @@ function offeredToolNames(scenarioId: string): string[] {
 // pointer — which is why those first sentences carry the cheap default.
 const GOLDEN = {
   ask: [
-    "ask_user", "automations", "background_jobs", "browser",
-    "browser_inspect", "compress_context", "glob", "grep", "list_attachments",
-    "list_available_mcps", "mcp_call", "mobile", "mobile_inspect",
-    "read_attachment", "read_file",
-    "read_url", "run_command", "schedule_wakeup", "session_search",
-    "subagents", "task", "tool_help", "web_search",
+    "ask_user",
+    "automations",
+    "background_jobs",
+    "browser",
+    "browser_inspect",
+    "compress_context",
+    "glob",
+    "grep",
+    "list_attachments",
+    "list_available_mcps",
+    "mcp_call",
+    "mobile",
+    "mobile_inspect",
+    "read_attachment",
+    "read_file",
+    "read_url",
+    "run_command",
+    "schedule_wakeup",
+    "session_search",
+    "subagents",
+    "task",
+    "tool_help",
+    "web_search",
   ],
   plan: [
-    "ask_user", "automations", "browser", "browser_inspect",
-    "compress_context", "glob", "grep", "list_attachments",
-    "list_available_mcps", "mcp_call", "mobile", "mobile_inspect", "plan",
-    "read_attachment", "read_file",
-    "read_url", "schedule_wakeup", "session_search", "subagents", "task",
-    "tool_help", "web_search",
+    "ask_user",
+    "automations",
+    "browser",
+    "browser_inspect",
+    "compress_context",
+    "glob",
+    "grep",
+    "list_attachments",
+    "list_available_mcps",
+    "mcp_call",
+    "mobile",
+    "mobile_inspect",
+    "plan",
+    "read_attachment",
+    "read_file",
+    "read_url",
+    "schedule_wakeup",
+    "session_search",
+    "subagents",
+    "task",
+    "tool_help",
+    "web_search",
   ],
   build: [
-    "ask_user", "automations", "background_jobs", "browser",
-    "browser_inspect", "browser_test", "compress_context", "edit_file",
-    "glob", "grep", "list_attachments", "list_available_mcps", "mcp_call",
-    "mobile", "mobile_inspect",
-    "plan", "proposals", "read_attachment", "read_file", "read_url",
-    "run_command", "schedule_wakeup", "session_search", "subagents", "task",
-    "tool_help", "web_search",
+    "ask_user",
+    "automations",
+    "background_jobs",
+    "browser",
+    "browser_inspect",
+    "browser_test",
+    "compress_context",
+    "edit_file",
+    "glob",
+    "grep",
+    "list_attachments",
+    "list_available_mcps",
+    "mcp_call",
+    "mobile",
+    "mobile_inspect",
+    "plan",
+    "proposals",
+    "read_attachment",
+    "read_file",
+    "read_url",
+    "run_command",
+    "schedule_wakeup",
+    "session_search",
+    "subagents",
+    "task",
+    "tool_help",
+    "web_search",
   ],
 } as const;
 
@@ -125,9 +174,7 @@ const CASES = [
 describe("toolset golden — resolveToolsetForSession contract (S19)", () => {
   for (const c of CASES) {
     it(`${c.key} offers exactly the golden surface`, async () => {
-      ctx.server.register(
-        scenario(`tg-${c.key}`).text("ok done.").build(),
-      );
+      ctx.server.register(scenario(`tg-${c.key}`).text("ok done.").build());
       const chatId = await ctx.newChat();
       await runTurn(ctx, {
         chatId,

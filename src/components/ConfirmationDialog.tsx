@@ -1,4 +1,3 @@
-
 interface ConfirmationDialogProps {
   isOpen: boolean;
   title: string;

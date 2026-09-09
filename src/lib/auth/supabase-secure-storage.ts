@@ -71,7 +71,10 @@ async function readBlobFromDisk(): Promise<BlobRead> {
       if (await encryptionAvailableWithRetry()) {
         const buf = Buffer.from(b64, "base64");
         const json = safeStorage.decryptString(buf);
-        return { status: "loaded", blob: JSON.parse(json) as Record<string, string> };
+        return {
+          status: "loaded",
+          blob: JSON.parse(json) as Record<string, string>,
+        };
       }
       // The session IS here; we just cannot open it right now. Saying "empty"
       // would present a signed-in user as signed out AND license the caller to
@@ -99,7 +102,9 @@ async function readBlobFromDisk(): Promise<BlobRead> {
         if (persisted) {
           try {
             fs.unlinkSync(legacy);
-            logger.log("[SupabaseSecureStorage] Migrated legacy supabase-auth.json and removed file");
+            logger.log(
+              "[SupabaseSecureStorage] Migrated legacy supabase-auth.json and removed file",
+            );
           } catch {
             /* ignore */
           }
@@ -152,7 +157,10 @@ async function persistBlob(cache: Record<string, string>): Promise<boolean> {
       fs.writeFileSync(fallbackEncryptedPath(), enc.toString("base64"), "utf8");
       return true;
     } catch (e) {
-      logger.error("[SupabaseSecureStorage] safeStorage encrypt/write failed:", e);
+      logger.error(
+        "[SupabaseSecureStorage] safeStorage encrypt/write failed:",
+        e,
+      );
       return false;
     }
   }
@@ -220,7 +228,8 @@ export async function clearSupabaseSecureStorage(): Promise<void> {
   storageCache = {};
   loadPromise = null;
   try {
-    if (fs.existsSync(fallbackEncryptedPath())) fs.unlinkSync(fallbackEncryptedPath());
+    if (fs.existsSync(fallbackEncryptedPath()))
+      fs.unlinkSync(fallbackEncryptedPath());
   } catch {
     /* ignore */
   }

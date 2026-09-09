@@ -28,12 +28,9 @@ import { AtlarixRead } from "./AtlarixRead";
 import { mapActionToButton } from "./SuggestedActionButtons";
 import { SuggestedAction } from "@/lib/schemas";
 import { InlineWebCitation } from "./InlineWebCitation";
-import {
-  stripAssistantPlanForDisplay } from "@/lib/plan-cards/plan-card-renderer";
+import { stripAssistantPlanForDisplay } from "@/lib/plan-cards/plan-card-renderer";
 import { stripQuestionsArtifactForDisplay } from "@/lib/chat/ask-user-artifacts";
-import {
-  sanitizeMarkdownForDisplay,
-} from "@/lib/chat/answer-display";
+import { sanitizeMarkdownForDisplay } from "@/lib/chat/answer-display";
 import type { PasteAttachmentMeta } from "@/ipc/ipc_types";
 import {
   lookupTerminalPasteContent,
@@ -44,7 +41,6 @@ import { BackgroundJobAttachmentChip } from "./BackgroundJobAttachmentChip";
 import { TerminalOutputAttachmentChip } from "./TerminalOutputAttachmentChip";
 import { findAttachmentTagsInContent } from "@/lib/chat/attachment-tag-parse";
 import { normalizeThinkingTags } from "@/lib/thinking/normalize-thinking-tags";
-
 
 type CustomTagInfo = {
   tag: string;
@@ -57,9 +53,6 @@ type CustomTagInfo = {
 type ContentPiece =
   | { type: "markdown"; content: string }
   | { type: "custom-tag"; tagInfo: CustomTagInfo };
-
-
-
 
 const customLink = ({
   node: _node,
@@ -112,7 +105,10 @@ function renderTextWithPathMentions(children: React.ReactNode) {
     const token = m[0];
     if (token.startsWith("@/")) {
       parts.push(
-        <code key={`${start}-${end}`} className="font-mono text-xs bg-muted px-1 py-0.5 rounded">
+        <code
+          key={`${start}-${end}`}
+          className="font-mono text-xs bg-muted px-1 py-0.5 rounded"
+        >
           {token.slice(1)}
         </code>,
       );
@@ -152,7 +148,9 @@ const markdownTableComponents = {
     <thead className="bg-muted/50">{children}</thead>
   ),
   th: ({ children }: { children?: React.ReactNode }) => (
-    <th className="border border-border px-2 py-1 text-left font-medium">{children}</th>
+    <th className="border border-border px-2 py-1 text-left font-medium">
+      {children}
+    </th>
   ),
   td: ({ children }: { children?: React.ReactNode }) => (
     <td className="border border-border px-2 py-1">{children}</td>
@@ -189,7 +187,12 @@ export const UserMessageMarkdownParser = ({
         if (piece.type === "markdown") {
           const trimmed = piece.content.trim();
           if (!trimmed) return null;
-          return <VanillaMarkdownParser key={`md-${index}`} content={piece.content} />;
+          return (
+            <VanillaMarkdownParser
+              key={`md-${index}`}
+              content={piece.content}
+            />
+          );
         }
         if (
           piece.tagInfo.tag === "atlarix-text-attachment" ||
@@ -422,7 +425,9 @@ function parseCustomTags(content: string): ContentPiece[] {
   for (const at of attachmentTags) {
     if (at.startIndex > lastIndex) {
       const segment = processedContent.substring(lastIndex, at.startIndex);
-      contentPieces.push(...parseCustomTagsInSegment(segment, inProgressTags, lastIndex));
+      contentPieces.push(
+        ...parseCustomTagsInSegment(segment, inProgressTags, lastIndex),
+      );
     }
 
     const tagInProgressSet = inProgressTags.get(at.tag);
@@ -444,7 +449,9 @@ function parseCustomTags(content: string): ContentPiece[] {
 
   if (lastIndex < processedContent.length) {
     const segment = processedContent.substring(lastIndex);
-    contentPieces.push(...parseCustomTagsInSegment(segment, inProgressTags, lastIndex));
+    contentPieces.push(
+      ...parseCustomTagsInSegment(segment, inProgressTags, lastIndex),
+    );
   }
 
   return contentPieces;

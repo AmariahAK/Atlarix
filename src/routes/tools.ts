@@ -3,7 +3,7 @@ import { rootRoute } from "./root";
 import ToolsPage from "../pages/tools";
 
 export const toolsRoute = createRoute({
-    getParentRoute: () => rootRoute,
-    path: "/tools",
-    component: ToolsPage,
+  getParentRoute: () => rootRoute,
+  path: "/tools",
+  component: ToolsPage,
 });

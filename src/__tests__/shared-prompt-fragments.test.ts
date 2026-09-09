@@ -27,7 +27,9 @@ function read(rel: string): string {
  */
 describe("shared prompt fragments", () => {
   it("substitutes a known placeholder", () => {
-    const out = applySharedPromptFragments("before\n{{REUSE_FIRST_LADDER}}\nafter");
+    const out = applySharedPromptFragments(
+      "before\n{{REUSE_FIRST_LADDER}}\nafter",
+    );
     expect(out).toContain("climb this ladder");
     expect(out).not.toContain("{{REUSE_FIRST_LADDER}}");
   });
@@ -54,7 +56,9 @@ describe("shared prompt fragments", () => {
   it("neither file hardcodes a second copy of the ladder", () => {
     const marker = "Is it already in the codebase? Reuse it.";
     expect(read("AGENTS.md")).not.toContain(marker);
-    expect(read("src/skills/subagents/subagent-writer.md")).not.toContain(marker);
+    expect(read("src/skills/subagents/subagent-writer.md")).not.toContain(
+      marker,
+    );
     expect(REUSE_FIRST_LADDER).toContain(marker);
   });
 
@@ -120,7 +124,9 @@ describe("outside-workspace path fragments", () => {
       "{{OUTSIDE_WORKSPACE_PATHS}}",
     );
     for (const agent of Object.values(BUILTIN_AGENTS)) {
-      expect(agent.systemPrompt, `builtin agent: ${agent.name}`).toContain(READ_MARKER);
+      expect(agent.systemPrompt, `builtin agent: ${agent.name}`).toContain(
+        READ_MARKER,
+      );
     }
   });
 

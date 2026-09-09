@@ -16,9 +16,9 @@ export type SanitizedMcpServer = Omit<
 };
 
 /** Strip secrets before sending MCP server rows to the renderer. */
-export function sanitizeMcpServerForIpc<T extends McpServerRow | null | undefined>(
-  row: T,
-): T extends McpServerRow ? SanitizedMcpServer : T {
+export function sanitizeMcpServerForIpc<
+  T extends McpServerRow | null | undefined,
+>(row: T): T extends McpServerRow ? SanitizedMcpServer : T {
   if (!row) return row as never;
   const {
     apiKey: _apiKey,
@@ -37,6 +37,8 @@ export function sanitizeMcpServerForIpc<T extends McpServerRow | null | undefine
   } as never;
 }
 
-export function sanitizeMcpServersForIpc(rows: McpServerRow[]): SanitizedMcpServer[] {
+export function sanitizeMcpServersForIpc(
+  rows: McpServerRow[],
+): SanitizedMcpServer[] {
   return rows.map((r) => sanitizeMcpServerForIpc(r)!);
 }

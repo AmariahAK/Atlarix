@@ -55,7 +55,9 @@ describe("InlineUserQuestions", () => {
   });
 
   it("single question: option click submits, clears state, and restreams", async () => {
-    const { store } = renderWithProviders(<InlineUserQuestions chatId={CHAT_ID} />);
+    const { store } = renderWithProviders(
+      <InlineUserQuestions chatId={CHAT_ID} />,
+    );
     act(() => {
       store.set(pendingUserQuestionByChatIdAtom, {
         [CHAT_ID]: {
@@ -89,7 +91,9 @@ describe("InlineUserQuestions", () => {
   });
 
   it("multi-question: Submit stays disabled until every question is answered", async () => {
-    const { store } = renderWithProviders(<InlineUserQuestions chatId={CHAT_ID} />);
+    const { store } = renderWithProviders(
+      <InlineUserQuestions chatId={CHAT_ID} />,
+    );
     act(() => {
       store.set(pendingUserQuestionByChatIdAtom, {
         [CHAT_ID]: {
@@ -130,7 +134,9 @@ describe("InlineUserQuestions", () => {
 
   it("free-text question accepts a custom answer", async () => {
     renderWithProviders(<InlineUserQuestions chatId={CHAT_ID} />);
-    const { store } = renderWithProviders(<InlineUserQuestions chatId={CHAT_ID} />);
+    const { store } = renderWithProviders(
+      <InlineUserQuestions chatId={CHAT_ID} />,
+    );
     act(() => {
       store.set(pendingUserQuestionByChatIdAtom, {
         [CHAT_ID]: { questionId: "q-3", question: "Project name?" },
@@ -150,7 +156,9 @@ describe("InlineUserQuestions", () => {
   });
 
   it("re-seeds the card from a persisted atlarix-questions artifact (reload)", async () => {
-    const { store } = renderWithProviders(<InlineUserQuestions chatId={CHAT_ID} />);
+    const { store } = renderWithProviders(
+      <InlineUserQuestions chatId={CHAT_ID} />,
+    );
     act(() => {
       store.set(
         chatMessagesByIdAtom,
@@ -158,14 +166,22 @@ describe("InlineUserQuestions", () => {
           [
             CHAT_ID,
             [
-              { id: 1, chatId: CHAT_ID, role: "user", content: "build it", createdAt: new Date() },
+              {
+                id: 1,
+                chatId: CHAT_ID,
+                role: "user",
+                content: "build it",
+                createdAt: new Date(),
+              },
               {
                 id: 2,
                 chatId: CHAT_ID,
                 role: "assistant",
                 content: appendQuestionsArtifact("Need a decision first.", {
                   questionId: "uq_reload",
-                  questions: [{ question: "Deploy target?", options: ["Vercel", "Fly"] }],
+                  questions: [
+                    { question: "Deploy target?", options: ["Vercel", "Fly"] },
+                  ],
                 }),
                 createdAt: new Date(),
               },
@@ -178,9 +194,9 @@ describe("InlineUserQuestions", () => {
     await waitFor(() => {
       expect(screen.getByText("Deploy target?")).toBeInTheDocument();
     });
-    expect(store.get(pendingUserQuestionByChatIdAtom)[CHAT_ID]?.questionId).toBe(
-      "uq_reload",
-    );
+    expect(
+      store.get(pendingUserQuestionByChatIdAtom)[CHAT_ID]?.questionId,
+    ).toBe("uq_reload");
   });
 
   it("does NOT re-seed when a user message follows the question turn (answered)", () => {
@@ -204,7 +220,13 @@ describe("InlineUserQuestions", () => {
                 }),
                 createdAt: new Date(),
               },
-              { id: 3, chatId: CHAT_ID, role: "user", content: "***Q:*** Deploy target? → ***A:*** Vercel", createdAt: new Date() },
+              {
+                id: 3,
+                chatId: CHAT_ID,
+                role: "user",
+                content: "***Q:*** Deploy target? → ***A:*** Vercel",
+                createdAt: new Date(),
+              },
             ] as never,
           ],
         ]),

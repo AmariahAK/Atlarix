@@ -9,15 +9,15 @@
  * every error twice.
  */
 
-import { useEffect } from 'react';
-import { useSetAtom } from 'jotai';
+import { useEffect } from "react";
+import { useSetAtom } from "jotai";
 import {
   consoleUnreadCountAtom,
   networkUnreadCountAtom,
   pageConsoleAtom,
   type PageConsoleEntry,
-} from '@/atoms/sourceAtoms';
-import { IpcClient } from '@/ipc/ipc_client';
+} from "@/atoms/sourceAtoms";
+import { IpcClient } from "@/ipc/ipc_client";
 
 /**
  * What counts as worth a badge.
@@ -28,9 +28,9 @@ import { IpcClient } from '@/ipc/ipc_client';
  * filter chips for reading everything.
  */
 function isNoteworthy(entry: PageConsoleEntry): boolean {
-  if (entry.type === 'navigated') return false;
-  if (entry.type !== 'console-error') return true;
-  return entry.level === 'error' || entry.level === 'warning';
+  if (entry.type === "navigated") return false;
+  if (entry.type !== "console-error") return true;
+  return entry.level === "error" || entry.level === "warning";
 }
 
 /**
@@ -54,9 +54,11 @@ export function usePageConsoleListener() {
       // badge work without a second always-on subscription — the Network tab
       // itself only polls while it is on screen.
       const entries = batch as PageConsoleEntry[];
-      const netFailures = entries.filter((e) => e.type === 'network-failed').length;
+      const netFailures = entries.filter(
+        (e) => e.type === "network-failed",
+      ).length;
       const consoleNoteworthy = entries.filter(
-        (e) => e.type !== 'network-failed' && isNoteworthy(e),
+        (e) => e.type !== "network-failed" && isNoteworthy(e),
       ).length;
       if (netFailures > 0) setNetworkUnread((n) => n + netFailures);
       if (consoleNoteworthy > 0) setConsoleUnread((n) => n + consoleNoteworthy);

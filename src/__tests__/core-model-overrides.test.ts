@@ -13,7 +13,10 @@ const { TMP } = vi.hoisted(() => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const path = require("node:path");
   return {
-    TMP: path.join(os.tmpdir(), `atlarix-core-models-${process.pid}-${Date.now()}`),
+    TMP: path.join(
+      os.tmpdir(),
+      `atlarix-core-models-${process.pid}-${Date.now()}`,
+    ),
   };
 });
 
@@ -90,7 +93,10 @@ describe("core-model-overrides", () => {
 
   it("falls back to the on-disk cache when the fetch fails", async () => {
     // First, a successful refresh persists the cache.
-    global.fetch = fetchOk({ version: 1, models: { "core-3": "cached/three" } });
+    global.fetch = fetchOk({
+      version: 1,
+      models: { "core-3": "cached/three" },
+    });
     await refreshCoreModelOverrides();
     __resetCoreModelOverridesForTests(); // simulate a fresh process
 
@@ -100,7 +106,10 @@ describe("core-model-overrides", () => {
   });
 
   it("normalizes legacy compass-* keys to core-N", async () => {
-    global.fetch = fetchOk({ version: 1, models: { "compass-thinking": "ovr/three" } });
+    global.fetch = fetchOk({
+      version: 1,
+      models: { "compass-thinking": "ovr/three" },
+    });
     await refreshCoreModelOverrides();
     expect(getOpenRouterModelIdForCoreTier("core-3")).toBe("ovr/three");
   });

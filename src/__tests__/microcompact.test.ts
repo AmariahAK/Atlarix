@@ -15,7 +15,11 @@ function conversation(turns: number) {
   let id = 1;
   for (let t = 1; t <= turns; t++) {
     msgs.push({ id: id++, role: "user", content: `request ${t}` });
-    msgs.push({ id: id++, role: "assistant", content: toolResult(`turn-${t}`) });
+    msgs.push({
+      id: id++,
+      role: "assistant",
+      content: toolResult(`turn-${t}`),
+    });
   }
   return msgs;
 }
@@ -26,7 +30,9 @@ function newestResultTokens(
   n: number,
 ): number {
   const results = msgs.filter((m) => m.role === "assistant");
-  return countMessagesTokens(results.slice(-n).map((m) => ({ content: m.content })));
+  return countMessagesTokens(
+    results.slice(-n).map((m) => ({ content: m.content })),
+  );
 }
 
 describe("microcompactStaleToolOutputs", () => {
@@ -42,11 +48,16 @@ describe("microcompactStaleToolOutputs", () => {
     // Measured from the fixture rather than assumed: the labels differ in length,
     // so a per-result estimate multiplied out is off by enough to drop a third.
     const keep = newestResultTokens(msgs, 4);
-    const { messages, tokensDropped } = microcompactStaleToolOutputs(msgs, keep);
+    const { messages, tokensDropped } = microcompactStaleToolOutputs(
+      msgs,
+      keep,
+    );
 
     expect(tokensDropped).toBeGreaterThan(0);
 
-    const dropped = messages.filter((m) => m.content.includes("omitted to save space"));
+    const dropped = messages.filter((m) =>
+      m.content.includes("omitted to save space"),
+    );
     expect(dropped).toHaveLength(2);
     // Stage 3c: the marker must NOT tell the model to re-read (that drove the loop).
     for (const m of dropped) {
@@ -64,7 +75,10 @@ describe("microcompactStaleToolOutputs", () => {
   it("is a no-op when everything fits the keep-window", () => {
     const msgs = conversation(2);
     const keep = newestResultTokens(msgs, 2) * 10;
-    const { messages, tokensDropped } = microcompactStaleToolOutputs(msgs, keep);
+    const { messages, tokensDropped } = microcompactStaleToolOutputs(
+      msgs,
+      keep,
+    );
     expect(tokensDropped).toBe(0);
     expect(messages).toEqual(msgs);
   });
@@ -72,7 +86,12 @@ describe("microcompactStaleToolOutputs", () => {
   it("never drops protected content (e.g. files written)", () => {
     const msgs = [
       { id: 1, role: "user", content: "a" },
-      { id: 2, role: "assistant", content: toolResult("old"), filesWritten: ["x.ts"] },
+      {
+        id: 2,
+        role: "assistant",
+        content: toolResult("old"),
+        filesWritten: ["x.ts"],
+      },
       { id: 3, role: "user", content: "b" },
       { id: 4, role: "user", content: "c" },
       { id: 5, role: "user", content: "d" },

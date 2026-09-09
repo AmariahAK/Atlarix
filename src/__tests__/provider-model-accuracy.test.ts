@@ -46,9 +46,17 @@ const CATALOG = {
     api: "https://api.openai.com/v1",
     env: ["OPENAI_API_KEY"],
     models: {
-      "gpt-5.6": { name: "GPT-5.6", tool_call: true, limit: { context: 400000, output: 128000 } },
+      "gpt-5.6": {
+        name: "GPT-5.6",
+        tool_call: true,
+        limit: { context: 400000, output: 128000 },
+      },
       "gpt-image-2": { name: "GPT Image 2", tool_call: false },
-      o3: { name: "o3", tool_call: true, limit: { context: 200000, output: 100000 } },
+      o3: {
+        name: "o3",
+        tool_call: true,
+        limit: { context: 200000, output: 100000 },
+      },
       "gpt-4o-transcribe": {
         name: "GPT-4o Transcribe",
         tool_call: false,
@@ -96,7 +104,11 @@ const CATALOG = {
     api: "https://api.perplexity.ai",
     env: ["PERPLEXITY_API_KEY"],
     models: {
-      sonar: { name: "Sonar", tool_call: false, limit: { context: 128000, output: 4096 } },
+      sonar: {
+        name: "Sonar",
+        tool_call: false,
+        limit: { context: 128000, output: 4096 },
+      },
       "sonar-pro": {
         name: "Sonar Pro",
         tool_call: false,
@@ -106,7 +118,10 @@ const CATALOG = {
   },
 };
 
-const cloud = (apiName: string, extra: Partial<LanguageModel> = {}): LanguageModel =>
+const cloud = (
+  apiName: string,
+  extra: Partial<LanguageModel> = {},
+): LanguageModel =>
   ({
     apiName,
     displayName: apiName,
@@ -148,7 +163,9 @@ describe("tool-capability funnel (annotateToolCapability)", () => {
   it("KEEPS models the catalog has never heard of", async () => {
     // The whole point of native fetch is beating the hourly catalog. Dropping
     // unknown ids would trade an accuracy bug for a freshness bug.
-    const out = await annotateToolCapability("openai", [cloud("gpt-6-unreleased")]);
+    const out = await annotateToolCapability("openai", [
+      cloud("gpt-6-unreleased"),
+    ]);
     expect(out.map((m) => m.apiName)).toEqual(["gpt-6-unreleased"]);
   });
 
@@ -164,7 +181,9 @@ describe("tool-capability funnel (annotateToolCapability)", () => {
 
   it("returns input untouched for a provider models.dev doesn't know", async () => {
     const input = [cloud("some-model"), cloud("another")];
-    await expect(annotateToolCapability("not-a-provider", input)).resolves.toEqual(input);
+    await expect(
+      annotateToolCapability("not-a-provider", input),
+    ).resolves.toEqual(input);
   });
 
   it("returns input untouched when the catalog is empty", async () => {
@@ -177,11 +196,15 @@ describe("tool-capability funnel (annotateToolCapability)", () => {
     );
     await refreshModelsDev({ notify: false });
     const input = [cloud("gpt-image-2")];
-    await expect(annotateToolCapability("openai", input)).resolves.toEqual(input);
+    await expect(annotateToolCapability("openai", input)).resolves.toEqual(
+      input,
+    );
   });
 
   it("matches OpenRouter-style vendor/model ids against bare catalog ids", async () => {
-    const out = await annotateToolCapability("openai", [cloud("openai/gpt-image-2")]);
+    const out = await annotateToolCapability("openai", [
+      cloud("openai/gpt-image-2"),
+    ]);
     expect(out).toHaveLength(0);
   });
 });
@@ -197,9 +220,14 @@ describe("provider id mapping", () => {
 
   it("resolves nvidia_nim to the nvidia catalog with real limits and cost", async () => {
     const models = await getModelsFromModelsDev("nvidia_nim");
-    const llama = models.find((m) => m.apiName === "meta/llama-3.3-70b-instruct");
+    const llama = models.find(
+      (m) => m.apiName === "meta/llama-3.3-70b-instruct",
+    );
     expect(llama?.contextWindow).toBe(128000);
-    expect(llama?.type === "cloud" && llama.cost).toEqual({ input: 0.12, output: 0.3 });
+    expect(llama?.type === "cloud" && llama.cost).toEqual({
+      input: 0.12,
+      output: 0.3,
+    });
   });
 
   it("reverse-maps both ids so the long tail doesn't duplicate built-in providers", async () => {
@@ -234,7 +262,9 @@ describe("voice transcription catalog lookups", () => {
     await expect(getProviderApiBaseUrl("nvidia_nim")).resolves.toBe(
       "https://integrate.api.nvidia.com/v1",
     );
-    await expect(getProviderApiBaseUrl("not-a-provider")).resolves.toBeUndefined();
+    await expect(
+      getProviderApiBaseUrl("not-a-provider"),
+    ).resolves.toBeUndefined();
   });
 });
 
@@ -244,9 +274,13 @@ describe("getModelsDevCatalogRows", () => {
   });
 
   it("returns the non-tool-calling family when the gate is lifted", async () => {
-    const rows = await getModelsDevCatalogRows("perplexity", { requireToolCall: false });
+    const rows = await getModelsDevCatalogRows("perplexity", {
+      requireToolCall: false,
+    });
     expect(rows.map((m) => m.apiName).sort()).toEqual(["sonar", "sonar-pro"]);
     // Real limits the old hardcoded Perplexity list omitted entirely.
-    expect(rows.find((m) => m.apiName === "sonar-pro")?.contextWindow).toBe(200000);
+    expect(rows.find((m) => m.apiName === "sonar-pro")?.contextWindow).toBe(
+      200000,
+    );
   });
 });

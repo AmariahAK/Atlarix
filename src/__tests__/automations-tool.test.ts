@@ -239,7 +239,9 @@ describe("automations — the description matches the enum", () => {
     ).properties?.operation?.enum;
     expect(accepted, "operation should be an enum param").toBeTruthy();
 
-    const undocumented = accepted!.filter((op) => !description.includes(`operation:"${op}"`));
+    const undocumented = accepted!.filter(
+      (op) => !description.includes(`operation:"${op}"`),
+    );
     expect(
       undocumented,
       `these operations are accepted but never described, so the model cannot know they exist: ${undocumented.join(", ")}`,

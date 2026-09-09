@@ -22,7 +22,12 @@
  * verdict for `browser_test`, not a gate. The harness cannot tell whose error a
  * page reported, so it does not get to end a turn over one.
  */
-export type BrowserConsoleLevel = "error" | "warning" | "info" | "log" | "debug";
+export type BrowserConsoleLevel =
+  | "error"
+  | "warning"
+  | "info"
+  | "log"
+  | "debug";
 
 /** A runtime event captured from a browser-tab surface. */
 export type BrowserSurfaceError = {
@@ -36,19 +41,18 @@ export type BrowserSurfaceError = {
     | "console-error"
     | "load-failed"
     | "render-gone"
-    | "network-failed"
-    | /**
-       * A navigation marker, not an event that happened to the page.
-       *
-       * DevTools clears the console on navigate by default; we deliberately do
-       * not, because the agent may be mid-comparison across two loads. A
-       * separator row removes the stale/fresh ambiguity without destroying data.
-       *
-       * It is NOT a failure and must never be counted as one: excluded from
-       * `runtimeFailuresSince`, from the runtime notice, and from the
-       * `browser:error` channel the Errors list reads.
-       */
-      "navigated";
+    | "network-failed" /**
+     * A navigation marker, not an event that happened to the page.
+     *
+     * DevTools clears the console on navigate by default; we deliberately do
+     * not, because the agent may be mid-comparison across two loads. A
+     * separator row removes the stale/fresh ambiguity without destroying data.
+     *
+     * It is NOT a failure and must never be counted as one: excluded from
+     * `runtimeFailuresSince`, from the runtime notice, and from the
+     * `browser:error` channel the Errors list reads.
+     */
+    | "navigated";
   message: string;
   url?: string;
   timestamp: number;
@@ -149,7 +153,8 @@ export function tryParseErrorSentinel(
       type: (rec.type as BrowserSurfaceError["type"]) || "console-error",
       message: rec.message.slice(0, 4000),
       level: rec.level === "warning" ? "warning" : "error",
-      stack: typeof rec.stack === "string" ? rec.stack.slice(0, 4000) : undefined,
+      stack:
+        typeof rec.stack === "string" ? rec.stack.slice(0, 4000) : undefined,
       url: typeof rec.url === "string" ? rec.url : undefined,
     };
   } catch {

@@ -1,4 +1,5 @@
 # Atlarix
+
 ## The Private AI Workstation
 
 Atlarix is the agent workstation for engineering teams — managed cloud models
@@ -31,7 +32,7 @@ any repo size. The agent has a workspace. You have control.
 **Website:** [atlarix.dev](https://atlarix.dev)  
 **Current release:** **v14.43.0**
 
-**Downloads:** Installers for **macOS**, **Linux**, and **Windows** are on [atlarix.dev](https://atlarix.dev). *(Windows builds are currently unsigned; code signing is coming soon.)*
+**Downloads:** Installers for **macOS**, **Linux**, and **Windows** are on [atlarix.dev](https://atlarix.dev). _(Windows builds are currently unsigned; code signing is coming soon.)_
 
 **Open ecosystem (source / installers / registries):** community **Agent Behaviors** live in [AmariahAK/atlarix-skills](https://github.com/AmariahAK/atlarix-skills); the **MCP marketplace index** is [AmariahAK/atlarix-mcps](https://github.com/AmariahAK/atlarix-mcps); official desktop builds are published from [AmariahAK/atlarix-releases](https://github.com/AmariahAK/atlarix-releases). The Atlarix app itself is proprietary.
 
@@ -51,10 +52,10 @@ Release notes: **[docs/CHANGELOG.md](docs/CHANGELOG.md)** (current: 14.25+). Old
 - **Parallel workers:** The `task` tool spawns scoped workers — read-only **explorer** and **architect** (recon, planning, web search) plus writer **implementer** agents whose edits never touch disk and come back as per-file **proposals** the main agent reviews and accepts — up to five run **concurrently** per turn, with their live thinking, narration, and tool activity streaming into per-worker cards. Long-running workers move to the background automatically and can be listed, watched, or cancelled.
 - **Background commands:** A foreground command still running after **~15s auto-promotes to the background** (kept alive, not killed) so the agent keeps working; the exit result is delivered back automatically. The agent can also detach explicitly (`run_command background:true`), and a still-foreground command surfaces a **"Waiting on command"** state where you can queue a message that sends when the turn resumes.
 - **User-defined agents & portable config:** `.atlarix/agents/<name>.md` (system prompt + tools + model) shows up in the picker; `.atlarix/permissions.json` deny rules are committable and enforced at the single tool-execution funnel — plus a global `~/.atlarix/` layer.
-- **Verified edits:** In **Build** and **Debug** the agent discovers and runs the project's *own* checks (package.json scripts, `tsc`/`eslint`, `ruff`/`mypy`/`pytest`) through the terminal — every command run inside the per-OS sandbox — and writes tests for non-trivial logic. It is held to not declaring a task complete while those checks report errors. Verification uses the project's real tooling, so it works on any machine with the language runtime installed.
+- **Verified edits:** In **Build** and **Debug** the agent discovers and runs the project's _own_ checks (package.json scripts, `tsc`/`eslint`, `ruff`/`mypy`/`pytest`) through the terminal — every command run inside the per-OS sandbox — and writes tests for non-trivial logic. It is held to not declaring a task complete while those checks report errors. Verification uses the project's real tooling, so it works on any machine with the language runtime installed.
 - **Native tool history:** Tool calls/results ride as provider-native blocks (not flattened text) — weak and local models perform notably better, and multi-step prompt caching holds.
 - **Approvals & command sandbox:** File writes wait for explicit approval with a diff preview — accept or reject **individual hunks**, not just whole files, all **inline in chat** (no separate panel). Shell commands run inside a per-OS write-confining sandbox and only the genuinely dangerous ones ask; Explore/Plan/Review are read-only. Allow-once / always-allow decisions are **scoped to the workspace** — approvals saved in one project never carry to another.
-- **Work beyond one folder:** The workspace is the default scope, not a wall. The agent reads and searches another project by absolute path with no ceremony; the first *write* to a folder outside the workspace asks you once for that folder, and the grant then covers both file edits and shell commands. Cross-repo edits are snapshotted like any other, so **Revert covers them too**.
+- **Work beyond one folder:** The workspace is the default scope, not a wall. The agent reads and searches another project by absolute path with no ceremony; the first _write_ to a folder outside the workspace asks you once for that folder, and the grant then covers both file edits and shell commands. Cross-repo edits are snapshotted like any other, so **Revert covers them too**.
 - **Voice-to-text:** Dictate to the composer — free on-device **Whisper** by default (private, no key), or use your own cloud key (OpenAI / Groq / Gemini — never billed to Atlarix Core).
 - **Automations:** Schedule unattended runs on a cron or MCP trigger from the Automations tab, with a triage feed of past runs — up to **10 per workspace**.
 - **Interactive questions:** The agent can ask you **up to 5 questions in one inline card** (options + free text) and the stream genuinely pauses until you answer — no invented answers, no missed prompts.
@@ -217,10 +218,10 @@ What you pay for is **Atlarix Core** — the managed models we host and meter. T
 prepaid balance from **$10** and it is billed as you use it, with the exact cost of every
 call shown in the app.
 
-| | Price | What it is |
-|---|---|---|
-| **Free** | $0 | The whole app. Core on pay-as-you-go credit. |
-| **Pro** | $19/mo | The whole app, plus **Atlarix Reviewer**, plus Atlarix Core included for everyday work. Heavier use draws on the same credit. |
+|          | Price  | What it is                                                                                                                    |
+| -------- | ------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| **Free** | $0     | The whole app. Core on pay-as-you-go credit.                                                                                  |
+| **Pro**  | $19/mo | The whole app, plus **Atlarix Reviewer**, plus Atlarix Core included for everyday work. Heavier use draws on the same credit. |
 
 **One subscription, one balance.** Pro covers the desktop app and Atlarix Reviewer from a
 single monthly Core allowance — they are not billed separately and they do not hold

@@ -9,7 +9,9 @@ const NATIVE_FC_PROVIDERS = new Set([
   "bedrock",
 ]);
 
-export function shouldUseTextToolFallback(providerId: string | undefined): boolean {
+export function shouldUseTextToolFallback(
+  providerId: string | undefined,
+): boolean {
   if (process.env.ATLARIX_FORCE_TEXT_TOOLS === "1") return true;
   if (process.env.ATLARIX_DISABLE_TEXT_TOOLS === "1") return false;
   if (!providerId) return false;

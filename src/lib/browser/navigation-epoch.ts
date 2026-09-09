@@ -41,7 +41,10 @@ export function currentNavigationEpoch(tabId: number): NavigationEpoch {
  * from in-page route changes: `did-navigate-in-page` fires on every SPA route
  * change and would shatter a single-page app into a card per click.
  */
-export function beginNavigationEpoch(tabId: number, pageUrl: string): NavigationEpoch {
+export function beginNavigationEpoch(
+  tabId: number,
+  pageUrl: string,
+): NavigationEpoch {
   const next: NavigationEpoch = {
     seq: currentNavigationEpoch(tabId).seq + 1,
     pageUrl,
@@ -71,7 +74,11 @@ export function __resetNavigationEpochsForTests(): void {
  */
 export function groupByNavigationEpoch<T>(
   entries: readonly T[],
-  read: (entry: T) => { tabId: number | null; navSeq?: number; pageUrl?: string },
+  read: (entry: T) => {
+    tabId: number | null;
+    navSeq?: number;
+    pageUrl?: string;
+  },
 ): Array<{
   tabId: number | null;
   navSeq: number;

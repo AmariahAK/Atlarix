@@ -108,7 +108,8 @@ export function canElectronUpdaterRun(env: {
   isAppImage: boolean;
   isInApplicationsFolder: boolean;
 }): { ok: boolean; reason?: UpdateResult; detail?: string } {
-  if (!env.isPackaged) return { ok: false, reason: "idle", detail: "Development build" };
+  if (!env.isPackaged)
+    return { ok: false, reason: "idle", detail: "Development build" };
   if (env.platform === "darwin" && !env.isInApplicationsFolder) {
     return {
       ok: false,
@@ -120,7 +121,8 @@ export function canElectronUpdaterRun(env: {
     return {
       ok: false,
       reason: "unsupported",
-      detail: "deb/rpm packages update via your package manager — download the latest from the releases page.",
+      detail:
+        "deb/rpm packages update via your package manager — download the latest from the releases page.",
     };
   }
   return { ok: true };

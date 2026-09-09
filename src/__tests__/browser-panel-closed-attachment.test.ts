@@ -63,7 +63,11 @@ class FakeWindow {
       this.attached = this.attached.filter((x) => x !== v);
     },
   };
-  webContents = { isDestroyed: () => false, isCrashed: () => false, send: vi.fn() };
+  webContents = {
+    isDestroyed: () => false,
+    isCrashed: () => false,
+    send: vi.fn(),
+  };
   constructor(public id: number) {
     windows.set(id, this);
   }
@@ -104,7 +108,9 @@ import {
 
 function makeScope(id = 1) {
   const win = new FakeWindow(id);
-  const scope = browserScopeForWindow(win as unknown as Parameters<typeof browserScopeForWindow>[0]);
+  const scope = browserScopeForWindow(
+    win as unknown as Parameters<typeof browserScopeForWindow>[0],
+  );
   return { win, scope };
 }
 

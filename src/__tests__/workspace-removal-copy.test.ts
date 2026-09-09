@@ -23,11 +23,15 @@ describe("removalAlsoDeletesFiles", () => {
       removalAlsoDeletesFiles("/Users/amariah/Documents/Github/wisdom-drop"),
     ).toBe(false);
     expect(removalAlsoDeletesFiles("/Users/amariah/code/vim")).toBe(false);
-    expect(removalAlsoDeletesFiles("C:\\Users\\amariah\\code\\vim")).toBe(false);
+    expect(removalAlsoDeletesFiles("C:\\Users\\amariah\\code\\vim")).toBe(
+      false,
+    );
   });
 
   it("is true for the Atlarix-managed clone roots on POSIX", () => {
-    expect(removalAlsoDeletesFiles("/Users/amariah/atlarix-apps/demo")).toBe(true);
+    expect(removalAlsoDeletesFiles("/Users/amariah/atlarix-apps/demo")).toBe(
+      true,
+    );
     expect(
       removalAlsoDeletesFiles("/Users/amariah/Documents/Atlarix/demo"),
     ).toBe(true);

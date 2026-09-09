@@ -32,7 +32,14 @@
  */
 
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
-import { Plug, Cpu, Server, Sparkles, GitCommitHorizontal, Shield } from "lucide-react";
+import {
+  Plug,
+  Cpu,
+  Server,
+  Sparkles,
+  GitCommitHorizontal,
+  Shield,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ScrollableTabNav } from "@/components/ScrollableTabNav";
 

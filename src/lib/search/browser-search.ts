@@ -33,7 +33,10 @@
 
 import log from "electron-log";
 import { SEARCH_RESULTS_SCRIPT } from "@/lib/browser/search-results";
-import { isHiddenPageAvailable, withHiddenPage } from "@/lib/browser/headless-page";
+import {
+  isHiddenPageAvailable,
+  withHiddenPage,
+} from "@/lib/browser/headless-page";
 
 const logger = log.scope("browser-search");
 
@@ -60,9 +63,12 @@ export interface BrowserSearchResult {
  * prohibit automated queries, so it is never the default.
  */
 export const SEARCH_ENGINES = {
-  brave: (q: string) => `https://search.brave.com/search?q=${encodeURIComponent(q)}`,
-  duckduckgo: (q: string) => `https://duckduckgo.com/?q=${encodeURIComponent(q)}`,
-  google: (q: string) => `https://www.google.com/search?q=${encodeURIComponent(q)}`,
+  brave: (q: string) =>
+    `https://search.brave.com/search?q=${encodeURIComponent(q)}`,
+  duckduckgo: (q: string) =>
+    `https://duckduckgo.com/?q=${encodeURIComponent(q)}`,
+  google: (q: string) =>
+    `https://www.google.com/search?q=${encodeURIComponent(q)}`,
 } as const;
 
 export type SearchEngineId = keyof typeof SEARCH_ENGINES;
@@ -92,22 +98,30 @@ export async function browserSearch(
   if (!isBrowserSearchAvailable()) return [];
 
   const engine = opts.engine ?? DEFAULT_SEARCH_ENGINE;
-  const url = (SEARCH_ENGINES[engine] ?? SEARCH_ENGINES[DEFAULT_SEARCH_ENGINE])(q);
+  const url = (SEARCH_ENGINES[engine] ?? SEARCH_ENGINES[DEFAULT_SEARCH_ENGINE])(
+    q,
+  );
 
   const raw = await withHiddenPage(
     url,
     { partition: SEARCH_PARTITION, navTimeoutMs: NAV_TIMEOUT_MS },
     async (wc) =>
-      (await wc.executeJavaScript(SEARCH_RESULTS_SCRIPT, true)) as BrowserSearchResult[] | null,
+      (await wc.executeJavaScript(SEARCH_RESULTS_SCRIPT, true)) as
+        | BrowserSearchResult[]
+        | null,
   );
 
   const results = Array.isArray(raw) ? raw : [];
   if (results.length === 0) {
     // A challenge page, an empty page, or markup we no longer recognise — all
     // indistinguishable from here, and all mean "let the next tier try".
-    logger.info(`[browser-search] ${engine}: no results for "${q}" — falling through`);
+    logger.info(
+      `[browser-search] ${engine}: no results for "${q}" — falling through`,
+    );
   } else {
-    logger.info(`[browser-search] ${engine}: ${results.length} result(s) for "${q}"`);
+    logger.info(
+      `[browser-search] ${engine}: ${results.length} result(s) for "${q}"`,
+    );
   }
   return opts.limit ? results.slice(0, opts.limit) : results;
 }

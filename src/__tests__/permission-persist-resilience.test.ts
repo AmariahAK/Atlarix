@@ -19,7 +19,9 @@ import {
 } from "@/ipc/handlers/permissions/persist-safe";
 
 function cantopen(): Error {
-  const e = new Error("unable to open database file") as Error & { code: string };
+  const e = new Error("unable to open database file") as Error & {
+    code: string;
+  };
   e.code = "SQLITE_CANTOPEN";
   return e;
 }
@@ -40,8 +42,12 @@ describe("isStorageCapacityError", () => {
   });
 
   it("matches by message when code is absent", () => {
-    expect(isStorageCapacityError(new Error("unable to open database file"))).toBe(true);
-    expect(isStorageCapacityError(new Error("ENOSPC: no space left on device"))).toBe(true);
+    expect(
+      isStorageCapacityError(new Error("unable to open database file")),
+    ).toBe(true);
+    expect(
+      isStorageCapacityError(new Error("ENOSPC: no space left on device")),
+    ).toBe(true);
   });
 
   it("does NOT match ordinary errors", () => {
@@ -54,7 +60,9 @@ describe("isStorageCapacityError", () => {
 describe("persistPermissionPreferenceSafely", () => {
   it("runs the write when it succeeds", () => {
     const fn = vi.fn();
-    expect(() => persistPermissionPreferenceSafely("command permission", fn)).not.toThrow();
+    expect(() =>
+      persistPermissionPreferenceSafely("command permission", fn),
+    ).not.toThrow();
     expect(fn).toHaveBeenCalledOnce();
   });
 

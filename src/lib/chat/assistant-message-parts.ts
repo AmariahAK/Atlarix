@@ -41,10 +41,7 @@ const THOUGHT_TAGS = new Set([
   "redacted_thinking",
 ]);
 
-const TOOL_CALL_TAGS = new Set([
-  "atlarix-tool-call",
-  "atlarix-mcp-tool-call",
-]);
+const TOOL_CALL_TAGS = new Set(["atlarix-tool-call", "atlarix-mcp-tool-call"]);
 const TOOL_RESULT_TAGS = new Set([
   "atlarix-tool-result",
   "atlarix-mcp-tool-result",
@@ -91,9 +88,7 @@ function preprocessForParse(content: string): string {
     const closeCount = (out.match(closeTagPattern) || []).length;
     const missing = openCount - closeCount;
     if (missing > 0) {
-      out += Array(missing)
-        .fill(`</${tagName}>`)
-        .join("");
+      out += Array(missing).fill(`</${tagName}>`).join("");
     }
   }
   return out;
@@ -266,14 +261,15 @@ function rawPiecesToAssistantParts(
             if (toolName === "write_implementation_plan") {
               resultText = "Plan saved";
             }
-            const updatedTool: Extract<AssistantMessagePart, { type: "tool" }> = {
-              ...prev,
-              status,
-              error: attrs.error,
-              resultText: resultText || prev.resultText,
-            };
+            const updatedTool: Extract<AssistantMessagePart, { type: "tool" }> =
+              {
+                ...prev,
+                status,
+                error: attrs.error,
+                resultText: resultText || prev.resultText,
+              };
             const handoff = isDelegateToolName(toolName)
-              ? delegateDisplayMetaFromToolPart(updatedTool) ?? undefined
+              ? (delegateDisplayMetaFromToolPart(updatedTool) ?? undefined)
               : undefined;
             out[idx] = {
               ...updatedTool,
@@ -288,7 +284,14 @@ function rawPiecesToAssistantParts(
     }
 
     flushThoughts();
-    const tagBlob = `<${tag}${Object.keys(attrs).length ? " " + Object.entries(attrs).map(([k, v]) => `${k}="${v}"`).join(" ") : ""}>${piece.content}</${tag}>`;
+    const tagBlob = `<${tag}${
+      Object.keys(attrs).length
+        ? " " +
+          Object.entries(attrs)
+            .map(([k, v]) => `${k}="${v}"`)
+            .join(" ")
+        : ""
+    }>${piece.content}</${tag}>`;
     flushMarkdown(tagBlob);
   }
 
@@ -339,12 +342,13 @@ function envelopeToToolPart(
     status: success ? "success" : "error",
     resultText: raw,
     error:
-      parsed?.envelope.success === false && typeof parsed.envelope.error === "string"
+      parsed?.envelope.success === false &&
+      typeof parsed.envelope.error === "string"
         ? parsed.envelope.error
         : undefined,
   };
   const handoff = isDelegateToolName(toolName)
-    ? delegateDisplayMetaFromToolPart(part) ?? undefined
+    ? (delegateDisplayMetaFromToolPart(part) ?? undefined)
     : undefined;
   return { ...part, handoff };
 }
@@ -484,13 +488,22 @@ export function splitContentPartsAtOffset(
   isStreaming: boolean,
 ): { before: AssistantMessagePart[]; after: AssistantMessagePart[] } {
   if (offset == null || !Number.isFinite(offset)) {
-    return { before: parseAssistantMessageParts(content, isStreaming), after: [] };
+    return {
+      before: parseAssistantMessageParts(content, isStreaming),
+      after: [],
+    };
   }
   if (offset <= 0) {
-    return { before: [], after: parseAssistantMessageParts(content, isStreaming) };
+    return {
+      before: [],
+      after: parseAssistantMessageParts(content, isStreaming),
+    };
   }
   if (offset >= content.length) {
-    return { before: parseAssistantMessageParts(content, isStreaming), after: [] };
+    return {
+      before: parseAssistantMessageParts(content, isStreaming),
+      after: [],
+    };
   }
   return {
     before: parseAssistantMessageParts(content.slice(0, offset), isStreaming),
@@ -517,4 +530,3 @@ function mergeAdjacentMarkdown(
   }
   return merged;
 }
-

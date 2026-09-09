@@ -4,10 +4,7 @@
 
 import { useState, useMemo } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import {
-  Search,
-  ExternalLink,
-} from "lucide-react";
+import { Search, ExternalLink } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useAtlarixCoreCatalog } from "@/hooks/useAtlarixCoreCatalog";
@@ -178,7 +175,11 @@ const FEATURES: ToolFeature[] = [
     shortDescription:
       "Single search tool for keyword, semantic, or structural queries across the repo (replaces scattered find helpers).",
     category: "code",
-    steps: ["Ask in Build mode to locate symbols, routes, or text", "Mention files or folders to narrow scope", "Narrow with a path or include glob for a tighter sweep"],
+    steps: [
+      "Ask in Build mode to locate symbols, routes, or text",
+      "Mention files or folders to narrow scope",
+      "Narrow with a path or include glob for a tighter sweep",
+    ],
     howItWorks:
       "glob finds files by name; grep searches contents with ripgrep (respecting .gitignore) and returns matches grouped by file — the same fast primitive Claude Code / opencode use.",
     link: { label: "Home → Chat", to: "/" },
@@ -186,9 +187,15 @@ const FEATURES: ToolFeature[] = [
   {
     id: "editing",
     title: "Edits & codegen",
-    shortDescription: "Natural-language edits land as diffs you approve before they hit disk.",
+    shortDescription:
+      "Natural-language edits land as diffs you approve before they hit disk.",
     category: "code",
-    steps: ["Build mode", "Describe the change", "Accept or reject the diff in chat", "Iterate from Errors if tests fail"],
+    steps: [
+      "Build mode",
+      "Describe the change",
+      "Accept or reject the diff in chat",
+      "Iterate from Errors if tests fail",
+    ],
     // Approvals moved INLINE into chat in v14.15.0 when the Preview pane was removed;
     // there is no right-panel Permissions tab to send anyone to (the right panel is
     // Browser / Terminal / Plan / Automations / Errors).
@@ -199,10 +206,16 @@ const FEATURES: ToolFeature[] = [
   {
     id: "tests-env",
     title: "Tests, environment & git",
-    shortDescription: "Run tests, check toolchains, and inspect git + session summaries from chat tools.",
+    shortDescription:
+      "Run tests, check toolchains, and inspect git + session summaries from chat tools.",
     category: "code",
-    steps: ["Ask the model to run targeted tests", "Use git summaries before pushing", "check_environment before new toolchain work"],
-    howItWorks: "These tools share the same approval rules as other command executions.",
+    steps: [
+      "Ask the model to run targeted tests",
+      "Use git summaries before pushing",
+      "check_environment before new toolchain work",
+    ],
+    howItWorks:
+      "These tools share the same approval rules as other command executions.",
     link: { label: "Home → Chat", to: "/" },
   },
   {
@@ -211,7 +224,11 @@ const FEATURES: ToolFeature[] = [
     shortDescription:
       "Install Apache-licensed playbooks from the public registry—five global slots and five per workspace.",
     category: "skills",
-    steps: ["Settings → Skills", "Browse and install", "Use Build/Review modes to activate compatible skills"],
+    steps: [
+      "Settings → Skills",
+      "Browse and install",
+      "Use Build/Review modes to activate compatible skills",
+    ],
     howItWorks:
       "Skills shrink repetitive prompt boilerplate; they never replace your workspace instructions in `.atlarix/ATLARIX.md`.",
     link: { label: "Settings → Skills", to: "/settings" },
@@ -222,8 +239,13 @@ const FEATURES: ToolFeature[] = [
     shortDescription:
       "Drop markdown skills under `.atlarix/skills/`; they load as workspace context on every plan.",
     category: "skills",
-    steps: ["Add skill files to `.atlarix/skills/`", "Commit them like other project docs", "They load automatically as workspace context"],
-    howItWorks: "Skills in `.atlarix/skills/` are read as additional workspace context, committed alongside your project.",
+    steps: [
+      "Add skill files to `.atlarix/skills/`",
+      "Commit them like other project docs",
+      "They load automatically as workspace context",
+    ],
+    howItWorks:
+      "Skills in `.atlarix/skills/` are read as additional workspace context, committed alongside your project.",
     link: { label: "Open workspace folder", to: "/" },
   },
   {
@@ -232,7 +254,11 @@ const FEATURES: ToolFeature[] = [
     shortDescription:
       "Wire stdio or HTTP MCP servers globally or per workspace, up to ten per workspace.",
     category: "mcp",
-    steps: ["Settings → Tools → MCP", "Add command or URL + env", "Approve tool calls per capability"],
+    steps: [
+      "Settings → Tools → MCP",
+      "Add command or URL + env",
+      "Approve tool calls per capability",
+    ],
     howItWorks:
       "Manual entries are unchanged by the marketplace; they are ideal for private or bespoke servers.",
     link: { label: "Settings → MCP", to: "/settings" },
@@ -243,7 +269,11 @@ const FEATURES: ToolFeature[] = [
     shortDescription:
       "One-click installs from the curated atlarix-mcps registry; pagination matches the skills browser.",
     category: "mcp",
-    steps: ["Open MCP → Marketplace tab", "Filter or search", "Connect with env vars, choose scope"],
+    steps: [
+      "Open MCP → Marketplace tab",
+      "Filter or search",
+      "Connect with env vars, choose scope",
+    ],
     howItWorks:
       "Registry rows carry installUrl metadata; installs still respect the same caps as manual servers.",
     link: { label: "Settings → MCP marketplace", to: "/settings" },
@@ -251,28 +281,46 @@ const FEATURES: ToolFeature[] = [
   {
     id: "mcp-ondemand",
     title: "On-demand MCP in workspace chat",
-    shortDescription: "list_available_mcps and mcp_call attach external tools without flooding every turn.",
+    shortDescription:
+      "list_available_mcps and mcp_call attach external tools without flooding every turn.",
     category: "mcp",
-    steps: ["Work inside a workspace chat", "Let the model list servers when needed", "Approve individual MCP tool calls"],
-    howItWorks: "Workspace sessions no longer auto-merge every MCP definition into the initial tool bundle.",
+    steps: [
+      "Work inside a workspace chat",
+      "Let the model list servers when needed",
+      "Approve individual MCP tool calls",
+    ],
+    howItWorks:
+      "Workspace sessions no longer auto-merge every MCP definition into the initial tool bundle.",
     link: { label: "Workspace chat", to: "/" },
   },
   {
     id: "agent-browser",
     title: "Agent browser & dev-server testing",
-    shortDescription: "Open your local dev server (or any site) in a browser tab the agent can drive — navigate, click, fill, and verify.",
+    shortDescription:
+      "Open your local dev server (or any site) in a browser tab the agent can drive — navigate, click, fill, and verify.",
     category: "browser",
-    steps: ["Start the dev command from Build", "Open its URL in a Browser tab", "Let the agent navigate/click/fill and check the Errors tab"],
-    howItWorks: "The browser tabs capture runtime errors (console, uncaught exceptions with stack, failed requests) into the Errors tab, so UI failures line up with code.",
+    steps: [
+      "Start the dev command from Build",
+      "Open its URL in a Browser tab",
+      "Let the agent navigate/click/fill and check the Errors tab",
+    ],
+    howItWorks:
+      "The browser tabs capture runtime errors (console, uncaught exceptions with stack, failed requests) into the Errors tab, so UI failures line up with code.",
     link: { label: "Right panel → Browser", to: "/" },
   },
   {
     id: "websearch",
     title: "Web & deep research",
-    shortDescription: "Built-in web search when the provider supports it; optional local SearxNG via Docker.",
+    shortDescription:
+      "Built-in web search when the provider supports it; optional local SearxNG via Docker.",
     category: "integration",
-    steps: ["Ask for external docs or CVEs", "Review citations in Search tab", "Use deep research sparingly—it's multi-step"],
-    howItWorks: "Remote calls obey your networking and consent settings; local search keeps traffic on-machine.",
+    steps: [
+      "Ask for external docs or CVEs",
+      "Review citations in Search tab",
+      "Use deep research sparingly—it's multi-step",
+    ],
+    howItWorks:
+      "Remote calls obey your networking and consent settings; local search keeps traffic on-machine.",
     link: { label: "Home → Search tab", to: "/" },
   },
   {
@@ -313,7 +361,7 @@ export default function ToolsPage() {
       list = list.filter(
         (f) =>
           f.title.toLowerCase().includes(q) ||
-          f.shortDescription.toLowerCase().includes(q)
+          f.shortDescription.toLowerCase().includes(q),
       );
     }
     return list;
@@ -339,17 +387,18 @@ export default function ToolsPage() {
             {/* "section-scoped Blueprint" named a tool removed in 2026-06, and "team
                 features" named the Team tier that was killed in the pricing reframe.
                 Both were advertised here after they stopped existing. */}
-            What the desktop app can do today — modes, attachments, search, Agent
-            Behaviors, MCP, the browser, and automations.
+            What the desktop app can do today — modes, attachments, search,
+            Agent Behaviors, MCP, the browser, and automations.
           </p>
         </div>
 
         <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm">
           <p className="font-medium text-foreground mb-1">Models</p>
           <p className="text-muted-foreground mb-2">
-            {CORE_PAYMENT_SUMMARY} Every feature is on every plan — workspaces, the Agent Behaviors
-            and MCP marketplaces, one-click connectors, automations — plus your own keys and local
-            models. What you pay for is Atlarix Core inference.
+            {CORE_PAYMENT_SUMMARY} Every feature is on every plan — workspaces,
+            the Agent Behaviors and MCP marketplaces, one-click connectors,
+            automations — plus your own keys and local models. What you pay for
+            is Atlarix Core inference.
           </p>
           {/* The live lineup, so this card states what is ACTUALLY configured rather
               than a hardcoded count. `useAtlarixCoreCatalog` omits unmapped slots, so
@@ -392,7 +441,7 @@ export default function ToolsPage() {
                   "px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
                   category === c.id
                     ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-muted-foreground hover:text-foreground"
+                    : "bg-muted text-muted-foreground hover:text-foreground",
                 )}
               >
                 {c.label}
@@ -407,7 +456,9 @@ export default function ToolsPage() {
               key={f.id}
               className="p-4 border border-border rounded-lg bg-card flex flex-col gap-3"
             >
-              <h3 className="font-semibold text-foreground text-sm">{f.title}</h3>
+              <h3 className="font-semibold text-foreground text-sm">
+                {f.title}
+              </h3>
               <p className="text-xs text-muted-foreground leading-relaxed">
                 {f.shortDescription}
               </p>

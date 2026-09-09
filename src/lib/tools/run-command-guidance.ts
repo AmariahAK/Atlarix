@@ -11,7 +11,8 @@ export function runCommandFailureGuidance(
   command: string,
   result: Record<string, unknown>,
 ): string | null {
-  const exit = typeof result.exitCode === "number" ? result.exitCode : undefined;
+  const exit =
+    typeof result.exitCode === "number" ? result.exitCode : undefined;
   if (result.success === true || exit === 0 || exit == null) return null;
 
   const error = typeof result.error === "string" ? result.error : "";
@@ -19,7 +20,11 @@ export function runCommandFailureGuidance(
   const text = `${error}\n${output}`.toLowerCase();
   const firstWord = command.trim().split(/\s+/)[0] || "the command";
 
-  if (exit === 127 || text.includes("command not found") || text.includes("not found")) {
+  if (
+    exit === 127 ||
+    text.includes("command not found") ||
+    text.includes("not found")
+  ) {
     return `Command failed (exit ${exit}): "${firstWord}" was not found. Verify it's installed and on PATH (try \`which ${firstWord}\` / \`type ${firstWord}\`, or install it / use the full path) before retrying.`;
   }
   if (exit === 126 || text.includes("permission denied")) {

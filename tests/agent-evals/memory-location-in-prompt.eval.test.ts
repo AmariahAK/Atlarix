@@ -28,7 +28,9 @@ import path from "node:path";
 let ctx: EvalContext;
 
 beforeAll(async () => {
-  ctx = await setupEvalContext({ seedFiles: { "src/x.ts": "export const x = 1;\n" } });
+  ctx = await setupEvalContext({
+    seedFiles: { "src/x.ts": "export const x = 1;\n" },
+  });
 });
 
 afterAll(async () => {
@@ -40,10 +42,15 @@ function dispatchedSystemText(scenarioId: string): string {
   const reqs = ctx.server.requestsFor(scenarioId) as Array<{
     messages?: Array<{ role?: string; content?: unknown }>;
   }>;
-  expect(reqs.length, "no request recorded — the turn never dispatched").toBeGreaterThan(0);
+  expect(
+    reqs.length,
+    "no request recorded — the turn never dispatched",
+  ).toBeGreaterThan(0);
   return (reqs[0].messages ?? [])
     .filter((m) => m.role === "system")
-    .map((m) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content)))
+    .map((m) =>
+      typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+    )
     .join("\n");
 }
 
@@ -108,9 +115,10 @@ describe("memory location reaches the dispatched prompt", () => {
    */
   it("names the directory for a store that does not exist yet", async () => {
     const dir = memoryDirFor(ctx.ws.dir);
-    expect(fs.existsSync(dir), "fixture precondition: the store must NOT exist").toBe(
-      false,
-    );
+    expect(
+      fs.existsSync(dir),
+      "fixture precondition: the store must NOT exist",
+    ).toBe(false);
 
     const id = "mem-fresh";
     ctx.server.register(scenario(id).text("Done.").repeatLast().build());

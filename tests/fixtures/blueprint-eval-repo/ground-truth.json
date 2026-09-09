@@ -7,9 +7,7 @@
       "section": "src",
       "task": "Where is password hashing implemented?",
       "topic": "password|hash",
-      "targetFiles": [
-        "src/lib/crypto/hash.ts"
-      ]
+      "targetFiles": ["src/lib/crypto/hash.ts"]
     },
     {
       "id": "login-session",
@@ -17,10 +15,7 @@
       "section": "src",
       "task": "How does user login create a session?",
       "topic": "login|session",
-      "targetFiles": [
-        "src/api/auth/login.ts",
-        "src/api/auth/session.ts"
-      ]
+      "targetFiles": ["src/api/auth/login.ts", "src/api/auth/session.ts"]
     },
     {
       "id": "register",
@@ -28,9 +23,7 @@
       "section": "src",
       "task": "What happens during user registration?",
       "topic": "register|signup",
-      "targetFiles": [
-        "src/api/auth/register.ts"
-      ]
+      "targetFiles": ["src/api/auth/register.ts"]
     },
     {
       "id": "logout",
@@ -38,9 +31,7 @@
       "section": "src",
       "task": "Where do we log users out / invalidate their session?",
       "topic": "session|invalidate|logout",
-      "targetFiles": [
-        "src/api/auth/session.ts"
-      ]
+      "targetFiles": ["src/api/auth/session.ts"]
     },
     {
       "id": "stripe",
@@ -48,9 +39,7 @@
       "section": "src",
       "task": "Where do we talk to the Stripe API?",
       "topic": "stripe",
-      "targetFiles": [
-        "src/api/payments/stripe-client.ts"
-      ]
+      "targetFiles": ["src/api/payments/stripe-client.ts"]
     },
     {
       "id": "charge",
@@ -58,9 +47,7 @@
       "section": "src",
       "task": "How is a customer card charged?",
       "topic": "charge|card",
-      "targetFiles": [
-        "src/api/payments/charge.ts"
-      ]
+      "targetFiles": ["src/api/payments/charge.ts"]
     },
     {
       "id": "refund",
@@ -68,9 +55,7 @@
       "section": "src",
       "task": "How are refunds processed?",
       "topic": "refund",
-      "targetFiles": [
-        "src/api/payments/refund.ts"
-      ]
+      "targetFiles": ["src/api/payments/refund.ts"]
     },
     {
       "id": "transactions",
@@ -78,9 +63,7 @@
       "section": "src",
       "task": "Where are payment transactions recorded and looked up?",
       "topic": "transaction",
-      "targetFiles": [
-        "src/api/payments/transactions.ts"
-      ]
+      "targetFiles": ["src/api/payments/transactions.ts"]
     },
     {
       "id": "email-send",
@@ -88,10 +71,7 @@
       "section": "src",
       "task": "How do we send email notifications to customers?",
       "topic": "email|notification|smtp",
-      "targetFiles": [
-        "src/api/notifications/email.ts",
-        "src/lib/http/smtp.ts"
-      ]
+      "targetFiles": ["src/api/notifications/email.ts", "src/lib/http/smtp.ts"]
     },
     {
       "id": "templates",
@@ -99,9 +79,7 @@
       "section": "src",
       "task": "Where are the email templates rendered?",
       "topic": "template",
-      "targetFiles": [
-        "src/api/notifications/templates.ts"
-      ]
+      "targetFiles": ["src/api/notifications/templates.ts"]
     },
     {
       "id": "db-layer",
@@ -109,9 +87,7 @@
       "section": "src",
       "task": "Where is the database query layer?",
       "topic": "db|query|database",
-      "targetFiles": [
-        "src/lib/db/client.ts"
-      ]
+      "targetFiles": ["src/lib/db/client.ts"]
     },
     {
       "id": "save-user",
@@ -119,9 +95,7 @@
       "section": "src",
       "task": "Where are users persisted to the database?",
       "topic": "user|save",
-      "targetFiles": [
-        "src/lib/db/users.ts"
-      ]
+      "targetFiles": ["src/lib/db/users.ts"]
     },
     {
       "id": "job-dispatch",
@@ -129,9 +103,7 @@
       "section": "src",
       "task": "How are background jobs dispatched by type?",
       "topic": "job|dispatch|queue",
-      "targetFiles": [
-        "src/lib/queue/dispatch.ts"
-      ]
+      "targetFiles": ["src/lib/queue/dispatch.ts"]
     },
     {
       "id": "cart",
@@ -139,9 +111,7 @@
       "section": "src",
       "task": "How is the shopping cart rendered?",
       "topic": "cart",
-      "targetFiles": [
-        "src/web/components/Cart.ts"
-      ]
+      "targetFiles": ["src/web/components/Cart.ts"]
     },
     {
       "id": "checkout",
@@ -160,9 +130,7 @@
       "section": "src",
       "task": "Helpers for displaying prices to the user",
       "topic": "price|format",
-      "targetFiles": [
-        "src/web/format.ts"
-      ]
+      "targetFiles": ["src/web/format.ts"]
     },
     {
       "id": "py-fetch",
@@ -170,9 +138,7 @@
       "section": "worker",
       "task": "Where are orders fetched from the shop API?",
       "topic": "fetch|order",
-      "targetFiles": [
-        "worker/ingest/fetcher.py"
-      ]
+      "targetFiles": ["worker/ingest/fetcher.py"]
     },
     {
       "id": "py-dedupe",
@@ -180,9 +146,7 @@
       "section": "worker",
       "task": "How are duplicate orders removed?",
       "topic": "dedupe|duplicate",
-      "targetFiles": [
-        "worker/ingest/dedupe.py"
-      ]
+      "targetFiles": ["worker/ingest/dedupe.py"]
     },
     {
       "id": "py-report",
@@ -190,9 +154,7 @@
       "section": "worker",
       "task": "Where is the daily sales report built?",
       "topic": "report|daily",
-      "targetFiles": [
-        "worker/report/daily.py"
-      ]
+      "targetFiles": ["worker/report/daily.py"]
     },
     {
       "id": "py-aggregate",
@@ -200,9 +162,7 @@
       "section": "worker",
       "task": "Where are order totals aggregated?",
       "topic": "aggregate|total",
-      "targetFiles": [
-        "worker/report/aggregate.py"
-      ]
+      "targetFiles": ["worker/report/aggregate.py"]
     }
   ]
 }

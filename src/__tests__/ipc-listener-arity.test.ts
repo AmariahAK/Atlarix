@@ -30,31 +30,42 @@ const FILES = [
 ];
 
 /** `.on("channel", (_event, payload) => …)` — the broken Electron-style shape. */
-const TWO_ARG_LISTENER = /\.on\(\s*["'][^"']+["']\s*,\s*\(\s*_?e(?:vent)?\s*(?::[^,)]+)?\s*,/;
+const TWO_ARG_LISTENER =
+  /\.on\(\s*["'][^"']+["']\s*,\s*\(\s*_?e(?:vent)?\s*(?::[^,)]+)?\s*,/;
 
 describe("renderer IPC listeners take exactly one argument", () => {
-  it.each(FILES)("%s has no Electron-style (event, payload) listener", (rel) => {
-    const src = fs.readFileSync(path.join(REPO_ROOT, rel), "utf8");
-    const offenders = src
-      .split("\n")
-      .map((line, i) => ({ line: line.trim(), n: i + 1 }))
-      .filter(({ line }) => TWO_ARG_LISTENER.test(line));
-    expect(offenders).toEqual([]);
-  });
+  it.each(FILES)(
+    "%s has no Electron-style (event, payload) listener",
+    (rel) => {
+      const src = fs.readFileSync(path.join(REPO_ROOT, rel), "utf8");
+      const offenders = src
+        .split("\n")
+        .map((line, i) => ({ line: line.trim(), n: i + 1 }))
+        .filter(({ line }) => TWO_ARG_LISTENER.test(line));
+      expect(offenders).toEqual([]);
+    },
+  );
 
   it("also rejects the named-listener form assigned before .on(...)", () => {
     // `const listener = (_event: unknown, payload: X) => handler(payload)` —
     // two of the eleven hid in this shape and grep for `.on("…", (_e` missed them.
-    const src = fs.readFileSync(path.join(REPO_ROOT, "src/ipc/ipc_client.ts"), "utf8");
+    const src = fs.readFileSync(
+      path.join(REPO_ROOT, "src/ipc/ipc_client.ts"),
+      "utf8",
+    );
     expect(src).not.toMatch(/const listener = \(_event: unknown,/);
   });
 
   it("the regex actually catches the shape it is guarding against", () => {
     expect(
-      TWO_ARG_LISTENER.test(`this.ipcRenderer.on("chat:x", (_e, payload: unknown) => {`),
+      TWO_ARG_LISTENER.test(
+        `this.ipcRenderer.on("chat:x", (_e, payload: unknown) => {`,
+      ),
     ).toBe(true);
     expect(
-      TWO_ARG_LISTENER.test(`this.ipcRenderer.on("chat:x", (payload: unknown) => {`),
+      TWO_ARG_LISTENER.test(
+        `this.ipcRenderer.on("chat:x", (payload: unknown) => {`,
+      ),
     ).toBe(false);
   });
 });

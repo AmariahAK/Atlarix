@@ -14,7 +14,11 @@ const isMac = process.platform === "darwin";
 
 describe.runIf(isMac)("read-only sandbox profile (macOS Seatbelt)", () => {
   const workspace = path.join(os.tmpdir(), "atlarix-ro-test-ws");
-  const base = { command: "cat package.json", shell: "/bin/zsh", workspacePath: workspace };
+  const base = {
+    command: "cat package.json",
+    shell: "/bin/zsh",
+    workspacePath: workspace,
+  };
 
   it("workspace IS writable in the default (workspace-write) profile", () => {
     const w = wrapCommandInSandbox({ ...base });
@@ -27,7 +31,11 @@ describe.runIf(isMac)("read-only sandbox profile (macOS Seatbelt)", () => {
 
   it("read-only profile OMITS the workspace from the writable subpaths", () => {
     const real = path.join(os.tmpdir()); // a path that exists
-    const w = wrapCommandInSandbox({ ...base, workspacePath: real, readOnly: true });
+    const w = wrapCommandInSandbox({
+      ...base,
+      workspacePath: real,
+      readOnly: true,
+    });
     const profile = w.args.join(" ");
     expect(w.sandboxed).toBe(true);
     // The read-only profile denies writes, and its allow-list is caches/tmp only —
@@ -37,7 +45,9 @@ describe.runIf(isMac)("read-only sandbox profile (macOS Seatbelt)", () => {
     // extra writable beyond that shared cache set.
     const roWritableCount = (profile.match(/subpath/g) ?? []).length;
     const rwWritableCount = (
-      wrapCommandInSandbox({ ...base, workspacePath: real }).args.join(" ").match(/subpath/g) ?? []
+      wrapCommandInSandbox({ ...base, workspacePath: real })
+        .args.join(" ")
+        .match(/subpath/g) ?? []
     ).length;
     // Workspace-write has at least as many writable subpaths as read-only.
     expect(rwWritableCount).toBeGreaterThanOrEqual(roWritableCount);

@@ -41,7 +41,10 @@ import { InlineToolPartCard } from "./InlineToolPartCard";
 import { InlinePermissionApprovals } from "./InlinePermissionApprovals";
 import { StreamToolCallCard } from "./StreamToolCallCard";
 import { flattenToolGroupsInThread } from "@/lib/chat/group-stream-tools";
-import { weaveIpcItemsIntoParts, type WovenEntry } from "@/lib/chat/timeline-weave";
+import {
+  weaveIpcItemsIntoParts,
+  type WovenEntry,
+} from "@/lib/chat/timeline-weave";
 import {
   compareThreadItems,
   consolidateSubagentRoundsInThread,
@@ -93,7 +96,9 @@ export function AssistantMessageBody({
   const chatId = chatIdProp ?? activeChatId ?? selectedChatId;
   // Scoped to THIS chat — a stream in another chat no longer re-renders this
   // message body every ~50ms flush (perf: kills whole-map fanout).
-  const streamThreadForChat = useAtomValue(streamThreadForChatAtom(chatId ?? -1));
+  const streamThreadForChat = useAtomValue(
+    streamThreadForChatAtom(chatId ?? -1),
+  );
   // Per-message / per-chat scoped selectors: a body re-renders only when ITS own
   // slice changes, not on every other message's stream flush (perf: kills the
   // all-mounted-bodies fanout). `-1` for a null id yields the empty slice.
@@ -101,10 +106,16 @@ export function AssistantMessageBody({
   const completedStreamThreadForMessage = useAtomValue(
     completedStreamThreadForMessageAtom(msgId),
   );
-  const inlineTimelineForMessage = useAtomValue(inlineTimelineForMessageAtom(msgId));
-  const thinkingForMessage = useAtomValue(completedTurnThinkingForMessageAtom(msgId));
+  const inlineTimelineForMessage = useAtomValue(
+    inlineTimelineForMessageAtom(msgId),
+  );
+  const thinkingForMessage = useAtomValue(
+    completedTurnThinkingForMessageAtom(msgId),
+  );
   const sourcesForMessage = useAtomValue(sourcesForMessageAtom(msgId));
-  const activityItems = useAtomValue(activityStreamItemsForChatAtom(chatId ?? -1));
+  const activityItems = useAtomValue(
+    activityStreamItemsForChatAtom(chatId ?? -1),
+  );
   const interleavedDisplayContentForMessage = useAtomValue(
     interleavedDisplayContentForMessageAtom(msgId),
   );
@@ -198,7 +209,10 @@ export function AssistantMessageBody({
 
   const synthesizedSubagentRound = useMemo(() => {
     if (isStreaming) return null;
-    if (hasSubagentRoundPanel(liveThread) || hasSubagentRoundPanel(completedThread)) {
+    if (
+      hasSubagentRoundPanel(liveThread) ||
+      hasSubagentRoundPanel(completedThread)
+    ) {
       return null;
     }
     return synthesizeSubagentRoundFromParts(parts);
@@ -220,13 +234,7 @@ export function AssistantMessageBody({
       activityItems,
       chatId,
     });
-  }, [
-    chatId,
-    isStreaming,
-    liveThread,
-    displayCompletedThread,
-    activityItems,
-  ]);
+  }, [chatId, isStreaming, liveThread, displayCompletedThread, activityItems]);
 
   const suppressDelegateTools = useMemo(
     () =>
@@ -265,22 +273,31 @@ export function AssistantMessageBody({
     setSubagentSeamOffset(effectiveContent.length);
   }, [liveSubagentRound, isStreaming, effectiveContent]);
 
-  const { before: partsBeforeDelegate, after: partsAfterDelegate } = useMemo(() => {
-    // Content-driven case: a delegate tool tag is present in the text — split there.
-    if (parts.some((p) => p.type === "tool" && isDelegateToolName(p.toolName))) {
+  const { before: partsBeforeDelegate, after: partsAfterDelegate } =
+    useMemo(() => {
+      // Content-driven case: a delegate tool tag is present in the text — split there.
+      if (
+        parts.some((p) => p.type === "tool" && isDelegateToolName(p.toolName))
+      ) {
+        return splitInterleavedAroundDelegates(parts);
+      }
+      // Native-FC case: no delegate tag in the text. Split the raw content at the
+      // recorded seam so the continuation renders AFTER the sub-agent panel.
+      if (liveSubagentRound && subagentSeamOffset != null) {
+        return splitContentPartsAtOffset(
+          effectiveContent,
+          subagentSeamOffset,
+          isStreaming,
+        );
+      }
       return splitInterleavedAroundDelegates(parts);
-    }
-    // Native-FC case: no delegate tag in the text. Split the raw content at the
-    // recorded seam so the continuation renders AFTER the sub-agent panel.
-    if (liveSubagentRound && subagentSeamOffset != null) {
-      return splitContentPartsAtOffset(
-        effectiveContent,
-        subagentSeamOffset,
-        isStreaming,
-      );
-    }
-    return splitInterleavedAroundDelegates(parts);
-  }, [parts, liveSubagentRound, subagentSeamOffset, effectiveContent, isStreaming]);
+    }, [
+      parts,
+      liveSubagentRound,
+      subagentSeamOffset,
+      effectiveContent,
+      isStreaming,
+    ]);
 
   const interleavedBefore = useMemo(
     () => filterDelegateToolParts(partsBeforeDelegate, suppressDelegateTools),
@@ -323,7 +340,8 @@ export function AssistantMessageBody({
       };
     }
     if (liveSubagentRound) return liveSubagentRound;
-    if (!isStreaming && synthesizedSubagentRound) return synthesizedSubagentRound;
+    if (!isStreaming && synthesizedSubagentRound)
+      return synthesizedSubagentRound;
     return null;
   }, [liveSubagentRound, isStreaming, synthesizedSubagentRound, stickyAgents]);
 
@@ -474,19 +492,15 @@ export function AssistantMessageBody({
   );
 
   const postStreamThoughtFromParts = useMemo(() => {
-    if (useInterleavedTimeline || isStreaming || frozenThoughtContent) return null;
+    if (useInterleavedTimeline || isStreaming || frozenThoughtContent)
+      return null;
     const thoughts = displayParts.filter(
       (p): p is Extract<AssistantMessagePart, { type: "thought" }> =>
         p.type === "thought",
     );
     if (!thoughts.length) return null;
     return thoughts.map((t) => t.content).join("\n\n");
-  }, [
-    useInterleavedTimeline,
-    isStreaming,
-    frozenThoughtContent,
-    displayParts,
-  ]);
+  }, [useInterleavedTimeline, isStreaming, frozenThoughtContent, displayParts]);
 
   if (useInterleavedTimeline) {
     return (
@@ -935,7 +949,11 @@ function WovenEntryList({
     <>
       {runs.map((run, ri) =>
         run.type === "parts" ? (
-          <PaginatedPartList key={`woven-run-${ri}`} parts={run.parts} {...props} />
+          <PaginatedPartList
+            key={`woven-run-${ri}`}
+            parts={run.parts}
+            {...props}
+          />
         ) : (
           <StreamThreadItemView
             key={`woven-${threadItemKey(run.item)}`}

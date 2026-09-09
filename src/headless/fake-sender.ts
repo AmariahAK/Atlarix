@@ -35,7 +35,9 @@ export interface FakeSender {
  *   retains everything, and a second accumulator here would double that cost on a
  *   multi-hour run. Must not throw; a throwing callback would abort the send.
  */
-export function makeFakeSender(onSend?: (send: RecordedSend) => void): FakeSender {
+export function makeFakeSender(
+  onSend?: (send: RecordedSend) => void,
+): FakeSender {
   const sends: RecordedSend[] = [];
   const waiters: Waiter[] = [];
 
@@ -83,7 +85,9 @@ export function makeFakeSender(onSend?: (send: RecordedSend) => void): FakeSende
           const i = waiters.indexOf(waiter);
           if (i >= 0) {
             waiters.splice(i, 1);
-            reject(new Error(`waitFor("${channel}") timed out after ${timeoutMs}ms`));
+            reject(
+              new Error(`waitFor("${channel}") timed out after ${timeoutMs}ms`),
+            );
           }
         }, timeoutMs);
         t.unref?.();

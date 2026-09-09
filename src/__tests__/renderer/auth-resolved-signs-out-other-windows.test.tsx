@@ -63,7 +63,9 @@ beforeEach(() => {
   invoke.mockClear();
   Object.defineProperty(window, "electron", {
     configurable: true,
-    value: { ipcRenderer: { invoke, on: () => () => {}, removeListener: () => {} } },
+    value: {
+      ipcRenderer: { invoke, on: () => () => {}, removeListener: () => {} },
+    },
   });
 });
 

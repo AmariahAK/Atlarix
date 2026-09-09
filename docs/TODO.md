@@ -23,48 +23,48 @@ reader's question is "was this done?" and an item that has to be re-investigated
 answer that costs more than the line.
 
 - [x] **Deep-search truncation** — `657ba43c`. Both halves measured first, as this item
-  demanded: synthesis drops NOTHING (it concatenates fetched content verbatim), and 20K
-  was genuinely too small (every page sampled ran 25K–75K chars). Fixed by ALLOCATING a
-  total across the URLs actually fetched (`deepFetchBudget`) rather than raising the flat
-  cap, so five results are unchanged and one or two get the whole budget.
+      demanded: synthesis drops NOTHING (it concatenates fetched content verbatim), and 20K
+      was genuinely too small (every page sampled ran 25K–75K chars). Fixed by ALLOCATING a
+      total across the URLs actually fetched (`deepFetchBudget`) rather than raising the flat
+      cap, so five results are unchanged and one or two get the whole budget.
 - [x] **Unsent draft survives a quit** — `856ff33e`. Keyed by SESSION UUID, which
-  sidesteps the ephemeral-numeric/persisted-UUID migration this item warned about rather
-  than implementing it. Residual, deliberate: a draft typed in the few milliseconds
-  before a session has a UUID is not persisted.
+      sidesteps the ephemeral-numeric/persisted-UUID migration this item warned about rather
+      than implementing it. Residual, deliberate: a draft typed in the few milliseconds
+      before a session has a UUID is not persisted.
 - [x] **Settings/Integrations sub-nav dropped** — `e7884f4b`. The item's premise was
-  wrong: the sidebar carried NO destination the tab row lacked (8 == 8, 5 == 5). The
-  real work was that removing the mounts left an empty 240px hover flyout.
+      wrong: the sidebar carried NO destination the tab row lacked (8 == 8, 5 == 5). The
+      real work was that removing the mounts left an empty 240px hover flyout.
 - [x] **New-window button + clock moved to the rail** — `0b5d7257`. Two corrections: they
-  were never in the chat header (they were in the AppList group header), and the clock is
-  NOT a history button — `LocalDateTimeClock` has no onClick. **If a session-history
-  button is wanted, that is a new feature, not a move.**
+      were never in the chat header (they were in the AppList group header), and the clock is
+      NOT a history button — `LocalDateTimeClock` has no onClick. **If a session-history
+      button is wanted, that is a new feature, not a move.**
 - [x] **Session ordering on reopen** — `6c5dcf3e`. Two faults: reopen resumed the newest
-  session, AND the row handler no-opped on the already-active row, so the top row was
-  inert from anywhere in the app.
+      session, AND the row handler no-opped on the already-active row, so the top row was
+      inert from anywhere in the app.
 
 - [ ] **Language option — IN PROGRESS.** Thirteen locales:
-  `en-us, zh-hans, fr, de, hi, it, ja, ko, pl, pt-br, ru, es, tr` — and the Microsoft
-  Store listing already carries all thirteen, so no Store work is owed. **Owner chose
-  both halves in one release (2026-09-07)**, against the recommendation to ship the
-  response language first; the mitigation held is that each lands as its own commit so
-  the two prompt-budget ceiling movements stay separately attributable.
+      `en-us, zh-hans, fr, de, hi, it, ja, ko, pl, pt-br, ru, es, tr` — and the Microsoft
+      Store listing already carries all thirteen, so no Store work is owed. **Owner chose
+      both halves in one release (2026-09-07)**, against the recommendation to ship the
+      response language first; the mitigation held is that each lands as its own commit so
+      the two prompt-budget ceiling movements stay separately attributable.
   - [x] **PR-A infrastructure** — `26da434e`. i18next 26.4.2 + react-i18next 17.0.13,
-    `src/lib/i18n/locales.ts` as the single source of truth, `appLanguage` as an ENUM
-    (unlike free-form `voiceLanguage` — a value here selects a bundled catalog, so an
-    unknown tag is a blank UI), the `settings:changed` broadcast that fixes cross-window
-    staleness, and two guards proven to fire: TypeScript key types, and `check:i18n`
-    with a hardcoded-string ratchet at 315.
+        `src/lib/i18n/locales.ts` as the single source of truth, `appLanguage` as an ENUM
+        (unlike free-form `voiceLanguage` — a value here selects a bundled catalog, so an
+        unknown tag is a blank UI), the `settings:changed` broadcast that fixes cross-window
+        staleness, and two guards proven to fire: TypeScript key types, and `check:i18n`
+        with a hardcoded-string ratchet at 315.
   - [ ] **Response language.** In `stableHeader`, NOT the per-turn tail as this item
-    originally said — locale is stable for a session and the tail is the cache-hostile
-    half. Emit only when the locale is not `en-us`, so English installs pay zero. Needs a
-    SIXTH case in `prompt-budget.eval.test.ts` with `appLanguage: "fr"`, or the cost is
-    never measured (the suite runs in English) and the feature could ship silently dead.
-    **`AGENTS.md` must not carry it** — that file IS the shipped prompt, sent
-    unconditionally to every user.
+        originally said — locale is stable for a session and the tail is the cache-hostile
+        half. Emit only when the locale is not `en-us`, so English installs pay zero. Needs a
+        SIXTH case in `prompt-budget.eval.test.ts` with `appLanguage: "fr"`, or the cost is
+        never measured (the suite runs in English) and the feature could ship silently dead.
+        **`AGENTS.md` must not carry it** — that file IS the shipped prompt, sent
+        unconditionally to every user.
   - [ ] **UI i18n** — ~177 files, ~1,300 strings, estimated 7 weeks. Lands as PRs B–H,
-    one surface per catalog namespace so siblings never conflict: tool-activity-labels
-    (139 strings, best ratio, proves the pipeline) → settings → chat → components →
-    onboarding → main process → the 12 non-English catalogs.
+        one surface per catalog namespace so siblings never conflict: tool-activity-labels
+        (139 strings, best ratio, proves the pipeline) → settings → chat → components →
+        onboarding → main process → the 12 non-English catalogs.
   - Decided and worth not rediscovering: **RTL is fully descoped** (all 13 locales are
     LTR, and `check:i18n` fails if that changes); **diagnostics stay English**
     (`doctor.ts`, `self-test.ts`, `database-init-failure.ts` — a translated stack trace
@@ -180,7 +180,7 @@ answer that costs more than the line.
   the verb lookup came back `undefined` and there was no fallback. The done-tense path is a
   separate branch again — so a label can end up correct in one tense and generic in the other.
 - **ONE implementation, SIX announcements — the consolidation that got left behind.** v14.39.0
-  unified compaction into one compactor with three triggers and left the *announcing* hand-rolled
+  unified compaction into one compactor with three triggers and left the _announcing_ hand-rolled
   at six call sites across four files, with three labels ("Context compacted automatically",
   "Context compressed", "Summarizing in-task context") and inconsistent event types. **That
   inconsistency was itself the bug:** `context-assembly.ts`'s automatic pre-dispatch compaction
@@ -233,9 +233,9 @@ answer that costs more than the line.
     refusal above 1.5 MB — the downscale needs Electron's `nativeImage`, and its fallback
     would otherwise send the raw capture.
 - [x] **ANDROID VERIFIED 2026-09-04, against a real API 35 emulator — and it was BROKEN.**
-  Covered by the new `src/__tests__/mobile-live-android.test.ts` (
-  `describe.skipIf(!hasBootedDevice())` so it costs nothing without an SDK). Emulator installed
-  for the run and deleted immediately after.
+      Covered by the new `src/__tests__/mobile-live-android.test.ts` (
+      `describe.skipIf(!hasBootedDevice())` so it costs nothing without an SDK). Emulator installed
+      for the run and deleted immediately after.
 
   **THE BUG: `adb shell uiautomator dump /dev/tty` RETURNS NO XML.** Exit code 0, and stdout is
   exactly `UI hierchary dumped to: /dev/tty` — 32 characters, upstream's typo included, and not
@@ -255,7 +255,7 @@ answer that costs more than the line.
 
   What the run confirmed WORKS, once the dump is fixed: 14 elements parsed with correct centres
   (centre, not corner); `mobile_inspect` returning 840 characters of text; `exec-out screencap
-  -p` genuinely streaming (1,374,951 bytes, PNG magic `89504e47`); **tapping a real element by
+-p` genuinely streaming (1,374,951 bytes, PNG magic `89504e47`); **tapping a real element by
   ref** (`m3` → "Tapped drag_layer"); a stale ref failing loudly with the re-read instruction
   rather than acting on whatever now occupies the index; `settings get system show_touches`
   returning the literal string `null` when unset, which is exactly what the restore path is
@@ -373,8 +373,8 @@ by `tool-expand-view.test.ts:174-188` and `browser-recorder.test.ts`.
 
 **Why it FEELS unused, which is the real point:** its only trigger is
 `browser_inspect(mode:"screenshot")`, which the tool description deliberately calls a LAST RESORT.
-A feature reachable only from a discouraged path is rarely seen and still wired. *Rarely exercised is
-not the same as unreachable* — this is the same reachability-not-presence rule the Dyad-era removal
+A feature reachable only from a discouraged path is rarely seen and still wired. _Rarely exercised is
+not the same as unreachable_ — this is the same reachability-not-presence rule the Dyad-era removal
 ran on.
 
 ## 🧩 Browser extension — drive the user's OWN browser (queued 2026-09-07)
@@ -386,6 +386,7 @@ single biggest coverage win available: ~85% of desktop-agent tasks need no GUI c
 but a large share of the remainder is "the thing I'm already logged into".
 
 **Two dead ends, measured 2026-09-07, so nobody re-derives them:**
+
 - **CDP attach to the running browser is CLOSED.** Chromium ≥136 refuses
   `--remote-debugging-port` when the browser is on its default user-data-dir — shipped
   deliberately to kill a cookie-theft vector. You can only get a debug port on a fresh
@@ -459,13 +460,13 @@ desktop attaches to it as a tool provider while the sidebar calls it directly.
 Owner asked whether GLM 5.3 should stay now that Meta's **Muse Spark 1.3** exists. On paper
 it wins on every measurable axis, by a little:
 
-| | GLM 5.3 | Muse Spark 1.3 |
-|---|---|---|
-| in / out | $1.40 / $4.40 | $1.25 / $4.25 |
-| cache read | $0.26 | $0.15 |
-| context | 1.00M | 1.05M |
-| max output | 131,072 | 131,072 |
-| inputs | **text only** | text, image, video, pdf, audio |
+|            | GLM 5.3       | Muse Spark 1.3                 |
+| ---------- | ------------- | ------------------------------ |
+| in / out   | $1.40 / $4.40 | $1.25 / $4.25                  |
+| cache read | $0.26         | $0.15                          |
+| context    | 1.00M         | 1.05M                          |
+| max output | 131,072       | 131,072                        |
+| inputs     | **text only** | text, image, video, pdf, audio |
 
 First-party provider exists — `https://api.meta.ai/v1`, `META_MODEL_API_KEY`,
 OpenAI-compatible — and OpenRouter carries `meta/muse-spark-1.3` as a rollback target.
@@ -487,8 +488,8 @@ that Core requests are not logged or retained.
 
 ## 🔌 Core reliability + billing — found 2026-09-08 while diagnosing one dead turn
 
-One `read ECONNRESET` in the packaged app produced *"We're currently having trouble
-reaching Atlarix Core"*. The reset itself is transient and rare — **1 in 48 Core requests**
+One `read ECONNRESET` in the packaged app produced _"We're currently having trouble
+reaching Atlarix Core"_. The reset itself is transient and rare — **1 in 48 Core requests**
 in that log, 0 in the previous one. Everything below is what the investigation found
 AROUND it, and three of the four are real defects that the blip merely exposed.
 
@@ -500,6 +501,7 @@ like 30.3 seconds is the start of the USER'S TURN, not that request's. The op id
 step, never on the turn.
 
 Ruled out, each with evidence, so none of it needs repeating:
+
 - **Not the proxy.** Container up since 23:11:41, 10-minute config refreshes unbroken, no
   crash — and it settled that very generation normally at 23:15:26.
 - **Not the Responses translation, not large contexts, not a slow first byte.** A replay of
@@ -510,7 +512,8 @@ Ruled out, each with evidence, so none of it needs repeating:
   the request phase, before any response header, on **step 2 of the agent loop**.
 
 - [ ] **A network reset kills the whole turn, because the retry that exists cannot fire.**
-  This is the one worth fixing; the reset is weather, this is a bug. Three things line up:
+      This is the one worth fixing; the reset is weather, this is a bug. Three things line up:
+
   1. `simple-stream-text.ts:528` sets `maxRetries: 0` whenever tools are present — which
      for Atlarix is always. **Deliberate, do not just raise it:** the comment in
      `network-retry.ts` says it exists so the SDK's backoff does not multiply with ours.
@@ -534,25 +537,25 @@ Ruled out, each with evidence, so none of it needs repeating:
   mid-stream fault already retries today; that is exactly why this hole survived.
 
 - [ ] **The proxy bills output the client never received.** The proxy completed and settled
-  that generation (`tokens=42110 cents=5`) five seconds AFTER the app had given up. The
-  client's socket was gone; the proxy never noticed, because Railway's edge keeps reading
-  from us. Decide what is right here — most likely: nothing, since we genuinely paid
-  OpenAI for those tokens — but it should be a decision on the record rather than an
-  accident. Pairs with the item below.
+      that generation (`tokens=42110 cents=5`) five seconds AFTER the app had given up. The
+      client's socket was gone; the proxy never noticed, because Railway's edge keeps reading
+      from us. Decide what is right here — most likely: nothing, since we genuinely paid
+      OpenAI for those tokens — but it should be a decision on the record rather than an
+      accident. Pairs with the item below.
 
 - [ ] **A client abort charges the FULL reserve, which can exceed the true cost.** Measured,
-  not inferred: the same request cost **45c** completed and **58c** aborted —
-  `stream ended early (client-aborted)` → `NO PRICE for openai/gpt-5.6-terra (tokens=?,
-  computed=null) — charging 58c (reserve was 58c)`. The cause is structural: the usage
-  frame only arrives in the final event, so an early disconnect has no token count to price
-  from. Conservative-by-design, and defensible — but it overcharges the user on exactly the
-  failure they did not cause, and a flaky connection makes it repeatable. Options: meter
-  the deltas seen so far, or refund the difference on the next successful settle.
+      not inferred: the same request cost **45c** completed and **58c** aborted —
+      `stream ended early (client-aborted)` → `NO PRICE for openai/gpt-5.6-terra (tokens=?,
+computed=null) — charging 58c (reserve was 58c)`. The cause is structural: the usage
+      frame only arrives in the final event, so an early disconnect has no token count to price
+      from. Conservative-by-design, and defensible — but it overcharges the user on exactly the
+      failure they did not cause, and a flaky connection makes it repeatable. Options: meter
+      the deltas seen so far, or refund the difference on the next successful settle.
 
 - [ ] **Launchpad: a stopped login must not force a page refresh.** When the login is
-  interrupted or cancelled, the page is left in a state the user can only escape by
-  reloading. It should return to a usable signed-out form on its own. Separate from — and
-  do not confuse with — the unreproduced login failure below.
+      interrupted or cancelled, the page is left in a state the user can only escape by
+      reloading. It should return to a usable signed-out form on its own. Separate from — and
+      do not confuse with — the unreproduced login failure below.
 
 ## 🧾 `/v1/responses` — SHIPPED 2026-09-08, five things it deliberately left open
 
@@ -565,43 +568,43 @@ path never learned a second dialect. Live multi-turn tool loop confirmed on core
 What it did NOT do, in the order the plan itself ranked them:
 
 - [ ] **The rollback was never rehearsed — the plan required it and the session skipped it.**
-  *"An untested rollback is not a rollback — the OpenRouter fallback that silently expired
-  is the lesson."* Flip `providers.openai.protocol` back to `"openai"` in
-  `atlarix-releases/core-models.json`, confirm the tier returns to `/chat/completions` on
-  the next refresh with no deploy, then flip it forward again. Ten minutes, and until it is
-  done the "rollback is a config commit" claim is a belief, not a fact. **Do this first.**
+      _"An untested rollback is not a rollback — the OpenRouter fallback that silently expired
+      is the lesson."_ Flip `providers.openai.protocol` back to `"openai"` in
+      `atlarix-releases/core-models.json`, confirm the tier returns to `/chat/completions` on
+      the next refresh with no deploy, then flip it forward again. Ten minutes, and until it is
+      done the "rollback is a config commit" claim is a belief, not a fact. **Do this first.**
 
 - [ ] **The payoff is still unmeasured — the whole point may not be worth its price.**
-  Terra is $2.00/$12.00 per M against GLM 5.3's $1.40/$4.40. Reasoning is now unlocked, but
-  nobody has shown reasoning-Terra beats GLM 5.3 by enough to justify ~2.7× the output rate.
-  Run it on `tests/agent-evals`. If it loses, core-2 should go back to something cheaper and
-  the Responses path simply sits there costing nothing — it is config-selected.
+      Terra is $2.00/$12.00 per M against GLM 5.3's $1.40/$4.40. Reasoning is now unlocked, but
+      nobody has shown reasoning-Terra beats GLM 5.3 by enough to justify ~2.7× the output rate.
+      Run it on `tests/agent-evals`. If it loses, core-2 should go back to something cheaper and
+      the Responses path simply sits there costing nothing — it is config-selected.
 
 - [ ] **`xhigh` and `max` effort are reachable now and the app still cannot ask for them.**
-  The probe got the supported set verbatim from the API's own error:
-  `'none', 'low', 'medium', 'high', 'xhigh', and 'max'` — only `minimal` is rejected.
-  `thinking_utils.ts:85` clamps the client to `medium`/`high`, so two levels we are already
-  paying to have access to are unreachable. Cheap win; check the prompt-budget and cost
-  implications before exposing `max` as a default anything.
+      The probe got the supported set verbatim from the API's own error:
+      `'none', 'low', 'medium', 'high', 'xhigh', and 'max'` — only `minimal` is rejected.
+      `thinking_utils.ts:85` clamps the client to `medium`/`high`, so two levels we are already
+      paying to have access to are unreachable. Cheap win; check the prompt-budget and cost
+      implications before exposing `max` as a default anything.
 
 - [ ] **`pick-core-model.mjs --check` is still not wired into CI.** It exists and it works;
-  nothing runs it. A `core-models.json` edit that names a model the checker would reject
-  therefore ships live-on-merge to every installed app with no gate in front of it. That is
-  the same shape as the trap the checker was written to prevent.
+      nothing runs it. A `core-models.json` edit that names a model the checker would reject
+      therefore ships live-on-merge to every installed app with no gate in front of it. That is
+      the same shape as the trap the checker was written to prevent.
 
 - [ ] **Launchpad login — never reproduced, one unverified cause left.** Credentials,
-  providers and redirect URLs were all checked and are correct. The one thing not
-  verifiable from here is whether Vercel has `VITE_SUPABASE_URL` and
-  `VITE_SUPABASE_PUBLISHABLE_KEY` set for the deployed environment. Check that before
-  spending any time on the code — and note this is a DIFFERENT item from the
-  stopped-login-needs-a-refresh bug above.
+      providers and redirect URLs were all checked and are correct. The one thing not
+      verifiable from here is whether Vercel has `VITE_SUPABASE_URL` and
+      `VITE_SUPABASE_PUBLISHABLE_KEY` set for the deployed environment. Check that before
+      spending any time on the code — and note this is a DIFFERENT item from the
+      stopped-login-needs-a-refresh bug above.
 
 ## 🛡️ Launchpad: render the Turnstile widget (queued 2026-09-09, owner)
 
 **Captcha is ENABLED on the Supabase project** (Authentication → Attack Protection →
 Turnstile), and the Cloudflare widget `atlarix-auth` exists (Managed mode, 2 hostnames).
 Nothing renders it, so it has never been solved once — the Cloudflare dashboard reads
-*Insufficient Data* for that widget's "Likely human" column.
+_Insufficient Data_ for that widget's "Likely human" column.
 
 **Owed:** render the widget on `atlarix-launchpad/src/pages/Login.tsx` — the Turnstile
 script plus `<div class="cf-turnstile" data-sitekey=…>`, sitekey from a `VITE_` env var
@@ -634,46 +637,47 @@ commit message. `c9b8bed1` counted six plan gates deleted; there is a **seventh*
 residue and one deliberate decision worth recording so nobody "fixes" it later.
 
 - [ ] **MCP still has a live free-tier gate — remove it.**
-  `src/components/settings/ToolsMcpSettings.tsx:345` —
-  `plan === "free" && servers.length >= 1` — firing in three places: the add is blocked
-  with *"Free tier is limited to 1 MCP server. Upgrade to Pro for unlimited."* (`:409`),
-  an amber banner renders an **Upgrade to Pro** button (`:634-642`), and the Add button
-  is disabled (`:650`). `useUpgrade` is imported at `:336` solely for this.
-  **Why it survived:** `c9b8bed1` edited `McpMarketplaceTab.tsx` — the same feature's
-  OTHER surface. One feature, two settings surfaces, one missed. Grep the feature's noun
-  across `src/components`, not just the file the diff touched.
-  **Why it is worse than a stale flag:** Pro no longer sells unlimited MCP, so this is an
-  upgrade prompt for a benefit that does not exist — the exact rule
-  `workspace-caps.ts` states for the model (*"a model that suggests a purchase which does
-  not exist is worse than one that says nothing"*), broken in the UI. And there is **no
-  handler-side gate** in `mcp_handlers.ts`, so enforcement is renderer-only: a human is
-  capped in Settings while the agent adding servers through tools is not.
-  **Leave the sidebar Upgrade button alone** (`app-sidebar.tsx:236-247`) — Pro still sells
-  the Core allowance plus Reviewer, so prompting a free user there is correct. The line is:
-  selling the allowance is fine, gating a FEATURE behind it is not.
+      `src/components/settings/ToolsMcpSettings.tsx:345` —
+      `plan === "free" && servers.length >= 1` — firing in three places: the add is blocked
+      with _"Free tier is limited to 1 MCP server. Upgrade to Pro for unlimited."_ (`:409`),
+      an amber banner renders an **Upgrade to Pro** button (`:634-642`), and the Add button
+      is disabled (`:650`). `useUpgrade` is imported at `:336` solely for this.
+      **Why it survived:** `c9b8bed1` edited `McpMarketplaceTab.tsx` — the same feature's
+      OTHER surface. One feature, two settings surfaces, one missed. Grep the feature's noun
+      across `src/components`, not just the file the diff touched.
+      **Why it is worse than a stale flag:** Pro no longer sells unlimited MCP, so this is an
+      upgrade prompt for a benefit that does not exist — the exact rule
+      `workspace-caps.ts` states for the model (_"a model that suggests a purchase which does
+      not exist is worse than one that says nothing"_), broken in the UI. And there is **no
+      handler-side gate** in `mcp_handlers.ts`, so enforcement is renderer-only: a human is
+      capped in Settings while the agent adding servers through tools is not.
+      **Leave the sidebar Upgrade button alone** (`app-sidebar.tsx:236-247`) — Pro still sells
+      the Core allowance plus Reviewer, so prompting a free user there is correct. The line is:
+      selling the allowance is fine, gating a FEATURE behind it is not.
 
 - [x] **Resource caps are CORRECT as they stand — owner confirmed 2026-09-09.** MCP 10,
-  automations 10, skills 10, all per workspace. They are resource limits, not plan limits,
-  and no tier raises them. **Do not touch the numbers.**
-  - [ ] One consolidation owed, no behaviour change: `workspace-caps.ts` opens *"The
-    per-workspace caps, in one place"* and holds only MCP and automations. The skills cap
-    is `SKILLS_WORKSPACE_MAX` at `src/ipc/handlers/skills_handlers.ts:23`. Three caps, one
-    living outside the file that exists to prevent precisely this drift.
+      automations 10, skills 10, all per workspace. They are resource limits, not plan limits,
+      and no tier raises them. **Do not touch the numbers.**
+
+  - [ ] One consolidation owed, no behaviour change: `workspace-caps.ts` opens _"The
+        per-workspace caps, in one place"_ and holds only MCP and automations. The skills cap
+        is `SKILLS_WORKSPACE_MAX` at `src/ipc/handlers/skills_handlers.ts:23`. Three caps, one
+        living outside the file that exists to prevent precisely this drift.
 
 - [x] **Account registration is REQUIRED and stays — owner decision 2026-09-09.**
-  `src/components/SimpleChatInput.tsx:127` sets `mustSignIn = !isAuthenticated` and
-  disables the whole composer, attachments and voice included. So BYOK and local Ollama
-  are free of metering but **not usable anonymously** — an Atlarix account is needed to
-  send anything at all. This is deliberate. **Do not remove it**, and do not file it as
-  friction; it is written down here because it reads like an oversight and is not.
+      `src/components/SimpleChatInput.tsx:127` sets `mustSignIn = !isAuthenticated` and
+      disables the whole composer, attachments and voice included. So BYOK and local Ollama
+      are free of metering but **not usable anonymously** — an Atlarix account is needed to
+      send anything at all. This is deliberate. **Do not remove it**, and do not file it as
+      friction; it is written down here because it reads like an oversight and is not.
 
 - [ ] **Delete the plan-gate residue.** `src/lib/plan-limit-error.ts` and
-  `src/lib/sentry-ignore-patterns.ts:13-14` still classify *"Upgrade to Pro for unlimited
-  workspaces"* as expected gating. That string no longer exists in the app — it survives
-  only in `src/__tests__/sentry-before-send.test.ts:9`. **A fixture keeping a dead branch
-  alive**, the same shape as the `listConfiguredMcps` scope trap. Delete the module, the
-  two patterns and the fixture together; keep the MCP pattern only until the gate above is
-  gone, then it goes too.
+      `src/lib/sentry-ignore-patterns.ts:13-14` still classify _"Upgrade to Pro for unlimited
+      workspaces"_ as expected gating. That string no longer exists in the app — it survives
+      only in `src/__tests__/sentry-before-send.test.ts:9`. **A fixture keeping a dead branch
+      alive**, the same shape as the `listConfiguredMcps` scope trap. Delete the module, the
+      two patterns and the fixture together; keep the MCP pattern only until the gate above is
+      gone, then it goes too.
 
 ## 🎚️ Core lineup → GLM 5.3 / Terra / Astra, default core-3 (owner-decided 2026-09-09)
 
@@ -695,20 +699,20 @@ reasoning is the worst place to economise. See also `token_utils.ts:176-184`, wh
 accidentally pinned at 32K for weeks — "truncated for no reason anyone could see."
 
 - [ ] **One-time "this slot changed" notice — owner decision, ship it with the flip.**
-  Two populations, and the SECOND is the larger one:
+      Two populations, and the SECOND is the larger one:
   - saved `core-3` selections move Sol → Astra ($2/$10 → $10/$50);
   - **everyone with no explicit selection moves Terra → Astra**, because the default moves
     core-2 → core-3. That is the bigger group and the bigger per-turn change.
-  Fire when the model resolved behind a user's EFFECTIVE selection (their persisted tier,
-  or the default if they have none) differs from last session AND is materially dearer.
-  Needs a remembered `tier → model id` baseline per install plus a price read
-  (`getCoreModelsDevTargetForTier` → `getModelsDevLimits`). Must NOT fire on first run —
-  no baseline means no notice, not a notice with an empty before. Dismissible, chat-surface,
-  same family as `LoadedSessionBanner`.
-  **Precedent, for the record:** `core-3` already went DeepSeek V4 Pro → Sol silently in
-  `b552014` (2026-09-08) and held DeepSeek since 2026-07-26. Slot-not-model is the shipped
-  design and the README sells it; the notice exists because a 5x move plus a default change
-  is a different magnitude, not because the design is wrong.
+    Fire when the model resolved behind a user's EFFECTIVE selection (their persisted tier,
+    or the default if they have none) differs from last session AND is materially dearer.
+    Needs a remembered `tier → model id` baseline per install plus a price read
+    (`getCoreModelsDevTargetForTier` → `getModelsDevLimits`). Must NOT fire on first run —
+    no baseline means no notice, not a notice with an empty before. Dismissible, chat-surface,
+    same family as `LoadedSessionBanner`.
+    **Precedent, for the record:** `core-3` already went DeepSeek V4 Pro → Sol silently in
+    `b552014` (2026-09-08) and held DeepSeek since 2026-07-26. Slot-not-model is the shipped
+    design and the README sells it; the notice exists because a 5x move plus a default change
+    is a different magnitude, not because the design is wrong.
 
 ### DEPLOY ORDER — the one thing "one release" cannot make simultaneous
 
@@ -716,11 +720,11 @@ Owner chose to ship everything as one release. That is the planning unit, but th
 do NOT reach users together, and getting the order wrong reproduces the
 OAuth-redirect-allowlist trap (a server-side flip old clients cannot satisfy):
 
-| Change | Reaches whom |
-| --- | --- |
-| `core-models.json` flip | **every installed build, within 10 min** |
-| proxy clamp removal | **every installed build, on deploy** |
-| slot-change notice · `required_cents` in the refusal · tips · cleanup | only builds that UPDATE |
+| Change                                                                | Reaches whom                             |
+| --------------------------------------------------------------------- | ---------------------------------------- |
+| `core-models.json` flip                                               | **every installed build, within 10 min** |
+| proxy clamp removal                                                   | **every installed build, on deploy**     |
+| slot-change notice · `required_cents` in the refusal · tips · cleanup | only builds that UPDATE                  |
 
 So **ship the client first, let it propagate, then flip config and deploy the proxy.**
 Reversed, existing users get Astra as their default at $10/$50 with a blunt "balance is used
@@ -733,13 +737,13 @@ again. Ten minutes, and it is the one lever that has never been pulled — which
 on the release that changes which model sits behind it.
 
 - [ ] **Guard the next mispricing, since `--check` passed clean through this one.**
-  `pick-core-model.mjs --check` verifies a price EXISTS, never that it is right — it reported
-  "No problems found" on all three tiers with Sol mispriced 2x. Add a cross-check of
-  models.dev against OpenRouter's standard-endpoint price per model, failing on a material
-  mismatch, and wire `--check` into CI (still not wired; a `core-models.json` edit ships
-  live-on-merge with no gate). Also: `configSnippet` (`:186`) hardcodes
-  `"protocol": "openai"` — regenerating the openai provider block from the script silently
-  reverts the Responses work.
+      `pick-core-model.mjs --check` verifies a price EXISTS, never that it is right — it reported
+      "No problems found" on all three tiers with Sol mispriced 2x. Add a cross-check of
+      models.dev against OpenRouter's standard-endpoint price per model, failing on a material
+      mismatch, and wire `--check` into CI (still not wired; a `core-models.json` edit ships
+      live-on-merge with no gate). Also: `configSnippet` (`:186`) hardcodes
+      `"protocol": "openai"` — regenerating the openai provider block from the script silently
+      reverts the Responses work.
 
 ## 🛑 Credit exhaustion must stop the sub-agent round (owner, 2026-09-09)
 
@@ -756,13 +760,13 @@ Every primitive already exists and none of them are connected.
 **Two directions, and the second is the one that matters — do not ship only the first.**
 
 - [ ] **Parent turn 402s → cancel the children.** One call at the classifier site. Easy,
-  and insufficient on its own.
+      and insufficient on its own.
 - [ ] **A CHILD 402s → stop the whole round.** Each sub-agent runs its own stream, so a
-  child's 402 does not reach the parent's `onError` at all today. Every sibling will fail
-  identically — an empty wallet is not a per-agent condition — and each attempt still
-  consumes a reserve attempt on a wallet that has nothing. The child's credit verdict has
-  to reach the round's decision point and cancel the siblings, and the turn must say WHY
-  the round stopped rather than reporting N failed agents.
+      child's 402 does not reach the parent's `onError` at all today. Every sibling will fail
+      identically — an empty wallet is not a per-agent condition — and each attempt still
+      consumes a reserve attempt on a wallet that has nothing. The child's credit verdict has
+      to reach the round's decision point and cancel the siblings, and the turn must say WHY
+      the round stopped rather than reporting N failed agents.
 
 **Why this stops being hypothetical:** with the output clamp removed (owner decision, same
 day) each Astra call holds its full worst-case reserve — ~$9.24 at the 128K ceiling — so a
@@ -799,16 +803,16 @@ implementation detail.
 
 ## 🔜 Next session — the queue
 
-*(Unordered. It read "in order" while numbered 1, OPEN, 0, 1b, 3 with no 2 —
-numbers that do not sequence are worse than none.)*
+_(Unordered. It read "in order" while numbered 1, OPEN, 0, 1b, 3 with no 2 —
+numbers that do not sequence are worse than none.)_
 
 ### Harbor upstream integration — IN PROGRESS 2026-09-01
 
 **Why this route and not a submission.** Terminal-Bench 4.0 community submissions are CLOSED —
-`leaderboard/SUBMIT.md`: *"Only submissions run by the maintainers will be added."* The
+`leaderboard/SUBMIT.md`: _"Only submissions run by the maintainers will be added."_ The
 leaderboard repo pins one dataset (`dataset_version_refs: ['4']`), so 2.1 is not a back door
 either. A listed run therefore has to be executed BY a maintainer, which means Atlarix has to be
-a pre-integrated Harbor agent. `CONTRIBUTING.md` is *"fairly liberal"* about agent integrations
+a pre-integrated Harbor agent. `CONTRIBUTING.md` is _"fairly liberal"_ about agent integrations
 and asks only that **one user of the agent** request it (precedent: harbor issue #2942, where a
 commenter with `author_association: NONE` satisfied it the next day).
 
@@ -822,6 +826,7 @@ token in secrets); reasoning reaches the wire at the model's ceiling; the self-t
 `--version` answers; `--trajectory-file` streams JSONL with secrets redacted.
 
 **Owed:**
+
 - `src/harbor/agents/installed/atlarix.py` in the fork at `../harbor`, plus `AgentName.ATLARIX`
   and `factory.py` — the only three touchpoints (verified by searching `AgentName.OPENCODE`).
   Mirror `opencode.py`: `ModelConnectionSpec(passthrough=True)`, `ensure_system_dependencies`,
@@ -845,7 +850,7 @@ human, with a disclosure that an agent wrote the code), then get one real user t
 **Four things only a REAL run found — unit tests passed through all of them.**
 
 - **The inline tool tags carry ATTRIBUTES.** `<atlarix-tool-call tool="run_command"
-  status="running">`, not `<atlarix-tool-call>`. A stripper anchored on the bare tag matched
+status="running">`, not `<atlarix-tool-call>`. A stripper anchored on the bare tag matched
   nothing a live stream produces, so the whole serialised call block was spliced into
   `assistant_text` as though the model had said it. Tests using bare tags passed.
 - **A command's completion is announced TWICE.** The canonical `chat:activity` event carries
@@ -892,7 +897,6 @@ exactly why none of them should be acted on yet.
 **Owed before release:** verify in the PACKAGED app (a long real session, quit, reopen, confirm the
 meter and the history start from the summary), then `/security-review` on the diff.
 
-
 ### OAuth redirect allowlist — OWNER ACTION, still owed
 
 The code fix shipped in v14.38.4 (`AUTH_CALLBACK_URL` is now the canonical two-slash
@@ -905,8 +909,8 @@ URLs, alongside the two-slash entry, and keep both until those builds are gone.
 
 - **Not the literal three-slash string** — the dashboard's validator rejects an empty host.
 - **Not `atlarix://**`** — that would also match `atlarix://mcp/oauth/callback`, making the MCP deep
-  link a legal OAuth redirect target. Verified 2026-08-29 against `gobwas/glob` as GoTrue compiles
-  it: `*` matches the empty host, so the narrow pattern hits the three-slash form and nothing else.
+link a legal OAuth redirect target. Verified 2026-08-29 against `gobwas/glob`as GoTrue compiles
+it:`\*` matches the empty host, so the narrow pattern hits the three-slash form and nothing else.
 - **Not via `supabase config push`** — `supabase/config.toml`'s `[auth]` block is the LOCAL stack's,
   so a push overwrites the hosted Site URL with `127.0.0.1`.
 
@@ -927,6 +931,7 @@ so nothing replays history.
 
 Until then the account page falls back to the old "selected repositories" wording, which
 is the honest thing for it to say. Two ways out:
+
 - **Trivial:** add or remove one repository in the GitHub App's install settings. That
   fires the event and the list fills for that install.
 - **Proper, if it ever matters at scale:** a one-time backfill calling
@@ -957,18 +962,19 @@ only for the standing lessons, which apply to the next sweep:
   mismatch AND unreachable, so the correct response was deletion, not a fix. `git grep` finds
   presence; tracing the producers finds reachability.
 - **An error can arrive as a success.** A 200 response, a well-formed stream, and `finish_reason:
-  "network_error"` — nothing throws, so every retry path stays disarmed and the turn truncates in
+"network_error"` — nothing throws, so every retry path stays disarmed and the turn truncates in
   silence. When a provider hands you a field you never read, ask what it can say.
 - **Windows path spellings are a security surface, not a formatting detail.** `path.isAbsolute` is
   `true` for `\\host\share` on Windows, and the relative branch has rejected UNC for years while the
   absolute branch — the spelling an attacker would use — does not. The guard written for this was
   removed on the owner's call (see the decision record above); the observation stands, and any future
   read-deny work inherits it.
+
 ## 💵 Pricing — SETTLED 2026-08-26, and the code that implements it
 
 > Owner decisions, recorded so they are not re-argued. The reframe's rule survives intact: **never
 > ship a tier whose fee is fully consumed by bundled inference.** What changed is that the fee now
-> includes *some* inference, because the old shape asked for two purchases before a new user's first
+> includes _some_ inference, because the old shape asked for two purchases before a new user's first
 > agent turn — and that is where the funnel was dying. 108 users at the time of this decision.
 
 - **Atlarix Pro stays $19/mo** and now includes a **$10 monthly Core allowance**, PAYG on top. Price
@@ -1027,7 +1033,7 @@ only for the standing lessons, which apply to the next sweep:
   RPC, and nothing anywhere reads `credit_wallet` directly. Verified across all three repos before
   relying on it.
 - **An allowance is SET, not added, so `(kind, ref)` idempotency cannot protect it.** That index makes
-  repeated INSERTs safe, which assumes deltas add up. A replayed grant has to be refused *before* any
+  repeated INSERTs safe, which assumes deltas add up. A replayed grant has to be refused _before_ any
   arithmetic — hence `credit_grants.ref`, checked first.
 - **One `granted_cents` column cannot serve two products.** With SET semantics, whichever subscription
   renews second silently wipes the other's allowance. Caught while wiring the reviewer, before it
@@ -1219,7 +1225,7 @@ hardware, check that the hardware is what it is actually blocked on.
   the hook. **The sign-out half is now scoped:** `SubscriptionManager.signOut()` does not broadcast
   `auth:resolved`, so only the instance that initiated a sign-out updates and a second window keeps
   a stale session. `broadcastAuthResolved()` already has no null-session guard (deliberately — that
-  guard *was* the bug), so the fix is one call plus making `handleAuthResolved` clear `user`/`status`
+  guard _was_ the bug), so the fix is one call plus making `handleAuthResolved` clear `user`/`status`
   on a null user instead of early-returning. Do it with the rest of the unshared-hook work.
 - **`ai@7`'s `instructions` placement is the aligned end state, not done.** `role:"system"` inside
   `messages` is re-permitted with `allowSystemInMessages: true` so the v10.1 prompt-cache layout
@@ -1238,8 +1244,8 @@ hardware, check that the hardware is what it is actually blocked on.
   after the App went public (2026-08-27), which is when GitHub's own guidance says to contact them.
   FIRST check <https://github.com/settings/apps> for rejection notes, requested changes, or a
   still-pending review — the answer is often already there. If there is genuinely no communication,
-  file at <https://support.github.com/contact> → *What can we help with?* → **Marketplace** →
-  *"App review pending for X weeks, no updates received"*, including the app name, App ID, the
+  file at <https://support.github.com/contact> → _What can we help with?_ → **Marketplace** →
+  _"App review pending for X weeks, no updates received"_, including the app name, App ID, the
   GitHub org/account used to submit, and the SUBMISSION date (which may differ from the date the
   App went public).
 - **`build-msix` must `needs: build-linux`.** It declares `needs: [quality]` but genuinely
@@ -1398,7 +1404,7 @@ that actually installed the App. Verified read-only and NOT to be re-litigated: 
 at worst-case cost, which is precisely what stops an 8–12 call fan-out all clearing a gate only one
 of them could afford. And correctness never depends on the cache: Postgres stays the sole authority,
 every debit is JWT-scoped + RLS-backed and idempotent on the generation id. The file's own claim —
-extra replicas make it *less effective, never incorrect* — holds up. `spend_from_wallet` takes
+extra replicas make it _less effective, never incorrect_ — holds up. `spend_from_wallet` takes
 `FOR UPDATE` on the grant row, so simultaneous debits for one user serialise rather than race.
 
 **Residual 1 — multi-replica overspend, bounded and cheap.** Each replica has its own cache and its
@@ -1430,7 +1436,7 @@ installed the app. The repo-level check is deliberately NOT done: `github_instal
 still reads empty on both live installs, so gating on it would fail closed on real traffic. Worth
 having once that set is backfilled — see the repository-list item.
 
-**What would change the picture:** any of these becoming real needs a *measurement* first — the
+**What would change the picture:** any of these becoming real needs a _measurement_ first — the
 Supabase request count is the tell, and the 2026-08-26 lesson was that 704 requests/hour looked like
 the website and was actually a 5-second poll. Do not scale on a hunch.
 
@@ -1649,7 +1655,6 @@ move deleted the `workflow`, `mcp` and `skills` sections — and would have left
 dead entries, for exactly the reason the comment described. `settings-nav-parity.test.ts` is
 the control now (and was verified to FAIL against a reintroduced dead entry before being kept).
 
-
 ### Moving DNS: the zone is bigger than the zone you can see
 
 Migrating `atlarix.dev` to Cloudflare, 2026-09-01. Zero downtime, and the technique is the reason.
@@ -1707,18 +1712,16 @@ OAuth redirect, I stopped. **Auth flow and money flow are different questions** 
 A pure OAuth/OIDC redirect has nowhere to put one — `signInWithOAuth` takes no `captchaToken`, and
 the provider's own login page is where bot defence actually applies. Before budgeting the work, ask
 "does any auth endpoint take a credential in a request body I control?" If not, the item **closes**
-rather than defers. The trap is answering "add a CAPTCHA to login" without checking the auth *shape*
+rather than defers. The trap is answering "add a CAPTCHA to login" without checking the auth _shape_
 — and its mirror, which caught me here: having concluded that, do not then assume there is nothing
-to protect. `claim_signup_credit()` is an RPC that pays out real money per account and *could* carry
+to protect. `claim_signup_credit()` is an RPC that pays out real money per account and _could_ carry
 a token. Auth flow and money flow are different questions.
 
 ### A `sql` template does not qualify its columns — a subquery can silently self-compare
 
-`sql\`select count(*) from ${sessionMessages} where ${sessionMessages.sessionId} = ${chatSessions.id}\``
-renders BOTH sides unqualified: `where "session_id" = "id"`. Inside the subquery both names resolve
-against `session_messages`, which has its own `id`, so every row compared its `session_id` to its own
-`id` and the count was **structurally always zero**. It returned a plausible number, never threw, and
-drove a delete. Use a `leftJoin` + `groupBy` where the query builder qualifies for you; if a raw
+`sql\`select count(\*) from ${sessionMessages} where ${sessionMessages.sessionId} = ${chatSessions.id}\``renders BOTH sides unqualified:`where "session_id" = "id"`. Inside the subquery both names resolve
+against `session_messages`, which has its own `id`, so every row compared its `session_id`to its own`id`and the count was **structurally always zero**. It returned a plausible number, never threw, and
+drove a delete. Use a`leftJoin`+`groupBy` where the query builder qualifies for you; if a raw
 template is unavoidable, write the table prefixes by hand and test the count against a seeded row.
 
 The general form: **a query that returns a WRONG number is worse than one that throws**, and an
@@ -1742,7 +1745,6 @@ reply", because reply length has no relationship to window size. Subtract a real
 BPE collapses a run of one character to a couple of tokens, so a 70,000-character fixture built that
 way scores ~300 and every size assertion around it is vacuous. Build fixtures from varied text, and
 MEASURE them rather than assuming chars ÷ 4.
-
 
 ### An audit list is not the runtime gate
 
@@ -1769,7 +1771,6 @@ literal string, and changing it needs a migration.
 Corollary, learned the same hour: after writing a test for a bug, break the fix on purpose and
 confirm the test fails. Three mutations were tried here; the first version of the suite caught two.
 
-
 ### The local typecheck and CI's typecheck are DIFFERENT PROJECTS
 
 `npx tsc --noEmit -p tsconfig.json` passes on code that `npm run check:ts` rejects. CI runs the
@@ -1780,7 +1781,6 @@ latter, which is `tsc -p **tsconfig.app.json**` — and that is the project that
 **Run `npm run check:ts`, not a hand-rolled `tsc -p tsconfig.json`.** The launchpad has the mirror
 of this and its own note says so: "typechecked with tsconfig.app.json — the root tsconfig does not
 check src". Same shape, two repos. A gate that does not run CI's own command is not the gate.
-
 
 ### An audit line that RE-DERIVES a decision will eventually state the opposite of it
 
@@ -1795,7 +1795,6 @@ Sibling of "a comment claiming containment is not containment", and worse in one
 misleads whoever reads the code, an audit line misleads whoever is reconstructing an incident, which
 is the moment you can least afford it. **Any log asserting a security property must read the value
 that decided it, never recompute the condition.**
-
 
 ### A tool's own enum must be MAPPED, not compared against two values
 
@@ -1812,7 +1811,6 @@ supplies a field the production payload does not, it is testing a shape that nev
 
 Sibling of the "Runned <tool>" label trap: a new tool needs LABELS/DONE_LABELS and an expand-view
 branch — and now also a mapping for every value of its own operation enum.
-
 
 ### The prompt stated no workspace root, so an agent inverted the memory slug into one
 
@@ -1836,7 +1834,6 @@ reverted. **Paying for defensive prose in the cache prefix on every turn of ever
 one weak model's inference, is the surface growth the harness filter exists to stop.** State missing
 facts; do not argue with bad guesses.
 
-
 ### A redirect Supabase does not recognise is not refused — it is REPLACED
 
 GoTrue compiles every Redirect-URLs entry into a glob (separators `.` and `/`) and matches the
@@ -1853,7 +1850,6 @@ itself, byte for byte, against the string the client actually sends.
 **The generalisation:** a redirect URI is a shared constant that lives half in a dashboard nobody
 diffs. Whenever one is built by concatenation, print it and compare it to the allowlist entry
 character by character — `://` + `/path` is two slashes plus one.
-
 
 ### Deleting railway.toml FLIPS the builder — an 8-minute outage
 
@@ -1918,6 +1914,7 @@ and nothing surfaces it. So the Actions budget problem is not only about red bad
 stops shipping.
 
 **Two consequences for the flow:**
+
 - **Flip the repo public BEFORE the push, not after.** Railway evaluates the check suite as it
   lands; a CI run that goes green later does not retrigger the deploy.
 - `railway redeploy` **redeploys the last deployment's commit**, which is the OLD one — it looks
@@ -1963,7 +1960,7 @@ in `git log -- docs/TODO.md` and `CHANGELOG.md`.
 ### Packaging, signing and native modules
 
 - **`configureWebAuthn` before `whenReady` = SIGTRAP, exit 133** — `EXC_BREAKPOINT`, no exception, no
-  log, nothing a `try/catch` sees. Electron's "call it early" means early *within* the ready phase.
+  log, nothing a `try/catch` sees. Electron's "call it early" means early _within_ the ready phase.
 - **`keychain-access-groups` on a nested binary = SIGKILL, exit 137** — while `codesign -v` calls it
   "valid on disk" and says it satisfies its Designated Requirement. Two plists: the group goes on the
   **top-level bundle only**, selected by `!filePath.includes(".app/")` (osx-sign's own test).
@@ -1975,7 +1972,7 @@ in `git log -- docs/TODO.md` and `CHANGELOG.md`.
 - **A restricted entitlement needs an embedded provisioning profile, or the kernel SIGKILLs the app
   on exec — while `codesign -v` still calls it valid.** `keychain-access-groups` is one. Signing
   succeeds, the signature IS valid, and AMFI refuses the exec anyway, because codesign validates the
-  signature and AMFI validates the *authorisation*. Two different gates. Cost v14.35.0 two tags.
+  signature and AMFI validates the _authorisation_. Two different gates. Cost v14.35.0 two tags.
 - **A local package is ad-hoc signed, so NO entitlement can be tested locally.** `postPackage`
   re-signs with `--force --deep --sign -` (because `packageAfterPrune` strips files after packager
   signs), so the bundle ends up `flags=0x2(adhoc)` with no entitlements and no hardened runtime.
@@ -2025,20 +2022,19 @@ in `git log -- docs/TODO.md` and `CHANGELOG.md`.
   for that release — the lesson is that a green macOS/Linux matrix says nothing about
   the Windows job, which is also the only one that runs the test suite on Windows.
 
-
 - **Verify the artefact users reach, not the one you just wrote.** `/releases/latest` is picked by
   `created_at`, and `atlarix-releases` has ONE commit — every release ties, and the tie never breaks
   forward. Needs `make_latest` plus a read-back of `/releases/latest` itself.
 - **`curl -sS` exits 0 on an HTTP error.** A 503 mid-publish shipped a release as a DRAFT with all 12
   assets attached and every job green. Retry, then read the release back.
 - **A 4–10 second failure with no retrievable log is a BILLING problem**, and the cause is only in
-  the run **annotations**: *"The job was not started because an Actions budget is preventing further
-  use."* Workaround is flipping the repo private → public for the release window (Actions is free on
+  the run **annotations**: _"The job was not started because an Actions budget is preventing further
+  use."_ Workaround is flipping the repo private → public for the release window (Actions is free on
   public) — ask first, and remember clones made during the window persist.
 - **A hung job writes NO log** — `build-linux` sat 79 minutes on `apt-get` (11s the release before).
   Watch the **step's** `started_at`, not the run's. `cancel` + `rerun --failed` is lossless:
   successful jobs keep their outputs and uploaded assets are untouched.
-- **Duplicate asset uploads 422 *green* while keeping the OLD asset** — delete the draft before
+- **Duplicate asset uploads 422 _green_ while keeping the OLD asset** — delete the draft before
   re-tagging.
 - **Verify `extract-changelog.sh` matches your heading BEFORE tagging.** The workflow passes
   `${TAG#v}`, so the `v` is stripped; the body must exceed 700 bytes or it is the bare download list.
@@ -2059,18 +2055,19 @@ in `git log -- docs/TODO.md` and `CHANGELOG.md`.
   `{"upToDate":true,"migrations":[]}`. Both readings are exactly what you would see if the migration
   had silently never applied. A row in `supabase_migrations.schema_migrations` is a claim that the
   file ran, not evidence that the objects changed. **Verify against the database.** `supabase db
-  query --linked` exists and needs no password:
+query --linked` exists and needs no password:
 
-      -- did the body actually change?
-      select position('<a token unique to the new body>' in pg_get_functiondef(p.oid))
-      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-      where n.nspname = 'public' and p.proname = '<fn>';
+          -- did the body actually change?
+          select position('<a token unique to the new body>' in pg_get_functiondef(p.oid))
+          from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+          where n.nspname = 'public' and p.proname = '<fn>';
 
-      -- and did the grants survive? (see the PUBLIC trap below)
-      select array_to_string(p.proacl, ' | ') from pg_proc p … ;
+          -- and did the grants survive? (see the PUBLIC trap below)
+          select array_to_string(p.proacl, ' | ') from pg_proc p … ;
 
   A correct-looking `proacl` is `authenticated=X/postgres | service_role=X/postgres` — a bare
   `=X/postgres` entry with no role before the `=` IS the PUBLIC grant.
+
 - **After ANY `CREATE OR REPLACE` of a DEFINER function, read `proacl` back.** Postgres re-adds the
   default PUBLIC grant on replace, so a migration written to NARROW a function widens it unless the
   `REVOKE … FROM PUBLIC` is re-asserted — and the migration succeeds either way. This is how
@@ -2116,7 +2113,7 @@ in `git log -- docs/TODO.md` and `CHANGELOG.md`.
 
 - **A decision that is GLOBAL cannot be made from per-window state** — and its mirror, a per-window
   decision made from global settings, put a Build turn in a read-only sandbox (`cannot lock ref
-  'HEAD'`) across five sites, triggered by an EFFECT on window open with no click. Concatenate
+'HEAD'`) across five sites, triggered by an EFFECT on window open with no click. Concatenate
   `main.old.log` + `main.log` when reading either. A runaway also ACCELERATES as history grows, so a
   feedback loop is easier to spot by its changing period than its rate.
 - **The preload strips the Electron event** — renderer listeners must be `(payload) =>`; 11 written
@@ -2142,7 +2139,7 @@ in `git log -- docs/TODO.md` and `CHANGELOG.md`.
   `LanguageModelV2 | LanguageModelV3` and needed a hand-edit every SDK major; `AtlarixLanguageModel`
   makes the next spec bump free.
 - **A raw NUL byte makes ripgrep silently skip a file** in a recursive search — the `binary file
-  matches` notice only prints for files named explicitly. Four of our own source files were
+matches` notice only prints for files named explicitly. Four of our own source files were
   unsearchable, and `git diff` showed three as `Bin`, so review could not see them either. Write
   `\u0000`.
 - **Every NEW tool needs `LABELS`/`DONE_LABELS` entries and a `buildToolExpandView` branch**, or the
@@ -2223,9 +2220,9 @@ in `git log -- docs/TODO.md` and `CHANGELOG.md`.
 ## ✔️ Checked and CORRECT as-is — do not "fix" these
 
 From the 2026-08-05 hardcoding sweep and the v14.26.0 permission-surface audit. The test in every case
-is *what happens when the list is incomplete*; the reasoning is in git and `DESIGN_NOTES.md`.
+is _what happens when the list is incomplete_; the reasoning is in git and `DESIGN_NOTES.md`.
 
-- **`defaultWritablePaths`** (`lib/sandbox/wrap-command.ts`) — a *write* allowlist; incomplete fails
+- **`defaultWritablePaths`** (`lib/sandbox/wrap-command.ts`) — a _write_ allowlist; incomplete fails
   CLOSED into the escalation flow. Probing `$HOME` dynamically would WIDEN the sandbox.
 - **`DANGEROUS_PATTERNS`** / **`SYSTEM_SCOPE_PATTERNS`** — UX gates, not boundaries; the sandbox
   catches anything unlisted.
@@ -2256,7 +2253,7 @@ is *what happens when the list is incomplete*; the reasoning is in git and `DESI
   cost; how Devin and Copilot-in-Slack win). (b) A **shared, observable agent session** — a war room
   where teammates watch one run live, drop steering comments, approve actions and hand off, tied to
   the Workforce tier. The chat shell is not the differentiator;
-  the shared *agent* session is. Capture, don't build yet.
+  the shared _agent_ session is. Capture, don't build yet.
 
 ---
 
@@ -2266,22 +2263,22 @@ Full prose in [`CHANGELOG.md`](./CHANGELOG.md) (current window) and
 [`CHANGELOG_PREVIOUS.md`](./CHANGELOG_PREVIOUS.md) (archive). This table is the version → trap map;
 the traps themselves are consolidated above.
 
-| Version | Shipped | Trap |
-| --- | --- | --- |
-| **v14.39.1** | The compaction summary hidden from the chat and from `session_search`; the marker identified by a DB column instead of its first bytes; telemetry stopped writing before consent; error reports disclosed; every public data claim reconciled with the code | A comment is not a control: `showExtraFilesToast` opened with "NEVER send `files` — these are absolute paths" and then sent git's raw error, which quotes those same paths. `before_send` dropping events is not the same as writing nothing — `posthog.init` writes a distinct id to localStorage **and** a cookie before consent exists; gate INITIALISATION, not `persistence`, or you re-break `$session_id` continuity. A durable record must be identified STRUCTURALLY: `flattenNativeForCompaction` renders tool results as `{role:"user", content:"<tool_result …>"}`, the exact shape a text-matched marker keys on. Filter a hidden row at the RENDER choke point only — `hydrateSessionIntoChat` builds the model transport's refs from the same list the UI shows, so filtering earlier silently disables the compaction slice. |
-| **v14.39.0** | One compaction system — one summariser, three triggers, one durable marker; `session_search` to read behind it; drop-turns-first reordered to summarise-first; a turn envelope that stops growing; auxiliary sub-agent spend counted; the always-zero session message count fixed | An aggregate `sql` template that does not qualify its columns can self-compare and return 0 forever — here it fed `delete(chatSessions)`. Five absolute token constants each silently switched their own compaction step off on a small window: size every floor as a FRACTION of the budget it protects within. `"x".repeat(70_000)` scores ~300 tokens because BPE collapses a single-character run, so a "70K" fixture measures nothing — size fixtures in TOKENS and prove each test targets the band only its own step can act in. A guard that refuses on `updatedAt !== createdAt` will refuse forever once any bookkeeping write touches the row: binding a transport is not activity, and prune (destructive) and reuse (not) must not share a condition. |
-| **v14.38.1** | Usage bar as a percentage; purchased-credit headline; per-product allowance % and spend on the account page; two startup bugs | A module-level rule is not enforcement — `billing_copy.ts` forbids printing the allowance in dollars and the first thing that rendered it broke that rule. `vi.mock("electron")` does NOT reach a `createRequire` consumer, and `log.scope(name)` returns a NEW logger per call — both produce a green test that asserts nothing. **Confirm a regression test FAILS against the old code before keeping it.** `--doctor` never called `initializeDatabase()`; a bare `catch {}` reported that as the user's database being broken, next to a `Local database: OK` row. |
-| **v14.38.0** | Core included with Pro; the refund path the subscription wallet shipped without; browser tools on localhost; what's-new panel | A refund must reduce a period total by the amount **taken**, not the amount requested, or consumed exceeds total. Backfill a new column from the LEDGER, not from the remaining balance. A `WebContentsView` never added to the hierarchy lays out at ZERO WIDTH, so every answer about the page is plausibly wrong. Resolve a refund's account from the subscription row ONLY — taking from the wrong account is worse than granting to one. |
-| **v14.37.0** | Deep thinking on Core and every OpenAI-compatible provider; lines-written stats; web-search query fidelity | `compass` is a WIRE id, not a vendor: dispatch keys off the wire provider, capability off the vendor. A camelCase `reasoningEffort` sends NOTHING and throws nothing — assert on the DISPATCHED request. Anything reporting on a turn must read what dispatched, not what was selected, or a Core fallback files its work under the user's own key. |
-| **v14.36.0** | Diagnostics panel + `--doctor`; the database dead-end; per-session work mode; cold-chat eviction; debug routed like build; memory location at the top of the prompt | A new IPC channel is TWO edits — handler AND preload allowlist; three were missing and one (`sessions:snapshot-turn-ids`) was a live pre-existing bug behind a silent `catch {}`. A test that supplies the argument itself proves nothing about whether production passes it: four of five work modes lacked the memory path. Request counts did not distinguish the ask and build runners — diffing IPC channels did. `operation-targets` ended `default: break`, so an unknown operation was gated against nothing. |
-| **v14.35.0** | Electron 43, Touch ID passkeys, browser-backed web search, the spec-line majors, 54 → 28 advisories, the Dyad-era removal, the ban system, four plan-tracking fixes | Two silent macOS packaging traps (SIGTRAP 133, SIGKILL 137). `response.messages` became final-step-only. A stale `CREATE OR REPLACE` body nearly broke every client write to `users`. A NUL byte makes ripgrep skip a file. `created_at` is whole seconds. The plan ledger went stale at the **round** boundary, not the step boundary — `run-agent-turn` restarts `stepNumber` at 0 per round, so a take-once queue was already drained. Measured web search: 24/29/25 results where DDG and five public SearxNG instances returned 0/0/0. |
-| **v14.34.0** | Atlarix tests its own work; two windows stop fighting over one mode | A per-window decision made from GLOBAL settings put a Build turn in a read-only sandbox, across five sites, triggered by an effect on window open. Truncation was discarding 99% of its own budget and reordering. Sub-agents had **no way to ask**, which read as safety and was why they could not run commands. |
-| **v14.33.0** | automations that tell the agent; `operation:"run"` | Published ≠ latest, and `curl -sS` exits 0 on an HTTP error. **Verify the artefact users reach.** |
-| **v14.32.0** | native PDF parts; process-tree kill; `read_url` cache; browser panels per page load | A GLOBAL decision cannot be made from per-window state — 84 turn restarts in six minutes. Capability gating is **per MODEL**, never per provider (OpenAI accepts PDF on 15 of 47). `proc.killed` only records that you signalled. |
-| **v14.31.0** | Network tab; browser runtime gating removed; session-restore hang | `Network.enable` **hangs forever** on a never-navigated tab. A `Notification` unreferenced after `show()` is GC'd mid-display → native SIGSEGV. A broadcast that skips the empty case cannot clear a loading flag. |
-| **v14.30.0** | on-device dictation on Windows/Linux; ORT served from inside the app | An error names the model that **reported** it. `postinstall`'s trailing `\|\| true` guards patch-package, not the Electron install. |
-| **v14.29.0** | automated Store submission; WSL Landlock confinement | `latest-mac.yml` is arm64-only by design. Duplicate asset uploads 422 green while keeping the OLD asset. |
-| **v14.28.0** | MSIX on every tag; Windows sandbox rebuilt on Low IL | AppContainer is deny-by-default on **reads**. `cargo check --target …-msvc` works from macOS; `cargo build` proves nothing. |
-| **v14.27.0** | credentials stop vanishing; agent-visible automations | The preload strips the Electron event. `useAuth.loading` cannot distinguish "signed out" from "not known yet". |
-| **v14.26.0** | one engine for every file lookup; one answer per permission question | A Windows drive-letter colon is not a field separator. `path.isAbsolute("C:\\x")` is false on macOS. |
-| **v14.25.0** | honest context accounting; skills on demand; one grant list | A delta cache froze the newest row; `compatibleModes: [Debug]` silently meant EVERY mode; `ContextAssembler`'s budget is `Infinity`, so its trimReport is always empty. |
+| Version      | Shipped                                                                                                                                                                                                                                                                           | Trap                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **v14.39.1** | The compaction summary hidden from the chat and from `session_search`; the marker identified by a DB column instead of its first bytes; telemetry stopped writing before consent; error reports disclosed; every public data claim reconciled with the code                       | A comment is not a control: `showExtraFilesToast` opened with "NEVER send `files` — these are absolute paths" and then sent git's raw error, which quotes those same paths. `before_send` dropping events is not the same as writing nothing — `posthog.init` writes a distinct id to localStorage **and** a cookie before consent exists; gate INITIALISATION, not `persistence`, or you re-break `$session_id` continuity. A durable record must be identified STRUCTURALLY: `flattenNativeForCompaction` renders tool results as `{role:"user", content:"<tool_result …>"}`, the exact shape a text-matched marker keys on. Filter a hidden row at the RENDER choke point only — `hydrateSessionIntoChat` builds the model transport's refs from the same list the UI shows, so filtering earlier silently disables the compaction slice. |
+| **v14.39.0** | One compaction system — one summariser, three triggers, one durable marker; `session_search` to read behind it; drop-turns-first reordered to summarise-first; a turn envelope that stops growing; auxiliary sub-agent spend counted; the always-zero session message count fixed | An aggregate `sql` template that does not qualify its columns can self-compare and return 0 forever — here it fed `delete(chatSessions)`. Five absolute token constants each silently switched their own compaction step off on a small window: size every floor as a FRACTION of the budget it protects within. `"x".repeat(70_000)` scores ~300 tokens because BPE collapses a single-character run, so a "70K" fixture measures nothing — size fixtures in TOKENS and prove each test targets the band only its own step can act in. A guard that refuses on `updatedAt !== createdAt` will refuse forever once any bookkeeping write touches the row: binding a transport is not activity, and prune (destructive) and reuse (not) must not share a condition.                                                                           |
+| **v14.38.1** | Usage bar as a percentage; purchased-credit headline; per-product allowance % and spend on the account page; two startup bugs                                                                                                                                                     | A module-level rule is not enforcement — `billing_copy.ts` forbids printing the allowance in dollars and the first thing that rendered it broke that rule. `vi.mock("electron")` does NOT reach a `createRequire` consumer, and `log.scope(name)` returns a NEW logger per call — both produce a green test that asserts nothing. **Confirm a regression test FAILS against the old code before keeping it.** `--doctor` never called `initializeDatabase()`; a bare `catch {}` reported that as the user's database being broken, next to a `Local database: OK` row.                                                                                                                                                                                                                                                                       |
+| **v14.38.0** | Core included with Pro; the refund path the subscription wallet shipped without; browser tools on localhost; what's-new panel                                                                                                                                                     | A refund must reduce a period total by the amount **taken**, not the amount requested, or consumed exceeds total. Backfill a new column from the LEDGER, not from the remaining balance. A `WebContentsView` never added to the hierarchy lays out at ZERO WIDTH, so every answer about the page is plausibly wrong. Resolve a refund's account from the subscription row ONLY — taking from the wrong account is worse than granting to one.                                                                                                                                                                                                                                                                                                                                                                                                |
+| **v14.37.0** | Deep thinking on Core and every OpenAI-compatible provider; lines-written stats; web-search query fidelity                                                                                                                                                                        | `compass` is a WIRE id, not a vendor: dispatch keys off the wire provider, capability off the vendor. A camelCase `reasoningEffort` sends NOTHING and throws nothing — assert on the DISPATCHED request. Anything reporting on a turn must read what dispatched, not what was selected, or a Core fallback files its work under the user's own key.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| **v14.36.0** | Diagnostics panel + `--doctor`; the database dead-end; per-session work mode; cold-chat eviction; debug routed like build; memory location at the top of the prompt                                                                                                               | A new IPC channel is TWO edits — handler AND preload allowlist; three were missing and one (`sessions:snapshot-turn-ids`) was a live pre-existing bug behind a silent `catch {}`. A test that supplies the argument itself proves nothing about whether production passes it: four of five work modes lacked the memory path. Request counts did not distinguish the ask and build runners — diffing IPC channels did. `operation-targets` ended `default: break`, so an unknown operation was gated against nothing.                                                                                                                                                                                                                                                                                                                        |
+| **v14.35.0** | Electron 43, Touch ID passkeys, browser-backed web search, the spec-line majors, 54 → 28 advisories, the Dyad-era removal, the ban system, four plan-tracking fixes                                                                                                               | Two silent macOS packaging traps (SIGTRAP 133, SIGKILL 137). `response.messages` became final-step-only. A stale `CREATE OR REPLACE` body nearly broke every client write to `users`. A NUL byte makes ripgrep skip a file. `created_at` is whole seconds. The plan ledger went stale at the **round** boundary, not the step boundary — `run-agent-turn` restarts `stepNumber` at 0 per round, so a take-once queue was already drained. Measured web search: 24/29/25 results where DDG and five public SearxNG instances returned 0/0/0.                                                                                                                                                                                                                                                                                                  |
+| **v14.34.0** | Atlarix tests its own work; two windows stop fighting over one mode                                                                                                                                                                                                               | A per-window decision made from GLOBAL settings put a Build turn in a read-only sandbox, across five sites, triggered by an effect on window open. Truncation was discarding 99% of its own budget and reordering. Sub-agents had **no way to ask**, which read as safety and was why they could not run commands.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| **v14.33.0** | automations that tell the agent; `operation:"run"`                                                                                                                                                                                                                                | Published ≠ latest, and `curl -sS` exits 0 on an HTTP error. **Verify the artefact users reach.**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| **v14.32.0** | native PDF parts; process-tree kill; `read_url` cache; browser panels per page load                                                                                                                                                                                               | A GLOBAL decision cannot be made from per-window state — 84 turn restarts in six minutes. Capability gating is **per MODEL**, never per provider (OpenAI accepts PDF on 15 of 47). `proc.killed` only records that you signalled.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| **v14.31.0** | Network tab; browser runtime gating removed; session-restore hang                                                                                                                                                                                                                 | `Network.enable` **hangs forever** on a never-navigated tab. A `Notification` unreferenced after `show()` is GC'd mid-display → native SIGSEGV. A broadcast that skips the empty case cannot clear a loading flag.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| **v14.30.0** | on-device dictation on Windows/Linux; ORT served from inside the app                                                                                                                                                                                                              | An error names the model that **reported** it. `postinstall`'s trailing `\|\| true` guards patch-package, not the Electron install.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| **v14.29.0** | automated Store submission; WSL Landlock confinement                                                                                                                                                                                                                              | `latest-mac.yml` is arm64-only by design. Duplicate asset uploads 422 green while keeping the OLD asset.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| **v14.28.0** | MSIX on every tag; Windows sandbox rebuilt on Low IL                                                                                                                                                                                                                              | AppContainer is deny-by-default on **reads**. `cargo check --target …-msvc` works from macOS; `cargo build` proves nothing.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| **v14.27.0** | credentials stop vanishing; agent-visible automations                                                                                                                                                                                                                             | The preload strips the Electron event. `useAuth.loading` cannot distinguish "signed out" from "not known yet".                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| **v14.26.0** | one engine for every file lookup; one answer per permission question                                                                                                                                                                                                              | A Windows drive-letter colon is not a field separator. `path.isAbsolute("C:\\x")` is false on macOS.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| **v14.25.0** | honest context accounting; skills on demand; one grant list                                                                                                                                                                                                                       | A delta cache froze the newest row; `compatibleModes: [Debug]` silently meant EVERY mode; `ContextAssembler`'s budget is `Infinity`, so its trimReport is always empty.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |

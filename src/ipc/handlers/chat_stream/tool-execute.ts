@@ -11,8 +11,14 @@ import {
   evaluateRuleset,
   loadEffectiveRuleset,
 } from "@/lib/tools/permissions/ruleset";
-import { getStoredConsent, requestMcpToolConsent } from "@/ipc/utils/mcp_consent";
-import { requireMcpAuth, type RequireMcpAuthInfo } from "@/ipc/utils/mcp_auth_wait";
+import {
+  getStoredConsent,
+  requestMcpToolConsent,
+} from "@/ipc/utils/mcp_consent";
+import {
+  requireMcpAuth,
+  type RequireMcpAuthInfo,
+} from "@/ipc/utils/mcp_auth_wait";
 import { ToolRegistry } from "@/lib/tools";
 import { runCommandFailureGuidance } from "@/lib/tools/run-command-guidance";
 import { recordMutationOutcome } from "@/lib/agent/mutation-verify";
@@ -58,7 +64,9 @@ export async function runToolExecute(
   // uniformly (the legacy mode/category gates in the wrappers continue to
   // apply on top). No rules/hooks files ⇒ behavior identical to pre-2.2.
   const gateWorkspace =
-    typeof executeArgs.workspace === "string" ? executeArgs.workspace : undefined;
+    typeof executeArgs.workspace === "string"
+      ? executeArgs.workspace
+      : undefined;
   if (gateWorkspace) {
     // v14.41: EVALUATE BOTH THE AS-CALLED NAME AND THE CANONICAL ONE.
     //
@@ -130,7 +138,10 @@ export async function runToolExecute(
   if (toolName === "mcp_call") {
     executeArgs._mcpInvocationContext = streamOpts?.unattended
       ? {
-          requireConsent: async (info: { serverId: number; toolName: string }) =>
+          requireConsent: async (info: {
+            serverId: number;
+            toolName: string;
+          }) =>
             (await getStoredConsent(info.serverId, info.toolName)) === "always",
           requireAuth: async () => false,
         }

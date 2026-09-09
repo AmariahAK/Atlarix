@@ -75,72 +75,70 @@ async function readGrandchildPid(pidFile: string): Promise<number> {
 }
 
 posixOnly("killShellProcess — process tree", () => {
-  it(
-    "kills the grandchild, not just the shell",
-    async () => {
-      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "atlarix-killtree-"));
-      const pidFile = path.join(dir, "grandchild.pid");
-      // `detached: true` mirrors what runShellProcess now passes on POSIX.
-      const proc = spawnShellWithGrandchild(pidFile, true);
-      let grandchild = 0;
-      try {
-        grandchild = await readGrandchildPid(pidFile);
-        expect(isAlive(grandchild)).toBe(true);
+  it("kills the grandchild, not just the shell", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "atlarix-killtree-"));
+    const pidFile = path.join(dir, "grandchild.pid");
+    // `detached: true` mirrors what runShellProcess now passes on POSIX.
+    const proc = spawnShellWithGrandchild(pidFile, true);
+    let grandchild = 0;
+    try {
+      grandchild = await readGrandchildPid(pidFile);
+      expect(isAlive(grandchild)).toBe(true);
 
-        killShellProcess(proc);
+      killShellProcess(proc);
 
-        const shellGone = await waitFor(() => proc.exitCode !== null || proc.signalCode !== null, 5_000);
-        expect(shellGone).toBe(true);
+      const shellGone = await waitFor(
+        () => proc.exitCode !== null || proc.signalCode !== null,
+        5_000,
+      );
+      expect(shellGone).toBe(true);
 
-        const grandchildGone = await waitFor(() => !isAlive(grandchild), 5_000);
-        expect(grandchildGone).toBe(true);
-      } finally {
-        if (grandchild && isAlive(grandchild)) {
-          try {
-            process.kill(grandchild, "SIGKILL");
-          } catch {
-            /* noop */
-          }
+      const grandchildGone = await waitFor(() => !isAlive(grandchild), 5_000);
+      expect(grandchildGone).toBe(true);
+    } finally {
+      if (grandchild && isAlive(grandchild)) {
+        try {
+          process.kill(grandchild, "SIGKILL");
+        } catch {
+          /* noop */
         }
-        fs.rmSync(dir, { recursive: true, force: true });
       }
-    },
-    25_000,
-  );
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }, 25_000);
 
   /**
    * Pins the BUG, not only the fix: signalling the direct child alone leaves the
    * grandchild running. Without this, a regression that quietly dropped
    * `detached` would still let the test above pass on a fast machine.
    */
-  it(
-    "signalling only the direct child leaves the grandchild running",
-    async () => {
-      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "atlarix-killtree-"));
-      const pidFile = path.join(dir, "grandchild.pid");
-      const proc = spawnShellWithGrandchild(pidFile, false);
-      let grandchild = 0;
-      try {
-        grandchild = await readGrandchildPid(pidFile);
-        expect(isAlive(grandchild)).toBe(true);
+  it("signalling only the direct child leaves the grandchild running", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "atlarix-killtree-"));
+    const pidFile = path.join(dir, "grandchild.pid");
+    const proc = spawnShellWithGrandchild(pidFile, false);
+    let grandchild = 0;
+    try {
+      grandchild = await readGrandchildPid(pidFile);
+      expect(isAlive(grandchild)).toBe(true);
 
-        proc.kill("SIGKILL");
-        await waitFor(() => proc.exitCode !== null || proc.signalCode !== null, 5_000);
+      proc.kill("SIGKILL");
+      await waitFor(
+        () => proc.exitCode !== null || proc.signalCode !== null,
+        5_000,
+      );
 
-        // Give it the same grace the real kill path allows before concluding.
-        await new Promise((r) => setTimeout(r, 500));
-        expect(isAlive(grandchild)).toBe(true);
-      } finally {
-        if (grandchild && isAlive(grandchild)) {
-          try {
-            process.kill(grandchild, "SIGKILL");
-          } catch {
-            /* noop */
-          }
+      // Give it the same grace the real kill path allows before concluding.
+      await new Promise((r) => setTimeout(r, 500));
+      expect(isAlive(grandchild)).toBe(true);
+    } finally {
+      if (grandchild && isAlive(grandchild)) {
+        try {
+          process.kill(grandchild, "SIGKILL");
+        } catch {
+          /* noop */
         }
-        fs.rmSync(dir, { recursive: true, force: true });
       }
-    },
-    25_000,
-  );
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }, 25_000);
 });

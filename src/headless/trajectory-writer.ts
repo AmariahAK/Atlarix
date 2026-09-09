@@ -116,7 +116,9 @@ export function createTrajectoryWriter(
       // redact-secrets.ts), so JSON structure and ordinary text pass through.
       //
       // One syscall, newline included. See THE ONE INVARIANT above.
-      const line = redactSecretsInText(JSON.stringify({ ts: Date.now(), ...event }));
+      const line = redactSecretsInText(
+        JSON.stringify({ ts: Date.now(), ...event }),
+      );
       fs.writeSync(fd, `${line}\n`);
     } catch {
       // A full disk or a closed fd must not take the run down with it — the
@@ -157,7 +159,8 @@ export function createTrajectoryWriter(
           // never happened — six entries for four calls in a real run — and a
           // trajectory audit reads phantom calls as the agent doing things it
           // did not do. No id, no args and no result is no information.
-          if (!p.toolCallId && !p.toolArgs && p.resultText === undefined) return;
+          if (!p.toolCallId && !p.toolArgs && p.resultText === undefined)
+            return;
           // Emitted twice per call (running, then done/error). BOTH are kept: the
           // running timestamp is the only record of when a tool started, so
           // collapsing them here would discard duration. Pairing by toolCallId is
@@ -178,7 +181,9 @@ export function createTrajectoryWriter(
           // Each chunk re-sends the FULL accumulated content, not a delta, so
           // writing per chunk would make the file grow with the square of the
           // reply. Keep only the latest and split it once, at turn end.
-          const messages = p.messages as Array<{ role?: string; content?: string }> | undefined;
+          const messages = p.messages as
+            | Array<{ role?: string; content?: string }>
+            | undefined;
           const last = messages?.[messages.length - 1];
           if (last?.role === "assistant" && typeof last.content === "string") {
             lastAssistantRaw = last.content;
@@ -236,7 +241,9 @@ export function createTrajectoryWriter(
           writeLine({
             type: "error",
             message:
-              typeof p.error === "string" ? p.error : (p.message ?? JSON.stringify(p)),
+              typeof p.error === "string"
+                ? p.error
+                : (p.message ?? JSON.stringify(p)),
           });
           return;
         }

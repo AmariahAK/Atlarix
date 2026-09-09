@@ -31,7 +31,7 @@ export function registerSessionHandlers(): void {
     "respond-mode-change",
     async (
       _event,
-      payload: { chatId: number; approve: boolean; requestedMode?: string }
+      payload: { chatId: number; approve: boolean; requestedMode?: string },
     ): Promise<{ ok: boolean }> => {
       const { chatId, approve, requestedMode } = payload;
       resolveModeChange(chatId, approve);
@@ -40,7 +40,7 @@ export function registerSessionHandlers(): void {
         writeSettings(settingsPatchForWorkMode(mode));
       }
       return { ok: true };
-    }
+    },
   );
 
   // v11.1 end-turn ask_user: the asking turn already ENDED. Submitting answers
@@ -52,9 +52,16 @@ export function registerSessionHandlers(): void {
     "chat:submit-user-question-answer",
     async (
       event,
-      payload: { chatId: number; questionId: string; answer: string; questionText: string },
+      payload: {
+        chatId: number;
+        questionId: string;
+        answer: string;
+        questionText: string;
+      },
     ): Promise<{ success: boolean; restream?: boolean }> => {
-      const { formatInteractiveQaLine } = await import("@/lib/interactive-qa-format");
+      const { formatInteractiveQaLine } = await import(
+        "@/lib/interactive-qa-format"
+      );
       const {
         isStreamTransportId,
         getStreamTransport,
@@ -62,7 +69,10 @@ export function registerSessionHandlers(): void {
       } = await import("@/lib/chat/stream-transport");
 
       pendingAskUserArtifactByChatId.delete(payload.chatId);
-      const content = formatInteractiveQaLine(payload.questionText, payload.answer);
+      const content = formatInteractiveQaLine(
+        payload.questionText,
+        payload.answer,
+      );
 
       if (!isStreamTransportId(payload.chatId)) {
         // Workspace chats are the only ask_user surface (ephemeral transport
@@ -87,7 +97,11 @@ export function registerSessionHandlers(): void {
         const sessionId = await resolveOrBindWorkspaceSessionForStream({
           chatId: payload.chatId,
         });
-        const row = await persistWorkspaceSessionUserMessage(sessionId, content, {});
+        const row = await persistWorkspaceSessionUserMessage(
+          sessionId,
+          content,
+          {},
+        );
         qaRowId = row?.id;
       } catch (err) {
         logger.warn("[ask_user] Could not persist Q&A to session:", err);

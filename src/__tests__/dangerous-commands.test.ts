@@ -9,7 +9,7 @@ import {
 
 describe("dangerous-commands — exfil / arbitrary-exec primitives (v14.8.12)", () => {
   it("flags interpreters used for inline eval (but not running a script file)", () => {
-    expect(isDangerousCommand('node -e "require(\'fs\')"')).toBe(true);
+    expect(isDangerousCommand("node -e \"require('fs')\"")).toBe(true);
     expect(isDangerousCommand("python3 -c 'import os'")).toBe(true);
     expect(isDangerousCommand("perl -e 'print 1'")).toBe(true);
     expect(isDangerousCommand("ruby -e 'puts 1'")).toBe(true);
@@ -82,7 +82,9 @@ describe("dangerous-commands — destructive git ops (v14.8.6)", () => {
     expect(isDangerousCommand("git push --force")).toBe(true);
     expect(isDangerousCommand("git push origin main --force")).toBe(true);
     expect(isDangerousCommand("git push --force-with-lease")).toBe(true);
-    expect(isDangerousCommand("git push origin main --force-with-lease")).toBe(true);
+    expect(isDangerousCommand("git push origin main --force-with-lease")).toBe(
+      true,
+    );
   });
 
   it("flags git reset --hard (discards uncommitted work)", () => {
@@ -91,8 +93,12 @@ describe("dangerous-commands — destructive git ops (v14.8.6)", () => {
   });
 
   it("distinguishes --force from --force-with-lease in the explanation", () => {
-    expect(getDangerExplanation("git push --force")).toMatch(/OVERWRITE remote history/);
-    expect(getDangerExplanation("git push --force-with-lease")).toMatch(/safety lease/);
+    expect(getDangerExplanation("git push --force")).toMatch(
+      /OVERWRITE remote history/,
+    );
+    expect(getDangerExplanation("git push --force-with-lease")).toMatch(
+      /safety lease/,
+    );
   });
 
   it("leaves ordinary git commands alone", () => {

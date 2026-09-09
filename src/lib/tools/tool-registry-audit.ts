@@ -69,12 +69,16 @@ export function getComputedBuildOnlyTools(): string[] {
 }
 
 export function auditToolRegistry(): ToolRegistryAuditResult {
-  const registered = ToolRegistry.getAll().map((t) => t.name).sort();
+  const registered = ToolRegistry.getAll()
+    .map((t) => t.name)
+    .sort();
   const registeredSet = new Set(registered);
   const union = unionNonBuildAllowlist();
   const computedBuildOnly = new Set(getComputedBuildOnlyTools());
 
-  const allowlistNotRegistered = [...union].filter((n) => !registeredSet.has(n));
+  const allowlistNotRegistered = [...union].filter(
+    (n) => !registeredSet.has(n),
+  );
 
   const registeredNotAccounted: string[] = [];
   for (const name of registered) {
@@ -84,7 +88,9 @@ export function auditToolRegistry(): ToolRegistryAuditResult {
     }
   }
 
-  const buildOnlyMissing = [...computedBuildOnly].filter((n) => !BUILD_ONLY_SET.has(n));
+  const buildOnlyMissing = [...computedBuildOnly].filter(
+    (n) => !BUILD_ONLY_SET.has(n),
+  );
   const buildOnlyExtra = [...BUILD_ONLY_SET].filter(
     (n) => !computedBuildOnly.has(n) && registeredSet.has(n),
   );

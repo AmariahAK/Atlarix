@@ -31,7 +31,11 @@ const logger = log.scope("mcp-oauth");
 export class McpOAuthError extends Error {
   constructor(
     message: string,
-    readonly code?: "needs_oauth" | "in_progress" | "invalid_state" | "not_oauth",
+    readonly code?:
+      | "needs_oauth"
+      | "in_progress"
+      | "invalid_state"
+      | "not_oauth",
   ) {
     super(message);
     this.name = "McpOAuthError";
@@ -48,7 +52,8 @@ function broadcastMcpOAuthEvent(
     }
   }
   // Settle any agent tool blocked on this server's authentication.
-  const serverId = typeof payload.serverId === "number" ? payload.serverId : null;
+  const serverId =
+    typeof payload.serverId === "number" ? payload.serverId : null;
   if (serverId != null) {
     if (channel === "mcp:oauth-success" || channel === "mcp:auth-updated") {
       settleMcpAuthWaiters(serverId, true);
@@ -208,7 +213,10 @@ function handleLoopbackCallback(serverId: number, serverName: string): void {
         return;
       }
 
-      const result = await finishMcpOAuthCallback(callback.code, callback.state);
+      const result = await finishMcpOAuthCallback(
+        callback.code,
+        callback.state,
+      );
       const { mcpManager } = await import("@/ipc/utils/mcp_manager");
       mcpManager.dispose(result.serverId);
     } catch (error) {
@@ -368,8 +376,7 @@ export function parseMcpOAuthCallbackUrl(url: string): {
   const parsed = new URL(url);
   if (parsed.protocol !== "atlarix:") return {};
   const isMcpOAuth =
-    parsed.hostname === "mcp" &&
-    parsed.pathname.startsWith("/oauth/callback");
+    parsed.hostname === "mcp" && parsed.pathname.startsWith("/oauth/callback");
   if (!isMcpOAuth) return {};
   return {
     code: parsed.searchParams.get("code") ?? undefined,
@@ -390,4 +397,3 @@ export function isMcpOAuthDeepLink(url: string): boolean {
     return false;
   }
 }
-

@@ -23,7 +23,9 @@ const csvOf = (s: string) => Buffer.from(s, "utf8");
 
 describe("CSV extraction (papaparse)", () => {
   it("detects a SEMICOLON delimiter — the case a trailing newline used to break", async () => {
-    const r = await extractCsvFromBuffer(csvOf("name;note\nAda;hello\nGrace;plain\n"));
+    const r = await extractCsvFromBuffer(
+      csvOf("name;note\nAda;hello\nGrace;plain\n"),
+    );
     expect(r.success).toBe(true);
     expect(r.table?.headers).toEqual(["name", "note"]);
     expect(r.table?.rows).toEqual([
@@ -41,7 +43,9 @@ describe("CSV extraction (papaparse)", () => {
   });
 
   it("keeps a quoted field that contains the delimiter", async () => {
-    const r = await extractCsvFromBuffer(csvOf('name,note\nAda,"hello, world"\n'));
+    const r = await extractCsvFromBuffer(
+      csvOf('name,note\nAda,"hello, world"\n'),
+    );
     expect(r.table?.rows).toEqual([["Ada", "hello, world"]]);
     // And it survives the round trip back out to text, still quoted.
     expect(r.text).toContain('"hello, world"');
@@ -67,9 +71,14 @@ describe("CSV extraction (papaparse)", () => {
 });
 
 /** Minimal OOXML workbook — inline strings, so no sharedStrings part is needed. */
-function buildXlsx(sheets: { name: string; rows: (string | number)[][] }[]): Buffer {
+function buildXlsx(
+  sheets: { name: string; rows: (string | number)[][] }[],
+): Buffer {
   const esc = (v: unknown) =>
-    String(v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    String(v)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
   const cell = (ref: string, v: string | number) =>
     typeof v === "number"
       ? `<c r="${ref}"><v>${v}</v></c>`
@@ -80,7 +89,9 @@ function buildXlsx(sheets: { name: string; rows: (string | number)[][] }[]): Buf
       .map(
         (cells, r) =>
           `<row r="${r + 1}">` +
-          cells.map((v, c) => cell(String.fromCharCode(65 + c) + (r + 1), v)).join("") +
+          cells
+            .map((v, c) => cell(String.fromCharCode(65 + c) + (r + 1), v))
+            .join("") +
           `</row>`,
       )
       .join("") +
@@ -107,7 +118,10 @@ function buildXlsx(sheets: { name: string; rows: (string | number)[][] }[]): Buf
     "xl/workbook.xml": strToU8(
       `<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>` +
         sheets
-          .map((s, i) => `<sheet name="${esc(s.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`)
+          .map(
+            (s, i) =>
+              `<sheet name="${esc(s.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`,
+          )
           .join("") +
         `</sheets></workbook>`,
     ),
@@ -131,8 +145,20 @@ function buildXlsx(sheets: { name: string; rows: (string | number)[][] }[]): Buf
 describe("xlsx extraction (read-excel-file)", () => {
   it("reads EVERY sheet, labelled, not just the first", async () => {
     const buf = buildXlsx([
-      { name: "People", rows: [["Name", "Age"], ["Ada", 36]] },
-      { name: "Meta", rows: [["k", "v"], ["x", 1]] },
+      {
+        name: "People",
+        rows: [
+          ["Name", "Age"],
+          ["Ada", 36],
+        ],
+      },
+      {
+        name: "Meta",
+        rows: [
+          ["k", "v"],
+          ["x", 1],
+        ],
+      },
     ]);
     const r = await extractTextFromXlsx(buf);
     expect(r.success).toBe(true);
@@ -145,7 +171,14 @@ describe("xlsx extraction (read-excel-file)", () => {
 
   it("builds the renderer table from the FIRST sheet", async () => {
     const buf = buildXlsx([
-      { name: "People", rows: [["Name", "Age"], ["Ada", 36], ["Grace", 45]] },
+      {
+        name: "People",
+        rows: [
+          ["Name", "Age"],
+          ["Ada", 36],
+          ["Grace", 45],
+        ],
+      },
     ]);
     const r = await extractTextFromXlsx(buf);
     expect(r.table?.headers).toEqual(["Name", "Age"]);

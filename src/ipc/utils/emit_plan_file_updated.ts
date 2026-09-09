@@ -6,7 +6,10 @@ export type PlanFileUpdatedPayload = {
   mtime: number | null;
 };
 
-export function emitPlanFileUpdated(workspacePath: string, mtime: number | null): void {
+export function emitPlanFileUpdated(
+  workspacePath: string,
+  mtime: number | null,
+): void {
   if (!workspacePath?.trim()) return;
   const payload: PlanFileUpdatedPayload = { workspacePath, mtime };
   for (const win of BrowserWindow.getAllWindows()) {

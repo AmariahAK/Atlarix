@@ -68,27 +68,42 @@ function queueEntryFromPermission(
     isDangerous: preview.isDangerous as boolean | undefined,
     dangerExplanation: preview.dangerExplanation as string | undefined,
     systemScope: preview.systemScope as boolean | undefined,
-    systemScopeExplanation: preview.systemScopeExplanation as string | undefined,
+    systemScopeExplanation: preview.systemScopeExplanation as
+      | string
+      | undefined,
     commandCategory: preview.commandCategory as string | undefined,
     canAlwaysAllow: preview.canAlwaysAllow as boolean | undefined,
     isProtectedFile: preview.isProtectedFile as boolean | undefined,
     isDeleteOrRename: preview.isDeleteOrRename as boolean | undefined,
     canAlwaysAllowFile: preview.canAlwaysAllowFile as boolean | undefined,
-    canAlwaysAllowDirectory: preview.canAlwaysAllowDirectory as boolean | undefined,
-    canAlwaysAllowExtension: preview.canAlwaysAllowExtension as boolean | undefined,
+    canAlwaysAllowDirectory: preview.canAlwaysAllowDirectory as
+      | boolean
+      | undefined,
+    canAlwaysAllowExtension: preview.canAlwaysAllowExtension as
+      | boolean
+      | undefined,
     fileParentDir: preview.fileParentDir as string | undefined,
     fileExtension: preview.fileExtension as string | undefined,
     sandboxDeniedPath: preview.deniedPath as string | undefined,
     sandboxGrantPath: preview.grantPath as string | undefined,
-    sandboxGrantKind: preview.kind as 'command' | 'file' | undefined,
+    sandboxGrantKind: preview.kind as "command" | "file" | undefined,
     ...(request.operation === "automation_write" && {
-      automationAction: preview.action as 'create' | 'update' | 'delete' | undefined,
+      automationAction: preview.action as
+        | "create"
+        | "update"
+        | "delete"
+        | undefined,
       automationName: preview.name as string | undefined,
       automationTrigger: preview.triggerSummary as string | undefined,
-      automationRunMode: preview.runMode as 'notify-only' | 'read-only' | undefined,
+      automationRunMode: preview.runMode as
+        | "notify-only"
+        | "read-only"
+        | undefined,
       automationNotifyAgent: preview.notifyAgent as boolean | undefined,
       automationChanges: preview.changes as string[] | undefined,
-      automationGrantsMcpConsent: preview.grantsMcpConsent as string | undefined,
+      automationGrantsMcpConsent: preview.grantsMcpConsent as
+        | string
+        | undefined,
     }),
     ...(request.operation === "batch_plan" && {
       batchPlanTitle: preview.title as string | undefined,
@@ -118,7 +133,11 @@ function FilePermissionCard({
   onAlwaysDirectory: (id: string) => void;
   onAlwaysExtension: (id: string) => void;
   onDeny: (id: string) => void;
-  onHunkSelectionChange?: (id: string, selected: number[], total: number) => void;
+  onHunkSelectionChange?: (
+    id: string,
+    selected: number[],
+    total: number,
+  ) => void;
   hunkSelection?: HunkSelection;
 }) {
   const title =
@@ -150,12 +169,14 @@ function FilePermissionCard({
     <div className="my-2 rounded-lg border border-border/60 bg-muted/20 overflow-hidden">
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border/40">
         <Shield className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        <span className="text-xs font-medium text-foreground/90 truncate">{title}</span>
+        <span className="text-xs font-medium text-foreground/90 truncate">
+          {title}
+        </span>
       </div>
       {isDeleteOrRename ? (
         <p className="px-3 py-2 text-[11px] text-amber-900 dark:text-amber-100/90">
-          This change removes or renames a file. Directory and extension rules never auto-approve
-          deletes — use Allow once to proceed.
+          This change removes or renames a file. Directory and extension rules
+          never auto-approve deletes — use Allow once to proceed.
         </p>
       ) : null}
       <div className="px-2 pb-2">
@@ -173,7 +194,8 @@ function FilePermissionCard({
             selectable
             onHunkSelectionChange={
               onHunkSelectionChange
-                ? (selected, total) => onHunkSelectionChange(operation.id, selected, total)
+                ? (selected, total) =>
+                    onHunkSelectionChange(operation.id, selected, total)
                 : undefined
             }
           />
@@ -188,12 +210,19 @@ function FilePermissionCard({
         ) : null}
       </div>
       <div className="flex flex-wrap gap-2 px-3 pb-2">
-        <Button type="button" size="sm" className="h-7 text-xs" onClick={() => onOnce(operation.id)}>
+        <Button
+          type="button"
+          size="sm"
+          className="h-7 text-xs"
+          onClick={() => onOnce(operation.id)}
+        >
           {hunkSelection && hunkSelection.selected.length < hunkSelection.total
             ? `Apply ${hunkSelection.selected.length}/${hunkSelection.total} hunks`
             : "Allow once"}
         </Button>
-        {showScopedAlways && operation.canAlwaysAllowFile !== false && operation.path ? (
+        {showScopedAlways &&
+        operation.canAlwaysAllowFile !== false &&
+        operation.path ? (
           <Button
             type="button"
             size="sm"
@@ -204,7 +233,9 @@ function FilePermissionCard({
             Always allow this file
           </Button>
         ) : null}
-        {showScopedAlways && operation.canAlwaysAllowDirectory !== false && parentDir ? (
+        {showScopedAlways &&
+        operation.canAlwaysAllowDirectory !== false &&
+        parentDir ? (
           <Button
             type="button"
             size="sm"
@@ -215,7 +246,9 @@ function FilePermissionCard({
             Always allow {parentDir}/**
           </Button>
         ) : null}
-        {showScopedAlways && operation.canAlwaysAllowExtension !== false && extension ? (
+        {showScopedAlways &&
+        operation.canAlwaysAllowExtension !== false &&
+        extension ? (
           <Button
             type="button"
             size="sm"
@@ -342,7 +375,9 @@ function CommandPermissionCard({
             variant="secondary"
             className="h-7 text-xs"
             disabled={appId == null}
-            title={appId == null ? "Select a workspace to save rules" : undefined}
+            title={
+              appId == null ? "Select a workspace to save rules" : undefined
+            }
             onClick={() => onAlways(operation.id)}
           >
             Always allow {alwaysAllowLabel}
@@ -362,15 +397,15 @@ function CommandPermissionCard({
         <p className="mt-1.5 text-[10px] text-muted-foreground/80">
           {isDangerKey ? (
             <>
-              “Always allow” saves a workspace rule for this specific command and
-              skips the approval pause for it from then on. You can revoke it in
-              Settings.
+              “Always allow” saves a workspace rule for this specific command
+              and skips the approval pause for it from then on. You can revoke
+              it in Settings.
             </>
           ) : (
             <>
               “Always allow” saves a workspace rule for the{" "}
-              <span className="font-mono">{category}</span> category and skips the
-              approval pause for it from then on.
+              <span className="font-mono">{category}</span> category and skips
+              the approval pause for it from then on.
             </>
           )}
         </p>
@@ -414,7 +449,9 @@ export function AutomationPermissionCard({
           </div>
           <p className="mt-1.5 text-amber-900 dark:text-amber-100/90">
             <span className="font-medium">{operation.automationName}</span>
-            {operation.automationTrigger ? <> — {operation.automationTrigger}</> : null}
+            {operation.automationTrigger ? (
+              <> — {operation.automationTrigger}</>
+            ) : null}
           </p>
 
           {!isDelete && (
@@ -432,7 +469,9 @@ export function AutomationPermissionCard({
               {operation.automationGrantsMcpConsent ? (
                 <li>
                   Grants standing consent to the MCP tool{" "}
-                  <span className="font-mono">{operation.automationGrantsMcpConsent}</span>{" "}
+                  <span className="font-mono">
+                    {operation.automationGrantsMcpConsent}
+                  </span>{" "}
                   (the poller runs unattended and can't ask).
                 </li>
               ) : null}
@@ -448,7 +487,11 @@ export function AutomationPermissionCard({
           ) : null}
 
           <div className="mt-2 flex gap-2">
-            <Button size="sm" className="h-7 text-xs" onClick={() => onAllow(operation.id)}>
+            <Button
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => onAllow(operation.id)}
+            >
               {verb}
             </Button>
             <Button
@@ -485,7 +528,9 @@ function SandboxEscalationCard({
         <Shield className="h-3.5 w-3.5 shrink-0 mt-0.5 text-muted-foreground" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 font-medium text-foreground/90">
-            {isFileGrant ? "Grant write access to a folder" : "Sandbox: grant write access"}
+            {isFileGrant
+              ? "Grant write access to a folder"
+              : "Sandbox: grant write access"}
             <span className="rounded bg-sky-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-900 dark:text-sky-200">
               {isFileGrant ? "Outside workspace" : "Blocked write"}
             </span>
@@ -493,18 +538,26 @@ function SandboxEscalationCard({
           <p className="mt-1.5 text-sky-900 dark:text-sky-100/90">
             {isFileGrant ? (
               <>
-                <span className="font-mono break-all">{operation.sandboxDeniedPath}</span> is
-                outside this workspace. Allow Atlarix to write in{" "}
-                <span className="font-mono break-all">{operation.sandboxGrantPath}</span> for this
-                workspace?
+                <span className="font-mono break-all">
+                  {operation.sandboxDeniedPath}
+                </span>{" "}
+                is outside this workspace. Allow Atlarix to write in{" "}
+                <span className="font-mono break-all">
+                  {operation.sandboxGrantPath}
+                </span>{" "}
+                for this workspace?
               </>
             ) : (
               <>
                 The command sandbox blocked a write to{" "}
-                <span className="font-mono break-all">{operation.sandboxDeniedPath}</span>. Allow
-                it write access to{" "}
-                <span className="font-mono break-all">{operation.sandboxGrantPath}</span> for this
-                workspace and retry?
+                <span className="font-mono break-all">
+                  {operation.sandboxDeniedPath}
+                </span>
+                . Allow it write access to{" "}
+                <span className="font-mono break-all">
+                  {operation.sandboxGrantPath}
+                </span>{" "}
+                for this workspace and retry?
               </>
             )}
           </p>
@@ -516,7 +569,12 @@ function SandboxEscalationCard({
         </div>
       </div>
       <div className="mt-2 flex flex-wrap gap-2">
-        <Button type="button" size="sm" className="h-7 text-xs" onClick={() => onAllow(operation.id)}>
+        <Button
+          type="button"
+          size="sm"
+          className="h-7 text-xs"
+          onClick={() => onAllow(operation.id)}
+        >
           {isFileGrant ? "Allow folder" : "Allow & retry"}
         </Button>
         <Button
@@ -530,8 +588,9 @@ function SandboxEscalationCard({
         </Button>
       </div>
       <p className="mt-1.5 text-[10px] text-muted-foreground/80">
-        “Allow” saves a workspace rule letting Atlarix write in this folder — both file edits and
-        sandboxed commands{isFileGrant ? "" : ", and re-runs the command still sandboxed"}. Every
+        “Allow” saves a workspace rule letting Atlarix write in this folder —
+        both file edits and sandboxed commands
+        {isFileGrant ? "" : ", and re-runs the command still sandboxed"}. Every
         individual change still asks. Revoke it any time in Settings → Workflow.
       </p>
     </div>
@@ -545,7 +604,9 @@ export function InlinePermissionApprovals({ chatId }: { chatId: number }) {
   const appId = useAtomValue(selectedAppIdAtom);
   const loadedForChatRef = useRef<number | null>(null);
   // v10 per-hunk approval: latest hunk selection per operation id.
-  const [hunkSelections, setHunkSelections] = useState<Record<string, HunkSelection>>({});
+  const [hunkSelections, setHunkSelections] = useState<
+    Record<string, HunkSelection>
+  >({});
 
   const handleHunkSelectionChange = useCallback(
     (id: string, selected: number[], total: number) => {
@@ -571,7 +632,9 @@ export function InlinePermissionApprovals({ chatId }: { chatId: number }) {
 
     const loadPermissions = async () => {
       try {
-        const pending = await IpcClient.getInstance().getPendingPermissions({ chatId });
+        const pending = await IpcClient.getInstance().getPendingPermissions({
+          chatId,
+        });
         pending.forEach((p) => {
           setQueue((q) => {
             if (q.has(p.id)) return q;
@@ -584,20 +647,32 @@ export function InlinePermissionApprovals({ chatId }: { chatId: number }) {
     };
     void loadPermissions();
 
-    const unsubscribe = IpcClient.getInstance().onPermissionRequest(chatId, (payload) => {
-      setQueue((q) => {
-        if (q.has(payload.operationId)) return q;
-        return addOperation(q, queueEntryFromPermission(payload.operationId, payload.request));
-      });
-    });
+    const unsubscribe = IpcClient.getInstance().onPermissionRequest(
+      chatId,
+      (payload) => {
+        setQueue((q) => {
+          if (q.has(payload.operationId)) return q;
+          return addOperation(
+            q,
+            queueEntryFromPermission(payload.operationId, payload.request),
+          );
+        });
+      },
+    );
 
-    const blockedUnsub = IpcClient.getInstance().onCommandPermissionBlocked(chatId, (payload) => {
-      toast.error(payload.message ?? "Command blocked");
-    });
+    const blockedUnsub = IpcClient.getInstance().onCommandPermissionBlocked(
+      chatId,
+      (payload) => {
+        toast.error(payload.message ?? "Command blocked");
+      },
+    );
 
-    const fileBlockedUnsub = IpcClient.getInstance().onFilePermissionBlocked(chatId, (payload) => {
-      toast.error(payload.message ?? "File edit blocked");
-    });
+    const fileBlockedUnsub = IpcClient.getInstance().onFilePermissionBlocked(
+      chatId,
+      (payload) => {
+        toast.error(payload.message ?? "File edit blocked");
+      },
+    );
 
     return () => {
       if (loadedForChatRef.current === chatId) loadedForChatRef.current = null;
@@ -669,7 +744,10 @@ export function InlinePermissionApprovals({ chatId }: { chatId: number }) {
         chatId,
         operationId: id,
         approvalMode,
-        appId: approvalMode === "once" || approvalMode === "deny" ? undefined : (appId ?? undefined),
+        appId:
+          approvalMode === "once" || approvalMode === "deny"
+            ? undefined
+            : (appId ?? undefined),
         overrideContent,
       });
     },
@@ -803,14 +881,22 @@ export function InlinePermissionApprovals({ chatId }: { chatId: number }) {
                 .map((op) => hunkSelections[op.id])
                 .filter((s): s is HunkSelection => s != null && s.total > 1);
               if (tracked.length === 0) return null;
-              const selected = tracked.reduce((acc, s) => acc + s.selected.length, 0);
+              const selected = tracked.reduce(
+                (acc, s) => acc + s.selected.length,
+                0,
+              );
               const total = tracked.reduce((acc, s) => acc + s.total, 0);
               return selected < total
                 ? ` — ${selected} of ${total} hunks selected`
                 : null;
             })()}
           </span>
-          <Button type="button" size="sm" className="h-7 text-xs" onClick={() => void handleApproveAllFiles()}>
+          <Button
+            type="button"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => void handleApproveAllFiles()}
+          >
             Approve all files
           </Button>
           <Button

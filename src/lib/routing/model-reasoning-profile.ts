@@ -64,7 +64,8 @@ export function registerModelsDevReasoning(
     // Bare id too — callers pass ids with or without a vendor prefix. Don't let one
     // provider's row clobber another's already-registered capability.
     if (!profileById.has(bare)) profileById.set(bare, e.profile);
-    if (!temperatureById.has(bare)) temperatureById.set(bare, e.supportsTemperature);
+    if (!temperatureById.has(bare))
+      temperatureById.set(bare, e.supportsTemperature);
   }
 }
 
@@ -110,11 +111,15 @@ export function supportsTemperatureParam(
 function normalizeEffort(value: string): EffortLevel | null {
   const v = value.trim().toLowerCase();
   if (v === "xhigh" || v === "x-high" || v === "very-high") return "max";
-  return (EFFORT_ORDER as readonly string[]).includes(v) ? (v as EffortLevel) : null;
+  return (EFFORT_ORDER as readonly string[]).includes(v)
+    ? (v as EffortLevel)
+    : null;
 }
 
 /** Model-declared effort values, normalized, deduped, in canonical order. */
-export function normalizedEffortValues(options: ReasoningOption[]): EffortLevel[] {
+export function normalizedEffortValues(
+  options: ReasoningOption[],
+): EffortLevel[] {
   const effort = options.find((o) => o.type === "effort");
   if (!effort || !Array.isArray(effort.values)) return [];
   const seen = new Set<EffortLevel>();
@@ -217,7 +222,9 @@ export function hasMeaningfulReasoningControl(
   if (!profile?.reasoning) return false;
   return (
     normalizedEffortValues(profile.options).length > 0 ||
-    profile.options.some((o) => o.type === "budget_tokens" || o.type === "toggle")
+    profile.options.some(
+      (o) => o.type === "budget_tokens" || o.type === "toggle",
+    )
   );
 }
 

@@ -4,7 +4,10 @@
  */
 
 import type { LargeLanguageModel, UserSettings } from "@/lib/schemas";
-import { warmOpenRouterModelCache, getCachedOpenRouterModelRow } from "@/lib/routing/tier-context-limits";
+import {
+  warmOpenRouterModelCache,
+  getCachedOpenRouterModelRow,
+} from "@/lib/routing/tier-context-limits";
 import { getCoreModelsDevTargetForTier } from "@/ipc/shared/compass_constants";
 import { findLanguageModel } from "@/ipc/utils/findLanguageModel";
 import log from "electron-log";
@@ -46,14 +49,20 @@ async function fetchOllamaContextLength(name: string): Promise<number | null> {
   if (!info || typeof info !== "object") return null;
   // Key is architecture-prefixed (e.g. "llama.context_length").
   for (const [key, value] of Object.entries(info)) {
-    if (key.endsWith("context_length") && typeof value === "number" && value > 0) {
+    if (
+      key.endsWith("context_length") &&
+      typeof value === "number" &&
+      value > 0
+    ) {
       return value;
     }
   }
   return null;
 }
 
-async function fetchLmStudioContextLength(name: string): Promise<number | null> {
+async function fetchLmStudioContextLength(
+  name: string,
+): Promise<number | null> {
   const { LM_STUDIO_BASE_URL } = await import("@/ipc/utils/lm_studio_utils");
   const res = await fetch(`${LM_STUDIO_BASE_URL}/api/v0/models`, {
     signal: AbortSignal.timeout(3_000),
@@ -63,7 +72,8 @@ async function fetchLmStudioContextLength(name: string): Promise<number | null> 
     data?: { id?: string; max_context_length?: number }[];
   };
   const row = json.data?.find((m) => m.id === name);
-  return typeof row?.max_context_length === "number" && row.max_context_length > 0
+  return typeof row?.max_context_length === "number" &&
+    row.max_context_length > 0
     ? row.max_context_length
     : null;
 }
@@ -121,9 +131,11 @@ export function reportContextOverflowForModel(model: {
 }
 
 function overflowClampFor(model: LargeLanguageModel): number {
-  return overflowClampByModel.get(
-    localCacheKey(model.provider ?? "", model.name ?? ""),
-  ) ?? 1;
+  return (
+    overflowClampByModel.get(
+      localCacheKey(model.provider ?? "", model.name ?? ""),
+    ) ?? 1
+  );
 }
 
 /**
@@ -242,7 +254,11 @@ export async function resolveModelContextLimit(
 
   // v11.1: local providers report their REAL window (cached async fetch).
   const pid = (model.provider ?? "").toLowerCase();
-  if (pid.includes("ollama") || pid.includes("lmstudio") || pid.includes("lm_studio")) {
+  if (
+    pid.includes("ollama") ||
+    pid.includes("lmstudio") ||
+    pid.includes("lm_studio")
+  ) {
     const real = await getLocalModelContextLength(pid, model.name ?? "");
     if (typeof real === "number" && real > 0) {
       return { tierLimit: floorSafe(real * clamp), rawContextLength: real };
@@ -271,7 +287,10 @@ export async function resolveModelContextLimit(
   // straight to a hardcoded guess.
   try {
     const { getModelsDevLimits } = await import("@/lib/models_dev");
-    const limits = await getModelsDevLimits(model.provider ?? "", model.name ?? "");
+    const limits = await getModelsDevLimits(
+      model.provider ?? "",
+      model.name ?? "",
+    );
     if (limits?.context && limits.context > 0) {
       return {
         tierLimit: floorSafe(limits.context * clamp),
@@ -288,4 +307,3 @@ export async function resolveModelContextLimit(
     rawContextLength: rawHeuristic,
   };
 }
-

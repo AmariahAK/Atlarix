@@ -47,7 +47,10 @@ export function useChatInputDraft(chatId: number): void {
   useEffect(() => {
     if (!sessionId) return;
     if (ownerRef.current !== sessionId) return;
-    const t = setTimeout(() => saveDraft(sessionId, inputValue), SAVE_DEBOUNCE_MS);
+    const t = setTimeout(
+      () => saveDraft(sessionId, inputValue),
+      SAVE_DEBOUNCE_MS,
+    );
     return () => clearTimeout(t);
   }, [inputValue, sessionId]);
 

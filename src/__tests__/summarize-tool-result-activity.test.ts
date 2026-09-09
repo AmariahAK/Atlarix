@@ -13,7 +13,11 @@ describe("summarizeToolResultForActivityDetail", () => {
         ],
       },
     });
-    const detail = summarizeToolResultForActivityDetail("explore_folder", result, "done");
+    const detail = summarizeToolResultForActivityDetail(
+      "explore_folder",
+      result,
+      "done",
+    );
     expect(detail).toMatch(/120 items/);
     expect(detail).toContain("src/gchat/server.ts");
   });
@@ -23,7 +27,11 @@ describe("summarizeToolResultForActivityDetail", () => {
       success: true,
       matches: [{ path: "a.ts" }, { path: "b.ts" }, { path: "a.ts" }],
     });
-    const detail = summarizeToolResultForActivityDetail("search", result, "done");
+    const detail = summarizeToolResultForActivityDetail(
+      "search",
+      result,
+      "done",
+    );
     expect(detail).toMatch(/3 matches found/);
     expect(detail).toContain("a.ts");
   });
@@ -33,7 +41,11 @@ describe("summarizeToolResultForActivityDetail", () => {
       success: true,
       result: "a\nb\nc",
     });
-    const detail = summarizeToolResultForActivityDetail("write_file", result, "done");
+    const detail = summarizeToolResultForActivityDetail(
+      "write_file",
+      result,
+      "done",
+    );
     expect(detail).toBe("3 lines written");
   });
 });

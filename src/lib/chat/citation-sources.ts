@@ -26,12 +26,48 @@ const WEB_SOURCE_TOOLS = new Set([
  * genuine sources.
  */
 const CODE_FILE_EXTENSIONS = new Set([
-  "ts", "tsx", "js", "jsx", "mjs", "cjs",
-  "py", "rb", "go", "rs", "java", "kt", "swift", "scala",
-  "c", "h", "cc", "cpp", "hpp", "cs", "php", "pl", "lua", "dart",
-  "sh", "bash", "zsh", "fish", "ps1",
-  "json", "yml", "yaml", "toml", "ini", "cfg", "lock",
-  "css", "scss", "less", "sql", "graphql", "proto",
+  "ts",
+  "tsx",
+  "js",
+  "jsx",
+  "mjs",
+  "cjs",
+  "py",
+  "rb",
+  "go",
+  "rs",
+  "java",
+  "kt",
+  "swift",
+  "scala",
+  "c",
+  "h",
+  "cc",
+  "cpp",
+  "hpp",
+  "cs",
+  "php",
+  "pl",
+  "lua",
+  "dart",
+  "sh",
+  "bash",
+  "zsh",
+  "fish",
+  "ps1",
+  "json",
+  "yml",
+  "yaml",
+  "toml",
+  "ini",
+  "cfg",
+  "lock",
+  "css",
+  "scss",
+  "less",
+  "sql",
+  "graphql",
+  "proto",
 ]);
 
 /**
@@ -67,7 +103,10 @@ function domainFromUrl(url: string): string {
     const host = new URL(url).hostname.replace(/^www\./, "");
     const parts = host.split(".");
     if (parts.length >= 2) {
-      return parts[parts.length - 2]!.charAt(0).toUpperCase() + parts[parts.length - 2]!.slice(1);
+      return (
+        parts[parts.length - 2]!.charAt(0).toUpperCase() +
+        parts[parts.length - 2]!.slice(1)
+      );
     }
     return host;
   } catch {
@@ -87,7 +126,10 @@ export function citationLabelForSource(source: SourceItem): string {
   return "Source";
 }
 
-function normalizeSource(raw: Record<string, unknown>, index: number): SourceItem | null {
+function normalizeSource(
+  raw: Record<string, unknown>,
+  index: number,
+): SourceItem | null {
   const url = typeof raw.url === "string" ? raw.url.trim() : "";
   if (!url) return null;
   // Filtered at the single point every citation path funnels through, so the strip,
@@ -116,7 +158,9 @@ function sourcesFromUnknown(raw: unknown): SourceItem[] {
   if (!raw) return [];
   const list = Array.isArray(raw)
     ? raw
-    : typeof raw === "object" && raw !== null && Array.isArray((raw as { sources?: unknown }).sources)
+    : typeof raw === "object" &&
+        raw !== null &&
+        Array.isArray((raw as { sources?: unknown }).sources)
       ? (raw as { sources: unknown[] }).sources
       : [];
   const out: SourceItem[] = [];
@@ -192,5 +236,8 @@ export function extractInlineSourcesFromContent(content: string): SourceItem[] {
 
 /** Replace [^n] markers with atlarix-citation tags for the markdown tag parser. */
 export function preprocessCitationMarkers(content: string): string {
-  return content.replace(/\[\^(\d+)\]/g, (_m, n) => `<atlarix-citation index="${n}"></atlarix-citation>`);
+  return content.replace(
+    /\[\^(\d+)\]/g,
+    (_m, n) => `<atlarix-citation index="${n}"></atlarix-citation>`,
+  );
 }

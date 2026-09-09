@@ -43,13 +43,16 @@ describe("parseGrepOutput with Windows paths", () => {
       "C:\\repo\\b.ts:2:third",
     ].join("\n");
     const groups = parseGrepOutput(out);
-    expect(groups.map((g) => g.file)).toEqual(["C:\\repo\\a.ts", "C:\\repo\\b.ts"]);
+    expect(groups.map((g) => g.file)).toEqual([
+      "C:\\repo\\a.ts",
+      "C:\\repo\\b.ts",
+    ]);
     expect(groups[0].matches).toHaveLength(2);
   });
 
   it("keeps colons that belong to the matched CONTENT", () => {
     // The content is everything after the line number, colons and all.
-    const out = "C:\\repo\\a.ts:4:const url = \"https://example.com:8080\";";
+    const out = 'C:\\repo\\a.ts:4:const url = "https://example.com:8080";';
     const groups = parseGrepOutput(out);
     expect(groups[0].matches[0].content).toBe(
       'const url = "https://example.com:8080";',
@@ -81,7 +84,8 @@ describe("parseGrepOutput with Windows paths", () => {
 describe("glob's bare-* top-level filter", () => {
   // The filter as shipped, both spellings, so the fix is pinned independently of
   // the surrounding tool plumbing (which needs a real filesystem to exercise).
-  const topLevelOnly = (files: string[]) => files.filter((f) => !/[\\/]/.test(f));
+  const topLevelOnly = (files: string[]) =>
+    files.filter((f) => !/[\\/]/.test(f));
 
   it("drops nested entries whichever separator ripgrep used", () => {
     expect(

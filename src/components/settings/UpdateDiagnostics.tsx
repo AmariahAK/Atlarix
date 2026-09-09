@@ -2,7 +2,13 @@ import { useCallback, useEffect, useState } from "react";
 import { IpcClient, type UpdateStatusPayload } from "@/ipc/ipc_client";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { RefreshCw, Download, CheckCircle2, AlertTriangle, Info } from "lucide-react";
+import {
+  RefreshCw,
+  Download,
+  CheckCircle2,
+  AlertTriangle,
+  Info,
+} from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
 import { showError } from "@/lib/toast";
 
@@ -29,7 +35,8 @@ function formatWhen(ts: number | null): string {
 function StatusIcon({ result }: { result: UpdateStatusPayload["lastResult"] }) {
   if (result === "downloaded" || result === "available")
     return <Download className="w-4 h-4 text-primary" />;
-  if (result === "error") return <AlertTriangle className="w-4 h-4 text-destructive" />;
+  if (result === "error")
+    return <AlertTriangle className="w-4 h-4 text-destructive" />;
   if (result === "unsupported")
     return <Info className="w-4 h-4 text-muted-foreground" />;
   if (result === "up-to-date")

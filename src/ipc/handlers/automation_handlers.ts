@@ -23,7 +23,6 @@ import { getAutomationRunView } from "@/lib/automations/notify";
 const logger = log.scope("automation_handlers");
 const handle = createLoggedHandler(logger);
 
-
 export function registerAutomationHandlers(): void {
   handle("automations:list", async (_event, workspaceId: number) => {
     return listAutomationsService(workspaceId);
@@ -85,7 +84,9 @@ export function registerAutomationHandlers(): void {
         )
         .orderBy(desc(automationRuns.startedAt))
         .limit(100);
-      const views = await Promise.all(rows.map((r) => getAutomationRunView(r.run.id)));
+      const views = await Promise.all(
+        rows.map((r) => getAutomationRunView(r.run.id)),
+      );
       return views.filter(Boolean);
     },
   );
@@ -107,5 +108,4 @@ export function registerAutomationHandlers(): void {
       .where(eq(automationRuns.id, runId));
     return { ok: true };
   });
-
 }

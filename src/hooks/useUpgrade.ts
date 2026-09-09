@@ -15,35 +15,35 @@
  * no behavioural gain.
  */
 
-import { showError } from '@/lib/toast';
+import { showError } from "@/lib/toast";
 
 interface UpgradeResult {
-    success: boolean;
-    error?: string;
-    message?: string;
+  success: boolean;
+  error?: string;
+  message?: string;
 }
 
 /** Callable from anywhere — event handlers included, since it is not a hook. */
 export async function triggerUpgrade(): Promise<UpgradeResult> {
-    try {
-        const ipcRenderer = window.electron?.ipcRenderer;
-        if (!ipcRenderer?.invoke) {
-            const error = 'Unable to access upgrade. Please restart the app.';
-            showError(error);
-            return { success: false, error };
-        }
-
-        const result = await ipcRenderer.invoke('auth:upgrade') as UpgradeResult;
-
-        if (!result.success && result.error) {
-            // User needs to sign in first - show toast
-            showError(result.error);
-        }
-
-        return result;
-    } catch {
-        const errorMessage = 'Failed to open upgrade page. Please try again.';
-        showError(errorMessage);
-        return { success: false, error: errorMessage };
+  try {
+    const ipcRenderer = window.electron?.ipcRenderer;
+    if (!ipcRenderer?.invoke) {
+      const error = "Unable to access upgrade. Please restart the app.";
+      showError(error);
+      return { success: false, error };
     }
+
+    const result = (await ipcRenderer.invoke("auth:upgrade")) as UpgradeResult;
+
+    if (!result.success && result.error) {
+      // User needs to sign in first - show toast
+      showError(result.error);
+    }
+
+    return result;
+  } catch {
+    const errorMessage = "Failed to open upgrade page. Please try again.";
+    showError(errorMessage);
+    return { success: false, error: errorMessage };
+  }
 }

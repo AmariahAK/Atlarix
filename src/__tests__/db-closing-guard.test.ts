@@ -46,8 +46,8 @@ describe("database closing guard", () => {
     const { broadcastWorkspacePathStatusesIfChanged } = await import(
       "@/ipc/utils/workspace_path_status_broadcast"
     );
-    await expect(broadcastWorkspacePathStatusesIfChanged()).rejects.toMatchObject(
-      { name: "DatabaseClosingError" },
-    );
+    await expect(
+      broadcastWorkspacePathStatusesIfChanged(),
+    ).rejects.toMatchObject({ name: "DatabaseClosingError" });
   });
 });

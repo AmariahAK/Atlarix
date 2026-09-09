@@ -82,8 +82,13 @@ export function registerChatHandlers() {
         fileAttachments:
           (m as { fileAttachments?: unknown }).fileAttachments ?? undefined,
         attachments:
-          (m as { fileAttachments?: Parameters<typeof attachmentInfoFromStoredFile>[0][] })
-            .fileAttachments?.map(attachmentInfoFromStoredFile) ?? undefined,
+          (
+            m as {
+              fileAttachments?: Parameters<
+                typeof attachmentInfoFromStoredFile
+              >[0][];
+            }
+          ).fileAttachments?.map(attachmentInfoFromStoredFile) ?? undefined,
       })),
       createdAt: ephemeralChat.createdAt,
       appId: ephemeralChat.appId ?? null,

@@ -92,8 +92,8 @@ export function ChatErrorBox({
   if (error.includes("Stream stalled")) {
     return (
       <ChatErrorContainer onDismiss={onDismiss}>
-        The model stopped responding mid-stream. Try sending your message again or
-        switch to another model.
+        The model stopped responding mid-stream. Try sending your message again
+        or switch to another model.
       </ChatErrorContainer>
     );
   }
@@ -183,8 +183,9 @@ function ExternalLink({
 
   return (
     <a
-      className={`${baseClasses} ${variant === "primary" ? primaryClasses : secondaryClasses
-        }`}
+      className={`${baseClasses} ${
+        variant === "primary" ? primaryClasses : secondaryClasses
+      }`}
       onClick={() => IpcClient.getInstance().openExternalUrl(href)}
     >
       <span>{children}</span>
@@ -214,7 +215,10 @@ function SwitchProviderButton({ children }: { children: React.ReactNode }) {
   const secondaryClasses =
     "bg-background text-foreground border border-border hover:bg-muted focus:ring-ring/50";
   return (
-    <a className={`${baseClasses} ${secondaryClasses}`} onClick={openAiSettings}>
+    <a
+      className={`${baseClasses} ${secondaryClasses}`}
+      onClick={openAiSettings}
+    >
       <span>{children}</span>
       <SlidersHorizontal size={14} />
     </a>

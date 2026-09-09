@@ -19,7 +19,10 @@ const { TMP } = vi.hoisted(() => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const path = require("node:path");
   return {
-    TMP: path.join(os.tmpdir(), `atlarix-core-routing-${process.pid}-${Date.now()}`),
+    TMP: path.join(
+      os.tmpdir(),
+      `atlarix-core-routing-${process.pid}-${Date.now()}`,
+    ),
   };
 });
 
@@ -84,7 +87,9 @@ describe("routing block parsing", () => {
       "fetch",
       fetchOk({
         models: { "core-3": "deepseek/deepseek-v4-pro" },
-        routing: { "core-3": { provider: "deepseek", apiModelId: "deepseek-v4-pro" } },
+        routing: {
+          "core-3": { provider: "deepseek", apiModelId: "deepseek-v4-pro" },
+        },
       }),
     );
     await refreshCoreModelOverrides();
@@ -95,7 +100,10 @@ describe("routing block parsing", () => {
   });
 
   it("leaves a tier unrouted when the block is absent (pre-migration shape)", async () => {
-    vi.stubGlobal("fetch", fetchOk({ models: { "core-1": "moonshotai/kimi-k3" } }));
+    vi.stubGlobal(
+      "fetch",
+      fetchOk({ models: { "core-1": "moonshotai/kimi-k3" } }),
+    );
     await refreshCoreModelOverrides();
     expect(getCoreTierRouting("core-1")).toBeUndefined();
   });
@@ -137,7 +145,12 @@ describe("routing block parsing", () => {
       "fetch",
       fetchOk({
         models: { "compass-fast": "deepseek/deepseek-v4-pro" },
-        routing: { "compass-fast": { provider: "deepseek", apiModelId: "deepseek-v4-pro" } },
+        routing: {
+          "compass-fast": {
+            provider: "deepseek",
+            apiModelId: "deepseek-v4-pro",
+          },
+        },
       }),
     );
     await refreshCoreModelOverrides();
@@ -149,7 +162,9 @@ describe("routing block parsing", () => {
       "fetch",
       fetchOk({
         models: { "core-1": "moonshot/kimi-k3" },
-        routing: { "core-1": { provider: "  moonshot  ", apiModelId: "  kimi-k3  " } },
+        routing: {
+          "core-1": { provider: "  moonshot  ", apiModelId: "  kimi-k3  " },
+        },
       }),
     );
     await refreshCoreModelOverrides();
@@ -178,7 +193,9 @@ describe("getCoreModelsDevTargetForTier", () => {
     // `MiniMax-M3`, and that lookup is case-sensitive. Deriving the id by splitting
     // the wire id would miss the row and lose core-4's price AND its 1M window.
     setCoreModelOverrides({ "core-4": "minimax/minimax-m3" });
-    setCoreModelRouting({ "core-4": { provider: "minimax", apiModelId: "MiniMax-M3" } });
+    setCoreModelRouting({
+      "core-4": { provider: "minimax", apiModelId: "MiniMax-M3" },
+    });
     expect(getCoreModelsDevTargetForTier("core-4")).toEqual({
       providerId: "minimax",
       modelId: "MiniMax-M3",
@@ -219,7 +236,9 @@ describe("getCoreModelsDevTargetForTier", () => {
   });
 
   it("normalizes legacy tier ids", () => {
-    setCoreModelRouting({ "core-1": { provider: "moonshot", apiModelId: "kimi-k3" } });
+    setCoreModelRouting({
+      "core-1": { provider: "moonshot", apiModelId: "kimi-k3" },
+    });
     expect(getCoreModelsDevTargetForTier("compass-fast")).toEqual({
       providerId: "moonshot",
       modelId: "kimi-k3",
@@ -241,7 +260,11 @@ describe("lineup size is config-driven", () => {
     });
     const catalog = buildAtlarixCoreTierCatalog();
     expect(catalog).toHaveLength(3);
-    expect(catalog.map((e) => e.internalTierId)).toEqual(["core-1", "core-2", "core-3"]);
+    expect(catalog.map((e) => e.internalTierId)).toEqual([
+      "core-1",
+      "core-2",
+      "core-3",
+    ]);
 
     const models = getCompassSyntheticModels();
     expect(models).toHaveLength(3);
@@ -285,14 +308,21 @@ describe("empty and parked slots", () => {
       vi.stubGlobal(
         "fetch",
         fetchOk({
-          models: { "core-1": placeholder, "core-2": "deepseek/deepseek-v4-pro" },
+          models: {
+            "core-1": placeholder,
+            "core-2": "deepseek/deepseek-v4-pro",
+          },
         }),
       );
       await refreshCoreModelOverrides();
       expect(getCoreModelIdForCoreTier("core-1")).toBeUndefined();
-      expect(getCoreModelIdForCoreTier("core-2")).toBe("deepseek/deepseek-v4-pro");
+      expect(getCoreModelIdForCoreTier("core-2")).toBe(
+        "deepseek/deepseek-v4-pro",
+      );
       // And the parked slot must not reach the picker.
-      expect(getCompassSyntheticModels().map((m) => m.apiName)).toEqual(["core-2"]);
+      expect(getCompassSyntheticModels().map((m) => m.apiName)).toEqual([
+        "core-2",
+      ]);
     },
   );
 
@@ -300,7 +330,9 @@ describe("empty and parked slots", () => {
     process.env.ATLARIX_CORE_MODEL_1 = "TBA";
     process.env.ATLARIX_CORE_MODEL_2 = "deepseek/deepseek-v4-pro";
     expect(getCoreModelIdForCoreTier("core-1")).toBeUndefined();
-    expect(getCoreModelIdForCoreTier("core-2")).toBe("deepseek/deepseek-v4-pro");
+    expect(getCoreModelIdForCoreTier("core-2")).toBe(
+      "deepseek/deepseek-v4-pro",
+    );
   });
 
   it("supports ZERO configured models without inventing rows", () => {
@@ -315,7 +347,9 @@ describe("empty and parked slots", () => {
   it("is empty when every hosted slot is parked", async () => {
     vi.stubGlobal(
       "fetch",
-      fetchOk({ models: { "core-1": "TBA", "core-2": "TBA", "core-3": "TBA" } }),
+      fetchOk({
+        models: { "core-1": "TBA", "core-2": "TBA", "core-3": "TBA" },
+      }),
     );
     await refreshCoreModelOverrides();
     expect(getCompassSyntheticModels()).toEqual([]);
@@ -438,7 +472,9 @@ describe("getCoreModelIdForCoreTier rename", () => {
 
   it("still resolves the wire id under the new name", () => {
     setCoreModelOverrides({ "core-3": "deepseek/deepseek-v4-pro" });
-    expect(getCoreModelIdForCoreTier("core-3")).toBe("deepseek/deepseek-v4-pro");
+    expect(getCoreModelIdForCoreTier("core-3")).toBe(
+      "deepseek/deepseek-v4-pro",
+    );
   });
 });
 

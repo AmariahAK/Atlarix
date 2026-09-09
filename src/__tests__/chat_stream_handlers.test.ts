@@ -67,9 +67,9 @@ vi.mock("../ipc/utils/git_utils", () => ({
 
 // Mock paths module to control getAtlarixAppPath (platform-native separators)
 vi.mock("../paths/paths", () => ({
-  getAtlarixAppPath: vi.fn().mockImplementation((appPath: string) =>
-    pathMocks.mockAppFile(appPath),
-  ),
+  getAtlarixAppPath: vi
+    .fn()
+    .mockImplementation((appPath: string) => pathMocks.mockAppFile(appPath)),
   getUserDataPath: vi.fn().mockReturnValue(pathMocks.mockDataRoot),
 }));
 
@@ -77,7 +77,18 @@ const { mockAppFile } = pathMocks;
 
 // Mock ephemeral chat transport → workspace binding
 vi.mock("@/lib/chat/stream-transport", () => {
-  const store = new Map<number, { messages: { id: number; role: string; content: string; approvalState?: string; commitHash?: string }[] }>();
+  const store = new Map<
+    number,
+    {
+      messages: {
+        id: number;
+        role: string;
+        content: string;
+        approvalState?: string;
+        commitHash?: string;
+      }[];
+    }
+  >();
   return {
     getStreamTransportAppId: vi.fn(() => 1),
     getStreamTransport: vi.fn((chatId: number) => {
@@ -92,9 +103,17 @@ vi.mock("@/lib/chat/stream-transport", () => {
           ],
         });
       }
-      return { id: chatId, messages: store.get(chatId)!.messages, title: "Test", createdAt: new Date(), appId: 1 };
+      return {
+        id: chatId,
+        messages: store.get(chatId)!.messages,
+        title: "Test",
+        createdAt: new Date(),
+        appId: 1,
+      };
     }),
-    isStreamTransportId: vi.fn((chatId: number) => chatId < 0 || store.has(chatId)),
+    isStreamTransportId: vi.fn(
+      (chatId: number) => chatId < 0 || store.has(chatId),
+    ),
   };
 });
 
@@ -1036,7 +1055,9 @@ const component = <Component />;
   it("should handle malformed atlarix tags gracefully", () => {
     const text = `Before <atlarix-write path="file.js">unclosed tag After`;
     const result = removeAtlarixTags(text);
-    expect(result).toBe('Before <atlarix-write path="file.js">unclosed tag After');
+    expect(result).toBe(
+      'Before <atlarix-write path="file.js">unclosed tag After',
+    );
   });
 
   it("should handle atlarix tags with special characters in content", () => {

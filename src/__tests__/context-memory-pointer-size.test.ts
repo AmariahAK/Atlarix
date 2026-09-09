@@ -49,7 +49,11 @@ async function writeBigInstructions(): Promise<string> {
     "z".repeat(2000),
   ].join("\n");
   await fs.mkdir(path.join(workspace, ".atlarix"), { recursive: true });
-  await fs.writeFile(path.join(workspace, ".atlarix", "atlarix.md"), body, "utf8");
+  await fs.writeFile(
+    path.join(workspace, ".atlarix", "atlarix.md"),
+    body,
+    "utf8",
+  );
   return body;
 }
 
@@ -67,7 +71,12 @@ describe("project-instructions pointer", () => {
     await writeBigInstructions();
     const res = await readProjectInstructions(workspace);
     const headings = extractHeadings(res!.content);
-    expect(headings).toEqual(["Project rules", "Testing", "Style", "Deployment"]);
+    expect(headings).toEqual([
+      "Project rules",
+      "Testing",
+      "Style",
+      "Deployment",
+    ]);
     // And the heading list itself stays tiny next to the 10 KB body.
     expect(headings.join(" · ").length).toBeLessThan(200);
   });
@@ -79,8 +88,15 @@ describe("memory index cost", () => {
     await fs.mkdir(dir, { recursive: true });
     for (let i = 0; i < 20; i++) {
       // 2 KB each — 40 KB of notes in total.
-      await fs.writeFile(path.join(dir, `note-${i}.md`), "b".repeat(2000), "utf8");
-      await appendIndexLine(workspace, `- [Note ${i}](note-${i}.md) — hook ${i}`);
+      await fs.writeFile(
+        path.join(dir, `note-${i}.md`),
+        "b".repeat(2000),
+        "utf8",
+      );
+      await appendIndexLine(
+        workspace,
+        `- [Note ${i}](note-${i}.md) — hook ${i}`,
+      );
     }
 
     const { readMemoryIndex } = await import("@/lib/agent-memory");
@@ -91,6 +107,8 @@ describe("memory index cost", () => {
     expect(got!.index.length).toBeLessThan(1000);
     expect(got!.index).not.toContain("bbbb");
     // Cost grows per NOTE (one line), not per byte — that's the whole design.
-    expect(got!.index.split("\n").filter((l) => l.startsWith("- ")).length).toBe(20);
+    expect(
+      got!.index.split("\n").filter((l) => l.startsWith("- ")).length,
+    ).toBe(20);
   });
 });

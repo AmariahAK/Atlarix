@@ -20,10 +20,14 @@ export function OrphanedMcpSection({
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const list = (await IpcClient.getInstance().listOrphanedMcpServers()) as McpServer[];
+      const list =
+        (await IpcClient.getInstance().listOrphanedMcpServers()) as McpServer[];
       setOrphans(list ?? []);
     } catch (e) {
-      console.warn("[OrphanedMcpSection] Failed to load orphaned MCP servers:", e);
+      console.warn(
+        "[OrphanedMcpSection] Failed to load orphaned MCP servers:",
+        e,
+      );
       setOrphans([]);
     } finally {
       setLoading(false);
@@ -67,9 +71,12 @@ export function OrphanedMcpSection({
   return (
     <div className="space-y-3 rounded-lg border border-amber-500/40 bg-amber-500/5 p-4">
       <div>
-        <h3 className="text-sm font-semibold text-foreground">Unlinked workspace MCP</h3>
+        <h3 className="text-sm font-semibold text-foreground">
+          Unlinked workspace MCP
+        </h3>
         <p className="text-xs text-muted-foreground mt-1">
-          These servers were tied to a workspace that no longer exists. Remove them to free slots.
+          These servers were tied to a workspace that no longer exists. Remove
+          them to free slots.
         </p>
       </div>
       <div className="space-y-2">
@@ -82,7 +89,9 @@ export function OrphanedMcpSection({
               <div className="font-medium text-sm truncate">{s.name}</div>
               <div className="text-xs text-muted-foreground truncate">
                 {s.transport}
-                {s.appId != null ? ` · former workspace #${s.appId}` : " · no workspace id"}
+                {s.appId != null
+                  ? ` · former workspace #${s.appId}`
+                  : " · no workspace id"}
               </div>
             </div>
             <Button

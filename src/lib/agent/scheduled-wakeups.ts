@@ -111,7 +111,13 @@ function scheduleInternal(
     chatTimers = new Map();
     timersByChat.set(chatId, chatTimers);
   }
-  chatTimers.set(id, { id, note: trimmedNote, firesAt: Date.now() + clamped, timer, jobId });
+  chatTimers.set(id, {
+    id,
+    note: trimmedNote,
+    firesAt: Date.now() + clamped,
+    timer,
+    jobId,
+  });
   return { id, firesInMs: clamped };
 }
 
@@ -122,7 +128,10 @@ function scheduleInternal(
 // CommandResult) so timers can't orphan or pile up.
 
 /** Find the (single) outstanding wake-up tied to a job, if any. */
-function findJobWakeup(chatId: number, jobId: string): ScheduledWakeup | undefined {
+function findJobWakeup(
+  chatId: number,
+  jobId: string,
+): ScheduledWakeup | undefined {
   const chatTimers = timersByChat.get(chatId);
   if (!chatTimers) return undefined;
   for (const w of chatTimers.values()) if (w.jobId === jobId) return w;
@@ -166,7 +175,10 @@ export function adjustJobWakeup(
 }
 
 /** Live "time left" on a job's timer, or null if it has none. */
-export function getJobWakeupRemainingMs(chatId: number, jobId: string): number | null {
+export function getJobWakeupRemainingMs(
+  chatId: number,
+  jobId: string,
+): number | null {
   const existing = findJobWakeup(chatId, jobId);
   if (!existing) return null;
   return Math.max(0, existing.firesAt - Date.now());
@@ -213,7 +225,9 @@ export function cancelJobWakeups(chatId: number, jobId: string): number {
  * by nature ("re-check now"), so — unlike a finished result (R2) — it is NOT a
  * forced tool-result; the model decides what to do.
  */
-export function takePendingScheduledWakeupNudges(chatId: number): string | null {
+export function takePendingScheduledWakeupNudges(
+  chatId: number,
+): string | null {
   const list = nudgesByChat.get(chatId);
   if (!list?.length) return null;
   nudgesByChat.delete(chatId);

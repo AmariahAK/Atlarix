@@ -44,7 +44,10 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (id.includes("node_modules/echarts")) return "vendor-echarts";
-          if (id.includes("node_modules/shiki") || id.includes("node_modules/@shikijs")) {
+          if (
+            id.includes("node_modules/shiki") ||
+            id.includes("node_modules/@shikijs")
+          ) {
             return "vendor-shiki";
           }
         },
@@ -57,7 +60,10 @@ export default defineConfig({
      * `@/lib/models_dev` as `src` + `/lib/models_dev` (real main-only file).
      */
     alias: [
-      { find: "@/lib/models_dev", replacement: shims("models-dev-renderer-stub.ts") },
+      {
+        find: "@/lib/models_dev",
+        replacement: shims("models-dev-renderer-stub.ts"),
+      },
       {
         find: "@/lib/auth/supabase-secure-storage",
         replacement: shims("supabase-secure-storage-renderer-stub.ts"),
@@ -73,7 +79,10 @@ export default defineConfig({
         replacement: shims("get-model-client-renderer-stub.ts"),
       },
       /** Do not alias `@/db` — it prefix-matches `@/db/schema`. DB stub is via resolve plugin (db/index only). */
-      { find: "@/main/settings", replacement: shims("main-settings-renderer-stub.ts") },
+      {
+        find: "@/main/settings",
+        replacement: shims("main-settings-renderer-stub.ts"),
+      },
       { find: "@", replacement: path.resolve(__dirname, "./src") },
       {
         find: "@sentry/electron/main",
@@ -94,6 +103,6 @@ export default defineConfig({
     RENDERER_KEYS.map((k) => [
       `import.meta.env.${k}`,
       JSON.stringify(process.env[k] ?? ""),
-    ])
+    ]),
   ),
 });

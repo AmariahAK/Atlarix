@@ -57,11 +57,17 @@ async function freshModule() {
 /** Write a session file the way a healthy app would have left one. */
 function seedStoredSession(value = "the-real-session") {
   const json = JSON.stringify({ "sb-auth-token": value });
-  fs.writeFileSync(encPath(), Buffer.from(`enc:${json}`, "utf8").toString("base64"), "utf8");
+  fs.writeFileSync(
+    encPath(),
+    Buffer.from(`enc:${json}`, "utf8").toString("base64"),
+    "utf8",
+  );
 }
 
 beforeEach(() => {
-  userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "atlarix-secure-storage-"));
+  userDataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "atlarix-secure-storage-"),
+  );
   encryptionAvailable = true;
   availabilityChecks = 0;
 });
@@ -107,7 +113,9 @@ describe("session storage vs. an unavailable keychain", () => {
     expect(await storage.getItem("sb-auth-token")).toBeNull();
 
     encryptionAvailable = true;
-    expect(await storage.getItem("sb-auth-token")).toBe("session-worth-keeping");
+    expect(await storage.getItem("sb-auth-token")).toBe(
+      "session-worth-keeping",
+    );
   });
 
   it("reports a genuinely absent session as absent", async () => {
@@ -133,7 +141,9 @@ describe("session storage vs. an unavailable keychain", () => {
       await freshModule();
     await clearSupabaseSecureStorage();
     expect(fs.existsSync(encPath())).toBe(false);
-    expect(await createSecureSupabaseStorage().getItem("sb-auth-token")).toBeNull();
+    expect(
+      await createSecureSupabaseStorage().getItem("sb-auth-token"),
+    ).toBeNull();
   });
 
   it("retries availability rather than trusting one early check", async () => {
@@ -149,11 +159,17 @@ describe("session storage vs. an unavailable keychain", () => {
     // Migration used to unlink the legacy file unconditionally, including after
     // a failed encrypt — deleting the only remaining copy.
     const legacy = path.join(userDataDir, "supabase-auth.json");
-    fs.writeFileSync(legacy, JSON.stringify({ "sb-auth-token": "legacy" }), "utf8");
+    fs.writeFileSync(
+      legacy,
+      JSON.stringify({ "sb-auth-token": "legacy" }),
+      "utf8",
+    );
     encryptionAvailable = false;
 
     const { createSecureSupabaseStorage } = await freshModule();
-    expect(await createSecureSupabaseStorage().getItem("sb-auth-token")).toBe("legacy");
+    expect(await createSecureSupabaseStorage().getItem("sb-auth-token")).toBe(
+      "legacy",
+    );
     expect(fs.existsSync(legacy)).toBe(true);
   });
 });

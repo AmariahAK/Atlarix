@@ -50,7 +50,9 @@ function combineAnswers(items: QuestionItem[], answers: string[]): string {
 }
 
 export function InlineUserQuestions({ chatId }: Props) {
-  const [pendingByChat, setPendingByChat] = useAtom(pendingUserQuestionByChatIdAtom);
+  const [pendingByChat, setPendingByChat] = useAtom(
+    pendingUserQuestionByChatIdAtom,
+  );
   // Scoped to this chat (perf): don't re-run on unrelated chats' stream flushes.
   const messagesForChat = useAtomValue(messagesForChatAtom(chatId));
   const isStreamingThisChat = useAtomValue(isStreamingForChatAtom(chatId));
@@ -117,9 +119,7 @@ export function InlineUserQuestions({ chatId }: Props) {
           chatId,
           pending.questionId,
           combined,
-          items.length === 1
-            ? items[0].question
-            : `${items.length} questions`,
+          items.length === 1 ? items[0].question : `${items.length} questions`,
         );
         clearPending();
         // The asking turn already ended — answers became a real user message;
@@ -153,7 +153,11 @@ export function InlineUserQuestions({ chatId }: Props) {
     const opts = items[0].options;
     const onKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
-      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
+      if (
+        target &&
+        (target.tagName === "INPUT" || target.tagName === "TEXTAREA")
+      )
+        return;
       if (e.key >= "1" && e.key <= "4" && opts.length > 0) {
         const idx = Number(e.key) - 1;
         if (idx < opts.length) {
@@ -225,7 +229,9 @@ export function InlineUserQuestions({ chatId }: Props) {
                       <span className="text-muted-foreground tabular-nums w-5 shrink-0">
                         {oi + 1}
                       </span>
-                      <span className="flex-1 min-w-0 wrap-break-word">{opt}</span>
+                      <span className="flex-1 min-w-0 wrap-break-word">
+                        {opt}
+                      </span>
                       {isSelected ? (
                         <Check className="h-4 w-4 shrink-0 text-primary" />
                       ) : null}
@@ -245,7 +251,9 @@ export function InlineUserQuestions({ chatId }: Props) {
               <input
                 type="text"
                 className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-                placeholder={it.options.length > 0 ? "Something else" : "Your answer…"}
+                placeholder={
+                  it.options.length > 0 ? "Something else" : "Your answer…"
+                }
                 value={customDrafts[qi] ?? ""}
                 disabled={submitting}
                 onChange={(e) => {
@@ -279,7 +287,9 @@ export function InlineUserQuestions({ chatId }: Props) {
           className="text-muted-foreground"
           disabled={submitting}
           onClick={() =>
-            void submitAll(items.map((_it, i) => (answers[i] ?? "").trim() || SKIP_ANSWER))
+            void submitAll(
+              items.map((_it, i) => (answers[i] ?? "").trim() || SKIP_ANSWER),
+            )
           }
         >
           Skip {multi ? "remaining" : ""}

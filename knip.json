@@ -14,14 +14,8 @@
     "forge.config.ts",
     "vite.*.config.mts"
   ],
-  "project": [
-    "src/**/*.{ts,tsx}"
-  ],
-  "ignore": [
-    "**/*.d.ts",
-    "src/**/*.test.{ts,tsx}",
-    "src/shims/**"
-  ],
+  "project": ["src/**/*.{ts,tsx}"],
+  "ignore": ["**/*.d.ts", "src/**/*.test.{ts,tsx}", "src/shims/**"],
   "ignoreDependencies": [
     "shiki",
     "tw-animate-css",
@@ -39,12 +33,7 @@
     "@types/fs-extra",
     "esbuild"
   ],
-  "ignoreBinaries": [
-    "tsx",
-    "ts-node"
-  ],
-  "ignoreUnresolved": [
-    "../../worker/proxy_server.js"
-  ],
+  "ignoreBinaries": ["tsx", "ts-node"],
+  "ignoreUnresolved": ["../../worker/proxy_server.js"],
   "ignoreExportsUsedInFile": true
 }

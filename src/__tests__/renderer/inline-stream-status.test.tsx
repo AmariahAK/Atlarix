@@ -84,7 +84,9 @@ describe("InlineStreamStatus", () => {
         label: "mapping out structure",
       });
     });
-    expect(store.get(toolIndicatorAtom).phaseLabel).toBe("mapping out structure");
+    expect(store.get(toolIndicatorAtom).phaseLabel).toBe(
+      "mapping out structure",
+    );
     expect(screen.getByText("mapping out structure")).toBeInTheDocument();
   });
 });
@@ -160,14 +162,20 @@ describe("compaction is visible mid-turn", () => {
     const store = renderWithProviders(<div />).store;
     store.set(
       activityStreamItemsAtom,
-      bg({ status: "done", label: "Context compressed", detail: "120000 → 40000 tokens" }),
+      bg({
+        status: "done",
+        label: "Context compressed",
+        detail: "120000 → 40000 tokens",
+      }),
     );
     const { unmount } = renderWithProviders(
       <InlineStreamStatus chatId={CHAT_ID} active />,
     );
     // "It compressed and carried on" is the reassuring half of the story —
     // dropping it leaves the user wondering what the pause was.
-    expect(screen.getByRole("status").textContent).toContain("Context compressed");
+    expect(screen.getByRole("status").textContent).toContain(
+      "Context compressed",
+    );
     expect(screen.getByRole("status").textContent).toContain("120000 → 40000");
     unmount();
 

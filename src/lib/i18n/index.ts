@@ -67,7 +67,9 @@ export const EN_RESOURCES = {
  * up to i18next v24 and every tutorial still says so, but v26 renamed it and the
  * old key is silently ignored — you get an async init and tests that see raw keys.
  */
-export function createI18n(locale: SupportedLocale = DEFAULT_LOCALE): I18nInstance {
+export function createI18n(
+  locale: SupportedLocale = DEFAULT_LOCALE,
+): I18nInstance {
   const instance = i18next.createInstance();
   void instance.init({
     lng: locale,

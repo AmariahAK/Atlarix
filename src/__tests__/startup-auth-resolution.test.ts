@@ -62,15 +62,23 @@ function showsNeutralPlaceholder(opts: {
 
 describe("what the UI shows during launch", () => {
   it("holds a neutral slot while unresolved and not yet authenticated", () => {
-    expect(showsNeutralPlaceholder({ authResolved: false, isAuthenticated: false })).toBe(true);
+    expect(
+      showsNeutralPlaceholder({ authResolved: false, isAuthenticated: false }),
+    ).toBe(true);
   });
 
   it("shows the account immediately if the session was already restored", () => {
-    expect(showsNeutralPlaceholder({ authResolved: false, isAuthenticated: true })).toBe(false);
-    expect(showsNeutralPlaceholder({ authResolved: true, isAuthenticated: true })).toBe(false);
+    expect(
+      showsNeutralPlaceholder({ authResolved: false, isAuthenticated: true }),
+    ).toBe(false);
+    expect(
+      showsNeutralPlaceholder({ authResolved: true, isAuthenticated: true }),
+    ).toBe(false);
   });
 
   it("commits to signed-out only once main has answered", () => {
-    expect(showsNeutralPlaceholder({ authResolved: true, isAuthenticated: false })).toBe(false);
+    expect(
+      showsNeutralPlaceholder({ authResolved: true, isAuthenticated: false }),
+    ).toBe(false);
   });
 });

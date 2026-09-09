@@ -123,10 +123,15 @@ function buildDelegationView(
   };
 }
 
-function buildPlanView(payload: Record<string, unknown>): ToolExpandView | null {
-  const message = typeof payload.message === "string" ? payload.message.trim() : "";
-  const progress = typeof payload.progress === "string" ? payload.progress.trim() : "";
-  const planStatus = typeof payload.planStatus === "string" ? payload.planStatus.trim() : "";
+function buildPlanView(
+  payload: Record<string, unknown>,
+): ToolExpandView | null {
+  const message =
+    typeof payload.message === "string" ? payload.message.trim() : "";
+  const progress =
+    typeof payload.progress === "string" ? payload.progress.trim() : "";
+  const planStatus =
+    typeof payload.planStatus === "string" ? payload.planStatus.trim() : "";
   const content =
     typeof payload.contentPreview === "string"
       ? payload.contentPreview
@@ -134,7 +139,11 @@ function buildPlanView(payload: Record<string, unknown>): ToolExpandView | null 
         ? payload.content
         : "";
 
-  const header = [message || undefined, planStatus || undefined, progress || undefined]
+  const header = [
+    message || undefined,
+    planStatus || undefined,
+    progress || undefined,
+  ]
     .filter(Boolean)
     .join(" · ");
   if (!header && !content) return null;
@@ -159,7 +168,10 @@ function buildPlanView(payload: Record<string, unknown>): ToolExpandView | null 
     lines.push(`… ${total - steps.length} more`);
   }
 
-  return { kind: "text", body: [header, "", ...lines].filter((l) => l !== undefined).join("\n") };
+  return {
+    kind: "text",
+    body: [header, "", ...lines].filter((l) => l !== undefined).join("\n"),
+  };
 }
 
 const MCP_LIST_TOOLS = new Set(["list_available_mcps"]);
@@ -440,7 +452,11 @@ function buildFileListView(
 
   const slice = entries.slice(0, MAX_FILE_ROWS);
   const moreCount =
-    total > slice.length ? total - slice.length : entries.length > slice.length ? entries.length - slice.length : undefined;
+    total > slice.length
+      ? total - slice.length
+      : entries.length > slice.length
+        ? entries.length - slice.length
+        : undefined;
 
   return {
     kind: "file_list",
@@ -475,7 +491,9 @@ function buildMatchListFromGroups(
     const { fileName, directory } = splitPathForDisplay(filePath);
     const sym = go.enclosingSymbol;
     const enclosingSymbol =
-      sym && typeof sym === "object" && typeof (sym as Record<string, unknown>).name === "string"
+      sym &&
+      typeof sym === "object" &&
+      typeof (sym as Record<string, unknown>).name === "string"
         ? {
             name: String((sym as Record<string, unknown>).name),
             kind: String((sym as Record<string, unknown>).kind ?? ""),
@@ -494,7 +512,8 @@ function buildMatchListFromGroups(
   if (files.length === 0) return null;
 
   const slice = files.slice(0, MAX_FILE_ROWS);
-  const moreCount = files.length > slice.length ? files.length - slice.length : undefined;
+  const moreCount =
+    files.length > slice.length ? files.length - slice.length : undefined;
 
   return {
     kind: "match_list",
@@ -544,7 +563,8 @@ function buildMatchListView(
         kind: "match_list",
         totalMatches,
         files: slice,
-        moreCount: files.length > slice.length ? files.length - slice.length : undefined,
+        moreCount:
+          files.length > slice.length ? files.length - slice.length : undefined,
       };
     }
   }
@@ -561,7 +581,10 @@ function buildMatchListView(
         kind: "match_list",
         totalMatches,
         files: slice,
-        moreCount: parsed.length > slice.length ? parsed.length - slice.length : undefined,
+        moreCount:
+          parsed.length > slice.length
+            ? parsed.length - slice.length
+            : undefined,
       };
     }
   }
@@ -621,8 +644,7 @@ function buildWebSearchResultsView(
     const o = entry as Record<string, unknown>;
     const url = typeof o.url === "string" ? o.url.trim() : "";
     if (!url) continue;
-    const title =
-      (typeof o.title === "string" && o.title.trim()) || url;
+    const title = (typeof o.title === "string" && o.title.trim()) || url;
     const rawSnippet =
       typeof o.content === "string"
         ? o.content
@@ -654,7 +676,8 @@ function buildEmptyWebSearchView(
   payload: Record<string, unknown>,
   args?: unknown,
 ): Extract<ToolExpandView, { kind: "text" }> | null {
-  if (!Array.isArray(payload.sources) || payload.sources.length > 0) return null;
+  if (!Array.isArray(payload.sources) || payload.sources.length > 0)
+    return null;
   let query = "";
   if (args && typeof args === "object") {
     const a = args as Record<string, unknown>;
@@ -687,7 +710,9 @@ function buildCommandOutputView(
   if (!displayOutput.trim()) return null;
   const exitRaw = payload.exit_code ?? payload.exitCode ?? payload.code;
   const exitCode =
-    typeof exitRaw === "number" && Number.isFinite(exitRaw) ? exitRaw : undefined;
+    typeof exitRaw === "number" && Number.isFinite(exitRaw)
+      ? exitRaw
+      : undefined;
   const command =
     typeof payload.command === "string" && payload.command.trim()
       ? payload.command.trim()
@@ -716,7 +741,8 @@ function buildDiffView(
   // (which already hold it — it's in the transcript exactly once), NOT echoed in
   // the result. So a completed/persisted write card renders an accurate diff with
   // ZERO extra tokens. Falls back to the result payload for older sessions.
-  const a = args && typeof args === "object" ? (args as Record<string, unknown>) : {};
+  const a =
+    args && typeof args === "object" ? (args as Record<string, unknown>) : {};
   const argNew =
     typeof a.content === "string"
       ? a.content
@@ -742,7 +768,9 @@ function buildDiffView(
           !!e && typeof e === "object",
       )
     : [];
-  const joinEdits = (key: "old_content" | "new_content"): string | undefined => {
+  const joinEdits = (
+    key: "old_content" | "new_content",
+  ): string | undefined => {
     if (argEdits.length === 0) return undefined;
     const parts = argEdits
       .map((e) => (typeof e[key] === "string" ? (e[key] as string) : ""))
@@ -805,10 +833,15 @@ function buildDiffView(
 
   // Prefer the precise line counts the backend sent (cheap numbers), falling
   // back to a line-delta estimate from whatever content we have.
-  const payloadAdded = typeof payload.added === "number" ? payload.added : undefined;
-  const payloadRemoved = typeof payload.removed === "number" ? payload.removed : undefined;
+  const payloadAdded =
+    typeof payload.added === "number" ? payload.added : undefined;
+  const payloadRemoved =
+    typeof payload.removed === "number" ? payload.removed : undefined;
 
-  if (path && (oldContent || newContent || payloadAdded != null || payloadRemoved != null)) {
+  if (
+    path &&
+    (oldContent || newContent || payloadAdded != null || payloadRemoved != null)
+  ) {
     const { fileName } = splitPathForDisplay(path);
     const oldLines = oldContent ? oldContent.split(/\r?\n/).length : 0;
     const newLines = newContent ? newContent.split(/\r?\n/).length : 0;
@@ -820,9 +853,11 @@ function buildDiffView(
       oldContent: trimDiffContent(oldContent),
       newContent: trimDiffContent(newContent),
       addedCount:
-        payloadAdded ?? Math.max(0, newLines - (operation === "create" ? 0 : oldLines)),
+        payloadAdded ??
+        Math.max(0, newLines - (operation === "create" ? 0 : oldLines)),
       removedCount:
-        payloadRemoved ?? (operation === "delete" ? oldLines : Math.max(0, oldLines - newLines)),
+        payloadRemoved ??
+        (operation === "delete" ? oldLines : Math.max(0, oldLines - newLines)),
       ...(precomputedHunks ? { precomputedHunks } : {}),
     };
   }
@@ -856,7 +891,8 @@ function buildDiffView(
         fileName,
         operation: "update",
         oldContent: typeof d.old_snippet === "string" ? d.old_snippet : "",
-        newContent: typeof d.new_snippet === "string" ? d.new_snippet : snippet ?? "",
+        newContent:
+          typeof d.new_snippet === "string" ? d.new_snippet : (snippet ?? ""),
         addedCount: added,
         removedCount: removed,
         snippetFallback: snippet,
@@ -910,7 +946,8 @@ function buildMcpServersView(
   const rawServers = payload.servers;
   if (!Array.isArray(rawServers)) return null;
 
-  const servers: Extract<ToolExpandView, { kind: "mcp_servers" }>["servers"] = [];
+  const servers: Extract<ToolExpandView, { kind: "mcp_servers" }>["servers"] =
+    [];
   for (const s of rawServers) {
     if (!s || typeof s !== "object") continue;
     const o = s as Record<string, unknown>;
@@ -940,7 +977,10 @@ function buildMcpServersView(
       transport: typeof o.transport === "string" ? o.transport : undefined,
       scope: typeof o.scope === "string" ? o.scope : undefined,
       tools,
-      error: typeof o.error === "string" && o.error.trim() ? o.error.trim() : undefined,
+      error:
+        typeof o.error === "string" && o.error.trim()
+          ? o.error.trim()
+          : undefined,
       needsOAuth: o.needsOAuth === true,
     });
   }
@@ -986,7 +1026,8 @@ function buildMcpAuthView(
 function buildMcpResultView(
   payload: Record<string, unknown>,
 ): Extract<ToolExpandView, { kind: "mcp_result" }> | null {
-  const server = typeof payload.server === "string" ? payload.server.trim() : "";
+  const server =
+    typeof payload.server === "string" ? payload.server.trim() : "";
   const tool = typeof payload.tool === "string" ? payload.tool.trim() : "";
 
   const rawResult = payload.result;
@@ -1002,7 +1043,12 @@ function buildMcpResultView(
   }
 
   if (!server && !tool && !body.trim()) return null;
-  return { kind: "mcp_result", server: server || "mcp", tool, body: body.trim() };
+  return {
+    kind: "mcp_result",
+    server: server || "mcp",
+    tool,
+    body: body.trim(),
+  };
 }
 
 type AttachmentTableShape = {
@@ -1021,7 +1067,8 @@ function buildAttachmentTableView(
     source = payload;
   } else if (Array.isArray(payload.results)) {
     source = (payload.results as Record<string, unknown>[]).find(
-      (r) => r && typeof r === "object" && r.table && typeof r.table === "object",
+      (r) =>
+        r && typeof r === "object" && r.table && typeof r.table === "object",
     );
   }
   const table = source?.table as AttachmentTableShape | undefined;
@@ -1076,11 +1123,7 @@ export function buildToolExpandView(
   status: StreamThreadToolStatus | "success" | "error" | "running",
 ): ToolExpandView {
   const streamStatus: StreamThreadToolStatus =
-    status === "running"
-      ? "running"
-      : status === "error"
-        ? "error"
-        : "done";
+    status === "running" ? "running" : status === "error" ? "error" : "done";
 
   if (streamStatus === "running") return { kind: "none" };
   if (!resultText?.trim()) return { kind: "none" };
@@ -1098,7 +1141,10 @@ export function buildToolExpandView(
   // Before the generic error return, for the same reason run_command is: a failed
   // delegation should still show the sub-agent's own report rather than "Tool failed".
   if (DELEGATION_TOOLS.has(toolName)) {
-    const delegation = buildDelegationView(envelope.payload, envelope.plainText);
+    const delegation = buildDelegationView(
+      envelope.payload,
+      envelope.plainText,
+    );
     if (delegation) return delegation;
   }
 
@@ -1217,16 +1263,21 @@ export function buildToolExpandView(
   }
 
   if (BROWSER_SCREENSHOT_TOOLS.has(toolName)) {
-    const hasImage = typeof payload.data === "string" && payload.data.length > 0;
+    const hasImage =
+      typeof payload.data === "string" && payload.data.length > 0;
     const dataUrl = hasImage
       ? `data:${typeof payload.mimeType === "string" ? payload.mimeType : "image/png"};base64,${payload.data}`
       : undefined;
     // When the result carries a session record, show the action timeline (with
     // the screenshot, if any) instead of a bare image.
-    const rawSteps = Array.isArray(payload.sessionSteps) ? payload.sessionSteps : null;
+    const rawSteps = Array.isArray(payload.sessionSteps)
+      ? payload.sessionSteps
+      : null;
     if (rawSteps && rawSteps.length > 0) {
       const steps = rawSteps
-        .filter((s): s is Record<string, unknown> => !!s && typeof s === "object")
+        .filter(
+          (s): s is Record<string, unknown> => !!s && typeof s === "object",
+        )
         .map((s) => ({
           type: typeof s.type === "string" ? s.type : "",
           detail: typeof s.detail === "string" ? s.detail : "",
@@ -1259,7 +1310,8 @@ export function buildToolExpandView(
       return { kind: "text", body: payload.error.trim(), isError: true };
     }
     const parts: string[] = [];
-    if (typeof payload.title === "string" && payload.title) parts.push(payload.title);
+    if (typeof payload.title === "string" && payload.title)
+      parts.push(payload.title);
     if (typeof payload.url === "string" && payload.url) parts.push(payload.url);
     const header = parts.join(" — ");
     const body =
@@ -1274,7 +1326,11 @@ export function buildToolExpandView(
 
   if (WEBMCP_LIST_TOOLS.has(toolName)) {
     const tools = Array.isArray(payload.tools)
-      ? (payload.tools as { name?: unknown; description?: unknown; title?: unknown }[])
+      ? (payload.tools as {
+          name?: unknown;
+          description?: unknown;
+          title?: unknown;
+        }[])
       : [];
     const origin = typeof payload.origin === "string" ? payload.origin : "";
     if (tools.length > 0 && origin) {

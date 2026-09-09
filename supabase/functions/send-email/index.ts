@@ -8,7 +8,8 @@ import { getAuthedUser, json, corsHeaders } from "../_shared/auth.ts";
 const MAX_RECIPIENTS = 10;
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method === "OPTIONS")
+    return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
   const user = await getAuthedUser(req);
@@ -23,7 +24,9 @@ Deno.serve(async (req) => {
   let html = "";
   try {
     const body = await req.json();
-    to = Array.isArray(body?.to) ? body.to.filter((x: unknown) => typeof x === "string") : [];
+    to = Array.isArray(body?.to)
+      ? body.to.filter((x: unknown) => typeof x === "string")
+      : [];
     subject = typeof body?.subject === "string" ? body.subject : "";
     html = typeof body?.html === "string" ? body.html : "";
   } catch {
@@ -37,13 +40,19 @@ Deno.serve(async (req) => {
   try {
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({ from, to, subject, html }),
     });
     const data = (await res.json()) as { id?: string; message?: string };
     if (!res.ok) {
       console.error("[send-email] Resend failed:", res.status, data);
-      return json({ ok: false, error: data.message || String(res.status) }, 502);
+      return json(
+        { ok: false, error: data.message || String(res.status) },
+        502,
+      );
     }
     return json({ ok: true, id: data.id });
   } catch (e) {

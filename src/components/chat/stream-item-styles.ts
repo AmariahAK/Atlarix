@@ -20,9 +20,11 @@ export const streamToolCardButton =
 export const streamToolCardButtonMultiLine =
   "w-full flex items-start gap-2 px-2.5 py-2 text-left text-foreground hover:bg-muted/80 dark:hover:bg-muted/40";
 
-export const streamToolCardSummary = "flex-1 min-w-0 truncate font-medium text-foreground";
+export const streamToolCardSummary =
+  "flex-1 min-w-0 truncate font-medium text-foreground";
 
-export const streamToolCardChevron = "h-3.5 w-3.5 shrink-0 text-muted-foreground mt-0.5";
+export const streamToolCardChevron =
+  "h-3.5 w-3.5 shrink-0 text-muted-foreground mt-0.5";
 
 /** Inline reasoning / thought blocks */
 export const thoughtBlockShell =
@@ -31,7 +33,8 @@ export const thoughtBlockShell =
 export const thoughtBlockButton =
   "w-full flex items-center gap-2 px-2.5 py-1.5 text-left text-xs text-emerald-950 dark:text-emerald-100 hover:bg-emerald-100/80 dark:hover:bg-emerald-500/10";
 
-export const thoughtBlockMeta = "font-normal text-emerald-800/80 dark:text-emerald-200/70";
+export const thoughtBlockMeta =
+  "font-normal text-emerald-800/80 dark:text-emerald-200/70";
 
 export const thoughtBlockBody =
   "border-t border-emerald-700/15 dark:border-emerald-500/20 px-2.5 py-2 text-xs text-foreground/85 dark:text-muted-foreground whitespace-pre-wrap break-words max-h-48 overflow-y-auto";

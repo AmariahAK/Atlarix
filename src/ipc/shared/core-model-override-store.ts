@@ -52,8 +52,7 @@ let CORE_MODEL_ROUTING: Record<string, CoreTierRouting> | null = null;
 export function setCoreModelOverrides(
   map: Record<string, string> | null,
 ): void {
-  CORE_MODEL_OVERRIDES =
-    map && Object.keys(map).length > 0 ? { ...map } : null;
+  CORE_MODEL_OVERRIDES = map && Object.keys(map).length > 0 ? { ...map } : null;
 }
 
 /** Resolved override for an already-normalized `core-N` tier id, or undefined. */
@@ -84,8 +83,7 @@ export function isCoreModelWebSearchEnabled(normalizedTierId: string): boolean {
 export function setCoreModelRouting(
   map: Record<string, CoreTierRouting> | null,
 ): void {
-  CORE_MODEL_ROUTING =
-    map && Object.keys(map).length > 0 ? { ...map } : null;
+  CORE_MODEL_ROUTING = map && Object.keys(map).length > 0 ? { ...map } : null;
 }
 
 /**

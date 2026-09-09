@@ -244,7 +244,10 @@ export function attachResponseBody(
     entry.responseBodyTruncated = captured.truncated;
     return true;
   }
-  log.orphanBodies.set(key, { body: captured.body, truncated: captured.truncated });
+  log.orphanBodies.set(key, {
+    body: captured.body,
+    truncated: captured.truncated,
+  });
   if (log.orphanBodies.size > NETWORK_ORPHAN_BODIES_MAX) {
     // Map iterates in insertion order, so this evicts the oldest.
     const oldest = log.orphanBodies.keys().next();

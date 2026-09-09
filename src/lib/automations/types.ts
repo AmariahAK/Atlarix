@@ -93,7 +93,10 @@ export const AutomationInputSchema = z
      */
     notifyAgent: z.boolean(),
     /** {provider,name} override; null → settings.selectedModel at run time. */
-    model: z.object({ provider: z.string(), name: z.string() }).nullable().default(null),
+    model: z
+      .object({ provider: z.string(), name: z.string() })
+      .nullable()
+      .default(null),
   })
   .refine((v) => v.runMode === "notify-only" || v.prompt.trim().length > 0, {
     message: "Agent-run automations need a prompt",
@@ -103,7 +106,11 @@ export type AutomationInput = z.infer<typeof AutomationInputSchema>;
 
 export type McpCursor = { hash: string };
 
-export type AutomationRunStatus = "running" | "ok" | "nothing-to-report" | "error";
+export type AutomationRunStatus =
+  | "running"
+  | "ok"
+  | "nothing-to-report"
+  | "error";
 
 /** Renderer-facing run row (broadcast on automation:run-update and returned by automations:runs). */
 export interface AutomationRunView {

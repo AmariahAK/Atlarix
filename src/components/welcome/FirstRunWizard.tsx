@@ -54,7 +54,8 @@ const KNOWN_PROVIDERS: Array<{ id: string; label: string }> = [
 function useLegacyOnboardingMarker(): () => Promise<boolean> {
   return useCallback(async () => {
     try {
-      if (localStorage.getItem("atlarix_onboarding_done") === "true") return true;
+      if (localStorage.getItem("atlarix_onboarding_done") === "true")
+        return true;
       if (localStorage.getItem("atlarix.onboarding_skipped")) return true;
     } catch {
       /* ignore */
@@ -127,11 +128,12 @@ export function FirstRunWizard() {
     };
   }, [settings, decided, checkLegacyMarker, updateSettings]);
 
-
   const detectedProviders = useMemo(() => {
     const ps = settings?.providerSettings ?? {};
     return KNOWN_PROVIDERS.filter((p) => {
-      const entry = (ps as Record<string, { apiKey?: { value?: string } }>)[p.id];
+      const entry = (ps as Record<string, { apiKey?: { value?: string } }>)[
+        p.id
+      ];
       return Boolean(entry?.apiKey?.value);
     });
   }, [settings?.providerSettings]);
@@ -150,7 +152,10 @@ export function FirstRunWizard() {
         /* ignore */
       }
       if (navigateTo) {
-        navigate({ to: navigateTo, ...(navigateSearch ? { search: navigateSearch } : {}) });
+        navigate({
+          to: navigateTo,
+          ...(navigateSearch ? { search: navigateSearch } : {}),
+        });
       }
     },
     [updateSettings, navigate],
@@ -168,11 +173,13 @@ export function FirstRunWizard() {
     }
   }, [finish, navigate, refreshApps]);
 
-
   if (!open) return null;
 
   const stepDots = (
-    <div className="flex items-center gap-1.5" aria-label={`Step ${step + 1} of ${TOTAL_STEPS}`}>
+    <div
+      className="flex items-center gap-1.5"
+      aria-label={`Step ${step + 1} of ${TOTAL_STEPS}`}
+    >
       {Array.from({ length: TOTAL_STEPS }, (_, i) => (
         <span
           key={i}
@@ -188,152 +195,169 @@ export function FirstRunWizard() {
 
   return (
     <>
-    <Dialog open={open} onOpenChange={(o) => !o && void finish()}>
-      <DialogContent className="max-w-md" data-testid="first-run-wizard">
-        {step === 0 ? (
-          <>
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <Rocket className="h-4 w-4 text-primary" />
-                Welcome to Atlarix
-              </DialogTitle>
-              <DialogDescription>
-                The private AI workstation — your code stays on your machine.
-              </DialogDescription>
-            </DialogHeader>
-            <ul className="space-y-2 text-sm text-muted-foreground">
-              <li className="flex gap-2">
-                <Check className="h-4 w-4 shrink-0 text-primary mt-0.5" />
-                Open a project folder — chat, sessions, tools, and memory belong to that workspace.
-              </li>
-              <li className="flex gap-2">
-                <Check className="h-4 w-4 shrink-0 text-primary mt-0.5" />
-                Work modes: Explore, Plan, Build, Debug, Review (Shift+Tab to cycle).
-              </li>
-              <li className="flex gap-2">
-                <Check className="h-4 w-4 shrink-0 text-primary mt-0.5" />
-                Every file write waits for your approval, inline in chat with diffs. Commands run
-                inside a per-OS sandbox; only genuinely dangerous ones stop to ask.
-              </li>
-            </ul>
-          </>
-        ) : null}
+      <Dialog open={open} onOpenChange={(o) => !o && void finish()}>
+        <DialogContent className="max-w-md" data-testid="first-run-wizard">
+          {step === 0 ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Rocket className="h-4 w-4 text-primary" />
+                  Welcome to Atlarix
+                </DialogTitle>
+                <DialogDescription>
+                  The private AI workstation — your code stays on your machine.
+                </DialogDescription>
+              </DialogHeader>
+              <ul className="space-y-2 text-sm text-muted-foreground">
+                <li className="flex gap-2">
+                  <Check className="h-4 w-4 shrink-0 text-primary mt-0.5" />
+                  Open a project folder — chat, sessions, tools, and memory
+                  belong to that workspace.
+                </li>
+                <li className="flex gap-2">
+                  <Check className="h-4 w-4 shrink-0 text-primary mt-0.5" />
+                  Work modes: Explore, Plan, Build, Debug, Review (Shift+Tab to
+                  cycle).
+                </li>
+                <li className="flex gap-2">
+                  <Check className="h-4 w-4 shrink-0 text-primary mt-0.5" />
+                  Every file write waits for your approval, inline in chat with
+                  diffs. Commands run inside a per-OS sandbox; only genuinely
+                  dangerous ones stop to ask.
+                </li>
+              </ul>
+            </>
+          ) : null}
 
-        {step === 1 ? (
-          <>
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <KeyRound className="h-4 w-4 text-primary" />
-                Models & providers
-              </DialogTitle>
-              <DialogDescription>
-                Use Atlarix Core (pay-as-you-go — $1 free to start) or bring your own keys.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-2 text-sm">
-              <div className="flex items-center gap-2 rounded-md border border-border/60 px-3 py-2">
-                <Compass className="h-4 w-4 shrink-0 text-primary" />
-                <span className="flex-1">Atlarix Core</span>
-                <span className="text-xs text-muted-foreground">
-                  {signedIn == null ? "…" : signedIn ? "Signed in" : "Sign in to use"}
-                </span>
-              </div>
-              <div className="rounded-md border border-border/60 px-3 py-2">
-                <div className="flex items-center gap-2">
-                  <KeyRound className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="flex-1">Your API keys (BYOK)</span>
+          {step === 1 ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <KeyRound className="h-4 w-4 text-primary" />
+                  Models & providers
+                </DialogTitle>
+                <DialogDescription>
+                  Use Atlarix Core (pay-as-you-go — $1 free to start) or bring
+                  your own keys.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-2 text-sm">
+                <div className="flex items-center gap-2 rounded-md border border-border/60 px-3 py-2">
+                  <Compass className="h-4 w-4 shrink-0 text-primary" />
+                  <span className="flex-1">Atlarix Core</span>
                   <span className="text-xs text-muted-foreground">
-                    {detectedProviders.length > 0
-                      ? `${detectedProviders.length} detected`
-                      : "none yet"}
+                    {signedIn == null
+                      ? "…"
+                      : signedIn
+                        ? "Signed in"
+                        : "Sign in to use"}
                   </span>
                 </div>
-                {detectedProviders.length > 0 ? (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {detectedProviders.map((p) => p.label).join(", ")}
-                  </p>
-                ) : (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    OpenAI, Anthropic, Gemini, OpenRouter, Ollama, LM Studio, and more.
-                  </p>
-                )}
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="gap-1.5"
-                onClick={() => void finish("/settings")}
-              >
-                <SettingsIcon className="h-3.5 w-3.5" />
-                Open Settings → AI
-              </Button>
-              <div className="rounded-md border border-border/60 px-3 py-2">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="flex-1">MCP marketplace</span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 px-2 text-xs"
-                    onClick={() => void finish("/integrations/mcp", { tab: "marketplace" })}
-                  >
-                    Browse
-                  </Button>
+                <div className="rounded-md border border-border/60 px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    <KeyRound className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="flex-1">Your API keys (BYOK)</span>
+                    <span className="text-xs text-muted-foreground">
+                      {detectedProviders.length > 0
+                        ? `${detectedProviders.length} detected`
+                        : "none yet"}
+                    </span>
+                  </div>
+                  {detectedProviders.length > 0 ? (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {detectedProviders.map((p) => p.label).join(", ")}
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      OpenAI, Anthropic, Gemini, OpenRouter, Ollama, LM Studio,
+                      and more.
+                    </p>
+                  )}
                 </div>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  One-click integrations (GitHub, Slack, search, …) per workspace.
-                  Marketplace installs are a Pro feature — browsing is free.
-                </p>
-              </div>
-            </div>
-          </>
-        ) : null}
-
-        {step === 2 ? (
-          <>
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <Bot className="h-4 w-4 text-primary" />
-                Default model
-              </DialogTitle>
-              <DialogDescription>
-                Pick the model the agent uses by default — change it anytime from the chat composer.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="rounded-md border border-border/60 px-3 py-2 text-sm">
-              <span className="text-muted-foreground text-xs">Current default</span>
-              <div className="font-medium">
-                {selectedModel?.name?.trim() || "Auto (Atlarix picks per task)"}
-              </div>
-              {selectedModel?.provider ? (
-                <div className="text-xs text-muted-foreground capitalize">
-                  via {selectedModel.provider}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={() => void finish("/settings")}
+                >
+                  <SettingsIcon className="h-3.5 w-3.5" />
+                  Open Settings → AI
+                </Button>
+                <div className="rounded-md border border-border/60 px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="flex-1">MCP marketplace</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-xs"
+                      onClick={() =>
+                        void finish("/integrations/mcp", { tab: "marketplace" })
+                      }
+                    >
+                      Browse
+                    </Button>
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    One-click integrations (GitHub, Slack, search, …) per
+                    workspace. Marketplace installs are a Pro feature — browsing
+                    is free.
+                  </p>
                 </div>
-              ) : null}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              The model picker lives next to the chat input; the agent shows which model authored each turn.
-            </p>
-          </>
-        ) : null}
+              </div>
+            </>
+          ) : null}
 
-        {step === 3 ? (
-          <>
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <FolderOpen className="h-4 w-4 text-primary" />
-                Open your first workspace
-              </DialogTitle>
-              <DialogDescription>
-                Atlarix is workspace-first — chat, sessions, tools and memory all
-                belong to one project folder. Open a folder you already have, or
-                an empty one — then ask the agent to clone into it, from any git
-                host, using your own git credentials.
-              </DialogDescription>
-            </DialogHeader>
-            {/* One entry point. "Clone repo…" used to sit beside this, opening a
+          {step === 2 ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Bot className="h-4 w-4 text-primary" />
+                  Default model
+                </DialogTitle>
+                <DialogDescription>
+                  Pick the model the agent uses by default — change it anytime
+                  from the chat composer.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="rounded-md border border-border/60 px-3 py-2 text-sm">
+                <span className="text-muted-foreground text-xs">
+                  Current default
+                </span>
+                <div className="font-medium">
+                  {selectedModel?.name?.trim() ||
+                    "Auto (Atlarix picks per task)"}
+                </div>
+                {selectedModel?.provider ? (
+                  <div className="text-xs text-muted-foreground capitalize">
+                    via {selectedModel.provider}
+                  </div>
+                ) : null}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                The model picker lives next to the chat input; the agent shows
+                which model authored each turn.
+              </p>
+            </>
+          ) : null}
+
+          {step === 3 ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <FolderOpen className="h-4 w-4 text-primary" />
+                  Open your first workspace
+                </DialogTitle>
+                <DialogDescription>
+                  Atlarix is workspace-first — chat, sessions, tools and memory
+                  all belong to one project folder. Open a folder you already
+                  have, or an empty one — then ask the agent to clone into it,
+                  from any git host, using your own git credentials.
+                </DialogDescription>
+              </DialogHeader>
+              {/* One entry point. "Clone repo…" used to sit beside this, opening a
                 GitHub-only device flow — so it could never reach GitLab,
                 Bitbucket, self-hosted or plain SSH. `git clone` through the
                 agent works on every host with the user's own credentials, which
@@ -341,44 +365,57 @@ export function FirstRunWizard() {
                 still holds and is why this button is HERE rather than behind
                 setup: a new user must be able to start without finishing a
                 wizard first. */}
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" className="gap-2" onClick={() => void handleOpenFolder()}>
-                <FolderOpen className="h-4 w-4" />
-                Open folder…
-              </Button>
-            </div>
-          </>
-        ) : null}
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  className="gap-2"
+                  onClick={() => void handleOpenFolder()}
+                >
+                  <FolderOpen className="h-4 w-4" />
+                  Open folder…
+                </Button>
+              </div>
+            </>
+          ) : null}
 
-        <DialogFooter className="flex items-center sm:justify-between gap-2">
-          {stepDots}
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => void finish()}
-            >
-              Skip setup
-            </Button>
-            {step > 0 ? (
-              <Button type="button" variant="outline" size="sm" onClick={() => setStep((s) => s - 1)}>
-                Back
+          <DialogFooter className="flex items-center sm:justify-between gap-2">
+            {stepDots}
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => void finish()}
+              >
+                Skip setup
               </Button>
-            ) : null}
-            {step < TOTAL_STEPS - 1 ? (
-              <Button type="button" size="sm" onClick={() => setStep((s) => s + 1)}>
-                {step === 0 ? "Get started" : "Next"}
-              </Button>
-            ) : (
-              <Button type="button" size="sm" onClick={() => void finish()}>
-                Finish
-              </Button>
-            )}
-          </div>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+              {step > 0 ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setStep((s) => s - 1)}
+                >
+                  Back
+                </Button>
+              ) : null}
+              {step < TOTAL_STEPS - 1 ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => setStep((s) => s + 1)}
+                >
+                  {step === 0 ? "Get started" : "Next"}
+                </Button>
+              ) : (
+                <Button type="button" size="sm" onClick={() => void finish()}>
+                  Finish
+                </Button>
+              )}
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

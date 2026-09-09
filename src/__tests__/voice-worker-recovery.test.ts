@@ -45,10 +45,13 @@ describe("worker message handling clears the loading state", () => {
     m: { type: string; progress?: number; message?: string },
   ) {
     if (m.type === "progress") {
-      return typeof m.progress === "number" ? { ...state, progress: m.progress / 100 } : state;
+      return typeof m.progress === "number"
+        ? { ...state, progress: m.progress / 100 }
+        : state;
     }
     if (m.type === "ready") return { ...state, progress: null };
-    if (m.type === "error") return { progress: null, error: m.message ?? "Transcription failed" };
+    if (m.type === "error")
+      return { progress: null, error: m.message ?? "Transcription failed" };
     return state;
   }
 
@@ -111,7 +114,9 @@ describe("a rejected pipeline load is not memoised", () => {
   });
 
   it("propagates the rejection to the caller, not just resets the cache", async () => {
-    const load = vi.fn<() => Promise<string>>().mockRejectedValue(new Error("boom"));
+    const load = vi
+      .fn<() => Promise<string>>()
+      .mockRejectedValue(new Error("boom"));
     const get = makeLoader(load);
     await expect(get()).rejects.toThrow("boom");
   });
@@ -171,8 +176,12 @@ describe("session creation is not poisoned by an earlier failure", () => {
 
   it("REGRESSION: unpatched, the fallback is never even attempted", async () => {
     const create = unpatchedChain();
-    const first = vi.fn<() => Promise<string>>().mockRejectedValue(sessionFailure());
-    const fallback = vi.fn<() => Promise<string>>().mockResolvedValue("session");
+    const first = vi
+      .fn<() => Promise<string>>()
+      .mockRejectedValue(sessionFailure());
+    const fallback = vi
+      .fn<() => Promise<string>>()
+      .mockResolvedValue("session");
 
     await expect(create(first)).rejects.toThrow("MatMulNBits");
     // THE BUG: the fallback's own loader is never called, and the caller is handed the
@@ -184,8 +193,12 @@ describe("session creation is not poisoned by an earlier failure", () => {
 
   it("patched, the fallback runs and succeeds", async () => {
     const create = patchedChain();
-    const first = vi.fn<() => Promise<string>>().mockRejectedValue(sessionFailure());
-    const fallback = vi.fn<() => Promise<string>>().mockResolvedValue("session");
+    const first = vi
+      .fn<() => Promise<string>>()
+      .mockRejectedValue(sessionFailure());
+    const fallback = vi
+      .fn<() => Promise<string>>()
+      .mockResolvedValue("session");
 
     await expect(create(first)).rejects.toThrow("MatMulNBits");
     await expect(create(fallback)).resolves.toBe("session");
@@ -252,10 +265,12 @@ describe("session creation is not poisoned by an earlier failure", () => {
     // `webInferenceChain` is the identical pattern one function down: one failed
     // inference would otherwise replay its rejection for every later transcription.
     const run = patchedChain();
-    await expect(run(() => Promise.reject(new Error("gpu hiccup")))).rejects.toThrow(
-      "gpu hiccup",
+    await expect(
+      run(() => Promise.reject(new Error("gpu hiccup"))),
+    ).rejects.toThrow("gpu hiccup");
+    await expect(run(() => Promise.resolve("transcript"))).resolves.toBe(
+      "transcript",
     );
-    await expect(run(() => Promise.resolve("transcript"))).resolves.toBe("transcript");
   });
 });
 
@@ -368,7 +383,12 @@ describe("download progress is aggregated across files", () => {
     // The encoder alone is 90% done...
     const first = aggregateProgress(files([["encoder", 80, 88]]));
     // ...then the decoder appears and the honest fraction collapses to 43%.
-    const second = aggregateProgress(files([["encoder", 80, 88], ["decoder", 0, 100]]));
+    const second = aggregateProgress(
+      files([
+        ["encoder", 80, 88],
+        ["decoder", 0, 100],
+      ]),
+    );
     expect(second.progress).toBeLessThan(first.progress);
     // Which is why the caller clamps to the running max — a bar that goes backwards
     // reads as "it restarted", the exact confusion this change exists to remove.

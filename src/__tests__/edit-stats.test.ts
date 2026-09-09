@@ -86,7 +86,10 @@ describe("localDayKey", () => {
 });
 
 describe("resolveEditStatsModel", () => {
-  const coreTier = { name: "core-3", provider: "compass" } as LargeLanguageModel;
+  const coreTier = {
+    name: "core-3",
+    provider: "compass",
+  } as LargeLanguageModel;
 
   it("stores a Core turn as the RESOLVED model, never the tier id", () => {
     // Storing `core-3` would relabel history the next time the lineup moves:

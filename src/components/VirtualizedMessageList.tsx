@@ -114,7 +114,9 @@ export function VirtualizedMessageList({
               chatId={chatId}
               workspaceAppId={workspaceAppId}
               isStreaming={
-                isStreaming && index === lastIndex && message.role === "assistant"
+                isStreaming &&
+                index === lastIndex &&
+                message.role === "assistant"
               }
               isLatestAssistant={index === lastAssistantIndex}
               onEditUserMessage={onEditUserMessage}

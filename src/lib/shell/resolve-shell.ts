@@ -28,7 +28,9 @@ const SHELL_BLACKLIST = new Set(["fish", "nu"]);
 export function isCmdShell(shell: string): boolean {
   if (!shell) return process.platform === "win32";
   const base = (
-    process.platform === "win32" ? path.win32.basename(shell) : path.basename(shell)
+    process.platform === "win32"
+      ? path.win32.basename(shell)
+      : path.basename(shell)
   ).toLowerCase();
   return base === "cmd.exe" || base === "cmd";
 }
@@ -50,7 +52,10 @@ function resolveWindowsShell(): string {
 
   try {
     // `where` prints one path per line; the first is what a command would resolve to.
-    const found = execSync("where git", { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] })
+    const found = execSync("where git", {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    })
       .split(/\r?\n/)
       .map((l) => l.trim())
       .filter(Boolean);
@@ -95,7 +100,9 @@ export function getAcceptableShell(): string {
   if (process.platform === "win32") return resolveWindowsShell();
   // Linux: prefer bash, else sh
   try {
-    const bash = execSync("which bash 2>/dev/null", { encoding: "utf8" }).trim();
+    const bash = execSync("which bash 2>/dev/null", {
+      encoding: "utf8",
+    }).trim();
     if (bash) return bash;
   } catch {
     // ignore
@@ -110,9 +117,12 @@ export function getAcceptableShell(): string {
  */
 export function getInteractiveShell(): { file: string; args: string[] } {
   if (process.platform === "win32") {
-    return { file: process.env.COMSPEC?.includes("powershell")
-      ? process.env.COMSPEC
-      : "powershell.exe", args: [] };
+    return {
+      file: process.env.COMSPEC?.includes("powershell")
+        ? process.env.COMSPEC
+        : "powershell.exe",
+      args: [],
+    };
   }
   const envShell = process.env.SHELL;
   const file = envShell || getAcceptableShell();

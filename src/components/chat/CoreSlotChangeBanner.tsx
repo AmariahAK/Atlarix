@@ -49,7 +49,9 @@ export function CoreSlotChangeBanner() {
     // a failed ack simply means the notice returns next launch — a smaller failure
     // than a banner that will not close.
     setChange(null);
-    void IpcClient.getInstance().ackCoreSlotChange().catch(() => {});
+    void IpcClient.getInstance()
+      .ackCoreSlotChange()
+      .catch(() => {});
   }, []);
 
   if (!change) return null;
@@ -68,8 +70,8 @@ export function CoreSlotChangeBanner() {
         <span className="font-medium text-foreground">
           {formatModelApiNameForDisplay(change.to)}
         </span>
-        . Pricing differs between models — you can pick a different one from the model
-        selector at any time.
+        . Pricing differs between models — you can pick a different one from the
+        model selector at any time.
       </p>
       <button
         type="button"

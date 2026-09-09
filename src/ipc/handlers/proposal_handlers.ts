@@ -7,7 +7,10 @@ import type {
 import { db } from "../../db";
 import { apps } from "../../db/schema";
 import { eq } from "drizzle-orm";
-import { getStreamTransport, getStreamTransportAppId } from "@/lib/chat/stream-transport";
+import {
+  getStreamTransport,
+  getStreamTransportAppId,
+} from "@/lib/chat/stream-transport";
 import type { Message } from "../ipc_types";
 import path from "node:path"; // Import path for basename
 // Import tag parsers
@@ -20,10 +23,7 @@ import {
   getAtlarixCommandTags,
 } from "../utils/atlarix_tag_parser";
 import log from "electron-log";
-import {
-  estimateMessagesTokens,
-  getContextWindow,
-} from "../utils/token_utils";
+import { estimateMessagesTokens, getContextWindow } from "../utils/token_utils";
 import { withLock } from "../utils/lock_utils";
 import { createLoggedHandler } from "./safe_handle";
 import { ApproveProposalResult } from "../ipc_types";
@@ -100,7 +100,9 @@ async function getCodebaseTokenCount(
   // so the budget the UI sees and what the stream actually sends are in sync.
   const DIAGRAM_CONTEXT_TOKENS = 0;
 
-  logger.log(`Using diagram-first context estimation for chatId: ${chatId}: ~${DIAGRAM_CONTEXT_TOKENS} tokens (model-driven only)`);
+  logger.log(
+    `Using diagram-first context estimation for chatId: ${chatId}: ~${DIAGRAM_CONTEXT_TOKENS} tokens (model-driven only)`,
+  );
 
   // Store in cache
   codebaseTokenCache.set(chatId, {
@@ -161,13 +163,12 @@ const getProposalHandler = async (
         const proposalDeleteFiles = getAtlarixDeleteTags(messageContent);
 
         const filesChanged = [
-          ...proposalWriteFiles
-            .map((tag) => ({
-              name: path.basename(tag.path),
-              path: tag.path,
-              summary: tag.description ?? "(no change summary found)", // Generic summary
-              type: "write" as const,
-            })),
+          ...proposalWriteFiles.map((tag) => ({
+            name: path.basename(tag.path),
+            path: tag.path,
+            summary: tag.description ?? "(no change summary found)", // Generic summary
+            type: "write" as const,
+          })),
           ...proposalRenameFiles.map((tag) => ({
             name: path.basename(tag.to),
             path: tag.to,
@@ -238,7 +239,9 @@ const getProposalHandler = async (
         }
 
         // Check for command tags and add corresponding actions
-        const commandTags = getAtlarixCommandTags(latestAssistantMessage.content);
+        const commandTags = getAtlarixCommandTags(
+          latestAssistantMessage.content,
+        );
         if (commandTags.includes("rebuild")) {
           actions.push({
             id: "rebuild",
@@ -283,7 +286,8 @@ const getProposalHandler = async (
         // summarize nudge far too early for >100K models.
         const contextWindow = await getContextWindow(undefined, chatId);
         logger.log(
-          `Token usage: ${totalTokens}/${contextWindow} (${(totalTokens / contextWindow) * 100
+          `Token usage: ${totalTokens}/${contextWindow} (${
+            (totalTokens / contextWindow) * 100
           }%)`,
         );
 

@@ -67,10 +67,12 @@ const sessionExists = async (id: string) => {
   const { chatSessions } = await import("@/db/schema");
   const { eq } = await import("drizzle-orm");
   return (
-    (await ctx.testDb.db
-      .select()
-      .from(chatSessions)
-      .where(eq(chatSessions.id, id))).length > 0
+    (
+      await ctx.testDb.db
+        .select()
+        .from(chatSessions)
+        .where(eq(chatSessions.id, id))
+    ).length > 0
   );
 };
 

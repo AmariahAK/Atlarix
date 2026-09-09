@@ -58,18 +58,24 @@ describe("system-scope-commands — on-device installs", () => {
 describe("system-scope-commands — outside-workspace paths", () => {
   it("flags cd / redirection escaping the workspace", () => {
     expect(isSystemScopeCommand("cd /etc && cat hosts", WS)).toBe(true);
-    expect(isSystemScopeCommand("echo x > /usr/local/bin/thing", WS)).toBe(true);
+    expect(isSystemScopeCommand("echo x > /usr/local/bin/thing", WS)).toBe(
+      true,
+    );
     expect(isSystemScopeCommand("echo x >> ~/.zshrc", WS)).toBe(true);
   });
 
   it("does NOT flag cd / writes that stay inside the workspace", () => {
-    expect(isSystemScopeCommand("cd /Users/me/project/sub && ls", WS)).toBe(false);
+    expect(isSystemScopeCommand("cd /Users/me/project/sub && ls", WS)).toBe(
+      false,
+    );
     expect(isSystemScopeCommand("echo x > ./out.txt", WS)).toBe(false);
     expect(isSystemScopeCommand("cat /etc/hosts", WS)).toBe(false); // read, not a write/cd
   });
 
   it("does NOT flag redirects to /dev sinks (no-op writes, e.g. 2>/dev/null)", () => {
-    expect(isSystemScopeCommand("grep -q x .gitignore 2>/dev/null && echo ok", WS)).toBe(false);
+    expect(
+      isSystemScopeCommand("grep -q x .gitignore 2>/dev/null && echo ok", WS),
+    ).toBe(false);
     expect(isSystemScopeCommand("ls 2>/dev/null", WS)).toBe(false);
     expect(isSystemScopeCommand("cmd > /dev/null 2>&1", WS)).toBe(false);
     expect(isSystemScopeCommand("cmd 2>/dev/stderr", WS)).toBe(false);
@@ -78,8 +84,12 @@ describe("system-scope-commands — outside-workspace paths", () => {
 
 describe("system-scope-commands — explanation + label", () => {
   it("gives a descriptive explanation", () => {
-    expect(getSystemScopeExplanation("brew install jq", WS)).toMatch(/Homebrew/);
-    expect(getSystemScopeExplanation("echo x > ~/.zshrc", WS)).toMatch(/OUTSIDE this project/);
+    expect(getSystemScopeExplanation("brew install jq", WS)).toMatch(
+      /Homebrew/,
+    );
+    expect(getSystemScopeExplanation("echo x > ~/.zshrc", WS)).toMatch(
+      /OUTSIDE this project/,
+    );
     expect(getSystemScopeExplanation("ls", WS)).toBeTruthy();
   });
 

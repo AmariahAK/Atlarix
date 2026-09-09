@@ -42,7 +42,9 @@ export type PlanContentSegment =
   | { type: "plan-artifact"; planId: string };
 
 /** Split raw assistant content into markdown and plan-artifact marker segments (order preserved). */
-export function splitContentByPlanMarkers(content: string): PlanContentSegment[] {
+export function splitContentByPlanMarkers(
+  content: string,
+): PlanContentSegment[] {
   if (!content) return [];
   const re = new RegExp(PLAN_ARTIFACT_MARKER_RE.source, "gi");
   const segments: PlanContentSegment[] = [];
@@ -79,7 +81,9 @@ function parseJsonPlan(raw: string): PlanCardData | null {
           ? (g.tasks as PlanTask[]).map((t) => ({
               id: String(t.id ?? Math.random().toString(36).slice(2)),
               label: String(t.label ?? ""),
-              status: ["pending", "in_progress", "done", "failed"].includes(String(t.status))
+              status: ["pending", "in_progress", "done", "failed"].includes(
+                String(t.status),
+              )
                 ? (t.status as PlanTaskStatus)
                 : "pending",
               agentId: (t.agentId ?? g.agentId) as PlanAgentId | undefined,
@@ -95,7 +99,12 @@ function parseJsonPlan(raw: string): PlanCardData | null {
 }
 
 function toTaskId(input: string): string {
-  return input.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "task";
+  return (
+    input
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "task"
+  );
 }
 
 /**
@@ -104,7 +113,11 @@ function toTaskId(input: string): string {
 function parseLoosePhasedPlan(content: string): PlanCardData | null {
   const lines = content.split(/\r?\n/);
   const groups: PlanTaskGroup[] = [];
-  let current: { phaseNum: string; titleLine: string; tasks: PlanTask[] } | null = null;
+  let current: {
+    phaseNum: string;
+    titleLine: string;
+    tasks: PlanTask[];
+  } | null = null;
 
   const flush = () => {
     if (!current || current.tasks.length === 0) return;
@@ -121,8 +134,10 @@ function parseLoosePhasedPlan(content: string): PlanCardData | null {
     current = null;
   };
 
-  const headingMd = /^\s{0,3}#{1,6}\s*Phase\s+(\d+)\s*[:.\u2014\u2013-]?\s*(.*)$/i;
-  const headingBold = /^\s*\*\*Phase\s+(\d+)\s*[:.\u2014\u2013-]?\s*(.+?)\*\*\s*$/i;
+  const headingMd =
+    /^\s{0,3}#{1,6}\s*Phase\s+(\d+)\s*[:.\u2014\u2013-]?\s*(.*)$/i;
+  const headingBold =
+    /^\s*\*\*Phase\s+(\d+)\s*[:.\u2014\u2013-]?\s*(.+?)\*\*\s*$/i;
 
   for (const line of lines) {
     let m = line.match(headingMd);
@@ -160,9 +175,15 @@ function stripLoosePhasedPlanSection(content: string): string {
   if (idx < 0) {
     const idxBold = content.search(/\*\*Phase\s+\d+/i);
     if (idxBold < 0) return content;
-    return content.slice(0, idxBold).replace(/\n{3,}/g, "\n\n").trimEnd();
+    return content
+      .slice(0, idxBold)
+      .replace(/\n{3,}/g, "\n\n")
+      .trimEnd();
   }
-  return content.slice(0, idx).replace(/\n{3,}/g, "\n\n").trimEnd();
+  return content
+    .slice(0, idx)
+    .replace(/\n{3,}/g, "\n\n")
+    .trimEnd();
 }
 
 function parsePlanReport(content: string): PlanCardData | null {

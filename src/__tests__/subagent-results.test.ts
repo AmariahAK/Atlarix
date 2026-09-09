@@ -66,7 +66,8 @@ describe("subagent-results (background sub-agent orchestration)", () => {
 
   it("fires the notifier 'running' on start and 'finished' on result (mirrors background-commands)", () => {
     const chatId = 7103;
-    const events: Array<{ taskId: string; status: string; running: number }> = [];
+    const events: Array<{ taskId: string; status: string; running: number }> =
+      [];
     setSubagentNotifier((cid, ev) => {
       if (cid === chatId) events.push(ev);
     });
@@ -85,7 +86,11 @@ describe("subagent-results (background sub-agent orchestration)", () => {
       durationMs: 100,
     });
     // running count drops to 1 (task-b still going); "finished" regardless of state
-    expect(events.at(-1)).toEqual({ taskId: "task-a", status: "finished", running: 1 });
+    expect(events.at(-1)).toEqual({
+      taskId: "task-a",
+      status: "finished",
+      running: 1,
+    });
 
     recordSubagentResult(chatId, "task-b", {
       description: "scout2",
@@ -94,7 +99,11 @@ describe("subagent-results (background sub-agent orchestration)", () => {
       durationMs: 100,
     });
     // an ERROR result also fires "finished" so it can auto-wake a parked turn
-    expect(events.at(-1)).toEqual({ taskId: "task-b", status: "finished", running: 0 });
+    expect(events.at(-1)).toEqual({
+      taskId: "task-b",
+      status: "finished",
+      running: 0,
+    });
 
     clearSubagentsForChat(chatId);
   });

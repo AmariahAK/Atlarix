@@ -2,7 +2,10 @@ import { createHash } from "node:crypto";
 import { estimateTokens } from "@/ipc/utils/token_utils";
 import { truncateToTokens as truncateToTokensShared } from "@/lib/truncate";
 import type { WorkMode } from "@/lib/schemas";
-import { getContextAssemblyCache, setContextAssemblyCache } from "./context-assembly-cache";
+import {
+  getContextAssemblyCache,
+  setContextAssemblyCache,
+} from "./context-assembly-cache";
 
 export type ContextSectionName =
   | "activeSkill"
@@ -44,7 +47,9 @@ export type ContextAssemblerInput = {
 export type ContextAssemblerOutput = {
   activeSkillAddition: string;
   finalSystemPromptAddition: string;
-  assembledPromptSections: Array<ContextSection & { tokens: number; included: boolean; truncated: boolean }>;
+  assembledPromptSections: Array<
+    ContextSection & { tokens: number; included: boolean; truncated: boolean }
+  >;
   tokenUsageBySection: Record<string, number>;
   trimReport: string[];
   cache: { key: string; hit: boolean };
@@ -52,15 +57,23 @@ export type ContextAssemblerOutput = {
 
 const ACTIVE_SKILL_TOKEN_CEILING = 8000;
 
-export function assembleContextSections(input: ContextAssemblerInput): ContextAssemblerOutput {
+export function assembleContextSections(
+  input: ContextAssemblerInput,
+): ContextAssemblerOutput {
   const normalizedSections = [...input.sections]
     .filter((s) => s.content.trim().length > 0)
     .sort((a, b) => a.priority - b.priority);
 
-  const activeSkillSections = normalizedSections.filter((s) => s.name === "activeSkill");
-  const otherSections = normalizedSections.filter((s) => s.name !== "activeSkill");
+  const activeSkillSections = normalizedSections.filter(
+    (s) => s.name === "activeSkill",
+  );
+  const otherSections = normalizedSections.filter(
+    (s) => s.name !== "activeSkill",
+  );
 
-  let activeSkillAddition = activeSkillSections.map((s) => s.content.trim()).join("\n\n");
+  let activeSkillAddition = activeSkillSections
+    .map((s) => s.content.trim())
+    .join("\n\n");
   // Whether the CEILING actually fired — decided once, on the joined text, before
   // truncating. The per-section flag below used to be derived by comparing the
   // TRIMMED addition against the UNTRIMMED section content, so any trailing
@@ -71,7 +84,11 @@ export function assembleContextSections(input: ContextAssemblerInput): ContextAs
     !!activeSkillAddition &&
     estimateTokens(activeSkillAddition) > ACTIVE_SKILL_TOKEN_CEILING;
   if (activeSkillTruncated) {
-    activeSkillAddition = truncateToTokensShared(activeSkillAddition, ACTIVE_SKILL_TOKEN_CEILING, "\n\n...(trimmed to fit context cap)");
+    activeSkillAddition = truncateToTokensShared(
+      activeSkillAddition,
+      ACTIVE_SKILL_TOKEN_CEILING,
+      "\n\n...(trimmed to fit context cap)",
+    );
   }
 
   const cacheKey = createHash("sha256")
@@ -81,7 +98,10 @@ export function assembleContextSections(input: ContextAssemblerInput): ContextAs
         appId: input.appId ?? null,
         workMode: input.workMode,
         userPrompt: input.userPrompt,
-        sections: normalizedSections.map((s) => ({ name: s.name, content: s.content })),
+        sections: normalizedSections.map((s) => ({
+          name: s.name,
+          content: s.content,
+        })),
       }),
     )
     .digest("hex");
@@ -97,7 +117,8 @@ export function assembleContextSections(input: ContextAssemblerInput): ContextAs
 
   let remaining = Infinity;
   const trimReport: string[] = [];
-  const assembledPromptSections: ContextAssemblerOutput["assembledPromptSections"] = [];
+  const assembledPromptSections: ContextAssemblerOutput["assembledPromptSections"] =
+    [];
   const tokenUsageBySection: Record<string, number> = {};
   const includedBlocks: string[] = [];
 
@@ -141,7 +162,11 @@ export function assembleContextSections(input: ContextAssemblerInput): ContextAs
       continue;
     }
 
-    const truncated = truncateToTokensShared(section.content, remaining, "\n\n...(trimmed to fit context cap)");
+    const truncated = truncateToTokensShared(
+      section.content,
+      remaining,
+      "\n\n...(trimmed to fit context cap)",
+    );
     const truncatedTokens = estimateTokens(truncated);
     if (truncatedTokens > 0) {
       includedBlocks.push(truncated);
@@ -151,7 +176,9 @@ export function assembleContextSections(input: ContextAssemblerInput): ContextAs
         included: true,
         truncated: true,
       });
-      trimReport.push(`Trimmed ${section.name} from ${sectionTokens} to ${truncatedTokens} tokens`);
+      trimReport.push(
+        `Trimmed ${section.name} from ${sectionTokens} to ${truncatedTokens} tokens`,
+      );
       remaining = Math.max(0, remaining - truncatedTokens);
     } else {
       assembledPromptSections.push({

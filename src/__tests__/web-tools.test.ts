@@ -94,7 +94,9 @@ describe("read_url cache", () => {
     __clearReadUrlCacheForTests();
     safeFetchMock.mockReset();
     safeFetchMock.mockResolvedValue(
-      pageResponse("<html><head><title>Doc</title></head><body><main><p>hello</p></main></body></html>"),
+      pageResponse(
+        "<html><head><title>Doc</title></head><body><main><p>hello</p></main></body></html>",
+      ),
     );
   });
 
@@ -203,13 +205,10 @@ describe("fetchWithCfRetry", () => {
 
   it("does not retry a successful first response", async () => {
     let n = 0;
-    await fetchWithCfRetry(
-      async () => {
-        n++;
-        return res(200);
-      },
-      {},
-    );
+    await fetchWithCfRetry(async () => {
+      n++;
+      return res(200);
+    }, {});
     expect(n).toBe(1);
   });
 });

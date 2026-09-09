@@ -35,10 +35,22 @@ export interface FakeIpc {
   cancelChatStream: ReturnType<typeof vi.fn>;
   openExternalUrl: ReturnType<typeof vi.fn>;
   // ── event registration (components subscribe; tests emit) ──
-  onStreamPhase: (h: Handler<{ chatId: number; phase: string; label: string }>) => () => void;
+  onStreamPhase: (
+    h: Handler<{ chatId: number; phase: string; label: string }>,
+  ) => () => void;
   onToolIndicator: (
-    onStart: Handler<{ chatId: number; toolName: string; toolId?: string; toolArgs?: Record<string, unknown> }>,
-    onEnd: Handler<{ chatId: number; toolId?: string; toolName?: string; status?: "success" | "error" }>,
+    onStart: Handler<{
+      chatId: number;
+      toolName: string;
+      toolId?: string;
+      toolArgs?: Record<string, unknown>;
+    }>,
+    onEnd: Handler<{
+      chatId: number;
+      toolId?: string;
+      toolName?: string;
+      status?: "success" | "error";
+    }>,
   ) => () => void;
   onChatActivity: (h: Handler<Record<string, unknown>>) => () => void;
   /** Background command / sub-agent job status. Drives the auto-wake path. */
@@ -46,9 +58,23 @@ export interface FakeIpc {
     h: Handler<{ chatId: number; status: string; source?: string }>,
   ) => () => void;
   // ── test drivers ──
-  emitStreamPhase: (payload: { chatId: number; phase: string; label: string }) => void;
-  emitToolStart: (payload: { chatId: number; toolName: string; toolId?: string; toolArgs?: Record<string, unknown> }) => void;
-  emitToolEnd: (payload: { chatId: number; toolId?: string; toolName?: string; status?: "success" | "error" }) => void;
+  emitStreamPhase: (payload: {
+    chatId: number;
+    phase: string;
+    label: string;
+  }) => void;
+  emitToolStart: (payload: {
+    chatId: number;
+    toolName: string;
+    toolId?: string;
+    toolArgs?: Record<string, unknown>;
+  }) => void;
+  emitToolEnd: (payload: {
+    chatId: number;
+    toolId?: string;
+    toolName?: string;
+    status?: "success" | "error";
+  }) => void;
   emitChatActivity: (payload: Record<string, unknown>) => void;
   emitBackgroundJobUpdate: (payload: {
     chatId: number;
@@ -56,7 +82,9 @@ export interface FakeIpc {
     source?: string;
   }) => void;
   /** Main REFUSED a dispatch (a dropped system wake) — no stream, no terminal event. */
-  onStreamDropped: (h: Handler<{ chatId: number; reason: string }>) => () => void;
+  onStreamDropped: (
+    h: Handler<{ chatId: number; reason: string }>,
+  ) => () => void;
   emitStreamDropped: (payload: { chatId: number; reason: string }) => void;
   /**
    * An operation is waiting for approval. Modelled explicitly (the Proxy's
@@ -82,14 +110,32 @@ export type PermissionRequestPayload = {
 };
 
 export function makeFakeIpc(): FakeIpc {
-  const phaseHandlers = new Set<Handler<{ chatId: number; phase: string; label: string }>>();
-  const toolStartHandlers = new Set<Handler<{ chatId: number; toolName: string; toolId?: string; toolArgs?: Record<string, unknown> }>>();
-  const toolEndHandlers = new Set<Handler<{ chatId: number; toolId?: string; toolName?: string; status?: "success" | "error" }>>();
+  const phaseHandlers = new Set<
+    Handler<{ chatId: number; phase: string; label: string }>
+  >();
+  const toolStartHandlers = new Set<
+    Handler<{
+      chatId: number;
+      toolName: string;
+      toolId?: string;
+      toolArgs?: Record<string, unknown>;
+    }>
+  >();
+  const toolEndHandlers = new Set<
+    Handler<{
+      chatId: number;
+      toolId?: string;
+      toolName?: string;
+      status?: "success" | "error";
+    }>
+  >();
   const activityHandlers = new Set<Handler<Record<string, unknown>>>();
   const bgJobHandlers = new Set<
     Handler<{ chatId: number; status: string; source?: string }>
   >();
-  const droppedHandlers = new Set<Handler<{ chatId: number; reason: string }>>();
+  const droppedHandlers = new Set<
+    Handler<{ chatId: number; reason: string }>
+  >();
   const permissionHandlers = new Set<Handler<PermissionRequestPayload>>();
 
   const fake: FakeIpc = {

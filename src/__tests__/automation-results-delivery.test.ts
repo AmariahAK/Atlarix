@@ -34,7 +34,9 @@ const CHAT = -28;
 const OTHER_CHAT = -29;
 const WORKSPACE = 7;
 
-function result(over: Partial<Parameters<typeof recordAutomationResult>[1]> = {}) {
+function result(
+  over: Partial<Parameters<typeof recordAutomationResult>[1]> = {},
+) {
   return {
     automationId: "a1",
     automationName: "Temporary automation test",
@@ -68,7 +70,9 @@ describe("automation results reach the next turn", () => {
   it("delivers to whichever chat in that workspace takes the next turn", () => {
     recordAutomationResult(WORKSPACE, result());
     appIdByChat.set(OTHER_CHAT, WORKSPACE);
-    expect(takePendingAutomationResults(OTHER_CHAT)).toContain("Temporary automation test");
+    expect(takePendingAutomationResults(OTHER_CHAT)).toContain(
+      "Temporary automation test",
+    );
   });
 
   /** Take-once: a second consumer must not re-deliver the same run. */

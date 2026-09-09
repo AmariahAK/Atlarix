@@ -77,7 +77,10 @@ export async function openCreditCheckout(amountCents: number): Promise<{
     amount_cents: Math.floor(amountCents),
   });
   if (!checkoutUrl) {
-    return { success: false, error: "Unable to create checkout. Please try again." };
+    return {
+      success: false,
+      error: "Unable to create checkout. Please try again.",
+    };
   }
 
   logger.info(`Opening credit checkout ($${(amountCents / 100).toFixed(2)})`);

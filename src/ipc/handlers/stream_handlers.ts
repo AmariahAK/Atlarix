@@ -27,9 +27,18 @@ export function registerStreamHandlers(): void {
         timeoutMs?: number;
         jobId?: number;
         mode?: "error_first" | "progress_first" | "raw_capped";
-      }
+      },
     ) => {
-      const { source, chatId, filter, maxLines, maxBytes, timeoutMs, jobId, mode } = payload;
+      const {
+        source,
+        chatId,
+        filter,
+        maxLines,
+        maxBytes,
+        timeoutMs,
+        jobId,
+        mode,
+      } = payload;
       return openStream(source, {
         chatId: chatId ?? null,
         filter: filter ?? null,
@@ -39,7 +48,7 @@ export function registerStreamHandlers(): void {
         jobId,
         mode,
       });
-    }
+    },
   );
 
   ipcMain.handle("stream:close", (_event, streamId: string) => {
@@ -56,8 +65,11 @@ export function registerStreamHandlers(): void {
   });
 
   /** Called from chat stream handler when terminal output is received for a chat. */
-  ipcMain.handle("stream:feed-terminal", (_event, chatId: number, output: string) => {
-    feedTerminalOutput(chatId, output);
-    return { success: true };
-  });
+  ipcMain.handle(
+    "stream:feed-terminal",
+    (_event, chatId: number, output: string) => {
+      feedTerminalOutput(chatId, output);
+      return { success: true };
+    },
+  );
 }

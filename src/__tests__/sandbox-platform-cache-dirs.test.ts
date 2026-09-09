@@ -43,7 +43,14 @@ describe("cross-platform home cache dirs", () => {
     const flat = flatten(HOME_CACHE_DIRS);
     // cargo, rustup, gradle, maven and GOPATH all default under %USERPROFILE% on
     // Windows, and Git bash makes ~/.cache and ~/.config real there as well.
-    for (const expected of [".cargo", ".rustup", ".gradle", ".m2", "go/pkg", ".cache"]) {
+    for (const expected of [
+      ".cargo",
+      ".rustup",
+      ".gradle",
+      ".m2",
+      "go/pkg",
+      ".cache",
+    ]) {
       expect(flat).toContain(expected);
     }
   });
@@ -99,7 +106,10 @@ describe("dockerBuildxDirs", () => {
 
 describe("macOS-only cache dirs", () => {
   it("holds exactly the two Library paths, so they can be darwin-gated", () => {
-    expect(flatten(MACOS_CACHE_DIRS)).toEqual(["Library/Caches", "Library/pnpm"]);
+    expect(flatten(MACOS_CACHE_DIRS)).toEqual([
+      "Library/Caches",
+      "Library/pnpm",
+    ]);
   });
 });
 

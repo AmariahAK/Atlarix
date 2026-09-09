@@ -107,4 +107,3 @@ AFTER TAG
     expect(cleanFullResponse(input)).toBe(expected);
   });
 });
-

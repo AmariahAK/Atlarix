@@ -90,8 +90,12 @@ export function WhatsNewPanel() {
         <X className="h-4 w-4" />
       </button>
 
-      <h3 className="mb-1 pr-6 text-sm font-medium text-foreground">{entry.title}</h3>
-      <p className="text-xs leading-relaxed text-muted-foreground">{entry.body}</p>
+      <h3 className="mb-1 pr-6 text-sm font-medium text-foreground">
+        {entry.title}
+      </h3>
+      <p className="text-xs leading-relaxed text-muted-foreground">
+        {entry.body}
+      </p>
 
       {entry.link ? (
         <button
@@ -99,7 +103,9 @@ export function WhatsNewPanel() {
           // `openExternalUrl` and not an <a>: this is an Electron renderer, and a
           // plain link would navigate the app window itself. The URL was already
           // validated as https in main.
-          onClick={() => void IpcClient.getInstance().openExternalUrl(entry.link!)}
+          onClick={() =>
+            void IpcClient.getInstance().openExternalUrl(entry.link!)
+          }
           className="mt-2 text-xs font-medium text-primary hover:underline"
         >
           {entry.linkLabel ?? "Read more"} →

@@ -7,11 +7,7 @@
  * before the echo exits in the in-loop prepareStep window).
  */
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
-import {
-  setupEvalContext,
-  runTurn,
-  type EvalContext,
-} from "../infra/turn";
+import { setupEvalContext, runTurn, type EvalContext } from "../infra/turn";
 import { scenario } from "../infra/scenario";
 import { expectNoStreamError, expectStreamEnded } from "../infra/assert";
 
@@ -44,7 +40,10 @@ describe("background commands (7A)", () => {
         .build(),
     );
     ctx.server.register(
-      scenario("bg-cmd-next").text("Noted the background result.").repeatLast().build(),
+      scenario("bg-cmd-next")
+        .text("Noted the background result.")
+        .repeatLast()
+        .build(),
     );
 
     const chatId = await ctx.newChat();

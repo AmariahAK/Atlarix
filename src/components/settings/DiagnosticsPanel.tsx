@@ -35,7 +35,8 @@ import type { DoctorReport, DoctorRow } from "@/main/doctor";
 const DOCS_BASE = "https://www.atlarix.dev/docs";
 
 function RowIcon({ row }: { row: DoctorRow }) {
-  if (row.ok) return <CheckCircle2 className="h-4 w-4 shrink-0 text-green-500" />;
+  if (row.ok)
+    return <CheckCircle2 className="h-4 w-4 shrink-0 text-green-500" />;
   if (row.severity === "warn")
     return <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />;
   return <XCircle className="h-4 w-4 shrink-0 text-destructive" />;
@@ -49,7 +50,9 @@ function CheckRow({ row }: { row: DoctorRow }) {
       </div>
       <div className="min-w-0 flex-1 space-y-1">
         <div className="flex items-baseline gap-2">
-          <span className="text-sm font-medium text-foreground">{row.title}</span>
+          <span className="text-sm font-medium text-foreground">
+            {row.title}
+          </span>
           <span className="text-[11px] text-muted-foreground tabular-nums">
             {row.ms}ms
           </span>
@@ -125,8 +128,8 @@ export function DiagnosticsPanel() {
             Diagnostics
           </h2>
           <p className="text-sm text-muted-foreground">
-            Check the parts of Atlarix that fail quietly — your account, your keys,
-            the model catalog, and the pieces bundled inside the app.
+            Check the parts of Atlarix that fail quietly — your account, your
+            keys, the model catalog, and the pieces bundled inside the app.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -171,7 +174,8 @@ export function DiagnosticsPanel() {
       ) : (
         <p className="text-sm text-muted-foreground">
           Nothing has been checked yet. Running takes a few seconds and sends
-          nothing anywhere — the results stay on this screen until you copy them.
+          nothing anywhere — the results stay on this screen until you copy
+          them.
         </p>
       )}
 

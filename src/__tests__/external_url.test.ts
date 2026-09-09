@@ -7,21 +7,29 @@ describe("validateOpenExternalUrl", () => {
   });
 
   it("accepts http URLs", () => {
-    expect(() => validateOpenExternalUrl("http://example.com/path")).not.toThrow();
+    expect(() =>
+      validateOpenExternalUrl("http://example.com/path"),
+    ).not.toThrow();
   });
 
   it("accepts mailto URLs with query params", () => {
     expect(() =>
-      validateOpenExternalUrl("mailto:support@atlarix.dev?subject=test&body=hello"),
+      validateOpenExternalUrl(
+        "mailto:support@atlarix.dev?subject=test&body=hello",
+      ),
     ).not.toThrow();
   });
 
   it("rejects javascript URLs", () => {
-    expect(() => validateOpenExternalUrl("javascript:alert(1)")).toThrow(/invalid or non-http/);
+    expect(() => validateOpenExternalUrl("javascript:alert(1)")).toThrow(
+      /invalid or non-http/,
+    );
   });
 
   it("rejects file URLs", () => {
-    expect(() => validateOpenExternalUrl("file:///C:/Users")).toThrow(/invalid or non-http/);
+    expect(() => validateOpenExternalUrl("file:///C:/Users")).toThrow(
+      /invalid or non-http/,
+    );
   });
 
   it("rejects empty URL", () => {
@@ -29,8 +37,8 @@ describe("validateOpenExternalUrl", () => {
   });
 
   it("rejects mailto with newlines", () => {
-    expect(() => validateOpenExternalUrl("mailto:a@b.com\nBcc:evil@x.com")).toThrow(
-      /Invalid mailto/,
-    );
+    expect(() =>
+      validateOpenExternalUrl("mailto:a@b.com\nBcc:evil@x.com"),
+    ).toThrow(/Invalid mailto/);
   });
 });

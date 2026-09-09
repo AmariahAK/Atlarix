@@ -24,7 +24,8 @@ describe("parseGraphSpec", () => {
   });
 
   it("strips graph code fence", () => {
-    const fenced = '```graph\n{"nodes":[{"id":"a","name":"A"}],"edges":[]}\n```';
+    const fenced =
+      '```graph\n{"nodes":[{"id":"a","name":"A"}],"edges":[]}\n```';
     expect(parseGraphSpec(fenced)?.nodes[0]?.name).toBe("A");
   });
 

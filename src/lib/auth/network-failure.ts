@@ -17,7 +17,12 @@ export function isLikelyNetworkFailure(err: unknown): boolean {
   if (msg.includes("und_err_connect")) return true;
   if (msg.includes("failed to fetch")) return true;
   const cause = (err as { cause?: { code?: string } })?.cause;
-  if (cause?.code && ["ECONNRESET", "ECONNREFUSED", "ENOTFOUND", "ETIMEDOUT"].includes(cause.code)) {
+  if (
+    cause?.code &&
+    ["ECONNRESET", "ECONNREFUSED", "ENOTFOUND", "ETIMEDOUT"].includes(
+      cause.code,
+    )
+  ) {
     return true;
   }
   return false;

@@ -39,10 +39,7 @@ const PROFANITY_WORDS = [
   "whore",
 ];
 
-const PROFANITY_RE = new RegExp(
-  `\\b(?:${PROFANITY_WORDS.join("|")})\\b`,
-  "gi",
-);
+const PROFANITY_RE = new RegExp(`\\b(?:${PROFANITY_WORDS.join("|")})\\b`, "gi");
 
 function isProfane(text: string): boolean {
   PROFANITY_RE.lastIndex = 0;

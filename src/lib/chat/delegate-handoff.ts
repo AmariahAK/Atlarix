@@ -70,8 +70,7 @@ export function parseDelegateHandoffFromToolResult(
         agentRole,
         summary: errMsg,
         validationStatus: "fallback",
-        scope:
-          typeof parsed.scope === "string" ? parsed.scope : undefined,
+        scope: typeof parsed.scope === "string" ? parsed.scope : undefined,
       };
     }
     if (parsed.success !== true) return null;
@@ -96,8 +95,7 @@ export function parseDelegateHandoffFromToolResult(
           : undefined,
       validationStatus:
         validation?.status === "fallback" ? "fallback" : "success",
-      scope:
-        typeof parsed.scope === "string" ? parsed.scope : undefined,
+      scope: typeof parsed.scope === "string" ? parsed.scope : undefined,
     };
   } catch {
     return null;

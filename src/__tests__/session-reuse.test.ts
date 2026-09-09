@@ -18,7 +18,10 @@ describe("pickSessionReuse", () => {
   });
 
   it("reuses the newest empty Untitled session", () => {
-    const rows = [s("new-empty", "Untitled", 0), s("older", "Fix auth bug", 12)];
+    const rows = [
+      s("new-empty", "Untitled", 0),
+      s("older", "Fix auth bug", 12),
+    ];
     expect(pickSessionReuse(rows)).toEqual({
       reuseId: "new-empty",
       pruneIds: [],

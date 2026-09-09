@@ -46,12 +46,16 @@ describe("a session's stored mode beats the global preference", () => {
 
   it("keeps two sessions from colliding", () => {
     const globalPreference = "build" as const;
-    expect(resolveForTurn({ sessionWorkMode: "plan", globalPreference })).toBe("plan");
-    expect(resolveForTurn({ sessionWorkMode: "review", globalPreference })).toBe(
-      "review",
+    expect(resolveForTurn({ sessionWorkMode: "plan", globalPreference })).toBe(
+      "plan",
     );
+    expect(
+      resolveForTurn({ sessionWorkMode: "review", globalPreference }),
+    ).toBe("review");
     // …and neither is disturbed by the global they share.
-    expect(resolveForTurn({ sessionWorkMode: "ask", globalPreference })).toBe("ask");
+    expect(resolveForTurn({ sessionWorkMode: "ask", globalPreference })).toBe(
+      "ask",
+    );
   });
 
   it("a per-turn override still wins over the session (edit/resend, plan panel)", () => {

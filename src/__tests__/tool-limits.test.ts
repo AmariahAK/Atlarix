@@ -46,7 +46,8 @@ describe("read_file limits", () => {
         max_bytes: 900,
       })) as { success: boolean; result?: unknown };
       expect(res.success).toBe(true);
-      const text = typeof res.result === "string" ? res.result : String(res.result);
+      const text =
+        typeof res.result === "string" ? res.result : String(res.result);
       expect(text.toLowerCase()).toMatch(/truncat|exceeded max_bytes|showing:/);
       expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(3500);
     } finally {

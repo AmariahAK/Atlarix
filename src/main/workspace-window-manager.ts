@@ -9,7 +9,9 @@ function normalizeKey(pathOrUri: string): string {
   return pathOrUri.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 }
 
-export function getWindowForWorkspaceKey(key: string): BrowserWindow | undefined {
+export function getWindowForWorkspaceKey(
+  key: string,
+): BrowserWindow | undefined {
   const win = pathToWindow.get(normalizeKey(key));
   if (win && !win.isDestroyed()) return win;
   if (win) pathToWindow.delete(normalizeKey(key));
@@ -122,7 +124,10 @@ export function setWorkspaceWindowTitle(
   workspacePath: string,
 ): void {
   if (win.isDestroyed()) return;
-  const name = workspacePath.replace(/[\\/]+$/, "").split(/[\\/]/).pop();
+  const name = workspacePath
+    .replace(/[\\/]+$/, "")
+    .split(/[\\/]/)
+    .pop();
   try {
     win.setTitle(name ? `${name} — Atlarix` : "Atlarix");
     if (process.platform === "darwin") {

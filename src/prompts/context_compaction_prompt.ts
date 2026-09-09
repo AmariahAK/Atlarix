@@ -65,7 +65,5 @@ export function buildCompactionUserPromptPrefix(prior?: {
   }
   const gen = prior.compactionGeneration ?? 0;
   const head = prior.summaryText.trim().slice(0, 12_000);
-  return (
-    `${CONTEXT_COMPACTION_USER_PREFIX}PRIOR SUMMARY (generation ${gen}) — for orientation only; do not copy verbatim:\n\n---\n${head}\n---\n\nSummarize only the conversation segment below that adds new information.\n\n`
-  );
+  return `${CONTEXT_COMPACTION_USER_PREFIX}PRIOR SUMMARY (generation ${gen}) — for orientation only; do not copy verbatim:\n\n---\n${head}\n---\n\nSummarize only the conversation segment below that adds new information.\n\n`;
 }

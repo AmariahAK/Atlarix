@@ -19,7 +19,10 @@
 const CONTROL_TAG = String.raw`\/?(?:atlarix-[\w-]+|system-reminder|untrusted-data)[\s>/]`;
 
 // A `<` (optionally already once-escaped as `&lt;`) that begins a control tag.
-const ESCAPED_AMP = new RegExp(String.raw`&(?=(?:amp;)*lt;` + CONTROL_TAG + ")", "gi");
+const ESCAPED_AMP = new RegExp(
+  String.raw`&(?=(?:amp;)*lt;` + CONTROL_TAG + ")",
+  "gi",
+);
 const RAW_LT = new RegExp(String.raw`<(?=` + CONTROL_TAG + ")", "gi");
 
 /** Neutralize control-tag openings in an untrusted body. Reversible. */
@@ -31,7 +34,10 @@ export function escapeAttachmentTagBody(body: string): string {
 
 // Inverse: a `&lt;` (with any leading `&amp;` chain) that precedes a control tag.
 const UNESCAPE_LT = new RegExp(String.raw`&lt;(?=` + CONTROL_TAG + ")", "gi");
-const UNESCAPE_AMP = new RegExp(String.raw`&amp;(?=(?:amp;)*lt;` + CONTROL_TAG + ")", "gi");
+const UNESCAPE_AMP = new RegExp(
+  String.raw`&amp;(?=(?:amp;)*lt;` + CONTROL_TAG + ")",
+  "gi",
+);
 
 /** Exact inverse of escapeAttachmentTagBody (used on the display/parse path). */
 export function unescapeAttachmentTagBody(body: string): string {

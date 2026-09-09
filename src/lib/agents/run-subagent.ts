@@ -513,7 +513,8 @@ export async function runSubagent(
               success?: boolean;
               error?: string;
             };
-            if (parsed?.error || parsed?.success === false) toolStatus = "error";
+            if (parsed?.error || parsed?.success === false)
+              toolStatus = "error";
           } catch {
             /* plain text result */
           }
@@ -581,7 +582,13 @@ export async function runSubagent(
         // so the turn's growing tool tail must cache incrementally too.
         prepareStep:
           cacheMarkerPlacement !== "none"
-            ? ({ messages, stepNumber }: { messages: ModelMessage[]; stepNumber: number }) =>
+            ? ({
+                messages,
+                stepNumber,
+              }: {
+                messages: ModelMessage[];
+                stepNumber: number;
+              }) =>
                 stepNumber > 0
                   ? {
                       messages: advanceCacheBreakpointsForStep(
@@ -656,15 +663,21 @@ export async function runSubagent(
     let result = await runRound();
     totalSteps += result.steps?.length ?? 0;
     {
-      const recorded = recordAuxUsage(args.chatId, result.usage, "subagent:task", {
-        estimateTokens: () => {
-          anyRoundEstimated = true;
-          return estimateRoundTokens(msgs, result.text);
+      const recorded = recordAuxUsage(
+        args.chatId,
+        result.usage,
+        "subagent:task",
+        {
+          estimateTokens: () => {
+            anyRoundEstimated = true;
+            return estimateRoundTokens(msgs, result.text);
+          },
         },
-      });
+      );
       subagentTokens += recorded ?? 0;
     }
-    if (subagentTokens > 0) emit?.({ type: "subagent_tokens", tokens: subagentTokens });
+    if (subagentTokens > 0)
+      emit?.({ type: "subagent_tokens", tokens: subagentTokens });
 
     while (
       shouldContinue(result.finishReason, {
@@ -702,15 +715,21 @@ export async function runSubagent(
       result = await runRound();
       totalSteps += result.steps?.length ?? 0;
       {
-        const recorded = recordAuxUsage(args.chatId, result.usage, "subagent:task", {
-          estimateTokens: () => {
-            anyRoundEstimated = true;
-            return estimateRoundTokens(msgs, result.text);
+        const recorded = recordAuxUsage(
+          args.chatId,
+          result.usage,
+          "subagent:task",
+          {
+            estimateTokens: () => {
+              anyRoundEstimated = true;
+              return estimateRoundTokens(msgs, result.text);
+            },
           },
-        });
+        );
         subagentTokens += recorded ?? 0;
       }
-      if (subagentTokens > 0) emit?.({ type: "subagent_tokens", tokens: subagentTokens });
+      if (subagentTokens > 0)
+        emit?.({ type: "subagent_tokens", tokens: subagentTokens });
     }
 
     const toolNames: string[] = [];
@@ -740,7 +759,9 @@ export async function runSubagent(
     return {
       success: true,
       summary:
-        (result.text?.trim() || "(No summary produced)") + toolsFooter + tokensFooter,
+        (result.text?.trim() || "(No summary produced)") +
+        toolsFooter +
+        tokensFooter,
       stepsUsed: totalSteps,
       tokensUsed: subagentTokens,
     };

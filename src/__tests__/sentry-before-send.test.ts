@@ -19,9 +19,13 @@ describe("sentryBeforeSendDropExpected", () => {
     "drops the %s workspace-cap refusal",
     (kind) => {
       const event = {
-        exception: { values: [{ type: "Error", value: workspaceCapRefusal(kind) }] },
+        exception: {
+          values: [{ type: "Error", value: workspaceCapRefusal(kind) }],
+        },
       };
-      expect(sentryBeforeSendDropExpected(event as ErrorEvent, undefined)).toBeNull();
+      expect(
+        sentryBeforeSendDropExpected(event as ErrorEvent, undefined),
+      ).toBeNull();
     },
   );
 
@@ -29,7 +33,9 @@ describe("sentryBeforeSendDropExpected", () => {
     const event = {
       message: "auth failed with sk-ant-abcdefghijklmnopqrstuvwxyz0123",
       exception: {
-        values: [{ type: "Error", value: "token ghp_" + "a".repeat(40) + " rejected" }],
+        values: [
+          { type: "Error", value: "token ghp_" + "a".repeat(40) + " rejected" },
+        ],
       },
       request: { url: "https://api.example.com/x?key=AKIAABCDEFGHIJKLMNOP" },
       breadcrumbs: [{ message: "GET https://x/?t=AKIAABCDEFGHIJKLMNOP" }],
@@ -46,10 +52,14 @@ describe("sentryBeforeSendDropExpected", () => {
   it("drops missing TextMate grammar scopes", () => {
     const event = {
       exception: {
-        values: [{ type: "Error", value: "Missing grammar for scope: source.lua" }],
+        values: [
+          { type: "Error", value: "Missing grammar for scope: source.lua" },
+        ],
       },
     };
-    expect(sentryBeforeSendDropExpected(event as ErrorEvent, undefined)).toBeNull();
+    expect(
+      sentryBeforeSendDropExpected(event as ErrorEvent, undefined),
+    ).toBeNull();
   });
 
   it("drops benign Electron teardown races (Object has been destroyed)", () => {
@@ -66,7 +76,9 @@ describe("sentryBeforeSendDropExpected", () => {
 
   it("drops intentional stream-stop aborts (ask_user_pending)", () => {
     const event = {
-      exception: { values: [{ type: "AbortError", value: "ask_user_pending" }] },
+      exception: {
+        values: [{ type: "AbortError", value: "ask_user_pending" }],
+      },
     };
     const abort = new DOMException("ask_user_pending", "AbortError");
     expect(
@@ -81,7 +93,9 @@ describe("sentryBeforeSendDropExpected", () => {
     // benign single-flight abort WITHOUT the DOMException as originalException,
     // so only the serialized "AbortError: superseded_stream" text survives.
     const event = {
-      exception: { values: [{ type: "AbortError", value: "superseded_stream" }] },
+      exception: {
+        values: [{ type: "AbortError", value: "superseded_stream" }],
+      },
     };
     expect(
       sentryBeforeSendDropExpected(event as ErrorEvent, undefined),
@@ -90,8 +104,12 @@ describe("sentryBeforeSendDropExpected", () => {
 
   it("passes through unexpected errors", () => {
     const event = {
-      exception: { values: [{ type: "Error", value: "Database connection lost" }] },
+      exception: {
+        values: [{ type: "Error", value: "Database connection lost" }],
+      },
     };
-    expect(sentryBeforeSendDropExpected(event as ErrorEvent, undefined)).toBe(event);
+    expect(sentryBeforeSendDropExpected(event as ErrorEvent, undefined)).toBe(
+      event,
+    );
   });
 });

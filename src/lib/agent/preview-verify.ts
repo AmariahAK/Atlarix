@@ -122,11 +122,15 @@ export function buildRuntimeNotice(turnId: string): string | null {
     policy === "any"
       ? recorded
       : recorded.filter(
-          (e) => e.type !== "console-error" || FAILURE_CONSOLE_LEVELS.has(e.level ?? ""),
+          (e) =>
+            e.type !== "console-error" ||
+            FAILURE_CONSOLE_LEVELS.has(e.level ?? ""),
         );
   if (fresh.length === 0) return null;
 
-  const failedRequests = fresh.filter((e) => e.type === "network-failed").length;
+  const failedRequests = fresh.filter(
+    (e) => e.type === "network-failed",
+  ).length;
   const consoleErrors = fresh.filter(
     (e) => e.type === "console-error" && e.level === "error",
   ).length;
@@ -134,12 +138,17 @@ export function buildRuntimeNotice(turnId: string): string | null {
 
   const parts: string[] = [];
   if (failedRequests > 0) {
-    parts.push(`${failedRequests} failed request${failedRequests === 1 ? "" : "s"}`);
+    parts.push(
+      `${failedRequests} failed request${failedRequests === 1 ? "" : "s"}`,
+    );
   }
   if (consoleErrors > 0) {
-    parts.push(`${consoleErrors} console error${consoleErrors === 1 ? "" : "s"}`);
+    parts.push(
+      `${consoleErrors} console error${consoleErrors === 1 ? "" : "s"}`,
+    );
   }
-  if (other > 0) parts.push(`${other} other console entr${other === 1 ? "y" : "ies"}`);
+  if (other > 0)
+    parts.push(`${other} other console entr${other === 1 ? "y" : "ies"}`);
   if (parts.length === 0) return null;
 
   // Deliberately NOT phrased as an instruction. The harness cannot tell whose

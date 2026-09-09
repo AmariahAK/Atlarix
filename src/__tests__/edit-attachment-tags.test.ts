@@ -9,7 +9,8 @@ import {
  * tags are stripped from the editable prose and re-spliced on save.
  */
 
-const TEXT_STUB = '<atlarix-text-attachment filename="Pasted text · 34 lines" />';
+const TEXT_STUB =
+  '<atlarix-text-attachment filename="Pasted text · 34 lines" />';
 const TERM_STUB =
   '<atlarix-terminal-attachment label="npm test (1-20)" owner="user" lines="1-20" />';
 
@@ -37,10 +38,14 @@ describe("splitAttachmentTagsForEdit / rejoinAttachmentTags", () => {
   });
 
   it("edited prose gets the original tags appended in order", () => {
-    const { tags } = splitAttachmentTagsForEdit(`old prose\n\n${TEXT_STUB}\n\n${TERM_STUB}`);
+    const { tags } = splitAttachmentTagsForEdit(
+      `old prose\n\n${TEXT_STUB}\n\n${TERM_STUB}`,
+    );
     const rejoined = rejoinAttachmentTags("brand new prose", tags);
     expect(rejoined.startsWith("brand new prose")).toBe(true);
-    expect(rejoined.indexOf(TEXT_STUB)).toBeLessThan(rejoined.indexOf(TERM_STUB));
+    expect(rejoined.indexOf(TEXT_STUB)).toBeLessThan(
+      rejoined.indexOf(TERM_STUB),
+    );
   });
 
   it("tag-only message → empty editable text, tags preserved", () => {
@@ -67,7 +72,8 @@ describe("splitAttachmentTagsForEdit / rejoinAttachmentTags", () => {
   });
 
   it("malformed/unclosed tag passes through as prose (never dropped)", () => {
-    const content = "prefix <atlarix-text-attachment filename=\"x\"> body without close";
+    const content =
+      'prefix <atlarix-text-attachment filename="x"> body without close';
     const { text, tags } = splitAttachmentTagsForEdit(content);
     expect(tags).toEqual([]);
     expect(text).toBe(content);

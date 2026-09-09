@@ -75,7 +75,6 @@ const BUNDLED_GUIDES: Array<{
   },
 ];
 
-
 function safeParseJson<T>(raw: string | null | undefined, fallback: T): T {
   if (!raw) return fallback;
   try {

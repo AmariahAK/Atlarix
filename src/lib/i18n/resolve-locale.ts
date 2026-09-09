@@ -36,7 +36,9 @@ import {
  *     mutually readable, and the alternative is English.
  *   - Any `en-*` gets `en-us`; we do not ship regional English variants.
  */
-export function normalizeLocaleTag(tag: string | null | undefined): SupportedLocale | null {
+export function normalizeLocaleTag(
+  tag: string | null | undefined,
+): SupportedLocale | null {
   const raw = tag?.trim().toLowerCase().replace(/_/g, "-");
   if (!raw) return null;
 
@@ -63,7 +65,8 @@ export function resolveAppLocale(
   setting: string | null | undefined,
   osLocale: string | null | undefined,
 ): SupportedLocale {
-  if (isSupportedLocale(setting?.trim())) return setting!.trim() as SupportedLocale;
+  if (isSupportedLocale(setting?.trim()))
+    return setting!.trim() as SupportedLocale;
   return normalizeLocaleTag(osLocale) ?? DEFAULT_LOCALE;
 }
 

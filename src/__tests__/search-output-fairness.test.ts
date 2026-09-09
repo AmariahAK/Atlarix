@@ -28,7 +28,9 @@ describe("deep search keeps something from every page", () => {
     const pages = [1, 2, 3, 4, 5].map((n) => page(n, 20_000));
     const { text } = renderFetchedPages(pages);
     for (const n of [1, 2, 3, 4, 5]) {
-      expect(text, `page ${n} was dropped`).toContain(`UNIQUE_MARKER_PAGE_${n}`);
+      expect(text, `page ${n} was dropped`).toContain(
+        `UNIQUE_MARKER_PAGE_${n}`,
+      );
     }
   });
 
@@ -42,8 +44,9 @@ describe("deep search keeps something from every page", () => {
 
   it("gives a single result more room than one of five", () => {
     const one = renderFetchedPages([page(1, 50_000)]).text.length;
-    const each = renderFetchedPages([1, 2, 3, 4, 5].map((n) => page(n, 50_000))).text
-      .length / 5;
+    const each =
+      renderFetchedPages([1, 2, 3, 4, 5].map((n) => page(n, 50_000))).text
+        .length / 5;
     expect(one).toBeGreaterThan(each);
   });
 
@@ -57,7 +60,9 @@ describe("deep search keeps something from every page", () => {
 
   it("names the EXACT next call on a truncated page, not a vague hint", () => {
     const { text, fullyIncluded } = renderFetchedPages([page(1, 60_000)]);
-    expect(text).toContain('call read_url with url="https://example.com/page-1"');
+    expect(text).toContain(
+      'call read_url with url="https://example.com/page-1"',
+    );
     expect(text).toContain("more chars");
     expect(fullyIncluded).toBe(0);
   });
@@ -84,7 +89,10 @@ describe("deep search keeps something from every page", () => {
   it("is exempt from the registry envelope, so nothing re-cuts it", async () => {
     const pages = [1, 2, 3, 4, 5].map((n) => page(n, 20_000));
     const { text } = renderFetchedPages(pages);
-    const out = await maybeTruncateToolOutput("web_search", { text, sources: [] });
+    const out = await maybeTruncateToolOutput("web_search", {
+      text,
+      sources: [],
+    });
     expect(out.truncated).toBe(false);
     const v = out.value as { text: string };
     for (const n of [1, 2, 3, 4, 5]) {

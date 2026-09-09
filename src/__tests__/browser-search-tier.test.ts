@@ -45,7 +45,9 @@ describe("browser search availability guard", () => {
 
   it("returns [] instead of constructing a window that cannot be constructed", async () => {
     const { browserSearch } = await loadTier(HEADLESS_ELECTRON);
-    await expect(browserSearch("electron 43 breaking changes")).resolves.toEqual([]);
+    await expect(
+      browserSearch("electron 43 breaking changes"),
+    ).resolves.toEqual([]);
   });
 
   it("reports AVAILABLE when Electron is real", async () => {
@@ -71,7 +73,8 @@ describe("browser search availability guard", () => {
 
 describe("engine table", () => {
   it("defaults to Brave and builds an encoded query URL", async () => {
-    const { SEARCH_ENGINES, DEFAULT_SEARCH_ENGINE } = await loadTier(HEADLESS_ELECTRON);
+    const { SEARCH_ENGINES, DEFAULT_SEARCH_ENGINE } =
+      await loadTier(HEADLESS_ELECTRON);
     expect(DEFAULT_SEARCH_ENGINE).toBe("brave");
     const url = SEARCH_ENGINES.brave("electron 43 breaking changes");
     expect(url).toBe(
@@ -138,7 +141,11 @@ describe("the hidden window follows the app's lifetime", () => {
     }
     return {
       BrowserWindow: FakeWin,
-      app: { isReady: () => true, whenReady: async () => undefined, on: () => {} },
+      app: {
+        isReady: () => true,
+        whenReady: async () => undefined,
+        on: () => {},
+      },
       session: {
         fromPartition: () => ({
           setPermissionRequestHandler: () => {},
@@ -161,7 +168,9 @@ describe("the hidden window follows the app's lifetime", () => {
     const { browserSearch } = await loadTier(el);
 
     // A failed search still leaves the window warm for the next query.
-    await expect(browserSearch("electron 43 breaking changes")).resolves.toEqual([]);
+    await expect(
+      browserSearch("electron 43 breaking changes"),
+    ).resolves.toEqual([]);
     expect(el._windows()).toHaveLength(2); // the app's window, and ours
 
     mainWindow.destroy(); // the user closes the app's last visible window
@@ -201,12 +210,21 @@ describe("the browser tier receives the query the caller actually wrote", () => 
       isBrowserSearchAvailable: () => true,
       browserSearch: async (q: string) => {
         seen.push(q);
-        return [{ title: "A result title long enough", url: "https://x.dev/a", snippet: "s" }];
+        return [
+          {
+            title: "A result title long enough",
+            url: "https://x.dev/a",
+            snippet: "s",
+          },
+        ];
       },
     }));
 
     const { smartSearch } = await import("@/lib/search/index");
-    const out = await smartSearch("site:github.com electron 43 breaking changes", 5);
+    const out = await smartSearch(
+      "site:github.com electron 43 breaking changes",
+      5,
+    );
 
     expect(seen).toEqual(["site:github.com electron 43 breaking changes"]);
     // And a hit short-circuits the chain, so no lower tier is contacted.

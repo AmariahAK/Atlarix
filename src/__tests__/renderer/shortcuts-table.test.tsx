@@ -50,7 +50,8 @@ import { makeFakeIpc } from "./helpers";
  */
 const browserCreateTab = vi.fn();
 const fakeIpc = makeFakeIpc();
-(fakeIpc as unknown as Record<string, unknown>).browserCreateTab = browserCreateTab;
+(fakeIpc as unknown as Record<string, unknown>).browserCreateTab =
+  browserCreateTab;
 vi.mock("@/ipc/ipc_client", () => ({
   IpcClient: { getInstance: () => fakeIpc },
 }));
@@ -69,7 +70,9 @@ import { usePanelShortcuts } from "@/hooks/usePanelShortcuts";
  * off, matching what `renderWithProviders` does for components.
  */
 function wrapper({ children }: { children: React.ReactNode }) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }
 
@@ -210,7 +213,11 @@ describe.each([
     (_id, row) => {
       mountHook();
 
-      const variants: Array<{ shift?: boolean; alt?: boolean; flipMod?: boolean }> = [
+      const variants: Array<{
+        shift?: boolean;
+        alt?: boolean;
+        flipMod?: boolean;
+      }> = [
         { alt: true },
         // Adding shift to a chord that already uses it is not a near miss, so skip it.
         ...(row.combo.shift ? [] : [{ shift: true }]),

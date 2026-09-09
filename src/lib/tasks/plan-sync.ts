@@ -35,11 +35,15 @@ function checkboxForStep(status: string): string {
  * Rewrite ATLARIX_PLAN.md from the current ledger (structured steps + metadata).
  * Never throws.
  */
-export async function syncPlanFile(workspacePath: string, ledger: TaskLedger): Promise<void> {
+export async function syncPlanFile(
+  workspacePath: string,
+  ledger: TaskLedger,
+): Promise<void> {
   try {
     if (!workspacePath?.trim()) return;
 
-    const taskHead = ledger.originalTask.split("\n")[0]?.trim() || ledger.originalTask;
+    const taskHead =
+      ledger.originalTask.split("\n")[0]?.trim() || ledger.originalTask;
     const lines: string[] = [
       "# ATLARIX Plan",
       "",
@@ -59,12 +63,19 @@ export async function syncPlanFile(workspacePath: string, ledger: TaskLedger): P
     }
 
     lines.push("", "## Notes", "");
-    lines.push("_Ledger-driven plan file; step-level notes appear in task context during the run._", "");
+    lines.push(
+      "_Ledger-driven plan file; step-level notes appear in task context during the run._",
+      "",
+    );
 
-    const allTerminal = ledger.steps.every((s) => s.status === "done" || s.status === "failed");
+    const allTerminal = ledger.steps.every(
+      (s) => s.status === "done" || s.status === "failed",
+    );
     const complete = ledger.finishReason === "complete" && allTerminal;
     if (complete) {
-      const files = [...new Set(ledger.steps.flatMap((s) => s.filesWritten ?? []))].filter(Boolean);
+      const files = [
+        ...new Set(ledger.steps.flatMap((s) => s.filesWritten ?? [])),
+      ].filter(Boolean);
       if (files.length > 0) {
         lines.push("## Completion", "");
         for (const f of files) {
@@ -76,7 +87,11 @@ export async function syncPlanFile(workspacePath: string, ledger: TaskLedger): P
 
     const dir = path.join(workspacePath, ".atlarix");
     await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(path.join(workspacePath, PLAN_REL), lines.join("\n"), "utf8");
+    await fs.writeFile(
+      path.join(workspacePath, PLAN_REL),
+      lines.join("\n"),
+      "utf8",
+    );
     let mtime: number | null = null;
     try {
       const st = await fs.stat(path.join(workspacePath, PLAN_REL));
@@ -84,7 +99,9 @@ export async function syncPlanFile(workspacePath: string, ledger: TaskLedger): P
     } catch {
       /* ignore */
     }
-    const { emitPlanFileUpdated } = await import("@/ipc/utils/emit_plan_file_updated");
+    const { emitPlanFileUpdated } = await import(
+      "@/ipc/utils/emit_plan_file_updated"
+    );
     emitPlanFileUpdated(workspacePath, mtime);
   } catch (e) {
     logger.warn("syncPlanFile failed:", e);
@@ -133,7 +150,9 @@ export function isAtlarixPlanRelativePath(relPosix: string): boolean {
 }
 
 /** Workspace-relative POSIX paths that never require user approval (internal Atlarix metadata). */
-export function isAlwaysAutoApproveAtlarixRelativePath(relPosix: string): boolean {
+export function isAlwaysAutoApproveAtlarixRelativePath(
+  relPosix: string,
+): boolean {
   const norm = relPosix.replace(/\\/g, "/").replace(/^\/+/, "");
   // H1 (security review): `.atlarix/atlarix.md` (the highest-precedence
   // instruction layer, re-injected as system-prompt authority on EVERY future
@@ -142,7 +161,8 @@ export function isAlwaysAutoApproveAtlarixRelativePath(relPosix: string): boolea
   // either is a durable prompt-injection escalation — so they ALWAYS require
   // normal human approval (never blanket auto-approved as ".atlarix/*").
   const base = norm.split("/").pop() ?? "";
-  const underAtlarix = norm.startsWith(".atlarix/") || norm.includes("/.atlarix/");
+  const underAtlarix =
+    norm.startsWith(".atlarix/") || norm.includes("/.atlarix/");
   if (underAtlarix && (base === "atlarix.md" || base === "permissions.json")) {
     return false;
   }
@@ -161,8 +181,13 @@ export function isAlwaysAutoApproveAtlarixRelativePath(relPosix: string): boolea
   if (underAtlarix && norm.split("/").includes("hooks")) {
     return false;
   }
-  if (norm === ".atlarix/.atlarixignore" || norm.endsWith("/.atlarix/.atlarixignore")) return true;
-  if (norm === ".atlarixignore" || norm.endsWith("/.atlarixignore")) return true;
+  if (
+    norm === ".atlarix/.atlarixignore" ||
+    norm.endsWith("/.atlarix/.atlarixignore")
+  )
+    return true;
+  if (norm === ".atlarixignore" || norm.endsWith("/.atlarixignore"))
+    return true;
   if (norm === ".atlarix" || norm.startsWith(".atlarix/")) return true;
   if (norm.includes("/.atlarix/")) return true;
   return false;

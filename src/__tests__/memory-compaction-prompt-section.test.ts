@@ -38,7 +38,9 @@ let workspace = "";
 function params() {
   return {
     effectiveWorkMode: "build",
-    preflight: { time: async <T>(_label: string, fn: () => Promise<T> | T) => await fn() },
+    preflight: {
+      time: async <T>(_label: string, fn: () => Promise<T> | T) => await fn(),
+    },
     hasWorkspace: true,
     appPath: workspace,
     effectiveAppId: 1,
@@ -141,7 +143,9 @@ describe("memory prompt section — compaction directive", () => {
       path.join(memoryDirFor(workspace), "huge.md"),
       "the consolidated facts\n",
     );
-    expect((await loadMemoryMdSection(params()))?.content).not.toMatch(/compact/i);
+    expect((await loadMemoryMdSection(params()))?.content).not.toMatch(
+      /compact/i,
+    );
   });
 
   it("is absent entirely under ATLARIX_MEMORY=off", async () => {

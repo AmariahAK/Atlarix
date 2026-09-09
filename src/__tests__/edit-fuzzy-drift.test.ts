@@ -74,7 +74,9 @@ describe("edit_file fuzzy drift signal", () => {
     });
 
     expect(result.__permission_required).toBe(true);
-    expect(result.preview.notice).toContain("re-anchored to the file's actual indentation");
+    expect(result.preview.notice).toContain(
+      "re-anchored to the file's actual indentation",
+    );
     expect(result.preview.content).toContain("    value = 2\n    return value");
     expect(result.preview.content).not.toContain("\n  value = 2");
   });
@@ -107,7 +109,9 @@ describe("edit_file fuzzy drift signal", () => {
     expect(result.preview.notice).toContain("re-anchored");
     // Mapped lines keep their real tab depth; the novel line extrapolates to
     // body depth (4 tabs). No space indentation may leak into the file.
-    expect(result.preview.content).toContain("\t\t\t} else if cancelRequested() {");
+    expect(result.preview.content).toContain(
+      "\t\t\t} else if cancelRequested() {",
+    );
     expect(result.preview.content).toContain("\t\t\t\tsnapshot()");
     expect(result.preview.content).toContain("\t\t\t\tcancel()");
     expect(result.preview.content).not.toMatch(/\n {2,}\S/);

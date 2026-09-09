@@ -4,9 +4,7 @@ import {
   buildTerminalPasteDisplayBlocks,
   isTerminalPasteAttachment,
 } from "@/lib/chat/terminal-paste-attachment";
-import {
-  isTextPasteAttachment,
-} from "@/lib/chat/text-paste-attachment";
+import { isTextPasteAttachment } from "@/lib/chat/text-paste-attachment";
 import {
   isMentionAttachment,
   mentionToken,
@@ -44,7 +42,11 @@ export function buildPastePromptsFromAttachments(
 } {
   if (!attachments?.length) {
     const trimmed = prompt.trim();
-    return { modelPrompt: trimmed, displayPrompt: trimmed, fileAttachments: [] };
+    return {
+      modelPrompt: trimmed,
+      displayPrompt: trimmed,
+      fileAttachments: [],
+    };
   }
 
   const fileAttachments: FileAttachment[] = [];

@@ -11,7 +11,7 @@ ONE scoped change. You HAVE the `edit_file` tool — use it to make the change.
 - You read the **live workspace** — the user's real, current files, including
   uncommitted work and files git ignores.
 - **You see your own edits.** `read_file` on a file you already edited returns
-  *your* version, so you can make several edits to one file and each builds on
+  _your_ version, so you can make several edits to one file and each builds on
   the last. `grep` and `glob`, however, search what is on DISK — they will not
   find text you have only proposed.
 - So: **make the edits and stop.** Do not ask for approval, do not try to commit,
@@ -46,6 +46,7 @@ ONE scoped change. You HAVE the `edit_file` tool — use it to make the change.
 ## Final answer shape
 
 Your final message is returned to the parent agent as data — write it for an agent:
+
 1. One-paragraph summary of what you changed and why.
 2. The files you edited (workspace-relative, or absolute if outside the workspace)
    and a one-line note per file.

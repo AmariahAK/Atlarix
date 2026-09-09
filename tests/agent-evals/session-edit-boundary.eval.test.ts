@@ -88,9 +88,7 @@ describe("session edit integrity (0.4-C2 / 3.3)", () => {
   });
 
   it("C2 reload: hydrated messages keep their row id and edit directly", async () => {
-    ctx.server.register(
-      scenario("edit-reload").text("Reply r.").build(),
-    );
+    ctx.server.register(scenario("edit-reload").text("Reply r.").build());
 
     const chatId = await ctx.newChat();
     const turn = await runTurn(ctx, {
@@ -159,8 +157,14 @@ describe("session edit integrity (0.4-C2 / 3.3)", () => {
     const { appendTransportMessage, getStreamTransport } = await import(
       "@/lib/chat/stream-transport"
     );
-    appendTransportMessage(chatId, { role: "user", content: "ephemeral only A" });
-    appendTransportMessage(chatId, { role: "user", content: "ephemeral only B" });
+    appendTransportMessage(chatId, {
+      role: "user",
+      content: "ephemeral only A",
+    });
+    appendTransportMessage(chatId, {
+      role: "user",
+      content: "ephemeral only B",
+    });
     const extra = [...(getStreamTransport(chatId)?.messages ?? [])]
       .reverse()
       .find((m) => m.role === "user" && m.content === "ephemeral only A");

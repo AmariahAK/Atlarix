@@ -19,7 +19,10 @@ import {
   currentPlanLedger,
   clearPlanLedgerRefresh,
 } from "@/lib/tasks/plan-ledger-refresh";
-import { parsePlanChecklist, setStepStateInPlanMarkdown } from "@/lib/tasks/plan-checklist";
+import {
+  parsePlanChecklist,
+  setStepStateInPlanMarkdown,
+} from "@/lib/tasks/plan-checklist";
 
 const CHAT = 4242;
 
@@ -46,11 +49,21 @@ describe("takeRefreshedPlanLedger", () => {
   });
 
   it("reflects the CURRENT counts after a mid-turn mutation", () => {
-    expect(parsePlanChecklist(PLAN).filter((s) => s.state === "done")).toHaveLength(2);
+    expect(
+      parsePlanChecklist(PLAN).filter((s) => s.state === "done"),
+    ).toHaveLength(2);
 
     let content = PLAN;
-    for (const text of ["Read arborist", "Compare npm ci", "Trace buildIdealTree"]) {
-      content = setStepStateInPlanMarkdown(content, { stepText: text }, "done").content;
+    for (const text of [
+      "Read arborist",
+      "Compare npm ci",
+      "Trace buildIdealTree",
+    ]) {
+      content = setStepStateInPlanMarkdown(
+        content,
+        { stepText: text },
+        "done",
+      ).content;
     }
     markPlanLedgerDirty(CHAT, content);
 
@@ -67,9 +80,17 @@ describe("takeRefreshedPlanLedger", () => {
   });
 
   it("collapses a burst of mutations to the newest state", () => {
-    let content = setStepStateInPlanMarkdown(PLAN, { stepText: "Read arborist" }, "done").content;
+    let content = setStepStateInPlanMarkdown(
+      PLAN,
+      { stepText: "Read arborist" },
+      "done",
+    ).content;
     markPlanLedgerDirty(CHAT, content);
-    content = setStepStateInPlanMarkdown(content, { stepText: "Compare npm ci" }, "done").content;
+    content = setStepStateInPlanMarkdown(
+      content,
+      { stepText: "Compare npm ci" },
+      "done",
+    ).content;
     markPlanLedgerDirty(CHAT, content);
 
     expect(takeRefreshedPlanLedger(CHAT)).toContain("4/6 steps done");
@@ -115,8 +136,16 @@ describe("currentPlanLedger (round boundaries)", () => {
 
   it("outranks the frozen turn-start block on a LATER round", () => {
     let content = PLAN;
-    for (const text of ["Read arborist", "Compare npm ci", "Trace buildIdealTree"]) {
-      content = setStepStateInPlanMarkdown(content, { stepText: text }, "done").content;
+    for (const text of [
+      "Read arborist",
+      "Compare npm ci",
+      "Trace buildIdealTree",
+    ]) {
+      content = setStepStateInPlanMarkdown(
+        content,
+        { stepText: text },
+        "done",
+      ).content;
     }
     markPlanLedgerDirty(CHAT, content);
     // Round 1 already drained the mid-round queue...
@@ -130,10 +159,13 @@ describe("currentPlanLedger (round boundaries)", () => {
   it("survives every round of a turn, not just the next one", () => {
     markPlanLedgerDirty(
       CHAT,
-      setStepStateInPlanMarkdown(PLAN, { stepText: "Read arborist" }, "done").content,
+      setStepStateInPlanMarkdown(PLAN, { stepText: "Read arborist" }, "done")
+        .content,
     );
     for (let round = 0; round < 4; round++) {
-      expect(stepZero("[Session plan] 2/6 steps done.")).toContain("3/6 steps done");
+      expect(stepZero("[Session plan] 2/6 steps done.")).toContain(
+        "3/6 steps done",
+      );
     }
   });
 
@@ -147,7 +179,8 @@ describe("currentPlanLedger (round boundaries)", () => {
   it("does NOT leak into the next turn (preflight clears it)", () => {
     markPlanLedgerDirty(
       CHAT,
-      setStepStateInPlanMarkdown(PLAN, { stepText: "Read arborist" }, "done").content,
+      setStepStateInPlanMarkdown(PLAN, { stepText: "Read arborist" }, "done")
+        .content,
     );
     expect(currentPlanLedger(CHAT)).toContain("3/6 steps done");
     // chat_stream_handlers preflight calls this once per turn.

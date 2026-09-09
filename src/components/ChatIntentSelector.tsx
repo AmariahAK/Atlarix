@@ -47,7 +47,11 @@ import { useWorkModeSelection } from "@/hooks/useWorkModeSelection";
 
 const HAS_SEEN_INTENT_KEY = "atlarix.hasSeenIntentExplanation";
 
-const WORK_MODES: { value: WorkMode; icon: typeof MessageCircle; desc: string }[] = [
+const WORK_MODES: {
+  value: WorkMode;
+  icon: typeof MessageCircle;
+  desc: string;
+}[] = [
   {
     value: "ask",
     icon: MessageCircle,
@@ -58,7 +62,11 @@ const WORK_MODES: { value: WorkMode; icon: typeof MessageCircle; desc: string }[
     icon: ListTodo,
     desc: "Plan the work with the plan tool (shown as a card). No source edits — switch to Build to implement.",
   },
-  { value: "build", icon: Hammer, desc: "Full write/run tools for end-to-end implementation." },
+  {
+    value: "build",
+    icon: Hammer,
+    desc: "Full write/run tools for end-to-end implementation.",
+  },
   {
     value: "debug",
     icon: Bug,
@@ -219,7 +227,9 @@ export function ChatIntentSelector() {
                           <Icon className="h-3.5 w-3.5" />
                           {labelForWorkMode(value)}
                         </span>
-                        <span className="text-xs text-muted-foreground font-normal">{desc}</span>
+                        <span className="text-xs text-muted-foreground font-normal">
+                          {desc}
+                        </span>
                       </div>
                     </SelectItem>
                   );

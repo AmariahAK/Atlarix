@@ -1,11 +1,7 @@
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import nodeFs from "node:fs";
 import nodePath from "node:path";
-import {
-  setupEvalContext,
-  runTurn,
-  type EvalContext,
-} from "../infra/turn";
+import { setupEvalContext, runTurn, type EvalContext } from "../infra/turn";
 import { scenario } from "../infra/scenario";
 import { expectNoStreamError, expectStreamEnded } from "../infra/assert";
 
@@ -47,15 +43,15 @@ function firstRequestSystemBlob(scenarioId: string): string {
   expect(requests.length).toBeGreaterThanOrEqual(1);
   return requests[0]!.messages
     .filter((m) => m.role === "system")
-    .map((m) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content)))
+    .map((m) =>
+      typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+    )
     .join("\n");
 }
 
 describe("context assembly under concurrent pre-flight (S18)", () => {
   it("a build turn carries the concurrently-loaded sections in priority order", async () => {
-    ctx.server.register(
-      scenario("s18-assembly-1").text("ok").build(),
-    );
+    ctx.server.register(scenario("s18-assembly-1").text("ok").build());
     const chatId = await ctx.newChat();
     const { fakeIpc } = await runTurn(ctx, {
       chatId,
@@ -81,9 +77,7 @@ describe("context assembly under concurrent pre-flight (S18)", () => {
   }, 30_000);
 
   it("section presence and order are identical on a second fresh chat (determinism)", async () => {
-    ctx.server.register(
-      scenario("s18-assembly-2").text("ok").build(),
-    );
+    ctx.server.register(scenario("s18-assembly-2").text("ok").build());
     const chatId = await ctx.newChat();
     const { fakeIpc } = await runTurn(ctx, {
       chatId,
@@ -110,7 +104,8 @@ describe("project-instruction interop (v13.1) — AGENTS.md fallback", () => {
   // The eval harness is single-context per file (shared sqlite), so reuse the
   // workspace: hide .atlarix/ and add a repo-root AGENTS.md for this test, then
   // restore so no later test is affected.
-  const AGENTS_CANARY = "ATLX-AGENTS-CANARY: this repo enforces 2-space indent.";
+  const AGENTS_CANARY =
+    "ATLX-AGENTS-CANARY: this repo enforces 2-space indent.";
   const atlarixDir = () => nodePath.join(ctx.ws.dir, ".atlarix");
   const hiddenDir = () => nodePath.join(ctx.ws.dir, ".atlarix.hidden");
   const agentsPath = () => nodePath.join(ctx.ws.dir, "AGENTS.md");
@@ -135,9 +130,7 @@ describe("project-instruction interop (v13.1) — AGENTS.md fallback", () => {
   });
 
   it("points at AGENTS.md as project instructions when atlarix.md is absent", async () => {
-    ctx.server.register(
-      scenario("agents-fallback").text("ok").build(),
-    );
+    ctx.server.register(scenario("agents-fallback").text("ok").build());
     const chatId = await ctx.newChat();
     const { fakeIpc } = await runTurn(ctx, {
       chatId,

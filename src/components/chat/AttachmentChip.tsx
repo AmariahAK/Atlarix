@@ -15,7 +15,12 @@ export interface AttachmentChipProps {
   size: number;
 }
 
-export function AttachmentChip({ id, filename, mimeType, size }: AttachmentChipProps) {
+export function AttachmentChip({
+  id,
+  filename,
+  mimeType,
+  size,
+}: AttachmentChipProps) {
   const [showPreview, setShowPreview] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [textPreview, setTextPreview] = useState<string | null>(null);
@@ -61,7 +66,9 @@ export function AttachmentChip({ id, filename, mimeType, size }: AttachmentChipP
     }
     if (isText) {
       try {
-        const decoded = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+        const decoded = new TextDecoder("utf-8", { fatal: false }).decode(
+          bytes,
+        );
         setTextPreview(decoded.slice(0, 200_000));
         setPreviewUrl(null);
         setShowPreview(true);
@@ -97,7 +104,7 @@ export function AttachmentChip({ id, filename, mimeType, size }: AttachmentChipP
 
   return (
     <>
-        <div className="inline-flex items-center gap-1.5 bg-muted/80 hover:bg-muted rounded-md px-2 py-1 text-xs group transition-colors">
+      <div className="inline-flex items-center gap-1.5 bg-muted/80 hover:bg-muted rounded-md px-2 py-1 text-xs group transition-colors">
         <div className="flex items-center gap-1">
           {isImage ? (
             <div className="relative">
@@ -195,4 +202,3 @@ export function AttachmentChip({ id, filename, mimeType, size }: AttachmentChipP
     </>
   );
 }
-

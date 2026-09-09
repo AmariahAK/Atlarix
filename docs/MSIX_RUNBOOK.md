@@ -19,18 +19,18 @@ How to build, sign, install, and verify the Atlarix MSIX package **by hand**.
 > What this document IS for: getting a signed package onto a Windows machine so the
 > deep-system behaviour can be verified **inside the package container** — §4. That
 > verification was **confirmed by the owner on 2026-09-04**; see `docs/TODO.md` →
-> *Windows/Linux verification — CLOSED*. §4 is kept as the procedure to re-run after
+> _Windows/Linux verification — CLOSED_. §4 is kept as the procedure to re-run after
 > any change to the sandbox helper, the protocol handler, or the payload binaries.
 
 ---
 
 ## Store identity (assigned by Partner Center — do not edit)
 
-| Field | Value |
-| --- | --- |
-| `Package/Identity/Name` | `AmariahAbishai.Atlarix` |
-| `Package/Identity/Publisher` | `CN=B8A553CE-4E5B-49AD-B077-6973F43EADFD` |
-| `Package/Properties/PublisherDisplayName` | `Amariah Abishai` |
+| Field                                     | Value                                     |
+| ----------------------------------------- | ----------------------------------------- |
+| `Package/Identity/Name`                   | `AmariahAbishai.Atlarix`                  |
+| `Package/Identity/Publisher`              | `CN=B8A553CE-4E5B-49AD-B077-6973F43EADFD` |
+| `Package/Properties/PublisherDisplayName` | `Amariah Abishai`                         |
 
 These live in `build/msix/AppxManifest.template.xml`.
 
@@ -76,18 +76,20 @@ tripped an Actions budget that blocked all CI. Retention is now 2 days.
 
 **So you only get an artifact in two cases:**
 
-| Case | Why the artifact exists |
-| --- | --- |
+| Case                             | Why the artifact exists                                                                |
+| -------------------------------- | -------------------------------------------------------------------------------------- |
 | Manual run (`workflow_dispatch`) | Nothing submits — the package IS the deliverable, and this is the path for §2–§4 below |
-| Store submission failed on a tag | It is the only copy of a package that already took ~40 min to build |
+| Store submission failed on a tag | It is the only copy of a package that already took ~40 min to build                    |
 
-**For a manual build**, Actions → **Atlarix MSIX** → *Run workflow*.
+**For a manual build**, Actions → **Atlarix MSIX** → _Run workflow_.
+
 - Leave `arch` on `x64`. It is the only valid value: `scripts/win-ci-lib.mjs`
   hardcodes `ARCH = "x64"`.
 - `upload_wrapper` defaults to off for manual runs (a test build doesn't need the
   Store wrapper) and on for release runs.
 
 The `atlarix-msix-x64` artifact then contains:
+
 - `Atlarix-<version>-x64.msix` — **unsigned**
 - `Atlarix-<version>-x64.msixupload` — only when `upload_wrapper` was on
 - `AppxManifest.xml` — the rendered manifest, so you can confirm the identity values
@@ -201,12 +203,12 @@ Get-AppxLog | Select-Object -First 30
 
 Common causes:
 
-| Symptom | Cause |
-| --- | --- |
-| "publisher … does not match" | cert subject is not the exact GUID (see the warning above) |
-| "not trusted" | the `.cer` is not in `LocalMachine\TrustedPeople` (needs elevation) |
-| "already installed" with a different cert | regenerated certificate — `Remove-AppxPackage` first |
-| Fails on Windows 10 build < 17763 | below the manifest's `MinVersion`; check `winver` |
+| Symptom                                   | Cause                                                               |
+| ----------------------------------------- | ------------------------------------------------------------------- |
+| "publisher … does not match"              | cert subject is not the exact GUID (see the warning above)          |
+| "not trusted"                             | the `.cer` is not in `LocalMachine\TrustedPeople` (needs elevation) |
+| "already installed" with a different cert | regenerated certificate — `Remove-AppxPackage` first                |
+| Fails on Windows 10 build < 17763         | below the manifest's `MinVersion`; check `winver`                   |
 
 ---
 
@@ -214,13 +216,13 @@ Common causes:
 
 Run the automated probes first, then the three things no probe can cover.
 
-> This was written as a gate to clear *before* submitting to the Store. That gate has
+> This was written as a gate to clear _before_ submitting to the Store. That gate has
 > been passed: the app is listed, certification succeeded, and submission is
 > automated. Confirming that the deep-system features actually behave inside the
 > package container on real Windows was the last open piece, and the owner
 > **confirmed it on 2026-09-04** along with the Low-IL sandbox, on-device voice and
-> the `taskkill` process-tree kill. See `docs/TODO.md` → *Windows/Linux verification
-> — CLOSED*.
+> the `taskkill` process-tree kill. See `docs/TODO.md` → _Windows/Linux verification
+> — CLOSED_.
 
 ### 4a. Baseline on the Squirrel build (do this FIRST)
 
@@ -262,21 +264,21 @@ Expected probes: `pty-spawn`, `proxy-worker`, `ripgrep`, `ai-sdk-deps`, `context
 
 **Diff the MSIX log against the Squirrel baseline.** What to look for:
 
-| Probe | Reading it |
-| --- | --- |
-| `context` | `windowsStore=true` confirms the MSIX branch is live. **Compare `userData=` against the baseline** — if it differs, a Squirrel user switching to the Store build gets a fresh profile (no workspaces, chats, or credentials) and we need a migration. Record the value either way. |
-| `child-exec` | Proves a command actually *executed* (asserts on exit code, unlike `pty-spawn`). The `git=` field surfaces how an external dev tool resolves under inherited package identity. |
-| `fs-outside-container` | A `REDIRECTED` note means writes to `$HOME` are being sent elsewhere by the container — that would be a serious finding. |
-| `pty-spawn` | Terminal spawning via conpty. Note: on Windows this probe is weak — it writes `printf` into a PowerShell pty and PowerShell has no `printf`, so the marker appears in the *error* text. Trust `child-exec` for execution; trust this one only for "node-pty loads and streams". |
-| `sandbox` | The write-confining sandbox, end to end: write-inside allowed, write-outside denied, **read-outside allowed**, a non-system binary execs, `truncate` outside denied. A failure here is a real finding — this is the probe that exists because the AppContainer helper shipped broken for several releases. |
+| Probe                  | Reading it                                                                                                                                                                                                                                                                                                 |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `context`              | `windowsStore=true` confirms the MSIX branch is live. **Compare `userData=` against the baseline** — if it differs, a Squirrel user switching to the Store build gets a fresh profile (no workspaces, chats, or credentials) and we need a migration. Record the value either way.                         |
+| `child-exec`           | Proves a command actually _executed_ (asserts on exit code, unlike `pty-spawn`). The `git=` field surfaces how an external dev tool resolves under inherited package identity.                                                                                                                             |
+| `fs-outside-container` | A `REDIRECTED` note means writes to `$HOME` are being sent elsewhere by the container — that would be a serious finding.                                                                                                                                                                                   |
+| `pty-spawn`            | Terminal spawning via conpty. Note: on Windows this probe is weak — it writes `printf` into a PowerShell pty and PowerShell has no `printf`, so the marker appears in the _error_ text. Trust `child-exec` for execution; trust this one only for "node-pty loads and streams".                            |
+| `sandbox`              | The write-confining sandbox, end to end: write-inside allowed, write-outside denied, **read-outside allowed**, a non-system binary execs, `truncate` outside denied. A failure here is a real finding — this is the probe that exists because the AppContainer helper shipped broken for several releases. |
 
 ### 4c. Manual checks (no probe can cover these)
 
 1. **Launch the app.** It should open a window, not just exit.
 2. **Terminal tab** — open one and run a command interactively.
 3. **Agent `run_command`** — ask the agent something that shells out, e.g.
-   *"what version of node and npm are installed?"*. **It must succeed, and `git
-   --version` must work too.** Note a terminal *tab* does not exercise this: PTY tabs
+   _"what version of node and npm are installed?"_. **It must succeed, and `git
+--version` must work too.** Note a terminal _tab_ does not exercise this: PTY tabs
    are never sandboxed by design, and `edit_file` is a different path — so testing
    only those tells you nothing about the sandbox. Then confirm engagement:
    ```powershell
@@ -334,13 +336,13 @@ All items shipped:
 
 ## Files involved
 
-| Path | Role |
-| --- | --- |
-| `build/msix/AppxManifest.template.xml` | manifest; `{{VERSION}}` substituted at build time |
-| `build/msix/assets/` | Store logos (committed; regenerate with `scripts/gen-icons.mjs`) |
-| `scripts/make-msix.mjs` | stages the layout and runs `makeappx pack` |
-| `.github/workflows/msix.yml` | the MSIX build — manual (`workflow_dispatch`) **and** called by `release.yml` on every `v*` tag. **The authority on what CI does; this document is not.** |
-| `scripts/store-submit.mjs` | automated Partner Center submission (Submission API v1) |
-| `src/main/update-helpers.ts` | `chooseUpdaterKind` returns `none` for Store installs |
-| `src/main/self-test.ts` | the spike probes |
-| `src/main.ts` | `IS_MICROSOFT_STORE_BUILD`; skips runtime protocol registration |
+| Path                                   | Role                                                                                                                                                      |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `build/msix/AppxManifest.template.xml` | manifest; `{{VERSION}}` substituted at build time                                                                                                         |
+| `build/msix/assets/`                   | Store logos (committed; regenerate with `scripts/gen-icons.mjs`)                                                                                          |
+| `scripts/make-msix.mjs`                | stages the layout and runs `makeappx pack`                                                                                                                |
+| `.github/workflows/msix.yml`           | the MSIX build — manual (`workflow_dispatch`) **and** called by `release.yml` on every `v*` tag. **The authority on what CI does; this document is not.** |
+| `scripts/store-submit.mjs`             | automated Partner Center submission (Submission API v1)                                                                                                   |
+| `src/main/update-helpers.ts`           | `chooseUpdaterKind` returns `none` for Store installs                                                                                                     |
+| `src/main/self-test.ts`                | the spike probes                                                                                                                                          |
+| `src/main.ts`                          | `IS_MICROSOFT_STORE_BUILD`; skips runtime protocol registration                                                                                           |

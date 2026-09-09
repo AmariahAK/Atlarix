@@ -64,7 +64,9 @@ describe("agent mode coerces to build", () => {
     expectNoStreamError(fakeIpc.sends, chatId);
     expectToolSequence(fakeIpc.sends, ["read_file"]);
 
-    const requests = ctx.server.requestsFor("agent-coerce") as RecordedRequest[];
+    const requests = ctx.server.requestsFor(
+      "agent-coerce",
+    ) as RecordedRequest[];
     // SINGLE dispatch: tool round + final prose round(s), nothing like a whole
     // re-dispatch. Natural termination adds at most one reconciling prose round
     // after the tool op, so ≤3; the deleted re-dispatch bug produced many more.

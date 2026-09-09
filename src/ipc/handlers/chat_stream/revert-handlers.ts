@@ -44,10 +44,7 @@ export function registerRevertHandlers(): void {
 
   ipcMain.handle(
     "chat:revert-to-message",
-    async (
-      _event,
-      payload: { chatId: number; assistantMessageId: number }
-    ) => {
+    async (_event, payload: { chatId: number; assistantMessageId: number }) => {
       const { chatId, assistantMessageId } = payload;
       const ec = getStreamTransport(chatId);
       const msg = ec?.messages.find((m) => m.id === assistantMessageId);
@@ -57,7 +54,9 @@ export function registerRevertHandlers(): void {
       const appId = getStreamTransportAppId(chatId) ?? null;
       const turnId = String(assistantMessageId);
       if (appId != null) {
-        const app = await db.query.apps.findFirst({ where: eq(apps.id, appId) });
+        const app = await db.query.apps.findFirst({
+          where: eq(apps.id, appId),
+        });
         if (app) {
           const appPath = resolveAppPath(app.path);
           const result = await performFullRevert({
@@ -74,7 +73,7 @@ export function registerRevertHandlers(): void {
         }
       }
       return { success: true };
-    }
+    },
   );
 
   ipcMain.handle(
@@ -83,8 +82,14 @@ export function registerRevertHandlers(): void {
       _event,
       payload: { chatId: number; turnId: string; operationId: string },
     ) => {
-      const { findAutonomousOp, markAutonomousOpReverted } = await import("../autonomous-session-state");
-      const op = findAutonomousOp(payload.chatId, payload.turnId, payload.operationId);
+      const { findAutonomousOp, markAutonomousOpReverted } = await import(
+        "../autonomous-session-state"
+      );
+      const op = findAutonomousOp(
+        payload.chatId,
+        payload.turnId,
+        payload.operationId,
+      );
       if (!op?.path) {
         return { success: false, error: "No file path for this operation" };
       }
@@ -92,7 +97,9 @@ export function registerRevertHandlers(): void {
       if (workspaceId == null) {
         return { success: false, error: "Chat has no workspace" };
       }
-      const app = await db.query.apps.findFirst({ where: eq(apps.id, workspaceId) });
+      const app = await db.query.apps.findFirst({
+        where: eq(apps.id, workspaceId),
+      });
       if (!app?.path) {
         return { success: false, error: "Chat has no workspace" };
       }
@@ -114,7 +121,11 @@ export function registerRevertHandlers(): void {
         },
       });
       if (result.success) {
-        markAutonomousOpReverted(payload.chatId, payload.turnId, payload.operationId);
+        markAutonomousOpReverted(
+          payload.chatId,
+          payload.turnId,
+          payload.operationId,
+        );
       }
       return result;
     },
@@ -123,7 +134,9 @@ export function registerRevertHandlers(): void {
   ipcMain.handle(
     "autonomous:accept-all",
     async (_event, payload: { chatId: number; turnId: string }) => {
-      const { clearAutonomousSession } = await import("../autonomous-session-state");
+      const { clearAutonomousSession } = await import(
+        "../autonomous-session-state"
+      );
       clearAutonomousSession(payload.chatId, payload.turnId);
       return { success: true };
     },
@@ -152,7 +165,9 @@ export function registerRevertHandlers(): void {
       if (workspaceId == null) {
         return { success: false, error: "No workspace attached" };
       }
-      const app = await db.query.apps.findFirst({ where: eq(apps.id, workspaceId) });
+      const app = await db.query.apps.findFirst({
+        where: eq(apps.id, workspaceId),
+      });
       if (!app?.path) {
         return { success: false, error: "No workspace attached" };
       }
@@ -179,9 +194,13 @@ export function registerRevertHandlers(): void {
       if (!turnId) return null;
       const workspaceId = getStreamTransportAppId(chatId);
       if (workspaceId == null) return null;
-      const app = await db.query.apps.findFirst({ where: eq(apps.id, workspaceId) });
+      const app = await db.query.apps.findFirst({
+        where: eq(apps.id, workspaceId),
+      });
       if (!app?.path) return null;
-      const { listSnapshotFiles } = await import("@/lib/snapshot/snapshot-manager");
+      const { listSnapshotFiles } = await import(
+        "@/lib/snapshot/snapshot-manager"
+      );
       return listSnapshotFiles(resolveAppPath(app.path), String(turnId));
     },
   );
@@ -205,7 +224,9 @@ export function registerRevertHandlers(): void {
       if (workspaceId == null) {
         return { success: false, error: "No workspace attached" };
       }
-      const app = await db.query.apps.findFirst({ where: eq(apps.id, workspaceId) });
+      const app = await db.query.apps.findFirst({
+        where: eq(apps.id, workspaceId),
+      });
       if (!app?.path) {
         return { success: false, error: "No workspace attached" };
       }
@@ -244,7 +265,13 @@ export function registerRevertHandlers(): void {
       }
       // success = the operation ran (workspace resolved); per-turn skips (e.g.
       // an expired snapshot) are reported, not treated as a hard failure.
-      return { success: true, restoredFiles, reverted, skipped, error: lastError };
+      return {
+        success: true,
+        restoredFiles,
+        reverted,
+        skipped,
+        error: lastError,
+      };
     },
   );
 
@@ -259,9 +286,13 @@ export function registerRevertHandlers(): void {
       }
       const workspaceId = getStreamTransportAppId(chatId);
       if (workspaceId == null) return null;
-      const app = await db.query.apps.findFirst({ where: eq(apps.id, workspaceId) });
+      const app = await db.query.apps.findFirst({
+        where: eq(apps.id, workspaceId),
+      });
       if (!app?.path) return null;
-      const { listSnapshotFiles } = await import("@/lib/snapshot/snapshot-manager");
+      const { listSnapshotFiles } = await import(
+        "@/lib/snapshot/snapshot-manager"
+      );
       const workspacePath = resolveAppPath(app.path);
       const filesChanged = new Set<string>();
       const createdFiles = new Set<string>();

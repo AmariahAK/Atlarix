@@ -76,12 +76,19 @@ describe("getLatestPlanArtifact status filtering", () => {
 
   it("returns the matching plan when one has the status", async () => {
     rows = [row("building-one", "building", 1), row("newer", "built", 2)];
-    expect((await getLatestPlanArtifact("s", "building"))?.id).toBe("building-one");
+    expect((await getLatestPlanArtifact("s", "building"))?.id).toBe(
+      "building-one",
+    );
   });
 
   it("prefers the NEWEST row among several with the status", async () => {
-    rows = [row("older-building", "building", 1), row("newer-building", "building", 3)];
-    expect((await getLatestPlanArtifact("s", "building"))?.id).toBe("newer-building");
+    rows = [
+      row("older-building", "building", 1),
+      row("newer-building", "building", 3),
+    ];
+    expect((await getLatestPlanArtifact("s", "building"))?.id).toBe(
+      "newer-building",
+    );
   });
 
   it("returns null for a session with no plans at all", async () => {

@@ -34,13 +34,14 @@ const SUMMARY_MAX = 500;
 type HandlerEvent = any;
 
 export interface ExecuteRunDeps {
-  chatStream: (
-    event: HandlerEvent,
-    req: ChatStreamParams,
-  ) => Promise<unknown>;
+  chatStream: (event: HandlerEvent, req: ChatStreamParams) => Promise<unknown>;
   executePermission: (
     event: HandlerEvent,
-    args: { chatId: number; operationId: string; approvalMode?: "once" | "deny" },
+    args: {
+      chatId: number;
+      operationId: string;
+      approvalMode?: "once" | "deny";
+    },
   ) => Promise<unknown>;
   cancelStream: (chatId: number) => void;
   timeoutMs?: number;
@@ -90,7 +91,8 @@ export function parseAutomationOutcome(finalText: string | null): {
   if (last.startsWith(RESULT_SENTINEL)) {
     return {
       status: "ok",
-      summary: last.slice(RESULT_SENTINEL.length).trim().slice(0, SUMMARY_MAX) || null,
+      summary:
+        last.slice(RESULT_SENTINEL.length).trim().slice(0, SUMMARY_MAX) || null,
     };
   }
   // Defensive default: a run that forgot the contract still surfaces.
@@ -103,7 +105,11 @@ function lastAssistantText(chatId: number): string | null {
   if (!transport) return null;
   for (let i = transport.messages.length - 1; i >= 0; i--) {
     const m = transport.messages[i] as { role?: string; content?: string };
-    if (m.role === "assistant" && typeof m.content === "string" && m.content.trim()) {
+    if (
+      m.role === "assistant" &&
+      typeof m.content === "string" &&
+      m.content.trim()
+    ) {
       return m.content;
     }
   }
@@ -119,7 +125,6 @@ async function broadcastRunUpdate(runId: string): Promise<void> {
   }
 }
 
-
 /**
  * Hand a finished run to the agent — but ONLY if this automation is set to
  * notify it.
@@ -131,7 +136,12 @@ async function broadcastRunUpdate(runId: string): Promise<void> {
  * Slack message, deal with it" in their own time.
  */
 async function maybeTellTheAgent(
-  automation: { id: string; name: string; notifyAgent: boolean; workspaceId: number | null },
+  automation: {
+    id: string;
+    name: string;
+    notifyAgent: boolean;
+    workspaceId: number | null;
+  },
   status: "ok" | "nothing-to-report" | "error",
   body: string,
   /**
@@ -146,13 +156,19 @@ async function maybeTellTheAgent(
    */
   forceNotifyAgent = false,
 ): Promise<void> {
-  if ((!automation.notifyAgent && !forceNotifyAgent) || automation.workspaceId == null) return;
+  if (
+    (!automation.notifyAgent && !forceNotifyAgent) ||
+    automation.workspaceId == null
+  )
+    return;
   // Nothing to report is not news. Delivering it would train the model to treat
   // automation results as noise, which is exactly what makes a real one get
   // skimmed.
   if (status === "nothing-to-report") return;
   try {
-    const { recordAutomationResult } = await import("@/lib/agent/automation-results");
+    const { recordAutomationResult } = await import(
+      "@/lib/agent/automation-results"
+    );
     recordAutomationResult(automation.workspaceId, {
       automationId: automation.id,
       automationName: automation.name,
@@ -184,7 +200,9 @@ export async function executeAutomationRun(
     where: eq(apps.id, automation.workspaceId),
   });
   if (!app) {
-    logger.warn(`automation ${automationId}: workspace ${automation.workspaceId} missing`);
+    logger.warn(
+      `automation ${automationId}: workspace ${automation.workspaceId} missing`,
+    );
     return null;
   }
 
@@ -219,7 +237,12 @@ export async function executeAutomationRun(
     } catch (e) {
       logger.warn("automation notification failed:", e);
     }
-    await maybeTellTheAgent(automation, "ok", triggerContext ?? headline, opts?.forceNotifyAgent);
+    await maybeTellTheAgent(
+      automation,
+      "ok",
+      triggerContext ?? headline,
+      opts?.forceNotifyAgent,
+    );
     logger.info(`automation "${automation.name}" fired (notify-only)`);
     return { runId };
   }
@@ -306,7 +329,12 @@ export async function executeAutomationRun(
       },
     };
     const dispatch = await resolvedDeps.chatStream(sender.event, req);
-    if (dispatch && typeof dispatch === "object" && "error" in dispatch && dispatch.error) {
+    if (
+      dispatch &&
+      typeof dispatch === "object" &&
+      "error" in dispatch &&
+      dispatch.error
+    ) {
       throw new Error(String(dispatch.error));
     }
 

@@ -92,7 +92,9 @@ describe("the allowance is never published in dollars", () => {
 
   it("says Pro includes Core rather than that both plans pay the same way", () => {
     expect(CORE_PAYMENT_SUMMARY).toMatch(/Pro includes Core/i);
-    expect(CORE_PAYMENT_SUMMARY).not.toMatch(/same way|every plan is|no plan bundles/i);
+    expect(CORE_PAYMENT_SUMMARY).not.toMatch(
+      /same way|every plan is|no plan bundles/i,
+    );
   });
 });
 
@@ -105,7 +107,9 @@ describe("the nudge that fires when the month's usage runs out", () => {
 
   it("is not phrased as a failure — nothing has stopped", () => {
     const { title, description } = allowanceUsedUpNudge(742);
-    expect(`${title} ${description}`).not.toMatch(/error|failed|cannot|unable/i);
+    expect(`${title} ${description}`).not.toMatch(
+      /error|failed|cannot|unable/i,
+    );
   });
 });
 
@@ -154,7 +158,12 @@ describe("describeAllowanceUsed — a share, never a dollar figure", () => {
     // This is the rule at the top of billing_copy, and the first usage bar broke
     // it: it read "$0.42 of $1,000,000.00 used", which publishes the very number
     // the module says not to publish.
-    for (const [used, total] of [[300, 1000], [1, 1000], [0, 1000], [1000, 1000]]) {
+    for (const [used, total] of [
+      [300, 1000],
+      [1, 1000],
+      [0, 1000],
+      [1000, 1000],
+    ]) {
       expect(describeAllowanceUsed(used, total)).not.toMatch(/\$/);
     }
   });

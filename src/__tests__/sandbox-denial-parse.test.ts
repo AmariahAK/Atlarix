@@ -28,12 +28,16 @@ describe("parseSandboxDenialsFromOutput", () => {
   });
 
   it("parses the GNU coreutils form with fancy quotes", () => {
-    const out = "mkdir: cannot create directory ‘/home/dev/.cargo’: Permission denied";
-    expect(parseSandboxDenialsFromOutput(out)[0]?.deniedPath).toBe("/home/dev/.cargo");
+    const out =
+      "mkdir: cannot create directory ‘/home/dev/.cargo’: Permission denied";
+    expect(parseSandboxDenialsFromOutput(out)[0]?.deniedPath).toBe(
+      "/home/dev/.cargo",
+    );
   });
 
   it("parses a Node EACCES open on Windows", () => {
-    const out = "EACCES: permission denied, open 'C:\\Users\\dev\\.npm\\cache\\x'";
+    const out =
+      "EACCES: permission denied, open 'C:\\Users\\dev\\.npm\\cache\\x'";
     expect(parseSandboxDenialsFromOutput(out)[0]?.deniedPath).toBe(
       "C:\\Users\\dev\\.npm\\cache\\x",
     );
@@ -46,13 +50,15 @@ describe("parseSandboxDenialsFromOutput", () => {
       "mkdir: /home/dev/.gradle: Permission denied",
       "error: file not found",
     ].join("\n");
-    expect(parseSandboxDenialsFromOutput(out).map((x) => x.deniedPath)).toEqual([
-      "/home/dev/.gradle",
-    ]);
+    expect(parseSandboxDenialsFromOutput(out).map((x) => x.deniedPath)).toEqual(
+      ["/home/dev/.gradle"],
+    );
   });
 
   it("returns [] when there is no denial", () => {
-    expect(parseSandboxDenialsFromOutput("npm warn deprecated foo\nbuilt ok")).toEqual([]);
+    expect(
+      parseSandboxDenialsFromOutput("npm warn deprecated foo\nbuilt ok"),
+    ).toEqual([]);
   });
 
   describe("sandboxGrantPath", () => {
@@ -114,12 +120,16 @@ describe("real-world denial spellings", () => {
   it("does NOT match a path fragment inside a larger token", () => {
     // The boundary guard. Without it `relative/path` yielded `/path`, and the user
     // would be asked to grant a directory nothing mentioned.
-    expect(parseSandboxDenialsFromOutput("relative/path: operation not permitted")).toEqual([]);
+    expect(
+      parseSandboxDenialsFromOutput("relative/path: operation not permitted"),
+    ).toEqual([]);
   });
 
   it("still says nothing about prose that merely contains the phrase", () => {
     expect(
-      parseSandboxDenialsFromOutput("a log line about permission denied policies"),
+      parseSandboxDenialsFromOutput(
+        "a log line about permission denied policies",
+      ),
     ).toEqual([]);
   });
 });

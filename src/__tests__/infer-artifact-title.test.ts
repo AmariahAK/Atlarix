@@ -13,7 +13,9 @@ describe("inferArtifactTitle", () => {
   });
 
   it("reads markmap root heading", () => {
-    expect(inferArtifactTitle("markmap", "# My App\n## API\n- routes")).toBe("My App");
+    expect(inferArtifactTitle("markmap", "# My App\n## API\n- routes")).toBe(
+      "My App",
+    );
   });
 
   it("reads graph title from JSON", () => {

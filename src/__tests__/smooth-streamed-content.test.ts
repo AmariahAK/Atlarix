@@ -14,7 +14,9 @@ describe("revealRateCps", () => {
   });
 
   it("never reveals slower than the floor", () => {
-    expect(revealRateCps(1, true)).toBeGreaterThanOrEqual(SMOOTH_STREAM_BASE_CPS);
+    expect(revealRateCps(1, true)).toBeGreaterThanOrEqual(
+      SMOOTH_STREAM_BASE_CPS,
+    );
   });
 
   it("never exceeds the ceiling, however large the backlog", () => {

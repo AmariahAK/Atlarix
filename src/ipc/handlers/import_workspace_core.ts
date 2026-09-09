@@ -49,7 +49,9 @@ export async function importWorkspaceFromPath({
       .update(apps)
       .set({ lastOpenedAt: new Date(), updatedAt: new Date() })
       .where(eq(apps.id, existingByPath.id));
-    const { sessionId, chatId } = await startWorkspaceSession(existingByPath.id);
+    const { sessionId, chatId } = await startWorkspaceSession(
+      existingByPath.id,
+    );
     return { appId: existingByPath.id, chatId, sessionId };
   }
 

@@ -5,513 +5,576 @@
  * Uses IPC to communicate with main process
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
-    subscribeAuthResolved,
-    subscribeOAuthSuccess,
-    subscribePlanChanged,
-    type AuthResolvedPayload,
-} from './auth-ipc-bridge';
+  subscribeAuthResolved,
+  subscribeOAuthSuccess,
+  subscribePlanChanged,
+  type AuthResolvedPayload,
+} from "./auth-ipc-bridge";
 
 export interface AuthUser {
-    id: string;
-    email: string;
-    name: string;
-    avatar?: string;
-    provider?: 'google' | 'github' | 'discord';
+  id: string;
+  email: string;
+  name: string;
+  avatar?: string;
+  provider?: "google" | "github" | "discord";
 }
 
 export interface UserStatus {
-    plan: 'free' | 'pro';
-    isLoggedIn: boolean;
-    currentWorkspaceCount: number;
-    /** LemonSqueezy subscription status (e.g. active, on_trial, cancelled, expired) */
-    subscriptionStatus?: string | null;
-    subscriptionEndsAt?: string | null; // ISO date string
+  plan: "free" | "pro";
+  isLoggedIn: boolean;
+  currentWorkspaceCount: number;
+  /** LemonSqueezy subscription status (e.g. active, on_trial, cancelled, expired) */
+  subscriptionStatus?: string | null;
+  subscriptionEndsAt?: string | null; // ISO date string
 }
 
 export function useAuth() {
-    const [user, setUser] = useState<AuthUser | null>(null);
-    const [loading, setLoading] = useState(true);
-    /**
-     * Has MAIN finished its deferred startup session restore?
-     *
-     * `loading` only covers THIS hook's own round-trip, which resolves quickly
-     * with `user: null` while main is still restoring — so consumers that keyed
-     * on `!user` rendered a sign-in button on launch and flipped to the account
-     * seconds later. This is the difference between "signed out" and "not known
-     * yet". Starts false and is only ever set true.
-     */
-    const [authResolved, setAuthResolved] = useState(false);
-    /**
-     * Banned, as resolved by MAIN (auth_handlers). Never computed in this hook —
-     * it is unshared across ~22 consumers, so a check here would run 22× per
-     * sign-in. This only mirrors what main already knows.
-     */
-    const [banned, setBanned] = useState(false);
-    const [status, setStatus] = useState<UserStatus | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [loading, setLoading] = useState(true);
+  /**
+   * Has MAIN finished its deferred startup session restore?
+   *
+   * `loading` only covers THIS hook's own round-trip, which resolves quickly
+   * with `user: null` while main is still restoring — so consumers that keyed
+   * on `!user` rendered a sign-in button on launch and flipped to the account
+   * seconds later. This is the difference between "signed out" and "not known
+   * yet". Starts false and is only ever set true.
+   */
+  const [authResolved, setAuthResolved] = useState(false);
+  /**
+   * Banned, as resolved by MAIN (auth_handlers). Never computed in this hook —
+   * it is unshared across ~22 consumers, so a check here would run 22× per
+   * sign-in. This only mirrors what main already knows.
+   */
+  const [banned, setBanned] = useState(false);
+  const [status, setStatus] = useState<UserStatus | null>(null);
 
-    /**
-     * Latest `checkSession` + whether a session is established yet, for the
-     * `plan-changed` listener below. The listener is registered once (`[]` deps)
-     * but must act on the CURRENT state, and a ref is the only way to read that
-     * without re-subscribing on every render.
-     */
-    const checkSessionRef = useRef<(() => Promise<void>) | null>(null);
-    const hasSessionRef = useRef(false);
-    useEffect(() => {
-        hasSessionRef.current = !!status?.isLoggedIn;
-    }, [status?.isLoggedIn]);
+  /**
+   * Latest `checkSession` + whether a session is established yet, for the
+   * `plan-changed` listener below. The listener is registered once (`[]` deps)
+   * but must act on the CURRENT state, and a ref is the only way to read that
+   * without re-subscribing on every render.
+   */
+  const checkSessionRef = useRef<(() => Promise<void>) | null>(null);
+  const hasSessionRef = useRef(false);
+  useEffect(() => {
+    hasSessionRef.current = !!status?.isLoggedIn;
+  }, [status?.isLoggedIn]);
 
-    /** True after Sign in until `oauth-callback-success` or IPC error */
-    const [oauthPending, setOauthPending] = useState(false);
-    const [oauthProvider, setOauthProvider] = useState<'google' | 'github' | 'discord' | null>(null);
-    const [oauthStatusLabel, setOauthStatusLabel] = useState('');
+  /** True after Sign in until `oauth-callback-success` or IPC error */
+  const [oauthPending, setOauthPending] = useState(false);
+  const [oauthProvider, setOauthProvider] = useState<
+    "google" | "github" | "discord" | null
+  >(null);
+  const [oauthStatusLabel, setOauthStatusLabel] = useState("");
 
-    useEffect(() => {
-        if (!oauthPending || !oauthProvider) {
-            setOauthStatusLabel('');
-            return;
-        }
-        const started = Date.now();
-        const tick = () => {
-            const elapsed = Date.now() - started;
-            if (elapsed < 2000) {
-                const label = { google: 'Google', github: 'GitHub', discord: 'Discord' }[oauthProvider];
-                setOauthStatusLabel(`Connecting to ${label}...`);
-            } else if (elapsed < 5000) {
-                setOauthStatusLabel('Verifying your account...');
-            } else {
-                setOauthStatusLabel('Setting up Atlarix...');
-            }
-        };
-        tick();
-        const id = window.setInterval(tick, 250);
-        return () => window.clearInterval(id);
-    }, [oauthPending, oauthProvider]);
+  useEffect(() => {
+    if (!oauthPending || !oauthProvider) {
+      setOauthStatusLabel("");
+      return;
+    }
+    const started = Date.now();
+    const tick = () => {
+      const elapsed = Date.now() - started;
+      if (elapsed < 2000) {
+        const label = {
+          google: "Google",
+          github: "GitHub",
+          discord: "Discord",
+        }[oauthProvider];
+        setOauthStatusLabel(`Connecting to ${label}...`);
+      } else if (elapsed < 5000) {
+        setOauthStatusLabel("Verifying your account...");
+      } else {
+        setOauthStatusLabel("Setting up Atlarix...");
+      }
+    };
+    tick();
+    const id = window.setInterval(tick, 250);
+    return () => window.clearInterval(id);
+  }, [oauthPending, oauthProvider]);
 
-    /**
-     * Last-resort unstick for the launch placeholder.
-     *
-     * `authResolved` gates a neutral "Restoring your session…" screen with no
-     * sign-in affordance. Everything below is arranged so main always answers —
-     * but nothing main sends can rescue a renderer whose IPC threw, or that has
-     * no bridge at all, and those paths used to leave the screen up forever.
-     *
-     * 10s rather than something snappy: too short brings back the signed-out
-     * flash this flag exists to prevent. Firing is safe — a session that resolves
-     * afterwards still arrives on `auth:resolved` and corrects the UI — so the
-     * worst case becomes a brief sign-in screen on a pathological network instead
-     * of a permanent dead end. Local state only: no IPC, so paying it once per
-     * each of this hook's ~22 consumers costs nothing.
-     */
-    useEffect(() => {
-        if (authResolved) return;
-        const id = window.setTimeout(() => setAuthResolved(true), 10_000);
-        return () => window.clearTimeout(id);
-    }, [authResolved]);
+  /**
+   * Last-resort unstick for the launch placeholder.
+   *
+   * `authResolved` gates a neutral "Restoring your session…" screen with no
+   * sign-in affordance. Everything below is arranged so main always answers —
+   * but nothing main sends can rescue a renderer whose IPC threw, or that has
+   * no bridge at all, and those paths used to leave the screen up forever.
+   *
+   * 10s rather than something snappy: too short brings back the signed-out
+   * flash this flag exists to prevent. Firing is safe — a session that resolves
+   * afterwards still arrives on `auth:resolved` and corrects the UI — so the
+   * worst case becomes a brief sign-in screen on a pathological network instead
+   * of a permanent dead end. Local state only: no IPC, so paying it once per
+   * each of this hook's ~22 consumers costs nothing.
+   */
+  useEffect(() => {
+    if (authResolved) return;
+    const id = window.setTimeout(() => setAuthResolved(true), 10_000);
+    return () => window.clearTimeout(id);
+  }, [authResolved]);
 
-    // Check for existing session on mount
-    useEffect(() => {
-        // Keep the ref pointing at the live implementation so the `plan-changed`
-        // listener below (registered once) can re-establish a session later.
-        checkSessionRef.current = checkSession;
-        checkSession();
+  // Check for existing session on mount
+  useEffect(() => {
+    // Keep the ref pointing at the live implementation so the `plan-changed`
+    // listener below (registered once) can re-establish a session later.
+    checkSessionRef.current = checkSession;
+    checkSession();
 
-        // Listen for OAuth callback success
-        // Note: preload strips the event, so data is the first parameter
-        const handleOAuthSuccess = async (data: { user: AuthUser }) => {
-            setOauthPending(false);
-            setOauthProvider(null);
-            console.log('[useAuth] OAuth success callback received:', data);
-            if (data?.user) {
-                console.log('[useAuth] Setting user:', data.user.email);
-                setUser({
-                    id: data.user.id,
-                    email: data.user.email,
-                    name: data.user.email?.split('@')[0] || 'User',
-                    avatar: data.user.avatar,
-                });
-                fetchPlanInfo();
+    // Listen for OAuth callback success
+    // Note: preload strips the event, so data is the first parameter
+    const handleOAuthSuccess = async (data: { user: AuthUser }) => {
+      setOauthPending(false);
+      setOauthProvider(null);
+      console.log("[useAuth] OAuth success callback received:", data);
+      if (data?.user) {
+        console.log("[useAuth] Setting user:", data.user.email);
+        setUser({
+          id: data.user.id,
+          email: data.user.email,
+          name: data.user.email?.split("@")[0] || "User",
+          avatar: data.user.avatar,
+        });
+        fetchPlanInfo();
 
-                // Show success notification - inform user to close the browser tab
-                if (typeof window !== 'undefined' && document?.body) {
-                    // v14.27.0: signing in no longer deletes workspaces to make a
-                    // Free plan fit. The cap is enforced when a workspace is
-                    // CREATED (ipc/utils/workspace-quota.ts), like every other
-                    // Free limit in the product.
+        // Show success notification - inform user to close the browser tab
+        if (typeof window !== "undefined" && document?.body) {
+          // v14.27.0: signing in no longer deletes workspaces to make a
+          // Free plan fit. The cap is enforced when a workspace is
+          // CREATED (ipc/utils/workspace-quota.ts), like every other
+          // Free limit in the product.
 
-                    // Use a timeout to ensure the UI has updated first
-                    setTimeout(() => {
-                        // Create a non-blocking notification
-                        const notification = document.createElement('div');
-                        notification.className = 'fixed bottom-4 right-4 bg-emerald-600 text-white px-4 py-3 rounded-lg shadow-lg z-[9999] flex items-center gap-3 animate-in slide-in-from-bottom-5';
-                        notification.innerHTML = `
+          // Use a timeout to ensure the UI has updated first
+          setTimeout(() => {
+            // Create a non-blocking notification
+            const notification = document.createElement("div");
+            notification.className =
+              "fixed bottom-4 right-4 bg-emerald-600 text-white px-4 py-3 rounded-lg shadow-lg z-[9999] flex items-center gap-3 animate-in slide-in-from-bottom-5";
+            notification.innerHTML = `
                             <span class="text-xl">✅</span>
                             <div>
                                 <div class="font-medium">Signed in successfully!</div>
                                 <div class="text-sm opacity-90">You're ready to continue.</div>
                             </div>
                         `;
-                        document.body.appendChild(notification);
+            document.body.appendChild(notification);
 
-                        // Auto-remove after 5 seconds
-                        setTimeout(() => notification.remove(), 5000);
-                    }, 100);
-                }
+            // Auto-remove after 5 seconds
+            setTimeout(() => notification.remove(), 5000);
+          }, 100);
+        }
+      }
+    };
+
+    // Listen for realtime plan changes (Supabase Realtime → main process → frontend)
+    const handlePlanChanged = (data: {
+      plan: "free" | "pro";
+      /** Effective tier (own or team); prefer over `plan` when present */
+      effectiveTier?: "free" | "pro";
+      previousPlan?: "free" | "pro";
+      subscriptionStatus?: string | null;
+      subscriptionEndsAt?: string | null;
+    }) => {
+      const nextPlan = (data.effectiveTier ?? data.plan) as UserStatus["plan"];
+
+      // No session established yet → this event is ESTABLISHING one, not
+      // updating one. Startup restores the Supabase session AFTER the
+      // window exists (window creation must never await the network), so
+      // the renderer mounts signed-out and `broadcastSessionState()` fires
+      // this once the session lands. Dropping it here — which the old
+      // `: prev` branch did — left the user staring at a sign-in screen
+      // with a perfectly valid session sitting in main, i.e. "it forgets
+      // my login every restart". Re-read from main rather than trusting
+      // this payload: it carries plan fields only, no user identity.
+      if (!hasSessionRef.current) {
+        void checkSessionRef.current?.();
+        return;
+      }
+
+      // Update status with all new fields
+      setStatus((prev) =>
+        prev
+          ? {
+              ...prev,
+              plan: nextPlan,
+              subscriptionStatus:
+                data.subscriptionStatus ?? prev.subscriptionStatus,
+              subscriptionEndsAt:
+                data.subscriptionEndsAt ?? prev.subscriptionEndsAt,
             }
-        };
+          : prev,
+      );
 
-        // Listen for realtime plan changes (Supabase Realtime → main process → frontend)
-        const handlePlanChanged = (data: {
-            plan: 'free' | 'pro';
-            /** Effective tier (own or team); prefer over `plan` when present */
-            effectiveTier?: 'free' | 'pro';
-            previousPlan?: 'free' | 'pro';
-            subscriptionStatus?: string | null;
-            subscriptionEndsAt?: string | null;
-        }) => {
-            const nextPlan = (data.effectiveTier ?? data.plan) as UserStatus['plan'];
-
-            // No session established yet → this event is ESTABLISHING one, not
-            // updating one. Startup restores the Supabase session AFTER the
-            // window exists (window creation must never await the network), so
-            // the renderer mounts signed-out and `broadcastSessionState()` fires
-            // this once the session lands. Dropping it here — which the old
-            // `: prev` branch did — left the user staring at a sign-in screen
-            // with a perfectly valid session sitting in main, i.e. "it forgets
-            // my login every restart". Re-read from main rather than trusting
-            // this payload: it carries plan fields only, no user identity.
-            if (!hasSessionRef.current) {
-                void checkSessionRef.current?.();
-                return;
-            }
-
-            // Update status with all new fields
-            setStatus((prev) => prev ? {
-                ...prev,
-                plan: nextPlan,
-                subscriptionStatus: data.subscriptionStatus ?? prev.subscriptionStatus,
-                subscriptionEndsAt: data.subscriptionEndsAt ?? prev.subscriptionEndsAt,
-            } : prev);
-
-            // Show upgrade notification when plan upgraded and subscription is active
-            const isProUpgrade =
-                nextPlan === 'pro' &&
-                data.previousPlan === 'free' &&
-                data.subscriptionStatus === 'active';
-            if (isProUpgrade) {
-                const notification = document.createElement('div');
-                notification.className = 'fixed bottom-4 right-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white px-4 py-3 rounded-lg shadow-lg z-[9999] flex items-center gap-3 animate-in slide-in-from-bottom-5';
-                notification.innerHTML = `
+      // Show upgrade notification when plan upgraded and subscription is active
+      const isProUpgrade =
+        nextPlan === "pro" &&
+        data.previousPlan === "free" &&
+        data.subscriptionStatus === "active";
+      if (isProUpgrade) {
+        const notification = document.createElement("div");
+        notification.className =
+          "fixed bottom-4 right-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white px-4 py-3 rounded-lg shadow-lg z-[9999] flex items-center gap-3 animate-in slide-in-from-bottom-5";
+        notification.innerHTML = `
                     <div>
                         <div class="font-medium">Welcome to Atlarix Pro!</div>
                         <div class="text-sm opacity-90">All Pro features are now unlocked.</div>
                     </div>
                 `;
-                document.body.appendChild(notification);
-                setTimeout(() => notification.remove(), 6000);
-            }
-        };
-
-        /**
-         * The startup restore settled. This is the message that was missing:
-         * `broadcastSessionState()` early-returns with no session, so a failed or
-         * empty restore told the renderer nothing and the launch placeholder
-         * stayed up forever.
-         *
-         * Applies the payload directly instead of re-invoking `checkSession()` —
-         * ~22 mounts of this hook would otherwise mean 22 IPC round-trips per
-         * launch. `user: null` is a real answer: signed out, render the sign-in
-         * affordance.
-         */
-        const handleAuthResolved = (data: AuthResolvedPayload) => {
-            setAuthResolved(true);
-            // Read the ban BEFORE the null-user early return: this same broadcast
-            // is what a live ban flip arrives on, and it is the reason a ban takes
-            // effect now rather than at the next sign-in.
-            setBanned(!!data?.user?.banned);
-            if (!data?.user) {
-                // `user: null` is an ANSWER, and since v14.38.4 it is also how a
-                // sign-out in another window arrives — this hook is unshared, so
-                // nothing else would tell this mount. Clearing here is what makes
-                // the second window follow the first.
-                //
-                // Safe only because `auth:resolved` is now broadcast on sign-IN too
-                // (SubscriptionManager.updateSession): the bridge replays its last
-                // payload to late subscribers, and before that this branch could be
-                // reached with a stale null and sign out a live session.
-                setUser(null);
-                setStatus(null);
-                return;
-            }
-            setUser({
-                id: data.user.id,
-                email: data.user.email ?? '',
-                name: (data.user.name || (data.user.email ?? '').split('@')[0]) || 'User',
-                avatar: data.user.avatar,
-            });
-            const plan = (data.user.effectiveTier ?? data.user.plan ?? data.plan ?? 'free') as UserStatus['plan'];
-            setStatus((prev) => ({
-                plan,
-                isLoggedIn: true,
-                currentWorkspaceCount: prev?.currentWorkspaceCount ?? 0,
-                subscriptionStatus: prev?.subscriptionStatus ?? null,
-                subscriptionEndsAt: prev?.subscriptionEndsAt,
-            }));
-        };
-
-        const unsubOAuth = subscribeOAuthSuccess(handleOAuthSuccess);
-        const unsubPlan = subscribePlanChanged(handlePlanChanged);
-        const unsubAuthResolved = subscribeAuthResolved(handleAuthResolved);
-
-        return () => {
-            unsubOAuth();
-            unsubPlan();
-            unsubAuthResolved();
-        };
-    }, []);
-
-    const checkSession = async () => {
-        setLoading(true);
-        try {
-            const ipcRenderer = window.electron?.ipcRenderer;
-            if (!ipcRenderer?.invoke) {
-                // No bridge means no answer is ever coming. Leaving `authResolved`
-                // false here parks the launch placeholder permanently; "signed
-                // out, with a way to sign in" is at least recoverable.
-                setAuthResolved(true);
-                setLoading(false);
-                return;
-            }
-
-            type GetUserResult = {
-                user?: {
-                    id: string;
-                    email?: string;
-                    name?: string;
-                    avatar?: string;
-                    plan?: string;
-                    effectiveTier?: 'free' | 'pro';
-                    banned?: boolean;
-                };
-                isPro?: boolean;
-                authResolved?: boolean;
-                /** Resolved in MAIN — see auth_handlers. Never derived here. */
-                banned?: boolean;
-            };
-            const result = (await ipcRenderer.invoke('auth:get-current-user')) as GetUserResult | undefined;
-
-            // A user in hand is itself proof the restore settled; otherwise trust
-            // main's flag. Older handlers omit it — treat that as resolved so a
-            // version skew can never leave the account slot blank forever.
-            if (result?.user || result?.authResolved !== false) setAuthResolved(true);
-
-            setBanned(!!(result?.banned || result?.user?.banned));
-
-            if (result?.user) {
-                setUser({
-                    id: result.user.id,
-                    email: result.user.email ?? "",
-                    name: (result.user.name || (result.user.email ?? "").split('@')[0]) || "User",
-                    avatar: result.user.avatar,
-                });
-                const plan = (
-                    result.user.effectiveTier ??
-                    result.user.plan ??
-                    "free"
-                ) as "free" | "pro";
-                setStatus({
-                    plan,
-                    isLoggedIn: true,
-                    currentWorkspaceCount: 0,
-                });
-                // Fetch full plan info (subscriptionEndsAt, etc.) for billing UI
-                type PlanResult = { success?: boolean; plan?: string; currentWorkspaceCount?: number; subscriptionStatus?: string | null; subscriptionEndsAt?: string | null; isLoggedIn?: boolean };
-                const planResult = (await ipcRenderer.invoke('auth:get-plan-info')) as PlanResult | undefined;
-                if (planResult?.success) {
-                    setStatus((prev) => prev ? {
-                        ...prev,
-                        plan: (planResult.plan ?? prev.plan) as UserStatus['plan'],
-                        currentWorkspaceCount: planResult.currentWorkspaceCount ?? prev.currentWorkspaceCount,
-                        subscriptionStatus: planResult.subscriptionStatus ?? prev.subscriptionStatus ?? null,
-                        subscriptionEndsAt: planResult.subscriptionEndsAt ?? prev.subscriptionEndsAt,
-                    } : prev);
-                }
-            }
-        } catch (error) {
-            console.error('Failed to check session:', error);
-            // A failed check is still an ANSWER — the same reasoning main applies
-            // when it marks the restore resolved in a `finally`. The renderer must
-            // not be stricter than the process it is waiting on: swallowing this
-            // left the launch placeholder up with no error and no sign-in button.
-            setAuthResolved(true);
-        } finally {
-            setLoading(false);
-        }
+        document.body.appendChild(notification);
+        setTimeout(() => notification.remove(), 6000);
+      }
     };
 
-    const fetchPlanInfo = useCallback(async () => {
-        try {
-            const ipcRenderer = window.electron?.ipcRenderer;
-            if (!ipcRenderer?.invoke) return;
-
-            type PlanResult = { success?: boolean; plan?: string; currentWorkspaceCount?: number; subscriptionStatus?: string | null; subscriptionEndsAt?: string | null; isLoggedIn?: boolean };
-            const result = (await ipcRenderer.invoke('auth:get-plan-info')) as PlanResult | undefined;
-
-            if (result?.success) {
-                setStatus({
-                    plan: (result.plan ?? 'free') as UserStatus['plan'],
-                    isLoggedIn: result.isLoggedIn ?? true,
-                    currentWorkspaceCount: result.currentWorkspaceCount ?? 0,
-                    subscriptionStatus: result.subscriptionStatus ?? null,
-                    subscriptionEndsAt: result.subscriptionEndsAt ?? null,
-                });
-            }
-        } catch (error) {
-            console.error('Failed to fetch plan info:', error);
-        }
-    }, []);
-
     /**
-     * Start an OAuth flow. One implementation for every provider — the three
-     * wrappers below differed only in a string, and a third copy for Discord
-     * would have made that drift-prone for no benefit. The flow continues in the
-     * user's browser; the callback is handled in main.
+     * The startup restore settled. This is the message that was missing:
+     * `broadcastSessionState()` early-returns with no session, so a failed or
+     * empty restore told the renderer nothing and the launch placeholder
+     * stayed up forever.
+     *
+     * Applies the payload directly instead of re-invoking `checkSession()` —
+     * ~22 mounts of this hook would otherwise mean 22 IPC round-trips per
+     * launch. `user: null` is a real answer: signed out, render the sign-in
+     * affordance.
      */
-    const startOAuth = useCallback(async (provider: 'google' | 'github' | 'discord') => {
-        try {
-            const ipcRenderer = window.electron?.ipcRenderer;
-            if (!ipcRenderer?.invoke) {
-                console.error('IPC not available');
-                return;
-            }
+    const handleAuthResolved = (data: AuthResolvedPayload) => {
+      setAuthResolved(true);
+      // Read the ban BEFORE the null-user early return: this same broadcast
+      // is what a live ban flip arrives on, and it is the reason a ban takes
+      // effect now rather than at the next sign-in.
+      setBanned(!!data?.user?.banned);
+      if (!data?.user) {
+        // `user: null` is an ANSWER, and since v14.38.4 it is also how a
+        // sign-out in another window arrives — this hook is unshared, so
+        // nothing else would tell this mount. Clearing here is what makes
+        // the second window follow the first.
+        //
+        // Safe only because `auth:resolved` is now broadcast on sign-IN too
+        // (SubscriptionManager.updateSession): the bridge replays its last
+        // payload to late subscribers, and before that this branch could be
+        // reached with a stale null and sign out a live session.
+        setUser(null);
+        setStatus(null);
+        return;
+      }
+      setUser({
+        id: data.user.id,
+        email: data.user.email ?? "",
+        name: data.user.name || (data.user.email ?? "").split("@")[0] || "User",
+        avatar: data.user.avatar,
+      });
+      const plan = (data.user.effectiveTier ??
+        data.user.plan ??
+        data.plan ??
+        "free") as UserStatus["plan"];
+      setStatus((prev) => ({
+        plan,
+        isLoggedIn: true,
+        currentWorkspaceCount: prev?.currentWorkspaceCount ?? 0,
+        subscriptionStatus: prev?.subscriptionStatus ?? null,
+        subscriptionEndsAt: prev?.subscriptionEndsAt,
+      }));
+    };
 
-            setOauthPending(true);
-            setOauthProvider(provider);
+    const unsubOAuth = subscribeOAuthSuccess(handleOAuthSuccess);
+    const unsubPlan = subscribePlanChanged(handlePlanChanged);
+    const unsubAuthResolved = subscribeAuthResolved(handleAuthResolved);
 
-            const result = (await ipcRenderer.invoke('auth:sign-in', { provider })) as
-                | { error?: string; success?: boolean }
-                | undefined;
+    return () => {
+      unsubOAuth();
+      unsubPlan();
+      unsubAuthResolved();
+    };
+  }, []);
 
-            if (result?.error) {
-                console.error(`${provider} sign in failed`, result.error);
-                setOauthPending(false);
-                setOauthProvider(null);
-            }
-        } catch (error) {
-            console.error(`${provider} sign in error:`, error);
-            setOauthPending(false);
-            setOauthProvider(null);
+  const checkSession = async () => {
+    setLoading(true);
+    try {
+      const ipcRenderer = window.electron?.ipcRenderer;
+      if (!ipcRenderer?.invoke) {
+        // No bridge means no answer is ever coming. Leaving `authResolved`
+        // false here parks the launch placeholder permanently; "signed
+        // out, with a way to sign in" is at least recoverable.
+        setAuthResolved(true);
+        setLoading(false);
+        return;
+      }
+
+      type GetUserResult = {
+        user?: {
+          id: string;
+          email?: string;
+          name?: string;
+          avatar?: string;
+          plan?: string;
+          effectiveTier?: "free" | "pro";
+          banned?: boolean;
+        };
+        isPro?: boolean;
+        authResolved?: boolean;
+        /** Resolved in MAIN — see auth_handlers. Never derived here. */
+        banned?: boolean;
+      };
+      const result = (await ipcRenderer.invoke("auth:get-current-user")) as
+        | GetUserResult
+        | undefined;
+
+      // A user in hand is itself proof the restore settled; otherwise trust
+      // main's flag. Older handlers omit it — treat that as resolved so a
+      // version skew can never leave the account slot blank forever.
+      if (result?.user || result?.authResolved !== false) setAuthResolved(true);
+
+      setBanned(!!(result?.banned || result?.user?.banned));
+
+      if (result?.user) {
+        setUser({
+          id: result.user.id,
+          email: result.user.email ?? "",
+          name:
+            result.user.name ||
+            (result.user.email ?? "").split("@")[0] ||
+            "User",
+          avatar: result.user.avatar,
+        });
+        const plan = (result.user.effectiveTier ??
+          result.user.plan ??
+          "free") as "free" | "pro";
+        setStatus({
+          plan,
+          isLoggedIn: true,
+          currentWorkspaceCount: 0,
+        });
+        // Fetch full plan info (subscriptionEndsAt, etc.) for billing UI
+        type PlanResult = {
+          success?: boolean;
+          plan?: string;
+          currentWorkspaceCount?: number;
+          subscriptionStatus?: string | null;
+          subscriptionEndsAt?: string | null;
+          isLoggedIn?: boolean;
+        };
+        const planResult = (await ipcRenderer.invoke("auth:get-plan-info")) as
+          | PlanResult
+          | undefined;
+        if (planResult?.success) {
+          setStatus((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  plan: (planResult.plan ?? prev.plan) as UserStatus["plan"],
+                  currentWorkspaceCount:
+                    planResult.currentWorkspaceCount ??
+                    prev.currentWorkspaceCount,
+                  subscriptionStatus:
+                    planResult.subscriptionStatus ??
+                    prev.subscriptionStatus ??
+                    null,
+                  subscriptionEndsAt:
+                    planResult.subscriptionEndsAt ?? prev.subscriptionEndsAt,
+                }
+              : prev,
+          );
         }
-    }, []);
+      }
+    } catch (error) {
+      console.error("Failed to check session:", error);
+      // A failed check is still an ANSWER — the same reasoning main applies
+      // when it marks the restore resolved in a `finally`. The renderer must
+      // not be stricter than the process it is waiting on: swallowing this
+      // left the launch placeholder up with no error and no sign-in button.
+      setAuthResolved(true);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    const signInWithGoogle = useCallback(() => startOAuth('google'), [startOAuth]);
-    const signInWithGitHub = useCallback(() => startOAuth('github'), [startOAuth]);
-    const signInWithDiscord = useCallback(() => startOAuth('discord'), [startOAuth]);
+  const fetchPlanInfo = useCallback(async () => {
+    try {
+      const ipcRenderer = window.electron?.ipcRenderer;
+      if (!ipcRenderer?.invoke) return;
 
-    /**
-     * @param removeLocalData Also delete this machine's workspaces and chat
-     * history. Defaults to false — signing out clears credentials, and nothing
-     * else. The caller (the sign-out dialog) offers it as an unchecked box.
-     */
-    const signOut = useCallback(async (removeLocalData = false) => {
-        try {
-            const ipcRenderer = window.electron?.ipcRenderer;
-            if (!ipcRenderer?.invoke) return;
+      type PlanResult = {
+        success?: boolean;
+        plan?: string;
+        currentWorkspaceCount?: number;
+        subscriptionStatus?: string | null;
+        subscriptionEndsAt?: string | null;
+        isLoggedIn?: boolean;
+      };
+      const result = (await ipcRenderer.invoke("auth:get-plan-info")) as
+        | PlanResult
+        | undefined;
 
-            await ipcRenderer.invoke('auth:sign-out', { removeLocalData });
-            setUser(null);
-            setStatus(null);
-            // Clear the ban too, or the Sign out button on the banned screen does
-            // nothing: welcome-launcher tests `if (banned)` BEFORE
-            // `if (!isAuthenticated)`, so a stuck `true` re-renders the same screen
-            // after a successful sign-out and the only way out is restarting the
-            // app (where `banned` starts false). Reported live 2026-08-20.
-            //
-            // Clearing it locally cannot let a banned user do anything: they are
-            // signed out, so Core has no session, and the proxy's 403 is the
-            // enforcement either way. If the same banned account signs back in, the
-            // next `auth:resolved` / checkSession re-establishes it.
-            setBanned(false);
-        } catch (error) {
-            console.error('Sign out error:', error);
+      if (result?.success) {
+        setStatus({
+          plan: (result.plan ?? "free") as UserStatus["plan"],
+          isLoggedIn: result.isLoggedIn ?? true,
+          currentWorkspaceCount: result.currentWorkspaceCount ?? 0,
+          subscriptionStatus: result.subscriptionStatus ?? null,
+          subscriptionEndsAt: result.subscriptionEndsAt ?? null,
+        });
+      }
+    } catch (error) {
+      console.error("Failed to fetch plan info:", error);
+    }
+  }, []);
+
+  /**
+   * Start an OAuth flow. One implementation for every provider — the three
+   * wrappers below differed only in a string, and a third copy for Discord
+   * would have made that drift-prone for no benefit. The flow continues in the
+   * user's browser; the callback is handled in main.
+   */
+  const startOAuth = useCallback(
+    async (provider: "google" | "github" | "discord") => {
+      try {
+        const ipcRenderer = window.electron?.ipcRenderer;
+        if (!ipcRenderer?.invoke) {
+          console.error("IPC not available");
+          return;
         }
-    }, []);
 
-    /**
-     * Refresh plan from Supabase - call after payment completion
-     */
-    const refreshPlan = useCallback(async () => {
-        try {
-            const ipcRenderer = window.electron?.ipcRenderer;
-            if (!ipcRenderer?.invoke) return null;
+        setOauthPending(true);
+        setOauthProvider(provider);
 
-            const result = (await ipcRenderer.invoke('auth:refresh-plan')) as { success?: boolean; plan?: string } | undefined;
+        const result = (await ipcRenderer.invoke("auth:sign-in", {
+          provider,
+        })) as { error?: string; success?: boolean } | undefined;
 
-            if (result?.success && status) {
-                setStatus({
-                    ...status,
-                    plan: (result.plan ?? status.plan) as UserStatus['plan'],
-                });
-                console.log('[useAuth] Plan refreshed:', result.plan);
+        if (result?.error) {
+          console.error(`${provider} sign in failed`, result.error);
+          setOauthPending(false);
+          setOauthProvider(null);
+        }
+      } catch (error) {
+        console.error(`${provider} sign in error:`, error);
+        setOauthPending(false);
+        setOauthProvider(null);
+      }
+    },
+    [],
+  );
 
-                // Show notification if upgraded
-                const newPlan = (result.plan ?? status.plan) as 'free' | 'pro';
-                if (newPlan === 'pro' && status.plan !== 'pro') {
-                    const notification = document.createElement('div');
-                    notification.className = 'fixed bottom-4 right-4 bg-emerald-600 text-white px-4 py-3 rounded-lg shadow-lg z-[9999] flex items-center gap-3 animate-in slide-in-from-bottom-5';
-                    notification.innerHTML = `
+  const signInWithGoogle = useCallback(
+    () => startOAuth("google"),
+    [startOAuth],
+  );
+  const signInWithGitHub = useCallback(
+    () => startOAuth("github"),
+    [startOAuth],
+  );
+  const signInWithDiscord = useCallback(
+    () => startOAuth("discord"),
+    [startOAuth],
+  );
+
+  /**
+   * @param removeLocalData Also delete this machine's workspaces and chat
+   * history. Defaults to false — signing out clears credentials, and nothing
+   * else. The caller (the sign-out dialog) offers it as an unchecked box.
+   */
+  const signOut = useCallback(async (removeLocalData = false) => {
+    try {
+      const ipcRenderer = window.electron?.ipcRenderer;
+      if (!ipcRenderer?.invoke) return;
+
+      await ipcRenderer.invoke("auth:sign-out", { removeLocalData });
+      setUser(null);
+      setStatus(null);
+      // Clear the ban too, or the Sign out button on the banned screen does
+      // nothing: welcome-launcher tests `if (banned)` BEFORE
+      // `if (!isAuthenticated)`, so a stuck `true` re-renders the same screen
+      // after a successful sign-out and the only way out is restarting the
+      // app (where `banned` starts false). Reported live 2026-08-20.
+      //
+      // Clearing it locally cannot let a banned user do anything: they are
+      // signed out, so Core has no session, and the proxy's 403 is the
+      // enforcement either way. If the same banned account signs back in, the
+      // next `auth:resolved` / checkSession re-establishes it.
+      setBanned(false);
+    } catch (error) {
+      console.error("Sign out error:", error);
+    }
+  }, []);
+
+  /**
+   * Refresh plan from Supabase - call after payment completion
+   */
+  const refreshPlan = useCallback(async () => {
+    try {
+      const ipcRenderer = window.electron?.ipcRenderer;
+      if (!ipcRenderer?.invoke) return null;
+
+      const result = (await ipcRenderer.invoke("auth:refresh-plan")) as
+        | { success?: boolean; plan?: string }
+        | undefined;
+
+      if (result?.success && status) {
+        setStatus({
+          ...status,
+          plan: (result.plan ?? status.plan) as UserStatus["plan"],
+        });
+        console.log("[useAuth] Plan refreshed:", result.plan);
+
+        // Show notification if upgraded
+        const newPlan = (result.plan ?? status.plan) as "free" | "pro";
+        if (newPlan === "pro" && status.plan !== "pro") {
+          const notification = document.createElement("div");
+          notification.className =
+            "fixed bottom-4 right-4 bg-emerald-600 text-white px-4 py-3 rounded-lg shadow-lg z-[9999] flex items-center gap-3 animate-in slide-in-from-bottom-5";
+          notification.innerHTML = `
                         <div>
                             <div class="font-medium">Welcome to Atlarix Pro!</div>
                             <div class="text-sm opacity-90">All Pro features are now unlocked.</div>
                         </div>
                     `;
-                    document.body.appendChild(notification);
-                    setTimeout(() => notification.remove(), 5000);
-                }
-
-                return result.plan;
-            }
-            return null;
-        } catch (error) {
-            console.error('Refresh plan error:', error);
-            return null;
+          document.body.appendChild(notification);
+          setTimeout(() => notification.remove(), 5000);
         }
-    }, [status]);
 
-    return {
-        user,
-        status,
-        loading,
-        isAuthenticated: !!user,
-        /**
-         * True only once main's startup restore has settled. Render a neutral
-         * placeholder rather than a sign-in affordance while this is false —
-         * `!isAuthenticated` alone does not mean signed out during launch.
-         */
-        authResolved,
-        /**
-         * This account is banned. The gate that reads this sits in front of the
-         * LAUNCHER (`pages/welcome-launcher.tsx`), so nothing in the client works
-         * while it is true — BYOK and local models included. An earlier version of
-         * this comment claimed they were unaffected and that the UI said so; that
-         * was only ever true of the in-turn 403 message, never of the launcher
-         * screen (corrected 2026-08-20, see docs/BAN_RUNBOOK.md).
-         *
-         * The hard stop is still the proxy's 403: the client gate is bypassable by
-         * an older build or no network, which is why we do not invest in
-         * client-side blocking beyond refusing to proceed.
-         */
-        banned,
-        oauthPending,
-        oauthProvider,
-        oauthStatusLabel,
-        signInWithGoogle,
-        signInWithGitHub,
-        signInWithDiscord,
-        signOut,
-        refreshStatus: fetchPlanInfo,
-        refreshPlan,
-    };
+        return result.plan;
+      }
+      return null;
+    } catch (error) {
+      console.error("Refresh plan error:", error);
+      return null;
+    }
+  }, [status]);
+
+  return {
+    user,
+    status,
+    loading,
+    isAuthenticated: !!user,
+    /**
+     * True only once main's startup restore has settled. Render a neutral
+     * placeholder rather than a sign-in affordance while this is false —
+     * `!isAuthenticated` alone does not mean signed out during launch.
+     */
+    authResolved,
+    /**
+     * This account is banned. The gate that reads this sits in front of the
+     * LAUNCHER (`pages/welcome-launcher.tsx`), so nothing in the client works
+     * while it is true — BYOK and local models included. An earlier version of
+     * this comment claimed they were unaffected and that the UI said so; that
+     * was only ever true of the in-turn 403 message, never of the launcher
+     * screen (corrected 2026-08-20, see docs/BAN_RUNBOOK.md).
+     *
+     * The hard stop is still the proxy's 403: the client gate is bypassable by
+     * an older build or no network, which is why we do not invest in
+     * client-side blocking beyond refusing to proceed.
+     */
+    banned,
+    oauthPending,
+    oauthProvider,
+    oauthStatusLabel,
+    signInWithGoogle,
+    signInWithGitHub,
+    signInWithDiscord,
+    signOut,
+    refreshStatus: fetchPlanInfo,
+    refreshPlan,
+  };
 }

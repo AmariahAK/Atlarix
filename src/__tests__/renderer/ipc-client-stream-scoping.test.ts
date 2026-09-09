@@ -64,7 +64,11 @@ describe("IpcClient stream-leg scoping", () => {
 
     // Dispatch is pending — the dying leg's error+end (sent by main BEFORE the
     // new handler leg even ran) must be dropped entirely.
-    fire("chat:response:error", { chatId: 42, streamId: 5, error: "rate limited" });
+    fire("chat:response:error", {
+      chatId: 42,
+      streamId: 5,
+      error: "rate limited",
+    });
     fire("chat:response:end", { chatId: 42, streamId: 5 });
     expect(onError).not.toHaveBeenCalled();
     expect(onEnd).not.toHaveBeenCalled();

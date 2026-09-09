@@ -149,7 +149,8 @@ export function inputOutputTokensFromUsage(
   const details = (u.inputTokenDetails ?? {}) as Record<string, unknown>;
   const asCount = (v: unknown): number | undefined =>
     typeof v === "number" && Number.isFinite(v) && v > 0 ? v : undefined;
-  const cached = asCount(details.cacheReadTokens) ?? asCount(u.cachedInputTokens);
+  const cached =
+    asCount(details.cacheReadTokens) ?? asCount(u.cachedInputTokens);
   const cacheWrite = asCount(details.cacheWriteTokens);
   return {
     inputTokens: input,
@@ -242,7 +243,10 @@ export function estimateTurnCostUsd(
   const readRate = rate.cacheReadPerMtok ?? rate.inputPerMtok;
   const writeRate = rate.cacheWritePerMtok ?? rate.inputPerMtok;
 
-  const fullRateInput = Math.max(0, usage.inputTokens - cachedRead - cacheWrite);
+  const fullRateInput = Math.max(
+    0,
+    usage.inputTokens - cachedRead - cacheWrite,
+  );
   const cost =
     (fullRateInput / 1_000_000) * rate.inputPerMtok +
     (cachedRead / 1_000_000) * readRate +

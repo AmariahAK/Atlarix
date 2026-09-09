@@ -41,7 +41,9 @@ export function recordBrowserAction(
   byChat.set(chatId, steps);
 }
 
-export function getBrowserRecording(chatId: number | undefined): BrowserAction[] {
+export function getBrowserRecording(
+  chatId: number | undefined,
+): BrowserAction[] {
   if (chatId == null) return [];
   return byChat.get(chatId) ?? [];
 }

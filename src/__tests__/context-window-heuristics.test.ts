@@ -6,7 +6,9 @@ vi.mock("@/ipc/utils/findLanguageModel", () => ({
 }));
 
 const modelsDev = vi.hoisted(() => ({
-  getModelsDevLimits: vi.fn(async () => null as { context?: number; output?: number } | null),
+  getModelsDevLimits: vi.fn(
+    async () => null as { context?: number; output?: number } | null,
+  ),
 }));
 vi.mock("@/lib/models_dev", () => modelsDev);
 
@@ -35,15 +37,17 @@ const noSettings = {} as UserSettings;
 // one generic logged fallback and local-runtime placeholders.
 describe("heuristicRawContextLength — generic last resort only", () => {
   it("no name-sniffing: every cloud model gets the single generic fallback", () => {
-    expect(heuristicRawContextLength(model("openrouter", "deepseek/deepseek-v4-pro"))).toBe(
-      GENERIC_CONTEXT_FALLBACK,
-    );
-    expect(heuristicRawContextLength(model("anthropic", "claude-something-new"))).toBe(
-      GENERIC_CONTEXT_FALLBACK,
-    );
-    expect(heuristicRawContextLength(model("openrouter", "some/brand-new-model"))).toBe(
-      GENERIC_CONTEXT_FALLBACK,
-    );
+    expect(
+      heuristicRawContextLength(
+        model("openrouter", "deepseek/deepseek-v4-pro"),
+      ),
+    ).toBe(GENERIC_CONTEXT_FALLBACK);
+    expect(
+      heuristicRawContextLength(model("anthropic", "claude-something-new")),
+    ).toBe(GENERIC_CONTEXT_FALLBACK);
+    expect(
+      heuristicRawContextLength(model("openrouter", "some/brand-new-model")),
+    ).toBe(GENERIC_CONTEXT_FALLBACK);
   });
 
   it("keeps conservative local-runtime placeholders (real window fetched async)", () => {
@@ -64,7 +68,10 @@ describe("resolveModelContextLimit — provider-uniform resolution (W12)", () =>
   });
 
   it("user override wins over every source (incl. compaction denominator)", async () => {
-    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("offline"))));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new Error("offline"))),
+    );
     vi.mocked(findLanguageModel).mockResolvedValue({
       apiName: "claude-x",
       contextWindow: 268_000,
@@ -76,22 +83,34 @@ describe("resolveModelContextLimit — provider-uniform resolution (W12)", () =>
   });
 
   it("uses the provider-API context window when available", async () => {
-    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("offline"))));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new Error("offline"))),
+    );
     vi.mocked(findLanguageModel).mockResolvedValue({
       apiName: "claude-x",
       contextWindow: 268_000,
     } as never);
-    const res = await resolveModelContextLimit(model("anthropic", "claude-x"), noSettings);
+    const res = await resolveModelContextLimit(
+      model("anthropic", "claude-x"),
+      noSettings,
+    );
     expect(res.rawContextLength).toBe(268_000);
     expect(res.tierLimit).toBe(Math.max(4096, Math.floor(268_000 * 0.8)));
   });
 
   it("native provider with no API window resolves via models.dev (the DeepSeek 1M fix)", async () => {
-    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("offline"))));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new Error("offline"))),
+    );
     vi.mocked(findLanguageModel).mockResolvedValue({
       apiName: "deepseek-v4-pro",
     } as never);
-    modelsDev.getModelsDevLimits.mockResolvedValue({ context: 1_048_576, output: 384_000 });
+    modelsDev.getModelsDevLimits.mockResolvedValue({
+      context: 1_048_576,
+      output: 384_000,
+    });
     const res = await resolveModelContextLimit(
       model("deepseek", "deepseek-v4-pro"),
       noSettings,
@@ -108,37 +127,58 @@ describe("resolveModelContextLimit — provider-uniform resolution (W12)", () =>
    * `compass`, keyed by the tier's provider + vendor model id.
    */
   it("Core resolves its real ~1M window from models.dev, not the 128K fallback", async () => {
-    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("offline"))));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new Error("offline"))),
+    );
     // No OpenRouter row and no per-model row: exactly the post-cutover situation.
     vi.mocked(findLanguageModel).mockResolvedValue(undefined as never);
-    modelsDev.getModelsDevLimits.mockResolvedValue({ context: 1_000_000, output: 384_000 });
+    modelsDev.getModelsDevLimits.mockResolvedValue({
+      context: 1_000_000,
+      output: 384_000,
+    });
     setCoreModelRouting({
       "core-3": { provider: "deepseek", apiModelId: "deepseek-v4-pro" },
     });
 
-    const res = await resolveModelContextLimit(model("compass", "core-3"), noSettings);
+    const res = await resolveModelContextLimit(
+      model("compass", "core-3"),
+      noSettings,
+    );
 
     expect(res.rawContextLength).toBe(1_000_000);
     // Budget = 0.8 safety factor; compaction fires at 0.75 of that (~600K).
     expect(res.tierLimit).toBe(800_000);
     expect(res.tierLimit).toBeGreaterThan(GENERIC_CONTEXT_FALLBACK * 6);
     // Keyed by the VENDOR id, never the synthetic `compass`.
-    expect(modelsDev.getModelsDevLimits).toHaveBeenCalledWith("deepseek", "deepseek-v4-pro");
+    expect(modelsDev.getModelsDevLimits).toHaveBeenCalledWith(
+      "deepseek",
+      "deepseek-v4-pro",
+    );
   });
 
   it("Core falls back gracefully when models.dev has no row for the tier", async () => {
-    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("offline"))));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new Error("offline"))),
+    );
     vi.mocked(findLanguageModel).mockResolvedValue(undefined as never);
     modelsDev.getModelsDevLimits.mockResolvedValue(null);
     setCoreModelRouting({
       "core-3": { provider: "deepseek", apiModelId: "deepseek-v4-pro" },
     });
-    const res = await resolveModelContextLimit(model("compass", "core-3"), noSettings);
+    const res = await resolveModelContextLimit(
+      model("compass", "core-3"),
+      noSettings,
+    );
     expect(res.rawContextLength).toBe(GENERIC_CONTEXT_FALLBACK);
   });
 
   it("falls back to the single generic constant when every source misses", async () => {
-    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("offline"))));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new Error("offline"))),
+    );
     vi.mocked(findLanguageModel).mockResolvedValue(undefined as never);
     const res = await resolveModelContextLimit(
       model("anthropic", "some-unlisted-model"),
@@ -160,6 +200,8 @@ describe("warmOpenRouterModelCache — fetch-failure tolerance", () => {
     );
     await expect(warmOpenRouterModelCache()).resolves.toBeUndefined();
     // No catalog row → resolveModelContextLimit falls through to later steps.
-    expect(getCachedOpenRouterModelRow("anthropic/claude-3.5-sonnet")).toBeUndefined();
+    expect(
+      getCachedOpenRouterModelRow("anthropic/claude-3.5-sonnet"),
+    ).toBeUndefined();
   });
 });

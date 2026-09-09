@@ -122,7 +122,9 @@ export function checkFreshness(
   if (!scope) return { ok: true };
   const seen = readsByScope.get(scope)?.get(pathKey(filePath));
   if (seen === undefined) return { ok: false, reason: "never_read" };
-  return seen === hashContent(content) ? { ok: true } : { ok: false, reason: "stale" };
+  return seen === hashContent(content)
+    ? { ok: true }
+    : { ok: false, reason: "stale" };
 }
 
 /** Drop a scope's records (session delete, or a finished sub-agent run). */

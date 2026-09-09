@@ -195,7 +195,9 @@ function publishReasoningProfiles(data: ModelsDevData): void {
       for (const [modelId, m] of Object.entries(provider.models)) {
         const profile = {
           reasoning: m.reasoning === true,
-          options: Array.isArray(m.reasoning_options) ? m.reasoning_options : [],
+          options: Array.isArray(m.reasoning_options)
+            ? m.reasoning_options
+            : [],
         };
         // Only an explicit false is a refusal; the field is absent on many rows.
         const supportsTemperature = m.temperature !== false;
@@ -203,7 +205,12 @@ function publishReasoningProfiles(data: ModelsDevData): void {
         // Register under Atlarix's own provider id too (qwen/moonshot/…), since
         // dispatch keys off that rather than models.dev's spelling.
         if (atlarixId) {
-          entries.push({ providerId: atlarixId, modelId, profile, supportsTemperature });
+          entries.push({
+            providerId: atlarixId,
+            modelId,
+            profile,
+            supportsTemperature,
+          });
         }
       }
     }
@@ -789,7 +796,8 @@ export async function getModelsDevProviderCatalog(): Promise<
     npm?: string;
   }> = [];
   for (const [modelsDevId, provider] of Object.entries(data)) {
-    if (!provider?.models || Object.keys(provider.models).length === 0) continue;
+    if (!provider?.models || Object.keys(provider.models).length === 0)
+      continue;
     // A provider is connectable if we know WHERE to send the request (its own `api`,
     // or a pin) or WHICH bundled SDK knows the host. Requiring `api` alone dropped
     // every first-party vendor endpoint from the catalog path.

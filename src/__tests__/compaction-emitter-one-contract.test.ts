@@ -57,7 +57,10 @@ describe("one compaction emitter, three triggers", () => {
       });
 
       const bg = sent.find((p) => p.type === "background");
-      expect(bg, "a background event is the only user-visible one").toBeTruthy();
+      expect(
+        bg,
+        "a background event is the only user-visible one",
+      ).toBeTruthy();
       // The defect was here: dropped by the normaliser, so no pill.
       const item = normalizeChatActivityPayload(bg!);
       expect(item, "must survive normalize").not.toBeNull();
@@ -76,7 +79,9 @@ describe("one compaction emitter, three triggers", () => {
       // Dropped on purpose: one moment must not produce two activity rows.
       expect(normalizeChatActivityPayload(banner!)).toBeNull();
       // Distinct ids, so the two never collide in the atom.
-      expect(banner!.id).not.toBe(sent.find((p) => p.type === "background")!.id);
+      expect(banner!.id).not.toBe(
+        sent.find((p) => p.type === "background")!.id,
+      );
     });
   }
 
@@ -93,29 +98,45 @@ describe("one compaction emitter, three triggers", () => {
       "Context compressed",
     );
     // A completed run that found nothing to do must not claim it compressed.
-    expect(label({ id: "a", trigger: "model", status: "done", noop: true })).toBe(
-      "Context already compact",
-    );
+    expect(
+      label({ id: "a", trigger: "model", status: "done", noop: true }),
+    ).toBe("Context already compact");
     expect(label({ id: "a", trigger: "model", status: "error" })).toBe(
       "Context compression failed",
     );
   });
 
   it("marks only the model trigger as model-initiated", () => {
-    emitCompactionActivity(fakeSender, 7, { id: "a", trigger: "model", status: "done" });
+    emitCompactionActivity(fakeSender, 7, {
+      id: "a",
+      trigger: "model",
+      status: "done",
+    });
     expect(sent[0]!.modelInitiated).toBe(true);
     sent.length = 0;
-    emitCompactionActivity(fakeSender, 7, { id: "b", trigger: "automatic", status: "done" });
+    emitCompactionActivity(fakeSender, 7, {
+      id: "b",
+      trigger: "automatic",
+      status: "done",
+    });
     expect(sent[0]!.modelInitiated).toBe(false);
   });
 
   it("carries the chat id on both events, so another chat's pill stays quiet", () => {
-    emitCompactionActivity(fakeSender, 42, { id: "a", trigger: "automatic", status: "done" });
+    emitCompactionActivity(fakeSender, 42, {
+      id: "a",
+      trigger: "automatic",
+      status: "done",
+    });
     expect(sent.every((p) => p.chatId === 42)).toBe(true);
   });
 
   it("omits detail rather than sending an empty string", () => {
-    emitCompactionActivity(fakeSender, 7, { id: "a", trigger: "automatic", status: "done" });
+    emitCompactionActivity(fakeSender, 7, {
+      id: "a",
+      trigger: "automatic",
+      status: "done",
+    });
     expect(sent.every((p) => !("detail" in p))).toBe(true);
   });
 });
@@ -169,7 +190,11 @@ describe("a running+done pair collapses to one row", () => {
     // into the display snapshot, so it has to collapse too.
     sent.length = 0;
     const id = "predispatch-compact-7-1000";
-    emitCompactionActivity(fakeSender, 7, { id, trigger: "automatic", status: "running" });
+    emitCompactionActivity(fakeSender, 7, {
+      id,
+      trigger: "automatic",
+      status: "running",
+    });
     emitCompactionActivity(fakeSender, 7, {
       id,
       trigger: "automatic",
@@ -182,10 +207,12 @@ describe("a running+done pair collapses to one row", () => {
       const item = normalizeChatActivityPayload(payload);
       if (!item) continue;
       const threadItem = streamThreadItemFromActivity(item);
-      if (threadItem) thread = upsertStreamThreadItem(thread as never, threadItem) as never;
+      if (threadItem)
+        thread = upsertStreamThreadItem(thread as never, threadItem) as never;
     }
-    const cards = (thread as Array<{ kind: string; status?: string; label?: string }>)
-      .filter((t) => t.kind === "background");
+    const cards = (
+      thread as Array<{ kind: string; status?: string; label?: string }>
+    ).filter((t) => t.kind === "background");
     expect(cards).toHaveLength(1);
     expect(cards[0]!.status).toBe("done");
     // The saving has to be in the LABEL: streamThreadItemFromActivity drops
@@ -229,7 +256,11 @@ describe("a running+done pair collapses to one row", () => {
 
   it("an error leg replaces the running row rather than stacking", () => {
     sent.length = 0;
-    emitCompactionActivity(fakeSender, 7, { id: "e1", trigger: "model", status: "running" });
+    emitCompactionActivity(fakeSender, 7, {
+      id: "e1",
+      trigger: "model",
+      status: "running",
+    });
     emitCompactionActivity(fakeSender, 7, {
       id: "e1",
       trigger: "model",

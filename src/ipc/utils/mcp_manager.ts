@@ -25,7 +25,10 @@ import {
   resolveOAuthRedirectUrlFromRow,
   type StoredOAuthTokens,
 } from "@/lib/mcp/oauth-token-utils";
-import { deserializeApiKeyFromDb, decryptEnvFromDb } from "@/lib/security/db-secrets";
+import {
+  deserializeApiKeyFromDb,
+  decryptEnvFromDb,
+} from "@/lib/security/db-secrets";
 import { readSettings } from "@/main/settings";
 import { wrapStdioSpawnForFirejail } from "@/lib/mcp/firejail";
 
@@ -113,8 +116,7 @@ class McpManager {
         ...decryptEnvFromDb(s.envJson),
         ...(apiKey ? { MCP_API_KEY: apiKey } : {}),
       };
-      const envForTransport =
-        Object.keys(env).length > 0 ? env : undefined;
+      const envForTransport = Object.keys(env).length > 0 ? env : undefined;
       if (!s.command) throw new Error("MCP server command is required");
       const spawn = await wrapStdioSpawnForFirejail(
         s.command,
@@ -143,16 +145,22 @@ class McpManager {
           undefined,
           false,
         );
-        transport = new StreamableHTTPClientTransport(new URL(s.url as string), {
-          authProvider: oauthProvider,
-        });
+        transport = new StreamableHTTPClientTransport(
+          new URL(s.url as string),
+          {
+            authProvider: oauthProvider,
+          },
+        );
       } else {
         const apiKey = deserializeApiKeyFromDb(s.apiKey)?.trim();
-        transport = new StreamableHTTPClientTransport(new URL(s.url as string), {
-          requestInit: apiKey
-            ? { headers: { Authorization: `Bearer ${apiKey}` } }
-            : undefined,
-        });
+        transport = new StreamableHTTPClientTransport(
+          new URL(s.url as string),
+          {
+            requestInit: apiKey
+              ? { headers: { Authorization: `Bearer ${apiKey}` } }
+              : undefined,
+          },
+        );
       }
     } else {
       throw new Error(`Unsupported MCP transport: ${s.transport}`);

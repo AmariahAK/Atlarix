@@ -32,10 +32,10 @@ before `electron-forge` packages it (bundled via `extraResource` in
 
 Set `ATLARIX_SANDBOX_HELPER` to the built exe, then in a workspace:
 
-| Case | Expected |
-|---|---|
-| write **inside** workspace (`echo hi > note.txt`) | succeeds |
-| write **outside** (`echo x > %USERPROFILE%\evil.txt`) | access denied |
-| `npm install` (network + `%LOCALAPPDATA%` cache) | succeeds |
-| helper missing / `enforce` off | command runs unsandboxed + logged warning |
-| helper missing / `sandboxRunCommandConfig.enforce=true` | command fails closed |
+| Case                                                    | Expected                                  |
+| ------------------------------------------------------- | ----------------------------------------- |
+| write **inside** workspace (`echo hi > note.txt`)       | succeeds                                  |
+| write **outside** (`echo x > %USERPROFILE%\evil.txt`)   | access denied                             |
+| `npm install` (network + `%LOCALAPPDATA%` cache)        | succeeds                                  |
+| helper missing / `enforce` off                          | command runs unsandboxed + logged warning |
+| helper missing / `sandboxRunCommandConfig.enforce=true` | command fails closed                      |

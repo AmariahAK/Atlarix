@@ -81,7 +81,10 @@ export function allowanceUsedUpNudge(purchasedCents: number): {
 }
 
 /** Running low on spendable balance, whatever it is made of. */
-export function lowBalanceNudge(balanceCents: number): { title: string; description: string } {
+export function lowBalanceNudge(balanceCents: number): {
+  title: string;
+  description: string;
+} {
   return {
     title: `${ATLARIX_CORE_CATEGORY_LABEL} credit is running low`,
     description: `${formatCents(balanceCents)} left — top up in Settings to avoid interruptions.`,
@@ -119,9 +122,13 @@ export const CORE_EXHAUSTED_MESSAGE =
  * `ChatErrorBox` substring-matches it to decide whether the Top-up button exists, so
  * rewording the phrase silently deletes the button.
  */
-export function coreExhaustedUserMessage(requiredCents?: number | null): string {
+export function coreExhaustedUserMessage(
+  requiredCents?: number | null,
+): string {
   const needs =
-    typeof requiredCents === "number" && Number.isFinite(requiredCents) && requiredCents > 0
+    typeof requiredCents === "number" &&
+    Number.isFinite(requiredCents) &&
+    requiredCents > 0
       ? ` This turn needs at least ${formatCents(requiredCents)} available.`
       : "";
   return `${CORE_EXHAUSTED_MESSAGE}${needs}`;
@@ -180,7 +187,10 @@ const TURNS_BEYOND_COUNTING = 2_000;
  * `<1%` rather than `0%` once anything has been spent: rounding real usage down
  * to zero tells someone their metered account is not being metered.
  */
-export function describeAllowanceUsed(usedCents: number, totalCents: number): string {
+export function describeAllowanceUsed(
+  usedCents: number,
+  totalCents: number,
+): string {
   if (totalCents <= 0) return "";
   const pct = (Math.max(0, usedCents) / totalCents) * 100;
   if (pct <= 0) return "0% used";
@@ -260,7 +270,8 @@ export function compassBadRequestUserMessage(detail?: string): string {
   if (trimmed.startsWith("{")) {
     try {
       const parsed = JSON.parse(trimmed) as { error?: { message?: unknown } };
-      if (typeof parsed?.error?.message === "string") reason = parsed.error.message;
+      if (typeof parsed?.error?.message === "string")
+        reason = parsed.error.message;
     } catch {
       /* not JSON after all — fall back to the raw text */
     }

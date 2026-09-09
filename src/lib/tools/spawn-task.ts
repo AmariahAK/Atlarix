@@ -17,10 +17,7 @@ import {
   stringParam,
   booleanParam,
 } from "./registry";
-import {
-  runSubagent,
-  type SubagentActivityEmit,
-} from "../agents/run-subagent";
+import { runSubagent, type SubagentActivityEmit } from "../agents/run-subagent";
 import {
   notifySubagentStalled,
   recordSubagentStart,
@@ -116,9 +113,7 @@ function subagentOutputTail(rec: TaskRecord, maxLen: number): string {
 }
 
 /** Running background sub-agents for a chat (for `subagents({operation:"list"})`). */
-export function listRunningSubagentTasks(
-  chatId: number | undefined,
-): Array<{
+export function listRunningSubagentTasks(chatId: number | undefined): Array<{
   taskId: string;
   description: string;
   elapsedMs: number;
@@ -311,11 +306,9 @@ function taskEnvelope(
   state: TaskRecord["state"],
   inner: string,
 ): string {
-  return [
-    `<task id="${taskId}" state="${state}">`,
-    inner,
-    "</task>",
-  ].join("\n");
+  return [`<task id="${taskId}" state="${state}">`, inner, "</task>"].join(
+    "\n",
+  );
 }
 
 ToolRegistry.register({
@@ -717,7 +710,10 @@ ToolRegistry.register({
         () => false,
       ),
       new Promise<boolean>((resolve) => {
-        promoteTimer = setTimeout(() => resolve(true), SUBAGENT_PROMOTE_AFTER_MS);
+        promoteTimer = setTimeout(
+          () => resolve(true),
+          SUBAGENT_PROMOTE_AFTER_MS,
+        );
       }),
     ]);
     if (promoteTimer) clearTimeout(promoteTimer);

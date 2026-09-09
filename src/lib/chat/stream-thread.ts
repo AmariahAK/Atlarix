@@ -178,14 +178,18 @@ function mergeToolItems(
       toolName: prev.toolName || next.toolName,
       toolArgs: next.toolArgs ?? prev.toolArgs,
       resultText: next.resultText ?? prev.resultText,
-      detail: next.detail ?? (next.status !== "running" ? prev.detail : undefined),
+      detail:
+        next.detail ?? (next.status !== "running" ? prev.detail : undefined),
       expand: next.expand ?? prev.expand,
       summary:
         next.status === "running"
           ? getToolRunningSummary(prev.toolName, next.toolArgs ?? prev.toolArgs)
           : next.summary ||
             (next.status === "error"
-              ? getToolFailedSummary(prev.toolName, next.toolArgs ?? prev.toolArgs)
+              ? getToolFailedSummary(
+                  prev.toolName,
+                  next.toolArgs ?? prev.toolArgs,
+                )
               : getToolCompletedSummary(
                   prev.toolName,
                   next.toolArgs ?? prev.toolArgs,
@@ -279,7 +283,10 @@ export function streamThreadItemFromToolStart(payload: {
   chatId?: number;
   toolArgs?: Record<string, unknown>;
 }): StreamThreadItem {
-  const registryName = resolveRegistryToolName(payload.toolId, payload.toolName);
+  const registryName = resolveRegistryToolName(
+    payload.toolId,
+    payload.toolName,
+  );
   return {
     kind: "tool",
     // Key by the per-call id when present so two calls of the SAME tool render
@@ -329,8 +336,8 @@ function finalizeToolItem(
             // beside an error text is the same lie v14.22.0 fixed for run_command's
             // "Successfully executed" next to a non-zero exit. Name the attempt.
             getToolFailedSummary(registryName, item.toolArgs)
-          : noopSummary(registryName, resultText) ??
-            getToolCompletedSummary(registryName, item.toolArgs)),
+          : (noopSummary(registryName, resultText) ??
+            getToolCompletedSummary(registryName, item.toolArgs))),
     detail: rawDetail,
     resultText,
     expand,
@@ -386,7 +393,10 @@ export function handleStreamToolEnd(
   items: StreamThreadItem[],
   payload: StreamToolEndPayload,
 ): StreamThreadItem[] {
-  const registryName = resolveRegistryToolName(payload.toolId, payload.toolName);
+  const registryName = resolveRegistryToolName(
+    payload.toolId,
+    payload.toolName,
+  );
   const status = payload.status ?? "done";
 
   return completeStreamToolOnEnd(items, {
@@ -520,8 +530,7 @@ export function streamThreadItemFromActivity(
     const stableId =
       item.toolCallId?.trim() ||
       (item.parentDelegationId && activityId ? activityId : registryName);
-    const isRunning =
-      item.status === "running" || item.status === "active";
+    const isRunning = item.status === "running" || item.status === "active";
     const status: StreamThreadToolStatus = isRunning
       ? "running"
       : item.status === "error"
@@ -535,12 +544,7 @@ export function streamThreadItemFromActivity(
 
     const expand =
       !isRunning && rawDetail
-        ? buildToolExpandView(
-            registryName,
-            item.toolArgs,
-            rawDetail,
-            status,
-          )
+        ? buildToolExpandView(registryName, item.toolArgs, rawDetail, status)
         : undefined;
 
     const runningSummary =
@@ -593,7 +597,6 @@ export function streamThreadItemFromActivity(
 
   return null;
 }
-
 
 function roundStatus(agents: SubAgentRunEntry[]): StreamThreadToolStatus {
   if (agents.some((a) => a.status === "running")) return "running";
@@ -694,9 +697,7 @@ export function mergeSubagentActivityIntoThread(
   const agentType = String(item.agentType ?? item.agent ?? "agent");
   const ts = item.timestamp ?? Date.now();
 
-  const upsertAgent = (
-    next: SubAgentRunEntry,
-  ): StreamThreadItem[] =>
+  const upsertAgent = (next: SubAgentRunEntry): StreamThreadItem[] =>
     upsertSubagentRound(items, roundId, (agents) => {
       const idx = agents.findIndex((a) => a.id === subId);
       if (idx >= 0) {
@@ -734,8 +735,9 @@ export function mergeSubagentActivityIntoThread(
     const agentId =
       (item as ActivityStreamItem & { parentDelegationId?: string })
         .parentDelegationId || subId;
-    const prevNested = existingRound?.agents.find((a) => a.id === agentId)
-      ?.nestedItems;
+    const prevNested = existingRound?.agents.find(
+      (a) => a.id === agentId,
+    )?.nestedItems;
     const baseNested = prevNested ?? existingAgent?.nestedItems ?? [];
     const idx = baseNested.findIndex(
       (i) => i.kind === "thought" && i.id === item.id,
@@ -850,10 +852,7 @@ export function isDelegationIdLabel(label: string | undefined): boolean {
 }
 
 /** Prefer scoped sub-agent titles over generic delegation stubs. */
-export function pickSubagentDisplayLabel(
-  a?: string,
-  b?: string,
-): string {
+export function pickSubagentDisplayLabel(a?: string, b?: string): string {
   const score = (label: string | undefined): number => {
     if (!label?.trim()) return -1;
     const t = label.trim();
@@ -1013,10 +1012,7 @@ function buildSubagentAgentsFromActivity(
       continue;
     }
 
-    if (
-      (item.type === "tool_use") &&
-      item.parentDelegationId?.trim()
-    ) {
+    if (item.type === "tool_use" && item.parentDelegationId?.trim()) {
       const parentId = item.parentDelegationId.trim();
       const nested = streamThreadItemFromActivity(item);
       if (!nested) continue;
@@ -1145,9 +1141,8 @@ export function enrichStreamThreadFromAssistantContent(
 ): StreamThreadItem[] {
   if (!assistantContent.trim()) return items;
 
-  const fromContent = buildCompletedStreamThreadFromAssistantContent(
-    assistantContent,
-  );
+  const fromContent =
+    buildCompletedStreamThreadFromAssistantContent(assistantContent);
   const contentToolsByName = new Map<
     string,
     Extract<StreamThreadItem, { kind: "tool" }>[]
@@ -1283,24 +1278,28 @@ export function synthesizeSubagentRoundFromParts(
     );
   if (!withMeta.length) return null;
 
-  const agents: SubAgentRunEntry[] = withMeta.map(({ part: p, handoff }, index) => ({
-    id: `handoff-${p.id}-${index}`,
-    agentType: handoff.agentRole,
-    label: handoff.scope
-      ? `${handoff.agentRole} · ${handoff.scope}`
-      : handoff.agentRole,
-    scope: handoff.scope,
-    summary: handoff.summary,
-    status:
-      p.status === "error"
-        ? "error"
-        : p.status === "running"
-          ? "running"
-          : "done",
-    nestedItems: [],
-  }));
+  const agents: SubAgentRunEntry[] = withMeta.map(
+    ({ part: p, handoff }, index) => ({
+      id: `handoff-${p.id}-${index}`,
+      agentType: handoff.agentRole,
+      label: handoff.scope
+        ? `${handoff.agentRole} · ${handoff.scope}`
+        : handoff.agentRole,
+      scope: handoff.scope,
+      summary: handoff.summary,
+      status:
+        p.status === "error"
+          ? "error"
+          : p.status === "running"
+            ? "running"
+            : "done",
+      nestedItems: [],
+    }),
+  );
 
-  const status: StreamThreadToolStatus = agents.some((a) => a.status === "running")
+  const status: StreamThreadToolStatus = agents.some(
+    (a) => a.status === "running",
+  )
     ? "running"
     : agents.some((a) => a.status === "error")
       ? "error"
@@ -1316,9 +1315,7 @@ export function synthesizeSubagentRoundFromParts(
 }
 
 export function hasDelegateToolParts(parts: AssistantMessagePart[]): boolean {
-  return parts.some(
-    (p) => p.type === "tool" && isDelegateToolName(p.toolName),
-  );
+  return parts.some((p) => p.type === "tool" && isDelegateToolName(p.toolName));
 }
 
 export function hasActiveSubagentActivity(
@@ -1381,9 +1378,7 @@ export function splitInterleavedAroundDelegates(
   const before = parts.slice(0, idx);
   const after = parts
     .slice(idx + 1)
-    .filter(
-      (p) => !(p.type === "tool" && isDelegateToolName(p.toolName)),
-    );
+    .filter((p) => !(p.type === "tool" && isDelegateToolName(p.toolName)));
   return { before, after };
 }
 

@@ -13,9 +13,20 @@ type TourState = {
   featureTours: Record<string, { completed: boolean; step: number }>;
 };
 
-function getInvoke(): ((ch: string, ...args: unknown[]) => Promise<unknown>) | null {
-  return (window as unknown as { electron?: { ipcRenderer?: { invoke: (c: string, ...a: unknown[]) => Promise<unknown> } } })
-    .electron?.ipcRenderer?.invoke ?? null;
+function getInvoke():
+  | ((ch: string, ...args: unknown[]) => Promise<unknown>)
+  | null {
+  return (
+    (
+      window as unknown as {
+        electron?: {
+          ipcRenderer?: {
+            invoke: (c: string, ...a: unknown[]) => Promise<unknown>;
+          };
+        };
+      }
+    ).electron?.ipcRenderer?.invoke ?? null
+  );
 }
 
 async function getTourState(): Promise<TourState | null> {
@@ -145,7 +156,11 @@ export function TourManager() {
             text: isLast ? "Done" : "Next",
             action: () => {
               if (isLast) {
-                void saveTourState({ firstRunCompleted: true, firstRunStep: 0, dismissedAt: null });
+                void saveTourState({
+                  firstRunCompleted: true,
+                  firstRunStep: 0,
+                  dismissedAt: null,
+                });
                 return tour.complete();
               }
               return tour.next();
@@ -174,20 +189,50 @@ export function TourManager() {
 
       const definitions: Record<
         string,
-        Array<{ title: string; text: string; attach?: string; on?: "top" | "bottom" | "left" | "right" }>
+        Array<{
+          title: string;
+          text: string;
+          attach?: string;
+          on?: "top" | "bottom" | "left" | "right";
+        }>
       > = {
         diagram: [
-          { title: "Inline diagrams", text: "Request a diagram in chat — graph and markmap fences render in the thread.", attach: '[data-tour="tour-ask-build"]', on: "bottom" },
-          { title: "Inline graph diagrams", text: "The assistant can include ```graph JSON fences in replies; they render as collapsible diagram cards in chat.", attach: '[data-tour="tour-activity-panel"]', on: "left" },
+          {
+            title: "Inline diagrams",
+            text: "Request a diagram in chat — graph and markmap fences render in the thread.",
+            attach: '[data-tour="tour-ask-build"]',
+            on: "bottom",
+          },
+          {
+            title: "Inline graph diagrams",
+            text: "The assistant can include ```graph JSON fences in replies; they render as collapsible diagram cards in chat.",
+            attach: '[data-tour="tour-activity-panel"]',
+            on: "left",
+          },
         ],
         agents: [
-          { title: "Sub-agents", text: "In Build, Explore & Review sub-agents map scoped paths (up to five per turn) — cards appear in the Sub-agents panel.", attach: '[data-tour="tour-ask-build"]', on: "bottom" },
+          {
+            title: "Sub-agents",
+            text: "In Build, Explore & Review sub-agents map scoped paths (up to five per turn) — cards appear in the Sub-agents panel.",
+            attach: '[data-tour="tour-ask-build"]',
+            on: "bottom",
+          },
         ],
         extensions: [
-          { title: "Workspace extensions", text: "DB, GitHub Actions, and more live under Settings → Workspace.", attach: '[data-tour="tour-extensions"]', on: "bottom" },
+          {
+            title: "Workspace extensions",
+            text: "DB, GitHub Actions, and more live under Settings → Workspace.",
+            attach: '[data-tour="tour-extensions"]',
+            on: "bottom",
+          },
         ],
         db: [
-          { title: "DB connections", text: "Add PostgreSQL, MySQL, or SQLite — the AI uses read tools and approvals for writes.", attach: '[data-tour="tour-db"]', on: "bottom" },
+          {
+            title: "DB connections",
+            text: "Add PostgreSQL, MySQL, or SQLite — the AI uses read tools and approvals for writes.",
+            attach: '[data-tour="tour-db"]',
+            on: "bottom",
+          },
         ],
       };
 
@@ -204,7 +249,9 @@ export function TourManager() {
         const isLast = index === defs.length - 1;
         const hasAttach = !!(s.attach && elementOrFallback(s.attach));
         const attachTo =
-          hasAttach && s.attach ? { element: s.attach, on: s.on || "bottom" } : undefined;
+          hasAttach && s.attach
+            ? { element: s.attach, on: s.on || "bottom" }
+            : undefined;
 
         tour.addStep({
           id: `${featureId}-${index}`,
@@ -255,9 +302,13 @@ export function TourManager() {
       if (firstRunLaunched.current) return;
       const inv = getInvoke();
       if (!inv || cancelled) return;
-      const user = (await inv("auth:get-current-user")) as { user?: { id?: string } };
+      const user = (await inv("auth:get-current-user")) as {
+        user?: { id?: string };
+      };
       if (!user?.user?.id) return;
-      const ob = (await inv("onboarding:get-completed")) as { completed?: boolean };
+      const ob = (await inv("onboarding:get-completed")) as {
+        completed?: boolean;
+      };
       if (!ob?.completed) return;
       const state = await getTourState();
       if (!state || state.firstRunCompleted) return;

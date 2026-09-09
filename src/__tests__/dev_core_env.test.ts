@@ -8,10 +8,10 @@ vi.mock("electron", () => ({ app: { isPackaged: true } }));
 vi.mock("@/ipc/utils/read_env", () => ({
   getEnvVar: (k: string) =>
     (
-      {
+      ({
         COMPASS_OPENROUTER_API_KEY: " sk-dev-core ",
         ATLARIX_CORE_MODEL_1: " deepseek/deepseek-v4-pro ",
-      } as Record<string, string>
+      }) as Record<string, string>
     )[k],
 }));
 

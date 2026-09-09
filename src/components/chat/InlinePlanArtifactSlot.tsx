@@ -20,7 +20,9 @@ export function InlinePlanArtifactSlot({
   /** @deprecated Plans render fully inline; no right panel. */
   onOpenDetail?: (planId: string) => void;
 }) {
-  const [plan, setPlan] = useState<PlanArtifactPayload | null | undefined>(undefined);
+  const [plan, setPlan] = useState<PlanArtifactPayload | null | undefined>(
+    undefined,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -30,9 +32,11 @@ export function InlinePlanArtifactSlot({
       if (!cancelled) setPlan(row ?? null);
     })();
     // v10: live step/status updates while the agent builds the plan.
-    const unsubscribe = IpcClient.getInstance().onPlanArtifactUpdated((payload) => {
-      if (!cancelled && payload?.planId === planId) setPlan(payload);
-    });
+    const unsubscribe = IpcClient.getInstance().onPlanArtifactUpdated(
+      (payload) => {
+        if (!cancelled && payload?.planId === planId) setPlan(payload);
+      },
+    );
     return () => {
       cancelled = true;
       unsubscribe();

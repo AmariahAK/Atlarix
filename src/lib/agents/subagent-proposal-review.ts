@@ -60,7 +60,9 @@ export function formatUnifiedDiff(
   let text = out.join("\n");
   let truncated = false;
   if (text.length > maxChars) {
-    text = text.slice(0, maxChars) + "\n…[diff truncated — read the file to see the rest]";
+    text =
+      text.slice(0, maxChars) +
+      "\n…[diff truncated — read the file to see the rest]";
     truncated = true;
   }
   return { text, added, removed, truncated };
@@ -152,7 +154,10 @@ export interface ProposalConflict {
  * accept rebases onto the first one's result (see `rebaseOntoCurrent`).
  */
 export function findProposalConflicts(sets: ProposalSet[]): ProposalConflict[] {
-  const byPath = new Map<string, Array<{ set: ProposalSet; file: ProposedFile }>>();
+  const byPath = new Map<
+    string,
+    Array<{ set: ProposalSet; file: ProposedFile }>
+  >();
   for (const set of sets) {
     for (const [fullPath, file] of set.files) {
       const list = byPath.get(fullPath) ?? [];
@@ -219,7 +224,10 @@ function renderHunkForError(h: DiffHunk): string {
   const head = `@@ -${h.oldStart},${h.oldLines} +${h.newStart},${h.newLines} @@`;
   const body = h.lines
     .slice(0, 12)
-    .map((l) => (l.type === "add" ? "+" : l.type === "remove" ? "-" : " ") + l.content)
+    .map(
+      (l) =>
+        (l.type === "add" ? "+" : l.type === "remove" ? "-" : " ") + l.content,
+    )
     .join("\n");
   return `${head}\n${body}`;
 }
@@ -242,7 +250,8 @@ export function rebaseOntoCurrent(
   current: string,
 ): RebaseResult {
   if (current === base) return { ok: true, content: proposed, rebased: false };
-  if (current === proposed) return { ok: true, content: proposed, rebased: false };
+  if (current === proposed)
+    return { ok: true, content: proposed, rebased: false };
 
   const hunks = computeDiffHunks(base, proposed);
   if (hunks.length === 0) {
@@ -251,7 +260,12 @@ export function rebaseOntoCurrent(
   }
 
   const currentLines = current.split("\n");
-  type Placed = { at: number; oldLen: number; newSide: string[]; hunk: DiffHunk };
+  type Placed = {
+    at: number;
+    oldLen: number;
+    newSide: string[];
+    hunk: DiffHunk;
+  };
   const placed: Placed[] = [];
   const failing: DiffHunk[] = [];
 
@@ -296,7 +310,10 @@ export function rebaseOntoCurrent(
         reason:
           "Two proposed changes re-anchor onto overlapping lines of the current file — " +
           "the change can't be applied unambiguously.",
-        failingHunks: [renderHunkForError(prev.hunk), renderHunkForError(placed[i].hunk)],
+        failingHunks: [
+          renderHunkForError(prev.hunk),
+          renderHunkForError(placed[i].hunk),
+        ],
       };
     }
   }

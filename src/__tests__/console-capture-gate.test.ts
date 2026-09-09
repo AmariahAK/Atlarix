@@ -114,7 +114,12 @@ describe("runtimeFailuresSince — browser_test's classifier", () => {
   it("honors the baseline and the unrelated-tab label", () => {
     const entries = [
       entry({ level: "error", timestamp: 10, message: "previous run" }),
-      entry({ level: "error", timestamp: 200, unrelated: true, message: "other tab" }),
+      entry({
+        level: "error",
+        timestamp: 200,
+        unrelated: true,
+        message: "other tab",
+      }),
       entry({ level: "error", timestamp: 200, message: "mine" }),
     ];
     const kept = runtimeFailuresSince(entries, 100);

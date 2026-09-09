@@ -74,11 +74,17 @@ describe("the persisted turn envelope is bounded, the display transcript is not"
     const { getStreamTransport } = await import("@/lib/chat/stream-transport");
     const live = getStreamTransport(chatId)?.messages ?? [];
     const assistant = [...live].reverse().find((m) => m.role === "assistant");
-    expect(assistant, "the turn must have produced an assistant message").toBeTruthy();
+    expect(
+      assistant,
+      "the turn must have produced an assistant message",
+    ).toBeTruthy();
 
-    const envelope = (assistant as { modelContent?: string | null }).modelContent ?? "";
-    expect(envelope, "the turn ran four native tool calls, so an envelope must exist")
-      .not.toBe("");
+    const envelope =
+      (assistant as { modelContent?: string | null }).modelContent ?? "";
+    expect(
+      envelope,
+      "the turn ran four native tool calls, so an envelope must exist",
+    ).not.toBe("");
 
     const { parseNativeHistory, estimateModelMessagesTokens } = await import(
       "@/lib/ai/native-history"
@@ -97,9 +103,13 @@ describe("the persisted turn envelope is bounded, the display transcript is not"
     const resultIds: string[] = [];
     for (const m of parsed!.messages ?? []) {
       if (!Array.isArray(m.content)) continue;
-      for (const p of m.content as Array<{ type?: string; toolCallId?: string }>) {
+      for (const p of m.content as Array<{
+        type?: string;
+        toolCallId?: string;
+      }>) {
         if (p?.type === "tool-call" && p.toolCallId) callIds.push(p.toolCallId);
-        if (p?.type === "tool-result" && p.toolCallId) resultIds.push(p.toolCallId);
+        if (p?.type === "tool-result" && p.toolCallId)
+          resultIds.push(p.toolCallId);
       }
     }
     expect(callIds.length).toBeGreaterThan(0);

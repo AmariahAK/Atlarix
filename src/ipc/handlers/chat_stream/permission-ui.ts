@@ -26,7 +26,10 @@ const logger = log.scope("chat_stream_handlers");
  * strings — so there is no mutating/git command taxonomy here. This gate only
  * fail-closes when the work mode itself can't be resolved.
  */
-export function runCommandGateResult(_command: string, workMode: WorkMode): string | null {
+export function runCommandGateResult(
+  _command: string,
+  workMode: WorkMode,
+): string | null {
   // v12 3.6: fail-closed on an invalid workMode — runtime values flow in from
   // persisted settings / IPC, so don't trust the static type at this gate.
   if (!WorkModeSchema.safeParse(workMode).success) {
@@ -87,7 +90,10 @@ export function enrichPermissionRequestForUi(
   if (permRequest.operation === "run_command") {
     return enrichRunCommandPermissionRequest(permRequest, appId, workspaceRoot);
   }
-  return enrichFilePermissionRequest(permRequest as import("@/lib/tools/permissions/schema").PermissionRequest, appId);
+  return enrichFilePermissionRequest(
+    permRequest as import("@/lib/tools/permissions/schema").PermissionRequest,
+    appId,
+  );
 }
 
 /**
@@ -117,7 +123,10 @@ export function emitAutoApprovedWritePreview(
 ): void {
   if (operation !== "write_file" && operation !== "edit_file") return;
   if (!execResult.path) return;
-  if (typeof execResult.newContent !== "string" && typeof execResult.oldContent !== "string") {
+  if (
+    typeof execResult.newContent !== "string" &&
+    typeof execResult.oldContent !== "string"
+  ) {
     return;
   }
   const oldContent = execResult.oldContent ?? "";
@@ -242,16 +251,20 @@ export function requiresHumanReviewDespiteAutoApprove(permRequest: {
   return typeof notice === "string" && notice.trim().length > 0;
 }
 
-export function enrichRunCommandPermissionRequest<T extends { operation: string; preview: unknown }>(
-  permRequest: T,
-  appId: number | null | undefined,
-  workspaceRoot?: string,
-): T {
+export function enrichRunCommandPermissionRequest<
+  T extends { operation: string; preview: unknown },
+>(permRequest: T, appId: number | null | undefined, workspaceRoot?: string): T {
   if (permRequest.operation !== "run_command") return permRequest;
-  const preview = permRequest.preview as { command?: string; isDangerous?: boolean };
-  const preflight = runCommandCategoryPreflight(preview.command ?? "", appId, workspaceRoot);
-  const dangerous =
-    preflight.type === "prompt" ? preflight.dangerous : false;
+  const preview = permRequest.preview as {
+    command?: string;
+    isDangerous?: boolean;
+  };
+  const preflight = runCommandCategoryPreflight(
+    preview.command ?? "",
+    appId,
+    workspaceRoot,
+  );
+  const dangerous = preflight.type === "prompt" ? preflight.dangerous : false;
   // System-scope = changes something OUTSIDE the project (on-device install, sudo,
   // outside-workspace write). A8/M-1: pass the REAL workspace root so the
   // outside-path branch (e.g. `echo x >> ~/.zshrc`) actually surfaces the

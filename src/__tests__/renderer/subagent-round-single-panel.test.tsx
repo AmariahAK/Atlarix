@@ -68,7 +68,10 @@ const runningRound = {
  * legacy branch and a tool tag routes to interleaved.
  */
 const BRANCHES = [
-  { name: "legacy (plain prose — the delegation case)", content: "Working on it." },
+  {
+    name: "legacy (plain prose — the delegation case)",
+    content: "Working on it.",
+  },
   {
     name: "interleaved (isStructured)",
     content: "<think>Delegating.</think>Working on it.",
@@ -88,7 +91,10 @@ describe("the sub-agent round panel renders exactly once mid-stream", () => {
       );
 
       act(() => {
-        store.set(streamThreadByChatIdAtom, new Map([[CHAT_ID, [runningRound]]]));
+        store.set(
+          streamThreadByChatIdAtom,
+          new Map([[CHAT_ID, [runningRound]]]),
+        );
       });
 
       // The header is the panel's identity: one button per mounted panel.

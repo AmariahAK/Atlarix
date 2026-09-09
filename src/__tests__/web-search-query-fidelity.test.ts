@@ -35,7 +35,8 @@ describe("keyword reduction keeps quoted phrases whole", () => {
 
   it("leaves no unbalanced quote for the engine to choke on", () => {
     for (const q of [DOSTOEVSKY, BERRY]) {
-      const quoteCount = (optimizeSearchQueryKeywords(q).match(/"/g) ?? []).length;
+      const quoteCount = (optimizeSearchQueryKeywords(q).match(/"/g) ?? [])
+        .length;
       expect(quoteCount % 2).toBe(0);
     }
   });

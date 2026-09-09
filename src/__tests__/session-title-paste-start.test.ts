@@ -79,7 +79,8 @@ describe("the attachment-only opening message", () => {
   it("strips to nothing, which is why the assistant side has to carry it", async () => {
     const { stripContentForTitleSource } = await import("@/utils/chat_naming");
     // Verbatim from the live database — both failing sessions opened with this.
-    const pasted = '<atlarix-text-attachment filename="Pasted text · 33 lines" />';
+    const pasted =
+      '<atlarix-text-attachment filename="Pasted text · 33 lines" />';
     expect(stripContentForTitleSource(pasted, "user").trim()).toBe("");
   });
 

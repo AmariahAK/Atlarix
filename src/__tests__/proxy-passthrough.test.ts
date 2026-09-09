@@ -48,7 +48,10 @@ function startUpstream(handler: http.RequestListener): Promise<string> {
 function startProxyWorker(targetOrigin: string, port: number): Promise<string> {
   return new Promise((resolve, reject) => {
     worker = new Worker(WORKER_PATH, { workerData: { targetOrigin, port } });
-    const timer = setTimeout(() => reject(new Error("proxy worker never announced start")), 15_000);
+    const timer = setTimeout(
+      () => reject(new Error("proxy worker never announced start")),
+      15_000,
+    );
     worker.on("message", (m) => {
       if (typeof m === "string" && m.startsWith("proxy-server-start url=")) {
         clearTimeout(timer);
@@ -62,7 +65,11 @@ function startProxyWorker(targetOrigin: string, port: number): Promise<string> {
   });
 }
 
-function get(url: string): Promise<{ status: number; body: string; headers: http.IncomingHttpHeaders }> {
+function get(url: string): Promise<{
+  status: number;
+  body: string;
+  headers: http.IncomingHttpHeaders;
+}> {
   return new Promise((resolve, reject) => {
     http
       .get(url, (res) => {
@@ -133,10 +140,14 @@ describe("proxy_server pass-through", () => {
 
     await new Promise<void>((resolve, reject) => {
       http
-        .get(proxyUrl + "/", { headers: { "accept-encoding": "gzip" } }, (res) => {
-          res.resume();
-          res.on("end", () => resolve());
-        })
+        .get(
+          proxyUrl + "/",
+          { headers: { "accept-encoding": "gzip" } },
+          (res) => {
+            res.resume();
+            res.on("end", () => resolve());
+          },
+        )
         .on("error", reject);
     });
     expect(seen).toBe("gzip");

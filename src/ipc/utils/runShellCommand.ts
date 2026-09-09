@@ -58,7 +58,9 @@ function resolveWorkingDirectory(
     const resolved = fs.realpathSync(absolute);
     const stat = fs.statSync(resolved);
     if (!stat.isDirectory()) {
-      const err = new Error(`Working directory is not a directory: ${resolved}`);
+      const err = new Error(
+        `Working directory is not a directory: ${resolved}`,
+      );
       logger.error(err.message);
       return {
         error: {
@@ -104,7 +106,9 @@ interface RunShellProcessOptions {
 /**
  * Spawn a shell command and resolve once on exit/close/error (single resolution).
  */
-function runShellProcess(options: RunShellProcessOptions): Promise<CommandResult> {
+function runShellProcess(
+  options: RunShellProcessOptions,
+): Promise<CommandResult> {
   const { command, cwd, onOutput, onSpawn, sandbox } = options;
   const shell = getShell();
   const env = { ...process.env, CI: "true" };
@@ -132,7 +136,9 @@ function runShellProcess(options: RunShellProcessOptions): Promise<CommandResult
     }
     if (!wrapped.sandboxed) {
       if (sandbox.enforce) {
-        logger.error(`Sandbox required but unavailable (${wrapped.note}); refusing to run: ${command}`);
+        logger.error(
+          `Sandbox required but unavailable (${wrapped.note}); refusing to run: ${command}`,
+        );
         return Promise.resolve({
           stdout: "",
           stderr: `Command sandbox is required but unavailable on this system (${wrapped.note}). Command not run.`,
@@ -140,7 +146,9 @@ function runShellProcess(options: RunShellProcessOptions): Promise<CommandResult
           success: false,
         });
       }
-      logger.warn(`run_command not sandboxed (${wrapped.note}); running unconfined: ${command}`);
+      logger.warn(
+        `run_command not sandboxed (${wrapped.note}); running unconfined: ${command}`,
+      );
     }
   }
 
@@ -226,10 +234,15 @@ export function runShellCommand(
   cwd?: string,
   workspaceRoot?: string,
 ): Promise<CommandResult> {
-  const { cwd: resolvedCwd, error } = resolveWorkingDirectory(cwd, workspaceRoot);
+  const { cwd: resolvedCwd, error } = resolveWorkingDirectory(
+    cwd,
+    workspaceRoot,
+  );
   if (error) return Promise.resolve(error);
 
-  logger.log(`Running command: ${command}${resolvedCwd ? ` in ${resolvedCwd}` : ""}`);
+  logger.log(
+    `Running command: ${command}${resolvedCwd ? ` in ${resolvedCwd}` : ""}`,
+  );
   return runShellProcess({ command, cwd: resolvedCwd });
 }
 
@@ -259,7 +272,9 @@ export function runShellCommandStreaming(
   );
   if (error) return Promise.resolve(error);
 
-  logger.log(`Running command (streaming): ${command}${resolvedCwd ? ` in ${resolvedCwd}` : ""}`);
+  logger.log(
+    `Running command (streaming): ${command}${resolvedCwd ? ` in ${resolvedCwd}` : ""}`,
+  );
   return runShellProcess({
     command,
     cwd: resolvedCwd,

@@ -47,9 +47,9 @@ function dbAtPreviousRelease(): Database.Database {
       .filter(Boolean)) {
       db.exec(stmt);
     }
-    db.prepare(
-      `INSERT INTO ${ATLARIX_MIGRATIONS_TABLE} (name) VALUES (?)`,
-    ).run(m.name);
+    db.prepare(`INSERT INTO ${ATLARIX_MIGRATIONS_TABLE} (name) VALUES (?)`).run(
+      m.name,
+    );
   }
   return db;
 }
@@ -81,9 +81,11 @@ describe("edit_stats migration on an upgraded database", () => {
     runPendingAtlarixMigrations(db);
     db.exec("PRAGMA foreign_keys = ON");
 
-    const appId = (db.prepare("SELECT id FROM apps LIMIT 1").get() as {
-      id: number;
-    }).id;
+    const appId = (
+      db.prepare("SELECT id FROM apps LIMIT 1").get() as {
+        id: number;
+      }
+    ).id;
     const upsert = db.prepare(`
       INSERT INTO edit_stats
         (workspace_id, day, provider, model_id, lines_added, lines_removed, edits)
@@ -92,8 +94,22 @@ describe("edit_stats migration on an upgraded database", () => {
         lines_added = lines_added + excluded.lines_added,
         lines_removed = lines_removed + excluded.lines_removed,
         edits = edits + 1`);
-    upsert.run(appId, "2026-08-24", "compass", "deepseek/deepseek-v4-pro", 10, 2);
-    upsert.run(appId, "2026-08-24", "compass", "deepseek/deepseek-v4-pro", 5, 1);
+    upsert.run(
+      appId,
+      "2026-08-24",
+      "compass",
+      "deepseek/deepseek-v4-pro",
+      10,
+      2,
+    );
+    upsert.run(
+      appId,
+      "2026-08-24",
+      "compass",
+      "deepseek/deepseek-v4-pro",
+      5,
+      1,
+    );
     // Same model, same day, but the user's OWN key — a separate row, because that
     // difference is the whole point of keeping `provider`.
     upsert.run(appId, "2026-08-24", "deepseek", "deepseek-v4-pro", 7, 0);
@@ -121,8 +137,11 @@ describe("edit_stats migration on an upgraded database", () => {
     // that the totals would keep including.
     db.prepare("DELETE FROM apps WHERE id = ?").run(appId);
     expect(
-      (db.prepare("SELECT COUNT(*) AS c FROM edit_stats").get() as { c: number })
-        .c,
+      (
+        db.prepare("SELECT COUNT(*) AS c FROM edit_stats").get() as {
+          c: number;
+        }
+      ).c,
     ).toBe(0);
     db.close();
   });

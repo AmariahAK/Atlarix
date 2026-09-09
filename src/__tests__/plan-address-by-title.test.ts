@@ -50,11 +50,15 @@ vi.mock("@/lib/plans/plan-artifacts", () => ({
     ...(rows.find((r) => r.id === id) as Row),
     content,
   })),
-  appendStepToPlanArtifact: vi.fn(async (id: string) => rows.find((r) => r.id === id) ?? null),
-  setPlanArtifactStatus: vi.fn(async (id: string, planStatus: Row["planStatus"]) => {
-    const r = rows.find((x) => x.id === id);
-    return r ? { ...r, planStatus } : null;
-  }),
+  appendStepToPlanArtifact: vi.fn(
+    async (id: string) => rows.find((r) => r.id === id) ?? null,
+  ),
+  setPlanArtifactStatus: vi.fn(
+    async (id: string, planStatus: Row["planStatus"]) => {
+      const r = rows.find((x) => x.id === id);
+      return r ? { ...r, planStatus } : null;
+    },
+  ),
   planArtifactMarker: (id: string) => `<!-- plan:${id} -->`,
 }));
 
@@ -100,13 +104,19 @@ describe("plan({ title }) addresses a plan by name", () => {
   it("matches case-insensitively and ignores surrounding whitespace", async () => {
     rows = [row("p-1", "Fix the sandbox")];
 
-    const res = await callPlan({ operation: "read", title: "  fix THE sandbox " });
+    const res = await callPlan({
+      operation: "read",
+      title: "  fix THE sandbox ",
+    });
 
     expect(res.planId).toBe("p-1");
   });
 
   it("FAILS LOUDLY when two plans share a title, naming both ids", async () => {
-    rows = [row("p-a", "Fix the sandbox"), row("p-b", "Fix the sandbox", "built")];
+    rows = [
+      row("p-a", "Fix the sandbox"),
+      row("p-b", "Fix the sandbox", "built"),
+    ];
 
     const res = await callPlan({ operation: "read", title: "Fix the sandbox" });
 

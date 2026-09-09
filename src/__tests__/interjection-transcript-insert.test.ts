@@ -51,7 +51,11 @@ describe("mid-turn user message → transcript", () => {
   });
 
   it("inserts IN FRONT of the streaming placeholder", () => {
-    insertUserInterjectionMessage(chatId, "actually use Postgres", placeholderId);
+    insertUserInterjectionMessage(
+      chatId,
+      "actually use Postgres",
+      placeholderId,
+    );
     const roles = getStreamTransport(chatId)!.messages.map((m) => m.role);
     // The placeholder keeps growing, so the user's row has to precede it or the
     // assistant's continuation would render above the message it responds to.
@@ -83,7 +87,10 @@ describe("mid-turn user message → transcript", () => {
     const updatedChat = { id: chatId, messages: chat.messages };
     const sent: unknown[] = [];
     const event = {
-      sender: { isDestroyed: () => false, send: (_c: string, p: unknown) => sent.push(p) },
+      sender: {
+        isDestroyed: () => false,
+        send: (_c: string, p: unknown) => sent.push(p),
+      },
     };
 
     await processResponseChunkUpdate(

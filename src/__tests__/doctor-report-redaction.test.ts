@@ -11,10 +11,7 @@
  * key format nobody has seen yet does not silently become a leak.
  */
 import { describe, expect, it } from "vitest";
-import {
-  formatDoctorReport,
-  redactForSupport,
-} from "@/main/doctor-report";
+import { formatDoctorReport, redactForSupport } from "@/main/doctor-report";
 import type { DoctorReport } from "@/main/doctor";
 
 const FAKE_OPENAI = "sk-proj-abc123DEF456ghi789JKL012mno345PQR";
@@ -33,7 +30,9 @@ describe("redactForSupport", () => {
   });
 
   it("removes an Anthropic-shaped key and a JWT", () => {
-    const out = redactForSupport(`auth failed for ${FAKE_ANTHROPIC} token ${FAKE_JWT}`);
+    const out = redactForSupport(
+      `auth failed for ${FAKE_ANTHROPIC} token ${FAKE_JWT}`,
+    );
     expect(out).not.toContain(FAKE_ANTHROPIC);
     expect(out).not.toContain(FAKE_JWT);
     expect(out).not.toContain("eyJhbGciOiJIUzI1NiJ9");
@@ -47,7 +46,9 @@ describe("redactForSupport", () => {
       "Authorization: Bearer hunter2hunter2hunter2",
       "password:hunter2hunter2hunter2",
     ]) {
-      expect(redactForSupport(text), text).not.toContain("hunter2hunter2hunter2");
+      expect(redactForSupport(text), text).not.toContain(
+        "hunter2hunter2hunter2",
+      );
     }
   });
 
@@ -62,7 +63,9 @@ describe("redactForSupport", () => {
   });
 
   it("removes email addresses", () => {
-    const out = redactForSupport("signed in as someone@example.com (session ok)");
+    const out = redactForSupport(
+      "signed in as someone@example.com (session ok)",
+    );
     expect(out).not.toContain("someone@example.com");
   });
 

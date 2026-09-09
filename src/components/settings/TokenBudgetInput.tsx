@@ -170,9 +170,7 @@ export function TokenBudgetInput({
       {/* State, in words. The old field could show "0" while the provider was
           on auto, so the number on screen was not the setting in force. */}
       <p className="text-xs text-muted-foreground">
-        {notice ? (
-          <span className="text-foreground">{notice} </span>
-        ) : null}
+        {notice ? <span className="text-foreground">{notice} </span> : null}
         {savedValue != null
           ? `Capped at ${savedValue.toLocaleString()} tokens.`
           : "No cap — using the model's full context window."}

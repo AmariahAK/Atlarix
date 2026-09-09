@@ -85,13 +85,8 @@ export function AppSidebar() {
   const { balanceCents } = useCreditBalance();
 
   // Auth hook for OAuth login
-  const {
-    user,
-    isAuthenticated,
-    authResolved,
-    status,
-    refreshStatus,
-  } = useAuth();
+  const { user, isAuthenticated, authResolved, status, refreshStatus } =
+    useAuth();
   const [signOutOpen, setSignOutOpen] = useState(false);
 
   useEffect(() => {
@@ -197,11 +192,11 @@ export function AppSidebar() {
                     />
                   ) : (
                     <div className="h-5 w-5 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-[10px] font-bold text-white">
-                      {user.name?.charAt(0)?.toUpperCase() || 'U'}
+                      {user.name?.charAt(0)?.toUpperCase() || "U"}
                     </div>
                   )}
                   <span className="text-xs truncate max-w-[50px]">
-                    {user.name?.split(' ')[0] || 'Account'}
+                    {user.name?.split(" ")[0] || "Account"}
                   </span>
                 </SidebarMenuButton>
 
@@ -210,30 +205,42 @@ export function AppSidebar() {
                   <div className="absolute bottom-full left-0 mb-2 w-48 bg-popover border border-border rounded-lg shadow-lg p-2 z-50">
                     {/* User info */}
                     <div className="px-2 pb-2 mb-2 border-b border-border">
-                      <div className="text-xs text-muted-foreground">Signed in as</div>
-                      <div className="text-sm font-medium truncate" title={user.email}>
+                      <div className="text-xs text-muted-foreground">
+                        Signed in as
+                      </div>
+                      <div
+                        className="text-sm font-medium truncate"
+                        title={user.email}
+                      >
                         {user.email}
                       </div>
                     </div>
 
                     {/* Atlarix Core credit balance (PAYG) — shown above the plan */}
                     <div className="flex items-center justify-between px-2 pb-2 mb-2 border-b border-border">
-                      <span className="text-xs text-muted-foreground">Core credit</span>
+                      <span className="text-xs text-muted-foreground">
+                        Core credit
+                      </span>
                       <span className="text-sm font-semibold text-foreground tabular-nums">
-                        {typeof balanceCents === "number" ? `$${(balanceCents / 100).toFixed(2)}` : "—"}
+                        {typeof balanceCents === "number"
+                          ? `$${(balanceCents / 100).toFixed(2)}`
+                          : "—"}
                       </span>
                     </div>
 
                     {/* Plan badge with upgrade/manage button */}
                     <div className="flex items-center justify-between px-2 py-1.5 mb-2">
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${status?.plan === 'pro'
-                        ? 'bg-primary/20 text-primary'
-                        : 'bg-muted text-muted-foreground'
-                        }`}>
-                        {status?.plan === 'pro' ? 'Pro' : 'Free Plan'}
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded-full ${
+                          status?.plan === "pro"
+                            ? "bg-primary/20 text-primary"
+                            : "bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        {status?.plan === "pro" ? "Pro" : "Free Plan"}
                       </span>
                       {/* Free tier: upgrade to Pro */}
-                      {status?.plan === 'free' && (
+                      {status?.plan === "free" && (
                         <button
                           type="button"
                           onClick={() => {
@@ -246,56 +253,83 @@ export function AppSidebar() {
                         </button>
                       )}
                       {/* Pro (active): show Unsubscribe button */}
-                      {status?.plan === 'pro' && status?.subscriptionStatus !== 'cancelled' && (
-                        <button
-                          onClick={async () => {
-                            const confirmed = window.confirm(
-                              'Are you sure you want to cancel your subscription?\n\nYou will retain access until the end of your billing period.'
-                            );
-                            if (!confirmed) return;
+                      {status?.plan === "pro" &&
+                        status?.subscriptionStatus !== "cancelled" && (
+                          <button
+                            onClick={async () => {
+                              const confirmed = window.confirm(
+                                "Are you sure you want to cancel your subscription?\n\nYou will retain access until the end of your billing period.",
+                              );
+                              if (!confirmed) return;
 
-                            setShowAuthMenu(false);
+                              setShowAuthMenu(false);
 
-                            const result = await window.electron?.ipcRenderer?.invoke('auth:cancel-subscription') as { success?: boolean; message?: string; error?: string } | undefined;
-                            if (result?.success) {
-                              alert(result.message || 'Subscription cancelled. You will retain access until the end of your billing period.');
-                            } else {
-                              alert(result?.error || 'Failed to cancel subscription');
-                            }
-                          }}
-                          className="text-xs px-2 py-0.5 bg-destructive/10 text-destructive rounded-full hover:bg-destructive/20 transition-colors"
-                        >
-                          Unsubscribe
-                        </button>
-                      )}
+                              const result =
+                                (await window.electron?.ipcRenderer?.invoke(
+                                  "auth:cancel-subscription",
+                                )) as
+                                  | {
+                                      success?: boolean;
+                                      message?: string;
+                                      error?: string;
+                                    }
+                                  | undefined;
+                              if (result?.success) {
+                                alert(
+                                  result.message ||
+                                    "Subscription cancelled. You will retain access until the end of your billing period.",
+                                );
+                              } else {
+                                alert(
+                                  result?.error ||
+                                    "Failed to cancel subscription",
+                                );
+                              }
+                            }}
+                            className="text-xs px-2 py-0.5 bg-destructive/10 text-destructive rounded-full hover:bg-destructive/20 transition-colors"
+                          >
+                            Unsubscribe
+                          </button>
+                        )}
                     </div>
 
                     {/* Subscription date info for Pro users — next payment / end date */}
-                    {status?.plan === 'pro' && status?.subscriptionEndsAt && (
+                    {status?.plan === "pro" && status?.subscriptionEndsAt && (
                       <div className="px-2 pb-2 mb-2 border-b border-border text-xs text-muted-foreground">
-                        {status.subscriptionStatus === 'cancelled' ? (
-                          <span>Pro ends: {new Date(status.subscriptionEndsAt).toLocaleDateString('en-GB')}</span>
+                        {status.subscriptionStatus === "cancelled" ? (
+                          <span>
+                            Pro ends:{" "}
+                            {new Date(
+                              status.subscriptionEndsAt,
+                            ).toLocaleDateString("en-GB")}
+                          </span>
                         ) : (
-                          <span>Next payment: {new Date(status.subscriptionEndsAt).toLocaleDateString('en-GB')}</span>
+                          <span>
+                            Next payment:{" "}
+                            {new Date(
+                              status.subscriptionEndsAt,
+                            ).toLocaleDateString("en-GB")}
+                          </span>
                         )}
                       </div>
                     )}
 
                     {/* Pro (cancelled): show Subscribe Again */}
-                    {status?.plan === 'pro' && status?.subscriptionStatus === 'cancelled' && (
-                      <div className="px-2 pb-2 mb-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            void triggerUpgrade();
-                            setShowAuthMenu(false);
-                          }}
-                          className="w-full text-xs py-1.5 bg-primary text-primary-foreground rounded hover:bg-primary/90 transition-colors"
-                        >
-                          Subscribe Again
-                        </button>
-                      </div>
-                    )}
+                    {status?.plan === "pro" &&
+                      status?.subscriptionStatus === "cancelled" && (
+                        <div className="px-2 pb-2 mb-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void triggerUpgrade();
+                              setShowAuthMenu(false);
+                            }}
+                            className="w-full text-xs py-1.5 bg-primary text-primary-foreground rounded hover:bg-primary/90 transition-colors"
+                          >
+                            Subscribe Again
+                          </button>
+                        </div>
+                      )}
 
                     {/* Account (profile, subscription, team) — use Link like settings child routes so navigation always resolves */}
                     <Link
@@ -425,10 +459,15 @@ function AppIcons({
                 >
                   <Link
                     to={item.to}
-                    data-onboarding={item.title === "Settings" ? "settings-link" : undefined}
-                    data-tour={item.title === "Settings" ? "tour-extensions" : undefined}
-                    className={`flex flex-col items-center justify-center gap-1 min-h-14 py-1.5 mb-2 rounded-2xl ${isActive ? "bg-sidebar-accent" : ""
-                      }`}
+                    data-onboarding={
+                      item.title === "Settings" ? "settings-link" : undefined
+                    }
+                    data-tour={
+                      item.title === "Settings" ? "tour-extensions" : undefined
+                    }
+                    className={`flex flex-col items-center justify-center gap-1 min-h-14 py-1.5 mb-2 rounded-2xl ${
+                      isActive ? "bg-sidebar-accent" : ""
+                    }`}
                     onMouseEnter={() => {
                       if (item.title === "Apps") {
                         onHoverChange("start-hover:app");

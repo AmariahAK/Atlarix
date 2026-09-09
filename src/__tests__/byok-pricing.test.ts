@@ -61,9 +61,9 @@ describe("estimateTurnCostUsd", () => {
     );
     // Flash must not be priced as Pro: the table is first-match, so a broader
     // DeepSeek pattern added above these would silently triple Flash's cost.
-    expect(estimateTurnCostUsd({ name: "deepseek-v4-flash" }, usage)).toBeLessThan(
-      estimateTurnCostUsd({ name: "deepseek-v4-pro" }, usage)!,
-    );
+    expect(
+      estimateTurnCostUsd({ name: "deepseek-v4-flash" }, usage),
+    ).toBeLessThan(estimateTurnCostUsd({ name: "deepseek-v4-pro" }, usage)!);
   });
 
   it("scales sub-million usage correctly", () => {

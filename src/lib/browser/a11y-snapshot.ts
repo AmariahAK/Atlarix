@@ -186,9 +186,10 @@ export async function getA11ySnapshot(
   filter: A11yFilter = "interactive",
 ): Promise<A11ySnapshot | null> {
   try {
-    const result = (await wc.executeJavaScript(snapshotScript(filter), true)) as
-      | A11ySnapshot
-      | null;
+    const result = (await wc.executeJavaScript(
+      snapshotScript(filter),
+      true,
+    )) as A11ySnapshot | null;
     if (!result || !Array.isArray(result.elements)) return null;
     return result;
   } catch {
@@ -225,9 +226,11 @@ export function formatA11ySnapshot(snap: A11ySnapshot): string {
     const y = snap.scrollY ?? 0;
     const max = snap.scrollMax!;
     const atEnd = y >= max - 2;
-    if (y <= 2) scrollNote = ` Scroll: top of page (0 of ${max}px — scroll down for more).`;
+    if (y <= 2)
+      scrollNote = ` Scroll: top of page (0 of ${max}px — scroll down for more).`;
     else if (atEnd) scrollNote = ` Scroll: bottom reached (${y} of ${max}px).`;
-    else scrollNote = ` Scroll: ${y} of ${max}px (midway — content above and below).`;
+    else
+      scrollNote = ` Scroll: ${y} of ${max}px (midway — content above and below).`;
   }
   const header =
     `Page read — ${what}${truncNote}.${viewportNote}${scrollNote}` +
@@ -302,9 +305,10 @@ export async function findA11yElements(
   query: string,
 ): Promise<A11yFindResult | null> {
   try {
-    const result = (await wc.executeJavaScript(findScript(query), true)) as
-      | A11yFindResult
-      | null;
+    const result = (await wc.executeJavaScript(
+      findScript(query),
+      true,
+    )) as A11yFindResult | null;
     if (!result || !Array.isArray(result.matches)) return null;
     return result;
   } catch {

@@ -8,7 +8,10 @@ import {
   selectedAppIdAtom,
   selectedWorkspaceInfoAtom,
 } from "@/atoms/appAtoms";
-import { bindChatToAppId, getChatBoundAppId } from "@/lib/chat-workspace-binding";
+import {
+  bindChatToAppId,
+  getChatBoundAppId,
+} from "@/lib/chat-workspace-binding";
 import { IpcClient } from "@/ipc/ipc_client";
 import type { App } from "@/ipc/ipc_types";
 export type OpenWorkspaceOptions = {
@@ -33,7 +36,10 @@ async function importOrSelectApp(
   }
 
   const appName = path.split(/[/\\]/).pop() || "Workspace";
-  const importResult = await IpcClient.getInstance().importApp({ path, appName });
+  const importResult = await IpcClient.getInstance().importApp({
+    path,
+    appName,
+  });
   await refreshApps?.();
   return { appId: importResult.appId, name: appName, path };
 }
@@ -49,18 +55,25 @@ export async function openWorkspaceFromDialog(
   if (!result || result.canceled || !result.filePaths?.[0]) return;
 
   const path = result.filePaths[0];
-  const { appId, name, path: workspacePath } = await importOrSelectApp(
-    path,
-    options.apps,
-    options.refreshApps,
-  );
+  const {
+    appId,
+    name,
+    path: workspacePath,
+  } = await importOrSelectApp(path, options.apps, options.refreshApps);
 
   const store = getDefaultStore();
   store.set(pendingWorkspaceAppIdAtom, null);
   store.set(selectedAppIdAtom, appId);
-  store.set(selectedWorkspaceInfoAtom, { id: appId, name, path: workspacePath });
+  store.set(selectedWorkspaceInfoAtom, {
+    id: appId,
+    name,
+    path: workspacePath,
+  });
 
-  if (options.activeChatId != null && getChatBoundAppId(options.activeChatId) === null) {
+  if (
+    options.activeChatId != null &&
+    getChatBoundAppId(options.activeChatId) === null
+  ) {
     bindChatToAppId(options.activeChatId, appId);
   }
 }

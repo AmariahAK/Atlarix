@@ -10,7 +10,9 @@ export type AppPathStatusPayload = {
 
 type AutoSelfCorrectPayload = { chatId: number };
 
-const autoSelfCorrectListeners = new Set<(data: AutoSelfCorrectPayload) => void>();
+const autoSelfCorrectListeners = new Set<
+  (data: AutoSelfCorrectPayload) => void
+>();
 const appsStatusListeners = new Set<(data: AppPathStatusPayload) => void>();
 
 let registered = false;

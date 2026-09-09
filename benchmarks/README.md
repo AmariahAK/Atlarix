@@ -11,6 +11,7 @@ provider are held constant; the harness is the only variable.
 - **`collect-results.mjs`** — parses Harbor `result.json` → `results/summary.md` + `summary.csv`.
 
 ## What you need
+
 - **Docker** running.
 - **Harbor**: `uv tool install harbor`.
 - **One `OPENROUTER_API_KEY`** with provider preferences locked (this is how all three harnesses share an identical backend/quant — see `models.md`).
@@ -19,6 +20,7 @@ provider are held constant; the harness is the only variable.
 - The pi adapter (`atlarix-references/pi-terminal-bench`) + this repo's `terminal-bench/` adapter installed; Harbor's `upload_dir` fix is upstream as of 0.22, so no patch is needed.
 
 ## Run it (short version)
+
 ```bash
 # 1. setup + patch (see terminal-bench/README.md)
 # 2. (nothing to do for Atlarix — the adapter npm-installs it in each container)
@@ -31,8 +33,9 @@ bash benchmarks/run-matrix.sh           # or DAYTONA_API_KEY=… BENCH_EXTRA="--
 ```
 
 ## From there
-Publish `results/summary.md` with the framing: *fixed model, fixed provider,
-fixed params — the harness is what's measured.* opencode is the cleanest
+
+Publish `results/summary.md` with the framing: _fixed model, fixed provider,
+fixed params — the harness is what's measured._ opencode is the cleanest
 head-to-head (both native-FC, same pinned backend); pi is the third clean point
 (no translation asterisk, unlike a Claude-Code route would have). Report two
 Atlarix angles if useful: Core 3/4 as shipped vs raw OpenRouter — they're the

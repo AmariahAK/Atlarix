@@ -33,62 +33,74 @@ export const DANGEROUS_PATTERNS: DangerMatch[] = [
   {
     id: "rm-rf",
     pattern: /rm\s+-rf\s+/,
-    explanation: "This will permanently delete files and folders. Deleted files cannot be recovered.",
+    explanation:
+      "This will permanently delete files and folders. Deleted files cannot be recovered.",
   },
   {
     id: "rm-r",
     pattern: /rm\s+-r\s+/,
-    explanation: "This will recursively delete directories and their contents. Deleted files cannot be recovered.",
+    explanation:
+      "This will recursively delete directories and their contents. Deleted files cannot be recovered.",
   },
   {
     id: "sudo",
     pattern: /\bsudo\b/,
-    explanation: "This runs with elevated privileges. It can modify system files or install software.",
+    explanation:
+      "This runs with elevated privileges. It can modify system files or install software.",
   },
   {
     id: "curl-pipe-shell",
     pattern: /curl\s+.*\|\s*(bash|sh)\b/,
-    explanation: "This downloads and executes a script from the internet. Only run if you trust the source.",
+    explanation:
+      "This downloads and executes a script from the internet. Only run if you trust the source.",
   },
   {
     id: "wget-pipe-shell",
     pattern: /wget\s+.*\|\s*(bash|sh)\b/,
-    explanation: "This downloads and executes a script from the internet. Only run if you trust the source.",
+    explanation:
+      "This downloads and executes a script from the internet. Only run if you trust the source.",
   },
   {
     id: "chmod-777",
     pattern: /chmod\s+777\b/,
-    explanation: "This makes files readable, writable, and executable by everyone. Often unnecessary and can be a security risk.",
+    explanation:
+      "This makes files readable, writable, and executable by everyone. Often unnecessary and can be a security risk.",
   },
   {
     id: "dd-overwrite",
     pattern: /\bdd\s+if=/,
-    explanation: "This can overwrite disk sectors. Incorrect use can cause permanent data loss.",
+    explanation:
+      "This can overwrite disk sectors. Incorrect use can cause permanent data loss.",
   },
   {
     id: "mkfs",
     pattern: /\bmkfs\./,
-    explanation: "This formats a storage device. All existing data on the device will be permanently erased.",
+    explanation:
+      "This formats a storage device. All existing data on the device will be permanently erased.",
   },
   {
     id: "format-drive",
     pattern: /\bformat\b.*\b(c:|d:)/i,
-    explanation: "This may format a drive. All data on the drive will be permanently lost.",
+    explanation:
+      "This may format a drive. All data on the drive will be permanently lost.",
   },
   {
     id: "git-push-force",
     pattern: /git\s+push\b.*--force(?!-with-lease)\b/,
-    explanation: "This force-pushes and can OVERWRITE remote history for everyone — commits others rely on may be lost. Prefer --force-with-lease.",
+    explanation:
+      "This force-pushes and can OVERWRITE remote history for everyone — commits others rely on may be lost. Prefer --force-with-lease.",
   },
   {
     id: "git-push-force-with-lease",
     pattern: /git\s+push\b.*--force-with-lease\b/,
-    explanation: "This force-pushes (with a safety lease). It rewrites remote history — confirm no one else has pushed since you last fetched.",
+    explanation:
+      "This force-pushes (with a safety lease). It rewrites remote history — confirm no one else has pushed since you last fetched.",
   },
   {
     id: "git-reset-hard",
     pattern: /git\s+reset\s+--hard\b/,
-    explanation: "This discards ALL uncommitted changes and moves the branch pointer — local work not committed will be permanently lost.",
+    explanation:
+      "This discards ALL uncommitted changes and moves the branch pointer — local work not committed will be permanently lost.",
   },
   // ── Exfiltration / arbitrary-execution primitives (v14.8.12 security review) ──
   // Flagged "dangerous" so they DENY in unattended automation runs and PROMPT
@@ -106,7 +118,8 @@ export const DANGEROUS_PATTERNS: DangerMatch[] = [
   },
   {
     id: "gh-api-write",
-    pattern: /\bgh\s+api\b[^\n]*(-X|--method)\s*["']?(POST|PUT|PATCH|DELETE)\b/i,
+    pattern:
+      /\bgh\s+api\b[^\n]*(-X|--method)\s*["']?(POST|PUT|PATCH|DELETE)\b/i,
     explanation:
       "This calls a GitHub API write endpoint under your token — it can modify or exfiltrate data on any repo the token can reach.",
   },
@@ -140,7 +153,8 @@ const DANGEROUS_FIRST_TOKENS: Record<string, string> = {
   rm: "This deletes files. Deleted files cannot be recovered.",
   sudo: "This runs with elevated privileges. It can modify system files or install software.",
   kill: "This terminates a running process.",
-  pkill: "This terminates processes by name — it can stop more than you intend.",
+  pkill:
+    "This terminates processes by name — it can stop more than you intend.",
   chmod: "This changes file permissions.",
   chown: "This changes file ownership.",
   curl: "This makes a network request and may download/execute remote content.",
@@ -157,7 +171,8 @@ const DANGEROUS_FIRST_TOKENS: Record<string, string> = {
   shutdown: "This shuts the machine down.",
   poweroff: "This powers the machine off.",
   // Exfiltration / remote-execution primitives (v14.8.12 security review).
-  osascript: "This runs AppleScript/JXA — it can automate the OS, read Keychain, and control other apps.",
+  osascript:
+    "This runs AppleScript/JXA — it can automate the OS, read Keychain, and control other apps.",
   ssh: "This opens a remote shell — it can run arbitrary commands on another machine.",
   scp: "This copies files to/from a remote machine over the network.",
   telnet: "This opens a raw network connection to another host.",
@@ -218,7 +233,9 @@ export function getDangerExplanation(command: string): string {
   const trimmed = (command || "").trim();
   if (!trimmed) return "";
   // Prefer a specific pattern explanation; fall back to the first-token one.
-  const patternMatch = DANGEROUS_PATTERNS.find(({ pattern }) => pattern.test(trimmed));
+  const patternMatch = DANGEROUS_PATTERNS.find(({ pattern }) =>
+    pattern.test(trimmed),
+  );
   if (patternMatch) return patternMatch.explanation;
   // Per-segment first token (mirrors getDangerMatchIds) so the badge text is
   // right for a risky command hidden behind a benign prefix.

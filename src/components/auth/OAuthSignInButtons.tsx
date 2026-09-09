@@ -69,9 +69,11 @@ export function OAuthSignInButtons({
 
   const start = (provider: "google" | "github" | "discord") => {
     if (oauthPending) return;
-    void { google: signInWithGoogle, github: signInWithGitHub, discord: signInWithDiscord }[
-      provider
-    ]();
+    void {
+      google: signInWithGoogle,
+      github: signInWithGitHub,
+      discord: signInWithDiscord,
+    }[provider]();
     onAfterClick?.();
   };
 

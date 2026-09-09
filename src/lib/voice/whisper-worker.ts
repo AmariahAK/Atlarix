@@ -247,7 +247,9 @@ async function getTranscriber(
         // Do not pay for this attempt again in this worker — see `webGpuKnownBad`.
         webGpuKnownBad = true;
         const reason =
-          e instanceof Error ? e.message.slice(0, 300) : String(e).slice(0, 300);
+          e instanceof Error
+            ? e.message.slice(0, 300)
+            : String(e).slice(0, 300);
         // Include the reason. Previously this said only
         // "webgpu-unavailable-falling-back-to-wasm" while ONNX Runtime's own
         // console.error was the only thing carrying the cause — so the user saw a

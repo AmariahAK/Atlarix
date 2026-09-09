@@ -1,5 +1,8 @@
 import { AlertTriangle } from "lucide-react";
-import type { PlanChangesPayload, PlanFileAction } from "@/lib/plan-changes/plan-changes";
+import type {
+  PlanChangesPayload,
+  PlanFileAction,
+} from "@/lib/plan-changes/plan-changes";
 import { groupChangesByAction } from "@/lib/plan-changes/plan-changes";
 
 const ACTION_LABELS: Record<PlanFileAction, string> = {
@@ -11,11 +14,16 @@ const ACTION_LABELS: Record<PlanFileAction, string> = {
 
 const ACTION_ORDER: PlanFileAction[] = ["MODIFY", "CREATE", "ADD", "DELETE"];
 
-export function PlanChangesCard({ changes }: { changes: PlanChangesPayload | null }) {
+export function PlanChangesCard({
+  changes,
+}: {
+  changes: PlanChangesPayload | null;
+}) {
   if (!changes?.files.length) {
     return (
       <div className="rounded-lg border border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
-        No file changes summary yet. The agent will list affected files before Build.
+        No file changes summary yet. The agent will list affected files before
+        Build.
       </div>
     );
   }
@@ -24,7 +32,9 @@ export function PlanChangesCard({ changes }: { changes: PlanChangesPayload | nul
 
   return (
     <div className="rounded-lg border border-border bg-card overflow-hidden">
-      <div className="px-3 py-2 border-b border-border font-medium text-sm">What&apos;s changing</div>
+      <div className="px-3 py-2 border-b border-border font-medium text-sm">
+        What&apos;s changing
+      </div>
       <div className="px-3 py-2 space-y-2 text-sm font-mono">
         {ACTION_ORDER.map((action) => {
           const paths = grouped[action];

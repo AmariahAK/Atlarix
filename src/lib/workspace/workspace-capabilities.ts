@@ -44,7 +44,11 @@ export async function loadWorkspaceCapabilitiesSummary(opts: {
     );
 
   const skillRows = await db
-    .select({ name: installedSkills.name, scope: installedSkills.scope, workspacePath: installedSkills.workspacePath })
+    .select({
+      name: installedSkills.name,
+      scope: installedSkills.scope,
+      workspacePath: installedSkills.workspacePath,
+    })
     .from(installedSkills)
     .where(
       or(
@@ -89,9 +93,13 @@ export function formatWorkspaceCapabilitiesForPrompt(
   ];
 
   if (summary.skillNames.length > 0) {
-    lines.push(`**Installed skills (${summary.skillNames.length}):** ${summary.skillNames.join(", ")}`);
+    lines.push(
+      `**Installed skills (${summary.skillNames.length}):** ${summary.skillNames.join(", ")}`,
+    );
   } else {
-    lines.push("**Installed skills:** none (browse Settings → Skills to install).");
+    lines.push(
+      "**Installed skills:** none (browse Settings → Skills to install).",
+    );
   }
 
   if (summary.mcpServers.length > 0) {

@@ -1,5 +1,9 @@
 import { useTranslation } from "react-i18next";
-import { advertisedShortcuts, formatCombo, isMacPlatform } from "@/lib/shortcuts";
+import {
+  advertisedShortcuts,
+  formatCombo,
+  isMacPlatform,
+} from "@/lib/shortcuts";
 
 /**
  * The keyboard-shortcut reference, rendered from `lib/shortcuts.ts`.

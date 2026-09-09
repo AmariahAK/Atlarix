@@ -58,7 +58,10 @@ function registerReasoner(): void {
       modelId: "deepseek-v4-pro",
       profile: {
         reasoning: true,
-        options: [{ type: "toggle" }, { type: "effort", values: ["high", "max"] }],
+        options: [
+          { type: "toggle" },
+          { type: "effort", values: ["high", "max"] },
+        ],
       },
       supportsTemperature: true,
     },
@@ -137,9 +140,9 @@ describe("Deep-thinking availability is the model's, not the route's", () => {
 
 describe("dispatch capability provider", () => {
   it("is identity for every provider except compass", () => {
-    expect(resolveDispatchCapabilityProviderId(BYOK_SAME_MODEL, "deepseek")).toBe(
-      "deepseek",
-    );
+    expect(
+      resolveDispatchCapabilityProviderId(BYOK_SAME_MODEL, "deepseek"),
+    ).toBe("deepseek");
     expect(resolveDispatchCapabilityProviderId(CORE_TIER, "openrouter")).toBe(
       "openrouter",
     );
@@ -147,7 +150,9 @@ describe("dispatch capability provider", () => {
 
   it("resolves compass to the routed vendor", () => {
     routeCoreTierToDeepSeek();
-    expect(resolveDispatchCapabilityProviderId(CORE_TIER, "compass")).toBe("deepseek");
+    expect(resolveDispatchCapabilityProviderId(CORE_TIER, "compass")).toBe(
+      "deepseek",
+    );
   });
 
   it("keeps compass when the turn FELL BACK to Core mid-dispatch", () => {
@@ -155,7 +160,10 @@ describe("dispatch capability provider", () => {
     // names a provider that is not answering. Resolving from it would look up the
     // wrong model; `compass` (→ no reasoning) is the honest answer.
     routeCoreTierToDeepSeek();
-    const userSelection = { name: "gpt-5", provider: "openai" } as LargeLanguageModel;
+    const userSelection = {
+      name: "gpt-5",
+      provider: "openai",
+    } as LargeLanguageModel;
     expect(resolveDispatchCapabilityProviderId(userSelection, "compass")).toBe(
       "compass",
     );

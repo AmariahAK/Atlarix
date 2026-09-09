@@ -156,9 +156,7 @@ const ALREADY_SHORT_CHARS = 400;
  * Add to this list only with that justification: a real failure the wording is
  * there to prevent.
  */
-const NEVER_TRIM = new Set([
-  "browser_inspect",
-]);
+const NEVER_TRIM = new Set(["browser_inspect"]);
 
 export type RevealTier = "core" | "peripheral";
 
@@ -240,14 +238,21 @@ export function parametersForMode(
  * shape is returned untouched rather than guessed at.
  */
 function trimParameterProse(parameters: unknown): unknown {
-  if (!parameters || typeof parameters !== "object" || Array.isArray(parameters)) {
+  if (
+    !parameters ||
+    typeof parameters !== "object" ||
+    Array.isArray(parameters)
+  ) {
     return parameters;
   }
   const schema = parameters as Record<string, unknown>;
   const props = schema.properties;
 
   if (props && typeof props === "object" && !Array.isArray(props)) {
-    return { ...schema, properties: trimPropertyMap(props as Record<string, unknown>) };
+    return {
+      ...schema,
+      properties: trimPropertyMap(props as Record<string, unknown>),
+    };
   }
 
   // Bare property map: no `type`/`properties` wrapper, values are schema nodes.
@@ -289,7 +294,9 @@ export function peripheralToolNames(
   mode: ModeRegistryKey,
 ): string[] {
   return tools
-    .filter((t) => revealTierForMode(t.name, t.description, mode) === "peripheral")
+    .filter(
+      (t) => revealTierForMode(t.name, t.description, mode) === "peripheral",
+    )
     .map((t) => t.name);
 }
 

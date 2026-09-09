@@ -58,7 +58,9 @@ describe("uiautomator dump → refs", () => {
   it("prefers text, then content-desc, then the resource-id tail", () => {
     const { elements } = parseUiHierarchy(DUMP);
     // The EditText has no text, so its content-desc names it.
-    expect(elements.find((e) => e.role === "EditText")?.name).toBe("Email address");
+    expect(elements.find((e) => e.role === "EditText")?.name).toBe(
+      "Email address",
+    );
     // And it is marked editable so `action:"type"` is obviously applicable.
     expect(elements.find((e) => e.role === "EditText")?.editable).toBe(true);
   });
@@ -117,7 +119,9 @@ describe("uiautomator dump → refs", () => {
 
   it("ranks a plain-words query", () => {
     const { elements } = parseUiHierarchy(DUMP);
-    expect(findUiElements(elements, "email field")[0]?.name).toBe("Email address");
+    expect(findUiElements(elements, "email field")[0]?.name).toBe(
+      "Email address",
+    );
     expect(findUiElements(elements, "continue")[0]?.name).toBe("Continue");
     expect(findUiElements(elements, "nothing here at all")).toEqual([]);
   });

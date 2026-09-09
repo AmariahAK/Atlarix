@@ -9,7 +9,9 @@
 
 let activeModelDisplayName: string | null = null;
 
-export function setActiveModelDisplayName(name: string | null | undefined): void {
+export function setActiveModelDisplayName(
+  name: string | null | undefined,
+): void {
   const trimmed = name?.trim();
   activeModelDisplayName = trimmed ? trimmed : null;
 }

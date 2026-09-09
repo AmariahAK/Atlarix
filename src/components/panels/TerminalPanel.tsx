@@ -15,7 +15,8 @@ import {
   terminalAgentOpMapByScopeAtom,
   terminalInstancesByScopeAtom,
   terminalScopeKey,
-  type TerminalInstance,} from "@/atoms/terminalInstancesAtoms";
+  type TerminalInstance,
+} from "@/atoms/terminalInstancesAtoms";
 import {
   defaultAgentInstanceLabel,
   defaultUserInstanceLabel,
@@ -27,7 +28,8 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
   buildTerminalPasteAttachment,
-  buildTerminalPasteFromSelection,  commandBlockRangeAt,
+  buildTerminalPasteFromSelection,
+  commandBlockRangeAt,
   commandBlockRanges,
   upsertTerminalAttachment,
   writeTerminalToDataTransfer,
@@ -77,7 +79,9 @@ export function TerminalPanel() {
   // input is gone — the kill-switch hard-disables user shells instead.
   const ptyEnabled = settings?.enablePtyTerminal !== false;
   // Live cwd per instance from shell OSC sequences (tab labels).
-  const [cwdByInstance, setCwdByInstance] = useState<Record<string, string>>({});
+  const [cwdByInstance, setCwdByInstance] = useState<Record<string, string>>(
+    {},
+  );
   const scrollRef = useRef<HTMLDivElement>(null);
   const skipSyncRef = useRef(false);
 
@@ -312,8 +316,6 @@ export function TerminalPanel() {
    * this panel was ever open, which was not true before.
    */
 
-
-
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
@@ -368,8 +370,7 @@ export function TerminalPanel() {
       const { terminalPaste } = att;
       if (!terminalPaste) return;
       e.preventDefault();
-      const visible =
-        terminalPaste.displayContent ?? terminalPaste.content;
+      const visible = terminalPaste.displayContent ?? terminalPaste.content;
       writeTerminalToDataTransfer(e.clipboardData, {
         content: visible,
         instanceLabel: terminalPaste.instanceLabel,
@@ -382,10 +383,7 @@ export function TerminalPanel() {
     [activeInstance],
   );
 
-  const commandBlocks = useMemo(
-    () => commandBlockRanges(logLines),
-    [logLines],
-  );
+  const commandBlocks = useMemo(() => commandBlockRanges(logLines), [logLines]);
 
   return (
     <div className="flex flex-col h-full bg-[#1e1e1e] min-h-0">
@@ -413,7 +411,8 @@ export function TerminalPanel() {
             )}
           >
             <span className="truncate">{tabLabel(inst)}</span>
-            {(inst.owner === "agent" || instances.filter((i) => i.owner === "user").length > 1) && (
+            {(inst.owner === "agent" ||
+              instances.filter((i) => i.owner === "user").length > 1) && (
               <X
                 className="w-3 h-3 shrink-0 opacity-60 hover:opacity-100"
                 onClick={(e) => {
@@ -457,69 +456,71 @@ export function TerminalPanel() {
           />
         </div>
       ) : (
-      <div
-        ref={scrollRef}
-        className="flex-1 overflow-y-auto p-4 font-mono text-xs text-zinc-300 whitespace-pre-wrap min-h-0 select-text"
-        onCopy={handleLogCopy}
-      >
-        {logLines.length === 0 ? (
-          <p className="text-zinc-500 select-none">
-            {activeInstance?.owner === "agent"
-              ? "Output from the agent's commands appears here."
-              : "Command output appears here."}
-          </p>
-        ) : (
-          logLines.map((line, lineIndex) => {
-            const block = commandBlocks.find((b) => b.promptIndex === lineIndex);
-            return (
-              <div
-                key={line.id}
-                className={cn(
-                  "group mb-1 flex items-start gap-1",
-                  block && "rounded-md -mx-1 px-1 hover:bg-zinc-800/60",
-                )}
-              >
-                <div className="min-w-0 flex-1">
-                  {line.kind === "prompt" ? (
-                    <>
+        <div
+          ref={scrollRef}
+          className="flex-1 overflow-y-auto p-4 font-mono text-xs text-zinc-300 whitespace-pre-wrap min-h-0 select-text"
+          onCopy={handleLogCopy}
+        >
+          {logLines.length === 0 ? (
+            <p className="text-zinc-500 select-none">
+              {activeInstance?.owner === "agent"
+                ? "Output from the agent's commands appears here."
+                : "Command output appears here."}
+            </p>
+          ) : (
+            logLines.map((line, lineIndex) => {
+              const block = commandBlocks.find(
+                (b) => b.promptIndex === lineIndex,
+              );
+              return (
+                <div
+                  key={line.id}
+                  className={cn(
+                    "group mb-1 flex items-start gap-1",
+                    block && "rounded-md -mx-1 px-1 hover:bg-zinc-800/60",
+                  )}
+                >
+                  <div className="min-w-0 flex-1">
+                    {line.kind === "prompt" ? (
+                      <>
+                        <span
+                          className={
+                            line.prefix === "[Agent]"
+                              ? "text-blue-400/90 mr-2"
+                              : "text-amber-400/90 mr-2"
+                          }
+                        >
+                          {line.prefix}
+                        </span>
+                        <span className="text-zinc-100">{line.text}</span>
+                      </>
+                    ) : (
                       <span
                         className={
-                          line.prefix === "[Agent]"
-                            ? "text-blue-400/90 mr-2"
-                            : "text-amber-400/90 mr-2"
+                          line.kind === "status"
+                            ? "text-zinc-500"
+                            : "text-zinc-300"
                         }
                       >
-                        {line.prefix}
+                        {line.text}
                       </span>
-                      <span className="text-zinc-100">{line.text}</span>
-                    </>
-                  ) : (
-                    <span
-                      className={
-                        line.kind === "status"
-                          ? "text-zinc-500"
-                          : "text-zinc-300"
-                      }
+                    )}
+                  </div>
+                  {block ? (
+                    <button
+                      type="button"
+                      title="Add this command to chat"
+                      className="shrink-0 opacity-0 group-hover:opacity-100 focus:opacity-100 p-0.5 rounded text-zinc-500 hover:text-emerald-400 transition-opacity"
+                      onClick={() => addCommandBlockToChat(block.promptIndex)}
                     >
-                      {line.text}
-                    </span>
-                  )}
+                      <MessageSquarePlus className="w-3.5 h-3.5" />
+                    </button>
+                  ) : null}
                 </div>
-                {block ? (
-                  <button
-                    type="button"
-                    title="Add this command to chat"
-                    className="shrink-0 opacity-0 group-hover:opacity-100 focus:opacity-100 p-0.5 rounded text-zinc-500 hover:text-emerald-400 transition-opacity"
-                    onClick={() => addCommandBlockToChat(block.promptIndex)}
-                  >
-                    <MessageSquarePlus className="w-3.5 h-3.5" />
-                  </button>
-                ) : null}
-              </div>
-            );
-          })
-        )}
-      </div>
+              );
+            })
+          )}
+        </div>
       )}
 
       {activeInstance?.owner === "agent" ? (

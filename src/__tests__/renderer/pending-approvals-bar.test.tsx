@@ -52,7 +52,10 @@ function op(over: Partial<QueuedOperation> = {}): QueuedOperation {
  * been given a reason to appear.
  */
 function seed(ops: QueuedOperation[]) {
-  getDefaultStore().set(permissionQueueAtom, new Map(ops.map((o) => [o.id, o])));
+  getDefaultStore().set(
+    permissionQueueAtom,
+    new Map(ops.map((o) => [o.id, o])),
+  );
   return renderWithProviders(<PendingApprovalsBar chatId={CHAT} />).store;
 }
 
@@ -70,7 +73,10 @@ describe("PendingApprovalsBar", () => {
 
   /** Only PENDING counts — a queued/running op is already being dealt with. */
   it("stays hidden when the queue holds only non-pending operations", () => {
-    seed([op({ id: "a", status: "running" }), op({ id: "b", status: "completed" })]);
+    seed([
+      op({ id: "a", status: "running" }),
+      op({ id: "b", status: "completed" }),
+    ]);
     expect(screen.queryByRole("button", { name: /allow all/i })).toBeNull();
   });
 
@@ -90,7 +96,10 @@ describe("PendingApprovalsBar", () => {
    * one-shot behaviour, because a file batch is a bounded, visible set.
    */
   it("approves the rest of the turn, not just the current queue", () => {
-    seed([op({ id: "a", path: "src/a.ts" }), op({ id: "b", path: "src/b.ts" })]);
+    seed([
+      op({ id: "a", path: "src/a.ts" }),
+      op({ id: "b", path: "src/b.ts" }),
+    ]);
     fireEvent.click(screen.getByRole("button", { name: /allow all/i }));
     expect(fakeIpc.approveAllForTurn).toHaveBeenCalledWith({ chatId: CHAT });
     // Not the one-shot drain — that is what made it feel broken.
@@ -163,7 +172,9 @@ describe("describePending", () => {
 
   it("names a single command", () => {
     expect(
-      describePending([op({ operation: "run_command", command: "pnpm build" })]),
+      describePending([
+        op({ operation: "run_command", command: "pnpm build" }),
+      ]),
     ).toBe("Approve command: pnpm build");
   });
 

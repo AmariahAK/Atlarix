@@ -23,7 +23,10 @@ import {
   activeSessionWorkModeAtom,
   activeWorkspaceSessionIdAtom,
 } from "@/atoms/sessionAtoms";
-import { resolveSelectedWorkMode, settingsPatchForWorkMode } from "@/lib/work-mode";
+import {
+  resolveSelectedWorkMode,
+  settingsPatchForWorkMode,
+} from "@/lib/work-mode";
 import type { WorkMode } from "@/lib/schemas";
 
 export function useWorkModeSelection(): {
@@ -44,32 +47,35 @@ export function useWorkModeSelection(): {
 
   // Stable, so a consumer can list it in an effect's deps without rebinding a
   // global key listener on every render.
-  const setWorkMode = useCallback((mode: WorkMode) => {
-    // Picking a mode clears any stale selected sub-agent (agents are task-tool
-    // targets, not modes).
-    //
-    // The global write STAYS: it is the default for the next NEW session, which is
-    // what makes the choice feel sticky when you start a fresh chat.
-    void updateSettings({
-      ...settingsPatchForWorkMode(mode),
-      selectedAgent: "",
-    });
-    // And the session gets it too, so the choice survives being reopened from a
-    // window whose global preference has since moved on — and, more immediately, so
-    // that it is the value the next turn actually dispatches with. Optimistic: the
-    // atom is set before the write lands, because the chip must not lag the input.
-    if (activeSessionId) {
-      setSessionWorkMode(mode);
-      void IpcClient.getInstance()
-        .setWorkspaceSessionWorkMode(activeSessionId, mode)
-        .catch((e) => {
-          // A failed stamp is not worth interrupting anything for — the global write
-          // above still applies — but it must not be silent, or the session would
-          // quietly keep resolving from the global forever.
-          console.warn("[work-mode] failed to persist session mode:", e);
-        });
-    }
-  }, [updateSettings, activeSessionId, setSessionWorkMode]);
+  const setWorkMode = useCallback(
+    (mode: WorkMode) => {
+      // Picking a mode clears any stale selected sub-agent (agents are task-tool
+      // targets, not modes).
+      //
+      // The global write STAYS: it is the default for the next NEW session, which is
+      // what makes the choice feel sticky when you start a fresh chat.
+      void updateSettings({
+        ...settingsPatchForWorkMode(mode),
+        selectedAgent: "",
+      });
+      // And the session gets it too, so the choice survives being reopened from a
+      // window whose global preference has since moved on — and, more immediately, so
+      // that it is the value the next turn actually dispatches with. Optimistic: the
+      // atom is set before the write lands, because the chip must not lag the input.
+      if (activeSessionId) {
+        setSessionWorkMode(mode);
+        void IpcClient.getInstance()
+          .setWorkspaceSessionWorkMode(activeSessionId, mode)
+          .catch((e) => {
+            // A failed stamp is not worth interrupting anything for — the global write
+            // above still applies — but it must not be silent, or the session would
+            // quietly keep resolving from the global forever.
+            console.warn("[work-mode] failed to persist session mode:", e);
+          });
+      }
+    },
+    [updateSettings, activeSessionId, setSessionWorkMode],
+  );
 
   return { workMode, setWorkMode };
 }

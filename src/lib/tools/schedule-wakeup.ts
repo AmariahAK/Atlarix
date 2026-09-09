@@ -27,7 +27,8 @@ ToolRegistry.register({
     properties: {
       delay_seconds: {
         type: "number",
-        description: "Seconds to wait before re-engaging (clamped to 60–14400, up to 4h).",
+        description:
+          "Seconds to wait before re-engaging (clamped to 60–14400, up to 4h).",
       },
       note: {
         type: "string",
@@ -36,7 +37,9 @@ ToolRegistry.register({
     },
     required: ["delay_seconds"],
   },
-  handler: async (args: WithChat<{ delay_seconds?: number; note?: string }>) => {
+  handler: async (
+    args: WithChat<{ delay_seconds?: number; note?: string }>,
+  ) => {
     const chatId = args._chatSessionId;
     if (chatId == null) {
       return { success: false, error: "No chat session for schedule_wakeup." };

@@ -2,7 +2,10 @@ import { dbQuery } from "@lib/db/client";
 
 export async function createSession(userId: string) {
   const token = Math.random().toString(36).slice(2);
-  await dbQuery("INSERT INTO sessions (user_id, token) VALUES (?, ?)", [userId, token]);
+  await dbQuery("INSERT INTO sessions (user_id, token) VALUES (?, ?)", [
+    userId,
+    token,
+  ]);
   return token;
 }
 

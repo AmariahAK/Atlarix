@@ -46,17 +46,21 @@ export function registerLMStudioHandlers() {
         return await fetchLMStudioModels();
       } catch (error: any) {
         // Check if it's a connection error (LM Studio not running)
-        if (error.cause?.code === 'ECONNREFUSED' || error.code === 'ECONNREFUSED') {
+        if (
+          error.cause?.code === "ECONNREFUSED" ||
+          error.code === "ECONNREFUSED"
+        ) {
           return {
             models: [],
-            error: 'LM Studio not reachable. Go to "Developer" (sidebar) → "Start Server". Ensure a model is loaded.'
+            error:
+              'LM Studio not reachable. Go to "Developer" (sidebar) → "Start Server". Ensure a model is loaded.',
           };
         }
         // Other errors
-        logger.error('Error fetching LM Studio models:', error);
+        logger.error("Error fetching LM Studio models:", error);
         return {
           models: [],
-          error: 'Failed to connect to LM Studio. Is the server running?'
+          error: "Failed to connect to LM Studio. Is the server running?",
         };
       }
     },

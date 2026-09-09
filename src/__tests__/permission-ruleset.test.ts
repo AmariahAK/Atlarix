@@ -95,16 +95,16 @@ describe("evaluateRuleset", () => {
       );
     };
     // A rule on the CURRENT name blocks a call by a RETIRED name.
-    expect(decide(compiled(["browser"]), "browser_navigate")?.kind).toBe("deny");
-    // A rule on a RETIRED name still blocks that call (old rules keep working).
-    expect(decide(compiled(["browser_navigate"]), "browser_navigate")?.kind).toBe(
+    expect(decide(compiled(["browser"]), "browser_navigate")?.kind).toBe(
       "deny",
     );
+    // A rule on a RETIRED name still blocks that call (old rules keep working).
+    expect(
+      decide(compiled(["browser_navigate"]), "browser_navigate")?.kind,
+    ).toBe("deny");
     // And an unrelated tool is still allowed.
     expect(decide(compiled(["browser"]), "read_file")).toBeNull();
   });
-
-
 
   it("empty ruleset = no decision (pre-2.2 behavior)", () => {
     expect(
@@ -132,13 +132,16 @@ describe("mergeRulesets (global ~/.atlarix layer, S16)", () => {
   });
 
   it("a global deny applies to a workspace with no rules of its own", () => {
-    const merged = mergeRulesets(compiled(["run_command(git push*)"]), compiled());
+    const merged = mergeRulesets(
+      compiled(["run_command(git push*)"]),
+      compiled(),
+    );
     expect(
-      evaluateRuleset(merged, "run_command", { command: "git push origin main" })
-        ?.kind,
+      evaluateRuleset(merged, "run_command", {
+        command: "git push origin main",
+      })?.kind,
     ).toBe("deny");
   });
-
 
   it("returns the other side as-is when one is empty (no-allocation fast path)", () => {
     const ws = compiled(["run_command(rm *)"]);
@@ -160,9 +163,9 @@ describe("the mobile tools are deniable", () => {
     // process, so the OS command sandbox does NOT constrain them — the
     // permission ruleset is what does. That claim needs a test, not a sentence.
     const rs = compiled(["mobile"]);
-    expect(evaluateRuleset(rs, "mobile", { action: "tap", ref: "m1" })?.kind).toBe(
-      "deny",
-    );
+    expect(
+      evaluateRuleset(rs, "mobile", { action: "tap", ref: "m1" })?.kind,
+    ).toBe("deny");
     // And the read half stays available, since `mobile_*` is a different name.
     expect(evaluateRuleset(rs, "mobile_inspect", {})).toBeNull();
   });

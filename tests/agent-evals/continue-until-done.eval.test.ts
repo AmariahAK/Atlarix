@@ -21,7 +21,9 @@ const NUDGE = "you haven't accounted for";
 let ctx: EvalContext;
 
 beforeAll(async () => {
-  ctx = await setupEvalContext({ seedFiles: { "src/x.ts": "export const x = 1;\n" } });
+  ctx = await setupEvalContext({
+    seedFiles: { "src/x.ts": "export const x = 1;\n" },
+  });
 });
 
 afterAll(async () => {
@@ -230,7 +232,9 @@ describe("continue-until-done — plan-completeness gate", () => {
           step_text: "Make the flaky test pass",
           state: "blocked",
         })
-        .text("Parser patched. The flaky test still fails; here's what I tried.")
+        .text(
+          "Parser patched. The flaky test still fails; here's what I tried.",
+        )
         .repeatLast()
         .build(),
     );
@@ -278,7 +282,9 @@ describe("continue-until-done — plan-completeness gate", () => {
     expectNoStreamError(fakeIpc.sends, chatId);
     expectStreamEnded(fakeIpc.sends, chatId);
 
-    const blob = JSON.stringify(ctx.server.requestsFor("cud-external-noreason"));
+    const blob = JSON.stringify(
+      ctx.server.requestsFor("cud-external-noreason"),
+    );
     // The tool refuses and says how to fix it...
     expect(blob).toContain("requires `reason`");
     // ...and because the step stayed actionable, the gate still asks for it.

@@ -30,7 +30,8 @@ export const sessionIdToChatIdAtom = atom<Map<string, number>>(new Map());
 
 export const workspaceSessionLoadingAtom = atom<boolean>(false);
 
-export const workspaceSessionLoadingLabelAtom = atom<string>("Loading session…");
+export const workspaceSessionLoadingLabelAtom =
+  atom<string>("Loading session…");
 
 export const loadedSessionTruncatedAtom = atom<boolean>(false);
 

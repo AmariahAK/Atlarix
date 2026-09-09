@@ -15,7 +15,10 @@ import {
   clearWaitTrackersForChat,
 } from "@/ipc/handlers/permissions/handlers";
 
-type Sent = { channel: string; payload: { phase?: string; commandId?: string } };
+type Sent = {
+  channel: string;
+  payload: { phase?: string; commandId?: string };
+};
 
 describe("foreground promote→park handoff (A5)", () => {
   let sent: Sent[];
@@ -40,7 +43,9 @@ describe("foreground promote→park handoff (A5)", () => {
   });
 
   const phases = (s: Sent[]) =>
-    s.filter((x) => x.channel === "chat:stream:phase").map((x) => x.payload.phase);
+    s
+      .filter((x) => x.channel === "chat:stream:phase")
+      .map((x) => x.payload.phase);
 
   it("clears the announced waiting chip when the command auto-promotes", () => {
     const chatId = 5500;

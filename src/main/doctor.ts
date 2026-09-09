@@ -21,11 +21,7 @@
 
 import log from "electron-log";
 import { app } from "electron";
-import {
-  DEFAULT_PROBES,
-  runSelfTest,
-  type SelfTestProbe,
-} from "./self-test";
+import { DEFAULT_PROBES, runSelfTest, type SelfTestProbe } from "./self-test";
 import { describeAllowanceUsed, formatCents } from "@/shared/billing_copy";
 
 const logger = log.scope("doctor");
@@ -116,7 +112,9 @@ const coreCheck: DoctorCheck = {
     // that happens to be healthy.
     const { data, error } = await getSupabaseClient().rpc("get_credit_balance");
     if (error) {
-      throw new Error(`Signed in, but the balance could not be read: ${error.message}`);
+      throw new Error(
+        `Signed in, but the balance could not be read: ${error.message}`,
+      );
     }
     // `balance_cents` is the SPENDABLE total — the month's included usage plus
     // purchased credit. The split is reported alongside it because the two fail
@@ -138,8 +136,10 @@ const coreCheck: DoctorCheck = {
     // whether the allowance is being drawn down; "$999,999.73 included" does not,
     // and the difference is the whole reason the period total exists.
     const split =
-      typeof row?.granted_cents === "number" && typeof row?.purchased_cents === "number"
-        ? typeof row?.granted_total_cents === "number" && row.granted_total_cents > 0
+      typeof row?.granted_cents === "number" &&
+      typeof row?.purchased_cents === "number"
+        ? typeof row?.granted_total_cents === "number" &&
+          row.granted_total_cents > 0
           ? ` (${describeAllowanceUsed(row.granted_total_cents - row.granted_cents, row.granted_total_cents)} of this month's included usage, ${formatCents(row.purchased_cents)} purchased)`
           : ` (no allowance this period, ${formatCents(row.purchased_cents)} purchased)`
         : "";
@@ -204,7 +204,9 @@ const credentialStoreCheck: DoctorCheck = {
     const probe = `atlarix-doctor-${Date.now()}`;
     const round = safeStorage.decryptString(safeStorage.encryptString(probe));
     if (round !== probe) {
-      throw new Error("Encrypt/decrypt round trip did not return what went in.");
+      throw new Error(
+        "Encrypt/decrypt round trip did not return what went in.",
+      );
     }
     return "encrypt/decrypt round trip OK";
   },
@@ -396,7 +398,12 @@ export async function runDoctor(
   const failed = rows.filter((r) => !r.ok).length;
   logger.info(
     `[doctor] ${rows.length - failed}/${rows.length} checks OK` +
-      (failed ? ` — failing: ${rows.filter((r) => !r.ok).map((r) => r.name).join(", ")}` : ""),
+      (failed
+        ? ` — failing: ${rows
+            .filter((r) => !r.ok)
+            .map((r) => r.name)
+            .join(", ")}`
+        : ""),
   );
 
   return {

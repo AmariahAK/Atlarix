@@ -14,10 +14,10 @@
  * ```
  */
 
-import { type ParsedError } from '../devServerErrorParser';
-import { matcherEngine, type ProblemMatcherFile } from './matcherEngine';
-import { parseSARIF, looksLikeJSON } from './sarifParser';
-import { ALL_MATCHERS } from './matchers/bundled';
+import { type ParsedError } from "../devServerErrorParser";
+import { matcherEngine, type ProblemMatcherFile } from "./matcherEngine";
+import { parseSARIF, looksLikeJSON } from "./sarifParser";
+import { ALL_MATCHERS } from "./matchers/bundled";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // INITIALIZATION
@@ -26,15 +26,17 @@ import { ALL_MATCHERS } from './matchers/bundled';
 let initialized = false;
 
 function ensureInitialized(): void {
-    if (initialized) return;
+  if (initialized) return;
 
-    // Load all bundled matchers
-    for (const matcherFile of ALL_MATCHERS) {
-        matcherEngine.loadMatcherFile(matcherFile);
-    }
+  // Load all bundled matchers
+  for (const matcherFile of ALL_MATCHERS) {
+    matcherEngine.loadMatcherFile(matcherFile);
+  }
 
-    initialized = true;
-    console.log(`[TerminalIntelligence] Loaded ${matcherEngine.getLoadedMatchers().length} problem matchers`);
+  initialized = true;
+  console.log(
+    `[TerminalIntelligence] Loaded ${matcherEngine.getLoadedMatchers().length} problem matchers`,
+  );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -46,35 +48,35 @@ function ensureInitialized(): void {
  * Fast, synchronous, no API calls
  */
 function parse(output: string): ParsedError[] {
-    ensureInitialized();
+  ensureInitialized();
 
-    // Layer 1: Try SARIF (if looks like JSON)
-    if (looksLikeJSON(output)) {
-        const sarifErrors = parseSARIF(output);
-        if (sarifErrors && sarifErrors.length > 0) {
-            return sarifErrors;
-        }
+  // Layer 1: Try SARIF (if looks like JSON)
+  if (looksLikeJSON(output)) {
+    const sarifErrors = parseSARIF(output);
+    if (sarifErrors && sarifErrors.length > 0) {
+      return sarifErrors;
     }
+  }
 
-    // Layer 2: Apply Problem Matchers
-    const matcherErrors = matcherEngine.parse(output);
-    return matcherErrors;
+  // Layer 2: Apply Problem Matchers
+  const matcherErrors = matcherEngine.parse(output);
+  return matcherErrors;
 }
 
 /**
  * Load additional matchers at runtime
  */
 function loadMatcher(matcherFile: ProblemMatcherFile): void {
-    ensureInitialized();
-    matcherEngine.loadMatcherFile(matcherFile);
+  ensureInitialized();
+  matcherEngine.loadMatcherFile(matcherFile);
 }
 
 /**
  * Get list of loaded matcher names
  */
 function getLoadedMatchers(): string[] {
-    ensureInitialized();
-    return matcherEngine.getLoadedMatchers();
+  ensureInitialized();
+  return matcherEngine.getLoadedMatchers();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -82,10 +84,10 @@ function getLoadedMatchers(): string[] {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export const TerminalIntelligence = {
-    parse,
-    loadMatcher,
-    getLoadedMatchers,
+  parse,
+  loadMatcher,
+  getLoadedMatchers,
 };
 
 // Re-export types
-export { type ProblemMatcherFile } from './matcherEngine';
+export { type ProblemMatcherFile } from "./matcherEngine";

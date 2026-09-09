@@ -21,7 +21,8 @@ export function ElasticConfiguration({
   settings,
   updateSettings,
 }: ElasticConfigurationProps) {
-  const existing = (settings?.providerSettings?.elastic as ElasticSettings | undefined) ?? {};
+  const existing =
+    (settings?.providerSettings?.elastic as ElasticSettings | undefined) ?? {};
   const existingBaseUrl = existing.baseUrl ?? "";
   const existingApiKey = existing.apiKey?.value ?? "";
   const existingSpace = existing.space ?? "";
@@ -66,7 +67,11 @@ export function ElasticConfiguration({
         },
       });
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to save Elastic Agent Builder settings");
+      setError(
+        e instanceof Error
+          ? e.message
+          : "Failed to save Elastic Agent Builder settings",
+      );
     } finally {
       setSaving(false);
     }
@@ -79,7 +84,8 @@ export function ElasticConfiguration({
           <KeyRound className="h-4 w-4 text-emerald-600" />
           <AlertTitle>Elastic Agent Builder configured</AlertTitle>
           <AlertDescription>
-            Kibana URL and API key are set. You can list agents as models after refreshing.
+            Kibana URL and API key are set. You can list agents as models after
+            refreshing.
           </AlertDescription>
         </Alert>
       )}
@@ -93,7 +99,8 @@ export function ElasticConfiguration({
           placeholder="https://your-deployment.kb.us-central1.gcp.cloud.es.io"
         />
         <p className="text-xs text-muted-foreground">
-          Your Kibana base URL (e.g. Elastic Cloud or self-hosted). Agent Builder must be enabled.
+          Your Kibana base URL (e.g. Elastic Cloud or self-hosted). Agent
+          Builder must be enabled.
         </p>
       </div>
       <div className="space-y-2">
@@ -106,7 +113,8 @@ export function ElasticConfiguration({
           placeholder="Elastic / Kibana API key"
         />
         <p className="text-xs text-muted-foreground">
-          Create an API key in Kibana (search &quot;API keys&quot; in the global search bar).
+          Create an API key in Kibana (search &quot;API keys&quot; in the global
+          search bar).
         </p>
       </div>
       <div className="space-y-2">
@@ -127,7 +135,10 @@ export function ElasticConfiguration({
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      <Button onClick={handleSave} disabled={saving || !baseUrl.trim() || !apiKey.trim()}>
+      <Button
+        onClick={handleSave}
+        disabled={saving || !baseUrl.trim() || !apiKey.trim()}
+      >
         {saving ? "Saving..." : "Save"}
       </Button>
     </div>

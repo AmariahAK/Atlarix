@@ -57,7 +57,9 @@ function normalizeTrustedOrigins(origins: string[] | undefined): Set<string> {
     const trimmed = o.trim();
     if (!trimmed) continue;
     try {
-      set.add(normalizeOrigin(trimmed.endsWith("/") ? trimmed.slice(0, -1) : trimmed));
+      set.add(
+        normalizeOrigin(trimmed.endsWith("/") ? trimmed.slice(0, -1) : trimmed),
+      );
     } catch {
       // skip invalid
     }
@@ -133,11 +135,17 @@ async function resolveAndCheckHost(
 
   if (isHostnameBlocked(hostname)) {
     if (allowPrivate || okLoopbackHost) return;
-    throw new Error(`URL blocked: host "${hostname}" resolves to a private or reserved address`);
+    throw new Error(
+      `URL blocked: host "${hostname}" resolves to a private or reserved address`,
+    );
   }
 
   if (net.isIP(hostname)) {
-    if (isPrivateOrReservedIp(hostname) && !allowPrivate && !okLoopbackIp(hostname)) {
+    if (
+      isPrivateOrReservedIp(hostname) &&
+      !allowPrivate &&
+      !okLoopbackIp(hostname)
+    ) {
       throw new Error(`URL blocked: IP address "${hostname}" is not allowed`);
     }
     return;
@@ -151,7 +159,11 @@ async function resolveAndCheckHost(
   }
 
   for (const { address } of addresses) {
-    if (isPrivateOrReservedIp(address) && !allowPrivate && !okLoopbackIp(address)) {
+    if (
+      isPrivateOrReservedIp(address) &&
+      !allowPrivate &&
+      !okLoopbackIp(address)
+    ) {
       throw new Error(
         `URL blocked: host "${hostname}" resolves to disallowed address ${address}`,
       );
@@ -174,7 +186,9 @@ export async function assertUrlAllowed(
   }
 
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new Error(`URL blocked: only http and https are allowed (got ${parsed.protocol})`);
+    throw new Error(
+      `URL blocked: only http and https are allowed (got ${parsed.protocol})`,
+    );
   }
 
   if (parsed.username || parsed.password) {
@@ -185,7 +199,12 @@ export async function assertUrlAllowed(
 
   const trusted = normalizeTrustedOrigins(options?.trustedOrigins);
   const origin = normalizeOrigin(parsed.href);
-  await resolveAndCheckHost(parsed.hostname, trusted, origin, options?.allowLoopback === true);
+  await resolveAndCheckHost(
+    parsed.hostname,
+    trusted,
+    origin,
+    options?.allowLoopback === true,
+  );
 
   return parsed;
 }
@@ -212,9 +231,7 @@ export async function safeFetch(
   while (true) {
     await assertUrlAllowed(currentUrl, { trustedOrigins, timeoutMs });
 
-    const signal =
-      init?.signal ??
-      AbortSignal.timeout(timeoutMs);
+    const signal = init?.signal ?? AbortSignal.timeout(timeoutMs);
 
     const response = await fetch(currentUrl, {
       ...init,
@@ -228,7 +245,9 @@ export async function safeFetch(
       response.headers.get("location")
     ) {
       if (redirectCount >= maxRedirects) {
-        throw new Error(`URL blocked: too many redirects (max ${maxRedirects})`);
+        throw new Error(
+          `URL blocked: too many redirects (max ${maxRedirects})`,
+        );
       }
       redirectCount += 1;
       const location = response.headers.get("location")!;
@@ -241,7 +260,9 @@ export async function safeFetch(
 }
 
 /** Normalize a SearxNG base URL for trusted-origin matching. */
-export function normalizeSearxngBaseUrl(url: string | null | undefined): string | undefined {
+export function normalizeSearxngBaseUrl(
+  url: string | null | undefined,
+): string | undefined {
   if (!url?.trim()) return undefined;
   try {
     const base = url.trim().replace(/\/+$/, "");

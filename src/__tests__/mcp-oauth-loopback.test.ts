@@ -37,7 +37,10 @@ describe("shouldClearStaleOAuthClient", () => {
 
   it("returns true when cached client has no redirect_uris", () => {
     expect(
-      shouldClearStaleOAuthClient({ client_id: "abc" }, "http://127.0.0.1:1/callback"),
+      shouldClearStaleOAuthClient(
+        { client_id: "abc" },
+        "http://127.0.0.1:1/callback",
+      ),
     ).toBe(true);
   });
 });
@@ -59,7 +62,9 @@ describe("AtlarixOAuthProvider redirect URL", () => {
 describe("createMcpOAuthLoopbackServer", () => {
   it("binds loopback and receives OAuth callback query params", async () => {
     const loopback = await createMcpOAuthLoopbackServer();
-    expect(loopback.redirectUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/callback$/);
+    expect(loopback.redirectUrl).toMatch(
+      /^http:\/\/127\.0\.0\.1:\d+\/callback$/,
+    );
 
     const callbackPromise = loopback.waitForCallback();
     await new Promise<void>((resolve, reject) => {

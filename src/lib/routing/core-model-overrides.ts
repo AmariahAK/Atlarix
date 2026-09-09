@@ -223,7 +223,9 @@ export async function refreshCoreModelOverrides(): Promise<void> {
       );
       return;
     }
-    logger.warn("core-models.json had no usable overrides — keeping env fallback");
+    logger.warn(
+      "core-models.json had no usable overrides — keeping env fallback",
+    );
   } catch (e) {
     logger.warn("core-models fetch failed, trying cache", e);
     const cachedRaw = await loadRawFromCache();

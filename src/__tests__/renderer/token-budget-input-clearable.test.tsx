@@ -37,7 +37,9 @@ beforeEach(() => {
 });
 
 function input() {
-  return screen.getByPlaceholderText("Auto · model context") as HTMLInputElement;
+  return screen.getByPlaceholderText(
+    "Auto · model context",
+  ) as HTMLInputElement;
 }
 
 describe("token budget cap — clearing it", () => {

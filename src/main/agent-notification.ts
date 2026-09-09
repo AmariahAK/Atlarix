@@ -11,7 +11,10 @@ const logger = log.scope("agent-notification");
  * same UI for both, as requested. No-op when the window is focused (the in-app
  * chime/toast covers that) so we never spam a user who's watching. Fire-and-forget.
  */
-export async function showAgentNotification(title: string, body: string): Promise<void> {
+export async function showAgentNotification(
+  title: string,
+  body: string,
+): Promise<void> {
   try {
     const { BrowserWindow } = await import("electron");
     const windows = BrowserWindow.getAllWindows();

@@ -50,9 +50,7 @@ export function commandFromPromptLine(text: string): string {
 }
 
 /** First prompt command in a line slice. */
-export function commandFromLines(
-  lines: FormattableLine[],
-): string | undefined {
+export function commandFromLines(lines: FormattableLine[]): string | undefined {
   const prompt = lines.find((l) => l.kind === "prompt");
   if (!prompt) return undefined;
   return commandFromPromptLine(prompt.text);
@@ -93,7 +91,11 @@ function tokenFromSegment(segment: string): string | undefined {
   if (!trimmed) return undefined;
   const first = trimmed.split(/\s+/)[0]?.toLowerCase();
   if (!first) return undefined;
-  const base = first.replace(/^\.?\//, "").split("/").pop() ?? first;
+  const base =
+    first
+      .replace(/^\.?\//, "")
+      .split("/")
+      .pop() ?? first;
   if (KNOWN_TOOLS.has(base)) return base;
   if (base === "py") return "python";
   return undefined;

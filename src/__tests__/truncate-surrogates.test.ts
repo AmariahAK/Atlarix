@@ -79,7 +79,10 @@ describe("truncateUtf8ByBytes", () => {
   it("does not emit a replacement character for a half-copied sequence", () => {
     const content = `${"x".repeat(50)}${EMOJI.repeat(50)}`;
     for (let maxBytes = 55; maxBytes < 200; maxBytes++) {
-      const out = truncateUtf8ByBytes(content, maxBytes, { margin: 0, suffix: "" });
+      const out = truncateUtf8ByBytes(content, maxBytes, {
+        margin: 0,
+        suffix: "",
+      });
       expect(out.includes("�"), `maxBytes=${maxBytes}`).toBe(false);
       expect(hasLoneSurrogate(out), `maxBytes=${maxBytes}`).toBe(false);
     }

@@ -20,7 +20,12 @@ import { randomUUID } from "node:crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
 import log from "electron-log";
 import { db } from "@/db";
-import { apps, automationRuns, automations, mcpToolConsents } from "@/db/schema";
+import {
+  apps,
+  automationRuns,
+  automations,
+  mcpToolConsents,
+} from "@/db/schema";
 import { broadcastToAllWindows } from "@/ipc/utils/broadcast_all_windows";
 import type { AutomationInput } from "./types";
 import {
@@ -70,7 +75,12 @@ async function upsertMcpConsentIfNeeded(input: AutomationInput): Promise<void> {
   const { serverId, tool } = input.trigger;
   await db
     .insert(mcpToolConsents)
-    .values({ serverId, toolName: tool, consent: "always", updatedAt: new Date() })
+    .values({
+      serverId,
+      toolName: tool,
+      consent: "always",
+      updatedAt: new Date(),
+    })
     .onConflictDoUpdate({
       target: [mcpToolConsents.serverId, mcpToolConsents.toolName],
       set: { consent: "always", updatedAt: new Date() },
@@ -137,7 +147,9 @@ export async function listAutomations(workspaceId: number): Promise<{
   };
 }
 
-export async function getAutomation(id: string): Promise<MappedAutomation | null> {
+export async function getAutomation(
+  id: string,
+): Promise<MappedAutomation | null> {
   const row = await db.query.automations.findFirst({
     where: eq(automations.id, id),
   });
@@ -148,7 +160,9 @@ export async function createAutomation(
   workspaceId: number,
   input: AutomationInput,
 ): Promise<{ id: string }> {
-  const app = await db.query.apps.findFirst({ where: eq(apps.id, workspaceId) });
+  const app = await db.query.apps.findFirst({
+    where: eq(apps.id, workspaceId),
+  });
   if (!app) throw new Error("Workspace not found");
 
   const existing = await db

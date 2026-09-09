@@ -30,7 +30,9 @@ describe("isCmdShell on Windows", () => {
     setPlatform("win32");
     expect(isCmdShell("C:\\Program Files\\Git\\bin\\bash.exe")).toBe(false);
     // Wherever git happens to be installed.
-    expect(isCmdShell("C:\\Users\\me\\scoop\\apps\\git\\current\\bin\\bash.exe")).toBe(false);
+    expect(
+      isCmdShell("C:\\Users\\me\\scoop\\apps\\git\\current\\bin\\bash.exe"),
+    ).toBe(false);
   });
 
   it("says YES for cmd.exe, in either casing", () => {
@@ -41,8 +43,14 @@ describe("isCmdShell on Windows", () => {
 
   it("says NO for PowerShell — it is not cmd, and has no printf either", () => {
     setPlatform("win32");
-    expect(isCmdShell("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe")).toBe(false);
-    expect(isCmdShell("C:\\Program Files\\PowerShell\\7\\pwsh.exe")).toBe(false);
+    expect(
+      isCmdShell(
+        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      ),
+    ).toBe(false);
+    expect(isCmdShell("C:\\Program Files\\PowerShell\\7\\pwsh.exe")).toBe(
+      false,
+    );
   });
 
   it("handles forward slashes, which Node hands back on Windows too", () => {

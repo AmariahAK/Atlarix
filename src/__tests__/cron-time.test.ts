@@ -64,21 +64,30 @@ describe("clockFromCron", () => {
 describe("cronWithClock", () => {
   it("writes the time and PRESERVES day/month/weekday", () => {
     // "Weekly on Monday" must stay weekly on Monday when you change the hour.
-    expect(cronWithClock("0 9 * * 1", { hour12: 2, minute: 30, meridiem: "PM" }))
-      .toBe("30 14 * * 1");
-    expect(cronWithClock("0 9 1 * *", { hour12: 6, minute: 5, meridiem: "AM" }))
-      .toBe("5 6 1 * *");
+    expect(
+      cronWithClock("0 9 * * 1", { hour12: 2, minute: 30, meridiem: "PM" }),
+    ).toBe("30 14 * * 1");
+    expect(
+      cronWithClock("0 9 1 * *", { hour12: 6, minute: 5, meridiem: "AM" }),
+    ).toBe("5 6 1 * *");
   });
 
   it("maps midnight and noon back correctly", () => {
-    expect(cronWithClock("0 0 * * *", { hour12: 12, minute: 0, meridiem: "AM" }))
-      .toBe("0 0 * * *");
-    expect(cronWithClock("0 0 * * *", { hour12: 12, minute: 0, meridiem: "PM" }))
-      .toBe("0 12 * * *");
+    expect(
+      cronWithClock("0 0 * * *", { hour12: 12, minute: 0, meridiem: "AM" }),
+    ).toBe("0 0 * * *");
+    expect(
+      cronWithClock("0 0 * * *", { hour12: 12, minute: 0, meridiem: "PM" }),
+    ).toBe("0 12 * * *");
   });
 
   it("round-trips through the clock without drift", () => {
-    for (const cron of ["0 0 * * *", "30 14 * * 1", "7 9 * * *", "59 23 1 * *"]) {
+    for (const cron of [
+      "0 0 * * *",
+      "30 14 * * 1",
+      "7 9 * * *",
+      "59 23 1 * *",
+    ]) {
       const clock = clockFromCron(cron);
       expect(clock).not.toBeNull();
       expect(cronWithClock(cron, clock!)).toBe(cron);
@@ -86,8 +95,9 @@ describe("cronWithClock", () => {
   });
 
   it("falls back to a daily schedule when the existing cron is unusable", () => {
-    expect(cronWithClock("nonsense", { hour12: 9, minute: 0, meridiem: "AM" }))
-      .toBe("0 9 * * *");
+    expect(
+      cronWithClock("nonsense", { hour12: 9, minute: 0, meridiem: "AM" }),
+    ).toBe("0 9 * * *");
   });
 });
 
@@ -102,7 +112,11 @@ describe("picker options", () => {
   });
 
   it("formats with a padded minute", () => {
-    expect(formatClock({ hour12: 9, minute: 5, meridiem: "AM" })).toBe("9:05 AM");
-    expect(formatClock({ hour12: 12, minute: 0, meridiem: "PM" })).toBe("12:00 PM");
+    expect(formatClock({ hour12: 9, minute: 5, meridiem: "AM" })).toBe(
+      "9:05 AM",
+    );
+    expect(formatClock({ hour12: 12, minute: 0, meridiem: "PM" })).toBe(
+      "12:00 PM",
+    );
   });
 });

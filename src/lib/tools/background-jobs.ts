@@ -62,7 +62,9 @@ function resolveRunningJobId(
   const needle = wanted.toLowerCase();
   const exact = jobs.find((j) => j.operationId === wanted);
   if (exact) return { id: exact.operationId };
-  const byCommand = jobs.filter((j) => j.command.toLowerCase().includes(needle));
+  const byCommand = jobs.filter((j) =>
+    j.command.toLowerCase().includes(needle),
+  );
   if (byCommand.length === 1) return { id: byCommand[0]!.operationId };
   if (byCommand.length > 1) {
     return {
@@ -86,26 +88,36 @@ ToolRegistry.register({
   description:
     "Inspect and control background commands you started with run_command(background:true). " +
     "Identify a job with `job`: its id, or a distinctive part of its command — whichever you have. " +
-    "operation:\"list\" — running jobs (id, command, elapsed). " +
-    "operation:\"output\" — by default the NEW output since your last check (incremental). Pass mode:\"tail\" for the most recent output instead, which is what you want to see a still-running server's CURRENT state; tail never consumes your incremental position. Works on finished jobs too. " +
-    "operation:\"cancel\" — stop the job. " +
-    "operation:\"watch\" — attach a wake condition to a running job: pass `wake_on` and you'll be woken when its output contains that text (prefer this over polling). " +
-    "operation:\"allow_stalled\" — mark a running job as expected-to-be-quiet (a dev server / watcher / long service): stop the harness pinging you when it goes silent. It still runs and you still get its exit result. " +
-    "operation:\"wake_in\" — set/replace a live countdown timer on a running job: pass `seconds` and you'll be re-engaged then to re-check THAT job (only ONE timer per job — setting again replaces it, so timers never pile up). Prefer wake_on when the event is observable in output; use this for a timed re-check. " +
-    "operation:\"adjust_timer\" — add/subtract time on a job's existing countdown: pass `delta_seconds` (negative = sooner). " +
-    "\"list\" shows `wake_in_s` (the live seconds left) for any job that has a timer; a finished job drops its countdown, and won't ask you to re-check it even if the countdown had already elapsed. " +
+    'operation:"list" — running jobs (id, command, elapsed). ' +
+    'operation:"output" — by default the NEW output since your last check (incremental). Pass mode:"tail" for the most recent output instead, which is what you want to see a still-running server\'s CURRENT state; tail never consumes your incremental position. Works on finished jobs too. ' +
+    'operation:"cancel" — stop the job. ' +
+    'operation:"watch" — attach a wake condition to a running job: pass `wake_on` and you\'ll be woken when its output contains that text (prefer this over polling). ' +
+    'operation:"allow_stalled" — mark a running job as expected-to-be-quiet (a dev server / watcher / long service): stop the harness pinging you when it goes silent. It still runs and you still get its exit result. ' +
+    'operation:"wake_in" — set/replace a live countdown timer on a running job: pass `seconds` and you\'ll be re-engaged then to re-check THAT job (only ONE timer per job — setting again replaces it, so timers never pile up). Prefer wake_on when the event is observable in output; use this for a timed re-check. ' +
+    'operation:"adjust_timer" — add/subtract time on a job\'s existing countdown: pass `delta_seconds` (negative = sooner). ' +
+    '"list" shows `wake_in_s` (the live seconds left) for any job that has a timer; a finished job drops its countdown, and won\'t ask you to re-check it even if the countdown had already elapsed. ' +
     "Finished jobs are delivered to you automatically — use this only to peek at, watch, allow_stalled, time, or stop STILL-RUNNING jobs; never poll on a loop.",
   parameters: {
     type: "object",
     properties: {
       operation: {
         type: "string",
-        enum: ["list", "output", "cancel", "watch", "allow_stalled", "wake_in", "adjust_timer"],
-        description: "What to do: list running jobs, read a job's new output, cancel a job, watch a job for an output condition, allow_stalled a job (stop being pinged about it going quiet), wake_in (set a countdown timer to re-check the job), or adjust_timer (change the job's countdown).",
+        enum: [
+          "list",
+          "output",
+          "cancel",
+          "watch",
+          "allow_stalled",
+          "wake_in",
+          "adjust_timer",
+        ],
+        description:
+          "What to do: list running jobs, read a job's new output, cancel a job, watch a job for an output condition, allow_stalled a job (stop being pinged about it going quiet), wake_in (set a countdown timer to re-check the job), or adjust_timer (change the job's countdown).",
       },
       job: {
         type: "string",
-        description: "Which job to act on: a job id, or a distinctive substring of its command (e.g. \"npm run dev\").",
+        description:
+          'Which job to act on: a job id, or a distinctive substring of its command (e.g. "npm run dev").',
       },
       // `job_id` is still ACCEPTED (the handler reads `args.job_id`) but no
       // longer advertised: it was the same parameter under a second name, and
@@ -113,27 +125,33 @@ ToolRegistry.register({
       mode: {
         type: "string",
         enum: ["new", "tail"],
-        description: "For operation:\"output\" — \"new\" (default) returns only what appeared since your last check; \"tail\" returns the most recent output regardless, which is how you see a running process's current state. \"tail\" does not consume your incremental position.",
+        description:
+          'For operation:"output" — "new" (default) returns only what appeared since your last check; "tail" returns the most recent output regardless, which is how you see a running process\'s current state. "tail" does not consume your incremental position.',
       },
       max_lines: {
         type: "number",
-        description: "For mode:\"tail\" — how many trailing lines to return (default 200, max 2000).",
+        description:
+          'For mode:"tail" — how many trailing lines to return (default 200, max 2000).',
       },
       wake_on: {
         type: "string",
-        description: "For operation:\"watch\" — wake you when the job's output contains this text.",
+        description:
+          'For operation:"watch" — wake you when the job\'s output contains this text.',
       },
       wake_on_regex: {
         type: "boolean",
-        description: "Treat wake_on as a case-insensitive regex instead of a substring.",
+        description:
+          "Treat wake_on as a case-insensitive regex instead of a substring.",
       },
       seconds: {
         type: "number",
-        description: "For operation:\"wake_in\" — how many seconds from now to re-engage you to re-check this job (clamped to 60–14400).",
+        description:
+          'For operation:"wake_in" — how many seconds from now to re-engage you to re-check this job (clamped to 60–14400).',
       },
       delta_seconds: {
         type: "number",
-        description: "For operation:\"adjust_timer\" — seconds to add (positive) or subtract (negative) from the job's existing countdown.",
+        description:
+          'For operation:"adjust_timer" — seconds to add (positive) or subtract (negative) from the job\'s existing countdown.',
       },
     },
     required: ["operation"],
@@ -167,7 +185,9 @@ ToolRegistry.register({
           command: j.command,
           elapsed_s: Math.round(j.elapsedMs / 1000),
           // Live countdown ("96s left") for jobs that have a wake timer.
-          ...(j.wakeInMs != null ? { wake_in_s: Math.round(j.wakeInMs / 1000) } : {}),
+          ...(j.wakeInMs != null
+            ? { wake_in_s: Math.round(j.wakeInMs / 1000) }
+            : {}),
         })),
         // Commands whose output is still retained — including ones that have
         // already FINISHED, which is how a job that exited before you looked is
@@ -178,16 +198,19 @@ ToolRegistry.register({
         // command, so listing it as one invites a `job:"Agent"` that means
         // nothing. `operation:"output"` falls back to it by id when no command
         // name matches, which is the only way it is usefully reachable.
-        retained_output: listRetainedAgentCommands(resolveScopeKey(chatId, null)).map(
-          (t) => ({ command: t.label, lines: t.lineCount }),
-        ),
+        retained_output: listRetainedAgentCommands(
+          resolveScopeKey(chatId, null),
+        ).map((t) => ({ command: t.label, lines: t.lineCount })),
         note: jobs.length === 0 ? "No background jobs are running." : undefined,
       };
     }
 
     const wanted = String(args.job ?? args.job_id ?? "").trim();
     if (!wanted) {
-      return { success: false, error: `operation:"${operation}" requires \`job\` (an id, or part of the command).` };
+      return {
+        success: false,
+        error: `operation:"${operation}" requires \`job\` (an id, or part of the command).`,
+      };
     }
     const resolved = resolveRunningJobId(chatId, wanted);
     if (resolved && "error" in resolved) {
@@ -199,7 +222,10 @@ ToolRegistry.register({
 
     if (operation === "output") {
       const wantTail = String(args.mode ?? "new").toLowerCase() === "tail";
-      const maxLines = Math.min(2000, Math.max(1, Number(args.max_lines) || 200));
+      const maxLines = Math.min(
+        2000,
+        Math.max(1, Number(args.max_lines) || 200),
+      );
 
       // Tail on a RUNNING job: most recent output, cursor untouched, so asking
       // "what does this look like now" never costs the next incremental read.
@@ -261,10 +287,9 @@ ToolRegistry.register({
               terminal: read.label,
               mode: "tail",
               output: read.text || "(no output)",
-              note:
-                tab.shared
-                  ? `No command named "${wanted}" is retained separately; this is the recent output of foreground commands in this session. Act on it; do not re-run the work.`
-                  : "This job has finished and its result was already delivered — this is its retained output. Act on it; do not re-run the work.",
+              note: tab.shared
+                ? `No command named "${wanted}" is retained separately; this is the recent output of foreground commands in this session. Act on it; do not re-run the work.`
+                : "This job has finished and its result was already delivered — this is its retained output. Act on it; do not re-run the work.",
             };
           }
         }
@@ -272,7 +297,9 @@ ToolRegistry.register({
         // uses — retained COMMANDS. "Open terminals" named a UI the agent no
         // longer has: agent tabs and `run_command`'s `terminal` param were both
         // removed in v14.27.0, so a terminal is not something it can address.
-        const retained = listRetainedAgentCommands(scopeKey).map((t) => t.label);
+        const retained = listRetainedAgentCommands(scopeKey).map(
+          (t) => t.label,
+        );
         return {
           success: false,
           error:
@@ -294,14 +321,21 @@ ToolRegistry.register({
     if (operation === "cancel") {
       const ok = killBackgroundJob(chatId, jobId);
       return ok
-        ? { success: true, cancelled: jobId, note: "Cancellation requested (SIGTERM); the result will confirm." }
+        ? {
+            success: true,
+            cancelled: jobId,
+            note: "Cancellation requested (SIGTERM); the result will confirm.",
+          }
         : { success: false, error: `No running job "${jobId}" to cancel.` };
     }
 
     if (operation === "watch") {
       const pattern = String(args.wake_on ?? "").trim();
       if (!pattern) {
-        return { success: false, error: `operation:"watch" requires wake_on (text to match).` };
+        return {
+          success: false,
+          error: `operation:"watch" requires wake_on (text to match).`,
+        };
       }
       const ok = setWakeCondition(chatId, jobId, {
         pattern,
@@ -326,20 +360,33 @@ ToolRegistry.register({
             allow_stalled: true,
             note: "Won't ping you about this job going quiet anymore — it keeps running and you still get its exit result (and any wake_on match). Continue other work.",
           }
-        : { success: false, error: `No running job "${jobId}" to allow_stalled.` };
+        : {
+            success: false,
+            error: `No running job "${jobId}" to allow_stalled.`,
+          };
     }
 
     if (operation === "wake_in") {
       // Only time a job that's actually running (else the timer would orphan).
-      const running = listBackgroundJobs(chatId).some((j) => j.operationId === jobId);
+      const running = listBackgroundJobs(chatId).some(
+        (j) => j.operationId === jobId,
+      );
       if (!running) {
         return { success: false, error: `No running job "${jobId}" to time.` };
       }
       const seconds = Number(args.seconds);
       if (!Number.isFinite(seconds) || seconds <= 0) {
-        return { success: false, error: `operation:"wake_in" requires seconds > 0.` };
+        return {
+          success: false,
+          error: `operation:"wake_in" requires seconds > 0.`,
+        };
       }
-      const res = setJobWakeup(chatId, jobId, seconds * 1000, `re-check background job ${jobId}`);
+      const res = setJobWakeup(
+        chatId,
+        jobId,
+        seconds * 1000,
+        `re-check background job ${jobId}`,
+      );
       if ("error" in res) return { success: false, error: res.error };
       return {
         success: true,
@@ -352,11 +399,17 @@ ToolRegistry.register({
     if (operation === "adjust_timer") {
       const delta = Number(args.delta_seconds);
       if (!Number.isFinite(delta) || delta === 0) {
-        return { success: false, error: `operation:"adjust_timer" requires a non-zero delta_seconds.` };
+        return {
+          success: false,
+          error: `operation:"adjust_timer" requires a non-zero delta_seconds.`,
+        };
       }
       const res = adjustJobWakeup(chatId, jobId, delta * 1000);
       if (!res) {
-        return { success: false, error: `No timer on job "${jobId}" to adjust — set one with operation:"wake_in" first.` };
+        return {
+          success: false,
+          error: `No timer on job "${jobId}" to adjust — set one with operation:"wake_in" first.`,
+        };
       }
       return {
         success: true,

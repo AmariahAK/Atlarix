@@ -186,9 +186,9 @@ export function VoiceInputSettings() {
           <div className="space-y-0.5">
             <Label className="text-sm">Downloaded model</Label>
             <p className="text-xs text-muted-foreground">
-              The on-device engine caches its weights after the first use so it works
-              offline. Clear them if transcription is stuck or failing — they
-              re-download next time you dictate.
+              The on-device engine caches its weights after the first use so it
+              works offline. Clear them if transcription is stuck or failing —
+              they re-download next time you dictate.
             </p>
           </div>
           <Button

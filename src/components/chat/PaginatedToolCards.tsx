@@ -35,7 +35,9 @@ export function PaginatedToolCards({
     <div>
       {head}
       {expanded ? (
-        <div className="max-h-[28rem] overflow-auto overscroll-contain">{rest}</div>
+        <div className="max-h-[28rem] overflow-auto overscroll-contain">
+          {rest}
+        </div>
       ) : null}
       <button
         type="button"

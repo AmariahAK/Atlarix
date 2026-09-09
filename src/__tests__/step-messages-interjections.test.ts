@@ -77,18 +77,14 @@ describe("buildStepMessages — interjections", () => {
     const r = buildStepMessages({
       messages: history,
       injected: "",
-      interjections: [
-        { text: "use Postgres" },
-        { text: "no wait, SQLite" },
-      ],
+      interjections: [{ text: "use Postgres" }, { text: "no wait, SQLite" }],
       tag: systemReminder,
     });
     // SEPARATE, not joined: order carries the meaning of a correction, and a
     // single blob invites the model to act on the last line alone.
-    expect((r.messages as { content: string }[]).slice(1).map((m) => m.content)).toEqual([
-      "use Postgres",
-      "no wait, SQLite",
-    ]);
+    expect(
+      (r.messages as { content: string }[]).slice(1).map((m) => m.content),
+    ).toEqual(["use Postgres", "no wait, SQLite"]);
   });
 
   it("never mutates the caller's history array", () => {

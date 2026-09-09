@@ -38,7 +38,8 @@ export type RefundAmounts = {
 
 /** A finite, positive number or null. Strings that look numeric do not count. */
 function positiveNumber(value: unknown): number | null {
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return null;
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0)
+    return null;
   return value;
 }
 
@@ -68,8 +69,10 @@ export type RefundFraction = {
  */
 export function refundFraction(amounts: RefundAmounts): RefundFraction {
   const refunded = positiveNumber(amounts.refunded_amount);
-  const basis = positiveNumber(amounts.total) ?? positiveNumber(amounts.subtotal);
-  if (refunded === null || basis === null) return { fraction: 1, assumedFull: true };
+  const basis =
+    positiveNumber(amounts.total) ?? positiveNumber(amounts.subtotal);
+  if (refunded === null || basis === null)
+    return { fraction: 1, assumedFull: true };
   return { fraction: Math.min(1, refunded / basis), assumedFull: false };
 }
 
@@ -81,7 +84,10 @@ export function refundFraction(amounts: RefundAmounts): RefundFraction {
  * behind on every rounding-error refund, and a grant that never quite empties
  * is a grant that keeps a subscription alive after it was refunded.
  */
-export function grantClawbackCents(monthlyGrantCents: number, fraction: number): number {
+export function grantClawbackCents(
+  monthlyGrantCents: number,
+  fraction: number,
+): number {
   if (!Number.isFinite(monthlyGrantCents) || monthlyGrantCents <= 0) return 0;
   const clamped = Math.max(0, Math.min(1, fraction));
   return Math.round(monthlyGrantCents * clamped);
@@ -157,6 +163,10 @@ export function incrementalClawbackCents(
   alreadyTakenCents: number,
 ): number {
   if (!Number.isFinite(cumulativeCents) || cumulativeCents <= 0) return 0;
-  if (!Number.isFinite(alreadyTakenCents) || alreadyTakenCents < 0) alreadyTakenCents = 0;
-  return Math.max(0, Math.round(cumulativeCents) - Math.round(alreadyTakenCents));
+  if (!Number.isFinite(alreadyTakenCents) || alreadyTakenCents < 0)
+    alreadyTakenCents = 0;
+  return Math.max(
+    0,
+    Math.round(cumulativeCents) - Math.round(alreadyTakenCents),
+  );
 }

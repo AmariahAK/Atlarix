@@ -12,7 +12,9 @@ export function resetTerminalInstancesForNewChat(): void {
   store.set(terminalInstancesByScopeAtom, {});
   store.set(activeTerminalInstanceByScopeAtom, {});
   store.set(terminalAgentOpMapByScopeAtom, {});
-  void IpcClient.getInstance().clearAllTerminalInstances().catch(() => {
-    /* main may be unavailable in tests */
-  });
+  void IpcClient.getInstance()
+    .clearAllTerminalInstances()
+    .catch(() => {
+      /* main may be unavailable in tests */
+    });
 }

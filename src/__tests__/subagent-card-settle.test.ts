@@ -33,7 +33,9 @@ describe("the still-running envelope is recognised", () => {
       '<task id="t1" state="running">\n<summary>slow scout</summary>\n' +
       "<task_result>\nStill running after 30s — moved to the background (task_id: t1).\n" +
       "</task_result>\n</task>";
-    expect(extractDelegationDisplaySummary(envelope, envelope).isRunning).toBe(true);
+    expect(extractDelegationDisplaySummary(envelope, envelope).isRunning).toBe(
+      true,
+    );
   });
 
   it("does NOT flag a genuinely finished task", () => {
@@ -66,7 +68,11 @@ describe("the card settles when the run really ends", () => {
       () =>
         new Promise((resolve) => {
           release = () =>
-            resolve({ success: true, summary: "the real answer", stepsUsed: 2 });
+            resolve({
+              success: true,
+              summary: "the real answer",
+              stepsUsed: 2,
+            });
         }),
     );
 
@@ -106,7 +112,9 @@ describe("the card settles when the run really ends", () => {
     vi.mocked(runSubagent).mockImplementationOnce(
       (a: Parameters<typeof runSubagent>[0]) =>
         new Promise((_res, rej) => {
-          a.abortSignal?.addEventListener("abort", () => rej(new Error("aborted")));
+          a.abortSignal?.addEventListener("abort", () =>
+            rej(new Error("aborted")),
+          );
         }),
     );
 
@@ -154,7 +162,9 @@ describe("sub-agent narration is readable, not raw JSON", () => {
             detail:
               '{"success":true,"result":{"success":true,"result":"5 match(es) for \\"ParseQuery\\"..."}}',
           });
-          a.abortSignal?.addEventListener("abort", () => rej(new Error("aborted")));
+          a.abortSignal?.addEventListener("abort", () =>
+            rej(new Error("aborted")),
+          );
         }),
     );
 

@@ -69,13 +69,8 @@ export interface ResolvedToolset {
 export function resolveToolsetForSession(
   input: ResolveToolsetInput,
 ): ResolvedToolset {
-  const {
-    branch,
-    effectiveWorkMode,
-    hasWorkspace,
-    model,
-    userAgentTools,
-  } = input;
+  const { branch, effectiveWorkMode, hasWorkspace, model, userAgentTools } =
+    input;
 
   // Stage 1 — registry metadata (branch-specific starting surface).
   let candidates: ToolMetadata[];

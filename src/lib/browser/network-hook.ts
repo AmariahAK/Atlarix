@@ -155,7 +155,9 @@ export function tryParseNetworkSentinel(
       // Re-clip on this side too: the cap above is enforced by a script running
       // in a hostile document, so it is a courtesy, not a guarantee.
       body:
-        typeof rec.body === "string" ? rec.body.slice(0, NETWORK_BODY_MAX) : undefined,
+        typeof rec.body === "string"
+          ? rec.body.slice(0, NETWORK_BODY_MAX)
+          : undefined,
       truncated:
         rec.truncated === true ||
         (typeof rec.body === "string" && rec.body.length > NETWORK_BODY_MAX),

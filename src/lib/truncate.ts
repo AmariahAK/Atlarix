@@ -82,7 +82,11 @@ export function headTailTruncateToTokens(
   ) {
     return { text: content, omittedChars: 0 };
   }
-  const head = truncateToTokens(content.slice(0, headWindowChars), headTokens, "");
+  const head = truncateToTokens(
+    content.slice(0, headWindowChars),
+    headTokens,
+    "",
+  );
   // Longest suffix of the tail window whose estimated tokens fit `tailTokens`.
   const tailWindow = sliceSuffixWithoutSplittingSurrogate(
     content,
@@ -92,7 +96,8 @@ export function headTailTruncateToTokens(
   let hi = tailWindow.length;
   while (lo < hi) {
     const mid = Math.floor((lo + hi + 1) / 2);
-    if (estimateTokens(tailWindow.slice(tailWindow.length - mid)) <= tailTokens) lo = mid;
+    if (estimateTokens(tailWindow.slice(tailWindow.length - mid)) <= tailTokens)
+      lo = mid;
     else hi = mid - 1;
   }
   const tail = sliceSuffixWithoutSplittingSurrogate(

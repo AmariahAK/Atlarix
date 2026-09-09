@@ -2,10 +2,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useAtomValue, useSetAtom } from "jotai";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  selectedAppIdAtom,
-  selectedWorkspaceInfoAtom,
-} from "@/atoms/appAtoms";
+import { selectedAppIdAtom, selectedWorkspaceInfoAtom } from "@/atoms/appAtoms";
 import { activeChatIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
 import { cn } from "@/lib/utils";
 
@@ -29,8 +26,7 @@ export function SettingsWorkspaceNav({ className }: SettingsWorkspaceNavProps) {
 
   const workspaceLabel = workspaceInfo?.name?.trim() || "workspace";
   const inWorkspace =
-    selectedAppId != null ||
-    Boolean(workspaceInfo?.path?.trim());
+    selectedAppId != null || Boolean(workspaceInfo?.path?.trim());
 
   return (
     <nav

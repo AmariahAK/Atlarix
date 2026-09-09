@@ -20,7 +20,9 @@ describe("model-identity-prompt", () => {
   });
 
   it("formats DeepSeek-style api names for display", () => {
-    expect(formatModelApiNameForDisplay("deepseek/deepseek-v3")).toContain("DeepSeek");
+    expect(formatModelApiNameForDisplay("deepseek/deepseek-v3")).toContain(
+      "DeepSeek",
+    );
   });
 
   it("maps provider ids to brand names", () => {
@@ -88,7 +90,8 @@ describe("model-identity-prompt", () => {
  * searching for an alternative obviously wrong.
  */
 describe("memory location in the runtime identity block", () => {
-  const MEM = "/Users/x/.atlarix/projects/Users-x-Documents-wisdom-drop-1upmb8f/memory";
+  const MEM =
+    "/Users/x/.atlarix/projects/Users-x-Documents-wisdom-drop-1upmb8f/memory";
 
   const block = (memoryDir?: string) =>
     buildWorkstationIdentityBlock({

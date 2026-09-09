@@ -34,7 +34,9 @@ export function isFailedToolResult(raw: unknown): boolean {
   const o = raw as { success?: unknown; error?: unknown };
   if (o.success === false) return true;
   return (
-    o.success !== true && typeof o.error === "string" && o.error.trim().length > 0
+    o.success !== true &&
+    typeof o.error === "string" &&
+    o.error.trim().length > 0
   );
 }
 

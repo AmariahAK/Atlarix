@@ -6,4 +6,3 @@ export function selectionUsesCompass(
 ): boolean {
   return selected?.provider === "compass";
 }
-

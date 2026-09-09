@@ -47,10 +47,17 @@ for (const file of walk(root)) {
   if (rel.length < 3) continue; // need model/harness/.../result.json
   const r = reward(file);
   if (!r) continue;
-  rows.push({ model: rel[0], harness: rel[1], ...r, accuracy: (r.passed / r.total) * 100 });
+  rows.push({
+    model: rel[0],
+    harness: rel[1],
+    ...r,
+    accuracy: (r.passed / r.total) * 100,
+  });
 }
 if (!rows.length) {
-  console.error(`No parseable result.json under ${root} (expected results/<model>/<harness>/.../result.json)`);
+  console.error(
+    `No parseable result.json under ${root} (expected results/<model>/<harness>/.../result.json)`,
+  );
   process.exit(1);
 }
 

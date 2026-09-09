@@ -85,7 +85,11 @@ describe("headless trajectory writer", () => {
     // STARTED — a consumer that wants just the outcome can pair by toolCallId.
     expect(tools).toHaveLength(2);
     expect(tools[0]).toMatchObject({ status: "running", ts: 1000 });
-    expect(tools[1]).toMatchObject({ status: "done", ts: 2000, resultText: "3 passed" });
+    expect(tools[1]).toMatchObject({
+      status: "done",
+      ts: 2000,
+      resultText: "3 passed",
+    });
     expect(tools[0].args).toEqual({ command: "pytest -q" });
     expect(tools.every((t) => t.toolName === "run_command")).toBe(true);
   });
@@ -94,15 +98,25 @@ describe("headless trajectory writer", () => {
     const w = createTrajectoryWriter(file, META);
     // The throttled renderer ticker: inputTokens null, output GUESSED as chars/4.
     // Recording it would put invented numbers in a file used to report cost.
-    w.onSend(send("chat:token-usage", { inputTokens: null, outputTokens: 250 }));
     w.onSend(
-      send("chat:token-usage", { inputTokens: 900, outputTokens: 120, totalTokens: 1020 }),
+      send("chat:token-usage", { inputTokens: null, outputTokens: 250 }),
+    );
+    w.onSend(
+      send("chat:token-usage", {
+        inputTokens: 900,
+        outputTokens: 120,
+        totalTokens: 1020,
+      }),
     );
     w.close();
 
     const usage = readLines().filter((l) => l.type === "token_usage");
     expect(usage).toHaveLength(1);
-    expect(usage[0]).toMatchObject({ inputTokens: 900, outputTokens: 120, totalTokens: 1020 });
+    expect(usage[0]).toMatchObject({
+      inputTokens: 900,
+      outputTokens: 120,
+      totalTokens: 1020,
+    });
   });
 
   it("writes assistant text once at turn end, not once per chunk", () => {
@@ -110,11 +124,17 @@ describe("headless trajectory writer", () => {
     // Each chunk re-sends the FULL accumulated content. One line per chunk would
     // make the file grow with the square of the reply.
     for (const content of ["Loo", "Looking", "Looking at it"]) {
-      w.onSend(send("chat:response:chunk", { messages: [{ role: "assistant", content }] }));
+      w.onSend(
+        send("chat:response:chunk", {
+          messages: [{ role: "assistant", content }],
+        }),
+      );
     }
     expect(fs.readFileSync(file, "utf8").includes("Looking")).toBe(false);
 
-    w.onSend(send("chat:response:end", { turnTokens: 1020, turnCostUsd: 0.004 }));
+    w.onSend(
+      send("chat:response:end", { turnTokens: 1020, turnCostUsd: 0.004 }),
+    );
     w.close();
 
     const texts = readLines().filter((l) => l.type === "assistant_text");
@@ -185,8 +205,14 @@ describe("headless trajectory writer", () => {
         status: "running",
         toolArgs: { path: "a.ts" },
       }),
-      send("chat:token-usage", { inputTokens: 10, outputTokens: 2, totalTokens: 12 }),
-      send("chat:response:chunk", { messages: [{ role: "assistant", content: "hi" }] }),
+      send("chat:token-usage", {
+        inputTokens: 10,
+        outputTokens: 2,
+        totalTokens: 12,
+      }),
+      send("chat:response:chunk", {
+        messages: [{ role: "assistant", content: "hi" }],
+      }),
       send("chat:response:error", { error: "boom" }),
     ];
     for (const e of events) {
@@ -196,7 +222,10 @@ describe("headless trajectory writer", () => {
       expect(lines.every((l) => typeof l.type === "string")).toBe(true);
     }
     w.recordTermination("SIGTERM");
-    expect(readLines().at(-1)).toMatchObject({ type: "run_terminated", signal: "SIGTERM" });
+    expect(readLines().at(-1)).toMatchObject({
+      type: "run_terminated",
+      signal: "SIGTERM",
+    });
     w.close();
   });
 
@@ -265,7 +294,11 @@ describe("headless trajectory writer", () => {
     // straight into the error line.
     const w = createTrajectoryWriter(file, META);
     const key = `sk-ant-${"A1b2C3d4E5f6G7h8J9k0"}`;
-    w.onSend(send("chat:response:error", { error: `Authentication failed for ${key}` }));
+    w.onSend(
+      send("chat:response:error", {
+        error: `Authentication failed for ${key}`,
+      }),
+    );
     // Not just the error path: a command's own arguments carry them too.
     w.onSend(
       send("chat:activity", {
@@ -273,7 +306,9 @@ describe("headless trajectory writer", () => {
         toolCallId: "c1",
         toolName: "run_command",
         status: "done",
-        toolArgs: { command: `curl -H "Authorization: Bearer ${key}" https://x` },
+        toolArgs: {
+          command: `curl -H "Authorization: Bearer ${key}" https://x`,
+        },
         resultText: `wrote ${key} to .env`,
       }),
     );
@@ -292,7 +327,9 @@ describe("headless trajectory writer", () => {
     // Redacting the serialized line must not corrupt the JSON around it.
     expect(() => readLines()).not.toThrow();
     const lines = readLines();
-    expect(lines.find((l) => l.type === "tool_use")?.toolName).toBe("run_command");
+    expect(lines.find((l) => l.type === "tool_use")?.toolName).toBe(
+      "run_command",
+    );
     expect(lines.find((l) => l.type === "assistant_text")?.text).toContain(
       "[redacted secret]",
     );
@@ -303,9 +340,10 @@ describe("headless trajectory writer", () => {
     w.close();
     // Post-close writes hit a closed fd. A benchmark result is worth more than
     // its trace, so this must be inert rather than throw.
-    expect(() => w.onSend(send("chat:response:end", { turnTokens: 1 }))).not.toThrow();
+    expect(() =>
+      w.onSend(send("chat:response:end", { turnTokens: 1 })),
+    ).not.toThrow();
     expect(() => w.recordRunEnd(true)).not.toThrow();
     expect(() => w.close()).not.toThrow();
   });
 });
-

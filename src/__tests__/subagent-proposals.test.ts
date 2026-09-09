@@ -43,7 +43,8 @@ function envelope(rel: string, content: string, oldContent?: string) {
       path: rel,
       content,
       ...(oldContent !== undefined ? { oldContent } : {}),
-      type: oldContent === undefined ? ("create" as const) : ("update" as const),
+      type:
+        oldContent === undefined ? ("create" as const) : ("update" as const),
     },
   };
 }
@@ -63,21 +64,41 @@ describe("the overlay", () => {
   });
 
   it("does not leak between sub-agents", () => {
-    const a = createProposalSet({ chatId: 1, taskId: "ta", agentName: "a", workspace: WS });
-    const b = createProposalSet({ chatId: 1, taskId: "tb", agentName: "b", workspace: WS });
+    const a = createProposalSet({
+      chatId: 1,
+      taskId: "ta",
+      agentName: "a",
+      workspace: WS,
+    });
+    const b = createProposalSet({
+      chatId: 1,
+      taskId: "tb",
+      agentName: "b",
+      workspace: WS,
+    });
     recordEditProposal(a, envelope("a.ts", "from-a\n", "v1\n"));
     expect(overlayContent(b, path.resolve(WS, "a.ts"))).toBeNull();
   });
 
   it("returns null for an untouched file so the caller reads disk", () => {
-    const id = createProposalSet({ chatId: 1, taskId: "t1", agentName: "w", workspace: WS });
+    const id = createProposalSet({
+      chatId: 1,
+      taskId: "t1",
+      agentName: "w",
+      workspace: WS,
+    });
     expect(overlayContent(id, path.resolve(WS, "never-touched.ts"))).toBeNull();
   });
 });
 
 describe("capture", () => {
   it("keeps the ORIGINAL base across repeated edits to one file", () => {
-    const id = createProposalSet({ chatId: 1, taskId: "t1", agentName: "w", workspace: WS });
+    const id = createProposalSet({
+      chatId: 1,
+      taskId: "t1",
+      agentName: "w",
+      workspace: WS,
+    });
     recordEditProposal(id, envelope("a.ts", "v2\n", "v1\n"));
     // The second edit's oldContent is the OVERLAY's body, not disk. Adopting it
     // as the base would lose "v1" and defeat the staleness check at accept time.
@@ -90,7 +111,12 @@ describe("capture", () => {
   });
 
   it("keeps type=create even when the file is rewritten later", () => {
-    const id = createProposalSet({ chatId: 1, taskId: "t1", agentName: "w", workspace: WS });
+    const id = createProposalSet({
+      chatId: 1,
+      taskId: "t1",
+      agentName: "w",
+      workspace: WS,
+    });
     recordEditProposal(id, envelope("new.ts", "first\n"));
     recordEditProposal(id, envelope("new.ts", "second\n", "first\n"));
     const file = getProposalSet(id)!.files.get(path.resolve(WS, "new.ts"))!;
@@ -99,23 +125,42 @@ describe("capture", () => {
   });
 
   it("ignores anything that isn't an edit_file proposal", () => {
-    const id = createProposalSet({ chatId: 1, taskId: "t1", agentName: "w", workspace: WS });
-    expect(recordEditProposal(id, { success: false, error: "nope" })).toBeNull();
-    expect(recordEditProposal(id, { __permission_required: true, operation: "run_command" })).toBeNull();
+    const id = createProposalSet({
+      chatId: 1,
+      taskId: "t1",
+      agentName: "w",
+      workspace: WS,
+    });
+    expect(
+      recordEditProposal(id, { success: false, error: "nope" }),
+    ).toBeNull();
+    expect(
+      recordEditProposal(id, {
+        __permission_required: true,
+        operation: "run_command",
+      }),
+    ).toBeNull();
     expect(getProposalSet(id)!.files.size).toBe(0);
   });
 
   it("refuses a body over the per-file cap instead of holding it", () => {
-    const id = createProposalSet({ chatId: 1, taskId: "t1", agentName: "w", workspace: WS });
+    const id = createProposalSet({
+      chatId: 1,
+      taskId: "t1",
+      agentName: "w",
+      workspace: WS,
+    });
     const huge = "x".repeat(3 * 1024 * 1024);
-    expect(() => recordEditProposal(id, envelope("big.ts", huge, "small\n"))).toThrow(
-      /per-file limit/,
-    );
+    expect(() =>
+      recordEditProposal(id, envelope("big.ts", huge, "small\n")),
+    ).toThrow(/per-file limit/);
   });
 });
 
 describe("rebase at accept time", () => {
-  const base = ["one", "two", "three", "four", "five", "six", "seven"].join("\n");
+  const base = ["one", "two", "three", "four", "five", "six", "seven"].join(
+    "\n",
+  );
 
   it("is byte-exact when the file has not moved", () => {
     const proposed = base.replace("four", "FOUR");
@@ -263,7 +308,10 @@ describe("accepting through the proposals tool", () => {
       agentName: "w",
       workspace: ws,
     });
-    recordEditProposal(id, envelope("src/auth/session.ts", "after\n", "before\n"));
+    recordEditProposal(
+      id,
+      envelope("src/auth/session.ts", "after\n", "before\n"),
+    );
 
     const out = (await ToolRegistry.execute("proposals", {
       operation: "show",
@@ -285,7 +333,10 @@ describe("accepting through the proposals tool", () => {
       agentName: "w",
       workspace: ws,
     });
-    recordEditProposal(id, envelope("src/auth/session.ts", "after\n", "before\n"));
+    recordEditProposal(
+      id,
+      envelope("src/auth/session.ts", "after\n", "before\n"),
+    );
 
     const out = (await ToolRegistry.execute("proposals", {
       operation: "show",

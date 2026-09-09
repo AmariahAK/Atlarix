@@ -179,7 +179,10 @@ function stripCacheKeys(
       typeof entry === "object" &&
       cacheKey in (entry as Record<string, unknown>)
     ) {
-      const { [cacheKey]: _removed, ...rest } = entry as Record<string, unknown>;
+      const { [cacheKey]: _removed, ...rest } = entry as Record<
+        string,
+        unknown
+      >;
       changed = true;
       if (Object.keys(rest).length > 0) out[provider] = rest;
     } else {

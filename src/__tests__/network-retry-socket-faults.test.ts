@@ -13,7 +13,10 @@ import { isNetworkStreamError } from "@/ipc/handlers/chat_stream/network-retry";
  */
 
 const socketFault = () => {
-  const e = new Error("other side closed") as Error & { name: string; code: string };
+  const e = new Error("other side closed") as Error & {
+    name: string;
+    code: string;
+  };
   e.name = "SocketError";
   e.code = "UND_ERR_SOCKET";
   return e;
@@ -41,8 +44,12 @@ describe("isNetworkStreamError: undici socket faults", () => {
   it("still fails fast on a genuine bug", () => {
     // The point of absorbing network faults is that they are transient. A
     // programming error is not, and must keep ending the run.
-    expect(isNetworkStreamError(new TypeError("x is not a function"))).toBe(false);
-    expect(isNetworkStreamError(new Error("no such file or directory"))).toBe(false);
+    expect(isNetworkStreamError(new TypeError("x is not a function"))).toBe(
+      false,
+    );
+    expect(isNetworkStreamError(new Error("no such file or directory"))).toBe(
+      false,
+    );
   });
 
   it("never treats an abort as a fault", () => {

@@ -13,7 +13,7 @@ Nothing here is a commitment. An entry graduates to TODO when it becomes active 
 
 ## The e2e suite — RETIRED 2026-08-19, and why not repaired
 
-*Recorded so "we should bring back e2e" starts from the measurement rather than the instinct.*
+_Recorded so "we should bring back e2e" starts from the measurement rather than the instinct._
 
 **The measurement:** of the 68 `getByTestId` values the suite referenced, **60 no longer existed in
 `src`** — 88%. Not peripheral ones: `chat-input-container`, `messages-list`, `chat-mode-selector`,
@@ -28,7 +28,7 @@ specs against the current UI, which is days of work whose output a fresh suite w
 returned nothing. Running it required a full `npm run package` first, so nobody ran it locally either.
 A suite that nothing executes cannot fail, so it rots silently while continuing to look like coverage —
 which is worse than no coverage, because it answers "are we covered?" with a yes. That is the same
-concern as *Suite sensitivity* below, arrived at from the opposite direction.
+concern as _Suite sensitivity_ below, arrived at from the opposite direction.
 
 **If a future suite is written:** wire it into CI on day one, before writing the second spec. Coverage
 that is not executed on every push is a liability with a plausible face. `git log` has the old suite if
@@ -38,9 +38,9 @@ its scenarios are useful as a starting list.
 
 ## Account bans — SHIPPED 2026-08-19, recorded for the scope decision
 
-*The reasoning is here rather than in the CHANGELOG because the interesting part is what a ban
+_The reasoning is here rather than in the CHANGELOG because the interesting part is what a ban
 deliberately does NOT do, and that will be re-litigated the first time someone asks why a banned user
-can still use the app with their own key.*
+can still use the app with their own key._
 
 **Scope: Atlarix Core spend + the account. Not BYOK, not local models.**
 
@@ -89,8 +89,8 @@ person for the wrong reason.
 
 ## QA sub-agents
 
-*Recorded 2026-08-15. The agent's own QA pass: after building something, spawn workers that
-exercise the running app and report findings.*
+_Recorded 2026-08-15. The agent's own QA pass: after building something, spawn workers that
+exercise the running app and report findings._
 
 **It is not stress testing** — it is acceptance and exploratory QA. If it is named or prompted as
 "stress test", the model will fire a thousand requests at a dev server and call that work.
@@ -113,7 +113,7 @@ exercise the running app and report findings.*
 - **A scoped `http_request`, not the terminal.** `curl` hands over the whole shell to solve an HTTP
   problem — with it comes `rm`, `git checkout`, restarting the DB, reading `.env` into a prompt —
   and a QA agent is the likeliest to wander, because its job is literally "try things".
-  - A native tool returns `{status, headers, body, ms}`, which *is* the evidence the findings
+  - A native tool returns `{status, headers, body, ms}`, which _is_ the evidence the findings
     contract needs. Parsing `curl` output is where hallucinated findings come from.
   - It can be bound to the surface's declared origin. A shell cannot; a prompt asking it to stay on
     localhost is a suggestion, not a boundary (cf. the `cd` lesson — any absolute path shown to a
@@ -130,8 +130,8 @@ exercise the running app and report findings.*
 
 - **Individual findings, one shared contract.** Shared notes conflict on write and contaminate —
   one agent reads another's speculation ("login seems broken") and hunts a bug that doesn't exist.
-  Independence is the point of having two testers. What crosses between them is *observations at
-  the boundary* — the actual request/response — never opinions.
+  Independence is the point of having two testers. What crosses between them is _observations at
+  the boundary_ — the actual request/response — never opinions.
 - **No evidence, no finding.** An agent that finds nothing feels like it failed, so it will invent
   something. This single risk decides whether the feature is loved or switched off.
   - Every finding carries a screenshot / status code / console line / log excerpt.
@@ -155,21 +155,21 @@ it would fail our own net-less-surface filter. The agent receives a list and ret
 to it; it never checks anything off.
 
 > **The generalized rule: structure the return, not the work.** Every worker type returns a schema.
-> Only workers whose value is *coverage* (QA, implementer) receive an enumerated task; workers
-> whose value is *discovery* (explorer, architect) receive an objective.
+> Only workers whose value is _coverage_ (QA, implementer) receive an enumerated task; workers
+> whose value is _discovery_ (explorer, architect) receive an objective.
 
 **Settled 2026-08-17 — how an item gets marked done.** The alternative on the table was a
 check-off tool the worker calls as it goes. Rejected, and the reason is enforcement rather than
 surface area: a check-off is **self-report**, so a model that forgets the call looks like it skipped
-an item it did, and a model that calls it eagerly marks done what it never touched — and *neither
-mistake is detectable by us*. The return schema is checkable, because the harness still holds the
+an item it did, and a model that calls it eagerly marks done what it never touched — and _neither
+mistake is detectable by us_. The return schema is checkable, because the harness still holds the
 contract it sent: the worker must come back with one entry per item
 (`{item, status: pass | fail | blocked | not-reached, evidence}`), and a missing item is a
 validation failure that re-prompts naming exactly what is unaccounted for, not silence the user has
 to notice. `not-reached` is first-class — it is the same "broken vs untested" distinction the
 findings contract already insists on.
 
-The counter, recorded honestly: Anthropic retired TodoWrite because *frontier* models don't need the
+The counter, recorded honestly: Anthropic retired TodoWrite because _frontier_ models don't need the
 scaffold, and we deliberately target weak and local models that genuinely do drift on a six-item
 list. But a drifting model is precisely the one whose self-reported check-offs cannot be trusted.
 **Build the contract and the validated return, measure on `tests/agent-evals` against a weak model,
@@ -184,7 +184,7 @@ that already feeds the per-worker cards rather than from a new tool.
 ### Reuse
 
 Build on **`browser_test`** (`src/lib/tools/browser.ts`), which already runs a step sequence and
-reports `passed` plus console errors and 4xx/5xx. QA is the exploratory loop *around* it, not a
+reports `passed` plus console errors and 4xx/5xx. QA is the exploratory loop _around_ it, not a
 replacement. The in-app browser tools (`browser_navigate` / `browser_inspect` / `browser_interact`,
 with stable element `ref`s), background commands with auto-promote, and per-mode tool profiles
 (`resolve-toolset.ts`, `mode-tool-registry.ts`) all already exist — this is a new **role** in
@@ -208,8 +208,8 @@ existing machinery, not a new subsystem.
   baseline, a controlled environment and warm-up, numbers off a dev machine hitting a debug build
   through a dev server are noise people will make decisions on. If a user explicitly asks, the
   honest deliverable is a k6/vegeta script they run from somewhere that isn't their laptop.
-  *Functional testing asks a question; load testing applies force — consent for the first is not
-  consent for the second,* and volume is a separate, higher gate with a declared, capped rate.
+  _Functional testing asks a question; load testing applies force — consent for the first is not
+  consent for the second,_ and volume is a separate, higher gate with a declared, capped rate.
 - **Environment bring-up.** v1 requires the app already running with URLs named. Auto-detecting dev
   servers, seeding DBs and handling auth would eat the whole feature and yield a demo that works on
   Vite hello-world and dies on every real repo. Reading `Local: http://localhost:5173` out of a
@@ -226,9 +226,9 @@ the app.
 
 ## Errors tab → Console + Network
 
-*Recorded 2026-08-15 after an audit. **Both halves shipped in v14.31.0** (2026-08-16). What is kept
+_Recorded 2026-08-15 after an audit. **Both halves shipped in v14.31.0** (2026-08-16). What is kept
 below is the record of what the audit found, the spike that overturned the CDP decision, and the
-reasoning that outlived the implementation.*
+reasoning that outlived the implementation._
 
 ### What actually landed, and the one thing that changed the design
 
@@ -251,7 +251,7 @@ What replaced it, in both directions:
   the half that actually replaces the gate: when something genuinely IS broken, the person looking
   at it knows, and the harness does not have to guess.
 
-The reasoning worth keeping: *a guard that cannot be right should inform, not block.* That is the
+The reasoning worth keeping: _a guard that cannot be right should inform, not block._ That is the
 same conclusion `atlarix-loop-termination-no-caps` and the v14.8.10 "guards guide via the result
 channel, never dead-end" note reached from different directions.
 
@@ -262,12 +262,12 @@ Attaching `webContents.debugger` + `Network.enable` to a **browser tab** (never 
 session makes the second load hit a warm HTTP cache and the comparison meaningless (the first
 attempt showed a bogus −76.5% request drop that was entirely cache):
 
-| | plain | CDP attached |
-| --- | --- | --- |
-| requests completed | 29 | **39** |
-| load time | 5337ms | **2467ms** |
+|                    | plain  | CDP attached |
+| ------------------ | ------ | ------------ |
+| requests completed | 29     | **39**       |
+| load time          | 5337ms | **2467ms**   |
 
-Attached saw *more* requests and loaded *faster*, so **no sign of
+Attached saw _more_ requests and loaded _faster_, so **no sign of
 [#23035](https://github.com/electron/electron/issues/23035)** ("attach blocks some requests") on
 this version. It survived navigation (`requestWillBeSent` 51 → 172), stayed attached with no
 `detach` event, and closed cleanly. Memory delta was smaller than the plain load's.
@@ -301,7 +301,7 @@ exclusively and would reintroduce the exact conflict the Console work just remov
 stay on `webRequest` and be honest in the UI about what the numbers mean.
 
 **Direction: two real devtools-style tabs; the Errors tab folds in and severity becomes a filter.**
-Dev-server/build errors become a labelled *source* inside Console, not a casualty. The completion
+Dev-server/build errors become a labelled _source_ inside Console, not a casualty. The completion
 gate keeps reading only errors underneath.
 
 ```
@@ -337,7 +337,7 @@ Right panel
 filters to `level: "error"` because React/Next dev mode emits benign warnings that must not block a
 turn, and `NOISY_PREVIEW_RESOURCE_TYPES` is excluded so a missing favicon can't trip it.
 
-Widening *capture* for the UI while leaving the *gate* predicate untouched is the whole job — and
+Widening _capture_ for the UI while leaving the _gate_ predicate untouched is the whole job — and
 `browser_test` reads the same buffer, so a mistake here silently changes when the agent believes it
 is finished.
 
@@ -353,14 +353,14 @@ used the old Errors tab as its observation channel.
 
 ## Fork sub-agents — CLOSED, the economics do not work
 
-*Recorded 2026-08-15, **rejected 2026-08-17** after doing the arithmetic. Kept as a record so the
+_Recorded 2026-08-15, **rejected 2026-08-17** after doing the arithmetic. Kept as a record so the
 idea is not re-derived; the original sketch is preserved below the verdict because the mechanics
-were sound even though the premise was not.*
+were sound even though the premise was not._
 
 ### Why it was dropped
 
 **The saving was counted once and paid every step.** A cache read is ~0.1× base input, so the note's
-framing — "a fork reads the prefix instead of writing one" — is true of the worker's *first* call
+framing — "a fork reads the prefix instead of writing one" — is true of the worker's _first_ call
 and irrelevant afterwards. Every subsequent step re-sends the whole message array, so an inherited
 100k-token parent context is billed again on each step of the worker's loop: an 8-step worker pays
 roughly 8 × 10k-equivalent for context it did not ask for. A cold worker's prefix is system + tools
@@ -377,7 +377,7 @@ discount that the arithmetic says is not there.
 
 ### What the real problem was, and the cheaper answer
 
-Workers *do* re-derive context the parent already has — that part was correctly observed. The fix is
+Workers _do_ re-derive context the parent already has — that part was correctly observed. The fix is
 the pattern this app already applies everywhere else: **pointers, not payloads.** The parent writes
 the `prompt` today; what is missing is anything pushing it to hand over the `file:line` facts it has
 already established. Pointers cost a few hundred tokens and let the worker read only what it needs —
@@ -397,13 +397,13 @@ For Anthropic the request is `tools → system → messages`, so the cached pref
 fork with a **different toolset or system header than its parent invalidates the cache entirely**
 and the feature buys nothing.
 
-So a real fork must share the parent's tool definitions *and* system header. It is "another
+So a real fork must share the parent's tool definitions _and_ system header. It is "another
 instance of me with a sub-task" — **a distinct worker kind, not a flag on
 explorer/architect/implementer.**
 
 ### Which resolves the read-only question
 
-**A fork is constrained by policy, not by toolset.** Keep the parent's tool *definitions* (prefix
+**A fork is constrained by policy, not by toolset.** Keep the parent's tool _definitions_ (prefix
 intact) and refuse write execution at the existing funnel — `ToolRegistry.execute`
 (`src/lib/tools/registry.ts`) and `src/ipc/handlers/permissions/interceptor.ts`. The same shape as
 the committable `.atlarix/permissions.json` deny rules, reused rather than reinvented.
@@ -439,7 +439,7 @@ asserting a fork sees prior-turn context a cold scout cannot.
 
 The original note argued a three-posture taxonomy: fork inherits **everything** for cost, QA
 inherits **deliberately little** for independence, explorer inherits **an objective**. With fork
-dropped, the surviving and sharper distinction is about *input structure*, not inheritance:
+dropped, the surviving and sharper distinction is about _input structure_, not inheritance:
 
 > **Enumerated input for workers whose value is coverage (QA, implementer); an objective for
 > workers whose value is discovery (explorer, architect). Structured output for every worker.**
@@ -451,7 +451,7 @@ item nobody thought to list.
 
 ## Model-context secret redaction — CLOSED, do not re-propose
 
-*Reframed 2026-08-15, **rejected 2026-08-17**. Kept only so the argument is not made a third time.*
+_Reframed 2026-08-15, **rejected 2026-08-17**. Kept only so the argument is not made a third time._
 
 The reframe was: a repo scanner hunts secrets it has never seen and pays >50% false positives for
 it, but **we hold the user's actual secret values**, so exact-string redaction of those is
@@ -461,32 +461,32 @@ second tier.
 **Why that was not enough.** The zero-FP claim only covers the secrets we happen to store. Every
 other secret on the user's machine — the ones in their `.env`, their CI config, their shell history
 — is caught only by tier 2, and tier 2 is a hardcoded list: wrong at the edges, needing maintenance
-forever, and *presenting itself as a guarantee it cannot make*. A partial redactor is arguably worse
+forever, and _presenting itself as a guarantee it cannot make_. A partial redactor is arguably worse
 than none, because it changes what users believe is safe to hand the agent. The owner's original
 position stands: **we trust the agent and the provider with credentials, and we do not pretend to
 scrub them.** That is also consistent with the deliberate decision at `lib/tools/glob.ts:221` that
 in-workspace files including `.env` are enumerable.
 
 Unaffected and still in place: **display- and telemetry-side** redaction — Sentry `beforeSend`, and
-`redactGitUrlCredentials` on git stderr — which scrub values we *do* own on paths that leave the
+`redactGitUrlCredentials` on git stderr — which scrub values we _do_ own on paths that leave the
 user's control.
 
 ---
 
 ## Suite sensitivity — is "tests pass" a claim about the change?
 
-*Recorded earlier, moved here 2026-08-15.*
+_Recorded earlier, moved here 2026-08-15._
 
 There is no mutation testing, and no eval scenario where the fixture repo's suite is deliberately
 wrong or incomplete. So a green run is a claim about the **suite**, not about the change.
 
-v14.30.0 produced two clean instances: unit tests that asserted the *wrong* dtype diagnosis and
+v14.30.0 produced two clean instances: unit tests that asserted the _wrong_ dtype diagnosis and
 passed, and 2,782 green tests plus a successful local package that still shipped a Windows-only
 packaging break.
 
 **Candidate approach:** eval fixtures whose suite is a trap — it passes while asserting the wrong
 invariant; it reports 100% pass with zero coverage of the changed path; it makes a tautological
-assertion. Score the agent on whether it *says* the suite doesn't cover the change, rather than on
+assertion. Score the agent on whether it _says_ the suite doesn't cover the change, rather than on
 whether the suite is green.
 
 The QA sub-agent above is the dynamic counterpart to this: it doesn't trust the suite, it exercises
@@ -496,7 +496,7 @@ the app.
 
 ## `h5i` — evaluated, reference only
 
-*`github.com/h5i-dev/h5i`, Apache-2.0. Evaluated and NOT adopted.*
+_`github.com/h5i-dev/h5i`, Apache-2.0. Evaluated and NOT adopted._
 
 A standalone Rust CLI that sandboxes AI coding agents in tiers (workspace / process / supervised /
 container / microvm).
@@ -510,8 +510,8 @@ Podman or have `/dev/kvm`.
 egress allowlist — which is a capability we lack and is genuinely distinct from write confinement.
 Also its honest framing:
 
-> *"It cannot stop an agent from putting your code in a prompt. Containment keeps the agent off your
-> machine. Model egress is a separate control."*
+> _"It cannot stop an agent from putting your code in a prompt. Containment keeps the agent off your
+> machine. Model egress is a separate control."_
 
 That last point is what the QA sub-agent entry makes load-bearing: outbound requests are the first
 place our write-confinement story stops answering the question.
@@ -557,7 +557,7 @@ serious attack surface exactly where getting it subtly wrong hands over someone'
 
 **What is actually reachable, and what shipped:** the roaming path. A security key, or the
 hybrid/QR flow where the user scans with the phone that already holds the iCloud-synced passkey —
-the *same* credential Brave would have used. Both go through Chromium on every platform and need no
+the _same_ credential Brave would have used. Both go through Chromium on every platform and need no
 entitlement. The work that made that usable is the `select-webauthn-account` chooser: WebAuthn is
 not an Electron permission type, so a multi-credential request had nothing listening and the page
 hung for ever, and declining outright meant a security key holding two credentials could never be
@@ -585,7 +585,7 @@ working is ever wanted). What must not be re-derived:
   confusion, which is why it is written down.
 - **Complexity is concentrated, not spread**: `interceptor.ts` is still 2,127 lines, ~40% of the
   surface in one file. If anything here is overcomplicated it is that file's internal structure,
-  and deleting *modules* cannot touch it. Not a task — there is no observed failure — but it is
+  and deleting _modules_ cannot touch it. Not a task — there is no observed failure — but it is
   where to look first if one appears.
 - The audit's other finding (`ask` rules compiled, matched, logged and never enforced) **was
   acted on in v14.26.0**: there is no `ask` list any more, and a file containing that key is
@@ -676,7 +676,7 @@ Noted, not scheduled. Sources: opencode `v1.18.17`, claude-code `v2.1.229` / `23
   mid-session is now the normal case rather than the unusual one. The shape is unchanged: the
   cloned repo ships `.atlarix/hooks.json`, which is `/bin/sh -c`'d on every tool call. The original
   hole was closed with authority-file approval — the open question is still whether a repo cloned
-  *mid-session* re-triggers that approval, and it is now worth more than it was.
+  _mid-session_ re-triggers that approval, and it is now worth more than it was.
 - **Approval notifications.** Upstream fixed Notification hooks not firing for permission prompts.
   An OS notification when the window is backgrounded and a turn is waiting for approval is small
   and immediately felt, especially alongside automations.
@@ -736,7 +736,7 @@ ToolSet advertises canonical names ONLY — that is the other half of the alias 
   name in front of it, and a loud failure it can retry beats a repair hook.
 
 **The second-order defect, which is the more interesting one.** Making the alias executable
-*created* a security regression, because a permission rule is a plain string match with no idea
+_created_ a security regression, because a permission rule is a plain string match with no idea
 aliases exist. Two directions, both live:
 
 - A rule denying `browser` did nothing against `browser_navigate` — the strings differ.
@@ -965,7 +965,7 @@ run that was supposed to find it.**
 **The mirror-image lesson, and it cost more time than either bug.** Two of the four failures in
 that run were the TEST's fault, and both looked exactly like product defects:
 `ToolRegistry.execute` nests a result under `result` but TRUNCATES a large payload into a JSON
-*string* (with `_truncatedOutput`/`_originalSize`), so `.content` read off it is `undefined` —
+_string_ (with `_truncatedOutput`/`_originalSize`), so `.content` read off it is `undefined` —
 which is why `mode:"logs"` appeared to return nothing while it was returning 400 lines; and
 `runDeviceCli` returns both `stdout` and `buffer`, so reading a PNG from the string corrupts byte
 0 and the magic-byte assertion fails on a good image. A live test manufactures false accusations
@@ -995,8 +995,8 @@ So the fix is two things, and the second matters more:
    The accessibility snapshot labels Wikipedia's wrapper "search input" because that is its
    ROLE; the node is a div with the input inside. Component libraries do this constantly.
 2. **Say what the element is and what to do.** `<div> is not a field and contains none
-   (role="combobox"). It may be a wrapper that reveals the real input when clicked: try
-   action:"click" on this ref, then re-read the page…` — which is exactly the recovery the
+(role="combobox"). It may be a wrapper that reveals the real input when clicked: try
+action:"click" on this ref, then re-read the page…` — which is exactly the recovery the
    model eventually found by trial and error.
 
 **And a lesson about reading transcripts.** That model concluded both `click` and `fill` were
@@ -1054,11 +1054,11 @@ A generic fallback is not merely uninformative here; it actively misinforms.
 **The three meanings.** `success: false` is the right signal for the MODEL in all of them —
 the work did not happen — and only one of them is an error:
 
-| | Marker | Card |
-|---|---|---|
-| It broke | an `error` the tool wrote | red |
-| Nothing to do | `status: "noop"` | plain text |
-| Declined | `loop_guidance` present | plain text |
+|               | Marker                    | Card       |
+| ------------- | ------------------------- | ---------- |
+| It broke      | an `error` the tool wrote | red        |
+| Nothing to do | `status: "noop"`          | plain text |
+| Declined      | `loop_guidance` present   | plain text |
 
 Both non-error cases are marked EXPLICITLY. Nothing here infers "did anything happen" from the
 shape of a result, because that inference is how you get a confidently wrong label — which is
@@ -1087,12 +1087,12 @@ correct and is still correct. What it did not touch was how compaction ANNOUNCES
 that had quietly become the same mess one layer up: six hand-rolled `safeSend(…,
 "chat:activity", …)` calls across four files, emitting three different labels for one event.
 
-| Site | Emitted | Label |
-|---|---|---|
-| `context-assembly.ts` ×2 (automatic) | `compaction` only | "Context compacted automatically" |
-| `ask-branch.ts` ×2 (model) | `compaction` only | "Context compressed" |
-| `build-branch.ts` ×1 (model) | `compaction` only | "Context compressed" |
-| `compaction-activity.ts` ×2 | both, conditionally | "Context compressed" / "Summarizing in-task context" |
+| Site                                 | Emitted             | Label                                                |
+| ------------------------------------ | ------------------- | ---------------------------------------------------- |
+| `context-assembly.ts` ×2 (automatic) | `compaction` only   | "Context compacted automatically"                    |
+| `ask-branch.ts` ×2 (model)           | `compaction` only   | "Context compressed"                                 |
+| `build-branch.ts` ×1 (model)         | `compaction` only   | "Context compressed"                                 |
+| `compaction-activity.ts` ×2          | both, conditionally | "Context compressed" / "Summarizing in-task context" |
 
 **The inconsistency was the bug, not a tidiness complaint.** `chat-activity-normalize.ts` drops
 `type: "compaction"` deliberately (one moment must not produce two activity rows), so only the

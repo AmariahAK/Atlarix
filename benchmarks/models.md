@@ -3,10 +3,10 @@
 The harness comparison fixes the model and pins the backend so only the harness
 varies. Two models (Atlarix Core tiers 3 & 4):
 
-| Core tier | Model | OpenRouter slug |
-|---|---|---|
-| Core 3 | DeepSeek V4 Pro | `deepseek/deepseek-v4-pro` |
-| Core 4 | MiniMax M3 | `minimax/minimax-m3` |
+| Core tier | Model           | OpenRouter slug            |
+| --------- | --------------- | -------------------------- |
+| Core 3    | DeepSeek V4 Pro | `deepseek/deepseek-v4-pro` |
+| Core 4    | MiniMax M3      | `minimax/minimax-m3`       |
 
 (Core 1 = `moonshotai/kimi-k2.7-code`, Core 2 = `qwen/qwen3.7-plus` — add later if desired.)
 

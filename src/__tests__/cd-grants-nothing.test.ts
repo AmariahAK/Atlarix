@@ -34,7 +34,10 @@ describe("a cd tells the model it did not move", () => {
   });
 
   it("names the directory the next command will actually start in", () => {
-    const note = cwdNoteForCommand("cd /somewhere/else && python3 x.py", WS).cwdNote!;
+    const note = cwdNoteForCommand(
+      "cd /somewhere/else && python3 x.py",
+      WS,
+    ).cwdNote!;
     expect(note).toMatch(/working directory is unchanged/i);
     expect(note).toContain(WS);
     expect(note).toMatch(/`cwd` parameter/);
@@ -53,18 +56,28 @@ describe("a cd tells the model it did not move", () => {
 describe("sandbox: widen for outside paths, drop only for installers", () => {
   // The boundary comes off only for changes nobody can enumerate ahead of time.
   it("keeps the sandbox for a command that is system-scope only by path", () => {
-    expect(isOutsidePathOnlySystemScope("cd /Users/dev/other-repo && ls", WS)).toBe(true);
-    expect(isOutsidePathOnlySystemScope("echo hi > /Users/dev/other/file.txt", WS)).toBe(true);
+    expect(
+      isOutsidePathOnlySystemScope("cd /Users/dev/other-repo && ls", WS),
+    ).toBe(true);
+    expect(
+      isOutsidePathOnlySystemScope("echo hi > /Users/dev/other/file.txt", WS),
+    ).toBe(true);
   });
 
   it("drops it for a genuine installer or sudo", () => {
     expect(isOutsidePathOnlySystemScope("brew install jq", WS)).toBe(false);
-    expect(isOutsidePathOnlySystemScope("sudo rm -rf /var/cache", WS)).toBe(false);
-    expect(isOutsidePathOnlySystemScope("npm install -g typescript", WS)).toBe(false);
+    expect(isOutsidePathOnlySystemScope("sudo rm -rf /var/cache", WS)).toBe(
+      false,
+    );
+    expect(isOutsidePathOnlySystemScope("npm install -g typescript", WS)).toBe(
+      false,
+    );
   });
 
   it("an installer BEHIND a cd still drops it — the install is the reason", () => {
-    expect(isOutsidePathOnlySystemScope("cd /tmp && brew install jq", WS)).toBe(false);
+    expect(isOutsidePathOnlySystemScope("cd /tmp && brew install jq", WS)).toBe(
+      false,
+    );
   });
 
   it("is false for a command that isn't system-scope at all", () => {

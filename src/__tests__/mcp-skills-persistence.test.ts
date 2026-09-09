@@ -14,7 +14,11 @@ describe("oauth token persistence", () => {
       hasOAuthCredentials({ access_token: "a", token_type: "bearer" }),
     ).toBe(true);
     expect(
-      hasOAuthCredentials({ access_token: "", refresh_token: "r", token_type: "bearer" }),
+      hasOAuthCredentials({
+        access_token: "",
+        refresh_token: "r",
+        token_type: "bearer",
+      }),
     ).toBe(true);
   });
 

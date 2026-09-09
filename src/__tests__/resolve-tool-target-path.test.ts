@@ -15,7 +15,9 @@ let OUTSIDE = "";
 
 beforeAll(() => {
   // Real dirs so realpath (symlink defusing) resolves deterministically.
-  const base = realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "atlarix-ttp-")));
+  const base = realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), "atlarix-ttp-")),
+  );
   WS = path.join(base, "workspace");
   OUTSIDE = path.join(base, "other-repo");
   fs.mkdirSync(path.join(WS, "src"), { recursive: true });

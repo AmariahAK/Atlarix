@@ -14,7 +14,10 @@ describe("buildContinueAfterQuestionsPrompt", () => {
     // is the most recent message, no fresh user input. Must NOT re-feed the
     // user's earlier question (that caused the repeated re-answering).
     const out = buildContinueAfterQuestionsPrompt([
-      { role: "user", content: "can you check sub-agents like background tasks?" },
+      {
+        role: "user",
+        content: "can you check sub-agents like background tasks?",
+      },
       { role: "assistant", content: "Yes — same pattern. [answered]" },
     ]);
     expect(out).toContain("System continuation");
@@ -34,7 +37,9 @@ describe("buildContinueAfterQuestionsPrompt", () => {
 
   it("single user message round-trips unchanged", () => {
     expect(
-      buildContinueAfterQuestionsPrompt([{ role: "user", content: "do the thing" }]),
+      buildContinueAfterQuestionsPrompt([
+        { role: "user", content: "do the thing" },
+      ]),
     ).toBe("do the thing");
   });
 });

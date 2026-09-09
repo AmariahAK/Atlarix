@@ -30,7 +30,10 @@ import type { Message } from "@/ipc/ipc_types";
 function applySnapshotForMessage(
   messageId: number,
   snapshot: DisplaySnapshotV1,
-  thinking: Record<number, import("@/lib/thinking/extract-thinking-from-content").CompletedTurnThinkingSnapshot>,
+  thinking: Record<
+    number,
+    import("@/lib/thinking/extract-thinking-from-content").CompletedTurnThinkingSnapshot
+  >,
   interleaved: Record<number, string>,
 ): void {
   if (snapshot.thinking) {
@@ -64,10 +67,13 @@ export function applyStreamDisplayHydration(messages: Message[]): void {
   }
 
   if (Object.keys(completedThreads).length > 0) {
-    getDefaultStore().set(completedStreamThreadByAssistantMessageIdAtom, (prev) => ({
-      ...prev,
-      ...completedThreads,
-    }));
+    getDefaultStore().set(
+      completedStreamThreadByAssistantMessageIdAtom,
+      (prev) => ({
+        ...prev,
+        ...completedThreads,
+      }),
+    );
   }
   if (Object.keys(inlineTimelines).length > 0) {
     getDefaultStore().set(inlineTimelineByMessageIdAtom, (prev) => ({
@@ -98,7 +104,9 @@ export function replaceDisplayHydrationForChat(
   messages: Message[],
 ): void {
   const assistantIds = new Set(
-    messages.filter((m) => m.chatId === chatId || m.chatId == null).map((m) => m.id),
+    messages
+      .filter((m) => m.chatId === chatId || m.chatId == null)
+      .map((m) => m.id),
   );
 
   getDefaultStore().set(
@@ -120,14 +128,17 @@ export function replaceDisplayHydrationForChat(
     }
     return next;
   });
-  getDefaultStore().set(completedTurnThinkingByAssistantMessageIdAtom, (prev) => {
-    const next = { ...prev };
-    for (const id of Object.keys(next)) {
-      const num = Number(id);
-      if (assistantIds.has(num)) delete next[num];
-    }
-    return next;
-  });
+  getDefaultStore().set(
+    completedTurnThinkingByAssistantMessageIdAtom,
+    (prev) => {
+      const next = { ...prev };
+      for (const id of Object.keys(next)) {
+        const num = Number(id);
+        if (assistantIds.has(num)) delete next[num];
+      }
+      return next;
+    },
+  );
   getDefaultStore().set(interleavedDisplayContentByMessageIdAtom, (prev) => {
     const next = { ...prev };
     for (const id of Object.keys(next)) {
@@ -145,7 +156,9 @@ export function buildDisplaySnapshotPayloadForMessage(
   messageId: number,
   completedThread: import("@/lib/chat/stream-thread").StreamThreadItem[],
   inlineTimeline?: import("@/lib/chat/inline-timeline").InlineTimelineItem[],
-  thinking?: import("@/lib/thinking/extract-thinking-from-content").CompletedTurnThinkingSnapshot | null,
+  thinking?:
+    | import("@/lib/thinking/extract-thinking-from-content").CompletedTurnThinkingSnapshot
+    | null,
   interleavedContent?: string | null,
 ): string | null {
   const snap = buildDisplaySnapshotV1({

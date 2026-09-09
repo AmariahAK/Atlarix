@@ -40,7 +40,11 @@ export function inferToolNameFromEnvelopeRaw(raw: string): string {
   ) {
     return "search_code";
   }
-  if (/^File:/m.test(inner) || /Lines \d+-\d+/i.test(inner) || /^```/m.test(inner)) {
+  if (
+    /^File:/m.test(inner) ||
+    /Lines \d+-\d+/i.test(inner) ||
+    /^```/m.test(inner)
+  ) {
     return "read_file";
   }
   if (/📁|Top-level structure/i.test(inner) && inner.length < 500) {

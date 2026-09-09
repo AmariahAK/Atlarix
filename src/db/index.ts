@@ -87,7 +87,7 @@ let _db: ReturnType<typeof drizzle> | null = null;
 
 /**
  * Get the database path based on the current environment
- * 
+ *
  * DATABASE LOCATIONS:
  * - Development (npm run dev): ./userData/sqlite.db (relative to project root)
  * - Production (packaged app): ~/Library/Application Support/Atlarix/sqlite.db (macOS)
@@ -128,7 +128,9 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
         if (fs.existsSync(dbPath)) {
           const stats = fs.statSync(dbPath);
           if (stats.size < 100) {
-            logger.log("Database file exists but may be corrupted. Removing it...");
+            logger.log(
+              "Database file exists but may be corrupted. Removing it...",
+            );
             fs.unlinkSync(dbPath);
           }
         }
@@ -141,54 +143,116 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
 
       const drizzleDb = drizzle(sqlite, { schema });
 
-      logger.log("[Migrations] Applying embedded SQL bundle (Vite ?raw, no drizzle/ path).");
+      logger.log(
+        "[Migrations] Applying embedded SQL bundle (Vite ?raw, no drizzle/ path).",
+      );
       applyEmbeddedSqlMigrations(sqlite);
 
-      try { ensureSessionCoreTablesIfNeeded(sqlite); } catch (error) {
-        logger.error("Error ensuring chat_sessions / session_messages tables (non-fatal):", error);
+      try {
+        ensureSessionCoreTablesIfNeeded(sqlite);
+      } catch (error) {
+        logger.error(
+          "Error ensuring chat_sessions / session_messages tables (non-fatal):",
+          error,
+        );
       }
       // These use IF NOT EXISTS or check sqlite_master first, so they are no-ops after a clean migrate().
-      try { ensureChatCoreTablesIfNeeded(sqlite); } catch (error) {
-        logger.error("Error ensuring chats / messages tables (non-fatal):", error);
+      try {
+        ensureChatCoreTablesIfNeeded(sqlite);
+      } catch (error) {
+        logger.error(
+          "Error ensuring chats / messages tables (non-fatal):",
+          error,
+        );
       }
-      try { ensureMcpBaseTablesIfNeeded(sqlite); } catch (error) {
-        logger.error("Error ensuring mcp_servers / mcp_tool_consents tables (non-fatal):", error);
+      try {
+        ensureMcpBaseTablesIfNeeded(sqlite);
+      } catch (error) {
+        logger.error(
+          "Error ensuring mcp_servers / mcp_tool_consents tables (non-fatal):",
+          error,
+        );
       }
-      try { ensureAppsRemoteColumnsIfNeeded(sqlite); } catch (error) {
+      try {
+        ensureAppsRemoteColumnsIfNeeded(sqlite);
+      } catch (error) {
         logger.warn("[Schema Fix] apps remote columns:", error);
       }
-      try { ensureMcpOAuthColumnsIfNeeded(sqlite); } catch (error) {
-        logger.error("Error ensuring mcp_servers OAuth columns (non-fatal):", error);
+      try {
+        ensureMcpOAuthColumnsIfNeeded(sqlite);
+      } catch (error) {
+        logger.error(
+          "Error ensuring mcp_servers OAuth columns (non-fatal):",
+          error,
+        );
       }
-      try { fixMcpServersSchemaIfNeeded(sqlite); } catch (error) {
+      try {
+        fixMcpServersSchemaIfNeeded(sqlite);
+      } catch (error) {
         logger.error("Error fixing mcp_servers schema (non-fatal):", error);
       }
       // Pass 7: Blueprint + PIVOT table ensure-fns removed; migration 0043 drops the tables.
-      try { ensureProjectMemoryTablesIfNeeded(sqlite); } catch (error) {
-        logger.error("Error ensuring project memory tables (non-fatal):", error);
+      try {
+        ensureProjectMemoryTablesIfNeeded(sqlite);
+      } catch (error) {
+        logger.error(
+          "Error ensuring project memory tables (non-fatal):",
+          error,
+        );
       }
-      try { ensureReviewPatternsTableIfNeeded(sqlite); } catch (error) {
-        logger.error("Error ensuring review_patterns table (non-fatal):", error);
+      try {
+        ensureReviewPatternsTableIfNeeded(sqlite);
+      } catch (error) {
+        logger.error(
+          "Error ensuring review_patterns table (non-fatal):",
+          error,
+        );
       }
-      try { ensureAutomationTablesIfNeeded(sqlite); } catch (error) {
+      try {
+        ensureAutomationTablesIfNeeded(sqlite);
+      } catch (error) {
         logger.error("Error ensuring automations tables (non-fatal):", error);
       }
-      try { ensureSessionMessagePlanColumnsIfNeeded(sqlite); } catch (error) {
-        logger.error("Error ensuring session_messages plan columns (non-fatal):", error);
+      try {
+        ensureSessionMessagePlanColumnsIfNeeded(sqlite);
+      } catch (error) {
+        logger.error(
+          "Error ensuring session_messages plan columns (non-fatal):",
+          error,
+        );
       }
-      try { ensureMessagesModelContentColumnIfNeeded(sqlite); } catch (error) {
-        logger.error("Error ensuring messages.model_content column (non-fatal):", error);
+      try {
+        ensureMessagesModelContentColumnIfNeeded(sqlite);
+      } catch (error) {
+        logger.error(
+          "Error ensuring messages.model_content column (non-fatal):",
+          error,
+        );
       }
-      try { ensureMessagesPasteAttachmentsColumnIfNeeded(sqlite); } catch (error) {
-        logger.error("Error ensuring messages.paste_attachments column (non-fatal):", error);
+      try {
+        ensureMessagesPasteAttachmentsColumnIfNeeded(sqlite);
+      } catch (error) {
+        logger.error(
+          "Error ensuring messages.paste_attachments column (non-fatal):",
+          error,
+        );
       }
-      try { migratePlaintextApiKeysIfNeeded(sqlite); } catch (error) {
+      try {
+        migratePlaintextApiKeysIfNeeded(sqlite);
+      } catch (error) {
         logger.error("Error migrating plaintext API keys (non-fatal):", error);
       }
-      try { ensureMessagesFileAttachmentsColumnIfNeeded(sqlite); } catch (error) {
-        logger.error("Error ensuring messages.file_attachments column (non-fatal):", error);
+      try {
+        ensureMessagesFileAttachmentsColumnIfNeeded(sqlite);
+      } catch (error) {
+        logger.error(
+          "Error ensuring messages.file_attachments column (non-fatal):",
+          error,
+        );
       }
-      try { mergeDuplicateAppsByPathIfNeeded(sqlite); } catch (error) {
+      try {
+        mergeDuplicateAppsByPathIfNeeded(sqlite);
+      } catch (error) {
         logger.error("Error merging duplicate apps rows (non-fatal):", error);
       }
 
@@ -213,10 +277,8 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
         sqlite = null;
       }
 
-      const unknownHash =
-        error instanceof UnknownDrizzleMigrationHashError;
-      const canRetry =
-        attempt < maxAttempts - 1 && !unknownHash;
+      const unknownHash = error instanceof UnknownDrizzleMigrationHashError;
+      const canRetry = attempt < maxAttempts - 1 && !unknownHash;
 
       if (canRetry) {
         logger.warn(
@@ -248,7 +310,9 @@ function ensureChatCoreTablesIfNeeded(_sqlite: Database.Database): void {
  */
 function ensureMcpBaseTablesIfNeeded(sqlite: Database.Database): void {
   const hasServers = sqlite
-    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='mcp_servers'")
+    .prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='mcp_servers'",
+    )
     .get();
   if (!hasServers) {
     logger.log("[Schema Fix] Creating mcp_servers table (0012 baseline)");
@@ -268,7 +332,9 @@ function ensureMcpBaseTablesIfNeeded(sqlite: Database.Database): void {
     `);
   }
   const hasConsents = sqlite
-    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='mcp_tool_consents'")
+    .prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='mcp_tool_consents'",
+    )
     .get();
   if (!hasConsents) {
     logger.log("[Schema Fix] Creating mcp_tool_consents table (0012 baseline)");
@@ -293,13 +359,17 @@ function ensureMcpBaseTablesIfNeeded(sqlite: Database.Database): void {
  * Fixes "SqliteError: no such column: scope" when migration 0026 wasn't applied.
  */
 function fixMcpServersSchemaIfNeeded(sqlite: Database.Database): void {
-  const tableExists = sqlite.prepare(
-    "SELECT name FROM sqlite_master WHERE type='table' AND name='mcp_servers'"
-  ).get();
+  const tableExists = sqlite
+    .prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='mcp_servers'",
+    )
+    .get();
   if (!tableExists) {
     return;
   }
-  const columns = sqlite.prepare("PRAGMA table_info(mcp_servers)").all() as Array<{ name: string }>;
+  const columns = sqlite
+    .prepare("PRAGMA table_info(mcp_servers)")
+    .all() as Array<{ name: string }>;
   const hasScope = columns.some((c) => c.name === "scope");
   const hasAppId = columns.some((c) => c.name === "app_id");
   // Pass 7: from_registry / registry_id columns track marketplace installs.
@@ -310,7 +380,9 @@ function fixMcpServersSchemaIfNeeded(sqlite: Database.Database): void {
     return;
   }
   if (!hasScope) {
-    sqlite.exec("ALTER TABLE mcp_servers ADD COLUMN scope TEXT NOT NULL DEFAULT 'workspace'");
+    sqlite.exec(
+      "ALTER TABLE mcp_servers ADD COLUMN scope TEXT NOT NULL DEFAULT 'workspace'",
+    );
     logger.log("[Schema Fix] mcp_servers: added scope column");
   }
   if (!hasAppId) {
@@ -318,7 +390,9 @@ function fixMcpServersSchemaIfNeeded(sqlite: Database.Database): void {
     logger.log("[Schema Fix] mcp_servers: added app_id column");
   }
   if (!hasFromRegistry) {
-    sqlite.exec("ALTER TABLE mcp_servers ADD COLUMN from_registry INTEGER NOT NULL DEFAULT 0");
+    sqlite.exec(
+      "ALTER TABLE mcp_servers ADD COLUMN from_registry INTEGER NOT NULL DEFAULT 0",
+    );
     logger.log("[Schema Fix] mcp_servers: added from_registry column");
   }
   if (!hasRegistryId) {
@@ -333,15 +407,21 @@ function fixMcpServersSchemaIfNeeded(sqlite: Database.Database): void {
 
 function ensureMcpOAuthColumnsIfNeeded(sqlite: Database.Database): void {
   const tableExists = sqlite
-    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='mcp_servers'")
+    .prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='mcp_servers'",
+    )
     .get();
   if (!tableExists) return;
 
-  const columns = sqlite.prepare("PRAGMA table_info(mcp_servers)").all() as Array<{ name: string }>;
+  const columns = sqlite
+    .prepare("PRAGMA table_info(mcp_servers)")
+    .all() as Array<{ name: string }>;
   const has = (name: string) => columns.some((c) => c.name === name);
 
   if (!has("auth_type")) {
-    sqlite.exec("ALTER TABLE mcp_servers ADD COLUMN auth_type TEXT NOT NULL DEFAULT 'none'");
+    sqlite.exec(
+      "ALTER TABLE mcp_servers ADD COLUMN auth_type TEXT NOT NULL DEFAULT 'none'",
+    );
     logger.log("[Schema Fix] mcp_servers: added auth_type column");
   }
   if (!has("oauth_tokens_json")) {
@@ -368,7 +448,11 @@ function ensureMcpOAuthColumnsIfNeeded(sqlite: Database.Database): void {
  */
 function ensureProjectMemoryTablesIfNeeded(sqlite: Database.Database): void {
   if (
-    sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='project_snapshots'").get()
+    sqlite
+      .prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='project_snapshots'",
+      )
+      .get()
   ) {
     return;
   }
@@ -397,13 +481,17 @@ function ensureProjectMemoryTablesIfNeeded(sqlite: Database.Database): void {
       PRIMARY KEY (workspace_id, key)
     )
   `);
-  sqlite.exec("CREATE INDEX IF NOT EXISTS project_memory_workspace_idx ON project_memory (workspace_id)");
+  sqlite.exec(
+    "CREATE INDEX IF NOT EXISTS project_memory_workspace_idx ON project_memory (workspace_id)",
+  );
 }
 
 function ensureReviewPatternsTableIfNeeded(sqlite: Database.Database): void {
-  const tableExists = sqlite.prepare(
-    "SELECT name FROM sqlite_master WHERE type='table' AND name='review_patterns'"
-  ).get();
+  const tableExists = sqlite
+    .prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='review_patterns'",
+    )
+    .get();
   if (tableExists) return;
   logger.log("[Schema Fix] Creating review_patterns table");
   sqlite.exec(`
@@ -417,7 +505,9 @@ function ensureReviewPatternsTableIfNeeded(sqlite: Database.Database): void {
       created_at INTEGER NOT NULL DEFAULT (unixepoch())
     )
   `);
-  sqlite.exec("CREATE INDEX IF NOT EXISTS review_patterns_workspace_idx ON review_patterns (workspace_id)");
+  sqlite.exec(
+    "CREATE INDEX IF NOT EXISTS review_patterns_workspace_idx ON review_patterns (workspace_id)",
+  );
 }
 
 /** Self-heal for 0066_automations on DBs whose migration ledger predates it. */
@@ -442,7 +532,9 @@ function ensureAutomationTablesIfNeeded(sqlite: Database.Database): void {
     `);
   }
   if (!tableExists(sqlite, "automation_runs")) {
-    logger.log("[Schema Fix] Creating automation_runs table (0066_automations)");
+    logger.log(
+      "[Schema Fix] Creating automation_runs table (0066_automations)",
+    );
     sqlite.exec(`
       CREATE TABLE IF NOT EXISTS automation_runs (
         id TEXT PRIMARY KEY NOT NULL,
@@ -474,60 +566,92 @@ function ensureAutomationTablesIfNeeded(sqlite: Database.Database): void {
   }
 }
 
-function ensureMessagesModelContentColumnIfNeeded(sqlite: Database.Database): void {
+function ensureMessagesModelContentColumnIfNeeded(
+  sqlite: Database.Database,
+): void {
   if (!tableExists(sqlite, "messages")) return;
   if (!columnExists(sqlite, "messages", "model_content")) {
-    logger.log("[Schema Fix] Adding messages.model_content (0052_message_model_content)");
+    logger.log(
+      "[Schema Fix] Adding messages.model_content (0052_message_model_content)",
+    );
     sqlite.exec("ALTER TABLE messages ADD COLUMN model_content text");
   }
 }
 
-function ensureMessagesPasteAttachmentsColumnIfNeeded(sqlite: Database.Database): void {
+function ensureMessagesPasteAttachmentsColumnIfNeeded(
+  sqlite: Database.Database,
+): void {
   if (!tableExists(sqlite, "messages")) return;
   if (!columnExists(sqlite, "messages", "paste_attachments")) {
-    logger.log("[Schema Fix] Adding messages.paste_attachments (0053_message_paste_attachments)");
+    logger.log(
+      "[Schema Fix] Adding messages.paste_attachments (0053_message_paste_attachments)",
+    );
     sqlite.exec("ALTER TABLE messages ADD COLUMN paste_attachments text");
   }
 }
 
-function ensureMessagesFileAttachmentsColumnIfNeeded(sqlite: Database.Database): void {
+function ensureMessagesFileAttachmentsColumnIfNeeded(
+  sqlite: Database.Database,
+): void {
   if (!tableExists(sqlite, "messages")) return;
   if (!columnExists(sqlite, "messages", "file_attachments")) {
-    logger.log("[Schema Fix] Adding messages.file_attachments (0054_message_file_attachments)");
+    logger.log(
+      "[Schema Fix] Adding messages.file_attachments (0054_message_file_attachments)",
+    );
     sqlite.exec("ALTER TABLE messages ADD COLUMN file_attachments text");
   }
 }
 
-function ensureSessionMessagePlanColumnsIfNeeded(sqlite: Database.Database): void {
+function ensureSessionMessagePlanColumnsIfNeeded(
+  sqlite: Database.Database,
+): void {
   const hasSessionMessages = sqlite
-    .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='session_messages'")
+    .prepare(
+      "SELECT 1 FROM sqlite_master WHERE type='table' AND name='session_messages'",
+    )
     .get();
   if (!hasSessionMessages) return;
 
   if (!columnExists(sqlite, "session_messages", "kind")) {
-    logger.log("[Schema Fix] Adding session_messages.kind (0048_session_plan_artifacts)");
+    logger.log(
+      "[Schema Fix] Adding session_messages.kind (0048_session_plan_artifacts)",
+    );
     sqlite.exec(
       "ALTER TABLE session_messages ADD COLUMN kind text NOT NULL DEFAULT 'message'",
     );
   }
   if (!columnExists(sqlite, "session_messages", "plan_status")) {
-    logger.log("[Schema Fix] Adding session_messages.plan_status (0048_session_plan_artifacts)");
+    logger.log(
+      "[Schema Fix] Adding session_messages.plan_status (0048_session_plan_artifacts)",
+    );
     sqlite.exec("ALTER TABLE session_messages ADD COLUMN plan_status text");
   }
   if (!columnExists(sqlite, "session_messages", "model_content")) {
-    logger.log("[Schema Fix] Adding session_messages.model_content (0055_session_message_attachments)");
+    logger.log(
+      "[Schema Fix] Adding session_messages.model_content (0055_session_message_attachments)",
+    );
     sqlite.exec("ALTER TABLE session_messages ADD COLUMN model_content text");
   }
   if (!columnExists(sqlite, "session_messages", "paste_attachments")) {
-    logger.log("[Schema Fix] Adding session_messages.paste_attachments (0055_session_message_attachments)");
-    sqlite.exec("ALTER TABLE session_messages ADD COLUMN paste_attachments text");
+    logger.log(
+      "[Schema Fix] Adding session_messages.paste_attachments (0055_session_message_attachments)",
+    );
+    sqlite.exec(
+      "ALTER TABLE session_messages ADD COLUMN paste_attachments text",
+    );
   }
   if (!columnExists(sqlite, "session_messages", "file_attachments")) {
-    logger.log("[Schema Fix] Adding session_messages.file_attachments (0055_session_message_attachments)");
-    sqlite.exec("ALTER TABLE session_messages ADD COLUMN file_attachments text");
+    logger.log(
+      "[Schema Fix] Adding session_messages.file_attachments (0055_session_message_attachments)",
+    );
+    sqlite.exec(
+      "ALTER TABLE session_messages ADD COLUMN file_attachments text",
+    );
   }
   if (!columnExists(sqlite, "session_messages", "status")) {
-    logger.log("[Schema Fix] Adding session_messages.status (interrupted-turn recovery)");
+    logger.log(
+      "[Schema Fix] Adding session_messages.status (interrupted-turn recovery)",
+    );
     sqlite.exec(
       "ALTER TABLE session_messages ADD COLUMN status text NOT NULL DEFAULT 'complete'",
     );
@@ -539,7 +663,9 @@ function ensureAppsRemoteColumnsIfNeeded(sqlite: Database.Database): void {
     sqlite.exec("ALTER TABLE apps ADD COLUMN last_opened_at INTEGER");
   }
   if (!columnExists(sqlite, "apps", "workspace_kind")) {
-    sqlite.exec("ALTER TABLE apps ADD COLUMN workspace_kind TEXT NOT NULL DEFAULT 'local'");
+    sqlite.exec(
+      "ALTER TABLE apps ADD COLUMN workspace_kind TEXT NOT NULL DEFAULT 'local'",
+    );
   }
   if (!columnExists(sqlite, "apps", "remote_connection")) {
     sqlite.exec("ALTER TABLE apps ADD COLUMN remote_connection TEXT");
@@ -559,7 +685,9 @@ function migratePlaintextApiKeysIfNeeded(sqlite: Database.Database): void {
     .get();
   if (providerTable) {
     const rows = sqlite
-      .prepare("SELECT id, api_key FROM provider_api_keys WHERE api_key IS NOT NULL")
+      .prepare(
+        "SELECT id, api_key FROM provider_api_keys WHERE api_key IS NOT NULL",
+      )
       .all() as Array<{ id: number; api_key: string }>;
     const update = sqlite.prepare(
       "UPDATE provider_api_keys SET api_key = ? WHERE id = ?",
@@ -581,7 +709,9 @@ function migratePlaintextApiKeysIfNeeded(sqlite: Database.Database): void {
     const rows = sqlite
       .prepare("SELECT id, api_key FROM mcp_servers WHERE api_key IS NOT NULL")
       .all() as Array<{ id: number; api_key: string }>;
-    const update = sqlite.prepare("UPDATE mcp_servers SET api_key = ? WHERE id = ?");
+    const update = sqlite.prepare(
+      "UPDATE mcp_servers SET api_key = ? WHERE id = ?",
+    );
     for (const row of rows) {
       if (isPlaintextApiKeyInDb(row.api_key)) {
         update.run(serializeApiKeyForDb(row.api_key), row.id);
@@ -604,7 +734,9 @@ function migratePlaintextApiKeysIfNeeded(sqlite: Database.Database): void {
  * ON DELETE CASCADE, so an un-re-pointed child would be silently cascade-deleted.
  * Idempotent: a no-op once no path-duplicates remain.
  */
-export function mergeDuplicateAppsByPathIfNeeded(sqlite: Database.Database): void {
+export function mergeDuplicateAppsByPathIfNeeded(
+  sqlite: Database.Database,
+): void {
   if (!tableExists(sqlite, "apps")) return;
   const rows = sqlite.prepare("SELECT id, path FROM apps").all() as Array<{
     id: number;

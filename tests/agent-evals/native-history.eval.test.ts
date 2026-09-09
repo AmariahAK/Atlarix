@@ -111,9 +111,7 @@ describe("native tool-call history", () => {
         .build(),
     );
     ctx.server.register(
-      scenario("native-2turn-b")
-        .text("Recap: the value was 7.")
-        .build(),
+      scenario("native-2turn-b").text("Recap: the value was 7.").build(),
     );
 
     const chatId = await ctx.newChat();
@@ -175,9 +173,7 @@ describe("native tool-call history", () => {
         .repeatLast()
         .build(),
     );
-    ctx.server.register(
-      scenario("native-reload-b").text("Still 7.").build(),
-    );
+    ctx.server.register(scenario("native-reload-b").text("Still 7.").build());
 
     const { getIpcHandler } = await import("../infra/turn");
     const chatId = await ctx.newChat();

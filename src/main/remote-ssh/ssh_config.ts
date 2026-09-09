@@ -34,7 +34,8 @@ function parseSshConfigFile(configPath: string): SshHostEntry[] {
     if (key === "hostname") current.hostName = value;
     if (key === "user") current.user = value;
     if (key === "port") current.port = Number.parseInt(value, 10);
-    if (key === "identityfile") current.identityFile = value.replace(/^~/, os.homedir());
+    if (key === "identityfile")
+      current.identityFile = value.replace(/^~/, os.homedir());
     if (key === "proxyjump") current.proxyJump = value;
   }
   if (current) hosts.push(current);
@@ -44,7 +45,6 @@ function parseSshConfigFile(configPath: string): SshHostEntry[] {
 
 export function listSshConfigHosts(configFile?: string): SshHostEntry[] {
   const configPath =
-    configFile?.trim() ||
-    path.join(os.homedir(), ".ssh", "config");
+    configFile?.trim() || path.join(os.homedir(), ".ssh", "config");
   return parseSshConfigFile(configPath);
 }

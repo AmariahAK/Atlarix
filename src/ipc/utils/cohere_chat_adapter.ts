@@ -36,7 +36,7 @@ function cohereMessageContentToText(content: unknown): string {
 }
 
 function promptToCohereMessages(
-  prompt: LanguageModelV2CallOptions["prompt"]
+  prompt: LanguageModelV2CallOptions["prompt"],
 ): CohereChatMessage[] {
   const msgs: CohereChatMessage[] = [];
 
@@ -110,7 +110,8 @@ export function createCohereChatModel(params: {
     const usage = {
       inputTokens: data.usage?.input_tokens ?? 0,
       outputTokens: data.usage?.output_tokens ?? 0,
-      totalTokens: (data.usage?.input_tokens ?? 0) + (data.usage?.output_tokens ?? 0),
+      totalTokens:
+        (data.usage?.input_tokens ?? 0) + (data.usage?.output_tokens ?? 0),
     } as LanguageModelV2Usage;
 
     const content: LanguageModelV2Content[] = text
@@ -133,9 +134,17 @@ export function createCohereChatModel(params: {
     const stream = new ReadableStream<LanguageModelV2StreamPart>({
       start(controller) {
         controller.enqueue({ type: "stream-start", warnings: [] });
-        controller.enqueue({ type: "text-start", id: "cohere-1", providerMetadata: undefined });
+        controller.enqueue({
+          type: "text-start",
+          id: "cohere-1",
+          providerMetadata: undefined,
+        });
         if (textValue) {
-          controller.enqueue({ type: "text-delta", id: "cohere-1", delta: textValue });
+          controller.enqueue({
+            type: "text-delta",
+            id: "cohere-1",
+            delta: textValue,
+          });
         }
         controller.enqueue({
           type: "finish",
@@ -159,4 +168,3 @@ export function createCohereChatModel(params: {
     doStream,
   };
 }
-

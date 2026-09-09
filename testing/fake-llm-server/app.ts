@@ -103,10 +103,7 @@ export function createApp() {
   });
 
   ["lmstudio", "gateway", "engine", "ollama", "azure"].forEach((provider) => {
-    app.post(
-      `/${provider}/v1/chat/completions`,
-      createChatCompletionHandler(),
-    );
+    app.post(`/${provider}/v1/chat/completions`, createChatCompletionHandler());
   });
 
   // Azure-specific endpoints (Azure client uses different URL patterns)

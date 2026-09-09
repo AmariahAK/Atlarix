@@ -75,14 +75,22 @@ describe("evicting a cold chat", () => {
     expect(store.get(streamThreadByChatIdAtom).has(COLD)).toBe(false);
     // The per-MESSAGE maps are the ones that actually hold the bulk — frozen tool
     // cards and rendered bodies for every turn of the session.
-    expect(store.get(completedStreamThreadByAssistantMessageIdAtom)[1]).toBeUndefined();
-    expect(store.get(completedStreamThreadByAssistantMessageIdAtom)[2]).toBeUndefined();
-    expect(store.get(interleavedDisplayContentByMessageIdAtom)[1]).toBeUndefined();
+    expect(
+      store.get(completedStreamThreadByAssistantMessageIdAtom)[1],
+    ).toBeUndefined();
+    expect(
+      store.get(completedStreamThreadByAssistantMessageIdAtom)[2],
+    ).toBeUndefined();
+    expect(
+      store.get(interleavedDisplayContentByMessageIdAtom)[1],
+    ).toBeUndefined();
 
     // The chat still on screen is untouched — eviction is per chat, and message
     // ids are global, so a careless implementation would take both.
     expect(store.get(chatMessagesByIdAtom).has(HOT)).toBe(true);
-    expect(store.get(completedStreamThreadByAssistantMessageIdAtom)[3]).toBeDefined();
+    expect(
+      store.get(completedStreamThreadByAssistantMessageIdAtom)[3],
+    ).toBeDefined();
   });
 
   // The reason `reason` exists. Both original callers were terminal, so nulling
@@ -124,11 +132,15 @@ describe("evicting a cold chat", () => {
     clearChatAtomsForChat(COLD, { reason: "evicted" });
 
     // A chunk arrives for the cold chat and repopulates its message list.
-    store.set(chatMessagesByIdAtom, (prev) => new Map(prev).set(COLD, [msg(1)]));
+    store.set(chatMessagesByIdAtom, (prev) =>
+      new Map(prev).set(COLD, [msg(1)]),
+    );
 
     expect(store.get(chatMessagesByIdAtom).get(COLD)).toHaveLength(1);
     // …but its tool cards are still gone, so it must still be reloaded.
-    expect(store.get(completedStreamThreadByAssistantMessageIdAtom)[1]).toBeUndefined();
+    expect(
+      store.get(completedStreamThreadByAssistantMessageIdAtom)[1],
+    ).toBeUndefined();
     expect(isChatEvicted(COLD)).toBe(true);
   });
 });

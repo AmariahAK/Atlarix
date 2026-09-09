@@ -1,5 +1,17 @@
 import "./preload-env";
-import { app, autoUpdater as squirrelUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, powerMonitor, session, shell, type MenuItemConstructorOptions } from "electron";
+import {
+  app,
+  autoUpdater as squirrelUpdater,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  nativeTheme,
+  powerMonitor,
+  session,
+  shell,
+  type MenuItemConstructorOptions,
+} from "electron";
 import { updateElectronApp } from "update-electron-app";
 import * as path from "node:path";
 import dotenv from "dotenv";
@@ -23,7 +35,11 @@ import {
   type UpdateStatus,
 } from "./main/update-helpers";
 import { BackupManager } from "./backup_manager";
-import { getDatabasePath, initializeDatabase, beginDatabaseClosing } from "./db/index";
+import {
+  getDatabasePath,
+  initializeDatabase,
+  beginDatabaseClosing,
+} from "./db/index";
 import { UserSettings } from "./lib/schemas";
 import {
   AddMcpServerConfigSchema,
@@ -127,10 +143,7 @@ process.on("uncaughtException", (error: unknown) => {
     return;
   }
   if (isStreamStopAbort(error)) {
-    logger.warn(
-      "[main] Swallowed post-finalization stream-stop abort:",
-      error,
-    );
+    logger.warn("[main] Swallowed post-finalization stream-stop abort:", error);
     return;
   }
   logger.error("[main] Uncaught exception:", error);
@@ -164,7 +177,10 @@ if (SENTRY_DSN) {
 // only manifests on Linux/Windows GPU stacks; macOS doesn't hit it, so keep the
 // GPU sandbox enabled there (it's a real hardening layer). `ATLARIX_DISABLE_GPU_SANDBOX`
 // forces it off everywhere for users who still see the bug on macOS.
-if (process.platform !== "darwin" || process.env.ATLARIX_DISABLE_GPU_SANDBOX === "1") {
+if (
+  process.platform !== "darwin" ||
+  process.env.ATLARIX_DISABLE_GPU_SANDBOX === "1"
+) {
   app.commandLine.appendSwitch("disable-gpu-sandbox");
 }
 app.commandLine.appendSwitch("disable-software-rasterizer");
@@ -463,11 +479,20 @@ export async function onReady() {
   // check/download is driven solely by initAutoUpdater() below (which sets the
   // feed URL first). Kicking off a second checkForUpdates() here (before the feed
   // is configured) raced the real flow and could leave it stuck mid-download.
-  const deferFlagPath = path.join(app.getPath("userData"), "atlarix-pending-update.json");
+  const deferFlagPath = path.join(
+    app.getPath("userData"),
+    "atlarix-pending-update.json",
+  );
   if (fs.existsSync(deferFlagPath)) {
-    try { fs.unlinkSync(deferFlagPath); } catch { /* ignore */ }
+    try {
+      fs.unlinkSync(deferFlagPath);
+    } catch {
+      /* ignore */
+    }
     installDeferredUpdateOnDownload = true;
-    log.info("[AutoUpdater] Deferred update flag found — will install once downloaded");
+    log.info(
+      "[AutoUpdater] Deferred update flag found — will install once downloaded",
+    );
   }
 
   createWindow();
@@ -758,7 +783,9 @@ export async function onReady() {
       // read-only.
       logger.info(
         `[AutoUpdater] no bundled updater for this install${
-          IS_MICROSOFT_STORE_BUILD ? " (Microsoft Store — the Store updates it)" : ""
+          IS_MICROSOFT_STORE_BUILD
+            ? " (Microsoft Store — the Store updates it)"
+            : ""
         }`,
       );
     }
@@ -822,7 +849,10 @@ function registerUpdateStatusIpc(): void {
         await checkForUpdatesNotify();
         // checkForUpdatesNotify sets 'available' or stays put; reflect a check ran.
         if (updateStatus.lastResult === "checking") {
-          setUpdateStatus({ lastResult: "up-to-date", lastCheckAt: Date.now() });
+          setUpdateStatus({
+            lastResult: "up-to-date",
+            lastCheckAt: Date.now(),
+          });
         }
       }
     } catch (err) {
@@ -846,8 +876,14 @@ function registerUpdateStatusIpc(): void {
   });
 
   ipcMain.handle("update:defer", () => {
-    const flagPath = path.join(app.getPath("userData"), "atlarix-pending-update.json");
-    fs.writeFileSync(flagPath, JSON.stringify({ deferred: true, timestamp: Date.now() }));
+    const flagPath = path.join(
+      app.getPath("userData"),
+      "atlarix-pending-update.json",
+    );
+    fs.writeFileSync(
+      flagPath,
+      JSON.stringify({ deferred: true, timestamp: Date.now() }),
+    );
     log.info("[AutoUpdater] Update deferred to next launch");
   });
 }
@@ -859,7 +895,10 @@ async function checkForUpdatesNotify(): Promise<void> {
   try {
     const currentVersion = app.getVersion();
     const res = await fetch(ATLARIX_RELEASES_API, {
-      headers: { Accept: "application/vnd.github+json", "User-Agent": "Atlarix" },
+      headers: {
+        Accept: "application/vnd.github+json",
+        "User-Agent": "Atlarix",
+      },
     });
     if (!res.ok) {
       log.warn(`[UpdateNotify] GitHub API ${res.status}`);
@@ -875,8 +914,11 @@ async function checkForUpdatesNotify(): Promise<void> {
       return;
     }
     const releaseUrl =
-      data.html_url ?? "https://github.com/AmariahAK/atlarix-releases/releases/latest";
-    log.info(`[UpdateNotify] Update available: ${latestVersion} (current ${currentVersion})`);
+      data.html_url ??
+      "https://github.com/AmariahAK/atlarix-releases/releases/latest";
+    log.info(
+      `[UpdateNotify] Update available: ${latestVersion} (current ${currentVersion})`,
+    );
     setUpdateStatus({
       lastResult: "available",
       availableVersion: latestVersion,
@@ -932,9 +974,14 @@ function initAutoUpdater(): void {
     // Surface WHY rather than silently no-op'ing, then let the notify-only
     // bridge (gated separately) point the user at a manual download.
     if (capability.reason) {
-      setUpdateStatus({ lastResult: capability.reason, detail: capability.detail });
+      setUpdateStatus({
+        lastResult: capability.reason,
+        detail: capability.detail,
+      });
     }
-    log.info(`[AutoUpdater] electron-updater inactive: ${capability.detail ?? "n/a"}`);
+    log.info(
+      `[AutoUpdater] electron-updater inactive: ${capability.detail ?? "n/a"}`,
+    );
     // deb/rpm: still offer a native notification with the release page.
     if (process.platform === "linux" && app.isPackaged && !isAppImage) {
       void checkLinuxPackageUpdate();
@@ -952,7 +999,10 @@ function initAutoUpdater(): void {
       releaseType: "release",
     });
   } catch (err: unknown) {
-    log.warn("[AutoUpdater] setFeedURL failed:", err instanceof Error ? err.message : String(err));
+    log.warn(
+      "[AutoUpdater] setFeedURL failed:",
+      err instanceof Error ? err.message : String(err),
+    );
     setUpdateStatus({
       lastResult: "error",
       detail: err instanceof Error ? err.message : String(err),
@@ -991,7 +1041,9 @@ function initAutoUpdater(): void {
     });
     // Send a subtle in-app notice to the renderer so the user knows a download is happening.
     if (mainWindow && !mainWindow.webContents.isDestroyed()) {
-      mainWindow.webContents.send("update:downloading", { version: info.version });
+      mainWindow.webContents.send("update:downloading", {
+        version: info.version,
+      });
     }
     // Start the download ourselves so its promise is caught. Any failure here
     // (missing app-update.yml, network, signature) becomes a visible 'error'
@@ -1009,7 +1061,9 @@ function initAutoUpdater(): void {
   });
 
   autoUpdater.on("download-progress", (progress) => {
-    log.info(`[AutoUpdater] Download progress: ${Math.round(progress.percent)}%`);
+    log.info(
+      `[AutoUpdater] Download progress: ${Math.round(progress.percent)}%`,
+    );
     setUpdateStatus({ lastResult: "downloading" });
   });
 
@@ -1029,7 +1083,9 @@ function initAutoUpdater(): void {
       return;
     }
     if (mainWindow && !mainWindow.webContents.isDestroyed()) {
-      mainWindow.webContents.send("update:downloaded", { version: info.version });
+      mainWindow.webContents.send("update:downloaded", {
+        version: info.version,
+      });
     }
   });
 
@@ -1054,7 +1110,10 @@ function initAutoUpdater(): void {
   if (!updateRecheckTimer) {
     updateRecheckTimer = setInterval(() => {
       autoUpdater.checkForUpdates().catch((err) => {
-        log.warn("[AutoUpdater] periodic re-check failed:", err?.message ?? err);
+        log.warn(
+          "[AutoUpdater] periodic re-check failed:",
+          err?.message ?? err,
+        );
       });
     }, UPDATE_RECHECK_INTERVAL_MS);
   }
@@ -1140,9 +1199,12 @@ function initWindowsAutoUpdater(): void {
 async function checkLinuxPackageUpdate(): Promise<void> {
   try {
     const currentVersion = app.getVersion();
-    const res = await fetch("https://api.github.com/repos/AmariahAK/atlarix-releases/releases/latest", {
-      headers: { Accept: "application/vnd.github+json" },
-    });
+    const res = await fetch(
+      "https://api.github.com/repos/AmariahAK/atlarix-releases/releases/latest",
+      {
+        headers: { Accept: "application/vnd.github+json" },
+      },
+    );
 
     if (!res.ok) {
       log.warn(`[AutoUpdater:linux-pkg] GitHub API ${res.status}`);
@@ -1159,9 +1221,12 @@ async function checkLinuxPackageUpdate(): Promise<void> {
       return;
     }
 
-    log.info(`[AutoUpdater:linux-pkg] Update available: ${latest} (current ${currentVersion})`);
+    log.info(
+      `[AutoUpdater:linux-pkg] Update available: ${latest} (current ${currentVersion})`,
+    );
     const releaseUrl =
-      data.html_url ?? "https://github.com/AmariahAK/atlarix-releases/releases/latest";
+      data.html_url ??
+      "https://github.com/AmariahAK/atlarix-releases/releases/latest";
 
     // Lifetime is owned by showDesktopNotification — see the crash it exists
     // for. This path is Linux-only, which is exactly where that crash lives.
@@ -1173,7 +1238,10 @@ async function checkLinuxPackageUpdate(): Promise<void> {
       },
     });
   } catch (err) {
-    log.warn("[AutoUpdater:linux-pkg] check failed:", (err as Error)?.message ?? err);
+    log.warn(
+      "[AutoUpdater:linux-pkg] check failed:",
+      (err as Error)?.message ?? err,
+    );
   }
 }
 
@@ -1398,8 +1466,12 @@ const createWindow = () => {
       void shell.openExternal(url);
     }
   };
-  mainWindow.webContents.on("will-navigate", (e, url) => guardNavigation(e, url, true));
-  mainWindow.webContents.on("will-redirect", (e, url) => guardNavigation(e, url, false));
+  mainWindow.webContents.on("will-navigate", (e, url) =>
+    guardNavigation(e, url, true),
+  );
+  mainWindow.webContents.on("will-redirect", (e, url) =>
+    guardNavigation(e, url, false),
+  );
 
   // and load the index.html of the app.
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
@@ -1411,7 +1483,10 @@ const createWindow = () => {
   }
   // DevTools can generate noisy Chromium protocol console errors in dev.
   // Only open them when explicitly requested.
-  if (process.env.NODE_ENV === "development" && process.env.OPEN_DEVTOOLS === "1") {
+  if (
+    process.env.NODE_ENV === "development" &&
+    process.env.OPEN_DEVTOOLS === "1"
+  ) {
     mainWindow.webContents.openDevTools();
   }
 
@@ -1499,7 +1574,9 @@ const createWindow = () => {
   const broadcastFullscreen = () => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     const fs = mainWindow.isFullScreen();
-    mainWindow.webContents.send("window:fullscreen-changed", { fullscreen: fs });
+    mainWindow.webContents.send("window:fullscreen-changed", {
+      fullscreen: fs,
+    });
     if (process.platform === "darwin" && !fs) {
       try {
         mainWindow.setWindowButtonPosition({ x: 10, y: 8 });
@@ -1596,7 +1673,11 @@ const createWindow = () => {
 };
 
 function broadcastSystemTheme(): void {
-  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) {
+  if (
+    !mainWindow ||
+    mainWindow.isDestroyed() ||
+    mainWindow.webContents.isDestroyed()
+  ) {
     return;
   }
   mainWindow.webContents.send("theme:system-updated", {
@@ -1621,53 +1702,52 @@ const gotTheLock =
       : true;
 
 if (!IS_SELF_TEST && !IS_DOCTOR_CLI) {
-
-if (!gotTheLock) {
-  logger.warn(
-    "Single-instance lock not acquired — another Atlarix copy is already running. Exiting this process.",
-  );
-  app.quit();
-} else {
-  if (app.isPackaged) {
-    app.on(
-      "second-instance",
-      (_event, commandLine, workingDirectory, additionalData) => {
-        // Someone tried to run a second instance, we should focus our window.
-        focusMainWindow();
-        const url = extractDeepLinkUrl(commandLine);
-        if (url) {
-          queueOrHandleDeepLink(url);
-        }
-        const payload = additionalData as
-          | { argv?: string[]; cwd?: string }
-          | undefined;
-        const argv = payload?.argv?.length ? payload.argv : commandLine;
-        const cwd = payload?.cwd ?? workingDirectory;
-        const cliDir = parseDirectoryArgFromArgv(argv, cwd);
-        if (cliDir) {
-          void openWorkspaceFromCliPath(cliDir);
-        }
-      },
+  if (!gotTheLock) {
+    logger.warn(
+      "Single-instance lock not acquired — another Atlarix copy is already running. Exiting this process.",
     );
-  }
-  app.whenReady().then(() => {
-    // A20/L-5: if the OS keystore is back (e.g. keyring now installed), upgrade
-    // any secrets written in plaintext-fallback mode to encrypted at rest.
-    try {
-      reEncryptPlaintextSecretsIfPossible();
-    } catch (e) {
-      logger.warn("re-encrypt secrets on startup failed:", e);
-    }
-    void onReady().catch((err: unknown) => {
-      logger.error("onReady failed:", err);
-      dialog.showErrorBox(
-        "Startup failed",
-        err instanceof Error ? err.message : String(err),
+    app.quit();
+  } else {
+    if (app.isPackaged) {
+      app.on(
+        "second-instance",
+        (_event, commandLine, workingDirectory, additionalData) => {
+          // Someone tried to run a second instance, we should focus our window.
+          focusMainWindow();
+          const url = extractDeepLinkUrl(commandLine);
+          if (url) {
+            queueOrHandleDeepLink(url);
+          }
+          const payload = additionalData as
+            | { argv?: string[]; cwd?: string }
+            | undefined;
+          const argv = payload?.argv?.length ? payload.argv : commandLine;
+          const cwd = payload?.cwd ?? workingDirectory;
+          const cliDir = parseDirectoryArgFromArgv(argv, cwd);
+          if (cliDir) {
+            void openWorkspaceFromCliPath(cliDir);
+          }
+        },
       );
-      app.quit();
+    }
+    app.whenReady().then(() => {
+      // A20/L-5: if the OS keystore is back (e.g. keyring now installed), upgrade
+      // any secrets written in plaintext-fallback mode to encrypted at rest.
+      try {
+        reEncryptPlaintextSecretsIfPossible();
+      } catch (e) {
+        logger.warn("re-encrypt secrets on startup failed:", e);
+      }
+      void onReady().catch((err: unknown) => {
+        logger.error("onReady failed:", err);
+        dialog.showErrorBox(
+          "Startup failed",
+          err instanceof Error ? err.message : String(err),
+        );
+        app.quit();
+      });
     });
-  });
-}
+  }
 } // end if (!IS_SELF_TEST && !IS_DOCTOR_CLI)
 
 // macOS: open folder via dock drop or `open -a Atlarix /path`
@@ -1698,8 +1778,8 @@ function handleDeepLinkReturn(url: string) {
   // log the full URL. Structural flags only.
   log.log("=== DEEP LINK RECEIVED ===");
   log.log("URL length:", url.length);
-  log.log("Has hash (#):", url.includes('#'));
-  log.log("Has query (?):", url.includes('?'));
+  log.log("Has hash (#):", url.includes("#"));
+  log.log("Has query (?):", url.includes("?"));
   log.log("========================");
 
   // example url: "atlarix://auth/callback?code=abc&state=xyz"
@@ -1737,56 +1817,72 @@ function handleDeepLinkReturn(url: string) {
     parsed.hostname === "mcp" &&
     parsed.pathname.startsWith("/oauth/callback")
   ) {
-    import("./ipc/handlers/mcp_oauth_handlers").then(
-      async ({ handleMcpOAuthDeepLink }) => {
+    import("./ipc/handlers/mcp_oauth_handlers")
+      .then(async ({ handleMcpOAuthDeepLink }) => {
         await handleMcpOAuthDeepLink(url);
-      },
-    ).catch((err) => {
-      log.error("Failed to handle MCP OAuth callback:", err);
-    });
+      })
+      .catch((err) => {
+        log.error("Failed to handle MCP OAuth callback:", err);
+      });
     return;
   }
 
   // Handle OAuth callback: atlarix://auth/callback#access_token=...&refresh_token=...
   // Supabase OAuth returns tokens in hash fragment, not query params
-  if (parsed.hostname === "auth" || parsed.pathname.startsWith("/auth/callback")) {
+  if (
+    parsed.hostname === "auth" ||
+    parsed.pathname.startsWith("/auth/callback")
+  ) {
     // Cancel the 60s inbound-timeout fallback — deep link was received successfully.
-    import('./lib/auth/supabase-client').then(({ cancelPendingOAuthTimeout }) => {
-      cancelPendingOAuthTimeout();
-    }).catch(() => { /* non-fatal */ });
+    import("./lib/auth/supabase-client")
+      .then(({ cancelPendingOAuthTimeout }) => {
+        cancelPendingOAuthTimeout();
+      })
+      .catch(() => {
+        /* non-fatal */
+      });
 
     // Supabase sends tokens in hash fragment: #access_token=xxx&refresh_token=yyy
     // We need to pass the full URL to SubscriptionManager for parsing
     log.log("Handling Supabase OAuth callback");
-    log.log("OAuth callback URL has hash:", url.includes('#'));
+    log.log("OAuth callback URL has hash:", url.includes("#"));
 
     // Import dynamically to avoid circular dependencies
-    import('./lib/SubscriptionManager').then(async ({ SubscriptionManager }) => {
-      log.log("SubscriptionManager imported, calling handleOAuthCallback");
-      const result = await SubscriptionManager.handleOAuthCallback(url);
-      log.log("handleOAuthCallback result:", { success: result.success, hasUser: !!result.user, hasError: !!result.error });
-
-      if (result.error) {
-        log.error("OAuth callback error:", result.error.message);
-        dialog.showErrorBox("OAuth Error", result.error.message);
-        return;
-      }
-
-      // Send success to renderer
-      if (mainWindow) {
-        log.log("Sending oauth-callback-success to renderer, user:", result.user?.email);
-        mainWindow.webContents.send("oauth-callback-success", {
-          user: result.user,
+    import("./lib/SubscriptionManager")
+      .then(async ({ SubscriptionManager }) => {
+        log.log("SubscriptionManager imported, calling handleOAuthCallback");
+        const result = await SubscriptionManager.handleOAuthCallback(url);
+        log.log("handleOAuthCallback result:", {
+          success: result.success,
+          hasUser: !!result.user,
+          hasError: !!result.error,
         });
-      } else {
-        log.error("MainWindow is null, cannot send oauth-callback-success!");
-      }
 
-      log.log("OAuth callback handled successfully");
-    }).catch(err => {
-      log.error("Failed to handle OAuth callback:", err);
-      dialog.showErrorBox("OAuth Error", "Failed to process authentication");
-    });
+        if (result.error) {
+          log.error("OAuth callback error:", result.error.message);
+          dialog.showErrorBox("OAuth Error", result.error.message);
+          return;
+        }
+
+        // Send success to renderer
+        if (mainWindow) {
+          log.log(
+            "Sending oauth-callback-success to renderer, user:",
+            result.user?.email,
+          );
+          mainWindow.webContents.send("oauth-callback-success", {
+            user: result.user,
+          });
+        } else {
+          log.error("MainWindow is null, cannot send oauth-callback-success!");
+        }
+
+        log.log("OAuth callback handled successfully");
+      })
+      .catch((err) => {
+        log.error("Failed to handle OAuth callback:", err);
+        dialog.showErrorBox("OAuth Error", "Failed to process authentication");
+      });
     return;
   }
 
@@ -1873,55 +1969,61 @@ app.on("before-quit", (e) => {
   quittingAfterProjectMemoryFlush = true;
   void (async () => {
     try {
-    try {
-      const { flushSessionEndSnapshots } = await import("./lib/project-memory/service");
-      await flushSessionEndSnapshots();
-    } catch (err) {
-      logger.error("flushSessionEndSnapshots failed:", err);
-    }
-    // Persist in-flight partial assistant output BEFORE aborting, so an
-    // interrupted turn is recoverable (shown with a Continue affordance).
-    try {
-      const { flushPartialStreamsForShutdown } = await import(
-        "./ipc/handlers/chat_stream_handlers"
-      );
-      await flushPartialStreamsForShutdown();
-    } catch (flushErr) {
-      logger.warn("flushPartialStreamsForShutdown on quit:", flushErr);
-    }
-    try {
-      const { abortAllStreams } = await import("./ipc/handlers/chat_stream_handlers");
-      abortAllStreams();
-    } catch (abortErr) {
-      logger.warn("abortAllStreams on quit:", abortErr);
-    }
-    // v14.41: put the emulator's `show_touches` back if the mobile tools turned
-    // it on. A device that had tap circles off must not keep them after we quit.
-    // Lazily imported so a session that never touched a device never loads this.
-    try {
-      const { restoreTapFeedback } = await import("./lib/mobile/device-tools");
-      await restoreTapFeedback();
-    } catch (tapErr) {
-      logger.warn("restoreTapFeedback on quit:", tapErr);
-    }
-    // v12 3.7: drain tracked state-mutating background work (self-correction
-    // dispatch, snapshot writes, usage records) before the process dies.
-    try {
-      const { drainPendingWork } = await import("./lib/pending-work");
-      await drainPendingWork();
-    } catch (drainErr) {
-      logger.warn("drainPendingWork on quit:", drainErr);
-    }
-    // v14 pt3: kill detached background commands (dev servers, watchers) so they
-    // don't orphan after the app exits.
-    try {
-      const { killAllBackgroundJobs } = await import(
-        "./lib/agent/background-commands"
-      );
-      killAllBackgroundJobs();
-    } catch (bgErr) {
-      logger.warn("killAllBackgroundJobs on quit:", bgErr);
-    }
+      try {
+        const { flushSessionEndSnapshots } = await import(
+          "./lib/project-memory/service"
+        );
+        await flushSessionEndSnapshots();
+      } catch (err) {
+        logger.error("flushSessionEndSnapshots failed:", err);
+      }
+      // Persist in-flight partial assistant output BEFORE aborting, so an
+      // interrupted turn is recoverable (shown with a Continue affordance).
+      try {
+        const { flushPartialStreamsForShutdown } = await import(
+          "./ipc/handlers/chat_stream_handlers"
+        );
+        await flushPartialStreamsForShutdown();
+      } catch (flushErr) {
+        logger.warn("flushPartialStreamsForShutdown on quit:", flushErr);
+      }
+      try {
+        const { abortAllStreams } = await import(
+          "./ipc/handlers/chat_stream_handlers"
+        );
+        abortAllStreams();
+      } catch (abortErr) {
+        logger.warn("abortAllStreams on quit:", abortErr);
+      }
+      // v14.41: put the emulator's `show_touches` back if the mobile tools turned
+      // it on. A device that had tap circles off must not keep them after we quit.
+      // Lazily imported so a session that never touched a device never loads this.
+      try {
+        const { restoreTapFeedback } = await import(
+          "./lib/mobile/device-tools"
+        );
+        await restoreTapFeedback();
+      } catch (tapErr) {
+        logger.warn("restoreTapFeedback on quit:", tapErr);
+      }
+      // v12 3.7: drain tracked state-mutating background work (self-correction
+      // dispatch, snapshot writes, usage records) before the process dies.
+      try {
+        const { drainPendingWork } = await import("./lib/pending-work");
+        await drainPendingWork();
+      } catch (drainErr) {
+        logger.warn("drainPendingWork on quit:", drainErr);
+      }
+      // v14 pt3: kill detached background commands (dev servers, watchers) so they
+      // don't orphan after the app exits.
+      try {
+        const { killAllBackgroundJobs } = await import(
+          "./lib/agent/background-commands"
+        );
+        killAllBackgroundJobs();
+      } catch (bgErr) {
+        logger.warn("killAllBackgroundJobs on quit:", bgErr);
+      }
     } catch (shutdownErr) {
       // Belt-and-suspenders: each step is individually guarded above, but if the
       // chain itself throws (e.g. a dynamic import fails), report it instead of

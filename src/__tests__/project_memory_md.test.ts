@@ -31,7 +31,11 @@ afterEach(async () => {
 
 async function writeMemoryFile(content: string) {
   await fs.mkdir(path.join(workspace, ".atlarix"), { recursive: true });
-  await fs.writeFile(path.join(workspace, ".atlarix", "memory.md"), content, "utf8");
+  await fs.writeFile(
+    path.join(workspace, ".atlarix", "memory.md"),
+    content,
+    "utf8",
+  );
 }
 
 describe("migrateLegacyAtlarixFiles", () => {
@@ -50,9 +54,16 @@ describe("migrateLegacyAtlarixFiles", () => {
   });
 
   it("does not touch a root MEMORY.md", async () => {
-    await fs.writeFile(path.join(workspace, "MEMORY.md"), "user file\n", "utf8");
+    await fs.writeFile(
+      path.join(workspace, "MEMORY.md"),
+      "user file\n",
+      "utf8",
+    );
     await migrateLegacyAtlarixFiles(workspace);
-    const content = await fs.readFile(path.join(workspace, "MEMORY.md"), "utf8");
+    const content = await fs.readFile(
+      path.join(workspace, "MEMORY.md"),
+      "utf8",
+    );
     expect(content).toBe("user file\n");
   });
 
@@ -94,13 +105,17 @@ describe("buildProjectDocsPromptHint", () => {
     await writeMemoryFile(
       "# Project memory\n\nSECRET-MARKER-CONTENT payments use Stripe.\n",
     );
-    const hint = await buildProjectDocsPromptHint(workspace, { canWrite: true });
+    const hint = await buildProjectDocsPromptHint(workspace, {
+      canWrite: true,
+    });
     expect(hint).toContain("read_file");
     expect(hint).not.toContain("SECRET-MARKER-CONTENT");
   });
 
   it("always states the atlarix.md follow-when-non-empty rule", async () => {
-    const hint = await buildProjectDocsPromptHint(workspace, { canWrite: false });
+    const hint = await buildProjectDocsPromptHint(workspace, {
+      canWrite: false,
+    });
     expect(hint).toContain(".atlarix/atlarix.md");
     expect(hint).toContain("absent or empty");
   });
@@ -113,20 +128,28 @@ describe("buildProjectDocsPromptHint", () => {
    */
   it("no longer advertises .atlarix/memory.md as the knowledge store", async () => {
     await writeMemoryFile("# Project memory\n\nstack notes\n");
-    const hint = await buildProjectDocsPromptHint(workspace, { canWrite: true });
+    const hint = await buildProjectDocsPromptHint(workspace, {
+      canWrite: true,
+    });
     expect(hint).not.toContain("memory.md");
     expect(hint).not.toContain("you may create it");
     expect(hint).not.toContain("durable facts change");
   });
 
   it("is identical whether or not the mode can write — nothing to create any more", async () => {
-    const writable = await buildProjectDocsPromptHint(workspace, { canWrite: true });
-    const readOnly = await buildProjectDocsPromptHint(workspace, { canWrite: false });
+    const writable = await buildProjectDocsPromptHint(workspace, {
+      canWrite: true,
+    });
+    const readOnly = await buildProjectDocsPromptHint(workspace, {
+      canWrite: false,
+    });
     expect(writable).toBe(readOnly);
   });
 
   it("stays short — it is a rule statement, not a document", async () => {
-    const hint = await buildProjectDocsPromptHint(workspace, { canWrite: true });
+    const hint = await buildProjectDocsPromptHint(workspace, {
+      canWrite: true,
+    });
     expect(hint.length).toBeLessThan(400);
   });
 });
@@ -161,21 +184,33 @@ describe("readProjectInstructions (v13.1 AGENTS.md/CLAUDE.md interop)", () => {
 
   it("prefers .atlarix/atlarix.md when present", async () => {
     await writeAtlarix("# Rules\n\nfrom atlarix\n");
-    await fs.writeFile(path.join(workspace, "AGENTS.md"), "from agents\n", "utf8");
+    await fs.writeFile(
+      path.join(workspace, "AGENTS.md"),
+      "from agents\n",
+      "utf8",
+    );
     const res = await readProjectInstructions(workspace);
     expect(res?.source).toBe("atlarix");
     expect(res?.content).toContain("from atlarix");
   });
 
   it("falls back to AGENTS.md when atlarix.md is absent", async () => {
-    await fs.writeFile(path.join(workspace, "AGENTS.md"), "agent guidance here\n", "utf8");
+    await fs.writeFile(
+      path.join(workspace, "AGENTS.md"),
+      "agent guidance here\n",
+      "utf8",
+    );
     const res = await readProjectInstructions(workspace);
     expect(res?.source).toBe("agents");
     expect(res?.content).toContain("agent guidance here");
   });
 
   it("falls back to CLAUDE.md when atlarix.md and AGENTS.md are absent", async () => {
-    await fs.writeFile(path.join(workspace, "CLAUDE.md"), "claude guidance\n", "utf8");
+    await fs.writeFile(
+      path.join(workspace, "CLAUDE.md"),
+      "claude guidance\n",
+      "utf8",
+    );
     const res = await readProjectInstructions(workspace);
     expect(res?.source).toBe("claude");
     expect(res?.content).toContain("claude guidance");
@@ -183,7 +218,11 @@ describe("readProjectInstructions (v13.1 AGENTS.md/CLAUDE.md interop)", () => {
 
   it("treats a whitespace-only atlarix.md as absent and falls back", async () => {
     await writeAtlarix("   \n\n");
-    await fs.writeFile(path.join(workspace, "AGENTS.md"), "real guidance\n", "utf8");
+    await fs.writeFile(
+      path.join(workspace, "AGENTS.md"),
+      "real guidance\n",
+      "utf8",
+    );
     const res = await readProjectInstructions(workspace);
     expect(res?.source).toBe("agents");
   });
@@ -241,4 +280,3 @@ describe("extractHeadings (the project-instructions pointer)", () => {
     expect(extractHeadings("just prose\nand more prose")).toEqual([]);
   });
 });
-
