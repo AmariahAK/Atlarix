@@ -696,6 +696,39 @@ undone, and what is still owed.
       only a deliberate test catches — an OLD build against the new proxy, and a NEW build
       against an old one (the state our own rollback creates).
 
+## 🧠 Why a GPT tier shows no thoughts mid-turn — MEASURED, nothing to fix (2026-09-09)
+
+Filed because it reads exactly like a broken feature and costs a full pipeline audit to
+answer. **OpenAI emits NO reasoning summary on a step that CALLS A TOOL.** Measured
+against `/v1/responses` with our own key, streaming, counting
+`response.reasoning_summary*` events:
+
+| Step                                       | gpt-6-astra | gpt-5.6-terra |
+| ------------------------------------------ | ----------- | ------------- |
+| Answering (no tool call)                   | **87**      | **81**        |
+| **Calling a tool**                         | **0**       | **0**         |
+| Tools attached, question answered directly | **83**      | —             |
+
+So it is the tool-CALLING step, not the presence of tools. `effort: "high"` +
+`summary: "detailed"` changes nothing — still 0. **There is no lever and no fix.**
+
+Expect it: in a coding harness most steps are tool calls, so thoughts land on the step
+where the model stops calling tools and writes its answer — the final step after tool
+results included. A turn still mid-fan-out showing only tool cards is correct.
+
+**The pipeline was verified end-to-end while chasing this — do NOT re-audit it:** our
+OpenAI org is verified (`reasoning.summary` returns 200 with real text; an unverified org
+gets a hard 400 instead); the app sends `reasoning_effort` (bucket `compass` matches the
+client name, and the SDK maps camelCase `reasoningEffort`); the proxy adds
+`summary: "auto"` and routes `openai-responses` to `/v1/responses`; it translates
+`reasoning_summary_text.delta` → `reasoning_content`; and `@ai-sdk/openai-compatible`
+3.0.31 reads `delta.reasoning_content` in its STREAMING chunk schema.
+
+**Distinguish from the rollback path:** on `/v1/chat/completions` tools plus a non-`none`
+effort is a hard 400, so the proxy forces `reasoning_effort: "none"` and reasoning is lost
+entirely. If thoughts disappear on the ANSWERING step too, check the tier is still
+`openai-responses` before looking anywhere else.
+
 ## 📊 Sentry error selection + PostHog usage tracking (queued 2026-09-09, owner)
 
 Both are wired — `@sentry/electron` + `@sentry/core`, `posthog-js` + `posthog-node` — and
