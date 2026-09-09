@@ -581,12 +581,14 @@ What it did NOT do, in the order the plan itself ranked them:
       Run it on `tests/agent-evals`. If it loses, core-2 should go back to something cheaper and
       the Responses path simply sits there costing nothing — it is config-selected.
 
-- [ ] **`xhigh` and `max` effort are reachable now and the app still cannot ask for them.**
-      The probe got the supported set verbatim from the API's own error:
-      `'none', 'low', 'medium', 'high', 'xhigh', and 'max'` — only `minimal` is rejected.
-      `thinking_utils.ts:85` clamps the client to `medium`/`high`, so two levels we are already
-      paying to have access to are unreachable. Cheap win; check the prompt-budget and cost
-      implications before exposing `max` as a default anything.
+- [x] **`xhigh` and `max` effort — DONE `3178c27b`.** Deep ON asks for `max` now; Deep OFF
+      stays `medium` deliberately, because routing OpenAI through `getReasoningEffort` would
+      have raised the BASE to `high` for everyone who never touched the toggle (its
+      ceiling-"max" base is `high`, sized for cheap budget-channel providers), so the OpenAI
+      rule is its own function. Two things fixed alongside: a BYOK OpenAI dispatch sent NO
+      effort at all, so the toggle moved nothing on that route; and `reasoningBudgetTokens`'
+      ladder ended in a bare `: 0.33`, so the first budget model handed `xhigh` would have
+      silently received the MEDIUM budget.
 
 - [ ] **`pick-core-model.mjs --check` is still not wired into CI.** It exists and it works;
       nothing runs it. A `core-models.json` edit that names a model the checker would reject
@@ -678,23 +680,22 @@ undone, and what is still owed.
 
 **Still owed:**
 
-- [ ] **Owner: rehearse the `/v1/responses` rollback.** Flip
-      `providers.openai.protocol` back to `"openai"`, confirm the tier returns to
-      `/chat/completions` on the next refresh with no deploy, flip forward again. Ten
-      minutes, and it is the one lever never pulled — which matters most now that it decides
-      which model answers.
-- [ ] **Wire `pick-core-model.mjs --check` into CI.** Still ungated: a `core-models.json`
-      edit reaches every installed client within the hour with nothing having validated the
-      ids, the routing or the provider blocks. Needs no secrets — the audit reads models.dev
-      and the committed JSON, and the provider probe is skipped without a key. (A price
-      cross-check was built and reverted: owner, 2026-09-09 — not worth carrying code for one
-      model's bad upstream data.) `configSnippet`'s hardcoded `"protocol": "openai"` is
+- [ ] **Owner: rehearse the `/v1/responses` rollback** — tracked in full under
+      §`/v1/responses` above, not restated here. This section originally duplicated it, and
+      two copies of one item is how one gets closed while the other lives on.
+- [ ] **Wire `pick-core-model.mjs --check` into CI** — tracked in full under
+      §`/v1/responses` above, not restated here. Two notes that belong with it: a price
+      cross-check was built and REVERTED (owner, 2026-09-09 — not worth carrying code for one
+      model's bad upstream data), and `configSnippet`'s hardcoded `"protocol": "openai"` is
       already fixed in atlarix-releases `b548015`.
-- [ ] **Packaged-app verification.** See the plan's Verification section: tips, shortcuts,
-      the Astra default, the slot notice, the refusal naming its number, the sub-agent round
-      halting on exhaustion, and the MCP gate being gone. Plus the two compatibility states
-      only a deliberate test catches — an OLD build against the new proxy, and a NEW build
-      against an old one (the state our own rollback creates).
+- [ ] **Packaged-app verification — PARTLY DONE, owner-confirmed 2026-09-09.** Verified in
+      the packaged app: tips plus the TIP label, Astra live in the picker and billing
+      correctly, the slot-change notice appearing, and the composer ring spinning smoothly.
+      **Still unverified:** the sub-agent round halting on exhaustion end-to-end — it needed
+      the low-balance account, deleted at the owner's instruction, so it ships on 26 unit
+      tests including exhaustion at sub-task 3 of 5 — and the two compatibility states only a
+      deliberate test catches: an OLD build against the new proxy, and a NEW build against an
+      old one (the state our own rollback creates).
 
 ## 🧠 Why a GPT tier shows no thoughts mid-turn — MEASURED, nothing to fix (2026-09-09)
 
