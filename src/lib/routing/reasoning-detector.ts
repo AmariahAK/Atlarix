@@ -386,8 +386,13 @@ export function buildReasoningProviderOptions(
   }
 
   if (cap.useOpenAiReasoningSummary) {
+    // `reasoningEffort` was ABSENT here, so a direct (BYOK) OpenAI dispatch asked for a
+    // summary and never stated an effort — the model's default applied and the Deep
+    // toggle moved nothing on this route at all. Passing the resolved effort makes the
+    // toggle mean something for BYOK too.
     patch.openai = {
       reasoningSummary: "auto",
+      reasoningEffort: effort,
     } satisfies OpenAIResponsesProviderOptions;
   }
 

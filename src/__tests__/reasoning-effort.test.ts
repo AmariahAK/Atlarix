@@ -98,19 +98,46 @@ describe("provider param wiring receives the resolved effort + scaled budget", (
   // bucket into the body and then writes `reasoning_effort:
   // compatibleOptions.reasoningEffort ?? undefined` over the top, so a snake_case key
   // is overwritten with undefined and dropped by JSON.stringify.
-  it("effort follows the toggle, never exceeds 'high', and uses the SDK's key", () => {
+  /**
+   * Renamed rather than re-pointed. The old name was "never exceeds 'high'", which
+   * recorded a decision that is no longer current: the route asked for "high" at most
+   * AND additionally mapped "max" -> "high", so the top two levels of an API that
+   * accepts `none/low/medium/high/xhigh/max` were unreachable on models we already pay
+   * for. The name is the record of which decision is live, so flipping only the
+   * expectation would have left the file lying about it.
+   */
+  it("effort follows the toggle, reaches the API ceiling, and uses the SDK's key", () => {
+    // Deep OFF is deliberately UNCHANGED at medium. Raising the base would raise the
+    // bill for every user who never touched the toggle.
     expect(
       (getExtraProviderOptions("openai", settings(false), true) as any)
         .reasoningEffort,
     ).toBe("medium");
+    // Deep ON now reaches the ceiling, which is what "Deep" means on every other route.
     expect(
       (getExtraProviderOptions("openai", settings(true), true) as any)
         .reasoningEffort,
-    ).toBe("high");
+    ).toBe("max");
+    // Still the camelCase PROVIDER OPTION, never the snake_case body field — see the
+    // note above; the snake_case spelling passed a test once while sending nothing.
     expect(
       (getExtraProviderOptions("openai", settings(true), true) as any)
         .reasoning_effort,
     ).toBeUndefined();
+  });
+
+  it("gives xhigh its own reasoning budget instead of silently treating it as medium", () => {
+    // `xhigh` joined ReasoningEffort for OpenAI, which does not use budget tokens at
+    // all — but `reasoningBudgetTokens`' ladder ended in a bare `: 0.33`, so the first
+    // budget-channel model handed "xhigh" would have quietly received the MEDIUM
+    // budget. Ordering is the assertion, not the fractions.
+    const medium = reasoningBudgetTokens("medium", 64_000);
+    const high = reasoningBudgetTokens("high", 64_000);
+    const xhigh = reasoningBudgetTokens("xhigh", 64_000);
+    const max = reasoningBudgetTokens("max", 64_000);
+    expect(medium).toBeLessThan(high);
+    expect(high).toBeLessThan(xhigh);
+    expect(xhigh).toBeLessThan(max);
   });
 
   it("budget provider (deepseek): scaled thinking budget, deep > base", () => {
