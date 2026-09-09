@@ -1,0 +1,32 @@
+{
+  "shortcut": "{{keys}} — {{action}}",
+  "shortcutScoped": "{{keys}} — {{action}} (in {{scope}})",
+  "shortcuts": {
+    "toggle-right-panel": "show or hide the right panel",
+    "cycle-work-mode": "cycle work mode",
+    "change-model": "change the model mid-chat",
+    "new-browser-tab": "open a new browser tab in the panel",
+    "prev-panel-tab": "previous panel tab",
+    "next-panel-tab": "next panel tab",
+    "toggle-left-sidebar": "show or hide the left sidebar",
+    "close-tab-or-window": "close the browser tab, or the window",
+    "send-message": "send your message",
+    "newline": "start a new line instead of sending"
+  },
+  "feature": {
+    "memory": "Doing a lot of work? Ask Atlarix to remember the key things, so the next session picks up where you left off.",
+    "sessionRecall": "Ask about something from earlier in this chat — it can search the transcript, even after compacting.",
+    "previousSession": "Ask Atlarix to read a previous session by name when you want accurate context on earlier work.",
+    "autocomplete": "Type / for commands, or @ to point at a file.",
+    "mcp": "Connect MCP servers in Settings → Integrations to give Atlarix your own tools.",
+    "skills": "Install skills per workspace in Settings to teach Atlarix a repeatable job.",
+    "voice": "Dictate instead of typing — Whisper runs on your machine, so it needs no key.",
+    "automations": "Put recurring work on a schedule with automations.",
+    "subagents": "Hand independent work to sub-agents and let them run in parallel."
+  },
+  "help": {
+    "title": "Keyboard shortcuts",
+    "caption": "Chords are shown for this platform.",
+    "scopeNote": "Works in {{scope}}."
+  }
+}

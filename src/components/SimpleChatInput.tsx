@@ -40,6 +40,7 @@ import { useAttachments } from "@/hooks/useAttachments";
 import { AttachmentsList } from "@/components/chat/AttachmentsList";
 import { ParkedWaitingChip } from "@/components/chat/ParkedWaitingChip";
 import { PendingApprovalsBar } from "@/components/chat/PendingApprovalsBar";
+import { ComposerTip } from "@/components/chat/ComposerTip";
 import { DragDropOverlay } from "@/components/chat/DragDropOverlay";
 import { useComposerAutocomplete } from "@/components/chat/ComposerAutocomplete";
 import { useLiveTurnTokenUsage } from "@/hooks/useLiveTurnTokenUsage";
@@ -477,6 +478,21 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
                     </Popover>
                 </div>
             </div>
+            {/*
+              Below the bordered box, which was the one genuinely empty slot in this
+              component — nothing has ever rendered between the box and this wrapper.
+              Not inside `ChatInputControls`, which already stacks a status row and a
+              chip row and would start competing for the same line.
+
+              Safe to grow: `app/layout.tsx` gives the column `min-h-0` precisely so the
+              transcript yields as the composer gets taller.
+            */}
+            <ComposerTip
+                chatId={chatId}
+                composerIsEmpty={inputValue.trim().length === 0}
+                isStreaming={isStreaming}
+                mustSignIn={mustSignIn}
+            />
         </div>
     );
 }

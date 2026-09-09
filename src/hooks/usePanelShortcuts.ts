@@ -28,6 +28,7 @@ import { useSettings } from "@/hooks/useSettings";
 import { labelForWorkMode } from "@/lib/work-mode";
 import { useWorkModeSelection } from "@/hooks/useWorkModeSelection";
 import type { WorkMode } from "@/lib/schemas";
+import { isMacPlatform } from "@/lib/shortcuts";
 
 const WORK_MODE_CYCLE: WorkMode[] = ["ask", "plan", "build", "debug", "review"];
 
@@ -83,7 +84,10 @@ export function usePanelShortcuts() {
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      const mod = typeof navigator !== "undefined" && navigator.platform?.toLowerCase().startsWith("mac") ? e.metaKey : e.ctrlKey;
+      // `isMacPlatform` is shared with `lib/shortcuts.ts`, which is what the tips line
+      // and the Help sheet format their key names from. Two copies of this predicate
+      // would let the hint say ⌘ while the handler listened for Ctrl.
+      const mod = isMacPlatform() ? e.metaKey : e.ctrlKey;
 
       // Cmd/Ctrl+B: toggle right panel (ungated). Works even when an input is
       // focused — like editors — since the chord can't insert text anyway.

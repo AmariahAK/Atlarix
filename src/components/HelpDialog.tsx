@@ -22,6 +22,7 @@ import { IpcClient } from "@/ipc/ipc_client";
 import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/lib/auth/useAuth";
 import { DISCORD_INVITE_URL } from "@/lib/community/discord";
+import { ShortcutsList } from "@/components/help/ShortcutsList";
 
 interface HelpDialogProps {
   isOpen: boolean;
@@ -304,6 +305,8 @@ System Info:
               you promptly.
             </p>
           </div>
+
+          <ShortcutsList />
         </div>
       </DialogContent>
     </Dialog>

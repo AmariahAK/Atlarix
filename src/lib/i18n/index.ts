@@ -20,6 +20,7 @@ import enTools from "./locales/en-us/tools.json";
 import enOnboarding from "./locales/en-us/onboarding.json";
 import enPanels from "./locales/en-us/panels.json";
 import enMain from "./locales/en-us/main.json";
+import enTips from "./locales/en-us/tips.json";
 
 /**
  * One catalog per SURFACE, so a translation PR touches one JSON file and never
@@ -36,6 +37,7 @@ export const NAMESPACES = [
   "onboarding",
   "panels",
   "main",
+  "tips",
 ] as const;
 export type Namespace = (typeof NAMESPACES)[number];
 
@@ -48,6 +50,7 @@ export const EN_RESOURCES = {
   onboarding: enOnboarding,
   panels: enPanels,
   main: enMain,
+  tips: enTips,
 } as const;
 
 /**
