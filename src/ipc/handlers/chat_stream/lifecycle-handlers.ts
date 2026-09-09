@@ -16,6 +16,10 @@ import { FileUploadsState } from "@/ipc/utils/file_uploads_state";
 import { killForegroundCommandsForChat } from "@/lib/agent/background-commands";
 import { cancelAllSubagentTasksForChat } from "@/lib/tools/spawn-task";
 import {
+  USER_CANCEL_STREAM_STOP,
+  streamStopAbortReason,
+} from "@/lib/stream/stream-stop-sentinels";
+import {
   activeStreams,
   lastStreamRequest,
   streamTurnIdByChatId,
@@ -42,8 +46,10 @@ export function registerLifecycleHandlers(
     const abortController = activeStreams.get(chatId);
 
     if (abortController) {
-      // Abort the stream
-      abortController.abort();
+      // Abort the stream. WITH A REASON: a reason-less abort rejects detached SDK
+      // promises as a bare AbortError, which the process-level net cannot tell from a
+      // real fault — so pressing Stop filed Sentry errors.
+      abortController.abort(streamStopAbortReason(USER_CANCEL_STREAM_STOP));
       activeStreams.delete(chatId);
       logger.log(`Aborted stream for chat ${chatId}`);
     } else {
@@ -101,7 +107,7 @@ export function registerLifecycleHandlers(
     const controller = activeStreams.get(chatId);
     if (controller) {
       logger.log(`[chat:abort] User cancelled stream for chat ${chatId}`);
-      controller.abort();
+      controller.abort(streamStopAbortReason(USER_CANCEL_STREAM_STOP));
       activeStreams.delete(chatId);
       // Fix 4: also terminate any blocking foreground run_command + running
       // scout sub-agents so cancel stops in-flight work, not just the request.

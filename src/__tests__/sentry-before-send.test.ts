@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import type { ErrorEvent } from "@sentry/core";
 import { sentryBeforeSendDropExpected } from "@/lib/sentry-before-send";
 import { workspaceCapRefusal } from "@/lib/workspace-caps";
+import {
+  TEARDOWN_STREAM_STOP,
+  USER_CANCEL_STREAM_STOP,
+  streamStopAbortReason,
+} from "@/lib/stream/stream-stop-sentinels";
 
 describe("sentryBeforeSendDropExpected", () => {
   /**
@@ -28,6 +33,69 @@ describe("sentryBeforeSendDropExpected", () => {
       ).toBeNull();
     },
   );
+
+  /**
+   * A USER PRESSING STOP MUST NOT FILE A BUG REPORT.
+   *
+   * Observed 2026-09-09 in the packaged build: one Stop press produced two Sentry
+   * events (`AbortError: This operation was aborted`, `mechanism:
+   * onunhandledrejection`). Both cancel handlers aborted with NO reason, so the
+   * detached SDK promises rejected as a bare AbortError that matched none of the
+   * intentional-stop sentinels — and the process-level net cannot tell a deliberate
+   * stop from a real fault without one. Every stop we perform ourselves now carries a
+   * reason.
+   *
+   * Both directions are asserted: the two forms Sentry actually delivers (a structured
+   * `originalException`, and text-only when the DOMException is not attached), and that
+   * a genuine abort with no sentinel is still REPORTED — a filter that drops every
+   * AbortError would hide real cancellations mid-request.
+   */
+  describe("intentional stream stops are not defects", () => {
+    const abortEvent = (value: string) =>
+      ({
+        exception: { values: [{ type: "AbortError", value }] },
+      }) as ErrorEvent;
+
+    it.each([USER_CANCEL_STREAM_STOP, TEARDOWN_STREAM_STOP])(
+      "drops a stop carrying the %s sentinel, via originalException",
+      (sentinel) => {
+        const original = streamStopAbortReason(sentinel);
+        expect(
+          sentryBeforeSendDropExpected(
+            abortEvent("This operation was aborted"),
+            {
+              originalException: original,
+            },
+          ),
+        ).toBeNull();
+      },
+    );
+
+    it.each([USER_CANCEL_STREAM_STOP, TEARDOWN_STREAM_STOP])(
+      "drops a stop carrying the %s sentinel from TEXT alone",
+      (sentinel) => {
+        // Sentry's own onunhandledrejection integration does not always attach the
+        // DOMException, which is the gap `textHasStreamStopSentinel` exists to close.
+        expect(
+          sentryBeforeSendDropExpected(
+            abortEvent(`AbortError: ${sentinel}`),
+            undefined,
+          ),
+        ).toBeNull();
+      },
+    );
+
+    it("still REPORTS an abort that carries no sentinel", () => {
+      // The whole point of naming the reasons rather than dropping the error class:
+      // an abort we did not cause is still a signal worth seeing.
+      expect(
+        sentryBeforeSendDropExpected(
+          abortEvent("This operation was aborted"),
+          undefined,
+        ),
+      ).not.toBeNull();
+    });
+  });
 
   it("redacts secrets from message, exception value, request URL, and breadcrumbs (A15)", () => {
     const event = {
