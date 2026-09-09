@@ -14,7 +14,6 @@
  */
 
 import { ToolRegistry } from "./registry";
-import { SubscriptionManager } from "@/lib/SubscriptionManager";
 import { describeWorkspaceCap, workspaceCapClause } from "@/lib/workspace-caps";
 import { wrapUntrustedData } from "../streaming/untrusted-data";
 import { db } from "../../db";

@@ -33,7 +33,6 @@ import {
   type AutomationTrigger,
 } from "@/lib/automations/types";
 import { listAutomations, getAutomation } from "@/lib/automations/service";
-import { SubscriptionManager } from "@/lib/SubscriptionManager";
 import { describeWorkspaceCap, workspaceCapClause } from "@/lib/workspace-caps";
 
 const logger = log.scope("automations-tool");

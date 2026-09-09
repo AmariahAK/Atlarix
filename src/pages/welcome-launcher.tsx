@@ -3,7 +3,6 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { FolderOpen, LogOut, Search, Settings, Trash2 } from "lucide-react";
 import { DISCORD_INVITE_URL } from "@/lib/community/discord";
 import { IpcClient } from "@/ipc/ipc_client";
-import { PlanLimitError } from "@/lib/plan-limit-error";
 import { showError } from "@/lib/toast";
 import AtlarixAnimation from "@/components/atlarix/AtlarixAnimation";
 import { OAuthSignInButtons } from "@/components/auth/OAuthSignInButtons";
@@ -283,9 +282,7 @@ export default function WelcomeLauncher() {
                   refreshApps,
                 });
               } catch (e) {
-                if (!(e instanceof PlanLimitError)) {
-                  showError(e instanceof Error ? e.message : String(e));
-                }
+                showError(e instanceof Error ? e.message : String(e));
               }
             })()
           }

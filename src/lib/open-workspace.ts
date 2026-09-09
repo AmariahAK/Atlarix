@@ -11,7 +11,6 @@ import {
 import { bindChatToAppId, getChatBoundAppId } from "@/lib/chat-workspace-binding";
 import { IpcClient } from "@/ipc/ipc_client";
 import type { App } from "@/ipc/ipc_types";
-import { PlanLimitError } from "@/lib/plan-limit-error";
 export type OpenWorkspaceOptions = {
   apps: App[];
   refreshApps?: () => Promise<void>;

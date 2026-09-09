@@ -1,17 +1,26 @@
 /**
  * Patterns for expected errors that should not open Sentry issues or email alerts.
  * Used by `ignoreErrors` and `sentryBeforeSendDropExpected`.
+ *
+ * THE PLAN-GATE PATTERNS ARE GONE (2026-09-09). The app went free on 2026-09-08, so
+ * `PlanLimitError`, `Free plan allows N workspace` and `Upgrade to Pro for unlimited
+ * workspaces` describe errors nothing can produce any more — there is no workspace cap
+ * at all (`workspace-quota.ts`) and the last free-tier MCP gate was removed with this
+ * change. They survived only because a test fixture constructed the error by hand.
+ *
+ * What replaced them is `WORKSPACE_CAP_SENTRY_PATTERNS`, which lives beside the message
+ * it matches. The old `/Workspace limit reached/i` entry sat here, three files from the
+ * refusal, and matched the wording the RENDERER rebuilt rather than the wording the
+ * handler threw — so for the skills cap the drop never fired at all.
  */
+import { WORKSPACE_CAP_SENTRY_PATTERNS } from "@/lib/workspace-caps";
+
 export const SENTRY_IGNORE_ERROR_PATTERNS: RegExp[] = [
   /ATLARIX_AUTH_REQUIRED/i,
   /Please sign in or sign up to use Atlarix/i,
   /AuthRequiredError/i,
-  /PlanLimitError/i,
-  /ATLARIX_PLAN_LIMIT/i,
-  /Free plan allows \d+ workspace/i,
-  /Workspace limit reached/i,
-  /Upgrade to Pro for unlimited workspaces/i,
-  /Free tier is limited to 1 MCP/i,
+  // Hitting a per-workspace resource cap is expected behaviour, not a defect.
+  ...WORKSPACE_CAP_SENTRY_PATTERNS,
   /Missing grammar for scope:/i,
   // Benign Electron teardown races: an async callback/broadcast touches a
   // window/webContents that's already destroyed during quit. Guarded at the

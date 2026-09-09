@@ -14,7 +14,6 @@ import {
 } from "@/components/ui/select";
 import { useMcp, type Transport } from "@/hooks/useMcp";
 import { McpOAuthServerActions } from "@/components/McpOAuthPrompt";
-import { useAuth } from "@/lib/auth/useAuth";
 import { showError, showInfo, showSuccess } from "@/lib/toast";
 import {
   ChevronsDownUp,
@@ -33,7 +32,6 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { UrlInputField, UrlReadOnlyRow } from "@/components/settings/UrlDisplayField";
 import { IpcClient } from "@/ipc/ipc_client";
 import { useSettings } from "@/hooks/useSettings";
-import { useUpgrade } from "@/hooks/useUpgrade";
 import { useDeepLink } from "@/contexts/DeepLinkContext";
 import { AddMcpServerDeepLinkData } from "@/ipc/deep_link_data";
 
@@ -331,18 +329,13 @@ export function ToolsMcpSettings({
     isDeleting,
     refetchAll,
   } = useMcp(filter);
-  const { status: authStatus, loading: authLoading } = useAuth();
   const { settings, updateSettings } = useSettings();
-  const { handleUpgrade } = useUpgrade();
   const [sandboxDiag, setSandboxDiag] = useState<{
     platform: string;
     firejailFound: boolean;
     firejailPath: string | null;
     sandboxWouldBeActive: boolean;
   } | null>(null);
-  const plan = authStatus?.plan;
-  // Only enforce the free-tier limit when we know the user is on the free plan.
-  const mcpAtFreeLimit = !authLoading && plan === "free" && servers.length >= 1;
   const atMaxServers = maxServers != null && servers.length >= maxServers;
   const countLabel =
     maxServers != null ? `${servers.length}/${maxServers}` : null;
@@ -405,10 +398,6 @@ export function ToolsMcpSettings({
   }, [settings?.sandboxMcpStdio, settings?.mcpStdioFirejail?.customBinaryPath]);
 
   const onCreate = async () => {
-    if (mcpAtFreeLimit) {
-      showError("Free tier is limited to 1 MCP server. Upgrade to Pro for unlimited.");
-      return;
-    }
     const parsedArgs = (() => {
       const trimmed = args.trim();
       if (!trimmed) return null;
@@ -631,24 +620,8 @@ export function ToolsMcpSettings({
             <Label>Enabled</Label>
           </div>
         </div>
-        {mcpAtFreeLimit && (
-          <div className="rounded-md border border-amber-500/50 bg-amber-50 dark:bg-amber-900/20 p-3 text-sm text-amber-800 dark:text-amber-200">
-            Free tier is limited to 1 MCP server.{" "}
-            <button
-              type="button"
-              onClick={() => handleUpgrade()}
-              className="font-medium underline hover:no-underline"
-            >
-              Upgrade to Pro
-            </button>{" "}
-            for unlimited MCP servers.
-          </div>
-        )}
         <div>
-          <Button
-            onClick={onCreate}
-            disabled={!name.trim() || mcpAtFreeLimit || atMaxServers}
-          >
+          <Button onClick={onCreate} disabled={!name.trim() || atMaxServers}>
             Add server
           </Button>
           {atMaxServers && maxServers != null && (

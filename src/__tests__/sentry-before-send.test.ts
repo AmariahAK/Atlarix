@@ -1,15 +1,29 @@
 import { describe, expect, it } from "vitest";
 import type { ErrorEvent } from "@sentry/core";
 import { sentryBeforeSendDropExpected } from "@/lib/sentry-before-send";
-import { PlanLimitError } from "@/lib/plan-limit-error";
+import { workspaceCapRefusal } from "@/lib/workspace-caps";
 
 describe("sentryBeforeSendDropExpected", () => {
-  it("drops free-tier workspace limit errors", () => {
-    const event = {
-      message: "Free plan allows 1 workspace. Upgrade to Pro for unlimited workspaces.",
-    };
-    expect(sentryBeforeSendDropExpected(event as ErrorEvent, undefined)).toBeNull();
-  });
+  /**
+   * Replaces two tests that asserted the drop for `PlanLimitError` and for
+   * "Free plan allows 1 workspace…". Both described errors the app can no longer
+   * produce — it went free on 2026-09-08 and there is no workspace cap — and by
+   * constructing the error by hand they kept a dead class and four dead patterns
+   * alive. A fixture is not evidence that a code path exists.
+   *
+   * The message comes from `workspaceCapRefusal` rather than a literal, so rewording
+   * the refusal without updating the matcher fails here instead of silently
+   * un-dropping the noise.
+   */
+  it.each(["mcp", "automations", "skills"] as const)(
+    "drops the %s workspace-cap refusal",
+    (kind) => {
+      const event = {
+        exception: { values: [{ type: "Error", value: workspaceCapRefusal(kind) }] },
+      };
+      expect(sentryBeforeSendDropExpected(event as ErrorEvent, undefined)).toBeNull();
+    },
+  );
 
   it("redacts secrets from message, exception value, request URL, and breadcrumbs (A15)", () => {
     const event = {
@@ -27,15 +41,6 @@ describe("sentryBeforeSendDropExpected", () => {
     expect(out!.request!.url).not.toMatch(/AKIA/);
     expect(out!.breadcrumbs![0]!.message).not.toMatch(/AKIA/);
     expect(out!.message).toMatch(/redacted secret/);
-  });
-
-  it("drops PlanLimitError originals", () => {
-    const event = { exception: { values: [{ type: "Error", value: "limit" }] } };
-    expect(
-      sentryBeforeSendDropExpected(event as ErrorEvent, {
-        originalException: new PlanLimitError("Workspace limit reached"),
-      }),
-    ).toBeNull();
   });
 
   it("drops missing TextMate grammar scopes", () => {

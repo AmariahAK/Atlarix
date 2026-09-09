@@ -30,6 +30,35 @@ export const MCP_WORKSPACE_MAX = 10;
 /** Automations per workspace. */
 export const AUTOMATIONS_WORKSPACE_MAX = 10;
 
+/**
+ * Skills per workspace.
+ *
+ * MOVED HERE 2026-09-09, and it was written TWICE before that — once as
+ * `SKILLS_WORKSPACE_MAX` in `skills_handlers.ts` (the number actually enforced) and once
+ * as a local `MAX_WORKSPACE` in `SkillsSettingsPage.tsx` (the number shown to the user).
+ * The renderer caught the handler's refusal, threw the message away, and rebuilt it from
+ * its own copy — so raising the enforced cap would have kept telling users the old one,
+ * and the two wordings had already drifted apart ("Workspace limit reached" against the
+ * handler's "Workspace skills limit reached"). Which is precisely the failure this file
+ * exists to prevent, one import away from the file that says so.
+ */
+export const SKILLS_WORKSPACE_MAX = 10;
+
+/** The capped resources. Adding one here forces every consumer to handle it. */
+export type WorkspaceCapKind = "mcp" | "automations" | "skills";
+
+const CAP_MAX: Record<WorkspaceCapKind, number> = {
+  mcp: MCP_WORKSPACE_MAX,
+  automations: AUTOMATIONS_WORKSPACE_MAX,
+  skills: SKILLS_WORKSPACE_MAX,
+};
+
+const CAP_NOUN: Record<WorkspaceCapKind, string> = {
+  mcp: "MCP servers",
+  automations: "automations",
+  skills: "skills",
+};
+
 export type WorkspaceCapStatus = {
   /** How many exist in this workspace right now. */
   used: number;
@@ -45,12 +74,45 @@ export type WorkspaceCapStatus = {
  * workspace" rather than "this workspace is full".
  */
 export function describeWorkspaceCap(
-  kind: "mcp" | "automations",
+  kind: WorkspaceCapKind,
   used: number,
 ): WorkspaceCapStatus {
-  const max = kind === "mcp" ? MCP_WORKSPACE_MAX : AUTOMATIONS_WORKSPACE_MAX;
+  const max = CAP_MAX[kind];
   return { used, max, canAddMore: used < max };
 }
+
+/**
+ * The refusal a user or the agent sees when a cap is hit.
+ *
+ * ONE builder, because a second copy is how the skills cap ended up with two wordings
+ * and two numbers. A caller that catches this error should DISPLAY it rather than
+ * rebuild it — rebuilding is what let the shown cap disagree with the enforced one.
+ *
+ * `WORKSPACE_CAP_MARKER` is the stable substring; everything around it may be reworded
+ * freely. Same discipline as `CORE_EXHAUSTED_MARKER` in `billing_copy.ts`, and for the
+ * same reason: something downstream matches on it.
+ */
+export const WORKSPACE_CAP_MARKER = "workspace limit reached";
+
+export function workspaceCapRefusal(kind: WorkspaceCapKind): string {
+  const max = CAP_MAX[kind];
+  return (
+    `Workspace limit reached — ${max} ${CAP_NOUN[kind]} per workspace. ` +
+    `Remove one to add another.`
+  );
+}
+
+/**
+ * Sentry patterns for cap refusals.
+ *
+ * A cap refusal is expected behaviour, not a defect, so it must not open an issue. It
+ * lives here rather than in `sentry-ignore-patterns.ts` so that anyone rewording
+ * `workspaceCapRefusal` sees the matcher in the same file — the previous arrangement had
+ * the pattern `/Workspace limit reached/i` sitting three files away, matching the
+ * renderer's rebuilt label and NOT the message the handler actually threw, so the drop
+ * never fired for the skills cap at all.
+ */
+export const WORKSPACE_CAP_SENTRY_PATTERNS: RegExp[] = [/workspace limit reached/i];
 
 /**
  * The sentence the model reads in a tool description.
@@ -62,9 +124,9 @@ export function describeWorkspaceCap(
  * It must NOT mention plans or upgrading. There is nothing to upgrade to, and a model
  * that suggests a purchase which does not exist is worse than one that says nothing.
  */
-export function workspaceCapClause(kind: "mcp" | "automations"): string {
-  const noun = kind === "mcp" ? "MCP servers" : "automations";
-  const max = kind === "mcp" ? MCP_WORKSPACE_MAX : AUTOMATIONS_WORKSPACE_MAX;
+export function workspaceCapClause(kind: WorkspaceCapKind): string {
+  const noun = CAP_NOUN[kind];
+  const max = CAP_MAX[kind];
   return (
     `WORKSPACE LIMIT: ${max} ${noun} per workspace — ` +
     `\`list\` reports the count and whether there is room. ` +

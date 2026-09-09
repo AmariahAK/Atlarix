@@ -21,10 +21,12 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import log from "electron-log";
 import { db } from "@/db";
 import { apps, automationRuns, automations, mcpToolConsents } from "@/db/schema";
-import { SubscriptionManager } from "@/lib/SubscriptionManager";
 import { broadcastToAllWindows } from "@/ipc/utils/broadcast_all_windows";
 import type { AutomationInput } from "./types";
-import { AUTOMATIONS_WORKSPACE_MAX as WORKSPACE_MAX } from "@/lib/workspace-caps";
+import {
+  AUTOMATIONS_WORKSPACE_MAX as WORKSPACE_MAX,
+  workspaceCapRefusal,
+} from "@/lib/workspace-caps";
 
 const logger = log.scope("automations-service");
 
@@ -155,9 +157,7 @@ export async function createAutomation(
     .where(eq(automations.workspaceId, workspaceId));
   const count = existing[0]?.count ?? 0;
   if (count >= AUTOMATIONS_WORKSPACE_MAX) {
-    throw new Error(
-      `Maximum ${AUTOMATIONS_WORKSPACE_MAX} automations per workspace. Remove one to add another.`,
-    );
+    throw new Error(workspaceCapRefusal("automations"));
   }
 
   await upsertMcpConsentIfNeeded(input);

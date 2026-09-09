@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useAtomValue } from "jotai";
 import { Folder, Sparkles } from "lucide-react";
-import { useNavigate } from "@tanstack/react-router";
 import { selectedAppIdAtom, selectedWorkspaceInfoAtom } from "@/atoms/appAtoms";
 
 import { Button } from "@/components/ui/button";
@@ -27,10 +26,10 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { SKILLS_WORKSPACE_MAX } from "@/lib/workspace-caps";
 
 import { IpcClient } from "@/ipc/ipc_client";
 import { showError, showSuccess } from "@/lib/toast";
-import { useAuth } from "@/lib/auth/useAuth";
 
 type SkillManifestFile = { name: string; url: string };
 type SkillManifestEntry = {
@@ -67,7 +66,12 @@ type InstalledSkillRow = {
 const OFFICIAL_REGISTRY_URL =
   "https://raw.githubusercontent.com/AmariahAK/atlarix-skills/main/index.json";
 
-const MAX_WORKSPACE = 10;
+/**
+ * The cap comes from `workspace-caps.ts`, which is the number the handler ENFORCES.
+ * This was a local `= 10` until 2026-09-09; a second literal meant the count shown here
+ * could disagree with the one that actually refuses an install.
+ */
+const MAX_WORKSPACE = SKILLS_WORKSPACE_MAX;
 const PAGE_SIZE = 6;
 
 function normalizeModes(modes: unknown): string[] {
@@ -268,7 +272,6 @@ function InstalledSkillCard({
 }
 
 export function SkillsSettingsPage() {
-  const navigate = useNavigate();
   const ipc = IpcClient.getInstance();
   const selectedAppId = useAtomValue(selectedAppIdAtom);
   const workspaceInfo = useAtomValue(selectedWorkspaceInfoAtom);
@@ -278,8 +281,6 @@ export function SkillsSettingsPage() {
     selectedAppId && workspacePath
       ? { id: selectedAppId, name: workspaceName, path: workspacePath }
       : null;
-
-  const { status, loading: authLoading } = useAuth();
 
   const [registryUrl, setRegistryUrl] = useState(OFFICIAL_REGISTRY_URL);
   const [registry, setRegistry] = useState<SkillRegistryIndex | null>(null);
@@ -442,16 +443,11 @@ export function SkillsSettingsPage() {
         await refreshInstalled();
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        // Slot limit UX: surface clear inline error
-        if (msg.includes("limit reached")) {
-          const limitLabel = `Workspace limit reached (${MAX_WORKSPACE}/${MAX_WORKSPACE})`;
-          setInstallErrors((prev) => ({
-            ...prev,
-            [key]: `${limitLabel} — remove a skill first.`,
-          }));
-        } else {
-          setInstallErrors((prev) => ({ ...prev, [key]: msg }));
-        }
+        // Cap refusals are shown inline rather than only as a toast, because the
+        // remedy is a thing to do on this screen. DISPLAY the handler's message —
+        // this used to rebuild it from a local copy of the cap, so the number shown
+        // came from a different literal than the number enforced.
+        setInstallErrors((prev) => ({ ...prev, [key]: msg }));
         showError(msg);
       } finally {
         setInstallingKey(null);

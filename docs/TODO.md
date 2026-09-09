@@ -596,6 +596,207 @@ What it did NOT do, in the order the plan itself ranked them:
   spending any time on the code — and note this is a DIFFERENT item from the
   stopped-login-needs-a-refresh bug above.
 
+## 🛡️ Launchpad: render the Turnstile widget (queued 2026-09-09, owner)
+
+**Captcha is ENABLED on the Supabase project** (Authentication → Attack Protection →
+Turnstile), and the Cloudflare widget `atlarix-auth` exists (Managed mode, 2 hostnames).
+Nothing renders it, so it has never been solved once — the Cloudflare dashboard reads
+*Insufficient Data* for that widget's "Likely human" column.
+
+**Owed:** render the widget on `atlarix-launchpad/src/pages/Login.tsx` — the Turnstile
+script plus `<div class="cf-turnstile" data-sitekey=…>`, sitekey from a `VITE_` env var
+(the sitekey is public; only the SECRET goes in Supabase, and it is already set there).
+
+**Two facts that decide how far this goes, so nobody implements half of it and calls it
+protection:**
+
+- **Supabase enforces captcha only on the endpoints supabase-js calls DIRECTLY** — signup,
+  password grant, OTP, recover, resend, verify. Atlarix uses **none** of them: both the
+  launchpad (`src/hooks/useAuth.ts:76`) and the desktop app
+  (`src/lib/auth/supabase-client.ts:186`) are OAuth-only (`signInWithOAuth`), and the OAuth
+  authorize/callback pair is not in that set. So **a rendered widget gates nothing today** —
+  it collects Cloudflare-side signal and lights up the analytics, and that is the whole
+  benefit until a non-OAuth path exists.
+- **The moment an email/password or magic-link path is added, the widget becomes mandatory**,
+  and the token has to be threaded through as `options.captchaToken` or that path fails with
+  `captcha_verification_failed`. That is the real reason to land the render now: the wiring is
+  the expensive half, and doing it cold under a broken login is how this becomes a bad hour.
+
+**Not a substitute for:** the missing `headers` block in `vercel.json` (no CSP/HSTS/
+frame-ancestors on `/login` and `/account`, while `Login.tsx:27` asserts a "strict CSP" that
+does not exist). For an OAuth-only signup path the abuse lever that actually applies is
+Supabase's own **Auth → Rate Limits**, not captcha.
+
+## 🧹 The free-app teardown: what v14.44 left behind (owner-confirmed 2026-09-09)
+
+Found while confirming "is the app actually free now" against the code rather than the
+commit message. `c9b8bed1` counted six plan gates deleted; there is a **seventh**, plus
+residue and one deliberate decision worth recording so nobody "fixes" it later.
+
+- [ ] **MCP still has a live free-tier gate — remove it.**
+  `src/components/settings/ToolsMcpSettings.tsx:345` —
+  `plan === "free" && servers.length >= 1` — firing in three places: the add is blocked
+  with *"Free tier is limited to 1 MCP server. Upgrade to Pro for unlimited."* (`:409`),
+  an amber banner renders an **Upgrade to Pro** button (`:634-642`), and the Add button
+  is disabled (`:650`). `useUpgrade` is imported at `:336` solely for this.
+  **Why it survived:** `c9b8bed1` edited `McpMarketplaceTab.tsx` — the same feature's
+  OTHER surface. One feature, two settings surfaces, one missed. Grep the feature's noun
+  across `src/components`, not just the file the diff touched.
+  **Why it is worse than a stale flag:** Pro no longer sells unlimited MCP, so this is an
+  upgrade prompt for a benefit that does not exist — the exact rule
+  `workspace-caps.ts` states for the model (*"a model that suggests a purchase which does
+  not exist is worse than one that says nothing"*), broken in the UI. And there is **no
+  handler-side gate** in `mcp_handlers.ts`, so enforcement is renderer-only: a human is
+  capped in Settings while the agent adding servers through tools is not.
+  **Leave the sidebar Upgrade button alone** (`app-sidebar.tsx:236-247`) — Pro still sells
+  the Core allowance plus Reviewer, so prompting a free user there is correct. The line is:
+  selling the allowance is fine, gating a FEATURE behind it is not.
+
+- [x] **Resource caps are CORRECT as they stand — owner confirmed 2026-09-09.** MCP 10,
+  automations 10, skills 10, all per workspace. They are resource limits, not plan limits,
+  and no tier raises them. **Do not touch the numbers.**
+  - [ ] One consolidation owed, no behaviour change: `workspace-caps.ts` opens *"The
+    per-workspace caps, in one place"* and holds only MCP and automations. The skills cap
+    is `SKILLS_WORKSPACE_MAX` at `src/ipc/handlers/skills_handlers.ts:23`. Three caps, one
+    living outside the file that exists to prevent precisely this drift.
+
+- [x] **Account registration is REQUIRED and stays — owner decision 2026-09-09.**
+  `src/components/SimpleChatInput.tsx:127` sets `mustSignIn = !isAuthenticated` and
+  disables the whole composer, attachments and voice included. So BYOK and local Ollama
+  are free of metering but **not usable anonymously** — an Atlarix account is needed to
+  send anything at all. This is deliberate. **Do not remove it**, and do not file it as
+  friction; it is written down here because it reads like an oversight and is not.
+
+- [ ] **Delete the plan-gate residue.** `src/lib/plan-limit-error.ts` and
+  `src/lib/sentry-ignore-patterns.ts:13-14` still classify *"Upgrade to Pro for unlimited
+  workspaces"* as expected gating. That string no longer exists in the app — it survives
+  only in `src/__tests__/sentry-before-send.test.ts:9`. **A fixture keeping a dead branch
+  alive**, the same shape as the `listConfiguredMcps` scope trap. Delete the module, the
+  two patterns and the fixture together; keep the MCP pattern only until the gate above is
+  gone, then it goes too.
+
+## 🎚️ Core lineup → GLM 5.3 / Terra / Astra, default core-3 (owner-decided 2026-09-09)
+
+**The lineup.** `core-1` GLM 5.3, `core-2` GPT 5.6 Terra, `core-3` **GPT 6 Astra**. Sol is
+DROPPED — not because it is a bad model but because models.dev records it at the
+`openai/fast` rate ($4/$20) instead of standard ($2/$10), the proxy bills from models.dev,
+and there is no per-tier pricing override in `core-models.json` to correct it. Terra is
+priced correctly and needs no override, so the change we want costs nothing to ship.
+
+**The default becomes core-3** (`DEFAULT_CORE_TIER_ORDER`, `compass_constants.ts:235`) so a
+new user's first turn is on GPT 6. Three tests pin the old answer and must be rewritten,
+not just edited — their names and docblocks state the superseded core-2 decision:
+`core-tier-routing.test.ts:329`, `:343` ("prefers core-2 over core-1 when BOTH are
+configured"), `:352`.
+
+**Astra is NOT capped.** Owner decision, and the mechanism agrees: `maxOutputTokens` sizes
+the reasoning budget (`reasoning-detector.ts:365`), so capping the tier whose value IS
+reasoning is the worst place to economise. See also `token_utils.ts:176-184`, where Core was
+accidentally pinned at 32K for weeks — "truncated for no reason anyone could see."
+
+- [ ] **One-time "this slot changed" notice — owner decision, ship it with the flip.**
+  Two populations, and the SECOND is the larger one:
+  - saved `core-3` selections move Sol → Astra ($2/$10 → $10/$50);
+  - **everyone with no explicit selection moves Terra → Astra**, because the default moves
+    core-2 → core-3. That is the bigger group and the bigger per-turn change.
+  Fire when the model resolved behind a user's EFFECTIVE selection (their persisted tier,
+  or the default if they have none) differs from last session AND is materially dearer.
+  Needs a remembered `tier → model id` baseline per install plus a price read
+  (`getCoreModelsDevTargetForTier` → `getModelsDevLimits`). Must NOT fire on first run —
+  no baseline means no notice, not a notice with an empty before. Dismissible, chat-surface,
+  same family as `LoadedSessionBanner`.
+  **Precedent, for the record:** `core-3` already went DeepSeek V4 Pro → Sol silently in
+  `b552014` (2026-09-08) and held DeepSeek since 2026-07-26. Slot-not-model is the shipped
+  design and the README sells it; the notice exists because a 5x move plus a default change
+  is a different magnitude, not because the design is wrong.
+
+### DEPLOY ORDER — the one thing "one release" cannot make simultaneous
+
+Owner chose to ship everything as one release. That is the planning unit, but these changes
+do NOT reach users together, and getting the order wrong reproduces the
+OAuth-redirect-allowlist trap (a server-side flip old clients cannot satisfy):
+
+| Change | Reaches whom |
+| --- | --- |
+| `core-models.json` flip | **every installed build, within 10 min** |
+| proxy clamp removal | **every installed build, on deploy** |
+| slot-change notice · `required_cents` in the refusal · tips · cleanup | only builds that UPDATE |
+
+So **ship the client first, let it propagate, then flip config and deploy the proxy.**
+Reversed, existing users get Astra as their default at $10/$50 with a blunt "balance is used
+up" and no slot notice — precisely the experience the client half exists to prevent.
+
+**Owner action still owed BEFORE the config flip:** rehearse the `/v1/responses` rollback
+(§"/v1/responses — SHIPPED"). Flip `providers.openai.protocol` back to `"openai"`, confirm
+the tier returns to `/chat/completions` on the next refresh with no deploy, flip it forward
+again. Ten minutes, and it is the one lever that has never been pulled — which matters most
+on the release that changes which model sits behind it.
+
+- [ ] **Guard the next mispricing, since `--check` passed clean through this one.**
+  `pick-core-model.mjs --check` verifies a price EXISTS, never that it is right — it reported
+  "No problems found" on all three tiers with Sol mispriced 2x. Add a cross-check of
+  models.dev against OpenRouter's standard-endpoint price per model, failing on a material
+  mismatch, and wire `--check` into CI (still not wired; a `core-models.json` edit ships
+  live-on-merge with no gate). Also: `configSnippet` (`:186`) hardcodes
+  `"protocol": "openai"` — regenerating the openai provider block from the script silently
+  reverts the Responses work.
+
+## 🛑 Credit exhaustion must stop the sub-agent round (owner, 2026-09-09)
+
+Every primitive already exists and none of them are connected.
+
+- `cancelAllSubagentTasksForChat(chatId)` — `src/lib/tools/spawn-task.ts:276`, already
+  called on a user Stop (`chat_stream/lifecycle-handlers.ts:57, 109`) and on stream
+  teardown (`chat_stream/stream-lifecycle.ts:255`). It stops token spend.
+- The 402 is already classified: `classifyCompassFailure` (`compass-failure-classifier.ts:39`)
+  returns the credit-exhausted verdict for `statusCode === 402` or an
+  `insufficient_credit` body, and it is called at
+  `chat_stream/turn-runner/simple-stream-text.ts:1000`.
+
+**Two directions, and the second is the one that matters — do not ship only the first.**
+
+- [ ] **Parent turn 402s → cancel the children.** One call at the classifier site. Easy,
+  and insufficient on its own.
+- [ ] **A CHILD 402s → stop the whole round.** Each sub-agent runs its own stream, so a
+  child's 402 does not reach the parent's `onError` at all today. Every sibling will fail
+  identically — an empty wallet is not a per-agent condition — and each attempt still
+  consumes a reserve attempt on a wallet that has nothing. The child's credit verdict has
+  to reach the round's decision point and cancel the siblings, and the turn must say WHY
+  the round stopped rather than reporting N failed agents.
+
+**Why this stops being hypothetical:** with the output clamp removed (owner decision, same
+day) each Astra call holds its full worst-case reserve — ~$9.24 at the 128K ceiling — so a
+four-way fan-out needs ~$37 of headroom. On a modest balance children 2-4 refusing becomes
+the NORMAL path, not an edge case, the moment Astra is the default tier.
+
+**Watch the interaction with the `onError` bug already filed above** (§"A network reset
+kills the whole turn"): that same `onError` consumes errors without rethrowing. Whatever
+hook is added here must not depend on an exception propagating, because in that path none
+does.
+
+## 📊 Sentry error selection + PostHog usage tracking (queued 2026-09-09, owner)
+
+Both are wired — `@sentry/electron` + `@sentry/core`, `posthog-js` + `posthog-node` — and
+the owner wants the signal improved on each. Not yet scoped; scope it before touching it,
+because the failure mode here is collecting more and learning less.
+
+**Sentry:** the question is which errors are worth reporting. `sentry-ignore-patterns.ts`
+is the existing mechanism and it currently carries dead plan-gate patterns (above), which
+suggests the list has not been revisited since the errors it describes changed. Start by
+reading what actually arrives, then decide what to drop — an ignore list grown by
+guesswork is how a real regression gets filtered out.
+
+**PostHog:** the question is which product questions we cannot currently answer (which
+tools get used, where turns fail, which work modes people actually pick). Instrument
+against named questions, not "more events".
+
+**HARD CONSTRAINT on both — there is a test that pins it.**
+`src/__tests__/telemetry-consent-boundary.test.ts` asserts PostHog **writes nothing to the
+device before consent** and does NOT init without it (`:141`), while keeping persistent
+storage once consent exists so session continuity survives the gate (`:151-156`). Any
+change here keeps that suite green. Treat the consent boundary as the contract, not the
+implementation detail.
+
 ## 🔜 Next session — the queue
 
 *(Unordered. It read "in order" while numbered 1, OPEN, 0, 1b, 3 with no 2 —

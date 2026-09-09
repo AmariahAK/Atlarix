@@ -7,8 +7,11 @@ import { and, eq } from "drizzle-orm";
 import { db } from "../../db";
 import { apps, installedSkills } from "../../db/schema";
 import { createLoggedHandler } from "./safe_handle";
-import { SubscriptionManager } from "../../lib/SubscriptionManager";
 import { loadPrioritySkillsForWorkspace } from "../../lib/skills/priority-skill-loader";
+import {
+  SKILLS_WORKSPACE_MAX,
+  workspaceCapRefusal,
+} from "../../lib/workspace-caps";
 import {
   getAtlarixAppPath,
   normalizeSkillWorkspacePath,
@@ -20,7 +23,13 @@ const handle = createLoggedHandler(logger);
 const DEFAULT_REGISTRY_URL =
   "https://raw.githubusercontent.com/AmariahAK/atlarix-skills/main/index.json";
 
-export const SKILLS_WORKSPACE_MAX = 10;
+/**
+ * Re-exported for the existing importers of this module. The number itself lives in
+ * `workspace-caps.ts` with the other two per-workspace caps — it used to be declared
+ * here AND again in `SkillsSettingsPage.tsx`, which is how the enforced cap and the
+ * displayed cap could disagree.
+ */
+export { SKILLS_WORKSPACE_MAX };
 
 export type SkillManifestFile = { name: string; url: string };
 
@@ -201,9 +210,7 @@ export function registerSkillsHandlers() {
 
     const wsCount = await countSkillsForWorkspace(workspacePath);
     if (wsCount >= SKILLS_WORKSPACE_MAX) {
-      throw new Error(
-        `Workspace skills limit reached (${SKILLS_WORKSPACE_MAX}/${SKILLS_WORKSPACE_MAX})`,
-      );
+      throw new Error(workspaceCapRefusal("skills"));
     }
 
     const localDir = localDirForInstall(skill.id, workspacePath);
