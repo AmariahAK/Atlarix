@@ -227,14 +227,23 @@ export function getFirstConfiguredCoreTier(): string | undefined {
  *
  * NOT `CORE_TIER_ORDER`. That is the display order — slot 1, 2, 3, 4 — and using it
  * here made the lowest-numbered slot the de-facto default for every unopinionated
- * caller. The default is a PRODUCT decision (owner, 2026-09-08): core-2 first, so a
- * new user's first turn runs on the tier we most want them to judge us by, whatever
- * model happens to occupy it. The rest follow in slot order as a fallback, so this
- * still degrades correctly when core-2 is unconfigured.
+ * caller. The default is a PRODUCT decision, and the rest follow in slot order as a
+ * fallback so this still degrades correctly when the preferred slot is unconfigured.
+ *
+ * **core-3 first (owner, 2026-09-09).** Was core-2 for one day, from 2026-09-08. The
+ * reasoning is unchanged — a new user's first turn should run on the tier we most want
+ * them to judge us by — and core-3 is now the top of the lineup rather than the middle
+ * of it.
+ *
+ * IT NAMES A SLOT, NOT A MODEL, and that is the whole point: which model sits behind a
+ * slot is `core-models.json`'s business and changes without an app update. It is also
+ * why moving this line moves every user who never picked a tier onto a different model
+ * — worth knowing when the slot's price differs, which is why the model-changed notice
+ * exists.
  */
 const DEFAULT_CORE_TIER_ORDER = [
-  CORE_TIER_2,
-  ...CORE_TIER_ORDER.filter((t) => t !== CORE_TIER_2),
+  CORE_TIER_3,
+  ...CORE_TIER_ORDER.filter((t) => t !== CORE_TIER_3),
 ] as const;
 
 /**
@@ -242,16 +251,30 @@ const DEFAULT_CORE_TIER_ORDER = [
  *
  * Returns the tier unchanged when it has a model. When it does not — a slot removed
  * from the lineup, or a selection persisted before the lineup changed — this falls
- * forward to the first configured tier instead of failing the turn. Changing the
- * lineup would otherwise break every user whose saved selection pointed at the
- * removed slot, on their very next message.
+ * forward to a configured tier instead of failing the turn. Changing the lineup would
+ * otherwise break every user whose saved selection pointed at the removed slot, on
+ * their very next message.
+ *
+ * SUBSTITUTION WALKS SLOT ORDER, NOT THE DEFAULT PREFERENCE — deliberately, and this
+ * is not the same question as `getFirstConfiguredCoreTier`. That one answers "a caller
+ * has no opinion, give it our best tier". This one answers "a caller's opinion no
+ * longer resolves", and those want opposite things: the user DID choose, their choice
+ * is gone, and silently promoting them to the top of the lineup is a bill they did not
+ * ask for. Slot order is ascending by capability and price, so this lands on the
+ * nearest cheaper option instead.
+ *
+ * It mattered little while the preference was core-2 and the lineup was flat-ish. It
+ * matters now: core-3 can be several times the price of core-1, so a dropped budget
+ * slot would otherwise move a cost-sensitive user straight onto the dearest model.
  */
 export function resolveConfiguredCoreTier(
   internalTierId: string,
 ): { tier: string; substituted: boolean } | undefined {
   const norm = normalizeCoreTierId(internalTierId);
   if (getCoreModelIdForCoreTier(norm)?.trim()) return { tier: norm, substituted: false };
-  const fallback = getFirstConfiguredCoreTier();
+  const fallback = CORE_TIER_ORDER.find((tier) =>
+    !!getCoreModelIdForCoreTier(tier)?.trim(),
+  );
   return fallback ? { tier: fallback, substituted: true } : undefined;
 }
 

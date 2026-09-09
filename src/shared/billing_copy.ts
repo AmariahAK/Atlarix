@@ -100,8 +100,31 @@ export const CORE_EXHAUSTED_MESSAGE =
   `Your ${ATLARIX_CORE_CATEGORY_LABEL} balance is used up. Top up in Settings to continue — ` +
   "or use your own API key or a local model, which are always free.";
 
-export function coreExhaustedUserMessage(): string {
-  return CORE_EXHAUSTED_MESSAGE;
+/**
+ * The same refusal, plus what it would take to succeed.
+ *
+ * The proxy has always sent `required_cents` on its 402 and the app has always thrown it
+ * away, so a refusal could only ever say "you have run out" — true, and not actionable.
+ * This is the whole reason refusing beats the output clamp it replaced (removed
+ * 2026-09-09): a clamp shortened the reply silently, whereas this says the number.
+ *
+ * "AT LEAST", never "this turn costs" — and the distinction is not pedantic.
+ * `required_cents` is the proxy's worst-case RESERVE: the whole prompt priced as
+ * uncached, output priced to its ceiling, times the markup, and floored at the minimum
+ * start balance when pricing is unknown. A real turn usually settles well under it. Say
+ * "costs" and every user who tops up the stated figure and sees a smaller charge has
+ * caught us overstating.
+ *
+ * APPENDS — it does not rewrite. `CORE_EXHAUSTED_MARKER` must survive verbatim, because
+ * `ChatErrorBox` substring-matches it to decide whether the Top-up button exists, so
+ * rewording the phrase silently deletes the button.
+ */
+export function coreExhaustedUserMessage(requiredCents?: number | null): string {
+  const needs =
+    typeof requiredCents === "number" && Number.isFinite(requiredCents) && requiredCents > 0
+      ? ` This turn needs at least ${formatCents(requiredCents)} available.`
+      : "";
+  return `${CORE_EXHAUSTED_MESSAGE}${needs}`;
 }
 
 /**

@@ -28,6 +28,36 @@ export interface CompassFailureClassification {
   isCompassInfraError: boolean;
 }
 
+/**
+ * The `required_cents` the proxy sends with a 402, or null.
+ *
+ * Parsed HERE rather than threaded through the IPC payload, because this is the last
+ * place the raw response body exists — one line later it has been flattened to a
+ * message string, and every consumer downstream (`chat:response:error`, the error atom,
+ * `ChatErrorBox`) is string-typed. Widening all of that to carry one integer would touch
+ * a dozen call sites and twelve other senders that have no number to send.
+ *
+ * TOLERANT BY DESIGN. A body that is not JSON, or is JSON without the field, or has it
+ * as a string, must degrade to the refusal without the figure — never to a thrown error
+ * inside an error handler. The regex fallback exists because the body may arrive already
+ * embedded in a wrapper message rather than as a bare JSON document.
+ */
+function requiredCentsFromBody(bodyStr: string): number | null {
+  const finite = (v: unknown): number | null => {
+    const n = typeof v === "string" ? Number(v) : v;
+    return typeof n === "number" && Number.isFinite(n) && n > 0 ? n : null;
+  };
+  try {
+    const parsed = JSON.parse(bodyStr) as { required_cents?: unknown };
+    const direct = finite(parsed?.required_cents);
+    if (direct !== null) return direct;
+  } catch {
+    // Not a bare JSON body — fall through to the substring form.
+  }
+  const m = /"required_cents"\s*:\s*"?(\d+(?:\.\d+)?)"?/.exec(bodyStr);
+  return m ? finite(m[1]) : null;
+}
+
 export function classifyCompassFailure(
   statusCode: number | undefined,
   bodyStr: string,
@@ -37,7 +67,10 @@ export function classifyCompassFailure(
     return { message: accountBannedUserMessage(), isCompassInfraError: false };
   }
   if (statusCode === 402 || /insufficient_credit/.test(bodyStr)) {
-    return { message: coreExhaustedUserMessage(), isCompassInfraError: false };
+    return {
+      message: coreExhaustedUserMessage(requiredCentsFromBody(bodyStr)),
+      isCompassInfraError: false,
+    };
   }
   if (statusCode === 503 || /core_unavailable/.test(bodyStr)) {
     return { message: coreUnavailableUserMessage(), isCompassInfraError: true };

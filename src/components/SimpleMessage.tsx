@@ -37,7 +37,10 @@ import { useSettings } from "@/hooks/useSettings";
 import { MessageSources } from "./MessageSources";
 import { AttachmentChip } from "./chat/AttachmentChip";
 import { currentAppAtom, selectedAppIdAtom, selectedWorkspaceInfoAtom } from "@/atoms/appAtoms";
-import { activeChatIdAtom } from "@/atoms/chatAtoms";
+import {
+    activeChatIdAtom,
+    assistantMessageHasNonTextPartsAtom,
+} from "@/atoms/chatAtoms";
 import type { WorkMode } from "@/lib/schemas";
 import { useAtlarixCoreCatalog } from "@/hooks/useAtlarixCoreCatalog";
 import { resolveModelDisplayLabel } from "@/lib/resolve-model-display-label";
@@ -130,6 +133,29 @@ function SimpleMessageImpl({
 
     const isUser = message.role === "user";
     const isAssistant = message.role === "assistant";
+
+    /**
+     * An assistant row with nothing in it at all renders NOTHING — not an empty bubble.
+     *
+     * The placeholder assistant message is created with `content: ""` and pushed to the
+     * renderer before the model client is even constructed, so a turn refused at the
+     * wallet gate (an exhausted balance) used to leave a bare `bg-muted` box sitting
+     * under a Bot header with no content and no way to fill it. The refusal card
+     * explains what happened; the empty bubble above it just looked broken.
+     *
+     * ALL FOUR CONDITIONS ARE LOAD-BEARING. `!content` alone is not emptiness — a
+     * tools-only turn has empty content and real substance in the atoms, and hiding it
+     * would erase the record of work the agent did. `isStreaming` keeps the existing
+     * `InlineStreamStatus` path (the branch below) intact for a turn that has started
+     * but not yet produced a token — which is precisely why the old guard at that branch
+     * did not cover this case: an error sets streaming false.
+     */
+    const hasNonTextParts = useAtomValue(
+        assistantMessageHasNonTextPartsAtom(message.id ?? -1),
+    );
+    if (isAssistant && !message.content && !isStreaming && !hasNonTextParts) {
+        return null;
+    }
 
     const getModelDisplayName = () =>
         resolveModelDisplayLabel(settings?.selectedModel, {

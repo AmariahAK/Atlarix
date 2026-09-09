@@ -40,6 +40,47 @@ describe("classifyCompassFailure", () => {
     expect(message).not.toContain("support@atlarix.dev");
   });
 
+  /**
+   * The proxy has always sent `required_cents` on its 402; the app used to discard it,
+   * so a refusal could only say "you have run out". These pin that it now reaches the
+   * user, and — more importantly — that FAILING to parse it still produces the plain
+   * refusal. This code runs inside an error handler, so a body it cannot read must
+   * degrade, never throw.
+   */
+  it("402 quotes the amount the proxy said it needs", () => {
+    const { message } = classifyCompassFailure(
+      402,
+      '{"error":"insufficient_credit","required_cents":924}',
+    );
+    expect(message).toContain(CORE_EXHAUSTED_MARKER);
+    expect(message).toContain("$9.24");
+    // "at least", never "costs": the figure is a worst-case reserve, and a real turn
+    // usually settles well under it.
+    expect(message).toMatch(/at least/i);
+    expect(message).not.toMatch(/costs/i);
+  });
+
+  it("402 embedded in a wrapper message still yields the amount", () => {
+    // The body does not always arrive as a bare JSON document — the SDK wraps it.
+    const { message } = classifyCompassFailure(
+      402,
+      'Provider error: {"error":"insufficient_credit","required_cents":10} (status 402)',
+    );
+    expect(message).toContain("$0.10");
+  });
+
+  it.each([
+    ['{"error":"insufficient_credit"}', "field absent"],
+    ["not json at all", "unparseable"],
+    ['{"error":"insufficient_credit","required_cents":0}', "zero"],
+    ['{"error":"insufficient_credit","required_cents":"abc"}', "non-numeric"],
+    ['{"error":"insufficient_credit","required_cents":null}', "null"],
+  ])("402 with an unusable amount (%s) still refuses cleanly", (body) => {
+    const { message } = classifyCompassFailure(402, body);
+    expect(message).toContain(CORE_EXHAUSTED_MARKER);
+    expect(message).not.toMatch(/\$/);
+  });
+
   it("a ban never reads as insufficient credit, even at 402", () => {
     // Defence in depth: if a ban ever surfaced with a 402 status, the body still wins.
     const { message } = classifyCompassFailure(402, '{"error":"account_banned"}');

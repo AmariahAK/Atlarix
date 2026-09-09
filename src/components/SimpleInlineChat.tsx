@@ -36,6 +36,7 @@ import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { LoadedSessionBanner } from "@/components/chat/LoadedSessionBanner";
 import { InlineStreamStatus } from "@/components/chat/InlineStreamStatus";
 import { discardedTurnSnapshotIds } from "@/lib/chat/discarded-turn-snapshots";
+import { CORE_EXHAUSTED_MARKER } from "@/shared/billing_copy";
 import { showError } from "@/lib/toast";
 import {
     AlertDialog,
@@ -540,26 +541,44 @@ export function SimpleInlineChat({
                                 });
                             }}
                         />
-                        <div className="mt-2 flex flex-wrap gap-2">
-                            <Button
-                                type="button"
-                                variant="secondary"
-                                size="sm"
-                                onClick={() => {
-                                    setErrorById((prev) => {
-                                        const next = new Map(prev);
-                                        next.delete(chatId);
-                                        return next;
-                                    });
-                                    streamMessage({ prompt: "", chatId, continueAfterQuestions: true });
-                                }}
-                            >
-                                Retry
-                            </Button>
-                            <div className="text-xs text-muted-foreground flex items-center">
-                                If this keeps happening, switch models using the selector below.
+                        {/*
+                          RETRY IS HIDDEN WHEN RETRYING CANNOT WORK.
+
+                          This row used to render under EVERY error. On an empty wallet
+                          that was two defects at once: the credit card above already
+                          offers "Top up credit" and "Choose another model", so the hint
+                          duplicated its own second button — and Retry re-sends the same
+                          request against the same empty balance, so it is guaranteed to
+                          fail identically. A button that cannot succeed invites a loop.
+
+                          The condition is "retrying cannot help", NOT "the box has its
+                          own actions" — deliberately narrower. A Core REACHABILITY error
+                          also carries a button, and there Retry is exactly right, because
+                          the failure is transient. Only an exhausted balance is a state
+                          that a repeat request cannot change.
+                        */}
+                        {!error.includes(CORE_EXHAUSTED_MARKER) && (
+                            <div className="mt-2 flex flex-wrap gap-2">
+                                <Button
+                                    type="button"
+                                    variant="secondary"
+                                    size="sm"
+                                    onClick={() => {
+                                        setErrorById((prev) => {
+                                            const next = new Map(prev);
+                                            next.delete(chatId);
+                                            return next;
+                                        });
+                                        streamMessage({ prompt: "", chatId, continueAfterQuestions: true });
+                                    }}
+                                >
+                                    Retry
+                                </Button>
+                                <div className="text-xs text-muted-foreground flex items-center">
+                                    If this keeps happening, switch models using the selector below.
+                                </div>
                             </div>
-                        </div>
+                        )}
                     </div>
                 )}
             </div>

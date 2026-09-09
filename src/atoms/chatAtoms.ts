@@ -325,6 +325,32 @@ export const sourcesForMessageAtom = atomFamily((messageId: number) =>
 );
 
 /**
+ * Does this assistant message have ANY renderable part outside its `content`?
+ *
+ * Exists so a caller can tell "this row is completely empty" from "this row has no prose
+ * but does have tool cards / thinking / sources". A turn's visible substance is spread
+ * across four atom families, so `!message.content` on its own is NOT emptiness — a
+ * tools-only turn has empty content and plenty to show, and hiding it would delete the
+ * record of work the agent actually did.
+ *
+ * The case this exists for: a turn rejected before the first token. The placeholder
+ * assistant message is broadcast to the renderer BEFORE the model client is even built,
+ * so a refusal at the wallet gate left an empty `bg-muted` box under a Bot header, with
+ * nothing in it, forever. The placeholder itself cannot simply not be created — its id is
+ * the turn id that the whole streaming subsystem keys on.
+ */
+export const assistantMessageHasNonTextPartsAtom = atomFamily((messageId: number) =>
+  atom((get) => {
+    if (get(completedStreamThreadForMessageAtom(messageId)).length > 0) return true;
+    if (get(inlineTimelineForMessageAtom(messageId)).length > 0) return true;
+    if (get(sourcesForMessageAtom(messageId)).length > 0) return true;
+    if (get(completedTurnThinkingForMessageAtom(messageId))) return true;
+    if (get(interleavedDisplayContentForMessageAtom(messageId))) return true;
+    return false;
+  }),
+);
+
+/**
  * Activity-stream items filtered to one chat. The base array is replaced on
  * every activity event; the shallow-array comparator re-renders a consumer only
  * when THIS chat's items actually change (item refs are stable across replaces).

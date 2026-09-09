@@ -326,33 +326,42 @@ describe("resolving a tier that is not in the lineup", () => {
    * always existed: the BYOK-no-key rescue hardcoded it, and a selection persisted
    * before the lineup changed still names it. Both would have hard-failed the turn.
    */
-  it("finds the first configured tier even when core-1 is absent", () => {
+  it("finds a configured tier even when the preferred slot is absent", () => {
     setCoreModelOverrides({
-      "core-2": "z-ai/glm-5.2",
-      "core-3": "deepseek/deepseek-v4-pro",
+      "core-1": "z-ai/glm-5.2",
+      "core-2": "deepseek/deepseek-v4-pro",
     });
-    expect(getFirstConfiguredCoreTier()).toBe("core-2");
+    // core-3 is the preference and is unmapped here, so this falls through to slot
+    // order — which is what keeps a partial lineup working.
+    expect(getFirstConfiguredCoreTier()).toBe("core-1");
   });
 
   /**
-   * The default is a PRODUCT decision, not slot order (owner, 2026-09-08): an
-   * unopinionated caller gets core-2, so a new user's first turn runs on the tier we
-   * most want them to judge us by. Before this, `CORE_TIER_ORDER` made core-1 the
-   * de-facto default for everything that did not name a tier.
+   * The default is a PRODUCT decision, not slot order. **core-3 as of 2026-09-09**
+   * (core-2 for the single day before that, core-1 by accident before THAT, because
+   * `CORE_TIER_ORDER` was doing double duty as display order and preference order).
+   *
+   * An unopinionated caller gets the tier we most want a new user's first turn to run
+   * on. Asserted against a THREE-slot lineup because that is the shipped shape, and
+   * because a two-slot fixture cannot tell "prefers core-3" from "prefers the last
+   * configured slot".
    */
-  it("prefers core-2 over core-1 when BOTH are configured", () => {
+  it("prefers core-3 over the lower slots when all three are configured", () => {
     setCoreModelOverrides({
       "core-1": "z-ai/glm-5.3",
       "core-2": "openai/gpt-5.6-terra",
-      "core-3": "openai/gpt-5.6-sol",
+      "core-3": "openai/gpt-6-astra",
     });
-    expect(getFirstConfiguredCoreTier()).toBe("core-2");
+    expect(getFirstConfiguredCoreTier()).toBe("core-3");
   });
 
-  it("still falls back to core-1 when core-2 is unconfigured", () => {
-    // The preference must not become a requirement — a lineup without core-2 has to
+  it("still falls back in slot order when core-3 is unconfigured", () => {
+    // The preference must not become a requirement — a lineup without core-3 has to
     // keep working rather than reporting "nothing configured".
-    setCoreModelOverrides({ "core-1": "z-ai/glm-5.3", "core-3": "openai/gpt-5.6-sol" });
+    setCoreModelOverrides({
+      "core-1": "z-ai/glm-5.3",
+      "core-2": "openai/gpt-5.6-terra",
+    });
     expect(getFirstConfiguredCoreTier()).toBe("core-1");
   });
 
@@ -378,6 +387,30 @@ describe("resolving a tier that is not in the lineup", () => {
       tier: "core-2",
       substituted: true,
     });
+  });
+
+  /**
+   * Substitution must NOT use the default preference, and this is the test that says
+   * why. `getFirstConfiguredCoreTier` prefers core-3 because a caller with no opinion
+   * should get our best tier. A caller whose SAVED tier vanished is the opposite case:
+   * they chose, their choice is gone, and promoting them to the top of the lineup is a
+   * bill they never asked for — core-3 can cost several times core-1.
+   *
+   * So the two must disagree here, and asserting both in one test is what stops a
+   * future tidy-up from collapsing them back into one order.
+   */
+  it("substitutes in SLOT order, not the default preference", () => {
+    setCoreModelOverrides({
+      "core-1": "z-ai/glm-5.3",
+      "core-3": "openai/gpt-6-astra",
+    });
+    // The dropped middle slot falls back to the cheaper neighbour…
+    expect(resolveConfiguredCoreTier("core-2")).toEqual({
+      tier: "core-1",
+      substituted: true,
+    });
+    // …while an unopinionated caller still gets the top tier.
+    expect(getFirstConfiguredCoreTier()).toBe("core-3");
   });
 
   it("normalizes a legacy alias before substituting", () => {

@@ -62,7 +62,7 @@ Release notes: **[docs/CHANGELOG.md](docs/CHANGELOG.md)** (current: 14.25+). Old
 - **Prompt caching:** Dispatches are cache-friendly out of the box — Anthropic API key turns place `cache_control` breakpoints over the stable system header and conversation history, cutting repeat-turn input cost and latency.
 - **Real terminal:** User terminal tabs are full interactive shells (xterm.js + PTY) — Tab completion, arrows, colors, vim/top. Tabs and scrollback **persist across app restarts**, and tab labels track the shell's live cwd. Agent commands run separately with captured output and approvals.
 
-**Providers:** **Atlarix Core** (managed open-weight models, configured remotely rather than pinned to a release) plus your own API keys across 145+ providers (OpenAI, Anthropic, Gemini, and more) and local models (Ollama, LM Studio).
+**Providers:** **Atlarix Core** (managed models, configured remotely rather than pinned to a release) plus your own API keys across 145+ providers (OpenAI, Anthropic, Gemini, and more) and local models (Ollama, LM Studio).
 
 ---
 
@@ -75,7 +75,7 @@ Retrieval is **purely lexical — no index, no embeddings, no map tool, no backg
 ### AI Agents & Modes
 
 - **Work modes:** Explore, Plan, Build, Debug, Review.
-- **Atlarix Core:** Managed cloud models, named in the picker by what they actually are. The lineup is configured remotely ([`core-models.json`](https://github.com/AmariahAK/atlarix-releases/blob/main/core-models.json)) rather than fixed in a release, so it changes without an app update — today it is **GLM 5.3**, **GPT 5.6 Terra** and **GPT 5.6 Sol**. Every plan can use every Core model; there is no tier gating and no model is reserved for a paid plan. Pro includes Core for everyday work and draws on a prepaid credit balance beyond that; Free draws on that balance from the start (top up from $10).
+- **Atlarix Core:** Managed cloud models, named in the picker by what they actually are. The lineup is configured remotely ([`core-models.json`](https://github.com/AmariahAK/atlarix-releases/blob/main/core-models.json)) rather than fixed in a release, so it changes without an app update — today it is **GLM 5.3**, **GPT 5.6 Terra** and **GPT 6 Astra**. Every plan can use every Core model; there is no tier gating and no model is reserved for a paid plan. Pro includes Core for everyday work and draws on a prepaid credit balance beyond that; Free draws on that balance from the start (top up from $10).
 
 ### Workspace Tools & Extensions
 
