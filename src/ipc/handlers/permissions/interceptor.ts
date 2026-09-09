@@ -27,6 +27,7 @@ import {
   CommandOperationPreview,
   BatchPlanPreview,
   AutomationOperationPreview,
+  McpServerOperationPreview,
   parsePermissionRequest,
 } from "../../../lib/tools/permissions/schema";
 import {
@@ -731,6 +732,9 @@ export class PermissionInterceptor extends EventEmitter {
         case "automation_write":
           await this.executeAutomationWrite(request);
           break;
+        case "mcp_server_write":
+          await this.executeMcpServerWrite(request);
+          break;
         default:
           throw new Error(`Unknown operation: ${request.operation}`);
       }
@@ -1418,6 +1422,102 @@ export class PermissionInterceptor extends EventEmitter {
    * executor that spoke to the tables directly would drift from the UI, and
    * silently: a missing MCP consent looks just like "the poll found nothing".
    */
+  /**
+   * Apply an approved MCP server add / edit / delete.
+   *
+   * Routed through the same handlers the Settings UI uses rather than writing rows
+   * here, so the agent path cannot drift from the hand-edited path — the reasoning
+   * `executeAutomationWrite` below already applies. Nothing reaches this method until a
+   * card has been approved: the tool returns a preview and writes nothing.
+   */
+  private async executeMcpServerWrite(
+    request: PermissionRequest,
+  ): Promise<void> {
+    const preview = request.preview as McpServerOperationPreview;
+    const { db } = await import("@/db");
+    const { mcpServers, mcpToolConsents } = await import("@/db/schema");
+    const { eq } = await import("drizzle-orm");
+    const { mcpManager } = await import("@/ipc/utils/mcp_manager");
+
+    if (preview.action === "delete") {
+      if (preview.serverId == null) throw new Error("MCP server id missing");
+      await mcpManager.dispose(preview.serverId);
+      // Consents are per (server, tool) and meaningless once the server is gone —
+      // leaving them would silently pre-approve a FUTURE server that reused the id.
+      await db
+        .delete(mcpToolConsents)
+        .where(eq(mcpToolConsents.serverId, preview.serverId));
+      await db.delete(mcpServers).where(eq(mcpServers.id, preview.serverId));
+      logger.log(
+        `[mcp] deleted server ${preview.serverId} (${preview.serverName})`,
+      );
+      return;
+    }
+
+    const input = preview.input as {
+      id?: number;
+      name: string;
+      transport: string;
+      command: string | null;
+      args: string[] | null;
+      url: string | null;
+      envJson: Record<string, string> | null;
+      appId: number;
+    } | null;
+    if (input == null) {
+      throw new Error(
+        "MCP server payload missing — nothing was written. Re-issue the manage_mcp_server call.",
+      );
+    }
+
+    const { encryptEnvForDb } = await import("@/lib/security/db-secrets");
+    // `authType` is DERIVED here rather than carried on the preview: it decides whether
+    // the runtime prompts for credentials, and a value the model supplied could put a
+    // server into a state where it never asks for the key it needs.
+    const authType =
+      input.envJson && Object.keys(input.envJson).length ? "env" : "none";
+
+    if (preview.action === "add") {
+      const [row] = await db
+        .insert(mcpServers)
+        .values({
+          name: input.name,
+          transport: input.transport,
+          command: input.command || null,
+          args: input.args ?? null,
+          envJson: encryptEnvForDb(input.envJson ?? null),
+          url: input.url || null,
+          // Imported servers land INACTIVE. `list_available_mcps` names them without
+          // connecting and the first `mcp_call` activates one, so nothing spawns a
+          // process until something actually needs it.
+          enabled: false,
+          scope: "workspace",
+          appId: input.appId,
+          authType,
+        })
+        .returning();
+      logger.log(`[mcp] added server ${row?.id} (${input.name}), inactive`);
+      return;
+    }
+
+    if (input.id == null) throw new Error("MCP server id missing for edit");
+    await mcpManager.dispose(input.id);
+    await db
+      .update(mcpServers)
+      .set({
+        name: input.name,
+        transport: input.transport,
+        command: input.command || null,
+        args: input.args ?? null,
+        envJson: encryptEnvForDb(input.envJson ?? null),
+        url: input.url || null,
+        authType,
+        updatedAt: new Date(),
+      })
+      .where(eq(mcpServers.id, input.id));
+    logger.log(`[mcp] edited server ${input.id} (${input.name})`);
+  }
+
   private async executeAutomationWrite(
     request: PermissionRequest,
   ): Promise<void> {

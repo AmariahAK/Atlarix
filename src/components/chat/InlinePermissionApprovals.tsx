@@ -13,7 +13,7 @@ import { IpcClient } from "@/ipc/ipc_client";
 import { Button } from "@/components/ui/button";
 import { SmartDiffView } from "@/components/SmartDiffView";
 import { composeContentFromHunks } from "@/lib/diff/compose-hunks";
-import { Clock, Shield, Terminal } from "lucide-react";
+import { Clock, Plug, Shield, Terminal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -104,6 +104,16 @@ function queueEntryFromPermission(
       automationGrantsMcpConsent: preview.grantsMcpConsent as
         | string
         | undefined,
+    }),
+    ...(request.operation === "mcp_server_write" && {
+      mcpAction: preview.action as "add" | "edit" | "delete" | undefined,
+      mcpServerName: preview.serverName as string | undefined,
+      mcpTransport: preview.transport as "stdio" | "http" | undefined,
+      mcpCommand: preview.command as string | undefined,
+      mcpArgs: preview.args as string[] | undefined,
+      mcpUrl: preview.url as string | undefined,
+      mcpEnvKeys: preview.envKeys as string[] | undefined,
+      mcpChanges: preview.changes as string[] | undefined,
     }),
     ...(request.operation === "batch_plan" && {
       batchPlanTitle: preview.title as string | undefined,
@@ -415,6 +425,118 @@ function CommandPermissionCard({
 }
 
 /**
+ * Approving an MCP server add / edit / delete.
+ *
+ * The card exists to make ONE thing legible: for a `stdio` server, approving means
+ * Atlarix will launch that program, with that argv, on this machine, every time a tool
+ * on it is called. So the command renders LITERALLY and in monospace rather than as a
+ * friendly summary — the name and description are the parts an attacker controls, and
+ * the realistic source of this proposal is a config file in a repo the agent just
+ * cloned.
+ *
+ * Env variable NAMES only, never values: a value belongs in the store, not on a card
+ * that is also written to the permission log.
+ *
+ * No "always allow" — same as the automation card. There is no version of "approve
+ * every future MCP server" that is safe to offer.
+ */
+export function McpServerPermissionCard({
+  operation,
+  onAllow,
+  onDeny,
+}: {
+  operation: QueuedOperation;
+  onAllow: (id: string) => void;
+  onDeny: (id: string) => void;
+}) {
+  const action = operation.mcpAction ?? "edit";
+  const verb =
+    action === "add" ? "Add" : action === "delete" ? "Remove" : "Update";
+  const isStdio = operation.mcpTransport === "stdio";
+  const runsAProgram = isStdio && action !== "delete";
+  return (
+    <div className="my-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
+      <div className="flex items-start gap-2">
+        <Plug className="h-3.5 w-3.5 shrink-0 mt-0.5 text-muted-foreground" />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 font-medium text-foreground/90">
+            {verb} MCP server
+            {runsAProgram ? (
+              <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-900 dark:text-amber-200">
+                Runs a program
+              </span>
+            ) : null}
+          </div>
+          <p className="mt-1.5 text-amber-900 dark:text-amber-100/90">
+            <span className="font-medium">{operation.mcpServerName}</span>
+          </p>
+
+          {runsAProgram ? (
+            <p className="mt-1.5 text-[11px] text-amber-900/90 dark:text-amber-100/80">
+              Atlarix will run this on your machine whenever one of its tools is
+              used:
+            </p>
+          ) : null}
+
+          {/* Verbatim, monospace, never summarised — this is the thing being approved. */}
+          {operation.mcpCommand ? (
+            <div className="mt-1 font-mono text-[11px] break-all bg-background/60 rounded px-2 py-1.5">
+              {[operation.mcpCommand, ...(operation.mcpArgs ?? [])].join(" ")}
+            </div>
+          ) : null}
+          {operation.mcpUrl ? (
+            <div className="mt-1 font-mono text-[11px] break-all bg-background/60 rounded px-2 py-1.5">
+              {operation.mcpUrl}
+            </div>
+          ) : null}
+
+          {operation.mcpEnvKeys?.length ? (
+            <p className="mt-1.5 text-[11px] text-amber-900/90 dark:text-amber-100/80">
+              With environment variables:{" "}
+              <span className="font-mono">
+                {operation.mcpEnvKeys.join(", ")}
+              </span>
+            </p>
+          ) : null}
+
+          {action === "delete" ? (
+            <p className="mt-1.5 text-[11px] text-amber-900/90 dark:text-amber-100/80">
+              Its stored tool approvals are removed with it.
+            </p>
+          ) : null}
+
+          {operation.mcpChanges?.length ? (
+            <div className="mt-2 font-mono text-[11px] text-muted-foreground bg-background/60 rounded px-2 py-1.5 space-y-0.5">
+              {operation.mcpChanges.map((c) => (
+                <div key={c}>{c}</div>
+              ))}
+            </div>
+          ) : null}
+
+          <div className="mt-2 flex gap-2">
+            <Button
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => onAllow(operation.id)}
+            >
+              {verb}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              onClick={() => onDeny(operation.id)}
+            >
+              Decline
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Approving a standing automation.
  *
  * Deliberately spells out `notifyAgent` and `runMode` rather than leaving them
@@ -699,6 +821,10 @@ export function InlinePermissionApprovals({ chatId }: { chatId: number }) {
     () => pending.filter((op) => op.operation === "automation_write"),
     [pending],
   );
+  const mcpServerPending = useMemo(
+    () => pending.filter((op) => op.operation === "mcp_server_write"),
+    [pending],
+  );
   const otherPending = useMemo(
     () =>
       pending.filter(
@@ -706,7 +832,8 @@ export function InlinePermissionApprovals({ chatId }: { chatId: number }) {
           !isFileOperation(op.operation) &&
           op.operation !== "run_command" &&
           op.operation !== "sandbox_escalation" &&
-          op.operation !== "automation_write",
+          op.operation !== "automation_write" &&
+          op.operation !== "mcp_server_write",
       ),
     [pending],
   );
@@ -944,6 +1071,14 @@ export function InlinePermissionApprovals({ chatId }: { chatId: number }) {
       ))}
       {automationPending.map((op) => (
         <AutomationPermissionCard
+          key={op.id}
+          operation={op}
+          onAllow={handleSimpleAllow}
+          onDeny={handleSimpleDeny}
+        />
+      ))}
+      {mcpServerPending.map((op) => (
+        <McpServerPermissionCard
           key={op.id}
           operation={op}
           onAllow={handleSimpleAllow}

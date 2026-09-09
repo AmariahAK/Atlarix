@@ -25,6 +25,7 @@ export interface QueuedOperation {
     | "revert_project_snapshot"
     | "sandbox_escalation"
     | "automation_write"
+    | "mcp_server_write"
     | "unknown";
   command?: string;
   path?: string;
@@ -53,6 +54,18 @@ export interface QueuedOperation {
   automationChanges?: string[];
   /** Set when an MCP trigger will record standing consent for its tool. */
   automationGrantsMcpConsent?: string;
+  /** mcp_server_write: add | edit | delete. */
+  mcpAction?: "add" | "edit" | "delete";
+  mcpServerName?: string;
+  mcpTransport?: "stdio" | "http";
+  /** The literal program and argv being approved — rendered verbatim, never summarised. */
+  mcpCommand?: string;
+  mcpArgs?: string[];
+  mcpUrl?: string;
+  /** Env variable NAMES only. A value here would put a secret on the card. */
+  mcpEnvKeys?: string[];
+  /** edit only: "was → now" per changed field. */
+  mcpChanges?: string[];
   content?: string; // File content for write_file
   oldContent?: string; // Original content for diff view
   description?: string; // AI-generated change summary

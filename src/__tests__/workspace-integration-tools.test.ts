@@ -8,10 +8,16 @@ import { ToolRegistry } from "../lib/tools/registry";
 import "../lib/tools";
 
 describe("workspace integration tools", () => {
-  it("defines the two MCP discovery tools", () => {
+  it("defines the MCP tools available in any workspace chat", () => {
+    // An exact array on purpose: this list is what gets offered without being
+    // "loaded", so a tool arriving here should be a deliberate edit, not a side
+    // effect of registering something.
     expect(WORKSPACE_INTEGRATION_TOOL_NAMES).toEqual([
       "list_available_mcps",
       "mcp_call",
+      // v14.45: propose add/edit/delete. Writes nothing itself — every operation
+      // returns a permission envelope and the user approves a card.
+      "manage_mcp_server",
     ]);
   });
 
@@ -27,6 +33,9 @@ describe("workspace integration tools", () => {
     const askNames = ToolRegistry.getToolsForAskMode().map((t) => t.name);
     expect(askNames).toContain("mcp_call");
     expect(askNames).toContain("list_available_mcps");
+    // Not a workspace mutation, and the approval card is the control — the same
+    // reasoning that puts `automations` outside Build.
+    expect(askNames).toContain("manage_mcp_server");
   });
 
   it("workspace filter includes integration tools when not core", () => {

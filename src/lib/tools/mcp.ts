@@ -425,3 +425,238 @@ ToolRegistry.register({
     }
   },
 });
+
+/**
+ * `manage_mcp_server` — add, edit or delete an MCP server, with the user's approval.
+ *
+ * WHY A TOOL AND NOT AN IMPORTER. The original plan for bringing another agent's setup
+ * across was a config importer: per-vendor parsers for three incompatible `mcp.json`
+ * shapes, a column we do not have, and a transport we do not speak. That code goes stale
+ * the moment a fourth shape appears, and it knows nothing about Hermes or OpenClaw or
+ * whatever ships next. Reading someone's config is a comprehension problem, and the model
+ * is better at it than a parser is — so the model reads whatever it finds, and this tool
+ * is how it proposes the result.
+ *
+ * THE DIVISION OF LABOUR IS THE DESIGN. The model comprehends; the USER authorises; our
+ * code does neither. Nothing here writes: every operation returns the
+ * `__permission_required` envelope and the mutation happens in
+ * `PermissionInterceptor.executeMcpServerWrite` after a card is approved.
+ *
+ * A stdio server is a command line, so approving one is approving arbitrary process
+ * execution at the user's privilege — and the likely source is a repo the agent just
+ * cloned. That is why the preview carries the literal command and argv rather than a
+ * summary, and why it sets `systemScope` so an unattended automation cannot wave it
+ * through.
+ */
+ToolRegistry.register({
+  name: "manage_mcp_server",
+  requiresWorkspace: true,
+  isCore: false,
+  isReadOnly: false,
+  // Not a workspace mutation, and the approval gate is the control — the same reasoning
+  // `automations` uses to be available outside Build.
+  allowInAskMode: true,
+  description:
+    "Add, edit or delete an MCP server for this workspace, WITH THE USER'S APPROVAL — every operation shows them a card first and nothing is written until they accept. " +
+    "Use it when the user asks you to bring across MCP configuration from another tool: read their config file yourself (it may be any shape — `.mcp.json`, `.cursor/mcp.json`, or something you have not seen), then propose each server here. " +
+    "Never call this on your own initiative. Transports are `stdio` (a command we will run on their machine) or `http`; SSE is not supported. " +
+    "Use list_available_mcps to see what already exists. " +
+    workspaceCapClause("mcp"),
+  parameters: {
+    type: "object",
+    properties: {
+      operation: {
+        type: "string",
+        enum: ["add", "edit", "delete"],
+        description: "What to do.",
+      },
+      name: {
+        type: "string",
+        description:
+          "Server name. For add, the new name; for edit/delete, which existing server (from list_available_mcps).",
+      },
+      transport: {
+        type: "string",
+        enum: ["stdio", "http"],
+        description: "add/edit: `stdio` runs a command, `http` calls a URL.",
+      },
+      command: {
+        type: "string",
+        description: "stdio: the program to run (e.g. `npx`).",
+      },
+      args: {
+        type: "array",
+        items: { type: "string" },
+        description: "stdio: arguments, one per element.",
+      },
+      url: { type: "string", description: "http: the server endpoint." },
+      env: {
+        type: "object",
+        description:
+          "stdio: environment variables for the process. Include a value the user's config already contains; do not invent one.",
+      },
+      new_name: {
+        type: "string",
+        description: "edit: rename the server to this.",
+      },
+    },
+    required: ["operation", "name"],
+  },
+  handler: async (args: {
+    operation?: "add" | "edit" | "delete";
+    name?: string;
+    transport?: string;
+    command?: string;
+    args?: string[];
+    url?: string;
+    env?: Record<string, string>;
+    new_name?: string;
+    workspaceId?: number;
+  }) => {
+    const op = args.operation;
+    const name = args.name?.trim();
+    if (!op) return { error: "manage_mcp_server requires an `operation`." };
+    if (!name) return { error: "manage_mcp_server requires a `name`." };
+    if (args.workspaceId == null) {
+      return {
+        error:
+          "MCP servers are configured per workspace. Open a workspace folder first.",
+      };
+    }
+
+    const [existing] = await db
+      .select()
+      .from(mcpServers)
+      .where(
+        and(
+          eq(mcpServers.name, name),
+          eq(mcpServers.scope, "workspace"),
+          eq(mcpServers.appId, args.workspaceId),
+        ),
+      )
+      .limit(1);
+
+    if (op === "delete") {
+      if (!existing) {
+        return {
+          error: `No MCP server named "${name}" in this workspace — it may already be gone. Call list_available_mcps.`,
+        };
+      }
+      return {
+        __permission_required: true,
+        operation: "mcp_server_write",
+        preview: {
+          action: "delete" as const,
+          serverName: existing.name,
+          serverId: existing.id,
+          systemScope: true,
+          transport: existing.transport as "stdio" | "http",
+          command: existing.command ?? undefined,
+          args: existing.args ?? undefined,
+          url: existing.url ?? undefined,
+          description: `Remove the MCP server "${existing.name}" and its stored tool consents.`,
+        },
+      };
+    }
+
+    if (op === "add" && existing) {
+      return {
+        error: `An MCP server named "${name}" already exists here. Use operation:"edit" to change it.`,
+      };
+    }
+    if (op === "edit" && !existing) {
+      return {
+        error: `No MCP server named "${name}" in this workspace. Call list_available_mcps to see what there is.`,
+      };
+    }
+
+    const transport = (args.transport ?? existing?.transport) as
+      | string
+      | undefined;
+    if (op === "add" && !transport) {
+      return {
+        error:
+          'operation:"add" requires a `transport` — "stdio" (a command we run) or "http" (a URL).',
+      };
+    }
+    if (transport && transport !== "stdio" && transport !== "http") {
+      // Named explicitly rather than swallowed: SSE appears in other tools' configs, and
+      // storing an unusable row would fail later at the moment of use, where the cause
+      // is much harder to see.
+      return {
+        error: `Transport "${transport}" is not supported — Atlarix speaks "stdio" and "http" only. An SSE server cannot be added; tell the user rather than substituting another transport.`,
+      };
+    }
+
+    const command = args.command ?? existing?.command ?? undefined;
+    const argv = args.args ?? existing?.args ?? undefined;
+    const url = args.url ?? existing?.url ?? undefined;
+    if (transport === "stdio" && !command) {
+      return { error: 'A "stdio" server requires a `command` to run.' };
+    }
+    if (transport === "http" && !url) {
+      return { error: 'An "http" server requires a `url`.' };
+    }
+
+    const envKeys = Object.keys(args.env ?? {});
+    const finalName = op === "edit" ? (args.new_name?.trim() ?? name) : name;
+
+    const changes: string[] = [];
+    if (op === "edit" && existing) {
+      if (finalName !== existing.name)
+        changes.push(`name: ${existing.name} → ${finalName}`);
+      if (args.transport && args.transport !== existing.transport)
+        changes.push(`transport: ${existing.transport} → ${args.transport}`);
+      if (args.command && args.command !== existing.command)
+        changes.push(`command: ${existing.command ?? "—"} → ${args.command}`);
+      if (args.args) changes.push(`args → ${JSON.stringify(args.args)}`);
+      if (args.url && args.url !== existing.url)
+        changes.push(`url: ${existing.url ?? "—"} → ${args.url}`);
+      if (envKeys.length) changes.push(`env: ${envKeys.join(", ")}`);
+      if (!changes.length) {
+        // Saying so beats asking the user to approve nothing.
+        return {
+          success: true,
+          message: `Nothing to change on "${existing.name}" — the values given already match.`,
+        };
+      }
+    }
+
+    return {
+      __permission_required: true,
+      operation: "mcp_server_write",
+      preview: {
+        action: op,
+        serverName: finalName,
+        serverId: existing?.id,
+        systemScope: true,
+        transport: transport as "stdio" | "http",
+        command,
+        args: argv ?? undefined,
+        url,
+        // KEYS ONLY on the card-facing field. The VALUES ride in `input` below,
+        // because the executor writes the row after approval and has no other source
+        // for them by then — but nothing renders `input`, so a secret never reaches
+        // the screen. `manage-mcp-server-tool.test.ts` pins that confinement.
+        envKeys: envKeys.length ? envKeys : undefined,
+        changes: changes.length ? changes : undefined,
+        description:
+          op === "add"
+            ? transport === "stdio"
+              ? `Add MCP server "${finalName}" — Atlarix will run this program on your machine when its tools are used.`
+              : `Add MCP server "${finalName}" at ${url}.`
+            : `Change MCP server "${existing?.name}".`,
+        input: {
+          id: existing?.id,
+          name: finalName,
+          transport,
+          command: transport === "stdio" ? command : null,
+          args: transport === "stdio" ? (argv ?? null) : null,
+          url: transport === "http" ? url : null,
+          envJson: args.env ?? null,
+          appId: args.workspaceId,
+        },
+      },
+    };
+  },
+});

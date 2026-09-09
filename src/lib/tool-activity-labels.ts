@@ -61,6 +61,7 @@ const LABELS: Record<string, string> = {
   record_debug_hypothesis: "Recording debug hypothesis…",
   memory: "Recalling memory…",
   list_available_mcps: "Listing MCP servers…",
+  manage_mcp_server: "Preparing MCP server change…",
   mcp_call: "Calling MCP tool…",
   // PASS8 B2: get_workspace_overview removed (phantom — never registered).
   get_plan_scope: "Scoping plan…",
@@ -413,6 +414,7 @@ const DONE_LABELS: Record<string, string> = {
   record_debug_hypothesis: "Recorded hypothesis",
   memory: "Recalled memory",
   list_available_mcps: "Listed MCP servers",
+  manage_mcp_server: "Proposed MCP server change",
   mcp_call: "Called MCP tool",
   get_plan_scope: "Scoped plan",
   read_implementation_plan: "Read plan",

@@ -241,6 +241,8 @@ export const PermissionOperationType = z.enum([
   "sandbox_escalation",
   // Create/update/delete a standing automation (v14.27.0)
   "automation_write",
+  // Add/edit/delete an MCP server (v14.45)
+  "mcp_server_write",
 ]);
 
 /** Single operation inside a batch_plan (file or command) */
@@ -266,6 +268,52 @@ export type BatchPlanPreview = z.infer<typeof BatchPlanPreviewSchema>;
 
 export type PermissionOperationType = z.infer<typeof PermissionOperationType>;
 
+/**
+ * Adding, editing or deleting an MCP server.
+ *
+ * Gated harder than it looks like it should be, because a `stdio` server is a COMMAND
+ * LINE: approving one means Atlarix will launch that program, with that argv and that
+ * environment, on this machine at the user's privilege, every time a tool on it is
+ * called. The name and the description are the attacker-controllable part; the command
+ * is the part that matters, so the card renders it literally and never a friendly
+ * summary of it.
+ *
+ * The realistic path here is not a user typing a config in — it is the model reading
+ * `.mcp.json` out of a repo it just cloned and offering to bring it across. That makes
+ * the proposal untrusted content by default and the approval the only real gate.
+ *
+ * `systemScope` is set on every one of these, which is what keeps an UNATTENDED
+ * automation run from approving it silently: `automationAutoApprove` waves through
+ * anything that is neither `isDangerous` nor `systemScope`.
+ */
+export const McpServerOperationPreviewSchema = z.object({
+  action: z.enum(["add", "edit", "delete"]),
+  serverName: z.string(),
+  /** Always true — see the note above. Declared so the auto-approve check can read it. */
+  systemScope: z.boolean(),
+  description: z.string(),
+  transport: z.enum(["stdio", "http"]).optional(),
+  /** stdio: the literal program and argv the user is approving. Never summarised. */
+  command: z.string().optional(),
+  args: z.array(z.string()).optional(),
+  /** http: the endpoint. */
+  url: z.string().optional(),
+  /** Names only — never values. A value here would put a secret in the card and the log. */
+  envKeys: z.array(z.string()).optional(),
+  hasApiKey: z.boolean().optional(),
+  /** edit only: a short "was → now" per changed field. */
+  changes: z.array(z.string()).optional(),
+  /** Set up front for edit/delete; absent for add. */
+  serverId: z.number().optional(),
+  /** The validated payload to apply on approval — carried INSIDE, as automations does,
+   * because `z.object` strips unknown sibling keys on the way through. */
+  input: z.unknown().optional(),
+});
+
+export type McpServerOperationPreview = z.infer<
+  typeof McpServerOperationPreviewSchema
+>;
+
 export const PermissionRequestSchema = z.object({
   __permission_required: z.literal(true),
   operation: PermissionOperationType,
@@ -275,6 +323,7 @@ export const PermissionRequestSchema = z.object({
     CommandOperationPreviewSchema,
     SandboxEscalationPreviewSchema,
     AutomationOperationPreviewSchema,
+    McpServerOperationPreviewSchema,
     WorkforceActionPreviewSchema,
     BatchPlanPreviewSchema,
     ProjectRevertPreviewSchema,
