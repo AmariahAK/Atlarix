@@ -12,7 +12,7 @@ const DEFAULT_MAX_CONCURRENT = 5;
  * Sub-agents spawned in one response share a system prefix. Launched together,
  * every one of them is a cache MISS that pays to write that prefix; launched a
  * beat apart, the first writes it and the rest read it. On Atlarix Core — a
- * prepaid wallet metered at +40% — that difference is the user's money.
+ * prepaid wallet metered at +80% — that difference is the user's money.
  *
  * Deliberately NOT gated on `resolveCacheMarkerPlacement`: that only reports
  * whether we place EXPLICIT markers (Claude family). DeepSeek, Z.AI and OpenAI

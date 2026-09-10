@@ -388,7 +388,7 @@ That is prompt and tool-description work, not a subsystem.
 
 `src/lib/agents/run-subagent.ts` builds `msgs` as a single `{ role: "user", content: prompt }`.
 Workers start cold: they re-derive context the main agent already has, and every worker is a fresh
-cache write rather than a read. On Core — a prepaid wallet metered at +40% — that is real money per
+cache write rather than a read. On Core — a prepaid wallet metered at +80% — that is real money per
 delegated turn.
 
 ### Why it is bigger than the release note suggests

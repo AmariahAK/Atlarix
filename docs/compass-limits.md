@@ -52,7 +52,7 @@ Direct `INSERT`/`UPDATE`/`DELETE` on `credit_wallet` is revoked from `authentica
   append-only `credit_transactions` ledger. All changes go through idempotent `SECURITY DEFINER`
   RPCs — direct writes are revoked.
 - **Metering + markup.** The proxy (`atlarix-proxy`) prices each Core call from the
-  **models.dev** catalog and debits **computed cost + 40% markup** (`MARKUP = 1.4`,
+  **models.dev** catalog and debits **computed cost + 80% mark-up** (`MARKUP = 1.8`,
   `src/server.ts`). `cost.ts` is the billing authority and is deliberately PURE — no
   fetch, no env, no clock — so the money math is provable in unit tests.
   - **It is no longer "real cost".** Going direct to provider APIs lost OpenRouter's

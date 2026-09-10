@@ -665,15 +665,18 @@ anyone who never touches their selection.
   the alternative asked a customer who had already paid $19 to pay $19 again. The arithmetic
   below was not updated with it, so this file claimed ~59% margin while the webhook's own
   comment said ~23%. **The webhook is the source of truth; the number here is a copy.**
-- **The maths, and why 40% mark-up is not 40% profit.** `MARKUP = 1.4` is a mark-up on COST:
-  charge $1.40 of credit per $1.00 of inference, so the gross margin on credit spent is
-  `0.40/1.40 = 28.6%`, not 40%. LemonSqueezy then takes ~7.5% of the money coming in, leaving
-  `1 - (1/1.4)/(1-0.075) = 22.8%` at FULL consumption. In dollars: $19 nets ~$17.57, buys
-  ~$13.57 of real inference, profit ~$4.00.
-  **It is the same 22.8% on PAYG** ($10 nets $9.25, buys $7.14) — because both hand over $X of
-  credit for $X paid, so the subscription is not the leak; the mark-up is. To net a true 40%
-  after the fee you would need `MARKUP = 1.80`. Realised margin is above 22.8% because most
-  subscribers do not spend every cent and the allowance expires monthly.
+- **`MARKUP = 1.8` since 2026-09-10, and a mark-up is not a margin.** It multiplies COST:
+  $1.80 of credit per $1.00 of inference is `0.80/1.80 = 44.4%` gross on the credit spent, and
+  LemonSqueezy's ~7.5% of money-in leaves `1 - (1/1.8)/(1-0.075) = ~40%` net at FULL
+  consumption. In dollars: $19 nets ~$17.57, buys ~$10.56 of inference, profit ~$7.01.
+  **It was 1.4, which netted only ~22.8%** — the number this file spent months describing as
+  "40%". Identical on PAYG, because both hand over $X of credit for $X paid, so the mark-up and
+  not the price is what sets the margin on both.
+- **The ceiling on the mark-up is BYOK, which we give away and price-tag per reply.** The app
+  shows the cost of every turn, so a user who can read that number and compare it to provider
+  list price has a free escape hatch built into the same dropdown. Realised margin also sits
+  above the full-consumption figure, because the allowance expires monthly and most
+  subscribers underspend.
 - **Do NOT publish the allowance figure.** Say "includes Core for everyday work". Denominating an allowance
 - **Atlarix Reviewer is $19/dev/mo, unlimited repos.** No open-source exemption — that was an
   INTENT that was never built and was withdrawn 2026-09-04 (spec §8 Rev 4); the reviewer has no
