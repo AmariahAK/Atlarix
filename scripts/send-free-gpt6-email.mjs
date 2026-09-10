@@ -122,31 +122,45 @@ function deriveFirstName(user) {
  *     It is in the changelog for anyone who looks.
  *   - "You never came back." True of most of this list and wrong for some, and being
  *     wrong to someone's face costs more than the line is worth.
- *   - Any model name other than the one in the subject. The lineup is remote config
- *     and can change the week after this sends; naming three dates the email.
+ *
+ * OWNER'S CALL, recorded because both are deliberate:
+ *   - It NAMES two models (Astra, Terra). The lineup is remote config and can change the
+ *     week after this sends, so this email dates itself. Accepted: naming them is the
+ *     news, and an email is a moment rather than a document.
+ *   - It PROMISES a browser extension. Forward-looking, to every user, hedged as "still
+ *     in development".
+ *
+ * The cross-tool paragraph is accurate, and checked against the code rather than the
+ * roadmap: AGENTS.md § "Other tools' configuration" (commit 9b1ac1dc) tells the agent to
+ * never silently follow another tool's rules file, to ask, and to offer to write the
+ * answer into `.atlarix/rules/` so it stops asking; `readProjectInstructions` reads
+ * AGENTS.md and CLAUDE.md natively (read-only, never copied); and `manage_mcp_server`
+ * proposes servers from any config shape — its description names `.mcp.json` and
+ * `.cursor/mcp.json` — with per-server approval and no unilateral writes. It works for
+ * Cursor through the GENERIC path, not a per-vendor parser: that importer was dropped on
+ * purpose, which is what makes "or something I've never heard of" true rather than
+ * marketing.
  */
 function buildBodies(firstName) {
   const text = `Hey ${firstName},
 
 Amariah here — I build Atlarix. Real email, replies come to me.
 
-Two things changed that I think are worth 30 seconds of your time.
+To everyone who uses Atlarix — thank you for making it what it is today. Its growth, the mentions out in the wild, the ways you've put it to work — thank you, genuinely, for all of it. Here's what's new.
 
-Atlarix is free. Not a trial, not a limited tier — every feature, for everyone. Unlimited projects, the whole tool surface, all of it. I stopped charging for the app because charging for it was never the point.
+GPT-6 Astra is in Atlarix. It's in the model picker now, with GPT-5.6 Terra alongside it for quicker everyday work — reach for Astra when you want deep reasoning, Terra when you just want it done. No API key from anyone required: sign in and pick one.
 
-It runs GPT-6 Astra. It is in the model picker, along with a couple of other frontier models, and you do not need an API key from anyone to use them — sign in and pick one.
+The app is free. Not a trial, not a limited tier — every feature, for everyone. Bring your own projects and use the whole thing without paying for the app at all. The only thing that costs money is inference on the hosted models — and you can skip even that: plug in your own OpenAI or Anthropic key, or point it at a local model (Ollama, LM Studio), and Atlarix costs you nothing, ever. If you'd rather use the hosted models, top up a balance from $10 and the app shows you what each reply cost.
 
-The only thing that costs money now is the inference on those hosted models, and you can skip even that: plug in your own API key, or run a local model, and Atlarix costs you nothing, ever. Bring an OpenAI or Anthropic key, or point it at Ollama on your own machine — it is a dropdown, not a config file. If you would rather use the hosted models, you top up a balance from $10 and the app shows you what each reply cost.
+It picks up your existing setup — including from other tools. Atlarix reads the workflows, MCP servers, skills and rules you already have and keeps working on them, and it can carry across a setup from Claude Code, Codex, Cursor or something I've never heard of. It proposes what it finds and acts once you approve — it won't adopt another tool's config or connect anything on its own.
 
-A few smaller things, if you are the sort who cares:
+Among a lot of other updates — the money side is honest now (stop the agent mid-answer and you're billed for what it actually produced; a dropped connection reconnects instead of losing the run), and you can teach it your project's conventions with a markdown file that travels with the repo for your whole team.
 
-- If you stop the agent mid-answer, you are billed for what it actually produced — not the whole request.
-- A dropped connection reconnects and keeps going instead of losing the run.
-- You can teach it your project's conventions by dropping a markdown file in your repo, and it travels with the repo for everyone on your team.
+One thing that's coming: a browser extension that lets Atlarix work in the browser you already use — the tabs you're logged into, not a separate window. Still in development; I'll tell you when it lands.
 
 Download or update: https://atlarix.dev
 
-If you tried Atlarix months ago and it annoyed you, it is a genuinely different app now. And if you tried it and something specific broke — tell me what, I still read every reply.
+To you who stayed and made Atlarix what it is — thank you, and here's to many more achievements ahead.
 
 Amariah
 I build Atlarix
@@ -157,18 +171,14 @@ Don't want emails like this? Reply "stop" and I won't send another.`;
 <html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.6;color:#0f172a;max-width:560px;">
 <p>Hey ${escapeHtml(firstName)},</p>
 <p>Amariah here — I build Atlarix. Real email, replies come to me.</p>
-<p>Two things changed that I think are worth 30 seconds of your time.</p>
-<p><strong>Atlarix is free.</strong> Not a trial, not a limited tier — every feature, for everyone. Unlimited projects, the whole tool surface, all of it. I stopped charging for the app because charging for it was never the point.</p>
-<p><strong>It runs GPT-6 Astra.</strong> It is in the model picker, along with a couple of other frontier models, and you do not need an API key from anyone to use them — sign in and pick one.</p>
-<p>The only thing that costs money now is the inference on those hosted models, and you can skip even that: <strong>plug in your own API key, or run a local model, and Atlarix costs you nothing, ever.</strong> Bring an OpenAI or Anthropic key, or point it at Ollama on your own machine — it is a dropdown, not a config file. If you would rather use the hosted models, you top up a balance from $10 and the app shows you what each reply cost.</p>
-<p>A few smaller things, if you are the sort who cares:</p>
-<ul>
-<li>If you stop the agent mid-answer, you are billed for what it actually produced — not the whole request.</li>
-<li>A dropped connection reconnects and keeps going instead of losing the run.</li>
-<li>You can teach it your project's conventions by dropping a markdown file in your repo, and it travels with the repo for everyone on your team.</li>
-</ul>
+<p>To everyone who uses Atlarix — thank you for making it what it is today. Its growth, the mentions out in the wild, the ways you've put it to work — thank you, genuinely, for all of it. Here's what's new.</p>
+<p><strong>GPT-6 Astra is in Atlarix.</strong> It's in the model picker now, with GPT-5.6 Terra alongside it for quicker everyday work — reach for Astra when you want deep reasoning, Terra when you just want it done. No API key from anyone required: sign in and pick one.</p>
+<p><strong>The app is free.</strong> Not a trial, not a limited tier — every feature, for everyone. Bring your own projects and use the whole thing without paying for the app at all. The only thing that costs money is inference on the hosted models — and you can skip even that: plug in your own OpenAI or Anthropic key, or point it at a local model (Ollama, LM Studio), and Atlarix costs you nothing, ever. If you'd rather use the hosted models, top up a balance from $10 and the app shows you what each reply cost.</p>
+<p><strong>It picks up your existing setup — including from other tools.</strong> Atlarix reads the workflows, MCP servers, skills and rules you already have and keeps working on them, and it can carry across a setup from Claude Code, Codex, Cursor or something I've never heard of. It proposes what it finds and acts once you approve — it won't adopt another tool's config or connect anything on its own.</p>
+<p>Among a lot of other updates — the money side is honest now (stop the agent mid-answer and you're billed for what it actually produced; a dropped connection reconnects instead of losing the run), and you can teach it your project's conventions with a markdown file that travels with the repo for your whole team.</p>
+<p>One thing that's coming: a browser extension that lets Atlarix work in the browser you already use — the tabs you're logged into, not a separate window. Still in development; I'll tell you when it lands.</p>
 <p><a href="https://atlarix.dev">Download or update Atlarix</a></p>
-<p>If you tried Atlarix months ago and it annoyed you, it is a genuinely different app now. And if you tried it and something specific broke — tell me what, I still read every reply.</p>
+<p>To you who stayed and made Atlarix what it is — thank you, and here's to many more achievements ahead.</p>
 <p>Amariah<br />I build Atlarix</p>
 <p style="color:#94a3b8;font-size:12px;">Don't want emails like this? Reply "stop" and I won't send another.</p>
 </body></html>`;
