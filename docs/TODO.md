@@ -659,9 +659,7 @@ DONE per the owner** — both sections deleted rather than ticked.
 
 1. **Browser extension** — the one substantial piece of work left. Two dead ends are
    already measured (see its section); the design is partly done.
-2. **The reviewer's repository picker** — see below. Small, and both affected installs
-   are the owner's.
-3. **CI must resolve the win32 + linux TypeScript 7 platform binaries.** Only
+2. **CI must resolve the win32 + linux TypeScript 7 platform binaries.** Only
    darwin-arm64 is proven. The last open verification item.
 
 **Carrying one residual from the Windows un-pin:** `electron-forge make`
@@ -669,29 +667,28 @@ DONE per the owner** — both sections deleted rather than ticked.
 `package`, not `make`, and `build-windows` gates `publish-release` — if the next tag
 fails there, re-run the job and revert one line to `windows-2022`.
 
-### The reviewer's repository picker is empty for every existing install
+### ~~The reviewer's repository picker is empty for every existing install~~ DONE 2026-09-10
 
-**Measured 2026-09-10, against the live table rather than assumed:** `github_installs`
-holds **2 rows and BOTH have `repositories: []`** — `AmariahAK` (selection `selected`,
-2026-08-25) and `atlarix-agent` (selection `all`, 2026-08-26). So it is 100% of installs
-and both are the owner's, which is why this is small rather than urgent.
+Fixed in `atlarix-reviewer` `d04b89d`. `github_installs.repositories` is written only from
+webhooks, and for a `selected` install the only event that rewrites it is the user changing
+their selection — so an install predating the column showed "selected repositories" with no
+names, indefinitely. Not a rendering bug; nothing was ever stored.
 
-The list is written ONLY from webhooks: `installation.created` carries the whole covered
-set ('set' mode) and `installation_repositories` carries added/removed. Both installs
-predate the feature, so nothing ever wrote their list and **nothing backfills** — an
-existing install stays empty until the user changes their repo selection.
+`src/github/installation-repos.ts` fetches `GET /installation/repositories` using the
+installation-wide token `app-auth.ts` already mints, and
+`scripts/backfill-install-repos.ts` applies it through the SAME `applyInstallRepos(…, 'set',
+…)` write path the webhook uses. Applied to `AmariahAK` (156439785) →
+`["AmariahAK/atlarix-releases"]`, verified in the live table; re-running is a no-op.
 
-**Two things make the fix easy, and neither is in the original note:**
+**Deliberate, so nobody "improves" it:** `all` installs are skipped rather than enumerated —
+that set changes as an account gains repositories with no webhook to announce it, and the
+account page already renders `all` from `repository_selection` alone, which cannot go stale.
+And the fetch THROWS on a non-2xx rather than returning a partial list, because the write is
+mode `set`: a half-answer would turn a transient 502 on page two into permanent data loss.
 
-- **`repository_selection` IS populated** (0/2 empty). For an `all` install the picker
-  needs no list at all — "all repositories" is the complete and correct answer.
-- **The reviewer can just ask GitHub.** `src/github/app-auth.ts` already mints
-  installation tokens (`/app/installations/<id>/access_tokens`), so
-  `GET /installation/repositories` returns the covered set for any install on demand.
-
-So: render `all` from `repository_selection`, and lazily fetch-and-cache for `selected`.
-That beats "backfill on the next webhook", which leaves the picker empty indefinitely for
-anyone who never touches their selection.
+It is a script rather than a webhook hook because it was measured first — 2 live installs,
+one `all` and one `selected` — so it is a one-time migration of a single row. A network call
+on every webhook forever to fix two rows is the wrong trade.
 
 ## 💵 Pricing — SETTLED 2026-08-26, and the code that implements it
 
