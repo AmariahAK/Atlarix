@@ -861,15 +861,12 @@ ticked, because a list of things that turned out fine is not worth carrying.
   _"App review pending for X weeks, no updates received"_, including the app name, App ID, the
   GitHub org/account used to submit, and the SUBMISSION date (which may differ from the date the
   App went public).
-- **`build-msix` must `needs: build-linux`.** It declares `needs: [quality]` but genuinely
-  depends on `build-linux`'s `landlock-helper` artifact — `msix.yml:220` downloads it with
-  `continue-on-error: true`. On v14.43.0 they raced and MSIX lost: msix started 09:24:58 and
-  failed 09:28:27, while build-linux did not upload until 09:32:12. The download failed
-  silently, `forge.config.ts`'s `existsSync` guard dropped the helper from `extraResource`
-  without complaint, and only the NEW `EXPECTED_RESOURCES` check turned it red.
-  **This is a latent bug the assertion caught on its first CI run** — before it, every Store
-  build that lost this race shipped without WSL confinement, green and silent. One-line fix;
-  a job re-run was the correct recovery for the release itself, but the race remains.
+- ~~**`build-msix` must `needs: build-linux`.**~~ **FIXED 2026-09-10 (`e8ce619d`).** It bit
+  again on v14.45.0 exactly as this entry predicted — msix downloaded `landlock-helper` at
+  20:55:35, build-linux created it at 20:57:05 — and because `build-msix` gates
+  `publish-release`, the whole release stranded as an invisible draft until the failed jobs
+  were re-run. Now `needs: [quality, build-linux]`, matching what `build-windows` already
+  declared. **Unexercised until the next tag**, since it only affects tag runs.
 - **Un-pin the Windows runners from `windows-2022`, once a dispatch proves it.** The blocker
   is fixed: `patches/@electron+node-gyp+10.2.0-electron.1.patch` now maps VS major 18 to year
   2026, adds 2026 to all three `supportedYears` arrays, and discovers the VC++ toolset by
