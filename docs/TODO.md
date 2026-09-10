@@ -867,22 +867,31 @@ ticked, because a list of things that turned out fine is not worth carrying.
   `publish-release`, the whole release stranded as an invisible draft until the failed jobs
   were re-run. Now `needs: [quality, build-linux]`, matching what `build-windows` already
   declared. **Unexercised until the next tag**, since it only affects tag runs.
-- **Un-pin the Windows runners from `windows-2022`, once a dispatch proves it.** The blocker
-  is fixed: `patches/@electron+node-gyp+10.2.0-electron.1.patch` now maps VS major 18 to year
-  2026, adds 2026 to all three `supportedYears` arrays, and discovers the VC++ toolset by
-  scanning `<vsPath>\MSBuild\Microsoft\VC\*\Platforms\x64\PlatformToolsets` rather than
-  hardcoding a `vNNN` (the year→toolset map is NOT derivable from the MSVC version — VS 2022
-  17.14 ships MSVC 14.44 and is still `v143`). What is missing is a green run: nobody here has
-  a machine with VS 2026, so it is unexercised code on the path that takes out `build-windows`
-  AND `build-msix` at once.
-  **Next step:** dispatch `Atlarix MSIX` with the new `runner: windows-latest` input (needs the
-  repo flipped public for the Actions budget, same as a release), and read the printed
-  `versionYear` / `toolset` from the "Verify Visual Studio toolchain is discoverable" step.
-  That step exists because the obvious verification does not work: `@electron/rebuild` buffers
-  node-gyp's output and prints it only on a non-zero exit, so on a green build there is no log
-  and "assert the ABSENCE of `unsupported version: 18`" is vacuously true. Only after that
-  dispatch is green do `msix.yml`'s two defaults and `release.yml:build-windows` change.
-  `src/__tests__/node-gyp-vs2026-patch.test.ts` guards the patch from evaporating on a bump.
+- **Un-pin the Windows runners from `windows-2022` — the VS 2026 half is now PROVEN
+  (dispatched 2026-09-10, run `34459204017`, `runner=windows-latest`).** The node-gyp patch
+  works: `check-vs-toolchain` reported `versionYear 2026 · version 18.9.12120.119 ·
+  toolset v145 · sdk 10.0.26100.0`, and that script exits 1 without a versionYear or a
+  toolset, so a green step IS the assertion. **`toolset v145` is the part worth keeping** —
+  it is why the patch scans `PlatformToolsets` instead of hardcoding: VS 2022 17.14 ships
+  MSVC 14.44 and is still `v143`, so no rule from the MSVC version would have produced v145.
+  Zero occurrences of `unsupported version: 18` or `Could not find any Visual Studio`.
+  Dependency install (electron-rebuild → node-gyp), the Rust sandbox helper, the Vite build
+  and electron-forge packaging were all green on that image.
+
+  **STILL UNPROVEN, so the pins have NOT changed: `Build MSIX` itself never ran.** The
+  dispatch died one step earlier, at `verify-ci-package-out`, on a missing
+  `atlarix-sandbox-linux` — absent BY DESIGN, because "Download Landlock helper" is gated to
+  non-dispatch runs and a standalone run has no `build-linux` to take the artifact from. So
+  the makeappx/SDK tooling on `windows-2025-vs2026` is the one remaining question.
+  **Fixed the blocker rather than the symptom:** the package step now sets
+  `ALLOW_UNSANDBOXED_RELEASE=1` **only when `github.event_name == 'workflow_dispatch'`**, so
+  a manual run can reach `Build MSIX` while a release (`workflow_call`, artifact present)
+  keeps the strict check. That change is itself unexercised — it needs one dispatch.
+
+  **Next step:** re-dispatch `Atlarix MSIX` with `runner=windows-latest` (repo public for the
+  Actions budget) and confirm `Build MSIX` goes green. Only then change `msix.yml`'s two
+  defaults and `release.yml`'s `build-windows`.
+
 - **Windows code-signing cert** — native-sandbox CI, and the only real fix for the C6 residual on
   direct-download Windows. Release infra, no cert. The helper sign step is wired; set the secret.
 - OAuth `state` nonce / PKCE stays **not doing** — attempted v14.12.0, broke sign-in, reverted. The

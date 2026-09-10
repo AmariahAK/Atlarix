@@ -301,6 +301,22 @@ jobs:
           NODE_OPTIONS: "--max-old-space-size=8192"
           TMP: ${{ github.workspace }}/.cache/packager-tmp
           TEMP: ${{ github.workspace }}/.cache/packager-tmp
+          # A MANUAL run cannot have the Linux helper, and must not be failed for it.
+          #
+          # "Download Landlock helper" above is gated to non-dispatch runs, because a
+          # standalone run has no `build-linux` to take the artifact from. So on a
+          # dispatch `atlarix-sandbox-linux` is absent BY DESIGN — yet it is only
+          # waivable via ALLOW_UNSANDBOXED_RELEASE, which nothing set. The result was
+          # that every manual run died at this step no matter what it was testing:
+          # the windows-2022 un-pin dispatch got VS 2026 discovery, the native
+          # rebuild and electron-forge packaging all green, then failed here and
+          # never reached "Build MSIX" at all.
+          #
+          # Scoped to workflow_dispatch. A release arrives as workflow_call with the
+          # artifact present, and keeps the strict check — which matters, because
+          # shipping a Store build without WSL confinement is exactly what the
+          # assertion exists to prevent.
+          ALLOW_UNSANDBOXED_RELEASE: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
         run: |
           node scripts/win-ci-packager-worker.mjs
           if (-not $?) { exit $LASTEXITCODE }
