@@ -567,29 +567,6 @@ In a coding harness most steps are tool calls, so thoughts land on the step wher
 stops calling tools and writes its answer. A turn still mid-fan-out showing only tool cards
 is correct. **The pipeline was verified end-to-end while chasing this — do NOT re-audit it.**
 
-## 📊 Sentry error selection + PostHog usage tracking (queued 2026-09-09, owner)
-
-Both are wired — `@sentry/electron` + `@sentry/core`, `posthog-js` + `posthog-node` — and
-the owner wants the signal improved on each. Not yet scoped; scope it before touching it,
-because the failure mode here is collecting more and learning less.
-
-**Sentry:** the question is which errors are worth reporting. `sentry-ignore-patterns.ts`
-is the existing mechanism and it currently carries dead plan-gate patterns (above), which
-suggests the list has not been revisited since the errors it describes changed. Start by
-reading what actually arrives, then decide what to drop — an ignore list grown by
-guesswork is how a real regression gets filtered out.
-
-**PostHog:** the question is which product questions we cannot currently answer (which
-tools get used, where turns fail, which work modes people actually pick). Instrument
-against named questions, not "more events".
-
-**HARD CONSTRAINT on both — there is a test that pins it.**
-`src/__tests__/telemetry-consent-boundary.test.ts` asserts PostHog **writes nothing to the
-device before consent** and does NOT init without it (`:141`), while keeping persistent
-storage once consent exists so session continuity survives the gate (`:151-156`). Any
-change here keeps that suite green. Treat the consent boundary as the contract, not the
-implementation detail.
-
 ## 📦 v14.45 — the marketplace is gone; what is left is smaller and safer
 
 Shipped 2026-09-09. Narrative in `docs/CHANGELOG.md`; the code carries the reasoning in
@@ -631,52 +608,45 @@ comments. What stays here is what a future reader would otherwise undo.
 
 ## 🔜 Next session — the queue
 
-**Agreed order at the 2026-09-09 handoff**, so the next reader does not re-derive it:
+Rewritten 2026-09-10. The 2026-09-09 handoff list is fully discharged: v14.45 is
+released, the launchpad login fix shipped (`08b4f9d`), and **telemetry + Harbor are
+DONE per the owner** — both sections deleted rather than ticked.
 
-1. **Tag v14.45** — v14.44 and v14.45 are both on `dev`. Owner's call. The
-   `atlarix-releases` README commit is unpushed and must go WITH the tag.
-2. **Launchpad** — the stopped-login fix. Root cause located: `Login.tsx:72`'s `pending` is
-   cleared in exactly ONE place, inside `if (err)`, with no `try`/`catch` and no `finally`,
-   so a cancelled OAuth redirect leaves both buttons disabled with a spinner and no error,
-   forever. Keep "do not clear on success" — re-enabling mid-navigation invites a second
-   competing flow — and recover on `visibilitychange`/`focus` instead. Fix local to
-   `Login.tsx`: `useAuth` is a plain UNSHARED hook with three callers and no provider,
-   deliberately (pulling supabase-js into ~40 prerendered pages is the reason). Also fix its
-   stale CSP comment, which still claims Report-Only.
-3. **Telemetry** — the Sentry ignore-list revision and the PostHog question set below.
+1. **Browser extension** — the one substantial piece of work left. Two dead ends are
+   already measured (see its section); the design is partly done.
+2. **The reviewer's repository picker** — see below. Small, and both affected installs
+   are the owner's.
+3. **CI must resolve the win32 + linux TypeScript 7 platform binaries.** Only
+   darwin-arm64 is proven. The last open verification item.
 
-### Harbor upstream integration — fork done (owner-confirmed), rest owed
+**Carrying one residual from the Windows un-pin:** `electron-forge make`
+(Squirrel.Windows) has never run on `windows-2025-vs2026`. The un-pin proved
+`package`, not `make`, and `build-windows` gates `publish-release` — if the next tag
+fails there, re-run the job and revert one line to `windows-2022`.
 
-Terminal-Bench 4.0 community submissions are CLOSED, so a listed run must be executed BY a
-maintainer — which means Atlarix has to be a pre-integrated Harbor agent. The payoff is not
-only the leaderboard: Harbor carries 100+ benchmark adapters, so upstreaming once turns every
-one into `harbor run -d <dataset> --agent atlarix`, a standing regression suite for the agent
-loop.
+### The reviewer's repository picker is empty for every existing install
 
-The three fork touchpoints are done (owner-confirmed 2026-09-09; **not verifiable from this
-machine** — there is no `../harbor` checkout here, so find out where it lives before assuming
-it is missing). Still owed:
+**Measured 2026-09-10, against the live table rather than assumed:** `github_installs`
+holds **2 rows and BOTH have `repositories: []`** — `AmariahAK` (selection `selected`,
+2026-08-25) and `atlarix-agent` (selection `all`, 2026-08-26). So it is 100% of installs
+and both are the owner's, which is why this is small rather than urgent.
 
-- **The instruction must NOT go in argv.** Harbor **#2311** documents agents killed by their
-  own `pkill -f` because the task text sat in `/proc/<pid>/cmdline` — 15/15 trials, exit
-  143/137, each graded on a half-finished workspace. Route it env var → file →
-  `--prompt-file`.
-- **Keep `patch-harbor.py`.** The `upload_dir` `docker cp` bug it works around is still OPEN
-  upstream and bites local-docker runs. Modal avoids it, and Modal is what Harbor's own CI
-  and leaderboard use.
-- Port `benchmarks/` to `terminal-bench@4.0.0`, keeping `atlarix_tb` as a thin pin-proxy so
-  the opencode comparison still runs. Then a free k=1 smoke on ~10 tasks — not for a score,
-  to prove install, completion and a parseable trajectory before a maintainer spends donated
-  compute.
-- **Owner action:** file the issue (harbor's Golden Rule requires the first AND last draft to
-  be human, with a disclosure that an agent wrote the code), then get one real user to
-  comment.
+The list is written ONLY from webhooks: `installation.created` carries the whole covered
+set ('set' mode) and `installation_repositories` carries added/removed. Both installs
+predate the feature, so nothing ever wrote their list and **nothing backfills** — an
+existing install stays empty until the user changes their repo selection.
 
-### The reviewer's repository list is live, but existing installs are empty
+**Two things make the fix easy, and neither is in the original note:**
 
-The list works for a NEW install. An install that predates it has no repositories recorded,
-and nothing backfills — so an existing user sees an empty picker and no explanation. Decide
-whether to backfill on next webhook or to say so in the UI.
+- **`repository_selection` IS populated** (0/2 empty). For an `all` install the picker
+  needs no list at all — "all repositories" is the complete and correct answer.
+- **The reviewer can just ask GitHub.** `src/github/app-auth.ts` already mints
+  installation tokens (`/app/installations/<id>/access_tokens`), so
+  `GET /installation/repositories` returns the covered set for any install on demand.
+
+So: render `all` from `repository_selection`, and lazily fetch-and-cache for `selected`.
+That beats "backfill on the next webhook", which leaves the picker empty indefinitely for
+anyone who never touches their selection.
 
 ## 💵 Pricing — SETTLED 2026-08-26, and the code that implements it
 
@@ -685,17 +655,26 @@ whether to backfill on next webhook or to say so in the UI.
 > includes _some_ inference, because the old shape asked for two purchases before a new user's first
 > agent turn — and that is where the funnel was dying. 108 users at the time of this decision.
 
-- **Atlarix Pro stays $19/mo** and now includes a **$10 monthly Core allowance**, PAYG on top. Price
-  deliberately unchanged: $19 was picked to sit under Cursor/Windsurf at $20, and raising it in the
-  same breath as improving it turns a clear win into an ambiguous one. **If more revenue per user is
-  wanted, the lever is the allowance size, not the sticker** — the sticker is what people compare.
-- **The maths, so the allowance is never resized by feel.** $19 less LemonSqueezy's ~7.5% nets
-  ~$17.58. $10 of allowance is metered at +40%, so it buys ~$7.14 of real inference: **~59% margin if
-  a subscriber spends every cent**, higher in practice because most do not. That breakage IS the
-  business. $13 would be 44%, $15 would be 36%.
-- **Do NOT publish the $10 figure.** Say "includes Core for everyday work". Denominating an allowance
-  in dollars publishes your cost structure and invites the $19-for-$10 comparison; nobody else in the
-  market does it.
+- **Atlarix Pro stays $19/mo** and includes a monthly Core allowance, PAYG on top. Price
+  deliberately NOT raised: $19 sits under Cursor/Windsurf $20 on purpose, and raising it while
+  improving it makes the win ambiguous. **If more revenue is wanted, the lever is the allowance
+  size, not the sticker** — the sticker is what people compare.
+- **THE ALLOWANCE IS $19, NOT $10 — this section said $10 until 2026-09-10 and was wrong.**
+  `MONTHLY_GRANT_CENTS.pro = 1900` (`handle-lemon-webhook/index.ts`). It was raised on
+  2026-09-08 when Atlarix Reviewer folded into Pro — one subscription, one allowance, because
+  the alternative asked a customer who had already paid $19 to pay $19 again. The arithmetic
+  below was not updated with it, so this file claimed ~59% margin while the webhook's own
+  comment said ~23%. **The webhook is the source of truth; the number here is a copy.**
+- **The maths, and why 40% mark-up is not 40% profit.** `MARKUP = 1.4` is a mark-up on COST:
+  charge $1.40 of credit per $1.00 of inference, so the gross margin on credit spent is
+  `0.40/1.40 = 28.6%`, not 40%. LemonSqueezy then takes ~7.5% of the money coming in, leaving
+  `1 - (1/1.4)/(1-0.075) = 22.8%` at FULL consumption. In dollars: $19 nets ~$17.57, buys
+  ~$13.57 of real inference, profit ~$4.00.
+  **It is the same 22.8% on PAYG** ($10 nets $9.25, buys $7.14) — because both hand over $X of
+  credit for $X paid, so the subscription is not the leak; the mark-up is. To net a true 40%
+  after the fee you would need `MARKUP = 1.80`. Realised margin is above 22.8% because most
+  subscribers do not spend every cent and the allowance expires monthly.
+- **Do NOT publish the allowance figure.** Say "includes Core for everyday work". Denominating an allowance
 - **Atlarix Reviewer is $19/dev/mo, unlimited repos.** No open-source exemption — that was an
   INTENT that was never built and was withdrawn 2026-09-04 (spec §8 Rev 4); the reviewer has no
   repository-visibility logic, so a public repo hits the same entitlement gate and the same wallet
