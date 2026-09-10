@@ -867,30 +867,31 @@ ticked, because a list of things that turned out fine is not worth carrying.
   `publish-release`, the whole release stranded as an invisible draft until the failed jobs
   were re-run. Now `needs: [quality, build-linux]`, matching what `build-windows` already
   declared. **Unexercised until the next tag**, since it only affects tag runs.
-- **Un-pin the Windows runners from `windows-2022` — the VS 2026 half is now PROVEN
-  (dispatched 2026-09-10, run `34459204017`, `runner=windows-latest`).** The node-gyp patch
-  works: `check-vs-toolchain` reported `versionYear 2026 · version 18.9.12120.119 ·
-  toolset v145 · sdk 10.0.26100.0`, and that script exits 1 without a versionYear or a
-  toolset, so a green step IS the assertion. **`toolset v145` is the part worth keeping** —
-  it is why the patch scans `PlatformToolsets` instead of hardcoding: VS 2022 17.14 ships
-  MSVC 14.44 and is still `v143`, so no rule from the MSVC version would have produced v145.
-  Zero occurrences of `unsupported version: 18` or `Could not find any Visual Studio`.
-  Dependency install (electron-rebuild → node-gyp), the Rust sandbox helper, the Vite build
-  and electron-forge packaging were all green on that image.
+- ~~**Un-pin the Windows runners from `windows-2022`.**~~ **DONE 2026-09-10.** MSIX run
+  `34461113885` went green END TO END on `windows-latest` (= windows-2025-vs2026),
+  `Build MSIX` included. `check-vs-toolchain` reported `versionYear 2026 · toolset v145`,
+  and that script exits 1 without either, so a green step is the assertion. `toolset v145`
+  is what vindicates the patch scanning `PlatformToolsets` rather than mapping from the
+  MSVC version — VS 2022 17.14 ships MSVC 14.44 and is still `v143`. The image's VS
+  *version* differed between two runs hours apart (`18.9.12112.369` vs `18.9.12120.119`),
+  which is the same argument against pinning anything version-derived.
 
-  **STILL UNPROVEN, so the pins have NOT changed: `Build MSIX` itself never ran.** The
-  dispatch died one step earlier, at `verify-ci-package-out`, on a missing
-  `atlarix-sandbox-linux` — absent BY DESIGN, because "Download Landlock helper" is gated to
-  non-dispatch runs and a standalone run has no `build-linux` to take the artifact from. So
-  the makeappx/SDK tooling on `windows-2025-vs2026` is the one remaining question.
-  **Fixed the blocker rather than the symptom:** the package step now sets
-  `ALLOW_UNSANDBOXED_RELEASE=1` **only when `github.event_name == 'workflow_dispatch'`**, so
-  a manual run can reach `Build MSIX` while a release (`workflow_call`, artifact present)
-  keeps the strict check. That change is itself unexercised — it needs one dispatch.
+  `msix.yml`'s two input defaults, its `runs-on` fallback, and `release.yml`'s
+  `build-windows` are now `windows-latest`. `windows-2022` is kept as a dispatch OPTION —
+  the way to A/B a Windows failure against the old image before blaming the runner.
 
-  **Next step:** re-dispatch `Atlarix MSIX` with `runner=windows-latest` (repo public for the
-  Actions budget) and confirm `Build MSIX` goes green. Only then change `msix.yml`'s two
-  defaults and `release.yml`'s `build-windows`.
+  **The residual, stated because this is the part that was not tested:** that run proved the
+  `msix` job, whose steps end at `electron-forge package`. `build-windows` additionally runs
+  `electron-forge make` (Squirrel.Windows), which has never run on the 2025 image. The
+  shared risk — npm ci, electron-rebuild, node-gyp, VS discovery — is proven; the maker is
+  not. It gates `publish-release`, so if the next tag fails there: re-run the job, and
+  revert one line to `windows-2022` before assuming the maker is broken.
+
+  Also fixed en route: a manual `msix.yml` dispatch used to die at `verify-ci-package-out`
+  on a missing `atlarix-sandbox-linux` — absent by design, since the helper download is
+  gated to non-dispatch runs. `ALLOW_UNSANDBOXED_RELEASE` is now set for
+  `workflow_dispatch` only, so manual runs reach `Build MSIX` while releases keep the
+  strict check.
 
 - **Windows code-signing cert** — native-sandbox CI, and the only real fix for the C6 residual on
   direct-download Windows. Release infra, no cert. The helper sign step is wired; set the secret.

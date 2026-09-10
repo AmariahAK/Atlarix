@@ -644,32 +644,26 @@ jobs:
   build-windows:
     needs: [quality, create-draft, build-linux]
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
-    # PINNED, not `windows-latest` — a STOPGAP, and it is on a deprecation path.
+    # `windows-latest` (= windows-2025-vs2026) since 2026-09-10. It was pinned to
+    # windows-2022 because @electron/node-gyp@10.2.0-electron.1 knew Visual Studio up
+    # to 2022 only: it found the VS 2026 instance, logged "unsupported version: 18",
+    # and reported "Could not find any Visual Studio installation to use".
     #
-    # `windows-latest` resolves to `windows-2025-vs2026`, whose only Visual Studio
-    # is 2026 (v18.8.2). @electron/node-gyp@10.2.0-electron.1 knows VS up to 2022
-    # (v17) only: it finds the instance, logs "unsupported version: 18", falls
-    # through every older check, and reports "Could not find any Visual Studio
-    # installation to use" on a machine with a brand-new one.
+    # `patches/@electron+node-gyp+10.2.0-electron.1.patch` fixes that, and the fix is
+    # now exercised rather than assumed: MSIX run 34461113885 was green end-to-end on
+    # this image, with `check-vs-toolchain` reporting versionYear 2026 and toolset
+    # v145. The patch discovers the toolset by scanning `PlatformToolsets` instead of
+    # mapping it from the MSVC version, which is what v145 vindicates — VS 2022 17.14
+    # ships MSVC 14.44 and is still v143, so no such mapping would have produced it.
     #
-    # WHY THIS IS NEW, since the image is not: v14.34.0 built green on the SAME
-    # vs2026 image and never ran the VS finder at all (`grep -c "find VS"` on its
-    # log is 0), because better-sqlite3 came from a PREBUILT binary. Electron 43
-    # (ABI 148) with better-sqlite3 12.11.1 has no prebuild, so Windows now
-    # compiles from source — the first time this pipeline has invoked that finder,
-    # which is why two latent defects in it surfaced at once (the 1 MB maxBuffer,
-    # patched, and no VS>=18 support, unpatched).
-    #
-    # THE PATCH HAS LANDED (v14.43.0+): patches/@electron+node-gyp+10.2.0-electron.1
-    # .patch now maps major 18 -> year 2026. This job STAYS PINNED until the un-pin
-    # has been proven on a runner, and this is not the place to prove it: a red
-    # build-windows on a tag takes out the release. Dispatch `Atlarix MSIX` with
-    # runner=windows-latest instead (see the long note in msix.yml), read the
-    # "Verify Visual Studio toolchain is discoverable" step's printed versionYear and
-    # toolset, and only then change this line.
-    #
-    # windows-2022 is on a deprecation path, so this is a stopgap either way.
-    runs-on: windows-2022
+    # ONE CAVEAT, because this job is not the one that was tested: that run proved the
+    # `msix` job, whose steps end at `electron-forge package`. This job additionally
+    # runs `electron-forge make` (Squirrel.Windows), which has never run on the 2025
+    # image. The shared risk — npm ci, electron-rebuild, node-gyp, VS discovery — is
+    # proven; the maker is not. This job gates `publish-release`, so if a tag fails
+    # here, re-run the job and revert this one line to `windows-2022` before assuming
+    # the maker is broken.
+    runs-on: windows-latest
     timeout-minutes: 180
     steps:
       - name: Checkout code

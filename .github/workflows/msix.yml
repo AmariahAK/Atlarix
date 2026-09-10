@@ -59,14 +59,16 @@ on:
         required: false
         default: false
         type: boolean
-      # The runner label, so the windows-2022 un-pin can be TESTED without cutting a
-      # release. `windows-latest` is windows-2025-vs2026, whose only Visual Studio is
-      # 2026 — the case the node-gyp patch exists for. Default stays pinned so an
-      # ordinary manual run behaves exactly like a release run.
+      # The runner label. `windows-latest` is windows-2025-vs2026 and is now the
+      # DEFAULT: run 34461113885 went green end-to-end there on 2026-09-10, including
+      # `Build MSIX`, with the node-gyp patch resolving VS 2026 to toolset v145.
+      # `windows-2022` is kept as an option, not as a fallback — it is the way to
+      # A/B a Windows failure against the old image before assuming the runner
+      # changed something, and it is on a deprecation path either way.
       runner:
         description: "Runner image (windows-latest = the VS 2026 image)"
         required: false
-        default: "windows-2022"
+        default: "windows-latest"
         type: choice
         options:
           - windows-2022
@@ -87,11 +89,11 @@ on:
         default: true
         type: boolean
       # Declared separately because workflow_call and workflow_dispatch do not share
-      # an input block. A RELEASE always gets the pinned image until a dispatch on
-      # windows-latest has gone green.
+      # an input block. Releases now get windows-latest too — the dispatch that
+      # gated this went green (34461113885).
       runner:
         required: false
-        default: "windows-2022"
+        default: "windows-latest"
         type: string
 
 # Mirrors the env block in release.yml. These are the credentials Vite embeds at
@@ -150,7 +152,7 @@ jobs:
     #
     # windows-2022 is on a deprecation path and this image is also much colder
     # (~5 min of setup before the build step), so this is a stopgap either way.
-    runs-on: ${{ inputs.runner || 'windows-2022' }}
+    runs-on: ${{ inputs.runner || 'windows-latest' }}
     timeout-minutes: 120
     steps:
       - name: Checkout code
