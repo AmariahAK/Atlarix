@@ -5,12 +5,13 @@
 
 ## [14.45.0] (2026-09-09) — The app is free, the meter is honest, and skills live in your repo
 
-**Atlarix is free.** Every feature is available to everyone; what you pay for is Atlarix
-Core inference. There is no Free tier and no Pro tier, so nothing in the app is behind a
-plan any more — MCP servers, automations, skills, sub-agents and workspaces all just work.
-The per-workspace limits that remain (10 MCP servers, 10 automations) are there because a
-workspace with fifty MCP servers is one nobody can reason about, not because somebody has
-not paid. Bringing your own key or running Ollama locally is metered by nobody.
+**Atlarix is free.** Every feature is available on every plan — nothing in the app is
+behind one any more: MCP servers, automations, skills, sub-agents and workspaces all just
+work. The per-workspace limits that remain (10 MCP servers, 10 automations) are there
+because a workspace with fifty MCP servers is one nobody can reason about, not because
+somebody has not paid. Bringing your own key or running Ollama locally is metered by
+nobody. **Pro is not a feature tier** — it adds Atlarix Reviewer and a monthly Atlarix
+Core allowance, over one shared balance.
 
 **A new Core lineup: GLM 5.3, GPT 5.6 Terra, and GPT 6 Astra.** New accounts start on the
 reasoning tier rather than the budget one. Because a Core slot names a SLOT and never a
