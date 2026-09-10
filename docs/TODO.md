@@ -40,7 +40,13 @@ the following, none of which a user has yet:
 - The launchpad: the login fix (`08b4f9d`) and the derived Core lineup (`aa607b6`) are
   deployed via Vercel.
 - `atlarix-releases`: `docs/HEADLESS.md` split out of the README, the catalogue-count
-  generator, and the `check-site-lineup` CI job (`bf4ff1f`, `e1ed363`).
+  generator, and the `check-site-lineup` CI job (`bf4ff1f`, `e1ed363`). Then the README
+  itself, 2026-09-10 (`fe6d36f`): it now leads with the site's own positioning line, and
+  Core models / updates.json / research / contributing each moved to their own file. The
+  hand-typed routing table in `docs/CORE-CUTOVER.md` had drifted to `openai/gpt-5.6-sol`
+  and is now GENERATED from `core-models.json` by the same script as the lineup table.
+  The GitHub About panel and topics were the real gap — they still carried
+  `code-scaffolding` and said nothing about privacy.
 
 ## 📮 The v14.45 announcement went out — 115 recipients, 0 failures
 
@@ -647,9 +653,9 @@ comments. What stays here is what a future reader would otherwise undo.
 
 **Still owed from this release:**
 
-- [ ] `atlarix-releases` README is committed and **deliberately unpushed** — it describes
-      `.atlarix/skills/` instead of the registry, which is false for every build until this
-      tag. Push it WITH the v14.45 tag.
+- [x] `atlarix-releases` README pushed with the tag — the `.atlarix/skills/` description
+      became true at v14.45.0, and the repo's docs were restructured on top of it
+      (`fe6d36f`).
 
 ## 🔜 Next session — the queue
 
