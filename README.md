@@ -3,7 +3,7 @@
 ## The Private AI Workstation
 
 Atlarix is the agent workstation for engineering teams — managed cloud models
-via Atlarix Core, your own API keys across 145+ providers, and local models —
+via Atlarix Core, your own API keys across <!-- CATALOG:providers:START (generated — run scripts/gen-readme-catalog.mjs) -->210+ providers<!-- CATALOG:providers:END -->, and local models —
 all without replacing your editor.
 
 **What "private" means here:** your code stays on your machine. Nothing indexes
@@ -22,7 +22,7 @@ any repo size. The agent has a workspace. You have control.
 
 **Search** — Atlarix gives the agent fast, **bundled-ripgrep** search over your workspace — `grep` and `glob` with no index to build, no background file-watcher, and constant low memory at any repo size. Retrieval stays purely lexical: the agent reasons over ranked search results rather than a vector index or a structural map. Nothing is scanned until the agent searches.
 
-**Connect** — Wire in any LLM: local **Ollama / LM Studio**, **145+ cloud providers and 4,400+ tool-capable models** read live from the [models.dev](https://models.dev) catalog (OpenAI, Anthropic, Google Gemini, and every OpenAI-compatible endpoint), or **Atlarix Core** (managed models with real catalog names, not raw tier ids — the Core tiers are configured remotely, so the underlying models stay current without an app update). The catalog refreshes hourly and ships with an offline snapshot, so new models appear without an app update and the picker is never empty.
+**Connect** — Wire in any LLM: local **Ollama / LM Studio**, **<!-- CATALOG:providers-and-models:START (generated — run scripts/gen-readme-catalog.mjs) -->210+ cloud providers and 6,500+ tool-capable models<!-- CATALOG:providers-and-models:END -->** read live from the [models.dev](https://models.dev) catalog (OpenAI, Anthropic, Google Gemini, and every OpenAI-compatible endpoint), or **Atlarix Core** (managed models with real catalog names, not raw tier ids — the Core tiers are configured remotely, so the underlying models stay current without an app update). The catalog refreshes hourly and ships with an offline snapshot, so new models appear without an app update and the picker is never empty.
 
 **Execute** — The agent plans, reads, writes, runs commands (inside a per-OS write-confining sandbox — writes confined to your workspace plus any folder you explicitly grant, network on), and searches the web. You approve every destructive action.
 
@@ -48,7 +48,7 @@ Release notes: **[docs/CHANGELOG.md](docs/CHANGELOG.md)** — the last ten relea
 - **No whole-repo scan:** Opening a workspace doesn't index or scan the repo. The agent discovers files on demand with `glob` and `grep` (ripgrep); the sidebar stays focused on sessions.
 - **Attachments:** Paste text, terminal output, and files into chat. After send they appear as chips with preview; content persists across session reload.
 - **`@` file & folder mentions:** Type `@` in the composer to point the agent at part of the current workspace. Mentioning a **file** injects its contents (capped); mentioning a **folder** injects just its file listing, so the agent then `grep`s/reads within that scope instead of dumping a whole tree — precise context, low token cost.
-- **Agent Behaviors & workspace memory:** Project instructions in `.atlarix/atlarix.md` and behaviors under `.atlarix/skills/` shape the agent without repeating yourself every turn. Both are **pointers, not payloads** — the agent sees a one-line index of what exists and reads the full file when it applies, so adding a tenth behavior costs a line rather than a page.
+- **Project rules & skills:** Project instructions in `.atlarix/rules/*.md` (with `.atlarix/atlarix.md`, then `AGENTS.md`, then `CLAUDE.md` as fallbacks — rules are plural, so they are a directory) and skills under `.atlarix/skills/` shape the agent without repeating yourself every turn. Both are **pointers, not payloads** — the agent sees a one-line index of what exists and reads the full file when it applies, so adding a tenth behavior costs a line rather than a page.
 - **Parallel workers:** The `task` tool spawns scoped workers — read-only **explorer** and **architect** (recon, planning, web search) plus writer **implementer** agents whose edits never touch disk and come back as per-file **proposals** the main agent reviews and accepts — up to five run **concurrently** per turn, with their live thinking, narration, and tool activity streaming into per-worker cards. Long-running workers move to the background automatically and can be listed, watched, or cancelled.
 - **Background commands:** A foreground command still running after **~15s auto-promotes to the background** (kept alive, not killed) so the agent keeps working; the exit result is delivered back automatically. The agent can also detach explicitly (`run_command background:true`), and a still-foreground command surfaces a **"Waiting on command"** state where you can queue a message that sends when the turn resumes.
 - **User-defined agents & portable config:** `.atlarix/agents/<name>.md` (system prompt + tools + model) shows up in the picker; `.atlarix/permissions.json` deny rules are committable and enforced at the single tool-execution funnel — plus a global `~/.atlarix/` layer.
@@ -63,7 +63,7 @@ Release notes: **[docs/CHANGELOG.md](docs/CHANGELOG.md)** — the last ten relea
 - **Prompt caching:** Dispatches are cache-friendly out of the box — Anthropic API key turns place `cache_control` breakpoints over the stable system header and conversation history, cutting repeat-turn input cost and latency.
 - **Real terminal:** User terminal tabs are full interactive shells (xterm.js + PTY) — Tab completion, arrows, colors, vim/top. Tabs and scrollback **persist across app restarts**, and tab labels track the shell's live cwd. Agent commands run separately with captured output and approvals.
 
-**Providers:** **Atlarix Core** (managed models, configured remotely rather than pinned to a release) plus your own API keys across 145+ providers (OpenAI, Anthropic, Gemini, and more) and local models (Ollama, LM Studio).
+**Providers:** **Atlarix Core** (managed models, configured remotely rather than pinned to a release) plus your own API keys across <!-- CATALOG:providers:START (generated — run scripts/gen-readme-catalog.mjs) -->210+ providers<!-- CATALOG:providers:END --> (OpenAI, Anthropic, Gemini, and more) and local models (Ollama, LM Studio).
 
 ---
 
@@ -76,7 +76,7 @@ Retrieval is **purely lexical — no index, no embeddings, no map tool, no backg
 ### AI Agents & Modes
 
 - **Work modes:** Explore, Plan, Build, Debug, Review.
-- **Atlarix Core:** Managed cloud models, named in the picker by what they actually are. The lineup is configured remotely ([`core-models.json`](https://github.com/AmariahAK/atlarix-releases/blob/main/core-models.json)) rather than fixed in a release, so it changes without an app update — today it is **GLM 5.3**, **GPT 5.6 Terra** and **GPT 6 Astra**. Every plan can use every Core model; there is no tier gating and no model is reserved for a paid plan. Pro includes Core for everyday work and draws on a prepaid credit balance beyond that; Free draws on that balance from the start (top up from $10).
+- **Atlarix Core:** Managed cloud models, named in the picker by what they actually are. The lineup is configured remotely ([`core-models.json`](https://github.com/AmariahAK/atlarix-releases/blob/main/core-models.json)) rather than fixed in a release, so it changes without an app update. **This file therefore does not name the models** — it ships with a release and the lineup does not, which is how the README once advertised four Core models while two were configured. The current lineup, with each model's context window, is on [atlarix.dev/docs/guides/core-models](https://www.atlarix.dev/docs/guides/core-models) (derived from that JSON and CI-checked against it). Every plan can use every Core model; there is no tier gating and no model is reserved for a paid plan. Pro includes Core for everyday work and draws on a prepaid credit balance beyond that; Free draws on that balance from the start (top up from $10).
 
 ### Workspace Tools & Extensions
 
@@ -209,8 +209,8 @@ After `npm install`, **`postinstall`** runs `patch-package` and the Electron ins
 
 ## Pricing
 
-**The app is free.** Every feature is on every plan — unlimited workspaces, the Agent
-Behaviors and MCP marketplaces, one-click OAuth connectors, automations, workspace
+**The app is free.** Every feature is on every plan — unlimited workspaces, the MCP
+marketplace, one-click OAuth connectors, automations, workspace
 snapshots, the full tool surface. Your own API keys and local models (Ollama, LM Studio)
 cost nothing, on any plan, forever.
 
