@@ -1,6 +1,7 @@
 # Atlarix TODO
 
-**Current version:** v14.45.0 — released 2026-09-09. The app is free; the Core lineup is
+**Current version:** v14.45.0 — **published 2026-09-10** (tagged 2026-09-09; the tag run
+stranded overnight, see below). The app is free; the Core lineup is
 GLM 5.3 / Terra / Astra; the money path is honest in both directions (a cancelled turn is priced
 from what was generated, a dropped connection retries); the skills marketplace is gone and skills
 are files in `.atlarix/skills/`; project rules moved to `.atlarix/rules/`; and two prompt-injection
@@ -10,6 +11,16 @@ paths are closed — a repo can no longer replace Atlarix's operating instructio
 **This header has been wrong before.** It read v14.42.0 while `package.json` said 14.43.0 and two
 versions had shipped, then "v14.44 SHIPPED" while nothing was tagged. Update it in the same commit
 as the version bump, or do not trust it.
+
+**Landed on `dev` after the release, unreleased (2026-09-10).** `e8ce619d` gives
+`build-msix` `needs: [quality, build-linux]`. It had `[quality]` alone, so it raced the job
+that uploads the `landlock-helper` artifact it downloads — msix pulled at 20:55:35, the
+artifact appeared at 20:57:05, and because that download is `continue-on-error` the miss
+surfaced two minutes later as `verify-ci-package-out` reporting a missing
+`atlarix-sandbox-linux`, which reads like a packaging bug. `build-msix` gates
+`publish-release`, so v14.45.0 stranded as an invisible draft until the jobs were re-run.
+`build-windows` already had that dependency; msix was the outlier. **Unexercised until the
+next tag** — it only affects tag runs.
 
 **Self-test non-exit — a third data point (2026-09-05).** The packaged self-test on
 macOS arm64 shows the same "all probes passed, process tree had to be killed" as the
