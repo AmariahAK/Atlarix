@@ -12,15 +12,60 @@ paths are closed — a repo can no longer replace Atlarix's operating instructio
 versions had shipped, then "v14.44 SHIPPED" while nothing was tagged. Update it in the same commit
 as the version bump, or do not trust it.
 
-**Landed on `dev` after the release, unreleased (2026-09-10).** `e8ce619d` gives
-`build-msix` `needs: [quality, build-linux]`. It had `[quality]` alone, so it raced the job
-that uploads the `landlock-helper` artifact it downloads — msix pulled at 20:55:35, the
-artifact appeared at 20:57:05, and because that download is `continue-on-error` the miss
-surfaced two minutes later as `verify-ci-package-out` reporting a missing
-`atlarix-sandbox-linux`, which reads like a packaging bug. `build-msix` gates
-`publish-release`, so v14.45.0 stranded as an invisible draft until the jobs were re-run.
-`build-windows` already had that dependency; msix was the outlier. **Unexercised until the
-next tag** — it only affects tag runs.
+## 🚚 UNRELEASED ON `dev` — everything below ships at the next tag
+
+All four repos are clean and pushed as of 2026-09-10. `dev` is ahead of the v14.45.0 tag by
+the following, none of which a user has yet:
+
+- **`e8ce619d` — `build-msix` `needs: [quality, build-linux]`.** It had `[quality]` alone, so
+  it raced the job that uploads the `landlock-helper` artifact it downloads: msix pulled at
+  20:55:35, the artifact appeared at 20:57:05, and because that download is
+  `continue-on-error` the miss surfaced two minutes later as `verify-ci-package-out`
+  reporting a missing `atlarix-sandbox-linux` — which reads like a packaging bug.
+  `build-msix` gates `publish-release`, so v14.45.0 stranded as an invisible draft until the
+  jobs were re-run. `build-windows` already had that dependency; msix was the outlier.
+  **Only affects tag runs, so still unexercised.**
+- **`419c8433` — the Windows runners are un-pinned** to `windows-latest`. See the entry under
+  "Blocked on the owner" for what was proven and the one part that was not.
+- **`f7d2e53b` — `formatCents` groups thousands**, and `PRO_SUMMARY` now matches the
+  website's word for word (it claimed to and did not).
+
+**ALREADY LIVE, not waiting for a tag** — these are server-side and took effect immediately:
+
+- **`MARKUP` 1.4 → 1.8 in `atlarix-proxy` (`c0b1ef7`, Railway deploy `state=success`
+  10:49Z 2026-09-10).** Core now costs a user ~29% more credit per call than it did
+  yesterday, and **nobody was told.** 19 accounts have ever used Core; if one asks why a
+  turn got dearer, this is why. Verified by deployment SHA, not `/health` — that endpoint
+  returns `{"ok":true}` and proves nothing about which code is running.
+- The launchpad: the login fix (`08b4f9d`) and the derived Core lineup (`aa607b6`) are
+  deployed via Vercel.
+- `atlarix-releases`: `docs/HEADLESS.md` split out of the README, the catalogue-count
+  generator, and the `check-site-lineup` CI job (`bf4ff1f`, `e1ed363`).
+
+## 📮 The v14.45 announcement went out — 115 recipients, 0 failures
+
+`scripts/send-free-gpt6-email.mjs`, sent 2026-09-10. Log
+`scripts/.outreach-free-gpt6-2026-09.log.json` (116 entries — 115 recipients plus one probe
+to the owner). Re-running is safe: anyone logged `sent` is skipped, so a re-run targets
+nobody without `--force`.
+
+**Replies land at `amariah@atlarix.dev`** and the email invites them ("Real email, replies
+come to me"). The next session should expect that inbox to have traffic, and two claims in
+it are promises: **the browser extension** ("still in development; I'll tell you when it
+lands") and the cross-tool pickup paragraph, which IS accurate — `AGENTS.md` §"Other tools'
+configuration" tells the agent to ask before following another tool's rules file and to
+offer to write the answer into `.atlarix/rules/`.
+
+## 🧾 Owner actions, not code (both verified safe 2026-09-10)
+
+- **Delete the "Atlarix Reviewer" LemonSqueezy product** (`1317705`, variant `2060123`).
+  **Zero subscriptions ever** — checked against the live LS API, not inferred. No code
+  references the variant, and `handle-lemon-webhook` handles only `pro`, so had anyone been
+  subscribed they would already have been paying for an allowance they never received.
+- **Archive, do not delete, `AmariahAK/atlarix-skills`.** It is the community skill registry
+  that v14.45 removed, nothing in any repo references it any more, and it is PUBLIC with 2
+  stars and no outside contributors. Archiving keeps the URL alive and read-only; deleting
+  404s it. **`atlarix-mcps` is still live** and linked from the releases README — leave it.
 
 **Self-test non-exit — a third data point (2026-09-05).** The packaged self-test on
 macOS arm64 shows the same "all probes passed, process tree had to be killed" as the
@@ -1040,6 +1085,58 @@ approval, MCP description wrapping + OAuth-URL validation, the universal write-c
 ---
 
 ## 🪤 Traps worth not rediscovering
+
+### Summing `delta_cents` is not a balance — an allowance is SET, not added
+
+Asked to audit revenue, I summed `credit_transactions.delta_cents` and reported the owner's
+account held **$2,000,000**. The app said $1,000,000.67 and the app was right.
+`grant_monthly_credit_service` SETS the allowance, so the ledger records a grant as a delta
+while `balance_cents` is computed as **allowance + purchased** — $1,000,000 + $0.67. The
+ledger is an append-only record of EVENTS; `balance_cents` is the authority.
+
+**How to apply:** read `credit_wallet.balance_cents`, or the RPCs, for a balance. Use
+`credit_transactions` for history and for per-kind spend, never for a total. The one number
+that IS a valid sum is `kind='debit'` — that is real metered inference (all of $22.03,
+ever, across 19 accounts, as of 2026-09-10).
+
+Related: the two $1M rows on `0d66d5eb…` are a deliberate permanent owner comp
+(`ref=pro:comp:owner:permanent`), not corruption.
+
+### A mark-up is not a margin, and "40%" meant neither
+
+`MARKUP` multiplies COST. 1.4 charged $1.40 per $1.00 of inference — `0.40/1.40 = 28.6%`
+gross, and ~22.8% net once LemonSqueezy took 7.5% of money-in. Every doc called it "+40%"
+for months. It is 1.8 now, which nets ~40%. **The ceiling is BYOK**: free in the same app,
+with a per-reply cost on screen, so the escape hatch is one dropdown away.
+
+### `signInWithOAuth` never returns an error — it rejects
+
+`_handleProviderSignIn` builds the URL, calls `location.assign`, and returns
+`{ error: null }` unconditionally, with **no network request**. So an `if (err)` branch on it
+is near-dead, and real failures arrive as rejections. Under PKCE, `_getUrlForProvider` writes
+the code verifier to storage BEFORE redirecting, so blocked site data (Safari private
+browsing, "block all cookies", quota) throws — which hung the launchpad's sign-in behind a
+spinner with no message for that whole class of browser. Fixed 2026-09-10; the shape
+generalises to any `{ error }` wrapper around a vendor SDK.
+
+### A `workflow_dispatch` of a CALLED workflow has none of the caller's artifacts
+
+`msix.yml` downloads `landlock-helper`, which only exists in a `release.yml` run. Its
+download step is correctly gated to non-dispatch runs — but `verify-ci-package-out` still
+required the resource, so **every manual dispatch died there regardless of what it was
+testing**, one step before the thing under test. `ALLOW_UNSANDBOXED_RELEASE` is now set for
+`workflow_dispatch` only. Before dispatching a called workflow, ask which artifacts the
+caller was providing.
+
+### A number stale in the UNDERSTATING direction never gets audited
+
+"145+ providers and 4,400+ tool-capable models" sat in ten strings across seven files while
+the bundled catalogue carried 213 and ~6,590. Nobody caught it because the claim never became
+FALSE — it just stopped being impressive. Same shape as the TODO advertising a $10 allowance
+after it became $19: both halves were defensible in isolation. Derive anything a config or a
+third party decides; `scripts/gen-readme-catalog.mjs` and the launchpad's
+`gen-core-lineup.mjs` are the two worked examples.
+
 
 ### Two classifiers, one object, opposite verdicts
 
