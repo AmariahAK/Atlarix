@@ -902,7 +902,19 @@ jobs:
   # Was workflow_dispatch-only until the packaged-context spike passed on real
   # Windows hardware (8/8 probes inside the MSIX, sandbox assertions included).
   build-msix:
-    needs: [quality]
+    # build-linux IS a dependency, and not for ordering aesthetics: it is the job
+    # that uploads `landlock-helper`, and this one downloads it for WSL
+    # confinement. With `needs: [quality]` alone the two ran in parallel and it
+    # was a race — lost on the v14.45.0 tag, where msix reached the download at
+    # 20:55:35 and build-linux created the artifact at 20:57:05. The download
+    # step is `continue-on-error`, so the miss surfaced 2 minutes later and one
+    # step removed, as `verify-ci-package-out` reporting a missing
+    # `atlarix-sandbox-linux` resource.
+    #
+    # Latent, not new: it only bites when linux is the slower of the two, so a
+    # faster linux run hides it again. Serialising costs wall-clock and buys a
+    # release that cannot fail this way.
+    needs: [quality, build-linux]
     if: startsWith(github.ref, 'refs/tags/v')
     uses: ./.github/workflows/msix.yml
     with:
