@@ -64,6 +64,13 @@ import {
   formatA11yFind,
   type A11yFilter,
 } from "@/lib/browser/a11y-snapshot";
+// The page-realm scripts are shared with the Chrome extension so both backends
+// return identical shapes — see the header of `@/lib/browser/page-scripts`.
+// Aliased to the historical local names so the call sites below read unchanged.
+import {
+  RESOLVE_FILLABLE_JS,
+  resolveElementJs as RESOLVE_ELEMENT_JS,
+} from "@/lib/browser/page-scripts";
 import {
   runVisualLint,
   formatVisualLintReport,
@@ -76,6 +83,10 @@ import {
   AI_CURSOR_DURATION_MS,
   AI_CURSOR_WAIT_MS,
 } from "@/lib/browser/ai-cursor";
+
+// Re-exported because `browser-fill-target.test.ts` runs this snippet against
+// real DOM in jsdom and imports it from here.
+export { RESOLVE_FILLABLE_JS };
 
 /**
  * ToolRegistry.execute injects the chat id into every tool's args; runToolExecute
@@ -258,57 +269,6 @@ async function loadUrlInBrowserTab(
   await waitForLoad(view.webContents);
   return getActiveTabView(scope);
 }
-
-/**
- * In-page JS that declares `el` by resolving a browser_inspect snapshot `ref`
- * (data-atlarix-ref) first, then a CSS `selector`. Both inputs are embedded only
- * inside string literals (JSON.stringify) and the ref goes through CSS.escape —
- * no injection surface (v12 3.5 trust boundary).
- */
-function RESOLVE_ELEMENT_JS(ref?: string, selector?: string): string {
-  return `const __ref = ${JSON.stringify(String(ref ?? ""))};
-      const __sel = ${JSON.stringify(String(selector ?? ""))};
-      let el = null;
-      if (__ref) { try { el = document.querySelector('[data-atlarix-ref="' + CSS.escape(__ref) + '"]'); } catch (e) {} }
-      if (!el && __sel) { try { el = document.querySelector(__sel); } catch (e) {} }`;
-}
-
-/**
- * In-page: walk from the resolved element to the field it actually contains.
- *
- * OBSERVED BUG (Wikipedia's Vector search box, 2026-09-02). A ref can point at a
- * WRAPPER rather than the field. The accessibility snapshot labels it "search
- * input" because that is its accessible ROLE, but the node is a div/form and the
- * real input is inside it — modern component libraries do this constantly.
- *
- * The old code went straight to `HTMLInputElement.prototype`'s value setter for
- * anything that was not a textarea. A native accessor REJECTS a receiver of the
- * wrong type, so that threw "Illegal invocation" — an error that tells the model
- * nothing about what to do instead. In the observed run it retried the same call
- * twice, tried a click-then-fill batch, concluded the whole action system was
- * broken, and worked around it. Three wasted turns for a wrapper element.
- *
- * Kept as a named snippet rather than inlined so `browser-fill-target.test.ts`
- * can run it against real DOM in jsdom. The in-page scripts are template
- * literals, so this must contain NO BACKTICK — one in a comment silently ends
- * the literal, which has now broken the build twice.
- */
-export const RESOLVE_FILLABLE_JS = `const __fillable = "input:not([type=hidden]),textarea,select,[contenteditable=true],[contenteditable=\\"\\"]";
-      if (!el.matches(__fillable)) {
-        const inner = el.querySelector(__fillable);
-        const outer = el.closest(__fillable);
-        if (inner) el = inner;
-        else if (outer) el = outer;
-        else {
-          return {
-            ok: false,
-            error: "<" + el.tagName.toLowerCase() + "> is not a field and contains none"
-              + (el.getAttribute("role") ? ' (role="' + el.getAttribute("role") + '")' : "")
-              + ". It may be a wrapper that reveals the real input when clicked: try"
-              + ' action:"click" on this ref, then re-read the page and fill the field that appears.',
-          };
-        }
-      }`;
 
 /**
  * Light interaction delta (v14.8.6): after a click/fill we return a COMPACT
