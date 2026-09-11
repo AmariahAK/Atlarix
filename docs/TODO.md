@@ -737,16 +737,119 @@ now carries a note saying the content already matched, so the ambiguity that sen
 to `git diff` is gone. Pinned by `exec-result-survives-eviction.test.ts` — 3 of its 4 cases
 fail with the fix disabled (verified by disabling it, not assumed).
 
+## 🖥️ NEXT SESSION — the CLI (decided 2026-09-11)
+
+**The extension is paused, not cancelled.** Phase 0 and the permission model are
+committed and lose nothing by waiting. The CLI goes first because it is ~80% built,
+not because reach beats volume in the abstract.
+
+**What already exists.** `atlarix` is published on npm (v14.45.0, PROPRIETARY,
+`packages/headless`), driving the REAL agent loop through a 140-line Electron stub —
+`src/headless/` is 1,130 lines of driver, not an implementation.
+`src/headless/atlarix-headless.mts:5` already reserved room for an interactive mode and
+shaped the arg parsing so the published binary never has to change. **So this is a TUI,
+auth and billing job, not an agent job.**
+
+**The download number is not adoption — measured, do not repeat the mistake.** 794 in
+30 days looks like traction and is not: the package was first published 2026-09-01, so
+it is days old, 518 of those landed on publish day across four versions at once, and
+superseded versions from ten days earlier still pull 12-15/week each. That even spread
+across versions nobody would install deliberately is registry mirrors and scanners
+walking every version. Some of the rest may be our own benchmark containers. npm
+publishes NO source data, so nobody can attribute it further. Treat real users as zero.
+
+### Auth — loopback PKCE (RFC 8252), the Claude Code shape
+
+CLI opens a loopback server, sends the user to atlarix.dev, exchanges the code itself.
+
+- **Enumerate 2-3 fixed ports, never a wildcard.** Register each byte-identically in
+  Supabase Redirect URLs and pin it with a test, because **GoTrue silently falls back to
+  Site URL on a mismatch** — no error, just a bounce to the website with no session. That
+  is the trap `oauth-redirect-allowlist-match.test.ts` already exists for.
+- **Refresh the access token PER REQUEST, not per session.** `get_model_client.ts` re-reads
+  `getSession()` on every call precisely because a static ~1h token freezes into a long
+  agentic turn. Skipping this means hour-long runs dying at the 60-minute mark.
+- **Credential at rest is the one genuinely new decision.** The desktop encrypts with
+  Electron `safeStorage`; a CLI has no equivalent. OS keychain (`security` / libsecret /
+  wincred) or a `0600` file under `~/.atlarix/` — a plaintext refresh token in a dotfile is
+  a weaker posture than the app has today, so choose it, do not default into it.
+- BYOK is already done (`--provider-id`, `--provider-url`, `ATLARIX_HEADLESS_API_KEY`).
+  Core is the only new path: Supabase JWT as bearer to the proxy.
+
+### Payments — no new API is needed
+
+The proxy's error contract already carries it: `402 {error:"insufficient_credit",
+required_cents:N}`, plus `403 account_banned`, `400 model_not_permitted`,
+`503 core_unavailable`. The CLI renders "you are $X short → atlarix.dev/account" straight
+from that. `GET /v1/models` (unauthenticated by design) gives the live Core lineup.
+
+### TUI — TypeScript + Ink, green as an ACCENT
+
+- **TypeScript, linked directly against the loop.** A TUI in another language forces a
+  process boundary between terminal and engine — an architectural cost paid for cosmetics,
+  and a second place for state to desync. Ink reuses the renderer's React fluency.
+- **Do not clone opencode's TUI.** Our own recorded filter says CC and opencode are
+  references, not goals — and a cloned look forfeits the one thing a CLI gives free: being
+  recognisable in a screenshot.
+- **NEVER paint the background black.** Measured contrast for the brand green
+  (`--primary` dark = `#10b981`): 8.28:1 on black (AAA), 6.57:1 on `#1e1e1e` (AA), but
+  **2.54:1 on white — FAIL**. Painting black fights the user's theme and kills terminal
+  transparency; not painting strands light-terminal users. So: green accents on the
+  terminal's own background, `#047857` (5.48:1) or `#065f46` (7.68:1) as the light-terminal
+  variant, `COLORFGBG` detection, honour `NO_COLOR`, 256-colour fallback. The phosphor look
+  comes from box-drawing borders, not a black fill.
+
+### Distribution — one package covers more than it looks
+
+- **npm: done. bun: nothing to do** — `bun install -g` / `bunx` resolve from the npm
+  registry, same package. **pip/PyPI: skip** — a Python wrapper around a Node CLI buys a
+  listing and costs a second release train.
+- **"sudo" is not a channel.** People `sudo npm i -g` because the global prefix is not
+  writable; the fix is documenting a version manager, or shipping a standalone binary.
+- **Homebrew is free but homebrew-core is CLOSED to us while proprietary** — core formulae
+  must carry a DFSG/OSI licence, and notability is >=30 forks / >=30 watchers / >=75 stars,
+  which a private repo cannot accrue anyway. Casks do accept proprietary binaries but are
+  macOS-app shaped. **So: our own tap** (`brew tap AmariahAK/atlarix`, a repo named
+  `homebrew-atlarix`) — free, instant, no approval, no licence test. Scoop bucket, AUR and
+  a `curl | sh` installer are likewise free and self-hosted; WinGet is free with review.
+
+### The one piece of real engineering: `better-sqlite3`
+
+It is the ONLY native dependency, `external` in `scripts/build-headless.mjs`, compiled per
+platform AND per Node ABI. It is why the prebuilt linux/amd64 tarball fallback exists for
+musl, and why `vitest.config.mts` keeps a separate Node-ABI copy under `tests/infra`. Every
+distribution channel inherits that fragility.
+
+**Node now ships SQLite built in (`node:sqlite`, 22.5+) and we do not use it — `grep` finds
+zero references.** Replacing `better-sqlite3` with it would remove the only native
+dependency, which collapses four problems at once: npm install stops being able to fail on
+musl or an odd ABI, the fallback tarball retires, the `tests/infra` ABI dance retires, and a
+single-file standalone binary (Node SEA / `bun build --compile`) becomes feasible — which is
+what makes brew, scoop and a curl installer clean, because they stop requiring the user to
+have Node at all. **Not free:** the API differs and the DESKTOP shares this code (rebuilt
+for Electron's ABI), so verify against our Electron version before committing to it.
+
+### Banked: a second, separate argument about open-sourcing
+
+Staying proprietary is not merely harder for distribution, it is **categorically excluded**
+from homebrew-core and from several awesome-lists. That is a real cost to weigh against the
+one-way-door argument for NOT rushing it: open-sourcing the CLI means open-sourcing the
+ENGINE (the ~18.5k-line loop and ~16.8k lines of tools it drives — the Electron shell is the
+least valuable part), and you can open-source later but never un-open-source. Recommended
+sequence unchanged: **ship the TUI free and closed, measure, then decide once, with data.**
+
 ## 🔜 Next session — the queue
 
 Rewritten 2026-09-10. The 2026-09-09 handoff list is fully discharged: v14.45 is
 released, the launchpad login fix shipped (`08b4f9d`), and **telemetry + Harbor are
 DONE per the owner** — both sections deleted rather than ticked.
 
-1. **Browser extension** — IN PROGRESS on `dev`. Phase 0 and part of Phase 1 are
-   committed; the section above lists what is done, what is still owed, and the
-   decisions taken 2026-09-11. Resume at Phase 1's manifest + PKCE auth.
-2. **CI must resolve the win32 + linux TypeScript 7 platform binaries.** Only
+1. **The CLI** — see its section above. TUI + loopback-PKCE auth + billing over the
+   headless binary that already ships. This is next session's work.
+2. **Browser extension** — PAUSED, not cancelled. Phase 0 and the permission model are
+   committed on `dev`; its section lists what is done, what is owed, and the decisions
+   taken 2026-09-11. Resume at Phase 1's manifest + PKCE auth.
+3. **CI must resolve the win32 + linux TypeScript 7 platform binaries.** Only
    darwin-arm64 is proven. The last open verification item.
 
 **Carrying one residual from the Windows un-pin:** `electron-forge make`
