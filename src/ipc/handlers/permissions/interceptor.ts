@@ -104,6 +104,31 @@ interface BufferedOperation {
 // INTERCEPTOR CLASS
 // ════════════════════════════════════════════════════════════════════════════
 
+/**
+ * Operations whose execution result carries a file diff the model is told about.
+ * Module-level so the CAPTURE site (executeOperation) and the READ site
+ * (getExecutionResult) cannot drift apart.
+ */
+const RESULT_BEARING_FILE_OPS = new Set([
+  "write_file",
+  "write_multiple_files",
+  "edit_file",
+  "replace_code",
+  "insert_code",
+  "delete_lines",
+]);
+
+/** What `getExecutionResult` reports for an executed file write. */
+interface FileOpExecutionResult {
+  success: true;
+  path: string;
+  operation: "create" | "delete" | "update";
+  oldContent: string;
+  newContent: string;
+  verified?: boolean;
+  output?: string;
+}
+
 export class PermissionInterceptor extends EventEmitter {
   /** Map of operation ID to pending permission request */
   private pendingOperations: Map<string, BufferedOperation> = new Map();
@@ -116,6 +141,30 @@ export class PermissionInterceptor extends EventEmitter {
 
   /** Per run_command operation: max UTF-8 bytes for formatted output (survives pendingOperations eviction). */
   private commandOutputMaxBytes: Map<string, number> = new Map();
+
+  /**
+   * Per file-write operation: the execution result, kept so it SURVIVES
+   * `pendingOperations` eviction — the same reason `commandOutputs` exists.
+   *
+   * THE BUG THIS FIXES (observed live 2026-09-11, op_1789120127239_9w4wgisfg).
+   * `executeAllOperations` — the path "Approve rest of turn" takes — deletes
+   * every operation it ran from `pendingOperations`. The build branch then
+   * called `getExecutionResult(operationId)`, which found nothing and returned
+   * `{ success: false, error: "Operation ... not found" }`. Its caller
+   * (`jsonAfterSuccessfulExec`) had already decided the write succeeded, so it
+   * reported **"Successfully wrote README.md, added: 0, removed: 0"** — a
+   * success carrying an empty diff, because `oldContent`/`newContent` came back
+   * undefined and the LCS of "" against "" is zero hunks.
+   *
+   * The model correctly disbelieved it and spent a turn running `git diff` to
+   * learn whether its own edit had landed. Three quieter things broke with it:
+   * `path` went undefined, the fuzzy-match `notice` never reached the model,
+   * and `verified` was lost — so an unverified write took the falsy branch and
+   * CLEARED its self-review flag instead of recording it.
+   *
+   * Commands already had exactly this fix (`commandOutputs`); writes never got it.
+   */
+  private fileOpResults: Map<string, FileOpExecutionResult> = new Map();
 
   /** Monotonic id suffix for mid-run sandbox-escalation approval requests. */
   private sandboxEscalationSeq = 0;
@@ -786,6 +835,28 @@ export class PermissionInterceptor extends EventEmitter {
         });
       }
 
+      // Snapshot the result while the preview still exists. `executeAllOperations`
+      // evicts this operation the moment its batch finishes, and the build branch
+      // asks for the result AFTER that — see the `fileOpResults` field comment.
+      if (preview?.path && RESULT_BEARING_FILE_OPS.has(request.operation)) {
+        this.fileOpResults.set(operationId, {
+          success: true,
+          path: preview.path,
+          operation:
+            preview.type === "create"
+              ? "create"
+              : preview.type === "delete"
+                ? "delete"
+                : "update",
+          oldContent: preview.oldContent ?? "",
+          newContent: preview.content ?? "",
+          ...(typeof preview.verified === "boolean"
+            ? { verified: preview.verified }
+            : {}),
+          ...(preview.notice ? { output: preview.notice } : {}),
+        });
+      }
+
       // v13.8: write_file folded into edit_file (operation:"write"), so the
       // ATLARIX_PLAN.md / .atlarixignore detection keys off any content write.
       if (this.workspaceId && CONTENT_WRITE_OPS.has(request.operation)) {
@@ -924,6 +995,10 @@ export class PermissionInterceptor extends EventEmitter {
         return base;
       }
       // Truly not found - this is a user rejection or timeout
+      // Evicted by executeAllOperations, but it DID run — report the write we
+      // captured then, rather than a not-found the caller reads as an empty diff.
+      const fileResult = this.fileOpResults.get(operationId);
+      if (fileResult) return fileResult;
       return { success: false, error: `Operation ${operationId} not found` };
     }
 
@@ -980,15 +1055,7 @@ export class PermissionInterceptor extends EventEmitter {
         | FileOperationPreview
         | undefined;
       const path = preview?.path;
-      const fileOps = new Set([
-        "write_file",
-        "write_multiple_files",
-        "edit_file",
-        "replace_code",
-        "insert_code",
-        "delete_lines",
-      ]);
-      if (path && fileOps.has(operation.request.operation)) {
+      if (path && RESULT_BEARING_FILE_OPS.has(operation.request.operation)) {
         const opType =
           preview.type === "create"
             ? "create"
