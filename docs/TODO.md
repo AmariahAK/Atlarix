@@ -737,6 +737,44 @@ now carries a note saying the content already matched, so the ambiguity that sen
 to `git diff` is gone. Pinned by `exec-result-survives-eviction.test.ts` — 3 of its 4 cases
 fail with the fix disabled (verified by disabling it, not assumed).
 
+## 🧭 Three products, one engine — the boundary that decides scope (2026-09-11)
+
+Atlarix now has three shipping surfaces over one agent loop. Without a stated boundary they
+converge, because every one of them will at some point have a good reason to grow the
+others' capabilities. **The boundary is what each may TOUCH**, and it is a capability rule
+rather than a positioning one, so it answers scope questions on its own:
+
+|                 | **CLI**                                    | **Extension**                                   | **Desktop app**                            |
+| --------------- | ------------------------------------------ | ----------------------------------------------- | ------------------------------------------ |
+| Touches         | your files and your shell                  | your **browser session**                        | both, plus its own unauthenticated browser |
+| Never touches   | your browser session                       | any file, any shell — **not "later", never**    | —                                          |
+| Who it is for   | developers, in a repo                      | anyone with a browser, including non-developers | developers who want the whole workstation  |
+| Models          | any — BYOK, local Ollama, or Core          | **Core only**                                   | any                                        |
+| Atlarix account | **not required** (BYOK works standalone)   | required                                        | not required (BYOK)                        |
+| Distribution    | npm, own brew tap                          | Chrome Web Store                                | atlarix.dev installers                     |
+| Its job         | reach and credibility in the dev ecosystem | volume, and a wider non-developer market        | the product people pay for                 |
+
+**Three rules that follow, and exist to stop the drift:**
+
+1. **CLI v1 has no browser capability at all.** If it ever grows one it INHERITS the
+   extension's proven page-control layer — it does not grow its own. Letting CLI v1
+   scope-creep into "must also drive browsers" recreates the dependency the CLI exists to
+   avoid, and means debugging browser automation in a terminal.
+2. **The extension never gets a filesystem or a shell.** That is not a missing feature, it
+   is the containment: the extension is the user logged into their bank and their email,
+   and the absence of local execution is what bounds a prompt-injection blast radius.
+   Artifacts (charts, PDF, CSV) are rendered in the offscreen document and handed over via
+   `chrome.downloads` — never written to a disk the agent can reach.
+3. **A model restriction binds the LOOP, not the tool.** Whoever runs the agent loop inside
+   the extension must be Core. Whoever drives the extension AS A TOOL may be any model,
+   because that loop is in the desktop on the user's own key.
+
+**The tension to accept deliberately, not discover later:** the CLI's BYOK path means a
+developer can get the full product with no Atlarix account and no revenue, forever. That is
+correct — the CLI's job is reach, and conversion is the extension's and the desktop's job —
+but it should be a decision on the record rather than a surprise when the install numbers
+arrive without matching signups.
+
 ## 🖥️ NEXT SESSION — the CLI (decided 2026-09-11)
 
 **The extension is paused, not cancelled.** Phase 0 and the permission model are
@@ -813,21 +851,36 @@ from that. `GET /v1/models` (unauthenticated by design) gives the live Core line
   `homebrew-atlarix`) — free, instant, no approval, no licence test. Scoop bucket, AUR and
   a `curl | sh` installer are likewise free and self-hosted; WinGet is free with review.
 
-### The one piece of real engineering: `better-sqlite3`
+### `better-sqlite3` — and why the obvious fix is the WRONG one
 
 It is the ONLY native dependency, `external` in `scripts/build-headless.mjs`, compiled per
 platform AND per Node ABI. It is why the prebuilt linux/amd64 tarball fallback exists for
 musl, and why `vitest.config.mts` keeps a separate Node-ABI copy under `tests/infra`. Every
 distribution channel inherits that fragility.
 
-**Node now ships SQLite built in (`node:sqlite`, 22.5+) and we do not use it — `grep` finds
-zero references.** Replacing `better-sqlite3` with it would remove the only native
-dependency, which collapses four problems at once: npm install stops being able to fail on
-musl or an odd ABI, the fallback tarball retires, the `tests/infra` ABI dance retires, and a
-single-file standalone binary (Node SEA / `bun build --compile`) becomes feasible — which is
-what makes brew, scoop and a curl installer clean, because they stop requiring the user to
-have Node at all. **Not free:** the API differs and the DESKTOP shares this code (rebuilt
-for Electron's ABI), so verify against our Electron version before committing to it.
+**The tempting fix is `node:sqlite`, and it is blocked. Measured 2026-09-11, so nobody
+re-derives it.** `drizzle-orm@0.45.2` IS the latest, and it ships no `node:sqlite` driver —
+its sqlite drivers are `better-sqlite3`, `bun-sqlite`, `durable-sqlite`, `expo-sqlite`,
+`libsql`, `op-sqlite` and `sqlite-proxy`. The only generic escape, `sqlite-proxy`, takes an
+**async** query callback, and our DB layer is synchronous throughout — `initializeDatabase()`
+at `src/db/index.ts:105` returns a value, not a promise, and session persistence, provider
+resolution and compaction all call into Drizzle synchronously. Making the whole app's
+database layer async to solve a PACKAGING problem is the wrong trade by a wide margin.
+
+**Do this instead: per-platform `optionalDependencies`.** Ship `@atlarix/cli-darwin-arm64`,
+`-darwin-x64`, `-linux-x64`, `-linux-x64-musl`, `-win32-x64` sidecar packages, each carrying
+the matching prebuilt `.node`, and let npm install exactly one. This is what esbuild, swc,
+sharp and rollup all do. It needs **no code change, no ORM swap and no async refactor** —
+only CI that builds the prebuilds — and it delivers the actual goal: `npm i -g atlarix`
+never compiles and never fails on musl. The existing fallback tarball then retires.
+
+Revisit `node:sqlite` only if Drizzle ships a driver for it. `libsql/node` is the other
+thing worth a look, since libSQL's prebuild coverage may be better than better-sqlite3's —
+but it is still a native module, so it changes the odds, not the shape.
+
+A standalone single-file binary (Node SEA / `bun build --compile`) stays a SEPARATE, later
+question: a `.node` file still has to be embedded and extracted at runtime. Do the sidecar
+packages first; they solve npm, and npm is the channel that matters now.
 
 ### Banked: a second, separate argument about open-sourcing
 
