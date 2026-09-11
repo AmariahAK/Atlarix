@@ -1,0 +1,32 @@
+{
+  // Deliberately NOT extending the app config. That one targets Electron main
+  // and the React renderer — Node types, JSX, Electron globals. A content script
+  // has none of those, and inheriting them is how `process.env` or `require`
+  // sneaks into a bundle that cannot run it.
+  //
+  // `types: []` is load-bearing: with no entry, TypeScript pulls in EVERY
+  // package under node_modules/@types, which here would hand the extension
+  // Node's globals and quietly undo the isolation above.
+  "compilerOptions": {
+    "tsBuildInfoFile": "../../node_modules/.tmp/tsconfig.extension.tsbuildinfo",
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": [],
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "strict": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true,
+    // `@/*` reaches back into the app's src so the page-realm scripts are
+    // IMPORTED rather than copied. A second copy of the walker is a second
+    // contract, and the model was promised one.
+    "paths": {
+      "@/*": ["../../src/*"]
+    }
+  },
+  "include": ["src"]
+}

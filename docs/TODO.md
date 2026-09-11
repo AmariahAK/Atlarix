@@ -389,7 +389,60 @@ A feature reachable only from a discouraged path is rarely seen and still wired.
 not the same as unreachable_ — this is the same reachability-not-presence rule the Dyad-era removal
 ran on.
 
-## 🧩 Browser extension — drive the user's OWN browser (queued 2026-09-07)
+## 🧩 Browser extension — IN PROGRESS (started 2026-09-11)
+
+**Phases 0 and part of 1 are on `dev`.** What is DONE, so nobody redoes it:
+
+- **Shared page scripts extracted** — `src/lib/browser/page-scripts/` holds the walker,
+  the `data-atlarix-ref` registry, the find ranker and the fill-target walk as pure
+  strings with **zero imports**, so a content script can run the identical bytes.
+  Verified byte-identical to the originals before rewiring; `a11y-snapshot.ts` is now
+  transport + formatters only. `page-scripts-portable.test.ts` pins the zero-import rule
+  as a SOURCE-TEXT check — a type-level one passes on `import type` while missing the
+  `import log from "electron-log"` someone adds for a debug line.
+- **`packages/extension/`** — own tsconfig (`types: []`, no Node/Electron), own vitest
+  project, wired into `npm run ts`. **No new dependencies**: the Chrome API surface is
+  declared by hand in `src/types/chrome.d.ts`, which doubles as the Web Store
+  justification list.
+- **`shared/browser-api.ts`** — namespace resolution + capability probe.
+- **`permissions/always-ask.ts`** and **`permissions/site-grants.ts`** — 44 tests.
+
+**Still owed in Phase 1:** manifest + build, PKCE auth via `launchWebAuthFlow`, the
+content-script transport, `chrome.debugger` trusted input with detach handling, and the
+tab-group manager. Then Phase 2 (loop, sessions, memory, skills), Phase 3 (desktop
+bridge + `target` param), Phase 4 (Supabase, launchpad, docs, store).
+
+### Decisions taken 2026-09-11 — do not re-litigate
+
+- **`chrome.debugger` IS attached**, scoped to tabs in the agent's own group. Forced by
+  `browser.ts:1173`: Enter-to-submit and CSS `:hover` fire for TRUSTED events only, and a
+  synthetic KeyboardEvent "looks right in code and silently does nothing". Per-tab attach
+  means the user's other tabs never banner and keep their DevTools.
+- **ONE tool with `target: "app" | "chrome"`, not a second tool family.** There is no
+  backend seam in `browser.ts` (~40 direct `view.webContents.*` sites), but both paths run
+  the same page scripts and return the same shapes — so labels, aliases, expand views and
+  mode allowlists all keep working untouched.
+- **The proxy needs NO change.** MV3 extension pages bypass CORS via `host_permissions`;
+  content scripts do not, so no content script may ever call it. `GET /v1/models` is
+  already the live Core lineup — read it from there, never `core-models.json`, whose CDN
+  503s about 1 request in 10.
+- **Chrome / Edge / Brave are one build. FIREFOX IS A PORT, not a manifest tweak** —
+  `debugger` (no equivalent exists; Bugzilla 1348213 is still open), `tabGroups`,
+  `offscreen` and `sidePanel` are all absent or different. A Firefox build ships without
+  `key` or `hover`. Capability probing is feature-detection, never user-agent: Edge and
+  Brave both identify as Chrome.
+- **MCP is BRIDGE-ONLY.** 284 of the 286 entries in `atlarix-mcps/index.json` are stdio
+  (`npx -y …`) — processes MV3 cannot spawn. Native MCP would cover **one** entry, so
+  `mcp_call` proxies over the desktop bridge instead and says so when it is absent.
+- **Skills ship in v1** (pointers not payloads — only the store changes, disk → Supabase).
+  **Artifacts are a native tool, not a skill**: the offscreen document renders data+spec to
+  canvas and hands over via `chrome.downloads`, which is already in the always-ask set.
+- **The extension's loop is modelled on `run-subagent.ts` (791 LOC), NOT the app loop.**
+  The desktop loop's blocker is NODE coupling, not Electron: `better-sqlite3` is on the
+  mandatory path, `readSettings` is a `readFileSync`, the system prompt loads `AGENTS.md`
+  from `__dirname`.
+
+### Original brief (2026-09-07) — the gap and the two dead ends
 
 **The gap it closes.** We ship an in-app Chromium, but the user's session lives in THEIR
 browser. Anything behind a login — Metabase, Airtable, an internal dashboard, any
@@ -657,14 +710,42 @@ comments. What stays here is what a future reader would otherwise undo.
       became true at v14.45.0, and the repo's docs were restructured on top of it
       (`fe6d36f`).
 
+## 🩹 Edit results were lost when "Approve rest of turn" evicted the op — FIXED 2026-09-11
+
+A real write reported **"Successfully wrote README.md, added: 0, removed: 0"**, so the model
+disbelieved its own edit and spent a turn on `git diff`. Confirmed from
+`~/Library/Logs/Atlarix/main.log`, not inferred: `[approveRestOfTurn]` →
+`[executeAllOperations] Processing 1` → `Wrote file: …/README.md` → `Completed all 1
+operations` → `[Build Mode] Permission approved: op_1789120127239_9w4wgisfg`.
+
+`executeAllOperations` deletes every operation it ran from `pendingOperations`. The build
+branch then calls `getExecutionResult(operationId)`, which found nothing and returned
+`{success:false, error:"Operation … not found"}` — and its caller had already decided the
+write succeeded, so it announced success while the counts, computed from `oldContent ?? ""`
+against `newContent ?? ""`, came out 0/0. **Single-approve never evicts, which is why this
+read as intermittent.**
+
+Three quieter losses in the same payload: `path` went undefined, the fuzzy-match notice
+never reached the model, and **`verified` was lost** — and since `undefined` is falsy, an
+unverified write ran `clearUnverifiedEdit` instead of `recordUnverifiedEdit`. The
+self-review gate was silently forgiving exactly the writes it exists to catch.
+
+Fixed by `PermissionInterceptor.fileOpResults` — the same shape `commandOutputs` already
+had for commands ("survives pendingOperations eviction"); writes never got it. Plus two
+rules: a result reporting failure is no longer narrated as success, and a genuine 0/0 diff
+now carries a note saying the content already matched, so the ambiguity that sent the model
+to `git diff` is gone. Pinned by `exec-result-survives-eviction.test.ts` — 3 of its 4 cases
+fail with the fix disabled (verified by disabling it, not assumed).
+
 ## 🔜 Next session — the queue
 
 Rewritten 2026-09-10. The 2026-09-09 handoff list is fully discharged: v14.45 is
 released, the launchpad login fix shipped (`08b4f9d`), and **telemetry + Harbor are
 DONE per the owner** — both sections deleted rather than ticked.
 
-1. **Browser extension** — the one substantial piece of work left. Two dead ends are
-   already measured (see its section); the design is partly done.
+1. **Browser extension** — IN PROGRESS on `dev`. Phase 0 and part of Phase 1 are
+   committed; the section above lists what is done, what is still owed, and the
+   decisions taken 2026-09-11. Resume at Phase 1's manifest + PKCE auth.
 2. **CI must resolve the win32 + linux TypeScript 7 platform binaries.** Only
    darwin-arm64 is proven. The last open verification item.
 
@@ -903,7 +984,7 @@ ticked, because a list of things that turned out fine is not worth carrying.
   and that script exits 1 without either, so a green step is the assertion. `toolset v145`
   is what vindicates the patch scanning `PlatformToolsets` rather than mapping from the
   MSVC version — VS 2022 17.14 ships MSVC 14.44 and is still `v143`. The image's VS
-  *version* differed between two runs hours apart (`18.9.12112.369` vs `18.9.12120.119`),
+  _version_ differed between two runs hours apart (`18.9.12112.369` vs `18.9.12120.119`),
   which is the same argument against pinning anything version-derived.
 
   `msix.yml`'s two input defaults, its `runs-on` fallback, and `release.yml`'s
@@ -1139,7 +1220,6 @@ FALSE — it just stopped being impressive. Same shape as the TODO advertising a
 after it became $19: both halves were defensible in isolation. Derive anything a config or a
 third party decides; `scripts/gen-readme-catalog.mjs` and the launchpad's
 `gen-core-lineup.mjs` are the two worked examples.
-
 
 ### Two classifiers, one object, opposite verdicts
 

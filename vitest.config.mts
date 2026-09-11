@@ -88,8 +88,18 @@ export default defineConfig({
           setupFiles: ["./vitest.setup.ts"],
           testTimeout: UNIT_TEST_TIMEOUT_MS,
           hookTimeout: UNIT_TEST_TIMEOUT_MS,
-          // tests/** belongs to the agent-evals project (real DB + fake LLM).
-          exclude: [...sharedExclude, "src/__tests__/renderer/**", "tests/**"],
+          // tests/** belongs to the agent-evals project (real DB + fake LLM),
+          // and packages/** to the extension project. That last exclusion is
+          // load-bearing, not tidiness: this project gives a suite Node's
+          // globals, so an extension module that reached for `process` or a
+          // node: builtin would pass HERE and fail in a real browser — which is
+          // the exact isolation the extension project exists to enforce.
+          exclude: [
+            ...sharedExclude,
+            "src/__tests__/renderer/**",
+            "tests/**",
+            "packages/**",
+          ],
         },
       },
       {
@@ -105,6 +115,28 @@ export default defineConfig({
           testTimeout: UNIT_TEST_TIMEOUT_MS,
           hookTimeout: UNIT_TEST_TIMEOUT_MS,
           include: ["src/__tests__/renderer/**/*.test.{ts,tsx}"],
+          exclude: sharedExclude,
+        },
+      },
+      {
+        // The extension's portable half — the permission classifier, site
+        // grants, PKCE, capability probing. jsdom because several of these
+        // inspect DOM-shaped input, and because the page-realm scripts they
+        // share with the app need a document.
+        //
+        // It is a separate project rather than more files under src/__tests__
+        // for the same reason the package has its own tsconfig: these modules
+        // must never see Node or Electron globals, and a project that cannot
+        // resolve them is the cheapest way to guarantee it.
+        resolve: {
+          alias: { "@": path.join(root, "src") },
+        },
+        test: {
+          name: "extension",
+          environment: "jsdom",
+          testTimeout: UNIT_TEST_TIMEOUT_MS,
+          hookTimeout: UNIT_TEST_TIMEOUT_MS,
+          include: ["packages/extension/src/**/*.test.ts"],
           exclude: sharedExclude,
         },
       },
