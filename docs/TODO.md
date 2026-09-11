@@ -750,9 +750,39 @@ rather than a positioning one, so it answers scope questions on its own:
 | Never touches   | your browser session                       | any file, any shell — **not "later", never**    | —                                          |
 | Who it is for   | developers, in a repo                      | anyone with a browser, including non-developers | developers who want the whole workstation  |
 | Models          | any — BYOK, local Ollama, or Core          | **Core only**                                   | any                                        |
-| Atlarix account | **not required** (BYOK works standalone)   | required                                        | not required (BYOK)                        |
+| Atlarix account | **required** (BYOK too)                    | required                                        | **required** (BYOK too)                    |
 | Distribution    | npm, own brew tap                          | Chrome Web Store                                | atlarix.dev installers                     |
 | Its job         | reach and credibility in the dev ecosystem | volume, and a wider non-developer market        | the product people pay for                 |
+
+### One subscription, one balance, four surfaces (owner, 2026-09-11)
+
+Pro and the credit balance are **shared across desktop, CLI, browser extension and
+Reviewer**. Top up once; every surface draws from that wallet until it runs out. This is
+not new architecture — it is the existing model extended, and the schema already supports
+it:
+
+- **The wallet is already per-ACCOUNT, not per-product.** `credit_wallet` and
+  `credit_transactions` are keyed on `user_id`, and the README already states the rule for
+  the two surfaces that exist today: _"One subscription, one balance… they are not billed
+  separately and they do not hold separate balances."_ Adding the CLI and the extension
+  means they present the user's Supabase JWT exactly as the desktop does, and the same
+  `record_compass_usage` path runs. **No wallet change, no new endpoint, no new RPC.**
+- **The one real gap is ATTRIBUTION, and half of it is already built.**
+  `credit_transactions` carries `kind` and a free-text `ref`, and the service debit RPC
+  already takes `p_source text DEFAULT 'reviewer'` — which is how the account page itemises
+  reviewer spend separately today. The user-JWT path has no equivalent label, so desktop,
+  CLI and extension spend would collapse into one undifferentiated line.
+  **Work needed:** an `X-Atlarix-Surface` header on the client (modelled on the existing
+  `x-atlarix-repo`, which `server.ts:488` notes is "only a label on the ledger row — it
+  never selects an account"), threaded into `p_source` on the user path, and four rows on
+  the account page instead of two.
+- **Do the label BEFORE the surfaces ship, not after.** A ledger row cannot be
+  re-attributed later: spend recorded without a source is indistinguishable forever, so
+  the first month of CLI and extension usage would be permanently unsplittable from the
+  app's. This is cheap now and impossible retroactively.
+- **Refunds and clawbacks already have a trap here.** Per the money-path audit, ask whether
+  a number is a delta or a running total before trusting `(kind, ref)` dedupe — adding a
+  fourth source multiplies the ways two rows can collide on the same `ref`.
 
 **Three rules that follow, and exist to stop the drift:**
 
@@ -769,11 +799,26 @@ rather than a positioning one, so it answers scope questions on its own:
    the extension must be Core. Whoever drives the extension AS A TOOL may be any model,
    because that loop is in the desktop on the user's own key.
 
-**The tension to accept deliberately, not discover later:** the CLI's BYOK path means a
-developer can get the full product with no Atlarix account and no revenue, forever. That is
-correct — the CLI's job is reach, and conversion is the extension's and the desktop's job —
-but it should be a decision on the record rather than a surprise when the install numbers
-arrive without matching signups.
+**An account is required on every surface, BYOK included — verified, not assumed.**
+`chat_stream_handlers.ts:447` calls `requireAuthSession()` before every turn, so the desktop
+already works this way and the CLI matches it. What BYOK buys is free INFERENCE, not
+anonymity.
+
+**The cost of that, stated once so it can be mitigated rather than argued:** it spends the
+CLI's single best marketing lever. A CLI's advantage over an app is that trying it is one
+command, and "log in first" is exactly the friction an app has and a CLI is supposed to
+lack. Mitigate rather than reverse: make `atlarix login` a one-command browser round trip,
+make it the FIRST-RUN experience rather than an error the user hits after typing a prompt,
+and keep `--help`, `--version` and the model list working signed-out so the binary never
+feels inert before the account exists.
+
+**Trap already in the code.** `require_auth_session.ts` returns a SYNTHETIC session when
+`ATLARIX_HEADLESS=1`, deliberately — today's headless binary is BYOK-only with no Core
+metering, so it needs no login. The moment the CLI can reach Core that escape hatch must
+become conditional: synthetic is fine for BYOK, but a Core dispatch has to demand a real
+session. Otherwise the fake `atlarix-headless` user passes the local gate and fails later
+against the proxy's `jose` verification — a confusing failure deep in dispatch instead of a
+clear "log in first" at the top.
 
 ## 🖥️ NEXT SESSION — the CLI (decided 2026-09-11)
 
