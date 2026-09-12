@@ -395,11 +395,25 @@ ran on.
 
 - **Shared page scripts extracted** — `src/lib/browser/page-scripts/` holds the walker,
   the `data-atlarix-ref` registry, the find ranker and the fill-target walk as pure
-  strings with **zero imports**, so a content script can run the identical bytes.
-  Verified byte-identical to the originals before rewiring; `a11y-snapshot.ts` is now
-  transport + formatters only. `page-scripts-portable.test.ts` pins the zero-import rule
-  as a SOURCE-TEXT check — a type-level one passes on `import type` while missing the
-  `import log from "electron-log"` someone adds for a debug line.
+  strings with **zero imports**. Verified byte-identical to the originals before
+  rewiring; `a11y-snapshot.ts` is now transport + formatters only.
+  `page-scripts-portable.test.ts` pins the zero-import rule as a SOURCE-TEXT check — a
+  type-level one passes on `import type` while missing the `import log from
+"electron-log"` someone adds for a debug line.
+  **CORRECTION 2026-09-12: "so a content script can run the identical bytes" is FALSE,
+  and it was written into five places.** MV3 cannot execute a code string at all:
+  `chrome.scripting.executeScript()` takes `func` or `files` and has no `code` property,
+  the extension CSP forbids `unsafe-eval`, and in `world:"MAIN"` an `eval()` runs under
+  the PAGE's CSP — which GitHub, Google and most banks block. The extraction itself was
+  right and nothing is wasted; only the transport assumption was wrong. The fix is to
+  reshape the module from string builders into a function whose `.toString()` serves
+  both backends — the desktop keeps composing a string from it (so `browser.ts` and
+  `a11y-snapshot.ts` take ZERO diff), and the extension passes the function to
+  `executeScript` with JSON-serializable `args`. `src/types/chrome.d.ts:130-136` already
+  declared that shape correctly, so the typings were right and the prose was not.
+  **A second rule follows and is new: zero MODULE-SCOPE REFERENCES.** A stringified
+  function cannot close over its module, and this did not matter while the scripts were
+  literal strings.
 - **`packages/extension/`** — own tsconfig (`types: []`, no Node/Electron), own vitest
   project, wired into `npm run ts`. **No new dependencies**: the Chrome API surface is
   declared by hand in `src/types/chrome.d.ts`, which doubles as the Web Store
@@ -407,24 +421,64 @@ ran on.
 - **`shared/browser-api.ts`** — namespace resolution + capability probe.
 - **`permissions/always-ask.ts`** and **`permissions/site-grants.ts`** — 44 tests.
 
-**Still owed in Phase 1:** manifest + build, PKCE auth via `launchWebAuthFlow`, the
-content-script transport, `chrome.debugger` trusted input with detach handling, and the
-tab-group manager. Then Phase 2 (loop, sessions, memory, skills), Phase 3 (desktop
-bridge + `target` param), Phase 4 (Supabase, launchpad, docs, store).
+- **The manifest and the build — DONE 2026-09-12.** `packages/extension/manifest.json`
+  (MV3, no `key` yet — see below), `scripts/build-extension.mjs` on esbuild, and
+  `packages/extension/package.json`. `npm run build:extension` writes
+  `dist/unpacked/` to load and a **reproducible** `dist/atlarix-extension-<v>.zip` to
+  upload (sorted entries, fixed 1980 timestamp, so "did it change" is a checksum). The
+  zip is hand-rolled with `node:zlib` because CI runs `windows-latest`, which has no
+  `zip` on PATH. Four guards, each verified by making it fire: a Node-builtin resolve
+  plugin, a manifest/package version-mismatch check, a PNG IHDR dimension assert on every
+  icon, and a fatal on missing Supabase env rather than `?? ""`. **`esbuild` is now an
+  explicit root devDependency** — two scripts imported it on a transitive vite hoist. Its
+  `knip.json` `ignoreDependencies` entry must STAY: knip's `project` is `src/**` with no
+  `scripts/**` entry, so it cannot see either import, and the entry now suppresses
+  "unused devDependency" instead of "unlisted dependency". **`npm run ts:extension` is
+  now in CI** — `check:ts` is `tsconfig.app.json` (`include: ["src","shared"]`), so this
+  package had NO type check in CI at all, and the extension vitest project cannot
+  substitute because jsdom-under-vitest keeps Node's globals. `check:lint` widened to
+  `oxlint src packages` for the same reason.
+
+**Still owed in Phase 1:** PKCE auth via `launchWebAuthFlow`, the page-script transport,
+`chrome.debugger` trusted input with detach handling, and the tab-group manager. Then
+Phase 2 (loop, sessions, memory, skills), Phase 3 (desktop bridge + `target` param),
+Phase 4 (Supabase, launchpad, docs, store).
 
 **Start here next session, in this order:**
 
-1. **The manifest and the build** — nothing else can be loaded in a browser until this
-   exists, and the manifest `key` must be pinned in the same commit so the extension id is
-   stable from the very first unpacked load. The id is an input to the Supabase redirect
-   allowlist, so choosing it late means redoing the auth config.
+1. **The kernel refactor** — `page-scripts` from string builders to one injectable
+   function (see the CORRECTION above). Additive first, with an equivalence test against
+   the current strings; the switch commit must leave `page-scripts-refs.test.tsx` and
+   `renderer/browser-fill-target.test.tsx` passing UNEDITED. Reads only
+   (`snapshot`/`find`); `resolveElementJs` and `RESOLVE_FILLABLE_JS` share none of the
+   walker helpers and stay strings until Phase 3.
 2. **`chrome.identity` PKCE auth**, modelled on the launchpad's client, NOT the desktop's
-   `atlarix://` deep link. Add the redirect URL to Supabase byte-identically and pin it with
-   a test the way `oauth-redirect-allowlist-match.test.ts` already does for the desktop.
-3. **The content-script transport** — run the extracted page scripts against a real tab and
-   prove a ref minted by a read resolves on a later, separate call. That is the whole "one
-   contract" claim, and it is the first thing that can be demonstrated end to end.
+   `atlarix://` deep link — the desktop is on the IMPLICIT flow (no `flowType` at
+   `supabase-client.ts:124-129`), and TODO:1299 records that a PKCE attempt there broke
+   sign-in and was reverted. Add the redirect URL to Supabase byte-identically and pin it
+   with a test the way `oauth-redirect-allowlist-match.test.ts` does for the desktop.
+   **Pin on `chrome.runtime.id`, not `getRedirectURL()`**: Chrome's docs do not state
+   whether that call carries a trailing slash, so it is a loud warning, not the assertion.
+3. **The page-script transport** — `executeScript({func, args, world:"MAIN"})` against a
+   real tab, proving a ref minted by a read resolves on a later, separate call.
+   `allFrames` stays false: a ref minted in frame N resolves only in frame N, an
+   ambiguity the desktop's `executeJavaScript` does not have.
 4. **`chrome.debugger` input + the tab-group manager**, which depend on 1-3.
+
+**The `key` CANNOT be pinned in the first commit — the earlier note here was wrong.**
+It said the id must be fixed from the very first unpacked load. That is not achievable:
+`manifest.key` does not tell the Web Store what id to assign. The Store assigns the id at
+first upload and generates its own keypair, and the documented flow is the reverse —
+upload a draft zip, copy the public key out of the Package tab, and paste THAT into the
+manifest so the unpacked build shares the published id. So the order is: build the zip →
+owner uploads a draft (never submit for review) → paste the key → then the Supabase
+redirect entry. Getting it "late" costs an added allowlist row, not a redo.
+
+**Owner has a CWS developer account** as of 2026-09-12 — `amariah@atlarix.dev`, $5 paid
+(one-time, not recurring), trader declaration filed. That declaration publishes a legal
+name, phone and address at the bottom of the listing, so use NorahLabs' registered
+address. New publishers are capped at 2 items. The publisher display name still reads
+`amariah` and should be **NorahLabs** before anything is public.
 
 **Do the `X-Atlarix-Surface` ledger label BEFORE any Core dispatch ships** — see the
 shared-wallet section. A ledger row cannot be re-attributed later, so the first month of
@@ -503,7 +557,9 @@ fits better than the desktop does.
 ### Decisions taken 2026-09-11 — do not re-litigate
 
 - **`chrome.debugger` IS attached**, scoped to tabs in the agent's own group. Forced by
-  `browser.ts:1173`: Enter-to-submit and CSS `:hover` fire for TRUSTED events only, and a
+  `browser.ts` under `key / hover / scroll` (cited as `:1173` until 2026-09-12, by which
+  point it had drifted to ~1133 — cite the SECTION, not the line):
+  Enter-to-submit and CSS `:hover` fire for TRUSTED events only, and a
   synthetic KeyboardEvent "looks right in code and silently does nothing". Per-tab attach
   means the user's other tabs never banner and keep their DevTools.
 - **ONE tool with `target: "app" | "chrome"`, not a second tool family.** There is no

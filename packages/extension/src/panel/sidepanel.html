@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Atlarix</title>
+    <!--
+      NO INLINE SCRIPT AND NO INLINE STYLE, EVER.
+
+      The manifest deliberately declares no `content_security_policy`, so this
+      page runs under MV3's default `script-src 'self'`. That is the policy we
+      want; the cost is that an inline handler or a `<style>` block fails
+      silently-ish at load with a console violation and no rendered UI, which
+      reads as a broken panel rather than as a policy decision. Everything goes
+      through sidepanel.css and sidepanel.js.
+    -->
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <main class="panel">
+      <header class="panel__header">
+        <h1 class="panel__title">Atlarix</h1>
+      </header>
+
+      <section class="panel__body">
+        <p class="panel__lede">
+          Atlarix drives the browser you are already signed into.
+        </p>
+        <!--
+          Disabled until the auth module lands. It is present now so the shell
+          can be loaded and looked at in a real browser, which is the whole
+          point of this first build.
+        -->
+        <button id="sign-in" class="button" type="button" disabled>
+          Sign in
+        </button>
+        <p id="status" class="panel__status" role="status"></p>
+      </section>
+    </main>
+
+    <script type="module" src="sidepanel.js"></script>
+  </body>
+</html>

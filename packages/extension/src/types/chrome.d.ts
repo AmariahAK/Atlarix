@@ -147,7 +147,8 @@ declare namespace chrome {
       tabId?: number;
     }
     /**
-     * Trusted input ONLY. `browser.ts:1173` records why nothing else will do:
+     * Trusted input ONLY. `browser.ts`, under `key / hover / scroll`, records
+     * why nothing else will do:
      * Enter-to-submit and CSS `:hover` fire for trusted events alone, and a
      * synthetic KeyboardEvent "looks right in code and silently does nothing".
      *

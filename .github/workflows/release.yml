@@ -111,6 +111,16 @@ jobs:
       - name: Type check (tsc)
         run: npm run check:ts
 
+      # `check:ts` is tsconfig.app.json, whose `include` is ["src", "shared"] —
+      # it does not see packages/extension at all, so the package shipped with
+      # NO type check in CI. The extension's own tsconfig is the one with
+      # `types: []`, and that is the only thing standing between a Node builtin
+      # and a bundle that cannot run it. The extension vitest project cannot
+      # substitute: jsdom-under-vitest keeps Node's globals, so `Buffer` and
+      # `process` resolve there and then fail in Chrome.
+      - name: Type check (extension)
+        run: npm run ts:extension
+
       - name: Lint (oxlint)
         run: npm run check:lint
 

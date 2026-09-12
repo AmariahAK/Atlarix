@@ -10,10 +10,11 @@
  *   `debugger`   — absent, and there is NO equivalent. It is the only way to
  *                  emit `isTrusted=true` events; Mozilla's own request for one
  *                  (Bugzilla 1348213) is still open. Without it `key` and
- *                  `hover` cannot work at all, for the reason recorded at
- *                  `src/lib/tools/browser.ts:1173` — Enter-to-submit and CSS
- *                  `:hover` fire for trusted events only, and a synthetic
- *                  KeyboardEvent "looks right in code and silently does nothing".
+ *                  `hover` cannot work at all, for the reason recorded in
+ *                  `src/lib/tools/browser.ts` under `key / hover / scroll`:
+ *                  Enter-to-submit and CSS `:hover` fire for trusted events
+ *                  only, and a synthetic KeyboardEvent "looks right in code
+ *                  and silently does nothing".
  *   `tabGroups`  — absent. It is our status surface, our stop gesture AND the
  *                  boundary between the agent's tabs and the user's.
  *   `offscreen`  — Chrome-only. It is where the agent loop lives.
