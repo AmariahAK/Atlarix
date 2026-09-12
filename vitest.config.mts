@@ -131,6 +131,18 @@ export default defineConfig({
         resolve: {
           alias: { "@": path.join(root, "src") },
         },
+        // `scripts/build-extension.mjs` substitutes these, and `config.ts`
+        // reads them as bare globals — deliberately, so a missing one fails at
+        // type-check rather than becoming an empty string that only surfaces as
+        // a bare fetch error at sign-in. Vitest is a build too, so it has to
+        // supply them or every module importing config.ts dies with a
+        // ReferenceError. Obvious placeholders: a test that needs a REAL
+        // project is an integration test and does not belong in this project.
+        define: {
+          __ATLARIX_SUPABASE_URL__: JSON.stringify("https://test.supabase.co"),
+          __ATLARIX_SUPABASE_ANON_KEY__: JSON.stringify("test-anon-key"),
+          __ATLARIX_EXTENSION_VERSION__: JSON.stringify("0.0.0-test"),
+        },
         test: {
           name: "extension",
           environment: "jsdom",

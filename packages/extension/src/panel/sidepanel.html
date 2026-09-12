@@ -27,9 +27,11 @@
           Atlarix drives the browser you are already signed into.
         </p>
         <!--
-          Disabled until the auth module lands. It is present now so the shell
-          can be loaded and looked at in a real browser, which is the whole
-          point of this first build.
+          Starts disabled and is enabled by sidepanel.ts once it has read the
+          stored session. The label is decided there too: a panel that renders
+          "Sign in" for a moment to someone who is already signed in is the
+          three-state auth bug the launchpad's useAuth docblock records, and the
+          cheapest place not to have it is here, by never rendering a guess.
         -->
         <button id="sign-in" class="button" type="button" disabled>
           Sign in

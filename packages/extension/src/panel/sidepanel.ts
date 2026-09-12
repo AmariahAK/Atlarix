@@ -16,6 +16,7 @@
  */
 
 import { detectCapabilities, missingCapabilities } from "../shared/browser-api";
+import { getSession, signIn, signOut } from "../auth/sign-in";
 
 const signInButton = document.querySelector<HTMLButtonElement>("#sign-in");
 const status = document.querySelector<HTMLParagraphElement>("#status");
@@ -45,10 +46,58 @@ function reportCapabilities(): void {
   }
 }
 
-reportCapabilities();
+/** Reflect the stored session in the one button this panel currently has. */
+async function render(): Promise<void> {
+  if (!signInButton) return;
+  const session = await getSession();
+  if (session) {
+    signInButton.textContent = "Sign out";
+    signInButton.dataset.action = "sign-out";
+    setStatus(
+      session.user?.email ? `Signed in as ${session.user.email}` : "Signed in.",
+    );
+  } else {
+    signInButton.textContent = "Sign in";
+    signInButton.dataset.action = "sign-in";
+    reportCapabilities();
+  }
+  signInButton.disabled = false;
+}
 
-// Wired for real when `src/auth/` lands. Until then the button is disabled in
-// the markup and this listener only exists so the shell is demonstrably alive.
 signInButton?.addEventListener("click", () => {
-  setStatus("Sign-in is not wired up yet.");
+  if (!signInButton) return;
+  const action = signInButton.dataset.action;
+
+  // Disable for the round trip. A second click would start a SECOND OAuth flow
+  // with its own verifier, and whichever finished last would win — so the user
+  // could end up signed in as a different account than the window they were
+  // looking at.
+  signInButton.disabled = true;
+
+  if (action === "sign-out") {
+    setStatus("Signing out…");
+    void signOut()
+      .then(render)
+      .catch((err: unknown) => {
+        setStatus(String(err));
+        signInButton.disabled = false;
+      });
+    return;
+  }
+
+  setStatus("Opening sign-in…");
+  void signIn("google")
+    .then(async (result) => {
+      if (result.kind === "cancelled") setStatus("Sign-in cancelled.");
+      else if (result.kind === "error") setStatus(result.message);
+      await render();
+    })
+    .catch((err: unknown) => {
+      // `signIn` throws only for a pinned-id mismatch, which is a build/config
+      // fault rather than a user one — and the message says which end to fix.
+      setStatus(err instanceof Error ? err.message : String(err));
+      signInButton.disabled = false;
+    });
 });
+
+void render();
