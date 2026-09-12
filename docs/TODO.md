@@ -439,12 +439,7 @@ ran on.
   substitute because jsdom-under-vitest keeps Node's globals. `check:lint` widened to
   `oxlint src packages` for the same reason.
 
-**Still owed in Phase 1:** PKCE auth via `launchWebAuthFlow`, the page-script transport,
-`chrome.debugger` trusted input with detach handling, and the tab-group manager. Then
-Phase 2 (loop, sessions, memory, skills), Phase 3 (desktop bridge + `target` param),
-Phase 4 (Supabase, launchpad, docs, store).
-
-**Start here next session, in this order:**
+**What is DONE, newest first:**
 
 - **The kernel refactor — DONE 2026-09-12.** `atlarixPageKernel` is one exported
   function in `page-scripts/index.ts` (NOT a sibling file — keeping it in the same module
@@ -472,24 +467,34 @@ Phase 4 (Supabase, launchpad, docs, store).
   from different realms), which is why the bundler checks live in the `node` project and
   the DOM behaviour in the `renderer` one.
 
-1. **The rest of `chrome.identity` PKCE auth.** The IDENTITY half is already done: the
-   Web Store draft is `fkoacefbjjjhjceidagdajkgclfjacbe`, `manifest.key` is pinned,
-   `src/auth/redirect.ts` holds `ATLARIX_EXTENSION_ID` + `OAUTH_REDIRECT_URL` with a test
-   that re-derives the id FROM the key, and the owner has added
-   `https://fkoacefbjjjhjceidagdajkgclfjacbe.chromiumapp.org/` to Supabase Redirect URLs.
-   What is owed is `pkce.ts` / `session.ts` / `gotrue.ts` / `sign-in.ts`, modelled on the
-   launchpad's client, NOT the desktop's `atlarix://` deep link — the desktop is on the
-   IMPLICIT flow (no `flowType` at `supabase-client.ts:124-129`), and TODO:1299 records
-   that a PKCE attempt there broke sign-in and was reverted.
-   **The verifier must never touch storage**, which makes the recorded launchpad bug
-   (TODO:1490) impossible rather than defended against, and **sign-in must run in the side
-   panel, not the service worker** — a worker dies after ~30s idle and a consent screen
-   routinely outlives that.
-2. **The page-script transport** — `executeScript({func, args, world:"MAIN"})` against a
-   real tab, proving a ref minted by a read resolves on a later, separate call.
-   `allFrames` stays false: a ref minted in frame N resolves only in frame N, an
-   ambiguity the desktop's `executeJavaScript` does not have.
-3. **`chrome.debugger` input + the tab-group manager**, which depend on 1-2.
+- **PKCE auth — DONE 2026-09-12.** `pkce.ts` (WebCrypto only, pinned against RFC 7636
+  Appendix B's published vector), `session.ts` (over `storage.local`, treating it as
+  untrusted input), `gotrue.ts` (three calls, `fetch` injectable), `sign-in.ts`.
+  **Verified against the live project**: signed in as a real user in Brave, session
+  persisted across a panel reopen, and the pinned redirect matched with no silent Site
+  URL fallback. Both Google AND GitHub are enabled on the project — checked, each 302s
+  to its real endpoint, rather than assumed.
+  Three things are load-bearing and each is pinned: the verifier NEVER touches storage
+  (making TODO:1490's launchpad bug impossible rather than defended against); `signIn`
+  runs in the side panel because a consent screen outlives the ~30s worker; and
+  `getAccessToken` is SINGLE-FLIGHT because Supabase rotates refresh tokens and the
+  loser of a race gets `400 invalid_grant`, which presents as a spontaneous logout.
+- **The page-script transport — DONE 2026-09-12.** `page/inject.ts`:
+  `executeScript({func, args, world:"MAIN"})`, `allFrames` false, each pinned by test
+  because each fails SILENTLY. Plus `permissions/host-access.ts`, which makes a site
+  grant real: `permissions.request()` → true → `grantSite()`, **in that order**, since
+  `request()` resolves FALSE on decline rather than rejecting. `canActOn` requires both
+  halves to agree, because a user can revoke from chrome://extensions without telling us.
+  Manifest gained `tabs` + `scripting` with their first callers.
+
+**Still owed in Phase 1:** `chrome.debugger` trusted input with detach handling, and the
+tab-group manager. Then Phase 2 (loop, sessions, memory, skills), Phase 3 (desktop
+bridge + `target` param), Phase 4 (Supabase, launchpad, docs, store).
+
+**Start here next session:**
+
+1. **`chrome.debugger` input + the tab-group manager.** Attach per-tab, scoped to the
+   agent's own group, so the user's other tabs never banner and keep their DevTools.
 
 **The `key` CANNOT be pinned in the first commit — the earlier note here was wrong.**
 It said the id must be fixed from the very first unpacked load. That is not achievable:
