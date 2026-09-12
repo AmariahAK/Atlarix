@@ -446,24 +446,50 @@ Phase 4 (Supabase, launchpad, docs, store).
 
 **Start here next session, in this order:**
 
-1. **The kernel refactor** — `page-scripts` from string builders to one injectable
-   function (see the CORRECTION above). Additive first, with an equivalence test against
-   the current strings; the switch commit must leave `page-scripts-refs.test.tsx` and
-   `renderer/browser-fill-target.test.tsx` passing UNEDITED. Reads only
-   (`snapshot`/`find`); `resolveElementJs` and `RESOLVE_FILLABLE_JS` share none of the
-   walker helpers and stay strings until Phase 3.
-2. **`chrome.identity` PKCE auth**, modelled on the launchpad's client, NOT the desktop's
-   `atlarix://` deep link — the desktop is on the IMPLICIT flow (no `flowType` at
-   `supabase-client.ts:124-129`), and TODO:1299 records that a PKCE attempt there broke
-   sign-in and was reverted. Add the redirect URL to Supabase byte-identically and pin it
-   with a test the way `oauth-redirect-allowlist-match.test.ts` does for the desktop.
-   **Pin on `chrome.runtime.id`, not `getRedirectURL()`**: Chrome's docs do not state
-   whether that call carries a trailing slash, so it is a loud warning, not the assertion.
-3. **The page-script transport** — `executeScript({func, args, world:"MAIN"})` against a
+- **The kernel refactor — DONE 2026-09-12.** `atlarixPageKernel` is one exported
+  function in `page-scripts/index.ts` (NOT a sibling file — keeping it in the same module
+  is what lets the zero-import rule stay literally true instead of needing an exception).
+  `snapshotScript`/`findScript` compose `(${KERNEL_SRC})(${jsonArg(req)})`;
+  `WALKER_PREAMBLE` is gone. **`browser.ts` and `a11y-snapshot.ts` took ZERO diff** —
+  only the producers changed — and `page-scripts-refs.test.tsx` plus
+  `renderer/browser-fill-target.test.tsx` pass UNEDITED, which was the gate. Reads only;
+  `resolveElementJs` and `RESOLVE_FILLABLE_JS` share none of the walker helpers and stay
+  strings until Phase 3. Caps now travel as `req.max` instead of being spliced in as
+  `const MAX = 200;`.
+  **The new rule is zero MODULE-SCOPE references, guarded three ways**: a source-text
+  check that derives the module's own bindings, a runtime test that evaluates the kernel
+  in global scope, and `page-scripts-bundled.test.ts` which runs BOTH real bundlers —
+  esbuild (the extension) and Vite/Rolldown minified (the desktop, and a second
+  independent chance to break `.toString()`, since a minifier may hoist a repeated
+  literal to module scope). One case turns `keepNames` on and asserts it BREAKS, so the
+  build settings are pinned by evidence rather than by comment.
+  **Trap for whoever writes the next test here: jsdom does not implement `innerText`.**
+  `accName` reads it third, so a snapshot `name` in jsdom must come from `aria-label` or
+  `title`; a fixture using plain child text yields `name: ""` and looks like a ranking
+  bug that does not exist in a real browser. `find` is unaffected — it falls back to
+  `ownText`, which uses `textContent`. Also: **esbuild cannot run under jsdom** (it
+  asserts `new TextEncoder().encode("") instanceof Uint8Array`, and jsdom supplies those
+  from different realms), which is why the bundler checks live in the `node` project and
+  the DOM behaviour in the `renderer` one.
+
+1. **The rest of `chrome.identity` PKCE auth.** The IDENTITY half is already done: the
+   Web Store draft is `fkoacefbjjjhjceidagdajkgclfjacbe`, `manifest.key` is pinned,
+   `src/auth/redirect.ts` holds `ATLARIX_EXTENSION_ID` + `OAUTH_REDIRECT_URL` with a test
+   that re-derives the id FROM the key, and the owner has added
+   `https://fkoacefbjjjhjceidagdajkgclfjacbe.chromiumapp.org/` to Supabase Redirect URLs.
+   What is owed is `pkce.ts` / `session.ts` / `gotrue.ts` / `sign-in.ts`, modelled on the
+   launchpad's client, NOT the desktop's `atlarix://` deep link — the desktop is on the
+   IMPLICIT flow (no `flowType` at `supabase-client.ts:124-129`), and TODO:1299 records
+   that a PKCE attempt there broke sign-in and was reverted.
+   **The verifier must never touch storage**, which makes the recorded launchpad bug
+   (TODO:1490) impossible rather than defended against, and **sign-in must run in the side
+   panel, not the service worker** — a worker dies after ~30s idle and a consent screen
+   routinely outlives that.
+2. **The page-script transport** — `executeScript({func, args, world:"MAIN"})` against a
    real tab, proving a ref minted by a read resolves on a later, separate call.
    `allFrames` stays false: a ref minted in frame N resolves only in frame N, an
    ambiguity the desktop's `executeJavaScript` does not have.
-4. **`chrome.debugger` input + the tab-group manager**, which depend on 1-3.
+3. **`chrome.debugger` input + the tab-group manager**, which depend on 1-2.
 
 **The `key` CANNOT be pinned in the first commit — the earlier note here was wrong.**
 It said the id must be fixed from the very first unpacked load. That is not achievable:

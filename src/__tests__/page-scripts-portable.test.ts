@@ -18,6 +18,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   RESOLVE_FILLABLE_JS,
+  atlarixPageKernel,
   findScript,
   resolveElementJs,
   snapshotScript,
@@ -78,9 +79,13 @@ describe("page-scripts injection safety", () => {
     expect(script).toContain("CSS.escape(__ref)");
   });
 
-  it("keeps caps as literals, not interpolated input", () => {
-    expect(snapshotScript("interactive")).toContain("const MAX = 200;");
-    expect(snapshotScript("all")).toContain("const MAX = 400;");
+  it("passes the caps as JSON arguments, not as interpolated code", () => {
+    // These used to be spliced in as `const MAX = 200;`. They now travel in the
+    // request object, which is the same guarantee by a safer route: a cap can
+    // only ever be a number in a JSON literal, never a fragment of source.
+    expect(snapshotScript("interactive")).toContain('"max":200');
+    expect(snapshotScript("all")).toContain('"max":400');
+    expect(findScript("x")).toContain('"max":20');
   });
 });
 
@@ -91,12 +96,52 @@ describe("page-scripts template hygiene", () => {
     expect(RESOLVE_FILLABLE_JS).not.toContain("`");
   });
 
-  it("produces a self-contained IIFE for each read script", () => {
+  it("keeps the KERNEL free of backticks too", () => {
+    // Same rule, and it now matters more: the kernel's source is spliced into
+    // `browser.ts`'s template literals, so one backtick anywhere in it — a
+    // comment included — silently ends the literal it lands in.
+    expect(atlarixPageKernel.toString()).not.toContain("`");
+  });
+
+  it("produces a self-contained invocation for each read script", () => {
     for (const script of [snapshotScript("all"), findScript("submit button")]) {
-      expect(script.startsWith("(() => {")).toBe(true);
-      expect(script.trimEnd().endsWith("})()")).toBe(true);
+      // `(<kernel source>)(<json request>)` — an expression that evaluates to
+      // the result, which is what executeJavaScript returns.
+      expect(script.startsWith("(function atlarixPageKernel(")).toBe(true);
+      expect(script.trimEnd().endsWith(")")).toBe(true);
       // The ref registry must be established by the script itself, not assumed.
-      expect(script).toContain("window.__atlarixRefs");
+      expect(script).toContain("__atlarixRefs");
+    }
+  });
+
+  /**
+   * THE RULE THAT DID NOT EXIST BEFORE.
+   *
+   * While these were literal strings, a module-scope constant was interpolated
+   * at build time and the page never saw the name. Now the kernel is a function
+   * whose source is stringified, and a stringified function does NOT carry its
+   * module — so any surviving reference is a ReferenceError in the page, on
+   * whichever branch happens to touch it.
+   *
+   * A source-text check catches the untaken branches that a runtime test
+   * cannot, which is the same reason the zero-import rule above is written this
+   * way rather than as an import-graph check.
+   */
+  it("references nothing outside itself", () => {
+    const src = atlarixPageKernel.toString();
+    // Derive the module's own top-level runtime bindings rather than hard-coding
+    // them, so a constant added later is covered without editing this test.
+    const moduleBindings = [
+      ...SOURCE.matchAll(/^export (?:const|function) (\w+)/gm),
+    ]
+      .map((m) => m[1])
+      .filter((name) => name !== "atlarixPageKernel");
+    expect(moduleBindings.length).toBeGreaterThan(0);
+    for (const name of moduleBindings) {
+      expect(
+        new RegExp(`\\b${name}\\b`).test(src),
+        `kernel source references module-scope binding "${name}"`,
+      ).toBe(false);
     }
   });
 });

@@ -60,17 +60,27 @@ property, MV3 removed the one MV2 had, the extension CSP forbids `unsafe-eval`,
 and in `world: "MAIN"` an `eval()` runs under the _page's_ CSP — which GitHub,
 Google and most banks block. There is no route that executes a string here.
 
-So the shared module is being reshaped from string builders into a function
-whose `.toString()` both backends can use: the desktop keeps composing a string
-from it, and the extension hands the function itself to `executeScript` with
-JSON-serializable `args`. `src/types/chrome.d.ts` already declares exactly that
-shape. Two rules follow, and both are enforced by test:
+So the sharing happens one level up. `atlarixPageKernel` is a real **function**:
+the extension hands it straight to `executeScript` with JSON-serializable
+`args`, and the desktop splices its `.toString()` into an `executeJavaScript`
+string. One implementation, two transports, and the shapes cannot drift because
+there is only one of them. `src/types/chrome.d.ts` already declared exactly that
+shape — the typings were right while the prose was wrong.
+
+Two rules follow, and both are enforced by test:
 
 - **Zero imports**, pinned by `src/__tests__/page-scripts-portable.test.ts` —
   an `import` that is invisible on the desktop is fatal in a page realm.
 - **Zero module-scope references.** A stringified function cannot close over its
   module. This is the same rule one step further, and it is new: it did not
-  matter while the scripts were literal strings.
+  matter while the scripts were literal strings. Guarded three ways —
+  `page-scripts-portable.test.ts` derives the module's own bindings and asserts
+  none appears in the kernel source, `renderer/page-scripts-injectable.test.tsx`
+  evaluates it in global scope where those bindings do not exist, and
+  `page-scripts-bundled.test.ts` runs both real bundlers (esbuild for this
+  package, Vite/Rolldown for the desktop) and checks the output the same way.
+  The bundler settings are pinned by evidence rather than by comment: one case
+  turns `keepNames` on and asserts it **breaks**.
 
 `world: "MAIN"` is required rather than preferred — the ref registry is a WeakMap
 on `window`, and an isolated world would hand every read a fresh, empty one.
