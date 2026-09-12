@@ -14,6 +14,14 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "types": [],
+    // For `manifest.json` alone, so `auth/redirect.test.ts` can re-derive the
+    // extension id from the REAL key rather than from a copy of it. Reading it
+    // with `node:fs` would have been the obvious move and `types: []` correctly
+    // refused — a test that reaches for Node is one edit away from a source file
+    // that does. Importing it costs nothing at runtime: the manifest is data,
+    // and no source file has a reason to import it (the runtime path is
+    // `chrome.runtime.getManifest()`, which needs no permission).
+    "resolveJsonModule": true,
     "skipLibCheck": true,
     "isolatedModules": true,
     "moduleDetection": "force",
