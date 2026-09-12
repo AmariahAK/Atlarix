@@ -17,12 +17,25 @@
 
 import { detectCapabilities, missingCapabilities } from "../shared/browser-api";
 import { getSession, signIn, signOut } from "../auth/sign-in";
+import type { OAuthProvider } from "../auth/gotrue";
 
-const signInButton = document.querySelector<HTMLButtonElement>("#sign-in");
+const signedOut = document.querySelector<HTMLDivElement>("#signed-out");
+const signedIn = document.querySelector<HTMLDivElement>("#signed-in");
+const accountEmail =
+  document.querySelector<HTMLParagraphElement>("#account-email");
+const signOutButton = document.querySelector<HTMLButtonElement>("#sign-out");
 const status = document.querySelector<HTMLParagraphElement>("#status");
+const providerButtons = Array.from(
+  document.querySelectorAll<HTMLButtonElement>("[data-provider]"),
+);
 
 function setStatus(message: string): void {
   if (status) status.textContent = message;
+}
+
+function setBusy(busy: boolean): void {
+  for (const button of providerButtons) button.disabled = busy;
+  if (signOutButton) signOutButton.disabled = busy;
 }
 
 /**
@@ -41,62 +54,69 @@ function setStatus(message: string): void {
  */
 function reportCapabilities(): void {
   const missing = missingCapabilities(detectCapabilities());
-  if (missing.length > 0) {
-    setStatus(`This browser cannot support: ${missing.join(", ")}.`);
-  }
+  setStatus(
+    missing.length > 0
+      ? `This browser cannot support: ${missing.join(", ")}.`
+      : "",
+  );
 }
 
-/** Reflect the stored session in the one button this panel currently has. */
+/** Show whichever half matches the stored session — never before reading it. */
 async function render(): Promise<void> {
-  if (!signInButton) return;
   const session = await getSession();
+  if (signedOut) signedOut.hidden = Boolean(session);
+  if (signedIn) signedIn.hidden = !session;
+
   if (session) {
-    signInButton.textContent = "Sign out";
-    signInButton.dataset.action = "sign-out";
-    setStatus(
-      session.user?.email ? `Signed in as ${session.user.email}` : "Signed in.",
-    );
+    if (accountEmail) {
+      accountEmail.textContent = session.user?.email ?? session.user?.id ?? "—";
+    }
+    setStatus("");
   } else {
-    signInButton.textContent = "Sign in";
-    signInButton.dataset.action = "sign-in";
     reportCapabilities();
   }
-  signInButton.disabled = false;
+  setBusy(false);
 }
 
-signInButton?.addEventListener("click", () => {
-  if (!signInButton) return;
-  const action = signInButton.dataset.action;
+for (const button of providerButtons) {
+  button.addEventListener("click", () => {
+    const provider = button.dataset.provider as OAuthProvider | undefined;
+    if (!provider) return;
 
-  // Disable for the round trip. A second click would start a SECOND OAuth flow
-  // with its own verifier, and whichever finished last would win — so the user
-  // could end up signed in as a different account than the window they were
-  // looking at.
-  signInButton.disabled = true;
+    // Disable every provider for the round trip. A second click would start a
+    // SECOND OAuth flow with its own verifier, and whichever finished last
+    // would win — so the user could end up signed in as a different account
+    // than the window they were looking at.
+    setBusy(true);
+    setStatus("Opening sign-in…");
 
-  if (action === "sign-out") {
-    setStatus("Signing out…");
-    void signOut()
-      .then(render)
+    void signIn(provider)
+      .then(async (result) => {
+        // `render` owns the status line, so anything worth saying about the
+        // attempt has to be said AFTER it — otherwise the message is written
+        // and then immediately cleared, which looks like nothing happened.
+        await render();
+        if (result.kind === "cancelled") setStatus("Sign-in cancelled.");
+        else if (result.kind === "error") setStatus(result.message);
+      })
       .catch((err: unknown) => {
-        setStatus(String(err));
-        signInButton.disabled = false;
+        // `signIn` throws only for a pinned-id mismatch, which is a build or
+        // config fault rather than a user one — and the message says which end
+        // to fix.
+        setStatus(err instanceof Error ? err.message : String(err));
+        setBusy(false);
       });
-    return;
-  }
+  });
+}
 
-  setStatus("Opening sign-in…");
-  void signIn("google")
-    .then(async (result) => {
-      if (result.kind === "cancelled") setStatus("Sign-in cancelled.");
-      else if (result.kind === "error") setStatus(result.message);
-      await render();
-    })
+signOutButton?.addEventListener("click", () => {
+  setBusy(true);
+  setStatus("Signing out…");
+  void signOut()
+    .then(render)
     .catch((err: unknown) => {
-      // `signIn` throws only for a pinned-id mismatch, which is a build/config
-      // fault rather than a user one — and the message says which end to fix.
-      setStatus(err instanceof Error ? err.message : String(err));
-      signInButton.disabled = false;
+      setStatus(String(err));
+      setBusy(false);
     });
 });
 

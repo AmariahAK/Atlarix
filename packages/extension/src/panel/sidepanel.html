@@ -13,29 +13,101 @@
       silently-ish at load with a console violation and no rendered UI, which
       reads as a broken panel rather than as a policy decision. Everything goes
       through sidepanel.css and sidepanel.js.
+
+      Inline SVG is fine — it is markup, not script, and it means the provider
+      marks ship with the page instead of as files the CSP would also have to
+      allow.
     -->
     <link rel="stylesheet" href="sidepanel.css" />
   </head>
   <body>
     <main class="panel">
       <header class="panel__header">
+        <span class="panel__mark" aria-hidden="true"></span>
         <h1 class="panel__title">Atlarix</h1>
       </header>
 
       <section class="panel__body">
-        <p class="panel__lede">
-          Atlarix drives the browser you are already signed into.
-        </p>
         <!--
-          Starts disabled and is enabled by sidepanel.ts once it has read the
-          stored session. The label is decided there too: a panel that renders
-          "Sign in" for a moment to someone who is already signed in is the
-          three-state auth bug the launchpad's useAuth docblock records, and the
-          cheapest place not to have it is here, by never rendering a guess.
+          Both states are in the markup and toggled by sidepanel.js once it has
+          READ the stored session. Neither is rendered before then: showing
+          "Sign in" for a moment to someone already signed in is the three-state
+          auth bug the launchpad's useAuth docblock records, and the cheapest
+          place not to have it is here, by never rendering a guess.
         -->
-        <button id="sign-in" class="button" type="button" disabled>
-          Sign in
-        </button>
+        <div id="signed-out" hidden>
+          <p class="panel__lede">
+            Atlarix drives the browser you are already signed into.
+          </p>
+          <div class="providers">
+            <button
+              class="button"
+              type="button"
+              data-provider="google"
+              disabled
+            >
+              <svg
+                class="button__icon"
+                viewBox="0 0 18 18"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <path
+                  fill="#4285F4"
+                  d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62Z"
+                />
+                <path
+                  fill="#34A853"
+                  d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.81.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18Z"
+                />
+                <path
+                  fill="#FBBC05"
+                  d="M3.97 10.72a5.41 5.41 0 0 1 0-3.44V4.95H.96a9 9 0 0 0 0 8.1l3.01-2.33Z"
+                />
+                <path
+                  fill="#EA4335"
+                  d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58Z"
+                />
+              </svg>
+              Continue with Google
+            </button>
+
+            <button
+              class="button"
+              type="button"
+              data-provider="github"
+              disabled
+            >
+              <svg
+                class="button__icon"
+                viewBox="0 0 16 16"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <path
+                  fill="currentColor"
+                  d="M8 0a8 8 0 0 0-2.53 15.59c.4.07.55-.17.55-.38l-.01-1.49c-2.01.36-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.42 7.42 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48l-.01 2.19c0 .21.15.46.55.38A8 8 0 0 0 8 0Z"
+                />
+              </svg>
+              Continue with GitHub
+            </button>
+          </div>
+        </div>
+
+        <div id="signed-in" hidden>
+          <div class="account">
+            <p class="account__label">Signed in</p>
+            <p class="account__email" id="account-email"></p>
+          </div>
+          <p class="soon">
+            Chat is not here yet. This build proves the account and the page
+            layer; the agent loop, sessions and memory come next.
+          </p>
+          <button class="button button--quiet" type="button" id="sign-out">
+            Sign out
+          </button>
+        </div>
+
         <p id="status" class="panel__status" role="status"></p>
       </section>
     </main>
