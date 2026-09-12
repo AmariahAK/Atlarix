@@ -43,6 +43,36 @@ declare namespace chrome {
     function getRedirectURL(path?: string): string;
   }
 
+  /**
+   * Optional host access, requested per origin at the moment the user grants a
+   * site.
+   *
+   * THIS API NEEDS NO PERMISSION STRING of its own — only the
+   * `optional_host_permissions` entry in the manifest that says which origins
+   * may ever be asked for. Requesting rather than declaring is what keeps the
+   * install prompt free of "read your data on all websites" on an extension
+   * that will also ask for `debugger`.
+   *
+   * `request()` REQUIRES A USER GESTURE and cannot be called from the service
+   * worker, so it lives in the side panel. That is a containment property, not
+   * an inconvenience: the agent loop runs in the worker and the offscreen
+   * document, so it structurally cannot widen its own reach.
+   */
+  namespace permissions {
+    interface Permissions {
+      permissions?: string[];
+      origins?: string[];
+    }
+    function contains(permissions: Permissions): Promise<boolean>;
+    /** Resolves false when the user declines — it does not reject. */
+    function request(permissions: Permissions): Promise<boolean>;
+    function remove(permissions: Permissions): Promise<boolean>;
+    /** The user can revoke from chrome://extensions at any time. */
+    const onRemoved: {
+      addListener(cb: (permissions: Permissions) => void): void;
+    };
+  }
+
   namespace storage {
     interface StorageArea {
       get<T = Record<string, unknown>>(

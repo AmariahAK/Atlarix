@@ -18,12 +18,17 @@
 import { detectCapabilities, missingCapabilities } from "../shared/browser-api";
 import { getSession, signIn, signOut } from "../auth/sign-in";
 import type { OAuthProvider } from "../auth/gotrue";
+import { canActOn, requestHostAccess } from "../permissions/host-access";
+import { activeTab, refResolves, runInPage } from "../page/inject";
+import { MAX_ELEMENTS, type A11ySnapshot } from "@/lib/browser/page-scripts";
 
 const signedOut = document.querySelector<HTMLDivElement>("#signed-out");
 const signedIn = document.querySelector<HTMLDivElement>("#signed-in");
 const accountEmail =
   document.querySelector<HTMLParagraphElement>("#account-email");
 const signOutButton = document.querySelector<HTMLButtonElement>("#sign-out");
+const readPageButton = document.querySelector<HTMLButtonElement>("#read-page");
+const readout = document.querySelector<HTMLPreElement>("#readout");
 const status = document.querySelector<HTMLParagraphElement>("#status");
 const providerButtons = Array.from(
   document.querySelectorAll<HTMLButtonElement>("[data-provider]"),
@@ -36,6 +41,7 @@ function setStatus(message: string): void {
 function setBusy(busy: boolean): void {
   for (const button of providerButtons) button.disabled = busy;
   if (signOutButton) signOutButton.disabled = busy;
+  if (readPageButton) readPageButton.disabled = busy;
 }
 
 /**
@@ -108,6 +114,78 @@ for (const button of providerButtons) {
       });
   });
 }
+
+/**
+ * Read the active tab, then prove the ref survived.
+ *
+ * The grant happens HERE, inside the click, because `permissions.request()`
+ * needs a user gesture and cannot be called from a service worker. That is the
+ * containment: the agent loop has no path to this API, so it cannot widen its
+ * own reach no matter what a page talks it into.
+ */
+readPageButton?.addEventListener("click", () => {
+  setBusy(true);
+  setStatus("Reading…");
+  if (readout) readout.hidden = true;
+
+  void (async () => {
+    const tab = await activeTab();
+    if (!tab) {
+      setStatus("No active tab.");
+      return;
+    }
+
+    if (!(await canActOn(tab.url))) {
+      const outcome = await requestHostAccess(tab.url);
+      if (!outcome.ok) {
+        setStatus(
+          outcome.reason === "unsupported-scheme"
+            ? "Atlarix can only read http(s) pages — not browser or extension pages."
+            : "Access declined for this site.",
+        );
+        return;
+      }
+    }
+
+    const snap = await runInPage<A11ySnapshot>(tab.id, {
+      op: "snapshot",
+      filter: "interactive",
+      max: MAX_ELEMENTS,
+    });
+
+    // The Phase 1 property: a SECOND, separate call must still resolve a ref
+    // the first one minted. Two executeScript calls share nothing but the
+    // page's own window.
+    const first = snap.elements[0];
+    const survived = first ? await refResolves(tab.id, first.ref) : false;
+
+    if (readout) {
+      readout.textContent = [
+        `${snap.title || "(untitled)"}`,
+        `${snap.url}`,
+        ``,
+        `${snap.count} of ${snap.total ?? snap.count} interactive element(s)${
+          snap.truncated ? " (truncated)" : ""
+        }`,
+        ...snap.elements
+          .slice(0, 8)
+          .map((el) => `  [${el.ref}] ${el.role} ${el.name}`.trimEnd()),
+        ``,
+        first
+          ? `ref ${first.ref} re-resolved in a separate call: ${survived ? "yes" : "NO"}`
+          : `no interactive elements to re-resolve`,
+      ].join("\n");
+      readout.hidden = false;
+    }
+    setStatus("");
+  })()
+    .catch((err: unknown) => {
+      setStatus(err instanceof Error ? err.message : String(err));
+    })
+    .finally(() => {
+      setBusy(false);
+    });
+});
 
 signOutButton?.addEventListener("click", () => {
   setBusy(true);

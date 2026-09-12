@@ -40,6 +40,8 @@
 interface ExtensionApi {
   runtime: typeof chrome.runtime;
   identity: typeof chrome.identity;
+  /** Optional host access, requested per origin at grant time. */
+  permissions: typeof chrome.permissions;
   storage: typeof chrome.storage;
   tabs: typeof chrome.tabs;
   tabGroups: typeof chrome.tabGroups;

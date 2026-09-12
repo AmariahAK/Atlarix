@@ -146,6 +146,11 @@ export default defineConfig({
         test: {
           name: "extension",
           environment: "jsdom",
+          // jsdom has no `CSS` at all. The renderer project gets one for free
+          // from `@testing-library/jest-dom`; this project imports nothing, so
+          // code that correctly escapes a selector would fail here and pass in
+          // every real browser. See the file for the other jsdom gaps.
+          setupFiles: ["./vitest.extension.setup.ts"],
           testTimeout: UNIT_TEST_TIMEOUT_MS,
           hookTimeout: UNIT_TEST_TIMEOUT_MS,
           include: ["packages/extension/src/**/*.test.ts"],

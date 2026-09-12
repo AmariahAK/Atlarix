@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "description": "Drives the browser you are already signed into.",
   "minimum_chrome_version": "116",
-  "permissions": ["identity", "storage", "sidePanel"],
+  "permissions": ["identity", "storage", "sidePanel", "tabs", "scripting"],
   "optional_host_permissions": ["http://*/*", "https://*/*"],
   "background": {
     "service_worker": "background.js",

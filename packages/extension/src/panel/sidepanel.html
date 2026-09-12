@@ -99,6 +99,17 @@
             <p class="account__label">Signed in</p>
             <p class="account__email" id="account-email"></p>
           </div>
+          <!--
+            The page layer, exercised by hand until the agent loop exists. It
+            grants the active tab's origin if needed, reads it, and then
+            re-resolves a ref in a SEPARATE call — which is the property every
+            later action depends on.
+          -->
+          <button class="button" type="button" id="read-page">
+            Read this page
+          </button>
+          <pre class="readout" id="readout" hidden></pre>
+
           <p class="soon">
             Chat is not here yet. This build proves the account and the page
             layer; the agent loop, sessions and memory come next.
