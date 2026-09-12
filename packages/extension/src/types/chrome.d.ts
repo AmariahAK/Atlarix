@@ -15,6 +15,13 @@ declare namespace chrome {
     const id: string;
     const lastError: { message?: string } | undefined;
     function getURL(path: string): string;
+    /**
+     * The parsed manifest. Needs NO permission, which is what makes it usable
+     * as the ground truth for what this build asked for — `shared/browser-api.ts`
+     * cross-references it so a permission we have not requested yet is never
+     * reported to anyone as a capability their browser lacks.
+     */
+    function getManifest(): { permissions?: string[]; version?: string };
     function sendMessage<T = unknown>(message: unknown): Promise<T>;
     const onMessage: {
       addListener(

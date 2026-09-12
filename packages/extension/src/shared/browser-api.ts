@@ -98,6 +98,10 @@ export interface BrowserCapabilities {
  * Probe once, at startup. Feature detection rather than a user-agent string:
  * Edge and Brave both identify as Chrome, and a browser that GAINS an API
  * should light it up without us shipping a new allowlist.
+ *
+ * This answers only "is the namespace here". That is NOT the same question as
+ * "can this browser do it" — see `capabilityStates`, which is what callers who
+ * are about to say something to a user or a model should use.
  */
 export function detectCapabilities(): BrowserCapabilities {
   const ns = hasExtensionApi()
@@ -118,18 +122,108 @@ const REQUIRED: readonly (keyof BrowserCapabilities)[] = [
   "offscreenDocument",
 ];
 
+/** The manifest permission each capability's namespace is gated behind. */
+const PERMISSION_FOR: Record<keyof BrowserCapabilities, string> = {
+  trustedInput: "debugger",
+  tabGroups: "tabGroups",
+  offscreenDocument: "offscreen",
+  sidePanel: "sidePanel",
+};
+
 /**
- * The capabilities this browser is missing, as tool-contract terms.
+ * Why a capability is unavailable — three states, not two.
+ *
+ *   `granted`        the namespace is here and usable.
+ *   `not-requested`  THIS BUILD's manifest does not ask for the permission, so
+ *                    the namespace is absent by our own choice. Says nothing
+ *                    about the browser.
+ *   `unsupported`    we asked and the browser did not provide it. A real gap —
+ *                    Firefox, for everything but `scripting`.
+ */
+export type CapabilityState = "granted" | "not-requested" | "unsupported";
+
+/**
+ * WHY THIS EXISTS, and it is a bug this file shipped with.
+ *
+ * `chrome.debugger`, `chrome.tabGroups` and `chrome.offscreen` do not exist
+ * unless the manifest DECLARES the matching permission. So bare feature
+ * detection cannot tell a browser that cannot do something from a build that
+ * has not asked yet — and the permissions are being added one commit at a time,
+ * each with its first caller, so "has not asked yet" is the normal state for
+ * most of Phase 1.
+ *
+ * Observed 2026-09-12 on the very first unpacked load: the side panel announced
+ * "This browser is missing: trustedInput, tabGroups, offscreenDocument" on a
+ * perfectly capable Chrome. A loud degrade that says the wrong thing is worse
+ * than a silent one — it sends the reader to debug their browser.
+ *
+ * `runtime.getManifest()` needs no permission and is the ground truth for what
+ * we asked for, so the two together give an answer worth printing.
+ */
+export function capabilityStates(
+  caps: BrowserCapabilities = detectCapabilities(),
+): Record<keyof BrowserCapabilities, CapabilityState> {
+  const requested = requestedPermissions();
+  const stateOf = (key: keyof BrowserCapabilities): CapabilityState => {
+    if (caps[key]) return "granted";
+    // When the manifest is unreadable we cannot distinguish, and the safe
+    // reading is the pessimistic one: report a real gap rather than quietly
+    // excusing it as "not asked for".
+    if (requested && !requested.has(PERMISSION_FOR[key]))
+      return "not-requested";
+    return "unsupported";
+  };
+  return {
+    trustedInput: stateOf("trustedInput"),
+    tabGroups: stateOf("tabGroups"),
+    offscreenDocument: stateOf("offscreenDocument"),
+    sidePanel: stateOf("sidePanel"),
+  };
+}
+
+/** The manifest's `permissions`, or null when it cannot be read. */
+function requestedPermissions(): Set<string> | null {
+  if (!hasExtensionApi()) return null;
+  const getManifest = api().runtime?.getManifest;
+  if (typeof getManifest !== "function") return null;
+  try {
+    const permissions = getManifest().permissions;
+    return Array.isArray(permissions) ? new Set(permissions) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The capabilities this BROWSER cannot provide, as tool-contract terms.
  *
  * Used to DEGRADE LOUDLY. A `key` action on a browser without trusted input
  * must fail saying so and naming Atlarix's own browser as the way to get it —
  * never dispatch a synthetic event and report success, which is the silent
  * failure the whole design exists to avoid.
+ *
+ * Excludes anything this build simply has not requested: that is our own
+ * staging, not a limitation to report to anyone. Use `notYetRequested` if you
+ * specifically want that list.
  */
 export function missingCapabilities(
   caps: BrowserCapabilities = detectCapabilities(),
 ): (keyof BrowserCapabilities)[] {
-  return REQUIRED.filter((k) => !caps[k]);
+  const states = capabilityStates(caps);
+  return REQUIRED.filter((k) => states[k] === "unsupported");
+}
+
+/**
+ * Capabilities absent because this build's manifest does not ask for them.
+ *
+ * Expected during the staged permission rollout, and useful in a diagnostic —
+ * but never phrased to a user as something their browser lacks.
+ */
+export function notYetRequested(
+  caps: BrowserCapabilities = detectCapabilities(),
+): (keyof BrowserCapabilities)[] {
+  const states = capabilityStates(caps);
+  return REQUIRED.filter((k) => states[k] === "not-requested");
 }
 
 export function isFullySupported(

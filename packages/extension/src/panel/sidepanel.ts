@@ -30,11 +30,18 @@ function setStatus(message: string): void {
  * Degrading LOUDLY is the rule this package is built on: a missing capability
  * must say so, never be worked around with a synthetic substitute that looks
  * like it worked. See `shared/browser-api.ts` for what each one costs.
+ *
+ * LOUD IS ONLY A VIRTUE WHEN IT IS TRUE. The first version of this said "This
+ * browser is missing: trustedInput, tabGroups, offscreenDocument" on a healthy
+ * Chrome, because those namespaces do not exist until the manifest asks for the
+ * permission and this build deliberately has not yet. It sent the reader to
+ * debug their browser over our own staging. `missingCapabilities` now excludes
+ * anything merely un-requested, so silence here means there is nothing wrong.
  */
 function reportCapabilities(): void {
   const missing = missingCapabilities(detectCapabilities());
   if (missing.length > 0) {
-    setStatus(`This browser is missing: ${missing.join(", ")}.`);
+    setStatus(`This browser cannot support: ${missing.join(", ")}.`);
   }
 }
 

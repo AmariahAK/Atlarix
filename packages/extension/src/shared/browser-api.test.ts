@@ -10,18 +10,35 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   api,
+  capabilityStates,
   detectCapabilities,
   hasExtensionApi,
   isFullySupported,
   missingCapabilities,
+  notYetRequested,
   unsupportedActionMessage,
 } from "./browser-api";
 
 const g = globalThis as Record<string, unknown>;
 
+/** A `runtime` whose `getManifest` reports the given `permissions`. */
+function runtimeAsking(...permissions: string[]) {
+  return { getManifest: () => ({ permissions }) };
+}
+
+/** Everything declared — what the manifest looks like once Phase 1 is done. */
+const ALL_PERMISSIONS = runtimeAsking(
+  "identity",
+  "storage",
+  "sidePanel",
+  "debugger",
+  "tabGroups",
+  "offscreen",
+);
+
 /** What Chrome, Edge and Brave all expose — one build covers the three. */
 const CHROMIUM = {
-  runtime: {},
+  runtime: ALL_PERMISSIONS,
   storage: {},
   tabs: {},
   debugger: {},
@@ -37,7 +54,7 @@ const CHROMIUM = {
  * no `offscreen`, and `sidebarAction` in place of `sidePanel`.
  */
 const FIREFOX = {
-  runtime: {},
+  runtime: ALL_PERMISSIONS,
   storage: {},
   tabs: {},
   scripting: {},
@@ -113,6 +130,84 @@ describe("capabilities", () => {
   it("does not throw outside an extension context", () => {
     expect(() => detectCapabilities()).not.toThrow();
     expect(detectCapabilities().trustedInput).toBe(false);
+  });
+});
+
+/**
+ * The bug this file shipped with, observed on the first real unpacked load
+ * (2026-09-12): a healthy Chrome was told it was "missing: trustedInput,
+ * tabGroups, offscreenDocument".
+ *
+ * `chrome.debugger`, `chrome.tabGroups` and `chrome.offscreen` do not exist
+ * until the manifest DECLARES the permission, and this build adds them one at a
+ * time with their first caller. So bare feature detection cannot tell a browser
+ * that cannot from a build that has not asked — and it reported the wrong one.
+ * A loud degrade that says something false is worse than a quiet one: it sends
+ * the reader to debug their browser instead of reading our manifest.
+ */
+describe("not-requested is not the same as unsupported", () => {
+  /** Phase 1's actual manifest: the namespaces are absent by our own choice. */
+  const STAGED_CHROME = {
+    runtime: runtimeAsking("identity", "storage", "sidePanel"),
+    storage: {},
+    sidePanel: {},
+  };
+
+  it("says nothing is missing on a Chrome we simply have not asked yet", () => {
+    g.chrome = STAGED_CHROME;
+    expect(missingCapabilities()).toEqual([]);
+    expect(isFullySupported()).toBe(true);
+  });
+
+  it("still names them as not-requested, so a diagnostic can show the truth", () => {
+    g.chrome = STAGED_CHROME;
+    expect(notYetRequested().sort()).toEqual([
+      "offscreenDocument",
+      "tabGroups",
+      "trustedInput",
+    ]);
+    expect(capabilityStates()).toEqual({
+      trustedInput: "not-requested",
+      tabGroups: "not-requested",
+      offscreenDocument: "not-requested",
+      sidePanel: "granted",
+    });
+  });
+
+  it("still calls Firefox unsupported — it was asked and could not", () => {
+    g.browser = FIREFOX;
+    expect(capabilityStates().trustedInput).toBe("unsupported");
+    expect(notYetRequested()).toEqual([]);
+    expect(missingCapabilities().sort()).toEqual([
+      "offscreenDocument",
+      "tabGroups",
+      "trustedInput",
+    ]);
+  });
+
+  it("reports a real gap when the manifest cannot be read", () => {
+    // No `getManifest` means the two cases are indistinguishable, and the safe
+    // reading is the pessimistic one — never quietly excuse a genuine gap as
+    // "we did not ask for it".
+    g.chrome = { runtime: {}, storage: {} };
+    expect(capabilityStates().trustedInput).toBe("unsupported");
+    expect(missingCapabilities()).toContain("trustedInput");
+  });
+
+  it("survives a getManifest that throws or returns no permissions", () => {
+    g.chrome = {
+      runtime: {
+        getManifest: () => {
+          throw new Error("nope");
+        },
+      },
+    };
+    expect(() => capabilityStates()).not.toThrow();
+    expect(capabilityStates().tabGroups).toBe("unsupported");
+
+    delete g.chrome;
+    g.chrome = { runtime: { getManifest: () => ({}) } };
+    expect(capabilityStates().tabGroups).toBe("unsupported");
   });
 });
 
