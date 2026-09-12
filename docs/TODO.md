@@ -389,7 +389,7 @@ A feature reachable only from a discouraged path is rarely seen and still wired.
 not the same as unreachable_ — this is the same reachability-not-presence rule the Dyad-era removal
 ran on.
 
-## 🧩 Browser extension — IN PROGRESS (started 2026-09-11)
+## 🧩 NEXT SESSION — the browser extension (owner, 2026-09-12: extension FIRST, CLOSED source)
 
 **Phases 0 and part of 1 are on `dev`.** What is DONE, so nobody redoes it:
 
@@ -411,6 +411,94 @@ ran on.
 content-script transport, `chrome.debugger` trusted input with detach handling, and the
 tab-group manager. Then Phase 2 (loop, sessions, memory, skills), Phase 3 (desktop
 bridge + `target` param), Phase 4 (Supabase, launchpad, docs, store).
+
+**Start here next session, in this order:**
+
+1. **The manifest and the build** — nothing else can be loaded in a browser until this
+   exists, and the manifest `key` must be pinned in the same commit so the extension id is
+   stable from the very first unpacked load. The id is an input to the Supabase redirect
+   allowlist, so choosing it late means redoing the auth config.
+2. **`chrome.identity` PKCE auth**, modelled on the launchpad's client, NOT the desktop's
+   `atlarix://` deep link. Add the redirect URL to Supabase byte-identically and pin it with
+   a test the way `oauth-redirect-allowlist-match.test.ts` already does for the desktop.
+3. **The content-script transport** — run the extracted page scripts against a real tab and
+   prove a ref minted by a read resolves on a later, separate call. That is the whole "one
+   contract" claim, and it is the first thing that can be demonstrated end to end.
+4. **`chrome.debugger` input + the tab-group manager**, which depend on 1-3.
+
+**Do the `X-Atlarix-Surface` ledger label BEFORE any Core dispatch ships** — see the
+shared-wallet section. A ledger row cannot be re-attributed later, so the first month of
+extension spend would be permanently indistinguishable from the app's.
+
+### Open source: ASKED AND SETTLED — it stays CLOSED (owner, 2026-09-12)
+
+The question was put properly and the numbers were measured, so it does not need asking
+again. Recording both sides because the case FOR was genuinely strong and a future session
+will otherwise rediscover it and reopen the decision.
+
+**What made it tempting.** Open-sourcing the extension would expose almost nothing
+proprietary, unlike the CLI:
+
+|                                                                                    | lines exposed                                                                                                          |
+| ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| **CLI** — `src/headless` is 1,130 lines of DRIVER over the engine                  | **~36,500** (tools 17,415 · chat_stream 9,142 · agents 5,605 · context 2,558 · sandbox 1,120 · prompts 688)            |
+| **Extension** — runs its OWN thin loop, the desktop one being fatally Node-coupled | **1,183** (page-scripts 300 · native-history 524 · mid-loop-threshold 177 · stop-sentinels 134 · compaction-marker 48) |
+
+Roughly a 30x difference, and the extension ships none of the tool surface, the prompts,
+the sandbox or the loop. Three further arguments held up: an extension is **already
+readable** (a CRX is a zip of JavaScript, so closed buys almost no real secrecy for this
+artifact class); trust is this surface's binding constraint in a way it never is for a CLI,
+since it asks for `<all_urls>` plus `chrome.debugger` and reads pages you are logged into;
+and "open-source alternative to Claude in Chrome" is a sharper hook than another coding CLI.
+
+**Why it is closed anyway.** The same self-containment that makes it safe to publish makes
+it **forkable as a complete product**. A CLI fork is useless without ~36,500 lines you did
+not publish; an extension fork needs nothing. Someone rebrands it, adds the BYOK path we
+deliberately omitted to make this a paid product, and gives away free exactly what we
+meter. Licence choice (AGPL / source-available) was identified as the lever if this is ever
+revisited — "open source" would not have to mean MIT.
+
+**Consequences of closed, both of them good for now:**
+
+- **It stays in `Atlarix/packages/extension`.** A separate repo was the right structure ONLY
+  to make publishing possible. Co-located, the page scripts are shared by import rather than
+  by a published `@atlarix/browser-protocol` package, and **the bridge protocol needs no
+  version negotiation** — both sides change in one commit. That was the real bill for
+  separation and we are not paying it.
+- **It is still a one-way door, and it is still open.** Nothing here forecloses publishing
+  later; the reverse is not true.
+
+### Auth and billing: NOT the problem — verified 2026-09-12
+
+The worry was that the extension would not fit the existing OAuth and payment systems. It
+fits better than the desktop does.
+
+- **Payments need ZERO new code.** `src/lib/lemonsqueezy.ts` documents it: the checkout is
+  created SERVER-SIDE by the `create-checkout` Supabase edge function, the LemonSqueezy API
+  key lives only there, and `custom_data.supabase_user_id` comes from the **caller's verified
+  JWT**. The client just invokes the function and opens the returned URL. The extension is
+  the same authenticated Supabase client, and `_shared/auth.ts` already sends
+  `Access-Control-Allow-Origin: *` with an `OPTIONS` handler, so a browser origin works
+  untouched. **Nice property that falls out of that design:** because the user id comes from
+  the verified JWT, a FORK calling that function can only create a checkout for its own
+  logged-in user, paying us and crediting that user's wallet. Revenue cannot be diverted
+  through this path.
+- **OAuth needs one dashboard entry, not code.** Add
+  `https://<extension-id>.chromiumapp.org/` to Supabase Redirect URLs, byte-identically, and
+  pin the id with a manifest `key` so unpacked and Web Store builds share it. Same project,
+  same users table, the launchpad's PKCE flow rather than the desktop's `atlarix://` one.
+  The trap is the recorded one: GoTrue falls back to Site URL **silently** on a mismatch.
+
+**The real negatives, so effort goes to the right place:**
+
+1. **The session sits unencrypted.** The desktop encrypts it with Electron `safeStorage`;
+   `chrome.storage.local` is plain LevelDB, so a refresh token is readable by any local
+   process running as the user. Inherent to the platform, not to any decision above, and the
+   one genuinely worth losing sleep over.
+2. **Web Store review gates the release cadence** — days, not minutes. This is WHY the bridge
+   protocol must be additive-only and the desktop must tolerate an older extension forever,
+   even though both live in one repo.
+3. **Forkability** — see the open-source record above.
 
 ### Decisions taken 2026-09-11 — do not re-litigate
 
@@ -820,11 +908,11 @@ session. Otherwise the fake `atlarix-headless` user passes the local gate and fa
 against the proxy's `jose` verification — a confusing failure deep in dispatch instead of a
 clear "log in first" at the top.
 
-## 🖥️ NEXT SESSION — the CLI (decided 2026-09-11)
+## 🖥️ QUEUED AFTER THE EXTENSION — the CLI (brief written 2026-09-11)
 
-**The extension is paused, not cancelled.** Phase 0 and the permission model are
-committed and lose nothing by waiting. The CLI goes first because it is ~80% built,
-not because reach beats volume in the abstract.
+**Superseded on ordering 2026-09-12 — the EXTENSION goes first.** Everything below
+stands as the CLI brief; only its position in the queue changed. The CLI remains the
+cheaper build (~80% done, name held on npm), so none of this expires.
 
 **What already exists.** `atlarix` is published on npm (v14.45.0, PROPRIETARY,
 `packages/headless`), driving the REAL agent loop through a 140-line Electron stub —
@@ -942,11 +1030,12 @@ Rewritten 2026-09-10. The 2026-09-09 handoff list is fully discharged: v14.45 is
 released, the launchpad login fix shipped (`08b4f9d`), and **telemetry + Harbor are
 DONE per the owner** — both sections deleted rather than ticked.
 
-1. **The CLI** — see its section above. TUI + loopback-PKCE auth + billing over the
-   headless binary that already ships. This is next session's work.
-2. **Browser extension** — PAUSED, not cancelled. Phase 0 and the permission model are
-   committed on `dev`; its section lists what is done, what is owed, and the decisions
-   taken 2026-09-11. Resume at Phase 1's manifest + PKCE auth.
+1. **Browser extension** — NEXT. Phase 0 and the permission model are committed on
+   `dev`; resume at Phase 1's manifest, `chrome.identity` PKCE auth, the content-script
+   transport, `chrome.debugger` input and the tab-group manager. **Closed source, and it
+   stays in `Atlarix/packages/extension`** — see the decision record in its section.
+2. **The CLI** — queued after it. TUI + loopback-PKCE auth + billing over the headless
+   binary that already ships; the full brief is written and does not expire.
 3. **CI must resolve the win32 + linux TypeScript 7 platform binaries.** Only
    darwin-arm64 is proven. The last open verification item.
 
