@@ -55,7 +55,7 @@ import {
   type ToolCall,
 } from "../core/client";
 import { runTurn } from "../agent/loop";
-import type { Approval } from "../tools/dispatch";
+import { clearDrivenTabs, type Approval } from "../tools/dispatch";
 import { buildSystemPrompt } from "../agent/prompt";
 import { forget, forgetAll, listMemories } from "../memory/store";
 import {
@@ -681,6 +681,10 @@ async function send(): Promise<void> {
     append(errorBubble(err instanceof Error ? err.message : String(err)));
   } finally {
     setRunning(false);
+    // However the turn ended — finished, stopped, or failed. A green border
+    // left on a page after the agent has stopped is a lie about what is
+    // happening, and that kind of lie makes the honest version untrustworthy.
+    void clearDrivenTabs();
     void setGroupTitle(windowId, "Atlarix");
     void nameConversation(model);
     void refreshDrawer();

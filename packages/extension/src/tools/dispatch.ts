@@ -282,6 +282,7 @@ async function readPage(args: Record<string, unknown>): Promise<ToolOutcome> {
   const denied = await requireAccess(tab.url);
   if (denied) return denied;
 
+  await markDriven(tab.id);
   const filter = args.filter === "all" ? "all" : "interactive";
   const snap = await runInPage<A11ySnapshot>(tab.id, {
     op: "snapshot",
@@ -310,6 +311,7 @@ async function findOnPage(args: Record<string, unknown>): Promise<ToolOutcome> {
   const denied = await requireAccess(tab.url);
   if (denied) return denied;
 
+  await markDriven(tab.id);
   const res = await runInPage<A11yFindResult>(tab.id, {
     op: "find",
     query,
@@ -471,6 +473,56 @@ async function closeTab(args: Record<string, unknown>): Promise<ToolOutcome> {
  */
 const CURSOR_PAUSE_MS = 240;
 
+/**
+ * Tabs this turn has touched, so the frame can be taken down again.
+ *
+ * MODULE STATE, and it has to be: the panel ends the turn and the dispatcher is
+ * what knows which tabs were involved. A tab that closes mid-turn simply fails
+ * its take-down, which is why that path swallows.
+ */
+const marked = new Set<number>();
+
+/**
+ * Assert the "this tab is being driven" frame.
+ *
+ * RE-ASSERTED ON EVERY ACTION rather than once per tab, because a navigation
+ * destroys the overlay along with the rest of the document — and a click that
+ * follows a link is the single most likely thing to happen in a driven tab. The
+ * op is idempotent, so re-asserting costs one cheap injection.
+ *
+ * Best-effort throughout: failing to DECORATE a page must never fail the action
+ * that was about to happen on it.
+ */
+async function markDriven(tabId: number): Promise<void> {
+  marked.add(tabId);
+  try {
+    await runInPage(tabId, { op: "overlay", state: "on" });
+  } catch {
+    /* a restricted or vanished page; the action itself will report properly */
+  }
+}
+
+/**
+ * Take every frame down. Called when the turn ends, however it ended.
+ *
+ * INCLUDING ON AN ABORT AND ON AN ERROR. A green border left on a page after
+ * the agent has stopped is a lie about what is happening, and it is the kind of
+ * lie that makes the honest version untrustworthy.
+ */
+export async function clearDrivenTabs(): Promise<void> {
+  const tabs = [...marked];
+  marked.clear();
+  await Promise.all(
+    tabs.map(async (tabId) => {
+      try {
+        await runInPage(tabId, { op: "overlay", state: "off" });
+      } catch {
+        /* closed, navigated away, or never granted — nothing to take down */
+      }
+    }),
+  );
+}
+
 async function resolveForAction(
   action: AgentAction,
   args: Record<string, unknown>,
@@ -603,6 +655,7 @@ async function scrollPage(args: Record<string, unknown>): Promise<ToolOutcome> {
   const denied = await requireAccess(tab.url);
   if (denied) return denied;
 
+  await markDriven(tab.id);
   const result = await runInPage<PageActionResult>(tab.id, {
     op: "scroll",
     direction,
@@ -657,6 +710,7 @@ async function requireAgentTab(
   }
   const denied = await requireAccess(tab.url);
   if (denied) return { ok: false, outcome: denied };
+  await markDriven(tab.id);
   return { ok: true, tab };
 }
 

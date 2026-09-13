@@ -195,6 +195,15 @@ export type PageRequest =
     }
   | { op: "click"; ref?: string; selector?: string }
   | { op: "fill"; ref?: string; selector?: string; value: string | boolean }
+  /**
+   * Mark this whole TAB as being driven, or stop marking it.
+   *
+   * Distinct from the cursor, which says "something is happening HERE, now".
+   * This says "this page is under an agent's control" and stays up between
+   * actions — which is the claim a user actually needs while a turn is running
+   * in a tab they are looking at.
+   */
+  | { op: "overlay"; state: "on" | "off"; label?: string }
   | {
       op: "scroll";
       direction: "up" | "down" | "top" | "bottom";
@@ -661,7 +670,7 @@ export function atlarixPageKernel(
       fire(el, "change");
     } else if (
       // The PROPERTY and the ATTRIBUTE, because they disagree in cases that
-      // matter. `isContentEditable` is computed from rendering, so it reads
+      // matter. The isContentEditable PROPERTY is computed from rendering, so it reads
       // false for an element that is detached or inside a hidden subtree even
       // when the author explicitly set the attribute — and false here falls
       // through to the native value setter, which throws on a div. (It is also
@@ -703,6 +712,67 @@ export function atlarixPageKernel(
       target: targetOf(el),
       url: location.href,
     };
+  }
+
+  // ── The active-tab frame ──────────────────────────────────────────────────
+  //
+  // A BORDER ROUND THE VIEWPORT, and it is deliberately not subtle. An agent
+  // reading and filling a page it shares with the user is the one thing in this
+  // product that most needs to be obvious, and a pointer alone does not do it:
+  // the pointer says "something is happening here, now", while this says "this
+  // page is under an agent's control" and stays up between actions.
+  //
+  // Same singleton container as the cursor, so a page never accumulates
+  // overlays, and torn down naturally by a navigation — which is why the caller
+  // re-asserts it on every action rather than once per turn.
+  if (req.op === "overlay") {
+    try {
+      const FRAME_ID = "__atlarix_ai_frame__";
+      const existing = document.getElementById(FRAME_ID);
+      if (req.state === "off") {
+        if (existing) existing.remove();
+        return { ok: true, url: location.href };
+      }
+      if (!existing) {
+        const frame = document.createElement("div");
+        frame.id = FRAME_ID;
+        // CSS inset rather than width/height: a bordered box sized 100% would be
+        // wider than the viewport and add a scrollbar to every page it touched.
+        frame.style.cssText =
+          "position:fixed;inset:0;pointer-events:none;z-index:2147483646;" +
+          "border:3px solid #34d399;border-radius:4px;" +
+          "box-shadow:inset 0 0 0 1px rgba(6,78,59,.55),inset 0 0 22px rgba(52,211,153,.18);" +
+          "opacity:0;transition:opacity .2s ease;";
+
+        const tag = document.createElement("div");
+        tag.setAttribute("data-part", "frame-label");
+        // Top-CENTRE, because the corners are where sites put their own
+        // floating chrome — cookie banners, chat widgets, back-to-top buttons.
+        tag.style.cssText =
+          "position:fixed;top:0;left:50%;transform:translateX(-50%);" +
+          "padding:3px 10px 4px;border-radius:0 0 8px 8px;background:#34d399;" +
+          "color:#052e21;font:600 11px/1.4 ui-sans-serif,system-ui,sans-serif;" +
+          "white-space:nowrap;pointer-events:none;letter-spacing:.01em;" +
+          "box-shadow:0 1px 6px rgba(0,0,0,.35);";
+        frame.appendChild(tag);
+        document.body.appendChild(frame);
+        requestAnimationFrame(function () {
+          frame.style.opacity = "1";
+        });
+      }
+      const label = document.querySelector(
+        "#" + FRAME_ID + ' [data-part="frame-label"]',
+      );
+      if (label) {
+        label.textContent = String(req.label || "Atlarix is using this tab").slice(
+          0,
+          60,
+        );
+      }
+    } catch {
+      /* Never let the marker fail the turn it is marking. */
+    }
+    return { ok: true, url: location.href };
   }
 
   if (req.op === "scroll") {

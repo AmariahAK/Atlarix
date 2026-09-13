@@ -599,62 +599,64 @@ derived one, reading as a bug in the generator.
 
 **5. THERE ARE NO SUB-AGENTS, and the model said so correctly.** Owner asked for one and
 got an honest "I do not have a sub-agent tool, but I can do the equivalent myself", which is
-the right behaviour for a capability that does not exist. **OPEN DECISION, not a bug** — see
-below.
+the right behaviour for a capability that does not exist. **DECIDED 2026-09-13: dropped** —
+see below.
 
-### Sub-agents in the extension — OPEN, owner decision
+### Sub-agents in the extension — DROPPED, owner decision 2026-09-13
 
-The desktop has them (`run-subagent.ts`). The extension does not, and adding them is a real
-choice rather than an oversight:
+**Do not build them. Do not re-propose them.** Asked, considered, and closed.
 
-- **For:** the owner expected one, parallel reads across tabs is the natural browser
-  shape, and the loop is already re-entrant enough that a nested `runTurn` with its own
-  message list and a restricted tool set is not much code.
-- **Against:** every sub-agent is a second metered conversation the user did not explicitly
-  authorise, on a surface where one tab read is already tens of kilobytes of context. The
-  desktop's version exists because a coding task fans out over a repo; a browser task
-  usually does not.
+The deciding fact, checked rather than assumed: **Claude in Chrome does not have sub-agents
+either.** Sub-agents are a Claude Code feature — the `Task` tool, a full instance with its
+own context window — and the multi-agent browser workflows that get written up are Claude
+Code DRIVING the extension, not the extension spawning anything. The reference product
+draws the line in the same place.
 
-Do not build it on the strength of one request. Decide it deliberately.
+The reasoning that matches ours: a sub-agent is a second metered conversation the user did
+not explicitly authorise, on a surface where ONE page read is already tens of kilobytes of
+context. The desktop has them because a coding task fans out over a repo; a browsing task
+does not. When a user asks for one, the honest answer — which the model already gives
+unprompted — is that it can open a second tab and pursue the thread there, which is the
+same result without a second wallet.
 
-### Second run — the AI cursor moves into the kernel, 2026-09-13
+**Sources:** anthropic.com/news/claude-for-chrome, support.claude.com "Get started with
+Claude in Chrome".
 
-Owner drove it through a real form fill on httpbin. It worked. Four findings.
+### The driven-tab frame — DONE 2026-09-13
 
-**1. NOTHING WAS EVER NAMED, and the cause is a good lesson.** `generateTitle`
-capped output at 32 tokens on the reasoning that a title is short. **Core 1 is GLM 5.3, a
-REASONING model**: it spends output tokens thinking before it writes a single character of
-answer, so the cap was consumed entirely by the thinking, the response truncated before
-`content` began, and the caller got an empty string — silently, because an unnamed
-conversation is not an error. "Small answer, small cap" is exactly backwards on a reasoning
-model: the cap must cover the thinking the answer comes AFTER. Now 512, a fraction of a
-cent. Second bug in the same function: `named.add(id)` ran BEFORE the call, so one failure
-left a conversation unnamed forever — and when the failure was systematic, that meant every
-conversation.
+Owner: "when Claude does a browser use, the tab you use has an ORANGE OUTLINE to represent
+Claude, and an orange cursor." We had the cursor as of this session and not the outline.
 
-**2. THE PAGE FILLED ITSELF IN SILENCE.** The desktop draws an emerald pointer, ring and
-label on every action; the extension drew nothing, so a form in the user's own browser
-completed itself with no indication of what was happening or where. **The cursor moved INTO
-THE SHARED KERNEL** as an option on `resolve` — the rect it needs is exactly what `resolve`
-already computes. Both surfaces now draw the same one from the same code, and
-`AI_CURSOR_AT_RECT_JS` is deleted. The extension pauses 240ms after drawing, because draw
-and act in the same frame means the user sees a filled form and, maybe, a flicker.
-Everything about the drawing is best-effort: a hostile CSP or a detached body must never
-turn a working action into a failed one.
+`{op:"overlay", state:"on"|"off"}` in the shared kernel draws a 3px emerald border around
+the VIEWPORT with a label chip at top-centre. **It is a different claim from the cursor and
+both are needed**: the cursor says "something is happening HERE, now" and vanishes between
+actions; the frame says "this page is under an agent's control" and stays up for the turn.
+An agent reading and filling a page the user is also looking at is the one thing in this
+product that most needs to be unmissable.
 
-**3. THE TRANSCRIPT DRAGGED ITSELF BACK DOWN.** Scroll-following measured `atBottom()` at
-append time — but a streamed answer re-renders its whole bubble on every delta, and each
-re-render changes `scrollHeight` between the measurement and the write. Now a LATCH set by
-the user's own `scroll` events: scroll up once and you stay there until you deliberately
-return to the bottom.
+Three details that are not arbitrary:
 
-**4. NO WAY TO EDIT A SENT MESSAGE.** Added, and **it is a REWIND, not a patch**:
-everything after the edited message was a response to the old wording — tool results the
-model asked for because of it, answers that quoted it — so keeping any of it leaves the
-model reading an exchange that never happened. `rewindToUserMessage` counts USER messages
-and cuts at the whole-transcript index, which is what keeps a question together with its
-tool traffic. The cut happens on SEND rather than on Edit, so changing your mind costs
-nothing, and Escape abandons it.
+- **CSS `inset`, never a 100% box.** A bordered element sized 100% of the viewport is WIDER
+  than the viewport and would put a horizontal scrollbar on every page the agent touched.
+- **Top-CENTRE label.** The corners are where sites put their own floating chrome — cookie
+  banners, chat widgets, back-to-top buttons.
+- **Re-asserted on EVERY action, not once per tab.** A navigation destroys the overlay with
+  the rest of the document, and a click that follows a link is the likeliest thing to happen
+  in a driven tab. The op is idempotent, so re-asserting costs one cheap injection.
+
+Taken down in the panel's `finally` — however the turn ended, including an abort and an
+error. **A green border left up after the agent has stopped is a lie about what is
+happening, and that kind of lie makes the honest version untrustworthy.**
+
+### UI: MCP + skills — OPEN, owner wants to discuss first (2026-09-13)
+
+Owner's observation: Claude's extension UI "has MCPs and skills and a proper session UI",
+and his instinct is **not to force that into the side panel** — instead to build it into
+the launchpad's account area, where managing MCP servers and skills sits beside managing the
+account. **Nothing decided. Do not build either surface until this is settled.** The
+argument for the launchpad is that a 320px panel is the worst place to manage a list, and
+the launchpad already authenticates the same user; the argument against is that a setting
+you change on a website and use in a browser extension is two places to keep in step.
 
 ### Phase 3a — the extension can ACT. DONE 2026-09-13.
 

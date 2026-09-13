@@ -386,3 +386,80 @@ describe("the AI cursor", () => {
     }
   });
 });
+
+/**
+ * The "this tab is being driven" frame.
+ *
+ * DISTINCT FROM THE CURSOR, and the distinction is the point. The cursor says
+ * "something is happening HERE, now"; the frame says "this page is under an
+ * agent's control" and stays up between actions. An agent reading and filling a
+ * page the user is also looking at is the one thing in this product that most
+ * needs to be unmissable.
+ */
+describe("the active-tab frame", () => {
+  const FRAME = "#__atlarix_ai_frame__";
+
+  it("draws a bordered frame with a label", () => {
+    act({ op: "overlay", state: "on" });
+    const frame = document.querySelector<HTMLElement>(FRAME);
+    expect(frame).not.toBeNull();
+    // jsdom normalises the hex to rgb(), so assert on the computed colour —
+    // which is the emerald the rest of the product uses.
+    expect(frame?.style.border).toContain("rgb(52, 211, 153)");
+    expect(
+      frame?.querySelector('[data-part="frame-label"]')?.textContent,
+    ).toContain("Atlarix");
+  });
+
+  it("uses inset rather than a 100% box, which would add a scrollbar", () => {
+    // A bordered element sized 100% of the viewport is WIDER than the viewport.
+    // It would put a horizontal scrollbar on every page the agent touched.
+    act({ op: "overlay", state: "on" });
+    const frame = document.querySelector<HTMLElement>(FRAME);
+    expect(frame?.style.inset).toBe("0px");
+    expect(frame?.style.width).toBe("");
+    expect(frame?.style.height).toBe("");
+  });
+
+  it("never intercepts anything on the page beneath it", () => {
+    act({ op: "overlay", state: "on" });
+    expect(
+      document.querySelector<HTMLElement>(FRAME)?.style.pointerEvents,
+    ).toBe("none");
+  });
+
+  it("is idempotent, so re-asserting after a navigation costs one injection", () => {
+    // Re-asserted on EVERY action rather than once per tab: a navigation
+    // destroys the overlay with the rest of the document, and a click that
+    // follows a link is the likeliest thing to happen in a driven tab.
+    act({ op: "overlay", state: "on" });
+    act({ op: "overlay", state: "on" });
+    expect(document.querySelectorAll(FRAME)).toHaveLength(1);
+  });
+
+  it("comes down again", () => {
+    // A green border left up after the agent has stopped is a lie about what is
+    // happening, and that kind of lie makes the honest version untrustworthy.
+    act({ op: "overlay", state: "on" });
+    act({ op: "overlay", state: "off" });
+    expect(document.querySelector(FRAME)).toBeNull();
+  });
+
+  it("taking down a frame that was never up is not an error", () => {
+    expect(act({ op: "overlay", state: "off" }).ok).toBe(true);
+  });
+
+  it("truncates a long label rather than stretching across the page", () => {
+    act({ op: "overlay", state: "on", label: "x".repeat(200) });
+    const label = document.querySelector(`${FRAME} [data-part="frame-label"]`);
+    expect(label?.textContent?.length).toBeLessThanOrEqual(60);
+  });
+
+  it("is a SEPARATE element from the cursor, so one can outlive the other", () => {
+    document.body.innerHTML = `<button>Go</button>`;
+    act({ op: "overlay", state: "on" });
+    act({ op: "resolve", selector: "button", cursor: "click" });
+    expect(document.querySelector(FRAME)).not.toBeNull();
+    expect(document.querySelector("#__atlarix_ai_cursor__")).not.toBeNull();
+  });
+});
