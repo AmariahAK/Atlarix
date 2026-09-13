@@ -32,7 +32,7 @@
  * layer down, and for the same reason.
  */
 
-import type { CoreMessage } from "../core/client";
+import { userText, type CoreMessage } from "../core/client";
 import { api } from "../shared/browser-api";
 
 const archiveKey = (id: string) => `atlarix.archive.${id}.v1`;
@@ -89,7 +89,8 @@ export function entriesFor(messages: CoreMessage[]): ArchiveEntry[] {
   const out: ArchiveEntry[] = [];
   for (const m of messages) {
     if (m.role === "user") {
-      if (m.content.trim()) out.push({ role: "user", text: m.content, at });
+      const text = userText(m.content);
+      if (text.trim()) out.push({ role: "user", text, at });
     } else if (m.role === "assistant") {
       if (m.content?.trim())
         out.push({ role: "assistant", text: m.content, at });

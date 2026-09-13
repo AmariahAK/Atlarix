@@ -39,7 +39,7 @@
 import { GOTRUE } from "../auth/config";
 import { getAccessToken } from "../auth/sign-in";
 import { getSession } from "../auth/sign-in";
-import type { CoreMessage } from "../core/client";
+import { userText, type CoreMessage } from "../core/client";
 import { isCompactionMarker, markerBody } from "../context/compact";
 
 /** Mirrors the `role` CHECK on `conversation_messages`. */
@@ -81,8 +81,12 @@ export function syncableRows(
       return;
     }
     if (m.role === "user") {
-      if (m.content.trim()) {
-        out.push({ role: "user", content: m.content.slice(0, MAX_SAID_CHARS), seq });
+      // `userText` collapses an attachment to its NAME. The bytes of a file the
+      // user attached are exactly as private as a page the agent read, and the
+      // egress rule does not have an exception for things the user chose.
+      const text = userText(m.content);
+      if (text.trim()) {
+        out.push({ role: "user", content: text.slice(0, MAX_SAID_CHARS), seq });
       }
       return;
     }

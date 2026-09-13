@@ -88,8 +88,13 @@ function isMessage(value: unknown): value is CoreMessage {
   const m = value as Record<string, unknown>;
   switch (m.role) {
     case "system":
-    case "user":
       return typeof m.content === "string";
+    case "user":
+      // A parts array is as valid as a string. Without this branch, a message
+      // with an attachment fails validation on read-back and the conversation
+      // silently loses the turn it was asked about — the one case where the
+      // user can SEE that something vanished.
+      return typeof m.content === "string" || Array.isArray(m.content);
     case "assistant":
       return typeof m.content === "string" || m.content === null;
     case "tool":

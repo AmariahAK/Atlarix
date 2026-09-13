@@ -165,9 +165,27 @@
             placeholder="Ask about this page…"
             enterkeyhint="send"
           ></textarea>
+          <!-- Attached files, as chips above the controls. -->
+          <div class="attachments" id="attachments" hidden></div>
           <div class="composer__row">
             <label class="visually-hidden" for="model-select">Model</label>
             <select class="composer__model" id="model-select"></select>
+            <button
+              class="composer__attach"
+              type="button"
+              id="attach"
+              title="Attach a file"
+              aria-label="Attach a file"
+            >
+              +
+            </button>
+            <input
+              class="visually-hidden"
+              type="file"
+              id="attach-input"
+              multiple
+              accept=".txt,.md,.csv,.tsv,.json,.yaml,.yml,.log,.xml,.html,.css,.js,.ts,.py,.rb,.go,.rs,.java,.sql,.pdf,image/*,text/*"
+            />
             <button class="composer__send" type="button" id="send">Send</button>
             <button
               class="composer__send composer__send--stop"

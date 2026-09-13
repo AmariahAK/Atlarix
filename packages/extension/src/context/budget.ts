@@ -22,7 +22,7 @@
  * against this one.
  */
 
-import type { CoreMessage } from "../core/client";
+import { userText, type CoreMessage } from "../core/client";
 
 /**
  * The fallback ratio, for a model nothing has been measured for yet.
@@ -144,7 +144,14 @@ export function assertBudgetsFitWithin(
  */
 export function messageText(message: CoreMessage): string {
   const parts: string[] = [];
-  if (typeof message.content === "string") parts.push(message.content);
+  if (message.role === "user") {
+    // `userText`, NOT a string check. A parts message would read as empty, and a
+    // conversation carrying attachments would report as smaller than an empty
+    // one — silently, because nothing type-checks a wrong number.
+    parts.push(userText(message.content));
+  } else if (typeof message.content === "string") {
+    parts.push(message.content);
+  }
   if (message.role === "assistant") {
     for (const call of message.tool_calls ?? []) {
       parts.push(call.function.name, call.function.arguments);

@@ -49,15 +49,70 @@ export interface CoreModel {
   inputModalities: string[];
 }
 
+/**
+ * One piece of a multimodal user message.
+ *
+ * THE OPENAI CONTENT-PARTS SHAPE, which is what the proxy forwards untouched —
+ * it never rewrites `body.messages`, and its `/v1/responses` path already maps
+ * `image_url` to `input_image`. So the extension speaks the same dialect the
+ * desktop does and nothing in the middle has to learn a third one.
+ *
+ * `file` carries a PDF as a data URL. It is gated separately from images on
+ * purpose: seeing an image and accepting a document are separate capabilities in
+ * every catalog that reports both, and a model with vision routinely rejects a
+ * document part.
+ */
+export type ContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } }
+  | { type: "file"; file: { filename: string; file_data: string } };
+
 /** A turn's worth of conversation, in the shape the proxy forwards. */
 export type CoreMessage =
-  | { role: "system" | "user"; content: string }
+  | { role: "system"; content: string }
+  /**
+   * A string for an ordinary message; parts when something is attached.
+   *
+   * BOTH SHAPES STAY LEGAL rather than normalising everything to parts. A plain
+   * question is the overwhelming majority of messages, every existing stored
+   * transcript holds strings, and a migration that rewrote them all would be a
+   * lot of risk for a uniformity nobody benefits from.
+   */
+  | { role: "user"; content: string | ContentPart[] }
   | {
       role: "assistant";
       content: string | null;
       tool_calls?: ToolCall[];
     }
   | { role: "tool"; tool_call_id: string; content: string };
+
+/**
+ * The readable text of a user message, whichever shape it is in.
+ *
+ * ONE HELPER, USED EVERYWHERE, because the alternative is six places each
+ * deciding what a parts array means — and five of them getting it right. The
+ * one that does not is `messageText` in the budget, where a `typeof content ===
+ * "string"` check returns an empty string for a parts message: the context bar
+ * would report a conversation carrying five megabytes of images as empty.
+ *
+ * An image and a document contribute their NAME, not their bytes. A data URL is
+ * base64 and is not text the model reads as text; counting its length as
+ * characters would overstate a small image by an order of magnitude. Their real
+ * token cost is charged by the provider, and the usage anchor is what accounts
+ * for it — see `context/calibration.ts`.
+ */
+export function userText(content: string | ContentPart[]): string {
+  if (typeof content === "string") return content;
+  return content
+    .map((part) =>
+      part.type === "text"
+        ? part.text
+        : part.type === "file"
+          ? `[attached ${part.file.filename}]`
+          : "[attached image]",
+    )
+    .join("\n");
+}
 
 export interface ToolCall {
   id: string;

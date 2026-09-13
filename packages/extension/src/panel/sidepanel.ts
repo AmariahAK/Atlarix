@@ -51,6 +51,8 @@ import { onGroupClosed, setGroupTitle } from "../tabs/group";
 import {
   CoreError,
   listModels,
+  userText,
+  type ContentPart,
   type CoreMessage,
   type CoreModel,
   type ToolCall,
@@ -77,6 +79,13 @@ import {
 import { deleteRemoteConversation, pushConversation } from "../sessions/sync";
 import { renderMarkdown } from "./markdown";
 import { chooseModel, optionsFor, shortModelName } from "./model-choice";
+import {
+  buildUserContent,
+  describeAttachment,
+  gateAttachments,
+  readAttachment,
+  type Attachment,
+} from "./attachments";
 import { TOOL_SCHEMAS } from "../tools/schemas";
 import {
   estimateTokens,
@@ -114,6 +123,10 @@ const input = el<HTMLTextAreaElement>("composer-input");
 const sendButton = el<HTMLButtonElement>("send");
 const stopButton = el<HTMLButtonElement>("stop");
 const modelSelect = el<HTMLSelectElement>("model-select");
+const attachButton = el<HTMLButtonElement>("attach");
+const attachInput = el<HTMLInputElement>("attach-input");
+const attachmentList = el<HTMLElement>("attachments");
+const composer = document.querySelector<HTMLElement>(".composer");
 const contextBar = el<HTMLElement>("context-bar");
 const contextBarFill = el<HTMLElement>("context-bar-fill");
 const contextBarLabel = el<HTMLElement>("context-bar-label");
@@ -146,6 +159,81 @@ let currentTitle = "";
  */
 const toolLabels = new Map<string, string>();
 let messages: CoreMessage[] = [];
+
+/* ── Attachments ──────────────────────────────────────────────────────────── */
+
+/** Staged for the next message. Cleared once it is sent. */
+let staged: Attachment[] = [];
+
+/**
+ * Read a File in the browser's own way.
+ *
+ * `FileReader` rather than `file.text()` for the data-URL case because there is
+ * no promise-based equivalent, and `file.text()` for the text case because
+ * `FileReader` would decode bytes we would then have to re-encode.
+ */
+const fileReaders = {
+  text: (f: File) => f.text(),
+  dataUrl: (f: File) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result ?? ""));
+      reader.onerror = () => reject(new Error(`Could not read ${f.name}`));
+      reader.readAsDataURL(f);
+    }),
+};
+
+function renderAttachments(): void {
+  if (!attachmentList) return;
+  attachmentList.textContent = "";
+  attachmentList.hidden = staged.length === 0;
+  staged.forEach((attachment, index) => {
+    const chip = document.createElement("span");
+    chip.className = "attachment";
+
+    const name = document.createElement("span");
+    name.className = "attachment__name";
+    name.textContent = describeAttachment(attachment);
+
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "attachment__remove";
+    remove.textContent = "×";
+    remove.title = `Remove ${attachment.name}`;
+    remove.setAttribute("aria-label", `Remove ${attachment.name}`);
+    remove.addEventListener("click", () => {
+      staged = staged.filter((_, i) => i !== index);
+      renderAttachments();
+    });
+
+    chip.append(name, remove);
+    attachmentList.append(chip);
+  });
+}
+
+/**
+ * Stage files the user picked, pasted or dropped.
+ *
+ * Refusals are reported as they happen rather than at send time. A file that
+ * cannot be read should say so while the user is still looking at the act of
+ * attaching it, not a paragraph later when they press Send.
+ */
+async function stageFiles(files: FileList | File[]): Promise<void> {
+  const refusals: string[] = [];
+  for (const file of Array.from(files)) {
+    try {
+      const { attachment, refusal } = await readAttachment(file, fileReaders);
+      if (attachment) staged.push(attachment);
+      if (refusal) refusals.push(refusal);
+    } catch (err) {
+      refusals.push(
+        `${file.name} could not be read — ${err instanceof Error ? err.message : String(err)}.`,
+      );
+    }
+  }
+  renderAttachments();
+  if (refusals.length > 0) setStatus(refusals.join(" "));
+}
 let running: AbortController | null = null;
 
 /* ── Context measurement ──────────────────────────────────────────────────── */
@@ -374,13 +462,30 @@ function append(node: HTMLElement): HTMLElement {
  * Disabled while a turn is running: rewinding under a live loop would have two
  * turns writing to the same transcript.
  */
-function userBubble(text: string, index: number): HTMLElement {
+function userBubble(
+  content: string | ContentPart[],
+  index: number,
+): HTMLElement {
   const wrap = document.createElement("div");
   wrap.className = "msg msg--user";
 
   const body = document.createElement("div");
   body.className = "msg__text";
-  body.textContent = text;
+  body.textContent = userText(content);
+
+  // AN ATTACHED IMAGE IS SHOWN BACK. Rendering it as "[attached image]" makes a
+  // user scrolling their own history unable to tell which screenshot they sent,
+  // and the bytes are already in the transcript — there is nothing to fetch.
+  if (typeof content !== "string") {
+    for (const part of content) {
+      if (part.type !== "image_url") continue;
+      const img = document.createElement("img");
+      img.className = "bubble__image";
+      img.src = part.image_url.url;
+      img.alt = "Attached image";
+      body.append(img);
+    }
+  }
 
   const edit = document.createElement("button");
   edit.type = "button";
@@ -389,7 +494,11 @@ function userBubble(text: string, index: number): HTMLElement {
   edit.title = "Edit this message and ask again from here";
   edit.addEventListener("click", () => {
     if (running) return;
-    beginEdit(index, text);
+    // The TEXT goes back in the composer; the attachments do not. Their bytes
+    // are in the transcript and could be restored, but silently re-attaching a
+    // file someone is about to rewrite the question about is the kind of help
+    // that gets sent by accident. They re-attach if they still mean to.
+    beginEdit(index, userText(content));
   });
 
   wrap.append(body, edit);
@@ -787,11 +896,14 @@ function setRunning(isRunning: boolean): void {
   if (stopButton) stopButton.hidden = !isRunning;
   if (newChatButton) newChatButton.disabled = isRunning;
   if (input) input.disabled = isRunning;
+  if (attachButton) attachButton.disabled = isRunning;
 }
 
 async function send(): Promise<void> {
   const text = input?.value.trim() ?? "";
-  if (!text || running) return;
+  // An attachment on its own is a real message — "what is in this?" is implied
+  // by the act of attaching, and refusing to send it would be pedantry.
+  if ((!text && staged.length === 0) || running) return;
 
   const model = modelSelect?.value;
   if (!model) {
@@ -826,7 +938,21 @@ async function send(): Promise<void> {
   const userIndex = messages.filter(
     (m) => m.role === "user" && !isCompactionMarker(m),
   ).length;
-  const userMessage: CoreMessage = { role: "user", content: text };
+  // GATED BEFORE THE ROUND IS SPENT, and the refusal names a tier that works.
+  // Core 1 is GLM and is text-only, so an image there has to be turned away —
+  // but "Core 3 can read it" is the same sentence with the work done.
+  const { accepted, refusals } = gateAttachments(
+    staged,
+    lineup.find((m) => m.id === model),
+    lineup,
+  );
+  staged = [];
+  renderAttachments();
+
+  const userMessage: CoreMessage = {
+    role: "user",
+    content: buildUserContent(text, accepted),
+  };
   messages = [...messages, userMessage];
   append(userBubble(text, userIndex));
   // ARCHIVED AS IT ARRIVES, not at the end of the turn. Compaction rewrites the
@@ -838,7 +964,10 @@ async function send(): Promise<void> {
   const controller = new AbortController();
   running = controller;
   setRunning(true);
-  setStatus("");
+  // The refusals survive here rather than being cleared: they are the answer to
+  // "why is my screenshot not in there", and clearing them would leave the
+  // question unanswered on the one turn it gets asked.
+  setStatus(refusals.join(" "));
 
   let windowId = api().windows.WINDOW_ID_NONE;
   try {
@@ -987,7 +1116,7 @@ async function send(): Promise<void> {
     void appendArchive(sessionId, outcome.messages);
     await persist();
 
-    setStatus("");
+    setStatus(refusals.join(" "));
     if (outcome.kind === "error") {
       const { error } = outcome;
       if (error.status === 401 || error.code === "not_signed_in") {
@@ -1226,6 +1355,8 @@ async function openSession(id: string): Promise<void> {
   sessionId = id;
   toolLabels.clear();
   usageAnchor = null;
+  staged = [];
+  renderAttachments();
   currentTitle = (await listSessions()).find((sn) => sn.id === id)?.title ?? "";
   messages = await loadSession(id);
   renderConversation(messages);
@@ -1241,6 +1372,8 @@ function startNewChat(): void {
   currentTitle = "";
   toolLabels.clear();
   usageAnchor = null;
+  staged = [];
+  renderAttachments();
   messages = [];
   renderConversation(messages);
   setStatus("");
@@ -1577,6 +1710,54 @@ drawerButton?.addEventListener("click", () => {
 
 accountChip?.addEventListener("click", () => {
   showDrawer(Boolean(drawer?.hidden));
+});
+
+/* ── Attaching ────────────────────────────────────────────────────────────── */
+
+attachButton?.addEventListener("click", () => attachInput?.click());
+
+attachInput?.addEventListener("change", () => {
+  const files = attachInput.files;
+  if (files && files.length > 0) void stageFiles(files);
+  // RESET, or picking the same file twice in a row fires no `change` event the
+  // second time and the attachment silently does not appear.
+  attachInput.value = "";
+});
+
+// Pasting a screenshot is how most images actually arrive in a browser panel.
+input?.addEventListener("paste", (event) => {
+  const files = Array.from(event.clipboardData?.files ?? []);
+  if (files.length === 0) return;
+  // Only when there are FILES. A paste carrying both text and an image — which
+  // is what copying from a web page produces — must still paste the text.
+  event.preventDefault();
+  void stageFiles(files);
+});
+
+// Drag over anywhere in the panel; the composer is the target.
+for (const type of ["dragenter", "dragover"] as const) {
+  document.addEventListener(type, (event) => {
+    if (!Array.from(event.dataTransfer?.types ?? []).includes("Files")) return;
+    event.preventDefault();
+    composer?.classList.add("composer--dropping");
+  });
+}
+
+for (const type of ["dragleave", "drop"] as const) {
+  document.addEventListener(type, (event) => {
+    if (type === "dragleave" && event.relatedTarget) return;
+    composer?.classList.remove("composer--dropping");
+  });
+}
+
+document.addEventListener("drop", (event) => {
+  const files = event.dataTransfer?.files;
+  if (!files || files.length === 0) return;
+  // WITHOUT THIS the browser NAVIGATES THE PANEL to the dropped file, which
+  // destroys the document the agent loop is running in — the turn dies and the
+  // panel comes back as a PDF viewer.
+  event.preventDefault();
+  void stageFiles(files);
 });
 
 modelSelect?.addEventListener("change", () => {

@@ -193,3 +193,46 @@ describe("measureContext", () => {
     expect(status?.health).toBe("over");
   });
 });
+
+describe("a message with attachments", () => {
+  it("is counted, not silently read as empty", () => {
+    // THE BUG THIS PINS. `messageText` checked `typeof content === "string"`
+    // and returned "" otherwise, so a conversation carrying five megabytes of
+    // images reported as EMPTY — and nothing type-checks a wrong number.
+    const withImage: CoreMessage = {
+      role: "user",
+      content: [
+        { type: "text", text: "what is in this screenshot?" },
+        { type: "image_url", image_url: { url: "data:image/png;base64,AAAA" } },
+      ],
+    };
+    expect(messageText(withImage)).toContain("what is in this screenshot?");
+    expect(estimateMessages([withImage])).toBeGreaterThan(0);
+  });
+
+  it("counts an image by its NAME, not by its base64 length", () => {
+    // A data URL is base64 and is not text the model reads as text. Counting
+    // its characters would overstate a small image by an order of magnitude.
+    // Its real cost is charged by the provider, and the usage anchor is what
+    // accounts for it.
+    const big: CoreMessage = {
+      role: "user",
+      content: [
+        { type: "text", text: "hi" },
+        { type: "image_url", image_url: { url: `data:image/png;base64,${"A".repeat(400_000)}` } },
+      ],
+    };
+    expect(estimateMessages([big])).toBeLessThan(100);
+  });
+
+  it("names an attached document, so the model knows it is there", () => {
+    const withPdf: CoreMessage = {
+      role: "user",
+      content: [
+        { type: "text", text: "summarise it" },
+        { type: "file", file: { filename: "report.pdf", file_data: "data:application/pdf;base64,AA" } },
+      ],
+    };
+    expect(messageText(withPdf)).toContain("report.pdf");
+  });
+});
