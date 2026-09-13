@@ -411,6 +411,11 @@ async function openTab(
   const loaded = await waitForLoad(tab.id);
 
   const granted = await canActOn(raw);
+  // MARK IT NOW, not on the next tool call. The frame used to appear one tool
+  // later — the tab opened, loaded, sat there looking ordinary, and only turned
+  // green once something read it. The gap is exactly when a user glances over
+  // and wonders what just opened a tab.
+  if (granted) await markDriven(tab.id);
   return {
     content:
       `Opened tab ${tab.id} at ${raw}${loaded ? "" : " (still loading — the page may be incomplete)"}. ` +

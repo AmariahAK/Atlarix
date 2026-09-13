@@ -54,6 +54,15 @@ describe("what the prompt must establish", () => {
     expect(p).toMatch(/do not apologise/i);
   });
 
+  it("says outright that there are no sub-agents", () => {
+    // Otherwise the model works it out from the tool list every single time,
+    // spends a paragraph of thinking on it, and narrates the conclusion to the
+    // user as though it were news. Observed twice.
+    const p = buildSystemPrompt(base);
+    expect(p).toMatch(/THERE ARE NO SUB-AGENTS/);
+    expect(p).toMatch(/do not apologise for it/i);
+  });
+
   it("names the search mechanism, because there is no search tool", () => {
     // A model that has not been told assumes it has no web access at all.
     expect(buildSystemPrompt(base)).toContain("open_tab");

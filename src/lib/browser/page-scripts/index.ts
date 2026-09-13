@@ -731,6 +731,13 @@ export function atlarixPageKernel(
       const existing = document.getElementById(FRAME_ID);
       if (req.state === "off") {
         if (existing) existing.remove();
+        // THE CURSOR GOES WITH IT. They are separate elements because they make
+        // separate claims, but they are made false by the same event: the agent
+        // has stopped. A pointer left resting on a page after the turn ended is
+        // the same lie as a border left up, and the more unsettling of the two
+        // because it looks like something is still about to happen.
+        const cursor = document.getElementById("__atlarix_ai_cursor__");
+        if (cursor) cursor.remove();
         return { ok: true, url: location.href };
       }
       if (!existing) {

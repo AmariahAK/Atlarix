@@ -622,6 +622,33 @@ same result without a second wallet.
 **Sources:** anthropic.com/news/claude-for-chrome, support.claude.com "Get started with
 Claude in Chrome".
 
+### The frame and the cursor — what each one claims (2026-09-13)
+
+Owner saw the frame and asked where the cursor was. They are deliberately different claims
+and it is worth writing down so neither gets "fixed" into the other:
+
+- **The frame** = "this tab is under an agent's control". Goes up when a tab is first
+  touched, including the moment `open_tab` finishes loading, and stays for the turn.
+- **The cursor** = "acting on THIS element, now". Drawn only by `click`, `fill` and
+  `hover`. **A turn that only reads draws no cursor, and that is correct** — there is
+  nothing to point at, and a pointer parked on a page the agent is merely reading would
+  claim more than is true.
+
+Two fixes from that session: the frame is now asserted the moment `open_tab` finishes
+loading (it used to appear one tool later — the tab opened, sat there looking ordinary, and
+turned green only once something read it), and **taking the frame down takes the cursor with
+it**. They are separate elements making separate claims, but the same event makes both
+false, and a pointer left resting after a turn ends is the more unsettling of the two
+because it looks like something is still about to happen.
+
+### Direct URLs instead of a site's search box — PROMPT, not the model
+
+Owner asked which was responsible. **Ours.** The system prompt says there is no search tool
+and to open a search engine's results URL, and `open_tab`'s description repeats it. The
+model followed instructions. It is also the better default — typing into a site's search box
+is click, fill, press_key and two reads, against one `open_tab` — but it is a CHOICE, and if
+a site's own search should be used the prompt is where to say so.
+
 ### The driven-tab frame — DONE 2026-09-13
 
 Owner: "when Claude does a browser use, the tab you use has an ORANGE OUTLINE to represent
@@ -648,12 +675,34 @@ Taken down in the panel's `finally` — however the turn ended, including an abo
 error. **A green border left up after the agent has stopped is a lie about what is
 happening, and that kind of lie makes the honest version untrustworthy.**
 
-### UI: MCP + skills — OPEN, owner wants to discuss first (2026-09-13)
+### Attachments in the extension — the blocker is the MODEL, not the platform
+
+Asked 2026-09-13: "we cannot attach files". **A Chrome extension can absolutely do this** —
+a side panel is an ordinary document, so a file input plus `FileReader` is all the platform
+needs, and no permission is involved. It was not built, not prevented.
+
+**What actually decides it is the Core lineup.** `core-1` is GLM 5.3, whose inputs are
+**text only** (recorded in the Muse Spark comparison above). `core-2`/`core-3` are the GPT
+tiers and are multimodal. So an attachment feature has to either refuse on core-1 with a
+message naming the tier that would work, or silently switch tiers — and silently switching
+the model someone chose is not something to do for them.
+
+The desktop already solves the general problem: it derives image support per MODEL from
+models.dev (`src/lib/models_dev.ts`, "push every model's IMAGE-input modality" — v14.8.11,
+fixing models that hallucinated attachment contents from filenames). **The rule to reuse is
+per-MODEL, never per-provider** — that is recorded in the v14.32.0 notes for PDFs.
+
+Not queued. Decide it with the UI question below, since both are about what the extension
+does versus what the account page does.
+
+### UI: MCP + skills + SITE GRANTS — OPEN, owner wants to discuss first (2026-09-13)
 
 Owner's observation: Claude's extension UI "has MCPs and skills and a proper session UI",
 and his instinct is **not to force that into the side panel** — instead to build it into
 the launchpad's account area, where managing MCP servers and skills sits beside managing the
-account. **Nothing decided. Do not build either surface until this is settled.** The
+account. **Extended 2026-09-13 to include SITE GRANTS**: the panel keeps the allow prompt
+(it must — `permissions.request()` needs a user gesture in the extension), and the LIST is
+managed centrally. **Nothing decided. Do not build either surface until this is settled.** The
 argument for the launchpad is that a 320px panel is the worst place to manage a list, and
 the launchpad already authenticates the same user; the argument against is that a setting
 you change on a website and use in a browser extension is two places to keep in step.

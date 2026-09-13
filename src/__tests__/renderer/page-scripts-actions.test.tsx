@@ -449,6 +449,22 @@ describe("the active-tab frame", () => {
     expect(act({ op: "overlay", state: "off" }).ok).toBe(true);
   });
 
+  it("takes the CURSOR down with it", () => {
+    // They are separate elements because they make separate claims, but they
+    // are made false by the same event: the agent has stopped. A pointer left
+    // resting on a page after the turn ended is the same lie as a border left
+    // up, and the more unsettling of the two — it looks like something is still
+    // about to happen.
+    document.body.innerHTML = `<button>Go</button>`;
+    act({ op: "resolve", selector: "button", cursor: "click" });
+    act({ op: "overlay", state: "on" });
+    expect(document.querySelector("#__atlarix_ai_cursor__")).not.toBeNull();
+
+    act({ op: "overlay", state: "off" });
+    expect(document.querySelector("#__atlarix_ai_cursor__")).toBeNull();
+    expect(document.querySelector(FRAME)).toBeNull();
+  });
+
   it("truncates a long label rather than stretching across the page", () => {
     act({ op: "overlay", state: "on", label: "x".repeat(200) });
     const label = document.querySelector(`${FRAME} [data-part="frame-label"]`);
