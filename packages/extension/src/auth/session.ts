@@ -40,7 +40,33 @@ export interface StoredSession {
    */
   expires_at: number;
   token_type: string;
-  user: { id: string; email?: string } | null;
+  user: StoredUser | null;
+}
+
+/**
+ * The account, in the parts the panel shows.
+ *
+ * `identities` AND `user_metadata` ARE BOTH HERE ON PURPOSE, and they are not
+ * redundant — `auth/profile.ts` carries the full reasoning. In short:
+ * `user_metadata` is a MERGED blob that every linked provider writes into, so on
+ * an account with two providers the picture can come from one and the badge from
+ * the other, with nothing looking wrong. `identities` keeps them apart.
+ *
+ * This is what GoTrue already returned in the same response as the tokens — no
+ * extra call, and nothing here that was not already in the session record.
+ */
+export interface StoredUser {
+  id: string;
+  email?: string;
+  /** The merged claims bag. Fallback only. */
+  user_metadata?: Record<string, unknown>;
+  /** Which provider was actually used, e.g. `{ provider: "google" }`. */
+  app_metadata?: Record<string, unknown>;
+  /** One entry per linked provider, each with its OWN claims. */
+  identities?: Array<{
+    provider?: string;
+    identity_data?: Record<string, unknown>;
+  }>;
 }
 
 /** What GoTrue's `/token` endpoints return, in the parts we use. */
@@ -49,7 +75,7 @@ export interface TokenResponse {
   refresh_token: string;
   expires_in: number;
   token_type?: string;
-  user?: { id: string; email?: string } | null;
+  user?: StoredUser | null;
 }
 
 /** Build a `StoredSession` from a GoTrue token response. */

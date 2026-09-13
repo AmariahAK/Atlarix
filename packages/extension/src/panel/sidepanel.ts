@@ -37,6 +37,7 @@ import {
 } from "../shared/browser-api";
 import { signIn, signOut } from "../auth/sign-in";
 import { accountState } from "../auth/account";
+import { profileOf } from "../auth/profile";
 import type { OAuthProvider } from "../auth/gotrue";
 import {
   canActOn,
@@ -658,6 +659,55 @@ function showDrawer(open: boolean): void {
   if (open) void refreshDrawer();
 }
 
+/**
+ * The account, as a face rather than a truncated email.
+ *
+ * A PROVIDER AVATAR IS A REMOTE IMAGE ON SOMEONE ELSE'S CDN. It 404s when the
+ * person changes their picture, and some content blockers refuse it outright —
+ * so the initials are not a placeholder, they are the other half of the design.
+ * Falling back keeps the header's shape instead of leaving a broken-image glyph
+ * where a face should be.
+ *
+ * `referrerpolicy="no-referrer"` matters more here than on a website: without it
+ * every panel open tells Google's or GitHub's CDN this extension's id.
+ */
+function renderAccountChip(profile: {
+  avatar: string | null;
+  initials: string;
+  label: string;
+  provider: string;
+}): void {
+  if (!accountChip) return;
+  accountChip.textContent = "";
+  accountChip.hidden = false;
+  accountChip.title = `${profile.label} — account, history and settings`;
+  accountChip.setAttribute(
+    "aria-label",
+    `${profile.label}. Account, history and settings`,
+  );
+
+  const initials = document.createElement("span");
+  initials.className = "account-chip__initials";
+  initials.textContent = profile.initials;
+  accountChip.append(initials);
+
+  if (!profile.avatar) return;
+
+  const img = document.createElement("img");
+  img.className = "account-chip__avatar";
+  img.alt = "";
+  img.referrerPolicy = "no-referrer";
+  img.decoding = "async";
+  // Swap only once it has actually loaded, so a slow or blocked image shows the
+  // initials the whole time rather than an empty circle that fills in later —
+  // or never.
+  img.addEventListener("load", () => {
+    initials.remove();
+    accountChip.append(img);
+  });
+  img.src = profile.avatar;
+}
+
 /* ── Models ───────────────────────────────────────────────────────────────── */
 
 /**
@@ -790,16 +840,12 @@ async function render(): Promise<void> {
   for (const button of providerButtons) button.disabled = isIn;
 
   if (isIn && session) {
-    const who = session.user?.email ?? session.user?.id ?? "Signed in";
-    if (accountEmail) accountEmail.textContent = who;
-    if (accountChip) {
-      // The account is stated in the HEADER, not only inside a drawer behind an
-      // unlabelled icon. "How do I sign out" was a real question asked of this
-      // panel, and the answer being two discoveries deep was the reason.
-      accountChip.textContent = who;
-      accountChip.title = `${who} — account, history and settings`;
-      accountChip.hidden = false;
-    }
+    const profile = profileOf(session.user);
+    if (accountEmail) accountEmail.textContent = profile.label;
+    // The account is stated in the HEADER, not only inside a drawer behind an
+    // unlabelled icon. "How do I sign out" was a real question asked of this
+    // panel, and the answer being two discoveries deep was the reason.
+    renderAccountChip(profile);
     // Reopening the panel lands you back in the conversation you were having,
     // which is what a docked panel implies. A blank chat every time makes the
     // history list the only way back to work that was one click away.

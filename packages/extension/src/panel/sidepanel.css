@@ -216,25 +216,46 @@ body {
   border-color: var(--border);
 }
 
-/* The signed-in account, stated where it is always visible. */
+/*
+ * The signed-in account, stated where it is always visible.
+ *
+ * A CIRCLE THE SIZE OF THE ICON BUTTONS BESIDE IT, holding either the provider
+ * photograph or the person's initials. It replaced a truncated email — in a
+ * 320px panel "amariah...." is a string that fits rather than information, and
+ * a face is recognisable at 24px in a way that eleven characters are not.
+ */
 .account-chip {
-  max-width: 11ch;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-right: 2px;
+  padding: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  padding: 3px 8px;
   border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--card);
-  color: var(--fg-muted);
+  border-radius: 50%;
+  background: hsl(160 84% 39% / 0.15);
+  color: var(--primary);
   font: inherit;
-  font-size: 11px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
   cursor: pointer;
 }
 
 .account-chip:hover {
   border-color: var(--primary);
-  color: var(--fg);
+}
+
+.account-chip__avatar {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.account-chip__initials {
+  letter-spacing: 0.02em;
 }
 
 .icon-button {
