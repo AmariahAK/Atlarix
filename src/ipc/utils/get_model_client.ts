@@ -49,7 +49,7 @@ import {
   getFirstConfiguredCoreTier,
   resolveConfiguredCoreTier,
 } from "../shared/compass_constants";
-import { getCoreProxyBaseUrl } from "../shared/core_proxy";
+import { ATLARIX_SURFACE, getCoreProxyBaseUrl } from "../shared/core_proxy";
 import { getSession } from "../../lib/auth/supabase-client";
 import { LM_STUDIO_BASE_URL } from "./lm_studio_utils";
 import { createOllamaProvider } from "./ollama_provider";
@@ -350,6 +350,18 @@ async function getRegularModelClient(
               init?.headers as HeadersInit | undefined,
             );
             headers.set("Authorization", `Bearer ${bearer}`);
+            // Which Atlarix surface is spending. A LABEL on the ledger row, in
+            // the same sense as the reviewer's `x-atlarix-repo`: the proxy
+            // validates it against an allowlist and it never selects an
+            // account — who pays comes from the verified JWT above.
+            //
+            // It has to be sent from the FIRST Core call a surface ever makes.
+            // A ledger row cannot be re-attributed later, so spend recorded
+            // without one is indistinguishable from desktop spend forever.
+            // 'app' is this surface's value and stays that way: renaming it to
+            // 'desktop' would split one product across two rows on the account
+            // page and need every historical row backfilled.
+            headers.set("X-Atlarix-Surface", ATLARIX_SURFACE);
             return fetch(input as RequestInfo, { ...init, headers });
           },
         });
