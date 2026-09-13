@@ -8,6 +8,7 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import type { CoreMessage } from "../core/client";
+import { compactionMarker } from "../context/compact";
 import {
   KEEP_RECENT_TOOL_RESULTS,
   MAX_SESSIONS,
@@ -287,5 +288,34 @@ describe("rewindToUserMessage", () => {
 
   it("does nothing to an empty conversation", () => {
     expect(rewindToUserMessage([], 0)).toEqual([]);
+  });
+});
+
+describe("a compaction marker is not a message the user sent", () => {
+  const marker = compactionMarker("## Goal\n- compare kettles", 1);
+
+  it("is not counted when rewinding, so an edit cuts where the panel drew", () => {
+    // THE OFF-BY-ONE THIS PREVENTS. The marker is a `user` row nobody typed,
+    // and the transcript renders it as a divider without advancing its counter.
+    // If this counted it, editing the second question in a compacted
+    // conversation would rewind to the first — silently, and only in
+    // conversations long enough to have been compacted.
+    const history: CoreMessage[] = [
+      marker,
+      { role: "user", content: "first" },
+      { role: "assistant", content: "a" },
+      { role: "user", content: "second" },
+      { role: "assistant", content: "b" },
+    ];
+    expect(rewindToUserMessage(history, 1)).toEqual(history.slice(0, 3));
+    expect(rewindToUserMessage(history, 0)).toEqual([marker]);
+  });
+
+  it("is not used to name the conversation", () => {
+    // Otherwise the drawer reads "[COMPACTION MARKER] gen=2 ## Goal…" — on
+    // exactly the long conversation someone is trying to find again.
+    expect(titleFor([marker, { role: "user", content: "compare kettles" }])).toBe(
+      "compare kettles",
+    );
   });
 });

@@ -825,3 +825,53 @@ body {
     transition: none;
   }
 }
+
+/* ── The compaction seam ────────────────────────────────────────────────────
+ *
+ * A visible line rather than a silent removal. Leaving the earlier bubbles on
+ * screen while quietly not sending them makes the next answer read as amnesia:
+ * the user can see the exchange they are asking about and the model cannot.
+ */
+.compaction {
+  margin: 12px 0;
+  border-top: 1px dashed var(--border);
+  padding-top: 8px;
+}
+
+.compaction__summary {
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--fg-muted);
+  list-style: none;
+  padding: 2px 0;
+}
+
+.compaction__summary::-webkit-details-marker {
+  display: none;
+}
+
+.compaction__summary::before {
+  content: "▸ ";
+}
+
+.compaction[open] > .compaction__summary::before {
+  content: "▾ ";
+}
+
+.compaction__summary:hover {
+  color: var(--primary);
+}
+
+.compaction__body {
+  margin: 6px 0 0;
+  padding: 8px;
+  border-radius: 6px;
+  background: hsl(240 4% 11%);
+  color: var(--fg-muted);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 260px;
+  overflow-y: auto;
+}

@@ -27,6 +27,7 @@
  */
 
 import type { CoreMessage } from "../core/client";
+import { isCompactionMarker } from "../context/compact";
 import { api } from "../shared/browser-api";
 
 const INDEX_KEY = "atlarix.sessions.v1";
@@ -136,7 +137,10 @@ export async function loadSession(id: string): Promise<CoreMessage[]> {
  * that was right immediately.
  */
 export function titleFor(messages: CoreMessage[]): string {
-  const first = messages.find((m) => m.role === "user");
+  // A compaction marker is a `user` row that the user did not write. Naming a
+  // conversation after one produces "[COMPACTION MARKER] gen=2 ## Goal…" in the
+  // drawer — which is exactly the conversation long enough to need finding.
+  const first = messages.find((m) => m.role === "user" && !isCompactionMarker(m));
   const text =
     first && typeof first.content === "string" ? first.content.trim() : "";
   if (!text) return "New conversation";
@@ -261,6 +265,13 @@ export function rewindToUserMessage(
   let seen = 0;
   for (let i = 0; i < history.length; i++) {
     if (history[i].role !== "user") continue;
+    // MUST MATCH THE PANEL'S RENDER EXACTLY. A compaction marker is a `user`
+    // row nobody typed, and the transcript draws it as a divider without
+    // advancing its counter. If this counted it, every index after the first
+    // compaction would be off by one and editing a question would rewind to the
+    // previous one — silently, and only in conversations long enough to have
+    // been compacted.
+    if (isCompactionMarker(history[i])) continue;
     if (seen === nth) return history.slice(0, i);
     seen += 1;
   }

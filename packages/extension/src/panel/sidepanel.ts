@@ -65,7 +65,6 @@ import {
   listSessions,
   loadSession,
   newSessionId,
-  pruneForModel,
   rewindToUserMessage,
   saveSession,
 } from "../sessions/store";
@@ -73,7 +72,19 @@ import { generateTitle } from "../sessions/title";
 import { renderMarkdown } from "./markdown";
 import { chooseModel, optionsFor, shortModelName } from "./model-choice";
 import { TOOL_SCHEMAS } from "../tools/schemas";
-import { estimateTokens, measureContext } from "../context/budget";
+import {
+  estimateMessages,
+  estimateTokens,
+  measureContext,
+  usableContextBudget,
+} from "../context/budget";
+import {
+  compactConversation,
+  isCompactionMarker,
+  markerBody,
+  markerGeneration,
+} from "../context/compact";
+import { summariserFor } from "../context/summarise";
 import { contextBarView } from "./context-bar";
 
 const MODEL_KEY = "atlarix.model.v1";
@@ -180,6 +191,64 @@ function refreshContextBar(): void {
   contextBar.dataset.busy = String(view.busy);
   contextBarFill.style.width = `${Math.round(view.fill * 100)}%`;
   contextBarLabel.textContent = view.label;
+}
+
+/**
+ * Shrink the conversation, if it needs it, before the turn goes out.
+ *
+ * RETURNS WHAT TO SEND AND WHAT TO KEEP, and they are the same thing — which is
+ * the change from `pruneForModel`. That pruned on the way OUT only: what was
+ * stored stayed whole, so every round re-sent a transcript that had grown past
+ * the window and re-paid to have it clipped again. A durable summary is written
+ * back into the conversation, so the next round starts from the smaller one.
+ *
+ * The user's messages are never touched. They are the only part of a
+ * conversation that cannot be regenerated; a page can always be read again.
+ */
+async function compactIfNeeded(
+  model: string,
+  systemTokens: number,
+  signal: AbortSignal,
+): Promise<void> {
+  const selected = lineup.find((m) => m.id === model);
+  const usable = usableContextBudget({
+    contextWindow: selected?.contextWindow ?? 0,
+    maxOutputTokens: selected?.maxOutputTokens ?? 32_000,
+  });
+  // An unknown window is not a small one. Compacting against a guess would
+  // summarise conversations that had plenty of room.
+  if (usable <= 0) return;
+
+  const overheadTokens = systemTokens + TOOL_SCHEMA_TOKENS;
+  if (estimateMessages(messages) + overheadTokens <= usable) return;
+
+  compacting = true;
+  refreshContextBar();
+  try {
+    const result = await compactConversation({
+      messages,
+      overheadTokens,
+      usable,
+      summarise: summariserFor(model),
+      signal,
+    });
+    if (!result.changed) return;
+    messages = result.messages;
+    // Re-rendered because a marker replaced real turns on screen, and the
+    // transcript must show what the model can actually see. A conversation that
+    // still displays six page reads the model no longer has is a conversation
+    // whose next answer looks like amnesia.
+    renderConversation(messages);
+    await persist();
+    setStatus(
+      result.summarised
+        ? "Summarised the earlier part of this conversation to make room."
+        : `Freed room in this conversation — ${result.steps.join(", ")}.`,
+    );
+  } finally {
+    compacting = false;
+    refreshContextBar();
+  }
 }
 
 function setStatus(message: string): void {
@@ -551,6 +620,37 @@ function approvalCard(request: Approval): Promise<boolean> {
   });
 }
 
+/**
+ * The line in the transcript where earlier turns became a summary.
+ *
+ * SHOWN, NOT HIDDEN. The alternative is to leave the earlier bubbles on screen
+ * and quietly stop sending them, which makes the next answer look like amnesia —
+ * the user can see the exchange they are asking about and the model cannot. A
+ * visible seam turns "it forgot" into "it summarised, and here is what it kept".
+ *
+ * The summary itself is collapsed, because it is written for the model and reads
+ * like a form. It is there for the user who wants to check what survived.
+ */
+function compactionDivider(content: string): HTMLElement {
+  const wrap = document.createElement("details");
+  wrap.className = "compaction";
+
+  const summary = document.createElement("summary");
+  summary.className = "compaction__summary";
+  const generation = markerGeneration(content);
+  summary.textContent =
+    generation > 1
+      ? `Earlier turns summarised (${generation} times so far)`
+      : "Earlier turns summarised to make room";
+
+  const body = document.createElement("pre");
+  body.className = "compaction__body";
+  body.textContent = markerBody(content);
+
+  wrap.append(summary, body);
+  return wrap;
+}
+
 /** Rebuild the whole transcript from a stored conversation. */
 function renderConversation(history: CoreMessage[]): void {
   if (!transcript) return;
@@ -583,6 +683,17 @@ function renderConversation(history: CoreMessage[]): void {
 
   let userIndex = 0;
   for (const message of history) {
+    if (isCompactionMarker(message)) {
+      // A MARKER IS NOT A MESSAGE THE USER SENT, however much the transcript
+      // says `role: "user"`. Rendered as a user bubble it would appear as
+      // something they wrote, carry an Edit button that rewinds to a summary,
+      // and — the part that silently breaks — shift every later user message's
+      // index by one, so editing the third question would rewind to the second.
+      // `userIndex` deliberately does not advance here; `rewindToUserMessage`
+      // skips markers for the same reason and must stay in step.
+      transcript.append(compactionDivider(message.content));
+      continue;
+    }
     if (message.role === "user") {
       transcript.append(userBubble(message.content, userIndex));
       userIndex += 1;
@@ -685,6 +796,10 @@ async function send(): Promise<void> {
     // bar measures what is actually being sent rather than the empty shell.
     systemPromptTokens = estimateTokens(system);
 
+    // Before the turn, not after it: a round that overflows is rejected by the
+    // provider, and a rejection costs the same as a successful call.
+    await compactIfNeeded(model, systemPromptTokens, controller.signal);
+
     let bubble: HTMLElement | null = null;
     let streamed = "";
     let thinking: HTMLDetailsElement | null = null;
@@ -701,10 +816,11 @@ async function send(): Promise<void> {
     const outcome = await runTurn({
       model,
       system,
-      // Pruned on the way OUT only. What is stored stays whole, so a
-      // conversation the user scrolls back through is not missing the page
-      // reads that a context limit made it cheaper not to re-send.
-      messages: pruneForModel(messages),
+      // No longer pruned on the way out: `compactIfNeeded` above has already
+      // brought the stored conversation itself within the window, so what is
+      // sent and what is kept are the same thing. `pruneForModel` remains in
+      // `sessions/store.ts` as the disk backstop it always should have been.
+      messages,
       tools: { windowId },
       signal: controller.signal,
       events: {
