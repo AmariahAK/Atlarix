@@ -487,14 +487,36 @@ ran on.
   halves to agree, because a user can revoke from chrome://extensions without telling us.
   Manifest gained `tabs` + `scripting` with their first callers.
 
-**Still owed in Phase 1:** `chrome.debugger` trusted input with detach handling, and the
-tab-group manager. Then Phase 2 (loop, sessions, memory, skills), Phase 3 (desktop
-bridge + `target` param), Phase 4 (Supabase, launchpad, docs, store).
+- **`chrome.debugger` input + the tab-group manager — DONE 2026-09-13.**
+  `tabs/group.ts` is one group per WINDOW (a group cannot span windows), emerald, and a
+  stored group id is NEVER trusted on its own — every read goes through `tabGroups.get`,
+  because the id outlives the group and `tabs.group({groupId})` with a dead id lands a tab
+  in whatever group has since taken that number. Closing the group is the stop gesture.
+  `page/trusted-input.ts` attaches ONLY to tabs in that group, verified against the
+  browser: attaching shows a banner and EVICTS DevTools, so a bad tab id would otherwise
+  banner the user's bank tab. Detach is a NORMAL path — the banner has a Cancel button —
+  and a mid-flight "detached" drops the record so the next call re-attaches rather than
+  failing identically forever. `windowsVirtualKeyCode` is set on every key: without it the
+  event arrives `keyCode: 0` and every framework's "was that Enter?" reads no, which is
+  the same silent-nothing the module exists to prevent. `typeText` sends per-character
+  events rather than `Input.insertText`, which produces NO key events, so an autocomplete
+  that opens on keydown never opens.
 
-**Start here next session:**
+**PHASE 1 IS COMPLETE.** Next is Phase 2 (loop, sessions, memory, skills), then Phase 3
+(desktop bridge + `target` param), then Phase 4 (Supabase, launchpad, docs, store).
 
-1. **`chrome.debugger` input + the tab-group manager.** Attach per-tab, scoped to the
-   agent's own group, so the user's other tabs never banner and keep their DevTools.
+**Do the `X-Atlarix-Surface` ledger label FIRST** — before any Core dispatch, per the
+shared-wallet section. A ledger row cannot be re-attributed later.
+
+### Known gap, found on real pages 2026-09-13
+
+`accName` returns EMPTY for an element whose only content is an image, so an icon link
+reads as a bare `[e1] a` the model cannot describe. Observed on Hacker News, whose logo
+is `<a><img src="y18.svg"></a>` — and that one genuinely has no accessible name at all
+(no `alt`), so it is HN's gap, not ours. But **we do not read `alt` from a contained
+`<img>` either**, and the W3C accname algorithm does. Icon-only links and buttons are
+everywhere, so this is worth a kernel fix: `aria-labelledby` → `aria-label` → `alt` of a
+contained image → `title` → text. It affects the DESKTOP browser equally — same kernel.
 
 **The `key` CANNOT be pinned in the first commit — the earlier note here was wrong.**
 It said the id must be fixed from the very first unpacked load. That is not achievable:
