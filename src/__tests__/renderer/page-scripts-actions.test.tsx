@@ -307,3 +307,82 @@ describe("every action result crosses a structured-clone boundary", () => {
     }
   });
 });
+
+/**
+ * The on-screen pointer.
+ *
+ * ONE IMPLEMENTATION FOR BOTH SURFACES as of 2026-09-13. The desktop drew it and
+ * the extension did not, so a page in the user's own browser filled itself in
+ * silence — and "the form filled itself" is alarming in a way that "I watched it
+ * get filled" is not.
+ */
+describe("the AI cursor", () => {
+  const CURSOR = "#__atlarix_ai_cursor__";
+
+  it("is not drawn unless asked for", () => {
+    // A read must not decorate the user's page.
+    document.body.innerHTML = `<button>Go</button>`;
+    act({ op: "resolve", selector: "button" });
+    expect(document.querySelector(CURSOR)).toBeNull();
+  });
+
+  it("draws a pointer, a ring and a labelled chip", () => {
+    document.body.innerHTML = `<button>Go</button>`;
+    act({ op: "resolve", selector: "button", cursor: "click" });
+    const host = document.querySelector(CURSOR);
+    expect(host).not.toBeNull();
+    expect(host?.querySelector('[data-part="pointer"]')).not.toBeNull();
+    expect(host?.querySelector('[data-part="ring"]')).not.toBeNull();
+    expect(host?.querySelector('[data-part="chip"]')?.textContent).toBe(
+      "click",
+    );
+  });
+
+  it("reuses ONE container across actions rather than stacking them", () => {
+    document.body.innerHTML = `<button>Go</button><a href="/x">Link</a>`;
+    act({ op: "resolve", selector: "button", cursor: "click" });
+    act({ op: "resolve", selector: "a", cursor: "hover" });
+    expect(document.querySelectorAll(CURSOR)).toHaveLength(1);
+    expect(
+      document.querySelector(`${CURSOR} [data-part="chip"]`)?.textContent,
+    ).toBe("hover");
+  });
+
+  it("never intercepts the action it illustrates", () => {
+    // pointer-events:none is the whole reason an overlay is safe to draw over a
+    // page the agent is about to click.
+    document.body.innerHTML = `<button>Go</button>`;
+    act({ op: "resolve", selector: "button", cursor: "click" });
+    const host = document.querySelector<HTMLElement>(CURSOR);
+    expect(host?.style.pointerEvents).toBe("none");
+    for (const part of ["pointer", "ring", "chip"]) {
+      const el = host?.querySelector<HTMLElement>(`[data-part="${part}"]`);
+      expect(el?.style.pointerEvents).toBe("none");
+    }
+  });
+
+  it("truncates a long label rather than drawing a paragraph on the page", () => {
+    document.body.innerHTML = `<button>Go</button>`;
+    act({ op: "resolve", selector: "button", cursor: "x".repeat(200) });
+    const chip = document.querySelector(`${CURSOR} [data-part="chip"]`);
+    expect(chip?.textContent?.length).toBeLessThanOrEqual(40);
+  });
+
+  it("still resolves when drawing the cursor is impossible", () => {
+    // A hostile page, a detached body, no layout — none of it may turn a
+    // working action into a failed one.
+    document.body.innerHTML = `<button>Go</button>`;
+    const raf = window.requestAnimationFrame;
+    (window as unknown as Record<string, unknown>).requestAnimationFrame =
+      () => {
+        throw new Error("no frames here");
+      };
+    try {
+      expect(
+        act({ op: "resolve", selector: "button", cursor: "click" }).ok,
+      ).toBe(true);
+    } finally {
+      window.requestAnimationFrame = raf;
+    }
+  });
+});

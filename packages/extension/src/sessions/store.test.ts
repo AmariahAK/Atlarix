@@ -16,6 +16,7 @@ import {
   listSessions,
   loadSession,
   pruneForModel,
+  rewindToUserMessage,
   saveSession,
   titleFor,
 } from "./store";
@@ -243,5 +244,48 @@ describe("pruning for the model", () => {
         .filter((m) => m.role === "tool")
         .map((m) => (m as { tool_call_id: string }).tool_call_id);
     expect(ids(pruneForModel(messages))).toEqual(ids(messages));
+  });
+});
+
+/**
+ * Editing a message.
+ *
+ * IT IS A REWIND, NOT A PATCH, and that is the whole of what these pin.
+ * Everything after the edited message was a response to the old wording — tool
+ * results the model asked for because of it, answers that quoted it — so
+ * keeping any of it leaves the model reading an exchange that never happened.
+ */
+describe("rewindToUserMessage", () => {
+  const conversation: CoreMessage[] = [
+    { role: "user", content: "first" },
+    { role: "assistant", content: null, tool_calls: [] },
+    { role: "tool", tool_call_id: "c1", content: "a page" },
+    { role: "assistant", content: "an answer" },
+    { role: "user", content: "second" },
+    { role: "assistant", content: "another answer" },
+  ];
+
+  it("cuts everything from the edited message onwards", () => {
+    expect(rewindToUserMessage(conversation, 1)).toEqual(
+      conversation.slice(0, 4),
+    );
+  });
+
+  it("takes the TOOL traffic with it, not just the prose", () => {
+    // The tool results were fetched because of the old wording. Leaving them
+    // behind is how a model ends up citing a page it was never asked to read.
+    const rewound = rewindToUserMessage(conversation, 0);
+    expect(rewound).toEqual([]);
+    expect(rewound.some((m) => m.role === "tool")).toBe(false);
+  });
+
+  it("returns the conversation unchanged for an index that does not exist", () => {
+    // A stale index from a re-render must not silently empty a conversation.
+    expect(rewindToUserMessage(conversation, 9)).toBe(conversation);
+    expect(rewindToUserMessage(conversation, -1)).toBe(conversation);
+  });
+
+  it("does nothing to an empty conversation", () => {
+    expect(rewindToUserMessage([], 0)).toEqual([]);
   });
 });

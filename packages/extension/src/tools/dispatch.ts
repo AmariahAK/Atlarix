@@ -462,6 +462,15 @@ async function closeTab(args: Record<string, unknown>): Promise<ToolOutcome> {
  * the reason is rendered, and may be logged, on the path where that value is a
  * password.
  */
+/**
+ * How long the pointer is on screen before the action lands.
+ *
+ * WITHOUT IT THE CURSOR IS POINTLESS: draw and act in the same frame and the
+ * user sees a filled form and, maybe, a flicker. The desktop uses the same
+ * quarter-second for the same reason. It is per ACTION, not per turn.
+ */
+const CURSOR_PAUSE_MS = 240;
+
 async function resolveForAction(
   action: AgentAction,
   args: Record<string, unknown>,
@@ -530,6 +539,7 @@ async function clickRef(args: Record<string, unknown>): Promise<ToolOutcome> {
   if (!gate.ok) return gate.outcome;
 
   const before = gate.resolved.url;
+  await pause(CURSOR_PAUSE_MS);
   const result = await runInPage<PageActionResult>(gate.tab.id, {
     op: "click",
     ref: typeof args.ref === "string" ? args.ref : undefined,
@@ -561,6 +571,7 @@ async function fillRef(args: Record<string, unknown>): Promise<ToolOutcome> {
   const gate = await resolveForAction("fill", args, raw);
   if (!gate.ok) return gate.outcome;
 
+  await pause(CURSOR_PAUSE_MS);
   const result = await runInPage<PageActionResult>(gate.tab.id, {
     op: "fill",
     ref: typeof args.ref === "string" ? args.ref : undefined,
@@ -693,6 +704,7 @@ async function hoverRef(args: Record<string, unknown>): Promise<ToolOutcome> {
     op: "resolve",
     ref: typeof args.ref === "string" ? args.ref : undefined,
     selector: typeof args.selector === "string" ? args.selector : undefined,
+    cursor: "hover",
   });
   if (!resolved.ok || !resolved.rect) {
     return {
@@ -707,6 +719,10 @@ async function hoverRef(args: Record<string, unknown>): Promise<ToolOutcome> {
       `Pointer moved onto "${resolved.label || resolved.tag}". Read the page to see ` +
       `whether anything opened — a hover changes nothing by itself.`,
   };
+}
+
+function pause(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /** The tab's URL now, for telling a navigation from a no-op. */

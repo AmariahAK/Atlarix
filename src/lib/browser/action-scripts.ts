@@ -8,18 +8,22 @@
  * (a backtick in a comment ending a template literal, twice). As pure functions
  * of their arguments, the text can be built and PARSED in a test.
  *
- * WHAT IS AND IS NOT HERE. The resolution and the mutation are NOT: they live in
- * `page-scripts/index.ts` and are reached through `kernelCall`, because the
- * extension runs the same code and a second copy is how the two drift. What is
- * here is everything genuinely desktop-only — the AI cursor the user watches in
- * Atlarix's own browser, and the before/after delta the tool reports.
+ * WHAT IS AND IS NOT HERE. The resolution, the mutation and the AI CURSOR are
+ * NOT: they live in `page-scripts/index.ts` and are reached through
+ * `kernelCall`, because the extension runs the same code and a second copy is
+ * how the two drift. The cursor moved there on 2026-09-13 for exactly that
+ * reason — the desktop drew it and the extension did not, so a page in the
+ * user's own browser filled itself in silence.
+ *
+ * What is left here is the before/after delta the desktop tool reports, the
+ * pause that lets the cursor be SEEN before the action lands, and the two
+ * label-only chips for actions that have no element to point at.
  *
  * NO BACKTICK ANYWHERE in the emitted strings, for the same reason the kernel
  * bans them: these are template literals containing template literals.
  */
 
 import {
-  AI_CURSOR_AT_RECT_JS,
   AI_CURSOR_DURATION_MS,
   AI_CURSOR_LABEL_JS,
   AI_CURSOR_WAIT_MS,
@@ -56,9 +60,8 @@ const CURSOR_PAUSE_JS = `await new Promise(function (r) { setTimeout(r, ${AI_CUR
 export function clickScript(target: Target): string {
   return `(async () => {
       ${CAPTURE_PRE_STATE_JS}
-      const __t = ${kernelCall({ op: "resolve", ...target })};
+      const __t = ${kernelCall({ op: "resolve", ...target, cursor: "click" })};
       if (!__t.ok) return __t;
-      ${AI_CURSOR_AT_RECT_JS("__t.rect", "click", AI_CURSOR_DURATION_MS)}
       ${CURSOR_PAUSE_JS}
       const __a = ${kernelCall({ op: "click", ...target })};
       if (!__a.ok) return __a;
@@ -70,9 +73,8 @@ export function clickScript(target: Target): string {
 export function fillScript(target: Target, value: string | boolean): string {
   return `(async () => {
       ${CAPTURE_PRE_STATE_JS}
-      const __t = ${kernelCall({ op: "resolve", ...target })};
+      const __t = ${kernelCall({ op: "resolve", ...target, cursor: "type" })};
       if (!__t.ok) return __t;
-      ${AI_CURSOR_AT_RECT_JS("__t.rect", "type", AI_CURSOR_DURATION_MS)}
       ${CURSOR_PAUSE_JS}
       const __a = ${kernelCall({ op: "fill", ...target, value })};
       if (!__a.ok) return __a;
@@ -92,9 +94,8 @@ export function fillScript(target: Target, value: string | boolean): string {
  */
 export function focusForKeyScript(target: Target, label: string): string {
   return `(() => {
-        const __t = ${kernelCall({ op: "resolve", ...target })};
+        const __t = ${kernelCall({ op: "resolve", ...target, cursor: label })};
         if (!__t.ok) return false;
-        ${AI_CURSOR_AT_RECT_JS("__t.rect", label, AI_CURSOR_DURATION_MS)}
         try {
           const __el = document.querySelector('[data-atlarix-ref="' + CSS.escape(${JSON.stringify(String(target.ref ?? ""))}) + '"]')
             || document.querySelector(${JSON.stringify(String(target.selector || "*:not(*)"))});
@@ -112,9 +113,8 @@ export function keyChipScript(label: string): string {
 /** Locate a hover target: the kernel already returns the centre point and a label. */
 export function hoverScript(target: Target): string {
   return `(() => {
-      const __t = ${kernelCall({ op: "resolve", ...target })};
+      const __t = ${kernelCall({ op: "resolve", ...target, cursor: "hover" })};
       if (!__t.ok) return null;
-      ${AI_CURSOR_AT_RECT_JS("__t.rect", "hover", AI_CURSOR_DURATION_MS)}
       return { x: __t.rect.x, y: __t.rect.y, tag: __t.tag, name: __t.label || "" };
     })()`;
 }

@@ -236,3 +236,33 @@ export function pruneForModel(messages: CoreMessage[]): CoreMessage[] {
       : m,
   );
 }
+
+/**
+ * Discard everything from the Nth user message onwards.
+ *
+ * WHAT "EDIT" ACTUALLY MEANS in a conversation: a rewind, not a patch.
+ * Everything after the edited message was a RESPONSE to the old wording — tool
+ * results the model asked for because of it, answers that quoted it — and
+ * keeping any of it leaves the model reading an exchange that never happened.
+ *
+ * The subtle part is that a "message" the user sees is one of several in the
+ * transcript: their question, the assistant's reply, and every tool call and
+ * result in between. Counting user messages and cutting at the whole transcript
+ * index is what keeps those together.
+ *
+ * Returns the input unchanged when `nth` does not exist, so a stale index from a
+ * re-render cannot silently empty a conversation.
+ */
+export function rewindToUserMessage(
+  history: CoreMessage[],
+  nth: number,
+): CoreMessage[] {
+  if (nth < 0) return history;
+  let seen = 0;
+  for (let i = 0; i < history.length; i++) {
+    if (history[i].role !== "user") continue;
+    if (seen === nth) return history.slice(0, i);
+    seen += 1;
+  }
+  return history;
+}

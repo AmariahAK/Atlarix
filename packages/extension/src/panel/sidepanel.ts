@@ -65,6 +65,7 @@ import {
   loadSession,
   newSessionId,
   pruneForModel,
+  rewindToUserMessage,
   saveSession,
 } from "../sessions/store";
 import { generateTitle } from "../sessions/title";
@@ -108,33 +109,114 @@ function setStatus(message: string): void {
 
 /* ── The transcript ───────────────────────────────────────────────────────── */
 
+/**
+ * Whether to keep following the stream.
+ *
+ * A LATCH SET BY THE USER'S OWN SCROLLING, not a measurement taken at append
+ * time. Measuring per append was the bug: a streamed answer re-renders its
+ * whole bubble on every delta, each re-render changes `scrollHeight` between
+ * the measurement and the write, and the result was a transcript that dragged
+ * itself back down while the user was trying to read something above it.
+ * Reported as "I cannot scroll up and down".
+ *
+ * Latching also makes the intent durable — scroll up once and you stay there
+ * until you deliberately return to the bottom, which is what every chat surface
+ * does and what people expect without being told.
+ */
+let following = true;
+
+/** Within a line or two of the end. */
 function atBottom(): boolean {
   if (!transcript) return true;
-  // Within a line of the end. Sticking to the bottom only when the user is
-  // ALREADY there is the difference between following a stream and being
-  // yanked away from the paragraph you were reading.
   return (
     transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight <
-    24
+    40
   );
 }
 
-function scrollDown(wasAtBottom: boolean): void {
-  if (wasAtBottom && transcript) transcript.scrollTop = transcript.scrollHeight;
+transcript?.addEventListener(
+  "scroll",
+  () => {
+    following = atBottom();
+  },
+  { passive: true },
+);
+
+/** Ride the bottom, but only while the user is actually there. */
+function stickToBottom(): void {
+  if (following && transcript) transcript.scrollTop = transcript.scrollHeight;
 }
 
 function append(node: HTMLElement): HTMLElement {
-  const stick = atBottom();
   transcript?.append(node);
-  scrollDown(stick);
+  stickToBottom();
   return node;
 }
 
-function userBubble(text: string): HTMLElement {
-  const div = document.createElement("div");
-  div.className = "msg msg--user";
-  div.textContent = text;
-  return div;
+/**
+ * Something the user said, with a way to say it differently.
+ *
+ * EDIT REWINDS, it does not patch. The conversation after this message is
+ * discarded and the turn re-runs — because everything after it was a RESPONSE
+ * to the old wording, and keeping it would leave the model reading an exchange
+ * that never happened. That is also why the button says what it will do.
+ *
+ * Disabled while a turn is running: rewinding under a live loop would have two
+ * turns writing to the same transcript.
+ */
+function userBubble(text: string, index: number): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "msg msg--user";
+
+  const body = document.createElement("div");
+  body.className = "msg__text";
+  body.textContent = text;
+
+  const edit = document.createElement("button");
+  edit.type = "button";
+  edit.className = "msg__edit";
+  edit.textContent = "Edit";
+  edit.title = "Edit this message and ask again from here";
+  edit.addEventListener("click", () => {
+    if (running) return;
+    beginEdit(index, text);
+  });
+
+  wrap.append(body, edit);
+  return wrap;
+}
+
+/**
+ * Put a past message back in the composer and forget everything after it.
+ *
+ * The rewind happens on SEND, not here — so changing your mind about editing
+ * costs nothing, and the transcript you are reading stays whole until you
+ * actually commit to replacing it.
+ */
+let editingFrom: number | null = null;
+
+function beginEdit(index: number, text: string): void {
+  if (!input) return;
+  editingFrom = index;
+  input.value = text;
+  input.focus();
+  input.style.height = "auto";
+  input.style.height = `${input.scrollHeight}px`;
+  // Say what Send will do now, because it is no longer "add to this
+  // conversation" — it is "replace the rest of it".
+  if (sendButton) sendButton.textContent = "Resend";
+  setStatus("Editing — sending replaces everything after this message.");
+  document
+    .querySelectorAll(".msg--user")
+    .forEach((el, i) => el.classList.toggle("msg--editing", i === index));
+}
+
+function cancelEdit(): void {
+  editingFrom = null;
+  if (sendButton) sendButton.textContent = "Send";
+  document
+    .querySelectorAll(".msg--editing")
+    .forEach((el) => el.classList.remove("msg--editing"));
 }
 
 function assistantBubble(text = ""): HTMLElement {
@@ -407,9 +489,11 @@ function renderConversation(history: CoreMessage[]): void {
     }
   }
 
+  let userIndex = 0;
   for (const message of history) {
     if (message.role === "user") {
-      transcript.append(userBubble(message.content));
+      transcript.append(userBubble(message.content, userIndex));
+      userIndex += 1;
     } else if (message.role === "assistant") {
       if (message.content) transcript.append(assistantBubble(message.content));
     } else if (message.role === "tool") {
@@ -425,6 +509,7 @@ function renderConversation(history: CoreMessage[]): void {
       transcript.append(chip);
     }
   }
+  following = true;
   transcript.scrollTop = transcript.scrollHeight;
 }
 
@@ -456,10 +541,23 @@ async function send(): Promise<void> {
   }
   // The empty state is a child of the transcript, so the first message has to
   // clear it rather than land underneath it.
-  if (messages.length === 0) transcript?.replaceChildren();
+  // THE REWIND. Everything after the edited message was a response to the old
+  // wording; keeping it would leave the model reading an exchange that never
+  // happened. Done here rather than when Edit was pressed, so changing your mind
+  // about editing costs nothing.
+  if (editingFrom !== null) {
+    messages = rewindToUserMessage(messages, editingFrom);
+    cancelEdit();
+    renderConversation(messages);
+  }
 
+  if (messages.length === 0) transcript?.replaceChildren();
+  // A new message is a request for the newest thing, so follow again.
+  following = true;
+
+  const userIndex = messages.filter((m) => m.role === "user").length;
   messages = [...messages, { role: "user", content: text }];
-  append(userBubble(text));
+  append(userBubble(text, userIndex));
   await persist();
 
   const controller = new AbortController();
@@ -517,12 +615,11 @@ async function send(): Promise<void> {
         onReasoning(delta) {
           clearWorking();
           thought += delta;
-          const stick = atBottom();
           if (!thinking)
             thinking = append(thinkingBlock()) as HTMLDetailsElement;
           const body = thinking.querySelector("pre");
           if (body) body.textContent = thought;
-          scrollDown(stick);
+          stickToBottom();
         },
         onText(delta) {
           clearWorking();
@@ -533,10 +630,9 @@ async function send(): Promise<void> {
           thinking = null;
           thought = "";
           streamed += delta;
-          const stick = atBottom();
           if (!bubble) bubble = append(assistantBubble());
           renderMarkdown(bubble, streamed);
-          scrollDown(stick);
+          stickToBottom();
         },
         onToolCall(call) {
           clearWorking();
@@ -610,12 +706,16 @@ async function nameConversation(model: string): Promise<void> {
     (m) => m.role === "assistant" && typeof m.content === "string" && m.content,
   );
   if (!hasReply) return;
-  named.add(id);
 
   const title = await generateTitle(model, messages);
-  // The user may have moved on while this was in flight. Writing the title
-  // onto whatever conversation is open NOW would rename the wrong one.
-  if (!title || sessionId !== id) return;
+  // MARKED ONLY ON SUCCESS. Marking before the call meant one failure left a
+  // conversation unnamed forever — and when the failure was systematic, as the
+  // 32-token cap was, that meant every conversation.
+  if (!title) return;
+  named.add(id);
+  // The user may have moved on while this was in flight. Writing the title onto
+  // whatever conversation is open NOW would rename the wrong one.
+  if (sessionId !== id) return;
   await saveSession(id, await loadSession(id), { title });
   await refreshDrawer();
 }
@@ -760,6 +860,7 @@ async function refreshDrawer(): Promise<void> {
 }
 
 async function openSession(id: string): Promise<void> {
+  cancelEdit();
   sessionId = id;
   messages = await loadSession(id);
   renderConversation(messages);
@@ -768,6 +869,7 @@ async function openSession(id: string): Promise<void> {
 }
 
 function startNewChat(): void {
+  cancelEdit();
   sessionId = newSessionId();
   messages = [];
   renderConversation(messages);
@@ -1068,6 +1170,15 @@ input?.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
     event.preventDefault();
     void send();
+    return;
+  }
+  // Escape abandons an edit. Without a way out, pressing Edit by accident
+  // leaves the composer armed to delete the rest of the conversation.
+  if (event.key === "Escape" && editingFrom !== null) {
+    event.preventDefault();
+    cancelEdit();
+    if (input) input.value = "";
+    setStatus("");
   }
 });
 

@@ -326,6 +326,7 @@ body {
 }
 
 .msg--user {
+  position: relative;
   align-self: flex-end;
   max-width: 88%;
   padding: 8px 11px;
@@ -333,7 +334,49 @@ body {
   border-bottom-right-radius: 4px;
   background: var(--card);
   border: 1px solid var(--border);
+}
+
+.msg__text {
   white-space: pre-wrap;
+}
+
+/*
+ * Edit appears on hover and on keyboard focus.
+ *
+ * Always-visible would put a button on every message in a 320px column, and the
+ * action is rare. `:focus-within` is the half people forget: without it the
+ * control exists only for users with a pointer.
+ */
+.msg__edit {
+  position: absolute;
+  top: -9px;
+  right: 8px;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: hsl(0 0% 14%);
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.msg--user:hover .msg__edit,
+.msg--user:focus-within .msg__edit {
+  opacity: 1;
+}
+
+.msg__edit:hover {
+  border-color: var(--primary);
+  color: var(--fg);
+}
+
+/* The message about to be replaced, so the rewind is not a surprise. */
+.msg--editing {
+  border-color: var(--primary);
+  opacity: 0.55;
 }
 
 .msg--assistant > *:first-child {

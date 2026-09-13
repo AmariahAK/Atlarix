@@ -9,7 +9,12 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { MAX_TITLE_LENGTH, cleanTitle, generateTitle } from "./title";
+import {
+  MAX_TITLE_LENGTH,
+  TITLE_OUTPUT_TOKENS,
+  cleanTitle,
+  generateTitle,
+} from "./title";
 import type { CoreEvent, CoreMessage, streamTurn } from "../core/client";
 
 /** The injectable stream, named once so the casts below stay readable. */
@@ -86,10 +91,45 @@ describe("generateTitle", () => {
     expect(seen[0].tools).toBeUndefined();
   });
 
-  it("caps the output, because a title is not worth a paragraph", async () => {
+  it("budgets enough output for a REASONING model to think first", async () => {
+    // It was 32, and that is why nothing was ever named: Core 1 is GLM 5.3,
+    // which spends output tokens thinking before writing any answer. The cap was
+    // consumed by the thinking, `content` never began, and the caller got an
+    // empty string — silently, because an unnamed conversation is not an error.
+    // "Small answer, small cap" is exactly backwards on a reasoning model.
     const { fn, seen } = stream("A title");
     await generateTitle("m", CONVERSATION, { stream: fn });
-    expect(seen[0].maxOutputTokens).toBe(32);
+    expect(seen[0].maxOutputTokens).toBe(TITLE_OUTPUT_TOKENS);
+    expect(TITLE_OUTPUT_TOKENS).toBeGreaterThanOrEqual(256);
+  });
+
+  it("ignores the thinking and keeps only the answer", async () => {
+    const withThinking = async function* (a: Record<string, unknown>) {
+      void a;
+      yield { type: "reasoning", delta: "The user asked about" } as CoreEvent;
+      yield { type: "reasoning", delta: " Wikipedia articles." } as CoreEvent;
+      yield { type: "text", delta: "Wikipedia random articles" } as CoreEvent;
+      yield { type: "done", finishReason: "stop" } as CoreEvent;
+    } as unknown as Stream;
+    await expect(
+      generateTitle("m", CONVERSATION, { stream: withThinking }),
+    ).resolves.toBe("Wikipedia random articles");
+  });
+
+  it("returns empty when the budget ran out during the thinking", async () => {
+    // The observed failure. The caller must keep the derived title rather than
+    // storing a fragment of a thought.
+    const truncated = async function* (a: Record<string, unknown>) {
+      void a;
+      yield {
+        type: "reasoning",
+        delta: "Let me consider what to",
+      } as CoreEvent;
+      yield { type: "done", finishReason: "length" } as CoreEvent;
+    } as unknown as Stream;
+    await expect(
+      generateTitle("m", CONVERSATION, { stream: truncated }),
+    ).resolves.toBe("");
   });
 
   it("sends only the first exchange, clipped", async () => {

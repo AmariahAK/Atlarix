@@ -179,7 +179,20 @@ export type PageRequest =
   | { op: "find"; query: string; max: number }
   /** Locate an element and report where it is. The prerequisite for any input
    *  that must be aimed at a POINT — a trusted pointer event cannot take a node. */
-  | { op: "resolve"; ref?: string; selector?: string }
+  | {
+      op: "resolve";
+      ref?: string;
+      selector?: string;
+      /**
+       * Draw the on-screen pointer at the resolved element, labelled with this.
+       *
+       * An agent driving a page is INVISIBLE unless something draws it, and
+       * "the form filled itself" is alarming in a way that "I watched it get
+       * filled" is not. Part of `resolve` rather than its own op because the
+       * rect it needs is exactly what `resolve` already computes.
+       */
+      cursor?: string;
+    }
   | { op: "click"; ref?: string; selector?: string }
   | { op: "fill"; ref?: string; selector?: string; value: string | boolean }
   | {
@@ -442,6 +455,99 @@ export function atlarixPageKernel(
       } catch {
         /* an element in a detached subtree cannot scroll; the rect still reads */
       }
+
+      // ── The visible pointer ────────────────────────────────────────────────
+      //
+      // ONE IMPLEMENTATION FOR BOTH SURFACES. The desktop had this and the
+      // extension did not, which meant a page in the user's own browser filled
+      // itself in silence — and "the form filled itself" is alarming in a way
+      // that "I watched it get filled" is not.
+      //
+      // Best-effort throughout: a page with a hostile CSP, a detached body, or
+      // no layout must not turn a working action into a failed one. Everything
+      // is in a try/catch and nothing here is awaited.
+      //
+      // pointer-events:none so it can never intercept the action it is
+      // illustrating, one singleton container, transform/opacity only, and it
+      // is torn down naturally by a navigation.
+      if (typeof req.cursor === "string") {
+        try {
+          const CURSOR_ID = "__atlarix_ai_cursor__";
+          let host = document.getElementById(CURSOR_ID);
+          if (!host) {
+            host = document.createElement("div");
+            host.id = CURSOR_ID;
+            host.style.cssText =
+              "position:fixed;left:0;top:0;width:0;height:0;pointer-events:none;z-index:2147483647;";
+            const p = document.createElement("div");
+            p.setAttribute("data-part", "pointer");
+            // Arrow-shaped so it reads as a cursor rather than a dot.
+            p.style.cssText =
+              "position:fixed;left:0;top:0;width:18px;height:18px;margin:-2px 0 0 -2px;" +
+              "background:#34d399;opacity:0;pointer-events:none;" +
+              "clip-path:polygon(0 0, 0 78%, 26% 60%, 44% 100%, 62% 90%, 46% 52%, 78% 46%);" +
+              "filter:drop-shadow(0 1px 3px rgba(0,0,0,.45));" +
+              "transition:transform .32s cubic-bezier(.22,.61,.36,1),opacity .2s ease;";
+            const g = document.createElement("div");
+            g.setAttribute("data-part", "ring");
+            g.style.cssText =
+              "position:fixed;box-sizing:border-box;border:2px solid #34d399;border-radius:6px;" +
+              "box-shadow:0 0 0 4px rgba(52,211,153,.22);opacity:0;transition:opacity .18s ease;pointer-events:none;";
+            const b = document.createElement("div");
+            b.setAttribute("data-part", "chip");
+            b.style.cssText =
+              "position:fixed;padding:2px 7px;border-radius:999px;background:rgba(6,78,59,.92);" +
+              "color:#d1fae5;font:600 11px/1.4 ui-sans-serif,system-ui,sans-serif;white-space:nowrap;opacity:0;" +
+              "transition:opacity .18s ease,transform .32s cubic-bezier(.22,.61,.36,1);pointer-events:none;";
+            host.appendChild(g);
+            host.appendChild(p);
+            host.appendChild(b);
+            document.body.appendChild(host);
+          }
+          const ptr = host.querySelector(
+            '[data-part="pointer"]',
+          ) as HTMLElement | null;
+          const ring = host.querySelector(
+            '[data-part="ring"]',
+          ) as HTMLElement | null;
+          const chip = host.querySelector(
+            '[data-part="chip"]',
+          ) as HTMLElement | null;
+          const box = el.getBoundingClientRect();
+          const cx = box.left + box.width / 2;
+          const cy = box.top + box.height / 2;
+          if (ring) {
+            ring.style.left = box.left + "px";
+            ring.style.top = box.top + "px";
+            ring.style.width = box.width + "px";
+            ring.style.height = box.height + "px";
+          }
+          if (ptr) ptr.style.transform = "translate(" + cx + "px," + cy + "px)";
+          if (chip) {
+            chip.style.transform =
+              "translate(" + (cx + 14) + "px," + (cy + 14) + "px)";
+            chip.textContent = String(req.cursor).slice(0, 40);
+          }
+          requestAnimationFrame(function () {
+            if (ring) ring.style.opacity = "1";
+            if (ptr) ptr.style.opacity = "1";
+            if (chip) chip.style.opacity = "1";
+          });
+          // The ring and chip fade; the POINTER stays put, so the user keeps
+          // seeing where the agent is between actions.
+          setTimeout(function () {
+            try {
+              if (ring) ring.style.opacity = "0";
+              if (chip) chip.style.opacity = "0";
+            } catch {
+              /* the page navigated out from under it */
+            }
+          }, 450);
+        } catch {
+          /* never let drawing a cursor fail an action */
+        }
+      }
+
       return {
         ok: true,
         tag: el.tagName.toLowerCase(),

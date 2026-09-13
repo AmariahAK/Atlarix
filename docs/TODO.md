@@ -617,6 +617,45 @@ choice rather than an oversight:
 
 Do not build it on the strength of one request. Decide it deliberately.
 
+### Second run — the AI cursor moves into the kernel, 2026-09-13
+
+Owner drove it through a real form fill on httpbin. It worked. Four findings.
+
+**1. NOTHING WAS EVER NAMED, and the cause is a good lesson.** `generateTitle`
+capped output at 32 tokens on the reasoning that a title is short. **Core 1 is GLM 5.3, a
+REASONING model**: it spends output tokens thinking before it writes a single character of
+answer, so the cap was consumed entirely by the thinking, the response truncated before
+`content` began, and the caller got an empty string — silently, because an unnamed
+conversation is not an error. "Small answer, small cap" is exactly backwards on a reasoning
+model: the cap must cover the thinking the answer comes AFTER. Now 512, a fraction of a
+cent. Second bug in the same function: `named.add(id)` ran BEFORE the call, so one failure
+left a conversation unnamed forever — and when the failure was systematic, that meant every
+conversation.
+
+**2. THE PAGE FILLED ITSELF IN SILENCE.** The desktop draws an emerald pointer, ring and
+label on every action; the extension drew nothing, so a form in the user's own browser
+completed itself with no indication of what was happening or where. **The cursor moved INTO
+THE SHARED KERNEL** as an option on `resolve` — the rect it needs is exactly what `resolve`
+already computes. Both surfaces now draw the same one from the same code, and
+`AI_CURSOR_AT_RECT_JS` is deleted. The extension pauses 240ms after drawing, because draw
+and act in the same frame means the user sees a filled form and, maybe, a flicker.
+Everything about the drawing is best-effort: a hostile CSP or a detached body must never
+turn a working action into a failed one.
+
+**3. THE TRANSCRIPT DRAGGED ITSELF BACK DOWN.** Scroll-following measured `atBottom()` at
+append time — but a streamed answer re-renders its whole bubble on every delta, and each
+re-render changes `scrollHeight` between the measurement and the write. Now a LATCH set by
+the user's own `scroll` events: scroll up once and you stay there until you deliberately
+return to the bottom.
+
+**4. NO WAY TO EDIT A SENT MESSAGE.** Added, and **it is a REWIND, not a patch**:
+everything after the edited message was a response to the old wording — tool results the
+model asked for because of it, answers that quoted it — so keeping any of it leaves the
+model reading an exchange that never happened. `rewindToUserMessage` counts USER messages
+and cuts at the whole-transcript index, which is what keeps a question together with its
+tool traffic. The cut happens on SEND rather than on Edit, so changing your mind costs
+nothing, and Escape abandons it.
+
 ### Phase 3a — the extension can ACT. DONE 2026-09-13.
 
 The kernel grew `resolve | click | fill | scroll`, and the extension grew `click`, `fill`,

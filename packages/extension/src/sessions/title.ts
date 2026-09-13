@@ -25,6 +25,21 @@ import { streamTurn, type CoreMessage } from "../core/client";
 /** Long enough to be specific, short enough not to be truncated in the drawer. */
 export const MAX_TITLE_LENGTH = 48;
 
+/**
+ * The output budget, and it is NOT the length of a title.
+ *
+ * IT WAS 32, AND THAT IS WHY NOTHING WAS EVER NAMED. Core 1 is GLM 5.3, a
+ * REASONING model: it spends output tokens thinking before it writes a single
+ * character of answer. A 32-token cap is consumed entirely by the thinking, the
+ * response is truncated before `content` ever begins, and the caller gets an
+ * empty string — silently, because an unnamed conversation is not an error.
+ *
+ * "Small number, small answer" is the intuition, and on a reasoning model it is
+ * exactly backwards: the cap has to cover the thinking the answer comes AFTER.
+ * 512 is a fraction of a cent per conversation and removes the failure entirely.
+ */
+export const TITLE_OUTPUT_TOKENS = 512;
+
 const INSTRUCTION =
   "Write a title for this conversation: 2 to 5 words, no quotes, no trailing " +
   "full stop, sentence case. Name the SUBJECT, not the request — " +
@@ -88,7 +103,7 @@ export async function generateTitle(
         messages: transcript,
         // No tools. A title call that decided to read a page would be absurd,
         // and the client omits the field entirely when the list is empty.
-        maxOutputTokens: 32,
+        maxOutputTokens: TITLE_OUTPUT_TOKENS,
         signal: opts.signal,
       },
       fetch,
