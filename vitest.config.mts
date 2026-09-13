@@ -142,6 +142,7 @@ export default defineConfig({
           __ATLARIX_SUPABASE_URL__: JSON.stringify("https://test.supabase.co"),
           __ATLARIX_SUPABASE_ANON_KEY__: JSON.stringify("test-anon-key"),
           __ATLARIX_EXTENSION_VERSION__: JSON.stringify("0.0.0-test"),
+          __ATLARIX_CORE_PROXY_URL__: JSON.stringify("https://proxy.test/v1"),
         },
         test: {
           name: "extension",

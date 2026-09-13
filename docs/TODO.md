@@ -505,8 +505,33 @@ ran on.
 **PHASE 1 IS COMPLETE.** Next is Phase 2 (loop, sessions, memory, skills), then Phase 3
 (desktop bridge + `target` param), then Phase 4 (Supabase, launchpad, docs, store).
 
+### CAN ATLARIX DRIVE THE BROWSER YET? NO — and the gap is precise (checked 2026-09-13)
+
+Asked directly, and worth answering by grep rather than from memory, because the parts
+that exist look like more than they are.
+
+**What works today:** the EXTENSION can read a page, in a tab whose origin the user
+granted, triggered by a button in its own side panel. A ref survives between two separate
+`executeScript` calls. That is all, and it is by hand.
+
+**What does not exist, verified:**
+
+|                               |                                                                                                                                                               |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Desktop → extension transport | **NONE.** No native-messaging host, no `externally_connectable`, no `nativeMessaging` permission. The only `runtime.sendMessage` in the package is a comment. |
+| `target: "app" \| "chrome"`   | **NONE.** `src/lib/tools/browser.ts` contains zero `target` references — the seam is still unbuilt, over ~40 direct `view.webContents.*` sites.               |
+| Kernel action ops             | **READS ONLY.** `PageRequest` is `snapshot \| find`. `click`/`fill`/`key`/`hover`/`scroll` remain desktop-only strings until Phase 3.                         |
+| `page/trusted-input.ts`       | Built and tested; **called by nothing** but its own test. It is waiting for a loop.                                                                           |
+| `tabs/group.ts`               | Used only by `trusted-input.ts`. No tab is ever adopted yet.                                                                                                  |
+
+So the honest summary: **the extension can drive Chrome; Atlarix cannot drive the
+extension.** Phase 2 makes the extension drive itself (its own loop, its own chat), which
+needs no bridge. Phase 3 is what lets the desktop reach it, and it needs all four rows
+above.
+
 **Do the `X-Atlarix-Surface` ledger label FIRST** — before any Core dispatch, per the
-shared-wallet section. A ledger row cannot be re-attributed later.
+shared-wallet section. A ledger row cannot be re-attributed later. **DONE 2026-09-13, see
+below.**
 
 ### The ledger label — DONE and DEPLOYED 2026-09-13
 

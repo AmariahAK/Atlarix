@@ -24,3 +24,12 @@ declare const __ATLARIX_SUPABASE_ANON_KEY__: string;
 
 /** `manifest.json`'s version, so the UI and any report agree with the package. */
 declare const __ATLARIX_EXTENSION_VERSION__: string;
+
+/**
+ * The Atlarix Core proxy, e.g. `https://…up.railway.app` or `…/v1`.
+ *
+ * Public — it is a hostname, and the managed PROVIDER keys live on the proxy,
+ * never in this bundle. The same value the desktop embeds via
+ * `ATLARIX_CORE_PROXY_URL`.
+ */
+declare const __ATLARIX_CORE_PROXY_URL__: string;

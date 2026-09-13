@@ -86,15 +86,21 @@ try {
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
 const supabaseAnonKey =
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY ?? "";
+// The Core proxy. Public (a hostname) — the managed provider keys live ON the
+// proxy and never in this bundle. Same env name the desktop build reads.
+const coreProxyUrl = process.env.ATLARIX_CORE_PROXY_URL ?? "";
 
 // Never `?? ""` into the bundle. An extension built with an empty Supabase URL
 // installs and opens fine, then fails at sign-in with a bare fetch error ten
 // steps downstream of the actual mistake. Fail here, where the cause is legible.
-if (!allowMissingConfig && (!supabaseUrl || !supabaseAnonKey)) {
+if (
+  !allowMissingConfig &&
+  (!supabaseUrl || !supabaseAnonKey || !coreProxyUrl)
+) {
   fatal(
-    "NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY " +
-      "must be set (see .env.example). Pass --allow-missing-config to build the " +
-      "shell without them.",
+    "NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY and " +
+      "ATLARIX_CORE_PROXY_URL must be set (see .env.example). Pass " +
+      "--allow-missing-config to build the shell without them.",
   );
 }
 
@@ -169,6 +175,7 @@ const result = await build({
     __ATLARIX_SUPABASE_URL__: JSON.stringify(supabaseUrl),
     __ATLARIX_SUPABASE_ANON_KEY__: JSON.stringify(supabaseAnonKey),
     __ATLARIX_EXTENSION_VERSION__: JSON.stringify(version),
+    __ATLARIX_CORE_PROXY_URL__: JSON.stringify(coreProxyUrl),
   },
   plugins: [noNodeBuiltinsPlugin],
 });
