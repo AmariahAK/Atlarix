@@ -512,6 +512,22 @@ PROVIDER'S OWN `prompt_tokens` rather than `len/4`, compaction with a durable ma
 (migration APPLIED), attachments, `web_search` on the shared kernel's `search-results` op,
 and a cache-ordered prompt.
 
+**THE EGRESS RULE, AND WHERE THE MARKET ACTUALLY SITS** (corrected 2026-09-13 —
+the first version of this compared the CLIs, which are the wrong products):
+
+| | Cross-device sync | Page content |
+|---|---|---|
+| Claude in Chrome | Yes — "sessions move with you… pick it up on the web, in Claude Desktop, or on Claude Mobile" | Retention NOT documented; the Dec-2025 arxiv survey of 8 browser agents flagged this as unknown for all of them |
+| ChatGPT Atlas | Yes | Reaches servers, summarised there, **originals deleted immediately**, summaries within 7 days, PII-filtered |
+| Perplexity Comet | Local-first | Stays on device until a query needs it |
+| **Atlarix** | Yes | **Never leaves the device** — `content_length_by_role` caps a tool row at 200 chars |
+
+Limiting page content is what the market does, in three shapes. Ours is the
+strict end of that spectrum. **And the findings still travel:** compaction
+markers sync and the summary carries a `## Pages and Tabs` section, so a synced
+conversation holds what the pages SAID — Atlas's trade exactly, with the
+summarising done on-device.
+
 **STILL OPEN, and deferred by the owner to the next session:**
 
 - **MCP + skills + site-grant management UI on the launchpad.** Research is below: the

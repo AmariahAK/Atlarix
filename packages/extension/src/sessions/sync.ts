@@ -19,6 +19,36 @@
  * is. That it is also regenerable, and also the bulk, are the two supporting
  * arguments rather than the case.
  *
+ * WHERE THE MARKET SITS, checked 2026-09-13 against the BROWSER products rather
+ * than the CLIs — the CLIs are the wrong comparison for this and comparing them
+ * is how the first version of this comment got it backwards.
+ *
+ *   Claude in Chrome  — full session sync, and it is exactly this feature:
+ *                       "every side panel session appears in your history" and
+ *                       "start a session in the side panel and pick it up on the
+ *                       web, in Claude Desktop, or on Claude Mobile". What it
+ *                       retains of page content is NOT documented; the Dec-2025
+ *                       arxiv survey of eight browser agents flagged that as
+ *                       unknown for all of them.
+ *   ChatGPT Atlas     — page content REACHES their servers, is summarised there,
+ *                       and "the original web contents are deleted immediately
+ *                       after summarization"; the privacy-filtered summaries go
+ *                       within seven days. Memories hold "facts and insights
+ *                       from your browsing, but not full page content".
+ *   Perplexity Comet  — local-first: data stays on the device until a query
+ *                       needs it.
+ *
+ * So limiting page content IS what the market does, in three different shapes.
+ * This is the strict end of that spectrum: content that never leaves cannot be
+ * breached, subpoenaed, or quietly retained past a stated window.
+ *
+ * AND WE DO NOT LOSE THE FINDINGS, which is the objection this invites.
+ * Compaction markers sync, and the summary template carries a `## Pages and
+ * Tabs` section — "URL: what it was for and what it said". A synced conversation
+ * therefore carries what the pages SAID; what it loses is their raw text. That
+ * is Atlas's trade exactly, arrived at independently, except the summarising
+ * happens on the device.
+ *
  * `syncableRows` below is the projection, and it is a pure function on purpose
  * so a test can assert the rule directly rather than by inspecting a request.
  * The DATABASE enforces it too — `content_length_by_role` caps a `tool_label`
