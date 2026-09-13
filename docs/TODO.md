@@ -502,9 +502,36 @@ ran on.
   events rather than `Input.insertText`, which produces NO key events, so an autocomplete
   that opens on keydown never opens.
 
-**PHASES 1 AND 2 ARE COMPLETE. PHASE 3 IS UNDERWAY** — the kernel action ops and the
-extension's action tools are done (2026-09-13); what remains is the `target` param on
-`browser.ts` and the desktop bridge. Then Phase 4 (Supabase, launchpad, docs, store).
+**PHASES 1, 2 AND 4 ARE COMPLETE (2026-09-13).** Phase 3's remainder is the `target`
+param on `browser.ts` and the desktop bridge — the kernel action ops and the extension's
+action tools are done.
+
+Phase 4 shipped: stream retry, conversation-scoped frame, a context bar measured with the
+PROVIDER'S OWN `prompt_tokens` rather than `len/4`, compaction with a durable marker,
+`recall` over a separate append-only archive, cross-device conversations on two RLS tables
+(migration APPLIED), attachments, `web_search` on the shared kernel's `search-results` op,
+and a cache-ordered prompt.
+
+**STILL OPEN, and deferred by the owner to the next session:**
+
+- **MCP + skills + site-grant management UI on the launchpad.** Research is below: the
+  usual pattern is `externally_connectable` + `chrome.storage`, **but we should not need
+  it** — the extension already authenticates the same Supabase user, so the launchpad
+  writes and the extension reads, with no new manifest key and no origin in the manifest.
+  Decisive for MCP specifically: **a browser extension can only reach REMOTE
+  HTTP/Streamable-HTTP MCP servers, never local stdio.**
+- **The extension's own UI refinement** — owner's note: a Claude-style design lives better
+  on the launchpad account page than forced into a 320px panel.
+- **Chrome Web Store submission.** The build is reproducible and the zip is ~83 KB.
+
+**NOT DOING, and each for a measured reason:**
+
+- **Progressive tool reveal.** Measured 2026-09-13: 13 tools, 2,482 tokens of
+  descriptions, against the desktop's 27 tools and ~7,000. Every Core tier caches the
+  request prefix automatically (OpenAI ~90% off, z.ai 81% off), so a dynamic ladder would
+  invalidate that prefix on every reveal and cost more than a 5% smaller surface saves.
+  What replaced it: ordering the prompt most-stable-first, which is free.
+- **Sub-agents.** Owner decision, and Claude in Chrome has none either.
 
 ### "Atlarix Core is unreachable" was CORS — FIXED 2026-09-13
 
