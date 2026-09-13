@@ -55,14 +55,26 @@ export const AI_CURSOR_SETUP_JS = `
     var __chip = __c.querySelector('[data-part="chip"]');`;
 
 /** Move the pointer onto `el` (assumed in scope) and name the action. */
-export function AI_CURSOR_AT_ELEMENT_JS(
+/**
+ * Point the cursor at a RECT, not at an element.
+ *
+ * It used to take `el` from the surrounding scope, which forced every caller to
+ * resolve the element itself — and that resolution was a duplicate of the one
+ * the shared page kernel already does. Taking a rect instead lets the caller
+ * hand over `__r.rect` from a kernel `resolve` and delete its own copy.
+ *
+ * `rectExpr` is spliced as an EXPRESSION, so it must be a variable name the
+ * surrounding script already holds. Nothing model-supplied ever reaches it.
+ */
+export function AI_CURSOR_AT_RECT_JS(
+  rectExpr: string,
   label: string,
   durationMs: number,
 ): string {
   const fade = Math.max(0, durationMs - 150);
   return `try {
     ${AI_CURSOR_SETUP_JS}
-    var __r = el.getBoundingClientRect();
+    var __r = ${rectExpr};
     var __cx = __r.left + __r.width / 2, __cy = __r.top + __r.height / 2;
     __ring.style.left = __r.left + "px"; __ring.style.top = __r.top + "px";
     __ring.style.width = __r.width + "px"; __ring.style.height = __r.height + "px";

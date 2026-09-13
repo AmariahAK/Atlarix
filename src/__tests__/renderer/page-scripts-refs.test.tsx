@@ -14,7 +14,7 @@
  */
 
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
-import { resolveElementJs, snapshotScript } from "@/lib/browser/page-scripts";
+import { kernelCall, snapshotScript } from "@/lib/browser/page-scripts";
 
 interface Snapshot {
   elements: Array<{ ref: string; role: string; name: string; kind?: string }>;
@@ -38,10 +38,21 @@ function read(filter: "all" | "interactive" = "interactive"): Snapshot {
   return new Function(`return ${snapshotScript(filter)}`)() as Snapshot;
 }
 
+/**
+ * Resolve a ref exactly the way an action does.
+ *
+ * Through the kernel's `resolve` op since 2026-09-13 — `resolveElementJs` was a
+ * second implementation of this and is gone. The kernel returns a DESCRIPTION
+ * rather than a node (it has to: the extension's transport is structured clone,
+ * which cannot carry an element), so the element is re-found here by the same
+ * attribute the kernel matched on.
+ */
 function resolve(ref: string): Element | null {
-  return new Function(
-    `${resolveElementJs(ref)}\nreturn el;`,
-  )() as Element | null;
+  const ok = new Function(
+    `return (${kernelCall({ op: "resolve", ref })}).ok`,
+  )() as boolean;
+  if (!ok) return null;
+  return document.querySelector(`[data-atlarix-ref="${CSS.escape(ref)}"]`);
 }
 
 describe("ref round-trip", () => {

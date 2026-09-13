@@ -44,7 +44,14 @@ const realRect = Element.prototype.getBoundingClientRect;
 beforeEach(() => {
   document.body.innerHTML = "";
   Element.prototype.getBoundingClientRect = function () {
-    return { width: 100, height: 20, top: 40, left: 10, right: 110, bottom: 60 };
+    return {
+      width: 100,
+      height: 20,
+      top: 40,
+      left: 10,
+      right: 110,
+      bottom: 60,
+    };
   } as unknown as typeof realRect;
   // jsdom implements neither, and both are called on every action path.
   Element.prototype.scrollIntoView = function () {};
@@ -75,9 +82,13 @@ describe("resolving", () => {
     // A trusted pointer event takes coordinates, not a node. Aiming at the
     // top-left corner hits the border on anything with a radius.
     document.body.innerHTML = `<button aria-label="Go">Go</button>`;
+    // `left`/`top` as well as the centre: the desktop draws a RING around the
+    // element, and a centre point alone cannot describe a rectangle.
     expect(act({ op: "resolve", selector: "button" }).rect).toEqual({
       x: 60,
       y: 50,
+      left: 10,
+      top: 40,
       width: 100,
       height: 20,
     });
@@ -123,7 +134,11 @@ describe("fill walks to the field, which is the bug that made this necessary", (
     // Wikipedia's Vector search box: the snapshot names the wrapper "search
     // input" because that is its accessible ROLE, and the real input is inside.
     document.body.innerHTML = `<div role="search" aria-label="Search"><input name="q"></div>`;
-    const out = act({ op: "fill", selector: "div[role=search]", value: "otters" });
+    const out = act({
+      op: "fill",
+      selector: "div[role=search]",
+      value: "otters",
+    });
     expect(out.ok).toBe(true);
     expect(out.tag).toBe("input");
     expect(document.querySelector("input")?.value).toBe("otters");
@@ -195,7 +210,9 @@ describe("fill by control type", () => {
   it("toggles a checkbox rather than assigning its value", () => {
     document.body.innerHTML = `<input type="checkbox" name="agree">`;
     act({ op: "fill", selector: "input", value: true });
-    expect(document.querySelector<HTMLInputElement>("input")?.checked).toBe(true);
+    expect(document.querySelector<HTMLInputElement>("input")?.checked).toBe(
+      true,
+    );
   });
 
   it("reads the words a model actually writes for false", () => {
@@ -212,7 +229,9 @@ describe("fill by control type", () => {
     document.body.innerHTML = `<select><option value="gb">United Kingdom</option><option value="ke">Kenya</option></select>`;
     const out = act({ op: "fill", selector: "select", value: "Kenya" });
     expect(out.ok).toBe(true);
-    expect(document.querySelector<HTMLSelectElement>("select")?.value).toBe("ke");
+    expect(document.querySelector<HTMLSelectElement>("select")?.value).toBe(
+      "ke",
+    );
   });
 
   it("lists the real options when none matched", () => {

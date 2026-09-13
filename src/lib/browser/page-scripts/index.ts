@@ -120,9 +120,22 @@ export interface PageActionResult {
   tag?: string;
   /** A human-readable name for the confirmation line. */
   label?: string;
-  /** Viewport coordinates, for input that must be dispatched at a POINT rather
-   *  than at a node — trusted pointer events have no other way to aim. */
-  rect?: { x: number; y: number; width: number; height: number };
+  /**
+   * Where the element is, in viewport coordinates.
+   *
+   * `x`/`y` are the CENTRE, for input that must be dispatched at a point —
+   * trusted pointer events have no other way to aim. `left`/`top` are the
+   * box's corner, because the desktop draws a ring around the element and a
+   * centre alone cannot describe a rectangle.
+   */
+  rect?: {
+    x: number;
+    y: number;
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  };
   /**
    * What the element IS, for the caller's own safety classifier.
    *
@@ -328,11 +341,7 @@ export function atlarixPageKernel(
   // transports receive. Waiting for a page to settle is the caller's job and
   // both callers already do it: the extension has waitForLoad, and so does the
   // desktop. (No backtick in this comment: rule 2 above, caught by test.)
-  if (
-    req.op === "resolve" ||
-    req.op === "click" ||
-    req.op === "fill"
-  ) {
+  if (req.op === "resolve" || req.op === "click" || req.op === "fill") {
     // Resolution order is REF FIRST, then CSS selector. A ref is something we
     // minted and is stable across re-renders; a selector is the model's guess.
     // Both reach the DOM only inside a string literal, and the ref goes through
@@ -417,6 +426,8 @@ export function atlarixPageKernel(
         // it has padding or a border the caller knows nothing about.
         x: Math.round(r.left + r.width / 2),
         y: Math.round(r.top + r.height / 2),
+        left: Math.round(r.left),
+        top: Math.round(r.top),
         width: Math.round(r.width),
         height: Math.round(r.height),
       };
@@ -591,7 +602,8 @@ export function atlarixPageKernel(
   if (req.op === "scroll") {
     const doc = document.scrollingElement || document.documentElement;
     const page = Math.max(1, window.innerHeight - 100);
-    const step = typeof req.amount === "number" && req.amount > 0 ? req.amount : page;
+    const step =
+      typeof req.amount === "number" && req.amount > 0 ? req.amount : page;
     if (req.direction === "top") window.scrollTo(0, 0);
     else if (req.direction === "bottom") window.scrollTo(0, doc.scrollHeight);
     else window.scrollBy(0, req.direction === "up" ? -step : step);
@@ -774,6 +786,22 @@ function jsonArg(value: unknown): string {
     "\\u003c",
   );
 }
+/**
+ * One kernel call, as source text, for splicing into a desktop script.
+ *
+ * THE ONE WAY THE DESKTOP REACHES AN OP. `browser.ts` composes bigger scripts
+ * around these — pre-state capture, the AI cursor the user watches, the settle
+ * and delta report — and all of that is genuinely desktop-only. What must NOT be
+ * desktop-only is the resolution and the mutation, which is why they are in the
+ * kernel and this is the only door to them.
+ *
+ * The request goes through `jsonArg`, so model input reaches the page exactly
+ * the way it does for a read: inside a JSON literal, never concatenated.
+ */
+export function kernelCall(req: PageRequest): string {
+  return `(${KERNEL_SRC})(${jsonArg(req)})`;
+}
+
 /** The in-page walker. The kernel carries the logic; `filter` and the cap are
  *  the only things that vary, and they arrive as JSON. */
 export function snapshotScript(filter: A11yFilter): string {
@@ -791,52 +819,18 @@ export function findScript(query: string): string {
 }
 
 /**
- * In-page JS that declares `el` by resolving a browser_inspect snapshot `ref`
- * (data-atlarix-ref) first, then a CSS `selector`. Both inputs are embedded only
- * inside string literals (JSON.stringify) and the ref goes through CSS.escape —
- * no injection surface (v12 3.5 trust boundary).
+ * WHAT USED TO BE HERE: `resolveElementJs` and `RESOLVE_FILLABLE_JS`, two
+ * strings the desktop spliced into its own action scripts.
+ *
+ * DELETED 2026-09-13, because they were a second implementation of what the
+ * kernel now does — and the second one held all the hard-won parts: the fillable
+ * WRAPPER walk (Wikipedia's Vector search box), matching a select on visible
+ * text before its value, choosing the native setter by what the node IS rather
+ * than by elimination. Two copies of that is exactly one copy too many: a fix
+ * applied to one would leave the other quietly wrong, on the backend nobody was
+ * looking at.
+ *
+ * The desktop now reaches every op through `kernelCall` above and wraps it with
+ * the parts that really are desktop-only — the cursor the user watches and the
+ * delta report.
  */
-export function resolveElementJs(ref?: string, selector?: string): string {
-  return `const __ref = ${JSON.stringify(String(ref ?? ""))};
-      const __sel = ${JSON.stringify(String(selector ?? ""))};
-      let el = null;
-      if (__ref) { try { el = document.querySelector('[data-atlarix-ref="' + CSS.escape(__ref) + '"]'); } catch (e) {} }
-      if (!el && __sel) { try { el = document.querySelector(__sel); } catch (e) {} }`;
-}
-
-/**
- * In-page: walk from the resolved element to the field it actually contains.
- *
- * OBSERVED BUG (Wikipedia's Vector search box, 2026-09-02). A ref can point at a
- * WRAPPER rather than the field. The accessibility snapshot labels it "search
- * input" because that is its accessible ROLE, but the node is a div/form and the
- * real input is inside it — modern component libraries do this constantly.
- *
- * The old code went straight to `HTMLInputElement.prototype`'s value setter for
- * anything that was not a textarea. A native accessor REJECTS a receiver of the
- * wrong type, so that threw "Illegal invocation" — an error that tells the model
- * nothing about what to do instead. In the observed run it retried the same call
- * twice, tried a click-then-fill batch, concluded the whole action system was
- * broken, and worked around it. Three wasted turns for a wrapper element.
- *
- * Kept as a named snippet rather than inlined so `browser-fill-target.test.ts`
- * can run it against real DOM in jsdom. The in-page scripts are template
- * literals, so this must contain NO BACKTICK — one in a comment silently ends
- * the literal, which has now broken the build twice.
- */
-export const RESOLVE_FILLABLE_JS = `const __fillable = "input:not([type=hidden]),textarea,select,[contenteditable=true],[contenteditable=\\"\\"]";
-      if (!el.matches(__fillable)) {
-        const inner = el.querySelector(__fillable);
-        const outer = el.closest(__fillable);
-        if (inner) el = inner;
-        else if (outer) el = outer;
-        else {
-          return {
-            ok: false,
-            error: "<" + el.tagName.toLowerCase() + "> is not a field and contains none"
-              + (el.getAttribute("role") ? ' (role="' + el.getAttribute("role") + '")' : "")
-              + ". It may be a wrapper that reveals the real input when clicked: try"
-              + ' action:"click" on this ref, then re-read the page and fill the field that appears.',
-          };
-        }
-      }`;

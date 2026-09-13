@@ -67,10 +67,7 @@ import {
 // The page-realm scripts are shared with the Chrome extension so both backends
 // return identical shapes — see the header of `@/lib/browser/page-scripts`.
 // Aliased to the historical local names so the call sites below read unchanged.
-import {
-  RESOLVE_FILLABLE_JS,
-  resolveElementJs as RESOLVE_ELEMENT_JS,
-} from "@/lib/browser/page-scripts";
+import { kernelCall } from "@/lib/browser/page-scripts";
 import {
   runVisualLint,
   formatVisualLintReport,
@@ -78,7 +75,7 @@ import {
   formatDesignSnapshot,
 } from "@/lib/browser/visual-lint";
 import {
-  AI_CURSOR_AT_ELEMENT_JS,
+  AI_CURSOR_AT_RECT_JS,
   AI_CURSOR_LABEL_JS,
   AI_CURSOR_DURATION_MS,
   AI_CURSOR_WAIT_MS,
@@ -86,7 +83,6 @@ import {
 
 // Re-exported because `browser-fill-target.test.ts` runs this snippet against
 // real DOM in jsdom and imports it from here.
-export { RESOLVE_FILLABLE_JS };
 
 /**
  * ToolRegistry.execute injects the chat id into every tool's args; runToolExecute
@@ -964,16 +960,19 @@ async function interactClick(
       error: "Provide a ref (from browser_inspect snapshot) or a CSS selector.",
     };
   }
+  // Resolve through the SHARED KERNEL, then decorate. The resolution and the
+  // click itself are the same code the extension runs; what is desktop-only is
+  // the cursor the user watches and the delta report, and those wrap around it.
   const script = `(async () => {
-      ${RESOLVE_ELEMENT_JS(args.ref, args.selector)}
-      if (!el) return { ok: false, error: "no element matched (ref or selector)" };
       ${CAPTURE_PRE_STATE_JS}
-      el.scrollIntoView({ block: "center" });
-      ${AI_CURSOR_AT_ELEMENT_JS("click", AI_CURSOR_DURATION_MS)}
+      const __t = ${kernelCall({ op: "resolve", ref: args.ref, selector: args.selector })};
+      if (!__t.ok) return __t;
+      ${AI_CURSOR_AT_RECT_JS("__t.rect", "click", AI_CURSOR_DURATION_MS)}
       await new Promise(function (r) { setTimeout(r, ${AI_CURSOR_WAIT_MS}); });
-      el.click();
+      const __a = ${kernelCall({ op: "click", ref: args.ref, selector: args.selector })};
+      if (!__a.ok) return __a;
       ${SETTLE_AND_DELTA_JS}
-      return { ok: true, tag: el.tagName, text: (el.innerText || el.getAttribute("aria-label") || el.getAttribute("title") || "").trim().slice(0, 120), delta: __delta };
+      return { ok: true, tag: __a.tag, text: (__a.label || "").slice(0, 120), delta: __delta };
     })()`;
   const result = (await view.webContents.executeJavaScript(script, true)) as {
     ok: boolean;
@@ -1037,67 +1036,24 @@ async function interactFill(
         `Re-issue exactly: browser({ action: "fill", ref: "${ref}", value: "<text to type>" }).`,
     };
   }
+  // THE WHOLE POINT OF THE SHARED KERNEL IS THIS FUNCTION. Everything that was
+  // here — the fillable WRAPPER walk, matching a select on visible text before
+  // value, choosing the native setter by what the node IS rather than by
+  // elimination — was learned from real pages and was duplicated in the
+  // extension. It now lives in exactly one place and both backends run it.
+  //
+  // What stays here is what is genuinely desktop-only: the cursor the user
+  // watches, and the delta report.
   const script = `(async () => {
-      ${RESOLVE_ELEMENT_JS(args.ref, args.selector)}
-      if (!el) return { ok: false, error: "no element matched (ref or selector)" };
-      ${RESOLVE_FILLABLE_JS}
       ${CAPTURE_PRE_STATE_JS}
-      el.scrollIntoView({ block: "center" });
-      ${AI_CURSOR_AT_ELEMENT_JS("type", AI_CURSOR_DURATION_MS)}
+      const __t = ${kernelCall({ op: "resolve", ref: args.ref, selector: args.selector })};
+      if (!__t.ok) return __t;
+      ${AI_CURSOR_AT_RECT_JS("__t.rect", "type", AI_CURSOR_DURATION_MS)}
       await new Promise(function (r) { setTimeout(r, ${AI_CURSOR_WAIT_MS}); });
-      el.focus();
-      const rawValue = ${JSON.stringify(args.value)};
-      const value = typeof rawValue === 'string' ? rawValue : String(rawValue);
-      // Checkboxes/radios take a boolean; anything else coerces to a string.
-      if (el instanceof HTMLInputElement && (el.type === 'checkbox' || el.type === 'radio')) {
-        const want = typeof rawValue === 'boolean' ? rawValue
-          : !/^(false|0|off|no|unchecked)$/i.test(value);
-        if (el.checked !== want) el.click();
-        el.dispatchEvent(new Event("input", { bubbles: true }));
-        el.dispatchEvent(new Event("change", { bubbles: true }));
-      } else if (el instanceof HTMLSelectElement) {
-        // Match by option VALUE first, then by VISIBLE TEXT — the value-vs-label
-        // mismatch is the most common reason a select fill silently no-ops.
-        const opts = Array.from(el.options);
-        const norm = (s) => String(s == null ? '' : s).trim().toLowerCase();
-        let opt = opts.find((o) => o.value === value)
-          || opts.find((o) => norm(o.text) === norm(value))
-          || opts.find((o) => norm(o.text).indexOf(norm(value)) !== -1);
-        if (!opt) {
-          return { ok: false, error: 'no option matched "' + value + '" (options: '
-            + opts.slice(0, 12).map((o) => o.text.trim()).join(' | ') + ')' };
-        }
-        el.value = opt.value;
-        el.dispatchEvent(new Event("input", { bubbles: true }));
-        el.dispatchEvent(new Event("change", { bubbles: true }));
-      } else if (el.isContentEditable) {
-        // A rich-text editor has no value property; the native setter throws.
-        el.textContent = value;
-        el.dispatchEvent(new Event("input", { bubbles: true }));
-      } else {
-        // Pick the prototype from what the node IS. Choosing it by elimination
-        // is what produced "Illegal invocation": a native accessor rejects a
-        // receiver of the wrong type, so a wrong guess throws instead of
-        // degrading. A null proto means no native setter applies, and the plain
-        // assignment below handles it.
-        const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype
-          : el instanceof HTMLInputElement ? HTMLInputElement.prototype
-          : null;
-        const setter = proto ? Object.getOwnPropertyDescriptor(proto, "value")?.set : null;
-        if (setter) setter.call(el, value); else el.value = value;
-        el.dispatchEvent(new Event("input", { bubbles: true }));
-        el.dispatchEvent(new Event("change", { bubbles: true }));
-      }
-      // A human-readable field name for the recording/card: label > aria-label >
-      // placeholder > name.
-      var __label = "";
-      try {
-        __label = (el.labels && el.labels[0] && el.labels[0].innerText)
-          || el.getAttribute("aria-label") || el.getAttribute("placeholder")
-          || el.getAttribute("name") || "";
-      } catch (e) {}
+      const __a = ${kernelCall({ op: "fill", ref: args.ref, selector: args.selector, value: args.value as string | boolean })};
+      if (!__a.ok) return __a;
       ${SETTLE_AND_DELTA_JS}
-      return { ok: true, tag: el.tagName, label: (__label || "").trim().slice(0, 80), delta: __delta };
+      return { ok: true, tag: __a.tag, label: __a.label, delta: __delta };
     })()`;
   const result = (await view.webContents.executeJavaScript(script, true)) as {
     ok: boolean;
@@ -1236,13 +1192,19 @@ async function interactKey(
   const wc = view.webContents;
   // Focus the target first when one is given, so the key lands on it.
   if (args.ref || args.selector) {
+    // The kernel resolves and scrolls; focusing is a one-liner the kernel has
+    // no op for, and does not need one — it is not a page MUTATION and carries
+    // none of the lessons the fill path does.
     const focused = (await wc.executeJavaScript(
       `(() => {
-        ${RESOLVE_ELEMENT_JS(args.ref, args.selector)}
-        if (!el) return false;
-        el.scrollIntoView({ block: "center" });
-        el.focus();
-        ${AI_CURSOR_AT_ELEMENT_JS(label, AI_CURSOR_DURATION_MS)}
+        const __t = ${kernelCall({ op: "resolve", ref: args.ref, selector: args.selector })};
+        if (!__t.ok) return false;
+        ${AI_CURSOR_AT_RECT_JS("__t.rect", label, AI_CURSOR_DURATION_MS)}
+        try {
+          const __el = document.querySelector('[data-atlarix-ref="' + CSS.escape(${JSON.stringify(String(args.ref ?? ""))}) + '"]')
+            || document.querySelector(${JSON.stringify(String(args.selector ?? "*:not(*)"))});
+          if (__el) __el.focus();
+        } catch (e) {}
         return true;
       })()`,
       true,
@@ -1314,19 +1276,15 @@ async function interactHover(
     };
   }
   const wc = view.webContents;
+  // The kernel already returns the centre point and a label, which is the whole
+  // of what a hover needs — this used to compute both again in a second copy of
+  // the same arithmetic.
   const spot = (await wc.executeJavaScript(
     `(() => {
-      ${RESOLVE_ELEMENT_JS(args.ref, args.selector)}
-      if (!el) return null;
-      el.scrollIntoView({ block: "center" });
-      ${AI_CURSOR_AT_ELEMENT_JS("hover", AI_CURSOR_DURATION_MS)}
-      const r = el.getBoundingClientRect();
-      return {
-        x: Math.round(r.left + r.width / 2),
-        y: Math.round(r.top + r.height / 2),
-        tag: el.tagName,
-        name: (el.innerText || el.getAttribute("aria-label") || "").trim().slice(0, 80),
-      };
+      const __t = ${kernelCall({ op: "resolve", ref: args.ref, selector: args.selector })};
+      if (!__t.ok) return null;
+      ${AI_CURSOR_AT_RECT_JS("__t.rect", "hover", AI_CURSOR_DURATION_MS)}
+      return { x: __t.rect.x, y: __t.rect.y, tag: __t.tag, name: __t.label || "" };
     })()`,
     true,
   )) as { x: number; y: number; tag: string; name: string } | null;
@@ -1380,13 +1338,10 @@ async function interactScroll(
   const wc = view.webContents;
   // scroll_to a ref: bring one element into view.
   if (args.ref || args.selector) {
+    // `resolve` scrolls the element into view as part of its contract — the rect
+    // it returns is in VIEWPORT coordinates, so it has to.
     const ok = (await wc.executeJavaScript(
-      `(() => {
-        ${RESOLVE_ELEMENT_JS(args.ref, args.selector)}
-        if (!el) return false;
-        el.scrollIntoView({ block: "center", inline: "nearest" });
-        return true;
-      })()`,
+      `(() => ${kernelCall({ op: "resolve", ref: args.ref, selector: args.selector })}.ok)()`,
       true,
     )) as boolean;
     if (!ok) {

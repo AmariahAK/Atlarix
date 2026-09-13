@@ -659,11 +659,22 @@ at all.
 
 **The backtick rule fired again**, in prose, for the third time. It is worth keeping.
 
-**STILL OWED, and it is real duplication:** `browser.ts` keeps its own
-`resolveElementJs` + `RESOLVE_FILLABLE_JS` strings and its own inline fill logic. The
-kernel ops were added PURELY ADDITIVELY so the desktop took zero diff and zero risk, the
-same staging Phase 1 used. Unifying them — deleting the desktop's copies and composing the
-kernel op instead — is the next commit, and until it lands the two can drift.
+**THE DUPLICATION IS PAID OFF — DONE 2026-09-13.** `resolveElementJs` and
+`RESOLVE_FILLABLE_JS` are DELETED. `browser.ts` reaches every op through `kernelCall()` and
+wraps it with what is genuinely desktop-only: the AI cursor and the delta report. All five
+action sites migrated (click, fill, key, hover, scroll-to-ref).
+
+`AI_CURSOR_AT_ELEMENT_JS` became `AI_CURSOR_AT_RECT_JS` — it took `el` from the surrounding
+scope, which is what forced every caller to resolve the element itself. Taking a rect lets
+the caller hand over `__t.rect` from a kernel `resolve`, so the kernel's rect gained
+`left`/`top` beside the centre point (a ring needs a box; a pointer needs a point).
+
+**`browser-fill-target.test.tsx` was retargeted rather than deleted**, and it is stronger
+for it: it now asks WHERE THE TEXT LANDED instead of what the walk resolved to, which is
+what the user sees and cannot pass while the value quietly goes elsewhere. The error
+message it pins is now worded without a tool name — the desktop spells the recovery
+`browser({action:"click"})` and the extension spells it `click`, so the shared message
+names the MOVE, not the call.
 
 ### Phase 2 — DONE 2026-09-13. The side panel is a chat.
 
@@ -781,8 +792,8 @@ cannot do is CLICK or TYPE, and no part of Atlarix outside the extension can rea
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Desktop → extension transport | **NONE.** No native-messaging host, no `externally_connectable`, no `nativeMessaging` permission. The only `runtime.sendMessage` in the package is a comment. |
 | `target: "app" \| "chrome"`   | **NONE.** `src/lib/tools/browser.ts` contains zero `target` references — the seam is still unbuilt, over ~40 direct `view.webContents.*` sites.               |
-| Kernel action ops             | **READS ONLY.** `PageRequest` is `snapshot \| find`. `click`/`fill`/`key`/`hover`/`scroll` remain desktop-only strings until Phase 3.                         |
-| `page/trusted-input.ts`       | Built and tested; **still called by nothing** but its own test. The loop now exists and does not need it — what it is waiting for is Phase 3's action ops.    |
+| Kernel action ops             | **DONE 2026-09-13.** `PageRequest` is `snapshot \| find \| resolve \| click \| fill \| scroll`, and the desktop's duplicate strings are deleted.              |
+| `page/trusted-input.ts`       | **DONE 2026-09-13.** `press_key` and `hover` call it, restricted to tabs in the agent's own group so no user tab is ever bannered.                            |
 | `tabs/group.ts`               | **CLOSED 2026-09-13** — `open_tab` adopts every tab the agent opens, and the panel wires `onGroupClosed` to abort the running turn. The gesture is live.      |
 
 So the honest summary: **the extension can drive Chrome; Atlarix cannot drive the

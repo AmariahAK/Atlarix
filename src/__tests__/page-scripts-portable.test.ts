@@ -17,10 +17,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  RESOLVE_FILLABLE_JS,
   atlarixPageKernel,
   findScript,
-  resolveElementJs,
   snapshotScript,
 } from "@/lib/browser/page-scripts";
 
@@ -72,13 +70,6 @@ describe("page-scripts injection safety", () => {
     expect(script).not.toContain("alert(1); //`");
   });
 
-  it("embeds a ref and a selector without breaking out", () => {
-    const script = resolveElementJs(HOSTILE, HOSTILE);
-    expect(script).toContain(JSON.stringify(HOSTILE));
-    // The ref additionally goes through CSS.escape at runtime.
-    expect(script).toContain("CSS.escape(__ref)");
-  });
-
   it("passes the caps as JSON arguments, not as interpolated code", () => {
     // These used to be spliced in as `const MAX = 200;`. They now travel in the
     // request object, which is the same guarantee by a safer route: a cap can
@@ -90,12 +81,6 @@ describe("page-scripts injection safety", () => {
 });
 
 describe("page-scripts template hygiene", () => {
-  it("keeps RESOLVE_FILLABLE_JS free of backticks", () => {
-    // A backtick — even inside a comment — silently ends the template literal
-    // it is embedded in. This has broken the build twice.
-    expect(RESOLVE_FILLABLE_JS).not.toContain("`");
-  });
-
   it("keeps the KERNEL free of backticks too", () => {
     // Same rule, and it now matters more: the kernel's source is spliced into
     // `browser.ts`'s template literals, so one backtick anywhere in it — a
