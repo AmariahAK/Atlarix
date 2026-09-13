@@ -26,6 +26,16 @@ describe("what the prompt must establish", () => {
     expect(buildSystemPrompt(base)).toMatch(/read it again/i);
   });
 
+  it("tells it to LEAVE tabs open — they are how the user checks the work", () => {
+    // Observed: the agent opened two Wikipedia articles, read them, and closed
+    // both before the user could look. A claim about a page they cannot open is
+    // a claim they have to take on trust. (It also emptied the agent's tab
+    // group, which used to fire the stop gesture and kill the turn.)
+    const p = buildSystemPrompt(base);
+    expect(p).toMatch(/LEAVE THE TABS YOU OPENED OPEN/);
+    expect(p).toMatch(/not close tabs as a finishing flourish/i);
+  });
+
   it("says filling does not submit", () => {
     expect(buildSystemPrompt(base)).toMatch(/FILLING DOES NOT SUBMIT/);
   });

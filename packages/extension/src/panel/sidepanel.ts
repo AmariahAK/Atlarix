@@ -67,6 +67,7 @@ import {
   pruneForModel,
   saveSession,
 } from "../sessions/store";
+import { generateTitle } from "../sessions/title";
 import { renderMarkdown } from "./markdown";
 import { chooseModel, optionsFor, shortModelName } from "./model-choice";
 
@@ -141,6 +142,61 @@ function assistantBubble(text = ""): HTMLElement {
   div.className = "msg msg--assistant";
   if (text) renderMarkdown(div, text);
   return div;
+}
+
+/**
+ * The model's thinking, collapsed.
+ *
+ * IT IS THE ONLY THING ON SCREEN FOR THE FIRST TEN SECONDS of a turn on a
+ * reasoning tier, so leaving it out is what made the panel look frozen. Open by
+ * default WHILE it streams — that is the point, there is nothing else to watch —
+ * and collapsed the moment the answer starts, because by then it is history and
+ * the answer is what the person came for.
+ */
+function thinkingBlock(): HTMLDetailsElement {
+  const details = document.createElement("details");
+  details.className = "tool thinking";
+  details.open = true;
+  const summary = document.createElement("summary");
+  const dot = document.createElement("span");
+  dot.className = "tool__dot";
+  summary.append(dot, document.createTextNode("Thinking…"));
+  const body = document.createElement("pre");
+  body.className = "tool__body";
+  details.append(summary, body);
+  return details;
+}
+
+function settleThinking(details: HTMLDetailsElement | null): void {
+  if (!details) return;
+  details.open = false;
+  details.classList.remove("thinking--live");
+  const summary = details.querySelector("summary");
+  if (summary) {
+    summary.textContent = "";
+    const dot = document.createElement("span");
+    dot.className = "tool__dot";
+    summary.append(dot, document.createTextNode("Thought for a moment"));
+  }
+}
+
+/**
+ * "Working…", shown from the instant Send is pressed.
+ *
+ * THE FIRST TOKEN CAN BE TEN SECONDS AWAY on a reasoning model, and until it
+ * arrives there is nothing to render — which read as a dead panel with a Stop
+ * button. This is replaced by whatever comes first: thinking, text, or a tool.
+ */
+function workingRow(): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "tool tool--running working";
+  const summary = document.createElement("div");
+  summary.className = "working__line";
+  const dot = document.createElement("span");
+  dot.className = "tool__dot";
+  summary.append(dot, document.createTextNode("Working…"));
+  row.append(summary);
+  return row;
 }
 
 function errorBubble(text: string): HTMLElement {
@@ -437,7 +493,16 @@ async function send(): Promise<void> {
 
     let bubble: HTMLElement | null = null;
     let streamed = "";
+    let thinking: HTMLDetailsElement | null = null;
+    let thought = "";
     const chips = new Map<string, HTMLDetailsElement>();
+
+    // Cleared by the first thing that renders, whatever that is.
+    let working: HTMLElement | null = append(workingRow());
+    const clearWorking = () => {
+      working?.remove();
+      working = null;
+    };
 
     const outcome = await runTurn({
       model,
@@ -449,7 +514,24 @@ async function send(): Promise<void> {
       tools: { windowId },
       signal: controller.signal,
       events: {
+        onReasoning(delta) {
+          clearWorking();
+          thought += delta;
+          const stick = atBottom();
+          if (!thinking)
+            thinking = append(thinkingBlock()) as HTMLDetailsElement;
+          const body = thinking.querySelector("pre");
+          if (body) body.textContent = thought;
+          scrollDown(stick);
+        },
         onText(delta) {
+          clearWorking();
+          // The answer has started, so the thinking is history. Collapsing it
+          // here rather than at the end of the round is what keeps a long chain
+          // of thought from pushing the answer off the bottom of the panel.
+          settleThinking(thinking);
+          thinking = null;
+          thought = "";
           streamed += delta;
           const stick = atBottom();
           if (!bubble) bubble = append(assistantBubble());
@@ -457,12 +539,21 @@ async function send(): Promise<void> {
           scrollDown(stick);
         },
         onToolCall(call) {
+          clearWorking();
+          settleThinking(thinking);
+          thinking = null;
+          thought = "";
           // A new assistant bubble after each tool round, so the transcript
           // reads in the order things happened rather than collecting all the
           // prose at the top.
           bubble = null;
           streamed = "";
           chips.set(call.id, append(toolChip(call)) as HTMLDetailsElement);
+        },
+        onRound() {
+          // Every round after the first waits on the model again, so the
+          // indicator has to come back or the panel goes quiet mid-task.
+          if (!working) working = append(workingRow());
         },
         onToolResult(call, content) {
           const chip = chips.get(call.id);
@@ -472,6 +563,8 @@ async function send(): Promise<void> {
       },
     });
 
+    clearWorking();
+    settleThinking(thinking);
     messages = [...messages, ...outcome.messages];
     await persist();
 
@@ -493,8 +586,38 @@ async function send(): Promise<void> {
   } finally {
     setRunning(false);
     void setGroupTitle(windowId, "Atlarix");
+    void nameConversation(model);
     void refreshDrawer();
   }
+}
+
+/**
+ * Give the conversation a real name, once, after the first turn.
+ *
+ * AFTER, never before: a title is not worth a second of latency in front of the
+ * answer. It replaces the derived title — the first user message, truncated —
+ * which fills a history list with rows like "hey how are you? could u tell me
+ * what url we are on…". Technically the question, useless as a label.
+ *
+ * Guarded so it runs once per conversation: `saveSession` runs after every round
+ * and would otherwise pay for a new title each time.
+ */
+const named = new Set<string>();
+async function nameConversation(model: string): Promise<void> {
+  const id = sessionId;
+  if (named.has(id)) return;
+  const hasReply = messages.some(
+    (m) => m.role === "assistant" && typeof m.content === "string" && m.content,
+  );
+  if (!hasReply) return;
+  named.add(id);
+
+  const title = await generateTitle(model, messages);
+  // The user may have moved on while this was in flight. Writing the title
+  // onto whatever conversation is open NOW would rename the wrong one.
+  if (!title || sessionId !== id) return;
+  await saveSession(id, await loadSession(id), { title });
+  await refreshDrawer();
 }
 
 /**
@@ -513,9 +636,9 @@ function describeError(error: CoreError): string {
   return error.message;
 }
 
-async function persist(): Promise<void> {
+async function persist(title?: string): Promise<void> {
   try {
-    await saveSession(sessionId, messages);
+    await saveSession(sessionId, messages, title ? { title } : {});
   } catch {
     // Storage full, most likely. Not worth ending a turn over, and the
     // conversation on screen is still the real one.

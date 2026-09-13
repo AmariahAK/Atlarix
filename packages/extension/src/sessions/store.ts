@@ -59,6 +59,16 @@ export interface SessionMeta {
   title: string;
   createdAt: number;
   updatedAt: number;
+  /**
+   * The title was written for this conversation rather than derived from its
+   * first message.
+   *
+   * WITHOUT THIS FLAG the derived title wins forever: `saveSession` runs after
+   * every round, and a title recomputed each time overwrites the generated one
+   * the moment the next round lands. The generated title would appear for about
+   * two seconds and then vanish, which reads as a bug in the generator.
+   */
+  titled?: boolean;
 }
 
 function isMeta(value: unknown): value is SessionMeta {
@@ -138,16 +148,22 @@ export function titleFor(messages: CoreMessage[]): string {
 export async function saveSession(
   id: string,
   messages: CoreMessage[],
+  opts: { title?: string } = {},
 ): Promise<{ evicted: SessionMeta[] }> {
   const now = Date.now();
   const index = await listSessions();
   const existing = index.find((s) => s.id === id);
 
+  // A written title, then a previously written one, then the derived fallback.
+  // The order is what stops the per-round save from undoing the generator.
+  const written = opts.title?.trim();
+  const titled = Boolean(written) || existing?.titled === true;
   const meta: SessionMeta = {
     id,
-    title: titleFor(messages),
+    title: written || (existing?.titled ? existing.title : titleFor(messages)),
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
+    ...(titled ? { titled: true } : {}),
   };
 
   const next = [meta, ...index.filter((s) => s.id !== id)].sort(

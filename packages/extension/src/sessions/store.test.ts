@@ -83,6 +83,39 @@ describe("round trip", () => {
   });
 });
 
+describe("a written title survives the next round", () => {
+  it("is not overwritten by the derived one", async () => {
+    // `saveSession` runs after EVERY round. Without the flag, a generated title
+    // appears for about two seconds and is then replaced by the truncated first
+    // message — which reads as a bug in the generator rather than in the store.
+    await saveSession("a", [ask("hey what url are we on")]);
+    await saveSession("a", [ask("hey what url are we on")], {
+      title: "Wikipedia random articles",
+    });
+    await saveSession("a", [
+      ask("hey what url are we on"),
+      { role: "assistant", content: "done" },
+    ]);
+    expect((await listSessions())[0].title).toBe("Wikipedia random articles");
+  });
+
+  it("derives a title until one is written", async () => {
+    await saveSession("b", [ask("a question")]);
+    expect((await listSessions())[0].title).toBe("a question");
+  });
+
+  it("lets a later title replace an earlier one", async () => {
+    await saveSession("c", [ask("q")], { title: "First" });
+    await saveSession("c", [ask("q")], { title: "Second" });
+    expect((await listSessions())[0].title).toBe("Second");
+  });
+
+  it("ignores a blank title rather than storing an empty row", async () => {
+    await saveSession("d", [ask("a question")], { title: "   " });
+    expect((await listSessions())[0].title).toBe("a question");
+  });
+});
+
 describe("eviction", () => {
   it("deletes the evicted transcript, not just its index entry", async () => {
     // An orphaned transcript is invisible and counts against the same quota

@@ -7,11 +7,13 @@
  * in whatever group has since taken that number.
  */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   adoptTab,
+  clearAgentClosing,
   existingGroup,
   isAgentTab,
+  noteAgentClosingTab,
   onGroupClosed,
   releaseTab,
   setGroupTitle,
@@ -28,6 +30,10 @@ interface Fake {
 }
 
 const NONE = -1;
+
+// The suppression window is module state, so a test that arms it would leak
+// into the next one.
+afterEach(() => clearAgentClosing());
 
 function installFakeChrome(): Fake {
   const store = new Map<string, unknown>();
@@ -229,6 +235,58 @@ describe("the stop gesture", () => {
     fake.fireRemoved(groupId);
     await vi.waitFor(() => expect(closed).toEqual([10]));
     await expect(existingGroup(10)).resolves.toBeNull();
+  });
+
+  /**
+   * OBSERVED, and the nastiest kind: both halves worked exactly as designed.
+   *
+   * Chrome deletes a tab group the moment its last tab goes, and fires
+   * `onRemoved` identically whether the USER closed the group or the AGENT
+   * tidied up after itself. So an agent doing the polite thing — "Got both.
+   * Closing my tabs and summarizing now." — emptied its own group, fired the
+   * user's stop gesture, and killed its own turn one call before the answer.
+   * The transcript ended mid-sentence under a status line reading "Stopped",
+   * which was true and useless.
+   */
+  it("does NOT stop the run when the agent emptied the group itself", async () => {
+    const groupId = await adoptTab(1, 10);
+    const closed: number[] = [];
+    onGroupClosed((windowId) => closed.push(windowId));
+
+    noteAgentClosingTab();
+    fake.fireRemoved(groupId);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(closed).toEqual([]);
+    // The bookkeeping still happens: the stored id is dead either way, and
+    // leaving it behind is the stale-id hazard this module exists to avoid.
+    await expect(existingGroup(10)).resolves.toBeNull();
+  });
+
+  it("stops suppressing as soon as the expected removal arrives", async () => {
+    // Otherwise the window stays open for its full duration and a REAL stop a
+    // second later is swallowed too.
+    const first = await adoptTab(1, 10);
+    const closed: number[] = [];
+    onGroupClosed((windowId) => closed.push(windowId));
+
+    noteAgentClosingTab();
+    fake.fireRemoved(first);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(closed).toEqual([]);
+
+    const second = await adoptTab(2, 10);
+    fake.fireRemoved(second);
+    await vi.waitFor(() => expect(closed).toEqual([10]));
+  });
+
+  it("stops the run once the grace window has passed", async () => {
+    const groupId = await adoptTab(1, 10);
+    const closed: number[] = [];
+    onGroupClosed((windowId) => closed.push(windowId));
+
+    noteAgentClosingTab(0);
+    fake.fireRemoved(groupId);
+    await vi.waitFor(() => expect(closed).toEqual([10]));
   });
 
   it("ignores a group that was never ours", async () => {

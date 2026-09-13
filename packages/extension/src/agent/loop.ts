@@ -67,6 +67,8 @@ export interface AgentEvents {
   /** A round is beginning. `round` is 1-based. */
   onRound?(round: number): void;
   onText?(delta: string): void;
+  /** The model's thinking, on the tiers that produce any. */
+  onReasoning?(delta: string): void;
   onToolCall?(call: ToolCall): void;
   onToolResult?(call: ToolCall, content: string): void;
   /**
@@ -187,6 +189,12 @@ export async function runTurn(args: TurnArgs): Promise<TurnOutcome> {
         if (event.type === "text") {
           text += event.delta;
           events.onText?.(event.delta);
+        } else if (event.type === "reasoning") {
+          // NOT accumulated into `text`, and never sent back to the provider.
+          // Reasoning is a view of this turn, not part of the conversation: a
+          // model handed its own previous thinking as assistant content starts
+          // treating it as something it said out loud.
+          events.onReasoning?.(event.delta);
         } else if (event.type === "tool-calls") {
           calls = event.calls;
         }
@@ -335,6 +343,8 @@ async function finishWithoutTools(
       if (event.type === "text") {
         text += event.delta;
         events.onText?.(event.delta);
+      } else if (event.type === "reasoning") {
+        events.onReasoning?.(event.delta);
       }
     }
   } catch {

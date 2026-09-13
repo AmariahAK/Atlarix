@@ -307,3 +307,46 @@ describe("errors say what to do about them", () => {
     );
   });
 });
+
+describe("thinking", () => {
+  it("yields reasoning_content — the field z.ai and DeepSeek use", async () => {
+    // DROPPED ENTIRELY UNTIL 2026-09-13. GLM 5.3 emits its thinking first and
+    // its answer second, so ignoring this field left the panel blank for the
+    // whole part of the turn a user is actually watching, and the product
+    // looked broken on its default model.
+    const { f } = okStream([
+      'data: {"choices":[{"delta":{"reasoning_content":"Let me check"}}]}\n\n',
+      'data: {"choices":[{"delta":{"content":"Done."}}]}\n\n',
+      "data: [DONE]\n\n",
+    ]);
+    expect(await collect(streamTurn(TURN, f))).toEqual([
+      { type: "reasoning", delta: "Let me check" },
+      { type: "text", delta: "Done." },
+      { type: "done", finishReason: "stop" },
+    ]);
+  });
+
+  it("also yields `reasoning`, which is what OpenRouter calls the same thing", async () => {
+    // There is no standard spelling. Reading one and not the other is the same
+    // blank panel for half the lineup.
+    const { f } = okStream([
+      'data: {"choices":[{"delta":{"reasoning":"thinking"}}]}\n\n',
+      "data: [DONE]\n\n",
+    ]);
+    expect(await collect(streamTurn(TURN, f))).toContainEqual({
+      type: "reasoning",
+      delta: "thinking",
+    });
+  });
+
+  it("keeps thinking separate from the answer in the same delta", async () => {
+    // Some providers send both fields on one delta during the handover.
+    const { f } = okStream([
+      'data: {"choices":[{"delta":{"reasoning_content":"so","content":"Hi"}}]}\n\n',
+      "data: [DONE]\n\n",
+    ]);
+    const events = await collect(streamTurn(TURN, f));
+    expect(events[0]).toEqual({ type: "reasoning", delta: "so" });
+    expect(events[1]).toEqual({ type: "text", delta: "Hi" });
+  });
+});

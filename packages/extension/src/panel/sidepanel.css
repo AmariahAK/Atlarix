@@ -447,6 +447,28 @@ body {
   }
 }
 
+/*
+ * Thinking, and the "Working…" row.
+ *
+ * Both wear the tool chip's shell on purpose: they are the same class of thing —
+ * the agent doing something rather than saying something — and giving them their
+ * own look would make the transcript read as three kinds of object instead of
+ * two.
+ */
+.thinking > summary {
+  font-style: italic;
+}
+
+.working {
+  padding: 6px 10px;
+}
+
+.working__line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .tool__body {
   margin: 0;
   padding: 0 10px 8px;

@@ -138,20 +138,62 @@ export async function releaseTab(tabId: number): Promise<void> {
 }
 
 /**
+ * The agent is about to close one of its own tabs.
+ *
+ * WHY THIS EXISTS — OBSERVED, and it is the nastiest kind of bug because both
+ * halves were working exactly as designed. Chrome removes a tab group the
+ * moment its last tab goes, and it fires `onRemoved` identically whether the
+ * user closed the group or the agent tidied up after itself. So an agent that
+ * did the polite thing — "Got both. Closing my tabs and summarizing now." —
+ * emptied its own group, fired the user's stop gesture, and killed its own turn
+ * one call before the answer. The transcript ended mid-sentence and the status
+ * line said "Stopped", which is true and completely unhelpful.
+ *
+ * A TIME WINDOW RATHER THAN A COUNTER, because a counter cannot be right: the
+ * agent may close two tabs and only the second empties the group, and Chrome
+ * may coalesce. The window is short, and it CLOSES EARLY on the first matching
+ * removal so it is not left hanging open. The residual hole is that a user who
+ * closes the group in the same two seconds gets no abort — they still have the
+ * Stop button, and this failure direction is strictly better than the other one.
+ */
+let agentClosingUntil = 0;
+
+/** Called by `close_tab` immediately before `tabs.remove`. */
+export function noteAgentClosingTab(graceMs = 2000): void {
+  agentClosingUntil = Date.now() + graceMs;
+}
+
+/** Test seam, and a way for a caller to reset after a run. */
+export function clearAgentClosing(): void {
+  agentClosingUntil = 0;
+}
+
+/**
  * Register the stop gesture.
  *
  * Closing the group is the most discoverable stop an extension has, so it must
  * mean stop everywhere — not merely tidy our bookkeeping. The caller cancels the
  * run; this only reports which window went away and forgets the id.
+ *
+ * The bookkeeping happens EITHER WAY. Only the handler is suppressed when the
+ * agent emptied the group itself: the stored id is dead regardless, and leaving
+ * it behind is the stale-id hazard this module exists to avoid.
  */
 export function onGroupClosed(handler: (windowId: number) => void): void {
   api().tabGroups.onRemoved.addListener((group) => {
     void (async () => {
+      const selfInflicted = Date.now() < agentClosingUntil;
       const map = await readMap();
       for (const [windowId, groupId] of Object.entries(map)) {
         if (groupId !== group.id) continue;
         delete map[windowId];
         await writeMap(map);
+        if (selfInflicted) {
+          // The expected removal arrived, so stop suppressing immediately
+          // rather than leaving the window open for its full duration.
+          agentClosingUntil = 0;
+          return;
+        }
         handler(Number(windowId));
       }
     })();

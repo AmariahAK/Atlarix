@@ -39,7 +39,7 @@ import type { ToolCall } from "../core/client";
 import { activeTab, runInPage } from "../page/inject";
 import { canActOn } from "../permissions/host-access";
 import { originOf } from "../permissions/site-grants";
-import { adoptTab, isAgentTab } from "../tabs/group";
+import { adoptTab, isAgentTab, noteAgentClosingTab } from "../tabs/group";
 import {
   classifyAction,
   type AgentAction,
@@ -435,6 +435,11 @@ async function closeTab(args: Record<string, unknown>): Promise<ToolOutcome> {
         `theirs gone.`,
     };
   }
+  // BEFORE the removal, not after. Closing the last tab in the agent's group
+  // makes Chrome delete the group, which fires the same event as the user
+  // closing it — and that event is the stop gesture. Without this, an agent
+  // tidying up kills its own turn one call before the answer.
+  noteAgentClosingTab();
   await api().tabs.remove(id);
   return { content: `Closed tab ${id}.` };
 }

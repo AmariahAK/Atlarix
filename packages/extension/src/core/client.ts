@@ -166,6 +166,20 @@ export async function listModels(
 
 /** One piece of a streamed turn. */
 export type CoreEvent =
+  /**
+   * The model's thinking, where the model has any.
+   *
+   * DROPPED ENTIRELY UNTIL 2026-09-13, which is why the panel sat blank for
+   * fifteen seconds on every turn and looked broken. GLM 5.3 is a reasoning
+   * model: it emits its thinking first and its answer second, so the ONLY thing
+   * arriving during the part of the turn a user is watching was a field this
+   * client ignored.
+   *
+   * TWO SPELLINGS, because there is no standard. z.ai and DeepSeek send
+   * `reasoning_content`; OpenRouter and several others send `reasoning`. Reading
+   * one and not the other is the same blank panel for half the lineup.
+   */
+  | { type: "reasoning"; delta: string }
   | { type: "text"; delta: string }
   | { type: "tool-calls"; calls: ToolCall[] }
   | { type: "done"; finishReason: string };
@@ -269,6 +283,18 @@ export async function* streamTurn(
 
         const delta = choice.delta as Record<string, unknown> | undefined;
         if (!delta) continue;
+
+        // Thinking first: a reasoning model emits all of it before the answer
+        // begins, so this is the whole of what the user can see early on.
+        const reasoning =
+          typeof delta.reasoning_content === "string"
+            ? delta.reasoning_content
+            : typeof delta.reasoning === "string"
+              ? delta.reasoning
+              : "";
+        if (reasoning) {
+          yield { type: "reasoning", delta: reasoning };
+        }
 
         if (typeof delta.content === "string" && delta.content) {
           yield { type: "text", delta: delta.content };

@@ -557,6 +557,66 @@ the merged-blob bug**: `user_metadata` is written into by every linked provider,
 account with Google and GitHub shows the GitHub photograph under a Google badge from data
 that looks entirely consistent. `identities` keeps them apart.
 
+### First real run — five findings, 2026-09-13
+
+Owner drove it against Wikipedia: "tell me what url we are on, search a random topic,
+then run a sub-agent on another subject". It WORKED — read, opened two tabs, read both.
+Five things came out of watching it, and the first is the one worth remembering.
+
+**1. THE AGENT'S OWN TIDY-UP FIRED THE USER'S STOP GESTURE.** Chrome deletes a tab group
+the instant its last tab goes, and `tabGroups.onRemoved` fires identically whether the USER
+closed the group or the agent closed its own tabs. So the polite move — "Got both. Closing
+my tabs and summarizing now." — emptied the group, fired the stop gesture, and killed the
+turn one call before the answer. The transcript ended mid-sentence under a status line
+reading "Stopped", which was true and useless. Both halves were working exactly as designed.
+Fixed with a short suppression window armed by `close_tab` and closed early on the first
+matching removal; the bookkeeping still runs either way, because the stored id is dead
+regardless.
+
+**2. NO THINKING, NO STREAMING, NOTHING FOR TEN SECONDS.** `core/client.ts` read
+`delta.content` and nothing else — but **GLM 5.3 is a reasoning model**: it emits its
+thinking first and its answer second, so the only thing arriving during the part of the turn
+a user watches was a field the client dropped. Two spellings, because there is no standard —
+`reasoning_content` (z.ai, DeepSeek) and `reasoning` (OpenRouter). Reading one and not the
+other is the same blank panel for half the lineup. Now rendered as a collapsible that is
+open while it streams and collapses the moment the answer starts, plus a "Working…" row from
+the instant Send is pressed and again at every later round. Reasoning is NEVER accumulated
+into the assistant message: a model handed its own previous thinking as content starts
+treating it as something it said out loud.
+
+**3. IT CLOSED THE TABS BEFORE THE USER COULD LOOK.** The prompt told it to ("close the
+tabs you opened once you are done"), which was wrong: the agent's tabs are its work product,
+they are already grouped and labelled, and a claim about a page the user cannot open is a
+claim they have to take on trust. Prompt now says LEAVE THEM, and close only on request.
+This also removes most opportunities to trip finding 1.
+
+**4. THE CONVERSATION WAS NEVER RENAMED.** The drawer read "hey how are you? could u tell
+me what url we are on…" — technically the question, useless as a label. `sessions/title.ts`
+now asks for a real one: no tools, 32 output tokens, first exchange only, AFTER the turn
+renders. `SessionMeta.titled` is load-bearing — `saveSession` runs after every round, so
+without it the generated title would appear for two seconds and be overwritten by the
+derived one, reading as a bug in the generator.
+
+**5. THERE ARE NO SUB-AGENTS, and the model said so correctly.** Owner asked for one and
+got an honest "I do not have a sub-agent tool, but I can do the equivalent myself", which is
+the right behaviour for a capability that does not exist. **OPEN DECISION, not a bug** — see
+below.
+
+### Sub-agents in the extension — OPEN, owner decision
+
+The desktop has them (`run-subagent.ts`). The extension does not, and adding them is a real
+choice rather than an oversight:
+
+- **For:** the owner expected one, parallel reads across tabs is the natural browser
+  shape, and the loop is already re-entrant enough that a nested `runTurn` with its own
+  message list and a restricted tool set is not much code.
+- **Against:** every sub-agent is a second metered conversation the user did not explicitly
+  authorise, on a surface where one tab read is already tens of kilobytes of context. The
+  desktop's version exists because a coding task fans out over a repo; a browser task
+  usually does not.
+
+Do not build it on the strength of one request. Decide it deliberately.
+
 ### Phase 3a — the extension can ACT. DONE 2026-09-13.
 
 The kernel grew `resolve | click | fill | scroll`, and the extension grew `click`, `fill`,
