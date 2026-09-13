@@ -18,28 +18,39 @@ import { describe, expect, it, beforeAll } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { JSDOM } from "jsdom";
+import { type ExtractedSearchResult } from "@/lib/browser/search-results";
 import {
-  SEARCH_RESULTS_SCRIPT,
-  type ExtractedSearchResult,
-} from "@/lib/browser/search-results";
+  MAX_SEARCH_RESULTS,
+  atlarixPageKernel,
+  type SearchResultsPayload,
+} from "@/lib/browser/page-scripts";
 
-/** Evaluate the real injected script against a DOM, as Chromium would. */
+/**
+ * Evaluate the real kernel against a DOM, as Chromium would.
+ *
+ * EVALUATED FROM ITS SOURCE, not called directly, and that is the point of the
+ * exercise: the kernel is stringified and injected, so it may not close over
+ * anything in its module. Running it through `new Function` in a scope that
+ * holds only the page globals is what proves that — calling the import would
+ * pass even if the body referenced a module-level constant that will not exist
+ * in the page.
+ */
 function extractFrom(html: string, pageUrl: string): ExtractedSearchResult[] {
   const dom = new JSDOM(html, { url: pageUrl });
   const { window } = dom;
-  // jsdom implements textContent but not layout-dependent innerText; the script
+  // jsdom implements textContent but not layout-dependent innerText; the kernel
   // already falls back to textContent, which is what runs here.
   const run = new Function(
     "document",
     "location",
     "URL",
-    `return ${SEARCH_RESULTS_SCRIPT}`,
+    "window",
+    `return (${atlarixPageKernel.toString()})({op:"search-results",max:${MAX_SEARCH_RESULTS}})`,
   );
-  return run(
-    window.document,
-    window.location,
-    window.URL,
-  ) as ExtractedSearchResult[];
+  return (
+    run(window.document, window.location, window.URL, window) as
+      SearchResultsPayload
+  ).results;
 }
 
 let results: ExtractedSearchResult[];
@@ -55,7 +66,7 @@ beforeAll(() => {
   );
 });
 
-describe("SEARCH_RESULTS_SCRIPT against a real Brave results page", () => {
+describe("the search-results kernel op against a real Brave results page", () => {
   it("finds real organic results", () => {
     expect(results.length).toBeGreaterThanOrEqual(5);
   });
@@ -105,7 +116,7 @@ describe("SEARCH_RESULTS_SCRIPT against a real Brave results page", () => {
   });
 });
 
-describe("SEARCH_RESULTS_SCRIPT edge cases", () => {
+describe("the search-results kernel op, edge cases", () => {
   const page = (body: string) =>
     `<!doctype html><html><body>${body}</body></html>`;
 

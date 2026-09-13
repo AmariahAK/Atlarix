@@ -55,6 +55,24 @@
 
 export type A11yFilter = "all" | "interactive";
 
+/**
+ * One extracted search result. Mirrors the desktop's `ExtractedSearchResult`.
+ *
+ * The URL is the entire point, which is also why this cannot reuse the
+ * accessibility snapshot: `A11yElement` carries role, name and text, and no
+ * href.
+ */
+/** What the `search-results` op returns. */
+export interface SearchResultsPayload {
+  results: SearchResult[];
+}
+
+export interface SearchResult {
+  title: string;
+  url: string;
+  snippet: string;
+}
+
 export interface A11yElement {
   ref: string;
   role: string;
@@ -193,6 +211,18 @@ export type PageRequest =
        */
       cursor?: string;
     }
+  /**
+   * Read search results off a rendered results page.
+   *
+   * A KERNEL OP AS OF 2026-09-13, and it had to become one: the desktop's
+   * version was `SEARCH_RESULTS_SCRIPT`, a string spliced into
+   * `executeJavaScript`, and MV3 cannot execute a string at all. Making it an op
+   * is the same string-to-function conversion the kernel itself went through,
+   * and it means the extension — which sits in the user's REAL browser, the
+   * best-positioned surface this product has for search — shares the extractor
+   * rather than growing a second one.
+   */
+  | { op: "search-results"; max: number }
   | { op: "click"; ref?: string; selector?: string }
   | { op: "fill"; ref?: string; selector?: string; value: string | boolean }
   /**
@@ -243,7 +273,7 @@ export type PageRequest =
  */
 export function atlarixPageKernel(
   req: PageRequest,
-): A11ySnapshot | A11yFindResult | PageActionResult {
+): A11ySnapshot | A11yFindResult | PageActionResult | SearchResultsPayload {
   // The ref registry lives on the page's own window: a WeakMap keyed on DOM
   // nodes cannot be held by the main process, and is equally out of reach of a
   // service worker. It is also why the extension must inject with
@@ -798,6 +828,108 @@ export function atlarixPageKernel(
     };
   }
 
+  if (req.op === "search-results") {
+    // STRUCTURE, NEVER CLASS NAMES. Engines rewrite their markup constantly and
+    // their class names mean nothing a month later. A result is derived from
+    // shape: an anchor that LEAVES the engine's own host, carries visible text
+    // of plausible title length, and sits outside the page's chrome.
+    const MIN_TITLE = 12;
+    const MAX_TITLE = 300;
+    const results: SearchResult[] = [];
+    const seen = new Map<string, SearchResult>();
+    const host = location.hostname.replace(/^www\./, "");
+
+    const clean = (value: string): string =>
+      (value || "").replace(/\s+/g, " ").trim();
+
+    const inChrome = (el: Element): boolean => {
+      for (let n: Element | null = el; n && n !== document.body; n = n.parentElement) {
+        const tag = (n.tagName || "").toLowerCase();
+        if (tag === "nav" || tag === "header" || tag === "footer" || tag === "aside") {
+          return true;
+        }
+        const role = n.getAttribute("role");
+        if (role === "navigation" || role === "banner" || role === "contentinfo") {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    // Engines render a result as [site label] [breadcrumb] [title] in separate
+    // blocks, and in a real browser innerText puts each on its own LINE — so the
+    // title is recoverable as the last line that is still a plausible title.
+    const titleOf = (a: HTMLElement): string => {
+      const raw = a.innerText || a.textContent || "";
+      const lines = String(raw).split("\n").map(clean).filter(Boolean);
+      if (lines.length > 1) {
+        const last = lines[lines.length - 1];
+        if (last.length >= MIN_TITLE && last.length <= MAX_TITLE) return last;
+      }
+      return clean(raw);
+    };
+
+    // The description sits BESIDE the title, not inside it — so the snippet is
+    // the nearest ancestor carrying materially more text than the link.
+    const snippetFor = (a: Element, title: string): string => {
+      let node: Element | null = a;
+      for (let i = 0; i < 4 && node && node.parentElement; i++) {
+        node = node.parentElement;
+        const text = clean((node as HTMLElement).innerText || node.textContent || "");
+        if (text.length > title.length + 40) {
+          const body = clean(text.split(title).join(" "));
+          if (body.length > 20) return body.slice(0, 400);
+        }
+      }
+      return "";
+    };
+
+    const anchors = document.querySelectorAll(
+      'a[href^="http://"], a[href^="https://"]',
+    );
+    for (const anchor of anchors) {
+      const url = (anchor as HTMLAnchorElement).href;
+      if (!url) continue;
+
+      let h = "";
+      try {
+        h = new URL(url).hostname.replace(/^www\./, "");
+      } catch {
+        continue;
+      }
+      // Same-site links are the engine's own furniture, never a result.
+      if (!h || h === host || h.endsWith("." + host)) continue;
+      if (inChrome(anchor)) continue;
+
+      const title = titleOf(anchor as HTMLElement);
+      if (title.length < MIN_TITLE || title.length > MAX_TITLE) continue;
+
+      // A destination usually has SEVERAL anchors: a wrapper around the whole
+      // card, and the title link itself. The wrapper's text swallows the site
+      // label and breadcrumb, so the TIGHTEST anchor is the title — a wrapper
+      // can only ever accumulate more text.
+      const prev = seen.get(url);
+      if (prev) {
+        if (title.length < prev.title.length) {
+          prev.title = title;
+          prev.snippet = snippetFor(anchor, title) || prev.snippet;
+        }
+        continue;
+      }
+      const record: SearchResult = {
+        title,
+        url,
+        snippet: snippetFor(anchor, title),
+      };
+      seen.set(url, record);
+      results.push(record);
+      if (results.length >= req.max) break;
+    }
+    // Document order IS the engine's ranking, and the only ranking signal there
+    // is. Nothing re-sorts.
+    return { results };
+  }
+
   if (req.op === "snapshot") {
     const WANT_CONTENT = req.filter === "all";
     const MAX = req.max;
@@ -987,6 +1119,14 @@ export function kernelCall(req: PageRequest): string {
 
 /** The in-page walker. The kernel carries the logic; `filter` and the cap are
  *  the only things that vary, and they arrive as JSON. */
+/**
+ * How many results one search returns.
+ *
+ * A search that returned fifty would re-inflate the context it was called to
+ * inform. Ten is a screen of results, which is how far anyone reads.
+ */
+export const MAX_SEARCH_RESULTS = 10;
+
 export function snapshotScript(filter: A11yFilter): string {
   const max = filter === "all" ? MAX_ELEMENTS_ALL : MAX_ELEMENTS;
   return `(${KERNEL_SRC})(${jsonArg({ op: "snapshot", filter, max })})`;

@@ -31,9 +31,11 @@ import {
   MAX_ELEMENTS,
   MAX_ELEMENTS_ALL,
   MAX_FIND_MATCHES,
+  MAX_SEARCH_RESULTS,
   type A11yFindResult,
   type A11ySnapshot,
   type PageActionResult,
+  type SearchResult,
 } from "@/lib/browser/page-scripts";
 import type { ToolCall } from "../core/client";
 import { activeTab, runInPage } from "../page/inject";
@@ -316,6 +318,8 @@ export async function dispatchTool(
         return await rememberFact(args);
       case "recall":
         return await recallFromHistory(args, ctx);
+      case "web_search":
+        return await webSearch(args, ctx);
     }
   } catch (err) {
     // The backstop, and it should almost never fire — each handler converts its
@@ -912,6 +916,124 @@ async function recallFromHistory(
           ? `Looking back for "${query}"`
           : "Looking back through this conversation",
   };
+}
+
+/**
+ * The search engine, and why this one.
+ *
+ * MEASURED, 2026-08-19, on the desktop: a real browser tab scored 24/29/25
+ * results on three developer queries where DuckDuckGo's Instant Answer API and
+ * five public SearxNG instances scored 0/0/0. Every one of those zeroes was an
+ * "is this a real browser?" check — a rate limit, a challenge page, a
+ * verification interstitial. A `fetch` cannot pass them.
+ *
+ * WHICH MAKES THIS EXTENSION THE BEST-PLACED SURFACE ATLARIX HAS. It is not a
+ * headless Chromium pretending; it is the user's actual browser, with their
+ * actual profile. The thing every challenge is trying to confirm is simply true
+ * here.
+ *
+ * Brave rather than Google or Bing: it serves results to a plain tab without a
+ * consent interstitial or a sign-in wall, which the other two increasingly do.
+ */
+const SEARCH_URL = (query: string) =>
+  `https://search.brave.com/search?q=${encodeURIComponent(query)}`;
+
+/**
+ * Search the web by actually searching the web.
+ *
+ * OPENED, READ AND CLOSED. The tab is a means, not a result — leaving a results
+ * page behind for every search would fill the user's window with pages nobody
+ * asked to keep. That is the opposite of the rule for `open_tab`, and the
+ * difference is real: a page the agent OPENED to show you stays, and scaffolding
+ * it opened to read does not.
+ */
+async function webSearch(
+  args: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<ToolOutcome> {
+  const query = typeof args.query === "string" ? args.query.trim() : "";
+  if (!query) return { content: "web_search needs a non-empty `query`." };
+
+  const url = SEARCH_URL(query);
+  const denied = await requireAccess(url);
+  // A ONE-TIME GRANT, for the engine and nothing else. The user is being asked
+  // to let Atlarix read a search results page, which is a far smaller thing than
+  // the sites it then reaches — and those still ask separately.
+  if (denied) return denied;
+
+  const tab = await api().tabs.create({
+    url,
+    active: false,
+    windowId: ctx.windowId,
+  });
+  if (tab.id === undefined) {
+    return { content: "Chrome opened a tab but gave it no id — nothing to read." };
+  }
+
+  try {
+    // Grouped even though it is about to close: if the load hangs, the user's
+    // stop gesture has to cover this tab like any other.
+    try {
+      await adoptTab(tab.id, ctx.windowId);
+    } catch {
+      // Not worth failing a search over.
+    }
+    await waitForLoad(tab.id);
+
+    const payload = await runInPage<{ results?: SearchResult[] }>(tab.id, {
+      op: "search-results",
+      max: MAX_SEARCH_RESULTS,
+    });
+    const results = payload.results ?? [];
+
+    if (results.length === 0) {
+      // A challenge page, an empty page, or markup we no longer recognise — all
+      // indistinguishable from here. Naming the alternative matters: the agent
+      // is in a browser and can always go and look itself.
+      return {
+        label: `Searched for "${query}"`,
+        content:
+          `No results could be read for "${query}". The engine may have served a ` +
+          `challenge page. Try open_tab on ${url} and read it directly, or ` +
+          `search for something more specific.`,
+      };
+    }
+
+    const body = results
+      .map(
+        (r, i) =>
+          `${i + 1}. ${r.title}\n   ${r.url}${r.snippet ? `\n   ${r.snippet}` : ""}`,
+      )
+      .join("\n\n");
+
+    return {
+      label: `Searched for "${query}"`,
+      // THE SAME UNTRUSTED-DATA ENVELOPE as a page read, because it IS a page
+      // read — titles and snippets are text written by whoever ranked for the
+      // query, and a search result is a uniquely attractive place to put an
+      // instruction hoping an agent will follow it.
+      content: wrapUntrustedData(
+        "web:search.brave.com",
+        `Search results for "${query}"\n\n${body}\n\n` +
+          `These are titles and snippets, not the pages themselves. Open the ones ` +
+          `that look right with open_tab and read them before answering.`,
+      ),
+    };
+  } finally {
+    // ALWAYS, including when the read threw. A results tab left behind by a
+    // failed search is litter the user has to tidy up after a thing that did not
+    // even work.
+    // Takes a GRACE PERIOD, not a tab id. Closing this tab may empty the
+    // agent's group, and `tabGroups.onRemoved` fires identically whether the
+    // user emptied it or we did — without the suppression window, a search that
+    // happened to close the last tab would read as the user pressing stop.
+    noteAgentClosingTab();
+    try {
+      await api().tabs.remove(tab.id);
+    } catch {
+      // Already gone — the user may have closed it, which is their right.
+    }
+  }
 }
 
 async function rememberFact(

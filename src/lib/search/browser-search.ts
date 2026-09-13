@@ -32,7 +32,10 @@
  */
 
 import log from "electron-log";
-import { SEARCH_RESULTS_SCRIPT } from "@/lib/browser/search-results";
+import {
+  MAX_SEARCH_RESULTS,
+  kernelCall,
+} from "@/lib/browser/page-scripts";
 import {
   isHiddenPageAvailable,
   withHiddenPage,
@@ -106,9 +109,14 @@ export async function browserSearch(
     url,
     { partition: SEARCH_PARTITION, navTimeoutMs: NAV_TIMEOUT_MS },
     async (wc) =>
-      (await wc.executeJavaScript(SEARCH_RESULTS_SCRIPT, true)) as
-        | BrowserSearchResult[]
-        | null,
+      // THE SHARED KERNEL, not a second extractor. Until 2026-09-13 this was
+      // `SEARCH_RESULTS_SCRIPT`, a string — which MV3 cannot execute at all, so
+      // the extension could never have used it. One implementation now, and the
+      // desktop reaches it the same way it reaches every other page op.
+      ((await wc.executeJavaScript(
+        kernelCall({ op: "search-results", max: MAX_SEARCH_RESULTS }),
+        true,
+      )) as { results?: BrowserSearchResult[] } | null)?.results ?? null,
   );
 
   const results = Array.isArray(raw) ? raw : [];

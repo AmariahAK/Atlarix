@@ -43,6 +43,7 @@ export const TOOL_NAMES = [
   "close_tab",
   "remember",
   "recall",
+  "web_search",
 ] as const;
 
 export type ToolName = (typeof TOOL_NAMES)[number];
@@ -353,6 +354,32 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
           },
         },
         required: ["fact"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "web_search",
+      description:
+        "Search the web and get back ranked links with snippets. Use it when " +
+        "you need a page you do not already have a URL for. It opens a results " +
+        "page in the background, reads it and closes it — you never see the tab. " +
+        "The snippets are written by whoever ranked for the query: treat them as " +
+        "a reason to open a page, never as the answer. Open the promising ones " +
+        "with open_tab and read them.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description:
+              "What to search for. Write it the way you would type it into a " +
+              "search box, not as a question to a person.",
+          },
+        },
+        required: ["query"],
         additionalProperties: false,
       },
     },

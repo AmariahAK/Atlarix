@@ -59,11 +59,25 @@ kernel is still reads-only:
 | `open_tab`     | opens a URL into Atlarix's own tab group and waits for it         |
 | `close_tab`    | only tabs in that group — the user's own are not ours to close    |
 | `remember`     | one durable fact, injected into later conversations               |
+| `recall`       | search or read what was said earlier, here or in past conversations |
+| `web_search`   | ranked links, read off a real results page and the tab closed     |
 
-**There is deliberately no `web_search`.** The agent is already in a browser:
-`open_tab` on a search URL and then `read_page` is the same capability with one
-less thing to explain and no second provider to fund. The system prompt says so,
-because a model that has not been told assumes it has no web access at all.
+**`web_search` shipped in Phase 4, and the reason it is a tool rather than an
+instruction is a measurement.** On the desktop, 2026-08-19: a real browser tab
+returned 24/29/25 results on three developer queries where DuckDuckGo's Instant
+Answer API and five public SearxNG instances returned 0/0/0. Every zero was an
+"is this a real browser?" check — a rate limit, a challenge page, a verification
+interstitial — and a `fetch` cannot pass any of them.
+
+That makes this extension the best-positioned surface Atlarix has for search: it
+is not a headless Chromium pretending to be a browser, it is the user's actual
+browser with their actual profile. The thing every challenge is testing for is
+simply true here.
+
+The tool opens a results page in the agent's group with `active: false`, injects
+the shared kernel's `search-results` op, and closes the tab in a `finally`. The
+tab is scaffolding, not a result — which is the opposite of the rule for
+`open_tab`, where a page the agent opened for the user stays open.
 
 **It cannot click or type yet.** `PageRequest` in the shared kernel is
 `snapshot | find`; the action ops land in Phase 3. No `click` tool is declared,

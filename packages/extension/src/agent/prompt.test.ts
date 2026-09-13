@@ -89,10 +89,14 @@ describe("what the prompt must establish", () => {
     expect(p).toMatch(/do not narrate the limitation or apologise/i);
   });
 
-  it("names the search mechanism, because there is no search tool", () => {
-    // A model that has not been told assumes it has no web access at all.
-    expect(buildSystemPrompt(base)).toContain("open_tab");
-    expect(buildSystemPrompt(base)).toMatch(/https:\/\/duckduckgo\.com/);
+  it("names the search tool, and says a snippet is not an answer", () => {
+    // A model that has not been told assumes it has no web access at all. And
+    // one that HAS a search tool will answer straight from the snippets unless
+    // told they are a reason to open a page rather than the page.
+    const p = buildSystemPrompt(base);
+    expect(p).toContain("web_search");
+    expect(p).toContain("open_tab");
+    expect(p).toMatch(/never the answer/i);
   });
 
   it("carries the untrusted-data clause", () => {
