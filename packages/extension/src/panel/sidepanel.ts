@@ -52,6 +52,7 @@ import {
   CoreError,
   listModels,
   type CoreMessage,
+  type CoreModel,
   type ToolCall,
 } from "../core/client";
 import { runTurn } from "../agent/loop";
@@ -71,6 +72,9 @@ import {
 import { generateTitle } from "../sessions/title";
 import { renderMarkdown } from "./markdown";
 import { chooseModel, optionsFor, shortModelName } from "./model-choice";
+import { TOOL_SCHEMAS } from "../tools/schemas";
+import { estimateTokens, measureContext } from "../context/budget";
+import { contextBarView } from "./context-bar";
 
 const MODEL_KEY = "atlarix.model.v1";
 
@@ -85,6 +89,9 @@ const input = el<HTMLTextAreaElement>("composer-input");
 const sendButton = el<HTMLButtonElement>("send");
 const stopButton = el<HTMLButtonElement>("stop");
 const modelSelect = el<HTMLSelectElement>("model-select");
+const contextBar = el<HTMLElement>("context-bar");
+const contextBarFill = el<HTMLElement>("context-bar-fill");
+const contextBarLabel = el<HTMLElement>("context-bar-label");
 const newChatButton = el<HTMLButtonElement>("new-chat");
 const drawerButton = el<HTMLButtonElement>("toggle-drawer");
 const accountEmail = el<HTMLElement>("account-email");
@@ -102,6 +109,78 @@ const providerButtons = Array.from(
 let sessionId = newSessionId();
 let messages: CoreMessage[] = [];
 let running: AbortController | null = null;
+
+/* ── Context measurement ──────────────────────────────────────────────────── */
+
+/**
+ * The lineup as the proxy last described it, kept so the bar can look up the
+ * window of whichever model is selected.
+ *
+ * The window is NOT a constant here and must not become one. It comes from
+ * `/v1/models`, which reads it from the same models.dev catalog the proxy bills
+ * from — so when the Core lineup moves, the bar moves with it. A hardcoded
+ * 128,000 would be wrong for three of the four tiers the day it was written.
+ */
+let lineup: CoreModel[] = [];
+
+/**
+ * Tokens the model sees on every round that are not in the transcript: the
+ * system prompt and the tool schemas.
+ *
+ * MEASURED, NOT GUESSED, and it is not a rounding error — roughly 2,500 tokens
+ * of fixed overhead per round. Leaving it out of the bar would show a
+ * conversation as emptier than it is, and the error is largest exactly when the
+ * transcript is short and the user is least likely to suspect it.
+ *
+ * The tool half never changes within a build. The prompt half does — it carries
+ * the active tab and the user's memories — so it is re-measured from the real
+ * prompt at the start of every turn, and seeded here with the context-free
+ * version so the first render is close rather than zero.
+ */
+const TOOL_SCHEMA_TOKENS = estimateTokens(JSON.stringify(TOOL_SCHEMAS));
+let systemPromptTokens = estimateTokens(
+  buildSystemPrompt({ memories: [], activeTab: null }),
+);
+
+/** True only while the compactor is actually running, so the bar can pulse. */
+let compacting = false;
+
+/**
+ * Redraw the bar from the current transcript and the selected model.
+ *
+ * Cheap enough to call on every change: it is arithmetic over strings already in
+ * memory, with no storage read and no network.
+ */
+function refreshContextBar(): void {
+  if (!contextBar || !contextBarFill || !contextBarLabel) return;
+
+  const selected = lineup.find((m) => m.id === modelSelect?.value);
+  const status =
+    selected?.contextWindow != null
+      ? measureContext({
+          messages,
+          overheadTokens: systemPromptTokens + TOOL_SCHEMA_TOKENS,
+          contextWindow: selected.contextWindow,
+          // A tier with no output row in the catalog gets no reply reserve,
+          // which makes `usable` the whole window — optimistic, and the wrong
+          // way to be wrong. 32,000 is a reasoning model's output floor and the
+          // same number the desktop's `getMaxTokensWithFloor` settles on.
+          maxOutputTokens: selected.maxOutputTokens ?? 32_000,
+        })
+      : null;
+
+  const view = contextBarView(status, {
+    compacting,
+    hasMessages: messages.length > 0,
+  });
+
+  contextBar.hidden = view.hidden;
+  if (view.hidden) return;
+  contextBar.dataset.health = view.health;
+  contextBar.dataset.busy = String(view.busy);
+  contextBarFill.style.width = `${Math.round(view.fill * 100)}%`;
+  contextBarLabel.textContent = view.label;
+}
 
 function setStatus(message: string): void {
   if (status) status.textContent = message;
@@ -524,6 +603,7 @@ function renderConversation(history: CoreMessage[]): void {
   }
   following = true;
   transcript.scrollTop = transcript.scrollHeight;
+  refreshContextBar();
 }
 
 /* ── Sending ──────────────────────────────────────────────────────────────── */
@@ -601,6 +681,9 @@ async function send(): Promise<void> {
           }
         : null,
     });
+    // The real prompt for this turn, memories and active tab included — so the
+    // bar measures what is actually being sent rather than the empty shell.
+    systemPromptTokens = estimateTokens(system);
 
     let bubble: HTMLElement | null = null;
     let streamed = "";
@@ -775,6 +858,10 @@ function describeError(error: CoreError): string {
 }
 
 async function persist(title?: string): Promise<void> {
+  // The bar is redrawn here because `persist` is already the one thing that runs
+  // after every round, whatever the round did. Hooking each event separately is
+  // how a new tool ends up being the one that does not update it.
+  refreshContextBar();
   try {
     await saveSession(sessionId, messages, title ? { title } : {});
   } catch {
@@ -1007,6 +1094,9 @@ async function loadModels(): Promise<void> {
     if (chosen) modelSelect.value = chosen;
     modelSelect.disabled = options.length <= 1;
     if (sendButton) sendButton.disabled = !chosen;
+    // The window only becomes known when the lineup lands, so the bar's first
+    // honest render is here rather than at startup.
+    refreshContextBar();
   };
 
   fill(
@@ -1017,7 +1107,8 @@ async function loadModels(): Promise<void> {
   );
 
   try {
-    const options = optionsFor(await listModels());
+    lineup = await listModels();
+    const options = optionsFor(lineup);
     const chosen = chooseModel(options, stored);
     if (chosen) fill(options, chosen);
     else if (!stored) fill([{ value: "", label: "No models available" }], null);
@@ -1243,6 +1334,10 @@ accountChip?.addEventListener("click", () => {
 });
 
 modelSelect?.addEventListener("change", () => {
+  // A different tier is a different window, so the same transcript is a
+  // different percentage. Switching from a 1M model to a 128k one is exactly
+  // when someone needs to be told.
+  refreshContextBar();
   void api().storage.local.set({ [MODEL_KEY]: modelSelect.value });
 });
 

@@ -46,7 +46,12 @@ export function shortModelName(id: string): string {
  * The proxy's order is the lineup's order (core-1 first), and re-sorting here
  * would mean a second opinion about which model is the default.
  */
-export function optionsFor(models: CoreModel[]): ModelOption[] {
+export function optionsFor(
+  // `Pick`, not `CoreModel`: the picker reads the id and the tier and nothing
+  // else. Narrowing it here says so, and keeps a test fixture from having to
+  // carry a context window to exercise a label.
+  models: Pick<CoreModel, "id" | "tier">[],
+): ModelOption[] {
   return models
     .filter((m) => m.id)
     .map((m) => ({

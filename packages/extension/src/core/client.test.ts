@@ -138,15 +138,49 @@ describe("listModels", () => {
         json: async () => ({
           object: "list",
           data: [
-            { id: "z-ai/glm-5.3", tier: "core-1" },
+            {
+              id: "z-ai/glm-5.3",
+              tier: "core-1",
+              context_window: 200_000,
+              max_output_tokens: 32_000,
+              input_modalities: ["TEXT"],
+            },
             { id: "openai/gpt-6-astra", tier: "core-3" },
           ],
         }),
       }) as unknown as Response) as unknown as typeof fetch;
     await expect(listModels(f)).resolves.toEqual([
-      { id: "z-ai/glm-5.3", tier: "core-1" },
-      { id: "openai/gpt-6-astra", tier: "core-3" },
+      {
+        id: "z-ai/glm-5.3",
+        tier: "core-1",
+        contextWindow: 200_000,
+        maxOutputTokens: 32_000,
+        // Lower-cased on the way in, so a caller compares against one spelling.
+        inputModalities: ["text"],
+      },
+      // An entry with no catalog fields — an older proxy, or a model models.dev
+      // has no row for. UNKNOWN, and it must stay distinguishable from zero: a
+      // window of 0 taken literally puts every conversation over budget.
+      {
+        id: "openai/gpt-6-astra",
+        tier: "core-3",
+        contextWindow: null,
+        maxOutputTokens: null,
+        inputModalities: [],
+      },
     ]);
+  });
+
+  it("treats a zero window as unknown rather than as a window of zero", async () => {
+    const f = (async () =>
+      ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: [{ id: "a/b", tier: "core-1", context_window: 0 }],
+        }),
+      }) as unknown as Response) as unknown as typeof fetch;
+    expect((await listModels(f))[0].contextWindow).toBeNull();
   });
 
   it("drops entries with no id rather than surfacing a blank model", async () => {

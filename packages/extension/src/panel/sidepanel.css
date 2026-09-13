@@ -747,3 +747,81 @@ body {
   color: hsl(0 70% 65%);
   background: hsl(0 0% 14%);
 }
+
+/* ── The context bar ────────────────────────────────────────────────────────
+ *
+ * Deliberately 3px and above the composer rather than a widget with a number in
+ * it. It is ambient for most of a conversation and only becomes text worth
+ * reading near the end of one — so it takes the space that matches how often it
+ * matters.
+ *
+ * The colour comes from `budgetHealth`, not from the percentage directly, so the
+ * bar and the label can never disagree about how full "full" is.
+ */
+.context-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 0 2px 6px;
+}
+
+.context-bar__track {
+  height: 3px;
+  border-radius: 999px;
+  background: hsl(240 4% 18%);
+  overflow: hidden;
+}
+
+.context-bar__fill {
+  height: 100%;
+  width: 0;
+  border-radius: 999px;
+  background: var(--primary);
+  transition: width 0.3s ease, background-color 0.3s ease;
+}
+
+.context-bar[data-health="warning"] .context-bar__fill {
+  background: hsl(45 90% 55%);
+}
+
+.context-bar[data-health="critical"] .context-bar__fill {
+  background: hsl(25 90% 58%);
+}
+
+.context-bar[data-health="over"] .context-bar__fill {
+  background: hsl(0 70% 60%);
+}
+
+.context-bar__label {
+  font-size: 10px;
+  color: var(--fg-muted);
+  line-height: 1.3;
+}
+
+/* Compaction is a model call and takes seconds. The pulse is what says the
+ * pause is work rather than a stall. */
+.context-bar[data-busy="true"] .context-bar__fill {
+  animation: context-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes context-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* A bar that strobes beside text someone is trying to read is worse than no
+ * signal at all. The colour still carries the state. */
+@media (prefers-reduced-motion: reduce) {
+  .context-bar[data-busy="true"] .context-bar__fill {
+    animation: none;
+  }
+
+  .context-bar__fill {
+    transition: none;
+  }
+}

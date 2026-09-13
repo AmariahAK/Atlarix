@@ -26,6 +26,27 @@ export interface CoreModel {
   id: string;
   /** `core-1` … `core-N`. The tier is what the user picks; the id is what ships. */
   tier: string;
+  /**
+   * The model's context window and output allowance, from the proxy's copy of
+   * models.dev.
+   *
+   * `null` means THE CATALOG HAD NO ROW, which is not the same as zero. A caller
+   * must treat it as unknown — hide the context bar, skip the budget check —
+   * rather than render a conversation as 100% full on its first message.
+   *
+   * They come from the proxy for the same reason the lineup does: the numbers
+   * move when the lineup moves, and a second copy is a copy that goes stale on
+   * its own schedule.
+   */
+  contextWindow: number | null;
+  maxOutputTokens: number | null;
+  /**
+   * models.dev `modalities.input`, lower-cased — `["text"]`, `["text","image"]`.
+   *
+   * Empty means unknown. Core 1 is GLM and is text-only, so this is the gate
+   * that decides whether an image attachment is offered at all.
+   */
+  inputModalities: string[];
 }
 
 /** A turn's worth of conversation, in the shape the proxy forwards. */
@@ -173,8 +194,24 @@ export async function listModels(
     .map((m) => ({
       id: String(m.id ?? ""),
       tier: String(m.tier ?? ""),
+      contextWindow: positiveOrNull(m.context_window),
+      maxOutputTokens: positiveOrNull(m.max_output_tokens),
+      inputModalities: Array.isArray(m.input_modalities)
+        ? m.input_modalities.map((mod) => String(mod).toLowerCase())
+        : [],
     }))
     .filter((m) => m.id);
+}
+
+/**
+ * A catalog number, or null.
+ *
+ * Zero and negative collapse to null on purpose: an older proxy that does not
+ * send these fields, and one that sends `0`, must both read as "unknown". A
+ * window of 0 taken literally makes every conversation over budget.
+ */
+function positiveOrNull(value: unknown): number | null {
+  return typeof value === "number" && value > 0 ? value : null;
 }
 
 /** One piece of a streamed turn. */

@@ -17,7 +17,7 @@ import {
 } from "./model-choice";
 
 /** The live proxy's actual answer, 2026-09-13. */
-const LINEUP: CoreModel[] = [
+const LINEUP: Pick<CoreModel, "id" | "tier">[] = [
   { id: "z-ai/glm-5.3", tier: "core-1" },
   { id: "openai/gpt-5.6-terra", tier: "core-2" },
   { id: "openai/gpt-6-astra", tier: "core-3" },

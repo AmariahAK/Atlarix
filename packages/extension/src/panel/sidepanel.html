@@ -138,6 +138,23 @@
         ></div>
 
         <div class="composer">
+          <!--
+            How full the context is, and when earlier turns get summarised.
+            Hidden until there is a conversation to measure and a window to
+            measure it against — see panel/context-bar.ts.
+          -->
+          <div
+            class="context-bar"
+            id="context-bar"
+            role="status"
+            aria-live="polite"
+            hidden
+          >
+            <div class="context-bar__track">
+              <div class="context-bar__fill" id="context-bar-fill"></div>
+            </div>
+            <span class="context-bar__label" id="context-bar-label"></span>
+          </div>
           <label class="visually-hidden" for="composer-input"
             >Message Atlarix</label
           >
