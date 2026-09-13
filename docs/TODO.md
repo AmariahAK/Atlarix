@@ -535,6 +535,58 @@ never to copy page text into a summary. An answer they asked for is not page
 content — "the Pro plan is $19 a month" is the thing they wanted, and where it
 was written is incidental.
 
+### Memories should be FILES, not sentences (owner, 2026-09-13)
+
+Today a memory is one sentence, capped at 280 characters, 50 of them, and
+**every one is pasted into the system prompt in full on every round**
+(`buildSystemPrompt` maps `ctx.memories` to `- ${text}` lines). The owner wants
+the desktop's shape instead: proper markdown notes the model and — later — the
+user can read and edit on the launchpad.
+
+**What the desktop does, and it is the pattern to copy** (`src/lib/agent-memory.ts`):
+
+```
+memory/
+  MEMORY.md        index — ONE line per note: "- [Title](file.md) — hook"
+  <note-name>.md   frontmatter (name, description, type) + body + [[links]]
+```
+
+Types are `project | feedback | reference | user`.
+
+**ONLY THE INDEX IS EVER PUT IN CONTEXT.** That single rule is the whole design,
+and it is what makes this safe: cost scales with the NUMBER of notes (one line
+each), never their size. It replaced a single `memory.md` whose entire body rode
+every request — capped at 3,000 chars and silently truncated past it.
+
+**This is the constraint the extension version lives or dies on.** At the owner's
+26 KB per file, ONE note pasted whole is ~6,500 tokens — more than the entire
+current per-round overhead (4,119). Injecting bodies would be strictly worse than
+what we have now. So: index in the prompt, bodies read on demand through a tool.
+
+**Sizes, and where they have to come from.**
+
+- **26 KB per note**, owner's figure. The model must be TOLD it, the way it is
+  told the date — a limit it cannot see is a limit it will hit and not
+  understand. On approaching it the model refines the note rather than failing
+  the write, and the refusal text has to say which note and by how much.
+- **A per-user total.** `chrome.storage.local` is ~10 MB for EVERYTHING, shared
+  with transcripts and archives — so the cap is small, and it is not 25 MB. The
+  desktop's `MEMORY_COMPACT_BYTES = 25 * 1024 * 1024` is a filesystem number and
+  does not transfer.
+- **What the market does, checked 2026-09-13:** ChatGPT's saved memories are
+  roughly **1,200–1,500 words in total**, about 100–200 short entries, with a
+  hard "memory is full" state — conversations carry on, new memories just stop
+  saving. OpenAI does not publish the figure. Claude Code uses `CLAUDE.md` at
+  project and user level: markdown, read into context, no published cap. So the
+  market sits at both extremes — a tiny notepad, or whole files in context — and
+  the desktop's index-plus-bodies is the design that has neither failure.
+- A full store must **say so and keep working**, ChatGPT's behaviour, not fail
+  the turn.
+
+**Also needed:** memories sync so the launchpad can show them. They are about the
+USER, which is exactly the content the egress rule permits — unlike page
+content, this is the category that is supposed to leave the device.
+
 **STILL OPEN, and deferred by the owner to the next session:**
 
 - **MCP + skills + site-grant management UI on the launchpad.** Research is below: the
