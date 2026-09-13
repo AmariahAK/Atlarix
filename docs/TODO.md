@@ -508,214 +508,36 @@ ran on.
 **Do the `X-Atlarix-Surface` ledger label FIRST** — before any Core dispatch, per the
 shared-wallet section. A ledger row cannot be re-attributed later.
 
-### Known gap, found on real pages 2026-09-13
+### The ledger label — DONE and DEPLOYED 2026-09-13
 
-`accName` returns EMPTY for an element whose only content is an image, so an icon link
-reads as a bare `[e1] a` the model cannot describe. Observed on Hacker News, whose logo
-is `<a><img src="y18.svg"></a>` — and that one genuinely has no accessible name at all
-(no `alt`), so it is HN's gap, not ours. But **we do not read `alt` from a contained
-`<img>` either**, and the W3C accname algorithm does. Icon-only links and buttons are
-everywhere, so this is worth a kernel fix: `aria-labelledby` → `aria-label` → `alt` of a
-contained image → `title` → text. It affects the DESKTOP browser equally — same kernel.
+`X-Atlarix-Surface` ships end to end. Migration `20260913120000` is APPLIED (the
+only pending one; verified with `supabase migration list` first), the proxy is
+deployed on Railway at `8d574f78` — **verified by deployment SHA, not `/health`**
+— and the launchpad has the labels.
 
-**The `key` CANNOT be pinned in the first commit — the earlier note here was wrong.**
-It said the id must be fixed from the very first unpacked load. That is not achievable:
-`manifest.key` does not tell the Web Store what id to assign. The Store assigns the id at
-first upload and generates its own keypair, and the documented flow is the reverse —
-upload a draft zip, copy the public key out of the Package tab, and paste THAT into the
-manifest so the unpacked build shares the published id. So the order is: build the zip →
-owner uploads a draft (never submit for review) → paste the key → then the Supabase
-redirect entry. Getting it "late" costs an added allowlist row, not a redo.
+**Verified after applying, because the CLI saying "up to date" proves nothing:**
+`proacl` reads `authenticated=X/postgres` on `debit_wallet` and `service_role`
+only on `debit_wallet_service`, with **no PUBLIC entry on either** — the
+`CREATE OR REPLACE` re-grant trap did not bite. Only ONE `debit_wallet` exists
+(3-arg), so the overload ambiguity was avoided. The CHECK now reads
+`('app','reviewer','cli','extension')` and `credit_transactions_kind_check` is
+untouched, which confirms the dynamic constraint lookup found the right one.
 
-**Owner has a CWS developer account** as of 2026-09-12 — `amariah@atlarix.dev`, $5 paid
-(one-time, not recurring), trader declaration filed. That declaration publishes a legal
-name, phone and address at the bottom of the listing, so use NorahLabs' registered
-address. New publishers are capped at 2 items. The publisher display name still reads
-`amariah` and should be **NorahLabs** before anything is public.
+**Order matters if this is ever redone: migration BEFORE the proxy.** `debitWallet`
+is best-effort and swallows RPC errors, so a proxy deployed first would not fail
+loudly — it would serve turns and silently lose every debit.
 
-**Do the `X-Atlarix-Surface` ledger label BEFORE any Core dispatch ships** — see the
-shared-wallet section. A ledger row cannot be re-attributed later, so the first month of
-extension spend would be permanently indistinguishable from the app's.
+`accName` was fixed in the same session (see below), so the extension and the
+in-app browser both name icon-only controls now.
 
-### Open source: ASKED AND SETTLED — it stays CLOSED (owner, 2026-09-12)
+### accName — FIXED 2026-09-13
 
-The question was put properly and the numbers were measured, so it does not need asking
-again. Recording both sides because the case FOR was genuinely strong and a future session
-will otherwise rediscover it and reopen the decision.
-
-**What made it tempting.** Open-sourcing the extension would expose almost nothing
-proprietary, unlike the CLI:
-
-|                                                                                    | lines exposed                                                                                                          |
-| ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| **CLI** — `src/headless` is 1,130 lines of DRIVER over the engine                  | **~36,500** (tools 17,415 · chat_stream 9,142 · agents 5,605 · context 2,558 · sandbox 1,120 · prompts 688)            |
-| **Extension** — runs its OWN thin loop, the desktop one being fatally Node-coupled | **1,183** (page-scripts 300 · native-history 524 · mid-loop-threshold 177 · stop-sentinels 134 · compaction-marker 48) |
-
-Roughly a 30x difference, and the extension ships none of the tool surface, the prompts,
-the sandbox or the loop. Three further arguments held up: an extension is **already
-readable** (a CRX is a zip of JavaScript, so closed buys almost no real secrecy for this
-artifact class); trust is this surface's binding constraint in a way it never is for a CLI,
-since it asks for `<all_urls>` plus `chrome.debugger` and reads pages you are logged into;
-and "open-source alternative to Claude in Chrome" is a sharper hook than another coding CLI.
-
-**Why it is closed anyway.** The same self-containment that makes it safe to publish makes
-it **forkable as a complete product**. A CLI fork is useless without ~36,500 lines you did
-not publish; an extension fork needs nothing. Someone rebrands it, adds the BYOK path we
-deliberately omitted to make this a paid product, and gives away free exactly what we
-meter. Licence choice (AGPL / source-available) was identified as the lever if this is ever
-revisited — "open source" would not have to mean MIT.
-
-**Consequences of closed, both of them good for now:**
-
-- **It stays in `Atlarix/packages/extension`.** A separate repo was the right structure ONLY
-  to make publishing possible. Co-located, the page scripts are shared by import rather than
-  by a published `@atlarix/browser-protocol` package, and **the bridge protocol needs no
-  version negotiation** — both sides change in one commit. That was the real bill for
-  separation and we are not paying it.
-- **It is still a one-way door, and it is still open.** Nothing here forecloses publishing
-  later; the reverse is not true.
-
-### Auth and billing: NOT the problem — verified 2026-09-12
-
-The worry was that the extension would not fit the existing OAuth and payment systems. It
-fits better than the desktop does.
-
-- **Payments need ZERO new code.** `src/lib/lemonsqueezy.ts` documents it: the checkout is
-  created SERVER-SIDE by the `create-checkout` Supabase edge function, the LemonSqueezy API
-  key lives only there, and `custom_data.supabase_user_id` comes from the **caller's verified
-  JWT**. The client just invokes the function and opens the returned URL. The extension is
-  the same authenticated Supabase client, and `_shared/auth.ts` already sends
-  `Access-Control-Allow-Origin: *` with an `OPTIONS` handler, so a browser origin works
-  untouched. **Nice property that falls out of that design:** because the user id comes from
-  the verified JWT, a FORK calling that function can only create a checkout for its own
-  logged-in user, paying us and crediting that user's wallet. Revenue cannot be diverted
-  through this path.
-- **OAuth needs one dashboard entry, not code.** Add
-  `https://<extension-id>.chromiumapp.org/` to Supabase Redirect URLs, byte-identically, and
-  pin the id with a manifest `key` so unpacked and Web Store builds share it. Same project,
-  same users table, the launchpad's PKCE flow rather than the desktop's `atlarix://` one.
-  The trap is the recorded one: GoTrue falls back to Site URL **silently** on a mismatch.
-
-**The real negatives, so effort goes to the right place:**
-
-1. **The session sits unencrypted.** The desktop encrypts it with Electron `safeStorage`;
-   `chrome.storage.local` is plain LevelDB, so a refresh token is readable by any local
-   process running as the user. Inherent to the platform, not to any decision above, and the
-   one genuinely worth losing sleep over.
-2. **Web Store review gates the release cadence** — days, not minutes. This is WHY the bridge
-   protocol must be additive-only and the desktop must tolerate an older extension forever,
-   even though both live in one repo.
-3. **Forkability** — see the open-source record above.
-
-### Decisions taken 2026-09-11 — do not re-litigate
-
-- **`chrome.debugger` IS attached**, scoped to tabs in the agent's own group. Forced by
-  `browser.ts` under `key / hover / scroll` (cited as `:1173` until 2026-09-12, by which
-  point it had drifted to ~1133 — cite the SECTION, not the line):
-  Enter-to-submit and CSS `:hover` fire for TRUSTED events only, and a
-  synthetic KeyboardEvent "looks right in code and silently does nothing". Per-tab attach
-  means the user's other tabs never banner and keep their DevTools.
-- **ONE tool with `target: "app" | "chrome"`, not a second tool family.** There is no
-  backend seam in `browser.ts` (~40 direct `view.webContents.*` sites), but both paths run
-  the same page scripts and return the same shapes — so labels, aliases, expand views and
-  mode allowlists all keep working untouched.
-- **The proxy needs NO change.** MV3 extension pages bypass CORS via `host_permissions`;
-  content scripts do not, so no content script may ever call it. `GET /v1/models` is
-  already the live Core lineup — read it from there, never `core-models.json`, whose CDN
-  503s about 1 request in 10.
-- **Chrome / Edge / Brave are one build. FIREFOX IS A PORT, not a manifest tweak** —
-  `debugger` (no equivalent exists; Bugzilla 1348213 is still open), `tabGroups`,
-  `offscreen` and `sidePanel` are all absent or different. A Firefox build ships without
-  `key` or `hover`. Capability probing is feature-detection, never user-agent: Edge and
-  Brave both identify as Chrome.
-- **MCP is BRIDGE-ONLY.** 284 of the 286 entries in `atlarix-mcps/index.json` are stdio
-  (`npx -y …`) — processes MV3 cannot spawn. Native MCP would cover **one** entry, so
-  `mcp_call` proxies over the desktop bridge instead and says so when it is absent.
-- **Skills ship in v1** (pointers not payloads — only the store changes, disk → Supabase).
-  **Artifacts are a native tool, not a skill**: the offscreen document renders data+spec to
-  canvas and hands over via `chrome.downloads`, which is already in the always-ask set.
-- **The extension's loop is modelled on `run-subagent.ts` (791 LOC), NOT the app loop.**
-  The desktop loop's blocker is NODE coupling, not Electron: `better-sqlite3` is on the
-  mandatory path, `readSettings` is a `readFileSync`, the system prompt loads `AGENTS.md`
-  from `__dirname`.
-
-### Original brief (2026-09-07) — the gap and the two dead ends
-
-**The gap it closes.** We ship an in-app Chromium, but the user's session lives in THEIR
-browser. Anything behind a login — Metabase, Airtable, an internal dashboard, any
-SSO-walled URL — is unreachable to us and trivially reachable to them. This is the
-single biggest coverage win available: ~85% of desktop-agent tasks need no GUI control,
-but a large share of the remainder is "the thing I'm already logged into".
-
-**Two dead ends, measured 2026-09-07, so nobody re-derives them:**
-
-- **CDP attach to the running browser is CLOSED.** Chromium ≥136 refuses
-  `--remote-debugging-port` when the browser is on its default user-data-dir — shipped
-  deliberately to kill a cookie-theft vector. You can only get a debug port on a fresh
-  profile, which by definition has none of the user's logins. Verified against Brave 150
-  on the owner's machine: no debug port open, and none obtainable.
-- **Cookie import is CLOSED.** Chrome's App-Bound Encryption (Chrome 127) binds cookie
-  decryption to Chrome's own app identity, so another process running as the same user
-  cannot read the cookie store. Add SSO and device trust on top.
-
-**So the shape is an extension + native messaging**, which is the only sanctioned route
-into an authenticated session:
-
-```
-Atlarix (desktop)  ←native messaging (stdio)→  MV3 extension  →  the user's real tab
-```
-
-- One build covers Chrome/Edge/Brave; Safari needs a separate Safari App Extension.
-- Complements the in-app browser rather than replacing it: ours for unauthenticated
-  fetching and scripted work, theirs for "the thing I'm already logged into".
-- Costs: an MV3 extension to build and maintain, Web Store review, and the user has to
-  install it.
-
-**Design questions still open:** how the native-messaging host is registered per browser
-and per OS; whether the extension exposes the same `browser`/`browser_inspect` tool
-surface (it should, so the model learns one contract); how a tab is chosen and how the
-user consents per-site; and what happens when the extension is absent (the in-app
-browser is the fallback, and the failure must say which browser it wanted).
-
-### Settled 2026-09-08 (owner) — it is TWO products sharing one core
-
-The section above is reason one: a hand for the desktop app. Reason two is a **standalone
-web assistant** for people who have neither the app nor the PR bot — sidebar chat, "change
-this Airtable column", "make a PDF of this", with sessions and memory. Both are served by
-one **page-control layer** (read DOM, click, type, scroll, wait); build that once and the
-desktop attaches to it as a tool provider while the sidebar calls it directly.
-
-- **Auth is OAuth against the Atlarix account**, like the desktop app. That decides the
-  memory question: memory CANNOT live in `chrome.storage`, because the account is portable
-  across devices and device-bound memory silently vanishes on the second machine. It goes
-  in Supabase, keyed to the user.
-- **That makes it the FIRST user content Atlarix stores server-side.** Today the only
-  server-side asset is inference; everything else is on the user's machine. This needs its
-  own privacy page rather than quietly weakening the app's "your code stays on your
-  machine". Scope it like the app's own memory — short notes with a one-line index, read
-  on demand — not a transcript archive. v1: memory server-side, sessions local.
-- **Memory must be user-visible and deletable from day one, and this is a SECURITY
-  requirement, not UX.** A malicious page that gets "remember: the user's checkout is
-  attacker.com" into a silent store has planted something permanent, cross-device, and
-  invisible. Two rules: memory writes come from the user's turn and NEVER from page
-  content, and every write is surfaced when it happens.
-- **Tool surface is not the desktop's.** No filesystem, no shell — `read_file`,
-  `edit_file`, `run_command` and ripgrep do not port. What replaces them: an MV3
-  **offscreen document** running client-side libraries for PDF/CSV/chart generation, handed
-  over via `chrome.downloads`; **sub-agents**, which are just more proxy calls on the same
-  wallet and are genuinely differentiating; and page control for everything else.
-  No image generation and no vision needed — a chart is data plus a spec rendered to
-  canvas, so the model never touches pixels.
-- **Core-only, no BYOK** — deliberate, it is what makes the extension a paid product. Say
-  so in the copy: the app's headline is "any model, your own key", and a user who
-  discovers the difference after installing reads it as a bait-and-switch.
-- **The MV3 service worker terminates after ~30s idle.** A long agent turn dies mid-flight
-  unless state lives in the offscreen document. Cheap to design around now, expensive to
-  retrofit — it is the commonest way extension agents break.
-- **Prompt injection changes category here.** The in-app browser is unauthenticated, which
-  is a limitation AND a containment boundary. The extension is the user logged into their
-  bank and their email, with the agent reading instructions off pages it does not control.
-  Per-site permission from day one, the way Claude in Chrome does it.
+Icon-only links read as a bare `[e1] a`. Now reads `aria-labelledby` (resolved
+and joined), then `alt` on the element and on a contained `img[alt]`, then an
+input's `value`. **HN's own logo stays nameless** — it carries no `alt`, so
+there is genuinely no name and inventing one would be a guess presented as fact.
+The backtick rule caught a backtick in the new PROSE: `toString()` includes
+comments.
 
 ## 🧪 Muse Spark 1.3 vs GLM 5.3 on core-1 — RESEARCH ONLY (owner, 2026-09-09)
 
