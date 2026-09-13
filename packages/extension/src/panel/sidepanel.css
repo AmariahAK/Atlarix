@@ -18,6 +18,11 @@
  * every panel open, a Web Store review question about third-party resources,
  * and one more thing that can fail offline — for a difference most people would
  * not name. The system stack is close enough at this size.
+ *
+ * THE LAYOUT IS A COLUMN THAT DOES NOT SCROLL, holding a transcript that does.
+ * A side panel is often 320px wide and the whole page scrolling would take the
+ * composer off screen exactly when the answer got long — which is when the user
+ * most wants to reply.
  */
 
 :root {
@@ -36,6 +41,11 @@
   box-sizing: border-box;
 }
 
+html,
+body {
+  height: 100%;
+}
+
 body {
   margin: 0;
   background: var(--bg);
@@ -45,20 +55,23 @@ body {
     -apple-system,
     "Segoe UI",
     sans-serif;
+  overflow: hidden;
 }
 
 .panel {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100%;
+  min-height: 0;
 }
 
 .panel__header {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 14px 16px;
+  padding: 12px 14px;
   border-bottom: 1px solid var(--border);
+  flex: none;
 }
 
 /* The emerald dot is the wordmark's only ornament — no image to ship. */
@@ -78,11 +91,18 @@ body {
   letter-spacing: -0.01em;
 }
 
+.panel__actions {
+  margin-left: auto;
+  display: flex;
+  gap: 2px;
+}
+
 .panel__body {
   padding: 16px;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  overflow-y: auto;
 }
 
 .panel__lede {
@@ -92,15 +112,33 @@ body {
 
 .panel__status {
   margin: 0;
+  padding: 0 14px 8px;
   min-height: 1.25em;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--fg-muted);
+  flex: none;
+}
+
+.panel__status:empty {
+  padding: 0;
+  min-height: 0;
 }
 
 /* Hidden by the panel script depending on whether there is a session. */
 [hidden] {
   display: none !important;
 }
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
 
 .providers {
   display: flex;
@@ -132,7 +170,13 @@ body {
   background: hsl(0 0% 14%);
 }
 
-.button:focus-visible {
+.button:focus-visible,
+.icon-button:focus-visible,
+.composer__input:focus-visible,
+.composer__send:focus-visible,
+.composer__model:focus-visible,
+.row-button:focus-visible,
+.tool:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
@@ -153,39 +197,198 @@ body {
   border-color: var(--border);
 }
 
-.account {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--card);
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
 }
 
-.account__email {
-  margin: 0;
-  font-size: 13px;
+.icon-button:hover {
+  background: var(--card);
   color: var(--fg);
+}
+
+.icon-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.icon-button[aria-expanded="true"] {
+  background: var(--card);
+  color: var(--primary);
+}
+
+/* ── Chat ────────────────────────────────────────────────────────────────── */
+
+.chat {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.transcript {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.empty {
+  margin: auto 0;
+  color: var(--fg-muted);
+  font-size: 13px;
+  text-align: center;
+  padding: 0 8px;
+}
+
+.empty strong {
+  display: block;
+  color: var(--fg);
+  font-size: 14px;
+  margin-bottom: 6px;
+}
+
+.msg {
+  max-width: 100%;
   overflow-wrap: anywhere;
 }
 
-.account__label {
-  margin: 0;
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--fg-muted);
+.msg--user {
+  align-self: flex-end;
+  max-width: 88%;
+  padding: 8px 11px;
+  border-radius: var(--radius);
+  border-bottom-right-radius: 4px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  white-space: pre-wrap;
 }
 
-/* The page-read output, until there is a chat transcript to put it in. */
-.readout {
-  margin: 0;
+.msg--assistant > *:first-child {
+  margin-top: 0;
+}
+
+.msg--assistant > *:last-child {
+  margin-bottom: 0;
+}
+
+.msg--assistant p,
+.msg--assistant ul {
+  margin: 0 0 8px;
+}
+
+.msg--assistant ul {
+  padding-left: 18px;
+}
+
+.msg--assistant li {
+  margin-bottom: 3px;
+}
+
+.msg--assistant code {
+  font:
+    12px/1.5 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  background: hsl(0 0% 12%);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
+.msg--assistant pre {
+  margin: 0 0 8px;
   padding: 10px;
   border: 1px solid var(--border);
   border-radius: calc(var(--radius) - 4px);
   background: hsl(0 0% 7%);
+  overflow-x: auto;
+}
+
+.msg--assistant pre code {
+  background: none;
+  padding: 0;
+}
+
+.msg--assistant a {
+  color: var(--primary);
+}
+
+.msg--error {
+  padding: 10px 11px;
+  border: 1px solid hsl(0 60% 30%);
+  border-radius: calc(var(--radius) - 4px);
+  background: hsl(0 40% 10%);
+  font-size: 13px;
+}
+
+/*
+ * A tool call, collapsed to one line.
+ *
+ * `<details>` rather than a button plus state: it is the one disclosure widget
+ * that is keyboard-accessible and screen-reader-correct without any script, and
+ * the transcript is rebuilt often enough that per-element state would be lost
+ * anyway.
+ */
+.tool {
+  font-size: 12px;
   color: var(--fg-muted);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 4px);
+  background: hsl(0 0% 7%);
+}
+
+.tool > summary {
+  padding: 6px 10px;
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tool > summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--primary);
+  flex: none;
+}
+
+.tool--running .tool__dot {
+  animation: pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tool--running .tool__dot {
+    animation: none;
+  }
+}
+
+.tool__body {
+  margin: 0;
+  padding: 0 10px 8px;
   font:
     11px/1.5 ui-monospace,
     SFMono-Regular,
@@ -193,16 +396,228 @@ body {
     monospace;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  max-height: 40vh;
+  max-height: 30vh;
   overflow-y: auto;
+  color: var(--fg-muted);
 }
 
-/* The chat surface does not exist yet; this is what stands in for it. */
-.soon {
-  margin: 0;
-  padding: 12px;
-  border: 1px dashed var(--border);
-  border-radius: var(--radius);
+/*
+ * The permission card.
+ *
+ * Emerald-bordered and never quiet: this is the only moment the extension asks
+ * for something, and the user's answer is enforced by Chrome rather than by us.
+ */
+.grant {
+  padding: 11px;
+  border: 1px solid var(--primary);
+  border-radius: calc(var(--radius) - 4px);
+  background: hsl(160 40% 8%);
   font-size: 13px;
+}
+
+.grant__origin {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.grant__note {
+  margin: 4px 0 10px;
   color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.grant__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.grant__actions .button {
+  width: auto;
+  flex: 1;
+}
+
+.grant__allow {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-fg);
+}
+
+.grant__allow:not(:disabled):hover {
+  background: hsl(160 84% 34%);
+}
+
+.grant--settled {
+  border-color: var(--border);
+  background: var(--card);
+  color: var(--fg-muted);
+}
+
+/* ── Composer ────────────────────────────────────────────────────────────── */
+
+.composer {
+  flex: none;
+  border-top: 1px solid var(--border);
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.composer__input {
+  width: 100%;
+  resize: none;
+  max-height: 40vh;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 4px);
+  background: var(--card);
+  color: var(--fg);
+  font: inherit;
+}
+
+.composer__input::placeholder {
+  color: var(--fg-muted);
+}
+
+.composer__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.composer__model {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 4px);
+  background: var(--card);
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 12px;
+}
+
+.composer__send {
+  flex: none;
+  padding: 7px 16px;
+  border: 1px solid var(--primary);
+  border-radius: calc(var(--radius) - 4px);
+  background: var(--primary);
+  color: var(--primary-fg);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.composer__send:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.composer__send--stop {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--fg);
+}
+
+/* ── Drawer ──────────────────────────────────────────────────────────────── */
+
+.drawer {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.drawer__group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.drawer__heading {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  font-weight: 600;
+}
+
+.drawer__account {
+  margin: 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.drawer__note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.drawer__list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.drawer__empty {
+  font-size: 12px;
+  color: var(--fg-muted);
+  font-style: italic;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 4px);
+  background: var(--card);
+  font-size: 12px;
+}
+
+.row--current {
+  border-color: var(--primary);
+}
+
+.row__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.row__label:hover {
+  color: var(--primary);
+}
+
+.row-button {
+  flex: none;
+  border: 0;
+  background: none;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.row-button:hover {
+  color: hsl(0 70% 65%);
+  background: hsl(0 0% 14%);
 }
