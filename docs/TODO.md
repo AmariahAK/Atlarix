@@ -535,7 +535,7 @@ never to copy page text into a summary. An answer they asked for is not page
 content — "the Pro plan is $19 a month" is the thing they wanted, and where it
 was written is incidental.
 
-### The composer: tips instead of a placeholder, and a mode selector (owner, 2026-09-13)
+### The composer: tips instead of a placeholder (owner, 2026-09-13)
 
 **Drop "Ask about this page…".** It is a placeholder that answers one question
 and then sits there forever, on the control the user looks at most. It is also
@@ -549,21 +549,35 @@ that it can fill a form but never submits, that `recall` reaches past
 conversations, that a CSV can be dropped on the panel. One at a time, changing
 between turns, never while someone is typing.
 
-**Then the mode selector.** The desktop has five work modes (`ChatIntentSelector`:
-Explore / Plan / Build / Debug / Review) and the extension has none — every turn
-runs the same way whether the user wants a quick read or a careful multi-tab
-task. Two things to settle before building it:
+**MODE SELECTOR — DROPPED** (owner, 2026-09-13). The desktop's five work modes
+are about editing code and do not transfer, and a browser panel does not need a
+gear the user has to understand before it helps them.
 
-- **What the modes ARE here.** The desktop's five are about editing code and do
-  not transfer. A browser panel's real axis is how much it may DO without
-  asking — read-only, act-with-permission, and something careful for a long
-  task. Fewer than five.
-- **A mode must not break the cached prefix mid-session.** Tool definitions and
-  the system prompt sit inside the provider's cached prefix (~4,100 tokens, all
-  three tiers cache it automatically). Switching mode mid-conversation
-  re-prices everything after the switch at the full input rate. Either the mode
-  is fixed per conversation, or the cost of switching is understood and
-  accepted — see the prefix-caching note above.
+### `ask_user` — the tool that replaces guessing (owner, 2026-09-13)
+
+Copy the app's, in `src/lib/tools/workspace.ts`. The whole contract is in its
+first clause: **"Ask the user one or more questions — YOUR TURN ENDS after
+asking."** The answers arrive as the next user message.
+
+Why it earns its place here more than it does in the app: this agent acts on the
+user's real, logged-in browser. "Which of these three accounts did you mean?" is
+a question worth a round trip, and the alternative today is to pick one.
+
+Points that took the app several passes to get right, and transfer whole:
+
+- **BATCH EVERY QUESTION INTO ONE CALL** (max 5, up to 4 options each). Because
+  the turn ends on ask, asking one at a time costs a full round trip per
+  question and reads as an interrogation.
+- **Normalise the arguments.** `ask_user_options.ts` exists because models vary
+  wildly: plain strings, `{label, description}` objects, inline numbered lines
+  inside `question`, comma lists after "Pick one:". Without coercion,
+  `String({…})` yields `[object Object]` and the dedup collapses every option
+  into one. `choices` is accepted as an alias for `options` but NOT advertised —
+  two names for one array is a coin-flip the model should not have to make.
+- **Free text is always available** alongside the option buttons.
+- Side-panel specific: the turn ending while the panel is open is fine, but the
+  answer has to survive the panel being closed and reopened — the questions are
+  part of the transcript, not floating UI state.
 
 ### Memories should be FILES, not sentences (owner, 2026-09-13)
 

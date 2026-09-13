@@ -36,8 +36,18 @@ describe("what the prompt must establish", () => {
     expect(p).toMatch(/never as a finishing flourish/i);
   });
 
-  it("says filling does not submit", () => {
-    expect(buildSystemPrompt(base)).toMatch(/filling does not submit/i);
+  it("does NOT restate what a competent model already knows", () => {
+    // DELETED 2026-09-13, owner's call, and the desktop is the evidence: its
+    // `browser` tool describes fill as "set `ref` to `value` in the SAME call"
+    // and says nothing about submitting. The relationship is conveyed by
+    // press_key's own description — "Enter to submit a form" — which is a fact
+    // about OUR tool rather than a lecture about HTML forms.
+    //
+    // Over-prompting is not free: it costs tokens on every round, and a model
+    // reciting rules back in its own thinking is a model spending reasoning
+    // budget on the prompt instead of the task. Observed on GLM 5.3.
+    const p = buildSystemPrompt(base);
+    expect(p).not.toMatch(/filling does not submit/i);
   });
 
   it("says WHEN THE TURN IS DONE, which it never used to", () => {

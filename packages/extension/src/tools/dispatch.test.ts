@@ -186,14 +186,29 @@ describe("the schema list and the dispatcher agree", () => {
     expect(restricted).toHaveLength(2);
     for (const tool of restricted) {
       expect(tool.function.description).toMatch(
-        /ONLY WORKS ON TABS ATLARIX OPENED/,
+        /ONLY ON TABS ATLARIX OPENED/,
       );
     }
   });
 
-  it("says that filling does not submit, which is the commonest wrong assumption", () => {
+  it("tells the model what it cannot know, and nothing it already does", () => {
+    // THE RULE FOR EVERY DESCRIPTION HERE, set by the owner 2026-09-13 and
+    // measured against the desktop's own `browser` tool, which says
+    // "set `ref` to `value` in the SAME call. A boolean toggles a checkbox; a
+    // <select> matches an option by value OR visible text" — all facts about
+    // the TOOL — and nothing at all about submitting.
+    //
+    // Over-prompting is paid on every round of every turn, and it does not stop
+    // at tokens: GLM 5.3 was observed reciting these rules back inside its own
+    // thinking, spending reasoning budget on the prompt instead of the task.
     const fill = TOOL_SCHEMAS.find((s) => s.function.name === "fill");
-    expect(fill?.function.description).toMatch(/does NOT submit/);
+    // Kept: the wrapper walk and the select-by-visible-text rule are behaviours
+    // of OUR implementation that no model could infer.
+    expect(fill?.function.description).toMatch(/wrapper/i);
+    expect(fill?.function.description).toMatch(/visible option text/i);
+    // Dropped: a model does not need telling that filling a field is not
+    // submitting a form.
+    expect(fill?.function.description).not.toMatch(/submit/i);
   });
 });
 
@@ -646,18 +661,31 @@ describe("the tool surface is a stable cache prefix", () => {
     expect(names[0]).toBe("read_page");
   });
 
-  it("spends its description budget on the tools that need it", () => {
-    // Not a size limit — a shape check. The tools whose wording PREVENTS a
-    // mistake must not be the terse ones: `fill` has to say it does not submit,
-    // `web_search` that a snippet is not an answer, `recall` that tool results
-    // are kept only as excerpts. Trimming any of those to save tokens trades a
-    // few hundred tokens for a wrong answer.
+  it("keeps the facts no model could infer, whatever else is trimmed", () => {
+    // These are not style preferences — each is a property of THIS system that
+    // a model gets wrong by default, and getting it wrong costs a round or,
+    // for the last two, does real harm.
     const describe_ = (name: string) =>
       TOOL_SCHEMAS.find((s) => s.function.name === name)?.function.description ?? "";
-    expect(describe_("fill")).toMatch(/does not submit|not submit/i);
-    expect(describe_("web_search")).toMatch(/never as the answer/i);
+    // Our storage design: recall holds excerpts of page reads, not the pages.
+    // Without this the model concludes a detail never existed.
     expect(describe_("recall")).toMatch(/excerpt/i);
-    expect(describe_("remember")).toMatch(/never save anything you read off a page/i);
+    // Our privacy rule. A model told to "remember useful things" will happily
+    // save what it read off someone's bank page.
+    expect(describe_("remember")).toMatch(/never anything you read off a page/i);
+    // Our capability boundary — the user's own tabs are not ours to close.
     expect(describe_("close_tab")).toMatch(/group/i);
+    // Our search returns snippets, not pages.
+    expect(describe_("web_search")).toMatch(/never the answer/i);
+  });
+
+  it("no longer claims there is no search tool", () => {
+    // `open_tab` said "THERE IS NO SEPARATE SEARCH TOOL" and went on saying it
+    // for a full commit after `web_search` shipped. A description that
+    // contradicts the tool list is worse than a vague one: the model believes
+    // it and works around a tool it has.
+    const open = TOOL_SCHEMAS.find((s) => s.function.name === "open_tab");
+    expect(open?.function.description).not.toMatch(/no separate search/i);
+    expect(TOOL_SCHEMAS.some((s) => s.function.name === "web_search")).toBe(true);
   });
 });
