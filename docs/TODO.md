@@ -676,6 +676,16 @@ message it pins is now worded without a tool name — the desktop spells the rec
 `browser({action:"click"})` and the extension spells it `click`, so the shared message
 names the MOVE, not the call.
 
+**AND THE PARSE GUARD THE PLAN ASKED FOR EXISTS NOW** (`action-scripts-parse.test.ts`).
+The desktop's action scripts moved to `src/lib/browser/action-scripts.ts` as PURE
+FUNCTIONS of their arguments. They were built inline inside handlers needing an Electron
+`WebContentsView`, so the only way to see the text was to run the app and the only way a
+syntax error announced itself was a broken action at runtime, on whichever action nobody
+happened to try. `new Function(src)` compiles without executing — no DOM, no browser, just
+the parser. **This is the guard that catches the backtick-in-a-comment trap directly**,
+which has now ended a template literal three times. `ACTION_SCRIPT_BUILDERS` is a registry
+so a sixth action cannot be added unguarded.
+
 ### Phase 2 — DONE 2026-09-13. The side panel is a chat.
 
 `core/client.ts` (hand-rolled, no AI SDK — the proxy speaks plain

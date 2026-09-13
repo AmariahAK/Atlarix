@@ -17,6 +17,15 @@
  * instructs the model not to follow embedded instructions.
  */
 
+import {
+  clickScript,
+  fillScript,
+  focusForKeyScript,
+  hoverScript,
+  keyChipScript,
+  scrollByScript,
+  scrollToScript,
+} from "@/lib/browser/action-scripts";
 import { ToolRegistry } from "./registry";
 import {
   ensureTab,
@@ -64,25 +73,13 @@ import {
   formatA11yFind,
   type A11yFilter,
 } from "@/lib/browser/a11y-snapshot";
-// The page-realm scripts are shared with the Chrome extension so both backends
-// return identical shapes — see the header of `@/lib/browser/page-scripts`.
-// Aliased to the historical local names so the call sites below read unchanged.
-import { kernelCall } from "@/lib/browser/page-scripts";
 import {
   runVisualLint,
   formatVisualLintReport,
   runDesignSnapshot,
   formatDesignSnapshot,
 } from "@/lib/browser/visual-lint";
-import {
-  AI_CURSOR_AT_RECT_JS,
-  AI_CURSOR_LABEL_JS,
-  AI_CURSOR_DURATION_MS,
-  AI_CURSOR_WAIT_MS,
-} from "@/lib/browser/ai-cursor";
-
-// Re-exported because `browser-fill-target.test.ts` runs this snippet against
-// real DOM in jsdom and imports it from here.
+import { AI_CURSOR_WAIT_MS } from "@/lib/browser/ai-cursor";
 
 /**
  * ToolRegistry.execute injects the chat id into every tool's args; runToolExecute
@@ -283,24 +280,6 @@ interface InteractDelta {
 }
 
 /** In-page: snapshot pre-action state into `__pre` (assumes a page context). */
-const CAPTURE_PRE_STATE_JS = `const __pre = {
-      url: location.href,
-      count: document.querySelectorAll('body *').length,
-      textLen: ((document.body && document.body.innerText) || '').length,
-    };`;
-
-/** In-page: settle briefly, then compute `__delta` vs `__pre`. */
-const SETTLE_AND_DELTA_JS = `await new Promise(function (r) { setTimeout(r, 200); });
-      const __postCount = document.querySelectorAll('body *').length;
-      const __postTextLen = ((document.body && document.body.innerText) || '').length;
-      const __delta = {
-        urlChanged: location.href !== __pre.url,
-        newUrl: location.href !== __pre.url ? location.href : undefined,
-        elementDelta: __postCount - __pre.count,
-        textChanged: Math.abs(__postTextLen - __pre.textLen) > 20,
-        cls: typeof window.__atlarixCLS === 'number' ? window.__atlarixCLS : null,
-      };`;
-
 /** Human one-liner describing the interaction delta (for the tool `note`). */
 function formatInteractDelta(delta?: InteractDelta): string {
   if (!delta) return "";
@@ -960,20 +939,7 @@ async function interactClick(
       error: "Provide a ref (from browser_inspect snapshot) or a CSS selector.",
     };
   }
-  // Resolve through the SHARED KERNEL, then decorate. The resolution and the
-  // click itself are the same code the extension runs; what is desktop-only is
-  // the cursor the user watches and the delta report, and those wrap around it.
-  const script = `(async () => {
-      ${CAPTURE_PRE_STATE_JS}
-      const __t = ${kernelCall({ op: "resolve", ref: args.ref, selector: args.selector })};
-      if (!__t.ok) return __t;
-      ${AI_CURSOR_AT_RECT_JS("__t.rect", "click", AI_CURSOR_DURATION_MS)}
-      await new Promise(function (r) { setTimeout(r, ${AI_CURSOR_WAIT_MS}); });
-      const __a = ${kernelCall({ op: "click", ref: args.ref, selector: args.selector })};
-      if (!__a.ok) return __a;
-      ${SETTLE_AND_DELTA_JS}
-      return { ok: true, tag: __a.tag, text: (__a.label || "").slice(0, 120), delta: __delta };
-    })()`;
+  const script = clickScript({ ref: args.ref, selector: args.selector });
   const result = (await view.webContents.executeJavaScript(script, true)) as {
     ok: boolean;
     error?: string;
@@ -1036,25 +1002,10 @@ async function interactFill(
         `Re-issue exactly: browser({ action: "fill", ref: "${ref}", value: "<text to type>" }).`,
     };
   }
-  // THE WHOLE POINT OF THE SHARED KERNEL IS THIS FUNCTION. Everything that was
-  // here — the fillable WRAPPER walk, matching a select on visible text before
-  // value, choosing the native setter by what the node IS rather than by
-  // elimination — was learned from real pages and was duplicated in the
-  // extension. It now lives in exactly one place and both backends run it.
-  //
-  // What stays here is what is genuinely desktop-only: the cursor the user
-  // watches, and the delta report.
-  const script = `(async () => {
-      ${CAPTURE_PRE_STATE_JS}
-      const __t = ${kernelCall({ op: "resolve", ref: args.ref, selector: args.selector })};
-      if (!__t.ok) return __t;
-      ${AI_CURSOR_AT_RECT_JS("__t.rect", "type", AI_CURSOR_DURATION_MS)}
-      await new Promise(function (r) { setTimeout(r, ${AI_CURSOR_WAIT_MS}); });
-      const __a = ${kernelCall({ op: "fill", ref: args.ref, selector: args.selector, value: args.value as string | boolean })};
-      if (!__a.ok) return __a;
-      ${SETTLE_AND_DELTA_JS}
-      return { ok: true, tag: __a.tag, label: __a.label, delta: __delta };
-    })()`;
+  const script = fillScript(
+    { ref: args.ref, selector: args.selector },
+    args.value as string | boolean,
+  );
   const result = (await view.webContents.executeJavaScript(script, true)) as {
     ok: boolean;
     error?: string;
@@ -1192,21 +1143,8 @@ async function interactKey(
   const wc = view.webContents;
   // Focus the target first when one is given, so the key lands on it.
   if (args.ref || args.selector) {
-    // The kernel resolves and scrolls; focusing is a one-liner the kernel has
-    // no op for, and does not need one — it is not a page MUTATION and carries
-    // none of the lessons the fill path does.
     const focused = (await wc.executeJavaScript(
-      `(() => {
-        const __t = ${kernelCall({ op: "resolve", ref: args.ref, selector: args.selector })};
-        if (!__t.ok) return false;
-        ${AI_CURSOR_AT_RECT_JS("__t.rect", label, AI_CURSOR_DURATION_MS)}
-        try {
-          const __el = document.querySelector('[data-atlarix-ref="' + CSS.escape(${JSON.stringify(String(args.ref ?? ""))}) + '"]')
-            || document.querySelector(${JSON.stringify(String(args.selector ?? "*:not(*)"))});
-          if (__el) __el.focus();
-        } catch (e) {}
-        return true;
-      })()`,
+      focusForKeyScript({ ref: args.ref, selector: args.selector }, label),
       true,
     )) as boolean;
     if (!focused) {
@@ -1217,12 +1155,7 @@ async function interactKey(
     }
   } else {
     // No target to point at — still show the user which key was pressed.
-    await wc
-      .executeJavaScript(
-        `(() => { ${AI_CURSOR_LABEL_JS(label, AI_CURSOR_DURATION_MS)} return true; })()`,
-        true,
-      )
-      .catch(() => {});
+    await wc.executeJavaScript(keyChipScript(label), true).catch(() => {});
   }
   await new Promise((r) => setTimeout(r, AI_CURSOR_WAIT_MS));
   wc.focus();
@@ -1276,16 +1209,8 @@ async function interactHover(
     };
   }
   const wc = view.webContents;
-  // The kernel already returns the centre point and a label, which is the whole
-  // of what a hover needs — this used to compute both again in a second copy of
-  // the same arithmetic.
   const spot = (await wc.executeJavaScript(
-    `(() => {
-      const __t = ${kernelCall({ op: "resolve", ref: args.ref, selector: args.selector })};
-      if (!__t.ok) return null;
-      ${AI_CURSOR_AT_RECT_JS("__t.rect", "hover", AI_CURSOR_DURATION_MS)}
-      return { x: __t.rect.x, y: __t.rect.y, tag: __t.tag, name: __t.label || "" };
-    })()`,
+    hoverScript({ ref: args.ref, selector: args.selector }),
     true,
   )) as { x: number; y: number; tag: string; name: string } | null;
   if (!spot) {
@@ -1338,10 +1263,8 @@ async function interactScroll(
   const wc = view.webContents;
   // scroll_to a ref: bring one element into view.
   if (args.ref || args.selector) {
-    // `resolve` scrolls the element into view as part of its contract — the rect
-    // it returns is in VIEWPORT coordinates, so it has to.
     const ok = (await wc.executeJavaScript(
-      `(() => ${kernelCall({ op: "resolve", ref: args.ref, selector: args.selector })}.ok)()`,
+      scrollToScript({ ref: args.ref, selector: args.selector }),
       true,
     )) as boolean;
     if (!ok) {
@@ -1361,19 +1284,7 @@ async function interactScroll(
   const dir = String(args.direction ?? "down").toLowerCase();
   const amount = Number.isFinite(args.amount) ? Number(args.amount) : 0;
   const delta = await withDelta(view, async () => {
-    await wc.executeJavaScript(
-      `(() => {
-        ${AI_CURSOR_LABEL_JS(`scroll ${dir}`, AI_CURSOR_DURATION_MS)}
-        const dir = ${JSON.stringify(dir)};
-        const amt = ${JSON.stringify(amount)};
-        const step = amt > 0 ? amt : Math.round(window.innerHeight * 0.9);
-        const dx = dir === 'left' ? -step : dir === 'right' ? step : 0;
-        const dy = dir === 'up' ? -step : dir === 'down' ? step : 0;
-        window.scrollBy(dx, dy);
-        return true;
-      })()`,
-      true,
-    );
+    await wc.executeJavaScript(scrollByScript(dir, amount), true);
   });
   const pos = (await wc.executeJavaScript(
     `({ y: Math.round(window.scrollY), max: Math.round(document.documentElement.scrollHeight - window.innerHeight) })`,
