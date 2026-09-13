@@ -8,6 +8,7 @@ const status = (over: Partial<ContextStatus> = {}): ContextStatus => ({
   ratio: 0.1,
   health: "healthy",
   willCompact: false,
+  exact: false,
   ...over,
 });
 

@@ -182,6 +182,7 @@ export function compactionMarker(
 export function microcompactStaleToolOutputs(
   messages: CoreMessage[],
   keepRecentTokens: number,
+  charsPerToken?: number,
 ): { messages: CoreMessage[]; tokensDropped: number } {
   if (messages.length === 0) return { messages, tokensDropped: 0 };
 
@@ -192,7 +193,7 @@ export function microcompactStaleToolOutputs(
   for (let i = out.length - 1; i >= 0; i--) {
     const m = out[i];
     if (m.role !== "tool") continue;
-    const tokens = estimateTokens(m.content);
+    const tokens = estimateTokens(m.content, charsPerToken);
     if (tokens === 0) continue;
     if (kept + tokens <= keepRecentTokens) {
       kept += tokens;
@@ -226,6 +227,7 @@ export function microcompactStaleToolOutputs(
 export function pruneToolOutputs(
   messages: CoreMessage[],
   protectRecentTokens: number,
+  charsPerToken?: number,
 ): { messages: CoreMessage[]; tokensPruned: number } {
   if (messages.length === 0) return { messages, tokensPruned: 0 };
 
@@ -237,7 +239,7 @@ export function pruneToolOutputs(
     const m = out[i];
     if (m.role !== "tool") continue;
     if (m.content.startsWith("[Earlier tool output omitted")) continue;
-    const tokens = estimateTokens(m.content);
+    const tokens = estimateTokens(m.content, charsPerToken);
     if (kept + tokens <= protectRecentTokens) {
       kept += tokens;
       continue;
@@ -246,7 +248,7 @@ export function pruneToolOutputs(
 
     const head = m.content.slice(0, TOOL_OUTPUT_MAX_CHARS);
     const clipped = `[Earlier tool output clipped (~${tokens} tokens). Use \`recall\` if you need what is missing.]\n\n${head}`;
-    tokensPruned += tokens - estimateTokens(clipped);
+    tokensPruned += tokens - estimateTokens(clipped, charsPerToken);
     out[i] = { ...m, content: clipped };
   }
 
@@ -296,11 +298,14 @@ function splitTurn(
   messages: CoreMessage[],
   span: TurnSpan,
   budget: number,
+  charsPerToken?: number,
 ): number | undefined {
   if (budget <= 0 || span.end - span.start <= 1) return undefined;
   for (let start = span.start + 1; start < span.end; start++) {
     if (!canStartTail(messages[start])) continue;
-    if (estimateMessages(messages.slice(start, span.end)) <= budget) {
+    if (
+      estimateMessages(messages.slice(start, span.end), charsPerToken) <= budget
+    ) {
       return start;
     }
   }
@@ -327,6 +332,7 @@ function splitTurn(
 export function selectMessagesForCompaction(
   messages: CoreMessage[],
   usable: number,
+  charsPerToken?: number,
 ): { head: CoreMessage[]; tail: CoreMessage[] } {
   const budget = compactionBudgets(usable).preserveRecent;
   const spans = turnSpans(messages);
@@ -338,13 +344,16 @@ export function selectMessagesForCompaction(
 
   for (let i = spans.length - 1; i >= 0; i--) {
     const span = spans[i];
-    const size = estimateMessages(messages.slice(span.start, span.end));
+    const size = estimateMessages(
+      messages.slice(span.start, span.end),
+      charsPerToken,
+    );
     if (total + size <= budget) {
       total += size;
       keepFrom = span.start;
       continue;
     }
-    const split = splitTurn(messages, span, budget - total);
+    const split = splitTurn(messages, span, budget - total, charsPerToken);
     if (split !== undefined) keepFrom = split;
     break;
   }
@@ -437,21 +446,28 @@ export async function compactConversation(params: {
   usable: number;
   summarise: Summarise;
   signal?: AbortSignal;
+  /**
+   * Characters per token for this model, learned from the provider's own usage
+   * frames. Compaction has to measure with the SAME ratio the bar does, or the
+   * bar says the conversation is full and the compactor disagrees.
+   */
+  charsPerToken?: number;
 }): Promise<CompactionResult> {
-  const { overheadTokens, usable } = params;
+  const { overheadTokens, usable, charsPerToken } = params;
   const budgets = compactionBudgets(usable);
-  const beforeTokens = estimateMessages(params.messages) + overheadTokens;
+  const size = (messages: CoreMessage[]) =>
+    estimateMessages(messages, charsPerToken) + overheadTokens;
+  const beforeTokens = size(params.messages);
   const steps: string[] = [];
 
-  const fits = (messages: CoreMessage[]) =>
-    estimateMessages(messages) + overheadTokens <= usable;
+  const fits = (messages: CoreMessage[]) => size(messages) <= usable;
 
   const done = (messages: CoreMessage[], summarised: boolean) => ({
     messages,
     changed: messages !== params.messages,
     steps,
     beforeTokens,
-    afterTokens: estimateMessages(messages) + overheadTokens,
+    afterTokens: size(messages),
     summarised,
   });
 
@@ -462,6 +478,7 @@ export async function compactConversation(params: {
   const micro = microcompactStaleToolOutputs(
     working,
     budgets.microcompactKeepTokens,
+    charsPerToken,
   );
   if (micro.tokensDropped > 0) {
     working = micro.messages;
@@ -470,7 +487,11 @@ export async function compactConversation(params: {
   }
 
   // 2. Clip what is left. Still no model call.
-  const pruned = pruneToolOutputs(working, budgets.pruneProtectRecent);
+  const pruned = pruneToolOutputs(
+    working,
+    budgets.pruneProtectRecent,
+    charsPerToken,
+  );
   if (pruned.tokensPruned > 0) {
     working = pruned.messages;
     steps.push(`clipped ~${pruned.tokensPruned} tokens of tool results`);
@@ -483,17 +504,21 @@ export async function compactConversation(params: {
   // trip, and the honest answer is to send the oversized request and let the
   // provider decide. Compacting a conversation that is mostly system prompt just
   // deletes the user's words for nothing.
-  if (estimateMessages(working) < budgets.forceMinHistory) {
+  if (estimateMessages(working, charsPerToken) < budgets.forceMinHistory) {
     return done(working, false);
   }
 
   const { prior, rest } = extractPriorSummary(working);
-  const { head, tail } = selectMessagesForCompaction(rest, usable);
+  const { head, tail } = selectMessagesForCompaction(rest, usable, charsPerToken);
   if (head.length === 0) return done(working, false);
 
   // The head goes to the summariser with its own tool budget — a head that is
   // 90% page text produces a summary of page text.
-  const headForSummary = pruneToolOutputs(head, budgets.headToolTokens).messages;
+  const headForSummary = pruneToolOutputs(
+    head,
+    budgets.headToolTokens,
+    charsPerToken,
+  ).messages;
 
   try {
     const summary = (

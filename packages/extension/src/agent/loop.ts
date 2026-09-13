@@ -52,6 +52,16 @@ import {
   type ToolOutcome,
 } from "../tools/dispatch";
 import { TOOL_SCHEMAS } from "../tools/schemas";
+import { messageText } from "../context/budget";
+
+/**
+ * Characters of the tool schemas, which the provider counts as part of every
+ * request. Computed once: the list does not change within a build.
+ */
+const TOOL_SCHEMA_CHARS = JSON.stringify(TOOL_SCHEMAS).length;
+
+/** One message's text, for measuring what was actually sent. */
+const messageChars = (m: CoreMessage): number => messageText(m).length;
 
 /**
  * How many consecutive byte-identical tool rounds mean stuck.
@@ -94,6 +104,27 @@ export interface AgentEvents {
    * output would otherwise be appended to the corpse of the first attempt.
    */
   onRoundRestart?(attempt: number, reason: string): void;
+  /**
+   * The provider's own token count for the request just sent.
+   *
+   * EXACT, and the only exact number in this system. Fires once per round, from
+   * the stream's final frame. The panel uses it to anchor its context
+   * measurement and to calibrate its estimator — see `context/calibration.ts`.
+   */
+  onUsage?(usage: {
+    promptTokens: number;
+    completionTokens: number;
+    /**
+     * How many non-system messages were in the request this counts.
+     *
+     * Reported because the panel needs to know WHICH transcript the number
+     * describes. Counting later would include this round's own output, and the
+     * anchor would claim to have measured messages the provider never saw.
+     */
+    messageCount: number;
+    /** Characters of the request as sent — the other half of a calibration. */
+    charsSent: number;
+  }): void;
   onToolCall?(call: ToolCall): void;
   /** `label` is the human phrase for the transcript, known only after the call. */
   onToolResult?(call: ToolCall, content: string, label?: string): void;
@@ -214,6 +245,13 @@ export async function runTurn(args: TurnArgs): Promise<TurnOutcome> {
     for (;;) {
       text = "";
       calls = [];
+      // Measured from the ACTUAL request, not reconstructed afterwards. The
+      // tool schemas are part of what the provider counted, and leaving them out
+      // would teach the calibration that the model is more expensive per
+      // character than it is.
+      const sentMessageCount = history.length;
+      const sentChars =
+        history.reduce((n, m) => n + messageChars(m), 0) + TOOL_SCHEMA_CHARS;
       try {
         for await (const event of stream(
           {
@@ -235,6 +273,14 @@ export async function runTurn(args: TurnArgs): Promise<TurnOutcome> {
             events.onReasoning?.(event.delta);
           } else if (event.type === "tool-calls") {
             calls = event.calls;
+          } else if (event.type === "usage") {
+            events.onUsage?.({
+              promptTokens: event.promptTokens,
+              completionTokens: event.completionTokens,
+              // Minus the system message, which the panel does not hold.
+              messageCount: sentMessageCount - 1,
+              charsSent: sentChars,
+            });
           }
         }
         break;

@@ -232,6 +232,22 @@ export type CoreEvent =
   | { type: "reasoning"; delta: string }
   | { type: "text"; delta: string }
   | { type: "tool-calls"; calls: ToolCall[] }
+  /**
+   * THE PROVIDER'S OWN TOKEN COUNT, from its own tokenizer.
+   *
+   * Arrives in the stream's FINAL frame, and it is exact where everything this
+   * extension can compute for itself is an estimate. `prompt_tokens` covers the
+   * entire request — system prompt, tool schemas and the whole transcript —
+   * which is precisely the quantity the context bar and the compaction trigger
+   * are trying to know.
+   *
+   * IT COSTS NOTHING TO HAVE. The proxy already forces
+   * `stream_options: {include_usage: true}` because token counts are the only
+   * basis for billing, and it tees the stream so every frame reaches the client
+   * unchanged. The frame was arriving on every turn and being dropped on the
+   * floor.
+   */
+  | { type: "usage"; promptTokens: number; completionTokens: number }
   | { type: "done"; finishReason: string };
 
 interface PartialToolCall {
@@ -321,6 +337,20 @@ export async function* streamTurn(
           // A malformed frame is not worth ending a turn over; the stream
           // recovers on the next one.
           continue;
+        }
+
+        // The usage frame carries no choices, so it must be read BEFORE the
+        // `if (!choice) continue` below — which is exactly where the first
+        // attempt at this lost it.
+        if (payload.usage && typeof payload.usage === "object") {
+          const u = payload.usage as Record<string, unknown>;
+          const promptTokens =
+            typeof u.prompt_tokens === "number" ? u.prompt_tokens : 0;
+          const completionTokens =
+            typeof u.completion_tokens === "number" ? u.completion_tokens : 0;
+          if (promptTokens > 0) {
+            yield { type: "usage", promptTokens, completionTokens };
+          }
         }
 
         const choice = (

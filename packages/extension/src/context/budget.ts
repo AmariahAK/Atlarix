@@ -25,13 +25,21 @@
 import type { CoreMessage } from "../core/client";
 
 /**
- * Characters per token. The catch-branch constant from the desktop, promoted to
- * the only branch.
+ * The fallback ratio, for a model nothing has been measured for yet.
+ *
+ * THE REAL RATIO IS LEARNED — see `calibration.ts`. Every streamed turn ends
+ * with the provider's own `prompt_tokens`, which is exact, and the ratio for
+ * that model is folded toward what was actually charged. Four characters to a
+ * token is where a model STARTS, not where it stays.
  */
-const CHARS_PER_TOKEN = 4;
+export const DEFAULT_CHARS_PER_TOKEN = 4;
 
-export function estimateTokens(text: string): number {
-  return Math.ceil(text.length / CHARS_PER_TOKEN);
+export function estimateTokens(
+  text: string,
+  charsPerToken: number = DEFAULT_CHARS_PER_TOKEN,
+): number {
+  const ratio = charsPerToken > 0 ? charsPerToken : DEFAULT_CHARS_PER_TOKEN;
+  return Math.ceil(text.length / ratio);
 }
 
 /**
@@ -146,8 +154,19 @@ export function messageText(message: CoreMessage): string {
 }
 
 /** Estimated tokens for a whole transcript. */
-export function estimateMessages(messages: CoreMessage[]): number {
-  return messages.reduce((n, m) => n + estimateTokens(messageText(m)), 0);
+export function estimateMessages(
+  messages: CoreMessage[],
+  charsPerToken: number = DEFAULT_CHARS_PER_TOKEN,
+): number {
+  return messages.reduce(
+    (n, m) => n + estimateTokens(messageText(m), charsPerToken),
+    0,
+  );
+}
+
+/** Total characters of a transcript, for calibrating against a usage frame. */
+export function messagesChars(messages: CoreMessage[]): number {
+  return messages.reduce((n, m) => n + messageText(m).length, 0);
 }
 
 /**
@@ -162,9 +181,11 @@ export function compactionWouldTrigger(params: {
   messages: CoreMessage[];
   overheadTokens: number;
   usable: number;
+  charsPerToken?: number;
 }): { willTrigger: boolean; beforeTokens: number; usable: number } {
   const beforeTokens =
-    estimateMessages(params.messages) + Math.max(0, params.overheadTokens);
+    estimateMessages(params.messages, params.charsPerToken) +
+    Math.max(0, params.overheadTokens);
   return {
     willTrigger: beforeTokens > params.usable,
     beforeTokens,
@@ -194,6 +215,15 @@ export interface ContextStatus {
   usable: number;
   ratio: number;
   health: ContextBudgetHealth;
+  /**
+   * The count came from the provider rather than from arithmetic.
+   *
+   * True only when a usage frame covers the transcript exactly — nothing has
+   * been added since it was measured. The bar does not say so out loud, but the
+   * compactor uses it: a measured overflow is a fact, and an estimated one is a
+   * prediction.
+   */
+  exact: boolean;
   /** True once the next round would exceed `usable`. */
   willCompact: boolean;
 }
@@ -210,20 +240,72 @@ export function measureContext(params: {
   overheadTokens: number;
   contextWindow: number;
   maxOutputTokens: number;
+  charsPerToken?: number;
+  anchor?: UsageAnchor | null;
 }): ContextStatus | null {
   const usable = usableContextBudget({
     contextWindow: params.contextWindow,
     maxOutputTokens: params.maxOutputTokens,
   });
   if (usable <= 0) return null;
-  const usedTokens =
-    estimateMessages(params.messages) + Math.max(0, params.overheadTokens);
+  const { usedTokens, exact } = usedTokensFor(params);
   const ratio = usedTokens / usable;
   return {
     usedTokens,
     usable,
     ratio,
+    exact,
     health: budgetHealth(ratio),
     willCompact: usedTokens > usable,
+  };
+}
+
+/**
+ * The exact size of a request the provider has already counted.
+ *
+ * `promptTokens` covers the WHOLE request — system prompt, tool schemas and
+ * transcript — so an anchored measurement must not add the overhead again.
+ * `messageCount` is how many messages were in the transcript at the time, which
+ * is what makes "everything since" identifiable.
+ */
+export interface UsageAnchor {
+  promptTokens: number;
+  messageCount: number;
+}
+
+/**
+ * How many tokens the conversation is, using the measured number where there is
+ * one.
+ *
+ * A MEASURED BASE PLUS A SMALL ESTIMATE, rather than an estimate of everything.
+ * After any turn the provider has told us exactly what the conversation cost as
+ * sent; only the messages added since then are unknown. So the error is bounded
+ * by the size of one turn instead of by the size of the conversation, and it
+ * RESETS to zero every time a turn completes rather than compounding.
+ *
+ * The anchor is abandoned if the transcript got SHORTER than it was — compaction
+ * rewrote it, or the user edited and rewound — because the messages the anchor
+ * counted are no longer the messages that are there.
+ */
+export function usedTokensFor(params: {
+  messages: CoreMessage[];
+  overheadTokens: number;
+  charsPerToken?: number;
+  anchor?: UsageAnchor | null;
+}): { usedTokens: number; exact: boolean } {
+  const anchor = params.anchor;
+  if (anchor && anchor.promptTokens > 0 && params.messages.length >= anchor.messageCount) {
+    const since = params.messages.slice(anchor.messageCount);
+    return {
+      usedTokens:
+        anchor.promptTokens + estimateMessages(since, params.charsPerToken),
+      exact: since.length === 0,
+    };
+  }
+  return {
+    usedTokens:
+      estimateMessages(params.messages, params.charsPerToken) +
+      Math.max(0, params.overheadTokens),
+    exact: false,
   };
 }

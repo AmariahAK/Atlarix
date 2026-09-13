@@ -79,11 +79,19 @@ import { renderMarkdown } from "./markdown";
 import { chooseModel, optionsFor, shortModelName } from "./model-choice";
 import { TOOL_SCHEMAS } from "../tools/schemas";
 import {
-  estimateMessages,
   estimateTokens,
   measureContext,
   usableContextBudget,
+  usedTokensFor,
+  type UsageAnchor,
 } from "../context/budget";
+import {
+  loadCalibration,
+  observe,
+  ratioFor,
+  saveCalibration,
+  type Calibration,
+} from "../context/calibration";
 import {
   compactConversation,
   isCompactionMarker,
@@ -176,6 +184,28 @@ let systemPromptTokens = estimateTokens(
 let compacting = false;
 
 /**
+ * The last EXACT measurement of this conversation, from the provider itself.
+ *
+ * Everything this extension can compute for itself is an estimate; this is not.
+ * After a round the provider has said precisely what the request cost, so the
+ * measurement becomes "a known number plus the little that has been added
+ * since" — and the error resets to zero every turn rather than compounding
+ * across a long conversation.
+ *
+ * Cleared whenever the transcript stops being the one it measured: a new chat,
+ * a different conversation, a rewind, or a compaction.
+ */
+let usageAnchor: UsageAnchor | null = null;
+
+/** Learned characters-per-token, by model. See `context/calibration.ts`. */
+let calibration: Calibration = { ratios: {} };
+
+/** The ratio to estimate with right now. */
+function charsPerToken(): number {
+  return ratioFor(calibration, modelSelect?.value ?? "");
+}
+
+/**
  * Redraw the bar from the current transcript and the selected model.
  *
  * Cheap enough to call on every change: it is arithmetic over strings already in
@@ -190,6 +220,8 @@ function refreshContextBar(): void {
       ? measureContext({
           messages,
           overheadTokens: systemPromptTokens + TOOL_SCHEMA_TOKENS,
+          charsPerToken: charsPerToken(),
+          anchor: usageAnchor,
           contextWindow: selected.contextWindow,
           // A tier with no output row in the catalog gets no reply reserve,
           // which makes `usable` the whole window — optimistic, and the wrong
@@ -239,7 +271,13 @@ async function compactIfNeeded(
   if (usable <= 0) return;
 
   const overheadTokens = systemTokens + TOOL_SCHEMA_TOKENS;
-  if (estimateMessages(messages) + overheadTokens <= usable) return;
+  const { usedTokens } = usedTokensFor({
+    messages,
+    overheadTokens,
+    charsPerToken: charsPerToken(),
+    anchor: usageAnchor,
+  });
+  if (usedTokens <= usable) return;
 
   compacting = true;
   refreshContextBar();
@@ -248,11 +286,16 @@ async function compactIfNeeded(
       messages,
       overheadTokens,
       usable,
+      charsPerToken: charsPerToken(),
       summarise: summariserFor(model),
       signal,
     });
     if (!result.changed) return;
     messages = result.messages;
+    // The anchor measured a transcript that no longer exists. Keeping it would
+    // report the pre-compaction size of a conversation that just got smaller —
+    // the bar would stay full and the compactor would run again immediately.
+    usageAnchor = null;
     // Re-rendered because a marker replaced real turns on screen, and the
     // transcript must show what the model can actually see. A conversation that
     // still displays six page reads the model no longer has is a conversation
@@ -770,6 +813,8 @@ async function send(): Promise<void> {
   // about editing costs nothing.
   if (editingFrom !== null) {
     messages = rewindToUserMessage(messages, editingFrom);
+    // The anchor counted messages this rewind just removed.
+    usageAnchor = null;
     cancelEdit();
     renderConversation(messages);
   }
@@ -908,6 +953,24 @@ async function send(): Promise<void> {
           setStatus(
             `Connection dropped (${reason}) — retrying, attempt ${attempt + 1}.`,
           );
+        },
+        onUsage(usage) {
+          // The exact size of what was just sent, from the provider's own
+          // tokenizer. Both halves of the accuracy story land here.
+          usageAnchor = {
+            promptTokens: usage.promptTokens,
+            messageCount: usage.messageCount,
+          };
+          const next = observe(
+            calibration,
+            model,
+            usage.charsSent,
+            usage.promptTokens,
+          );
+          if (next !== ratioFor(calibration, model)) {
+            void saveCalibration(calibration);
+          }
+          refreshContextBar();
         },
         onToolResult(call, content, label) {
           const chip = chips.get(call.id);
@@ -1162,6 +1225,7 @@ async function openSession(id: string): Promise<void> {
   cancelEdit();
   sessionId = id;
   toolLabels.clear();
+  usageAnchor = null;
   currentTitle = (await listSessions()).find((sn) => sn.id === id)?.title ?? "";
   messages = await loadSession(id);
   renderConversation(messages);
@@ -1176,6 +1240,7 @@ function startNewChat(): void {
   sessionId = newSessionId();
   currentTitle = "";
   toolLabels.clear();
+  usageAnchor = null;
   messages = [];
   renderConversation(messages);
   setStatus("");
@@ -1386,8 +1451,12 @@ async function render(): Promise<void> {
     const [recent] = await listSessions();
     if (recent) {
       sessionId = recent.id;
+      currentTitle = recent.title;
       messages = await loadSession(recent.id);
     }
+    // Loaded before the first render so a reopened panel starts calibrated
+    // rather than relearning the ratio on the user's first message.
+    calibration = await loadCalibration();
     renderConversation(messages);
     await loadModels();
   } else {
