@@ -6,11 +6,17 @@
  * for — was pushed off the bottom of a 320px panel. The work was legible and the
  * result was not, which is exactly backwards.
  *
- * So the activity collapses into ONE card, the way Claude's own web UI does it
- * ("Ran 4 commands, read a file, shared files · 3 notes"). Nothing is removed:
- * open the card and the per-step cards are all still there, each still
- * expandable to its full output. A developer loses nothing; everyone else stops
- * scrolling past machinery to reach a sentence.
+ * So ADJACENT thinking and tool steps collapse into one card, the way Claude's
+ * own web UI does it ("Ran 4 commands, read a file, shared files · 3 notes").
+ * Nothing is removed: open the card and the per-step cards are all still there,
+ * each still expandable to its full output.
+ *
+ * ADJACENT, and that word is the whole rule. The model's rhythm is the model's:
+ * some narrate between every call, some think once and run six tools, and the
+ * same model does both on different questions. So the grouping follows what
+ * actually happened rather than imposing a shape — a run of thinking and tools
+ * becomes one card, prose ends the run, and a step that stands alone STAYS
+ * alone rather than being wrapped in a card that adds a click and says nothing.
  *
  * GROUPED BY WHAT IT MEANT, NOT BY TOOL NAME. "read_page ×2, find_on_page ×1" is
  * the transcript restated; "Read 3 pages" is what happened. The grouping is also
@@ -100,6 +106,8 @@ export function summariseSteps(
 
   // Thinking is an aside, not an action — it goes after the separator, the way
   // Claude's own line puts "· 3 notes" after what it did.
+  // An aside, after the separator — the shape Claude's own line uses with
+  // "· 3 notes". Thinking is not an action and should not crowd out the verbs.
   const aside =
     thoughts > 0 ? ` · thought ${thoughts === 1 ? "once" : `${thoughts} times`}` : "";
 

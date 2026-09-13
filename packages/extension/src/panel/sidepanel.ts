@@ -565,6 +565,11 @@ interface StepsCard {
 function stepsCard(): StepsCard {
   const root = document.createElement("details");
   root.className = "steps";
+  // OPEN WHILE IT RUNS, collapsed once it is done. Thinking is the only thing on
+  // screen for the first ten seconds of a turn on a reasoning tier, so a card
+  // that starts closed is a panel that looks frozen — which is exactly the bug
+  // the thinking block was added to fix, reintroduced one level up.
+  root.open = true;
 
   const summary = document.createElement("summary");
   summary.className = "steps__summary";
@@ -598,6 +603,9 @@ function addStep(
 function settleSteps(card: StepsCard | null): void {
   if (!card) return;
   card.root.classList.add("steps--done");
+  // Collapsed now the work is history and the answer is what the person came
+  // for. They can open it again; it just stops taking the screen.
+  card.root.open = false;
   card.line.textContent = summariseSteps(card.steps);
 }
 
@@ -927,6 +935,9 @@ function renderConversation(history: CoreMessage[]): void {
   const restoreStep = (step: Step, node: HTMLElement) => {
     if (!activity) {
       const card = stepsCard();
+      // A reopened conversation's work is already finished, so it arrives
+      // collapsed rather than expanding every card the user ever ran.
+      card.root.open = false;
       transcript.append(card.root);
       activity = card;
     }
@@ -1103,14 +1114,17 @@ async function send(): Promise<void> {
      * three more things gets a second card, which is the truthful order — one
      * card per stretch of uninterrupted work.
      */
-    let activity: StepsCard | null = null;
+    // A HOLDER, not a bare `let`, because the only assignment happens inside the
+    // event closures below — and TypeScript's control-flow analysis cannot see
+    // through that, so a bare `let` narrows to `null` and every use after the
+    // turn is a type error about `never`.
+    const activity: { card: StepsCard | null } = { card: null };
     const stepInto = (step: Step, node: HTMLElement) => {
-      if (!activity) {
-        const card = stepsCard();
-        append(card.root);
-        activity = card;
+      if (!activity.card) {
+        activity.card = stepsCard();
+        append(activity.card.root);
       }
-      addStep(activity, step, node, true);
+      addStep(activity.card, step, node, true);
       stickToBottom();
     };
 
@@ -1151,13 +1165,12 @@ async function send(): Promise<void> {
           settleThinking(thinking);
           thinking = null;
           thought = "";
-          // THE ANSWER ENDS THE STRETCH OF WORK. Settling here rather than at
-          // turn end is what keeps the transcript reading
-          // [activity][answer][activity][answer] instead of one card that
-          // swallows a mid-turn sentence.
-          settleSteps(activity);
-          activity = null;
           streamed += delta;
+          // PROSE ENDS THE RUN. Whatever the model says — a remark on the way
+          // or the final answer — belongs in the transcript, not inside a card
+          // the user has to open to read it.
+          settleSteps(activity.card);
+          activity.card = null;
           if (!bubble) bubble = append(assistantBubble());
           renderMarkdown(bubble, streamed);
           stickToBottom();
@@ -1195,9 +1208,9 @@ async function send(): Promise<void> {
           thought = "";
           // The activity card may now be empty; an empty card is a row that says
           // "No steps", which is worse than nothing.
-          if (activity && activity.steps.length === 0) {
-            activity.root.remove();
-            activity = null;
+          if (activity.card && activity.card.steps.length === 0) {
+            activity.card.root.remove();
+            activity.card = null;
           }
           clearWorking();
           working = append(workingRow());
@@ -1231,10 +1244,11 @@ async function send(): Promise<void> {
           if (label) toolLabels.set(call.id, label);
           // The line is recomputed from the step list, which already holds this
           // tool — this just refreshes the "running" tense now that one finished.
-          if (activity) {
-            activity.line.textContent = summariseSteps(activity.steps, {
-              running: true,
-            });
+          if (activity.card) {
+            activity.card.line.textContent = summariseSteps(
+              activity.card.steps,
+              { running: true },
+            );
           }
         },
         onApproval: approvalCard,
@@ -1243,7 +1257,7 @@ async function send(): Promise<void> {
 
     clearWorking();
     settleThinking(thinking);
-    settleSteps(activity);
+    settleSteps(activity.card);
     messages = [...messages, ...outcome.messages];
     void appendArchive(sessionId, outcome.messages);
     await persist();
@@ -1849,6 +1863,42 @@ drawerButton?.addEventListener("click", () => {
 accountChip?.addEventListener("click", () => {
   showDrawer(Boolean(drawer?.hidden));
 });
+
+/* ── Closing the panel ────────────────────────────────────────────────────── */
+
+/**
+ * Closing the panel ENDS THE TURN, and it has to end it out loud.
+ *
+ * WHY THIS IS A MONEY BUG AND NOT A TIDINESS ONE. The loop runs in this
+ * document, so closing the panel destroys everything rendering the answer — but
+ * it does NOT, on its own, cancel the request. The proxy keeps streaming a turn
+ * to a document that no longer exists, keeps metering it, and debits the user's
+ * wallet for output nobody will ever read. The model also keeps DRIVING PAGES:
+ * an un-aborted loop goes on clicking and filling in the user's real browser
+ * after they closed the thing they were watching it through.
+ *
+ * `pagehide` rather than `beforeunload`: `beforeunload` is unreliable in an
+ * extension document and is not guaranteed to run at all, while `pagehide`
+ * fires on the path a side panel actually takes when it closes. Both are
+ * registered anyway, and abort is idempotent — a signal that is already aborted
+ * ignores a second call, so the cost of the belt-and-braces is nothing.
+ *
+ * The transcript is saved after every round, so what survives is everything up
+ * to the last completed one. That is said out loud in the empty state rather
+ * than discovered.
+ */
+function endTurnOnClose(): void {
+  running?.abort();
+  // The frame and the debugger banner outlive this document otherwise: the tab
+  // keeps its green border and Chrome keeps announcing that Atlarix is
+  // debugging the browser, both describing a turn that is over.
+  void clearDrivenTabs("turn");
+  void detachAll();
+}
+
+for (const event of ["pagehide", "beforeunload"] as const) {
+  window.addEventListener(event, endTurnOnClose);
+}
 
 /* ── Attaching ────────────────────────────────────────────────────────────── */
 

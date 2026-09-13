@@ -535,6 +535,36 @@ never to copy page text into a summary. An answer they asked for is not page
 content — "the Pro plan is $19 a month" is the thing they wanted, and where it
 was written is incidental.
 
+### The composer: tips instead of a placeholder, and a mode selector (owner, 2026-09-13)
+
+**Drop "Ask about this page…".** It is a placeholder that answers one question
+and then sits there forever, on the control the user looks at most. It is also
+too narrow — the panel opens tabs, searches, fills forms and reads past
+conversations, and the placeholder describes none of it.
+
+**Replace it with rotating tips**, the way the app does. They should teach the
+capabilities that are invisible otherwise — the ones a user has no way to
+discover from a text box: that it can open and read a tab they have not opened,
+that it can fill a form but never submits, that `recall` reaches past
+conversations, that a CSV can be dropped on the panel. One at a time, changing
+between turns, never while someone is typing.
+
+**Then the mode selector.** The desktop has five work modes (`ChatIntentSelector`:
+Explore / Plan / Build / Debug / Review) and the extension has none — every turn
+runs the same way whether the user wants a quick read or a careful multi-tab
+task. Two things to settle before building it:
+
+- **What the modes ARE here.** The desktop's five are about editing code and do
+  not transfer. A browser panel's real axis is how much it may DO without
+  asking — read-only, act-with-permission, and something careful for a long
+  task. Fewer than five.
+- **A mode must not break the cached prefix mid-session.** Tool definitions and
+  the system prompt sit inside the provider's cached prefix (~4,100 tokens, all
+  three tiers cache it automatically). Switching mode mid-conversation
+  re-prices everything after the switch at the full input rate. Either the mode
+  is fixed per conversation, or the cost of switching is understood and
+  accepted — see the prefix-caching note above.
+
 ### Memories should be FILES, not sentences (owner, 2026-09-13)
 
 Today a memory is one sentence, capped at 280 characters, 50 of them, and

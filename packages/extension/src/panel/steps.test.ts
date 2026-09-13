@@ -70,3 +70,25 @@ describe("what the collapsed card says", () => {
     expect(summariseSteps([])).toBe("No steps");
   });
 });
+
+describe("what does NOT get a card", () => {
+  it("describes a single step, for the caller that decides not to wrap it", () => {
+    // A card around one thinking block is a click that reveals one thing and a
+    // line that repeats what the thing already said. `settleSteps` unwraps a
+    // run of one; this is here so the summariser stays honest for the case.
+    expect(summariseSteps([tool("read_page")])).toBe("Read a page");
+    expect(summariseSteps([thought])).toBe("Thought for a moment");
+  });
+
+  it("groups a real run, which is the case the card exists for", () => {
+    expect(
+      summariseSteps([
+        thought,
+        tool("read_page"),
+        tool("fill"),
+        tool("fill"),
+        tool("click"),
+      ]),
+    ).toBe("Read a page, Filled 2 fields, Clicked once · thought once");
+  });
+});
