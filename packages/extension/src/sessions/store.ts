@@ -1,0 +1,222 @@
+/**
+ * Conversations, kept on this device.
+ *
+ * TWO KEYS PER CONVERSATION, NOT ONE BIG ONE. An index holds the titles and
+ * dates; each transcript lives under its own key. `chrome.storage.local` has no
+ * partial write — setting a key rewrites its whole value — so one array of
+ * every session would mean serialising every transcript the user has ever had
+ * on each round of the current one. A single page read is tens of kilobytes,
+ * and this runs after every round.
+ *
+ * WHY SAVE AFTER EVERY ROUND AT ALL. Because the loop runs in the side panel,
+ * and closing the panel destroys it mid-turn (see `agent/loop.ts` for why it
+ * runs there and not in a worker or an offscreen document). Persisting per
+ * round is what turns "the panel closed and the work is gone" into "the panel
+ * closed and everything up to the last completed round is still here". It does
+ * not pretend the turn survived — nothing can do that — it just refuses to lose
+ * what was already finished.
+ *
+ * NO SYNC, AND NOT BECAUSE IT WOULD BE HARD. `storage.sync` caps an item at
+ * 8 KB, which one page read exceeds on its own. Cross-device history belongs
+ * behind the account in Phase 4, not behind Chrome Sync.
+ *
+ * EVERYTHING READ BACK IS VALIDATED. The same reasoning as `memory/store.ts`
+ * and `auth/session.ts`: this is a LevelDB directory on disk, and a malformed
+ * transcript must come back as an empty conversation rather than throw inside a
+ * render.
+ */
+
+import type { CoreMessage } from "../core/client";
+import { api } from "../shared/browser-api";
+
+const INDEX_KEY = "atlarix.sessions.v1";
+const transcriptKey = (id: string) => `atlarix.session.${id}.v1`;
+
+/**
+ * How many conversations are kept.
+ *
+ * A history list nobody scrolls past the first screen of, against a disk
+ * budget shared with the page reads inside each one. Twenty is roughly a
+ * fortnight of ordinary use.
+ */
+export const MAX_SESSIONS = 20;
+
+/**
+ * When a transcript is pruned before being sent to the model, in characters.
+ *
+ * ~4 chars per token, so 400k is on the order of 100k tokens — comfortably
+ * inside every Core tier while leaving room for the reply. It is a guard, not a
+ * routine step: an ordinary conversation never reaches it, and one that does
+ * has read a dozen pages and is about to get an unhelpfully expensive round.
+ */
+export const PRUNE_ABOVE_CHARS = 400_000;
+
+/** How many recent tool results keep their full text when pruning. */
+export const KEEP_RECENT_TOOL_RESULTS = 6;
+
+export interface SessionMeta {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+function isMeta(value: unknown): value is SessionMeta {
+  if (typeof value !== "object" || value === null) return false;
+  const m = value as Record<string, unknown>;
+  return (
+    typeof m.id === "string" &&
+    typeof m.title === "string" &&
+    typeof m.createdAt === "number" &&
+    typeof m.updatedAt === "number"
+  );
+}
+
+function isMessage(value: unknown): value is CoreMessage {
+  if (typeof value !== "object" || value === null) return false;
+  const m = value as Record<string, unknown>;
+  switch (m.role) {
+    case "system":
+    case "user":
+      return typeof m.content === "string";
+    case "assistant":
+      return typeof m.content === "string" || m.content === null;
+    case "tool":
+      return (
+        typeof m.tool_call_id === "string" && typeof m.content === "string"
+      );
+    default:
+      return false;
+  }
+}
+
+export function newSessionId(): string {
+  return crypto.randomUUID();
+}
+
+/** Conversations, most recently updated first. Never throws. */
+export async function listSessions(): Promise<SessionMeta[]> {
+  try {
+    const bag =
+      await api().storage.local.get<Record<string, unknown>>(INDEX_KEY);
+    const raw = bag?.[INDEX_KEY];
+    const list = Array.isArray(raw) ? raw.filter(isMeta) : [];
+    return list.sort((a, b) => b.updatedAt - a.updatedAt);
+  } catch {
+    return [];
+  }
+}
+
+export async function loadSession(id: string): Promise<CoreMessage[]> {
+  try {
+    const key = transcriptKey(id);
+    const bag = await api().storage.local.get<Record<string, unknown>>(key);
+    const raw = bag?.[key];
+    return Array.isArray(raw) ? raw.filter(isMessage) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * A conversation's name, taken from what the user first asked.
+ *
+ * Derived rather than model-generated: naming a chat is not worth a round trip,
+ * and a title that appears two seconds after the list renders is worse than one
+ * that was right immediately.
+ */
+export function titleFor(messages: CoreMessage[]): string {
+  const first = messages.find((m) => m.role === "user");
+  const text =
+    first && typeof first.content === "string" ? first.content.trim() : "";
+  if (!text) return "New conversation";
+  const oneLine = text.replace(/\s+/g, " ");
+  return oneLine.length > 60 ? `${oneLine.slice(0, 57)}…` : oneLine;
+}
+
+/** Write a transcript and refresh its index entry. Returns what was evicted. */
+export async function saveSession(
+  id: string,
+  messages: CoreMessage[],
+): Promise<{ evicted: SessionMeta[] }> {
+  const now = Date.now();
+  const index = await listSessions();
+  const existing = index.find((s) => s.id === id);
+
+  const meta: SessionMeta = {
+    id,
+    title: titleFor(messages),
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+  };
+
+  const next = [meta, ...index.filter((s) => s.id !== id)].sort(
+    (a, b) => b.updatedAt - a.updatedAt,
+  );
+  const evicted = next.slice(MAX_SESSIONS);
+
+  await api().storage.local.set({
+    [INDEX_KEY]: next.slice(0, MAX_SESSIONS),
+    [transcriptKey(id)]: messages,
+  });
+  // The transcripts of evicted sessions go too — an orphaned one is invisible
+  // and counts against the same quota forever.
+  if (evicted.length > 0) {
+    await api().storage.local.remove(evicted.map((s) => transcriptKey(s.id)));
+  }
+  return { evicted };
+}
+
+export async function deleteSession(id: string): Promise<void> {
+  const index = await listSessions();
+  await api().storage.local.set({
+    [INDEX_KEY]: index.filter((s) => s.id !== id),
+  });
+  await api().storage.local.remove(transcriptKey(id));
+}
+
+export async function deleteAllSessions(): Promise<void> {
+  const index = await listSessions();
+  await api().storage.local.remove([
+    INDEX_KEY,
+    ...index.map((s) => transcriptKey(s.id)),
+  ]);
+}
+
+/**
+ * Shrink a transcript that has grown past what is worth sending.
+ *
+ * OLD TOOL RESULTS GO FIRST, and only tool results. They are the bulk by a wide
+ * margin — a page read is tens of kilobytes and a user's question is tens of
+ * bytes — and they are the one part of a conversation that can be REGENERATED:
+ * the model can read the page again. Dropping the user's own words to save
+ * space would be trading the irreplaceable for the reproducible.
+ *
+ * The placeholder says explicitly that the content was dropped and can be
+ * re-read. A truncated result with no marker is worse than none at all: the
+ * model treats half a page as the whole page.
+ */
+export function pruneForModel(messages: CoreMessage[]): CoreMessage[] {
+  const size = messages.reduce(
+    (n, m) => n + (typeof m.content === "string" ? m.content.length : 0),
+    0,
+  );
+  if (size <= PRUNE_ABOVE_CHARS) return messages;
+
+  const toolIndexes = messages
+    .map((m, i) => (m.role === "tool" ? i : -1))
+    .filter((i) => i >= 0);
+  const keepFrom = toolIndexes.length - KEEP_RECENT_TOOL_RESULTS;
+  const drop = new Set(toolIndexes.slice(0, Math.max(0, keepFrom)));
+
+  return messages.map((m, i) =>
+    drop.has(i) && m.role === "tool"
+      ? {
+          ...m,
+          content:
+            "[Earlier tool result dropped to keep this conversation within the " +
+            "model's context. If you still need it, call the tool again.]",
+        }
+      : m,
+  );
+}
