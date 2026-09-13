@@ -506,6 +506,57 @@ ran on.
 extension's action tools are done (2026-09-13); what remains is the `target` param on
 `browser.ts` and the desktop bridge. Then Phase 4 (Supabase, launchpad, docs, store).
 
+### "Atlarix Core is unreachable" was CORS — FIXED 2026-09-13
+
+**The proxy had never sent a CORS header in its life, and nothing had noticed.**
+Every caller until the extension ran outside a browser: the desktop app fetches from
+Electron's main process, the reviewer is a webhook. Neither is subject to CORS. The
+extension is the first caller whose `fetch` runs in a page, where the browser decides.
+
+**The symptom pointed at the wrong thing entirely.** `curl` fetched the model list
+perfectly — right body, right tiers, healthy deploy — while Chrome discarded the identical
+response because it carried no `access-control-allow-origin`. The POST was worse:
+`Authorization` + `X-Atlarix-Surface` make it a non-simple request, so the browser sends an
+`OPTIONS` preflight first, and nothing routed OPTIONS, so it 404'd and the chat request was
+never sent at all.
+
+**THE FIX TOOK TWO COMMITS AND THE FIRST ONE WAS THE DANGEROUS KIND.** `c.header()` writes
+to the Hono CONTEXT and is merged in by `c.json()`/`c.body()` — but the streamed chat
+completion and the upstream-error path both `return new Response(...)` directly, and a raw
+Response carries only what it was constructed with. So v1 produced a proxy where the model
+picker filled in perfectly and **every message was blocked** — the same symptom as no CORS
+at all, reached a second way. Headers now go on `c.res.headers` after `await next()`, which
+is what Hono's own cors middleware does and for this exact reason. Found by asking whether
+the fix covered the streaming path rather than assuming, then writing a raw-Response route
+and watching the test fail.
+
+An allowlist, not `*`: auth is a Bearer token and never a cookie, so a wildcard would be
+defensible — but this is a METERED endpoint, and `*` invites any page anywhere to become a
+client whose traffic cannot be attributed or turned off. The extension's id is fixed by its
+manifest `key`, so one entry covers the unpacked build and the Web Store one.
+`ATLARIX_CORS_ORIGINS` adds more. An unknown origin is SERVED without the headers rather
+than 403'd — curl, the desktop and the reviewer send no `Origin` and must not be collateral.
+
+**Verified live on the deploy, both paths**, not by `/health`: `GET /v1/models` and an
+unauthenticated `POST /v1/chat/completions` (401) both return the header.
+
+### A stored session is not a signed-in account — FIXED 2026-09-13
+
+Same session, second symptom. The panel's signed-in test was `getSession() !== null` — "is
+there anything in storage" — which stays true for a session whose access token expired and
+whose refresh token has been spent. It hid the provider buttons, rendered a chat, and every
+Core call 401'd. **"Signed in" now means a USABLE TOKEN**, established by the same call Core
+itself makes (`auth/account.ts`). The profile is read BEFORE the token check, because a
+refused refresh wipes the record and the panel still wants the email it is about to stop
+showing.
+
+The account is now a header chip — provider avatar, or initials — because "how do I log
+in/out" was a real question, and the answer being behind an unlabelled hamburger was why it
+had to be asked. `auth/profile.ts` is ported from the launchpad's AccountCard **including
+the merged-blob bug**: `user_metadata` is written into by every linked provider, so an
+account with Google and GitHub shows the GitHub photograph under a Google badge from data
+that looks entirely consistent. `identities` keeps them apart.
+
 ### Phase 3a — the extension can ACT. DONE 2026-09-13.
 
 The kernel grew `resolve | click | fill | scroll`, and the extension grew `click`, `fill`,
