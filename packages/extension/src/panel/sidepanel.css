@@ -216,6 +216,27 @@ body {
   border-color: var(--border);
 }
 
+/* The signed-in account, stated where it is always visible. */
+.account-chip {
+  max-width: 11ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.account-chip:hover {
+  border-color: var(--primary);
+  color: var(--fg);
+}
+
 .icon-button {
   display: grid;
   place-items: center;

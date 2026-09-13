@@ -35,7 +35,8 @@ import {
   missingCapabilities,
   api,
 } from "../shared/browser-api";
-import { getSession, signIn, signOut } from "../auth/sign-in";
+import { signIn, signOut } from "../auth/sign-in";
+import { accountState } from "../auth/account";
 import type { OAuthProvider } from "../auth/gotrue";
 import {
   canActOn,
@@ -84,6 +85,7 @@ const newChatButton = el<HTMLButtonElement>("new-chat");
 const drawerButton = el<HTMLButtonElement>("toggle-drawer");
 const accountEmail = el<HTMLElement>("account-email");
 const signOutButton = el<HTMLButtonElement>("sign-out");
+const accountChip = el<HTMLButtonElement>("account-chip");
 const eraseButton = el<HTMLButtonElement>("erase-all");
 const sessionList = el<HTMLElement>("session-list");
 const siteList = el<HTMLElement>("site-list");
@@ -437,7 +439,13 @@ async function send(): Promise<void> {
     await persist();
 
     if (outcome.kind === "error") {
-      append(errorBubble(describeError(outcome.error)));
+      const { error } = outcome;
+      if (error.status === 401 || error.code === "not_signed_in") {
+        // Revoked elsewhere, or the refresh token spent by another context.
+        void handleAuthLoss("Your session expired. Sign in again.");
+        return;
+      }
+      append(errorBubble(describeError(error)));
     } else if (outcome.kind === "aborted") {
       setStatus("Stopped.");
     } else if (outcome.kind === "stuck") {
@@ -661,10 +669,21 @@ async function loadModels(): Promise<void> {
     const chosen = chooseModel(options, stored);
     if (chosen) fill(options, chosen);
     else if (!stored) fill([{ value: "", label: "No models available" }], null);
-  } catch {
-    // Signed out, or the proxy is down. A stored choice still works and will
-    // produce a real error on send; a first-time user is told here instead of
-    // discovering it by typing a question first.
+  } catch (err) {
+    // AN EXPIRED SESSION IS NOT AN OUTAGE, and collapsing the two is how this
+    // panel told a signed-out user to check their connection. `CoreError`
+    // already separates them — the only thing that was missing was looking.
+    if (
+      err instanceof CoreError &&
+      (err.status === 401 || err.code === "not_signed_in")
+    ) {
+      fill([{ value: "", label: "Sign in to choose a model" }], null);
+      void handleAuthLoss("Your session expired. Sign in again.");
+      return;
+    }
+    // A stored choice still works against a proxy that is merely slow, and will
+    // produce a real error on send. A first-time user is told here rather than
+    // discovering it after typing a question.
     if (!stored) {
       fill([{ value: "", label: "Atlarix Core is unreachable" }], null);
       setStatus(
@@ -707,9 +726,24 @@ function reportCapabilities(): void {
   }
 }
 
+/**
+ * Show whichever half matches the account state — after establishing it.
+ *
+ * "SIGNED IN" MEANS A USABLE TOKEN, NOT A STORED RECORD, and that distinction is
+ * the whole of a bug this panel shipped with. `getSession()` returns whatever is
+ * in `storage.local`, including a session whose access token expired hours ago
+ * and whose refresh token has since been spent. The panel read that as signed
+ * in, hid the provider buttons, and rendered a chat — while every Core call came
+ * back 401. The user was left looking at an interface with no way in and no way
+ * out, and the only message on screen blamed the network.
+ *
+ * `getAccessToken()` is the honest question: it refreshes if it can, and CLEARS
+ * the session if the refresh is refused. Asking it here means the panel's idea of
+ * the account and Core's idea of the account are established by the same call, at
+ * the one moment the user is looking.
+ */
 async function render(): Promise<void> {
-  const session = await getSession();
-  const isIn = Boolean(session);
+  const { signedIn: isIn, session } = await accountState();
 
   if (signedOut) signedOut.hidden = isIn;
   if (chat) chat.hidden = !isIn || Boolean(drawer && !drawer.hidden);
@@ -719,9 +753,16 @@ async function render(): Promise<void> {
 
   for (const button of providerButtons) button.disabled = isIn;
 
-  if (session) {
-    if (accountEmail) {
-      accountEmail.textContent = session.user?.email ?? session.user?.id ?? "—";
+  if (isIn && session) {
+    const who = session.user?.email ?? session.user?.id ?? "Signed in";
+    if (accountEmail) accountEmail.textContent = who;
+    if (accountChip) {
+      // The account is stated in the HEADER, not only inside a drawer behind an
+      // unlabelled icon. "How do I sign out" was a real question asked of this
+      // panel, and the answer being two discoveries deep was the reason.
+      accountChip.textContent = who;
+      accountChip.title = `${who} — account, history and settings`;
+      accountChip.hidden = false;
     }
     // Reopening the panel lands you back in the conversation you were having,
     // which is what a docked panel implies. A blank chat every time makes the
@@ -734,8 +775,26 @@ async function render(): Promise<void> {
     renderConversation(messages);
     await loadModels();
   } else {
+    if (accountChip) accountChip.hidden = true;
     reportCapabilities();
   }
+}
+
+/**
+ * Core says this session is not usable. Return the panel to signed-out.
+ *
+ * Reached when a token that was fine at panel open is refused mid-session —
+ * revoked elsewhere, or the refresh token spent by another context. Leaving the
+ * chat on screen would put the user back in the state this whole change exists
+ * to remove: an interface with no way in and no way out.
+ */
+async function handleAuthLoss(message: string): Promise<void> {
+  await signOut();
+  sessionId = newSessionId();
+  messages = [];
+  showDrawer(false);
+  await render();
+  setStatus(message);
 }
 
 /* ── Wiring ───────────────────────────────────────────────────────────────── */
@@ -819,6 +878,10 @@ input?.addEventListener("input", () => {
 newChatButton?.addEventListener("click", startNewChat);
 
 drawerButton?.addEventListener("click", () => {
+  showDrawer(Boolean(drawer?.hidden));
+});
+
+accountChip?.addEventListener("click", () => {
   showDrawer(Boolean(drawer?.hidden));
 });
 
