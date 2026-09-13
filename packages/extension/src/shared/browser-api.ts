@@ -17,7 +17,7 @@
  *                  and silently does nothing".
  *   `tabGroups`  — absent. It is our status surface, our stop gesture AND the
  *                  boundary between the agent's tabs and the user's.
- *   `offscreen`  — Chrome-only. It is where the agent loop lives.
+ *   `offscreen`  — Chrome-only. NOT where the agent loop lives; see below.
  *   `sidePanel`  — Firefox has `sidebarAction`: per-window, manifest-declared,
  *                  not per-tab.
  *
@@ -90,7 +90,21 @@ export interface BrowserCapabilities {
   trustedInput: boolean;
   /** `chrome.tabGroups` — the agent's visible boundary and stop gesture. */
   tabGroups: boolean;
-  /** `chrome.offscreen` — the long-lived document the agent loop runs in. */
+  /**
+   * `chrome.offscreen` — a document that outlives the service worker.
+   *
+   * NOT WHERE THE AGENT LOOP RUNS, despite what this comment said until
+   * 2026-09-13, and the correction is worth keeping because the reasoning
+   * generalises. `offscreen.createDocument` takes a `reason` from a CLOSED enum
+   * — AUDIO_PLAYBACK, BLOBS, CLIPBOARD, DOM_PARSER, DOM_SCRAPING,
+   * IFRAME_SCRIPTING, LOCAL_STORAGE, WORKERS and some device APIs. None of them
+   * means "run a long job", and the field is shown to the Web Store. The loop
+   * runs in the side panel instead (`agent/loop.ts`).
+   *
+   * Kept in the probe because the capability is real and a future feature may
+   * genuinely need one — but it is no longer REQUIRED, so a browser without it
+   * is not told it cannot run Atlarix.
+   */
   offscreenDocument: boolean;
   /** `chrome.sidePanel`. Firefox has `sidebarAction`, which is not the same. */
   sidePanel: boolean;
@@ -117,11 +131,18 @@ export function detectCapabilities(): BrowserCapabilities {
   };
 }
 
-/** Every capability this build requires to deliver the full tool contract. */
+/**
+ * Every capability this build requires to deliver the full tool contract.
+ *
+ * `offscreenDocument` WAS here and is not any more. It was listed on the belief
+ * that the agent loop needed one; the loop runs in the side panel, and nothing
+ * in the extension has used `chrome.offscreen` at any point. A required
+ * capability nothing requires is how a browser gets told it cannot run software
+ * that would have worked on it.
+ */
 const REQUIRED: readonly (keyof BrowserCapabilities)[] = [
   "trustedInput",
   "tabGroups",
-  "offscreenDocument",
 ];
 
 /** The manifest permission each capability's namespace is gated behind. */

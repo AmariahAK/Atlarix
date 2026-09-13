@@ -44,6 +44,7 @@ import {
 } from "../permissions/host-access";
 import { listGrants } from "../permissions/site-grants";
 import { activeTab } from "../page/inject";
+import { onGroupClosed } from "../tabs/group";
 import {
   CoreError,
   listModels,
@@ -742,6 +743,25 @@ for (const button of providerButtons) {
       });
   });
 }
+
+/**
+ * Closing the agent's tab group means STOP.
+ *
+ * It is the most discoverable stop an extension has — the tabs are right there,
+ * grouped and labelled, and the close button is the browser's own. A gesture
+ * that looks like a stop and merely tidies our bookkeeping is worse than no
+ * gesture at all, because the user believes they have stopped it.
+ *
+ * Registered once at load. `onGroupClosed` reports which WINDOW went away, so a
+ * group closed in another window does not cancel a turn the user can see.
+ */
+onGroupClosed((windowId) => {
+  void currentWindowId().then((mine) => {
+    if (windowId !== mine || !running) return;
+    running.abort();
+    setStatus("Stopped — you closed Atlarix's tab group.");
+  });
+});
 
 sendButton?.addEventListener("click", () => void send());
 

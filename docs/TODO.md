@@ -502,17 +502,104 @@ ran on.
   events rather than `Input.insertText`, which produces NO key events, so an autocomplete
   that opens on keydown never opens.
 
-**PHASE 1 IS COMPLETE.** Next is Phase 2 (loop, sessions, memory, skills), then Phase 3
-(desktop bridge + `target` param), then Phase 4 (Supabase, launchpad, docs, store).
+**PHASES 1 AND 2 ARE COMPLETE.** Next is Phase 3 (desktop bridge + `target` param +
+kernel action ops), then Phase 4 (Supabase, launchpad, docs, store submission).
+
+### Phase 2 — DONE 2026-09-13. The side panel is a chat.
+
+`core/client.ts` (hand-rolled, no AI SDK — the proxy speaks plain
+OpenAI-compatible completions), `tools/` (six tools), `agent/loop.ts`,
+`agent/prompt.ts`, `sessions/store.ts`, `memory/store.ts`, `panel/markdown.ts`
+and the rewritten side panel. **270 tests in the extension project.**
+
+**THE ONE DECISION THAT CHANGED, and it changed because the API was read rather
+than recalled: the loop runs in the SIDE PANEL, not an offscreen document.**
+
+- The service worker was never a candidate, and now has a citation:
+  Chrome's lifecycle docs state a `fetch()` whose response takes over **30
+  seconds** terminates the worker. A streamed turn is exactly that fetch, and
+  extension-API calls do not help because none are made while waiting for the
+  first token. It would die on the LONG turns and not the short ones.
+- **The offscreen document is out because there is no honest `reason`.**
+  `offscreen.createDocument` takes one from a CLOSED enum — `AUDIO_PLAYBACK`,
+  `BLOBS`, `CLIPBOARD`, `DOM_PARSER`, `DOM_SCRAPING`, `IFRAME_SCRIPTING`,
+  `LOCAL_STORAGE`, `WORKERS`, `USER_MEDIA`, `DISPLAY_MEDIA`, `WEB_RTC`,
+  `BATTERY_STATUS`, `MATCH_MEDIA`, `GEOLOCATION`, `TESTING`. None means "run a
+  long job", and the field is shown to the Web Store. Claiming `WORKERS` and
+  then spawning a worker so the claim is technically true is the move this
+  codebase does not make.
+- **The cost is real and is stated in the UI:** closing the panel ends the turn.
+  Mitigated by saving after every round, never by pretending otherwise.
+- Consequence: `chrome.offscreen` is now out of `REQUIRED` in
+  `shared/browser-api.ts`. It had been listed as "where the agent loop lives"
+  since Phase 0 and nothing ever called it — a required capability nothing
+  requires is how a browser gets told it cannot run software that would work.
+
+**No round, step or wall-clock cap**, per the rule the desktop settled in
+2026-06. Termination is on stuck-ness: **three consecutive byte-identical tool
+rounds**, the same threshold as `agentic-loop-repetition.ts`. Three not two,
+because re-reading a page just navigated is the same bytes and a different page.
+The signature EXCLUDES the call id, which changes every round by construction
+and would make the guard unfireable. A stuck turn gets one tools-off round so it
+ends in words rather than silence.
+
+**`needsGrant` is a return type, not a refusal.** Reading an un-granted origin
+comes back as a request the loop can act on, because `permissions.request()`
+needs a user gesture and is unreachable from where the loop runs. The panel
+renders a card; `requestHostAccess` is called synchronously inside the Allow
+click with nothing awaited first. **The agent cannot widen its own access — it
+can only ask** — and that is now enforced by shape rather than by comment. On a
+decline the model is told it is a decision, not an error to route around.
+
+**Nothing throws out of the dispatcher.** A thrown tool error ends the user's
+turn, which for "that tab closed" is wildly disproportionate. The loop has a
+second catch anyway: the consequence of being wrong is asymmetric.
+
+**No `innerHTML` anywhere in the panel**, and `markdown.ts` is why: what it
+renders is model output, which here is downstream of pages the agent read, and
+an extension page is where the Supabase session, the site grants and `chrome.*`
+live. Every node is `createElement` + `textContent`. Four security cases pass
+trivially today and exist to fail the day someone reaches for `innerHTML`.
+
+**Two shared-code extractions made Phase 2 possible and are worth knowing:**
+`a11y-format.ts` (the renderer — `a11y-snapshot.ts` types its first parameter
+as `Electron.WebContents`, so the extension could not import it and would have
+grown a second formatter), and `escapeXmlAttr` moved down into
+`attachment-tag-escape.ts` (the zero-import leaf), which is what let the
+extension import `wrapUntrustedData` at all — and closed an import cycle on the
+way. **`browser.ts` and `a11y-snapshot.test.ts` took zero diff**, which was the
+gate.
+
+**SKILLS ARE DEFERRED TO PHASE 3, deliberately.** They were listed in Phase 2's
+scope. A skill is instructions for doing something, and until the kernel has
+action ops there is very little the extension can be instructed to DO — a skill
+library over `read_page` and `open_tab` would be three paragraphs of advice
+wearing a feature's clothes. They land with the actions.
+
+**What Phase 2 did NOT build, and nobody should assume otherwise:**
+
+- **Web search** — no tool, on purpose. The agent opens a search URL and reads
+  it, which is the same capability with less surface. Do not add one without a
+  reason that survives that sentence.
+- **Cross-device history or memory** — both are `storage.local` and device-local
+  by design. `storage.sync` caps an item at 8 KB, which one page read exceeds.
+  Server-side is Phase 4, behind the account.
+- **A turn that survives the panel closing** — not possible without a context
+  that outlives it, and there is no honest one. See above.
+- **`trusted-input.ts` and `tabs/group.ts` are STILL only half-used.** The group
+  now holds tabs the agent opened (`open_tab` → `adoptTab`), which is new. But
+  `trusted-input.ts` is still called by nothing outside its own test; it is
+  waiting for Phase 3's action ops, which are the thing that needs a keystroke.
 
 ### CAN ATLARIX DRIVE THE BROWSER YET? NO — and the gap is precise (checked 2026-09-13)
 
 Asked directly, and worth answering by grep rather than from memory, because the parts
 that exist look like more than they are.
 
-**What works today:** the EXTENSION can read a page, in a tab whose origin the user
-granted, triggered by a button in its own side panel. A ref survives between two separate
-`executeScript` calls. That is all, and it is by hand.
+**What works today** (updated after Phase 2): the EXTENSION hosts its own agent. It can
+read any page whose origin the user allowed, search within it, list and open and close
+tabs, and remember things — driven by a model, in a chat, not by hand. What it still
+cannot do is CLICK or TYPE, and no part of Atlarix outside the extension can reach it.
 
 **What does not exist, verified:**
 
@@ -521,13 +608,13 @@ granted, triggered by a button in its own side panel. A ref survives between two
 | Desktop → extension transport | **NONE.** No native-messaging host, no `externally_connectable`, no `nativeMessaging` permission. The only `runtime.sendMessage` in the package is a comment. |
 | `target: "app" \| "chrome"`   | **NONE.** `src/lib/tools/browser.ts` contains zero `target` references — the seam is still unbuilt, over ~40 direct `view.webContents.*` sites.               |
 | Kernel action ops             | **READS ONLY.** `PageRequest` is `snapshot \| find`. `click`/`fill`/`key`/`hover`/`scroll` remain desktop-only strings until Phase 3.                         |
-| `page/trusted-input.ts`       | Built and tested; **called by nothing** but its own test. It is waiting for a loop.                                                                           |
-| `tabs/group.ts`               | Used only by `trusted-input.ts`. No tab is ever adopted yet.                                                                                                  |
+| `page/trusted-input.ts`       | Built and tested; **still called by nothing** but its own test. The loop now exists and does not need it — what it is waiting for is Phase 3's action ops.    |
+| `tabs/group.ts`               | **CLOSED 2026-09-13** — `open_tab` adopts every tab the agent opens, and the panel wires `onGroupClosed` to abort the running turn. The gesture is live.      |
 
 So the honest summary: **the extension can drive Chrome; Atlarix cannot drive the
-extension.** Phase 2 makes the extension drive itself (its own loop, its own chat), which
-needs no bridge. Phase 3 is what lets the desktop reach it, and it needs all four rows
-above.
+extension.** Phase 2 made the extension drive ITSELF — its own loop, its own chat — which
+needed no bridge and is done. Phase 3 is what lets the desktop reach it, and it needs the
+first three rows above; the fourth and fifth are what make a reach worth having.
 
 **Do the `X-Atlarix-Surface` ledger label FIRST** — before any Core dispatch, per the
 shared-wallet section. A ledger row cannot be re-attributed later. **DONE 2026-09-13, see

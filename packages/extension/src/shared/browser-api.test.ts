@@ -110,8 +110,11 @@ describe("capabilities", () => {
     expect(caps.offscreenDocument).toBe(false);
     // `sidebarAction` is not `sidePanel`; per-window, not per-tab.
     expect(caps.sidePanel).toBe(false);
+    // `offscreenDocument` is deliberately NOT here. It was required on the
+    // belief that the agent loop needed one; the loop runs in the side panel,
+    // and nothing has ever called `chrome.offscreen`. A required capability
+    // nothing requires tells a browser it cannot run software that would work.
     expect(missingCapabilities(caps).sort()).toEqual([
-      "offscreenDocument",
       "tabGroups",
       "trustedInput",
     ]);
@@ -119,8 +122,9 @@ describe("capabilities", () => {
   });
 
   it("does not require sidePanel — a sidebar is a substitutable host", () => {
-    // The chat UI ports to `sidebarAction`; the agent loop ports to nothing at
-    // all without an offscreen document. Only the latter is required.
+    // The chat UI ports to `sidebarAction`, which hosts a document just as the
+    // loop needs. What does not port is trusted input: Firefox has no
+    // `chrome.debugger` equivalent and Bugzilla 1348213 is still open.
     g.chrome = { ...CHROMIUM, sidePanel: undefined };
     expect(detectCapabilities().sidePanel).toBe(false);
     expect(missingCapabilities()).toEqual([]);
@@ -161,11 +165,7 @@ describe("not-requested is not the same as unsupported", () => {
 
   it("still names them as not-requested, so a diagnostic can show the truth", () => {
     g.chrome = STAGED_CHROME;
-    expect(notYetRequested().sort()).toEqual([
-      "offscreenDocument",
-      "tabGroups",
-      "trustedInput",
-    ]);
+    expect(notYetRequested().sort()).toEqual(["tabGroups", "trustedInput"]);
     expect(capabilityStates()).toEqual({
       trustedInput: "not-requested",
       tabGroups: "not-requested",
@@ -178,11 +178,7 @@ describe("not-requested is not the same as unsupported", () => {
     g.browser = FIREFOX;
     expect(capabilityStates().trustedInput).toBe("unsupported");
     expect(notYetRequested()).toEqual([]);
-    expect(missingCapabilities().sort()).toEqual([
-      "offscreenDocument",
-      "tabGroups",
-      "trustedInput",
-    ]);
+    expect(missingCapabilities().sort()).toEqual(["tabGroups", "trustedInput"]);
   });
 
   it("reports a real gap when the manifest cannot be read", () => {
