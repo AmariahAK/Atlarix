@@ -170,3 +170,69 @@ describe("the date", () => {
     expect(buildSystemPrompt(base)).toContain("Today's date is 2026-09-13.");
   });
 });
+
+describe("prefix stability, which is what makes caching work", () => {
+  /**
+   * EVERY CORE TIER CACHES THE REQUEST PREFIX AUTOMATICALLY — OpenAI at roughly
+   * 90% off input, z.ai at 81%. A cache hit covers the LONGEST SHARED PREFIX, so
+   * the first byte that differs re-prices everything after it at full rate.
+   *
+   * This prompt plus the tool schemas is ~4,100 tokens on every round of every
+   * turn, which makes the ordering below worth more than any amount of trimming.
+   */
+  const memories = [
+    { id: "m1", text: "Prefers metric units", createdAt: 1 },
+  ];
+  const tabA = { title: "A", url: "https://a.example", granted: true };
+  const tabB = { title: "B", url: "https://b.example", granted: true };
+  const now = new Date("2026-09-13T00:00:00Z");
+
+  /** How much of two prompts is byte-identical from the start. */
+  const sharedPrefix = (a: string, b: string): number => {
+    let i = 0;
+    while (i < a.length && i < b.length && a[i] === b[i]) i++;
+    return i;
+  };
+
+  it("keeps everything stable ahead of the tab that changes every turn", () => {
+    // THE REGRESSION THIS CATCHES. The active tab used to be pushed BEFORE the
+    // memories, so switching tabs re-charged the memories too — for no reason
+    // beyond the order two `push` calls were written in.
+    const a = buildSystemPrompt({ memories, activeTab: tabA, now });
+    const b = buildSystemPrompt({ memories, activeTab: tabB, now });
+    const shared = sharedPrefix(a, b);
+
+    // Everything up to the tab line is identical…
+    expect(a.slice(0, shared)).toContain("Prefers metric units");
+    expect(a.slice(0, shared)).toContain("Today's date is");
+    // …and the tab is what diverges.
+    expect(a.slice(shared)).toContain("a.example");
+    expect(b.slice(shared)).toContain("b.example");
+  });
+
+  it("puts the volatile line LAST, so nothing stable sits behind it", () => {
+    const p = buildSystemPrompt({ memories, activeTab: tabA, now });
+    expect(p.indexOf("Prefers metric units")).toBeLessThan(
+      p.indexOf("Today's date is"),
+    );
+    expect(p.indexOf("Today's date is")).toBeLessThan(p.indexOf("a.example"));
+  });
+
+  it("is byte-identical for the same inputs, so a round cannot miss its own cache", () => {
+    // Anything non-deterministic here — a timestamp, a Set iteration, a random
+    // id — would break the cache on EVERY round and be invisible in testing.
+    const once = buildSystemPrompt({ memories, activeTab: tabA, now });
+    const twice = buildSystemPrompt({ memories, activeTab: tabA, now });
+    expect(once).toBe(twice);
+  });
+
+  it("shares its whole prefix with a conversation that has no memories yet", () => {
+    // A user's first `remember` should not re-price the base prompt behind it.
+    const without = buildSystemPrompt({ memories: [], activeTab: tabA, now });
+    const with_ = buildSystemPrompt({ memories, activeTab: tabA, now });
+    expect(sharedPrefix(without, with_)).toBeGreaterThan(BASE_MIN_CHARS);
+  });
+});
+
+/** The fixed opening text, which every prompt shares whatever the context. */
+const BASE_MIN_CHARS = 4_000;

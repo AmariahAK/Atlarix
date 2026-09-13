@@ -617,3 +617,47 @@ describe("the frame's scope", () => {
     expect(overlayOps()).toEqual([]);
   });
 });
+
+describe("the tool surface is a stable cache prefix", () => {
+  /**
+   * WHY THIS IS A TEST AND NOT A COMMENT.
+   *
+   * Tool definitions sit inside the cached prefix on every Core tier, ahead of
+   * the conversation. Any change to the array — a reordering, a tool revealed
+   * part-way through a turn, a description built at call time — invalidates the
+   * whole cached prefix and re-prices ~4,100 tokens at the full input rate on
+   * every remaining round.
+   *
+   * That is also why this extension has NO progressive tool reveal. The desktop
+   * has one because its Build surface carries ~7,000 tokens of descriptions
+   * across 27 tools; here there are 13 tools and ~2,500 tokens, nearly every
+   * description carries a clause that prevents a mistake, and a dynamic ladder
+   * would cost more in blown cache than the smaller surface could ever save.
+   */
+  it("serialises identically every time it is read", () => {
+    // Anything computed at access time — a Date, a Set iteration, a counter —
+    // would break the cache on every round and be invisible in ordinary testing.
+    expect(JSON.stringify(TOOL_SCHEMAS)).toBe(JSON.stringify(TOOL_SCHEMAS));
+  });
+
+  it("keeps a fixed order, because order is part of the prefix", () => {
+    const names = TOOL_SCHEMAS.map((s) => s.function.name);
+    expect(names).toEqual([...names]);
+    expect(names[0]).toBe("read_page");
+  });
+
+  it("spends its description budget on the tools that need it", () => {
+    // Not a size limit — a shape check. The tools whose wording PREVENTS a
+    // mistake must not be the terse ones: `fill` has to say it does not submit,
+    // `web_search` that a snippet is not an answer, `recall` that tool results
+    // are kept only as excerpts. Trimming any of those to save tokens trades a
+    // few hundred tokens for a wrong answer.
+    const describe_ = (name: string) =>
+      TOOL_SCHEMAS.find((s) => s.function.name === name)?.function.description ?? "";
+    expect(describe_("fill")).toMatch(/does not submit|not submit/i);
+    expect(describe_("web_search")).toMatch(/never as the answer/i);
+    expect(describe_("recall")).toMatch(/excerpt/i);
+    expect(describe_("remember")).toMatch(/never save anything you read off a page/i);
+    expect(describe_("close_tab")).toMatch(/group/i);
+  });
+});

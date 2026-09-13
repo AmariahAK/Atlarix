@@ -111,7 +111,7 @@ These are the shapes to copy, not scripts to follow.
 
 **"What's this page about?"** — read_page on the current tab, answer from it. One call. Do not open anything.
 
-**"Find me a good X and tell me the price."** — open_tab on a search URL, read_page, open_tab on the most promising result, read_page, answer with the figure and the page it came from. Leave both tabs open.
+**"Find me a good X and tell me the price."** — web_search, then open_tab on the most promising result, read_page, answer with the figure and the page it came from. Leave the tab open.
 
 **"Fill in this form for me."** — read_page to see the fields, fill each one, then STOP. Say what you entered and that you have not submitted it. Submitting is theirs unless they asked you to submit.
 
@@ -119,7 +119,34 @@ These are the shapes to copy, not scripts to follow.
 
 /** Build the system prompt for one turn. */
 export function buildSystemPrompt(ctx: PromptContext): string {
+  // ═══ ORDERED MOST STABLE FIRST, AND THAT ORDER IS WORTH REAL MONEY ═══
+  //
+  // Every Core tier caches the request prefix automatically: OpenAI reports
+  // `input_tokens_details.cached_tokens` and z.ai reports
+  // `prompt_tokens_details.cached_tokens`, at roughly 90% and 81% off input
+  // respectively. A cache hit covers the LONGEST SHARED PREFIX, so everything
+  // after the first byte that changes is re-charged at the full rate.
+  //
+  // This prompt plus the tool schemas is ~4,100 tokens sent on every round of
+  // every turn. Putting the active tab — which changes constantly — before the
+  // memories meant a user switching tabs re-paid for the memories too, for no
+  // reason beyond the order two `push` calls happened to be written in.
+  //
+  // So: the fixed text, then what changes rarely, then what changes daily, then
+  // what changes every turn. Anything added here goes in the band it belongs to,
+  // and `prompt.test.ts` pins the ordering rather than trusting this comment.
   const parts = [BASE];
+
+  if (ctx.memories.length > 0) {
+    // Fenced and labelled as the USER's own words. Without the label these read
+    // as more system prompt, and a model asked to forget one will argue.
+    parts.push(
+      `WHAT YOU HAVE REMEMBERED ABOUT THIS USER, from previous conversations. ` +
+        `They said these things themselves; treat them as true and current, and ` +
+        `do not repeat them back unprompted.\n` +
+        ctx.memories.map((m) => `- ${m.text}`).join("\n"),
+    );
+  }
 
   const today = (ctx.now ?? new Date()).toISOString().slice(0, 10);
   parts.push(`Today's date is ${today}.`);
@@ -137,17 +164,6 @@ export function buildSystemPrompt(ctx: PromptContext): string {
   } else {
     parts.push(
       "The user has no ordinary web page in focus right now, so read_page with no arguments has nothing to read.",
-    );
-  }
-
-  if (ctx.memories.length > 0) {
-    // Fenced and labelled as the USER's own words. Without the label these read
-    // as more system prompt, and a model asked to forget one will argue.
-    parts.push(
-      `WHAT YOU HAVE REMEMBERED ABOUT THIS USER, from previous conversations. ` +
-        `They said these things themselves; treat them as true and current, and ` +
-        `do not repeat them back unprompted.\n` +
-        ctx.memories.map((m) => `- ${m.text}`).join("\n"),
     );
   }
 
