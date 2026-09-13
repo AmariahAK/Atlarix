@@ -63,9 +63,9 @@ import {
   saveSession,
 } from "../sessions/store";
 import { renderMarkdown } from "./markdown";
+import { chooseModel, optionsFor, shortModelName } from "./model-choice";
 
 const MODEL_KEY = "atlarix.model.v1";
-const DEFAULT_MODEL = "core-1";
 
 const el = <T extends HTMLElement>(id: string): T | null =>
   document.querySelector<T>(`#${id}`);
@@ -344,6 +344,14 @@ async function send(): Promise<void> {
   const text = input?.value.trim() ?? "";
   if (!text || running) return;
 
+  const model = modelSelect?.value;
+  if (!model) {
+    // No id to send. Guessing one produces `model_not_permitted` on top of
+    // whatever already stopped the lineup from loading.
+    setStatus("No Atlarix Core model is available yet.");
+    return;
+  }
+
   if (input) {
     input.value = "";
     input.style.height = "auto";
@@ -383,7 +391,7 @@ async function send(): Promise<void> {
     const chips = new Map<string, HTMLDetailsElement>();
 
     const outcome = await runTurn({
-      model: modelSelect?.value || DEFAULT_MODEL,
+      model,
       system,
       // Pruned on the way OUT only. What is stored stays whole, so a
       // conversation the user scrolls back through is not missing the page
@@ -597,63 +605,67 @@ function showDrawer(open: boolean): void {
  *
  * That file is the source the proxy is configured from, but it is served from a
  * CDN and it is not the same question: what matters is which models this caller
- * may use right now. A failure here leaves the stored choice working — a picker
- * with one entry beats a chat that will not send.
+ * may use right now.
+ *
+ * THE OPTION VALUE IS THE WIRE ID — see `model-choice.ts`, which holds the
+ * reason and the test. A stored choice is offered immediately so a returning
+ * user can send before the list arrives; a first-time user waits, because there
+ * is no id to guess and guessing one would turn an unreachable proxy into a
+ * confusing `model_not_permitted`.
  */
 async function loadModels(): Promise<void> {
   if (!modelSelect) return;
   const stored = await readStoredModel();
 
-  const setOptions = (entries: Array<{ value: string; label: string }>) => {
+  const fill = (
+    options: { value: string; label: string }[],
+    chosen: string | null,
+  ) => {
     modelSelect.textContent = "";
-    for (const entry of entries) {
-      const option = document.createElement("option");
-      option.value = entry.value;
-      option.textContent = entry.label;
-      modelSelect.append(option);
+    for (const option of options) {
+      const node = document.createElement("option");
+      node.value = option.value;
+      node.textContent = option.label;
+      modelSelect.append(node);
     }
-    modelSelect.value = entries.some((e) => e.value === stored)
-      ? stored
-      : (entries[0]?.value ?? DEFAULT_MODEL);
+    if (chosen) modelSelect.value = chosen;
+    modelSelect.disabled = options.length <= 1;
+    if (sendButton) sendButton.disabled = !chosen;
   };
 
-  setOptions([{ value: stored, label: tierLabel(stored) }]);
+  fill(
+    stored
+      ? [{ value: stored, label: shortModelName(stored) }]
+      : [{ value: "", label: "Loading models…" }],
+    stored,
+  );
 
   try {
-    const models = await listModels();
-    if (models.length === 0) return;
-    setOptions(
-      models.map((m) => ({
-        value: m.tier || m.id,
-        // The real model name carries the meaning; the tier is the thing the
-        // user is actually choosing. Both, because neither alone is enough.
-        label: `${tierLabel(m.tier)} · ${shortModelName(m.id)}`,
-      })),
-    );
+    const options = optionsFor(await listModels());
+    const chosen = chooseModel(options, stored);
+    if (chosen) fill(options, chosen);
+    else if (!stored) fill([{ value: "", label: "No models available" }], null);
   } catch {
-    // Signed out, or the proxy is down. The stored choice still works, and
-    // sending will produce a real error message rather than a silent one.
+    // Signed out, or the proxy is down. A stored choice still works and will
+    // produce a real error on send; a first-time user is told here instead of
+    // discovering it by typing a question first.
+    if (!stored) {
+      fill([{ value: "", label: "Atlarix Core is unreachable" }], null);
+      setStatus(
+        "Could not reach Atlarix Core. Check your connection and reopen this panel.",
+      );
+    }
   }
 }
 
-function tierLabel(tier: string): string {
-  const n = /^core-(\d+)$/.exec(tier);
-  return n ? `Core ${n[1]}` : tier || DEFAULT_MODEL;
-}
-
-/** `z-ai/glm-5.3` → `glm-5.3`. The vendor prefix is noise in a 320px panel. */
-function shortModelName(id: string): string {
-  return id.split("/").pop() ?? id;
-}
-
-async function readStoredModel(): Promise<string> {
+async function readStoredModel(): Promise<string | null> {
   try {
     const bag =
       await api().storage.local.get<Record<string, unknown>>(MODEL_KEY);
     const value = bag?.[MODEL_KEY];
-    return typeof value === "string" && value ? value : DEFAULT_MODEL;
+    return typeof value === "string" && value ? value : null;
   } catch {
-    return DEFAULT_MODEL;
+    return null;
   }
 }
 
