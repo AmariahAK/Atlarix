@@ -36,6 +36,12 @@
 
 import { readArchive, type ArchiveEntry } from "../sessions/archive";
 import { listSessions } from "../sessions/store";
+import {
+  listRemoteConversations,
+  readRemoteConversation,
+  type RemoteConversation,
+  type RemoteMessage,
+} from "../sessions/sync";
 
 /** Hits returned by one search. */
 const DEFAULT_MAX_HITS = 12;
@@ -93,6 +99,34 @@ function hitPath(title: string, turn: number, entry: ArchiveEntry): string {
 interface Target {
   id: string;
   title: string;
+  /** Synced from another device: readable, and labelled as such. */
+  remote?: boolean;
+}
+
+/**
+ * Where the history comes from. Injected so a test can drive both halves without
+ * a network, and so the local path is exercised with the remote one absent —
+ * which is what happens for a signed-out or offline user.
+ */
+export interface RecallSources {
+  listRemote?: () => Promise<RemoteConversation[]>;
+  readRemote?: (id: string) => Promise<RemoteMessage[]>;
+}
+
+/**
+ * A synced conversation, in the shape the local archive uses.
+ *
+ * A `tool_label` row becomes a `tool` entry whose text IS the label — because
+ * that is all that ever left the device. Presenting it as though it were the
+ * result would be the egress rule holding in storage and leaking in the read.
+ */
+function fromRemote(rows: RemoteMessage[]): ArchiveEntry[] {
+  return rows.map((r) => ({
+    role: r.role === "tool_label" ? ("tool" as const) : r.role === "compaction" ? ("assistant" as const) : r.role,
+    text: r.role === "tool_label" ? `(${r.content} — result not synced)` : r.content,
+    at: 0,
+    ...(r.role === "tool_label" ? { tool: r.content, clipped: true } : {}),
+  }));
 }
 
 /**
@@ -107,6 +141,7 @@ interface Target {
 async function resolveTargets(
   ctx: RecallContext,
   requested: string | undefined,
+  sources: RecallSources,
 ): Promise<{ targets: Target[]; error?: string }> {
   const current: Target = {
     id: ctx.currentSessionId,
@@ -116,18 +151,30 @@ async function resolveTargets(
   if (!asked || asked.toLowerCase() === "this") return { targets: [current] };
 
   const sessions = (await listSessions()).slice(0, SESSION_LOOKUP_CAP);
+  const local: Target[] = sessions
+    .filter((s) => s.id !== current.id)
+    .map((s) => ({ id: s.id, title: s.title }));
+
+  // Conversations from this account's OTHER devices — the ones with no local
+  // archive at all. A conversation that exists in both places is read locally,
+  // because the local archive has excerpts of tool results and the synced copy
+  // deliberately does not.
+  const known = new Set([current.id, ...local.map((t) => t.id)]);
+  const listRemote = sources.listRemote ?? listRemoteConversations;
+  const remote: Target[] = (await listRemote())
+    .filter((c) => !known.has(c.id))
+    .map((c) => ({ id: c.id, title: c.title, remote: true }));
+
   if (asked.toLowerCase() === "all") {
-    const others = sessions
-      .filter((s) => s.id !== current.id)
-      .map((s) => ({ id: s.id, title: s.title }));
-    return { targets: [current, ...others] };
+    return { targets: [current, ...local, ...remote] };
   }
 
-  const byId = sessions.find((s) => s.id === asked);
-  if (byId) return { targets: [{ id: byId.id, title: byId.title }] };
+  const all = [current, ...local, ...remote];
+  const byId = all.find((s) => s.id === asked);
+  if (byId) return { targets: [byId] };
 
   const needle = asked.toLowerCase();
-  const byTitle = sessions.filter((s) => s.title.toLowerCase().includes(needle));
+  const byTitle = all.filter((s) => s.title.toLowerCase().includes(needle));
   if (byTitle.length === 0) {
     return {
       targets: [],
@@ -137,7 +184,12 @@ async function resolveTargets(
         `or leave it out to search only this one.`,
     };
   }
-  return { targets: byTitle.map((s) => ({ id: s.id, title: s.title })) };
+  // The MATCHES THEMSELVES, not rebuilt copies of them. Mapping to
+  // `{id, title}` here dropped the `remote` flag, so a synced conversation
+  // found by title was then read from a local archive that does not exist —
+  // and the tool answered "nothing is recorded" about a conversation it had
+  // just located by name.
+  return { targets: byTitle };
 }
 
 /**
@@ -150,15 +202,20 @@ async function resolveTargets(
 export async function executeRecall(
   args: RecallArgs,
   ctx: RecallContext,
+  sources: RecallSources = {},
 ): Promise<string> {
   const mode = args.mode === "read" ? "read" : "search";
-  const { targets, error } = await resolveTargets(ctx, args.conversation);
+  const { targets, error } = await resolveTargets(ctx, args.conversation, sources);
+  const entriesOf = async (target: Target): Promise<ArchiveEntry[]> =>
+    target.remote
+      ? fromRemote(await (sources.readRemote ?? readRemoteConversation)(target.id))
+      : await readArchive(target.id);
   if (error) return error;
   if (targets.length === 0) return "There is nothing recorded to search yet.";
 
   if (mode === "read") {
     const target = targets[0];
-    const entries = await readArchive(target.id);
+    const entries = await entriesOf(target);
     if (entries.length === 0) {
       return `Nothing is recorded for "${target.title}" yet.`;
     }
@@ -197,7 +254,7 @@ export async function executeRecall(
   let total = 0;
 
   for (const target of targets) {
-    const entries = await readArchive(target.id);
+    const entries = await entriesOf(target);
     for (let i = 0; i < entries.length; i++) {
       const entry = entries[i];
       if (!entry.text.toLowerCase().includes(query.toLowerCase())) continue;

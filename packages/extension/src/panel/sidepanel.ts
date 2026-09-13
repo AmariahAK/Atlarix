@@ -74,6 +74,7 @@ import {
   deleteArchive,
   deleteArchives,
 } from "../sessions/archive";
+import { deleteRemoteConversation, pushConversation } from "../sessions/sync";
 import { renderMarkdown } from "./markdown";
 import { chooseModel, optionsFor, shortModelName } from "./model-choice";
 import { TOOL_SCHEMAS } from "../tools/schemas";
@@ -128,6 +129,14 @@ let sessionId = newSessionId();
  * than a uuid. Refreshed whenever the drawer is, and when the generator names it.
  */
 let currentTitle = "";
+/**
+ * The label the panel showed for each tool call.
+ *
+ * The ONLY thing about a tool call that syncs — "Reading example.com", never
+ * what the page said. Kept here because the label is decided when the result is
+ * rendered and needed later, when the conversation is pushed.
+ */
+const toolLabels = new Map<string, string>();
 let messages: CoreMessage[] = [];
 let running: AbortController | null = null;
 
@@ -903,6 +912,7 @@ async function send(): Promise<void> {
         onToolResult(call, content, label) {
           const chip = chips.get(call.id);
           if (chip) fillChip(chip, content, label);
+          if (label) toolLabels.set(call.id, label);
         },
         onApproval: approvalCard,
       },
@@ -1008,6 +1018,19 @@ async function persist(title?: string): Promise<void> {
     if (evicted.length > 0) {
       void deleteArchives(evicted.map((sn) => sn.id));
     }
+    // Cross-device, and deliberately not awaited: a conversation is already
+    // saved locally and already on screen, so an offline laptop or an expired
+    // token must not put an error in front of someone mid-sentence.
+    //
+    // RAW TOOL RESULTS DO NOT GO — `syncableRows` sends a tool call's label and
+    // nothing more, and the column refuses anything longer. A page read is the
+    // contents of whatever the user was looking at.
+    void pushConversation({
+      id: sessionId,
+      title: title?.trim() || currentTitle,
+      messages,
+      labelFor: (id) => toolLabels.get(id),
+    });
   } catch {
     // Storage full, most likely. Not worth ending a turn over, and the
     // conversation on screen is still the real one.
@@ -1082,6 +1105,7 @@ async function refreshDrawer(): Promise<void> {
           // and it holds the user's own words, which is the last thing that
           // should outlive a delete they asked for.
           void deleteArchive(meta.id);
+          void deleteRemoteConversation(meta.id);
           void deleteSession(meta.id).then(async () => {
             if (meta.id === sessionId) startNewChat();
             await refreshDrawer();
@@ -1137,6 +1161,7 @@ async function openSession(id: string): Promise<void> {
   void clearDrivenTabs("all");
   cancelEdit();
   sessionId = id;
+  toolLabels.clear();
   currentTitle = (await listSessions()).find((sn) => sn.id === id)?.title ?? "";
   messages = await loadSession(id);
   renderConversation(messages);
@@ -1150,6 +1175,7 @@ function startNewChat(): void {
   cancelEdit();
   sessionId = newSessionId();
   currentTitle = "";
+  toolLabels.clear();
   messages = [];
   renderConversation(messages);
   setStatus("");
@@ -1525,7 +1551,12 @@ eraseButton?.addEventListener("click", () => {
     for (const grant of await listGrants())
       await revokeHostAccess(grant.origin);
     await revokeAll();
-    await deleteArchives((await listSessions()).map((sn) => sn.id));
+    const all = await listSessions();
+    await deleteArchives(all.map((sn) => sn.id));
+    // Erase means erase, including the copy on the account. Leaving those rows
+    // behind would make "delete everything" a local gesture with a server-side
+    // asterisk nobody was told about.
+    await Promise.all(all.map((sn) => deleteRemoteConversation(sn.id)));
     await deleteAllSessions();
     await forgetAll();
     startNewChat();

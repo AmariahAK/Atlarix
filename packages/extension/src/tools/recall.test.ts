@@ -251,3 +251,76 @@ describe("read", () => {
     expect(out).toMatch(/Nothing is recorded/);
   });
 });
+
+describe("conversations from another device", () => {
+  const remote = {
+    listRemote: async () => [
+      { id: "r1", title: "Laptop research", updatedAt: 2 },
+    ],
+    readRemote: async () => [
+      { role: "user" as const, content: "which kettle did we pick?", seq: 0 },
+      { role: "tool_label" as const, content: "Reading which.co.uk", seq: 1 },
+      { role: "assistant" as const, content: "The Bosch TWK, 3kW.", seq: 2 },
+    ],
+  };
+
+  it("is searchable, so history follows the account and not the machine", async () => {
+    const out = await executeRecall(
+      { query: "Bosch", conversation: "all" },
+      { currentSessionId: "s1", currentTitle: "Here" },
+      remote,
+    );
+    expect(out).toContain("The Bosch TWK");
+    expect(out).toContain("Laptop research");
+  });
+
+  it("is findable by title, like a local one", async () => {
+    const out = await executeRecall(
+      { mode: "read", conversation: "laptop" },
+      { currentSessionId: "s1" },
+      remote,
+    );
+    expect(out).toContain("which kettle did we pick?");
+  });
+
+  it("says a synced tool result is not there, rather than implying it is", async () => {
+    // The egress rule holding in storage and leaking in the read would be the
+    // same mistake one step later: a label presented as though it were a result
+    // is a model reasoning from a page it never saw.
+    const out = await executeRecall(
+      { mode: "read", conversation: "laptop" },
+      { currentSessionId: "s1" },
+      remote,
+    );
+    expect(out).toContain("Reading which.co.uk");
+    expect(out).toMatch(/not synced/);
+  });
+
+  it("prefers the local copy when a conversation exists in both places", async () => {
+    // The local archive has excerpts of tool results; the synced copy
+    // deliberately does not. Reading the remote one would be strictly less.
+    await saveSession("s2", [{ role: "user", content: "x" }], { title: "Shared" });
+    await appendArchive("s2", turn("local question", "local answer"));
+    const out = await executeRecall(
+      { query: "local answer", conversation: "all" },
+      { currentSessionId: "s1" },
+      {
+        listRemote: async () => [{ id: "s2", title: "Shared", updatedAt: 1 }],
+        readRemote: async () => [
+          { role: "assistant" as const, content: "remote answer", seq: 0 },
+        ],
+      },
+    );
+    expect(out).toContain("local answer");
+  });
+
+  it("works offline, with no remote at all", async () => {
+    await appendArchive("s1", turn("offline question", "offline answer"));
+    const out = await executeRecall(
+      { query: "offline answer", conversation: "all" },
+      { currentSessionId: "s1", currentTitle: "Here" },
+      { listRemote: async () => [] },
+    );
+    expect(out).toContain("offline answer");
+  });
+});
