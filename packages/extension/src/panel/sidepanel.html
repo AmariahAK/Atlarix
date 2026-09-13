@@ -185,6 +185,22 @@
           <h2 class="drawer__heading">What Atlarix remembers</h2>
           <div class="drawer__list" id="memory-list"></div>
         </div>
+
+        <!--
+          The off switch. Everything above lives in this browser profile and
+          nowhere else, so this is the whole of it — no server call, nothing
+          left behind. Two clicks, because it cannot be undone.
+        -->
+        <div class="drawer__group">
+          <h2 class="drawer__heading">Erase everything</h2>
+          <p class="drawer__note">
+            Deletes every conversation, memory and site permission from this
+            browser. It cannot be undone, and it does not sign you out.
+          </p>
+          <button class="button button--danger" type="button" id="erase-all">
+            Erase everything
+          </button>
+        </div>
       </section>
 
       <p id="status" class="panel__status" role="status"></p>

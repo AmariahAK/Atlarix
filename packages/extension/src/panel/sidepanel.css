@@ -192,6 +192,25 @@ body {
   flex: none;
 }
 
+/*
+ * The destructive action, and the only red thing in the panel.
+ *
+ * Quiet until hovered rather than red at rest: a permanently red button in a
+ * settings list reads as a warning about the list, and it is the one control
+ * here nobody should click by accident on the way past.
+ */
+.button--danger:not(:disabled):hover {
+  border-color: hsl(0 70% 45%);
+  background: hsl(0 40% 12%);
+  color: hsl(0 80% 75%);
+}
+
+.button--danger[data-confirming="true"] {
+  border-color: hsl(0 70% 45%);
+  background: hsl(0 45% 14%);
+  color: hsl(0 85% 78%);
+}
+
 /* Sign out is a quieter action than signing in — no accent on hover. */
 .button--quiet:not(:disabled):hover {
   border-color: var(--border);

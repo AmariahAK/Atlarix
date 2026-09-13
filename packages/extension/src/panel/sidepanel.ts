@@ -39,12 +39,13 @@ import { getSession, signIn, signOut } from "../auth/sign-in";
 import type { OAuthProvider } from "../auth/gotrue";
 import {
   canActOn,
+  pruneRevokedGrants,
   requestHostAccess,
   revokeHostAccess,
 } from "../permissions/host-access";
-import { listGrants } from "../permissions/site-grants";
+import { listGrants, revokeAll } from "../permissions/site-grants";
 import { activeTab } from "../page/inject";
-import { onGroupClosed } from "../tabs/group";
+import { onGroupClosed, setGroupTitle } from "../tabs/group";
 import {
   CoreError,
   listModels,
@@ -53,8 +54,9 @@ import {
 } from "../core/client";
 import { runTurn } from "../agent/loop";
 import { buildSystemPrompt } from "../agent/prompt";
-import { forget, listMemories } from "../memory/store";
+import { forget, forgetAll, listMemories } from "../memory/store";
 import {
+  deleteAllSessions,
   deleteSession,
   listSessions,
   loadSession,
@@ -82,6 +84,7 @@ const newChatButton = el<HTMLButtonElement>("new-chat");
 const drawerButton = el<HTMLButtonElement>("toggle-drawer");
 const accountEmail = el<HTMLElement>("account-email");
 const signOutButton = el<HTMLButtonElement>("sign-out");
+const eraseButton = el<HTMLButtonElement>("erase-all");
 const sessionList = el<HTMLElement>("session-list");
 const siteList = el<HTMLElement>("site-list");
 const memoryList = el<HTMLElement>("memory-list");
@@ -369,12 +372,19 @@ async function send(): Promise<void> {
   setRunning(true);
   setStatus("");
 
+  let windowId = api().windows.WINDOW_ID_NONE;
   try {
-    const [memories, tab, windowId] = await Promise.all([
+    const [memories, tab, win] = await Promise.all([
       listMemories(),
       activeTab(),
       currentWindowId(),
     ]);
+    windowId = win;
+    // The group's title is status where the user is already looking. It no-ops
+    // until the agent has opened a tab, which is exactly when it starts to
+    // matter: a group of tabs that says nothing about why it is there is the
+    // thing people close in confusion.
+    void setGroupTitle(windowId, "Atlarix · working");
     const system = buildSystemPrompt({
       memories,
       activeTab: tab
@@ -437,6 +447,7 @@ async function send(): Promise<void> {
     append(errorBubble(err instanceof Error ? err.message : String(err)));
   } finally {
     setRunning(false);
+    void setGroupTitle(windowId, "Atlarix");
     void refreshDrawer();
   }
 }
@@ -540,6 +551,11 @@ async function refreshDrawer(): Promise<void> {
 
   if (siteList) {
     siteList.textContent = "";
+    // Reconcile before listing. The user can revoke host access from
+    // chrome://extensions and Chrome does not tell us, so without this they see
+    // a site they believe is approved and we already know is not.
+    const known = (await listGrants()).map((g) => g.origin);
+    await pruneRevokedGrants(known);
     const grants = await listGrants();
     if (grants.length === 0) {
       emptyNote(
@@ -809,6 +825,58 @@ drawerButton?.addEventListener("click", () => {
 modelSelect?.addEventListener("change", () => {
   void api().storage.local.set({ [MODEL_KEY]: modelSelect.value });
 });
+
+/**
+ * Erase everything, behind a second click.
+ *
+ * NOT a `confirm()` dialog. A modal dialog in an extension page blocks the
+ * whole document, and this panel may have a turn running in it — but the real
+ * reason is narrower: `window.confirm` is one of the things a side panel is
+ * awkward about, and an inline "Are you sure?" on the button itself is clearer
+ * than a box that appears somewhere else on the screen.
+ *
+ * It deliberately does NOT sign the user out. Erasing what is stored here and
+ * ending a session are different intentions, and bundling them means anyone who
+ * wants one has to accept the other.
+ */
+let eraseArmed = false;
+eraseButton?.addEventListener("click", () => {
+  if (!eraseArmed) {
+    eraseArmed = true;
+    eraseButton.dataset.confirming = "true";
+    eraseButton.textContent = "Erase everything — click again";
+    // Disarm on the way out, so a button left armed in a closed drawer does not
+    // become a one-click erase the next time it is opened.
+    window.setTimeout(disarmErase, 6000);
+    return;
+  }
+  disarmErase();
+  eraseButton.disabled = true;
+  void (async () => {
+    // Chrome's own permissions go with the record. `revokeAll` alone would
+    // leave the browser still granting host access for sites the user believes
+    // they have just erased.
+    for (const grant of await listGrants())
+      await revokeHostAccess(grant.origin);
+    await revokeAll();
+    await deleteAllSessions();
+    await forgetAll();
+    startNewChat();
+    showDrawer(true);
+    setStatus("Erased.");
+  })()
+    .catch((err: unknown) => setStatus(String(err)))
+    .finally(() => {
+      if (eraseButton) eraseButton.disabled = false;
+    });
+});
+
+function disarmErase(): void {
+  if (!eraseButton) return;
+  eraseArmed = false;
+  delete eraseButton.dataset.confirming;
+  eraseButton.textContent = "Erase everything";
+}
 
 signOutButton?.addEventListener("click", () => {
   setStatus("Signing out…");

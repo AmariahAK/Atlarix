@@ -586,10 +586,24 @@ wearing a feature's clothes. They land with the actions.
   Server-side is Phase 4, behind the account.
 - **A turn that survives the panel closing** — not possible without a context
   that outlives it, and there is no honest one. See above.
-- **`trusted-input.ts` and `tabs/group.ts` are STILL only half-used.** The group
-  now holds tabs the agent opened (`open_tab` → `adoptTab`), which is new. But
-  `trusted-input.ts` is still called by nothing outside its own test; it is
-  waiting for Phase 3's action ops, which are the thing that needs a keystroke.
+- **`trusted-input.ts` is STILL called by nothing** outside its own test. The
+  loop exists now and does not need it: what it is waiting for is Phase 3's
+  action ops, which are the thing that needs a keystroke. `tabs/group.ts` is no
+  longer in that category — `open_tab` adopts, `setGroupTitle` shows status
+  while a turn runs, and `onGroupClosed` aborts it.
+
+**Built-but-uncalled, audited 2026-09-13 rather than left to be discovered.**
+The Phase-1 modules were written ahead of their callers, which is how three of
+them ended up dead. Wired in this pass: `pruneRevokedGrants` (its docblock said
+"call on panel open" and nothing did — now reconciles before the drawer lists
+grants, so the user never sees a site they believe is approved and we know is
+not), `setGroupTitle`, `revokeAll`/`deleteAllSessions`/`forgetAll` (behind one
+"Erase everything" control — three stores had no off switch at all, which for a
+browser extension holding conversations and permissions is a gap, not a
+feature). Still uncalled ON PURPOSE, and each with a named claimant:
+`watchDetach`, `pressKey`, `typeText`, `movePointer` and `releaseTab` all belong
+to Phase 3's actions; `refResolves` is the transport-level ref probe those will
+use. Nothing else in the package is unreachable.
 
 ### CAN ATLARIX DRIVE THE BROWSER YET? NO — and the gap is precise (checked 2026-09-13)
 
