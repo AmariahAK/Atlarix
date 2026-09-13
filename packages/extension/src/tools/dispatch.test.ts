@@ -672,7 +672,9 @@ describe("the tool surface is a stable cache prefix", () => {
     expect(describe_("recall")).toMatch(/excerpt/i);
     // Our privacy rule. A model told to "remember useful things" will happily
     // save what it read off someone's bank page.
-    expect(describe_("remember")).toMatch(/never anything you read off a page/i);
+    // Loosely matched on purpose: the wording is the owner's to change, the
+    // rule is not.
+    expect(describe_("remember")).toMatch(/never .{0,20}you read off a page/i);
     // Our capability boundary — the user's own tabs are not ours to close.
     expect(describe_("close_tab")).toMatch(/group/i);
     // Our search returns snippets, not pages.
