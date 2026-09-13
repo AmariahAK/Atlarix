@@ -44,3 +44,30 @@ export function unescapeAttachmentTagBody(body: string): string {
   // Reverse order: restore the raw `<` first, then collapse one `&amp;` layer.
   return body.replace(UNESCAPE_LT, "<").replace(UNESCAPE_AMP, "&");
 }
+
+/**
+ * Neutralize an XML/HTML ATTRIBUTE value (the `source="…"` of an envelope, an
+ * attachment's `filename="…"`).
+ *
+ * A DIFFERENT JOB FROM `escapeAttachmentTagBody`, and the two are not
+ * interchangeable: that one keeps a body readable and escapes only the `<` that
+ * would open a control tag, which inside a quoted attribute would still leave a
+ * `"` free to close the attribute early and add another one.
+ *
+ * A bare `>` is deliberately left alone — inside a quoted attribute it is inert,
+ * and escaping it would change filenames and URLs that legitimately contain one.
+ *
+ * LIVES HERE, in the zero-import leaf, rather than in `attachment-tag-blocks.ts`
+ * where it was written. Two callers needed it from outside that module and had
+ * to import a file that pulls in the whole attachment graph —
+ * `background-job-attachment.ts` imported the very module that imports IT, and
+ * `untrusted-data.ts` could not be used from the browser extension at all
+ * because of what came along with it. Moving one 5-line function broke both
+ * problems and an import cycle.
+ */
+export function escapeXmlAttr(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;");
+}

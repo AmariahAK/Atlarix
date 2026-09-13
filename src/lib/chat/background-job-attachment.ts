@@ -1,5 +1,5 @@
 import type { FileAttachment } from "@/ipc/ipc_types";
-import { escapeXmlAttr } from "@/lib/chat/attachment-tag-blocks";
+import { escapeXmlAttr } from "@/lib/chat/attachment-tag-escape";
 import { escapeAttachmentTagBody } from "@/lib/chat/attachment-tag-escape";
 
 /**

@@ -16,9 +16,9 @@
 
 import {
   escapeAttachmentTagBody,
+  escapeXmlAttr,
   unescapeAttachmentTagBody,
 } from "@/lib/chat/attachment-tag-escape";
-import { escapeXmlAttr } from "@/lib/chat/attachment-tag-blocks";
 
 const OPEN_PREFIX = "<untrusted-data";
 export const UNTRUSTED_DATA_CLOSE = "</untrusted-data>";

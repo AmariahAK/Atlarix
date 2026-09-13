@@ -14,14 +14,14 @@ import {
   buildBackgroundJobModelBlock,
   buildBackgroundJobDisplayBlock,
 } from "@/lib/chat/background-job-attachment";
-import { escapeAttachmentTagBody } from "@/lib/chat/attachment-tag-escape";
+import {
+  escapeAttachmentTagBody,
+  escapeXmlAttr,
+} from "@/lib/chat/attachment-tag-escape";
 
-export function escapeXmlAttr(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;");
-}
+// Moved to the zero-import leaf beside `escapeAttachmentTagBody`; re-exported
+// here so existing importers are unchanged. See that file for why.
+export { escapeXmlAttr };
 
 function buildTextPasteModelBlock(name: string, body: string): string {
   // Body is untrusted (pasted text / automation event) — neutralize tag-breakout.
