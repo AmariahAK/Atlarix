@@ -14,6 +14,7 @@
 import { describe, expect, it } from "vitest";
 import type { CoreMessage } from "../core/client";
 import { compactionMarker } from "../context/compact";
+import { COMPACTION_SYSTEM } from "../context/prompt";
 import { labelsFrom, syncableRows } from "./sync";
 
 /** What a real conversation looks like: a question, a page read, an answer. */
@@ -118,5 +119,27 @@ describe("positions", () => {
 describe("labelsFrom", () => {
   it("falls back to the tool's own name, which is a usable label", () => {
     expect(labelsFrom(conversation).get("c1")).toBe("read_page");
+  });
+});
+
+describe("the compaction row, which is the widest door out", () => {
+  it("is allowed far more room than a tool label, which is why the PROMPT has to hold the line", () => {
+    // THE HOLE THAT WAS NEARLY SHIPPED. `content_length_by_role` caps a
+    // `tool_label` row at 200 characters, so a page snapshot cannot leave that
+    // way. A `compaction` row is legitimately allowed 40,000 — a summary needs
+    // the room — so nothing in the schema stops a summary that transcribed a
+    // page. The template briefly had a `## Pages and Tabs` section inviting
+    // exactly that. The defence is `context/prompt.ts` telling the summariser
+    // never to copy page text, and this test exists so the next person who edits
+    // that template finds out why.
+    expect(COMPACTION_SYSTEM).not.toMatch(/## Pages and Tabs/);
+    expect(COMPACTION_SYSTEM).toMatch(/never copy text out of a page/i);
+    expect(COMPACTION_SYSTEM).toMatch(/not a browsing log/i);
+  });
+
+  it("asks for what the user now knows, not what each page contained", () => {
+    expect(COMPACTION_SYSTEM).toMatch(/## What the user now knows/);
+    // The worked distinction, spelled out so a model cannot read it either way.
+    expect(COMPACTION_SYSTEM).toMatch(/is the answer.*page content|page content.*goes nowhere/is);
   });
 });

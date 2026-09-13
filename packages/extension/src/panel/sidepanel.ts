@@ -47,6 +47,7 @@ import {
 } from "../permissions/host-access";
 import { listGrants, revokeAll } from "../permissions/site-grants";
 import { activeTab } from "../page/inject";
+import { detachAll } from "../page/trusted-input";
 import { onGroupClosed, setGroupTitle } from "../tabs/group";
 import {
   CoreError,
@@ -79,6 +80,7 @@ import {
 import { deleteRemoteConversation, pushConversation } from "../sessions/sync";
 import { renderMarkdown } from "./markdown";
 import { chooseModel, optionsFor, shortModelName } from "./model-choice";
+import { summariseSteps, type Step } from "./steps";
 import {
   buildUserContent,
   describeAttachment,
@@ -538,6 +540,67 @@ function cancelEdit(): void {
     .forEach((el) => el.classList.remove("msg--editing"));
 }
 
+/* ── The activity card ────────────────────────────────────────────────────── */
+
+/**
+ * One collapsed card holding everything the agent did, with the per-step cards
+ * still inside it.
+ *
+ * WHY. A turn that read two pages and filled six fields produced fourteen
+ * stacked cards, and the ANSWER — the thing the person asked for — was pushed
+ * off the bottom of a 320px panel. Nothing is removed: open this and every step
+ * is there, each still expandable to its full output.
+ *
+ * The steps live in a plain `div` rather than nested `details`, because a
+ * `details` inside a closed `details` cannot be opened, and the whole point is
+ * that a developer can still get at any single step.
+ */
+interface StepsCard {
+  root: HTMLDetailsElement;
+  body: HTMLElement;
+  line: HTMLElement;
+  steps: Step[];
+}
+
+function stepsCard(): StepsCard {
+  const root = document.createElement("details");
+  root.className = "steps";
+
+  const summary = document.createElement("summary");
+  summary.className = "steps__summary";
+  const dot = document.createElement("span");
+  dot.className = "tool__dot";
+  const line = document.createElement("span");
+  line.className = "steps__line";
+  line.textContent = "Working…";
+  summary.append(dot, line);
+
+  const body = document.createElement("div");
+  body.className = "steps__body";
+
+  root.append(summary, body);
+  return { root, body, line, steps: [] };
+}
+
+/** Add a step's card, and re-describe the whole run. */
+function addStep(
+  card: StepsCard,
+  step: Step,
+  node: HTMLElement,
+  running: boolean,
+): void {
+  card.steps.push(step);
+  card.body.append(node);
+  card.line.textContent = summariseSteps(card.steps, { running });
+}
+
+/** Re-describe without adding, for when a step's label arrives late. */
+function settleSteps(card: StepsCard | null): void {
+  if (!card) return;
+  card.root.classList.add("steps--done");
+  card.line.textContent = summariseSteps(card.steps);
+}
+
 function assistantBubble(text = ""): HTMLElement {
   const div = document.createElement("div");
   div.className = "msg msg--assistant";
@@ -853,6 +916,23 @@ function renderConversation(history: CoreMessage[]): void {
   }
 
   let userIndex = 0;
+  // GROUPED THE SAME WAY A LIVE TURN IS, or reopening a conversation would show
+  // it in a different shape from the one the user watched happen — which reads
+  // as the transcript having been rewritten.
+  let activity: StepsCard | null = null;
+  const closeActivity = () => {
+    settleSteps(activity);
+    activity = null;
+  };
+  const restoreStep = (step: Step, node: HTMLElement) => {
+    if (!activity) {
+      const card = stepsCard();
+      transcript.append(card.root);
+      activity = card;
+    }
+    addStep(activity, step, node, false);
+  };
+
   for (const message of history) {
     if (isCompactionMarker(message)) {
       // A MARKER IS NOT A MESSAGE THE USER SENT, however much the transcript
@@ -862,27 +942,35 @@ function renderConversation(history: CoreMessage[]): void {
       // index by one, so editing the third question would rewind to the second.
       // `userIndex` deliberately does not advance here; `rewindToUserMessage`
       // skips markers for the same reason and must stay in step.
+      closeActivity();
       transcript.append(compactionDivider(message.content));
       continue;
     }
     if (message.role === "user") {
+      closeActivity();
       transcript.append(userBubble(message.content, userIndex));
       userIndex += 1;
     } else if (message.role === "assistant") {
-      if (message.content) transcript.append(assistantBubble(message.content));
+      // Prose ends a stretch of work; the tool calls on the SAME message open
+      // the next one, which is the order they actually happened in.
+      if (message.content) {
+        closeActivity();
+        transcript.append(assistantBubble(message.content));
+      }
     } else if (message.role === "tool") {
       const call = callsById.get(message.tool_call_id);
-      const chip = toolChip(
-        call ?? {
-          id: message.tool_call_id,
-          type: "function",
-          function: { name: "tool", arguments: "{}" },
-        },
-      );
+      const resolved = call ?? {
+        id: message.tool_call_id,
+        type: "function" as const,
+        function: { name: "tool", arguments: "{}" },
+      };
+      const chip = toolChip(resolved);
       fillChip(chip, message.content);
-      transcript.append(chip);
+      restoreStep({ kind: "tool", name: resolved.function.name }, chip);
     }
   }
+  // A conversation that ended mid-work leaves a card open.
+  closeActivity();
   following = true;
   transcript.scrollTop = transcript.scrollHeight;
   refreshContextBar();
@@ -1006,6 +1094,26 @@ async function send(): Promise<void> {
     let thought = "";
     const chips = new Map<string, HTMLDetailsElement>();
 
+    /**
+     * The activity card currently collecting steps.
+     *
+     * CLOSED WHEN PROSE STARTS, so the transcript reads
+     * [activity][answer][activity][answer] rather than interleaving cards with
+     * sentences. A model that says "let me check that" mid-turn and then does
+     * three more things gets a second card, which is the truthful order — one
+     * card per stretch of uninterrupted work.
+     */
+    let activity: StepsCard | null = null;
+    const stepInto = (step: Step, node: HTMLElement) => {
+      if (!activity) {
+        const card = stepsCard();
+        append(card.root);
+        activity = card;
+      }
+      addStep(activity, step, node, true);
+      stickToBottom();
+    };
+
     // Cleared by the first thing that renders, whatever that is.
     let working: HTMLElement | null = append(workingRow());
     const clearWorking = () => {
@@ -1027,8 +1135,10 @@ async function send(): Promise<void> {
         onReasoning(delta) {
           clearWorking();
           thought += delta;
-          if (!thinking)
-            thinking = append(thinkingBlock()) as HTMLDetailsElement;
+          if (!thinking) {
+            thinking = thinkingBlock();
+            stepInto({ kind: "thinking" }, thinking);
+          }
           const body = thinking.querySelector("pre");
           if (body) body.textContent = thought;
           stickToBottom();
@@ -1041,6 +1151,12 @@ async function send(): Promise<void> {
           settleThinking(thinking);
           thinking = null;
           thought = "";
+          // THE ANSWER ENDS THE STRETCH OF WORK. Settling here rather than at
+          // turn end is what keeps the transcript reading
+          // [activity][answer][activity][answer] instead of one card that
+          // swallows a mid-turn sentence.
+          settleSteps(activity);
+          activity = null;
           streamed += delta;
           if (!bubble) bubble = append(assistantBubble());
           renderMarkdown(bubble, streamed);
@@ -1056,7 +1172,9 @@ async function send(): Promise<void> {
           // prose at the top.
           bubble = null;
           streamed = "";
-          chips.set(call.id, append(toolChip(call)) as HTMLDetailsElement);
+          const chip = toolChip(call);
+          chips.set(call.id, chip);
+          stepInto({ kind: "tool", name: call.function.name }, chip);
         },
         onRound() {
           // Every round after the first waits on the model again, so the
@@ -1075,6 +1193,12 @@ async function send(): Promise<void> {
           thinking?.remove();
           thinking = null;
           thought = "";
+          // The activity card may now be empty; an empty card is a row that says
+          // "No steps", which is worse than nothing.
+          if (activity && activity.steps.length === 0) {
+            activity.root.remove();
+            activity = null;
+          }
           clearWorking();
           working = append(workingRow());
           // SAID OUT LOUD. A silent retry that succeeds hides a flaky
@@ -1105,6 +1229,13 @@ async function send(): Promise<void> {
           const chip = chips.get(call.id);
           if (chip) fillChip(chip, content, label);
           if (label) toolLabels.set(call.id, label);
+          // The line is recomputed from the step list, which already holds this
+          // tool — this just refreshes the "running" tense now that one finished.
+          if (activity) {
+            activity.line.textContent = summariseSteps(activity.steps, {
+              running: true,
+            });
+          }
         },
         onApproval: approvalCard,
       },
@@ -1112,6 +1243,7 @@ async function send(): Promise<void> {
 
     clearWorking();
     settleThinking(thinking);
+    settleSteps(activity);
     messages = [...messages, ...outcome.messages];
     void appendArchive(sessionId, outcome.messages);
     await persist();
@@ -1138,6 +1270,12 @@ async function send(): Promise<void> {
     // the rest of the conversation, because those tabs remain its workspace and
     // it will very likely touch them again on the next message.
     void clearDrivenTabs("turn");
+    // GIVE THE TABS BACK. Chrome shows its debugging banner for exactly as long
+    // as a debugger is attached, so staying attached between turns leaves
+    // "Atlarix started debugging this browser" on screen for the rest of the
+    // day — announcing work that finished minutes ago. The banner's wording is
+    // Chromium's and cannot be changed; when it is on screen can be.
+    void detachAll();
     void setGroupTitle(windowId, "Atlarix");
     void nameConversation(model);
     void refreshDrawer();

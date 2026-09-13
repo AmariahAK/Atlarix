@@ -523,10 +523,17 @@ the first version of this compared the CLIs, which are the wrong products):
 | **Atlarix** | Yes | **Never leaves the device** — `content_length_by_role` caps a tool row at 200 chars |
 
 Limiting page content is what the market does, in three shapes. Ours is the
-strict end of that spectrum. **And the findings still travel:** compaction
-markers sync and the summary carries a `## Pages and Tabs` section, so a synced
-conversation holds what the pages SAID — Atlas's trade exactly, with the
-summarising done on-device.
+strict end of that spectrum.
+
+**The summary is about the USER, not the pages** (owner, 2026-09-13). The
+template briefly had a `## Pages and Tabs` section — "URL: what it was for and
+what it said" — which was a hole straight through the egress rule, because
+compaction markers DO sync and a compaction row is allowed 40,000 characters
+where a `tool_label` row is capped at 200. It is gone. What survives compaction
+is what the user wanted, decided and now knows; the prompt says in as many words
+never to copy page text into a summary. An answer they asked for is not page
+content — "the Pro plan is $19 a month" is the thing they wanted, and where it
+was written is incidental.
 
 **STILL OPEN, and deferred by the owner to the next session:**
 

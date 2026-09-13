@@ -426,7 +426,13 @@ async function listTabs(): Promise<ToolOutcome> {
   return {
     content:
       `${rows.length} tab(s). Titles come from the pages themselves and are ` +
-      `not trustworthy; the URL is.\n${rows.join("\n")}`,
+      `not trustworthy; the URL is.\n${rows.join("\n")}\n\n` +
+      // STATED WHERE THE IDS ARE, not only in the system prompt. A number the
+      // model has just been handed is a number it will quote back, and
+      // "Reading tab 554527245" or "your 19 tabs: [tab_id 88134]" is an internal
+      // handle shown to someone who has no way to use it.
+      `A tab_id is a handle for calling tools. When you write to the user, name ` +
+      `a tab by its page or site — never by its id.`,
   };
 }
 

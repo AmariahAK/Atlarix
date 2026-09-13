@@ -98,6 +98,24 @@ export async function attach(tabId: number): Promise<void> {
   }
 }
 
+/**
+ * Give every tab back.
+ *
+ * CALLED WHEN A TURN ENDS, and it is the whole reason Chrome's banner goes away.
+ * The infobar — `"Atlarix" started debugging this browser` — is shown by Chrome
+ * for exactly as long as a debugger is attached, and its wording, including the
+ * quotes around the name, is Chromium's own string. We cannot change a character
+ * of it. What we CAN do is not be attached when we are not working, which is the
+ * difference between a banner that appears while the agent types into a form and
+ * one that sits there for the rest of the day.
+ *
+ * Until 2026-09-13 `detach` had ZERO production callers: every `press_key` or
+ * `hover` attached, and nothing ever let go.
+ */
+export async function detachAll(): Promise<void> {
+  await Promise.all([...attached].map((tabId) => detach(tabId)));
+}
+
 /** Give the tab back. Safe to call when not attached. */
 export async function detach(tabId: number): Promise<void> {
   if (!attached.has(tabId)) return;

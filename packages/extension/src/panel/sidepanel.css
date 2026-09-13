@@ -962,3 +962,70 @@ body {
   border-radius: 6px;
   border: 1px solid var(--border);
 }
+
+/* ── The activity card ──────────────────────────────────────────────────────
+ *
+ * One card per stretch of work, collapsed. Everything the agent did is inside
+ * it, each step still its own expandable card — a developer loses nothing and
+ * everyone else stops scrolling past machinery to reach a sentence.
+ */
+.steps {
+  margin: 6px 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: hsl(240 4% 10%);
+  overflow: hidden;
+}
+
+.steps__summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--fg-muted);
+  list-style: none;
+  user-select: none;
+}
+
+.steps__summary::-webkit-details-marker {
+  display: none;
+}
+
+/* The disclosure arrow, on the right the way Claude's own row has it. */
+.steps__summary::after {
+  content: "›";
+  margin-left: auto;
+  font-size: 15px;
+  line-height: 1;
+  transition: transform 0.15s ease;
+}
+
+.steps[open] > .steps__summary::after {
+  transform: rotate(90deg);
+}
+
+.steps__summary:hover {
+  color: var(--fg);
+  background: hsl(240 4% 13%);
+}
+
+.steps__line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.steps__body {
+  padding: 2px 8px 8px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Steps inside the card sit flush — the card already draws the border. */
+.steps__body > .tool {
+  margin: 0;
+}

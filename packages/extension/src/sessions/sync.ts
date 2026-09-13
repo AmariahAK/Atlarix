@@ -42,12 +42,18 @@
  * This is the strict end of that spectrum: content that never leaves cannot be
  * breached, subpoenaed, or quietly retained past a stated window.
  *
- * AND WE DO NOT LOSE THE FINDINGS, which is the objection this invites.
- * Compaction markers sync, and the summary template carries a `## Pages and
- * Tabs` section — "URL: what it was for and what it said". A synced conversation
- * therefore carries what the pages SAID; what it loses is their raw text. That
- * is Atlas's trade exactly, arrived at independently, except the summarising
- * happens on the device.
+ * WHAT A SYNCED CONVERSATION CARRIES, and it is deliberately NOT a browsing log.
+ * Compaction markers are one of the four row types that leave the device, and an
+ * earlier version of the summary template had a `## Pages and Tabs` section
+ * inviting the model to transcribe what each page said. That was a hole straight
+ * through this rule — and one the 200-character `tool_label` cap does not cover,
+ * because a compaction row is legitimately allowed 40,000 characters.
+ *
+ * OWNER DECISION, 2026-09-13: the summary is about the USER's thread — what they
+ * wanted, what they decided, what they now know — and `context/prompt.ts` now
+ * tells it in as many words never to copy page text into itself. An ANSWER the
+ * user asked for is not page content: "the Pro plan is $19 a month" is the thing
+ * they wanted, and where it was written is incidental.
  *
  * `syncableRows` below is the projection, and it is a pure function on purpose
  * so a test can assert the rule directly rather than by inspecting a request.
