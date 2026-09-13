@@ -183,3 +183,78 @@ describe("results cross a structured-clone boundary", () => {
     expect(Object.keys(found.matches[0])).not.toContain("el");
   });
 });
+
+/**
+ * Accessible names for controls that carry no text.
+ *
+ * FOUND ON REAL PAGES, NOT IN A TEST. A read of Hacker News produced a bare
+ * `[e1] a` with an empty name — the site's logo, an anchor wrapping an image.
+ * The model can still click a nameless ref, because a ref does not depend on a
+ * name, but it cannot say what it is about to click or choose between two of
+ * them. Icon-only links and buttons are everywhere: logos, toolbar actions,
+ * close buttons, pagination arrows.
+ *
+ * HN's own logo has no `alt` at all, so that particular element is genuinely
+ * nameless and stays that way — the honest answer is an empty name, not an
+ * invented one. What was wrong was that we never looked at `alt` even when it
+ * was there.
+ */
+describe("names for controls with no text of their own", () => {
+  const snapshot = () =>
+    inject<A11ySnapshot>(KERNEL, {
+      op: "snapshot",
+      filter: "interactive",
+      max: MAX_ELEMENTS,
+    });
+
+  it("reads alt from an image INSIDE a link — the Hacker News shape", () => {
+    document.body.innerHTML = `<a href="/"><img src="logo.svg" alt="Home"></a>`;
+    expect(snapshot().elements[0]).toMatchObject({ role: "a", name: "Home" });
+  });
+
+  it("reads alt from the image itself", () => {
+    document.body.innerHTML = `<img src="x.png" alt="Chart" tabindex="0">`;
+    expect(snapshot().elements[0].name).toBe("Chart");
+  });
+
+  it("reads aria-labelledby, which the spec ranks first", () => {
+    // What component libraries emit for a control labelled by a sibling.
+    document.body.innerHTML = `<span id="lbl">Delete account</span><button aria-labelledby="lbl"></button>`;
+    const button = snapshot().elements.find((e) => e.role === "button");
+    expect(button?.name).toBe("Delete account");
+  });
+
+  it("joins multiple aria-labelledby ids, in order", () => {
+    document.body.innerHTML =
+      `<span id="a">Delete</span><span id="b">account</span>` +
+      `<button aria-labelledby="a b"></button>`;
+    const button = snapshot().elements.find((e) => e.role === "button");
+    expect(button?.name).toBe("Delete account");
+  });
+
+  it("prefers aria-label over a contained image's alt", () => {
+    // An explicit label is a deliberate statement about the control; the alt
+    // describes the picture inside it.
+    document.body.innerHTML = `<a href="/" aria-label="Go home"><img src="l.svg" alt="Logo"></a>`;
+    expect(snapshot().elements[0].name).toBe("Go home");
+  });
+
+  it("reads a submit button's value, where its label actually lives", () => {
+    document.body.innerHTML = `<input type="submit" value="Search">`;
+    expect(snapshot().elements[0].name).toBe("Search");
+  });
+
+  it("still reports an empty name when there is genuinely none", () => {
+    // HN's real logo: no alt anywhere. Inventing a name from the src or the
+    // href would be a guess presented as a fact.
+    document.body.innerHTML = `<a href="/"><img src="y18.svg"></a>`;
+    expect(snapshot().elements[0]).toMatchObject({ role: "a", name: "" });
+  });
+
+  it("survives an aria-labelledby pointing at nothing", () => {
+    document.body.innerHTML = `<button aria-labelledby="missing">Fallback</button>`;
+    // Falls through rather than throwing or returning the id.
+    const button = snapshot().elements.find((e) => e.role === "button");
+    expect(button?.name).not.toContain("missing");
+  });
+});

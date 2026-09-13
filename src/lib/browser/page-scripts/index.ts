@@ -210,13 +210,50 @@ export function atlarixPageKernel(
     return t.replace(/\s+/g, " ").trim();
   };
 
+  /**
+   * The accessible name, in roughly the order the W3C accname algorithm uses.
+   *
+   * THE IMAGE FALLBACKS ARE NOT OPTIONAL, and their absence was found on real
+   * pages rather than in a test. An icon-only link — a logo, a toolbar button,
+   * a close X — has no aria-label, no title and no own text, so it read as a
+   * bare "a" with an empty name. The model can still click it, because a ref
+   * does not depend on a name, but it cannot tell the user what it is about to
+   * click or choose between two of them. Icon-only controls are everywhere.
+   *
+   * aria-labelledby comes first because the spec puts it first, and because
+   * it is what component libraries emit for a button labelled by a sibling.
+   */
   const accName = (el: Element): string => {
+    const labelledBy = el.getAttribute("aria-labelledby");
+    if (labelledBy) {
+      const text = labelledBy
+        .split(/\s+/)
+        .map((id) => {
+          try {
+            return document.getElementById(id)?.textContent ?? "";
+          } catch {
+            return "";
+          }
+        })
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (text) return text;
+    }
+
     const raw =
       el.getAttribute("aria-label") ||
       el.getAttribute("title") ||
       (el as HTMLElement).innerText ||
+      // The element's OWN alt, then a contained image's. A bare <img> and an
+      // <a> wrapping one are both common, and the second is the case that
+      // produced nameless rows on real sites.
+      el.getAttribute("alt") ||
+      el.querySelector("img[alt]")?.getAttribute("alt") ||
       el.getAttribute("placeholder") ||
       el.getAttribute("name") ||
+      // A submit button's label lives in its value attribute, not its text.
+      (el.tagName === "INPUT" ? el.getAttribute("value") : "") ||
       "";
     return String(raw).replace(/\s+/g, " ").trim();
   };
