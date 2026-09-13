@@ -19,7 +19,7 @@
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
-import { dispatchTool } from "./dispatch";
+import { clearDrivenTabs, dispatchTool } from "./dispatch";
 import { TOOL_NAMES, TOOL_SCHEMAS } from "./schemas";
 import type { ToolCall } from "../core/client";
 
@@ -47,6 +47,8 @@ let tabs: FakeTab[];
 let granted: Set<string>;
 let removed: number[];
 let injectResult: unknown;
+/** Every kernel request the page received, so a test can assert on dispatch. */
+let injected: unknown[];
 let created: Array<{ url?: string; active?: boolean }>;
 let storage: Map<string, unknown>;
 
@@ -66,6 +68,7 @@ function installFakeChrome() {
   removed = [];
   created = [];
   storage = new Map();
+  injected = [];
   injectResult = {
     url: "https://example.test/page",
     title: "Example",
@@ -141,7 +144,13 @@ function installFakeChrome() {
       },
     },
     scripting: {
-      async executeScript() {
+      async executeScript(injection: { args?: unknown[] }) {
+        const req = injection.args?.[0];
+        injected.push(req);
+        // The overlay op returns its own shape, not the page-read fixture.
+        if ((req as { op?: string })?.op === "overlay") {
+          return [{ frameId: 0, result: { ok: true } }];
+        }
         return [{ frameId: 0, result: injectResult }];
       },
     },
@@ -554,5 +563,57 @@ describe("results name things, they do not number them", () => {
     };
     const out = await dispatchTool(call("read_page"), CTX);
     expect(out.label).toBe("Read example.test");
+  });
+});
+
+/**
+ * The driven-tab frame, and who keeps it.
+ *
+ * Owner decision 2026-09-13: tabs Atlarix OPENED keep the green border for the
+ * whole conversation — they are demonstrably its workspace and it will very
+ * likely touch them again next message, so a border that flickers off and on
+ * between messages says less than one that stays. The user's own tabs clear the
+ * moment the turn ends, because the agent has stopped and a border on a page
+ * they were reading is a lie.
+ */
+describe("the frame's scope", () => {
+  /** Overlay ops seen by the page, so the test asserts on what was DISPATCHED. */
+  function overlayOps(): Array<{ state: string }> {
+    return injected.filter(
+      (r): r is { op: "overlay"; state: string } =>
+        (r as { op?: string }).op === "overlay",
+    );
+  }
+
+  it("clears the USER'S tab at the end of a turn", async () => {
+    // tabs[0] is the user's: groupId -1.
+    await dispatchTool(call("read_page"), CTX);
+    injected.length = 0;
+    await clearDrivenTabs("turn");
+    expect(overlayOps().map((o) => o.state)).toEqual(["off"]);
+  });
+
+  it("KEEPS the agent's own tab at the end of a turn", async () => {
+    tabs[0].groupId = 42;
+    await dispatchTool(call("read_page"), CTX);
+    injected.length = 0;
+    await clearDrivenTabs("turn");
+    expect(overlayOps()).toEqual([]);
+  });
+
+  it("clears the agent's tab when the CONVERSATION ends", async () => {
+    tabs[0].groupId = 42;
+    await dispatchTool(call("read_page"), CTX);
+    injected.length = 0;
+    await clearDrivenTabs("all");
+    expect(overlayOps().map((o) => o.state)).toEqual(["off"]);
+  });
+
+  it("does not try to clear the same tab twice", async () => {
+    await dispatchTool(call("read_page"), CTX);
+    await clearDrivenTabs("all");
+    injected.length = 0;
+    await clearDrivenTabs("all");
+    expect(overlayOps()).toEqual([]);
   });
 });

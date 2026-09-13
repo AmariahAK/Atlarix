@@ -664,6 +664,26 @@ async function send(): Promise<void> {
           // indicator has to come back or the panel goes quiet mid-task.
           if (!working) working = append(workingRow());
         },
+        onRoundRestart(attempt, reason) {
+          // The stream died and cannot be resumed, so everything rendered for
+          // this round is void. Leaving it would append the retry's answer to
+          // the corpse of the first attempt — the user reads half a sentence
+          // twice and concludes the model is broken.
+          bubble?.remove();
+          bubble = null;
+          streamed = "";
+          settleThinking(thinking);
+          thinking?.remove();
+          thinking = null;
+          thought = "";
+          clearWorking();
+          working = append(workingRow());
+          // SAID OUT LOUD. A silent retry that succeeds hides a flaky
+          // connection; one that fails reads as a single unexplained stall.
+          setStatus(
+            `Connection dropped (${reason}) — retrying, attempt ${attempt + 1}.`,
+          );
+        },
         onToolResult(call, content, label) {
           const chip = chips.get(call.id);
           if (chip) fillChip(chip, content, label);
@@ -677,6 +697,7 @@ async function send(): Promise<void> {
     messages = [...messages, ...outcome.messages];
     await persist();
 
+    setStatus("");
     if (outcome.kind === "error") {
       const { error } = outcome;
       if (error.status === 401 || error.code === "not_signed_in") {
@@ -694,10 +715,10 @@ async function send(): Promise<void> {
     append(errorBubble(err instanceof Error ? err.message : String(err)));
   } finally {
     setRunning(false);
-    // However the turn ended — finished, stopped, or failed. A green border
-    // left on a page after the agent has stopped is a lie about what is
-    // happening, and that kind of lie makes the honest version untrustworthy.
-    void clearDrivenTabs();
+    // The USER'S tabs lose the frame now; the agent's own group keeps it for
+    // the rest of the conversation, because those tabs remain its workspace and
+    // it will very likely touch them again on the next message.
+    void clearDrivenTabs("turn");
     void setGroupTitle(windowId, "Atlarix");
     void nameConversation(model);
     void refreshDrawer();
@@ -877,6 +898,7 @@ async function refreshDrawer(): Promise<void> {
 }
 
 async function openSession(id: string): Promise<void> {
+  void clearDrivenTabs("all");
   cancelEdit();
   sessionId = id;
   messages = await loadSession(id);
@@ -886,6 +908,8 @@ async function openSession(id: string): Promise<void> {
 }
 
 function startNewChat(): void {
+  // The tabs may still be open, but they belong to a conversation that is over.
+  void clearDrivenTabs("all");
   cancelEdit();
   sessionId = newSessionId();
   messages = [];

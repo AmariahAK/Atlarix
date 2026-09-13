@@ -79,9 +79,22 @@ export class CoreError extends Error {
     this.requiredCents = requiredCents;
   }
 
-  /** True when retrying unchanged could work. */
+  /**
+   * True when retrying the identical request could work.
+   *
+   * **`status === 0` IS THE IMPORTANT ONE, and it was missing.** A connection
+   * that drops mid-stream never produces an HTTP status at all — `fetch`
+   * rejects with a bare `TypeError: network error`, the loop wraps it as
+   * `stream_failed` with status 0, and this getter said `false`. So the single
+   * most retryable failure there is was classified as permanent, and the user
+   * got a red "network error" one call before their answer.
+   *
+   * Everything else stays deliberate: a 402 is a decision about money and a 403
+   * is a decision about the account. Retrying either is asking the same question
+   * twice and being charged for the asking.
+   */
   get retryable(): boolean {
-    return this.status === 503 || this.status === 502;
+    return this.status === 0 || this.status === 502 || this.status === 503;
   }
 }
 

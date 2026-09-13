@@ -19,7 +19,12 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { CoreError, type CoreEvent, type ToolCall } from "../core/client";
-import { DOOM_LOOP_THRESHOLD, runTurn, type TurnArgs } from "./loop";
+import {
+  DOOM_LOOP_THRESHOLD,
+  MAX_STREAM_RETRIES,
+  runTurn,
+  type TurnArgs,
+} from "./loop";
 import type { ToolOutcome } from "../tools/dispatch";
 
 function toolCall(name: string, args: Record<string, unknown> = {}): ToolCall {
@@ -429,5 +434,126 @@ describe("Core refusing", () => {
     if (out.kind !== "error") return;
     expect(out.error).toBeInstanceOf(CoreError);
     expect(out.error.message).toContain("Failed to fetch");
+  });
+});
+
+/**
+ * Retrying a round.
+ *
+ * OBSERVED: a turn one call from its answer ended in a red "network error". Two
+ * things were wrong and fixing either alone would have left it broken —
+ * `retryable` was never consulted, AND a dropped connection has no HTTP status,
+ * so `retryable` said false for the single most retryable failure there is.
+ */
+describe("a dropped connection is retried", () => {
+  /** Fails `failures` times with `err`, then streams `then`. */
+  function flaky(failures: number, err: unknown, then: CoreEvent[]) {
+    let n = 0;
+    const attempts = () => n;
+    const stream = async function* () {
+      n += 1;
+      if (n <= failures) throw err;
+      for (const e of then) yield e;
+    } as unknown as TurnArgs["stream"];
+    return { stream, attempts };
+  }
+
+  const NETWORK = new TypeError("network error");
+
+  it("recovers from a mid-stream network failure", async () => {
+    const { stream, attempts } = flaky(1, NETWORK, textRound("The answer."));
+    const out = await runTurn({ ...BASE, stream });
+    expect(out.kind).toBe("complete");
+    expect(attempts()).toBe(2);
+    expect(out.messages).toEqual([
+      { role: "assistant", content: "The answer." },
+    ]);
+  });
+
+  it("throws the PARTIAL away, so the answer is not printed twice", async () => {
+    // A dead stream cannot be resumed. Whatever it emitted is void, and the
+    // retry starts from nothing — the message must be the retry's text alone.
+    let n = 0;
+    const stream = async function* () {
+      n += 1;
+      yield { type: "text", delta: "Half a sent" } as CoreEvent;
+      if (n === 1) throw new TypeError("network error");
+      yield { type: "text", delta: "ence." } as CoreEvent;
+      yield { type: "done", finishReason: "stop" } as CoreEvent;
+    } as unknown as TurnArgs["stream"];
+
+    const out = await runTurn({ ...BASE, stream });
+    expect(out.messages).toEqual([
+      { role: "assistant", content: "Half a sentence." },
+    ]);
+  });
+
+  it("tells the panel to discard what it rendered", async () => {
+    // Without this the retry's output is appended to the corpse of the first
+    // attempt and the user reads the same sentence twice.
+    const { stream } = flaky(1, NETWORK, textRound("ok"));
+    const restarts: Array<[number, string]> = [];
+    await runTurn({
+      ...BASE,
+      stream,
+      events: { onRoundRestart: (n, why) => restarts.push([n, why]) },
+    });
+    expect(restarts).toEqual([[1, "network error"]]);
+  });
+
+  it("gives up after a bounded number of attempts", async () => {
+    // A request that has failed three times is not having a bad moment, and a
+    // loop that keeps asking turns one outage into a bill.
+    const { stream, attempts } = flaky(99, NETWORK, textRound("never"));
+    const out = await runTurn({ ...BASE, stream });
+    expect(out.kind).toBe("error");
+    expect(attempts()).toBe(MAX_STREAM_RETRIES + 1);
+  });
+
+  it("retries a 503, because Core being briefly down is not a decision", async () => {
+    const { stream, attempts } = flaky(
+      1,
+      new CoreError(503, "core_unavailable", "down"),
+      textRound("back"),
+    );
+    expect((await runTurn({ ...BASE, stream })).kind).toBe("complete");
+    expect(attempts()).toBe(2);
+  });
+
+  it("NEVER retries a 402 — that is a decision about money", async () => {
+    const { stream, attempts } = flaky(
+      99,
+      new CoreError(402, "insufficient_credit", "no credit", 250),
+      textRound("never"),
+    );
+    const out = await runTurn({ ...BASE, stream });
+    expect(out.kind).toBe("error");
+    expect(attempts()).toBe(1);
+  });
+
+  it("never retries a banned account", async () => {
+    const { stream, attempts } = flaky(
+      99,
+      new CoreError(403, "account_banned", "banned"),
+      textRound("never"),
+    );
+    expect((await runTurn({ ...BASE, stream })).kind).toBe("error");
+    expect(attempts()).toBe(1);
+  });
+
+  it("stops retrying the moment the user presses Stop", async () => {
+    const controller = new AbortController();
+    let n = 0;
+    const stream = async function* () {
+      n += 1;
+      controller.abort();
+      throw new TypeError("network error");
+      // eslint-disable-next-line no-unreachable
+      yield undefined as never;
+    } as unknown as TurnArgs["stream"];
+
+    const out = await runTurn({ ...BASE, stream, signal: controller.signal });
+    expect(out.kind).toBe("aborted");
+    expect(n).toBe(1);
   });
 });

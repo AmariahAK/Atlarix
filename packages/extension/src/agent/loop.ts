@@ -62,6 +62,23 @@ import { TOOL_SCHEMAS } from "../tools/schemas";
  */
 export const DOOM_LOOP_THRESHOLD = 3;
 
+/**
+ * How many times one round may be re-asked after a RETRYABLE failure.
+ *
+ * Two, and the ceiling matters more than the number: a request that has failed
+ * three times is not having a bad moment, and a loop that keeps asking turns one
+ * outage into a bill. Non-retryable errors — 402, 403, a refused model — never
+ * reach this at all.
+ */
+export const MAX_STREAM_RETRIES = 2;
+
+/** Short, then longer. A blip clears in under a second; an outage does not. */
+const RETRY_BACKOFF_MS = [500, 1500];
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /** Everything the UI is told while a turn runs. */
 export interface AgentEvents {
   /** A round is beginning. `round` is 1-based. */
@@ -69,6 +86,14 @@ export interface AgentEvents {
   onText?(delta: string): void;
   /** The model's thinking, on the tiers that produce any. */
   onReasoning?(delta: string): void;
+  /**
+   * A retryable failure killed the round; everything streamed so far is void.
+   *
+   * The panel MUST discard the partial text and thinking it has rendered — a
+   * dead stream cannot be resumed, so the retry starts from nothing and its
+   * output would otherwise be appended to the corpse of the first attempt.
+   */
+  onRoundRestart?(attempt: number, reason: string): void;
   onToolCall?(call: ToolCall): void;
   /** `label` is the human phrase for the transcript, known only after the call. */
   onToolResult?(call: ToolCall, content: string, label?: string): void;
@@ -176,44 +201,71 @@ export async function runTurn(args: TurnArgs): Promise<TurnOutcome> {
 
     let text = "";
     let calls: ToolCall[] = [];
+    let attempt = 0;
 
-    try {
-      for await (const event of stream(
-        {
-          model: args.model,
-          messages: history,
-          tools: TOOL_SCHEMAS,
-          signal: args.signal,
-        },
-        fetch,
-      )) {
-        if (event.type === "text") {
-          text += event.delta;
-          events.onText?.(event.delta);
-        } else if (event.type === "reasoning") {
-          // NOT accumulated into `text`, and never sent back to the provider.
-          // Reasoning is a view of this turn, not part of the conversation: a
-          // model handed its own previous thinking as assistant content starts
-          // treating it as something it said out loud.
-          events.onReasoning?.(event.delta);
-        } else if (event.type === "tool-calls") {
-          calls = event.calls;
+    // ── One round, with retries ───────────────────────────────────────────────
+    //
+    // RETRYING AT THE ROUND, not inside the stream. A stream that died halfway
+    // has already emitted text to the UI and into `text`; there is no way to
+    // resume it, so the only honest move is to throw the partial away and ask
+    // again. `onRoundRestart` is what tells the panel to do the same — without
+    // it the retry's answer is appended to the corpse of the first one and the
+    // user reads the same sentence twice.
+    for (;;) {
+      text = "";
+      calls = [];
+      try {
+        for await (const event of stream(
+          {
+            model: args.model,
+            messages: history,
+            tools: TOOL_SCHEMAS,
+            signal: args.signal,
+          },
+          fetch,
+        )) {
+          if (event.type === "text") {
+            text += event.delta;
+            events.onText?.(event.delta);
+          } else if (event.type === "reasoning") {
+            // NOT accumulated into `text`, and never sent back to the provider.
+            // Reasoning is a view of this turn, not part of the conversation: a
+            // model handed its own previous thinking as assistant content starts
+            // treating it as something it said out loud.
+            events.onReasoning?.(event.delta);
+          } else if (event.type === "tool-calls") {
+            calls = event.calls;
+          }
         }
+        break;
+      } catch (err) {
+        // An abort arrives here as a DOMException from fetch, not as a CoreError,
+        // and calling it an error would show the user a failure for something
+        // they did on purpose.
+        if (args.signal?.aborted)
+          return { kind: "aborted", messages: produced };
+        const error =
+          err instanceof CoreError
+            ? err
+            : new CoreError(
+                0,
+                "stream_failed",
+                err instanceof Error ? err.message : String(err),
+              );
+
+        if (!error.retryable || attempt >= MAX_STREAM_RETRIES) {
+          return { kind: "error", messages: produced, error };
+        }
+
+        attempt += 1;
+        // SAID OUT LOUD, not hidden. A silent retry that then fails reads as one
+        // long unexplained failure, and a silent retry that succeeds hides that
+        // the connection is flaky — which is something the user may want to know.
+        events.onRoundRestart?.(attempt, error.message);
+        await delay(RETRY_BACKOFF_MS[attempt - 1] ?? 2000);
+        if (args.signal?.aborted)
+          return { kind: "aborted", messages: produced };
       }
-    } catch (err) {
-      // An abort arrives here as a DOMException from fetch, not as a CoreError,
-      // and calling it an error would show the user a failure for something
-      // they did on purpose.
-      if (args.signal?.aborted) return { kind: "aborted", messages: produced };
-      const error =
-        err instanceof CoreError
-          ? err
-          : new CoreError(
-              0,
-              "stream_failed",
-              err instanceof Error ? err.message : String(err),
-            );
-      return { kind: "error", messages: produced, error };
     }
 
     // The assistant's own message goes in BEFORE the tool results, tool_calls

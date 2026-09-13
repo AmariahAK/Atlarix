@@ -554,17 +554,43 @@ async function markDriven(tabId: number): Promise<void> {
 }
 
 /**
- * Take every frame down. Called when the turn ends, however it ended.
+ * Take frames down, and the scope is the whole design.
  *
- * INCLUDING ON AN ABORT AND ON AN ERROR. A green border left on a page after
- * the agent has stopped is a lie about what is happening, and it is the kind of
- * lie that makes the honest version untrustworthy.
+ * `"turn"` — the end of a turn. The USER'S OWN tabs clear: the agent has
+ * stopped, and a green border on a page they were reading is a lie about what
+ * is happening. Tabs in the AGENT'S OWN GROUP keep theirs, because they remain
+ * its workspace for the rest of the conversation and it will very likely touch
+ * them again on the next message. A border that flickers off and on between
+ * messages says less than one that stays.
+ *
+ * `"all"` — the conversation ended, or a new one started. Everything clears,
+ * including the agent's own tabs: the tabs may still be open but they belong to
+ * a conversation that is over.
+ *
+ * A tab that has gone away simply fails its take-down; that is not an error and
+ * never fails the turn that is ending.
  */
-export async function clearDrivenTabs(): Promise<void> {
+export async function clearDrivenTabs(
+  scope: "turn" | "all" = "all",
+): Promise<void> {
   const tabs = [...marked];
-  marked.clear();
+  const keep: number[] = [];
+
   await Promise.all(
     tabs.map(async (tabId) => {
+      if (scope === "turn") {
+        // Asked of the BROWSER, not of a list we keep: a group id outlives its
+        // group, so a remembered "this was ours" can point at whatever group has
+        // since taken that number.
+        try {
+          if (await isAgentTab(tabId)) {
+            keep.push(tabId);
+            return;
+          }
+        } catch {
+          /* unknowable — clear it, which is the conservative direction */
+        }
+      }
       try {
         await runInPage(tabId, { op: "overlay", state: "off" });
       } catch {
@@ -572,6 +598,9 @@ export async function clearDrivenTabs(): Promise<void> {
       }
     }),
   );
+
+  marked.clear();
+  for (const tabId of keep) marked.add(tabId);
 }
 
 async function resolveForAction(
