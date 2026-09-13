@@ -53,6 +53,7 @@ import {
   pressKey,
 } from "../page/trusted-input";
 import { remember } from "../memory/store";
+import { executeRecall, type RecallArgs } from "./recall";
 import { api } from "../shared/browser-api";
 import { TOOL_NAMES, type ToolName } from "./schemas";
 
@@ -128,6 +129,19 @@ export interface ToolContext {
    * different screen from the panel the user is typing into.
    */
   windowId: number;
+  /**
+   * The conversation `recall` searches when it is not told otherwise.
+   *
+   * INJECTED BY THE HARNESS, NEVER NAMED BY THE MODEL — and the desktop's
+   * version of this tool is why that is written down. There, the current-session
+   * id was a documented parameter that nothing ever supplied, so a model that
+   * correctly omitted it was told there was nothing to search and its only way
+   * forward was the WIDER scope. A recall tool whose fallback is every
+   * conversation is a recall tool that leaks between them.
+   */
+  sessionId: string;
+  /** The conversation's own name, so a hit reads as a place rather than a uuid. */
+  sessionTitle?: string;
 }
 
 function argsOf(call: ToolCall): Record<string, unknown> {
@@ -300,6 +314,8 @@ export async function dispatchTool(
         return await closeTab(args);
       case "remember":
         return await rememberFact(args);
+      case "recall":
+        return await recallFromHistory(args, ctx);
     }
   } catch (err) {
     // The backstop, and it should almost never fire — each handler converts its
@@ -868,6 +884,34 @@ async function tabUrl(tabId: number): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * Looking behind a summary.
+ *
+ * The label names the QUERY, not the tool: a chip reading "Recalled" says
+ * nothing, and this is the one tool whose whole purpose is visible in what it
+ * was asked for.
+ */
+async function recallFromHistory(
+  args: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<ToolOutcome> {
+  const mode = args.mode === "read" ? "read" : "search";
+  const content = await executeRecall(args as RecallArgs, {
+    currentSessionId: ctx.sessionId,
+    currentTitle: ctx.sessionTitle,
+  });
+  const query = typeof args.query === "string" ? args.query.trim() : "";
+  return {
+    content,
+    label:
+      mode === "read"
+        ? "Reading earlier turns"
+        : query
+          ? `Looking back for "${query}"`
+          : "Looking back through this conversation",
+  };
 }
 
 async function rememberFact(

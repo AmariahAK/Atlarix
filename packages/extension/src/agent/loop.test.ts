@@ -55,7 +55,7 @@ const BASE = {
   model: "core-1",
   system: "you are a test",
   messages: [{ role: "user" as const, content: "hello" }],
-  tools: { windowId: 1 },
+  tools: { windowId: 1, sessionId: "s1" },
 };
 
 function textRound(text: string): CoreEvent[] {

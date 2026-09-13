@@ -69,6 +69,11 @@ import {
   saveSession,
 } from "../sessions/store";
 import { generateTitle } from "../sessions/title";
+import {
+  appendArchive,
+  deleteArchive,
+  deleteArchives,
+} from "../sessions/archive";
 import { renderMarkdown } from "./markdown";
 import { chooseModel, optionsFor, shortModelName } from "./model-choice";
 import { TOOL_SCHEMAS } from "../tools/schemas";
@@ -118,6 +123,11 @@ const providerButtons = Array.from(
 );
 
 let sessionId = newSessionId();
+/**
+ * The open conversation's name, so `recall` can address a hit as a place rather
+ * than a uuid. Refreshed whenever the drawer is, and when the generator names it.
+ */
+let currentTitle = "";
 let messages: CoreMessage[] = [];
 let running: AbortController | null = null;
 
@@ -759,9 +769,16 @@ async function send(): Promise<void> {
   // A new message is a request for the newest thing, so follow again.
   following = true;
 
-  const userIndex = messages.filter((m) => m.role === "user").length;
-  messages = [...messages, { role: "user", content: text }];
+  const userIndex = messages.filter(
+    (m) => m.role === "user" && !isCompactionMarker(m),
+  ).length;
+  const userMessage: CoreMessage = { role: "user", content: text };
+  messages = [...messages, userMessage];
   append(userBubble(text, userIndex));
+  // ARCHIVED AS IT ARRIVES, not at the end of the turn. Compaction rewrites the
+  // live transcript in place, so the archive is the only copy of what was
+  // actually said — and it has to be written before anything can rewrite it.
+  void appendArchive(sessionId, [userMessage]);
   await persist();
 
   const controller = new AbortController();
@@ -821,7 +838,7 @@ async function send(): Promise<void> {
       // sent and what is kept are the same thing. `pruneForModel` remains in
       // `sessions/store.ts` as the disk backstop it always should have been.
       messages,
-      tools: { windowId },
+      tools: { windowId, sessionId, sessionTitle: currentTitle },
       signal: controller.signal,
       events: {
         onReasoning(delta) {
@@ -894,6 +911,7 @@ async function send(): Promise<void> {
     clearWorking();
     settleThinking(thinking);
     messages = [...messages, ...outcome.messages];
+    void appendArchive(sessionId, outcome.messages);
     await persist();
 
     setStatus("");
@@ -953,6 +971,7 @@ async function nameConversation(model: string): Promise<void> {
   // The user may have moved on while this was in flight. Writing the title onto
   // whatever conversation is open NOW would rename the wrong one.
   if (sessionId !== id) return;
+  currentTitle = title;
   await saveSession(id, await loadSession(id), { title });
   await refreshDrawer();
 }
@@ -979,7 +998,16 @@ async function persist(title?: string): Promise<void> {
   // how a new tool ends up being the one that does not update it.
   refreshContextBar();
   try {
-    await saveSession(sessionId, messages, title ? { title } : {});
+    const { evicted } = await saveSession(
+      sessionId,
+      messages,
+      title ? { title } : {},
+    );
+    // `saveSession` drops an evicted conversation's transcript; its archive is a
+    // second key under a second name and would otherwise be left behind forever.
+    if (evicted.length > 0) {
+      void deleteArchives(evicted.map((sn) => sn.id));
+    }
   } catch {
     // Storage full, most likely. Not worth ending a turn over, and the
     // conversation on screen is still the real one.
@@ -1049,6 +1077,11 @@ async function refreshDrawer(): Promise<void> {
       if (meta.id === sessionId) item.classList.add("row--current");
       sessionList.append(
         withAction(item, "Delete", () => {
+          // The archive goes with it. An archive whose conversation is gone is
+          // invisible, unreachable and still counts against the same quota —
+          // and it holds the user's own words, which is the last thing that
+          // should outlive a delete they asked for.
+          void deleteArchive(meta.id);
           void deleteSession(meta.id).then(async () => {
             if (meta.id === sessionId) startNewChat();
             await refreshDrawer();
@@ -1104,6 +1137,7 @@ async function openSession(id: string): Promise<void> {
   void clearDrivenTabs("all");
   cancelEdit();
   sessionId = id;
+  currentTitle = (await listSessions()).find((sn) => sn.id === id)?.title ?? "";
   messages = await loadSession(id);
   renderConversation(messages);
   showDrawer(false);
@@ -1115,6 +1149,7 @@ function startNewChat(): void {
   void clearDrivenTabs("all");
   cancelEdit();
   sessionId = newSessionId();
+  currentTitle = "";
   messages = [];
   renderConversation(messages);
   setStatus("");
@@ -1490,6 +1525,7 @@ eraseButton?.addEventListener("click", () => {
     for (const grant of await listGrants())
       await revokeHostAccess(grant.origin);
     await revokeAll();
+    await deleteArchives((await listSessions()).map((sn) => sn.id));
     await deleteAllSessions();
     await forgetAll();
     startNewChat();

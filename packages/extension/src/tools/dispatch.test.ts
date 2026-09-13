@@ -23,7 +23,7 @@ import { clearDrivenTabs, dispatchTool } from "./dispatch";
 import { TOOL_NAMES, TOOL_SCHEMAS } from "./schemas";
 import type { ToolCall } from "../core/client";
 
-const CTX = { windowId: 1 };
+const CTX = { windowId: 1, sessionId: "s1" };
 
 function call(name: string, args: Record<string, unknown> = {}): ToolCall {
   return {

@@ -42,6 +42,7 @@ export const TOOL_NAMES = [
   "open_tab",
   "close_tab",
   "remember",
+  "recall",
 ] as const;
 
 export type ToolName = (typeof TOOL_NAMES)[number];
@@ -352,6 +353,57 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
           },
         },
         required: ["fact"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "recall",
+      description:
+        "Look up what was said earlier — in this conversation or an older one. " +
+        "Use it when you are missing a detail that was established before a " +
+        "summary, instead of guessing or asking the user to repeat themselves. " +
+        "mode:'search' finds a phrase and returns snippets addressed as " +
+        "'conversation · turn N · role'; mode:'read' returns consecutive turns " +
+        "from one conversation, which is how you read around a hit. Earlier " +
+        "tool results are kept only as excerpts, so if you need the whole of a " +
+        "page you read before, read the page again — this finds what was SAID.",
+      parameters: {
+        type: "object",
+        properties: {
+          mode: {
+            type: "string",
+            enum: ["search", "read"],
+            description:
+              "'search' for a phrase, 'read' for consecutive turns. Defaults " +
+              "to 'search'.",
+          },
+          query: {
+            type: "string",
+            description:
+              "The phrase to find. Required in search mode. A distinctive word " +
+              "beats a sentence — this is a plain substring match, not a " +
+              "semantic one.",
+          },
+          conversation: {
+            type: "string",
+            description:
+              "Which conversation: leave it out for this one, 'all' for every " +
+              "conversation on this device, or part of an earlier " +
+              "conversation's title.",
+          },
+          offset: {
+            type: "number",
+            description: "Turns to skip in read mode. Defaults to 0.",
+          },
+          limit: {
+            type: "number",
+            description: "How many hits or turns to return.",
+          },
+        },
+        required: [],
         additionalProperties: false,
       },
     },

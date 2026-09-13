@@ -174,7 +174,10 @@ export function compactionMarker(
  *
  * The marker does NOT tell the model to read the page again. That exact wording
  * drove a re-read loop on the desktop: the model saw an instruction, obeyed it,
- * produced a fresh result, and the next compaction dropped that one too.
+ * produced a fresh result, and the next compaction dropped that one too. It
+ * points at `recall` instead, which is a different thing entirely — the archive
+ * holds an excerpt of this very result, so looking there costs nothing and
+ * cannot start the loop.
  */
 export function microcompactStaleToolOutputs(
   messages: CoreMessage[],
@@ -198,7 +201,9 @@ export function microcompactStaleToolOutputs(
     tokensDropped += tokens;
     out[i] = {
       ...m,
-      content: `[Earlier tool output omitted to save space (~${tokens} tokens).]`,
+      content:
+        `[Earlier tool output omitted to save space (~${tokens} tokens). ` +
+        `An excerpt is searchable with \`recall\`.]`,
     };
   }
 
