@@ -11,7 +11,7 @@
  *
  * The one thing that is NOT a result is a missing site grant, and that is the
  * most important shape in this file. Reading an un-granted origin returns
- * `needsGrant` instead of a refusal, because the loop can do something about
+ * `needsApproval` instead of a refusal, because the loop can do something about
  * it that the model cannot: ask the user. `chrome.permissions.request()`
  * requires a user gesture and is unreachable from anywhere the loop runs, so
  * the request has to travel out to a button in the panel and back. That is the
@@ -33,12 +33,25 @@ import {
   MAX_FIND_MATCHES,
   type A11yFindResult,
   type A11ySnapshot,
+  type PageActionResult,
 } from "@/lib/browser/page-scripts";
 import type { ToolCall } from "../core/client";
 import { activeTab, runInPage } from "../page/inject";
 import { canActOn } from "../permissions/host-access";
 import { originOf } from "../permissions/site-grants";
 import { adoptTab, isAgentTab } from "../tabs/group";
+import {
+  classifyAction,
+  type AgentAction,
+  type ActionTarget,
+} from "../permissions/always-ask";
+import {
+  attach,
+  isNamedKey,
+  movePointer,
+  namedKeys,
+  pressKey,
+} from "../page/trusted-input";
 import { remember } from "../memory/store";
 import { api } from "../shared/browser-api";
 import { TOOL_NAMES, type ToolName } from "./schemas";
@@ -51,23 +64,48 @@ import { TOOL_NAMES, type ToolName } from "./schemas";
  * though the page were broken. Naming the desktop is the actual answer to
  * "then how do I do this", not an advert.
  */
-const READ_ONLY_HINT =
-  " Refs are stable while the page stays loaded. This build can READ pages but" +
-  " not click or type in them — for that, use Atlarix's desktop app.";
+const ACT_HINT =
+  ' Act on any ref with click or fill (e.g. click with ref:"e3"). Refs are' +
+  " stable while the page stays loaded and are invalidated by a reload or a" +
+  " navigation.";
 
-const READ_ONLY_FIND_HINT = READ_ONLY_HINT;
+const FIND_ACT_HINT = ACT_HINT;
 
 const EMPTY_FIND_HINT =
   " Try fewer or different words, or read_page to see everything that is there.";
+
+/**
+ * Something only the user can authorise.
+ *
+ * TWO KINDS, ONE CHANNEL, and they share it because they are the same shape of
+ * problem: the loop cannot decide, and the panel is the only thing that can ask.
+ *
+ *   `host`    — an origin the user has not allowed. `permissions.request()`
+ *               needs a user gesture and is unreachable from the loop.
+ *   `action`  — an action a site grant can never unlock: entering a password,
+ *               filling card details, clicking something that looks like it
+ *               deletes or pays. `permissions/always-ask.ts` decides, and its
+ *               verdict is deliberately NOT overridable by a grant.
+ */
+export type Approval =
+  | { kind: "host"; url: string; origin: string }
+  | {
+      kind: "action";
+      /** Shown to the user. NEVER contains the value being typed. */
+      reason: string;
+      category: string;
+      /** What is about to happen, in the page's own words. */
+      summary: string;
+    };
 
 export interface ToolOutcome {
   /** What the model is told. Always present, even on failure. */
   content: string;
   /**
-   * Set when the call needs an origin the user has not allowed yet. The loop
-   * asks, and retries this same call once if they say yes.
+   * Set when the call cannot proceed without the user. The loop asks, and
+   * retries this same call once if they say yes.
    */
-  needsGrant?: { url: string; origin: string };
+  needsApproval?: Approval;
 }
 
 /** Everything the dispatcher needs that it should not go and find for itself. */
@@ -139,7 +177,7 @@ async function requireAccess(url: string): Promise<ToolOutcome | null> {
   if (await canActOn(url)) return null;
   return {
     content: `Waiting for the user to allow ${origin}.`,
-    needsGrant: { url, origin },
+    needsApproval: { kind: "host", url, origin },
   };
 }
 
@@ -205,6 +243,16 @@ export async function dispatchTool(
         return await readPage(args);
       case "find_on_page":
         return await findOnPage(args);
+      case "click":
+        return await clickRef(args);
+      case "fill":
+        return await fillRef(args);
+      case "press_key":
+        return await pressKeyOn(args);
+      case "hover":
+        return await hoverRef(args);
+      case "scroll":
+        return await scrollPage(args);
       case "list_tabs":
         return await listTabs();
       case "open_tab":
@@ -246,7 +294,7 @@ async function readPage(args: Record<string, unknown>): Promise<ToolOutcome> {
   return {
     content: wrapUntrustedData(
       `web:${origin}`,
-      `${header}\n${formatSnapshot(snap, { actHint: READ_ONLY_HINT })}`,
+      `${header}\n${formatSnapshot(snap, { actHint: ACT_HINT })}`,
     ),
   };
 }
@@ -273,7 +321,7 @@ async function findOnPage(args: Record<string, unknown>): Promise<ToolOutcome> {
     content: wrapUntrustedData(
       `web:${origin}`,
       `Tab ${tab.id} — ${res.url}\n${formatFind(res, {
-        actHint: READ_ONLY_FIND_HINT,
+        actHint: FIND_ACT_HINT,
         emptyFindHint: EMPTY_FIND_HINT,
       })}`,
     ),
@@ -389,6 +437,280 @@ async function closeTab(args: Record<string, unknown>): Promise<ToolOutcome> {
   }
   await api().tabs.remove(id);
   return { content: `Closed tab ${id}.` };
+}
+
+/**
+ * Resolve an element and decide whether the user has to be asked.
+ *
+ * THIS IS WHERE `always-ask.ts` FINALLY HAS A CALLER. It has had 44 tests and no
+ * production use since Phase 0, which is the worst state for a safety component:
+ * it looks like protection and protects nothing. The classifier is pure and
+ * decides from what the element IS — a password field, a card number, a button
+ * in a payment form, a "Delete permanently" label.
+ *
+ * THE VERDICT IS NOT OVERRIDABLE BY A SITE GRANT, deliberately. Allowing a site
+ * means "you may read and act here"; it does not mean "you may type my password
+ * or buy something". Those stay one question each, every time, and the module's
+ * docblock says so at length.
+ *
+ * The value is passed to the classifier and NEVER into the reason it returns —
+ * the reason is rendered, and may be logged, on the path where that value is a
+ * password.
+ */
+async function resolveForAction(
+  action: AgentAction,
+  args: Record<string, unknown>,
+  value?: string | boolean,
+): Promise<
+  | { ok: false; outcome: ToolOutcome }
+  | {
+      ok: true;
+      tab: { id: number; url: string };
+      resolved: PageActionResult;
+    }
+> {
+  const tab = await targetTab(args.tab_id);
+  if (typeof tab === "string") return { ok: false, outcome: { content: tab } };
+
+  const denied = await requireAccess(tab.url);
+  if (denied) return { ok: false, outcome: denied };
+
+  const resolved = await runInPage<PageActionResult>(tab.id, {
+    op: "resolve",
+    ref: typeof args.ref === "string" ? args.ref : undefined,
+    selector: typeof args.selector === "string" ? args.selector : undefined,
+  });
+  if (!resolved.ok) {
+    return {
+      ok: false,
+      outcome: { content: resolved.error ?? "Could not find that element." },
+    };
+  }
+
+  const verdict = classifyAction({
+    action,
+    url: tab.url,
+    value,
+    target: resolved.target as ActionTarget | undefined,
+  });
+  if (verdict.ask) {
+    const what = resolved.label || resolved.tag || "this control";
+    return {
+      ok: false,
+      outcome: {
+        content: `Waiting for the user to approve: ${action} on ${what}.`,
+        needsApproval: {
+          kind: "action",
+          reason: verdict.reason ?? "This needs your confirmation.",
+          category: verdict.category ?? "destructive",
+          summary: `${verbFor(action)} "${what}" on ${originOf(tab.url) ?? tab.url}?`,
+        },
+      },
+    };
+  }
+
+  return { ok: true, tab, resolved };
+}
+
+function verbFor(action: AgentAction): string {
+  return action === "fill"
+    ? "Enter text into"
+    : action === "click"
+      ? "Click"
+      : "Act on";
+}
+
+async function clickRef(args: Record<string, unknown>): Promise<ToolOutcome> {
+  const gate = await resolveForAction("click", args);
+  if (!gate.ok) return gate.outcome;
+
+  const before = gate.resolved.url;
+  const result = await runInPage<PageActionResult>(gate.tab.id, {
+    op: "click",
+    ref: typeof args.ref === "string" ? args.ref : undefined,
+    selector: typeof args.selector === "string" ? args.selector : undefined,
+  });
+  if (!result.ok) return { content: result.error ?? "Click failed." };
+
+  // A click very often navigates, and a read issued immediately afterwards gets
+  // the OLD page — which the model then reports as "nothing changed".
+  await waitForLoad(gate.tab.id, 10_000);
+  const after = await tabUrl(gate.tab.id);
+  return {
+    content:
+      `Clicked "${result.label || result.tag}".` +
+      (after && after !== before
+        ? ` The page navigated to ${after} — read it to see what is there now; earlier refs no longer resolve.`
+        : ` The page did not navigate. Read it again to see what changed.`),
+  };
+}
+
+async function fillRef(args: Record<string, unknown>): Promise<ToolOutcome> {
+  const raw = args.value;
+  if (typeof raw !== "string" && typeof raw !== "boolean") {
+    return {
+      content:
+        'fill needs a `value` (the text to enter). Re-issue with value set, e.g. {"ref":"e7","value":"hello"}.',
+    };
+  }
+  const gate = await resolveForAction("fill", args, raw);
+  if (!gate.ok) return gate.outcome;
+
+  const result = await runInPage<PageActionResult>(gate.tab.id, {
+    op: "fill",
+    ref: typeof args.ref === "string" ? args.ref : undefined,
+    selector: typeof args.selector === "string" ? args.selector : undefined,
+    value: raw,
+  });
+  if (!result.ok) return { content: result.error ?? "Fill failed." };
+  return {
+    content:
+      `Filled ${result.label ? `"${result.label}"` : `the <${result.tag}>`}. ` +
+      `Nothing was submitted — click the submit button, or press_key Enter if this is a tab Atlarix opened.`,
+  };
+}
+
+async function scrollPage(args: Record<string, unknown>): Promise<ToolOutcome> {
+  const direction = args.direction;
+  if (
+    direction !== "up" &&
+    direction !== "down" &&
+    direction !== "top" &&
+    direction !== "bottom"
+  ) {
+    return {
+      content: 'scroll needs a `direction`: "up", "down", "top" or "bottom".',
+    };
+  }
+  const tab = await targetTab(args.tab_id);
+  if (typeof tab === "string") return { content: tab };
+  const denied = await requireAccess(tab.url);
+  if (denied) return denied;
+
+  const result = await runInPage<PageActionResult>(tab.id, {
+    op: "scroll",
+    direction,
+    amount: typeof args.amount === "number" ? args.amount : undefined,
+  });
+  const at = result.scrollY ?? 0;
+  const max = result.scrollMax ?? 0;
+  return {
+    content:
+      max <= 0
+        ? "The page does not scroll — it all fits on one screen."
+        : `Scrolled to ${at} of ${max}px.` +
+          (at >= max - 2
+            ? " That is the bottom."
+            : " Read the page again to see what is now in view."),
+  };
+}
+
+/**
+ * The two actions that need a debugger, and the boundary that keeps them honest.
+ *
+ * Attaching `chrome.debugger` shows a banner on the tab and EVICTS DevTools from
+ * it. Doing that to a tab the user was reading is not a trade we get to make on
+ * their behalf, so `trusted-input.ts` refuses any tab outside the agent's own
+ * group — checked against the browser, not against a list we keep.
+ *
+ * The refusal here has to be USEFUL rather than merely correct: a model told
+ * only "not permitted" will try again. It is told what to do instead.
+ */
+async function requireAgentTab(
+  args: Record<string, unknown>,
+  what: string,
+): Promise<
+  | { ok: false; outcome: ToolOutcome }
+  | { ok: true; tab: { id: number; url: string } }
+> {
+  const tab = await targetTab(args.tab_id);
+  if (typeof tab === "string") return { ok: false, outcome: { content: tab } };
+
+  if (!(await isAgentTab(tab.id))) {
+    return {
+      ok: false,
+      outcome: {
+        content:
+          `${what} needs a real keystroke or pointer move, which requires attaching a ` +
+          `debugger to the tab — that shows a banner and takes DevTools away from whoever ` +
+          `is using it. Tab ${tab.id} is the user's, so nothing was done. Either use click ` +
+          `on the button you wanted to trigger, or open the page yourself with open_tab and ` +
+          `work in that copy.`,
+      },
+    };
+  }
+  const denied = await requireAccess(tab.url);
+  if (denied) return { ok: false, outcome: denied };
+  return { ok: true, tab };
+}
+
+async function pressKeyOn(args: Record<string, unknown>): Promise<ToolOutcome> {
+  const key = typeof args.key === "string" ? args.key.trim() : "";
+  if (!isNamedKey(key)) {
+    return {
+      content: `Unknown key "${key}". This build can press: ${namedKeys().join(", ")}.`,
+    };
+  }
+  const gate = await requireAgentTab(args, "press_key");
+  if (!gate.ok) return gate.outcome;
+
+  // Enter submits. That is the whole point of a trusted keystroke, and it is
+  // also why it goes past the classifier: a form with a password in it is
+  // submitted by Enter exactly as it is by clicking Sign in.
+  const verdict = classifyAction({ action: "key", url: gate.tab.url });
+  if (verdict.ask) {
+    return {
+      content: `Waiting for the user to approve pressing ${key}.`,
+      needsApproval: {
+        kind: "action",
+        reason: verdict.reason ?? "This needs your confirmation.",
+        category: verdict.category ?? "destructive",
+        summary: `Press ${key} on ${originOf(gate.tab.url) ?? gate.tab.url}?`,
+      },
+    };
+  }
+
+  await attach(gate.tab.id);
+  await pressKey(gate.tab.id, key);
+  await waitForLoad(gate.tab.id, 10_000);
+  return {
+    content: `Pressed ${key}. Read the page to see what it did — ${key === "Enter" ? "this may have submitted a form and navigated" : "nothing is assumed to have changed"}.`,
+  };
+}
+
+async function hoverRef(args: Record<string, unknown>): Promise<ToolOutcome> {
+  const gate = await requireAgentTab(args, "hover");
+  if (!gate.ok) return gate.outcome;
+
+  // Resolve FIRST: a pointer event takes coordinates, not a node, and the rect
+  // is only meaningful after the element has been scrolled into view.
+  const resolved = await runInPage<PageActionResult>(gate.tab.id, {
+    op: "resolve",
+    ref: typeof args.ref === "string" ? args.ref : undefined,
+    selector: typeof args.selector === "string" ? args.selector : undefined,
+  });
+  if (!resolved.ok || !resolved.rect) {
+    return {
+      content: resolved.error ?? "Could not find that element to hover.",
+    };
+  }
+
+  await attach(gate.tab.id);
+  await movePointer(gate.tab.id, resolved.rect.x, resolved.rect.y);
+  return {
+    content:
+      `Pointer moved onto "${resolved.label || resolved.tag}". Read the page to see ` +
+      `whether anything opened — a hover changes nothing by itself.`,
+  };
+}
+
+/** The tab's URL now, for telling a navigation from a no-op. */
+async function tabUrl(tabId: number): Promise<string | null> {
+  try {
+    return (await api().tabs.get(tabId)).url ?? null;
+  } catch {
+    return null;
+  }
 }
 
 async function rememberFact(

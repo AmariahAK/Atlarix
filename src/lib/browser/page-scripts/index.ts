@@ -102,6 +102,55 @@ export interface A11yFindResult {
   viewport?: string;
 }
 
+/**
+ * The result of an ACTION op (click / fill / hover-resolve / scroll).
+ *
+ * A FAILURE IS A VALUE, never a throw. The desktop learned this on Wikipedia's
+ * search box: a ref pointing at a wrapper made the native value setter throw
+ * "Illegal invocation", and the model — given an error that said nothing about
+ * what to do — retried twice, tried a batch, and concluded the action system was
+ * broken. Three turns for one wrapper element. Every `error` below therefore
+ * names the next move, not just the fault.
+ */
+export interface PageActionResult {
+  ok: boolean;
+  error?: string;
+  /** Lowercased tag of the element actually acted on — which may not be the one
+   *  the ref pointed at, after the fillable walk. */
+  tag?: string;
+  /** A human-readable name for the confirmation line. */
+  label?: string;
+  /** Viewport coordinates, for input that must be dispatched at a POINT rather
+   *  than at a node — trusted pointer events have no other way to aim. */
+  rect?: { x: number; y: number; width: number; height: number };
+  /**
+   * What the element IS, for the caller's own safety classifier.
+   *
+   * Read in the page because it is the only place these attributes exist, and
+   * returned rather than judged here: the kernel runs inside a hostile document
+   * and must not be the thing deciding whether an action is dangerous. It
+   * reports; the extension decides, out of the page's reach.
+   */
+  target?: {
+    tag?: string;
+    type?: string;
+    autocomplete?: string;
+    name?: string;
+    id?: string;
+    ariaLabel?: string;
+    placeholder?: string;
+    text?: string;
+    /** `autocomplete` of the OTHER fields in this element's form. A submit
+     *  button carries no payment hint of its own; the form around it does. */
+    formAutocomplete?: string[];
+  };
+  /** After a scroll, so the caller can say whether anything moved. */
+  scrollY?: number;
+  scrollMax?: number;
+  /** The page's URL at the moment the op finished. */
+  url?: string;
+}
+
 /** Max elements per read — keeps the payload small on huge pages. */
 export const MAX_ELEMENTS = 200;
 /** The combined read carries content too, so it gets a larger budget. */
@@ -114,7 +163,18 @@ export const MAX_FIND_MATCHES = 20;
  *  is structured clone. */
 export type PageRequest =
   | { op: "snapshot"; filter: A11yFilter; max: number }
-  | { op: "find"; query: string; max: number };
+  | { op: "find"; query: string; max: number }
+  /** Locate an element and report where it is. The prerequisite for any input
+   *  that must be aimed at a POINT — a trusted pointer event cannot take a node. */
+  | { op: "resolve"; ref?: string; selector?: string }
+  | { op: "click"; ref?: string; selector?: string }
+  | { op: "fill"; ref?: string; selector?: string; value: string | boolean }
+  | {
+      op: "scroll";
+      direction: "up" | "down" | "top" | "bottom";
+      /** Pixels for up/down. Defaults to about one viewport. */
+      amount?: number;
+    };
 
 /**
  * THE function that runs in the page realm. Both backends execute this exact
@@ -148,7 +208,7 @@ export type PageRequest =
  */
 export function atlarixPageKernel(
   req: PageRequest,
-): A11ySnapshot | A11yFindResult {
+): A11ySnapshot | A11yFindResult | PageActionResult {
   // The ref registry lives on the page's own window: a WeakMap keyed on DOM
   // nodes cannot be held by the main process, and is equally out of reach of a
   // service worker. It is also why the extension must inject with
@@ -260,6 +320,288 @@ export function atlarixPageKernel(
 
   const roleOf = (el: Element): string =>
     el.getAttribute("role") || el.tagName.toLowerCase();
+
+  // ── Actions ───────────────────────────────────────────────────────────────
+  //
+  // SYNCHRONOUS, DELIBERATELY. Making any branch async makes the WHOLE kernel
+  // async, which would turn every snapshot into a promise and change what both
+  // transports receive. Waiting for a page to settle is the caller's job and
+  // both callers already do it: the extension has waitForLoad, and so does the
+  // desktop. (No backtick in this comment: rule 2 above, caught by test.)
+  if (
+    req.op === "resolve" ||
+    req.op === "click" ||
+    req.op === "fill"
+  ) {
+    // Resolution order is REF FIRST, then CSS selector. A ref is something we
+    // minted and is stable across re-renders; a selector is the model's guess.
+    // Both reach the DOM only inside a string literal, and the ref goes through
+    // CSS.escape, so neither is an injection surface.
+    let el: Element | null = null;
+    const wantRef = String(req.ref || "");
+    const wantSel = String(req.selector || "");
+    if (wantRef) {
+      try {
+        el = document.querySelector(
+          '[data-atlarix-ref="' + CSS.escape(wantRef) + '"]',
+        );
+      } catch {
+        /* fall through to the selector */
+      }
+    }
+    if (!el && wantSel) {
+      try {
+        el = document.querySelector(wantSel);
+      } catch {
+        /* an invalid selector is reported below, not thrown */
+      }
+    }
+    if (!el) {
+      return {
+        ok: false,
+        error:
+          "No element matched " +
+          (wantRef ? 'ref "' + wantRef + '"' : "") +
+          (wantRef && wantSel ? " or " : "") +
+          (wantSel ? 'selector "' + wantSel + '"' : "") +
+          ". Refs are invalidated when a page reloads or navigates — read the page again and use a fresh one.",
+        url: location.href,
+      };
+    }
+
+    const describe = (node: Element): string => {
+      let label = "";
+      try {
+        const labels = (node as HTMLInputElement).labels;
+        label =
+          (labels && labels[0] && labels[0].innerText) ||
+          node.getAttribute("aria-label") ||
+          node.getAttribute("placeholder") ||
+          node.getAttribute("name") ||
+          accName(node) ||
+          "";
+      } catch {
+        label = "";
+      }
+      return String(label).replace(/\s+/g, " ").trim().slice(0, 80);
+    };
+
+    // Everything the caller's classifier needs, gathered in one place so click
+    // and fill cannot describe the same element differently.
+    const targetOf = (node: Element) => {
+      const form = node.closest("form");
+      const formAutocomplete: string[] = [];
+      if (form) {
+        for (const field of form.querySelectorAll("[autocomplete]")) {
+          const value = field.getAttribute("autocomplete");
+          if (value) formAutocomplete.push(value);
+        }
+      }
+      return {
+        tag: node.tagName.toLowerCase(),
+        type: node.getAttribute("type") || undefined,
+        autocomplete: node.getAttribute("autocomplete") || undefined,
+        name: node.getAttribute("name") || undefined,
+        id: node.id || undefined,
+        ariaLabel: node.getAttribute("aria-label") || undefined,
+        placeholder: node.getAttribute("placeholder") || undefined,
+        text: accName(node).slice(0, 120),
+        formAutocomplete: formAutocomplete.slice(0, 40),
+      };
+    };
+
+    const boxOf = (node: Element) => {
+      const r = node.getBoundingClientRect();
+      return {
+        // The CENTRE, so a pointer aimed here lands inside the element even if
+        // it has padding or a border the caller knows nothing about.
+        x: Math.round(r.left + r.width / 2),
+        y: Math.round(r.top + r.height / 2),
+        width: Math.round(r.width),
+        height: Math.round(r.height),
+      };
+    };
+
+    if (req.op === "resolve") {
+      // Bring it into view FIRST: the rect is in viewport coordinates, so a
+      // rect measured before scrolling would aim a pointer at where the element
+      // used to be.
+      try {
+        el.scrollIntoView({ block: "center" });
+      } catch {
+        /* an element in a detached subtree cannot scroll; the rect still reads */
+      }
+      return {
+        ok: true,
+        tag: el.tagName.toLowerCase(),
+        label: describe(el),
+        rect: boxOf(el),
+        target: targetOf(el),
+        url: location.href,
+      };
+    }
+
+    if (req.op === "click") {
+      try {
+        el.scrollIntoView({ block: "center" });
+      } catch {
+        /* not fatal */
+      }
+      const label = describe(el) || accName(el);
+      (el as HTMLElement).click();
+      return {
+        ok: true,
+        tag: el.tagName.toLowerCase(),
+        label: String(label).slice(0, 120),
+        url: location.href,
+      };
+    }
+
+    // ── fill ────────────────────────────────────────────────────────────────
+    //
+    // THE WRAPPER WALK, and it is here because of a real page. A ref can point
+    // at a WRAPPER rather than the field: the snapshot calls it "search input"
+    // because that is its accessible ROLE, while the node is a div or a form
+    // with the real input inside. Modern component libraries do this constantly.
+    const FILLABLE =
+      "input:not([type=hidden]),textarea,select,[contenteditable=true],[contenteditable='']";
+    if (!el.matches(FILLABLE)) {
+      const inner = el.querySelector(FILLABLE);
+      const outer = el.closest(FILLABLE);
+      if (inner) el = inner;
+      else if (outer) el = outer;
+      else {
+        return {
+          ok: false,
+          tag: el.tagName.toLowerCase(),
+          error:
+            "<" +
+            el.tagName.toLowerCase() +
+            "> is not a field and contains none" +
+            (el.getAttribute("role")
+              ? ' (role="' + el.getAttribute("role") + '")'
+              : "") +
+            ". It may be a wrapper that reveals the real input when clicked: click this ref, read the page again, then fill the field that appears.",
+          url: location.href,
+        };
+      }
+    }
+
+    try {
+      el.scrollIntoView({ block: "center" });
+    } catch {
+      /* not fatal */
+    }
+    (el as HTMLElement).focus();
+
+    const raw = req.value;
+    const value = typeof raw === "string" ? raw : String(raw);
+    const fire = (node: Element, name: string) => {
+      node.dispatchEvent(new Event(name, { bubbles: true }));
+    };
+
+    if (
+      el instanceof HTMLInputElement &&
+      (el.type === "checkbox" || el.type === "radio")
+    ) {
+      const want =
+        typeof raw === "boolean"
+          ? raw
+          : !/^(false|0|off|no|unchecked)$/i.test(value);
+      if (el.checked !== want) el.click();
+      fire(el, "input");
+      fire(el, "change");
+    } else if (el instanceof HTMLSelectElement) {
+      // Match on VALUE first, then on visible TEXT. A value-vs-label mismatch is
+      // the commonest reason a select fill silently does nothing at all.
+      const opts = Array.from(el.options);
+      const norm = (v: unknown) =>
+        String(v == null ? "" : v)
+          .trim()
+          .toLowerCase();
+      const opt =
+        opts.find((o) => o.value === value) ||
+        opts.find((o) => norm(o.text) === norm(value)) ||
+        opts.find((o) => norm(o.text).indexOf(norm(value)) !== -1);
+      if (!opt) {
+        return {
+          ok: false,
+          tag: "select",
+          error:
+            'No option matched "' +
+            value +
+            '" (options: ' +
+            opts
+              .slice(0, 12)
+              .map((o) => o.text.trim())
+              .join(" | ") +
+            ")",
+          url: location.href,
+        };
+      }
+      el.value = opt.value;
+      fire(el, "input");
+      fire(el, "change");
+    } else if (
+      // The PROPERTY and the ATTRIBUTE, because they disagree in cases that
+      // matter. `isContentEditable` is computed from rendering, so it reads
+      // false for an element that is detached or inside a hidden subtree even
+      // when the author explicitly set the attribute — and false here falls
+      // through to the native value setter, which throws on a div. (It is also
+      // simply absent in jsdom, which is how this was noticed.)
+      (el as HTMLElement).isContentEditable ||
+      el.getAttribute("contenteditable") === "" ||
+      el.getAttribute("contenteditable") === "true"
+    ) {
+      // A rich-text editor has no value property at all, and the native setter
+      // throws when handed one.
+      (el as HTMLElement).textContent = value;
+      fire(el, "input");
+    } else {
+      // Pick the prototype from what the node IS, never by elimination. A native
+      // accessor REJECTS a receiver of the wrong type, so a wrong guess throws
+      // "Illegal invocation" instead of degrading — which is the error that cost
+      // three turns on Wikipedia. A null proto means no native setter applies
+      // and the plain assignment below is correct.
+      const proto =
+        el instanceof HTMLTextAreaElement
+          ? HTMLTextAreaElement.prototype
+          : el instanceof HTMLInputElement
+            ? HTMLInputElement.prototype
+            : null;
+      const setter = proto
+        ? Object.getOwnPropertyDescriptor(proto, "value")?.set
+        : null;
+      if (setter) setter.call(el, value);
+      else (el as HTMLInputElement).value = value;
+      fire(el, "input");
+      fire(el, "change");
+    }
+
+    return {
+      ok: true,
+      tag: el.tagName.toLowerCase(),
+      label: describe(el),
+      rect: boxOf(el),
+      target: targetOf(el),
+      url: location.href,
+    };
+  }
+
+  if (req.op === "scroll") {
+    const doc = document.scrollingElement || document.documentElement;
+    const page = Math.max(1, window.innerHeight - 100);
+    const step = typeof req.amount === "number" && req.amount > 0 ? req.amount : page;
+    if (req.direction === "top") window.scrollTo(0, 0);
+    else if (req.direction === "bottom") window.scrollTo(0, doc.scrollHeight);
+    else window.scrollBy(0, req.direction === "up" ? -step : step);
+    return {
+      ok: true,
+      scrollY: Math.round(doc.scrollTop),
+      scrollMax: Math.max(0, Math.round(doc.scrollHeight - window.innerHeight)),
+      url: location.href,
+    };
+  }
 
   if (req.op === "snapshot") {
     const WANT_CONTENT = req.filter === "all";

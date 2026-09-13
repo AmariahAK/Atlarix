@@ -306,9 +306,13 @@ describe("stopping", () => {
 });
 
 describe("a site the user has not allowed", () => {
-  const needsGrant: ToolOutcome = {
+  const needsHostGrant: ToolOutcome = {
     content: "waiting",
-    needsGrant: { url: "https://x.test/p", origin: "https://x.test" },
+    needsApproval: {
+      kind: "host",
+      url: "https://x.test/p",
+      origin: "https://x.test",
+    },
   };
 
   it("asks once, and on a yes retries the call exactly once", async () => {
@@ -318,17 +322,17 @@ describe("a site the user has not allowed", () => {
     ]);
     const dispatch = vi
       .fn()
-      .mockResolvedValueOnce(needsGrant)
+      .mockResolvedValueOnce(needsHostGrant)
       .mockResolvedValueOnce({ content: "the page" });
-    const onGrantNeeded = vi.fn().mockResolvedValue(true);
+    const onApproval = vi.fn().mockResolvedValue(true);
 
     const out = await runTurn({
       ...BASE,
       stream,
       dispatch: dispatch as unknown as TurnArgs["dispatch"],
-      events: { onGrantNeeded },
+      events: { onApproval },
     });
-    expect(onGrantNeeded).toHaveBeenCalledTimes(1);
+    expect(onApproval).toHaveBeenCalledTimes(1);
     expect(dispatch).toHaveBeenCalledTimes(2);
     expect(out.messages[1]).toMatchObject({ content: "the page" });
   });
@@ -338,12 +342,12 @@ describe("a site the user has not allowed", () => {
       toolRound(toolCall("read_page")),
       textRound("Understood."),
     ]);
-    const dispatch = vi.fn().mockResolvedValue(needsGrant);
+    const dispatch = vi.fn().mockResolvedValue(needsHostGrant);
     const out = await runTurn({
       ...BASE,
       stream,
       dispatch: dispatch as unknown as TurnArgs["dispatch"],
-      events: { onGrantNeeded: async () => false },
+      events: { onApproval: async () => false },
     });
     expect(dispatch).toHaveBeenCalledTimes(1);
     const result = out.messages[1] as { content: string };
@@ -352,12 +356,12 @@ describe("a site the user has not allowed", () => {
   });
 
   it("declines when the panel offers no way to ask at all", async () => {
-    // No `onGrantNeeded` hook — a caller that forgot must not spin.
+    // No `onApproval` hook — a caller that forgot must not spin.
     const { stream } = scriptedStream([
       toolRound(toolCall("read_page")),
       textRound("ok"),
     ]);
-    const dispatch = vi.fn().mockResolvedValue(needsGrant);
+    const dispatch = vi.fn().mockResolvedValue(needsHostGrant);
     await runTurn({
       ...BASE,
       stream,
@@ -371,18 +375,18 @@ describe("a site the user has not allowed", () => {
       toolRound(toolCall("read_page")),
       textRound("ok"),
     ]);
-    const dispatch = vi.fn().mockResolvedValue(needsGrant);
-    const onGrantNeeded = vi.fn().mockResolvedValue(true);
+    const dispatch = vi.fn().mockResolvedValue(needsHostGrant);
+    const onApproval = vi.fn().mockResolvedValue(true);
     const out = await runTurn({
       ...BASE,
       stream,
       dispatch: dispatch as unknown as TurnArgs["dispatch"],
-      events: { onGrantNeeded },
+      events: { onApproval },
     });
-    expect(onGrantNeeded).toHaveBeenCalledTimes(1);
+    expect(onApproval).toHaveBeenCalledTimes(1);
     expect(dispatch).toHaveBeenCalledTimes(2);
     expect((out.messages[1] as { content: string }).content).toContain(
-      "still cannot be read",
+      "still cannot proceed",
     );
   });
 });

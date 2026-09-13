@@ -47,6 +47,7 @@ import {
 } from "../core/client";
 import {
   dispatchTool,
+  type Approval,
   type ToolContext,
   type ToolOutcome,
 } from "../tools/dispatch";
@@ -69,13 +70,17 @@ export interface AgentEvents {
   onToolCall?(call: ToolCall): void;
   onToolResult?(call: ToolCall, content: string): void;
   /**
-   * Ask the user to allow an origin.
+   * Ask the user to authorise something the loop cannot.
    *
-   * MUST be answered from inside a user gesture — `permissions.request()` is
-   * unreachable otherwise, and unreachable from every context this loop could
-   * run in. Resolving false is a decline, which is a normal answer.
+   * A `host` request MUST be answered from inside a user gesture —
+   * `permissions.request()` is unreachable otherwise, and unreachable from every
+   * context this loop could run in. An `action` request is a policy stop rather
+   * than a platform one, but goes the same way so the panel has one card to
+   * render and the loop has one path to test.
+   *
+   * Resolving false is a decline, which is a normal answer, not an error.
    */
-  onGrantNeeded?(req: { url: string; origin: string }): Promise<boolean>;
+  onApproval?(request: Approval): Promise<boolean>;
 }
 
 export interface TurnArgs {
@@ -101,6 +106,31 @@ export type TurnOutcome =
   | { kind: "stuck"; messages: CoreMessage[] }
   /** Core refused or broke. `messages` still holds whatever completed. */
   | { kind: "error"; messages: CoreMessage[]; error: CoreError };
+
+/**
+ * What the model is told when the user says no.
+ *
+ * A DECLINE IS A DECISION, NOT AN OBSTACLE, and saying so is what stops the
+ * model treating it as a puzzle — trying the same thing through a different
+ * tool, or asking again two turns later. It is also the only honest description:
+ * the user was asked and answered.
+ */
+function declineMessage(request: Approval): string {
+  if (request.kind === "host") {
+    return (
+      `The user did not allow ${request.origin}, so nothing was read. This is their ` +
+      `decision and not an error — do not ask again for the same site in this ` +
+      `conversation. Carry on without that page, or tell them what you would have ` +
+      `needed it for.`
+    );
+  }
+  return (
+    `The user declined this action, so nothing was done. It was stopped because it ` +
+    `looked like it involved ${request.category.replace(/_/g, " ")}, and no site ` +
+    `permission can authorise that on their behalf — only they can. Do not attempt it ` +
+    `another way. Tell them what you were going to do and let them do it themselves.`
+  );
+}
 
 /** The identity of a round's tool calls, for the repetition guard. */
 function roundSignature(calls: ToolCall[]): string {
@@ -235,28 +265,24 @@ export async function runTurn(args: TurnArgs): Promise<TurnOutcome> {
         };
       }
 
-      if (outcome.needsGrant) {
-        const allowed =
-          (await events.onGrantNeeded?.(outcome.needsGrant)) ?? false;
+      if (outcome.needsApproval) {
+        const request = outcome.needsApproval;
+        const allowed = (await events.onApproval?.(request)) ?? false;
         outcome = allowed
-          ? // Exactly once. If the grant landed and the read STILL wants
-            // permission, something is wrong that asking again will not fix —
-            // and a second prompt for a site the user just allowed reads as the
+          ? // Exactly once. If the user said yes and the call STILL wants
+            // approval, something is wrong that asking again will not fix — and
+            // a second prompt for something just approved reads as the
             // extension not listening.
             await dispatch(call, args.tools)
-          : {
-              content:
-                `The user did not allow ${outcome.needsGrant.origin}, so nothing was read. ` +
-                `This is their decision and not an error — do not ask again for the same site ` +
-                `in this conversation. Carry on without that page, or tell them what you would ` +
-                `have needed it for.`,
-            };
-        if (outcome.needsGrant) {
+          : { content: declineMessage(request) };
+        if (outcome.needsApproval) {
           outcome = {
             content:
-              `${outcome.needsGrant.origin} still cannot be read after the user allowed it. ` +
-              `Do not retry — tell the user, and suggest they check Atlarix's site access in ` +
-              `chrome://extensions.`,
+              `This still cannot proceed after the user approved it. Do not retry — ` +
+              `tell the user what you were trying to do` +
+              (request.kind === "host"
+                ? `, and suggest they check Atlarix's site access in chrome://extensions.`
+                : `.`),
           };
         }
       }

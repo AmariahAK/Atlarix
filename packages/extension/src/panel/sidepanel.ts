@@ -54,6 +54,7 @@ import {
   type ToolCall,
 } from "../core/client";
 import { runTurn } from "../agent/loop";
+import type { Approval } from "../tools/dispatch";
 import { buildSystemPrompt } from "../agent/prompt";
 import { forget, forgetAll, listMemories } from "../memory/store";
 import {
@@ -200,6 +201,18 @@ function describeCall(call: ToolCall): string {
         : "Reading this page";
     case "find_on_page":
       return `Looking for “${String(args.query ?? "")}”`;
+    case "click":
+      return `Clicking ${String(args.ref ?? args.selector ?? "an element")}`;
+    case "fill":
+      // The REF, never the value. This line is rendered and may be read over a
+      // shoulder; the value is sometimes a password.
+      return `Filling ${String(args.ref ?? args.selector ?? "a field")}`;
+    case "press_key":
+      return `Pressing ${String(args.key ?? "")}`;
+    case "hover":
+      return `Hovering ${String(args.ref ?? args.selector ?? "an element")}`;
+    case "scroll":
+      return `Scrolling ${String(args.direction ?? "")}`;
     case "list_tabs":
       return "Listing your tabs";
     case "open_tab":
@@ -214,27 +227,41 @@ function describeCall(call: ToolCall): string {
 }
 
 /**
- * The permission card, and the promise the loop is waiting on.
+ * The approval card, and the promise the loop is waiting on.
  *
- * `requestHostAccess` is called from INSIDE the click handler, synchronously,
- * because that is what makes it a user gesture — `permissions.request()` has no
- * other way to succeed, and it resolves FALSE on a decline rather than
- * rejecting, which is why `host-access.ts` orders the record after the answer.
+ * TWO KINDS THROUGH ONE CARD. A host grant and a dangerous action are different
+ * problems with the same answer: only the user can say yes.
+ *
+ * For a host grant, `requestHostAccess` is called from INSIDE the click handler,
+ * synchronously, because that is what makes it a user gesture —
+ * `permissions.request()` has no other way to succeed, and it resolves FALSE on
+ * a decline rather than rejecting, which is why `host-access.ts` orders the
+ * record after the answer.
+ *
+ * For an action, there is no platform call at all: the yes IS the answer. The
+ * card still refuses to show the value being typed — `always-ask.ts` builds its
+ * reason without it deliberately, because this string is rendered and may be
+ * logged on the path where that value is a password.
  */
-function grantCard(req: { url: string; origin: string }): Promise<boolean> {
+function approvalCard(request: Approval): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
     const card = document.createElement("div");
     card.className = "grant";
 
     const title = document.createElement("div");
     title.className = "grant__origin";
-    title.textContent = `Let Atlarix read ${req.origin}?`;
+    title.textContent =
+      request.kind === "host"
+        ? `Let Atlarix read ${request.origin}?`
+        : request.summary;
 
     const note = document.createElement("p");
     note.className = "grant__note";
     note.textContent =
-      "Chrome will ask you to confirm. Atlarix can read this site until you " +
-      "remove it, and nothing else.";
+      request.kind === "host"
+        ? "Chrome will ask you to confirm. Atlarix can read this site until you " +
+          "remove it, and nothing else."
+        : `${request.reason} Allowing a site never covers this — Atlarix asks every time.`;
 
     const actions = document.createElement("div");
     actions.className = "grant__actions";
@@ -242,12 +269,12 @@ function grantCard(req: { url: string; origin: string }): Promise<boolean> {
     const allow = document.createElement("button");
     allow.type = "button";
     allow.className = "button grant__allow";
-    allow.textContent = "Allow";
+    allow.textContent = request.kind === "host" ? "Allow" : "Go ahead";
 
     const deny = document.createElement("button");
     deny.type = "button";
     deny.className = "button";
-    deny.textContent = "Not now";
+    deny.textContent = request.kind === "host" ? "Not now" : "Stop";
 
     const settle = (answer: boolean, text: string) => {
       allow.remove();
@@ -261,21 +288,30 @@ function grantCard(req: { url: string; origin: string }): Promise<boolean> {
     allow.addEventListener("click", () => {
       allow.disabled = true;
       deny.disabled = true;
+      if (request.kind !== "host") {
+        settle(true, `Approved: ${request.summary}`);
+        return;
+      }
       // Inside the gesture. Do NOT await anything before this call.
-      void requestHostAccess(req.url).then((outcome) => {
+      void requestHostAccess(request.url).then((outcome) => {
         settle(
           outcome.ok,
           outcome.ok
-            ? `Allowed ${req.origin}`
+            ? `Allowed ${request.origin}`
             : outcome.reason === "unsupported-scheme"
-              ? `${req.origin} cannot be allowed — Atlarix only reads http(s) pages`
-              : `Declined ${req.origin}`,
+              ? `${request.origin} cannot be allowed — Atlarix only reads http(s) pages`
+              : `Declined ${request.origin}`,
         );
       });
     });
 
     deny.addEventListener("click", () => {
-      settle(false, `Declined ${req.origin}`);
+      settle(
+        false,
+        request.kind === "host"
+          ? `Declined ${request.origin}`
+          : "Stopped — not done",
+      );
     });
 
     actions.append(allow, deny);
@@ -431,7 +467,7 @@ async function send(): Promise<void> {
           const chip = chips.get(call.id);
           if (chip) fillChip(chip, content);
         },
-        onGrantNeeded: grantCard,
+        onApproval: approvalCard,
       },
     });
 

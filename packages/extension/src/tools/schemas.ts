@@ -1,12 +1,17 @@
 /**
  * The tools the extension's model is given — the whole list, and no more.
  *
- * READS AND TABS ONLY, and that is the honest state of the product rather than
- * an oversight. `PageRequest` in the shared kernel is `snapshot | find`;
- * `click`, `fill` and `key` are still desktop-only strings and land in Phase 3
- * with the kernel's action ops. Declaring a `click` here that the dispatcher
- * would refuse is worse than not declaring it: a model given a tool will use
- * it, and every attempt costs a round and ends in an apology.
+ * WHAT IS AVAILABLE WHERE IS NOT UNIFORM, and the split is the containment
+ * model rather than an accident. `click`, `fill` and `scroll` run in the page
+ * and work on any tab the user has allowed. `press_key` and `hover` need
+ * TRUSTED events, which only `chrome.debugger` can produce, and attaching it
+ * puts a "being debugged" banner on the tab and evicts DevTools from it. Doing
+ * that to a tab the user was reading is not acceptable, so those two are
+ * restricted to tabs Atlarix opened itself — the ones already in its own group,
+ * where the banner is honest and the user can close the group to stop it.
+ *
+ * The descriptions say so, because a model that discovers this by failing burns
+ * a round on it every time.
  *
  * DESCRIPTIONS ARE THE INTERFACE. A tool the model uses wrongly is usually a
  * tool described vaguely, so each one below says what it costs, when NOT to use
@@ -28,6 +33,11 @@ import type { ToolSchema } from "../core/client";
 export const TOOL_NAMES = [
   "read_page",
   "find_on_page",
+  "click",
+  "fill",
+  "press_key",
+  "hover",
+  "scroll",
   "list_tabs",
   "open_tab",
   "close_tab",
@@ -104,6 +114,159 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
           },
         },
         required: ["query"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "click",
+      description:
+        "Click a link, button or control by its [ref] from read_page or " +
+        "find_on_page. Works on any tab you are allowed to read. Refs stop " +
+        "working when the page reloads or navigates, so read the page again " +
+        "after anything that changes it. Clicking something that looks like it " +
+        "deletes data or completes a purchase will stop and ask the user, every " +
+        "time, no matter which sites they have allowed.",
+      parameters: {
+        type: "object",
+        properties: {
+          ref: {
+            type: "string",
+            description: 'A ref such as "e12". Prefer this over a selector.',
+          },
+          selector: {
+            type: "string",
+            description:
+              "A CSS selector, as a fallback when you have no ref. Less " +
+              "reliable: it is your guess about the page rather than something " +
+              "the page told you.",
+          },
+          tab_id: {
+            type: "number",
+            description: "Which tab. Omit for the tab the user is on.",
+          },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "fill",
+      description:
+        "Put a value into a text field, checkbox, radio or dropdown. Handles a " +
+        "ref that landed on a wrapper rather than the field itself, which is " +
+        "common — it walks to the real input. For a dropdown, give the option " +
+        "text you can see, not its internal value. This does NOT submit " +
+        "anything: to submit, click the button or use press_key with Enter. " +
+        "Entering a password, security code or card number always stops and " +
+        "asks the user first.",
+      parameters: {
+        type: "object",
+        properties: {
+          ref: { type: "string", description: 'A ref such as "e7".' },
+          selector: { type: "string", description: "A CSS selector fallback." },
+          value: {
+            type: "string",
+            description:
+              'The text to enter. For a checkbox use "true" or "false"; ' +
+              "for a dropdown use the visible option text.",
+          },
+          tab_id: {
+            type: "number",
+            description: "Which tab. Omit for the tab the user is on.",
+          },
+        },
+        required: ["value"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "press_key",
+      description:
+        "Press a real key — Enter to submit a form, Escape to dismiss, Tab to " +
+        "move on. ONLY WORKS ON TABS ATLARIX OPENED, because producing a real " +
+        "keystroke requires attaching a debugger, which puts a banner on the " +
+        "tab and takes DevTools away from whoever was using it. On one of the " +
+        "user's own tabs this is refused — click the button instead. The key " +
+        "goes wherever the focus is, so fill or click the field first.",
+      parameters: {
+        type: "object",
+        properties: {
+          key: {
+            type: "string",
+            description:
+              "Enter, Escape, Tab, Backspace, Delete, ArrowUp, ArrowDown, " +
+              "ArrowLeft, ArrowRight, Home, End, PageUp or PageDown.",
+          },
+          tab_id: {
+            type: "number",
+            description: "Which tab. Must be one Atlarix opened.",
+          },
+        },
+        required: ["key"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "hover",
+      description:
+        "Move the pointer onto an element, which is the only way a menu that " +
+        "opens on hover will open. ONLY WORKS ON TABS ATLARIX OPENED, for the " +
+        "same reason as press_key. A hover changes nothing on its own — read " +
+        "the page afterwards to see what appeared.",
+      parameters: {
+        type: "object",
+        properties: {
+          ref: { type: "string", description: 'A ref such as "e4".' },
+          selector: { type: "string", description: "A CSS selector fallback." },
+          tab_id: {
+            type: "number",
+            description: "Which tab. Must be one Atlarix opened.",
+          },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "scroll",
+      description:
+        "Scroll the page. Use this when a read says the page is truncated or " +
+        "that there is more below — many sites load content only as you reach " +
+        "it, so scrolling then reading again finds things a first read could " +
+        "not see. Works on any tab you are allowed to read.",
+      parameters: {
+        type: "object",
+        properties: {
+          direction: {
+            type: "string",
+            enum: ["up", "down", "top", "bottom"],
+            description: 'Which way. "top" and "bottom" jump the whole page.',
+          },
+          amount: {
+            type: "number",
+            description:
+              "Pixels, for up/down. Omit for about one screen, which is what " +
+              "you usually want.",
+          },
+          tab_id: {
+            type: "number",
+            description: "Which tab. Omit for the tab the user is on.",
+          },
+        },
+        required: ["direction"],
         additionalProperties: false,
       },
     },

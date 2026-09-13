@@ -13,16 +13,31 @@ const NOW = new Date("2026-09-13T10:00:00Z");
 const base = { memories: [], now: NOW };
 
 describe("what the prompt must establish", () => {
-  it("says it cannot act, in the prompt AND not only in the tool list", () => {
-    // Told once, a model acts on it; told only in a tool description it does
-    // not read until it wants one, it promises the user a click first.
+  it("names the tab-group limit on trusted input, not only in the tool list", () => {
+    // Told once in the prompt, a model plans around it; told only in a tool
+    // description it reads when it already wants the tool, it discovers the
+    // limit by failing — one wasted round every time.
     const p = buildSystemPrompt(base);
-    expect(p).toMatch(/cannot click/i);
-    expect(p).toMatch(/desktop app/i);
+    expect(p).toMatch(/only on tabs you opened yourself/i);
+    expect(p).toMatch(/open_tab/);
+  });
+
+  it("says refs go stale, which is the commonest way an action wastes a turn", () => {
+    expect(buildSystemPrompt(base)).toMatch(/read it again/i);
+  });
+
+  it("says filling does not submit", () => {
+    expect(buildSystemPrompt(base)).toMatch(/FILLING DOES NOT SUBMIT/);
+  });
+
+  it("frames an always-ask stop as a decision, not an obstacle to route around", () => {
+    const p = buildSystemPrompt(base);
+    expect(p).toMatch(/not something to route around/i);
+    expect(p).toMatch(/Never try to reach the same outcome a different way/i);
   });
 
   it("frames a permission prompt as normal, not as a failure", () => {
-    // Without this the first `needsGrant` reads as a refusal, and the model
+    // Without this the first approval request reads as a refusal, and the model
     // apologises and abandons the task instead of waiting.
     const p = buildSystemPrompt(base);
     expect(p).toMatch(/has not failed/i);

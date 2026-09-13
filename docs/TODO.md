@@ -502,8 +502,57 @@ ran on.
   events rather than `Input.insertText`, which produces NO key events, so an autocomplete
   that opens on keydown never opens.
 
-**PHASES 1 AND 2 ARE COMPLETE.** Next is Phase 3 (desktop bridge + `target` param +
-kernel action ops), then Phase 4 (Supabase, launchpad, docs, store submission).
+**PHASES 1 AND 2 ARE COMPLETE. PHASE 3 IS UNDERWAY** — the kernel action ops and the
+extension's action tools are done (2026-09-13); what remains is the `target` param on
+`browser.ts` and the desktop bridge. Then Phase 4 (Supabase, launchpad, docs, store).
+
+### Phase 3a — the extension can ACT. DONE 2026-09-13.
+
+The kernel grew `resolve | click | fill | scroll`, and the extension grew `click`, `fill`,
+`press_key`, `hover`, `scroll`. **The extension is now genuinely usable end to end** —
+read, act, read again.
+
+**THE OPS ARE SYNCHRONOUS, and that is load-bearing.** Making any branch async makes the
+WHOLE kernel async, which turns every snapshot into a promise and changes what both
+transports receive. Waiting for a page to settle is the caller's job, and both callers
+already had a `waitForLoad`.
+
+**`always-ask.ts` FINALLY HAS A CALLER.** It had 44 tests and zero production use since
+Phase 0 — the worst state for a safety component, because it looks like protection and
+protects nothing. `click` and `fill` now resolve the element first, hand the descriptor to
+`classifyAction`, and stop for the user on credentials, payment, destructive labels and
+the agent's own settings pages. **The verdict is not overridable by a site grant**, and a
+test asserts the value being typed never reaches the approval card or the tool result —
+that string is rendered and may be logged on the path where the value is a password.
+
+**The approval channel is now one thing, two kinds.** `needsGrant` became
+`needsApproval: {kind:"host"} | {kind:"action"}`. Same loop path, same card, same
+ask-once-then-retry-once rule. A decline tells the model it was a DECISION — otherwise it
+treats it as a puzzle and tries the same thing through another tool.
+
+**THE TRUSTED-INPUT BOUNDARY IS THE INTERESTING DESIGN.** `press_key` and `hover` need
+real events, which only `chrome.debugger` produces, and attaching it banners the tab and
+EVICTS DevTools. So they are refused outside the agent's own tab group — which means the
+user's own tabs get reads, click, fill and scroll with no banner at all, and the full set
+is available on tabs Atlarix opened, where the banner is honest. `trusted-input.ts` is no
+longer uncalled; `attach`, `pressKey` and `movePointer` all have production callers.
+
+**Kernel contents that came from real pages, not from theory:** the fillable WRAPPER walk
+(Wikipedia's Vector search box — the snapshot names the wrapper because that is its
+accessible ROLE, and the native value setter throws "Illegal invocation" on it, which cost
+three turns), select matching on visible TEXT before value, and the native setter chosen
+by what the node IS rather than by elimination. `contenteditable` is detected by the
+property OR the attribute, because `isContentEditable` is computed from rendering and
+reads false for a detached or hidden subtree — noticed because jsdom does not implement it
+at all.
+
+**The backtick rule fired again**, in prose, for the third time. It is worth keeping.
+
+**STILL OWED, and it is real duplication:** `browser.ts` keeps its own
+`resolveElementJs` + `RESOLVE_FILLABLE_JS` strings and its own inline fill logic. The
+kernel ops were added PURELY ADDITIVELY so the desktop took zero diff and zero risk, the
+same staging Phase 1 used. Unifying them — deleting the desktop's copies and composing the
+kernel op instead — is the next commit, and until it lands the two can drift.
 
 ### Phase 2 — DONE 2026-09-13. The side panel is a chat.
 

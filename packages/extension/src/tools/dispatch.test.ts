@@ -11,7 +11,7 @@
  *  - Page text that is not enveloped reaches the model as instructions. There
  *    is no visible difference in the result until a page tells the model to do
  *    something and it does.
- *  - A missing grant that returns a refusal instead of `needsGrant` produces an
+ *  - A missing grant that returns a refusal instead of `needsApproval` produces an
  *    agent that can never read anything and cannot say why — the loop is the
  *    only thing with a route to the user, so the signal has to get out of here.
  *  - `close_tab` on the user's own tab is the one call in this file that
@@ -167,13 +167,24 @@ describe("the schema list and the dispatcher agree", () => {
     );
   });
 
-  it("declares no action tool it cannot perform", async () => {
-    // Phase 2 is reads-only. A `click` in this list would be used on the first
-    // turn and fail on every one after.
-    const names = TOOL_SCHEMAS.map((s) => s.function.name);
-    for (const forbidden of ["click", "fill", "type", "press_key", "scroll"]) {
-      expect(names).not.toContain(forbidden);
+  it("tells the model WHERE the trusted-input tools work", async () => {
+    // `press_key` and `hover` are refused on the user's own tabs, because
+    // attaching a debugger banners the tab and evicts DevTools. A model that
+    // discovers that by failing spends a round on it every time.
+    const restricted = TOOL_SCHEMAS.filter((s) =>
+      ["press_key", "hover"].includes(s.function.name),
+    );
+    expect(restricted).toHaveLength(2);
+    for (const tool of restricted) {
+      expect(tool.function.description).toMatch(
+        /ONLY WORKS ON TABS ATLARIX OPENED/,
+      );
     }
+  });
+
+  it("says that filling does not submit, which is the commonest wrong assumption", () => {
+    const fill = TOOL_SCHEMAS.find((s) => s.function.name === "fill");
+    expect(fill?.function.description).toMatch(/does NOT submit/);
   });
 });
 
@@ -187,7 +198,7 @@ describe("nothing throws out of dispatch", () => {
   it("reports a closed tab as a result, not an exception", async () => {
     const out = await dispatchTool(call("read_page", { tab_id: 404 }), CTX);
     expect(out.content).toContain("no tab 404");
-    expect(out.needsGrant).toBeUndefined();
+    expect(out.needsApproval).toBeUndefined();
   });
 
   it("survives arguments that are not JSON at all", async () => {
@@ -214,12 +225,14 @@ describe("page text reaches the model as data", () => {
     expect(out.content).toContain("[e1] button");
   });
 
-  it("does not promise the model it can click", async () => {
-    // The shared formatter's DEFAULT hint says `action:"click"`, which is true
-    // on the desktop and false here.
+  it("names the extension's OWN tools, not the desktop's vocabulary", async () => {
+    // The shared formatter's DEFAULT hint says `browser({action:"click"})`,
+    // which is the desktop's tool. Telling this model to call that is telling
+    // it to call something it has not been given.
     const out = await dispatchTool(call("read_page"), CTX);
     expect(out.content).not.toContain('action:"click"');
-    expect(out.content).toContain("desktop app");
+    expect(out.content).toContain('click with ref:"e3"');
+    expect(out.content).toContain("invalidated by a reload");
   });
 
   it("neutralises a page that prints a closing envelope tag", async () => {
@@ -243,11 +256,12 @@ describe("page text reaches the model as data", () => {
 });
 
 describe("a missing grant travels OUT, because only the loop can ask", () => {
-  it("returns needsGrant rather than a refusal", async () => {
+  it("returns needsApproval rather than a refusal", async () => {
     granted.clear();
     storage.delete("atlarix.siteGrants.v1");
     const out = await dispatchTool(call("read_page"), CTX);
-    expect(out.needsGrant).toEqual({
+    expect(out.needsApproval).toEqual({
+      kind: "host",
       url: "https://example.test/page",
       origin: "https://example.test",
     });
@@ -258,7 +272,7 @@ describe("a missing grant travels OUT, because only the loop can ask", () => {
     // put a dialog in front of the user that cannot succeed.
     tabs[0].url = "chrome://settings";
     const out = await dispatchTool(call("read_page"), CTX);
-    expect(out.needsGrant).toBeUndefined();
+    expect(out.needsApproval).toBeUndefined();
     expect(out.content).toContain("http(s)");
   });
 });
@@ -344,5 +358,138 @@ describe("list_tabs", () => {
     expect(out.content).toContain("[tab 8]");
     expect(out.content).toContain("needs permission");
     expect(out.content).toContain("not trustworthy");
+  });
+});
+
+/* ── Actions ───────────────────────────────────────────────────────────────── */
+
+describe("acting on a page", () => {
+  it("clicks and says whether the page navigated", async () => {
+    // "The page did not navigate" is not filler. Without it a model that
+    // clicked a button and then read the same page concludes the click failed.
+    injectResult = {
+      ok: true,
+      tag: "button",
+      label: "Save",
+      url: "https://example.test/page",
+      target: { tag: "button", text: "Save" },
+      rect: { x: 10, y: 10, width: 50, height: 20 },
+    };
+    const out = await dispatchTool(call("click", { ref: "e1" }), CTX);
+    expect(out.content).toContain('Clicked "Save"');
+    expect(out.content).toContain("did not navigate");
+  });
+
+  it("fills, and says plainly that nothing was submitted", async () => {
+    injectResult = {
+      ok: true,
+      tag: "input",
+      label: "Search",
+      url: "https://example.test/page",
+      target: { tag: "input", name: "q" },
+    };
+    const out = await dispatchTool(
+      call("fill", { ref: "e1", value: "otters" }),
+      CTX,
+    );
+    expect(out.content).toContain("Nothing was submitted");
+  });
+
+  it("refuses a fill with no value instead of entering the word undefined", async () => {
+    const out = await dispatchTool(call("fill", { ref: "e1" }), CTX);
+    expect(out.content).toContain("needs a `value`");
+  });
+
+  it("reports a page that does not scroll rather than claiming it scrolled", async () => {
+    injectResult = { ok: true, scrollY: 0, scrollMax: 0 };
+    const out = await dispatchTool(call("scroll", { direction: "down" }), CTX);
+    expect(out.content).toContain("does not scroll");
+  });
+});
+
+describe("the always-ask classifier finally has a caller", () => {
+  const passwordField = {
+    ok: true,
+    tag: "input",
+    label: "Password",
+    url: "https://example.test/page",
+    target: { tag: "input", type: "password", name: "password" },
+    rect: { x: 1, y: 1, width: 10, height: 10 },
+  };
+
+  it("stops a fill into a password field and asks the user", async () => {
+    // A site grant means "you may read and act here". It does not mean "you may
+    // type my password", and this verdict is deliberately not overridable.
+    injectResult = passwordField;
+    const out = await dispatchTool(
+      call("fill", { ref: "e1", value: "hunter2" }),
+      CTX,
+    );
+    expect(out.needsApproval).toMatchObject({
+      kind: "action",
+      category: "credentials",
+    });
+  });
+
+  it("NEVER puts the value into anything the user or a log will see", async () => {
+    // This string is rendered, and may be logged, on the path where the value
+    // is a password. `always-ask.ts` builds its reason without it on purpose.
+    injectResult = passwordField;
+    const out = await dispatchTool(
+      call("fill", { ref: "e1", value: "hunter2" }),
+      CTX,
+    );
+    expect(JSON.stringify(out)).not.toContain("hunter2");
+  });
+
+  it("stops a click that looks like it completes a purchase", async () => {
+    injectResult = {
+      ok: true,
+      tag: "button",
+      label: "Place order",
+      url: "https://shop.test/checkout",
+      target: { tag: "button", text: "Place order" },
+      rect: { x: 1, y: 1, width: 10, height: 10 },
+    };
+    tabs[0].url = "https://example.test/page";
+    const out = await dispatchTool(call("click", { ref: "e1" }), CTX);
+    expect(out.needsApproval).toMatchObject({
+      kind: "action",
+      category: "payment",
+    });
+  });
+
+  it("lets an ordinary click through without asking", async () => {
+    injectResult = {
+      ok: true,
+      tag: "a",
+      label: "Read more",
+      url: "https://example.test/page",
+      target: { tag: "a", text: "Read more" },
+      rect: { x: 1, y: 1, width: 10, height: 10 },
+    };
+    const out = await dispatchTool(call("click", { ref: "e1" }), CTX);
+    expect(out.needsApproval).toBeUndefined();
+  });
+});
+
+describe("trusted input stays inside the agent's own group", () => {
+  it("refuses press_key on the user's tab, and says what to do instead", async () => {
+    // tabs[0] is the user's: groupId -1. Attaching a debugger would banner the
+    // tab they are reading and take DevTools from them.
+    const out = await dispatchTool(call("press_key", { key: "Enter" }), CTX);
+    expect(out.content).toContain("nothing was done");
+    expect(out.content).toContain("open_tab");
+  });
+
+  it("refuses hover on the user's tab too", async () => {
+    const out = await dispatchTool(call("hover", { ref: "e1" }), CTX);
+    expect(out.content).toContain("nothing was done");
+  });
+
+  it("rejects an unknown key before touching the tab at all", async () => {
+    const out = await dispatchTool(call("press_key", { key: "Meta+Q" }), CTX);
+    expect(out.content).toContain("Unknown key");
+    expect(out.content).toContain("Enter");
   });
 });
