@@ -97,6 +97,8 @@ declare namespace chrome {
       title?: string;
       active?: boolean;
       index?: number;
+      /** "loading" | "complete". Absent until the tab has begun loading. */
+      status?: string;
     }
     function create(props: {
       url?: string;
@@ -112,6 +114,34 @@ declare namespace chrome {
       groupId?: number;
     }): Promise<Tab[]>;
     function remove(tabIds: number | number[]): Promise<void>;
+    /**
+     * Navigating a tab the agent already owns, rather than opening a third one
+     * for every step of a flow. Restricted by its caller to tabs inside the
+     * agent's group — `tabs.update` would otherwise redirect whatever tab the
+     * user happens to be reading.
+     */
+    function update(
+      tabId: number,
+      props: { url?: string; active?: boolean },
+    ): Promise<Tab>;
+    /**
+     * Waiting for a page to finish loading.
+     *
+     * A read issued the instant `tabs.create` resolves lands on `about:blank`
+     * and returns an empty snapshot — which the model reads as "this page has
+     * nothing on it" and acts on. There is no promise-shaped alternative:
+     * `create` resolves when the tab EXISTS, not when it has loaded.
+     */
+    const onUpdated: {
+      addListener(
+        cb: (
+          tabId: number,
+          change: { status?: string; url?: string },
+          tab: Tab,
+        ) => void,
+      ): void;
+      removeListener(cb: (...args: never[]) => void): void;
+    };
     function group(options: {
       tabIds: number | number[];
       groupId?: number;
