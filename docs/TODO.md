@@ -675,6 +675,48 @@ Taken down in the panel's `finally` — however the turn ended, including an abo
 error. **A green border left up after the agent has stopped is a lie about what is
 happening, and that kind of lie makes the honest version untrustworthy.**
 
+### The extension prompt, rebuilt against PUBLISHED guidance — 2026-09-13
+
+Owner asked to take the best of Claude Code and Codex. **Leaked system prompts were NOT
+used and should not be**: that is another product's proprietary text, carrying its
+vocabulary and assumptions into a product it does not describe, and it is a legal risk for
+no benefit. What was used is what Anthropic and OpenAI publish DELIBERATELY, which is
+better material:
+
+- `anthropic.com/engineering/effective-context-engineering-for-ai-agents` — the altitude
+  rule ("specific enough to guide behavior effectively, yet flexible enough to provide
+  strong heuristics"), labelled sections via Markdown headers, and **"for an LLM, examples
+  are the 'pictures' worth a thousand words"**.
+- `anthropic.com/engineering/writing-tools-for-agents` — tool descriptions are prompt
+  real-estate ("even small refinements can yield dramatic improvements"), describe a tool
+  **as you would to a new hire**, and **prefer natural-language names over cryptic
+  identifiers**.
+- `learn.chatgpt.com/guides/best-practices` (Codex) — Goal / Context / Constraints /
+  **"Done when"**, and: if a rule is vague enough that the agent might not know what to do
+  with it, remove it.
+
+**Four gaps the audit found, all now closed:**
+
+1. **NO STOPPING CRITERIA AT ALL.** The prompt never said when a turn was finished, so
+   spiralling and stopping-early were equally unopposed. There is now a `## When you are
+done` section built round one question — "is there anything left that would change my
+   answer?" — and it names BOTH failures, because warning against only one produces the
+   other.
+2. **NO EXAMPLES.** Zero, against guidance that calls them the biggest single lever. Four
+   canonical shapes now: a pure read, a multi-tab research task, a form fill that STOPS
+   before submitting, and a credential wall. Diverse and canonical rather than exhaustive.
+3. **No structure.** One wall of shouted paragraphs is now Markdown sections, which is what
+   the context-engineering guidance asks for and what makes the prompt editable.
+4. **RAW IDS EVERYWHERE.** Tool results said "Tab 554527245" and the transcript chip said
+   "Reading tab 554527245" — which is precisely the identifier problem Anthropic's tool
+   guidance names, and the owner hit the human half of it on sight. Results now lead with
+   the page NAME and carry `[tab_id N]` as an aside the model can still pass back. The
+   chip is re-labelled from the RESULT, because the call only knows the id and the result
+   knows it was the Tardigrade article.
+
+Prompt is ~1,360 tokens, up from ~1,130. "Minimal does not necessarily mean short" — the
+guidance is explicit that the budget goes on what prevents an observed failure.
+
 ### Attachments in the extension — the blocker is the MODEL, not the platform
 
 Asked 2026-09-13: "we cannot attach files". **A Chrome extension can absolutely do this** —

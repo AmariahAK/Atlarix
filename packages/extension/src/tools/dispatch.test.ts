@@ -289,7 +289,11 @@ describe("close_tab cannot touch the user's tabs", () => {
     tabs[0].groupId = 42;
     const out = await dispatchTool(call("close_tab", { tab_id: 7 }), CTX);
     expect(removed).toEqual([7]);
-    expect(out.content).toContain("Closed tab 7");
+    // NAMED, not numbered. Anthropic's tool-design guidance is that agents do
+    // measurably worse with cryptic identifiers than natural-language names —
+    // and so do the humans reading the transcript.
+    expect(out.content).toContain("Example (example.test)");
+    expect(out.label).toContain("Example");
   });
 });
 
@@ -353,9 +357,12 @@ describe("list_tabs", () => {
       windowId: 1,
     });
     const out = await dispatchTool(call("list_tabs"), CTX);
-    expect(out.content).toContain("[tab 7] (active) Example");
+    // The NAME leads and the id is an aside the model can still pass back.
+    expect(out.content).toContain("Example — https://example.test/page");
+    expect(out.content).toContain("[tab_id 7]");
+    expect(out.content).toContain("the user is looking at this one");
     expect(out.content).toContain("allowed");
-    expect(out.content).toContain("[tab 8]");
+    expect(out.content).toContain("[tab_id 8]");
     expect(out.content).toContain("needs permission");
     expect(out.content).toContain("not trustworthy");
   });
@@ -491,5 +498,61 @@ describe("trusted input stays inside the agent's own group", () => {
     const out = await dispatchTool(call("press_key", { key: "Meta+Q" }), CTX);
     expect(out.content).toContain("Unknown key");
     expect(out.content).toContain("Enter");
+  });
+});
+
+describe("results name things, they do not number them", () => {
+  /**
+   * Anthropic's published guidance on tool design: agents perform better with
+   * "natural language names, terms, or identifiers" than with cryptic
+   * alphanumeric values. The transcript proved the human half of the same point
+   * — a chip reading "Reading tab 554527245" tells nobody anything.
+   */
+  it("read_page carries a label naming the page, not the tab id", async () => {
+    const out = await dispatchTool(call("read_page"), CTX);
+    expect(out.label).toBe("Read Example (example.test)");
+  });
+
+  it("keeps the id available for the model to pass back", async () => {
+    // The id does not disappear — it stops being the whole of what is shown.
+    const out = await dispatchTool(call("read_page"), CTX);
+    expect(out.content).toContain("[tab_id 7]");
+  });
+
+  it("open_tab names what it opened", async () => {
+    const out = await dispatchTool(
+      call("open_tab", { url: "https://other.test/x" }),
+      CTX,
+    );
+    expect(out.label).toContain("Opened");
+    expect(out.content).toContain("[tab_id 99]");
+  });
+
+  it("an action is labelled with the element a person would point at", async () => {
+    injectResult = {
+      ok: true,
+      tag: "button",
+      label: "Sign in",
+      url: "https://example.test/page",
+      target: { tag: "button", text: "Sign in" },
+      rect: { x: 1, y: 1, left: 0, top: 0, width: 10, height: 10 },
+    };
+    const out = await dispatchTool(call("click", { ref: "e1" }), CTX);
+    expect(out.label).toBe("Clicked Sign in");
+  });
+
+  it("falls back to the host when a page has no title", async () => {
+    tabs[0].title = "";
+    injectResult = {
+      url: "https://example.test/page",
+      title: "",
+      count: 0,
+      total: 0,
+      truncated: false,
+      filter: "interactive",
+      elements: [],
+    };
+    const out = await dispatchTool(call("read_page"), CTX);
+    expect(out.label).toBe("Read example.test");
   });
 });

@@ -102,6 +102,17 @@ export interface ToolOutcome {
   /** What the model is told. Always present, even on failure. */
   content: string;
   /**
+   * A human phrase for the transcript, once the result is known.
+   *
+   * WHY NOT JUST THE CALL'S ARGUMENTS. Because the arguments hold an id and the
+   * result holds a name: the UI could only say "Reading tab 554527245" until the
+   * page came back and told us it was the Tardigrade article. Anthropic's own
+   * guidance on tool design is that agents do measurably worse with cryptic
+   * identifiers than with natural-language names — and so, it turns out, do the
+   * humans reading over their shoulder.
+   */
+  label?: string;
+  /**
    * Set when the call cannot proceed without the user. The loop asks, and
    * retries this same call once if they say yes.
    */
@@ -132,6 +143,34 @@ function argsOf(call: ToolCall): Record<string, unknown> {
 
 function isToolName(name: string): name is ToolName {
   return (TOOL_NAMES as readonly string[]).includes(name);
+}
+
+/**
+ * A tab in words a person recognises.
+ *
+ * The id stays, because the MODEL needs something to pass back to a tool, but it
+ * stops being the whole of what either of them sees.
+ */
+function nameTab(title: string | undefined, url: string): string {
+  const host = (() => {
+    try {
+      return new URL(url).host.replace(/^www\./, "");
+    } catch {
+      return "";
+    }
+  })();
+  const clean = (title ?? "").replace(/\s+/g, " ").trim();
+  if (clean && host) return `${clean.slice(0, 60)} (${host})`;
+  return clean.slice(0, 60) || host || url.slice(0, 60);
+}
+
+async function describeTab(tabId: number): Promise<string> {
+  try {
+    const tab = await api().tabs.get(tabId);
+    return nameTab(tab.title, tab.url ?? "");
+  } catch {
+    return `tab ${tabId}`;
+  }
 }
 
 /** Resolve which tab a read applies to, or say why there is none. */
@@ -291,8 +330,10 @@ async function readPage(args: Record<string, unknown>): Promise<ToolOutcome> {
   });
 
   const origin = originOf(tab.url) ?? tab.url;
-  const header = `Tab ${tab.id} — ${snap.title || "(untitled)"} — ${snap.url}`;
+  const named = nameTab(snap.title, snap.url);
+  const header = `${snap.title || "(untitled)"} — ${snap.url} [tab_id ${tab.id}]`;
   return {
+    label: `Read ${named}`,
     content: wrapUntrustedData(
       `web:${origin}`,
       `${header}\n${formatSnapshot(snap, { actHint: ACT_HINT })}`,
@@ -320,9 +361,10 @@ async function findOnPage(args: Record<string, unknown>): Promise<ToolOutcome> {
 
   const origin = originOf(tab.url) ?? tab.url;
   return {
+    label: `Looked for “${query}” in ${nameTab(res.title, res.url)}`,
     content: wrapUntrustedData(
       `web:${origin}`,
-      `Tab ${tab.id} — ${res.url}\n${formatFind(res, {
+      `${res.url} [tab_id ${tab.id}]\n${formatFind(res, {
         actHint: FIND_ACT_HINT,
         emptyFindHint: EMPTY_FIND_HINT,
       })}`,
@@ -354,7 +396,8 @@ async function listTabs(): Promise<ToolOutcome> {
         : "needs permission";
     const title = (tab.title ?? "").replace(/\s+/g, " ").slice(0, 80);
     rows.push(
-      `[tab ${tab.id}]${tab.active ? " (active)" : ""} ${title} — ${tab.url} — ${access}`,
+      `${title || "(untitled)"} — ${tab.url} — ${access}` +
+        `${tab.active ? " — the user is looking at this one" : ""} [tab_id ${tab.id}]`,
     );
   }
   if (rows.length === 0) {
@@ -416,9 +459,11 @@ async function openTab(
   // green once something read it. The gap is exactly when a user glances over
   // and wonders what just opened a tab.
   if (granted) await markDriven(tab.id);
+  const opened = await describeTab(tab.id);
   return {
+    label: `Opened ${opened}`,
     content:
-      `Opened tab ${tab.id} at ${raw}${loaded ? "" : " (still loading — the page may be incomplete)"}. ` +
+      `Opened ${opened} [tab_id ${tab.id}]${loaded ? "" : " (still loading — the page may be incomplete)"}. ` +
       `${adopted ? "It is in Atlarix's tab group." : "It could not be added to Atlarix's tab group."} ` +
       (granted
         ? "You may read it."
@@ -446,9 +491,10 @@ async function closeTab(args: Record<string, unknown>): Promise<ToolOutcome> {
   // makes Chrome delete the group, which fires the same event as the user
   // closing it — and that event is the stop gesture. Without this, an agent
   // tidying up kills its own turn one call before the answer.
+  const closing = await describeTab(id);
   noteAgentClosingTab();
   await api().tabs.remove(id);
-  return { content: `Closed tab ${id}.` };
+  return { label: `Closed ${closing}`, content: `Closed ${closing}.` };
 }
 
 /**
@@ -609,6 +655,7 @@ async function clickRef(args: Record<string, unknown>): Promise<ToolOutcome> {
   await waitForLoad(gate.tab.id, 10_000);
   const after = await tabUrl(gate.tab.id);
   return {
+    label: `Clicked ${result.label || result.tag}`,
     content:
       `Clicked "${result.label || result.tag}".` +
       (after && after !== before
@@ -637,6 +684,7 @@ async function fillRef(args: Record<string, unknown>): Promise<ToolOutcome> {
   });
   if (!result.ok) return { content: result.error ?? "Fill failed." };
   return {
+    label: `Filled ${result.label || result.tag}`,
     content:
       `Filled ${result.label ? `"${result.label}"` : `the <${result.tag}>`}. ` +
       `Nothing was submitted — click the submit button, or press_key Enter if this is a tab Atlarix opened.`,

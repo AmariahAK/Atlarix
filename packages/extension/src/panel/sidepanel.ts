@@ -300,8 +300,21 @@ function toolChip(call: ToolCall): HTMLDetailsElement {
   return details;
 }
 
-function fillChip(details: HTMLDetailsElement, result: string): void {
+function fillChip(
+  details: HTMLDetailsElement,
+  result: string,
+  label?: string,
+): void {
   details.classList.remove("tool--running");
+  // Re-label from the RESULT when there is one. The call could only say
+  // "Reading tab 554527245"; the result knows it was the Tardigrade article.
+  const summary = label ? details.querySelector("summary") : null;
+  if (summary) {
+    summary.textContent = "";
+    const dot = document.createElement("span");
+    dot.className = "tool__dot";
+    summary.append(dot, document.createTextNode(label as string));
+  }
   const body = document.createElement("pre");
   body.className = "tool__body";
   body.textContent = result;
@@ -651,9 +664,9 @@ async function send(): Promise<void> {
           // indicator has to come back or the panel goes quiet mid-task.
           if (!working) working = append(workingRow());
         },
-        onToolResult(call, content) {
+        onToolResult(call, content, label) {
           const chip = chips.get(call.id);
-          if (chip) fillChip(chip, content);
+          if (chip) fillChip(chip, content, label);
         },
         onApproval: approvalCard,
       },

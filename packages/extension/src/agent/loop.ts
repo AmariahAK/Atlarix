@@ -70,7 +70,8 @@ export interface AgentEvents {
   /** The model's thinking, on the tiers that produce any. */
   onReasoning?(delta: string): void;
   onToolCall?(call: ToolCall): void;
-  onToolResult?(call: ToolCall, content: string): void;
+  /** `label` is the human phrase for the transcript, known only after the call. */
+  onToolResult?(call: ToolCall, content: string, label?: string): void;
   /**
    * Ask the user to authorise something the loop cannot.
    *
@@ -302,7 +303,7 @@ export async function runTurn(args: TurnArgs): Promise<TurnOutcome> {
       };
       history.push(message);
       produced.push(message);
-      events.onToolResult?.(call, outcome.content);
+      events.onToolResult?.(call, outcome.content, outcome.label);
     }
   }
 }
