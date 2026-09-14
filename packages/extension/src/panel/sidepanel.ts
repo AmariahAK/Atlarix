@@ -45,6 +45,7 @@ import {
   requestHostAccess,
   revokeHostAccess,
 } from "../permissions/host-access";
+import { syncSiteGrants } from "../permissions/grants-sync";
 import { listGrants, revokeAll } from "../permissions/site-grants";
 import { activeTab } from "../page/inject";
 import { detachAll } from "../page/trusted-input";
@@ -1622,6 +1623,13 @@ async function refreshDrawer(): Promise<void> {
     // a site they believe is approved and we already know is not.
     const known = (await listGrants()).map((g) => g.origin);
     await pruneRevokedGrants(known);
+    // Then the website's copy: publish what survived, and apply anything the
+    // user revoked from the account page. After `pruneRevokedGrants`, so what
+    // is published is a list Chrome has already agreed with. Never awaited for
+    // correctness of the render below -- it is a mirror, and a stale mirror
+    // costs nothing -- but awaited here so a revocation applied on this open
+    // shows up in the list the user is about to read rather than one open late.
+    await syncSiteGrants();
     const grants = await listGrants();
     if (grants.length === 0) {
       emptyNote(
