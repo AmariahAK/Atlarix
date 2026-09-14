@@ -273,6 +273,21 @@ for (const { src, dest, px } of ASSETS) {
     );
   }
   console.log(`[${TAG}] transcript children are shrink-proof`);
+
+  // The attachment chips are built in TypeScript and styled here, and a rename
+  // on either side renders them UNSTYLED with nothing red anywhere — which is
+  // precisely what "the attachment just came through as text" looked like the
+  // first time. Cheap to pin, and the same reason the rule above is pinned here
+  // rather than in a test.
+  for (const cls of ["msg__files", "file__chip", "file__badge", "file__name", "file__note", "file__text"]) {
+    if (!css.includes(`.${cls}`)) {
+      fatal(
+        `sidepanel.css has no rule for .${cls} — a sent attachment will render ` +
+          "as unstyled text in the transcript",
+      );
+    }
+  }
+  console.log(`[${TAG}] attachment chips are styled`);
 }
 
 // ---------------------------------------------------------------------------

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { CoreModel } from "../core/client";
 import {
   MAX_IMAGES,
+  attachmentsIn,
+  typedText,
   MAX_IMAGE_BYTES,
   MAX_TEXT_CHARS,
   buildUserContent,
@@ -143,9 +145,13 @@ describe("building the message", () => {
       file("shot.png", "image", "data:image/png;base64,AAA"),
     ]);
     expect(Array.isArray(parts)).toBe(true);
-    const list = parts as Array<{ type: string }>;
-    expect(list[0].type).toBe("text");
-    expect(list[1].type).toBe("image_url");
+    const list = parts as Array<{ type: string; text?: string }>;
+    // Part 0 is ALWAYS what was typed, even when that is nothing — it is what
+    // `typedText` reads back, and a first part that is sometimes the question
+    // and sometimes a spreadsheet supports no such rule.
+    expect(list[0]).toEqual({ type: "text", text: "what is in this?" });
+    expect(list[1].type).toBe("text");
+    expect(list[2].type).toBe("image_url");
   });
 
   it("inlines a text file fenced and named", () => {
@@ -154,9 +160,9 @@ describe("building the message", () => {
     const parts = buildUserContent("check this", [
       file("totals.csv", "text", "name,total"),
     ]) as Array<{ type: string; text?: string }>;
-    expect(parts[0].text).toContain("totals.csv");
-    expect(parts[0].text).toContain("```");
-    expect(parts[0].text).toContain("name,total");
+    expect(parts[1].text).toContain("totals.csv");
+    expect(parts[1].text).toContain("```");
+    expect(parts[1].text).toContain("name,total");
   });
 
   it("says when a text file was truncated", () => {
@@ -165,7 +171,7 @@ describe("building the message", () => {
     const parts = buildUserContent("sum it", [
       { name: "big.csv", kind: "text", size: 1, data: "a", truncated: true },
     ]) as Array<{ text?: string }>;
-    expect(parts[0].text).toMatch(/truncated/i);
+    expect(parts[1].text).toMatch(/truncated/i);
   });
 
   it("sends a PDF as a document part, not as an image", () => {
@@ -173,6 +179,70 @@ describe("building the message", () => {
       file("r.pdf", "pdf", "data:application/pdf;base64,AAA"),
     ]) as Array<{ type: string }>;
     expect(parts[1].type).toBe("file");
+  });
+});
+
+/**
+ * What the transcript can tell about a sent message.
+ *
+ * The bug this pins was invisible at the model end and total at the user's: an
+ * attached file was folded into the same text part as the question, so the panel
+ * had no way to tell a spreadsheet from something the user had typed — it drew
+ * the file's contents as the message, and the attachment "came through as text".
+ */
+describe("reading attachments back out of a sent message", () => {
+  const csv = file("totals.csv", "text", "name,total\nx,1");
+  const png = file("shot.png", "image", "data:image/png;base64,AAA");
+  const pdf = file("r.pdf", "pdf", "data:application/pdf;base64,AAA");
+
+  it("finds every kind, named, in the order they were attached", () => {
+    const content = buildUserContent("what is in these?", [csv, png, pdf]);
+    expect(attachmentsIn(content)).toEqual([
+      { kind: "text", name: "totals.csv", data: "name,total\nx,1", truncated: false },
+      { kind: "image", name: "Image 1", data: "data:image/png;base64,AAA" },
+      { kind: "pdf", name: "r.pdf", data: "data:application/pdf;base64,AAA" },
+    ]);
+  });
+
+  it("keeps the file's contents out of the typed text", () => {
+    // The Edit box and the bubble both read this. Putting a CSV back in the
+    // composer is not editing a question.
+    const content = buildUserContent("sum it", [csv]);
+    expect(typedText(content)).toBe("sum it");
+    expect(typedText(content)).not.toContain("name,total");
+  });
+
+  it("carries the truncation flag through", () => {
+    const big = { name: "big.csv", kind: "text", size: 1, data: "a", truncated: true } as Attachment;
+    expect(attachmentsIn(buildUserContent("x", [big]))[0].truncated).toBe(true);
+  });
+
+  it("finds nothing in an ordinary message", () => {
+    expect(attachmentsIn("just a question")).toEqual([]);
+    expect(typedText("just a question")).toBe("just a question");
+  });
+
+  it("does not mistake a question that merely starts with the header for a file", () => {
+    // A fenceless line is not something the builder ever emitted.
+    expect(attachmentsIn([{ type: "text", text: "Attached file: what does that mean?" }]))
+      .toEqual([]);
+  });
+
+  it("numbers several images rather than calling them all the same thing", () => {
+    // The OpenAI image part has nowhere to put a filename, so position is the
+    // only name available — and "image, image, image" names nothing.
+    const content = buildUserContent("compare", [png, file("b.png", "image", "data:image/png;base64,BBB")]);
+    expect(attachmentsIn(content).map((a) => a.name)).toEqual(["Image 1", "Image 2"]);
+  });
+
+  it("still sends the model the file, fenced and named", () => {
+    // The wire content is unchanged in substance: splitting into its own part is
+    // a change to what the PANEL can see, not to what the model reads.
+    const parts = buildUserContent("sum it", [csv]) as Array<{ text?: string }>;
+    expect(parts[0].text).toBe("sum it");
+    expect(parts[1].text).toContain("totals.csv");
+    expect(parts[1].text).toContain("```");
+    expect(parts[1].text).toContain("name,total");
   });
 });
 
@@ -245,8 +315,13 @@ describe("what survives a refusal", () => {
     tier: "core-3",
     inputModalities: ["text", "image", "pdf"],
   } as unknown as CoreModel;
-  const pdf = { kind: "pdf", name: "Resume.pdf", dataUrl: "data:application/pdf;base64,AA" } as Attachment;
-  const note = { kind: "text", name: "note.txt", text: "hello" } as Attachment;
+  const pdf: Attachment = {
+    kind: "pdf",
+    name: "Resume.pdf",
+    size: 2,
+    data: "data:application/pdf;base64,AA",
+  };
+  const note: Attachment = { kind: "text", name: "note.txt", size: 5, data: "hello" };
 
   it("hands back the refused ones so they can be re-sent", () => {
     const out = gateAttachments([pdf], glm, [glm, astra]);

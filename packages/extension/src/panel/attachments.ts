@@ -217,6 +217,49 @@ export function gateAttachments(
 }
 
 /**
+ * The first line of a text part that carries an attached file.
+ *
+ * ONE DEFINITION FOR BOTH DIRECTIONS. `attachedTextPart` writes it and
+ * `readAttachedText` reads it back, so the shape cannot drift into two
+ * disagreeing copies — the panel's transcript depends on recognising exactly
+ * what the builder emitted.
+ */
+const ATTACHED_HEADER = "Attached file: ";
+const TRUNCATED_NOTE = " (truncated — only the first part is shown)";
+
+/** What an attached text file looks like on the wire. */
+export function attachedTextPart(file: Attachment): ContentPart {
+  // Fenced and named. Without the name a model asked "what is in the second
+  // file" has no way to tell which is which, and without the fence a CSV's
+  // commas read as prose.
+  return {
+    type: "text",
+    text:
+      `${ATTACHED_HEADER}${file.name}${file.truncated ? TRUNCATED_NOTE : ""}\n` +
+      "```\n" +
+      file.data +
+      "\n```",
+  };
+}
+
+/** The file back out of such a part, or null when it is ordinary typed text. */
+export function readAttachedText(
+  part: ContentPart,
+): { name: string; body: string; truncated: boolean } | null {
+  if (part.type !== "text" || !part.text.startsWith(ATTACHED_HEADER)) return null;
+  const newline = part.text.indexOf("\n");
+  if (newline < 0) return null;
+  let name = part.text.slice(ATTACHED_HEADER.length, newline);
+  const truncated = name.endsWith(TRUNCATED_NOTE);
+  if (truncated) name = name.slice(0, -TRUNCATED_NOTE.length);
+  // Between the opening fence and the closing one. A part we wrote always has
+  // both; anything else is not ours and is left as typed text.
+  const rest = part.text.slice(newline + 1);
+  if (!rest.startsWith("```\n") || !rest.endsWith("\n```")) return null;
+  return { name, body: rest.slice(4, -4), truncated };
+}
+
+/**
  * Build the message content for a question plus its attachments.
  *
  * THE TEXT COMES FIRST, and the question comes before the files it is about.
@@ -237,19 +280,19 @@ export function buildUserContent(
   const inlineText = attachments.filter((a) => a.kind === "text");
   const media = attachments.filter((a) => a.kind !== "text");
 
-  const lead = [text.trim()];
-  for (const file of inlineText) {
-    // Fenced and named. Without the name a model asked "what is in the second
-    // file" has no way to tell which is which, and without the fence a CSV's
-    // commas read as prose.
-    lead.push(
-      `Attached file: ${file.name}${file.truncated ? " (truncated — only the first part is shown)" : ""}\n` +
-        "```\n" +
-        file.data +
-        "\n```",
-    );
-  }
-  parts.push({ type: "text", text: lead.filter(Boolean).join("\n\n") });
+  // PART ZERO IS ALWAYS WHAT THE USER TYPED, even when that is nothing. It is
+  // what `typedText` reads back for the Edit box, and a message whose first part
+  // is sometimes the question and sometimes a spreadsheet has no such rule.
+  parts.push({ type: "text", text: text.trim() });
+
+  // ONE PART PER ATTACHED FILE, not all of them folded into the question.
+  //
+  // The model reads the same bytes either way — but the transcript does not.
+  // Folded in, an attached CSV was indistinguishable from text the user had
+  // typed, so the panel drew the whole file as the message and the attachment
+  // "came through as text" with nothing to show it had ever been a file. Kept as
+  // its own part it can be drawn as a chip with a preview behind it.
+  for (const file of inlineText) parts.push(attachedTextPart(file));
 
   for (const file of media) {
     if (file.kind === "image") {
@@ -262,6 +305,75 @@ export function buildUserContent(
     }
   }
   return parts;
+}
+
+/**
+ * What was attached to a stored message, for drawing it back.
+ *
+ * Read out of the message itself rather than from a side store: the bytes are
+ * already in the transcript — that is what was sent — so there is nothing to
+ * fetch and nothing that can go missing when a conversation is reopened. The
+ * desktop keeps a separate `AttachmentStore` and has to survive it being empty;
+ * here the message IS the store.
+ */
+export interface SentAttachment {
+  kind: AttachmentKind;
+  name: string;
+  /** Text content for `text`; a data URL for `image` and `pdf`. */
+  data: string;
+  truncated?: boolean;
+}
+
+export function attachmentsIn(
+  content: string | ContentPart[],
+): SentAttachment[] {
+  if (typeof content === "string") return [];
+  const out: SentAttachment[] = [];
+  for (const part of content) {
+    if (part.type === "image_url") {
+      // An image part carries no filename on the wire — the OpenAI shape has
+      // nowhere to put one. Naming it by position beats naming it "image" four
+      // times over.
+      out.push({
+        kind: "image",
+        name: `Image ${out.filter((a) => a.kind === "image").length + 1}`,
+        data: part.image_url.url,
+      });
+      continue;
+    }
+    if (part.type === "file") {
+      out.push({ kind: "pdf", name: part.file.filename, data: part.file.file_data });
+      continue;
+    }
+    const file = readAttachedText(part);
+    if (file) {
+      out.push({
+        kind: "text",
+        name: file.name,
+        data: file.body,
+        truncated: file.truncated,
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * What the user actually typed, with the attached files left out.
+ *
+ * SEPARATE FROM `userText`, which is right to include them: that one measures
+ * what the model is sent, and an inlined spreadsheet is genuinely part of it.
+ * This one is for the screen and the Edit box, where putting a CSV's contents
+ * back in the composer is not editing a question.
+ *
+ * An older transcript, written when every file was folded into the first part,
+ * returns that whole part. Its contents were the message as far as anything ever
+ * knew; rewriting history to pretend otherwise would be a guess.
+ */
+export function typedText(content: string | ContentPart[]): string {
+  if (typeof content === "string") return content;
+  const part = content.find((p) => p.type === "text" && !readAttachedText(p));
+  return part && part.type === "text" ? part.text : "";
 }
 
 /** A short description for the composer's chip. */

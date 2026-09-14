@@ -59,7 +59,6 @@ import { onGroupClosed, setGroupTitle } from "../tabs/group";
 import {
   CoreError,
   listModels,
-  userText,
   type ContentPart,
   type CoreMessage,
   type CoreModel,
@@ -102,11 +101,14 @@ import {
 import { chooseModel, optionsFor, shortModelName } from "./model-choice";
 import { summariseSteps, type Step } from "./steps";
 import {
+  attachmentsIn,
   buildUserContent,
   describeAttachment,
   gateAttachments,
   readAttachment,
+  typedText,
   type Attachment,
+  type SentAttachment,
 } from "./attachments";
 import { TOOL_SCHEMAS } from "../tools/schemas";
 import {
@@ -515,6 +517,95 @@ function renderQaAnswer(body: HTMLElement, text: string): boolean {
   return true;
 }
 
+/** How much of an attached text file the inline preview shows. */
+const PREVIEW_CHARS = 4_000;
+
+/**
+ * The files a message was sent with, drawn as chips under the bubble's top edge.
+ *
+ * CLICK TO PREVIEW, INLINE, rather than the desktop's modal. The desktop has a
+ * window to put one in; this is a 320px panel, and an overlay covering it would
+ * hide the conversation the attachment belongs to. Expanding in place keeps both
+ * on screen and costs no new surface.
+ *
+ * A PDF gets a chip and no preview. Rendering one needs a viewer in a frame,
+ * which the extension's CSP does not allow and a 320px column could not use
+ * anyway — so the chip says what it is and stops, rather than offering a control
+ * that does nothing.
+ */
+function attachmentRow(files: SentAttachment[]): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "msg__files";
+
+  for (const file of files) {
+    const item = document.createElement("div");
+    item.className = "file";
+
+    const previewable = file.kind !== "pdf";
+    const chip = document.createElement(previewable ? "button" : "span");
+    chip.className = "file__chip";
+
+    const badge = document.createElement("span");
+    badge.className = "file__badge";
+    badge.textContent = file.kind === "image" ? "IMG" : file.kind === "pdf" ? "PDF" : "TXT";
+
+    const name = document.createElement("span");
+    name.className = "file__name";
+    name.textContent = file.name;
+
+    chip.append(badge, name);
+
+    // ITS OWN ELEMENT, not part of the name, because the name is the thing that
+    // ellipsises — and a long filename would eat exactly the word that says the
+    // model did not get the whole file. The least droppable fact was the first
+    // to go.
+    if (file.truncated) {
+      const note = document.createElement("span");
+      note.className = "file__note";
+      note.textContent = "truncated";
+      chip.append(note);
+    }
+    chip.title = previewable ? `Preview ${file.name}` : file.name;
+    item.append(chip);
+
+    if (previewable) {
+      const preview = document.createElement("div");
+      preview.className = "file__preview";
+      preview.hidden = true;
+
+      if (file.kind === "image") {
+        const img = document.createElement("img");
+        img.className = "bubble__image";
+        img.src = file.data;
+        img.alt = file.name;
+        preview.append(img);
+      } else {
+        const pre = document.createElement("pre");
+        pre.className = "file__text";
+        // Clipped for the preview only. The model was sent the whole thing —
+        // whatever `MAX_TEXT_CHARS` allowed — and saying so is the difference
+        // between a short preview and a short attachment.
+        pre.textContent =
+          file.data.length > PREVIEW_CHARS
+            ? `${file.data.slice(0, PREVIEW_CHARS)}\n\n… preview clipped (${file.data.length} characters sent)`
+            : file.data || "(empty file)";
+        preview.append(pre);
+      }
+
+      (chip as HTMLButtonElement).type = "button";
+      chip.addEventListener("click", () => {
+        preview.hidden = !preview.hidden;
+        item.classList.toggle("file--open", !preview.hidden);
+      });
+      item.append(preview);
+    }
+
+    row.append(item);
+  }
+
+  return row;
+}
+
 function userBubble(
   content: string | ContentPart[],
   index: number,
@@ -524,23 +615,28 @@ function userBubble(
 
   const body = document.createElement("div");
   body.className = "msg__text";
-  const text = userText(content);
-  // A QUESTION ANSWER RENDERS AS QUESTION-THEN-ANSWER, not as its raw string.
-  if (!renderQaAnswer(body, text)) body.textContent = text;
 
-  // AN ATTACHED IMAGE IS SHOWN BACK. Rendering it as "[attached image]" makes a
-  // user scrolling their own history unable to tell which screenshot they sent,
-  // and the bytes are already in the transcript — there is nothing to fetch.
-  if (typeof content !== "string") {
-    for (const part of content) {
-      if (part.type !== "image_url") continue;
-      const img = document.createElement("img");
-      img.className = "bubble__image";
-      img.src = part.image_url.url;
-      img.alt = "Attached image";
-      body.append(img);
-    }
-  }
+  // WHAT WAS ATTACHED IS SHOWN BACK, above the question it was attached to.
+  //
+  // Without this the transcript said nothing at all: an image was a message
+  // with no image in it, and a CSV was its own contents printed as though the
+  // user had typed them — which is exactly what "the attachment came through as
+  // text" describes. The bytes are already in the transcript, so there is
+  // nothing to fetch and nothing that goes missing when a conversation is
+  // reopened a week later.
+  const files = attachmentsIn(content);
+  if (files.length > 0) body.append(attachmentRow(files));
+
+  const prose = document.createElement("div");
+  prose.className = "msg__prose";
+  // NOT `userText`, which includes an inlined file's contents — right for the
+  // context bar, wrong for the screen, where the file is now a chip.
+  const text = typedText(content);
+  // A QUESTION ANSWER RENDERS AS QUESTION-THEN-ANSWER, not as its raw string.
+  if (!renderQaAnswer(prose, text)) prose.textContent = text;
+  // A message that was only an attachment has nothing to say here, and an empty
+  // block would still take its line-height.
+  if (text) body.append(prose);
 
   const edit = document.createElement("button");
   edit.type = "button";
@@ -553,7 +649,7 @@ function userBubble(
     // are in the transcript and could be restored, but silently re-attaching a
     // file someone is about to rewrite the question about is the kind of help
     // that gets sent by accident. They re-attach if they still mean to.
-    beginEdit(index, userText(content));
+    beginEdit(index, typedText(content));
   });
 
   wrap.append(body, edit);
@@ -1193,7 +1289,11 @@ async function send(): Promise<void> {
     content: buildUserContent(text, accepted),
   };
   messages = [...messages, userMessage];
-  append(userBubble(text, userIndex));
+  // THE MESSAGE, NOT THE TYPED TEXT. Passing `text` here drew the bubble from
+  // the string alone, so an attachment appeared in the transcript only after the
+  // panel was closed and reopened and the stored message was re-rendered — on
+  // the turn it was actually sent, the one that matters, it showed nothing.
+  append(userBubble(userMessage.content, userIndex));
   // ARCHIVED AS IT ARRIVES, not at the end of the turn. Compaction rewrites the
   // live transcript in place, so the archive is the only copy of what was
   // actually said — and it has to be written before anything can rewrite it.

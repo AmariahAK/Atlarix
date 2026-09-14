@@ -1230,12 +1230,109 @@ body {
   border-radius: 8px;
 }
 
+/* ── What a message was sent with ───────────────────────────────────────────
+ *
+ * Chips at the top of the user's own bubble, one per attached file, each
+ * expanding IN PLACE. The desktop opens a modal; a 320px panel cannot afford to
+ * cover the conversation the attachment belongs to.
+ */
+.msg__files {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.file {
+  min-width: 0;
+}
+
+.file__chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 3px 6px;
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+button.file__chip {
+  cursor: pointer;
+}
+
+button.file__chip:hover {
+  background: color-mix(in srgb, var(--fg) 12%, transparent);
+}
+
+.file__badge {
+  flex: none;
+  padding: 0 4px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+
+/*
+ * `min-width: 0` is what lets the ellipsis happen at all: a flex item's
+ * automatic minimum size is its content, so without it a long filename widens
+ * the chip past the bubble instead of truncating.
+ */
+.file__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Never shrinks: see the comment where it is built. */
+.file__note {
+  flex: none;
+  font-size: 9px;
+  letter-spacing: 0.02em;
+  color: var(--fg-muted);
+}
+
+.file__preview {
+  margin-top: 4px;
+}
+
+.file__text {
+  max-height: 200px;
+  margin: 0;
+  padding: 6px;
+  overflow: auto;
+  font:
+    11px/1.5 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--fg-muted);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.file--open .file__chip {
+  background: color-mix(in srgb, var(--fg) 12%, transparent);
+}
+
 /* An image the user attached, shown back to them in the transcript. */
 .bubble__image {
   display: block;
   max-width: 100%;
   max-height: 220px;
-  margin-top: 6px;
   border-radius: 6px;
   border: 1px solid var(--border);
 }
