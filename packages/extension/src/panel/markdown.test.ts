@@ -218,3 +218,38 @@ describe("numbered lists", () => {
     expect(host.querySelector("ol li code")?.textContent).toBe("npm run build");
   });
 });
+
+describe("italics", () => {
+  // Seen in a real answer as the literal characters: "unit sales are *rising*".
+  it("renders single asterisks as emphasis", () => {
+    render("unit sales are *rising* throughout");
+    expect(host.querySelector("em")?.textContent).toBe("rising");
+    expect(host.textContent).not.toContain("*");
+  });
+
+  it("still prefers bold when both could match", () => {
+    // Alternation is ordered: offered the italic branch first, `**x**` matches
+    // `*` + `*x*` and renders a stray asterisk around emphasised text.
+    render("**definitely bold**");
+    expect(host.querySelector("strong")?.textContent).toBe("definitely bold");
+    expect(host.querySelector("em")).toBeNull();
+  });
+
+  it("leaves snake_case alone", () => {
+    // The reason `_x_` is not emphasis: the model writes these constantly.
+    render("call read_attachment with file_data set");
+    expect(host.querySelector("em")).toBeNull();
+    expect(host.textContent).toContain("read_attachment");
+  });
+
+  it("does not emphasise a lone asterisk or across a line break", () => {
+    render("2 * 3 = 6");
+    expect(host.querySelector("em")).toBeNull();
+  });
+
+  it("keeps italic out of a code span", () => {
+    render("`a * b` stays code");
+    expect(host.querySelector("code")?.textContent).toBe("a * b");
+    expect(host.querySelector("em")).toBeNull();
+  });
+});

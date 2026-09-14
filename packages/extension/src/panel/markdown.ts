@@ -153,9 +153,18 @@ function parseBlocks(markdown: string): Node[] {
  * alternatives must not apply to each other's output: a URL inside a code span
  * is not a link, and `**` inside a URL is not bold. Scanning left to right and
  * consuming whole matches is what makes that true without any escaping.
+ *
+ * ORDER IS LOAD-BEARING between bold and italic. Alternation is tried left to
+ * right, so `**x**` must be offered the bold branch before the italic one or it
+ * matches `*` + `*x*` and renders a stray asterisk around italic text.
+ *
+ * ITALIC IS `*x*` ONLY, never `_x_`. Underscores appear inside ordinary tokens
+ * the model writes constantly — `read_attachment`, `file_data`, snake_case
+ * anything — and a pair of them in one line would swallow the middle into
+ * emphasis. Asterisks do not occur that way.
  */
 const INLINE =
-  /(`[^`]+`)|(\*\*[^*]+\*\*)|(\bhttps?:\/\/[^\s<>()]+[^\s<>().,;:!?])/g;
+  /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*\n]+\*)|(\bhttps?:\/\/[^\s<>()]+[^\s<>().,;:!?])/g;
 
 function appendInline(parent: HTMLElement, text: string): void {
   let last = 0;
@@ -163,7 +172,7 @@ function appendInline(parent: HTMLElement, text: string): void {
     const at = match.index;
     if (at > last) parent.append(text.slice(last, at));
 
-    const [whole, code, bold, url] = match;
+    const [whole, code, bold, italic, url] = match;
     if (code) {
       const el = document.createElement("code");
       el.textContent = code.slice(1, -1);
@@ -171,6 +180,10 @@ function appendInline(parent: HTMLElement, text: string): void {
     } else if (bold) {
       const el = document.createElement("strong");
       el.textContent = bold.slice(2, -2);
+      parent.append(el);
+    } else if (italic) {
+      const el = document.createElement("em");
+      el.textContent = italic.slice(1, -1);
       parent.append(el);
     } else if (url) {
       const el = document.createElement("a");

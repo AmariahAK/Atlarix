@@ -73,9 +73,17 @@ def rows():
                     n = sensor_units(region, m)
                     margin = sensor_margin(region, m)
                 else:
-                    seed = (len(region) * 37 + len(line) * 53 + m * 11) % 90
-                    n = 180 + seed * 5 + m * 12
-                    margin += (m % 3) - 1
+                    # SEEDED ON THE REGION'S INDEX, NOT `len(region)`. "EMEA"
+                    # and "APAC" are both four characters, so the first version
+                    # gave them byte-identical units, revenue and margin for
+                    # every non-sensor line — and the model reading the file
+                    # flagged it, correctly, as looking like duplicated data
+                    # from a copy/paste or a broken ETL. A demo file whose
+                    # headline finding is a flaw in the demo file is not a demo.
+                    r = REGIONS.index(region)
+                    seed = (r * 41 + len(line) * 53 + m * 11) % 90
+                    n = 180 + seed * 5 + m * 12 + r * 37
+                    margin += (m % 3) - 1 + (r % 2)
                 out.append([month, region, line, n, n * price, margin])
     return out
 

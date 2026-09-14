@@ -635,6 +635,29 @@ function renderQaAnswer(body: HTMLElement, text: string): boolean {
 }
 
 /**
+ * The three letters on a chip.
+ *
+ * FROM THE FILENAME FIRST, because an office document reaches us as kind
+ * `text` — we unzip it and keep the words, which is the right internal shape
+ * and the wrong thing to show. A chip reading "TXT" beside `sales.xlsx` looks
+ * like the wrong file was attached. What the user attached was a spreadsheet,
+ * so the badge says so.
+ */
+function badgeFor(file: SentAttachment): string {
+  const ext = /\.([a-z0-9]+)$/i.exec(file.name)?.[1]?.toLowerCase();
+  const byExtension: Record<string, string> = {
+    xlsx: "XLS", xls: "XLS", csv: "CSV", tsv: "CSV",
+    docx: "DOC", doc: "DOC", odt: "DOC", rtf: "DOC",
+    pptx: "PPT", ppt: "PPT",
+    epub: "EPUB", md: "MD", json: "JSON",
+  };
+  if (ext && byExtension[ext]) return byExtension[ext];
+  if (file.kind === "image") return "IMG";
+  if (file.kind === "pdf") return "PDF";
+  return "TXT";
+}
+
+/**
  * The files a message was sent with, drawn as chips under the bubble's top edge.
  *
  * CLICK TO PREVIEW, INLINE, rather than the desktop's modal. The desktop has a
@@ -667,7 +690,7 @@ function attachmentRow(files: SentAttachment[]): HTMLElement {
 
     const badge = document.createElement("span");
     badge.className = "file__badge";
-    badge.textContent = file.kind === "image" ? "IMG" : file.kind === "pdf" ? "PDF" : "TXT";
+    badge.textContent = badgeFor(file);
 
     const name = document.createElement("span");
     name.className = "file__name";
