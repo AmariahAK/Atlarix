@@ -3,8 +3,10 @@ import type { CoreModel } from "../core/client";
 import { PREVIEW_CHARS } from "../attachments/store";
 import {
   MAX_IMAGES,
+  MAX_ARCHIVE_BYTES,
   MAX_IMAGE_BYTES,
   MAX_MESSAGE_BYTES,
+  SNIFF_BYTES,
   attachedTextPart,
   attachmentsIn,
   buildUserContent,
@@ -19,7 +21,7 @@ import {
   type Attachment,
   type StoredRef,
 } from "./attachments";
-import { DOCX_B64, XLSX_B64, bytesOf } from "./ooxml.fixtures";
+import { BIG_DOCX_B64, DOCX_B64, XLSX_B64, bytesOf } from "./ooxml.fixtures";
 
 const model = (
   tier: string,
@@ -270,6 +272,20 @@ describe("building the message", () => {
     expect(parts[1].text).not.toContain("Preview");
   });
 
+  it("carries EVERY attached file, not just the first", async () => {
+    // Reported as "i attached 2, and only 1 was taken". The cause was one of
+    // the two being refused while being attached, with the explanation then
+    // wiped from the status line by the send — but the composite path deserves
+    // its own assertion, because nothing else covers two text files at once.
+    const a = file("notes.md", "text", "# one");
+    const b = file("totals.csv", "text", "name,total");
+    const parts = buildUserContent("and these?", [a, b], refsFor(a, b));
+    expect(attachmentsIn(parts).map((x) => x.name)).toEqual([
+      "notes.md",
+      "totals.csv",
+    ]);
+  });
+
   it("sends a PDF as a document part, not as an image", () => {
     const pdf = file("r.pdf", "pdf", "data:application/pdf;base64,AAA");
     const parts = buildUserContent("read it", [pdf], new Map()) as Array<{
@@ -388,8 +404,14 @@ describe("reading a file", () => {
   const readers = {
     text: async (f: File) => `contents of ${f.name}`,
     dataUrl: async (f: File) => `data:${f.type};base64,AAA-${f.name}`,
+    head: async () => new TextEncoder().encode("plain text"),
     bytes: async () => new TextEncoder().encode("plain text"),
   };
+  /** A file the readers treat as a real archive: head is clipped, bytes is not. */
+  const archive = (b64: string) => ({
+    head: async () => bytesOf(b64).subarray(0, SNIFF_BYTES),
+    bytes: async () => bytesOf(b64),
+  });
   const fakeFile = (name: string, type: string, size: number) =>
     ({ name, type, size }) as File;
 
@@ -439,7 +461,7 @@ describe("reading a file", () => {
     // rule, adopted after an allowlist missed `.mjs`, `.vue` and `Dockerfile`.
     const out = await readAttachment(
       fakeFile("report.docx", "application/octet-stream", 400),
-      { ...readers, bytes: async () => bytesOf(DOCX_B64) },
+      { ...readers, ...archive(DOCX_B64) },
     );
     expect(out.attachment?.kind).toBe("text");
     expect(out.attachment?.data).toContain("Quarterly report");
@@ -449,7 +471,7 @@ describe("reading a file", () => {
   it("reads an .xlsx with its shared strings resolved", async () => {
     const out = await readAttachment(fakeFile("book.xlsx", "", 400), {
       ...readers,
-      bytes: async () => bytesOf(XLSX_B64),
+      ...archive(XLSX_B64),
     });
     expect(out.attachment?.data).toContain("EMEA");
   });
@@ -457,9 +479,39 @@ describe("reading a file", () => {
   it("recognises an office document renamed to something else", async () => {
     const out = await readAttachment(fakeFile("mystery.bin", "", 400), {
       ...readers,
-      bytes: async () => bytesOf(DOCX_B64),
+      ...archive(DOCX_B64),
     });
     expect(out.attachment?.data).toContain("Quarterly report");
+  });
+
+  it("reads an archive bigger than the sniff window", async () => {
+    // THE BUG THIS PINS. A ZIP's central directory is at the END of the file, so
+    // extracting from the 8 KB sniff sample finds no directory and reports "not
+    // an office document" — which is what every real .docx and .xlsx did. It
+    // shipped because every other fixture here is under 500 bytes and so fits
+    // inside the sniff window, where head and whole file are the same thing.
+    const whole = bytesOf(BIG_DOCX_B64);
+    expect(whole.length).toBeGreaterThan(SNIFF_BYTES);
+
+    const out = await readAttachment(
+      fakeFile("big.docx", "", whole.length),
+      { ...readers, ...archive(BIG_DOCX_B64) },
+    );
+    expect(out.refusal).toBeUndefined();
+    expect(out.attachment?.data).toContain("Paragraph 1:");
+    // The last paragraph proves the whole archive was inflated, not a prefix.
+    expect(out.attachment?.data).toContain("FINAL LINE MARKER");
+  });
+
+  it("refuses an archive too large to hold in memory", async () => {
+    // An archive cannot be streamed — its table of contents is at the end — so
+    // it is the one kind with a hard size limit.
+    const out = await readAttachment(
+      fakeFile("huge.docx", "", MAX_ARCHIVE_BYTES + 1),
+      { ...readers, ...archive(BIG_DOCX_B64) },
+    );
+    expect(out.attachment).toBeNull();
+    expect(out.refusal).toMatch(/25 MB/);
   });
 
   it("names what works when an archive is not an office document", async () => {
@@ -467,6 +519,7 @@ describe("reading a file", () => {
     zip.set([0x50, 0x4b, 0x03, 0x04]);
     const out = await readAttachment(fakeFile("stuff.zip", "", 200), {
       ...readers,
+      head: async () => zip,
       bytes: async () => zip,
     });
     expect(out.attachment).toBeNull();
@@ -482,7 +535,7 @@ describe("reading a file", () => {
   it("refuses a real binary, and says what it does read", async () => {
     const out = await readAttachment(fakeFile("clip.mp4", "video/mp4", 10), {
       ...readers,
-      bytes: async () => new Uint8Array([0x00, 0x00, 0x00, 0x18, 0x66]),
+      head: async () => new Uint8Array([0x00, 0x00, 0x00, 0x18, 0x66]),
     });
     expect(out.attachment).toBeNull();
     expect(out.refusal).toMatch(/binary/i);

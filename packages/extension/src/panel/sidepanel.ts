@@ -198,6 +198,18 @@ let messages: CoreMessage[] = [];
 let staged: Attachment[] = [];
 /** Signatures of pastes already staged, so a double-paste makes one chip. */
 let pasted = new Set<string>();
+/**
+ * Files turned away while being ATTACHED, held until the next send.
+ *
+ * A file refused at attach time leaves nothing behind — there is no attachment,
+ * so no chip, so the status line is the only trace. And `send` used to overwrite
+ * the status with the gate's own refusals, which are usually none — an empty
+ * string — wiping the explanation at the exact moment the user pressed Send on
+ * the message the file was meant to be part of. They saw one chip where they
+ * had picked two files, and nothing saying why. Carried here instead, so the
+ * answer arrives WITH the message rather than before it.
+ */
+let stageRefusals: string[] = [];
 
 /**
  * Read a File in the browser's own way.
@@ -210,8 +222,11 @@ const fileReaders = {
   text: (f: File) => f.text(),
   // Only the head: what the sniffer needs, and reading 40 MB to decide whether
   // a file is text would freeze the panel for as long as it took.
-  bytes: async (f: File) =>
+  head: async (f: File) =>
     new Uint8Array(await f.slice(0, SNIFF_BYTES).arrayBuffer()),
+  // The whole file, read only once the head says it is an archive — and it has
+  // to be whole, because a ZIP's table of contents is at the end of it.
+  bytes: async (f: File) => new Uint8Array(await f.arrayBuffer()),
   dataUrl: (f: File) =>
     new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
@@ -329,7 +344,10 @@ async function stageFiles(files: FileList | File[]): Promise<void> {
     }
   }
   renderAttachments();
-  if (refusals.length > 0) setStatus(refusals.join(" "));
+  if (refusals.length > 0) {
+    stageRefusals = refusals;
+    setStatus(refusals.join(" "));
+  }
 }
 
 /**
@@ -1422,8 +1440,10 @@ async function send(): Promise<void> {
   setRunning(true);
   // The refusals survive here rather than being cleared: they are the answer to
   // "why is my screenshot not in there", and clearing them would leave the
-  // question unanswered on the one turn it gets asked.
-  setStatus(refusals.join(" "));
+  // question unanswered on the one turn it gets asked. Attach-time refusals are
+  // carried in alongside, because those are the ones with no chip to point at.
+  setStatus([...stageRefusals, ...refusals].join(" "));
+  stageRefusals = [];
 
   let windowId = api().windows.WINDOW_ID_NONE;
   try {

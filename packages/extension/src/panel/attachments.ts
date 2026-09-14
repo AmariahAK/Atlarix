@@ -58,6 +58,17 @@ export const MAX_MESSAGE_BYTES = 10 * 1024 * 1024;
  */
 export const SNIFF_BYTES = 8_192;
 
+/**
+ * The largest archive we will read into memory to extract.
+ *
+ * Unlike a text file — which is streamed into the store and never rides the
+ * request — an office document has to be held whole to be unzipped, because its
+ * table of contents is at the END. A cap keeps a 300 MB archive from freezing
+ * the panel; 25 MB is far past any real .docx, and a spreadsheet that large is
+ * a database.
+ */
+export const MAX_ARCHIVE_BYTES = 25 * 1024 * 1024;
+
 export type AttachmentKind = "text" | "image" | "pdf";
 
 export interface Attachment {
@@ -535,6 +546,9 @@ export async function readAttachment(
   read: {
     text: (f: File) => Promise<string>;
     dataUrl: (f: File) => Promise<string>;
+    /** The first `SNIFF_BYTES`, to decide what the file is. */
+    head: (f: File) => Promise<Uint8Array>;
+    /** The whole file. Only for an archive, which cannot be read from its head. */
     bytes: (f: File) => Promise<Uint8Array>;
   },
 ): Promise<{ attachment: Attachment | null; refusal?: string }> {
@@ -583,10 +597,21 @@ export async function readAttachment(
   // `.vue` and `.tf` and could never match a file called `Dockerfile` or
   // `Makefile` at all. It also catches the office documents, which are ZIPs and
   // whose extension may be anything.
-  const head = await read.bytes(file);
+  const head = await read.head(file);
 
   if (looksLikeZip(head)) {
-    const extracted = await extractArchiveText(head);
+    if (file.size > MAX_ARCHIVE_BYTES) {
+      return {
+        attachment: null,
+        refusal: `${file.name} was not attached — it is over the ${Math.round(MAX_ARCHIVE_BYTES / 1024 / 1024)} MB limit for documents.`,
+      };
+    }
+    // THE WHOLE FILE, NOT THE SNIFF SAMPLE. A ZIP's central directory is at the
+    // END — that is the format, not an implementation detail — so a reader
+    // handed the first 8 KB finds no directory and concludes the file is not an
+    // office document. Every real .docx and .xlsx failed this way, while the
+    // tests passed because every fixture was under 500 bytes.
+    const extracted = await extractArchiveText(await read.bytes(file));
     if (extracted) {
       return {
         attachment: {
