@@ -1,0 +1,22 @@
+Atlarix is an AI agent that works inside the browser you already use, with the sessions you are already signed into. Open the side panel, ask for something, and it reads the page, follows links, fills forms and pulls the answer together — without asking you to copy anything into a chat window.
+
+IT WORKS ON THE SITES YOU ALLOW, AND ONLY THOSE
+Access is granted one site at a time, by you, and can be revoked whenever you like from the panel or from your account. Atlarix never asks for access to every site you visit, and it ships with access to none.
+
+IT FILLS FORMS BUT NEVER SUBMITS THEM
+Anything that sends, buys, posts or deletes stops and asks you first.
+
+WHAT YOU CAN DO WITH IT
+• Read and summarise the page you are on, or a tab you have not opened yet
+• Work across several tabs at once — compare, cross-reference, collect
+• Attach files and ask about them: text and code, images, PDFs, Word, Excel, PowerPoint, OpenDocument and EPUB. Nothing is truncated — Atlarix reads as much of a file as your question needs
+• Ask for a relic: a self-contained chart, table or calculator it builds for you and you open in its own tab
+• Paste a long block of text and it becomes an attachment instead of filling the box
+• Pick a conversation back up on another device, because what was said follows your account
+
+WHAT STAYS ON YOUR DEVICE
+The contents of pages Atlarix reads never leave your machine, and neither do the files you attach. What syncs to your account is what was said — your messages and its replies — so a conversation can be continued elsewhere. Page content is not part of that, is not stored on our servers, and is never used for training.
+
+Every tab Atlarix opens is collected into a labelled group, so you can see at a glance what it has touched. Closing that group stops it.
+
+Atlarix requires an account. Read how we handle data at https://atlarix.dev/privacy and https://atlarix.dev/data-use
