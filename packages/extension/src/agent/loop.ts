@@ -127,7 +127,13 @@ export interface AgentEvents {
   }): void;
   onToolCall?(call: ToolCall): void;
   /** `label` is the human phrase for the transcript, known only after the call. */
-  onToolResult?(call: ToolCall, content: string, label?: string): void;
+  onToolResult?(
+    call: ToolCall,
+    content: string,
+    label?: string,
+    /** Set when the call produced a relic, so the panel can offer to open it. */
+    relic?: { id: string; title: string },
+  ): void;
   /**
    * Ask the user to authorise something the loop cannot.
    *
@@ -418,7 +424,7 @@ export async function runTurn(args: TurnArgs): Promise<TurnOutcome> {
       };
       history.push(message);
       produced.push(message);
-      events.onToolResult?.(call, outcome.content, outcome.label);
+      events.onToolResult?.(call, outcome.content, outcome.label, outcome.relic);
       // AFTER the result is recorded, so `remember`'s own outcome is never in
       // the list it is checked against — a note whose text the tool echoed back
       // would otherwise look copied from itself.

@@ -1403,6 +1403,60 @@ button.file__chip:hover {
   background: color-mix(in srgb, var(--fg) 12%, transparent);
 }
 
+/*
+ * A relic — a document the model built, offered in the transcript.
+ *
+ * Its own card rather than a line in the activity card, because it is a thing
+ * the user now HAS rather than a description of work that happened.
+ */
+.relic {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--primary);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.relic__badge {
+  flex: none;
+  padding: 1px 5px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--primary);
+  border: 1px solid color-mix(in srgb, var(--primary) 40%, transparent);
+  border-radius: 3px;
+}
+
+.relic__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.relic__open {
+  flex: none;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--fg);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.relic__open:hover {
+  border-color: var(--primary);
+}
+
 /* An image the user attached, shown back to them in the transcript. */
 .bubble__image {
   display: block;

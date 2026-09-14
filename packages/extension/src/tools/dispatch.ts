@@ -58,6 +58,7 @@ import { askUser } from "./ask-user";
 import { listAvailableMcps, mcpCall } from "./connectors";
 import { forgetNote, readNoteTool, remember } from "./notes";
 import { readAttachmentTool } from "./attachments";
+import { createRelic } from "./relics";
 import { executeRecall, type RecallArgs } from "./recall";
 import { api } from "../shared/browser-api";
 import { TOOL_NAMES, type ToolName } from "./schemas";
@@ -137,6 +138,16 @@ export interface ToolOutcome {
    * the history well-formed rather than about politeness.
    */
   endsTurn?: true;
+  /**
+   * A relic this call produced, for the panel to draw a card for.
+   *
+   * CARRIED BESIDE `content`, NOT INSIDE IT. The model is told a sentence; the
+   * panel needs an id and a title. Parsing them back out of the sentence would
+   * make the wording of a message the model reads into a contract the UI
+   * depends on — the kind of coupling that breaks the day someone improves the
+   * copy.
+   */
+  relic?: { id: string; title: string };
 }
 
 /** Everything the dispatcher needs that it should not go and find for itself. */
@@ -352,6 +363,8 @@ export async function dispatchTool(
         return await forgetNote(args);
       case "read_attachment":
         return await readAttachmentTool(args, ctx);
+      case "create_relic":
+        return await createRelic(args, ctx);
       case "recall":
         return await recallFromHistory(args, ctx);
       case "web_search":

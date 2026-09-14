@@ -30,6 +30,7 @@ import type { CoreMessage } from "../core/client";
 import { isCompactionMarker } from "../context/compact";
 import { api } from "../shared/browser-api";
 import { deleteSessionAttachments } from "../attachments/store";
+import { deleteSessionRelics } from "../relics/store";
 
 const INDEX_KEY = "atlarix.sessions.v1";
 const transcriptKey = (id: string) => `atlarix.session.${id}.v1`;
@@ -193,7 +194,9 @@ export async function saveSession(
   // transcript is prose, an attachment can be a twenty-megabyte log.
   if (evicted.length > 0) {
     await api().storage.local.remove(evicted.map((s) => transcriptKey(s.id)));
-    await deleteSessionAttachments(evicted.map((s) => s.id));
+    const ids = evicted.map((s) => s.id);
+    await deleteSessionAttachments(ids);
+    await deleteSessionRelics(ids);
   }
   return { evicted };
 }
@@ -234,6 +237,7 @@ export async function deleteSession(id: string): Promise<void> {
   });
   await api().storage.local.remove(transcriptKey(id));
   await deleteSessionAttachments([id]);
+  await deleteSessionRelics([id]);
   // Deleting the conversation the panel is pointed at must not leave it
   // pointed there, or the next open restores a transcript that no longer has
   // an index entry and the history list disagrees with the screen.
@@ -253,6 +257,7 @@ export async function deleteAllSessions(): Promise<void> {
   // unreachable — nothing indexes it once the conversation is gone — and it is
   // also the biggest thing the user just asked to be rid of.
   await deleteSessionAttachments(index.map((s) => s.id));
+  await deleteSessionRelics(index.map((s) => s.id));
 }
 
 /**

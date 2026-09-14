@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Relic · Atlarix</title>
+    <link rel="stylesheet" href="relic.css" />
+  </head>
+  <!--
+    THE VIEWER. An ordinary extension page — it has `chrome.storage`, which is
+    how it fetches the relic's body — hosting a SANDBOXED frame that is the only
+    thing that ever touches the model's HTML.
+
+    The split is the whole point. This page can read storage and cannot run the
+    relic; the frame can run the relic and can read nothing.
+  -->
+  <body>
+    <header class="bar">
+      <span class="bar__brand">Atlarix</span>
+      <h1 class="bar__title" id="title">Relic</h1>
+      <button class="bar__button" id="save" type="button">Save</button>
+    </header>
+    <p class="notice" id="notice" hidden></p>
+    <iframe
+      class="stage"
+      id="stage"
+      src="sandbox.html"
+      title="Relic contents"
+    ></iframe>
+    <script type="module" src="relic.js"></script>
+  </body>
+</html>

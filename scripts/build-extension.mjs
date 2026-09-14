@@ -152,6 +152,11 @@ const result = await build({
   entryPoints: {
     background: path.join(pkgDir, "src/background/service-worker.ts"),
     sidepanel: path.join(pkgDir, "src/panel/sidepanel.ts"),
+    // The relic VIEWER, which is an ordinary extension page. The sandboxed page
+    // it hosts is plain JS copied verbatim — it must not be bundled, because a
+    // bundle is a module and a sandboxed page's script is loaded as a classic
+    // script in an opaque origin.
+    relic: path.join(pkgDir, "src/relics/relic.ts"),
   },
   outdir: unpackedDir,
   bundle: true,
@@ -221,6 +226,10 @@ const ASSETS = [
     dest: "sidepanel.html",
   },
   { src: path.join(pkgDir, "src/panel/sidepanel.css"), dest: "sidepanel.css" },
+  { src: path.join(pkgDir, "src/relics/relic.html"), dest: "relic.html" },
+  { src: path.join(pkgDir, "src/relics/relic.css"), dest: "relic.css" },
+  { src: path.join(pkgDir, "src/relics/sandbox.html"), dest: "sandbox.html" },
+  { src: path.join(pkgDir, "src/relics/sandbox.js"), dest: "sandbox.js" },
   { src: iconset("icon_16x16.png"), dest: "icons/16.png", px: 16 },
   { src: iconset("icon_32x32.png"), dest: "icons/32.png", px: 32 },
   { src: iconset("icon_128x128.png"), dest: "icons/128.png", px: 128 },
@@ -289,6 +298,9 @@ for (const { src, dest, px } of ASSETS) {
     "attachment__count",
     "attachment__label",
     "attachment__list",
+    "relic__badge",
+    "relic__title",
+    "relic__open",
   ]) {
     // A SUBSTRING TEST CANNOT SEE A RENAME: `.attachment__countXX` contains
     // `.attachment__count`, so `includes` passes on exactly the edit this

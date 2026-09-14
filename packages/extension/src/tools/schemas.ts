@@ -54,6 +54,7 @@ export const TOOL_NAMES = [
   "list_available_mcps",
   "mcp_call",
   "read_attachment",
+  "create_relic",
 ] as const;
 
 export type ToolName = (typeof TOOL_NAMES)[number];
@@ -652,6 +653,39 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
         // with the list of attachments, which is more useful than a schema
         // error the model has to recover from.
         required: [],
+        additionalProperties: false,
+      },
+    },
+  },
+
+  {
+    type: "function",
+    function: {
+      name: "create_relic",
+      description:
+        "Build a relic: one self-contained HTML document the user can open — a " +
+        "chart, a table, a diagram, a calculator, a formatted write-up. Use it " +
+        "instead of printing a long block of HTML into the chat. It runs in a " +
+        "sandbox with NO NETWORK, so everything must be inline: no CDN links, " +
+        "no fetch, no external fonts or images (data: URLs are fine), and no " +
+        "localStorage. Write ordinary HTML with a <style> and a <script> and it " +
+        "will work. Do not use this for prose that reads perfectly well as a " +
+        "reply, and do not repeat the HTML in your message afterwards.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: {
+            type: "string",
+            description:
+              "What it is, in a few words — this is the label the user clicks.",
+          },
+          html: {
+            type: "string",
+            description:
+              "The whole document, starting at <!doctype html>. Self-contained.",
+          },
+        },
+        required: ["title", "html"],
         additionalProperties: false,
       },
     },

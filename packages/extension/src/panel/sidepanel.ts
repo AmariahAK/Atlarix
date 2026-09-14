@@ -114,6 +114,7 @@ import {
   type StoredRef,
 } from "./attachments";
 import { PREVIEW_CHARS, getAttachment, putAttachment } from "../attachments/store";
+import { readRelicNote, relicUrl } from "../relics/store";
 import {
   clipboardPlainText,
   pasteDisplayName,
@@ -718,6 +719,43 @@ function attachmentRow(files: SentAttachment[]): HTMLElement {
   return row;
 }
 
+/**
+ * A relic, offered rather than opened.
+ *
+ * THE MODEL DOES NOT GET TO OPEN A TAB FULL OF ITS OWN SCRIPT. It writes the
+ * document and the card appears; a tab opens when the USER clicks. That is the
+ * difference between a tool that hands you something and one that takes over
+ * your browser, and it is worth the extra click on every single relic.
+ *
+ * Opened with `tabs.create` rather than a bare link so it lands in an ordinary
+ * tab of the user's own, outside the agent's tab group — a relic is a
+ * deliverable, not part of the work the group is showing.
+ */
+function relicCard(relic: { id: string; title: string }): HTMLElement {
+  const card = document.createElement("div");
+  card.className = "relic";
+
+  const badge = document.createElement("span");
+  badge.className = "relic__badge";
+  badge.textContent = "RELIC";
+
+  const title = document.createElement("span");
+  title.className = "relic__title";
+  title.textContent = relic.title;
+
+  const open = document.createElement("button");
+  open.type = "button";
+  open.className = "relic__open";
+  open.textContent = "Open";
+  open.title = `Open ${relic.title} in a new tab`;
+  open.addEventListener("click", () => {
+    void api().tabs.create({ url: relicUrl(sessionId, relic.id) });
+  });
+
+  card.append(badge, title, open);
+  return card;
+}
+
 function userBubble(
   content: string | ContentPart[],
   index: number,
@@ -1300,6 +1338,15 @@ function renderConversation(history: CoreMessage[]): void {
         type: "function" as const,
         function: { name: "tool", arguments: "{}" },
       };
+      // A RELIC IS RESTORED AS ITS CARD, not as a step. Matching the live turn,
+      // where the card replaces the step for the same reason the question card
+      // does: it is a thing the user now has, not a description of work done.
+      const relic = readRelicNote(message.content);
+      if (relic) {
+        closeActivity();
+        transcript.append(relicCard(relic));
+        continue;
+      }
       const chip = toolChip(resolved);
       fillChip(chip, message.content);
       restoreStep({ kind: "tool", name: resolved.function.name }, chip);
@@ -1635,9 +1682,19 @@ async function send(): Promise<void> {
           }
           refreshContextBar();
         },
-        onToolResult(call, content, label) {
+        onToolResult(call, content, label, relic) {
           const chip = chips.get(call.id);
           if (chip) fillChip(chip, content, label);
+          // A RELIC IS NOT A STEP. It is a thing the user now has, so it gets a
+          // card in the transcript rather than a line inside the collapsed
+          // activity card — the same reasoning that keeps `ask_user` out of the
+          // step list.
+          if (relic) {
+            settleSteps(activity.card);
+            activity.card = null;
+            append(relicCard(relic));
+            stickToBottom();
+          }
           if (label) toolLabels.set(call.id, label);
           // The line is recomputed from the step list, which already holds this
           // tool — this just refreshes the "running" tense now that one finished.
