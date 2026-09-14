@@ -320,3 +320,36 @@ describe("the skills index", () => {
     );
   });
 });
+
+describe("connectors in the prompt", () => {
+  it("explains them in BASE, which is paid for once and cached forever", () => {
+    const p = buildSystemPrompt(base);
+    expect(p).toMatch(/Connectors are services the user attached/);
+    expect(p).toMatch(/NOT in your tool list/);
+    // The instruction that makes discovery work: list, THEN decide.
+    expect(p).toMatch(/never assume a connector exists and never assume one does not/);
+  });
+
+  it("names them, and carries nothing else about them", () => {
+    const p = buildSystemPrompt({ ...base, connectors: ["Linear", "Notion"] });
+    expect(p).toContain("Connectors set up on this account: Linear, Notion.");
+    // NO URLs, NO descriptions, NO tool names. The `name` column is the only
+    // connector field with a CHECK making it prompt-safe by construction, and a
+    // remote server adding a tool must not invalidate the cached prefix.
+    expect(p).not.toMatch(/https?:\/\/(?!atlarix\.dev)/);
+  });
+
+  it("says nothing at all when the account has none", () => {
+    expect(buildSystemPrompt({ ...base, connectors: [] })).not.toMatch(
+      /Connectors set up on this account/,
+    );
+    expect(buildSystemPrompt(base)).not.toMatch(/Connectors set up on this account/);
+  });
+
+  it("sits ahead of the date, so a connector edit does not re-price it", () => {
+    const p = buildSystemPrompt({ ...base, connectors: ["Linear"] });
+    expect(p.indexOf("Connectors set up on this account")).toBeLessThan(
+      p.indexOf("Today's date is"),
+    );
+  });
+});

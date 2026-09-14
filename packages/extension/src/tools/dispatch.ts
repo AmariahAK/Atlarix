@@ -55,6 +55,7 @@ import {
   pressKey,
 } from "../page/trusted-input";
 import { askUser } from "./ask-user";
+import { listAvailableMcps, mcpCall } from "./connectors";
 import { forgetNote, readNoteTool, remember } from "./notes";
 import { executeRecall, type RecallArgs } from "./recall";
 import { api } from "../shared/browser-api";
@@ -357,6 +358,12 @@ export async function dispatchTool(
       // entirely a matter of what the panel renders from the recorded call.
       case "ask_user":
         return askUser(args);
+      // Account connectors. Neither touches a credential — the proxy holds
+      // every token and returns already-wrapped text.
+      case "list_available_mcps":
+        return await listAvailableMcps();
+      case "mcp_call":
+        return await mcpCall(args);
     }
   } catch (err) {
     // The backstop, and it should almost never fire — each handler converts its

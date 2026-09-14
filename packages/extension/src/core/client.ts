@@ -229,6 +229,29 @@ async function authHeaders(): Promise<Record<string, string>> {
 }
 
 /**
+ * POST JSON to a proxy path and return the parsed body.
+ *
+ * EXISTS SO THE SURFACE HEADER AND THE ERROR MAPPING STAY IN ONE PLACE. The
+ * connector tools would otherwise each build their own request, and the first
+ * one to forget `X-Atlarix-Surface` would put its spend on the desktop's ledger
+ * line permanently — a row cannot be re-attributed later.
+ */
+export async function coreProxyFetch<T>(
+  path: string,
+  payload: unknown,
+  f: typeof fetch = fetch,
+): Promise<T> {
+  const res = await f(`${baseUrl()}${path}`, {
+    method: "POST",
+    headers: await authHeaders(),
+    body: JSON.stringify(payload),
+  });
+  const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) throw coreErrorFrom(res.status, body);
+  return body as T;
+}
+
+/**
  * The live Core lineup.
  *
  * Unauthenticated on the proxy, but sent with the session anyway so one code

@@ -65,6 +65,7 @@ import { buildNotesSection, describeSize } from "../memory/index-render";
 import { migrateLegacyFacts } from "../memory/migrate";
 import { syncNotes } from "../memory/sync";
 import { listAccountSkills, skillIndexLines } from "../tools/skills";
+import { listConnectorNames } from "../tools/connector-names";
 import { deleteAllNotes, deleteNote, listNotes } from "../memory/notes";
 import {
   deleteAllSessions,
@@ -1150,11 +1151,12 @@ async function send(): Promise<void> {
     // never throws — a corrupt legacy value costs an empty notes section and
     // nothing more.
     await migrateLegacyFacts();
-    const [noteMetas, accountSkills, tab, win] = await Promise.all([
+    const [noteMetas, accountSkills, connectorNames, tab, win] = await Promise.all([
       listNotes(),
       // Fetched per turn but cheap and cached by the browser; an empty list on
       // failure simply omits the section, which is the same as having none.
       listAccountSkills(),
+      listConnectorNames(),
       activeTab(),
       currentWindowId(),
     ]);
@@ -1171,6 +1173,7 @@ async function send(): Promise<void> {
     const system = buildSystemPrompt({
       notes,
       skills,
+      connectors: connectorNames,
       activeTab: tab
         ? {
             title: (await tabTitle(tab.id)) ?? "",
