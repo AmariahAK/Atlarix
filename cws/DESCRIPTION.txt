@@ -9,7 +9,7 @@ Anything that sends, buys, posts or deletes stops and asks you first.
 WHAT YOU CAN DO WITH IT
 • Read and summarise the page you are on, or a tab you have not opened yet
 • Work across several tabs at once — compare, cross-reference, collect
-• Attach files and ask about them: text and code, images, PDFs, Word, Excel, PowerPoint, OpenDocument and EPUB. Nothing is truncated — Atlarix reads as much of a file as your question needs
+• Attach a document or a spreadsheet and ask about it. Atlarix reads the whole file, not the first page of it
 • Ask for a relic: a self-contained chart, table or calculator it builds for you and you open in its own tab
 • Paste a long block of text and it becomes an attachment instead of filling the box
 • Pick a conversation back up on another device, because what was said follows your account
