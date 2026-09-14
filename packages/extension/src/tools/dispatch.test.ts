@@ -349,26 +349,125 @@ describe("open_tab", () => {
   });
 });
 
-describe("remember", () => {
-  it("saves a fact and reports a duplicate rather than storing it twice", async () => {
-    const first = await dispatchTool(
+describe("notes", () => {
+  it("writes a note and reads it back as a file", async () => {
+    const saved = await dispatchTool(
+      call("remember", {
+        note: "preferences",
+        title: "Metric units",
+        description: "wants metric and 24h times in every answer",
+        body: "Always metric. 24-hour clock.",
+      }),
+      CTX,
+    );
+    expect(saved.content).toContain("Saved preferences.md");
+
+    const read = await dispatchTool(
+      call("read_note", { note: "preferences" }),
+      CTX,
+    );
+    // The desktop's on-disk shape, so its written convention transfers whole.
+    expect(read.content).toContain("name: preferences");
+    expect(read.content).toContain("type: user");
+    expect(read.content).toContain("Always metric. 24-hour clock.");
+  });
+
+  it("accepts the ref in every form the model will send it", async () => {
+    await dispatchTool(
+      call("remember", {
+        note: "work",
+        title: "Work",
+        description: "runs a studio",
+        body: "Two-person design studio.",
+      }),
+      CTX,
+    );
+    for (const ref of [
+      "work",
+      "work.md",
+      "- [Work](work.md) — runs a studio",
+    ]) {
+      const out = await dispatchTool(call("read_note", { note: ref }), CTX);
+      expect(out.content).toContain("Two-person design studio.");
+    }
+  });
+
+  it("still honours the LEGACY {fact} call, rather than erroring", async () => {
+    // Models carry a strong prior toward the old shape. A schema error on the
+    // first interesting turn would be the worst possible way to teach the new
+    // one, so the fact lands and the result says where it went.
+    const out = await dispatchTool(
       call("remember", { fact: "Prefers TypeScript over Python." }),
       CTX,
     );
-    expect(first.content).toBe("Remembered.");
-    const again = await dispatchTool(
-      call("remember", { fact: "  prefers typescript over PYTHON.  " }),
+    expect(out.content).toContain("about-me.md");
+    expect(out.content).toMatch(/notes are files now/i);
+
+    const read = await dispatchTool(
+      call("read_note", { note: "about-me" }),
       CTX,
     );
-    expect(again.content).toContain("Already remembered");
+    expect(read.content).toContain("Prefers TypeScript over Python.");
   });
 
-  it("refuses a fact too long to be a fact", async () => {
-    const out = await dispatchTool(
-      call("remember", { fact: "x".repeat(400) }),
+  it("appends without making the model re-send a whole note", async () => {
+    await dispatchTool(
+      call("remember", {
+        note: "work",
+        title: "Work",
+        description: "runs a studio",
+        body: "Two-person studio.",
+      }),
       CTX,
     );
-    expect(out.content).toContain("at most 280 characters");
+    const out = await dispatchTool(
+      call("remember", { note: "work", append: "Invoices monthly in GBP." }),
+      CTX,
+    );
+    expect(out.content).toContain("Updated work.md");
+    const read = await dispatchTool(call("read_note", { note: "work" }), CTX);
+    expect(read.content).toContain("Two-person studio.");
+    expect(read.content).toContain("Invoices monthly in GBP.");
+  });
+
+  it("refuses a note that repeats what was just read, word for word", async () => {
+    // The ONE control that targets the real rule. A DB constraint can spot the
+    // shape of a page dump; only the client can tell that a note repeats what
+    // the agent read this turn.
+    const page =
+      "The tardigrade is a microscopic animal that can survive extreme " +
+      "conditions including desiccation radiation and the vacuum of space " +
+      "which makes it one of the most resilient known organisms on earth.";
+    const out = await dispatchTool(
+      call("remember", {
+        note: "tardigrades",
+        title: "Tardigrades",
+        description: "facts",
+        body: page,
+      }),
+      { ...CTX, recentToolResults: [page] },
+    );
+    expect(out.content).toMatch(/repeats something you read/i);
+    expect(out.label).toBe("Saved nothing");
+  });
+
+  it("deletes a note, and says so when there was nothing to delete", async () => {
+    await dispatchTool(
+      call("remember", {
+        note: "wrong",
+        title: "Wrong",
+        description: "mistaken",
+        body: "Not true.",
+      }),
+      CTX,
+    );
+    expect(
+      (await dispatchTool(call("forget_note", { note: "wrong" }), CTX)).content,
+    ).toContain("Deleted wrong.md");
+    // A second delete is a RESULT, not a throw — the central rule of dispatch.
+    expect(
+      (await dispatchTool(call("forget_note", { note: "wrong" }), CTX)).content,
+    ).toContain("nothing was deleted");
   });
 });
 

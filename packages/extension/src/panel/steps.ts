@@ -53,6 +53,7 @@ const VERBS: Record<string, { one: string; many: (n: number) => string }> = {
   remember: { one: "Saved a note", many: (n) => `Saved ${n} notes` },
   recall: { one: "Looked back", many: (n) => `Looked back ${n} times` },
   web_search: { one: "Searched the web", many: (n) => `Searched the web ${n} times` },
+  ask_user: { one: "Asked you", many: (n) => `Asked you ${n} times` },
 };
 
 /**

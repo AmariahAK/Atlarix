@@ -44,11 +44,18 @@
  * resolves by guessing.
  */
 
-import type { Memory } from "../memory/store";
+import type { NotesSection } from "../memory/index-render";
 
 export interface PromptContext {
-  /** Facts the user has accumulated, oldest first. */
-  memories: Memory[];
+  /**
+   * The notes INDEX — one line per note, never a body.
+   *
+   * A PRE-RENDERED STRING, not the notes themselves, so this builder needs no
+   * storage and its tests construct a context literal instead of driving a fake
+   * `chrome.storage` to produce one. `null` when there are no notes, and the
+   * section is then omitted entirely rather than rendered empty.
+   */
+  notes: NotesSection | null;
   /** Where the user is right now — a single line, refreshed each turn. */
   activeTab?: { title: string; url: string; granted: boolean } | null;
   /** Injected so a test is not pinned to the day it runs. */
@@ -80,6 +87,8 @@ Read before you answer. A guess about a page you could have read in one call is 
 **recall searches what was said earlier**, here or in past conversations. A long conversation gets summarised, so an early detail may no longer be in front of you — it is not gone. Use recall rather than guessing or asking the user to repeat themselves. It finds words, not pages; to see a page again, read it again.
 
 **Leave the tabs you opened open.** They are grouped and labelled "Atlarix", and they are how the user checks your work. Close one only if they ask or you opened it by mistake — never as a finishing flourish, which is exactly when they are wanted. Name tabs by page or site when you write to the user; a tab id means nothing to them.
+
+**ask_user instead of guessing, when the guess would change what you DO.** You are working in the browser they are signed into, so "which of these three accounts did you mean?" is worth a round trip and picking one is not. Batch every question into a single call — your turn ends the moment you ask, so asking one at a time costs a whole exchange each. This is not for things the page in front of you answers, and not for permission: Atlarix asks for that itself.
 
 ## When you are done
 
@@ -135,14 +144,23 @@ export function buildSystemPrompt(ctx: PromptContext): string {
   // and `prompt.test.ts` pins the ordering rather than trusting this comment.
   const parts = [BASE];
 
-  if (ctx.memories.length > 0) {
-    // Fenced and labelled as the USER's own words. Without the label these read
-    // as more system prompt, and a model asked to forget one will argue.
+  if (ctx.notes) {
+    // THE INDEX ONLY. A note is up to 26 KB — ~6,500 tokens — against a total
+    // per-round overhead of ~4,100, so a body here would cost more than
+    // everything else in the prompt put together. `prompt.test.ts` has a test
+    // whose only job is to prove a body never appears.
+    //
+    // The limits ride the header because the model must be TOLD them the way it
+    // is told the date: a limit it cannot see is a limit it will hit and not
+    // understand. The convention for writing a good `description` lives in the
+    // `remember` tool description instead — same cached prefix, read at the
+    // moment it is relevant rather than on every round.
+    const flag = ctx.notes.flag ? ` ${ctx.notes.flag}.` : "";
     parts.push(
-      `WHAT YOU HAVE REMEMBERED ABOUT THIS USER, from previous conversations. ` +
-        `They said these things themselves; treat them as true and current, and ` +
-        `do not repeat them back unprompted.\n` +
-        ctx.memories.map((m) => `- ${m.text}`).join("\n"),
+      `WHAT ATLARIX REMEMBERS — ${ctx.notes.count} of ${ctx.notes.limit} notes, ` +
+        `up to 26 KB each.${flag}\n${ctx.notes.index}\n` +
+        `Read one with read_note when its line looks relevant to what was ` +
+        `asked. The bodies are not here.`,
     );
   }
 

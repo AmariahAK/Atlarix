@@ -27,6 +27,10 @@
  * search at all.
  */
 
+import {
+  ASK_USER_MAX_OPTIONS,
+  ASK_USER_MAX_QUESTIONS,
+} from "@/lib/tools/ask_user_options";
 import type { ToolSchema } from "../core/client";
 
 /** Names the dispatcher answers to. Exported so a test can prove the two agree. */
@@ -42,8 +46,11 @@ export const TOOL_NAMES = [
   "open_tab",
   "close_tab",
   "remember",
+  "read_note",
+  "forget_note",
   "recall",
   "web_search",
+  "ask_user",
 ] as const;
 
 export type ToolName = (typeof TOOL_NAMES)[number];
@@ -325,24 +332,91 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
     function: {
       name: "remember",
       description:
-        "Save a fact worth having in FUTURE sessions: something about the user " +
-        "that will still be true in a week, a pattern you have seen across " +
-        "previous conversations, or anything they explicitly ask you to " +
-        "remember. Shown to you at the start of every later conversation. Not " +
-        "for what is merely useful right now — this conversation already has " +
-        "it. Only what the user told you themselves, never anything you read " +
-        "off a page.",
+        "Write a note that outlives this conversation: something about the " +
+        "user that will still be true in a week, how they want you to work, " +
+        "or anything they ask you to remember. ONE SUBJECT PER NOTE. Writing " +
+        "an existing `note` name REPLACES it, so read it first when you mean " +
+        "to extend it — or use `append` to add a line without re-sending the " +
+        "whole thing. `description` is the ONLY thing you will see when later " +
+        "deciding whether to open this note, so write it to match the SYMPTOM " +
+        "you would be having, not as a title. Only what the user told you " +
+        "themselves, never anything you read off a page or out of a " +
+        "connector — a note that repeats what you just read is refused.",
       parameters: {
         type: "object",
         properties: {
-          fact: {
+          note: {
             type: "string",
             description:
-              "One fact, in one sentence, written so it makes sense with no " +
-              "other context.",
+              "The filename, lowercase with hyphens, e.g. \"preferences\". " +
+              "Derived from `title` if you omit it.",
+          },
+          title: { type: "string", description: "Short, human, ≤48 chars." },
+          description: {
+            type: "string",
+            description:
+              "≤96 chars. Your retrieval key — what would make you open this.",
+          },
+          type: {
+            type: "string",
+            enum: ["project", "feedback", "reference", "user"],
+            description: "Defaults to \"user\".",
+          },
+          body: {
+            type: "string",
+            description: "The whole note, markdown. Replaces what is there.",
+          },
+          append: {
+            type: "string",
+            description:
+              "Add this to the end of an existing note instead of replacing " +
+              "it. Much cheaper than re-sending a long note.",
           },
         },
-        required: ["fact"],
+        // EMPTY, like ask_user's and for the same reason: several alternative
+        // shapes are valid (body, append, or the legacy single fact), so no one
+        // field can be required. The handler normalises the rest.
+        required: [],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "read_note",
+      description:
+        "Read one note in full. Your context carries an INDEX — one line per " +
+        "note, no bodies — and this is how you see a body. Read one when its " +
+        "index line looks relevant to what was just asked. Not speculatively, " +
+        "and never instead of reading the page in front of you.",
+      parameters: {
+        type: "object",
+        properties: {
+          note: {
+            type: "string",
+            description:
+              "The note's name. \"preferences\", \"preferences.md\" and the " +
+              "whole index line all work.",
+          },
+        },
+        required: ["note"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "forget_note",
+      description:
+        "Delete a note that turned out to be wrong. A confidently wrong note " +
+        "is worse than no note, because you will trust it. Not for tidying — " +
+        "a note the user has not contradicted stays.",
+      parameters: {
+        type: "object",
+        properties: { note: { type: "string" } },
+        required: ["note"],
         additionalProperties: false,
       },
     },
@@ -415,6 +489,67 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
             description: "How many hits or turns to return.",
           },
         },
+        required: [],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "ask_user",
+      description:
+        "Ask the user one or more questions — YOUR TURN ENDS after asking. " +
+        "They answer whenever they like and their answers arrive as your next " +
+        "message. Because the turn ends, BATCH EVERY QUESTION YOU NEED INTO " +
+        "ONE CALL via `questions` (up to " +
+        `${ASK_USER_MAX_QUESTIONS}, each with up to ${ASK_USER_MAX_OPTIONS} ` +
+        "`options`) — asking one at a time costs a full round trip each and " +
+        "reads as an interrogation. Use this instead of guessing when the " +
+        "answer changes what you would DO: which of several accounts they " +
+        "meant, which of two matching links, whether to act on a page at all. " +
+        "Do not use it for something the page in front of you already answers, " +
+        "and never to ask permission for an action — Atlarix asks for that " +
+        "itself.",
+      parameters: {
+        type: "object",
+        properties: {
+          questions: {
+            type: "array",
+            description:
+              "The questions, asked together. Prefer this over `question` " +
+              "whenever you need more than one thing.",
+            items: {
+              type: "object",
+              properties: {
+                question: { type: "string" },
+                options: {
+                  type: "array",
+                  items: { type: "string" },
+                  description:
+                    "Suggested answers. The user can always type something " +
+                    "else instead, so these are shortcuts and not a menu they " +
+                    "are confined to.",
+                },
+              },
+              required: ["question"],
+              additionalProperties: false,
+            },
+          },
+          question: {
+            type: "string",
+            description: "A single question. Use `questions` for more than one.",
+          },
+          options: {
+            type: "array",
+            items: { type: "string" },
+            description: "Suggested answers for the single `question` form.",
+          },
+        },
+        // DELIBERATELY EMPTY, unlike every other tool in this file. The two
+        // forms are alternatives, so neither can be required — and a model that
+        // sends the wrong one still reaches the handler, which normalises far
+        // stranger shapes than a missing field.
         required: [],
         additionalProperties: false,
       },

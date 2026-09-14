@@ -20,7 +20,7 @@
  * 8 KB, which one page read exceeds on its own. Cross-device history belongs
  * behind the account in Phase 4, not behind Chrome Sync.
  *
- * EVERYTHING READ BACK IS VALIDATED. The same reasoning as `memory/store.ts`
+ * EVERYTHING READ BACK IS VALIDATED. The same reasoning as `memory/notes.ts`
  * and `auth/session.ts`: this is a LevelDB directory on disk, and a malformed
  * transcript must come back as an empty conversation rather than throw inside a
  * render.

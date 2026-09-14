@@ -578,6 +578,67 @@ body {
   color: var(--fg-muted);
 }
 
+/* ── ask_user ────────────────────────────────────────────────────────────── */
+
+/*
+ * Deliberately NOT `.grant`. An approval card asks permission for something
+ * about to happen and is answered yes or no; this asks for information and is
+ * answered in words. Sharing the emerald border would make a question look like
+ * a security prompt, which is the one thing a user must not learn to click
+ * through.
+ */
+.ask {
+  padding: 11px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--primary);
+  border-radius: calc(var(--radius) - 4px);
+  background: var(--card);
+  font-size: 13px;
+}
+
+.ask__question {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.ask__question + .ask__question {
+  margin-top: 12px;
+}
+
+.ask__options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+/*
+ * Chips, not full-width buttons: four options stacked would push the composer
+ * off a short panel, and these are suggestions rather than the only answers.
+ */
+.ask__option {
+  width: auto;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ask__option:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.ask__note {
+  margin: 10px 0 0;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
 /* ── Composer ────────────────────────────────────────────────────────────── */
 
 .composer {

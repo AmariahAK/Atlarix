@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 import { buildSystemPrompt } from "./prompt";
 
 const NOW = new Date("2026-09-13T10:00:00Z");
-const base = { memories: [], now: NOW };
+const base = { notes: null, now: NOW };
 
 describe("what the prompt must establish", () => {
   it("names the tab-group limit on trusted input, not only in the tool list", () => {
@@ -156,22 +156,55 @@ describe("per-turn context", () => {
   });
 });
 
-describe("memories", () => {
-  it("labels them as the user's own words, not as more system prompt", () => {
-    const p = buildSystemPrompt({
-      ...base,
-      memories: [
-        { id: "1", text: "Prefers metric units.", createdAt: 1 },
-        { id: "2", text: "Runs a business in Nairobi.", createdAt: 2 },
-      ],
-    });
-    expect(p).toContain("- Prefers metric units.");
-    expect(p).toContain("- Runs a business in Nairobi.");
-    expect(p).toMatch(/They said these things themselves/);
+describe("the notes index", () => {
+  const twoNotes = {
+    index:
+      "- [Metric units](preferences.md) — wants metric and 24h times\n" +
+      "- [Runs a studio](work.md) — two-person design studio in Nairobi",
+    count: 2,
+    limit: 30,
+  };
+
+  it("carries the index lines and no bodies", () => {
+    const p = buildSystemPrompt({ ...base, notes: twoNotes });
+    expect(p).toContain("- [Metric units](preferences.md)");
+    expect(p).toContain("- [Runs a studio](work.md)");
+    expect(p).toMatch(/Read one with read_note/);
   });
 
-  it("adds no section at all when there are none", () => {
-    expect(buildSystemPrompt(base)).not.toMatch(/REMEMBERED/);
+  it("NEVER injects a body — this is the whole design", () => {
+    // THE ARITHMETIC THAT DECIDES EVERYTHING ELSE HERE. A note may be 26 KB,
+    // which is ~6,500 tokens, against a total per-round overhead of ~4,100. One
+    // body in the prompt would cost more than the entire rest of it, and would
+    // be strictly worse than the 50-sentence store this replaced. Every other
+    // choice in the notes design is a preference; this one is the constraint.
+    const body = "SECRET_BODY_MARKER ".repeat(1_600); // ~30 KB
+    const p = buildSystemPrompt({ ...base, notes: twoNotes });
+    expect(p).not.toContain(body);
+    expect(p).not.toContain("SECRET_BODY_MARKER");
+    // And the section itself stays small enough to be worth having.
+    expect(p.length).toBeLessThan(12_000);
+  });
+
+  it("tells the model the limit, because one it cannot see it will hit", () => {
+    const p = buildSystemPrompt({ ...base, notes: twoNotes });
+    expect(p).toMatch(/2 of 30 notes/);
+    expect(p).toMatch(/26 KB/);
+  });
+
+  it("puts a full-store flag on the header line, not in a paragraph of its own", () => {
+    // A FLAG, NOT A LESSON. The desktop's first version of this explained
+    // itself and cost 147 tokens on every turn.
+    const p = buildSystemPrompt({
+      ...base,
+      notes: { ...twoNotes, count: 30, flag: "FULL: merge a.md, b.md" },
+    });
+    const header = p.split("\n").find((l) => l.includes("WHAT ATLARIX REMEMBERS"));
+    expect(header).toContain("FULL: merge a.md, b.md");
+  });
+
+  it("adds no section at all when there are no notes", () => {
+    expect(buildSystemPrompt(base)).not.toMatch(/WHAT ATLARIX REMEMBERS/);
   });
 });
 
@@ -190,9 +223,11 @@ describe("prefix stability, which is what makes caching work", () => {
    * This prompt plus the tool schemas is ~4,100 tokens on every round of every
    * turn, which makes the ordering below worth more than any amount of trimming.
    */
-  const memories = [
-    { id: "m1", text: "Prefers metric units", createdAt: 1 },
-  ];
+  const notes = {
+    index: "- [Metric units](preferences.md) — wants metric in every answer",
+    count: 1,
+    limit: 30,
+  };
   const tabA = { title: "A", url: "https://a.example", granted: true };
   const tabB = { title: "B", url: "https://b.example", granted: true };
   const now = new Date("2026-09-13T00:00:00Z");
@@ -206,14 +241,14 @@ describe("prefix stability, which is what makes caching work", () => {
 
   it("keeps everything stable ahead of the tab that changes every turn", () => {
     // THE REGRESSION THIS CATCHES. The active tab used to be pushed BEFORE the
-    // memories, so switching tabs re-charged the memories too — for no reason
+    // notes index, so switching tabs re-charged the index too — for no reason
     // beyond the order two `push` calls were written in.
-    const a = buildSystemPrompt({ memories, activeTab: tabA, now });
-    const b = buildSystemPrompt({ memories, activeTab: tabB, now });
+    const a = buildSystemPrompt({ notes, activeTab: tabA, now });
+    const b = buildSystemPrompt({ notes, activeTab: tabB, now });
     const shared = sharedPrefix(a, b);
 
     // Everything up to the tab line is identical…
-    expect(a.slice(0, shared)).toContain("Prefers metric units");
+    expect(a.slice(0, shared)).toContain("[Metric units](preferences.md)");
     expect(a.slice(0, shared)).toContain("Today's date is");
     // …and the tab is what diverges.
     expect(a.slice(shared)).toContain("a.example");
@@ -221,8 +256,8 @@ describe("prefix stability, which is what makes caching work", () => {
   });
 
   it("puts the volatile line LAST, so nothing stable sits behind it", () => {
-    const p = buildSystemPrompt({ memories, activeTab: tabA, now });
-    expect(p.indexOf("Prefers metric units")).toBeLessThan(
+    const p = buildSystemPrompt({ notes, activeTab: tabA, now });
+    expect(p.indexOf("[Metric units](preferences.md)")).toBeLessThan(
       p.indexOf("Today's date is"),
     );
     expect(p.indexOf("Today's date is")).toBeLessThan(p.indexOf("a.example"));
@@ -231,15 +266,15 @@ describe("prefix stability, which is what makes caching work", () => {
   it("is byte-identical for the same inputs, so a round cannot miss its own cache", () => {
     // Anything non-deterministic here — a timestamp, a Set iteration, a random
     // id — would break the cache on EVERY round and be invisible in testing.
-    const once = buildSystemPrompt({ memories, activeTab: tabA, now });
-    const twice = buildSystemPrompt({ memories, activeTab: tabA, now });
+    const once = buildSystemPrompt({ notes, activeTab: tabA, now });
+    const twice = buildSystemPrompt({ notes, activeTab: tabA, now });
     expect(once).toBe(twice);
   });
 
-  it("shares its whole prefix with a conversation that has no memories yet", () => {
+  it("shares its whole prefix with a conversation that has no notes yet", () => {
     // A user's first `remember` should not re-price the base prompt behind it.
-    const without = buildSystemPrompt({ memories: [], activeTab: tabA, now });
-    const with_ = buildSystemPrompt({ memories, activeTab: tabA, now });
+    const without = buildSystemPrompt({ notes: null, activeTab: tabA, now });
+    const with_ = buildSystemPrompt({ notes, activeTab: tabA, now });
     expect(sharedPrefix(without, with_)).toBeGreaterThan(BASE_MIN_CHARS);
   });
 });

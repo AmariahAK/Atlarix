@@ -54,7 +54,8 @@ import {
   namedKeys,
   pressKey,
 } from "../page/trusted-input";
-import { remember } from "../memory/store";
+import { askUser } from "./ask-user";
+import { forgetNote, readNoteTool, remember } from "./notes";
 import { executeRecall, type RecallArgs } from "./recall";
 import { api } from "../shared/browser-api";
 import { TOOL_NAMES, type ToolName } from "./schemas";
@@ -120,6 +121,20 @@ export interface ToolOutcome {
    * retries this same call once if they say yes.
    */
   needsApproval?: Approval;
+  /**
+   * Set when the turn is OVER once this result is recorded.
+   *
+   * THE OPPOSITE OF `needsApproval`, and the distinction is the whole reason
+   * both exist. `needsApproval` PAUSES: the loop asks, gets a yes or a no, and
+   * carries on within the same turn. `endsTurn` STOPS: the model has asked the
+   * user something and has nothing further to do until they reply, and their
+   * reply arrives as an ordinary next user message.
+   *
+   * Only `ask_user` sets it. The loop still dispatches the rest of the batch
+   * before returning — see the comment at its read site, which is about keeping
+   * the history well-formed rather than about politeness.
+   */
+  endsTurn?: true;
 }
 
 /** Everything the dispatcher needs that it should not go and find for itself. */
@@ -144,6 +159,19 @@ export interface ToolContext {
   sessionId: string;
   /** The conversation's own name, so a hit reads as a place rather than a uuid. */
   sessionTitle?: string;
+  /**
+   * Every tool result produced SO FAR IN THIS TURN, for the notes egress check.
+   *
+   * THE COMPARISON IS THE ONLY CONTROL THAT TARGETS THE REAL RULE. A database
+   * constraint can recognise the shape of a page dump; only the client can tell
+   * that a note repeats, word for word, something the agent just read. The loop
+   * owns this list because it is the only thing that sees the whole turn.
+   *
+   * Optional so every existing test and caller keeps compiling — an absent list
+   * simply means nothing to compare against, which is the correct behaviour for
+   * the first tool call of a turn anyway.
+   */
+  recentToolResults?: readonly string[];
 }
 
 function argsOf(call: ToolCall): Record<string, unknown> {
@@ -315,11 +343,20 @@ export async function dispatchTool(
       case "close_tab":
         return await closeTab(args);
       case "remember":
-        return await rememberFact(args);
+        return await remember(args, ctx.recentToolResults ?? []);
+      case "read_note":
+        return await readNoteTool(args);
+      case "forget_note":
+        return await forgetNote(args);
       case "recall":
         return await recallFromHistory(args, ctx);
       case "web_search":
         return await webSearch(args, ctx);
+      // The only SYNCHRONOUS case, and the only one that ends the turn. It
+      // touches nothing — no tab, no storage, no network — because asking is
+      // entirely a matter of what the panel renders from the recorded call.
+      case "ask_user":
+        return askUser(args);
     }
   } catch (err) {
     // The backstop, and it should almost never fire — each handler converts its
@@ -1042,23 +1079,3 @@ async function webSearch(
   }
 }
 
-async function rememberFact(
-  args: Record<string, unknown>,
-): Promise<ToolOutcome> {
-  const fact = typeof args.fact === "string" ? args.fact : "";
-  const outcome = await remember(fact);
-  switch (outcome.kind) {
-    case "saved":
-      return {
-        content: outcome.evicted
-          ? `Remembered. The store was full, so the oldest memory was dropped to make room: "${outcome.evicted.text}"`
-          : "Remembered.",
-      };
-    case "duplicate":
-      return {
-        content: `Already remembered, near enough: "${outcome.memory.text}" — nothing was added.`,
-      };
-    case "rejected":
-      return { content: `Not remembered — ${outcome.reason}.` };
-  }
-}

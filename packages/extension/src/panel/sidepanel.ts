@@ -61,7 +61,10 @@ import {
 import { runTurn } from "../agent/loop";
 import { clearDrivenTabs, type Approval } from "../tools/dispatch";
 import { buildSystemPrompt } from "../agent/prompt";
-import { forget, forgetAll, listMemories } from "../memory/store";
+import { buildNotesSection, describeSize } from "../memory/index-render";
+import { migrateLegacyFacts } from "../memory/migrate";
+import { syncNotes } from "../memory/sync";
+import { deleteAllNotes, deleteNote, listNotes } from "../memory/notes";
 import {
   deleteAllSessions,
   deleteSession,
@@ -79,6 +82,8 @@ import {
 } from "../sessions/archive";
 import { deleteRemoteConversation, pushConversation } from "../sessions/sync";
 import { renderMarkdown } from "./markdown";
+import { mayRotate, nextTip } from "./composer-tips";
+import { questionsFromArgs, type AskUserQuestion } from "../tools/ask-user";
 import { chooseModel, optionsFor, shortModelName } from "./model-choice";
 import { summariseSteps, type Step } from "./steps";
 import {
@@ -261,13 +266,13 @@ let lineup: CoreModel[] = [];
  * transcript is short and the user is least likely to suspect it.
  *
  * The tool half never changes within a build. The prompt half does — it carries
- * the active tab and the user's memories — so it is re-measured from the real
+ * the active tab and the user's notes index — so it is re-measured from the real
  * prompt at the start of every turn, and seeded here with the context-free
  * version so the first render is close rather than zero.
  */
 const TOOL_SCHEMA_TOKENS = estimateTokens(JSON.stringify(TOOL_SCHEMAS));
 let systemPromptTokens = estimateTokens(
-  buildSystemPrompt({ memories: [], activeTab: null }),
+  buildSystemPrompt({ notes: null, activeTab: null }),
 );
 
 /** True only while the compactor is actually running, so the bar can pulse. */
@@ -785,6 +790,65 @@ function describeCall(call: ToolCall): string {
  * reason without it deliberately, because this string is rendered and may be
  * logged on the path where that value is a password.
  */
+/**
+ * The card `ask_user` renders.
+ *
+ * NOT A PROMISE, UNLIKE `approvalCard` — and that difference is the feature.
+ * An approval card holds a promise the loop is waiting on, so it dies with the
+ * document: close the panel and the question is gone. A question must outlive
+ * that, because the whole point is that the user answers whenever they like.
+ * So this renders from the RECORDED tool call and resolves nothing; the answer
+ * is an ordinary next message.
+ *
+ * OPTIONS FILL THE COMPOSER RATHER THAN SENDING. One consistent rule, for the
+ * case that decides it: with three questions on screen, a click that sent
+ * immediately would answer the first and discard the rest. Filling also leaves
+ * the answer editable, which matters when the right answer is "the second one,
+ * but only for today".
+ */
+function questionCard(questions: AskUserQuestion[]): HTMLElement {
+  const card = document.createElement("div");
+  card.className = "ask";
+
+  for (const q of questions) {
+    const heading = document.createElement("div");
+    heading.className = "ask__question";
+    heading.textContent = q.question;
+    card.append(heading);
+
+    if (!q.options?.length) continue;
+    const row = document.createElement("div");
+    row.className = "ask__options";
+    for (const option of q.options) {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "ask__option";
+      chip.textContent = option;
+      chip.addEventListener("click", () => {
+        if (!input) return;
+        const current = input.value.trim();
+        input.value = current ? `${current}, ${option}` : option;
+        input.focus();
+        // The composer auto-grows on input; a programmatic value set fires no
+        // such event, so a long answer would sit in a one-row box.
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      row.append(chip);
+    }
+    card.append(row);
+  }
+
+  const note = document.createElement("p");
+  note.className = "ask__note";
+  note.textContent =
+    questions.some((q) => q.options?.length)
+      ? "Pick one, or type your own answer."
+      : "Answer below whenever you like.";
+  card.append(note);
+
+  return card;
+}
+
 function approvalCard(request: Approval): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
     const card = document.createElement("div");
@@ -978,6 +1042,17 @@ function renderConversation(history: CoreMessage[]): void {
       const chip = toolChip(resolved);
       fillChip(chip, message.content);
       restoreStep({ kind: "tool", name: resolved.function.name }, chip);
+      // THE QUESTION IS RE-DERIVED, NOT STORED. `saveSession` already persists
+      // the assistant message's `tool_calls`, so the arguments are here — which
+      // is what lets a question survive the panel being closed and reopened,
+      // the one thing the approval card cannot do.
+      if (resolved.function.name === "ask_user") {
+        const questions = questionsFromArgs(resolved.function.arguments);
+        if (questions.length > 0) {
+          closeActivity();
+          transcript.append(questionCard(questions));
+        }
+      }
     }
   }
   // A conversation that ended mid-work leaves a card open.
@@ -1070,11 +1145,16 @@ async function send(): Promise<void> {
 
   let windowId = api().windows.WINDOW_ID_NONE;
   try {
-    const [memories, tab, win] = await Promise.all([
-      listMemories(),
+    // The migration runs before the first read of a turn, is idempotent, and
+    // never throws — a corrupt legacy value costs an empty notes section and
+    // nothing more.
+    await migrateLegacyFacts();
+    const [noteMetas, tab, win] = await Promise.all([
+      listNotes(),
       activeTab(),
       currentWindowId(),
     ]);
+    const notes = buildNotesSection(noteMetas);
     windowId = win;
     // The group's title is status where the user is already looking. It no-ops
     // until the agent has opened a tab, which is exactly when it starts to
@@ -1082,7 +1162,7 @@ async function send(): Promise<void> {
     // thing people close in confusion.
     void setGroupTitle(windowId, "Atlarix · working");
     const system = buildSystemPrompt({
-      memories,
+      notes,
       activeTab: tab
         ? {
             title: (await tabTitle(tab.id)) ?? "",
@@ -1091,7 +1171,7 @@ async function send(): Promise<void> {
           }
         : null,
     });
-    // The real prompt for this turn, memories and active tab included — so the
+    // The real prompt for this turn, notes index and active tab included — so the
     // bar measures what is actually being sent rather than the empty shell.
     systemPromptTokens = estimateTokens(system);
 
@@ -1275,6 +1355,25 @@ async function send(): Promise<void> {
       setStatus("Stopped.");
     } else if (outcome.kind === "stuck") {
       setStatus("Atlarix stopped itself — it was repeating the same steps.");
+    } else if (outcome.kind === "asked") {
+      // NO STATUS LINE. "Stopped" would be the honest word for the loop and the
+      // wrong one for the user: the turn ended because Atlarix asked them
+      // something, and the question itself is the status.
+      let questions: AskUserQuestion[] = [];
+      for (const m of outcome.messages) {
+        if (m.role !== "assistant") continue;
+        for (const c of m.tool_calls ?? []) {
+          if (c.function.name !== "ask_user") continue;
+          const parsed = questionsFromArgs(c.function.arguments);
+          // The LAST readable ask in the turn wins. The model is told to batch,
+          // but if it asked twice the second is the one still outstanding.
+          if (parsed.length > 0) questions = parsed;
+        }
+      }
+      if (questions.length > 0) {
+        append(questionCard(questions));
+        input?.focus();
+      }
     }
   } catch (err) {
     append(errorBubble(err instanceof Error ? err.message : String(err)));
@@ -1293,7 +1392,53 @@ async function send(): Promise<void> {
     void setGroupTitle(windowId, "Atlarix");
     void nameConversation(model);
     void refreshDrawer();
+    // BETWEEN turns, which is the only moment a placeholder may change without
+    // reading as a glitch. `mayRotate` holds it back if the user has already
+    // started typing their next message.
+    rotateTip();
+    // AFTER the turn, never during one. A pull mid-turn could change a note the
+    // model is reading, and the conflict sibling it may create would appear in
+    // an index that was already built. Unawaited, like `pushConversation`: an
+    // offline laptop must not put an error in front of someone mid-sentence.
+    void syncNotesAndReport();
   }
+}
+
+/**
+ * Reconcile notes with the account, and tell the user if anything collided.
+ *
+ * THE ONLY PART THAT IS NOT SILENT. Transport failure stays quiet — that is the
+ * house rule and it is right, because the local store already works. But a
+ * CONFLICT means two people wrote the same note and one copy is now sitting
+ * beside the other under a different name; saying nothing would leave a note
+ * the user never created and no explanation of where it came from.
+ */
+async function syncNotesAndReport(): Promise<void> {
+  const { conflicts } = await syncNotes();
+  if (conflicts.length === 0) return;
+  void refreshDrawer();
+  setStatus(
+    conflicts.length === 1
+      ? `"${conflicts[0]}" was also changed elsewhere — both versions are in your notes.`
+      : `${conflicts.length} notes were also changed elsewhere — both versions of each are in your notes.`,
+  );
+}
+
+/**
+ * Advance the composer's tip, if now is a moment that may.
+ *
+ * Called from exactly one place — the end of a turn. A timer was the obvious
+ * alternative and is worse: a string that changes while someone is reading it
+ * looks broken, and there is no interval short enough to teach anything that is
+ * not also long enough to interrupt.
+ */
+function rotateTip(): void {
+  // `input` is nullable for the same reason every element handle here is: the
+  // panel document can be torn down mid-turn when the user closes it, and this
+  // runs from a `finally`.
+  if (!input) return;
+  if (!mayRotate({ value: input.value, running: running !== null })) return;
+  input.placeholder = nextTip(input.placeholder);
 }
 
 /**
@@ -1487,14 +1632,22 @@ async function refreshDrawer(): Promise<void> {
 
   if (memoryList) {
     memoryList.textContent = "";
-    const memories = await listMemories();
-    if (memories.length === 0) {
+    const notes = await listNotes();
+    if (notes.length === 0) {
       emptyNote(memoryList, "Nothing yet. Ask Atlarix to remember something.");
     }
-    for (const memory of memories) {
+    for (const note of notes) {
+      // Title, hook and SIZE — the same figure the model is told, so a user
+      // reading "21.5 KB of 26 KB" here and a model refusing a write over it
+      // are talking about one number rather than two.
+      const line = `${note.title || note.name} — ${note.description || "no description"} · ${describeSize(note.bytes)}`;
+      const el = row(line);
+      // Read-only, and collapsed: a drawer is for finding a wrong note and
+      // deleting it, not for reading 26 KB in a 320px column.
+      el.title = "Click Forget to delete this note";
       memoryList.append(
-        withAction(row(memory.text), "Forget", () => {
-          void forget(memory.id).then(refreshDrawer);
+        withAction(el, "Forget", () => {
+          void deleteNote(note.name).then(refreshDrawer);
         }),
       );
     }
@@ -1996,7 +2149,11 @@ eraseButton?.addEventListener("click", () => {
     // asterisk nobody was told about.
     await Promise.all(all.map((sn) => deleteRemoteConversation(sn.id)));
     await deleteAllSessions();
-    await forgetAll();
+    // ENUMERATES THE PER-NOTE KEYS. The old store was a single key, so its
+    // `forgetAll` removed one; with a key per note, clearing only the index
+    // would leave every body on disk while the UI reported an empty store —
+    // the orphaned-key trap `sessions/store.ts` already records for archives.
+    await deleteAllNotes();
     startNewChat();
     showDrawer(true);
     setStatus("Erased.");
