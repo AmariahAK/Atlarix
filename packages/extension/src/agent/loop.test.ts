@@ -557,3 +557,83 @@ describe("a dropped connection is retried", () => {
     expect(n).toBe(1);
   });
 });
+
+describe("ask_user ends the turn", () => {
+  it("returns `asked`, not `complete` or `aborted`", async () => {
+    // A separate kind because the panel renders them differently: `aborted`
+    // shows "Stopped", which under a question reads as the ask having failed.
+    const { stream, calls } = scriptedStream([
+      toolRound(toolCall("ask_user", { question: "Which account?" })),
+      textRound("should never be reached"),
+    ]);
+    const dispatch = vi.fn(
+      async (): Promise<ToolOutcome> => ({ content: "asked", endsTurn: true }),
+    );
+
+    const outcome = await runTurn({
+      ...BASE,
+      stream,
+      dispatch: dispatch as unknown as TurnArgs["dispatch"],
+    });
+
+    expect(outcome.kind).toBe("asked");
+    // The decisive part: it did NOT stream another round.
+    expect(calls()).toBe(1);
+  });
+
+  it("still records a result for EVERY call in the batch", async () => {
+    // THE FAILURE THIS PREVENTS SURFACES ONE TURN LATE. Returning the moment
+    // ask_user lands would leave `search`'s tool_call with no matching
+    // `role:"tool"` message — which the provider rejects on the NEXT request,
+    // i.e. the moment the user answers. The turn would break at exactly the
+    // point the feature exists to make work.
+    const { stream } = scriptedStream([
+      toolRound(
+        toolCall("ask_user", { question: "Which account?" }),
+        toolCall("list_tabs"),
+      ),
+    ]);
+    const dispatch = vi.fn(
+      async (call: ToolCall): Promise<ToolOutcome> =>
+        call.function.name === "ask_user"
+          ? { content: "asked", endsTurn: true }
+          : { content: "two tabs" },
+    );
+
+    const outcome = await runTurn({
+      ...BASE,
+      stream,
+      dispatch: dispatch as unknown as TurnArgs["dispatch"],
+    });
+
+    expect(outcome.kind).toBe("asked");
+    expect(dispatch).toHaveBeenCalledTimes(2);
+
+    const assistant = outcome.messages.find((m) => m.role === "assistant");
+    const callIds = (assistant?.tool_calls ?? []).map((c) => c.id);
+    const resultIds = outcome.messages
+      .filter((m) => m.role === "tool")
+      .map((m) => m.tool_call_id);
+    expect(callIds.length).toBe(2);
+    expect(resultIds.sort()).toEqual(callIds.sort());
+  });
+
+  it("does not end the turn when the tool declines to ask", async () => {
+    const { stream, calls } = scriptedStream([
+      toolRound(toolCall("ask_user", {})),
+      textRound("carried on"),
+    ]);
+    const dispatch = vi.fn(
+      async (): Promise<ToolOutcome> => ({ content: "nothing readable" }),
+    );
+
+    const outcome = await runTurn({
+      ...BASE,
+      stream,
+      dispatch: dispatch as unknown as TurnArgs["dispatch"],
+    });
+
+    expect(outcome.kind).toBe("complete");
+    expect(calls()).toBe(2);
+  });
+});

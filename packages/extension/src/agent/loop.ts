@@ -163,6 +163,15 @@ export type TurnOutcome =
   | { kind: "aborted"; messages: CoreMessage[] }
   /** The same tool calls three rounds running. */
   | { kind: "stuck"; messages: CoreMessage[] }
+  /**
+   * The model asked the user something and stopped. Their answer arrives as the
+   * next ordinary user message, which starts a fresh turn.
+   *
+   * A SEPARATE KIND FROM `aborted` ON PURPOSE. Both end a turn early, but they
+   * mean opposite things to the person watching: `aborted` renders "Stopped",
+   * which under a question would read as the panel having failed to ask it.
+   */
+  | { kind: "asked"; messages: CoreMessage[] }
   /** Core refused or broke. `messages` still holds whatever completed. */
   | { kind: "error"; messages: CoreMessage[]; error: CoreError };
 
@@ -350,13 +359,21 @@ export async function runTurn(args: TurnArgs): Promise<TurnOutcome> {
     // SEQUENTIAL, not parallel. Two `open_tab` calls at once race to create the
     // agent's tab group and produce two groups; and the user answering two
     // permission prompts simultaneously is not a thing the panel can show.
+    // Set by `ask_user`. The loop does NOT break on it — see below.
+    let asked = false;
+
+    // WHAT THE AGENT HAS READ THIS TURN, so `remember` can refuse a note that
+    // repeats it word for word. The loop is the only thing that sees a whole
+    // turn, which is why the list is built here rather than in the tool.
+    const turnResults: string[] = [];
+
     for (const call of calls) {
       if (args.signal?.aborted) return { kind: "aborted", messages: produced };
 
       events.onToolCall?.(call);
       let outcome: ToolOutcome;
       try {
-        outcome = await dispatch(call, args.tools);
+        outcome = await dispatch(call, { ...args.tools, recentToolResults: turnResults });
       } catch (err) {
         // `dispatchTool` converts its own failures and is not supposed to reach
         // here. Defence in depth, because the consequence of being wrong is
@@ -380,7 +397,7 @@ export async function runTurn(args: TurnArgs): Promise<TurnOutcome> {
             // approval, something is wrong that asking again will not fix — and
             // a second prompt for something just approved reads as the
             // extension not listening.
-            await dispatch(call, args.tools)
+            await dispatch(call, { ...args.tools, recentToolResults: turnResults })
           : { content: declineMessage(request) };
         if (outcome.needsApproval) {
           outcome = {
@@ -402,7 +419,24 @@ export async function runTurn(args: TurnArgs): Promise<TurnOutcome> {
       history.push(message);
       produced.push(message);
       events.onToolResult?.(call, outcome.content, outcome.label);
+      // AFTER the result is recorded, so `remember`'s own outcome is never in
+      // the list it is checked against — a note whose text the tool echoed back
+      // would otherwise look copied from itself.
+      turnResults.push(outcome.content);
+      if (outcome.endsTurn) asked = true;
     }
+
+    // AFTER the batch, never inside it. Returning the moment `ask_user` lands
+    // would leave the assistant message holding `tool_calls` with no matching
+    // `role:"tool"` result for whatever followed it — and a history where a
+    // tool_call has no result is rejected by the provider on the NEXT request,
+    // which is to say when the user answers. The turn would break at the one
+    // moment the feature exists to make work.
+    //
+    // The model is told to batch its questions into one call and not to pair
+    // `ask_user` with other tools, so in practice there is nothing after it.
+    // This is about what happens when it does it anyway.
+    if (asked) return { kind: "asked", messages: produced };
   }
 }
 
