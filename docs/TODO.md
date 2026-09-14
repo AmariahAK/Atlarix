@@ -633,12 +633,27 @@ content, this is the category that is supposed to leave the device.
 
 **STILL OPEN, and deferred by the owner to the next session:**
 
-- **MCP + skills + site-grant management UI on the launchpad.** Research is below: the
-  usual pattern is `externally_connectable` + `chrome.storage`, **but we should not need
-  it** — the extension already authenticates the same Supabase user, so the launchpad
-  writes and the extension reads, with no new manifest key and no origin in the manifest.
-  Decisive for MCP specifically: **a browser extension can only reach REMOTE
-  HTTP/Streamable-HTTP MCP servers, never local stdio.**
+- ~~**MCP + skills + site-grant management UI on the launchpad.**~~ **DONE 2026-09-14.**
+  The prediction held: no `externally_connectable`, no new manifest key, no origin in the
+  manifest — the extension and the launchpad authenticate the same Supabase user and meet
+  at the database. Four rows in one "What Atlarix can use" card, one re-pointed dialog:
+  Connectors, Skills, Memory, Sites.
+
+  Three things that were NOT obvious going in:
+
+  - **Site grants could not simply be moved.** `site-grants.ts` argues at length that a
+    grant belongs to a browser profile and not an account, and that argument is right —
+    so the launchpad gets a MIRROR and a one-way valve, not ownership. The website may
+    mark a row revoked; the extension applies it on its next open. There is no add path,
+    no add RPC, and a test asserting an origin the server names but the browser never
+    granted changes nothing. See `20260914170000_extension_site_grants.sql`.
+  - **A device column was unavoidable.** Without one, two browsers' grants merge into a
+    list neither is in, and Revoke silently hits the machine the reader is not at.
+  - **Revocation is not instant and the copy must not say it is.** A web page cannot call
+    `chrome.permissions.remove()`.
+
+  Decisive for MCP specifically, and still true: **a browser extension can only reach
+  REMOTE HTTP/Streamable-HTTP MCP servers, never local stdio.**
 - **The extension's own UI refinement** — owner's note: a Claude-style design lives better
   on the launchpad account page than forced into a 320px panel.
 - **Chrome Web Store submission.** The build is reproducible and the zip is ~83 KB.
@@ -1974,6 +1989,20 @@ approval, MCP description wrapping + OAuth-URL validation, the universal write-c
 - Sandbox **read**-confinement (Windows blocker above), **egress** gating, and the remaining Mediums:
   env-var key inheritance, secret-basename list, cross-workspace file scope, plaintext-keychain
   fallback.
+- **Project-wide `TRUNCATE` revoke on the older tables — OWNER'S CALL, still open.**
+  Supabase's default privileges grant all of `arwdDxtm` on every new table in `public`
+  to `anon`, `authenticated` and `service_role`, and **TRUNCATE IS NOT FILTERED BY ROW
+  SECURITY** — a role holding it empties the table regardless of every policy. Proved on
+  the live database 2026-09-14 by truncating an empty table inside a rollback. Every
+  table created since carries the revoke; `users`, `credit_wallet`, `credit_grants` and
+  `conversations` do not. Not currently reachable (PostgREST has no TRUNCATE verb and the
+  role is not directly connectable) but one bug away from total data loss.
+- **`MAINTAIN` is also still granted**, on every one of these tables including the new
+  ones — `authenticated=rm/postgres`, where `m` is MAINTAIN. It permits VACUUM, ANALYZE,
+  REINDEX, CLUSTER and REFRESH MATERIALIZED VIEW; it reads and writes no data, so it is
+  a far milder case than TRUNCATE. Listed because the house rule is "no privilege we did
+  not intend", and a rule with one remembered exception is a rule the next person applies
+  wrongly. Fold it into the same migration as the TRUNCATE revoke.
 
 ## 💤 CLOSED — do not re-propose
 
