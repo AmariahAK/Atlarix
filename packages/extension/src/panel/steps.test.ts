@@ -92,3 +92,48 @@ describe("what does NOT get a card", () => {
     ).toBe("Read a page, Filled 2 fields, Clicked once · thought once");
   });
 });
+
+/**
+ * The gap that produced "1 step, 1 step" in a real session.
+ *
+ * Two different tools with no VERBS entry each rendered their own "1 step"
+ * fallback, and the card read like a bug. Both halves are pinned: the table
+ * covers every tool that exists, and the fallback aggregates so the NEXT tool
+ * added without an entry degrades to an honest count instead.
+ */
+describe("every tool has a verb", () => {
+  it("covers all of TOOL_NAMES", async () => {
+    const { TOOL_NAMES } = await import("../tools/schemas");
+    const missing = [...TOOL_NAMES].filter(
+      (name) => summariseSteps([{ kind: "tool", name }]) === "1 step",
+    );
+    expect(missing).toEqual([]);
+  });
+
+  it("counts unlabelled tools together rather than repeating the fallback", () => {
+    expect(
+      summariseSteps([
+        { kind: "tool", name: "not_a_real_tool" },
+        { kind: "tool", name: "also_not_real" },
+      ]),
+    ).toBe("2 steps");
+  });
+
+  it("still names the tools it knows alongside the count", () => {
+    expect(
+      summariseSteps([
+        { kind: "tool", name: "click" },
+        { kind: "tool", name: "not_a_real_tool" },
+      ]),
+    ).toBe("Clicked once, 1 step");
+  });
+
+  it("names a connector call, which is what the report was about", () => {
+    expect(
+      summariseSteps([
+        { kind: "tool", name: "list_available_mcps" },
+        { kind: "tool", name: "mcp_call" },
+      ]),
+    ).toBe("Checked your connectors, Used a connector");
+  });
+});
