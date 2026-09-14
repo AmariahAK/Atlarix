@@ -281,3 +281,42 @@ describe("prefix stability, which is what makes caching work", () => {
 
 /** The fixed opening text, which every prompt shares whatever the context. */
 const BASE_MIN_CHARS = 4_000;
+
+describe("the skills index", () => {
+  const skills = {
+    index: "- [Cut a release](skill:cut-a-release) — when a release needs tagging",
+    count: 1,
+  };
+
+  it("carries name and hook, and routes the model to read_note", () => {
+    const p = buildSystemPrompt({ ...base, skills });
+    expect(p).toContain("[Cut a release](skill:cut-a-release)");
+    expect(p).toMatch(/Read one with read_note/);
+  });
+
+  it("never carries a body — same arithmetic as notes", () => {
+    // A skill body may be 64 KB. The index exists so cost scales with the
+    // NUMBER of skills, not their size.
+    const p = buildSystemPrompt({ ...base, skills });
+    expect(p).not.toContain("npm run release");
+    expect(p.length).toBeLessThan(12_000);
+  });
+
+  it("is omitted entirely when the user has none", () => {
+    expect(buildSystemPrompt({ ...base, skills: null })).not.toMatch(
+      /SKILLS THE USER WROTE/,
+    );
+    expect(buildSystemPrompt(base)).not.toMatch(/SKILLS THE USER WROTE/);
+  });
+
+  it("sits with the notes band, ahead of the date that changes daily", () => {
+    const p = buildSystemPrompt({
+      ...base,
+      notes: { index: "- [N](n.md) — hook", count: 1, limit: 30 },
+      skills,
+    });
+    expect(p.indexOf("SKILLS THE USER WROTE")).toBeLessThan(
+      p.indexOf("Today's date is"),
+    );
+  });
+});

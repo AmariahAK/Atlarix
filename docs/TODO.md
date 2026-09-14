@@ -1408,11 +1408,37 @@ it:
    extension's proven page-control layer — it does not grow its own. Letting CLI v1
    scope-creep into "must also drive browsers" recreates the dependency the CLI exists to
    avoid, and means debugging browser automation in a terminal.
-2. **The extension never gets a filesystem or a shell.** That is not a missing feature, it
-   is the containment: the extension is the user logged into their bank and their email,
-   and the absence of local execution is what bounds a prompt-injection blast radius.
-   Artifacts (charts, PDF, CSV) are rendered in the offscreen document and handed over via
-   `chrome.downloads` — never written to a disk the agent can reach.
+2. **Atlarix ships the extension no filesystem and no shell of its own — but a CONNECTOR
+   the user adds may extend it. AMENDED 2026-09-14; the original is below.**
+
+   This rule used to read: *"The extension never gets a filesystem or a shell. That is not
+   a missing feature, it is the containment: the extension is the user logged into their
+   bank and their email, and the absence of local execution is what bounds a
+   prompt-injection blast radius."* Account-side MCP connectors retire the second half of
+   that, because a remote MCP server can expose any tool it likes, including file and
+   command execution.
+
+   **Owner's decision, asked and answered 2026-09-14: no per-surface restriction.** Adding
+   a connector is already an explicit act of trust, and it is what Claude and ChatGPT both
+   do — their connectors are account-level and inherited by their browser extensions. A
+   surface allowlist and per-tool consent prompts were both offered and both declined.
+
+   **So the containment is now the user's choice of connector, not the platform.** Two
+   things follow and neither is optional:
+
+   * `wrapUntrustedData()` around connector metadata AND results stops being
+     defence-in-depth and becomes the ONLY remaining structural boundary between a page
+     the agent reads and a connector's tools. It is a prompt-injection mitigation, not a
+     capability boundary, and it should never be described as one.
+   * Site grants bound what the agent can TOUCH; they do not bound what it does with what
+     it reads. A turn that reads authenticated mail on a granted origin and then writes it
+     out through a connector is entirely inside the grant. That is the residual risk, and
+     it is written here rather than left implied.
+
+   Still true, and still the reason the first half of the rule survives: Atlarix itself
+   gives the extension no local execution. Artifacts (charts, PDF, CSV) are rendered in the
+   offscreen document and handed over via `chrome.downloads` — never written to a disk the
+   agent can reach.
 3. **A model restriction binds the LOOP, not the tool.** Whoever runs the agent loop inside
    the extension must be Core. Whoever drives the extension AS A TOOL may be any model,
    because that loop is in the desktop on the user's own key.

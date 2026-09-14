@@ -38,6 +38,7 @@ import {
   type NoteType,
 } from "../memory/notes";
 import { MIGRATED_NOTE } from "../memory/migrate";
+import { listAccountSkills, parseSkillRef, renderSkill } from "./skills";
 import type { ToolOutcome } from "./dispatch";
 
 const TYPES: readonly string[] = ["project", "feedback", "reference", "user"];
@@ -195,7 +196,34 @@ async function write(
 export async function readNoteTool(
   args: Record<string, unknown>,
 ): Promise<ToolOutcome> {
-  const name = parseNoteRef(str(args.note));
+  const raw = str(args.note);
+
+  // SKILLS SHARE THIS TOOL rather than getting one of their own. Both are "read
+  // the named thing whose index line looked relevant", and a second tool with
+  // the same shape costs ~90 tokens on every round to save the model a
+  // disambiguation it does not find hard. The `skill:` prefix is what the index
+  // line already shows, so the model pastes back something that routes itself.
+  if (/^\s*(?:-\s*)?\[?[^\]]*\]?\(?skill:/i.test(raw) || /^\s*skill:/i.test(raw)) {
+    const slug = parseSkillRef(raw);
+    const skills = await listAccountSkills();
+    const skill = skills.find((s) => s.slug === slug);
+    if (!skill) {
+      return {
+        content:
+          `There is no skill called ${slug}. ` +
+          (skills.length
+            ? `You have: ${skills.map((s) => `skill:${s.slug}`).join(", ")}.`
+            : `You have no skills set up.`),
+        label: "Read nothing",
+      };
+    }
+    return {
+      content: renderSkill(skill),
+      label: `Read skill ${skill.name}`,
+    };
+  }
+
+  const name = parseNoteRef(raw);
   if (!name) {
     return { content: "Which note? Pass `note`.", label: "Read nothing" };
   }

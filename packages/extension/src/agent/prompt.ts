@@ -56,6 +56,13 @@ export interface PromptContext {
    * section is then omitted entirely rather than rendered empty.
    */
   notes: NotesSection | null;
+  /**
+   * Skills the user wrote on their account — name and hook only, never a body.
+   *
+   * SAME BAND AS NOTES, and for the same reason: it changes when the user edits
+   * their account, which is rarely, not every turn like the active tab.
+   */
+  skills?: { index: string; count: number } | null;
   /** Where the user is right now — a single line, refreshed each turn. */
   activeTab?: { title: string; url: string; granted: boolean } | null;
   /** Injected so a test is not pinned to the day it runs. */
@@ -161,6 +168,19 @@ export function buildSystemPrompt(ctx: PromptContext): string {
         `up to 26 KB each.${flag}\n${ctx.notes.index}\n` +
         `Read one with read_note when its line looks relevant to what was ` +
         `asked. The bodies are not here.`,
+    );
+  }
+
+  if (ctx.skills && ctx.skills.count > 0) {
+    // NAME AND HOOK ONLY. A skill body may be 64 KB; the index exists so cost
+    // scales with the NUMBER of skills rather than their size, exactly as it
+    // does for notes.
+    parts.push(
+      `SKILLS THE USER WROTE — ${ctx.skills.count} written procedure(s) for ` +
+        `jobs they do repeatedly.\n${ctx.skills.index}\n` +
+        `Read one with read_note when its line matches what was asked, BEFORE ` +
+        `doing the work it covers. Never chase a skill at the cost of the ` +
+        `user's actual task.`,
     );
   }
 

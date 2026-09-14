@@ -64,6 +64,7 @@ import { buildSystemPrompt } from "../agent/prompt";
 import { buildNotesSection, describeSize } from "../memory/index-render";
 import { migrateLegacyFacts } from "../memory/migrate";
 import { syncNotes } from "../memory/sync";
+import { listAccountSkills, skillIndexLines } from "../tools/skills";
 import { deleteAllNotes, deleteNote, listNotes } from "../memory/notes";
 import {
   deleteAllSessions,
@@ -1149,12 +1150,18 @@ async function send(): Promise<void> {
     // never throws — a corrupt legacy value costs an empty notes section and
     // nothing more.
     await migrateLegacyFacts();
-    const [noteMetas, tab, win] = await Promise.all([
+    const [noteMetas, accountSkills, tab, win] = await Promise.all([
       listNotes(),
+      // Fetched per turn but cheap and cached by the browser; an empty list on
+      // failure simply omits the section, which is the same as having none.
+      listAccountSkills(),
       activeTab(),
       currentWindowId(),
     ]);
     const notes = buildNotesSection(noteMetas);
+    const skills = accountSkills.length
+      ? { index: skillIndexLines(accountSkills), count: accountSkills.length }
+      : null;
     windowId = win;
     // The group's title is status where the user is already looking. It no-ops
     // until the agent has opened a tab, which is exactly when it starts to
@@ -1163,6 +1170,7 @@ async function send(): Promise<void> {
     void setGroupTitle(windowId, "Atlarix · working");
     const system = buildSystemPrompt({
       notes,
+      skills,
       activeTab: tab
         ? {
             title: (await tabTitle(tab.id)) ?? "",
