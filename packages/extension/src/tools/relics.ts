@@ -8,7 +8,12 @@
  * than one that offers you something to look at.
  */
 
-import { MAX_RELIC_BYTES, putRelic, relicNote } from "../relics/store";
+import {
+  MAX_RELIC_BYTES,
+  externalResources,
+  putRelic,
+  relicNote,
+} from "../relics/store";
 import type { ToolContext, ToolOutcome } from "./dispatch";
 
 function str(v: unknown): string {
@@ -37,6 +42,24 @@ export async function createRelic(
         `${Math.round(MAX_RELIC_BYTES / 1024 / 1024)} MB limit. Leave out any ` +
         `embedded data you can compute in the page, or split it into two relics.`,
       label: "Relic too large",
+    };
+  }
+
+  // REFUSED BEFORE IT IS SAVED, because the failure it prevents is invisible.
+  // A relic whose interface is built by a CDN script opens as a blank white
+  // page: the document loads, the script is blocked, nothing draws, and there
+  // is nothing on screen to say why.
+  const external = externalResources(html);
+  if (external.length > 0) {
+    return {
+      content:
+        `That relic was not saved — it loads ${external.length === 1 ? "a resource" : "resources"} ` +
+        `from the network, which a relic cannot do: ${external.slice(0, 3).join(", ")}` +
+        `${external.length > 3 ? `, and ${external.length - 3} more` : ""}. ` +
+        `Relics run with no network at all. Write the CSS and JavaScript inline ` +
+        `in <style> and <script> tags and send it again — plain DOM code works, ` +
+        `and so do data: URLs for small images.`,
+      label: "Relic needs inlining",
     };
   }
 

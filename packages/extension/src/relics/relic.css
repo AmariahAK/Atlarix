@@ -84,6 +84,22 @@ body {
 }
 
 /*
+ * A warning sits ABOVE a frame that still has content in it, so it is a band
+ * rather than a centred message standing in for the page.
+ */
+.notice--warn {
+  flex: none;
+  margin: 0;
+  max-width: none;
+  padding: 8px 12px;
+  text-align: left;
+  font-size: 12px;
+  color: var(--fg);
+  background: color-mix(in srgb, var(--primary) 12%, var(--card));
+  border-bottom: 1px solid var(--border);
+}
+
+/*
  * `flex: 1` plus `min-height: 0` — without the second the frame refuses to
  * shrink below its content and the bar scrolls off the top. Same automatic
  * minimum size that collapsed the transcript's tool cards, in the other

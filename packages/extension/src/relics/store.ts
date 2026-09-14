@@ -140,6 +140,38 @@ export function relicUrl(sessionId: string, id: string): string {
 }
 
 /**
+ * Resources a relic points at that the sandbox will refuse to load.
+ *
+ * CHECKED BEFORE SAVING, not diagnosed after. A relic whose UI is built by a
+ * script from a CDN renders a BLANK WHITE PAGE — the document loads, the script
+ * is blocked, and nothing ever draws. There is no error the user can act on and
+ * nothing on screen to suggest what went wrong; it simply looks broken.
+ *
+ * Refusing at creation turns that into a sentence the model reads while it can
+ * still do something about it, on the turn it made the mistake.
+ *
+ * Only SCRIPTS and STYLESHEETS, which take the whole document down with them.
+ * An external image renders as a broken image next to content that is otherwise
+ * fine, and the viewer's own notice covers it — refusing a relic over a logo
+ * would be worse than showing it.
+ */
+export function externalResources(html: string): string[] {
+  const found = new Set<string>();
+  const patterns = [
+    /<script\b[^>]*\bsrc\s*=\s*["']?(https?:)?\/\/[^"'\s>]+/gi,
+    /<link\b[^>]*\bhref\s*=\s*["']?(https?:)?\/\/[^"'\s>]+/gi,
+    /@import\s+(?:url\()?["']?(https?:)?\/\/[^"'\s)]+/gi,
+  ];
+  for (const pattern of patterns) {
+    for (const match of html.matchAll(pattern)) {
+      const url = /(?:(?:https?:)?\/\/)[^"'\s>)]+/.exec(match[0])?.[0];
+      if (url) found.add(url);
+    }
+  }
+  return [...found];
+}
+
+/**
  * What the model is told when a relic is saved — and how the panel finds it
  * again after a reload.
  *

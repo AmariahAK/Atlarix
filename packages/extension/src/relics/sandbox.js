@@ -25,6 +25,9 @@
     if (!data || data.kind !== "atlarix:relic" || typeof data.html !== "string") {
       return;
     }
+    // Removed FIRST. The parent re-offers the relic until it hears back, so a
+    // second copy can be in flight while this one is being written, and the
+    // write replaces the document this listener lives in.
     window.removeEventListener("message", render);
 
     // Tell the host how tall the content turned out, so the viewer can size the
@@ -44,12 +47,45 @@
     document.open();
     document.write(data.html);
     document.close();
+    watchViolations(document);
+
+    // THE ACKNOWLEDGEMENT THE PARENT IS WAITING FOR. Sent the instant the write
+    // completes rather than folded into the height report, because the height
+    // report waits on `load` — and a parent still retrying because a load event
+    // was slow would re-write a document that is already on screen.
+    parent.postMessage({ kind: "atlarix:relic-shown" }, "*");
 
     if (document.readyState === "complete") report();
     else window.addEventListener("load", report);
     window.addEventListener("resize", report);
   }
 
+  /*
+   * A BLANK RELIC HAS TO SAY WHY.
+   *
+   * Every resource this document is refused fires `securitypolicyviolation`
+   * here — and the one that matters, a script that was going to build the whole
+   * interface, leaves a white page with nothing on it and nothing in the user's
+   * way to explain it. Reporting the blocked URL to the viewer turns "it is
+   * broken" into "it wanted the network, and relics do not have one".
+   *
+   * Registered on `document` BEFORE the write, and again after, because the
+   * write replaces the document this listener was attached to.
+   */
+  function watchViolations(doc) {
+    doc.addEventListener("securitypolicyviolation", function (e) {
+      parent.postMessage(
+        {
+          kind: "atlarix:relic-blocked",
+          uri: String(e.blockedURI || ""),
+          directive: String(e.effectiveDirective || e.violatedDirective || ""),
+        },
+        "*",
+      );
+    });
+  }
+
+  watchViolations(document);
   window.addEventListener("message", render);
   // Say we are ready, so the viewer does not have to race the frame's load.
   parent.postMessage({ kind: "atlarix:relic-ready" }, "*");
