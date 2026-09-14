@@ -65,12 +65,44 @@ describe("choosing", () => {
     );
   });
 
+  it("defaults to the core-3 TIER, not to the first entry", () => {
+    // core-1 is text-only, so defaulting positionally put every new user on the
+    // one tier that refuses an attachment. The preference is by TIER because
+    // the lineup is configuration: core-3 was deepseek-v4-pro before it was
+    // gpt-6-astra, and naming either here would pin the default to a date.
+    expect(chooseModel(optionsFor(LINEUP), null)).toBe("openai/gpt-6-astra");
+  });
+
   it("falls back to the first when the stored one is no longer offered", () => {
     // The lineup is configuration and has changed before. A stored id for a
-    // retired model would 503 on every send.
+    // retired model would 503 on every send — so an unknown stored id is
+    // discarded and the preference decides.
     expect(chooseModel(optionsFor(LINEUP), "moonshotai/kimi-k2.7-code")).toBe(
+      "openai/gpt-6-astra",
+    );
+  });
+
+  it("falls back to the FIRST OPTION when the lineup has no core-3", () => {
+    // Not to a hardcoded wire id. A lineup without core-3 is still a lineup we
+    // serve from; the preference is a lookup into what the proxy sent, never an
+    // assertion about what it should have sent.
+    const short = LINEUP.filter((m) => m.tier !== "core-3");
+    expect(chooseModel(optionsFor(short), null)).toBe("z-ai/glm-5.3");
+  });
+
+  it("lets a stored choice beat the preferred tier", () => {
+    // Moving the default must not move a model out from under someone who
+    // picked one, and everyone who has touched the picker has a stored value.
+    expect(chooseModel(optionsFor(LINEUP), "z-ai/glm-5.3")).toBe(
       "z-ai/glm-5.3",
     );
+  });
+
+  it("never sends a tier as the value, even via the preference", () => {
+    // The preference matches ON the tier and returns the WIRE id. Returning
+    // `o.tier` here would type-check and render a correct-looking dropdown.
+    const chosen = chooseModel(optionsFor(LINEUP), null);
+    expect(chosen).not.toMatch(/^core-\d+$/);
   });
 
   it("returns null rather than inventing an id when there are no options", () => {

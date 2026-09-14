@@ -27,7 +27,32 @@ export interface ModelOption {
   value: string;
   /** Shown in the picker. */
   label: string;
+  /**
+   * The tier this option came from, carried through so `chooseModel` can prefer
+   * one. It is NOT sent anywhere — `value` is still the only thing the proxy
+   * sees. Before this existed `optionsFor` dropped the tier on the way out, so
+   * the default could only ever be positional.
+   */
+  tier: string;
 }
+
+/**
+ * The tier the panel opens on when the user has not chosen for themselves.
+ *
+ * A TIER, deliberately, and never a wire id. The lineup is configuration that
+ * has changed before — `core-3` was `deepseek-v4-pro` and is `gpt-6-astra`
+ * today — so naming the model here would pin a default to whatever was true the
+ * day it was written, and restating a config's contents is the mistake recorded
+ * against the README and the launchpad in `docs/TODO.md`.
+ *
+ * WHY core-3 AND NOT core-1. core-1 is text-only (GLM 5.3 at the time of
+ * writing), so every user who dropped in a screenshot met a refusal on their
+ * first interesting turn — `attachments.ts` was working exactly as designed and
+ * the DEFAULT was what made the refusal the common path. core-3 is the
+ * multimodal end of the lineup. This costs more per turn than core-1, which was
+ * weighed and accepted: this is the surface a non-developer meets first.
+ */
+const PREFERRED_TIER = "core-3";
 
 /** `core-1` → `Core 1`. Anything unrecognised is shown as it came. */
 export function tierLabel(tier: string): string {
@@ -59,11 +84,15 @@ export function optionsFor(
       label: m.tier
         ? `${tierLabel(m.tier)} · ${shortModelName(m.id)}`
         : shortModelName(m.id),
+      // May be "" — the proxy has served a lineup without tiers before, and an
+      // option with no tier simply never matches PREFERRED_TIER.
+      tier: m.tier ?? "",
     }));
 }
 
 /**
- * Which option to select: the one the user last chose, else the first.
+ * Which option to select: the one the user last chose, else the preferred tier,
+ * else the first.
  *
  * Returns null when there is nothing to choose — the caller must then refuse to
  * send rather than guess an id. A GUESS IS THE WRONG MOVE HERE even though it
@@ -72,6 +101,21 @@ export function optionsFor(
  * the proxy was already unreachable — two failures reported as one confusing
  * message. `docs/TODO.md` records the same rule for the README and the
  * launchpad: do not restate a config's contents.
+ *
+ * THE FINAL FALLBACK IS STILL `options[0]`, NOT A WIRE ID. That is what keeps
+ * the rule above intact: a lineup that has no `core-3` is a lineup we still
+ * serve from, using whatever the proxy listed first. The preference is a
+ * lookup into what the proxy sent, never an assertion about what it should
+ * have sent.
+ *
+ * A STORED CHOICE ALWAYS WINS. Moving the default must not silently move a
+ * model out from under someone who picked one — and every user who has ever
+ * touched the picker has a stored value.
+ *
+ * This is the ONLY place the default is decided; `sidepanel.ts` calls it once
+ * and nothing else recomputes it. Checked before writing this, because this
+ * project has previously "moved a default" in a function with no production
+ * callers and shipped a change that did nothing.
  */
 export function chooseModel(
   options: ModelOption[],
@@ -79,5 +123,7 @@ export function chooseModel(
 ): string | null {
   if (options.length === 0) return null;
   if (stored && options.some((o) => o.value === stored)) return stored;
+  const preferred = options.find((o) => o.tier === PREFERRED_TIER);
+  if (preferred) return preferred.value;
   return options[0].value;
 }
