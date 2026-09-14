@@ -218,15 +218,23 @@
           <div class="drawer__list" id="session-list"></div>
         </div>
 
-        <div class="drawer__group">
-          <h2 class="drawer__heading">Sites you have allowed</h2>
-          <p class="drawer__note">
-            Atlarix can only read a site after you allow it, and Chrome enforces
-            that — not just this list.
-          </p>
-          <div class="drawer__list" id="site-list"></div>
-        </div>
+        <!--
+          THE SITE LIST MOVED TO THE ACCOUNT PAGE, and only the list did.
+          GRANTING is still a panel gesture and structurally has to be:
+          `chrome.permissions.request()` needs a user gesture, which a website
+          cannot supply. What the panel no longer carries is the twelfth copy of
+          a list that now lives somewhere it can be read on any device, next to
+          connectors, skills and memory.
 
+          The reconciliation did NOT move. `pruneRevokedGrants` and the push
+          still run on every drawer open -- see `refreshDrawer` -- because they
+          were never about rendering: one keeps our record honest against
+          Chrome, the other applies what was revoked on the website. Deleting
+          the markup and leaving those in place is the whole change.
+
+          IMMEDIATE REVOCATION is now chrome://extensions, and the account page
+          says so rather than pointing back here.
+        -->
         <div class="drawer__group">
           <h2 class="drawer__heading">What Atlarix remembers</h2>
           <div class="drawer__list" id="memory-list"></div>

@@ -147,7 +147,6 @@ const signOutButton = el<HTMLButtonElement>("sign-out");
 const accountChip = el<HTMLButtonElement>("account-chip");
 const eraseButton = el<HTMLButtonElement>("erase-all");
 const sessionList = el<HTMLElement>("session-list");
-const siteList = el<HTMLElement>("site-list");
 const memoryList = el<HTMLElement>("memory-list");
 const status = el<HTMLElement>("status");
 const providerButtons = Array.from(
@@ -1616,38 +1615,23 @@ async function refreshDrawer(): Promise<void> {
     }
   }
 
-  if (siteList) {
-    siteList.textContent = "";
-    // Reconcile before listing. The user can revoke host access from
-    // chrome://extensions and Chrome does not tell us, so without this they see
-    // a site they believe is approved and we already know is not.
-    const known = (await listGrants()).map((g) => g.origin);
-    await pruneRevokedGrants(known);
-    // Then the website's copy: publish what survived, and apply anything the
-    // user revoked from the account page. After `pruneRevokedGrants`, so what
-    // is published is a list Chrome has already agreed with. Never awaited for
-    // correctness of the render below -- it is a mirror, and a stale mirror
-    // costs nothing -- but awaited here so a revocation applied on this open
-    // shows up in the list the user is about to read rather than one open late.
-    await syncSiteGrants();
-    const grants = await listGrants();
-    if (grants.length === 0) {
-      emptyNote(
-        siteList,
-        "None yet. Atlarix asks the first time it needs one.",
-      );
-    }
-    for (const grant of grants) {
-      siteList.append(
-        withAction(row(grant.origin), "Remove", () => {
-          // Removes Chrome's permission AND our record, in that order — a
-          // record without the permission is a grant that silently does not
-          // work.
-          void revokeHostAccess(grant.origin).then(refreshDrawer);
-        }),
-      );
-    }
-  }
+  // GRANTS: RECONCILE AND SYNC, BUT NO LONGER RENDER. The list moved to the
+  // account page; these two calls did not, because neither was ever about
+  // rendering.
+  //
+  //   - `pruneRevokedGrants` keeps our record honest against Chrome, which
+  //     drops host access when the user revokes from chrome://extensions and
+  //     does not tell us.
+  //   - `syncSiteGrants` publishes what survived and APPLIES anything revoked
+  //     on the website — `permissions.remove()` first, then the record. A
+  //     website cannot reach into Chrome, so this is the only moment a
+  //     revocation made there takes effect.
+  //
+  // Order matters: prune first, so what is published is a list Chrome has
+  // already agreed with rather than one we only believe.
+  const known = (await listGrants()).map((g) => g.origin);
+  await pruneRevokedGrants(known);
+  await syncSiteGrants();
 
   if (memoryList) {
     memoryList.textContent = "";
@@ -2161,6 +2145,12 @@ eraseButton?.addEventListener("click", () => {
     for (const grant of await listGrants())
       await revokeHostAccess(grant.origin);
     await revokeAll();
+    // And the account's copy of them. `syncSiteGrants` publishes whatever is
+    // left, which is now nothing, and the server drops the rows -- the same
+    // "erase means erase" rule the conversations below are held to. Without
+    // this the account page would keep listing sites for a browser that has
+    // just erased them, with no way to tell it is wrong.
+    await syncSiteGrants();
     const all = await listSessions();
     await deleteArchives(all.map((sn) => sn.id));
     // Erase means erase, including the copy on the account. Leaving those rows
