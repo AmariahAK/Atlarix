@@ -39,6 +39,68 @@ const conversation: CoreMessage[] = [
   { role: "assistant", content: "Your balance is 4,182.55." },
 ];
 
+/**
+ * The egress rule, for attachments specifically.
+ *
+ * The rule is written at the top of `sync.ts`: the bytes of a file the user
+ * attached do not leave the device. It was enforced with `userText`, which
+ * collapses an image and a PDF to a name but returns a TEXT attachment's
+ * contents in full — so an attached spreadsheet synced, clipped only by the
+ * 40,000-character column cap. These assertions are on the projection itself,
+ * so the rule is a thing a test holds rather than something inferred from a
+ * request.
+ */
+describe("an attachment never leaves the device", () => {
+  const attached = (text: string) => ({
+    type: "text" as const,
+    text:
+      "Attached file: pay.csv | id: 9f2a | text/csv | 400,000 chars\n" +
+      "```\n" +
+      text +
+      "\n```",
+  });
+
+  it("sends the file's NAME, never its contents", () => {
+    const rows = syncableRows([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "sum it" },
+          attached("name,salary\nalice,90000"),
+        ],
+      },
+    ]);
+    expect(rows[0].content).toContain("sum it");
+    expect(rows[0].content).toContain("[attached pay.csv]");
+    expect(rows[0].content).not.toContain("alice");
+    expect(rows[0].content).not.toContain("90000");
+  });
+
+  it("collapses an image and a PDF the same way", () => {
+    const rows = syncableRows([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "look" },
+          { type: "image_url", image_url: { url: "data:image/png;base64,AAAA" } },
+          {
+            type: "file",
+            file: { filename: "Resume.pdf", file_data: "data:application/pdf;base64,AA" },
+          },
+        ],
+      },
+    ]);
+    expect(rows[0].content).not.toContain("base64");
+    expect(rows[0].content).toContain("[attached image]");
+    expect(rows[0].content).toContain("[attached Resume.pdf]");
+  });
+
+  it("still sends an ordinary message whole", () => {
+    const rows = syncableRows([{ role: "user", content: "what is on this page?" }]);
+    expect(rows[0].content).toBe("what is on this page?");
+  });
+});
+
 describe("what leaves the device", () => {
   it("never carries a tool result, however it is labelled", () => {
     // THE ASSERTION THE WHOLE FEATURE RESTS ON. A page read is the contents of

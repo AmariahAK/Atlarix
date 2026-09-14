@@ -524,6 +524,43 @@ export function typedText(content: string | ContentPart[]): string {
   return part && part.type === "text" ? part.text : "";
 }
 
+/**
+ * What the user SAID, with every attachment named rather than quoted.
+ *
+ * THE PROJECTION THE EGRESS RULE NEEDS. `sessions/sync.ts` states that the bytes
+ * of a file the user attached are exactly as private as a page the agent read
+ * and must not leave the device — and it implemented that with `userText`, whose
+ * comment claims it "collapses an attachment to its NAME". That is true of an
+ * image and a PDF, whose parts carry no text. It was never true of a TEXT file,
+ * which IS a text part: its contents were returned in full and synced, up to the
+ * 40,000-character column cap.
+ *
+ * So the rule was right, the enforcement was not, and the gap was invisible
+ * because it lived in the difference between three functions with similar names:
+ *
+ *   `userText`  — everything the MODEL is sent. Right for the context bar.
+ *   `typedText` — only what was typed. Right for the Edit box and the bubble.
+ *   `saidText`  — what was typed, plus a NAME per attachment. Right for anything
+ *                 that leaves this device.
+ */
+export function saidText(content: string | ContentPart[]): string {
+  if (typeof content === "string") return content;
+  const parts: string[] = [];
+  for (const part of content) {
+    if (part.type === "image_url") {
+      parts.push("[attached image]");
+      continue;
+    }
+    if (part.type === "file") {
+      parts.push(`[attached ${part.file.filename}]`);
+      continue;
+    }
+    const file = readAttachedText(part);
+    parts.push(file ? `[attached ${file.name}]` : part.text);
+  }
+  return parts.filter(Boolean).join("\n");
+}
+
 /** A short description for the composer's chip. */
 export function describeAttachment(a: Attachment): string {
   const kb = Math.max(1, Math.round(a.size / 1024));
