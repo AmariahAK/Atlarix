@@ -19,10 +19,9 @@ UPDATE to that draft, not a new item.
    after the fact without a visible edit.
 2. **The trader declaration publishes a legal name, phone and address** at the
    bottom of the listing. Use NorahLabs' registered address, not a home one.
-3. **Decide the version.** The manifest says `0.1.0`. A first public listing
-   reading 0.1.0 invites "is this abandoned"; `1.0.0` is a claim we can support.
-   The version lives in BOTH `packages/extension/manifest.json` and
-   `packages/extension/package.json` and the build asserts they agree.
+3. ~~Decide the version.~~ **DONE — `1.0.0`**, set in both
+   `packages/extension/manifest.json` and `packages/extension/package.json`
+   (the build asserts they agree).
 4. **The extension work is on the `dev` branch.** Decide whether the submitted
    zip should be built from `main` first.
 5. **Screenshots do not exist yet** — see the shot list below. This is the only
@@ -217,9 +216,7 @@ name or balance on it.
    policy URL.
 5. **Privacy practices** — paste the single purpose, every permission
    justification, the remote-code justification, and tick the data disclosures.
-6. **Distribution** — public or unlisted. Unlisted is worth considering for a
-   first release: the link works, it is installable, and it is not discoverable
-   while the first real users are found.
+6. **Distribution** — **public**, decided 2026-09-14.
 7. Submit for review. Expect days, not hours, and expect `debugger` to be the
    thing they ask about.
 
