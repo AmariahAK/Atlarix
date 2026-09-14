@@ -9,8 +9,14 @@
  *   - list_available_mcps — discover what MCP servers / tools are configured
  *   - mcp_call             — invoke a specific server's tool by name
  *
- * Chat-only mode still pre-loads global MCP tools for ergonomic discovery
- * (see chat_stream_handlers.ts).
+ * NO PATH FORCE-MERGES MCP TOOLS ANY MORE, on any surface. This comment used to
+ * say "chat-only mode still pre-loads global MCP tools for ergonomic discovery
+ * (see chat_stream_handlers.ts)"; that path is gone — `chat_stream_handlers.ts`
+ * has one unrelated mention of the word, and the only MCP entries in
+ * `resolve-toolset.ts` are the three registry tools being DROPPED for surfaces
+ * that cannot reach a server. The two-tool discovery contract above is the whole
+ * story, and the browser extension copies it verbatim, so a reader who believed
+ * the old sentence would look for a preload that does not exist on either side.
  */
 
 import log from "electron-log";
