@@ -1992,11 +1992,57 @@ async function refreshDrawer(): Promise<void> {
   //
   // Order matters: prune first, so what is published is a list Chrome has
   // already agreed with rather than one we only believe.
+  await reconcileGrants();
+}
+
+/** No sooner than this between reconciliations, however often focus moves. */
+const GRANT_SYNC_MIN_MS = 5_000;
+let lastGrantSync = 0;
+
+/**
+ * Prune against Chrome, publish, and apply anything revoked on the website.
+ *
+ * ON FOCUS AS WELL AS AT BOOT, and that is the fix for a reported bug rather
+ * than a refinement. This ran only when the panel opened — so revoking a site
+ * on the account page while the panel was ALREADY OPEN did nothing at all. The
+ * row sat reading "Revoking…" indefinitely, which looks like a request that
+ * hung, and the only way to apply it was to close the panel and reopen it,
+ * which nobody would guess.
+ *
+ * Focus rather than a timer. A poll would run forever against a value that
+ * changes about twice a year, and every traffic scare this project has had so
+ * far has turned out to be one of our own idle polls. Clicking back into the
+ * panel after revoking on the website is the gesture that means "I am done over
+ * there", and it costs one request.
+ */
+async function reconcileGrants(): Promise<void> {
+  const now = Date.now();
+  if (now - lastGrantSync < GRANT_SYNC_MIN_MS) return;
+  lastGrantSync = now;
+
   const known = (await listGrants()).map((g) => g.origin);
   await pruneRevokedGrants(known);
-  await syncSiteGrants();
+  const { revoked } = await syncSiteGrants();
 
+  // SAY SO. A revocation that takes effect in silence is indistinguishable from
+  // one that did not, which is the half of this bug that survives the fix.
+  if (revoked.length > 0) {
+    const names = revoked
+      .map((origin) => {
+        try {
+          return new URL(origin).hostname;
+        } catch {
+          return origin;
+        }
+      })
+      .join(", ");
+    setStatus(`Access to ${names} was revoked from your account.`);
+  }
 }
+
+window.addEventListener("focus", () => {
+  void reconcileGrants();
+});
 
 async function openSession(id: string): Promise<void> {
   void clearDrivenTabs("all");
