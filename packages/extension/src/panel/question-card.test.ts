@@ -15,6 +15,9 @@ const host = () => {
   return { host: { send }, send };
 };
 
+const skipButton = (card: HTMLElement) =>
+  card.querySelector<HTMLButtonElement>(".ask__skip")!;
+
 const options = (card: HTMLElement) =>
   [...card.querySelectorAll<HTMLButtonElement>(".ask__option")];
 
@@ -33,13 +36,7 @@ describe("ordering", () => {
       [{ question: "What next?", options: ["Alpha", "B", "C", "Delta echo"] }],
       h,
     );
-    expect(labels(card)).toEqual([
-      "Alpha",
-      "B",
-      "C",
-      "Delta echo",
-      "Skip — no preference",
-    ]);
+    expect(labels(card)).toEqual(["Alpha", "B", "C", "Delta echo"]);
     expect(
       options(card)
         .map((o) => o.querySelector(".ask__option-num")?.textContent)
@@ -74,7 +71,7 @@ describe("one question with options — picking SENDS", () => {
       h,
     );
     options(card)[1].click();
-    expect(send).toHaveBeenCalledWith("Beta");
+    expect(send).toHaveBeenCalledWith("Which one?", "Beta");
   });
 
   it("offers no Send button, because there is nothing left to confirm", () => {
@@ -95,7 +92,7 @@ describe("one question with options — picking SENDS", () => {
     options(card)[0].click();
     options(card)[1].click();
     expect(send).toHaveBeenCalledTimes(1);
-    expect(send).toHaveBeenCalledWith("Alpha");
+    expect(send).toHaveBeenCalledWith("Which one?", "Alpha");
   });
 });
 
@@ -121,8 +118,6 @@ describe("several questions — picking SELECTS, Send commits", () => {
       "true",
       "false",
       "false",
-      "false",
-      "false",
     ]);
   });
 
@@ -132,7 +127,7 @@ describe("several questions — picking SELECTS, Send commits", () => {
     expect(sendButton(card)?.disabled).toBe(true);
     options(card)[0].click();
     expect(sendButton(card)?.disabled).toBe(true);
-    options(card)[3].click();
+    options(card)[2].click();
     expect(sendButton(card)?.disabled).toBe(false);
   });
 
@@ -142,10 +137,13 @@ describe("several questions — picking SELECTS, Send commits", () => {
     const { host: h, send } = host();
     const card = buildQuestionCard(two, h);
     options(card)[0].click();
-    // 0,1 = Q1's options, 2 = Q1's skip, 3,4 = Q2's options, 5 = Q2's skip.
-    options(card)[3].click();
+    // 0,1 = Q1's options; 2,3 = Q2's. There is no per-question skip any more.
+    options(card)[2].click();
     sendButton(card)!.click();
+    // `questionText` is a COUNT for several — the desktop's own choice, since
+    // no single question names the batch.
     expect(send).toHaveBeenCalledWith(
+      "2 questions",
       "Q: Which one?\nA: Alpha\n\nQ: When?\nA: Today",
     );
   });
@@ -166,7 +164,7 @@ describe("typing your own answer", () => {
     field.dispatchEvent(
       new KeyboardEvent("keydown", { key: "Enter", cancelable: true }),
     );
-    expect(send).toHaveBeenCalledWith("something else entirely");
+    expect(send).toHaveBeenCalledWith("Which one?", "something else entirely");
   });
 
   it("is the only way to answer a question with no options, so Send appears", () => {
@@ -178,43 +176,112 @@ describe("typing your own answer", () => {
     field.dispatchEvent(new Event("input"));
     expect(sendButton(card)?.disabled).toBe(false);
     sendButton(card)!.click();
-    expect(send).toHaveBeenCalledWith("yes, this");
+    expect(send).toHaveBeenCalledWith("Anything else?", "yes, this");
   });
 });
 
 describe("skip", () => {
-  it("is offered on every question, even one with no options", () => {
+  it("is LAST — after the options and after the custom input", () => {
+    // It used to sit between the options and the free-text field, so the last
+    // thing before "Something else…" was an escape hatch.
     const { host: h } = host();
-    const card = buildQuestionCard([{ question: "Anything else?" }], h);
-    expect(labels(card)).toEqual(["Skip — no preference"]);
+    const card = buildQuestionCard(
+      [{ question: "Which one?", options: ["Alpha"] }],
+      h,
+    );
+    const order = [...card.querySelectorAll(".ask__option, .ask__custom, .ask__skip")]
+      .map((el) => el.className.split(" ")[0]);
+    expect(order).toEqual(["ask__option", "ask__custom", "ask__skip"]);
   });
 
-  it("sends the desktop's token, so both surfaces say it the same way", () => {
+  it("is ONE button for the card, not one per question", () => {
+    const { host: h } = host();
+    const card = buildQuestionCard(
+      [{ question: "A?", options: ["x"] }, { question: "B?", options: ["y"] }],
+      h,
+    );
+    expect(card.querySelectorAll(".ask__skip")).toHaveLength(1);
+    expect(skipButton(card).textContent).toBe("Skip remaining");
+  });
+
+  it("is offered even when a click alone could answer, so Send is not", () => {
+    const { host: h } = host();
+    const card = buildQuestionCard(
+      [{ question: "Which one?", options: ["Alpha"] }],
+      h,
+    );
+    expect(skipButton(card)).not.toBeNull();
+    expect(sendButton(card)).toBeNull();
+  });
+
+  it("SUBMITS — it is not a dismiss", () => {
     const { host: h, send } = host();
     const card = buildQuestionCard(
       [{ question: "Which one?", options: ["Alpha"] }],
       h,
     );
-    card.querySelector<HTMLButtonElement>(".ask__option--skip")!.click();
-    expect(send).toHaveBeenCalledWith(SKIP_ANSWER);
+    skipButton(card).click();
+    expect(send).toHaveBeenCalledWith("Which one?", SKIP_ANSWER);
     expect(SKIP_ANSWER).toBe("(skipped)");
   });
 
-  it("fills in for an unanswered question when the others are answered", () => {
+  it("KEEPS answers already given and fills only the blanks", () => {
+    // The assertion that catches "Skip overwrites everything". Two of three
+    // answered and Skip pressed must send those two.
     const { host: h, send } = host();
     const card = buildQuestionCard(
       [
-        { question: "Which one?", options: ["Alpha"] },
-        { question: "When?", options: ["Today"] },
+        { question: "A?", options: ["one"] },
+        { question: "B?", options: ["two"] },
+        { question: "C?", options: ["three"] },
       ],
       h,
     );
     options(card)[0].click();
-    card.querySelectorAll<HTMLButtonElement>(".ask__option--skip")[1].click();
-    sendButton(card)!.click();
+    options(card)[1].click();
+    skipButton(card).click();
     expect(send).toHaveBeenCalledWith(
-      `Q: Which one?\nA: Alpha\n\nQ: When?\nA: ${SKIP_ANSWER}`,
+      "3 questions",
+      `Q: A?\nA: one\n\nQ: B?\nA: two\n\nQ: C?\nA: ${SKIP_ANSWER}`,
     );
+  });
+});
+
+describe("number keys", () => {
+  const card = () =>
+    buildQuestionCard(
+      [{ question: "Which one?", options: ["Alpha", "Beta", "Gamma"] }],
+      host().host,
+    );
+
+  it("picks an option on a single-question card", () => {
+    const { host: h, send } = host();
+    const c = buildQuestionCard(
+      [{ question: "Which one?", options: ["Alpha", "Beta"] }],
+      h,
+    );
+    c.dispatchEvent(new KeyboardEvent("keydown", { key: "2", bubbles: true }));
+    expect(send).toHaveBeenCalledWith("Which one?", "Beta");
+  });
+
+  it("does nothing while focus is in the custom field — that is TYPING", () => {
+    const { host: h, send } = host();
+    const c = buildQuestionCard(
+      [{ question: "Which one?", options: ["Alpha", "Beta"] }],
+      h,
+    );
+    const field = c.querySelector<HTMLInputElement>(".ask__custom")!;
+    field.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "2", bubbles: true }),
+    );
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("ignores a number with no option behind it", () => {
+    const c = card();
+    expect(() =>
+      c.dispatchEvent(new KeyboardEvent("keydown", { key: "9", bubbles: true })),
+    ).not.toThrow();
   });
 });
 
@@ -266,12 +333,12 @@ describe("the class contract with sidepanel.css", () => {
       "ask__custom",
       "ask__header",
       "ask__option",
-      "ask__option--skip",
       "ask__option-label",
       "ask__option-num",
       "ask__options",
       "ask__question",
       "ask__send",
+      "ask__skip",
       "button",
     ]);
   });

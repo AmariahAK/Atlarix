@@ -99,3 +99,59 @@ export function askUser(args: Record<string, unknown>): ToolOutcome {
     endsTurn: true,
   };
 }
+
+/**
+ * Which `ask_user` calls in a stored conversation have already been answered.
+ *
+ * ══ WITHOUT THIS THE QUESTION COMES BACK ON EVERY RELOAD ══
+ *
+ * `questionsFromArgs` above is what lets an UNANSWERED question survive a panel
+ * close: the card is re-derived from the recorded tool call rather than stored.
+ * The same mechanism would equally resurrect an ANSWERED one, rendering the
+ * question card above the answer, every time the conversation is reopened.
+ *
+ * The rule needs no new storage. It is the desktop's own, expressed against
+ * this history shape: `InlineUserQuestions` re-seeds its card only when the
+ * LAST message is the assistant asking, and answering appends a user message
+ * after it. So a question is answered iff a `user` message follows its tool
+ * result.
+ *
+ * That also covers the case where the user ignored the card and typed in the
+ * composer instead — which is correct. They answered; they just did not click.
+ *
+ * PURE, and separate from the renderer, because this is the one rule in the
+ * question flow whose failure is invisible until someone reopens a conversation
+ * a day later.
+ */
+export function answeredAskCalls(
+  history: readonly {
+    role: string;
+    tool_call_id?: string;
+    tool_calls?: readonly { id: string; function: { name: string } }[];
+  }[],
+): Set<string> {
+  const askCallIds = new Set<string>();
+  for (const message of history) {
+    if (message.role !== "assistant") continue;
+    for (const call of message.tool_calls ?? []) {
+      if (call.function.name === "ask_user") askCallIds.add(call.id);
+    }
+  }
+
+  const answered = new Set<string>();
+  // Every ask still open when a user message arrives is answered by it. A batch
+  // is one call, but a model that asked twice before the user replied has both
+  // closed by that one reply — which is what actually happened.
+  let open: string[] = [];
+  for (const message of history) {
+    if (message.role === "tool") {
+      if (message.tool_call_id && askCallIds.has(message.tool_call_id)) {
+        open.push(message.tool_call_id);
+      }
+    } else if (message.role === "user") {
+      for (const id of open) answered.add(id);
+      open = [];
+    }
+  }
+  return answered;
+}

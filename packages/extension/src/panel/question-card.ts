@@ -7,10 +7,16 @@ export interface QuestionCardHost {
   /**
    * Send the answer as a user message, exactly as the composer would.
    *
-   * The card OWNS the answer rather than staging it — see the note below on why
-   * filling the composer was wrong.
+   * TWO ARGUMENTS, mirroring the desktop's IPC
+   * (`ipc_client.ts:submitUserQuestionAnswer`), because the QUESTION is part of
+   * the message the model receives — not metadata and not a display label. The
+   * panel does the formatting with the same `formatInteractiveQaLine` the
+   * desktop's main process uses, so both surfaces send a byte-identical string.
+   *
+   * `questionText` is the question itself for one, `"N questions"` for several,
+   * exactly as `InlineUserQuestions.tsx:118-123` decides it.
    */
-  send(text: string): void;
+  send(questionText: string, answer: string): void;
 }
 
 /**
@@ -46,6 +52,15 @@ export interface QuestionCardHost {
  * the answers live in the card and half in a textarea with nothing combining
  * them.
  *
+ * ══ SKIP IS ONE BUTTON, LAST, AND IT SUBMITS ══
+ *
+ * It was a row per question, sitting between the options and the free-text
+ * field — so the last thing before "Something else…" was an escape hatch. The
+ * desktop puts a single Skip in the footer beside Send, and it is not a
+ * dismiss: it submits, keeping answers already chosen and filling only the
+ * blanks with `(skipped)`. A card with two of three answered and Skip pressed
+ * sends those two.
+ *
  * `send` is injected rather than reached for, so every behaviour here is
  * testable without mounting the panel.
  */
@@ -57,6 +72,8 @@ export function buildQuestionCard(
   card.className = "ask";
   const multi = questions.length > 1;
   const answers: string[] = questions.map(() => "");
+  /** Option buttons per question, so the number-key shortcut can reach them. */
+  const optionRows: HTMLButtonElement[][] = [];
   let sent = false;
 
   const header = document.createElement("div");
@@ -78,15 +95,28 @@ export function buildQuestionCard(
           .join("\n\n")
       : answers[0];
 
+  /** The desktop's `questionText`: the question for one, a count for several. */
+  const questionText = () =>
+    multi ? `${questions.length} questions` : questions[0].question;
+
   const submit = () => {
-    // Once, ever. The card stays in the transcript as a record of what was
-    // asked, and a second click on a stale card would send the answer twice.
+    // Once, ever. Guarded rather than assumed: the card is removed from the
+    // transcript by the host on send, but a second click could land first.
     if (sent) return;
     sent = true;
-    card.classList.add("ask--sent");
-    for (const b of card.querySelectorAll("button")) b.disabled = true;
-    for (const f of card.querySelectorAll("input")) f.disabled = true;
-    host.send(combine());
+    host.send(questionText(), combine());
+  };
+
+  /**
+   * Submit with the blanks filled in. NOT a dismiss — the desktop's Skip does
+   * exactly this, and keeping the answers already given is the whole point:
+   * pressing it on a card with two of three answered must send those two.
+   */
+  const skipRest = () => {
+    for (let i = 0; i < answers.length; i += 1) {
+      if (!answers[i].trim()) answers[i] = SKIP_ANSWER;
+    }
+    submit();
   };
 
   let sendButton: HTMLButtonElement | null = null;
@@ -110,6 +140,8 @@ export function buildQuestionCard(
     list.setAttribute("aria-label", "Suggested answers");
 
     const rows: HTMLButtonElement[] = [];
+    const picks: HTMLButtonElement[] = [];
+    optionRows.push(picks);
     const custom = document.createElement("input");
 
     /**
@@ -156,23 +188,9 @@ export function buildQuestionCard(
 
       row.addEventListener("click", () => choose(option, row, true));
       rows.push(row);
+      picks.push(row);
       list.append(row);
     });
-
-    // Always offered, with options or without: a question the agent guessed at
-    // deserves an answer that costs no typing.
-    const skip = document.createElement("button");
-    skip.type = "button";
-    skip.className = "ask__option ask__option--skip";
-    skip.setAttribute("role", "option");
-    skip.setAttribute("aria-selected", "false");
-    const skipLabel = document.createElement("span");
-    skipLabel.className = "ask__option-label";
-    skipLabel.textContent = multi ? "Skip this one" : "Skip — no preference";
-    skip.append(skipLabel);
-    skip.addEventListener("click", () => choose(SKIP_ANSWER, skip, true));
-    rows.push(skip);
-    list.append(skip);
 
     custom.type = "text";
     custom.className = "ask__custom";
@@ -193,11 +211,26 @@ export function buildQuestionCard(
     card.append(block);
   });
 
-  // Shown whenever a click cannot be the whole answer: several questions, or
-  // one with nothing to click.
+  /*
+   * The footer, `justify-between` like the desktop's: Skip on the left, Send on
+   * the right.
+   *
+   * SKIP IS ALWAYS HERE. Send is not — a single question with options has none,
+   * because clicking an option is already the whole answer and a button that
+   * only ever confirms a thing already done is a button nobody presses. That is
+   * the desktop's `multi || items[0].options.length === 0` condition.
+   */
+  const actions = document.createElement("div");
+  actions.className = "ask__actions";
+
+  const skip = document.createElement("button");
+  skip.type = "button";
+  skip.className = "ask__skip";
+  skip.textContent = multi ? "Skip remaining" : "Skip";
+  skip.addEventListener("click", skipRest);
+  actions.append(skip);
+
   if (multi || (questions[0]?.options?.length ?? 0) === 0) {
-    const actions = document.createElement("div");
-    actions.className = "ask__actions";
     sendButton = document.createElement("button");
     sendButton.type = "button";
     sendButton.className = "button ask__send";
@@ -205,12 +238,29 @@ export function buildQuestionCard(
     sendButton.disabled = true;
     sendButton.addEventListener("click", submit);
     actions.append(sendButton);
-    card.append(actions);
-  } else {
-    const note = document.createElement("p");
-    note.className = "ask__note";
-    note.textContent = "Pick one, or type your own answer.";
-    card.append(note);
+  }
+  card.append(actions);
+
+  /*
+   * NUMBER KEYS 1-4, for a single question — the desktop's shortcut
+   * (`InlineUserQuestions.tsx:146-170`), including the guard that matters: a
+   * keystroke while focus is in a field is someone TYPING an answer, not
+   * picking one. The listener is on the card rather than the window, so a
+   * scrolled-away question cannot swallow a "2" meant for the composer.
+   */
+  if (!multi && (questions[0]?.options?.length ?? 0) > 0) {
+    card.addEventListener("keydown", (e) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) {
+        return;
+      }
+      const index = Number(e.key) - 1;
+      const row = optionRows[0]?.[index];
+      if (!Number.isNaN(index) && row) {
+        e.preventDefault();
+        row.click();
+      }
+    });
   }
 
   return card;

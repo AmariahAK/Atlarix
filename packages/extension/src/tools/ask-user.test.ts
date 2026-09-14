@@ -8,7 +8,12 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { askUser, askUserLabel, questionsFromArgs } from "./ask-user";
+import {
+  answeredAskCalls,
+  askUser,
+  askUserLabel,
+  questionsFromArgs,
+} from "./ask-user";
 
 describe("running the tool", () => {
   it("ends the turn when something was actually asked", () => {
@@ -114,5 +119,59 @@ describe("reading a recorded call back", () => {
       }),
     )[0].options;
     expect(opts?.length).toBeLessThanOrEqual(4);
+  });
+});
+
+/**
+ * Whether a recorded question still needs answering.
+ *
+ * The failure this guards is invisible until someone reopens a conversation the
+ * next day and finds the question card sitting above the answer they already
+ * gave. Nothing in the live path would ever show it.
+ */
+describe("answeredAskCalls", () => {
+  const ask = (id: string) => ({
+    role: "assistant",
+    tool_calls: [{ id, function: { name: "ask_user" } }],
+  });
+  const result = (id: string) => ({ role: "tool", tool_call_id: id });
+  const reply = { role: "user" };
+
+  it("is answered when a user message follows the tool result", () => {
+    expect([...answeredAskCalls([ask("a"), result("a"), reply])]).toEqual(["a"]);
+  });
+
+  it("is NOT answered when the conversation ends on the question", () => {
+    // The whole reason the card is re-derived rather than stored: closing the
+    // panel on an unanswered question must not lose it.
+    expect([...answeredAskCalls([ask("a"), result("a")])]).toEqual([]);
+  });
+
+  it("counts a composer message as the answer", () => {
+    // They answered; they just did not click. The desktop's composer supersedes
+    // its card the same way.
+    expect([...answeredAskCalls([ask("a"), result("a"), reply])]).toEqual(["a"]);
+  });
+
+  it("leaves a LATER question open when an earlier one was answered", () => {
+    expect([
+      ...answeredAskCalls([ask("a"), result("a"), reply, ask("b"), result("b")]),
+    ]).toEqual(["a"]);
+  });
+
+  it("closes every question still open when the reply lands", () => {
+    // A model told to batch that asked twice anyway: one reply answered both,
+    // because that is what actually happened.
+    expect(
+      [...answeredAskCalls([ask("a"), result("a"), ask("b"), result("b"), reply])].sort(),
+    ).toEqual(["a", "b"]);
+  });
+
+  it("ignores tool results that are not ask_user", () => {
+    const other = {
+      role: "assistant",
+      tool_calls: [{ id: "z", function: { name: "read_page" } }],
+    };
+    expect([...answeredAskCalls([other, result("z"), reply])]).toEqual([]);
   });
 });

@@ -47,7 +47,11 @@ import {
 } from "../permissions/host-access";
 import { syncSiteGrants } from "../permissions/grants-sync";
 import { buildQuestionCard } from "./question-card";
-import { mountAtlarixMark, type AtlarixMark } from "./atlarix-mark";
+// THE DESKTOP'S FORMATTER, IMPORTED NOT COPIED. A zero-import leaf reached
+// through the tsconfig `@/*` path, exactly as `ask_user_options` is — and for
+// the reason `tools/ask-user.ts` already states: a second copy is a second
+// contract, and this string is what the MODEL reads on both surfaces.
+import { formatInteractiveQaLine } from "@/lib/interactive-qa-format";
 import { listGrants, revokeAll } from "../permissions/site-grants";
 import { activeTab } from "../page/inject";
 import { detachAll } from "../page/trusted-input";
@@ -88,7 +92,11 @@ import {
 import { deleteRemoteConversation, pushConversation } from "../sessions/sync";
 import { renderMarkdown } from "./markdown";
 import { mayRotate, nextTip } from "./composer-tips";
-import { questionsFromArgs, type AskUserQuestion } from "../tools/ask-user";
+import {
+  answeredAskCalls,
+  questionsFromArgs,
+  type AskUserQuestion,
+} from "../tools/ask-user";
 import { chooseModel, optionsFor, shortModelName } from "./model-choice";
 import { summariseSteps, type Step } from "./steps";
 import {
@@ -150,9 +158,6 @@ const accountChip = el<HTMLButtonElement>("account-chip");
 const eraseButton = el<HTMLButtonElement>("erase-all");
 const sessionList = el<HTMLElement>("session-list");
 const status = el<HTMLElement>("status");
-const markCanvas = el<HTMLCanvasElement>("panel-mark");
-/** Null only if the canvas is missing, which `wiring.test.ts` would catch. */
-const mark = markCanvas ? mountAtlarixMark(markCanvas) : null;
 const providerButtons = Array.from(
   document.querySelectorAll<HTMLButtonElement>("[data-provider]"),
 );
@@ -475,6 +480,39 @@ function append(node: HTMLElement): HTMLElement {
  * Disabled while a turn is running: rewinding under a live loop would have two
  * turns writing to the same transcript.
  */
+/**
+ * `***Q:*** … → ***A:*** …` laid out as two lines, or false if it is not one.
+ *
+ * WHY NOT JUST RENDER THE MARKDOWN. The desktop routes user bubbles through a
+ * markdown parser, so its `***…***` comes out bold-italic for free. This panel
+ * sets `textContent` on purpose, and `panel/markdown.ts` handles `**bold**` but
+ * not the triple form — so the desktop's string would show its asterisks.
+ *
+ * Turning markdown on for user text to fix this would be the wrong trade: it
+ * would start eating the literal asterisks and underscores in every ordinary
+ * message a person writes, to improve the rendering of one generated one. So
+ * the WIRE STRING stays byte-identical to the desktop's — that is what the
+ * model reads — and only the rendering is structural.
+ */
+const QA = /^\*\*\*Q:\*\*\*\s([\s\S]*?)\s→\s\*\*\*A:\*\*\*\s([\s\S]*)$/;
+
+function renderQaAnswer(body: HTMLElement, text: string): boolean {
+  const match = QA.exec(text);
+  if (!match) return false;
+  const [, question, answer] = match;
+
+  const asked = document.createElement("div");
+  asked.className = "msg__asked";
+  asked.textContent = question;
+
+  const chosen = document.createElement("div");
+  chosen.className = "msg__answer";
+  chosen.textContent = answer;
+
+  body.append(asked, chosen);
+  return true;
+}
+
 function userBubble(
   content: string | ContentPart[],
   index: number,
@@ -484,7 +522,9 @@ function userBubble(
 
   const body = document.createElement("div");
   body.className = "msg__text";
-  body.textContent = userText(content);
+  const text = userText(content);
+  // A QUESTION ANSWER RENDERS AS QUESTION-THEN-ANSWER, not as its raw string.
+  if (!renderQaAnswer(body, text)) body.textContent = text;
 
   // AN ATTACHED IMAGE IS SHOWN BACK. Rendering it as "[attached image]" makes a
   // user scrolling their own history unable to tell which screenshot they sent,
@@ -584,7 +624,8 @@ function stepsCard(): StepsCard {
 
   const summary = document.createElement("summary");
   summary.className = "steps__summary";
-  const dot = markDot(true);
+  const dot = document.createElement("span");
+  dot.className = "tool__dot";
   const line = document.createElement("span");
   line.className = "steps__line";
   line.textContent = "Working…";
@@ -610,44 +651,8 @@ function addStep(
 }
 
 /** Re-describe without adding, for when a step's label arrives late. */
-/**
- * The indicator a card shows for "this is happening" / "this happened".
- *
- * WAS A BLINKING DOT. The desktop uses the compass for exactly this — its
- * `bare` mode is documented as the "bare in-chat indicator" — so the panel was
- * showing a generic pulse where the product has its own mark.
- *
- * The mark is CHEAP AT REST and that is what makes one per card affordable: a
- * settled card draws the A once and drops its rAF callback, so a conversation
- * with twenty collapsed cards runs zero animation loops. Only a running card
- * animates, and there is at most one of those.
- *
- * The marks are held in a WeakMap rather than threaded through every card
- * object: three call sites create these and only two of them have a struct to
- * hang it on, and a WeakMap lets the entry go when the element does.
- */
-const dotMarks = new WeakMap<HTMLElement, AtlarixMark>();
-
-function markDot(running: boolean): HTMLElement {
-  const canvas = document.createElement("canvas");
-  canvas.className = "tool__dot";
-  canvas.setAttribute("aria-hidden", "true");
-  const m = mountAtlarixMark(canvas);
-  m.working(running);
-  dotMarks.set(canvas, m);
-  return canvas;
-}
-
-/** Settle every mark inside `root` — the card is history now. */
-function settleDots(root: HTMLElement): void {
-  for (const canvas of root.querySelectorAll<HTMLElement>("canvas.tool__dot")) {
-    dotMarks.get(canvas)?.working(false);
-  }
-}
-
 function settleSteps(card: StepsCard | null): void {
   if (!card) return;
-  settleDots(card.root);
   card.root.classList.add("steps--done");
   // Collapsed now the work is history and the answer is what the person came
   // for. They can open it again; it just stops taking the screen.
@@ -676,7 +681,8 @@ function thinkingBlock(): HTMLDetailsElement {
   details.className = "tool thinking";
   details.open = true;
   const summary = document.createElement("summary");
-  const dot = markDot(true);
+  const dot = document.createElement("span");
+  dot.className = "tool__dot";
   summary.append(dot, document.createTextNode("Thinking…"));
   const body = document.createElement("pre");
   body.className = "tool__body";
@@ -687,13 +693,14 @@ function thinkingBlock(): HTMLDetailsElement {
 function settleThinking(details: HTMLDetailsElement | null): void {
   if (!details) return;
   details.open = false;
+  details.classList.remove("tool--running");
   details.classList.remove("thinking--live");
   const summary = details.querySelector("summary");
   if (summary) {
     summary.textContent = "";
-    // A fresh settled mark: `textContent = ""` just discarded the running one
-    // along with everything else in the summary.
-    summary.append(markDot(false), document.createTextNode("Thought for a moment"));
+    const dot = document.createElement("span");
+    dot.className = "tool__dot";
+    summary.append(dot, document.createTextNode("Thought for a moment"));
   }
 }
 
@@ -706,10 +713,12 @@ function settleThinking(details: HTMLDetailsElement | null): void {
  */
 function workingRow(): HTMLElement {
   const row = document.createElement("div");
-  row.className = "tool working";
+  row.className = "tool tool--running working";
   const summary = document.createElement("div");
   summary.className = "working__line";
-  summary.append(markDot(true), document.createTextNode("Working…"));
+  const dot = document.createElement("span");
+  dot.className = "tool__dot";
+  summary.append(dot, document.createTextNode("Working…"));
   row.append(summary);
   return row;
 }
@@ -724,7 +733,7 @@ function errorBubble(text: string): HTMLElement {
 /** One line per tool call: what it did, with the raw result behind a twisty. */
 function toolChip(call: ToolCall): HTMLDetailsElement {
   const details = document.createElement("details");
-  details.className = "tool";
+  details.className = "tool tool--running";
   const summary = document.createElement("summary");
   const dot = document.createElement("span");
   dot.className = "tool__dot";
@@ -841,13 +850,18 @@ function describeCall(call: ToolCall): string {
  * be a message that looks like the others and behaves differently.
  */
 function questionCard(questions: AskUserQuestion[]): HTMLElement {
-  return buildQuestionCard(questions, {
-    send(text) {
+  const card: HTMLElement = buildQuestionCard(questions, {
+    send(questionText, answer) {
       if (!input || running) return;
-      input.value = text;
+      // THE CARD GOES, it is not dimmed. The desktop's `clearPending()` unmounts
+      // it outright, and what remains in the transcript is the Q→A message — so
+      // a spent card left on screen would be the question shown twice.
+      card.remove();
+      input.value = formatInteractiveQaLine(questionText, answer);
       void send();
     },
   });
+  return card;
 }
 
 function approvalCard(request: Approval): Promise<boolean> {
@@ -1018,6 +1032,9 @@ function renderConversation(history: CoreMessage[]): void {
       for (const c of message.tool_calls ?? []) callsById.set(c.id, c);
     }
   }
+  // Which questions already have an answer, so a reopened conversation does not
+  // render the card above the reply. See `answeredAskCalls` for the rule.
+  const answeredCalls = answeredAskCalls(history);
 
   let userIndex = 0;
   // GROUPED THE SAME WAY A LIVE TURN IS, or reopening a conversation would show
@@ -1080,7 +1097,10 @@ function renderConversation(history: CoreMessage[]): void {
       // the assistant message's `tool_calls`, so the arguments are here — which
       // is what lets a question survive the panel being closed and reopened,
       // the one thing the approval card cannot do.
-      if (resolved.function.name === "ask_user") {
+      if (
+        resolved.function.name === "ask_user" &&
+        !answeredCalls.has(message.tool_call_id)
+      ) {
         const questions = questionsFromArgs(resolved.function.arguments);
         if (questions.length > 0) {
           closeActivity();
@@ -1100,12 +1120,6 @@ function renderConversation(history: CoreMessage[]): void {
 
 function setRunning(isRunning: boolean): void {
   running = isRunning ? running : null;
-  // The header mark is the ONLY always-visible indicator that a turn is live:
-  // the transcript can be scrolled away from the working card, and the stop
-  // button is small. It stops animating the moment the turn ends — see
-  // `atlarix-mark.ts` for why a permanently spinning canvas in an all-day side
-  // panel is not acceptable.
-  mark?.working(isRunning);
   if (sendButton) sendButton.hidden = isRunning;
   if (stopButton) stopButton.hidden = !isRunning;
   if (newChatButton) newChatButton.disabled = isRunning;
@@ -1131,6 +1145,11 @@ async function send(): Promise<void> {
     input.value = "";
     input.style.height = "auto";
   }
+  // A MESSAGE SUPERSEDES AN OUTSTANDING QUESTION, the way the desktop's composer
+  // does. Whatever they typed IS the answer as far as the model is concerned —
+  // the turn resumes either way — and leaving the card up would invite a second
+  // answer to a question already moved past.
+  for (const open of transcript?.querySelectorAll(".ask") ?? []) open.remove();
   // The empty state is a child of the transcript, so the first message has to
   // clear it rather than land underneath it.
   // THE REWIND. Everything after the edited message was a response to the old

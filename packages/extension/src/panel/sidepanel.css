@@ -74,17 +74,6 @@ body {
   flex: none;
 }
 
-/*
- * The mark is drawn, not shipped: `atlarix-mark.ts` paints the desktop's A on
- * this canvas and switches it to the compass while a turn runs. Sized in CSS
- * and backed at devicePixelRatio, so it stays sharp on a Retina panel.
- */
-.panel__mark {
-  width: 20px;
-  height: 20px;
-  flex: none;
-}
-
 .panel__title {
   margin: 0;
   font-size: 14px;
@@ -387,6 +376,26 @@ body {
 }
 
 /*
+ * An answer to `ask_user`, laid out as the question then what was chosen.
+ *
+ * The question is muted and the answer is not, because the answer is the part
+ * the person actually said — the question is there so a transcript read back a
+ * week later is not a list of replies to nothing.
+ */
+.msg__asked {
+  color: var(--fg-muted);
+  font-size: 12px;
+  line-height: 1.4;
+  padding-bottom: 5px;
+  margin-bottom: 5px;
+  border-bottom: 1px solid var(--border);
+}
+
+.msg__answer {
+  white-space: pre-wrap;
+}
+
+/*
  * Edit appears on hover and on keyboard focus.
  *
  * Always-visible would put a button on every message in a 320px column, and the
@@ -513,15 +522,38 @@ body {
 }
 
 /*
- * The mark, not a dot. `atlarix-mark.ts` paints the compass while a card runs
- * and the formed A once it settles — the same indicator the desktop uses
- * in-chat. A settled one draws a single frame and stops, so a long transcript
- * costs nothing to keep on screen.
+ * A DOT, and the Atlarix mark was tried here and reverted. The desktop's
+ * smallest shipped size is 24px (`AtlarixAnimation`'s SIZE_MAP `inline`); at
+ * the 14px a card indicator can afford, the compass ring, needle and A collapse
+ * into a green smudge that reads as a generic spinner. It also said nothing
+ * once settled — every finished card showed the identical static A — for the
+ * price of one `<canvas>` per card in the transcript.
+ *
+ * Running versus done is the only thing this has to convey, and a 5px pulse
+ * conveys it at no cost.
  */
 .tool__dot {
-  width: 14px;
-  height: 14px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--primary);
   flex: none;
+}
+
+.tool--running .tool__dot {
+  animation: pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tool--running .tool__dot {
+    animation: none;
+  }
 }
 
 /*
@@ -733,14 +765,6 @@ body {
   overflow-wrap: anywhere;
 }
 
-/* Quieter than an answer, because it is the absence of one. */
-.ask__option--skip {
-  background: transparent;
-  border-style: dashed;
-  color: var(--fg-muted);
-  font-size: 12px;
-}
-
 /* The "something else" field, so a typed answer belongs to ITS question
    rather than to a composer that knows nothing about the card. */
 .ask__custom {
@@ -766,20 +790,39 @@ body {
   background: color-mix(in srgb, var(--primary) 10%, var(--card));
 }
 
+/* Skip left, Send right — the desktop's `justify-between`. */
 .ask__actions {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   margin-top: 12px;
+}
+
+/* Quieter than Send, because it is the absence of an answer rather than one. */
+.ask__skip {
+  padding: 4px 8px;
+  border: 0;
+  border-radius: calc(var(--radius) - 6px);
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ask__skip:hover {
+  color: var(--fg);
+}
+
+/* Alone in the row when there is no Send — still on the left, not centred. */
+.ask__actions > .ask__skip:only-child {
+  margin-right: auto;
 }
 
 .ask__send:disabled {
   opacity: 0.5;
   cursor: default;
-}
-
-/* Answered: the card stays as the record of what was asked, visibly spent. */
-.ask--sent {
-  opacity: 0.65;
 }
 
 .ask__note {
