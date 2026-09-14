@@ -128,6 +128,21 @@ CREATE TRIGGER extension_notes_totals
   BEFORE INSERT OR UPDATE ON public.extension_notes
   FOR EACH ROW EXECUTE FUNCTION public.extension_notes_enforce_totals();
 
+-- THE TRIGGER FUNCTION NEEDS THE REVOKE TOO, and it was missed on the first
+-- pass — caught by the `proacl` read-back below, which is exactly what that
+-- read-back is for. `CREATE FUNCTION` grants EXECUTE to PUBLIC by default, and
+-- this one had it while every other function in the file did not.
+--
+-- It is harmless in practice: Postgres refuses a direct call to a trigger
+-- function ("trigger functions can only be called as triggers"), verified
+-- against the live database. It is revoked anyway, because the check below is
+-- stated as "no function may show an empty grantee" and a rule with one
+-- remembered exception is a rule the next person applies wrongly. Revoking
+-- after the fact does not break the trigger — EXECUTE is checked at CREATE
+-- TRIGGER time, not at firing time; also verified.
+REVOKE EXECUTE ON FUNCTION public.extension_notes_enforce_totals()
+  FROM PUBLIC, anon, authenticated;
+
 -- ---------------------------------------------------------------------------
 -- RLS, and the grants without which every policy above is unreachable.
 -- ---------------------------------------------------------------------------
@@ -139,8 +154,20 @@ CREATE POLICY "extension_notes_select_own" ON public.extension_notes
 -- SELECT ONLY. Every write goes through the RPC below, because a direct write
 -- cannot express the compare-and-swap and would silently reintroduce
 -- last-write-wins for anyone who called PostgREST directly.
+-- NAME EVERY PRIVILEGE, NOT JUST THE FOUR OBVIOUS ONES. Supabase's default
+-- privileges grant `arwdDxtm` — all of them — on every new table in `public` to
+-- anon, authenticated and service_role. Revoking only INSERT/UPDATE/DELETE
+-- leaves TRUNCATE, and **TRUNCATE IS NOT FILTERED BY ROW SECURITY**: an
+-- authenticated role holding it can empty the whole table regardless of every
+-- policy above. Verified against the live database, where it succeeded before
+-- this line existed and is refused after it.
+--
+-- Not currently reachable — PostgREST has no TRUNCATE verb and the role is not
+-- directly connectable — but it is one bug away from total data loss, which is
+-- the definition of a thing to revoke rather than to reason about.
 GRANT SELECT ON public.extension_notes TO authenticated;
-REVOKE INSERT, UPDATE, DELETE ON public.extension_notes FROM authenticated;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
+  ON public.extension_notes FROM authenticated;
 REVOKE ALL ON public.extension_notes FROM anon;
 
 -- ---------------------------------------------------------------------------

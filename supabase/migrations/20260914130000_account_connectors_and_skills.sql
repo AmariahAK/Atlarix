@@ -123,7 +123,8 @@ CREATE POLICY "account_mcp_servers_select_own" ON public.account_mcp_servers
 -- The USING/WITH-CHECK asymmetry that lets a user reassign `user_id` is avoided
 -- by not having an UPDATE policy at all, rather than by writing one correctly.
 GRANT SELECT ON public.account_mcp_servers TO authenticated;
-REVOKE INSERT, UPDATE, DELETE ON public.account_mcp_servers FROM authenticated;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
+  ON public.account_mcp_servers FROM authenticated;
 REVOKE ALL ON public.account_mcp_servers FROM anon;
 
 -- ---------------------------------------------------------------------------
@@ -221,7 +222,8 @@ ALTER TABLE public.account_mcp_calls ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "account_mcp_calls_select_own" ON public.account_mcp_calls
   FOR SELECT TO authenticated USING (auth.uid() = user_id);
 GRANT SELECT ON public.account_mcp_calls TO authenticated;
-REVOKE INSERT, UPDATE, DELETE ON public.account_mcp_calls FROM authenticated;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
+  ON public.account_mcp_calls FROM authenticated;
 REVOKE ALL ON public.account_mcp_calls FROM anon;
 
 -- ---------------------------------------------------------------------------
@@ -259,7 +261,8 @@ ALTER TABLE public.account_skills ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "account_skills_select_own" ON public.account_skills
   FOR SELECT TO authenticated USING (auth.uid() = user_id);
 GRANT SELECT ON public.account_skills TO authenticated;
-REVOKE INSERT, UPDATE, DELETE ON public.account_skills FROM authenticated;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
+  ON public.account_skills FROM authenticated;
 REVOKE ALL ON public.account_skills FROM anon;
 
 -- ---------------------------------------------------------------------------
@@ -277,8 +280,12 @@ CREATE OR REPLACE VIEW public.account_capabilities
   SELECT 'skill'::text, id, user_id, name, slug, description, enabled, updated_at
     FROM public.account_skills;
 
+-- REVOKE FIRST, THEN GRANT. A view inherits the same `arwdDxtm` default as a
+-- table, so a bare GRANT SELECT leaves INSERT/UPDATE/DELETE sitting there from
+-- Supabase's default privileges. See the note on TRUNCATE in the notes
+-- migration — same cause, same shape.
+REVOKE ALL ON public.account_capabilities FROM anon, authenticated;
 GRANT SELECT ON public.account_capabilities TO authenticated;
-REVOKE ALL ON public.account_capabilities FROM anon;
 
 -- ---------------------------------------------------------------------------
 -- 7. Write RPCs. One jsonb in, one jsonb out.
