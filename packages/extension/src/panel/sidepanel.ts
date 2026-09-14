@@ -47,7 +47,7 @@ import {
 } from "../permissions/host-access";
 import { syncSiteGrants } from "../permissions/grants-sync";
 import { buildQuestionCard } from "./question-card";
-import { mountAtlarixMark } from "./atlarix-mark";
+import { mountAtlarixMark, type AtlarixMark } from "./atlarix-mark";
 import { listGrants, revokeAll } from "../permissions/site-grants";
 import { activeTab } from "../page/inject";
 import { detachAll } from "../page/trusted-input";
@@ -584,8 +584,7 @@ function stepsCard(): StepsCard {
 
   const summary = document.createElement("summary");
   summary.className = "steps__summary";
-  const dot = document.createElement("span");
-  dot.className = "tool__dot";
+  const dot = markDot(true);
   const line = document.createElement("span");
   line.className = "steps__line";
   line.textContent = "Working…";
@@ -611,8 +610,44 @@ function addStep(
 }
 
 /** Re-describe without adding, for when a step's label arrives late. */
+/**
+ * The indicator a card shows for "this is happening" / "this happened".
+ *
+ * WAS A BLINKING DOT. The desktop uses the compass for exactly this — its
+ * `bare` mode is documented as the "bare in-chat indicator" — so the panel was
+ * showing a generic pulse where the product has its own mark.
+ *
+ * The mark is CHEAP AT REST and that is what makes one per card affordable: a
+ * settled card draws the A once and drops its rAF callback, so a conversation
+ * with twenty collapsed cards runs zero animation loops. Only a running card
+ * animates, and there is at most one of those.
+ *
+ * The marks are held in a WeakMap rather than threaded through every card
+ * object: three call sites create these and only two of them have a struct to
+ * hang it on, and a WeakMap lets the entry go when the element does.
+ */
+const dotMarks = new WeakMap<HTMLElement, AtlarixMark>();
+
+function markDot(running: boolean): HTMLElement {
+  const canvas = document.createElement("canvas");
+  canvas.className = "tool__dot";
+  canvas.setAttribute("aria-hidden", "true");
+  const m = mountAtlarixMark(canvas);
+  m.working(running);
+  dotMarks.set(canvas, m);
+  return canvas;
+}
+
+/** Settle every mark inside `root` — the card is history now. */
+function settleDots(root: HTMLElement): void {
+  for (const canvas of root.querySelectorAll<HTMLElement>("canvas.tool__dot")) {
+    dotMarks.get(canvas)?.working(false);
+  }
+}
+
 function settleSteps(card: StepsCard | null): void {
   if (!card) return;
+  settleDots(card.root);
   card.root.classList.add("steps--done");
   // Collapsed now the work is history and the answer is what the person came
   // for. They can open it again; it just stops taking the screen.
@@ -641,8 +676,7 @@ function thinkingBlock(): HTMLDetailsElement {
   details.className = "tool thinking";
   details.open = true;
   const summary = document.createElement("summary");
-  const dot = document.createElement("span");
-  dot.className = "tool__dot";
+  const dot = markDot(true);
   summary.append(dot, document.createTextNode("Thinking…"));
   const body = document.createElement("pre");
   body.className = "tool__body";
@@ -657,9 +691,9 @@ function settleThinking(details: HTMLDetailsElement | null): void {
   const summary = details.querySelector("summary");
   if (summary) {
     summary.textContent = "";
-    const dot = document.createElement("span");
-    dot.className = "tool__dot";
-    summary.append(dot, document.createTextNode("Thought for a moment"));
+    // A fresh settled mark: `textContent = ""` just discarded the running one
+    // along with everything else in the summary.
+    summary.append(markDot(false), document.createTextNode("Thought for a moment"));
   }
 }
 
@@ -672,12 +706,10 @@ function settleThinking(details: HTMLDetailsElement | null): void {
  */
 function workingRow(): HTMLElement {
   const row = document.createElement("div");
-  row.className = "tool tool--running working";
+  row.className = "tool working";
   const summary = document.createElement("div");
   summary.className = "working__line";
-  const dot = document.createElement("span");
-  dot.className = "tool__dot";
-  summary.append(dot, document.createTextNode("Working…"));
+  summary.append(markDot(true), document.createTextNode("Working…"));
   row.append(summary);
   return row;
 }
@@ -692,7 +724,7 @@ function errorBubble(text: string): HTMLElement {
 /** One line per tool call: what it did, with the raw result behind a twisty. */
 function toolChip(call: ToolCall): HTMLDetailsElement {
   const details = document.createElement("details");
-  details.className = "tool tool--running";
+  details.className = "tool";
   const summary = document.createElement("summary");
   const dot = document.createElement("span");
   dot.className = "tool__dot";
@@ -706,7 +738,6 @@ function fillChip(
   result: string,
   label?: string,
 ): void {
-  details.classList.remove("tool--running");
   // Re-label from the RESULT when there is one. The call could only say
   // "Reading tab 554527245"; the result knows it was the Tardigrade article.
   const summary = label ? details.querySelector("summary") : null;
@@ -799,19 +830,23 @@ function describeCall(call: ToolCall): string {
 /**
  * The card `ask_user` renders — built in `question-card.ts`, wired here.
  *
- * The composer is this module's, so the fill callback is passed in rather than
- * reached for: that is what lets the card's ordering, numbering and skip
- * behaviour be tested without mounting the whole panel.
+ * Sending is this module's, so it is passed in rather than reached for: that is
+ * what lets the card's ordering, selection and skip behaviour be tested without
+ * mounting the whole panel.
+ *
+ * THE ANSWER GOES THROUGH THE COMPOSER'S OWN PATH, not a private one. It has to
+ * be an ordinary user message — rendered as a bubble, editable, rewindable,
+ * saved with the session — because that is what the model is told to expect
+ * ("their answers arrive as the next user message"). A second send path would
+ * be a message that looks like the others and behaves differently.
  */
 function questionCard(questions: AskUserQuestion[]): HTMLElement {
-  return buildQuestionCard(questions, (text) => {
-    if (!input) return;
-    const current = input.value.trim();
-    input.value = current ? `${current}\n\n${text}` : text;
-    input.focus();
-    // The composer auto-grows on input; a programmatic value set fires no such
-    // event, so a long answer would sit in a one-row box.
-    input.dispatchEvent(new Event("input", { bubbles: true }));
+  return buildQuestionCard(questions, {
+    send(text) {
+      if (!input || running) return;
+      input.value = text;
+      void send();
+    },
   });
 }
 

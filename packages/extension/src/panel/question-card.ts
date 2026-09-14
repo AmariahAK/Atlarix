@@ -3,6 +3,16 @@ import type { AskUserQuestion } from "../tools/ask-user";
 /** What a skipped question sends, matching the desktop's `SKIP_ANSWER`. */
 export const SKIP_ANSWER = "(skipped)";
 
+export interface QuestionCardHost {
+  /**
+   * Send the answer as a user message, exactly as the composer would.
+   *
+   * The card OWNS the answer rather than staging it — see the note below on why
+   * filling the composer was wrong.
+   */
+  send(text: string): void;
+}
+
 /**
  * The card `ask_user` renders.
  *
@@ -11,59 +21,79 @@ export const SKIP_ANSWER = "(skipped)";
  * document: close the panel and the question is gone. A question must outlive
  * that, because the whole point is that the user answers whenever they like.
  * So this renders from the RECORDED tool call and resolves nothing; the answer
- * is an ordinary next message.
+ * is an ordinary user message.
  *
- * ══ THE SHAPE IS THE DESKTOP'S, DELIBERATELY ══
+ * ══ PICKING SENDS. IT DOES NOT FILL THE COMPOSER. ══
  *
- * `src/components/chat/InlineUserQuestions.tsx` had already solved this and the
- * first version of this card did not look at it. Three things it gets right
- * that wrapped chips got wrong:
+ * The first version put the option's text in the composer and left it there.
+ * The reasoning was that with three questions on screen, a click that sent
+ * immediately would answer the first and discard the rest — which is a real
+ * problem and the wrong solution to it. What it produced was a click that
+ * looked like it had done nothing, and an answer that arrived as text the user
+ * appeared to have typed rather than as a choice they had made.
  *
- *   - ONE OPTION PER ROW, NUMBERED. Chips wrapped by text width, so four
- *     options laid out as 1 / 2-3 / 4 and the reading order stopped matching
- *     the order the model wrote them in. The CSS comment defending that
- *     claimed stacking would "push the composer off a short panel" — it does
- *     not: the card scrolls with the transcript, and a scrambled list is worse
- *     than a scroll.
- *   - A REAL SURFACE. Transparent pills with a hairline border inherited the
- *     body colour and were reported as looking "just like text", which is
- *     exactly what they looked like.
- *   - SKIP. "No answer" is a legitimate answer to a question the agent guessed
- *     at, and without an affordance the only way to give one is to type prose
- *     explaining that you have nothing to say.
+ * The desktop had already solved the multi-question case properly and this now
+ * copies it (`InlineUserQuestions.tsx`):
  *
- * FILLING THE COMPOSER, NOT SENDING. One consistent rule, decided by the case
- * that breaks the alternative: with three questions on screen a click that sent
- * immediately would answer the first and discard the rest. Filling also leaves
- * the answer editable, which matters when the right answer is "the second one,
- * but only for today".
+ *   - ONE question with options: clicking an option SENDS. No second gesture,
+ *     because there is nothing else to wait for.
+ *   - SEVERAL questions, or one with no options: clicking SELECTS, the choice
+ *     is visibly marked, and a Send button appears — disabled until every
+ *     question has an answer, so a half-filled card cannot be sent by accident.
  *
- * `fill` is injected rather than reached for, so every behaviour here is
+ * The card also carries its own "Something else" field per question, again like
+ * the desktop. Without it, typing an answer means the composer, and then half
+ * the answers live in the card and half in a textarea with nothing combining
+ * them.
+ *
+ * `send` is injected rather than reached for, so every behaviour here is
  * testable without mounting the panel.
  */
 export function buildQuestionCard(
   questions: AskUserQuestion[],
-  fill: (text: string) => void,
+  host: QuestionCardHost,
 ): HTMLElement {
   const card = document.createElement("div");
   card.className = "ask";
   const multi = questions.length > 1;
+  const answers: string[] = questions.map(() => "");
+  let sent = false;
 
   const header = document.createElement("div");
   header.className = "ask__header";
   header.textContent = multi
-    ? `${questions.length} questions — answer what you can`
+    ? `${questions.length} questions — answer all to continue`
     : "Question";
   card.append(header);
 
   /**
    * `Q: … A: …` once there is more than one question, which is exactly
-   * `combineAnswers` on the desktop. Without it the model receives three
-   * answers in a row with nothing saying which belongs to which — and the
-   * user clicks them one at a time, so there is no other moment to pair them.
+   * `combineAnswers` on the desktop. Without it the model receives several
+   * answers in a row with nothing saying which belongs to which.
    */
-  const answer = (question: string, text: string) =>
-    fill(multi ? `Q: ${question}\nA: ${text}` : text);
+  const combine = () =>
+    multi
+      ? questions
+          .map((q, i) => `Q: ${q.question}\nA: ${answers[i] || SKIP_ANSWER}`)
+          .join("\n\n")
+      : answers[0];
+
+  const submit = () => {
+    // Once, ever. The card stays in the transcript as a record of what was
+    // asked, and a second click on a stale card would send the answer twice.
+    if (sent) return;
+    sent = true;
+    card.classList.add("ask--sent");
+    for (const b of card.querySelectorAll("button")) b.disabled = true;
+    for (const f of card.querySelectorAll("input")) f.disabled = true;
+    host.send(combine());
+  };
+
+  let sendButton: HTMLButtonElement | null = null;
+  const refreshSend = () => {
+    if (!sendButton) return;
+    sendButton.disabled = answers.some((a) => !a.trim());
+  };
 
   questions.forEach((q, qi) => {
     const block = document.createElement("div");
@@ -79,14 +109,43 @@ export function buildQuestionCard(
     list.setAttribute("role", "listbox");
     list.setAttribute("aria-label", "Suggested answers");
 
+    const rows: HTMLButtonElement[] = [];
+    const custom = document.createElement("input");
+
+    /**
+     * `commit` is FALSE for typing, and that distinction is load-bearing.
+     *
+     * The fast path — one question, click an option, send — is about a
+     * COMPLETED gesture. Typing is not one: every keystroke fires `input`, so
+     * running the fast path here sent the answer on the first character, with
+     * the rest of the sentence going nowhere. Enter commits a typed answer;
+     * `input` only records it.
+     */
+    const choose = (
+      value: string,
+      chosen: HTMLElement | null,
+      commit: boolean,
+    ) => {
+      answers[qi] = value;
+      for (const r of rows) r.setAttribute("aria-selected", String(r === chosen));
+      custom.classList.toggle("ask__custom--on", chosen === null && !!value);
+      if (commit && !multi && value.trim()) {
+        submit();
+        return;
+      }
+      refreshSend();
+    };
+
     (q.options ?? []).forEach((option, oi) => {
       const row = document.createElement("button");
       row.type = "button";
       row.className = "ask__option";
       row.setAttribute("role", "option");
+      row.setAttribute("aria-selected", "false");
 
       // The number STATES the order rather than leaving it to be inferred from
-      // position — which is the whole reason this is a list and not a wrap.
+      // position — which is the whole reason this is a list and not a wrap of
+      // chips that reflow by text width.
       const num = document.createElement("span");
       num.className = "ask__option-num";
       num.textContent = String(oi + 1);
@@ -95,7 +154,8 @@ export function buildQuestionCard(
       label.textContent = option;
       row.append(num, label);
 
-      row.addEventListener("click", () => answer(q.question, option));
+      row.addEventListener("click", () => choose(option, row, true));
+      rows.push(row);
       list.append(row);
     });
 
@@ -104,21 +164,54 @@ export function buildQuestionCard(
     const skip = document.createElement("button");
     skip.type = "button";
     skip.className = "ask__option ask__option--skip";
+    skip.setAttribute("role", "option");
+    skip.setAttribute("aria-selected", "false");
     const skipLabel = document.createElement("span");
     skipLabel.className = "ask__option-label";
     skipLabel.textContent = multi ? "Skip this one" : "Skip — no preference";
     skip.append(skipLabel);
-    skip.addEventListener("click", () => answer(q.question, SKIP_ANSWER));
+    skip.addEventListener("click", () => choose(SKIP_ANSWER, skip, true));
+    rows.push(skip);
     list.append(skip);
+
+    custom.type = "text";
+    custom.className = "ask__custom";
+    custom.placeholder = q.options?.length ? "Something else…" : "Your answer…";
+    custom.setAttribute("aria-label", `Your answer to: ${q.question}`);
+    custom.addEventListener("input", () => choose(custom.value, null, false));
+    custom.addEventListener("keydown", (e) => {
+      // Enter sends a single question, the way it sends the composer. With
+      // several open it would send the others half-answered.
+      if (e.key === "Enter" && !multi && custom.value.trim()) {
+        e.preventDefault();
+        submit();
+      }
+    });
+    list.append(custom);
 
     block.append(list);
     card.append(block);
   });
 
-  const note = document.createElement("p");
-  note.className = "ask__note";
-  note.textContent = "Pick one, or type your own answer below.";
-  card.append(note);
+  // Shown whenever a click cannot be the whole answer: several questions, or
+  // one with nothing to click.
+  if (multi || (questions[0]?.options?.length ?? 0) === 0) {
+    const actions = document.createElement("div");
+    actions.className = "ask__actions";
+    sendButton = document.createElement("button");
+    sendButton.type = "button";
+    sendButton.className = "button ask__send";
+    sendButton.textContent = multi ? "Send answers" : "Send answer";
+    sendButton.disabled = true;
+    sendButton.addEventListener("click", submit);
+    actions.append(sendButton);
+    card.append(actions);
+  } else {
+    const note = document.createElement("p");
+    note.className = "ask__note";
+    note.textContent = "Pick one, or type your own answer.";
+    card.append(note);
+  }
 
   return card;
 }
