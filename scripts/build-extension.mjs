@@ -279,8 +279,23 @@ for (const { src, dest, px } of ASSETS) {
   // precisely what "the attachment just came through as text" looked like the
   // first time. Cheap to pin, and the same reason the rule above is pinned here
   // rather than in a test.
-  for (const cls of ["msg__files", "file__chip", "file__badge", "file__name", "file__note", "file__text"]) {
-    if (!css.includes(`.${cls}`)) {
+  for (const cls of [
+    "msg__files",
+    "file__chip",
+    "file__badge",
+    "file__name",
+    "file__text",
+    "attachment--fold",
+    "attachment__count",
+    "attachment__label",
+    "attachment__list",
+  ]) {
+    // A SUBSTRING TEST CANNOT SEE A RENAME: `.attachment__countXX` contains
+    // `.attachment__count`, so `includes` passes on exactly the edit this
+    // guard exists to catch. Verified — the first version of this check went
+    // green against a deliberately broken stylesheet. The class must be
+    // followed by something that cannot continue an identifier.
+    if (!new RegExp(`\\.${cls}(?![\\w-])`).test(css)) {
       fatal(
         `sidepanel.css has no rule for .${cls} — a sent attachment will render ` +
           "as unstyled text in the transcript",

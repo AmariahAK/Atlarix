@@ -101,6 +101,8 @@ import {
 import { chooseModel, optionsFor, shortModelName } from "./model-choice";
 import { summariseSteps, type Step } from "./steps";
 import {
+  MAX_MESSAGE_BYTES,
+  SNIFF_BYTES,
   attachmentsIn,
   buildUserContent,
   describeAttachment,
@@ -109,7 +111,15 @@ import {
   typedText,
   type Attachment,
   type SentAttachment,
+  type StoredRef,
 } from "./attachments";
+import { PREVIEW_CHARS, getAttachment, putAttachment } from "../attachments/store";
+import {
+  clipboardPlainText,
+  pasteDisplayName,
+  pasteSignature,
+  shouldCaptureAsPaste,
+} from "./paste-capture";
 import { TOOL_SCHEMAS } from "../tools/schemas";
 import {
   estimateTokens,
@@ -186,6 +196,8 @@ let messages: CoreMessage[] = [];
 
 /** Staged for the next message. Cleared once it is sent. */
 let staged: Attachment[] = [];
+/** Signatures of pastes already staged, so a double-paste makes one chip. */
+let pasted = new Set<string>();
 
 /**
  * Read a File in the browser's own way.
@@ -196,6 +208,10 @@ let staged: Attachment[] = [];
  */
 const fileReaders = {
   text: (f: File) => f.text(),
+  // Only the head: what the sniffer needs, and reading 40 MB to decide whether
+  // a file is text would freeze the panel for as long as it took.
+  bytes: async (f: File) =>
+    new Uint8Array(await f.slice(0, SNIFF_BYTES).arrayBuffer()),
   dataUrl: (f: File) =>
     new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
@@ -205,32 +221,91 @@ const fileReaders = {
     }),
 };
 
+/**
+ * Collapse the composer's chips once there are MORE than this many.
+ *
+ * The desktop's `FOLD_THRESHOLD`, and its comparison — strictly greater, so
+ * three chips render inline and four fold. Composer only: a sent message keeps
+ * every chip, because that is the record of what was sent and hiding part of it
+ * behind a control is not a record.
+ */
+const FOLD_THRESHOLD = 3;
+
+/** One staged file's chip, with its remove button. */
+function stagedChip(attachment: Attachment, index: number): HTMLElement {
+  const chip = document.createElement("span");
+  chip.className = "attachment";
+
+  const name = document.createElement("span");
+  name.className = "attachment__name";
+  name.textContent = describeAttachment(attachment);
+
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "attachment__remove";
+  remove.textContent = "×";
+  remove.title = `Remove ${attachment.name}`;
+  remove.setAttribute("aria-label", `Remove ${attachment.name}`);
+  // REMOVES BY THE INDEX IN `staged`, which is passed in rather than taken from
+  // the loop that draws it. Folded, the chips are drawn in a second pass, and a
+  // position in that pass is not a position in `staged` — the desktop's own
+  // header comment warns about exactly this, because getting it wrong removes
+  // the wrong file and looks like the remove button being broken.
+  remove.addEventListener("click", () => {
+    const [gone] = staged.splice(index, 1);
+    if (gone) pasted.delete(pasteSignature(gone.data));
+    renderAttachments();
+  });
+
+  chip.append(name, remove);
+  return chip;
+}
+
 function renderAttachments(): void {
   if (!attachmentList) return;
   attachmentList.textContent = "";
   attachmentList.hidden = staged.length === 0;
-  staged.forEach((attachment, index) => {
-    const chip = document.createElement("span");
-    chip.className = "attachment";
+  if (staged.length === 0) return;
 
-    const name = document.createElement("span");
-    name.className = "attachment__name";
-    name.textContent = describeAttachment(attachment);
+  const chips = staged.map((attachment, index) => stagedChip(attachment, index));
 
-    const remove = document.createElement("button");
-    remove.type = "button";
-    remove.className = "attachment__remove";
-    remove.textContent = "×";
-    remove.title = `Remove ${attachment.name}`;
-    remove.setAttribute("aria-label", `Remove ${attachment.name}`);
-    remove.addEventListener("click", () => {
-      staged = staged.filter((_, i) => i !== index);
-      renderAttachments();
-    });
+  if (chips.length <= FOLD_THRESHOLD) {
+    attachmentList.append(...chips);
+    return;
+  }
 
-    chip.append(name, remove);
-    attachmentList.append(chip);
+  // EXPANDS IN PLACE, not in a popover. The desktop opens one above the
+  // composer; there is nowhere in a 320px panel to put it that does not cover
+  // the conversation. The rows are THE SAME CHIP ELEMENTS the inline path
+  // builds — the one thing the desktop's component insists on — so remove,
+  // titles and every future per-kind behaviour are reused rather than written
+  // twice and drifting.
+  const fold = document.createElement("button");
+  fold.type = "button";
+  fold.className = "attachment attachment--fold";
+
+  const count = document.createElement("span");
+  count.className = "attachment__count";
+  count.textContent = String(chips.length);
+
+  const label = document.createElement("span");
+  label.className = "attachment__label";
+  label.textContent = "Attachments";
+
+  fold.append(count, label);
+  fold.title = `${chips.length} attachments`;
+
+  const list = document.createElement("div");
+  list.className = "attachment__list";
+  list.hidden = true;
+  list.append(...chips);
+
+  fold.addEventListener("click", () => {
+    list.hidden = !list.hidden;
+    fold.classList.toggle("attachment--open", !list.hidden);
   });
+
+  attachmentList.append(fold, list);
 }
 
 /**
@@ -255,6 +330,29 @@ async function stageFiles(files: FileList | File[]): Promise<void> {
   }
   renderAttachments();
   if (refusals.length > 0) setStatus(refusals.join(" "));
+}
+
+/**
+ * Stage a long paste as a text attachment.
+ *
+ * DEDUPED BY A CHEAP SIGNATURE — length plus both ends — so pasting the same
+ * thing twice makes one chip rather than sending the model two copies of it. A
+ * full comparison of a megabyte on every paste would be the obvious version and
+ * the slow one; two different files agreeing on length AND their first and last
+ * 64 characters is not a case worth defending against.
+ */
+function stagePaste(content: string): void {
+  const signature = pasteSignature(content);
+  if (pasted.has(signature)) return;
+  pasted.add(signature);
+  staged.push({
+    name: pasteDisplayName(content),
+    kind: "text",
+    size: new Blob([content]).size,
+    type: "text/plain",
+    data: content,
+  });
+  renderAttachments();
 }
 let running: AbortController | null = null;
 
@@ -517,9 +615,6 @@ function renderQaAnswer(body: HTMLElement, text: string): boolean {
   return true;
 }
 
-/** How much of an attached text file the inline preview shows. */
-const PREVIEW_CHARS = 4_000;
-
 /**
  * The files a message was sent with, drawn as chips under the bubble's top edge.
  *
@@ -527,6 +622,12 @@ const PREVIEW_CHARS = 4_000;
  * window to put one in; this is a 320px panel, and an overlay covering it would
  * hide the conversation the attachment belongs to. Expanding in place keeps both
  * on screen and costs no new surface.
+ *
+ * THE WHOLE FILE, FETCHED WHEN ASKED FOR. The message carries only the first
+ * 1,500 characters now — the body lives in the attachment store, which is what
+ * lets a file be any size at all. So expanding a text chip goes and gets it,
+ * and the preview in the message is what is shown while that is in flight (and
+ * what is left if the conversation is old enough to predate the store).
  *
  * A PDF gets a chip and no preview. Rendering one needs a viewer in a frame,
  * which the extension's CSP does not allow and a 320px column could not use
@@ -554,17 +655,6 @@ function attachmentRow(files: SentAttachment[]): HTMLElement {
     name.textContent = file.name;
 
     chip.append(badge, name);
-
-    // ITS OWN ELEMENT, not part of the name, because the name is the thing that
-    // ellipsises — and a long filename would eat exactly the word that says the
-    // model did not get the whole file. The least droppable fact was the first
-    // to go.
-    if (file.truncated) {
-      const note = document.createElement("span");
-      note.className = "file__note";
-      note.textContent = "truncated";
-      chip.append(note);
-    }
     chip.title = previewable ? `Preview ${file.name}` : file.name;
     item.append(chip);
 
@@ -582,20 +672,24 @@ function attachmentRow(files: SentAttachment[]): HTMLElement {
       } else {
         const pre = document.createElement("pre");
         pre.className = "file__text";
-        // Clipped for the preview only. The model was sent the whole thing —
-        // whatever `MAX_TEXT_CHARS` allowed — and saying so is the difference
-        // between a short preview and a short attachment.
-        pre.textContent =
-          file.data.length > PREVIEW_CHARS
-            ? `${file.data.slice(0, PREVIEW_CHARS)}\n\n… preview clipped (${file.data.length} characters sent)`
-            : file.data || "(empty file)";
+        pre.textContent = file.data || "(empty file)";
         preview.append(pre);
       }
 
+      // Fetched ONCE, on first expand rather than on render: a conversation of
+      // twenty attachments would otherwise read twenty files out of storage to
+      // draw chips nobody has opened.
+      let fetched = false;
       (chip as HTMLButtonElement).type = "button";
       chip.addEventListener("click", () => {
         preview.hidden = !preview.hidden;
         item.classList.toggle("file--open", !preview.hidden);
+        if (preview.hidden || fetched || file.kind !== "text" || !file.id) return;
+        fetched = true;
+        void getAttachment(sessionId, file.id).then((stored) => {
+          const pre = preview.querySelector("pre");
+          if (stored && pre) pre.textContent = stored.body || "(empty file)";
+        });
       });
       item.append(preview);
     }
@@ -1282,11 +1376,34 @@ async function send(): Promise<void> {
   // was gone and the user had to go and find it. Accepted ones go, because they
   // are now part of a message in the transcript.
   staged = rejected;
+  // The dedupe set tracks what is STAGED, not what was ever pasted — otherwise
+  // pasting the same snippet into a later message would silently do nothing.
+  pasted = new Set(rejected.map((a) => pasteSignature(a.data)));
   renderAttachments();
+
+  // THE BODIES GO TO THE STORE BEFORE THE MESSAGE IS BUILT, because the message
+  // now carries a preview and an id rather than the file — which is the whole
+  // reason a file no longer has to be truncated to be attachable.
+  const stored = new Map<string, StoredRef>();
+  for (const file of accepted) {
+    if (file.kind !== "text") continue;
+    const id = await putAttachment(sessionId, {
+      name: file.name,
+      type: file.type,
+      body: file.data,
+    });
+    stored.set(file.name, {
+      id,
+      name: file.name,
+      type: file.type,
+      chars: file.data.length,
+      preview: file.data.slice(0, PREVIEW_CHARS),
+    });
+  }
 
   const userMessage: CoreMessage = {
     role: "user",
-    content: buildUserContent(text, accepted),
+    content: buildUserContent(text, accepted, stored),
   };
   messages = [...messages, userMessage];
   // THE MESSAGE, NOT THE TYPED TEXT. Passing `text` here drew the bubble from
@@ -1812,6 +1929,7 @@ async function openSession(id: string): Promise<void> {
   toolLabels.clear();
   usageAnchor = null;
   staged = [];
+  pasted = new Set();
   renderAttachments();
   currentTitle = (await listSessions()).find((sn) => sn.id === id)?.title ?? "";
   messages = await loadSession(id);
@@ -1832,6 +1950,7 @@ function startNewChat(): void {
   toolLabels.clear();
   usageAnchor = null;
   staged = [];
+  pasted = new Set();
   renderAttachments();
   messages = [];
   renderConversation(messages);
@@ -2236,12 +2355,26 @@ attachInput?.addEventListener("change", () => {
 
 // Pasting a screenshot is how most images actually arrive in a browser panel.
 input?.addEventListener("paste", (event) => {
-  const files = Array.from(event.clipboardData?.files ?? []);
-  if (files.length === 0) return;
-  // Only when there are FILES. A paste carrying both text and an image — which
-  // is what copying from a web page produces — must still paste the text.
+  const data = event.clipboardData;
+  if (!data) return;
+
+  const files = Array.from(data.files);
+  if (files.length > 0) {
+    // FILES WIN. A paste carrying both text and an image — which is what
+    // copying from a web page produces — is an image paste.
+    event.preventDefault();
+    void stageFiles(files);
+    return;
+  }
+
+  // A LONG PASTE IS AN ATTACHMENT, not a wall of text in a one-line composer.
+  // Same thresholds as the desktop, and silent: asking "shall I make this an
+  // attachment?" on every log paste is a modal between a person and the thing
+  // they were in the middle of doing.
+  const plain = clipboardPlainText(data);
+  if (!shouldCaptureAsPaste(plain)) return;
   event.preventDefault();
-  void stageFiles(files);
+  stagePaste(plain);
 });
 
 // Drag over anywhere in the panel; the composer is the target.

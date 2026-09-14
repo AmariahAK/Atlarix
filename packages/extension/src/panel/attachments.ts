@@ -31,6 +31,8 @@
  */
 
 import type { ContentPart, CoreModel } from "../core/client";
+import { PREVIEW_CHARS } from "../attachments/store";
+import { extractArchiveText, looksLikeZip } from "./ooxml";
 
 /** How many images may ride one message. */
 export const MAX_IMAGES = 8;
@@ -39,14 +41,22 @@ export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 /** Per-PDF ceiling. */
 export const MAX_PDF_BYTES = 10 * 1024 * 1024;
 /**
- * How much of a text file is inlined.
+ * How much one message may carry across all its attachments.
  *
- * A cap rather than a refusal: the first 200,000 characters of a CSV answers
- * most questions about it, and "your file is too big" answers none of them. The
- * message says it was truncated, because a silently clipped spreadsheet is one
- * the model will confidently report the wrong total for.
+ * Claude for Chrome's own documented number, and the only hard limit either
+ * reference client publishes for a browser extension. It bounds the request,
+ * not the file: a text file of any size passes, because its body goes to the
+ * store and only a preview rides the message.
  */
-export const MAX_TEXT_CHARS = 200_000;
+export const MAX_MESSAGE_BYTES = 10 * 1024 * 1024;
+
+/**
+ * How many bytes are sniffed to decide what a file is.
+ *
+ * The desktop's sample size. Enough for a ZIP's local header and for a binary
+ * to show a NUL, and small enough that classifying a 40 MB file costs nothing.
+ */
+export const SNIFF_BYTES = 8_192;
 
 export type AttachmentKind = "text" | "image" | "pdf";
 
@@ -54,10 +64,16 @@ export interface Attachment {
   name: string;
   kind: AttachmentKind;
   size: number;
-  /** Text content for `text`; a data URL for `image` and `pdf`. */
+  /** The MIME type, resolved — never the empty string the OS often reports. */
+  type: string;
+  /**
+   * Text content for `text`; a data URL for `image` and `pdf`.
+   *
+   * Never truncated. An office document's `data` is its EXTRACTED TEXT, which
+   * is why it arrives here as kind `text`: what a model reads of a .docx is its
+   * words, and the zip it came in is of no further interest.
+   */
   data: string;
-  /** True when `data` is only the beginning of the file. */
-  truncated?: boolean;
 }
 
 /**
@@ -87,16 +103,56 @@ function extensionOf(name: string): string {
   return dot > 0 ? name.slice(dot + 1).toLowerCase() : name.toLowerCase();
 }
 
-/** What kind of thing this is, or null when we have no way to read it. */
+/**
+ * What kind of thing this is from its NAME alone, or null to go and look.
+ *
+ * Null is no longer a refusal — it means "the name did not settle it", and the
+ * caller sniffs the bytes. That is the difference between the old allowlist,
+ * which turned away anything it had not been told about, and the desktop's rule,
+ * which turns away only what it has actually looked at and cannot read.
+ */
 export function classify(name: string, type: string): AttachmentKind | null {
   const mime = type.toLowerCase();
   if (mime === "application/pdf" || extensionOf(name) === "pdf") return "pdf";
-  if (IMAGE_TYPES.has(mime)) return "image";
+  if (IMAGE_TYPES.has(mime) || mime.startsWith("image/")) return "image";
   if (TEXT_EXTENSIONS.has(extensionOf(name))) return "text";
   // A declared text MIME is believed even for an unknown extension — that is
   // how `text/x-something` and a file with no extension at all get through.
   if (mime.startsWith("text/") || mime === "application/json") return "text";
   return null;
+}
+
+/** The MIME type we record for each office format we can read. */
+const OFFICE_TYPES: Record<string, string> = {
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  odt: "application/vnd.oasis.opendocument.text",
+  epub: "application/epub+zip",
+};
+
+/**
+ * Do these bytes look like text?
+ *
+ * A NUL BYTE IS THE TELL. No text encoding this decodes puts one in the middle
+ * of a document, and essentially every binary format does within its first few
+ * kilobytes. Combined with a strict UTF-8 decode — which throws on an invalid
+ * sequence rather than substituting — that is the desktop's `classifyContent`
+ * and it is right far more often than any extension list.
+ *
+ * A file whose first 8 KB are clean but which turns binary later reads as text.
+ * That is the correct way round: the failure is a messy paste, not a refusal of
+ * something readable.
+ */
+export function looksLikeText(head: Uint8Array): boolean {
+  if (head.length === 0) return true;
+  if (head.includes(0)) return false;
+  try {
+    new TextDecoder("utf-8", { fatal: true }).decode(head);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** What a tier can accept, from the catalog the proxy reports. */
@@ -175,6 +231,7 @@ export function gateAttachments(
   const rejected: Attachment[] = [];
   const refusals: string[] = [];
   let images = 0;
+  let mediaBytes = 0;
 
   for (const attachment of attachments) {
     if (attachment.kind === "text") {
@@ -199,6 +256,21 @@ export function gateAttachments(
       continue;
     }
 
+    // THE MESSAGE CEILING APPLIES TO MEDIA ONLY, and that is not an oversight:
+    // a text file's body no longer rides the request — it goes to the store and
+    // the message carries a preview — so a 30 MB log costs the request nothing.
+    // Images and PDFs really are sent, as base64, every round.
+    if (mediaBytes + attachment.data.length > MAX_MESSAGE_BYTES) {
+      refusals.push(
+        `${attachment.name} was not sent — one message carries at most ` +
+          `${Math.round(MAX_MESSAGE_BYTES / 1024 / 1024)} MB of images and PDFs. ` +
+          `Send it on its own.`,
+      );
+      rejected.push(attachment);
+      continue;
+    }
+    mediaBytes += attachment.data.length;
+
     if (attachment.kind === "image") {
       if (images >= MAX_IMAGES) {
         refusals.push(
@@ -217,46 +289,94 @@ export function gateAttachments(
 }
 
 /**
- * The first line of a text part that carries an attached file.
+ * The header of a text part that carries an attached file.
  *
  * ONE DEFINITION FOR BOTH DIRECTIONS. `attachedTextPart` writes it and
  * `readAttachedText` reads it back, so the shape cannot drift into two
- * disagreeing copies — the panel's transcript depends on recognising exactly
- * what the builder emitted.
+ * disagreeing copies — the panel's transcript and the model's instructions both
+ * depend on recognising exactly what the builder emitted.
+ *
+ * WHAT CHANGED AND WHY. This used to carry the WHOLE file, which is what forced
+ * the 200,000-character truncation: a transcript is re-sent in full on every
+ * round, so an inlined log was paid for on every round and filled the context
+ * window on the second one. Now it carries a preview and an id, the body lives
+ * in `attachments/store.ts`, and `read_attachment` pages the rest. Nothing is
+ * truncated any more — it is paged, which is the desktop's answer to the same
+ * constraint.
  */
 const ATTACHED_HEADER = "Attached file: ";
-const TRUNCATED_NOTE = " (truncated — only the first part is shown)";
 
 /** What an attached text file looks like on the wire. */
-export function attachedTextPart(file: Attachment): ContentPart {
-  // Fenced and named. Without the name a model asked "what is in the second
-  // file" has no way to tell which is which, and without the fence a CSV's
-  // commas read as prose.
+export function attachedTextPart(file: StoredRef): ContentPart {
+  const whole = file.chars <= PREVIEW_CHARS;
+  const preview = whole ? file.preview : file.preview.slice(0, PREVIEW_CHARS);
   return {
     type: "text",
     text:
-      `${ATTACHED_HEADER}${file.name}${file.truncated ? TRUNCATED_NOTE : ""}\n` +
+      `${ATTACHED_HEADER}${file.name} | id: ${file.id} | ${file.type} | ` +
+      `${file.chars.toLocaleString("en-US")} chars\n` +
+      (whole
+        ? ""
+        : `Preview (first ${PREVIEW_CHARS.toLocaleString("en-US")} chars — ` +
+          `read_attachment({ attachmentId: "${file.id}" }) pages the FULL file):\n`) +
+      // Fenced so a CSV's commas do not read as prose, and so the boundary
+      // between the file and the question is unambiguous.
       "```\n" +
-      file.data +
+      preview +
       "\n```",
   };
 }
 
+/** What `attachedTextPart` needs to know about a file already in the store. */
+export interface StoredRef {
+  id: string;
+  name: string;
+  type: string;
+  chars: number;
+  /** The first `PREVIEW_CHARS` of the body, or all of it when it is shorter. */
+  preview: string;
+}
+
+export interface AttachedRef {
+  id: string;
+  name: string;
+  type: string;
+  chars: number;
+  preview: string;
+  /** False when the preview IS the whole file, so nothing needs paging. */
+  clipped: boolean;
+}
+
 /** The file back out of such a part, or null when it is ordinary typed text. */
-export function readAttachedText(
-  part: ContentPart,
-): { name: string; body: string; truncated: boolean } | null {
+export function readAttachedText(part: ContentPart): AttachedRef | null {
   if (part.type !== "text" || !part.text.startsWith(ATTACHED_HEADER)) return null;
   const newline = part.text.indexOf("\n");
   if (newline < 0) return null;
-  let name = part.text.slice(ATTACHED_HEADER.length, newline);
-  const truncated = name.endsWith(TRUNCATED_NOTE);
-  if (truncated) name = name.slice(0, -TRUNCATED_NOTE.length);
-  // Between the opening fence and the closing one. A part we wrote always has
-  // both; anything else is not ours and is left as typed text.
+
+  const header = part.text.slice(ATTACHED_HEADER.length, newline);
+  // `name | id: … | type | N chars`. Split from the RIGHT, because a filename
+  // is the one field that may itself contain " | ".
+  const fields = header.split(" | ");
+  if (fields.length < 4) return null;
+  const chars = Number.parseInt(
+    fields[fields.length - 1].replace(/[^0-9]/g, ""),
+    10,
+  );
+  const type = fields[fields.length - 2];
+  const idField = fields[fields.length - 3];
+  if (!idField.startsWith("id: ")) return null;
+  const id = idField.slice(4);
+  const name = fields.slice(0, -3).join(" | ");
+  if (!name || !id || !Number.isFinite(chars)) return null;
+
+  // Everything between the opening fence and the closing one. A part we wrote
+  // always has both; anything else is not ours and is left as typed text.
   const rest = part.text.slice(newline + 1);
-  if (!rest.startsWith("```\n") || !rest.endsWith("\n```")) return null;
-  return { name, body: rest.slice(4, -4), truncated };
+  const fence = rest.indexOf("```\n");
+  if (fence < 0 || !rest.endsWith("\n```")) return null;
+  const preview = rest.slice(fence + 4, -4);
+
+  return { id, name, type, chars, preview, clipped: chars > preview.length };
 }
 
 /**
@@ -273,6 +393,7 @@ export function readAttachedText(
 export function buildUserContent(
   text: string,
   attachments: Attachment[],
+  stored: Map<string, StoredRef>,
 ): string | ContentPart[] {
   if (attachments.length === 0) return text;
 
@@ -287,12 +408,18 @@ export function buildUserContent(
 
   // ONE PART PER ATTACHED FILE, not all of them folded into the question.
   //
-  // The model reads the same bytes either way — but the transcript does not.
+  // The model reads the same file either way — but the transcript does not.
   // Folded in, an attached CSV was indistinguishable from text the user had
   // typed, so the panel drew the whole file as the message and the attachment
   // "came through as text" with nothing to show it had ever been a file. Kept as
   // its own part it can be drawn as a chip with a preview behind it.
-  for (const file of inlineText) parts.push(attachedTextPart(file));
+  for (const file of inlineText) {
+    const ref = stored.get(file.name);
+    // A file that failed to reach the store is dropped rather than inlined: the
+    // alternative is re-introducing the unbounded body this change exists to
+    // remove, on exactly the path nobody would test.
+    if (ref) parts.push(attachedTextPart(ref));
+  }
 
   for (const file of media) {
     if (file.kind === "image") {
@@ -319,9 +446,18 @@ export function buildUserContent(
 export interface SentAttachment {
   kind: AttachmentKind;
   name: string;
-  /** Text content for `text`; a data URL for `image` and `pdf`. */
+  /** The preview for `text`; a data URL for `image` and `pdf`. */
   data: string;
-  truncated?: boolean;
+  /**
+   * The store id, for `text` only.
+   *
+   * The chip expands to the WHOLE file, which the message no longer carries —
+   * so the id is how the panel goes and gets it. Absent on a transcript written
+   * before the store existed, whose `data` was the whole file already.
+   */
+  id?: string;
+  /** True when `data` is only the first part of the file. */
+  clipped?: boolean;
 }
 
 export function attachmentsIn(
@@ -350,8 +486,9 @@ export function attachmentsIn(
       out.push({
         kind: "text",
         name: file.name,
-        data: file.body,
-        truncated: file.truncated,
+        data: file.preview,
+        id: file.id,
+        clipped: file.clipped,
       });
     }
   }
@@ -383,55 +520,110 @@ export function describeAttachment(a: Attachment): string {
 }
 
 /**
- * Read a file into an attachment, or null when it is not something we can send.
+ * Read a file into an attachment, or null when it is not something we can read.
  *
- * Size is checked BEFORE reading: a 400 MB video read into a data URL would
- * freeze the panel for as long as it took, and then be refused anyway.
+ * NO TRUNCATION. A text file arrives whole, however large — the body goes to
+ * `attachments/store.ts` and the model pages it with `read_attachment`. The old
+ * 200,000-character clip existed only because the body rode inside the message.
+ *
+ * Size is still checked BEFORE reading for the binary kinds: a 400 MB video read
+ * into a data URL would freeze the panel for as long as it took, and then be
+ * refused anyway.
  */
 export async function readAttachment(
   file: File,
   read: {
     text: (f: File) => Promise<string>;
     dataUrl: (f: File) => Promise<string>;
+    bytes: (f: File) => Promise<Uint8Array>;
   },
 ): Promise<{ attachment: Attachment | null; refusal?: string }> {
   const kind = classify(file.name, file.type);
-  if (!kind) {
+
+  if (kind === "image" && file.size > MAX_IMAGE_BYTES) {
     return {
       attachment: null,
-      refusal: `${file.name} was not attached — Atlarix reads text files, images and PDFs.`,
+      refusal: `${file.name} was not attached — it is over the ${Math.round(MAX_IMAGE_BYTES / 1024 / 1024)} MB limit for images.`,
     };
   }
-
-  const limit =
-    kind === "image" ? MAX_IMAGE_BYTES : kind === "pdf" ? MAX_PDF_BYTES : Infinity;
-  if (file.size > limit) {
+  if (kind === "pdf" && file.size > MAX_PDF_BYTES) {
     return {
       attachment: null,
-      refusal: `${file.name} was not attached — it is over the ${Math.round(limit / 1024 / 1024)} MB limit for ${kind === "image" ? "images" : "PDFs"}.`,
+      refusal: `${file.name} was not attached — it is over the ${Math.round(MAX_PDF_BYTES / 1024 / 1024)} MB limit for PDFs.`,
     };
   }
 
   if (kind === "text") {
-    const whole = await read.text(file);
-    const truncated = whole.length > MAX_TEXT_CHARS;
     return {
       attachment: {
         name: file.name,
         kind,
         size: file.size,
-        data: truncated ? whole.slice(0, MAX_TEXT_CHARS) : whole,
-        ...(truncated ? { truncated: true } : {}),
+        type: file.type || "text/plain",
+        data: await read.text(file),
+      },
+    };
+  }
+
+  if (kind === "image" || kind === "pdf") {
+    return {
+      attachment: {
+        name: file.name,
+        kind,
+        size: file.size,
+        type: file.type || (kind === "pdf" ? "application/pdf" : "image/*"),
+        data: await read.dataUrl(file),
+      },
+    };
+  }
+
+  // EVERYTHING ELSE IS DECIDED BY ITS BYTES, not its name.
+  //
+  // The desktop settled on this after an extension allowlist missed `.mjs`,
+  // `.vue` and `.tf` and could never match a file called `Dockerfile` or
+  // `Makefile` at all. It also catches the office documents, which are ZIPs and
+  // whose extension may be anything.
+  const head = await read.bytes(file);
+
+  if (looksLikeZip(head)) {
+    const extracted = await extractArchiveText(head);
+    if (extracted) {
+      return {
+        attachment: {
+          name: file.name,
+          kind: "text",
+          size: file.size,
+          type: OFFICE_TYPES[extracted.format],
+          data: extracted.text,
+        },
+      };
+    }
+    return {
+      attachment: null,
+      refusal:
+        `${file.name} was not attached — Atlarix reads Word, Excel, PowerPoint, ` +
+        `OpenDocument and EPUB files, but this archive is none of those ` +
+        `(a .zip of other files has to be unpacked first).`,
+    };
+  }
+
+  if (looksLikeText(head)) {
+    return {
+      attachment: {
+        name: file.name,
+        kind: "text",
+        size: file.size,
+        type: file.type || "text/plain",
+        data: await read.text(file),
       },
     };
   }
 
   return {
-    attachment: {
-      name: file.name,
-      kind,
-      size: file.size,
-      data: await read.dataUrl(file),
-    },
+    attachment: null,
+    refusal:
+      `${file.name} was not attached — Atlarix reads text and code, images, ` +
+      `PDFs, and Word/Excel/PowerPoint/OpenDocument/EPUB documents. This one is ` +
+      `binary, so there is nothing to read.`,
   };
 }

@@ -53,6 +53,7 @@ export const TOOL_NAMES = [
   "ask_user",
   "list_available_mcps",
   "mcp_call",
+  "read_attachment",
 ] as const;
 
 export type ToolName = (typeof TOOL_NAMES)[number];
@@ -611,6 +612,46 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
         // exists to stop the model inventing OUR parameters; these are the
         // remote server's, whose schema we deliberately do not bind — that is
         // what keeps the catalog cheap. Do not "fix" this to match the others.
+        additionalProperties: false,
+      },
+    },
+  },
+
+  {
+    type: "function",
+    function: {
+      name: "read_attachment",
+      description:
+        "Read a file the user attached, in full. The message shows only the " +
+        "first 1,500 characters of a long file plus its id; this returns the " +
+        "rest, PAGED — each call gives up to `limit` lines from 1-based line " +
+        "`offset`, and the result states the total and the exact next call. " +
+        "The whole file is always reachable, never truncated. Images and PDFs " +
+        "are already in the message and need no call. Call this whenever the " +
+        "user asks about an attached file whose preview was clipped, rather " +
+        "than answering from the preview alone.",
+      parameters: {
+        type: "object",
+        properties: {
+          attachmentId: {
+            type: "string",
+            description:
+              "The id printed next to the filename in the message. Pass a " +
+              "wrong one and the reply lists the real ones.",
+          },
+          offset: {
+            type: "number",
+            description: "1-based line to start at. Defaults to 1.",
+          },
+          limit: {
+            type: "number",
+            description: "Maximum lines to return. Defaults to 2000.",
+          },
+        },
+        // NOTHING REQUIRED, matching the desktop. A call with no id is answered
+        // with the list of attachments, which is more useful than a schema
+        // error the model has to recover from.
+        required: [],
         additionalProperties: false,
       },
     },

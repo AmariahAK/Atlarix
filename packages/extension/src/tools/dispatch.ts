@@ -57,6 +57,7 @@ import {
 import { askUser } from "./ask-user";
 import { listAvailableMcps, mcpCall } from "./connectors";
 import { forgetNote, readNoteTool, remember } from "./notes";
+import { readAttachmentTool } from "./attachments";
 import { executeRecall, type RecallArgs } from "./recall";
 import { api } from "../shared/browser-api";
 import { TOOL_NAMES, type ToolName } from "./schemas";
@@ -349,6 +350,8 @@ export async function dispatchTool(
         return await readNoteTool(args);
       case "forget_note":
         return await forgetNote(args);
+      case "read_attachment":
+        return await readAttachmentTool(args, ctx);
       case "recall":
         return await recallFromHistory(args, ctx);
       case "web_search":

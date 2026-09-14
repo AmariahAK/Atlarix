@@ -59,6 +59,10 @@ const VERBS: Record<string, { one: string; many: (n: number) => string }> = {
   remember: { one: "Saved a note", many: (n) => `Saved ${n} notes` },
   read_note: { one: "Read a note", many: (n) => `Read ${n} notes` },
   forget_note: { one: "Deleted a note", many: (n) => `Deleted ${n} notes` },
+  read_attachment: {
+    one: "Read an attachment",
+    many: (n) => `Read ${n} pages of attachments`,
+  },
   list_available_mcps: {
     one: "Checked your connectors",
     many: () => "Checked your connectors",

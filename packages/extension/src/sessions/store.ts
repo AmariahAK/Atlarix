@@ -29,6 +29,7 @@
 import type { CoreMessage } from "../core/client";
 import { isCompactionMarker } from "../context/compact";
 import { api } from "../shared/browser-api";
+import { deleteSessionAttachments } from "../attachments/store";
 
 const INDEX_KEY = "atlarix.sessions.v1";
 const transcriptKey = (id: string) => `atlarix.session.${id}.v1`;
@@ -187,9 +188,12 @@ export async function saveSession(
     [transcriptKey(id)]: messages,
   });
   // The transcripts of evicted sessions go too — an orphaned one is invisible
-  // and counts against the same quota forever.
+  // and counts against the same quota forever. Their attachments go with them
+  // for the same reason, and attachments are the larger of the two: a
+  // transcript is prose, an attachment can be a twenty-megabyte log.
   if (evicted.length > 0) {
     await api().storage.local.remove(evicted.map((s) => transcriptKey(s.id)));
+    await deleteSessionAttachments(evicted.map((s) => s.id));
   }
   return { evicted };
 }
@@ -229,6 +233,7 @@ export async function deleteSession(id: string): Promise<void> {
     [INDEX_KEY]: index.filter((s) => s.id !== id),
   });
   await api().storage.local.remove(transcriptKey(id));
+  await deleteSessionAttachments([id]);
   // Deleting the conversation the panel is pointed at must not leave it
   // pointed there, or the next open restores a transcript that no longer has
   // an index entry and the history list disagrees with the screen.
@@ -244,6 +249,10 @@ export async function deleteAllSessions(): Promise<void> {
     OPEN_KEY,
     ...index.map((s) => transcriptKey(s.id)),
   ]);
+  // Erase everything has to mean everything. An attached file left behind is
+  // unreachable — nothing indexes it once the conversation is gone — and it is
+  // also the biggest thing the user just asked to be rid of.
+  await deleteSessionAttachments(index.map((s) => s.id));
 }
 
 /**

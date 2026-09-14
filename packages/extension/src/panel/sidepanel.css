@@ -1185,6 +1185,43 @@ body {
   white-space: nowrap;
 }
 
+/*
+ * Four or more staged files collapse into one chip that expands in place.
+ * The desktop uses a popover; a 320px panel has nowhere to put one that does
+ * not cover the conversation.
+ */
+.attachment--fold {
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  color: var(--fg);
+}
+
+.attachment--fold:hover,
+.attachment--open {
+  background: color-mix(in srgb, var(--fg) 14%, transparent);
+}
+
+.attachment__count {
+  font-weight: 600;
+}
+
+.attachment__label {
+  color: var(--fg-muted);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.attachment__list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  margin-top: 4px;
+}
+
 .attachment__remove {
   flex: none;
   border: 0;
@@ -1292,14 +1329,6 @@ button.file__chip:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-/* Never shrinks: see the comment where it is built. */
-.file__note {
-  flex: none;
-  font-size: 9px;
-  letter-spacing: 0.02em;
-  color: var(--fg-muted);
 }
 
 .file__preview {

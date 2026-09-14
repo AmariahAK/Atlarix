@@ -321,6 +321,33 @@ describe("the skills index", () => {
   });
 });
 
+describe("attachments in the prompt", () => {
+  /**
+   * The instruction is the feature. The message carries only a preview now, so a
+   * model that does not know `read_attachment` exists answers confidently from
+   * the first 1,500 characters of a spreadsheet — which is exactly the failure
+   * the old truncation produced and this change was meant to end.
+   */
+  it("says the file is paged, not truncated, and names the tool", () => {
+    const p = buildSystemPrompt(base);
+    expect(p).toMatch(/read_attachment/);
+    expect(p).toMatch(/never answer from a preview marked as clipped/);
+    expect(p).toMatch(/never truncated/);
+  });
+
+  it("tells it not to ask for a file it already has", () => {
+    // A model that asks the user to re-attach or paste a file it was already
+    // given reads as the attachment not having worked.
+    const p = buildSystemPrompt(base);
+    expect(p).toMatch(/do not ask the user to re-attach/);
+  });
+
+  it("keeps it in BASE, so it rides the cached prefix", () => {
+    const p = buildSystemPrompt(base);
+    expect(p.indexOf("read_attachment")).toBeLessThan(p.indexOf("Today's date is"));
+  });
+});
+
 describe("connectors in the prompt", () => {
   it("explains them in BASE, which is paid for once and cached forever", () => {
     const p = buildSystemPrompt(base);
