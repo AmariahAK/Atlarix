@@ -121,3 +121,100 @@ describe("re-rendering", () => {
     expect(host.textContent).toBe("second");
   });
 });
+
+/**
+ * Headings and numbered lists.
+ *
+ * These were the exception to "an unhandled construct renders as its literal
+ * text, which is legible". A heading fell through to the paragraph branch,
+ * which joins consecutive lines with a space — so a heading and the sentence
+ * under it became one line starting with `###`, and a numbered list collapsed
+ * into a single paragraph with the numbers still embedded in it. Reported from
+ * a real answer.
+ */
+describe("headings", () => {
+  it("makes a heading, at its own level", () => {
+    render("# One\n\n## Two\n\n### Three");
+    expect(host.querySelector("h1")?.textContent).toBe("One");
+    expect(host.querySelector("h2")?.textContent).toBe("Two");
+    expect(host.querySelector("h3")?.textContent).toBe("Three");
+    expect(host.textContent).not.toContain("#");
+  });
+
+  it("does not swallow the paragraph under it", () => {
+    // THE REPORTED BUG. Without a heading block these two lines are joined into
+    // "### Main message It positions Amariah as…".
+    render("### Main message\nIt positions Amariah as an engineer.");
+    expect(host.querySelector("h3")?.textContent).toBe("Main message");
+    expect(host.querySelector("p")?.textContent).toBe(
+      "It positions Amariah as an engineer.",
+    );
+  });
+
+  it("renders inline spans inside a heading", () => {
+    render("## The **big** one");
+    expect(host.querySelector("h2 strong")?.textContent).toBe("big");
+  });
+
+  it("stops at six, and leaves a bare hash alone", () => {
+    render("####### seven");
+    expect(host.querySelector("h6")).toBeNull();
+    expect(host.textContent).toContain("#######");
+    render("#nospace");
+    expect(host.querySelector("h1")).toBeNull();
+  });
+
+  it("drops closing hashes", () => {
+    render("## Middle ##");
+    expect(host.querySelector("h2")?.textContent).toBe("Middle");
+  });
+});
+
+describe("numbered lists", () => {
+  it("makes one list of the items, not one paragraph", () => {
+    render("1. First\n2. Second\n3. Third");
+    const items = [...host.querySelectorAll("ol li")].map((li) => li.textContent);
+    expect(items).toEqual(["First", "Second", "Third"]);
+    expect(host.querySelector("p")).toBeNull();
+  });
+
+  it("keeps the numbers the model chose", () => {
+    // A list renumbered from 1 contradicts prose that refers to "step 4".
+    render("4. Fourth\n5. Fifth");
+    expect(host.querySelector("ol")?.getAttribute("start")).toBe("4");
+  });
+
+  it("does not set start when it begins at one", () => {
+    render("1. First");
+    expect(host.querySelector("ol")?.hasAttribute("start")).toBe(false);
+  });
+
+  it("accepts the `1)` spelling", () => {
+    render("1) First\n2) Second");
+    expect(host.querySelectorAll("ol li")).toHaveLength(2);
+  });
+
+  it("does not turn a date or a price into a list", () => {
+    // `2026. ` at the start of a line is a year, not an item — but this is what
+    // the rule costs, so it is written down rather than discovered.
+    render("A sentence.\nThe answer is 42.5 percent.");
+    expect(host.querySelector("ol")).toBeNull();
+  });
+
+  it("keeps bullets and numbers as separate lists", () => {
+    render("- a\n- b\n\n1. one\n2. two");
+    expect(host.querySelectorAll("ul li")).toHaveLength(2);
+    expect(host.querySelectorAll("ol li")).toHaveLength(2);
+  });
+
+  it("ends the list at a blank line", () => {
+    render("1. One\n\nA paragraph.");
+    expect(host.querySelectorAll("ol li")).toHaveLength(1);
+    expect(host.querySelector("p")?.textContent).toBe("A paragraph.");
+  });
+
+  it("renders inline spans inside an item", () => {
+    render("1. Use `npm run build` first");
+    expect(host.querySelector("ol li code")?.textContent).toBe("npm run build");
+  });
+});

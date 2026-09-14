@@ -18,9 +18,26 @@
  * their literal text, which is legible, rather than as a half-supported
  * approximation that looks broken.
  *
- * What IS handled, because a chat answer uses these constantly: fenced code
- * blocks, bullet lists, inline code, bold, and bare URLs.
+ * What IS handled, because a chat answer uses these constantly: headings,
+ * fenced code blocks, bullet and numbered lists, inline code, bold, and bare
+ * URLs.
+ *
+ * HEADINGS AND NUMBERED LISTS WERE THE EXCEPTION TO "unhandled is legible".
+ * That principle holds for a table or a blockquote, whose literal text still
+ * reads as what it is. It did not hold here. A heading fell through to the
+ * paragraph branch, which joins consecutive lines with a space — so `### Main
+ * message` and the sentence under it became one line beginning with three hash
+ * marks, and a numbered list collapsed into a single paragraph with the numbers
+ * still in it. Not a plainer rendering of the content: a wrong one.
  */
+
+/**
+ * A numbered list item: `1.` or `1)`, optionally indented.
+ *
+ * NOT GLOBAL — a `g` flag would make `.test` stateful across the two calls in
+ * the loop below and skip every other line.
+ */
+const ORDERED = /^\s*(\d{1,9})[.)]\s+/;
 
 /** Render `markdown` into `container`, replacing whatever was there. */
 export function renderMarkdown(container: HTMLElement, markdown: string): void {
@@ -58,6 +75,37 @@ function parseBlocks(markdown: string): Node[] {
       continue;
     }
 
+    // ── Headings ────────────────────────────────────────────────────────────
+    const heading = /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line);
+    if (heading) {
+      // The real level, so `#` and `###` are distinguishable. They are sized
+      // for a 320px column in the stylesheet rather than by the browser's
+      // defaults, which would put an h1 at 32px inside a chat bubble.
+      const h = document.createElement(`h${heading[1].length}`);
+      appendInline(h, heading[2]);
+      out.push(h);
+      i += 1;
+      continue;
+    }
+
+    // ── Numbered lists ──────────────────────────────────────────────────────
+    if (ORDERED.test(line)) {
+      const ol = document.createElement("ol");
+      // A list that starts at 3 renders starting at 3. The model numbers its
+      // own steps and a list silently renumbered from 1 contradicts the prose
+      // around it, which refers to "step 4".
+      const first = Number.parseInt(ORDERED.exec(line)?.[1] ?? "1", 10);
+      if (first !== 1) ol.start = first;
+      while (i < lines.length && ORDERED.test(lines[i])) {
+        const li = document.createElement("li");
+        appendInline(li, lines[i].replace(ORDERED, ""));
+        ol.append(li);
+        i += 1;
+      }
+      out.push(ol);
+      continue;
+    }
+
     // ── Bullets ─────────────────────────────────────────────────────────────
     if (/^\s*[-*]\s+/.test(line)) {
       const ul = document.createElement("ul");
@@ -83,7 +131,9 @@ function parseBlocks(markdown: string): Node[] {
       i < lines.length &&
       lines[i].trim() !== "" &&
       !/^```/.test(lines[i]) &&
-      !/^\s*[-*]\s+/.test(lines[i])
+      !/^\s*[-*]\s+/.test(lines[i]) &&
+      !/^#{1,6}\s+/.test(lines[i]) &&
+      !ORDERED.test(lines[i])
     ) {
       para.push(lines[i]);
       i += 1;

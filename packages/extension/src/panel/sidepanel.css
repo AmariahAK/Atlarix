@@ -467,16 +467,62 @@ body {
 }
 
 .msg--assistant p,
-.msg--assistant ul {
+.msg--assistant ul,
+.msg--assistant ol {
   margin: 0 0 8px;
 }
 
-.msg--assistant ul {
+.msg--assistant ul,
+.msg--assistant ol {
   padding-left: 18px;
 }
 
 .msg--assistant li {
   margin-bottom: 3px;
+}
+
+/*
+ * Headings, sized for a 320px column.
+ *
+ * The browser's defaults are written for a document — an h1 is 32px with 21px
+ * of margin — which inside a chat bubble reads as shouting and costs a third of
+ * the visible panel. These are close to the body size and lean on weight and
+ * spacing instead, which is what tells a heading apart at this width.
+ */
+.msg--assistant h1,
+.msg--assistant h2,
+.msg--assistant h3,
+.msg--assistant h4,
+.msg--assistant h5,
+.msg--assistant h6 {
+  margin: 14px 0 6px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.msg--assistant h1 {
+  font-size: 15px;
+}
+
+.msg--assistant h2 {
+  font-size: 14px;
+}
+
+.msg--assistant h3,
+.msg--assistant h4,
+.msg--assistant h5,
+.msg--assistant h6 {
+  font-size: 13px;
+}
+
+/*
+ * A heading below h2 is set in the muted colour, which is what separates it
+ * from the bold runs that surround it at the same size and weight.
+ */
+.msg--assistant h4,
+.msg--assistant h5,
+.msg--assistant h6 {
+  color: var(--fg-muted);
 }
 
 .msg--assistant code {
