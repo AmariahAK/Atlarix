@@ -2026,6 +2026,45 @@ approval, MCP description wrapping + OAuth-URL validation, the universal write-c
 
 ---
 
+## 🔌 Account connectors — SHIPPED 2026-09-14, and what the key actually is
+
+Connectors are live. A user adds a remote MCP server on `atlarix.dev/account`,
+signs in to it, and every surface inherits it — the desktop, the extension and
+the CLI — because the credentials live server-side and the proxy makes the call.
+
+**`ATLARIX_MCP_CRED_KEY` IS NOT A CREDENTIAL FOR ANY MCP SERVER.** The name
+reads exactly that way and it has already confused someone, so:
+
+- It is **one key for the whole system** that encrypts **other people's**
+  connector credentials.
+- A user adds SpacInsider as a connector → signs in → *that* token is the
+  SpacInsider credential → **this key encrypts that token** before it reaches
+  Postgres.
+- The lock on the safe, not the things inside it. Not per-server, not per-user.
+
+Your own MCP servers (SpacInsider, IPOInsider, Sentry) are **products people
+connect to**. This is **infrastructure that protects whatever they connect to**,
+yours included.
+
+**Why it is not in the database, and must not be moved there.** A Postgres dump
+or a leaked service-role key then yields ciphertext and nothing else; the two
+secrets have to fall together before a single token does. Supabase Vault would
+merge exactly those two blast radii, since Vault keeps key material inside the
+database it is protecting.
+
+**Exactly 32 bytes, and a wrong length is treated as ABSENT rather than an
+error** — so a typo disables connectors silently. That is why the boot log now
+says `connectors ENABLED` or `connectors DISABLED` on every start: there was
+previously no way to observe the state at all, because the auth check correctly
+runs before the config check and an anonymous probe learns nothing.
+
+Full documentation lives in `atlarix-proxy/.env.example`, next to the variable.
+
+**The name is admittedly poor** — `ATLARIX_CONNECTOR_ENCRYPTION_KEY` would say
+what it does. Owner decided against renaming on 2026-09-14 now that the
+behaviour is understood; it is a coordinated Railway + code change rather than a
+free one, and this section is the compensating control.
+
 ## 🪤 Traps worth not rediscovering
 
 ### A defence that no-ops on attacker-shaped input — FIXED 2026-09-14
