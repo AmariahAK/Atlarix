@@ -1,0 +1,41 @@
+Atlarix requires an account, and the agent runs on paid credit — a brand-new
+account has a zero balance and will refuse to start a turn. Please use the
+account below, which is funded for review.
+
+SIGNING IN
+1. Click the Atlarix icon to open the side panel.
+2. Click "Sign in". The panel opens Google/GitHub OAuth in a new window.
+3. Sign in with:
+       <REVIEWER ACCOUNT EMAIL>
+       <REVIEWER ACCOUNT PASSWORD>
+   Use the GitHub button. This account has review credit on it.
+
+WHAT TO TRY (about two minutes)
+1. Open any article, for example https://en.wikipedia.org/wiki/Antikythera_mechanism
+2. In the panel, ask: "What is this and what do researchers still disagree about?"
+3. Atlarix will ask for permission to read that one site. Chrome's own
+   permission prompt appears — click Allow. Access is requested per site, at the
+   moment it is needed; the extension holds no host access at install.
+4. It reads the page and answers. The activity card above the answer expands to
+   show exactly what it did.
+
+OPTIONAL, IF YOU WANT TO SEE THE REST
+- Attach a file with the + button and ask a question about it. Text, images,
+  PDFs and Office documents are read on the device; nothing is uploaded.
+- Ask "make me a relic that converts currencies". This generates a small
+  self-contained HTML document which opens in its own tab. It runs in a page
+  declared under the manifest's "sandbox" key — opaque origin, no extension
+  APIs, and connect-src 'none', so it has no network access. This is the remote
+  code declared on the Privacy tab.
+- Every site the agent has been granted can be reviewed and revoked from the
+  panel menu, or at atlarix.dev/account.
+
+NOTES FOR REVIEW
+- The "debugger" permission is used only to dispatch trusted keyboard and mouse
+  input to a granted tab, because it is the only API in Chrome that produces
+  events with isTrusted = true. Without it, pressing Enter to submit a form and
+  CSS :hover menus do nothing. It attaches to one granted tab for the duration
+  of an action and detaches immediately. It is never used to read network
+  traffic, evaluate script, or observe an ungranted tab.
+- Atlarix fills forms but never submits them. Anything that sends, buys, posts
+  or deletes stops and asks the user first.

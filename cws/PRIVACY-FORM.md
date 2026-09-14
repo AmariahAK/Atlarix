@@ -146,3 +146,57 @@ worth knowing rather than worrying about: the reason the field is absent is the
 same reason the extension is defensible — it holds no host access at install and
 asks per origin behind Chrome's own prompt. The single-purpose description says
 so explicitly, which is the right place for it.
+
+---
+
+## Distribution → Payments
+
+**Contains in-app purchases.**
+
+Not a judgment call, and the reason is specific to the EXTENSION rather than the
+product. The desktop app is genuinely free because you can bring your own key or
+run a local model. The extension cannot: `core/client.ts` is Core-only by
+design — "what makes this a paid product rather than a free client for someone
+else's key."
+
+And the $1 signup trial is gone: `20260908140000_remove_signup_trial_credit.sql`
+dropped `claim_signup_credit()` outright on 2026-09-08, because Core's lineup
+moved to models where $1 bought one or two turns rather than twenty. So a new
+account's balance is ZERO and its first message returns a 402.
+
+The "Free of charge" radio asserts the item "doesn't contain any functionality
+to purchase additional goods, content, services or functionality". The whole
+product depends on purchased Core credit. Ticking it would be inaccurate, and
+inaccurate disclosure is what pulls a live item rather than merely delaying one.
+
+## Access → Test instructions — DO NOT SKIP THIS
+
+This is the most likely single cause of rejection for this extension, and the
+rejection would not mention money.
+
+The extension signs in with Google or GitHub OAuth only — there is no
+email/password path in `auth/sign-in.ts`. So a reviewer signs in with their own
+account, lands on a zero balance, sends one message and gets "Not enough credit
+to start a turn." From the outside that is an extension that does not work.
+
+BEFORE SUBMITTING:
+
+1. Create a GitHub account for review — GitHub rather than Google, because a
+   shared Google account signed into from Google's own review infrastructure
+   frequently trips an "unusual activity" block, and the reviewer cannot clear
+   it.
+2. Sign into Atlarix once with it, from the extension, so the user row exists.
+3. Fund it. In the Supabase SQL editor, as the service role:
+
+       select public.credit_wallet_service(
+         '<that user uuid>'::uuid, 2000, 'topup', 'cws-review-2026-09'
+       );
+
+   2000 = $20.00, which is roughly 20–40 turns on the current lineup. `p_ref` is
+   unique per top-up — reuse the same ref and it no-ops as a duplicate, which is
+   the intended behaviour, so change it if you need to add more.
+4. Paste `cws/TEST-INSTRUCTIONS.txt` into the Test instructions tab with the
+   credentials filled in.
+
+Check the balance before submitting, and again if the review comes back — an
+account that has run dry mid-review looks identical to a broken extension.

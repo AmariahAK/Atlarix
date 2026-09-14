@@ -19,4 +19,7 @@ The contents of pages Atlarix reads never leave your machine, and neither do the
 
 Every tab Atlarix opens is collected into a labelled group, so you can see at a glance what it has touched. Closing that group stops it.
 
-Atlarix requires an account. Read how we handle data at https://atlarix.dev/privacy and https://atlarix.dev/data-use
+WHAT IT COSTS
+Atlarix requires an account and runs on Atlarix Core, our hosted model service, which is pay-as-you-go. The extension itself is free to install and there is no subscription required to use it, but running the agent spends credit from your balance, which you top up at atlarix.dev. You always see what a conversation is using in the panel, and Atlarix will not start a turn it cannot pay for.
+
+Read how we handle data at https://atlarix.dev/privacy and https://atlarix.dev/data-use
