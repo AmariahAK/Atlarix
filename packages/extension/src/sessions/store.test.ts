@@ -13,10 +13,14 @@ import {
   KEEP_RECENT_TOOL_RESULTS,
   MAX_SESSIONS,
   PRUNE_ABOVE_CHARS,
+  deleteAllSessions,
   deleteSession,
   listSessions,
   loadSession,
+  newSessionId,
+  openSessionId,
   pruneForModel,
+  rememberOpenSession,
   rewindToUserMessage,
   saveSession,
   titleFor,
@@ -317,5 +321,55 @@ describe("a compaction marker is not a message the user sent", () => {
     expect(titleFor([marker, { role: "user", content: "compare kettles" }])).toBe(
       "compare kettles",
     );
+  });
+});
+
+/**
+ * Which conversation a reopened panel lands in.
+ *
+ * Reported: "every new chat shouldn't go back to the previous chat." Pressing
+ * New made a fresh session that was never written to the index — nothing to
+ * save yet — and the panel restored the newest INDEX entry on open, so the new
+ * chat vanished and the old one came back.
+ */
+describe("the open conversation", () => {
+  it("is null before anything has been opened", async () => {
+    expect(await openSessionId()).toBeNull();
+  });
+
+  it("survives for a session with no saved transcript — the new-chat case", async () => {
+    const fresh = newSessionId();
+    await rememberOpenSession(fresh);
+    expect(await openSessionId()).toBe(fresh);
+    // Deliberately never saved: a new chat has nothing to write.
+    expect(await listSessions()).toEqual([]);
+  });
+
+  it("is forgotten when that conversation is deleted", async () => {
+    // Otherwise the next open restores a transcript with no index entry, and
+    // the history list disagrees with what is on screen.
+    const id = newSessionId();
+    await saveSession(id, [{ role: "user", content: "hi" }]);
+    await rememberOpenSession(id);
+    await deleteSession(id);
+    expect(await openSessionId()).toBeNull();
+  });
+
+  it("is left alone when a DIFFERENT conversation is deleted", async () => {
+    const keep = newSessionId();
+    const drop = newSessionId();
+    await saveSession(keep, [{ role: "user", content: "keep" }]);
+    await saveSession(drop, [{ role: "user", content: "drop" }]);
+    await rememberOpenSession(keep);
+    await deleteSession(drop);
+    expect(await openSessionId()).toBe(keep);
+  });
+
+  it("goes with erase everything", async () => {
+    const id = newSessionId();
+    await saveSession(id, [{ role: "user", content: "hi" }]);
+    await rememberOpenSession(id);
+    await deleteAllSessions();
+    expect(await openSessionId()).toBeNull();
   });
 });

@@ -226,3 +226,45 @@ describe("reading a file", () => {
     expect(out.attachment?.data).toMatch(/^data:image\/png/);
   });
 });
+
+/**
+ * A refused attachment stays staged.
+ *
+ * The refusal ends "switch tier and send again", and the composer used to clear
+ * every attachment on send — so following that advice meant going and finding
+ * the file again. Told to do something, the user must still have the thing.
+ */
+describe("what survives a refusal", () => {
+  const glm = {
+    id: "z-ai/glm-5.3",
+    tier: "core-1",
+    inputModalities: ["text"],
+  } as unknown as CoreModel;
+  const astra = {
+    id: "openai/gpt-6-astra",
+    tier: "core-3",
+    inputModalities: ["text", "image", "pdf"],
+  } as unknown as CoreModel;
+  const pdf = { kind: "pdf", name: "Resume.pdf", dataUrl: "data:application/pdf;base64,AA" } as Attachment;
+  const note = { kind: "text", name: "note.txt", text: "hello" } as Attachment;
+
+  it("hands back the refused ones so they can be re-sent", () => {
+    const out = gateAttachments([pdf], glm, [glm, astra]);
+    expect(out.accepted).toEqual([]);
+    expect(out.rejected).toEqual([pdf]);
+    expect(out.refusals[0]).toContain("Core 3");
+  });
+
+  it("keeps text, which every tier reads, out of the rejected pile", () => {
+    const out = gateAttachments([note, pdf], glm, [glm, astra]);
+    expect(out.accepted).toEqual([note]);
+    expect(out.rejected).toEqual([pdf]);
+  });
+
+  it("rejects nothing on a tier that can read it", () => {
+    const out = gateAttachments([pdf], astra, [glm, astra]);
+    expect(out.accepted).toEqual([pdf]);
+    expect(out.rejected).toEqual([]);
+    expect(out.refusals).toEqual([]);
+  });
+});

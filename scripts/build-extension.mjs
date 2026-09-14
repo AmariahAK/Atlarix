@@ -246,6 +246,36 @@ for (const { src, dest, px } of ASSETS) {
 }
 
 // ---------------------------------------------------------------------------
+// NOTHING IN THE TRANSCRIPT MAY SHRINK
+// ---------------------------------------------------------------------------
+//
+// MEASURED 2026-09-14: with 30 cards in an 815px column every `.steps` rendered
+// at 2px instead of 34px. `.transcript` is a flex column, its children default
+// to `flex-shrink: 1`, and `overflow: hidden` on the cards makes their
+// automatic minimum size ZERO — so once a conversation overflows, the tool
+// cards and only the tool cards collapse to their own borders. On screen that
+// reads as the cards having vanished.
+//
+// It is LATENT: a short conversation never overflows, so it survived every unit
+// test and every screenshot until a real session got long enough. The guard is
+// here rather than in vitest because jsdom does no layout — it cannot measure
+// this — and because `?raw` on a CSS import returns an EMPTY STRING under
+// Vitest, so a test that greps the stylesheet would pass whatever it said.
+{
+  const css = fs.readFileSync(
+    path.join(unpackedDir, "sidepanel.css"),
+    "utf8",
+  );
+  if (!/\.transcript\s*>\s*\*\s*\{[^}]*flex:\s*none/.test(css)) {
+    fatal(
+      "sidepanel.css has no `.transcript > * { flex: none }` — a long " +
+        "conversation will flex-shrink every tool card to a 2px hairline",
+    );
+  }
+  console.log(`[${TAG}] transcript children are shrink-proof`);
+}
+
+// ---------------------------------------------------------------------------
 // The zip
 // ---------------------------------------------------------------------------
 

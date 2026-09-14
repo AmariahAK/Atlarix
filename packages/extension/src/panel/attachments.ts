@@ -142,6 +142,15 @@ function tierName(tier: string): string {
 
 export interface GateResult {
   accepted: Attachment[];
+  /**
+   * The ones that did not go, so the caller can KEEP THEM STAGED.
+   *
+   * The refusal says "switch tier and send again", and that sentence was a lie:
+   * the composer cleared every attachment on send, so following the advice
+   * meant finding the file again. A refused attachment is the one case where
+   * the user has been told to do something that needs it still being there.
+   */
+  rejected: Attachment[];
   /** One sentence per refused attachment, written for the user. */
   refusals: string[];
 }
@@ -163,6 +172,7 @@ export function gateAttachments(
 ): GateResult {
   const capability = capabilityOf(model);
   const accepted: Attachment[] = [];
+  const rejected: Attachment[] = [];
   const refusals: string[] = [];
   let images = 0;
 
@@ -185,6 +195,7 @@ export function gateAttachments(
             `${tiers.join(" or ")} can; switch tier and send again.`
           : `${attachment.name} was not sent — no Atlarix Core tier currently reads ${noun}.`,
       );
+      rejected.push(attachment);
       continue;
     }
 
@@ -193,6 +204,7 @@ export function gateAttachments(
         refusals.push(
           `${attachment.name} was not sent — a message carries at most ${MAX_IMAGES} images.`,
         );
+        rejected.push(attachment);
         continue;
       }
       images += 1;
@@ -201,7 +213,7 @@ export function gateAttachments(
     accepted.push(attachment);
   }
 
-  return { accepted, refusals };
+  return { accepted, rejected, refusals };
 }
 
 /**

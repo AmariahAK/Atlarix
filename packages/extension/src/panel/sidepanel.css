@@ -296,6 +296,30 @@ body {
 }
 
 /*
+ * ══ NOTHING IN THE TRANSCRIPT MAY SHRINK ══
+ *
+ * A flex column's children default to `flex-shrink: 1`, so once the content is
+ * taller than the panel every child is squeezed to make it fit. Text resists,
+ * because its automatic minimum size is its content — but `.steps` and `.tool`
+ * set `overflow: hidden`, and an overflow other than `visible` makes that
+ * automatic minimum size ZERO. So the tool cards, and only the tool cards,
+ * collapsed to their own 2px of border.
+ *
+ * MEASURED: a 30-card transcript in a 815px column rendered every `.steps` at
+ * 2px instead of 34px. On screen that is a hairline between paragraphs, which
+ * reads as the cards having vanished rather than as a layout bug — and it is
+ * LATENT, appearing only once a conversation is long enough to overflow, which
+ * is why it survived every short test.
+ *
+ * `flex: none` on every child, rather than `min-height` on the cards: the rule
+ * belongs to the container that imposed the shrinking, and stating it once
+ * covers whatever gets appended here next.
+ */
+.transcript > * {
+  flex: none;
+}
+
+/*
  * A TURN BOUNDARY IS NOT THE SAME GAP AS A STEP.
  *
  * Everything in the transcript sat on one uniform 10px rhythm, so a new

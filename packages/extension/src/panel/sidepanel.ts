@@ -80,6 +80,8 @@ import {
   listSessions,
   loadSession,
   newSessionId,
+  openSessionId,
+  rememberOpenSession,
   rewindToUserMessage,
   saveSession,
 } from "../sessions/store";
@@ -1174,12 +1176,16 @@ async function send(): Promise<void> {
   // GATED BEFORE THE ROUND IS SPENT, and the refusal names a tier that works.
   // Core 1 is GLM and is text-only, so an image there has to be turned away —
   // but "Core 3 can read it" is the same sentence with the work done.
-  const { accepted, refusals } = gateAttachments(
+  const { accepted, rejected, refusals } = gateAttachments(
     staged,
     lineup.find((m) => m.id === model),
     lineup,
   );
-  staged = [];
+  // REFUSED ATTACHMENTS STAY STAGED. The refusal says "switch tier and send
+  // again", and clearing them made that advice impossible to follow — the file
+  // was gone and the user had to go and find it. Accepted ones go, because they
+  // are now part of a message in the transcript.
+  staged = rejected;
   renderAttachments();
 
   const userMessage: CoreMessage = {
@@ -1702,6 +1708,7 @@ async function openSession(id: string): Promise<void> {
   void clearDrivenTabs("all");
   cancelEdit();
   sessionId = id;
+  void rememberOpenSession(id);
   toolLabels.clear();
   usageAnchor = null;
   staged = [];
@@ -1718,6 +1725,9 @@ function startNewChat(): void {
   void clearDrivenTabs("all");
   cancelEdit();
   sessionId = newSessionId();
+  // Recorded immediately, not on first save: the point is to survive a panel
+  // close that happens BEFORE anything is typed.
+  void rememberOpenSession(sessionId);
   currentTitle = "";
   toolLabels.clear();
   usageAnchor = null;
@@ -1930,11 +1940,26 @@ async function render(): Promise<void> {
     // Reopening the panel lands you back in the conversation you were having,
     // which is what a docked panel implies. A blank chat every time makes the
     // history list the only way back to work that was one click away.
-    const [recent] = await listSessions();
-    if (recent) {
-      sessionId = recent.id;
-      currentTitle = recent.title;
-      messages = await loadSession(recent.id);
+    //
+    // WHAT IT WAS LOOKING AT, NOT WHAT WAS SAVED LAST. This used to take the
+    // newest index entry, and a new chat is not in the index until it has a
+    // message worth saving — so pressing New, closing the panel and reopening
+    // it dropped the user straight back into the conversation they had just
+    // left. The fresh chat silently never existed.
+    const remembered = await openSessionId();
+    const sessions = await listSessions();
+    const restored = remembered
+      ? (sessions.find((s) => s.id === remembered) ?? null)
+      : (sessions[0] ?? null);
+    if (restored) {
+      sessionId = restored.id;
+      currentTitle = restored.title;
+      messages = await loadSession(restored.id);
+    } else if (remembered) {
+      // A remembered id with no saved transcript is an EMPTY NEW CHAT, and
+      // landing on it is the whole point. Keep the id so the first message
+      // saves under the conversation the user started rather than a third one.
+      sessionId = remembered;
     }
     // Loaded before the first render so a reopened panel starts calibrated
     // rather than relearning the ratio on the user's first message.
