@@ -47,6 +47,7 @@ import {
 } from "../permissions/host-access";
 import { syncSiteGrants } from "../permissions/grants-sync";
 import { buildQuestionCard } from "./question-card";
+import { mountAtlarixMark } from "./atlarix-mark";
 import { listGrants, revokeAll } from "../permissions/site-grants";
 import { activeTab } from "../page/inject";
 import { detachAll } from "../page/trusted-input";
@@ -63,12 +64,12 @@ import {
 import { runTurn } from "../agent/loop";
 import { clearDrivenTabs, type Approval } from "../tools/dispatch";
 import { buildSystemPrompt } from "../agent/prompt";
-import { buildNotesSection, describeSize } from "../memory/index-render";
+import { buildNotesSection } from "../memory/index-render";
 import { migrateLegacyFacts } from "../memory/migrate";
 import { syncNotes } from "../memory/sync";
 import { listAccountSkills, skillIndexLines } from "../tools/skills";
 import { listConnectorNames } from "../tools/connector-names";
-import { deleteAllNotes, deleteNote, listNotes } from "../memory/notes";
+import { deleteAllNotes, listNotes } from "../memory/notes";
 import {
   deleteAllSessions,
   deleteSession,
@@ -148,8 +149,10 @@ const signOutButton = el<HTMLButtonElement>("sign-out");
 const accountChip = el<HTMLButtonElement>("account-chip");
 const eraseButton = el<HTMLButtonElement>("erase-all");
 const sessionList = el<HTMLElement>("session-list");
-const memoryList = el<HTMLElement>("memory-list");
 const status = el<HTMLElement>("status");
+const markCanvas = el<HTMLCanvasElement>("panel-mark");
+/** Null only if the canvas is missing, which `wiring.test.ts` would catch. */
+const mark = markCanvas ? mountAtlarixMark(markCanvas) : null;
 const providerButtons = Array.from(
   document.querySelectorAll<HTMLButtonElement>("[data-provider]"),
 );
@@ -937,6 +940,37 @@ function renderConversation(history: CoreMessage[]): void {
           "Keep this panel open while it works; closing it stops the answer.",
       ),
     );
+
+    /*
+     * STARTERS, because "what can it do" is not answerable from a blank box.
+     * The composer tip rotates through capabilities one at a time and a first
+     * run sees exactly one of them. These three are chosen to be the three
+     * DIFFERENT things it does — read the page, act on it, reach past it —
+     * rather than three phrasings of the first.
+     *
+     * They fill the composer rather than sending: a starter is a sentence to
+     * edit, and one that sent itself would spend a turn on a guess.
+     */
+    const starters = document.createElement("div");
+    starters.className = "empty__starters";
+    for (const text of [
+      "Summarise this page",
+      "Find the pricing on this site",
+      "Open the docs for this in a new tab",
+    ]) {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "empty__starter";
+      chip.textContent = text;
+      chip.addEventListener("click", () => {
+        if (!input) return;
+        input.value = text;
+        input.focus();
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      starters.append(chip);
+    }
+    empty.append(starters);
     transcript.append(empty);
     return;
   }
@@ -960,6 +994,8 @@ function renderConversation(history: CoreMessage[]): void {
     activity = null;
   };
   const restoreStep = (step: Step, node: HTMLElement) => {
+    // See `stepInto`: the question card is this tool's rendering.
+    if (step.kind === "tool" && step.name === "ask_user") return;
     if (!activity) {
       const card = stepsCard();
       // A reopened conversation's work is already finished, so it arrives
@@ -1029,6 +1065,12 @@ function renderConversation(history: CoreMessage[]): void {
 
 function setRunning(isRunning: boolean): void {
   running = isRunning ? running : null;
+  // The header mark is the ONLY always-visible indicator that a turn is live:
+  // the transcript can be scrolled away from the working card, and the stop
+  // button is small. It stops animating the moment the turn ends — see
+  // `atlarix-mark.ts` for why a permanently spinning canvas in an all-day side
+  // panel is not acceptable.
+  mark?.working(isRunning);
   if (sendButton) sendButton.hidden = isRunning;
   if (stopButton) stopButton.hidden = !isRunning;
   if (newChatButton) newChatButton.disabled = isRunning;
@@ -1172,6 +1214,12 @@ async function send(): Promise<void> {
     // turn is a type error about `never`.
     const activity: { card: StepsCard | null } = { card: null };
     const stepInto = (step: Step, node: HTMLElement) => {
+      // `ask_user` IS the question card, so it gets no step of its own. It used
+      // to produce a one-step "Asked you" card sitting directly above the
+      // question it described — the same fact twice, in a 320px panel where
+      // every row is a scroll. Nothing is lost: the card exists to summarise
+      // work the user cannot otherwise see, and this question is right there.
+      if (step.kind === "tool" && step.name === "ask_user") return;
       if (!activity.card) {
         activity.card = stepsCard();
         append(activity.card.root);
@@ -1594,28 +1642,6 @@ async function refreshDrawer(): Promise<void> {
   await pruneRevokedGrants(known);
   await syncSiteGrants();
 
-  if (memoryList) {
-    memoryList.textContent = "";
-    const notes = await listNotes();
-    if (notes.length === 0) {
-      emptyNote(memoryList, "Nothing yet. Ask Atlarix to remember something.");
-    }
-    for (const note of notes) {
-      // Title, hook and SIZE — the same figure the model is told, so a user
-      // reading "21.5 KB of 26 KB" here and a model refusing a write over it
-      // are talking about one number rather than two.
-      const line = `${note.title || note.name} — ${note.description || "no description"} · ${describeSize(note.bytes)}`;
-      const el = row(line);
-      // Read-only, and collapsed: a drawer is for finding a wrong note and
-      // deleting it, not for reading 26 KB in a 320px column.
-      el.title = "Click Forget to delete this note";
-      memoryList.append(
-        withAction(el, "Forget", () => {
-          void deleteNote(note.name).then(refreshDrawer);
-        }),
-      );
-    }
-  }
 }
 
 async function openSession(id: string): Promise<void> {

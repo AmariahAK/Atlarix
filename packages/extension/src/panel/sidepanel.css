@@ -74,13 +74,14 @@ body {
   flex: none;
 }
 
-/* The emerald dot is the wordmark's only ornament — no image to ship. */
+/*
+ * The mark is drawn, not shipped: `atlarix-mark.ts` paints the desktop's A on
+ * this canvas and switches it to the compass while a turn runs. Sized in CSS
+ * and backed at devicePixelRatio, so it stays sharp on a Retina panel.
+ */
 .panel__mark {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--primary);
-  box-shadow: 0 0 12px hsl(160 84% 39% / 0.6);
+  width: 20px;
+  height: 20px;
   flex: none;
 }
 
@@ -305,6 +306,21 @@ body {
   gap: 10px;
 }
 
+/*
+ * A TURN BOUNDARY IS NOT THE SAME GAP AS A STEP.
+ *
+ * Everything in the transcript sat on one uniform 10px rhythm, so a new
+ * question from the user was spaced exactly like the next tool card inside the
+ * previous answer — and in a 320px column, where a single turn can be five
+ * stacked elements, there was nothing to tell you where one exchange ended and
+ * the next began. The user's own message is the only reliable boundary marker
+ * we have, so it carries the extra space. Not the first one, which would just
+ * indent the top of the transcript.
+ */
+.msg--user:not(:first-child) {
+  margin-top: 10px;
+}
+
 .empty {
   margin: auto 0;
   color: var(--fg-muted);
@@ -318,6 +334,30 @@ body {
   color: var(--fg);
   font-size: 14px;
   margin-bottom: 6px;
+}
+
+.empty__starters {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+.empty__starter {
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 6px);
+  background: var(--card);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.empty__starter:hover {
+  border-color: var(--primary);
+  color: var(--primary);
 }
 
 .msg {

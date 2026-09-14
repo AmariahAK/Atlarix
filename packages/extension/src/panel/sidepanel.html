@@ -23,7 +23,19 @@
   <body>
     <main class="panel">
       <header class="panel__header">
-        <span class="panel__mark" aria-hidden="true"></span>
+        <!--
+          The Atlarix mark, ported from the desktop's AtlarixAnimation. A
+          formed A at rest; the compass ring and needle while a turn runs. A
+          canvas rather than an image because the animated state is the point
+          and the extension ships no image assets.
+        -->
+        <canvas
+          class="panel__mark"
+          id="panel-mark"
+          width="20"
+          height="20"
+          aria-hidden="true"
+        ></canvas>
         <h1 class="panel__title">Atlarix</h1>
         <div class="panel__actions">
           <!--
@@ -235,10 +247,16 @@
           IMMEDIATE REVOCATION is now chrome://extensions, and the account page
           says so rather than pointing back here.
         -->
-        <div class="drawer__group">
-          <h2 class="drawer__heading">What Atlarix remembers</h2>
-          <div class="drawer__list" id="memory-list"></div>
-        </div>
+        <!--
+          WHAT ATLARIX REMEMBERS MOVED TO THE ACCOUNT PAGE, for the same reason
+          the site list did: notes sync, so this was a second rendering of the
+          same rows in the worst place to read them. On atlarix.dev/account they
+          can be added, edited and deleted; here they were read-only text.
+
+          "Erase everything" still deletes them, and still enumerates the
+          per-note keys to do it — see `sidepanel.ts`. Removing a list is not
+          removing the data it listed.
+        -->
 
         <!--
           The off switch. Everything above lives in this browser profile and
