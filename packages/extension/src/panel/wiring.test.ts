@@ -90,3 +90,4 @@ describe("the script never builds DOM from a string", () => {
     expect(code).not.toMatch(/document\.write/);
   });
 });
+

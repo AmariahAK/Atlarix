@@ -46,6 +46,7 @@ import {
   revokeHostAccess,
 } from "../permissions/host-access";
 import { syncSiteGrants } from "../permissions/grants-sync";
+import { buildQuestionCard } from "./question-card";
 import { listGrants, revokeAll } from "../permissions/site-grants";
 import { activeTab } from "../page/inject";
 import { detachAll } from "../page/trusted-input";
@@ -793,62 +794,22 @@ function describeCall(call: ToolCall): string {
  * logged on the path where that value is a password.
  */
 /**
- * The card `ask_user` renders.
+ * The card `ask_user` renders — built in `question-card.ts`, wired here.
  *
- * NOT A PROMISE, UNLIKE `approvalCard` — and that difference is the feature.
- * An approval card holds a promise the loop is waiting on, so it dies with the
- * document: close the panel and the question is gone. A question must outlive
- * that, because the whole point is that the user answers whenever they like.
- * So this renders from the RECORDED tool call and resolves nothing; the answer
- * is an ordinary next message.
- *
- * OPTIONS FILL THE COMPOSER RATHER THAN SENDING. One consistent rule, for the
- * case that decides it: with three questions on screen, a click that sent
- * immediately would answer the first and discard the rest. Filling also leaves
- * the answer editable, which matters when the right answer is "the second one,
- * but only for today".
+ * The composer is this module's, so the fill callback is passed in rather than
+ * reached for: that is what lets the card's ordering, numbering and skip
+ * behaviour be tested without mounting the whole panel.
  */
 function questionCard(questions: AskUserQuestion[]): HTMLElement {
-  const card = document.createElement("div");
-  card.className = "ask";
-
-  for (const q of questions) {
-    const heading = document.createElement("div");
-    heading.className = "ask__question";
-    heading.textContent = q.question;
-    card.append(heading);
-
-    if (!q.options?.length) continue;
-    const row = document.createElement("div");
-    row.className = "ask__options";
-    for (const option of q.options) {
-      const chip = document.createElement("button");
-      chip.type = "button";
-      chip.className = "ask__option";
-      chip.textContent = option;
-      chip.addEventListener("click", () => {
-        if (!input) return;
-        const current = input.value.trim();
-        input.value = current ? `${current}, ${option}` : option;
-        input.focus();
-        // The composer auto-grows on input; a programmatic value set fires no
-        // such event, so a long answer would sit in a one-row box.
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-      });
-      row.append(chip);
-    }
-    card.append(row);
-  }
-
-  const note = document.createElement("p");
-  note.className = "ask__note";
-  note.textContent =
-    questions.some((q) => q.options?.length)
-      ? "Pick one, or type your own answer."
-      : "Answer below whenever you like.";
-  card.append(note);
-
-  return card;
+  return buildQuestionCard(questions, (text) => {
+    if (!input) return;
+    const current = input.value.trim();
+    input.value = current ? `${current}\n\n${text}` : text;
+    input.focus();
+    // The composer auto-grows on input; a programmatic value set fires no such
+    // event, so a long answer would sit in a one-row box.
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
 }
 
 function approvalCard(request: Approval): Promise<boolean> {

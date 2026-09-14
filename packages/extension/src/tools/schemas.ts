@@ -500,19 +500,21 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
     type: "function",
     function: {
       name: "ask_user",
+      // THE DESKTOP'S WORDING, deliberately close to verbatim. The first
+      // version of this was three sentences longer -- when to use it, when not
+      // to, what it is not for -- and none of that earned its tokens on a tool
+      // the model already understands. One product, one description; if the
+      // desktop's changes, this follows it rather than drifting.
       description:
         "Ask the user one or more questions — YOUR TURN ENDS after asking. " +
-        "They answer whenever they like and their answers arrive as your next " +
-        "message. Because the turn ends, BATCH EVERY QUESTION YOU NEED INTO " +
-        "ONE CALL via `questions` (up to " +
-        `${ASK_USER_MAX_QUESTIONS}, each with up to ${ASK_USER_MAX_OPTIONS} ` +
-        "`options`) — asking one at a time costs a full round trip each and " +
-        "reads as an interrogation. Use this instead of guessing when the " +
-        "answer changes what you would DO: which of several accounts they " +
-        "meant, which of two matching links, whether to act on a page at all. " +
-        "Do not use it for something the page in front of you already answers, " +
-        "and never to ask permission for an action — Atlarix asks for that " +
-        "itself.",
+        "The user answers asynchronously and their answers arrive as the next " +
+        "user message, where you continue the task (or ask follow-ups). " +
+        "Because the turn ends, batch ALL questions you need into ONE call " +
+        `via \`questions\` (max ${ASK_USER_MAX_QUESTIONS}, each with up to ` +
+        `${ASK_USER_MAX_OPTIONS} \`options\`) — ask everything up front, ` +
+        "never one at a time. A single `question` + `options` also works. " +
+        "The UI shows the options as a numbered list the user can pick from, " +
+        "skip, or answer in their own words.",
       parameters: {
         type: "object",
         properties: {

@@ -588,53 +588,107 @@ body {
  * through.
  */
 .ask {
-  padding: 11px;
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--primary);
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--primary) 40%, transparent);
   border-radius: calc(var(--radius) - 4px);
-  background: var(--card);
+  background: color-mix(in srgb, var(--primary) 5%, var(--card));
   font-size: 13px;
+}
+
+.ask__header {
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  margin-bottom: 10px;
+}
+
+.ask__block + .ask__block {
+  margin-top: 14px;
 }
 
 .ask__question {
   font-weight: 600;
+  line-height: 1.45;
   overflow-wrap: anywhere;
 }
 
-.ask__question + .ask__question {
-  margin-top: 12px;
-}
-
+/*
+ * ONE PER ROW, NOT WRAPPED CHIPS.
+ *
+ * These were `flex-wrap: wrap` pills, and the old comment defended that on the
+ * grounds that four stacked options "would push the composer off a short
+ * panel". They do not — the card scrolls with the transcript. What wrapping
+ * DID do was lay four options out as 1 / 2-3 / 4 depending on their text
+ * width, so the reading order stopped matching the order the model wrote them
+ * in, which is the one thing a numbered list of choices has to preserve.
+ *
+ * Same shape as the desktop's InlineUserQuestions, which had this right first.
+ */
 .ask__options {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 6px;
   margin-top: 8px;
 }
 
 /*
- * Chips, not full-width buttons: four options stacked would push the composer
- * off a short panel, and these are suggestions rather than the only answers.
+ * A REAL SURFACE. The previous version was transparent with a hairline border
+ * and inherited the body colour, and it was reported as looking "just like
+ * text" -- which it did, because nothing about it said it could be clicked.
  */
 .ask__option {
-  width: auto;
-  padding: 4px 10px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
   border: 1px solid var(--border);
-  border-radius: 999px;
-  background: transparent;
+  border-radius: calc(var(--radius) - 6px);
+  background: var(--card);
   color: var(--fg);
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
+  text-align: left;
   cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease;
 }
 
 .ask__option:hover {
   border-color: var(--primary);
-  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, var(--card));
+}
+
+.ask__option:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+.ask__option-num {
+  flex: none;
+  width: 14px;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.ask__option-label {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Quieter than an answer, because it is the absence of one. */
+.ask__option--skip {
+  background: transparent;
+  border-style: dashed;
+  color: var(--fg-muted);
+  font-size: 12px;
 }
 
 .ask__note {
-  margin: 10px 0 0;
+  margin: 12px 0 0;
   color: var(--fg-muted);
   font-size: 12px;
 }
