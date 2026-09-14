@@ -12,6 +12,62 @@ paths are closed — a repo can no longer replace Atlarix's operating instructio
 versions had shipped, then "v14.44 SHIPPED" while nothing was tagged. Update it in the same commit
 as the version bump, or do not trust it.
 
+## 🧩 Chrome Web Store — v1.0.0 SUBMITTED 2026-09-14, automation waits for approval
+
+**Status: pending review.** Item `fkoacefbjjjhjceidagdajkgclfjacbe`, version 1.0.0, public,
+in-app purchases declared. Everything pasted into the dashboard lives in `cws/` —
+`DESCRIPTION.txt`, `PRIVACY-FORM.md` (every justification, measured against the
+1000-character limit), `TEST-INSTRUCTIONS.txt`, the fitted screenshots and the store icon.
+
+**It was rejected once first, and the reason is worth keeping.** "Spam and Placement in the
+Store — excessive keywords", quoting a line that listed six file formats by product name:
+"PDFs, Word, Excel, PowerPoint, OpenDocument and EPUB". Written as a capability, read as
+keyword stuffing, and the policy names description metadata explicitly. Rewritten to say what
+the feature does instead. `cws/DESCRIPTION.txt` now carries a check that no line names three
+or more products or formats.
+
+### WHEN 1.0.0 IS APPROVED — automate the submit, like MSIX
+
+The Chrome Web Store has an official API and it maps almost exactly onto what
+`scripts/store-submit.mjs` already does for Partner Center. A sibling `scripts/cws-submit.mjs`,
+two calls, no SDK:
+
+    PUT  https://www.googleapis.com/upload/chromewebstore/v1.1/items/<id>?uploadType=media
+    POST https://www.googleapis.com/chromewebstore/v1.1/items/<id>/publish
+
+Three secrets, same shape as the Azure trio: `CWS_CLIENT_ID`, `CWS_CLIENT_SECRET`,
+`CWS_REFRESH_TOKEN`. Copy `store-submit.mjs`'s discipline including `continue-on-error: true`
+— a Store API failure must never block a release.
+
+**THE TRAP, and it is a silent one.** Setting this up means creating a Google Cloud project
+and an OAuth consent screen. Google's own words:
+
+> "A Google Cloud Platform project with an OAuth consent screen configured for an external
+> user type and a publishing status of 'Testing' is issued a refresh token expiring in 7 days,
+> unless the only OAuth scopes requested are a subset of name, email address, and user profile."
+
+The Chrome Web Store scope is not in that subset, so the exemption does not apply. Left in
+Testing, the pipeline works all week and then every release 401s — with nothing in the diff to
+explain it. Two ways out, and **the second is better if `atlarix.dev` is a Google Workspace
+domain**: set the consent screen to "In production", or set the user type to **Internal**,
+which has no 7-day limit at all. Also note refresh tokens die after **six months unused**,
+which a slow release cadence can reach.
+
+**What the API cannot do:** the description, screenshots and privacy justifications are not
+settable. Only the package. That is fine — they change rarely — but it does mean automation
+would not have caught the rejection above.
+
+**And `publish` still means REVIEW.** Unlike Railway or Vercel this is a submit, not a deploy;
+it enters a human queue. Handle `publishTarget` so a build can go to trusted testers without a
+full review when a fast loop is wanted.
+
+### Decide at the same time
+
+- Does an extension submit ride the release tag, or get its own trigger? `msix.yml` hangs off
+  `release.yml`; the extension version is currently decoupled from the app's.
+- Publisher display name still reads **`amariah abishai`** in the dashboard and on the public
+  listing. It was supposed to be **NorahLabs** before anything went public.
+
 ## 🚚 UNRELEASED ON `dev` — everything below ships at the next tag
 
 All four repos are clean and pushed as of 2026-09-10. `dev` is ahead of the v14.45.0 tag by
