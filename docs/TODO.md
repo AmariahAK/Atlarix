@@ -3011,3 +3011,119 @@ Version prose lives in [`CHANGELOG.md`](./CHANGELOG.md) (current window) and
 consolidated in §Traps above, in a second wording, in a table wide enough that nobody read
 either — and two copies of a lesson is how one of them ends up contradicting the code. If
 you want to know which release a trap came from, `git log -S` the phrase.
+
+## 🤖 Chrome Web Store auto-deploy — BUILT 2026-09-15, waiting on approval to fire
+
+`scripts/cws-submit.mjs` + `.github/workflows/cws.yml` + `.github/workflows/cws-keepalive.yml`.
+Nothing is committed to `dev` yet and nothing has been submitted — v1.0.0 is still in
+review and **the draft is locked while it is**, so the first real upload cannot happen
+until it clears.
+
+**OAuth is DONE and verified against the live API** — see the CWS memory for the account
+facts. GCP project `atlarix-cws` under the **atlarix.dev organization**, consent screen
+**Internal** (which is what kills the 7-day refresh-token expiry; it is only offered when
+the project sits under the Workspace org). Client `atlarix-cws-ci`, type Desktop app.
+`CWS_CLIENT_ID` / `CWS_CLIENT_SECRET` / `CWS_REFRESH_TOKEN` are set on `AmariahAK/Atlarix`.
+Credentials JSON at `~/.config/atlarix/cws-oauth-client.json`, mode 600.
+
+**THE SIX-MONTH TRAP IS HANDLED, AND IT IS THE ONLY ONE INTERNAL DOES NOT FIX.** A refresh
+token Google has not seen used for six months is revoked. `cws-keepalive.yml` runs
+`cws-submit.mjs --check` monthly, which is a real token refresh plus a real GET. It is
+deliberately NOT `continue-on-error` — a red run there is the product, six months ahead of
+the release it would otherwise break. Note GitHub disables scheduled workflows after 60
+days of repo inactivity; if Atlarix ever goes quiet that long, the keepalive stops at
+exactly the moment the token starts aging.
+
+**THE TRAP THAT SHAPES `cws-submit.mjs`: BOTH ENDPOINTS ANSWER 200 WITH A FAILURE IN THE
+BODY.** Upload returns `{"uploadState":"FAILURE","itemError":[…]}`; publish returns
+`{"status":["NOT_AUTHORIZED"],…}`. `res.ok` is a TRANSPORT check here, not a success
+check — a script that trusts the status code reports a green publish for a package the
+Store rejected, and the first anyone hears is a user asking why the extension never
+updated. `assertUploadOk` / `assertPublishOk` judge the body, and
+`src/__tests__/cws-submit-guards.test.ts` **was verified by breaking the guard and
+watching 2 tests go red**, not by watching the happy path pass. `IN_PROGRESS` is a failure
+there too: accepted is not ingested.
+
+**The item id is DERIVED from `manifest.key`, then cross-checked against
+`ATLARIX_EXTENSION_ID` in `src/auth/redirect.ts`.** A hand-typed id publishes to whatever
+item that string names; a derived one 404s. This project has already had a
+one-character key transcription error that still decoded as valid base64.
+
+`--deploy-percentage` is the staged rollout (body, NOT a query parameter — as a query
+parameter it is silently ignored, i.e. a staged rollout that quietly went to everyone).
+`--target trustedTesters` skips the public review queue for a fast loop.
+
+**DECIDED: its own `ext-v*` tag, NOT the release tag.** The extension version is decoupled
+(1.0.0 vs the app's 14.45.0), the cadence differs, and `publish` is a submit into a human
+queue — coupling to `v*` would re-submit an unchanged extension on every desktop patch.
+Reverse it by editing one `on:` block, but do it deliberately: a submission cannot be
+un-submitted.
+
+**Still owed before the first run:**
+- The publisher display name still reads `amariah abishai` on the public listing. It was
+  meant to be **NorahLabs** before anything went public.
+- The API cannot set the description, screenshots or privacy justifications. A release
+  that adds a manifest permission (`externally_connectable` for instant revoke, or
+  anything the desktop bridge needs) still needs a manual dashboard trip — and automation
+  would not have caught v1.0.0's rejection, which was in exactly that surface.
+- `packages/extension/src/panel/sidepanel.ts:104` — `MAX_MESSAGE_BYTES` is imported and
+  never used. Pre-existing on `dev`, and the only oxlint ERROR in the repo.
+
+### ~~QUEUED — drop `chrome.debugger`~~ — **CANCELLED 2026-09-15, same day, by measurement**
+
+**Do not re-propose without new evidence.** This was queued as "ship smaller first" and
+cancelled hours later when the premise was checked against a real published extension
+rather than reasoned about.
+
+**The measurement:** Chrome's own **Claude** extension (`fcoeoabgfenejglbffodgkkbkcdhcgfn`,
+v1.0.93) is LIVE in the Chrome Web Store and its manifest declares
+`"debugger"` — alongside `nativeMessaging`, `webNavigation`, `offscreen`, `downloads`,
+`declarativeNetRequestWithHostAccess` and `host_permissions: ["<all_urls>"]`. Read from
+the installed extension on this machine, not from documentation. **So `debugger` is
+demonstrably not fatal to review**, and the removal's whole justification was a risk that
+a shipped competitor disproves.
+
+The rest of the reasoning was already weak and is kept because it recurs: the one
+rejection so far was description KEYWORDS, not permissions; 1.0.0 had been in review for a
+single day when the removal was proposed; and cancelling a pending review resubmits to the
+BACK of the queue, so it is as likely to cost days as save them.
+
+**`press_key` and `hover` therefore stay.** The one piece worth salvaging is the fallback
+below — `form.requestSubmit()` is a better path than a debugger attach whenever a real
+`<form>` exists, because it needs no permission and puts no banner on the tab. Keep it as
+an enhancement, not as a replacement.
+
+**The original scope is kept below for the day this DOES need doing.**
+
+**Exact scope. It costs two tools and nothing else.**
+
+- Delete `packages/extension/src/page/trusted-input.ts` (+ its test).
+- Remove `press_key` and `hover`: `tools/schemas.ts`, `tools/dispatch.ts`
+  (`pressKeyOn`, `hoverRef`, and `requireAgentTab` — which exists ONLY for these two).
+- Drop `"debugger"` from `manifest.json` `permissions`.
+- Delete the `## debugger` block from `cws/PRIVACY-FORM.md`. **A justification for a
+  permission you no longer request is a reviewer asking why it is there.**
+- `src/types/chrome.d.ts`: drop the `debugger` namespace. It doubles as the Web Store
+  justification list, so a declaration left behind contradicts the manifest.
+
+**WHAT DOES NOT CHANGE, and it is most of the product.** Both tools are ALREADY refused
+outside the agent's own tab group — that is the whole reason `trusted-input.ts` exists, so
+a banner never lands on a tab the user is reading. **A user's own tabs lose nothing**:
+read, click, fill and scroll never touched the debugger. The real loss is Enter-to-submit
+and hover-menus INSIDE tabs Atlarix opened.
+
+**The fallback to build in the same change, so the loss is smaller than the removal.**
+Add a `submit` op to the shared page kernel calling `form.requestSubmit()` — that genuinely
+submits a real `<form>`, which is the common "type in the box, press Enter" case, and it
+needs no permission. `requestSubmit()` and NOT `form.submit()`: the latter skips validation
+AND skips the `submit` event, so a site that intercepts submission to do the real work sees
+nothing happen. For `hover`, a synthetic `mouseover`/`mouseenter` covers JS-driven menus and
+NOT pure CSS `:hover` — say so in the tool description rather than pretending parity.
+
+**The prompt must change too, or the model will keep reaching for a tool that is gone.**
+`agent/prompt.ts` and the `click` refusal message both name `press_key` today. The existing
+"direct URLs instead of a site's search box" steer already reduces the need for Enter —
+lean on it harder.
+
+**Do NOT reuse version 1.0.0.** Bump. A version string that has already been uploaded is
+not a clean slate, and the cost of bumping is zero.

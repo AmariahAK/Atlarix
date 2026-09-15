@@ -1,0 +1,79 @@
+# Keep the Chrome Web Store refresh token alive.
+#
+# THIS WORKFLOW EXISTS FOR ONE SENTENCE IN GOOGLE'S DOCS: a refresh token that
+# has not been used for SIX MONTHS is revoked. Nothing else here is interesting.
+#
+# The extension's release cadence can absolutely reach six months — v1.0.0 is
+# the only version that has ever existed — and the failure is the worst shape
+# there is: the pipeline works for months, then 401s on a release day, with
+# nothing in the diff to explain it and nobody thinking about a token they set
+# up half a year earlier. One request a month makes the token permanently
+# non-idle, which is the entire fix.
+#
+# WHY THIS IS NOT THE POLL THIS PROJECT KEEPS REGRETTING. Every traffic scare
+# on Atlarix so far has turned out to be one of our own idle polls against
+# Supabase. This is twelve requests a YEAR against Google, and unlike those
+# polls it is not watching for a change — it is performing a keepalive, where
+# the request itself IS the point. It also doubles as the early warning: if the
+# credentials break for any other reason, this tells us on a quiet Monday
+# rather than during a release.
+#
+# WHY THE 7-DAY TRAP IS NOT ALSO HANDLED HERE. It cannot be. An External +
+# Testing consent screen issues tokens that expire on a wall clock no amount of
+# use resets. The fix for that one is configuration, and it is already applied:
+# the `atlarix-cws` project's consent screen is set to **Internal** under the
+# atlarix.dev Workspace organization, which has no such limit. If someone ever
+# flips that to External, this workflow will start failing weekly — which is
+# the correct and loud outcome.
+#
+# NOTE ON GITHUB'S OWN TIMER: scheduled workflows are disabled automatically
+# after 60 days of repository inactivity. This repo is active daily, so the
+# schedule holds — but if Atlarix ever goes quiet for two months, the keepalive
+# stops at the same time the token starts aging. Re-enable it from the Actions
+# tab before the next release if that ever happens.
+
+name: CWS token keepalive
+
+on:
+  schedule:
+    # 06:12 UTC on the 3rd of each month. An odd minute on purpose — the top of
+    # the hour is the busiest slot on GitHub's scheduler and the one most often
+    # delayed. Monthly gives roughly six chances to notice a problem before the
+    # six-month deadline could actually be reached.
+    - cron: "12 6 3 * *"
+  workflow_dispatch:
+
+# Read-only. This workflow touches nothing in the repository; it makes two
+# outbound requests and reports. An explicit block beats inheriting whatever
+# the repository default happens to be.
+permissions:
+  contents: read
+
+concurrency:
+  group: cws-keepalive
+  cancel-in-progress: false
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # No `npm ci`. The script imports nothing outside node: builtins, and a
+      # full install would turn a two-request keepalive into a several-minute
+      # job that can fail for reasons entirely unrelated to the token.
+      - name: Exercise the refresh token
+        env:
+          CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+          CWS_CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+          CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+        run: node scripts/cws-submit.mjs --check
+
+      # DELIBERATELY NOT `continue-on-error`. The release-path submit is
+      # allowed to fail quietly because a Store outage must never block a
+      # desktop release; this job is the opposite — a red run here IS the
+      # product, six months ahead of the release it would otherwise break.

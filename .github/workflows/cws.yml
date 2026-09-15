@@ -1,0 +1,161 @@
+# Build the Chrome extension and submit it to the Chrome Web Store.
+#
+# ══ ITS OWN TRIGGER, NOT THE RELEASE TAG ══
+#
+# `msix.yml` hangs off `release.yml` because the MSIX ships on every desktop
+# release and was never optional. The extension is the other case: its version
+# is decoupled from the app's (1.0.0 against the app's 14.45.0), its cadence is
+# different, and `publish` here enters a HUMAN REVIEW QUEUE rather than
+# deploying. Coupling it to `v*` would mean every desktop patch release
+# re-submits an unchanged extension into that queue.
+#
+# So: `ext-v*` tags, plus `workflow_dispatch` for a manual draft or a staged
+# rollout. If that turns out to be wrong, the change is one `on:` block — but
+# make it deliberately, because a submission cannot be un-submitted.
+#
+# ══ THIS NEVER GATES ANYTHING ══
+#
+# `publish-release` in release.yml does NOT list this workflow. `store-submit`
+# is `continue-on-error: true` for the same reason and the rule is the owner's:
+# a Store API failure must never block a release. The keepalive workflow is the
+# deliberate exception, because there a red run is the whole point.
+#
+# ══ WHAT THIS CANNOT DO ══
+#
+# The API sets the PACKAGE and nothing else. Description, screenshots and
+# privacy justifications are dashboard-only. A release that adds a permission
+# to `manifest.json` still needs someone to go and write its justification by
+# hand, and no amount of green here changes that. v1.0.0's rejection — "Spam
+# and Placement in the Store", for a description line naming six file formats —
+# was in exactly that unreachable surface.
+
+name: Atlarix Extension
+
+on:
+  push:
+    tags:
+      - "ext-v*"
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Who receives it"
+        required: false
+        default: "trustedTesters"
+        type: choice
+        options:
+          # trustedTesters FIRST, and it is the dispatch default on purpose. A
+          # manual run is usually a rehearsal, and the cheap mistake to make
+          # here is shoving a test build into public review.
+          - trustedTesters
+          - default
+      deploy_percentage:
+        description: "Staged rollout % for the public target (blank = 100%)"
+        required: false
+        default: ""
+        type: string
+      no_publish:
+        description: "Upload the draft only — do not submit for review"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+# One submission at a time. Two concurrent uploads to the same item is a race
+# over a single draft slot, and the loser's failure mode is a confusing
+# uploadState rather than a clean error.
+concurrency:
+  group: cws-submit
+  cancel-in-progress: false
+
+jobs:
+  submit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      # The extension had NO type check in CI until this was added to
+      # release.yml: `check:ts` is tsconfig.app.json, whose `include` is
+      # ["src","shared"], so `packages/extension` was invisible to it. The
+      # package's own vitest project cannot substitute — jsdom-under-vitest
+      # keeps Node's globals, so a Node-shaped leak passes there and fails in a
+      # browser sandbox.
+      - name: Type check (extension)
+        run: npm run ts:extension
+
+      - name: Build extension
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY }}
+          ATLARIX_CORE_PROXY_URL: ${{ vars.ATLARIX_CORE_PROXY_URL || secrets.ATLARIX_CORE_PROXY_URL }}
+        run: npm run build:extension
+
+      # The zip name carries the version from packages/extension/package.json,
+      # which build-extension.mjs has already asserted matches manifest.json.
+      # Resolved by glob rather than reconstructed here, so this workflow never
+      # becomes a third place that has to know the version — the docs-state-no-
+      # numbers rule applied to CI.
+      - name: Locate the package
+        id: pkg
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          zips=(packages/extension/dist/atlarix-extension-*.zip)
+          # Exactly one, asserted. A stale zip left beside a fresh one makes the
+          # glob ambiguous, and `ls` would happily hand back two paths that then
+          # fail somewhere further down as a confusing "no such file" — on a
+          # filename that is really two filenames.
+          if [ "${#zips[@]}" -ne 1 ]; then
+            echo "Expected exactly one built zip, found ${#zips[@]}: ${zips[*]:-(none)}" >&2
+            exit 1
+          fi
+          zip="${zips[0]}"
+          echo "zip=$zip" >> "$GITHUB_OUTPUT"
+          echo "Built $zip ($(stat -c%s "$zip") bytes)"
+
+      # Keep the artifact regardless of what the Store says. When a submission
+      # is rejected, the reviewer's complaint is about THESE bytes, and the zip
+      # is reproducible (sorted entries, fixed 1980 timestamps) so it can be
+      # checksum-compared against a local rebuild.
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlarix-extension
+          path: ${{ steps.pkg.outputs.zip }}
+          if-no-files-found: error
+
+      - name: Submit to the Chrome Web Store
+        continue-on-error: true
+        env:
+          CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+          CWS_CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+          CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+        run: |
+          set -euo pipefail
+          args=(--zip "${{ steps.pkg.outputs.zip }}")
+
+          # A TAG is a real release: public target, full rollout. A DISPATCH is
+          # whatever the operator asked for. Keeping the two apart here rather
+          # than defaulting the inputs means a tag can never silently inherit a
+          # rehearsal's settings.
+          if [ "${{ github.event_name }}" = "push" ]; then
+            args+=(--target default)
+          else
+            args+=(--target "${{ inputs.target }}")
+            if [ -n "${{ inputs.deploy_percentage }}" ]; then
+              args+=(--deploy-percentage "${{ inputs.deploy_percentage }}")
+            fi
+            if [ "${{ inputs.no_publish }}" = "true" ]; then
+              args+=(--no-publish)
+            fi
+          fi
+
+          node scripts/cws-submit.mjs "${args[@]}"
