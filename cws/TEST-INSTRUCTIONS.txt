@@ -23,10 +23,16 @@ OPTIONAL, IF YOU WANT TO SEE THE REST
 - Attach a file with the + button and ask a question about it. Text, images,
   PDFs and Office documents are read on the device; nothing is uploaded.
 - Ask "make me a relic that converts currencies". This generates a small
-  self-contained HTML document which opens in its own tab. It runs in a page
-  declared under the manifest's "sandbox" key — opaque origin, no extension
-  APIs, and connect-src 'none', so it has no network access. This is the remote
-  code declared on the Privacy tab.
+  self-contained HTML document which opens in its own tab.
+- Ask "make me a CSV of the ten largest countries by area". Atlarix writes the
+  file and offers it as a Download card in the conversation. The file is built
+  on the device and is never uploaded.
+- Those two features are the remote code declared on the Privacy tab. Both run
+  only inside pages declared under the manifest's "sandbox" key — opaque
+  origin, no extension APIs, connect-src 'none', so neither has any network
+  access. The second runs its code in a worker created inside that sandboxed
+  page, which inherits the same origin and the same policy, and which is
+  terminated if it runs longer than 15 seconds.
 - Every site the agent has been granted can be reviewed and revoked from the
   panel menu, or at atlarix.dev/account.
 

@@ -2,14 +2,25 @@
 
 Paste each block into the matching field.
 
+EVERY BLOCK HERE IS UNDER 1000 CHARACTERS, which is the field limit rather than
+a house style. Found the hard way while preparing 1.1.0: the single-purpose
+block had been sitting at about 1,125 characters, so whatever is in the
+dashboard was NOT this file verbatim — it was trimmed at paste time and the trim
+was never written back. A field that silently differs from the file claiming to
+be its source is worse than having no file, because the next person edits the
+file and believes they have changed the submission.
+
+So: re-paste every block this commit touched, and measure before pasting. The
+numbers are printed by `node scripts/cws-copy-check.mjs`.
+
 ## Single purpose description
 
 ```
-Atlarix is a browser agent. Its single purpose is to read and act on web pages on the user's behalf, in a side panel, using the sessions the user is already signed into — so they can ask a question about the sites they already have access to instead of copying content between them.
+Atlarix is a browser agent. Its single purpose is to read and act on web pages on the user's behalf, in a side panel, using the sessions they are already signed into — so they can ask about sites they already have access to instead of copying content between them.
 
-Everything the extension does serves that one purpose: reading the current page or a tab the user names, navigating and clicking within sites the user has granted, attaching the user's own files as context for a question, and presenting the answer in the panel.
+Everything it does serves that purpose: reading the current page or a tab the user names, navigating and clicking within sites they have granted, attaching their own files as context, presenting the answer in the panel, and — when they ask for the answer as a file rather than a message — building that file on the device to download.
 
-Host access is NOT requested at install. It is declared as optional_host_permissions and requested one origin at a time, at the moment the user asks Atlarix to work on that site, behind Chrome's own permission prompt. A user who does not want to be asked per site can choose "Allow every site" on that same prompt, which grants the broad host permission through Chrome's own dialog in one step; Atlarix still asks before working on a site they have not allowed. The user can revoke any site from the panel or from their account page. The extension ships able to read nothing.
+Host access is NOT requested at install. It is declared as optional_host_permissions and requested one origin at a time, when the user asks Atlarix to work on that site, behind Chrome's own prompt. Someone who would rather not be asked per site can choose "Allow every site" on that prompt. Any site can be revoked from the panel or the account page. The extension ships able to read nothing.
 ```
 
 ## identity
@@ -83,11 +94,13 @@ It is attached to a single granted tab, only for the duration of the action, and
 ## Remote code justification
 
 ```
-Atlarix can build a "relic": one self-contained HTML document generated in response to the user's own request — a chart, a table or a small calculator — which the user opens by clicking. It is not fetched from a third party, and it is not part of the extension's own logic.
+Atlarix generates code at the user's request. None of it is fetched from a third party or part of the extension's own logic.
 
-It executes only inside a page declared under the manifest's "sandbox" key. Chrome loads that page into an opaque origin with no access to extension APIs, no same-origin handle back to the extension, and postMessage as its only channel. The sandbox CSP additionally sets connect-src 'none', form-action 'none', object-src 'none' and a restricted img-src, so a relic has no network access of any kind.
+Two features do this. A "relic" is one self-contained HTML document the user opens by clicking. The file feature runs JavaScript that builds a document the user asked for and returns bytes they save with a Download button.
 
-This is the pattern Chrome's remote-hosted-code guidance names for untrusted code. The extension's own pages keep the default MV3 policy with no unsafe-eval and no unsafe-inline, and no script is fetched or evaluated outside the sandbox.
+Both execute only inside pages declared under the manifest's "sandbox" key, which Chrome loads in an opaque origin: no extension APIs, no same-origin handle back, postMessage as the only channel. The sandbox CSP sets connect-src 'none', object-src 'none' and form-action 'none', so neither has network access of any kind. The file feature's code runs in a worker created inside that sandboxed page, so it inherits the same opaque origin and the same connect-src 'none'.
+
+The extension's own pages keep the default MV3 policy — no unsafe-eval, no unsafe-inline — and nothing is fetched or evaluated outside the sandbox.
 ```
 
 ## Are you using remote code?

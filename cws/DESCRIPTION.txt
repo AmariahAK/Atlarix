@@ -11,6 +11,7 @@ WHAT YOU CAN DO WITH IT
 • Work across several tabs at once — compare, cross-reference, collect
 • Attach a document or a spreadsheet and ask about it. Atlarix reads the whole file, not the first page of it
 • Ask for a relic: a self-contained chart, table or calculator it builds for you and you open in its own tab
+• Ask for the answer as a file instead of a message, and it writes one you can download
 • Paste a long block of text and it becomes an attachment instead of filling the box
 • Pick a conversation back up on another device, because what was said follows your account
 
