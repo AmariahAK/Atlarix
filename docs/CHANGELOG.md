@@ -59,7 +59,12 @@ Atlarix still asks before working on a site you have not allowed.
 ### Notes
 - **There is no v14.44.0.** It was never tagged and has no changelog section; the work folded
   into v14.45.0. `docs/TODO.md` claimed it shipped, which is corrected in this release.
-- Tests: 4,971 passing. `oxlint` reports zero errors across `src`, `packages` and `scripts`.
+- Tests: 4,974 passing. `oxlint` reports zero errors across `src`, `packages` and `scripts`.
+- The session store no longer throws when it cannot resolve where the session lives. It is
+  handed to `@supabase/auth-js`, whose constructor starts a session recovery it does not
+  await — so a throw there escaped every `try`/`catch` and surfaced as an unhandled
+  rejection. It now reports UNAVAILABLE, which is the one answer that does not license
+  overwriting a real session.
 
 ## [14.45.0] (2026-09-09) — The app is free, the meter is honest, and skills live in your repo
 

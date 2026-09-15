@@ -62,7 +62,26 @@ async function encryptionAvailableWithRetry(): Promise<boolean> {
 }
 
 async function readBlobFromDisk(): Promise<BlobRead> {
-  const encPath = fallbackEncryptedPath();
+  // RESOLVED INSIDE A GUARD, not above one. `app.getPath` throws when Electron's
+  // app module is absent or not ready, and this runs from GoTrue's CONSTRUCTOR —
+  // its session recovery is fire-and-forget, so a throw here never reaches the
+  // caller's try/catch. It surfaces as an UNHANDLED REJECTION, which fails a
+  // whole vitest run while every individual test passes: 4,814 green and exit 1.
+  //
+  // "unavailable" rather than "empty", following this file's own rule. Not
+  // knowing where the session lives is not the same as knowing there is none,
+  // and only "empty" licenses the caller to overwrite it.
+  let encPath: string;
+  try {
+    encPath = fallbackEncryptedPath();
+  } catch (e) {
+    logger.warn(
+      "[SupabaseSecureStorage] could not resolve the session path — reporting UNAVAILABLE:",
+      e,
+    );
+    return { status: "unavailable" };
+  }
+
   let encFileExists = false;
   try {
     encFileExists = fs.existsSync(encPath);
@@ -90,8 +109,9 @@ async function readBlobFromDisk(): Promise<BlobRead> {
     if (encFileExists) return { status: "unavailable" };
   }
 
-  const legacy = legacyJsonPath();
   try {
+    // Same reasoning as above: inside the guard, because it calls `app.getPath`.
+    const legacy = legacyJsonPath();
     if (fs.existsSync(legacy)) {
       const data = fs.readFileSync(legacy, "utf8");
       const parsed = JSON.parse(data) as Record<string, string>;

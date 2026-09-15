@@ -114,6 +114,7 @@
         "npm:electron-squirrel-startup@^1.0.1",
         "npm:electron-updater@^6.8.3",
         "npm:electron@^43.4.1",
+        "npm:esbuild@0.28.2",
         "npm:fastest-levenshtein@^1.0.16",
         "npm:fflate@~0.8.3",
         "npm:fix-path@4",
