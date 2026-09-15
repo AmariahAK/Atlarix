@@ -127,6 +127,7 @@ export function connectBridge(): void {
     extensionVersion: native().runtime.getManifest?.()?.version ?? "unknown",
     browser: browserName(),
   });
+  refineBrowserName(opened);
 }
 
 async function handle(message: unknown): Promise<void> {
@@ -182,13 +183,43 @@ export function installBridgeAlarm(): void {
   });
 }
 
-/** Best-effort, for the desktop's status line. Chromium forks all say "Chrome". */
+/**
+ * Which Chromium fork this is, for the desktop's status line.
+ *
+ * BRAVE IS NOT DETECTABLE FROM THE USER AGENT, and the first version of this
+ * function assumed it was. Measured against a real Brave profile: it reported
+ * "chrome", because Brave deliberately ships Chrome's exact UA string as an
+ * anti-fingerprinting measure — the `/Brave/` test could never have matched.
+ * The supported signal is `navigator.brave.isBrave()`, which is a promise, so
+ * the answer is refined and re-sent rather than awaited before saying hello.
+ *
+ * Edge and Opera DO mark the UA, so those two are honest.
+ */
 function browserName(): string {
   const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
   if (/Edg\//.test(ua)) return "edge";
   if (/OPR\//.test(ua)) return "opera";
-  if (/Brave/.test(ua)) return "brave";
   return "chrome";
+}
+
+/**
+ * Ask Brave whether it is Brave, and correct the record if so.
+ *
+ * Deliberately AFTER the hello rather than before it. The handshake is what the
+ * desktop waits on to know a browser is attached, and blocking it on a promise
+ * for a cosmetic label would trade a real property for a nicety. A second
+ * hello simply overwrites the first.
+ */
+function refineBrowserName(port: Port): void {
+  const brave = (navigator as unknown as { brave?: { isBrave?: () => Promise<boolean> } }).brave;
+  if (typeof brave?.isBrave !== "function") return;
+  void brave
+    .isBrave()
+    .then((yes) => {
+      if (yes) port.postMessage({ type: "hello", protocol: 1, browser: "brave",
+        extensionVersion: native().runtime.getManifest?.()?.version ?? "unknown" });
+    })
+    .catch(() => {});
 }
 
 /** Tests only: forget the module's connection state. */
