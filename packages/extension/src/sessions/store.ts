@@ -31,6 +31,7 @@ import { isCompactionMarker } from "../context/compact";
 import { api } from "../shared/browser-api";
 import { deleteSessionAttachments } from "../attachments/store";
 import { deleteSessionRelics } from "../relics/store";
+import { dropAllFiles, dropSessionFiles } from "../files/store";
 
 const INDEX_KEY = "atlarix.sessions.v1";
 const transcriptKey = (id: string) => `atlarix.session.${id}.v1`;
@@ -197,6 +198,10 @@ export async function saveSession(
     const ids = evicted.map((s) => s.id);
     await deleteSessionAttachments(ids);
     await deleteSessionRelics(ids);
+    // Files the model built are in memory rather than storage, so this frees
+    // RAM rather than quota — but leaving them would keep a deleted
+    // conversation's spreadsheets alive for as long as the panel stayed open.
+    dropSessionFiles(ids);
   }
   return { evicted };
 }
@@ -238,6 +243,7 @@ export async function deleteSession(id: string): Promise<void> {
   await api().storage.local.remove(transcriptKey(id));
   await deleteSessionAttachments([id]);
   await deleteSessionRelics([id]);
+  dropSessionFiles([id]);
   // Deleting the conversation the panel is pointed at must not leave it
   // pointed there, or the next open restores a transcript that no longer has
   // an index entry and the history list disagrees with the screen.
@@ -258,6 +264,10 @@ export async function deleteAllSessions(): Promise<void> {
   // also the biggest thing the user just asked to be rid of.
   await deleteSessionAttachments(index.map((s) => s.id));
   await deleteSessionRelics(index.map((s) => s.id));
+  // EVERY session, not just the indexed ones. A file made in a conversation
+  // that was never written to the index would otherwise survive the one gesture
+  // whose entire promise is that nothing does.
+  dropAllFiles();
 }
 
 /**

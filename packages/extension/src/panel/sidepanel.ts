@@ -121,6 +121,13 @@ import {
 import { PREVIEW_CHARS, getAttachment, putAttachment } from "../attachments/store";
 import { readRelicNote, relicUrl } from "../relics/store";
 import {
+  findFileByName,
+  formatSize,
+  getFile,
+  readMadeFilesNote,
+  type MadeFile,
+} from "../files/store";
+import {
   clipboardPlainText,
   pasteDisplayName,
   pasteSignature,
@@ -784,6 +791,78 @@ function relicCard(relic: { id: string; title: string }): HTMLElement {
   return card;
 }
 
+/**
+ * A file the model built, offered as a download.
+ *
+ * SAVED BY A CLICK, NEVER BY THE AGENT. The bytes go to a Blob built here from
+ * the store, exactly as the relic viewer's Save button does — no `downloads`
+ * permission, no programmatic write to the user's disk, and nothing leaves the
+ * panel until they ask for it.
+ *
+ * THE DISABLED STATE IS THE INTERESTING ONE. These bytes live in this
+ * document's memory and nowhere else, so reopening the panel brings the
+ * transcript back without them. Saying so on the card is the whole reason
+ * `madeFilesNote` records the names: the alternative is a card that downloads
+ * nothing, or no card at all where the user remembers one.
+ */
+function madeFileCard(file: {
+  id?: string;
+  name: string;
+  size?: number;
+}): HTMLElement {
+  const card = document.createElement("div");
+  card.className = "made-file";
+
+  const badge = document.createElement("span");
+  badge.className = "made-file__badge";
+  badge.textContent = "FILE";
+
+  const name = document.createElement("span");
+  name.className = "made-file__name";
+  name.textContent = file.name;
+
+  const size = document.createElement("span");
+  size.className = "made-file__size";
+
+  const save = document.createElement("button");
+  save.type = "button";
+  save.className = "made-file__save";
+  save.textContent = "Download";
+
+  // Resolved at RENDER time rather than trusted from the note: on a restored
+  // conversation the name is all that survived, and on a live turn the id is
+  // exact. Both end at the same lookup.
+  const stored = file.id
+    ? getFile(sessionId, file.id)
+    : findFileByName(sessionId, file.name);
+
+  if (stored) {
+    size.textContent = formatSize(stored.bytes.length);
+    save.title = `Save ${stored.name}`;
+    save.addEventListener("click", () => {
+      const blob = new Blob([stored.bytes as unknown as BlobPart], {
+        type: stored.mime || "application/octet-stream",
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = stored.name;
+      link.click();
+      URL.revokeObjectURL(url);
+    });
+  } else {
+    card.classList.add("made-file--gone");
+    size.textContent = "no longer available";
+    save.disabled = true;
+    save.title =
+      "Files made by Atlarix are kept only while the panel is open. Ask for " +
+      "it again and it will be rebuilt.";
+  }
+
+  card.append(badge, name, size, save);
+  return card;
+}
+
 function userBubble(
   content: string | ContentPart[],
   index: number,
@@ -1433,6 +1512,17 @@ function renderConversation(history: CoreMessage[]): void {
         transcript.append(relicCard(relic));
         continue;
       }
+      // Files, same reasoning as the relic above — with the difference that
+      // their BYTES did not survive the panel being closed, only their names.
+      // The card says which, rather than leaving a gap where a file was.
+      const madeNames = readMadeFilesNote(message.content);
+      if (madeNames) {
+        closeActivity();
+        for (const name of madeNames) {
+          transcript.append(madeFileCard({ name }));
+        }
+        continue;
+      }
       const chip = toolChip(resolved);
       fillChip(chip, message.content);
       restoreStep({ kind: "tool", name: resolved.function.name }, chip);
@@ -1782,7 +1872,7 @@ async function send(): Promise<void> {
           }
           refreshContextBar();
         },
-        onToolResult(call, content, label, relic) {
+        onToolResult(call, content, label, relic, files) {
           const chip = chips.get(call.id);
           if (chip) fillChip(chip, content, label);
           // A RELIC IS NOT A STEP. It is a thing the user now has, so it gets a
@@ -1793,6 +1883,17 @@ async function send(): Promise<void> {
             settleSteps(activity.card);
             activity.card = null;
             append(relicCard(relic));
+            stickToBottom();
+          }
+          // One card per file rather than one per call: the user downloads
+          // files one at a time, so a card that listed three of them would
+          // need its own expand-and-pick affordance to do the same job.
+          if (files && files.length > 0) {
+            settleSteps(activity.card);
+            activity.card = null;
+            for (const made of files as MadeFile[]) {
+              append(madeFileCard(made));
+            }
             stickToBottom();
           }
           if (label) toolLabels.set(call.id, label);

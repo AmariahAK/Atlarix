@@ -191,6 +191,48 @@ for (const [file, meta] of Object.entries(result.metafile.outputs)) {
   );
 }
 
+/**
+ * The code sandbox, which cannot be ESM.
+ *
+ * TWO REASONS IT IS A SEPARATE BUILD RATHER THAN TWO MORE ENTRY POINTS ABOVE.
+ * `runner.js` is loaded by a MANIFEST-SANDBOXED page, and a sandboxed page's
+ * script is a classic script in an opaque origin — `type="module"` there fails
+ * with a CORS error, which is what the relic sandbox's own comment records.
+ * `runner-worker.js` is never loaded as a page script at all: the panel fetches
+ * its TEXT and hands it to the sandbox, which makes a blob worker out of it,
+ * because a blob worker inherits the origin and CSP of whoever created it and
+ * the panel's origin is the one thing model code must never run under.
+ *
+ * Bundled rather than copied like `sandbox.js` so both stay TypeScript — the
+ * ZIP writer and the CRC-32 in the worker have unit tests, and a hand-written
+ * `.js` file would have neither those nor `check:ts`.
+ */
+const sandboxResult = await build({
+  entryPoints: {
+    runner: path.join(pkgDir, "src/sandbox/runner.ts"),
+    "runner-worker": path.join(pkgDir, "src/sandbox/worker.ts"),
+  },
+  outdir: unpackedDir,
+  bundle: true,
+  format: "iife",
+  platform: "browser",
+  target: [`chrome${minChrome}`],
+  splitting: false,
+  minify: false,
+  sourcemap: false,
+  legalComments: "none",
+  metafile: true,
+  logLevel: "warning",
+  alias: { "@": path.join(root, "src") },
+  plugins: [noNodeBuiltinsPlugin],
+});
+
+for (const [file, meta] of Object.entries(sandboxResult.metafile.outputs)) {
+  console.log(
+    `[${TAG}] bundled ${path.basename(file)} (${(meta.bytes / 1024).toFixed(1)} KB, classic script)`,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Assets
 // ---------------------------------------------------------------------------
@@ -230,6 +272,7 @@ const ASSETS = [
   { src: path.join(pkgDir, "src/relics/relic.css"), dest: "relic.css" },
   { src: path.join(pkgDir, "src/relics/sandbox.html"), dest: "sandbox.html" },
   { src: path.join(pkgDir, "src/relics/sandbox.js"), dest: "sandbox.js" },
+  { src: path.join(pkgDir, "src/sandbox/runner.html"), dest: "runner.html" },
   { src: iconset("icon_16x16.png"), dest: "icons/16.png", px: 16 },
   { src: iconset("icon_32x32.png"), dest: "icons/32.png", px: 32 },
   { src: iconset("icon_128x128.png"), dest: "icons/128.png", px: 128 },
@@ -301,6 +344,11 @@ for (const { src, dest, px } of ASSETS) {
     "relic__badge",
     "relic__title",
     "relic__open",
+    "made-file",
+    "made-file__badge",
+    "made-file__name",
+    "made-file__size",
+    "made-file__save",
   ]) {
     // A SUBSTRING TEST CANNOT SEE A RENAME: `.attachment__countXX` contains
     // `.attachment__count`, so `includes` passes on exactly the edit this

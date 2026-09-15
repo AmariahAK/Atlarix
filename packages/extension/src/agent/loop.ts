@@ -52,6 +52,7 @@ import {
   type ToolOutcome,
 } from "../tools/dispatch";
 import { TOOL_SCHEMAS } from "../tools/schemas";
+import type { MadeFile } from "../files/store";
 import { messageText } from "../context/budget";
 
 /**
@@ -133,6 +134,14 @@ export interface AgentEvents {
     label?: string,
     /** Set when the call produced a relic, so the panel can offer to open it. */
     relic?: { id: string; title: string },
+    /**
+     * Files the call produced, so the panel can offer them as downloads.
+     *
+     * The bytes are NOT here and never travel through the loop — the panel
+     * reads them out of `files/store.ts` when the user clicks. What crosses is
+     * a name, a type and a size, which is all a card needs.
+     */
+    files?: MadeFile[],
   ): void;
   /**
    * Ask the user to authorise something the loop cannot.
@@ -424,7 +433,13 @@ export async function runTurn(args: TurnArgs): Promise<TurnOutcome> {
       };
       history.push(message);
       produced.push(message);
-      events.onToolResult?.(call, outcome.content, outcome.label, outcome.relic);
+      events.onToolResult?.(
+        call,
+        outcome.content,
+        outcome.label,
+        outcome.relic,
+        outcome.files,
+      );
       // AFTER the result is recorded, so `remember`'s own outcome is never in
       // the list it is checked against — a note whose text the tool echoed back
       // would otherwise look copied from itself.

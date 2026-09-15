@@ -55,6 +55,7 @@ export const TOOL_NAMES = [
   "mcp_call",
   "read_attachment",
   "create_relic",
+  "run_code",
 ] as const;
 
 export type ToolName = (typeof TOOL_NAMES)[number];
@@ -686,6 +687,60 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
           },
         },
         required: ["title", "html"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "run_code",
+      description:
+        "Run JavaScript to BUILD A FILE for the user — a PDF, a CSV, an Excel " +
+        "workbook, a Word document, a PNG, a zip, an .ics, anything. This is " +
+        "the only way to produce a file; there is no other file tool, and " +
+        "pasting file contents into a message is not the same thing. Call " +
+        'emit("report.pdf", bytes) and a download card appears in the ' +
+        "conversation.\n\n" +
+        "WHAT IS AVAILABLE: emit(name, data, mime?) hands a file over — data " +
+        "may be a string, a Uint8Array, an ArrayBuffer or an array of byte " +
+        "values. zip(entries) returns a Uint8Array for [{name, data}, …], " +
+        "which is how .xlsx, .docx, .pptx, .odt and .epub are built, since " +
+        "all five are zipped XML. inputs is an array of {name, type, bytes, " +
+        "text} for whatever you asked for. console.log prints. TextEncoder, " +
+        "TextDecoder, crypto, CompressionStream and the standard library are " +
+        "all there, and you may await at the top level and return a value.\n\n" +
+        "WHAT IS NOT: no network of any kind — fetch and XMLHttpRequest are " +
+        "blocked, so no CDN and no npm. No libraries: write the format's bytes " +
+        "yourself. No DOM, no canvas, no document. Nothing survives between " +
+        "calls except the files you emitted, which you can ask for again by " +
+        "name. Code is stopped after 15 seconds.\n\n" +
+        "Use it to MAKE something. Do not use it for arithmetic you can do in " +
+        "your head, and do not use it to reformat text that would read " +
+        "perfectly well in your reply. For an interactive chart or a page the " +
+        "user reads on screen, create_relic is the better tool.",
+      parameters: {
+        type: "object",
+        properties: {
+          code: {
+            type: "string",
+            description:
+              "The JavaScript to run. Plain statements, not a function " +
+              "definition — it is executed as an async function body.",
+          },
+          inputs: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "Files from this conversation to hand to the code, by exact " +
+              "name — something the user attached, or something you made " +
+              "earlier. Omit it when the code needs no input. NOTE: an " +
+              "attachment arrives as the TEXT that was extracted from it when " +
+              "the user attached it, not the original bytes, so a .docx comes " +
+              "through as its words.",
+          },
+        },
+        required: ["code"],
         additionalProperties: false,
       },
     },

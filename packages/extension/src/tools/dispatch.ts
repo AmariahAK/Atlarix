@@ -39,6 +39,7 @@ import {
   type SearchResult,
 } from "@/lib/browser/page-scripts";
 import type { ToolCall } from "../core/client";
+import type { MadeFile } from "../files/store";
 import { activeTab, runInPage } from "../page/inject";
 import { canActOn } from "../permissions/host-access";
 import { originOf } from "../permissions/site-grants";
@@ -56,6 +57,7 @@ import {
   pressKey,
 } from "../page/trusted-input";
 import { askUser } from "./ask-user";
+import { runCode } from "./run-code";
 import { listAvailableMcps, mcpCall } from "./connectors";
 import { forgetNote, readNoteTool, remember } from "./notes";
 import { readAttachmentTool } from "./attachments";
@@ -149,6 +151,17 @@ export interface ToolOutcome {
    * copy.
    */
   relic?: { id: string; title: string };
+  /**
+   * Files this call produced, for the panel to offer as downloads.
+   *
+   * Beside `content` for the same reason `relic` is: the model is told a
+   * sentence, the panel needs ids and sizes. It also carries something `relic`
+   * does not have to — these bytes live only in the panel's memory, so this
+   * field is the ONLY route to them. `madeFilesNote` records the names in the
+   * content so a reopened conversation can still say the file is gone rather
+   * than drawing nothing where one used to be.
+   */
+  files?: MadeFile[];
 }
 
 /** Everything the dispatcher needs that it should not go and find for itself. */
@@ -457,6 +470,8 @@ export async function dispatchTool(
         return await readAttachmentTool(args, ctx);
       case "create_relic":
         return await createRelic(args, ctx);
+      case "run_code":
+        return await runCode(args, ctx);
       case "recall":
         return await recallFromHistory(args, ctx);
       case "web_search":

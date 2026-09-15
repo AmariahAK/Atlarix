@@ -60,6 +60,7 @@ const VERBS: Record<string, { one: string; many: (n: number) => string }> = {
   read_note: { one: "Read a note", many: (n) => `Read ${n} notes` },
   forget_note: { one: "Deleted a note", many: (n) => `Deleted ${n} notes` },
   create_relic: { one: "Made a relic", many: (n) => `Made ${n} relics` },
+  run_code: { one: "Ran code", many: (n) => `Ran code ${n} times` },
   read_attachment: {
     one: "Read an attachment",
     many: (n) => `Read ${n} pages of attachments`,

@@ -1482,6 +1482,89 @@ button.file__chip:hover {
   border-color: var(--primary);
 }
 
+/*
+ * A file the model built, offered as a download.
+ *
+ * Deliberately the relic card's sibling rather than a second design — both are
+ * "a thing you now have" and the user should not have to learn two shapes. The
+ * one difference that matters is the faded state: these bytes live only while
+ * the panel is open, so a restored conversation shows the card it remembers
+ * with its button dead and the reason in place of the size.
+ */
+.made-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--primary);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.made-file__badge {
+  flex: none;
+  padding: 1px 5px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--primary);
+  border: 1px solid color-mix(in srgb, var(--primary) 40%, transparent);
+  border-radius: 3px;
+}
+
+.made-file__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.made-file__size {
+  flex: none;
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+.made-file__save {
+  flex: none;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--fg);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.made-file__save:hover:not(:disabled) {
+  border-color: var(--primary);
+}
+
+.made-file__save:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+/* Gone with the panel that made it. Still shown, still named, no longer saved. */
+.made-file--gone {
+  border-left-color: var(--border);
+}
+
+.made-file--gone .made-file__badge {
+  color: inherit;
+  opacity: 0.5;
+  border-color: var(--border);
+}
+
+.made-file--gone .made-file__name {
+  opacity: 0.6;
+}
+
 /* An image the user attached, shown back to them in the transcript. */
 .bubble__image {
   display: block;

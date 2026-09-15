@@ -48,8 +48,10 @@ a guess.
 ## What it does today
 
 The side panel is a chat. Sign in with Google or GitHub, pick a Core tier, and
-ask about the page you are on. Six tools, and the list is short because the
-kernel is still reads-only:
+ask about the page you are on. The table below is the reading core; acting,
+memory, connectors, attachments, relics and `run_code` are covered in their own
+sections. It deliberately states no total — a count in prose is a number that
+goes stale the next time a tool ships, and this one already had.
 
 | Tool           | What it does                                                      |
 | -------------- | ----------------------------------------------------------------- |
@@ -88,6 +90,51 @@ desktop app.
 Page text comes back inside the same `<untrusted-data>` envelope the desktop
 uses, tagged with its origin, and the system prompt carries the clause that says
 what the envelope means.
+
+## Making files, and the one CSP token it cost
+
+`run_code` is how the extension hands over a PDF, a CSV, a workbook, an image or
+a zip. It runs model-authored JavaScript and collects whatever that code passes
+to `emit(name, data, mime?)`; the panel shows a card, and the bytes reach the
+user's disk only when they click Download.
+
+**There is no writer per format, on purpose.** A .xlsx writer would be followed
+by .docx, then .pptx, then whatever someone asks for next, and the queue never
+empties. Instead the model writes the format's bytes itself. The one helper
+provided is `zip()`, which is not a format writer: .xlsx, .docx, .pptx, .odt and
+.epub are all the same container, and its easy mistakes — the CRC-32, the two
+copies of every header, the central-directory offsets — produce an archive that
+opens nowhere and explains nothing. [`src/panel/ooxml.ts`](src/panel/ooxml.ts)
+already reads that container with the browser's inflater; this is its inverse.
+
+**Where it runs.** `runner.html` is a second page under the manifest's `sandbox`
+key, beside the relic sandbox — an opaque origin with no `chrome.*`, no DOM, no
+extension storage and `connect-src 'none'`. The code does not run in that page
+either: it runs in a blob worker the page creates, because **a document cannot
+time out its own synchronous code** — the timer that would stop a runaway loop
+is a task on the thread the loop is occupying. A worker is ended by
+`terminate()`, from the frame, and the frame survives to report the timeout and
+take the next run.
+
+**One manifest change, and it is not a permission.** `worker-src blob:` was
+added to the sandbox CSP; the `child-src 'none'` already there blocks workers
+outright, and Chrome reports that as a bare `error` event with no message. It
+adds no install warning and no new capability the relic sandbox did not already
+have — the worker inherits the same opaque origin and the same `connect-src
+'none'`, so it can compute and it cannot send.
+
+Verified in Chrome against the built artifacts under the shipped policy string,
+rather than assumed: `fetch` inside the worker rejects, `chrome`, `document` and
+`localStorage` are all `undefined`, a `for(;;)` is terminated at its deadline
+and the runner serves the next run correctly afterwards, and a zip built by
+`zip()` inflates back byte-exact through the browser's own
+`DecompressionStream`.
+
+**Files are held in memory, not in storage.** They die with the panel, which is
+the literal reading of the instruction this was built to — so the card offers
+Download immediately, and a conversation reopened later shows the card with its
+button disabled and the reason in place of the size rather than a gap where a
+file used to be.
 
 ## One contract, two backends
 
