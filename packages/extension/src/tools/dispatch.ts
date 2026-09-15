@@ -46,7 +46,7 @@ import {
   classifyAction,
   type AgentAction,
   type ActionTarget,
-} from "../permissions/always-ask";
+} from "@/lib/browser/always-ask";
 import {
   attach,
   isNamedKey,
@@ -91,7 +91,7 @@ const EMPTY_FIND_HINT =
  *               needs a user gesture and is unreachable from the loop.
  *   `action`  — an action a site grant can never unlock: entering a password,
  *               filling card details, clicking something that looks like it
- *               deletes or pays. `permissions/always-ask.ts` decides, and its
+ *               deletes or pays. `@/lib/browser/always-ask` decides, and its
  *               verdict is deliberately NOT overridable by a grant.
  */
 export type Approval =

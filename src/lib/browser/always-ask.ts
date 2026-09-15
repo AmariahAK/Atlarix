@@ -2,6 +2,14 @@
  * The always-ask set: actions that stop for the user even on a site they have
  * already granted.
  *
+ * SHARED BY BOTH BROWSER BACKENDS, which is why it lives here rather than in
+ * the extension that first needed it. The classifier is pure — no imports, no
+ * platform, no I/O — and that is the property that lets one copy serve the
+ * extension (through the `@` alias, as it already does for the page kernel and
+ * the a11y formatter) and the desktop's own browser tool. Two copies of a
+ * safety classifier is two sets of rules that drift, and the one that drifts is
+ * always the one nobody is looking at.
+ *
  * WHY THIS SHAPE. Both Claude in Chrome and OpenAI's extension gate on first
  * contact with a new domain, and both keep a smaller set that a site grant does
  * NOT unlock. Atlarix follows that, with one deliberate difference: those

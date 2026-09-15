@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { classifyAction, type ActionContext } from "./always-ask";
+import { classifyAction, type ActionContext } from "@/lib/browser/always-ask";
 
 const ask = (ctx: ActionContext) => classifyAction(ctx);
 

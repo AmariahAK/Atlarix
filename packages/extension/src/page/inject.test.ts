@@ -97,13 +97,16 @@ describe("runInPage passes the kernel the only way MV3 allows", () => {
 
 describe("failures say something a caller can act on", () => {
   it("wraps an injection failure with Chrome's own reason", async () => {
-    failWith = new Error("Cannot access contents of the page");
+    // A cause with no user-facing fix keeps Chrome's wording verbatim. Only
+    // the withheld-host case is translated, because only it has an action
+    // attached — see the dedicated describe block below.
+    failWith = new Error("Frame with ID 0 was removed.");
     await expect(
       runInPage(7, { op: "snapshot", filter: "interactive", max: 10 }),
     ).rejects.toBeInstanceOf(PageAccessError);
     await expect(
       runInPage(7, { op: "snapshot", filter: "interactive", max: 10 }),
-    ).rejects.toThrow(/Cannot access contents/);
+    ).rejects.toThrow(/Frame with ID 0 was removed/);
   });
 
   it("reports an empty result array rather than returning undefined", async () => {
@@ -189,5 +192,51 @@ describe("the injected probe itself", () => {
     expect(probe(ref)).toBe(true);
     expect(probe("e9999")).toBe(false);
     vi.restoreAllMocks();
+  });
+});
+
+describe("a site the user withheld in chrome://extensions", () => {
+  /**
+   * THE HOLE THIS CLOSES. Declaring a host permission is not the same as
+   * holding it: Chrome lets anyone narrow an extension to "On click" from
+   * chrome://extensions, and a withheld origin throws at injection while our
+   * own allow-list still says the site is fine. There is no event and no flag —
+   * the refusal is the only signal — so without this the model gets a raw
+   * browser error, reads it as a broken page, and retries forever while the one
+   * person who can fix it is never told.
+   */
+  it("translates Chrome's refusal into the setting the user can change", async () => {
+    (globalThis as Record<string, unknown>).chrome = {
+      scripting: {
+        async executeScript() {
+          throw new Error(
+            "Cannot access contents of the page. Extension manifest must request permission to access the respective host.",
+          );
+        },
+      },
+    };
+
+    await expect(
+      runInPage(7, { op: "snapshot", filter: "interactive", max: 10 }),
+    ).rejects.toThrow(/chrome:\/\/extensions/);
+    await expect(
+      runInPage(7, { op: "snapshot", filter: "interactive", max: 10 }),
+    ).rejects.toThrow(/Site access/i);
+  });
+
+  it("leaves every other failure wearing Chrome's own words", async () => {
+    // A restricted page and a vanished tab have no user-facing fix, so dressing
+    // them up as one would send the user to a setting that changes nothing.
+    (globalThis as Record<string, unknown>).chrome = {
+      scripting: {
+        async executeScript() {
+          throw new Error("No tab with id: 7.");
+        },
+      },
+    };
+
+    await expect(
+      runInPage(7, { op: "snapshot", filter: "interactive", max: 10 }),
+    ).rejects.toThrow(/No tab with id/);
   });
 });

@@ -38,12 +38,47 @@ export class PageAccessError extends Error {
 }
 
 /**
+ * Chrome refusing because the USER withheld this site — the one failure here
+ * with a fix, and the one nothing else can detect.
+ *
+ * DECLARING A HOST PERMISSION IS NOT THE SAME AS HOLDING IT. Chrome lets anyone
+ * narrow an extension from `chrome://extensions → Site access` to "On click" or
+ * a chosen list, and a withheld origin makes `executeScript` throw while our own
+ * allow-list still says yes. There is no event and no flag: the refusal IS the
+ * signal. So a raw pass-through here reads to the model as a broken page, and it
+ * retries, and it keeps failing, and the user is never told the one thing that
+ * would fix it.
+ *
+ * Matched on Chrome's own wording rather than on an error type, because there
+ * is no type to match — and deliberately loosely, since the exact sentence has
+ * changed between Chrome versions while the two distinctive halves have not.
+ *
+ * Returns null for every other cause, so the caller keeps Chrome's own text.
+ */
+function withheldHostHelp(message: string): string | null {
+  const m = message.toLowerCase();
+  const refused =
+    m.includes("cannot access contents of") ||
+    m.includes("cannot access contents of the page") ||
+    (m.includes("extension manifest must request permission") &&
+      m.includes("host"));
+  if (!refused) return null;
+  return (
+    "Chrome is blocking Atlarix from this site. This is not the site grant — " +
+    "it is the browser's own Site access setting, which only the user can " +
+    "change: chrome://extensions → Atlarix → Site access → On all sites. " +
+    "Nothing was read. Tell the user that, and do not retry until they say " +
+    "they have changed it."
+  );
+}
+
+/**
  * Run one kernel request against `tabId`.
  *
- * Callers must have confirmed host access first (`permissions/host-access.ts`).
- * This deliberately does NOT request it: `permissions.request()` needs a user
- * gesture, and a transport that tried to acquire access would be the agent
- * widening its own reach.
+ * Callers must have confirmed the site is allowed first
+ * (`permissions/site-grants.ts`). This deliberately does NOT grant it: a
+ * transport that quietly widened its own reach would make the allow-list
+ * decorative.
  */
 export async function runInPage<T>(
   tabId: number,
@@ -58,12 +93,13 @@ export async function runInPage<T>(
       args: [req],
     });
   } catch (err) {
-    // The common causes are all the same shape to the caller: no host
-    // permission for this origin, a restricted page (chrome://, the Web Store),
-    // or a tab that navigated away mid-call. Chrome's own message names which.
-    throw new PageAccessError(
-      `Could not read the page: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    // The common causes are all the same shape to the caller: a restricted page
+    // (chrome://, the Web Store), a tab that navigated away mid-call, or the
+    // user having WITHHELD this site from the extension. Chrome's own message
+    // names which, and the last one gets translated because it is the only one
+    // with a fix the user can carry out.
+    const raw = err instanceof Error ? err.message : String(err);
+    throw new PageAccessError(withheldHostHelp(raw) ?? `Could not read the page: ${raw}`);
   }
 
   // One frame requested, so one result. An empty array means the frame went
