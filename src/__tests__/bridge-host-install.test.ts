@@ -40,6 +40,20 @@ async function tempHome(): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), "atlarix-bridge-home-"));
 }
 
+/**
+ * Windows has no POSIX permission bits.
+ *
+ * `fs.chmod` there sets only the read-only flag, and `stat().mode` comes back
+ * `0o666` for an ordinary file — so `mode & 0o111` is 0 and an exact `0o600`
+ * never matches, however correct the code is. `build-windows` is the ONLY CI job
+ * that runs the suite on Windows, which is what makes this class of assertion
+ * pass everywhere a developer looks and fail exactly once, in the release.
+ *
+ * The behaviour these two pin is real on the platforms that have it, so they are
+ * skipped rather than weakened.
+ */
+const IS_WINDOWS = process.platform === "win32";
+
 describe("the extension it will talk to", () => {
   it("is derived from the extension's OWN manifest key, not copied", async () => {
     const manifest = JSON.parse(
@@ -103,7 +117,7 @@ describe("installing", () => {
     }
   });
 
-  it("makes the wrapper executable", async () => {
+  it.skipIf(IS_WINDOWS)("makes the wrapper executable", async () => {
     const home = await tempHome();
     const result = await installNativeHost({
       relayPath: "/opt/Atlarix/atlarix-bridge",
@@ -150,7 +164,7 @@ describe("installing", () => {
     expect(b.skipped).toEqual([]);
   });
 
-  it("locks down host.env, which names a socket that accepts commands", async () => {
+  it.skipIf(IS_WINDOWS)("locks down host.env, which names a socket that accepts commands", async () => {
     const home = await tempHome();
     const result = await installNativeHost({ relayPath: "/opt/r", home, platform: "darwin" });
     expect((await fs.stat(result.hostEnv)).mode & 0o777).toBe(0o600);

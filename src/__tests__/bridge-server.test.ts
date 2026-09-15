@@ -20,10 +20,25 @@ import { afterEach, describe, expect, it } from "vitest";
 import { BridgeServer } from "@/lib/bridge/server";
 import { FrameReader, encodeFrame } from "@/lib/bridge/framing";
 
-// Short by necessity: `sun_path` is 104 bytes on macOS and the OS temp dir is
-// already ~50 of them.
+/**
+ * A listen address this platform actually has.
+ *
+ * WINDOWS HAS NO `/tmp` AND NO UNIX SOCKETS, and `build-windows` is the ONLY CI
+ * job that runs the test suite on Windows — so a hardcoded POSIX path passes
+ * locally, passes on the macOS and Linux jobs, and dies exactly once, in the
+ * release. It did: `listen EACCES: permission denied /tmp/atlarix-t8216-7.sock`,
+ * on the v14.46.0 tag run, after both macOS builds and Linux had gone green.
+ *
+ * On unix the path is short by necessity — `sun_path` is 104 bytes on macOS and
+ * the OS temp dir already spends ~50 of them, which is why this is not
+ * `os.tmpdir()`.
+ */
 let seq = 0;
-const socketFor = () => `/tmp/atlarix-t${process.pid}-${seq++}.sock`;
+const IS_WINDOWS = process.platform === "win32";
+const socketFor = () =>
+  IS_WINDOWS
+    ? `\\\\.\\pipe\\atlarix-t${process.pid}-${seq++}`
+    : `/tmp/atlarix-t${process.pid}-${seq++}.sock`;
 
 const open: { server: BridgeServer; client?: net.Socket }[] = [];
 
@@ -192,7 +207,10 @@ describe("when the browser goes away", () => {
 });
 
 describe("the socket file", () => {
-  it("is removed on close, and a stale one does not block the next launch", async () => {
+  // A named pipe is not a filesystem entry, so there is nothing to stat, write
+  // or unlink — these two assert the UNIX cleanup path specifically. The
+  // "already listening" case below is meaningful on both and is not skipped.
+  it.skipIf(IS_WINDOWS)("is removed on close, and a stale one does not block the next launch", async () => {
     const socketPath = socketFor();
     const first = new BridgeServer({ socketPath });
     await first.listen();
