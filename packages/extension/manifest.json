@@ -1,0 +1,47 @@
+{
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA3HdZ3Cf4XQQ44hl9ZrRUxwecGjvMSw9jgs97ptKciSrf+hqEsTpdhpblDZ9ncAsBFNpI/SJWOjiSsNdMUhy/FHOGfTFeQkP88uFj9hJu+UZ0vgU8tN1d1e7RVyjqbwWNs7ADXVMUuyPVn/HyMgu18PaBYYFqIcYf7bPbVwrUehz1d066o9ZOqSlhPNLMdTQonSDIiMUqezRcE7wQBgo0DiWwg5XcX2m0+xNz7sQYCRNBk5zT02HOR/rSHHkunefbb4rOq1YxzxZTR8ABmLwVgkdII04vh3xT2FBhmnxIqRxExyATqyR9R7sZleDyzeHdfMq/q6FOQtuOYUxu/MVqjwIDAQAB",
+  "manifest_version": 3,
+  "name": "Atlarix",
+  "version": "1.0.0",
+  "description": "Drives the browser you are already signed into.",
+  "minimum_chrome_version": "116",
+  "permissions": [
+    "identity",
+    "storage",
+    "unlimitedStorage",
+    "sidePanel",
+    "tabs",
+    "scripting",
+    "tabGroups",
+    "debugger",
+    "nativeMessaging",
+    "alarms"
+  ],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Atlarix",
+    "default_icon": {
+      "16": "icons/16.png",
+      "32": "icons/32.png",
+      "128": "icons/128.png"
+    }
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "sandbox": {
+    "pages": ["sandbox.html", "runner.html"]
+  },
+  "content_security_policy": {
+    "sandbox": "sandbox allow-scripts allow-forms; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; img-src 'self' data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; worker-src blob:; child-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'"
+  },
+  "icons": {
+    "16": "icons/16.png",
+    "32": "icons/32.png",
+    "128": "icons/128.png"
+  }
+}

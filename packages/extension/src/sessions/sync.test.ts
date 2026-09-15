@@ -1,0 +1,207 @@
+/**
+ * THE EGRESS RULE.
+ *
+ * This file exists for one assertion: a page the agent read must not leave the
+ * device. Everything else here is in service of being able to state that
+ * directly rather than inferring it from what a request happened to contain.
+ *
+ * The rule is enforced twice — by `syncableRows` below, and by
+ * `content_length_by_role` on `conversation_messages`, which caps a tool row at
+ * 200 characters. Either alone is a rule that holds until someone writes a
+ * second caller.
+ */
+
+import { describe, expect, it } from "vitest";
+import type { CoreMessage } from "../core/client";
+import { compactionMarker } from "../context/compact";
+import { COMPACTION_SYSTEM } from "../context/prompt";
+import { labelsFrom, syncableRows } from "./sync";
+
+/** What a real conversation looks like: a question, a page read, an answer. */
+const PAGE_TEXT =
+  "Account holder: Amariah. Balance: 4,182.55. Recent transactions: " +
+  "x".repeat(40_000);
+
+const conversation: CoreMessage[] = [
+  { role: "user", content: "what is my balance?" },
+  {
+    role: "assistant",
+    content: null,
+    tool_calls: [
+      {
+        id: "c1",
+        type: "function",
+        function: { name: "read_page", arguments: '{"tab_id":9}' },
+      },
+    ],
+  },
+  { role: "tool", tool_call_id: "c1", content: PAGE_TEXT },
+  { role: "assistant", content: "Your balance is 4,182.55." },
+];
+
+/**
+ * The egress rule, for attachments specifically.
+ *
+ * The rule is written at the top of `sync.ts`: the bytes of a file the user
+ * attached do not leave the device. It was enforced with `userText`, which
+ * collapses an image and a PDF to a name but returns a TEXT attachment's
+ * contents in full — so an attached spreadsheet synced, clipped only by the
+ * 40,000-character column cap. These assertions are on the projection itself,
+ * so the rule is a thing a test holds rather than something inferred from a
+ * request.
+ */
+describe("an attachment never leaves the device", () => {
+  const attached = (text: string) => ({
+    type: "text" as const,
+    text:
+      "Attached file: pay.csv | id: 9f2a | text/csv | 400,000 chars\n" +
+      "```\n" +
+      text +
+      "\n```",
+  });
+
+  it("sends the file's NAME, never its contents", () => {
+    const rows = syncableRows([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "sum it" },
+          attached("name,salary\nalice,90000"),
+        ],
+      },
+    ]);
+    expect(rows[0].content).toContain("sum it");
+    expect(rows[0].content).toContain("[attached pay.csv]");
+    expect(rows[0].content).not.toContain("alice");
+    expect(rows[0].content).not.toContain("90000");
+  });
+
+  it("collapses an image and a PDF the same way", () => {
+    const rows = syncableRows([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "look" },
+          { type: "image_url", image_url: { url: "data:image/png;base64,AAAA" } },
+          {
+            type: "file",
+            file: { filename: "Resume.pdf", file_data: "data:application/pdf;base64,AA" },
+          },
+        ],
+      },
+    ]);
+    expect(rows[0].content).not.toContain("base64");
+    expect(rows[0].content).toContain("[attached image]");
+    expect(rows[0].content).toContain("[attached Resume.pdf]");
+  });
+
+  it("still sends an ordinary message whole", () => {
+    const rows = syncableRows([{ role: "user", content: "what is on this page?" }]);
+    expect(rows[0].content).toBe("what is on this page?");
+  });
+});
+
+describe("what leaves the device", () => {
+  it("never carries a tool result, however it is labelled", () => {
+    // THE ASSERTION THE WHOLE FEATURE RESTS ON. A page read is the contents of
+    // whatever the user was looking at — an inbox, a bank dashboard, a medical
+    // portal. It being their own row does not change what it is.
+    const rows = syncableRows(conversation, () => "Reading my-bank.example");
+    const everything = rows.map((r) => r.content).join("\n");
+    expect(everything).not.toContain("4,182.55 ");
+    expect(everything).not.toContain(PAGE_TEXT);
+    expect(everything).not.toContain("x".repeat(50));
+  });
+
+  it("sends a tool call as its label and nothing else", () => {
+    const rows = syncableRows(conversation, () => "Reading my-bank.example");
+    const tool = rows.find((r) => r.role === "tool_label");
+    expect(tool?.content).toBe("Reading my-bank.example");
+  });
+
+  it("still sends a label when there is none to send", () => {
+    // A gap in the transcript is worse than a generic label: the synced
+    // conversation would read as though the assistant answered out of nowhere.
+    const rows = syncableRows(conversation);
+    expect(rows.find((r) => r.role === "tool_label")?.content).toBe(
+      "Used a tool",
+    );
+  });
+
+  it("cannot smuggle a page through the label", () => {
+    // Mirrors `content_length_by_role`. Clipped here so an over-long label is a
+    // shorter label rather than a rejected write — and the database refuses it
+    // either way.
+    const rows = syncableRows(conversation, () => PAGE_TEXT);
+    const tool = rows.find((r) => r.role === "tool_label");
+    expect(tool?.content.length).toBeLessThanOrEqual(200);
+  });
+
+  it("sends what people actually said, in full", () => {
+    const rows = syncableRows(conversation);
+    expect(rows.map((r) => r.content)).toContain("what is my balance?");
+    expect(rows.map((r) => r.content)).toContain("Your balance is 4,182.55.");
+  });
+
+  it("sends a compaction summary as its body, without the marker scaffolding", () => {
+    // The `[COMPACTION MARKER] gen=N` wrapper and the recovery hint are local
+    // bookkeeping. Synced, they would read as something the user typed.
+    const rows = syncableRows([compactionMarker("## Goal\n- check balance", 2)]);
+    expect(rows[0].role).toBe("compaction");
+    expect(rows[0].content).toBe("## Goal\n- check balance");
+    expect(rows[0].content).not.toContain("COMPACTION MARKER");
+    expect(rows[0].content).not.toContain("recall");
+  });
+});
+
+describe("positions", () => {
+  it("keeps the position of the ORIGINAL transcript", () => {
+    // Two devices syncing the same conversation upsert on
+    // `(conversation_id, seq)`. A position that shifted when a row was skipped
+    // would have one device overwrite another's rows with different content.
+    const rows = syncableRows(conversation);
+    expect(rows.map((r) => r.seq)).toEqual([0, 2, 3]);
+  });
+
+  it("skips an assistant message that was only a tool call", () => {
+    // It has no content of its own; its tool call is already represented by the
+    // label row that follows.
+    expect(syncableRows(conversation).map((r) => r.role)).toEqual([
+      "user",
+      "tool_label",
+      "assistant",
+    ]);
+  });
+
+  it("skips an empty user message rather than syncing a blank row", () => {
+    expect(syncableRows([{ role: "user", content: "   " }])).toEqual([]);
+  });
+});
+
+describe("labelsFrom", () => {
+  it("falls back to the tool's own name, which is a usable label", () => {
+    expect(labelsFrom(conversation).get("c1")).toBe("read_page");
+  });
+});
+
+describe("the compaction row, which is the widest door out", () => {
+  it("is allowed far more room than a tool label, which is why the PROMPT has to hold the line", () => {
+    // THE HOLE THAT WAS NEARLY SHIPPED. `content_length_by_role` caps a
+    // `tool_label` row at 200 characters, so a page snapshot cannot leave that
+    // way. A `compaction` row is legitimately allowed 40,000 — a summary needs
+    // the room — so nothing in the schema stops a summary that transcribed a
+    // page. The template briefly had a `## Pages and Tabs` section inviting
+    // exactly that. The defence is `context/prompt.ts` telling the summariser
+    // never to copy page text, and this test exists so the next person who edits
+    // that template finds out why.
+    expect(COMPACTION_SYSTEM).not.toMatch(/## Pages and Tabs/);
+    expect(COMPACTION_SYSTEM).toMatch(/never copy text out of a page/i);
+    expect(COMPACTION_SYSTEM).toMatch(/not a browsing log/i);
+  });
+
+  it("asks for what the user now knows, not what each page contained", () => {
+    expect(COMPACTION_SYSTEM).toMatch(/## What the user now knows/);
+    // The worked distinction, spelled out so a model cannot read it either way.
+    expect(COMPACTION_SYSTEM).toMatch(/is the answer.*page content|page content.*goes nowhere/is);
+  });
+});

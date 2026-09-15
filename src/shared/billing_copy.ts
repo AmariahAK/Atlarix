@@ -36,7 +36,25 @@ import { ATLARIX_CORE_CATEGORY_LABEL } from "./compass_product_copy";
 /** `$1.23`, or `-$1.23`. Negative balances are real — see the refund note below. */
 export function formatCents(cents: number): string {
   const sign = cents < 0 ? "-" : "";
-  return `${sign}$${(Math.abs(cents) / 100).toFixed(2)}`;
+  /**
+   * GROUPED, because `toFixed(2)` alone rendered a comped account's balance as
+   * `$1000000.67` — a number a human has to count digits on to read, and the owner
+   * reported it as looking wrong. Grouping is the difference between "is that one
+   * million or ten" and a figure you can read at a glance.
+   *
+   * `en-US` is pinned rather than using the ambient locale: this string is money
+   * paired with a hard-coded `$`, and a locale that swaps the group and decimal
+   * separators would render `$1.000.000,67` next to a dollar sign. The app is
+   * translated, but the currency symbol here is not, so the number must not drift
+   * away from it.
+   *
+   * Two fraction digits always — a balance of `$1,000,000.7` is not a balance.
+   */
+  const amount = (Math.abs(cents) / 100).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  return `${sign}$${amount}`;
 }
 
 // ─── What the products are ───────────────────────────────────────────────────
@@ -44,9 +62,18 @@ export function formatCents(cents: number): string {
 /**
  * The one-line answer to "what does Pro get me", matching the website's
  * `PRO_SUMMARY` word for word.
+ *
+ * IT DID NOT MATCH. This still listed the app's feature surface — "unlimited
+ * workspaces, the marketplaces, one-click connectors" — which every account now gets
+ * for free, so it described Pro by naming things Free also has. It also said
+ * "marketplaces" plural after the skills marketplace was deleted in v14.45, leaving
+ * only MCP.
+ *
+ * Copy that states a commercial fact has one home, and this file's header says to
+ * change both when one changes. Both now read identically.
  */
 export const PRO_SUMMARY =
-  "Unlimited workspaces, the marketplaces, one-click connectors, and Atlarix Core included for everyday work.";
+  "Atlarix Reviewer, plus Atlarix Core included for everyday work — one subscription, one balance.";
 
 /**
  * The sentence that replaces "Atlarix Core is pay-as-you-go on every plan".

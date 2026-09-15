@@ -775,6 +775,7 @@ export async function runBuildBranch(
               };
 
               const jsonAfterSuccessfulExec = (execResult: {
+                success?: boolean;
                 path?: string;
                 output?: string;
                 exitCode?: number;
@@ -845,6 +846,16 @@ export async function runBuildBranch(
                           : {}),
                         added,
                         removed,
+                        // A bare "added: 0, removed: 0" is indistinguishable
+                        // from a write that never happened, and a model that
+                        // cannot tell the difference goes and runs `git diff`
+                        // to find out — observed live 2026-09-11, costing a
+                        // whole turn. Say which of the two it was.
+                        ...(added === 0 && removed === 0
+                          ? {
+                              note: "No lines changed — the file already contained exactly this content. The write succeeded; there was nothing to change. Do not re-run it or verify with git.",
+                            }
+                          : {}),
                       };
                     })()
                   : permRequest.operation === "run_command"
@@ -914,6 +925,24 @@ export async function runBuildBranch(
                 const target =
                   (permRequest.preview as { path?: string }).path ||
                   "operation";
+                // Belt and braces for the class of bug fixed in
+                // `PermissionInterceptor.fileOpResults`: this function is only
+                // called once the turn has decided the operation was approved,
+                // so an `execResult` that reports failure means the RESULT was
+                // lost, not that the write was. Saying "Successfully wrote" over
+                // that is the same mixed-signal failure the exit-code branch
+                // above exists to prevent — and it is worse here, because the
+                // accompanying diff reads as an empty one.
+                if (isFileWrite && execResult.success === false) {
+                  logger.error(
+                    `[Build Mode] edit_file result unavailable for ${operationId}: ${execResult.error ?? "unknown"}`,
+                  );
+                  return JSON.stringify({
+                    success: false,
+                    error: `The write to ${target} was approved and executed, but its result could not be read back (${execResult.error ?? "unknown"}). The file on disk may well be correct — read it before deciding what to do, and do NOT blindly re-apply the edit.`,
+                    path: (permRequest.preview as { path?: string }).path,
+                  });
+                }
                 return JSON.stringify({
                   success: true,
                   message: failedExit

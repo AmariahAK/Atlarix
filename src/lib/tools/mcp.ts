@@ -9,12 +9,22 @@
  *   - list_available_mcps — discover what MCP servers / tools are configured
  *   - mcp_call             — invoke a specific server's tool by name
  *
- * Chat-only mode still pre-loads global MCP tools for ergonomic discovery
- * (see chat_stream_handlers.ts).
+ * NO PATH FORCE-MERGES MCP TOOLS ANY MORE, on any surface. This comment used to
+ * say "chat-only mode still pre-loads global MCP tools for ergonomic discovery
+ * (see chat_stream_handlers.ts)"; that path is gone — `chat_stream_handlers.ts`
+ * has one unrelated mention of the word, and the only MCP entries in
+ * `resolve-toolset.ts` are the three registry tools being DROPPED for surfaces
+ * that cannot reach a server. The two-tool discovery contract above is the whole
+ * story, and the browser extension copies it verbatim, so a reader who believed
+ * the old sentence would look for a preload that does not exist on either side.
  */
 
 import log from "electron-log";
 import { ToolRegistry } from "./registry";
+import {
+  callAccountConnector,
+  listAccountConnectors,
+} from "@/lib/mcp/account-connectors";
 import {
   MCP_WORKSPACE_MAX,
   describeWorkspaceCap,
@@ -198,6 +208,31 @@ ToolRegistry.register({
   handler: async (args: { workspaceId?: number }) => {
     try {
       const servers = await listConfiguredMcps(args.workspaceId ?? null);
+      // Account connectors travel BESIDE the local ones, never merged into
+      // them: a local server can be `stdio` with a command and an environment,
+      // an account connector is HTTPS-only with its credential held by the
+      // proxy, and forcing one shape onto the other makes every column
+      // conditional. `scope` is what tells them apart.
+      //
+      // A LOCAL SERVER OF THE SAME NAME WINS, and the account one is dropped
+      // rather than renamed. `mcp_call` resolves by name, so two entries
+      // sharing one would make which server ran depend on list order — and
+      // silently running the wrong one is far worse than not offering it.
+      const local = new Set(servers.map((s) => s.name.toLowerCase()));
+      for (const c of await listAccountConnectors()) {
+        if (local.has(c.name.toLowerCase())) continue;
+        servers.push({
+          id: -1,
+          name: c.name,
+          description: c.description,
+          scope: "account",
+          transport: "http",
+          tools: c.tools ?? [],
+          ...(c.error ? { error: c.error } : {}),
+          ...(c.needsOAuth ? { needsOAuth: true } : {}),
+          ...(c.inactive ? { inactive: true } : {}),
+        });
+      }
       // Reported rather than only enforced: "you can't add another" would otherwise
       // look like a fault instead of a full workspace.
       const limits = describeWorkspaceCap("mcp", servers.length);
@@ -206,7 +241,7 @@ ToolRegistry.register({
           servers: [],
           limits,
           message:
-            "No MCP servers configured. Add one in Settings → MCP, or attach a workspace that has workspace-scoped MCP servers.",
+            "No MCP servers configured. Add one in Settings → MCP, attach a workspace that has workspace-scoped MCP servers, or add a connector on atlarix.dev/account — those are available in the app, the browser extension and the CLI. There is no tool here to add one.",
         };
       }
       return {
@@ -265,13 +300,48 @@ ToolRegistry.register({
       };
     }
 
+    /**
+     * ACCOUNT CONNECTORS ARE TRIED ONLY AFTER THE LOCAL ONES, in the same order
+     * the listing shows them — a local server of the same name wins there, and
+     * the two have to agree or `mcp_call` would run a different server from the
+     * one the model was told about.
+     *
+     * It is checked here rather than merged into the query below because the
+     * two live in different places: one is a row in SQLite, the other is a name
+     * the proxy resolves. There is nothing to join.
+     */
+    const runAccountConnector = async () => {
+      const connectors = await listAccountConnectors();
+      const match = connectors.find(
+        (c) => c.name.toLowerCase() === args.server!.toLowerCase(),
+      );
+      if (!match) return null;
+      if (match.needsOAuth) {
+        return {
+          error:
+            `"${match.name}" is set up on your account but has not been authorised. ` +
+            `Tell the user to open atlarix.dev/account, find it under Connectors, and ` +
+            `click Connect — it cannot be authorised from here.`,
+        };
+      }
+      const out = await callAccountConnector(
+        match.name,
+        args.tool!,
+        (args.arguments ?? {}) as Record<string, unknown>,
+      );
+      return out.ok ? { result: out.result } : { error: out.error };
+    };
+
     // Per-workspace only — see listConfiguredMcps. Without a workspace there is
-    // nothing to find, and saying so beats a lookup that cannot match followed
-    // by a "not found" that implies the server might exist elsewhere.
+    // no LOCAL server to find, but an account connector is not per-workspace, so
+    // this can no longer return early without looking.
     if (args.workspaceId == null) {
+      const viaAccount = await runAccountConnector();
+      if (viaAccount) return viaAccount;
       return {
         error:
-          "MCP servers are configured per workspace. Open a workspace folder to use one.",
+          "MCP servers are configured per workspace, and no connector of that name " +
+          "is set up on your account. Open a workspace folder to use a local one.",
       };
     }
 
@@ -287,8 +357,13 @@ ToolRegistry.register({
       )
       .limit(1);
     if (!server) {
+      // Not local — it may still be a connector on the account, which is not
+      // per-workspace. Only once BOTH have been looked in is "not configured"
+      // an honest thing to say.
+      const viaAccount = await runAccountConnector();
+      if (viaAccount) return viaAccount;
       return {
-        error: `MCP server "${args.server}" is not configured in this workspace. Call list_available_mcps to see what is.`,
+        error: `MCP server "${args.server}" is not configured in this workspace, and no connector of that name is set up on your account. Call list_available_mcps to see what is.`,
       };
     }
 

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Runner</title>
+    <!--
+      THE PAGE THE MODEL'S CODE RUNS UNDER, though never ON.
+
+      Declared under the manifest's `sandbox.pages`, which puts it in an opaque
+      origin with the sandbox CSP: no `chrome.*`, no same-origin handle back to
+      the extension, and `connect-src 'none'` so nothing here can reach the
+      network. Its sibling is `sandbox.html`, which hosts relics.
+
+      The difference between the two is where the untrusted thing executes. A
+      relic IS this document — it is written straight into it. Code is not: it
+      goes into a worker created by the script below, because a worker can be
+      terminated and a document cannot time out its own synchronous code. The
+      timer that would stop a runaway run is a task on the thread the run is
+      occupying, so keeping the run off this thread is what makes the timeout in
+      runner.js possible at all.
+
+      Deliberately empty otherwise. There is nothing to render — no user ever
+      looks at this page, and the panel keeps it hidden.
+    -->
+  </head>
+  <body>
+    <script src="runner.js"></script>
+  </body>
+</html>

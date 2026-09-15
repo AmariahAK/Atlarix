@@ -143,6 +143,30 @@ const EXPECTED_RESOURCES = [
     archOn: ["linux"],
     optionalEnv: "ALLOW_UNSANDBOXED_RELEASE",
   },
+  {
+    // The Chrome native-messaging relay. NO `optionalEnv` and NO `optional`,
+    // deliberately: it is the check whose absence let the bridge nearly ship
+    // missing from every installer.
+    //
+    // `forge.config.ts` guards its extraResource entry on `fs.existsSync`, so a
+    // runner that never built the crate contributes nothing and packaging
+    // SUCCEEDS. At runtime `resolveRelayPath()` then returns null, the app logs
+    // "no relay binary in this build" to a file nobody reads, and the bridge is
+    // permanently dead in a release that looks completely healthy. Shipping it
+    // dormant is a decision; shipping it absent is a defect, and from outside
+    // the two are identical.
+    name: "atlarix-bridge",
+    platforms: ["darwin", "linux"],
+    minBytes: 100_000,
+    exec: true,
+    arch: true,
+  },
+  {
+    name: "atlarix-bridge.exe",
+    platforms: ["win32"],
+    minBytes: 100_000,
+    arch: true,
+  },
 ];
 
 /** Where extraResource lands, which is platform-specific on darwin only. */

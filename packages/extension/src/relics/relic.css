@@ -1,0 +1,114 @@
+/*
+ * The viewer's chrome. Deliberately thin — a bar and a frame — because
+ * everything worth looking at is inside the frame, and the frame's contents
+ * bring their own styles.
+ */
+
+:root {
+  color-scheme: dark;
+  --fg: hsl(0 0% 92%);
+  --fg-muted: hsl(0 0% 62%);
+  --bg: hsl(0 0% 6%);
+  --card: hsl(0 0% 9%);
+  --border: hsl(0 0% 20%);
+  --primary: hsl(150 62% 46%);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--fg);
+  font:
+    14px/1.5 system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--card);
+}
+
+.bar__brand {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--primary);
+}
+
+.bar__title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bar__button {
+  flex: none;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--fg);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.bar__button:hover {
+  border-color: var(--primary);
+}
+
+.notice {
+  margin: 24px auto;
+  max-width: 46ch;
+  color: var(--fg-muted);
+  text-align: center;
+}
+
+/*
+ * A warning sits ABOVE a frame that still has content in it, so it is a band
+ * rather than a centred message standing in for the page.
+ */
+.notice--warn {
+  flex: none;
+  margin: 0;
+  max-width: none;
+  padding: 8px 12px;
+  text-align: left;
+  font-size: 12px;
+  color: var(--fg);
+  background: color-mix(in srgb, var(--primary) 12%, var(--card));
+  border-bottom: 1px solid var(--border);
+}
+
+/*
+ * `flex: 1` plus `min-height: 0` — without the second the frame refuses to
+ * shrink below its content and the bar scrolls off the top. Same automatic
+ * minimum size that collapsed the transcript's tool cards, in the other
+ * direction.
+ */
+.stage {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+  background: white;
+}

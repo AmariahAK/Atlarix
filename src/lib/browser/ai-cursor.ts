@@ -54,29 +54,19 @@ export const AI_CURSOR_SETUP_JS = `
     var __ring = __c.querySelector('[data-part="ring"]');
     var __chip = __c.querySelector('[data-part="chip"]');`;
 
-/** Move the pointer onto `el` (assumed in scope) and name the action. */
-export function AI_CURSOR_AT_ELEMENT_JS(
-  label: string,
-  durationMs: number,
-): string {
-  const fade = Math.max(0, durationMs - 150);
-  return `try {
-    ${AI_CURSOR_SETUP_JS}
-    var __r = el.getBoundingClientRect();
-    var __cx = __r.left + __r.width / 2, __cy = __r.top + __r.height / 2;
-    __ring.style.left = __r.left + "px"; __ring.style.top = __r.top + "px";
-    __ring.style.width = __r.width + "px"; __ring.style.height = __r.height + "px";
-    __ptr.style.transform = "translate(" + __cx + "px," + __cy + "px)";
-    __chip.style.transform = "translate(" + (__cx + 14) + "px," + (__cy + 14) + "px)";
-    __chip.textContent = ${JSON.stringify(String(label))};
-    requestAnimationFrame(function () {
-      __ring.style.opacity = "1"; __ptr.style.opacity = "1"; __chip.style.opacity = "1";
-    });
-    // The ring + chip fade; the POINTER stays put, so the user keeps seeing
-    // where the agent's cursor is between actions.
-    setTimeout(function () { try { __ring.style.opacity = "0"; __chip.style.opacity = "0"; } catch (e) {} }, ${fade});
-  } catch (e) {}`;
-}
+/**
+ * WHAT USED TO BE HERE: `AI_CURSOR_AT_ELEMENT_JS`, then `AI_CURSOR_AT_RECT_JS`.
+ *
+ * The pointer-at-a-target drawing MOVED INTO THE SHARED KERNEL on 2026-09-13
+ * (`page-scripts/index.ts`, the `cursor` option on `resolve`). The desktop drew
+ * it and the extension did not, so a page in the user's own browser filled
+ * itself in silence — and "the form filled itself" is alarming in a way that "I
+ * watched it get filled" is not. One implementation, both surfaces.
+ *
+ * What remains here is the SETUP (shared by the label-only chip below) and the
+ * chip itself, for the actions that have no element to point at: a key press
+ * with no target, and a page scroll.
+ */
 
 /**
  * Show a labelled chip without a target element — for actions that have no

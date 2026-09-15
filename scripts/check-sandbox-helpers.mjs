@@ -41,6 +41,22 @@ const HELPERS = [
     target: "x86_64-unknown-linux-gnu",
     dir: "native/atlarix-sandbox-linux",
   },
+  // The bridge relay is NOT cfg-gated the way the two sandbox helpers are — it
+  // compiles on every host — so a plain `cargo build` would catch its mistakes.
+  // It is listed anyway, on both a unix and a windows triple, because its ONE
+  // platform-specific piece is the `connect()` pair: a unix socket on one side
+  // and a named pipe on the other, each behind a `#[cfg]`. Exactly the shape
+  // this script exists for — the Windows arm compiles nowhere else.
+  {
+    name: "atlarix-bridge",
+    target: "x86_64-pc-windows-msvc",
+    dir: "native/atlarix-bridge",
+  },
+  {
+    name: "atlarix-bridge",
+    target: "x86_64-unknown-linux-gnu",
+    dir: "native/atlarix-bridge",
+  },
 ];
 
 function installedTargets() {

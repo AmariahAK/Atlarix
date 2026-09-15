@@ -111,6 +111,16 @@ jobs:
       - name: Type check (tsc)
         run: npm run check:ts
 
+      # `check:ts` is tsconfig.app.json, whose `include` is ["src", "shared"] —
+      # it does not see packages/extension at all, so the package shipped with
+      # NO type check in CI. The extension's own tsconfig is the one with
+      # `types: []`, and that is the only thing standing between a Node builtin
+      # and a bundle that cannot run it. The extension vitest project cannot
+      # substitute: jsdom-under-vitest keeps Node's globals, so `Buffer` and
+      # `process` resolve there and then fail in Chrome.
+      - name: Type check (extension)
+        run: npm run ts:extension
+
       - name: Lint (oxlint)
         run: npm run check:lint
 
@@ -313,6 +323,38 @@ jobs:
 
       - name: Tests
         run: npm test
+
+      - name: Build the bridge relay (Rust, ${{ matrix.arch }})
+        run: |
+          # THE ARCH MUST MATCH THE APP. macos-latest is arm64, so the x64 leg
+          # of this matrix CROSS-COMPILES. A plain `cargo build` would place an
+          # arm64 binary inside an x64 .app, where it cannot exec — and the
+          # symptom is "the bridge does not work", not "the wrong binary", which
+          # is a long way from the cause.
+          case "${{ matrix.arch }}" in
+            arm64) TRIPLE=aarch64-apple-darwin ;;
+            x64)   TRIPLE=x86_64-apple-darwin ;;
+            *) echo "::error::unknown matrix arch ${{ matrix.arch }}"; exit 1 ;;
+          esac
+          rustup target add "$TRIPLE"
+          cargo build --release --target "$TRIPLE" \
+            --manifest-path native/atlarix-bridge/Cargo.toml
+
+          # forge.config.ts looks in target/release, which is where a NON-cross
+          # build lands. Copy rather than teach the config about triples: that
+          # same config runs `npm run package` on a developer machine, where
+          # there is no triple and the plain path is correct.
+          mkdir -p native/atlarix-bridge/target/release
+          cp "native/atlarix-bridge/target/$TRIPLE/release/atlarix-bridge" \
+             native/atlarix-bridge/target/release/atlarix-bridge
+
+          # HARD FAILURE, deliberately unlike the sandbox helpers'
+          # ALLOW_UNSANDBOXED_RELEASE hatch. An unsandboxed build is degraded but
+          # usable; a missing relay is a feature that is silently ABSENT, and
+          # absent is indistinguishable from dormant once it has shipped.
+          test -x native/atlarix-bridge/target/release/atlarix-bridge
+          # Printed so the arch is in the log rather than inferred from a failure.
+          file native/atlarix-bridge/target/release/atlarix-bridge
 
       - name: Build for macOS (${{ matrix.arch }})
         run: |
@@ -561,6 +603,14 @@ jobs:
         env:
           ALLOW_UNSANDBOXED_RELEASE: ${{ vars.ALLOW_UNSANDBOXED_RELEASE }}
 
+      - name: Build the bridge relay (Rust)
+        run: |
+          # No escape hatch, unlike the Landlock helper above — see the macOS job
+          # for the reasoning. The crate has no dependencies and builds in ~6s.
+          cargo build --release --manifest-path native/atlarix-bridge/Cargo.toml
+          test -x native/atlarix-bridge/target/release/atlarix-bridge
+          file native/atlarix-bridge/target/release/atlarix-bridge
+
       - name: Upload Landlock helper for Windows builds
         uses: actions/upload-artifact@v4
         with:
@@ -644,32 +694,26 @@ jobs:
   build-windows:
     needs: [quality, create-draft, build-linux]
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
-    # PINNED, not `windows-latest` — a STOPGAP, and it is on a deprecation path.
+    # `windows-latest` (= windows-2025-vs2026) since 2026-09-10. It was pinned to
+    # windows-2022 because @electron/node-gyp@10.2.0-electron.1 knew Visual Studio up
+    # to 2022 only: it found the VS 2026 instance, logged "unsupported version: 18",
+    # and reported "Could not find any Visual Studio installation to use".
     #
-    # `windows-latest` resolves to `windows-2025-vs2026`, whose only Visual Studio
-    # is 2026 (v18.8.2). @electron/node-gyp@10.2.0-electron.1 knows VS up to 2022
-    # (v17) only: it finds the instance, logs "unsupported version: 18", falls
-    # through every older check, and reports "Could not find any Visual Studio
-    # installation to use" on a machine with a brand-new one.
+    # `patches/@electron+node-gyp+10.2.0-electron.1.patch` fixes that, and the fix is
+    # now exercised rather than assumed: MSIX run 34461113885 was green end-to-end on
+    # this image, with `check-vs-toolchain` reporting versionYear 2026 and toolset
+    # v145. The patch discovers the toolset by scanning `PlatformToolsets` instead of
+    # mapping it from the MSVC version, which is what v145 vindicates — VS 2022 17.14
+    # ships MSVC 14.44 and is still v143, so no such mapping would have produced it.
     #
-    # WHY THIS IS NEW, since the image is not: v14.34.0 built green on the SAME
-    # vs2026 image and never ran the VS finder at all (`grep -c "find VS"` on its
-    # log is 0), because better-sqlite3 came from a PREBUILT binary. Electron 43
-    # (ABI 148) with better-sqlite3 12.11.1 has no prebuild, so Windows now
-    # compiles from source — the first time this pipeline has invoked that finder,
-    # which is why two latent defects in it surfaced at once (the 1 MB maxBuffer,
-    # patched, and no VS>=18 support, unpatched).
-    #
-    # THE PATCH HAS LANDED (v14.43.0+): patches/@electron+node-gyp+10.2.0-electron.1
-    # .patch now maps major 18 -> year 2026. This job STAYS PINNED until the un-pin
-    # has been proven on a runner, and this is not the place to prove it: a red
-    # build-windows on a tag takes out the release. Dispatch `Atlarix MSIX` with
-    # runner=windows-latest instead (see the long note in msix.yml), read the
-    # "Verify Visual Studio toolchain is discoverable" step's printed versionYear and
-    # toolset, and only then change this line.
-    #
-    # windows-2022 is on a deprecation path, so this is a stopgap either way.
-    runs-on: windows-2022
+    # ONE CAVEAT, because this job is not the one that was tested: that run proved the
+    # `msix` job, whose steps end at `electron-forge package`. This job additionally
+    # runs `electron-forge make` (Squirrel.Windows), which has never run on the 2025
+    # image. The shared risk — npm ci, electron-rebuild, node-gyp, VS discovery — is
+    # proven; the maker is not. This job gates `publish-release`, so if a tag fails
+    # here, re-run the job and revert this one line to `windows-2022` before assuming
+    # the maker is broken.
+    runs-on: windows-latest
     timeout-minutes: 180
     steps:
       - name: Checkout code
@@ -828,6 +872,26 @@ jobs:
             exit 1
           }
 
+      - name: Build the bridge relay (Rust)
+        shell: pwsh
+        run: |
+          # No escape hatch — see the macOS job. Signing stays OPTIONAL, exactly
+          # as it is for the sandbox helper: an unsigned relay relays identically,
+          # and the certificate only affects SmartScreen.
+          cargo build --release --manifest-path native/atlarix-bridge/Cargo.toml
+          $exe = "native/atlarix-bridge/target/release/atlarix-bridge.exe"
+          if (-not (Test-Path $exe)) {
+            Write-Host "::error::atlarix-bridge.exe failed to build — refusing to ship a release whose browser bridge is silently absent."
+            exit 1
+          }
+          if ($env:SM_CODE_SIGNING_CERT_SHA1_HASH) {
+            & signtool sign /sha1 $env:SM_CODE_SIGNING_CERT_SHA1_HASH /tr http://timestamp.digicert.com /td SHA256 /fd SHA256 $exe
+            if ($LASTEXITCODE -ne 0) { Write-Error "signtool failed for the bridge relay"; exit $LASTEXITCODE }
+          } else {
+            Write-Host "No SM_CODE_SIGNING_CERT_SHA1_HASH — shipping atlarix-bridge.exe unsigned (it relays identically)."
+          }
+          Write-Host "Built bridge relay: $exe"
+
       - name: Build for Windows (package + installers)
         timeout-minutes: 55
         shell: pwsh
@@ -902,7 +966,19 @@ jobs:
   # Was workflow_dispatch-only until the packaged-context spike passed on real
   # Windows hardware (8/8 probes inside the MSIX, sandbox assertions included).
   build-msix:
-    needs: [quality]
+    # build-linux IS a dependency, and not for ordering aesthetics: it is the job
+    # that uploads `landlock-helper`, and this one downloads it for WSL
+    # confinement. With `needs: [quality]` alone the two ran in parallel and it
+    # was a race — lost on the v14.45.0 tag, where msix reached the download at
+    # 20:55:35 and build-linux created the artifact at 20:57:05. The download
+    # step is `continue-on-error`, so the miss surfaced 2 minutes later and one
+    # step removed, as `verify-ci-package-out` reporting a missing
+    # `atlarix-sandbox-linux` resource.
+    #
+    # Latent, not new: it only bites when linux is the slower of the two, so a
+    # faster linux run hides it again. Serialising costs wall-clock and buys a
+    # release that cannot fail this way.
+    needs: [quality, build-linux]
     if: startsWith(github.ref, 'refs/tags/v')
     uses: ./.github/workflows/msix.yml
     with:

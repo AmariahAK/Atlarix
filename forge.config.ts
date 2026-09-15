@@ -365,6 +365,27 @@ const config: ForgeConfig = {
             ),
           ]
         : []),
+      // The Chrome native-messaging relay (cargo-built + signed in CI before
+      // packaging). Resolves at runtime via
+      // process.resourcesPath/atlarix-bridge — see src/main/bridge-lifecycle.ts.
+      //
+      // SHIPS ON EVERY PLATFORM, unlike the two sandbox helpers above, because
+      // the browser bridge is not platform-specific. Guarded so packaging
+      // without a build is unaffected: the app then logs that the bridge is
+      // unavailable and opens normally.
+      ...(fs.existsSync(
+        path.join(
+          __dirname,
+          `native/atlarix-bridge/target/release/atlarix-bridge${process.platform === "win32" ? ".exe" : ""}`,
+        ),
+      )
+        ? [
+            path.join(
+              __dirname,
+              `native/atlarix-bridge/target/release/atlarix-bridge${process.platform === "win32" ? ".exe" : ""}`,
+            ),
+          ]
+        : []),
       // Linux Landlock sandbox helper (cargo-built in CI; no code-signing needed).
       // Resolves at runtime via process.resourcesPath/atlarix-sandbox-linux
       // (see src/lib/sandbox/wrap-command.ts). Ships on Linux builds natively and

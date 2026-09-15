@@ -1,0 +1,9 @@
+{
+  "name": "@atlarix/extension",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Atlarix browser extension (Chrome MV3)",
+  "scripts": {
+    "build": "node ../../scripts/build-extension.mjs"
+  }
+}

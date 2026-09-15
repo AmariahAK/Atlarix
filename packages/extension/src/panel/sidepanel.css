@@ -1,0 +1,1642 @@
+/*
+ * Side panel styling — Atlarix's own dark/emerald, not the browser's theme.
+ *
+ * DARK ONLY, DELIBERATELY. An earlier version followed
+ * `prefers-color-scheme` on the reasoning that a panel docked inside Chrome
+ * should look like Chrome. That was wrong for this product: the app, the site
+ * and the installers are all near-black with an emerald accent, and a panel
+ * that turns white on a light-mode machine reads as a different product
+ * wearing the same name.
+ *
+ * The tokens are the launchpad's, so the two surfaces cannot drift:
+ *   background  hsl(0 0% 4%)      primary  hsl(160 84% 39%)
+ *   card        hsl(0 0% 10%)     border   hsl(240 4% 16%)
+ *   muted text  hsl(240 5% 65%)   radius   0.75rem
+ *
+ * NO WEBFONT. The launchpad loads Inter from Google Fonts; this does not, and
+ * that is on purpose. A remote font in an extension is a network request on
+ * every panel open, a Web Store review question about third-party resources,
+ * and one more thing that can fail offline — for a difference most people would
+ * not name. The system stack is close enough at this size.
+ *
+ * THE LAYOUT IS A COLUMN THAT DOES NOT SCROLL, holding a transcript that does.
+ * A side panel is often 320px wide and the whole page scrolling would take the
+ * composer off screen exactly when the answer got long — which is when the user
+ * most wants to reply.
+ */
+
+:root {
+  color-scheme: dark;
+  --bg: hsl(0 0% 4%);
+  --card: hsl(0 0% 10%);
+  --fg: hsl(0 0% 98%);
+  --fg-muted: hsl(240 5% 65%);
+  --border: hsl(240 4% 16%);
+  --primary: hsl(160 84% 39%);
+  --primary-fg: hsl(0 0% 98%);
+  --radius: 0.75rem;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font:
+    14px/1.5 system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
+  overflow: hidden;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.panel__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+.panel__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.panel__actions {
+  margin-left: auto;
+  display: flex;
+  gap: 2px;
+}
+
+.panel__body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+}
+
+.panel__lede {
+  margin: 0;
+  color: var(--fg-muted);
+}
+
+.panel__status {
+  margin: 0;
+  padding: 0 14px 8px;
+  min-height: 1.25em;
+  font-size: 12px;
+  color: var(--fg-muted);
+  flex: none;
+}
+
+.panel__status:empty {
+  padding: 0;
+  min-height: 0;
+}
+
+/* Hidden by the panel script depending on whether there is a session. */
+[hidden] {
+  display: none !important;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+
+.providers {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 4px);
+  background: var(--card);
+  color: var(--fg);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease;
+}
+
+.button:not(:disabled):hover {
+  border-color: var(--primary);
+  background: hsl(0 0% 14%);
+}
+
+.button:focus-visible,
+.icon-button:focus-visible,
+.composer__input:focus-visible,
+.composer__send:focus-visible,
+.composer__model:focus-visible,
+.row-button:focus-visible,
+.tool:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.button__icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+/*
+ * The destructive action, and the only red thing in the panel.
+ *
+ * Quiet until hovered rather than red at rest: a permanently red button in a
+ * settings list reads as a warning about the list, and it is the one control
+ * here nobody should click by accident on the way past.
+ */
+.button--danger:not(:disabled):hover {
+  border-color: hsl(0 70% 45%);
+  background: hsl(0 40% 12%);
+  color: hsl(0 80% 75%);
+}
+
+.button--danger[data-confirming="true"] {
+  border-color: hsl(0 70% 45%);
+  background: hsl(0 45% 14%);
+  color: hsl(0 85% 78%);
+}
+
+/* Sign out is a quieter action than signing in — no accent on hover. */
+.button--quiet:not(:disabled):hover {
+  border-color: var(--border);
+}
+
+/*
+ * The signed-in account, stated where it is always visible.
+ *
+ * A CIRCLE THE SIZE OF THE ICON BUTTONS BESIDE IT, holding either the provider
+ * photograph or the person's initials. It replaced a truncated email — in a
+ * 320px panel "amariah...." is a string that fits rather than information, and
+ * a face is recognisable at 24px in a way that eleven characters are not.
+ */
+.account-chip {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-right: 2px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: hsl(160 84% 39% / 0.15);
+  color: var(--primary);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.account-chip:hover {
+  border-color: var(--primary);
+}
+
+.account-chip__avatar {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.account-chip__initials {
+  letter-spacing: 0.02em;
+}
+
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+
+.icon-button:hover {
+  background: var(--card);
+  color: var(--fg);
+}
+
+.icon-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.icon-button[aria-expanded="true"] {
+  background: var(--card);
+  color: var(--primary);
+}
+
+/* ── Chat ────────────────────────────────────────────────────────────────── */
+
+.chat {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.transcript {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/*
+ * ══ NOTHING IN THE TRANSCRIPT MAY SHRINK ══
+ *
+ * A flex column's children default to `flex-shrink: 1`, so once the content is
+ * taller than the panel every child is squeezed to make it fit. Text resists,
+ * because its automatic minimum size is its content — but `.steps` and `.tool`
+ * set `overflow: hidden`, and an overflow other than `visible` makes that
+ * automatic minimum size ZERO. So the tool cards, and only the tool cards,
+ * collapsed to their own 2px of border.
+ *
+ * MEASURED: a 30-card transcript in a 815px column rendered every `.steps` at
+ * 2px instead of 34px. On screen that is a hairline between paragraphs, which
+ * reads as the cards having vanished rather than as a layout bug — and it is
+ * LATENT, appearing only once a conversation is long enough to overflow, which
+ * is why it survived every short test.
+ *
+ * `flex: none` on every child, rather than `min-height` on the cards: the rule
+ * belongs to the container that imposed the shrinking, and stating it once
+ * covers whatever gets appended here next.
+ */
+.transcript > * {
+  flex: none;
+}
+
+/*
+ * A TURN BOUNDARY IS NOT THE SAME GAP AS A STEP.
+ *
+ * Everything in the transcript sat on one uniform 10px rhythm, so a new
+ * question from the user was spaced exactly like the next tool card inside the
+ * previous answer — and in a 320px column, where a single turn can be five
+ * stacked elements, there was nothing to tell you where one exchange ended and
+ * the next began. The user's own message is the only reliable boundary marker
+ * we have, so it carries the extra space. Not the first one, which would just
+ * indent the top of the transcript.
+ */
+.msg--user:not(:first-child) {
+  margin-top: 10px;
+}
+
+.empty {
+  margin: auto 0;
+  color: var(--fg-muted);
+  font-size: 13px;
+  text-align: center;
+  padding: 0 8px;
+}
+
+.empty strong {
+  display: block;
+  color: var(--fg);
+  font-size: 14px;
+  margin-bottom: 6px;
+}
+
+.empty__starters {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+.empty__starter {
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 6px);
+  background: var(--card);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.empty__starter:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.msg {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+/*
+ * BRIGHTER THAN `--card`, on purpose. The bubble used the same surface as every
+ * tool card and question card in the transcript, so the one element that marks
+ * "this is what I said" sat at the same depth as the machinery around it. It is
+ * the only thing in the column the user wrote; it gets its own step up.
+ */
+.msg--user {
+  position: relative;
+  align-self: flex-end;
+  max-width: 88%;
+  padding: 8px 11px;
+  border-radius: var(--radius);
+  border-bottom-right-radius: 4px;
+  background: color-mix(in srgb, var(--fg) 9%, var(--card));
+  border: 1px solid color-mix(in srgb, var(--fg) 14%, var(--border));
+}
+
+.msg__text {
+  white-space: pre-wrap;
+}
+
+/*
+ * An answer to `ask_user`, laid out as the question then what was chosen.
+ *
+ * The question is muted and the answer is not, because the answer is the part
+ * the person actually said — the question is there so a transcript read back a
+ * week later is not a list of replies to nothing.
+ */
+.msg__asked {
+  color: var(--fg-muted);
+  font-size: 12px;
+  line-height: 1.4;
+  padding-bottom: 5px;
+  margin-bottom: 5px;
+  border-bottom: 1px solid var(--border);
+}
+
+.msg__answer {
+  white-space: pre-wrap;
+}
+
+/*
+ * Edit appears on hover and on keyboard focus.
+ *
+ * Always-visible would put a button on every message in a 320px column, and the
+ * action is rare. `:focus-within` is the half people forget: without it the
+ * control exists only for users with a pointer.
+ */
+.msg__edit {
+  position: absolute;
+  top: -9px;
+  right: 8px;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: hsl(0 0% 14%);
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.msg--user:hover .msg__edit,
+.msg--user:focus-within .msg__edit {
+  opacity: 1;
+}
+
+.msg__edit:hover {
+  border-color: var(--primary);
+  color: var(--fg);
+}
+
+/* The message about to be replaced, so the rewind is not a surprise. */
+.msg--editing {
+  border-color: var(--primary);
+  opacity: 0.55;
+}
+
+.msg--assistant > *:first-child {
+  margin-top: 0;
+}
+
+.msg--assistant > *:last-child {
+  margin-bottom: 0;
+}
+
+.msg--assistant p,
+.msg--assistant ul,
+.msg--assistant ol {
+  margin: 0 0 8px;
+}
+
+.msg--assistant ul,
+.msg--assistant ol {
+  padding-left: 18px;
+}
+
+.msg--assistant li {
+  margin-bottom: 3px;
+}
+
+/*
+ * Headings, sized for a 320px column.
+ *
+ * The browser's defaults are written for a document — an h1 is 32px with 21px
+ * of margin — which inside a chat bubble reads as shouting and costs a third of
+ * the visible panel. These are close to the body size and lean on weight and
+ * spacing instead, which is what tells a heading apart at this width.
+ */
+.msg--assistant h1,
+.msg--assistant h2,
+.msg--assistant h3,
+.msg--assistant h4,
+.msg--assistant h5,
+.msg--assistant h6 {
+  margin: 14px 0 6px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.msg--assistant h1 {
+  font-size: 15px;
+}
+
+.msg--assistant h2 {
+  font-size: 14px;
+}
+
+.msg--assistant h3,
+.msg--assistant h4,
+.msg--assistant h5,
+.msg--assistant h6 {
+  font-size: 13px;
+}
+
+/*
+ * A heading below h2 is set in the muted colour, which is what separates it
+ * from the bold runs that surround it at the same size and weight.
+ */
+.msg--assistant h4,
+.msg--assistant h5,
+.msg--assistant h6 {
+  color: var(--fg-muted);
+}
+
+.msg--assistant code {
+  font:
+    12px/1.5 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  background: hsl(0 0% 12%);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
+.msg--assistant pre {
+  margin: 0 0 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 4px);
+  background: hsl(0 0% 7%);
+  overflow-x: auto;
+}
+
+.msg--assistant pre code {
+  background: none;
+  padding: 0;
+}
+
+.msg--assistant a {
+  color: var(--primary);
+}
+
+.msg--error {
+  padding: 10px 11px;
+  border: 1px solid hsl(0 60% 30%);
+  border-radius: calc(var(--radius) - 4px);
+  background: hsl(0 40% 10%);
+  font-size: 13px;
+}
+
+/*
+ * A tool call, collapsed to one line.
+ *
+ * `<details>` rather than a button plus state: it is the one disclosure widget
+ * that is keyboard-accessible and screen-reader-correct without any script, and
+ * the transcript is rebuilt often enough that per-element state would be lost
+ * anyway.
+ */
+.tool {
+  font-size: 12px;
+  color: var(--fg-muted);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 4px);
+  background: hsl(0 0% 7%);
+}
+
+.tool > summary {
+  padding: 6px 10px;
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tool > summary::-webkit-details-marker {
+  display: none;
+}
+
+/*
+ * A DOT, and the Atlarix mark was tried here and reverted. The desktop's
+ * smallest shipped size is 24px (`AtlarixAnimation`'s SIZE_MAP `inline`); at
+ * the 14px a card indicator can afford, the compass ring, needle and A collapse
+ * into a green smudge that reads as a generic spinner. It also said nothing
+ * once settled — every finished card showed the identical static A — for the
+ * price of one `<canvas>` per card in the transcript.
+ *
+ * Running versus done is the only thing this has to convey, and a 5px pulse
+ * conveys it at no cost.
+ */
+.tool__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--primary);
+  flex: none;
+}
+
+.tool--running .tool__dot {
+  animation: pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tool--running .tool__dot {
+    animation: none;
+  }
+}
+
+/*
+ * Thinking, and the "Working…" row.
+ *
+ * Both wear the tool chip's shell on purpose: they are the same class of thing —
+ * the agent doing something rather than saying something — and giving them their
+ * own look would make the transcript read as three kinds of object instead of
+ * two.
+ */
+.thinking > summary {
+  font-style: italic;
+}
+
+.working {
+  padding: 6px 10px;
+}
+
+.working__line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tool__body {
+  margin: 0;
+  padding: 0 10px 8px;
+  font:
+    11px/1.5 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 30vh;
+  overflow-y: auto;
+  color: var(--fg-muted);
+}
+
+/*
+ * The permission card.
+ *
+ * Emerald-bordered and never quiet: this is the only moment the extension asks
+ * for something, and the user's answer is enforced by Chrome rather than by us.
+ */
+.grant {
+  padding: 11px;
+  border: 1px solid var(--primary);
+  border-radius: calc(var(--radius) - 4px);
+  background: hsl(160 40% 8%);
+  font-size: 13px;
+}
+
+.grant__origin {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.grant__note {
+  margin: 4px 0 10px;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.grant__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.grant__actions .button {
+  width: auto;
+  flex: 1;
+}
+
+.grant__allow {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-fg);
+}
+
+.grant__allow:not(:disabled):hover {
+  background: hsl(160 84% 34%);
+}
+
+/*
+ * "Allow every site" is the third option and must never read as the easy one.
+ *
+ * It does not flex with the other two: a 320px panel would otherwise give three
+ * equal buttons, and equal weight is exactly the wrong signal for the broadest
+ * answer on the card. It sits on its own line, quieter than "Not now", and the
+ * user who wants it will still find it immediately.
+ */
+.grant__actions {
+  flex-wrap: wrap;
+}
+
+.grant__always {
+  flex: 1 0 100%;
+  font-size: 11px;
+  color: var(--muted-fg);
+  border-color: transparent;
+  background: transparent;
+}
+
+.grant__always:not(:disabled):hover {
+  color: var(--fg);
+  border-color: var(--border);
+}
+
+.grant--settled {
+  border-color: var(--border);
+  background: var(--card);
+  color: var(--fg-muted);
+}
+
+/* ── ask_user ────────────────────────────────────────────────────────────── */
+
+/*
+ * Deliberately NOT `.grant`. An approval card asks permission for something
+ * about to happen and is answered yes or no; this asks for information and is
+ * answered in words. Sharing the emerald border would make a question look like
+ * a security prompt, which is the one thing a user must not learn to click
+ * through.
+ */
+.ask {
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--primary) 40%, transparent);
+  border-radius: calc(var(--radius) - 4px);
+  background: color-mix(in srgb, var(--primary) 5%, var(--card));
+  font-size: 13px;
+}
+
+.ask__header {
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  margin-bottom: 10px;
+}
+
+.ask__block + .ask__block {
+  margin-top: 14px;
+}
+
+.ask__question {
+  font-weight: 600;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+/*
+ * ONE PER ROW, NOT WRAPPED CHIPS.
+ *
+ * These were `flex-wrap: wrap` pills, and the old comment defended that on the
+ * grounds that four stacked options "would push the composer off a short
+ * panel". They do not — the card scrolls with the transcript. What wrapping
+ * DID do was lay four options out as 1 / 2-3 / 4 depending on their text
+ * width, so the reading order stopped matching the order the model wrote them
+ * in, which is the one thing a numbered list of choices has to preserve.
+ *
+ * Same shape as the desktop's InlineUserQuestions, which had this right first.
+ */
+.ask__options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+/*
+ * A REAL SURFACE. The previous version was transparent with a hairline border
+ * and inherited the body colour, and it was reported as looking "just like
+ * text" -- which it did, because nothing about it said it could be clicked.
+ */
+.ask__option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 6px);
+  background: var(--card);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease;
+}
+
+.ask__option:hover {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, var(--card));
+}
+
+/*
+ * THE CHOSEN ONE HAS TO LOOK CHOSEN. With several questions open, picking does
+ * not send — so without a visible mark the click has no feedback at all, which
+ * is the complaint that produced the send-on-pick fix in the first place.
+ */
+.ask__option[aria-selected="true"] {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 16%, var(--card));
+  color: var(--fg);
+}
+
+.ask__option[aria-selected="true"] .ask__option-num {
+  color: var(--primary);
+}
+
+.ask__option:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.ask__option:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+.ask__option-num {
+  flex: none;
+  width: 14px;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.ask__option-label {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* The "something else" field, so a typed answer belongs to ITS question
+   rather than to a composer that knows nothing about the card. */
+.ask__custom {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px dashed var(--border);
+  border-radius: calc(var(--radius) - 6px);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+}
+
+.ask__custom::placeholder {
+  color: var(--fg-muted);
+}
+
+.ask__custom:focus,
+.ask__custom--on {
+  outline: none;
+  border-style: solid;
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, var(--card));
+}
+
+/* Skip left, Send right — the desktop's `justify-between`. */
+.ask__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* Quieter than Send, because it is the absence of an answer rather than one. */
+.ask__skip {
+  padding: 4px 8px;
+  border: 0;
+  border-radius: calc(var(--radius) - 6px);
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ask__skip:hover {
+  color: var(--fg);
+}
+
+/* Alone in the row when there is no Send — still on the left, not centred. */
+.ask__actions > .ask__skip:only-child {
+  margin-right: auto;
+}
+
+.ask__send:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.ask__note {
+  margin: 12px 0 0;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+/* ── Composer ────────────────────────────────────────────────────────────── */
+
+.composer {
+  flex: none;
+  border-top: 1px solid var(--border);
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.composer__input {
+  width: 100%;
+  resize: none;
+  max-height: 40vh;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 4px);
+  background: var(--card);
+  color: var(--fg);
+  font: inherit;
+}
+
+.composer__input::placeholder {
+  color: var(--fg-muted);
+}
+
+.composer__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.composer__model {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 4px);
+  background: var(--card);
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 12px;
+}
+
+.composer__send {
+  flex: none;
+  padding: 7px 16px;
+  border: 1px solid var(--primary);
+  border-radius: calc(var(--radius) - 4px);
+  background: var(--primary);
+  color: var(--primary-fg);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.composer__send:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.composer__send--stop {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--fg);
+}
+
+/* ── Drawer ──────────────────────────────────────────────────────────────── */
+
+.drawer {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.drawer__group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.drawer__heading {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  font-weight: 600;
+}
+
+.drawer__account {
+  margin: 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.drawer__note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.drawer__list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.drawer__empty {
+  font-size: 12px;
+  color: var(--fg-muted);
+  font-style: italic;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 4px);
+  background: var(--card);
+  font-size: 12px;
+}
+
+.row--current {
+  border-color: var(--primary);
+}
+
+.row__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.row__label:hover {
+  color: var(--primary);
+}
+
+.row-button {
+  flex: none;
+  border: 0;
+  background: none;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.row-button:hover {
+  color: hsl(0 70% 65%);
+  background: hsl(0 0% 14%);
+}
+
+/* ── The context bar ────────────────────────────────────────────────────────
+ *
+ * Deliberately 3px and above the composer rather than a widget with a number in
+ * it. It is ambient for most of a conversation and only becomes text worth
+ * reading near the end of one — so it takes the space that matches how often it
+ * matters.
+ *
+ * The colour comes from `budgetHealth`, not from the percentage directly, so the
+ * bar and the label can never disagree about how full "full" is.
+ */
+.context-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 0 2px 6px;
+}
+
+.context-bar__track {
+  height: 3px;
+  border-radius: 999px;
+  background: hsl(240 4% 18%);
+  overflow: hidden;
+}
+
+.context-bar__fill {
+  height: 100%;
+  width: 0;
+  border-radius: 999px;
+  background: var(--primary);
+  transition: width 0.3s ease, background-color 0.3s ease;
+}
+
+.context-bar[data-health="warning"] .context-bar__fill {
+  background: hsl(45 90% 55%);
+}
+
+.context-bar[data-health="critical"] .context-bar__fill {
+  background: hsl(25 90% 58%);
+}
+
+.context-bar[data-health="over"] .context-bar__fill {
+  background: hsl(0 70% 60%);
+}
+
+.context-bar__label {
+  font-size: 10px;
+  color: var(--fg-muted);
+  line-height: 1.3;
+}
+
+/* Compaction is a model call and takes seconds. The pulse is what says the
+ * pause is work rather than a stall. */
+.context-bar[data-busy="true"] .context-bar__fill {
+  animation: context-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes context-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* A bar that strobes beside text someone is trying to read is worse than no
+ * signal at all. The colour still carries the state. */
+@media (prefers-reduced-motion: reduce) {
+  .context-bar[data-busy="true"] .context-bar__fill {
+    animation: none;
+  }
+
+  .context-bar__fill {
+    transition: none;
+  }
+}
+
+/* ── The compaction seam ────────────────────────────────────────────────────
+ *
+ * A visible line rather than a silent removal. Leaving the earlier bubbles on
+ * screen while quietly not sending them makes the next answer read as amnesia:
+ * the user can see the exchange they are asking about and the model cannot.
+ */
+.compaction {
+  margin: 12px 0;
+  border-top: 1px dashed var(--border);
+  padding-top: 8px;
+}
+
+.compaction__summary {
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--fg-muted);
+  list-style: none;
+  padding: 2px 0;
+}
+
+.compaction__summary::-webkit-details-marker {
+  display: none;
+}
+
+.compaction__summary::before {
+  content: "▸ ";
+}
+
+.compaction[open] > .compaction__summary::before {
+  content: "▾ ";
+}
+
+.compaction__summary:hover {
+  color: var(--primary);
+}
+
+.compaction__body {
+  margin: 6px 0 0;
+  padding: 8px;
+  border-radius: 6px;
+  background: hsl(240 4% 11%);
+  color: var(--fg-muted);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+/* ── Attachments ────────────────────────────────────────────────────────────
+ *
+ * Chips above the controls rather than inside the textarea: a file list that
+ * pushes the cursor around while someone is typing is the version of this that
+ * gets in the way.
+ */
+.attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 0 6px;
+}
+
+.attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: hsl(240 4% 12%);
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.attachment__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * Four or more staged files collapse into one chip that expands in place.
+ * The desktop uses a popover; a 320px panel has nowhere to put one that does
+ * not cover the conversation.
+ */
+.attachment--fold {
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  color: var(--fg);
+}
+
+.attachment--fold:hover,
+.attachment--open {
+  background: color-mix(in srgb, var(--fg) 14%, transparent);
+}
+
+.attachment__count {
+  font-weight: 600;
+}
+
+.attachment__label {
+  color: var(--fg-muted);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.attachment__list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.attachment__remove {
+  flex: none;
+  border: 0;
+  background: none;
+  color: var(--fg-muted);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.attachment__remove:hover {
+  color: hsl(0 70% 65%);
+}
+
+.composer__attach {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: none;
+  color: var(--fg-muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.composer__attach:hover:not(:disabled) {
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+.composer__attach:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Dragging a file anywhere over the panel targets the composer. */
+.composer--dropping {
+  outline: 2px dashed var(--primary);
+  outline-offset: 4px;
+  border-radius: 8px;
+}
+
+/* ── What a message was sent with ───────────────────────────────────────────
+ *
+ * Chips at the top of the user's own bubble, one per attached file, each
+ * expanding IN PLACE. The desktop opens a modal; a 320px panel cannot afford to
+ * cover the conversation the attachment belongs to.
+ */
+.msg__files {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.file {
+  min-width: 0;
+}
+
+.file__chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 3px 6px;
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+button.file__chip {
+  cursor: pointer;
+}
+
+button.file__chip:hover {
+  background: color-mix(in srgb, var(--fg) 12%, transparent);
+}
+
+.file__badge {
+  flex: none;
+  padding: 0 4px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+
+/*
+ * `min-width: 0` is what lets the ellipsis happen at all: a flex item's
+ * automatic minimum size is its content, so without it a long filename widens
+ * the chip past the bubble instead of truncating.
+ */
+.file__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file__preview {
+  margin-top: 4px;
+}
+
+.file__text {
+  max-height: 200px;
+  margin: 0;
+  padding: 6px;
+  overflow: auto;
+  font:
+    11px/1.5 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--fg-muted);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.file--open .file__chip {
+  background: color-mix(in srgb, var(--fg) 12%, transparent);
+}
+
+/*
+ * A relic — a document the model built, offered in the transcript.
+ *
+ * Its own card rather than a line in the activity card, because it is a thing
+ * the user now HAS rather than a description of work that happened.
+ */
+.relic {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--primary);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.relic__badge {
+  flex: none;
+  padding: 1px 5px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--primary);
+  border: 1px solid color-mix(in srgb, var(--primary) 40%, transparent);
+  border-radius: 3px;
+}
+
+.relic__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.relic__open {
+  flex: none;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--fg);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.relic__open:hover {
+  border-color: var(--primary);
+}
+
+/*
+ * A file the model built, offered as a download.
+ *
+ * Deliberately the relic card's sibling rather than a second design — both are
+ * "a thing you now have" and the user should not have to learn two shapes. The
+ * one difference that matters is the faded state: these bytes live only while
+ * the panel is open, so a restored conversation shows the card it remembers
+ * with its button dead and the reason in place of the size.
+ */
+.made-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--primary);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.made-file__badge {
+  flex: none;
+  padding: 1px 5px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--primary);
+  border: 1px solid color-mix(in srgb, var(--primary) 40%, transparent);
+  border-radius: 3px;
+}
+
+.made-file__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.made-file__size {
+  flex: none;
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+.made-file__save {
+  flex: none;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--fg);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.made-file__save:hover:not(:disabled) {
+  border-color: var(--primary);
+}
+
+.made-file__save:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+/* Gone with the panel that made it. Still shown, still named, no longer saved. */
+.made-file--gone {
+  border-left-color: var(--border);
+}
+
+.made-file--gone .made-file__badge {
+  color: inherit;
+  opacity: 0.5;
+  border-color: var(--border);
+}
+
+.made-file--gone .made-file__name {
+  opacity: 0.6;
+}
+
+/* An image the user attached, shown back to them in the transcript. */
+.bubble__image {
+  display: block;
+  max-width: 100%;
+  max-height: 220px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+/* ── The activity card ──────────────────────────────────────────────────────
+ *
+ * One card per stretch of work, collapsed. Everything the agent did is inside
+ * it, each step still its own expandable card — a developer loses nothing and
+ * everyone else stops scrolling past machinery to reach a sentence.
+ */
+.steps {
+  margin: 6px 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: hsl(240 4% 10%);
+  overflow: hidden;
+}
+
+.steps__summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--fg-muted);
+  list-style: none;
+  user-select: none;
+}
+
+.steps__summary::-webkit-details-marker {
+  display: none;
+}
+
+/* The disclosure arrow, on the right the way Claude's own row has it. */
+.steps__summary::after {
+  content: "›";
+  margin-left: auto;
+  font-size: 15px;
+  line-height: 1;
+  transition: transform 0.15s ease;
+}
+
+.steps[open] > .steps__summary::after {
+  transform: rotate(90deg);
+}
+
+.steps__summary:hover {
+  color: var(--fg);
+  background: hsl(240 4% 13%);
+}
+
+.steps__line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.steps__body {
+  padding: 2px 8px 8px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Steps inside the card sit flush — the card already draws the border. */
+.steps__body > .tool {
+  margin: 0;
+}

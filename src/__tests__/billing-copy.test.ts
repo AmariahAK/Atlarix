@@ -151,6 +151,24 @@ describe("formatCents", () => {
     expect(formatCents(1900)).toBe("$19.00");
     expect(formatCents(5)).toBe("$0.05");
   });
+
+  it("groups thousands, because an ungrouped balance has to be counted", () => {
+    // A comped account rendered as `$1000000.67`, which the owner reported as looking
+    // wrong — you cannot tell a million from ten million without counting digits.
+    expect(formatCents(100_000_067)).toBe("$1,000,000.67");
+    expect(formatCents(100_000)).toBe("$1,000.00");
+    // The boundary: no separator below a thousand, so ordinary balances are unchanged.
+    expect(formatCents(99_999)).toBe("$999.99");
+    expect(formatCents(-100_000_067)).toBe("-$1,000,000.67");
+  });
+
+  it("pins en-US so the separators cannot invert next to a hard-coded $", () => {
+    // The app is translated and the `$` in this helper is not, so a locale that swaps
+    // group and decimal separators would render `$1.000.000,67`. Grouping is asserted
+    // as a LITERAL rather than by reformatting with the ambient locale, which would
+    // agree with the bug.
+    expect(formatCents(123_456_789)).toBe("$1,234,567.89");
+  });
 });
 
 describe("describeAllowanceUsed — a share, never a dollar figure", () => {

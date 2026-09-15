@@ -17,6 +17,15 @@
  * instructs the model not to follow embedded instructions.
  */
 
+import {
+  clickScript,
+  fillScript,
+  focusForKeyScript,
+  hoverScript,
+  keyChipScript,
+  scrollByScript,
+  scrollToScript,
+} from "@/lib/browser/action-scripts";
 import { ToolRegistry } from "./registry";
 import {
   ensureTab,
@@ -70,12 +79,7 @@ import {
   runDesignSnapshot,
   formatDesignSnapshot,
 } from "@/lib/browser/visual-lint";
-import {
-  AI_CURSOR_AT_ELEMENT_JS,
-  AI_CURSOR_LABEL_JS,
-  AI_CURSOR_DURATION_MS,
-  AI_CURSOR_WAIT_MS,
-} from "@/lib/browser/ai-cursor";
+import { AI_CURSOR_WAIT_MS } from "@/lib/browser/ai-cursor";
 
 /**
  * ToolRegistry.execute injects the chat id into every tool's args; runToolExecute
@@ -260,57 +264,6 @@ async function loadUrlInBrowserTab(
 }
 
 /**
- * In-page JS that declares `el` by resolving a browser_inspect snapshot `ref`
- * (data-atlarix-ref) first, then a CSS `selector`. Both inputs are embedded only
- * inside string literals (JSON.stringify) and the ref goes through CSS.escape —
- * no injection surface (v12 3.5 trust boundary).
- */
-function RESOLVE_ELEMENT_JS(ref?: string, selector?: string): string {
-  return `const __ref = ${JSON.stringify(String(ref ?? ""))};
-      const __sel = ${JSON.stringify(String(selector ?? ""))};
-      let el = null;
-      if (__ref) { try { el = document.querySelector('[data-atlarix-ref="' + CSS.escape(__ref) + '"]'); } catch (e) {} }
-      if (!el && __sel) { try { el = document.querySelector(__sel); } catch (e) {} }`;
-}
-
-/**
- * In-page: walk from the resolved element to the field it actually contains.
- *
- * OBSERVED BUG (Wikipedia's Vector search box, 2026-09-02). A ref can point at a
- * WRAPPER rather than the field. The accessibility snapshot labels it "search
- * input" because that is its accessible ROLE, but the node is a div/form and the
- * real input is inside it — modern component libraries do this constantly.
- *
- * The old code went straight to `HTMLInputElement.prototype`'s value setter for
- * anything that was not a textarea. A native accessor REJECTS a receiver of the
- * wrong type, so that threw "Illegal invocation" — an error that tells the model
- * nothing about what to do instead. In the observed run it retried the same call
- * twice, tried a click-then-fill batch, concluded the whole action system was
- * broken, and worked around it. Three wasted turns for a wrapper element.
- *
- * Kept as a named snippet rather than inlined so `browser-fill-target.test.ts`
- * can run it against real DOM in jsdom. The in-page scripts are template
- * literals, so this must contain NO BACKTICK — one in a comment silently ends
- * the literal, which has now broken the build twice.
- */
-export const RESOLVE_FILLABLE_JS = `const __fillable = "input:not([type=hidden]),textarea,select,[contenteditable=true],[contenteditable=\\"\\"]";
-      if (!el.matches(__fillable)) {
-        const inner = el.querySelector(__fillable);
-        const outer = el.closest(__fillable);
-        if (inner) el = inner;
-        else if (outer) el = outer;
-        else {
-          return {
-            ok: false,
-            error: "<" + el.tagName.toLowerCase() + "> is not a field and contains none"
-              + (el.getAttribute("role") ? ' (role="' + el.getAttribute("role") + '")' : "")
-              + ". It may be a wrapper that reveals the real input when clicked: try"
-              + ' action:"click" on this ref, then re-read the page and fill the field that appears.',
-          };
-        }
-      }`;
-
-/**
  * Light interaction delta (v14.8.6): after a click/fill we return a COMPACT
  * signal of what changed — never a full page re-dump (the one real token-burn
  * path). The model reads this and only re-inspects on a material change.
@@ -327,24 +280,6 @@ interface InteractDelta {
 }
 
 /** In-page: snapshot pre-action state into `__pre` (assumes a page context). */
-const CAPTURE_PRE_STATE_JS = `const __pre = {
-      url: location.href,
-      count: document.querySelectorAll('body *').length,
-      textLen: ((document.body && document.body.innerText) || '').length,
-    };`;
-
-/** In-page: settle briefly, then compute `__delta` vs `__pre`. */
-const SETTLE_AND_DELTA_JS = `await new Promise(function (r) { setTimeout(r, 200); });
-      const __postCount = document.querySelectorAll('body *').length;
-      const __postTextLen = ((document.body && document.body.innerText) || '').length;
-      const __delta = {
-        urlChanged: location.href !== __pre.url,
-        newUrl: location.href !== __pre.url ? location.href : undefined,
-        elementDelta: __postCount - __pre.count,
-        textChanged: Math.abs(__postTextLen - __pre.textLen) > 20,
-        cls: typeof window.__atlarixCLS === 'number' ? window.__atlarixCLS : null,
-      };`;
-
 /** Human one-liner describing the interaction delta (for the tool `note`). */
 function formatInteractDelta(delta?: InteractDelta): string {
   if (!delta) return "";
@@ -1004,17 +939,7 @@ async function interactClick(
       error: "Provide a ref (from browser_inspect snapshot) or a CSS selector.",
     };
   }
-  const script = `(async () => {
-      ${RESOLVE_ELEMENT_JS(args.ref, args.selector)}
-      if (!el) return { ok: false, error: "no element matched (ref or selector)" };
-      ${CAPTURE_PRE_STATE_JS}
-      el.scrollIntoView({ block: "center" });
-      ${AI_CURSOR_AT_ELEMENT_JS("click", AI_CURSOR_DURATION_MS)}
-      await new Promise(function (r) { setTimeout(r, ${AI_CURSOR_WAIT_MS}); });
-      el.click();
-      ${SETTLE_AND_DELTA_JS}
-      return { ok: true, tag: el.tagName, text: (el.innerText || el.getAttribute("aria-label") || el.getAttribute("title") || "").trim().slice(0, 120), delta: __delta };
-    })()`;
+  const script = clickScript({ ref: args.ref, selector: args.selector });
   const result = (await view.webContents.executeJavaScript(script, true)) as {
     ok: boolean;
     error?: string;
@@ -1077,68 +1002,10 @@ async function interactFill(
         `Re-issue exactly: browser({ action: "fill", ref: "${ref}", value: "<text to type>" }).`,
     };
   }
-  const script = `(async () => {
-      ${RESOLVE_ELEMENT_JS(args.ref, args.selector)}
-      if (!el) return { ok: false, error: "no element matched (ref or selector)" };
-      ${RESOLVE_FILLABLE_JS}
-      ${CAPTURE_PRE_STATE_JS}
-      el.scrollIntoView({ block: "center" });
-      ${AI_CURSOR_AT_ELEMENT_JS("type", AI_CURSOR_DURATION_MS)}
-      await new Promise(function (r) { setTimeout(r, ${AI_CURSOR_WAIT_MS}); });
-      el.focus();
-      const rawValue = ${JSON.stringify(args.value)};
-      const value = typeof rawValue === 'string' ? rawValue : String(rawValue);
-      // Checkboxes/radios take a boolean; anything else coerces to a string.
-      if (el instanceof HTMLInputElement && (el.type === 'checkbox' || el.type === 'radio')) {
-        const want = typeof rawValue === 'boolean' ? rawValue
-          : !/^(false|0|off|no|unchecked)$/i.test(value);
-        if (el.checked !== want) el.click();
-        el.dispatchEvent(new Event("input", { bubbles: true }));
-        el.dispatchEvent(new Event("change", { bubbles: true }));
-      } else if (el instanceof HTMLSelectElement) {
-        // Match by option VALUE first, then by VISIBLE TEXT — the value-vs-label
-        // mismatch is the most common reason a select fill silently no-ops.
-        const opts = Array.from(el.options);
-        const norm = (s) => String(s == null ? '' : s).trim().toLowerCase();
-        let opt = opts.find((o) => o.value === value)
-          || opts.find((o) => norm(o.text) === norm(value))
-          || opts.find((o) => norm(o.text).indexOf(norm(value)) !== -1);
-        if (!opt) {
-          return { ok: false, error: 'no option matched "' + value + '" (options: '
-            + opts.slice(0, 12).map((o) => o.text.trim()).join(' | ') + ')' };
-        }
-        el.value = opt.value;
-        el.dispatchEvent(new Event("input", { bubbles: true }));
-        el.dispatchEvent(new Event("change", { bubbles: true }));
-      } else if (el.isContentEditable) {
-        // A rich-text editor has no value property; the native setter throws.
-        el.textContent = value;
-        el.dispatchEvent(new Event("input", { bubbles: true }));
-      } else {
-        // Pick the prototype from what the node IS. Choosing it by elimination
-        // is what produced "Illegal invocation": a native accessor rejects a
-        // receiver of the wrong type, so a wrong guess throws instead of
-        // degrading. A null proto means no native setter applies, and the plain
-        // assignment below handles it.
-        const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype
-          : el instanceof HTMLInputElement ? HTMLInputElement.prototype
-          : null;
-        const setter = proto ? Object.getOwnPropertyDescriptor(proto, "value")?.set : null;
-        if (setter) setter.call(el, value); else el.value = value;
-        el.dispatchEvent(new Event("input", { bubbles: true }));
-        el.dispatchEvent(new Event("change", { bubbles: true }));
-      }
-      // A human-readable field name for the recording/card: label > aria-label >
-      // placeholder > name.
-      var __label = "";
-      try {
-        __label = (el.labels && el.labels[0] && el.labels[0].innerText)
-          || el.getAttribute("aria-label") || el.getAttribute("placeholder")
-          || el.getAttribute("name") || "";
-      } catch (e) {}
-      ${SETTLE_AND_DELTA_JS}
-      return { ok: true, tag: el.tagName, label: (__label || "").trim().slice(0, 80), delta: __delta };
-    })()`;
+  const script = fillScript(
+    { ref: args.ref, selector: args.selector },
+    args.value as string | boolean,
+  );
   const result = (await view.webContents.executeJavaScript(script, true)) as {
     ok: boolean;
     error?: string;
@@ -1277,14 +1144,7 @@ async function interactKey(
   // Focus the target first when one is given, so the key lands on it.
   if (args.ref || args.selector) {
     const focused = (await wc.executeJavaScript(
-      `(() => {
-        ${RESOLVE_ELEMENT_JS(args.ref, args.selector)}
-        if (!el) return false;
-        el.scrollIntoView({ block: "center" });
-        el.focus();
-        ${AI_CURSOR_AT_ELEMENT_JS(label, AI_CURSOR_DURATION_MS)}
-        return true;
-      })()`,
+      focusForKeyScript({ ref: args.ref, selector: args.selector }, label),
       true,
     )) as boolean;
     if (!focused) {
@@ -1295,12 +1155,7 @@ async function interactKey(
     }
   } else {
     // No target to point at — still show the user which key was pressed.
-    await wc
-      .executeJavaScript(
-        `(() => { ${AI_CURSOR_LABEL_JS(label, AI_CURSOR_DURATION_MS)} return true; })()`,
-        true,
-      )
-      .catch(() => {});
+    await wc.executeJavaScript(keyChipScript(label), true).catch(() => {});
   }
   await new Promise((r) => setTimeout(r, AI_CURSOR_WAIT_MS));
   wc.focus();
@@ -1355,19 +1210,7 @@ async function interactHover(
   }
   const wc = view.webContents;
   const spot = (await wc.executeJavaScript(
-    `(() => {
-      ${RESOLVE_ELEMENT_JS(args.ref, args.selector)}
-      if (!el) return null;
-      el.scrollIntoView({ block: "center" });
-      ${AI_CURSOR_AT_ELEMENT_JS("hover", AI_CURSOR_DURATION_MS)}
-      const r = el.getBoundingClientRect();
-      return {
-        x: Math.round(r.left + r.width / 2),
-        y: Math.round(r.top + r.height / 2),
-        tag: el.tagName,
-        name: (el.innerText || el.getAttribute("aria-label") || "").trim().slice(0, 80),
-      };
-    })()`,
+    hoverScript({ ref: args.ref, selector: args.selector }),
     true,
   )) as { x: number; y: number; tag: string; name: string } | null;
   if (!spot) {
@@ -1421,12 +1264,7 @@ async function interactScroll(
   // scroll_to a ref: bring one element into view.
   if (args.ref || args.selector) {
     const ok = (await wc.executeJavaScript(
-      `(() => {
-        ${RESOLVE_ELEMENT_JS(args.ref, args.selector)}
-        if (!el) return false;
-        el.scrollIntoView({ block: "center", inline: "nearest" });
-        return true;
-      })()`,
+      scrollToScript({ ref: args.ref, selector: args.selector }),
       true,
     )) as boolean;
     if (!ok) {
@@ -1446,19 +1284,7 @@ async function interactScroll(
   const dir = String(args.direction ?? "down").toLowerCase();
   const amount = Number.isFinite(args.amount) ? Number(args.amount) : 0;
   const delta = await withDelta(view, async () => {
-    await wc.executeJavaScript(
-      `(() => {
-        ${AI_CURSOR_LABEL_JS(`scroll ${dir}`, AI_CURSOR_DURATION_MS)}
-        const dir = ${JSON.stringify(dir)};
-        const amt = ${JSON.stringify(amount)};
-        const step = amt > 0 ? amt : Math.round(window.innerHeight * 0.9);
-        const dx = dir === 'left' ? -step : dir === 'right' ? step : 0;
-        const dy = dir === 'up' ? -step : dir === 'down' ? step : 0;
-        window.scrollBy(dx, dy);
-        return true;
-      })()`,
-      true,
-    );
+    await wc.executeJavaScript(scrollByScript(dir, amount), true);
   });
   const pos = (await wc.executeJavaScript(
     `({ y: Math.round(window.scrollY), max: Math.round(document.documentElement.scrollHeight - window.innerHeight) })`,

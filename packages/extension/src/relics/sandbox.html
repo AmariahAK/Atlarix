@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Relic</title>
+    <!--
+      THE PAGE THE MODEL'S HTML ACTUALLY RUNS IN.
+
+      Declared under the manifest's `sandbox.pages`, so Chrome loads it into an
+      OPAQUE ORIGIN with its own CSP: no `chrome.*`, no same-origin handle back
+      to the extension, no access to the user's session or site grants. The only
+      channel is the `message` event below.
+
+      It is deliberately almost empty. Everything here runs before the relic
+      does, so every line is one the relic could interfere with — and the less
+      there is, the less there is to get wrong.
+    -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <script src="sandbox.js"></script>
+  </body>
+</html>

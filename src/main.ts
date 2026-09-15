@@ -1,3 +1,4 @@
+import { startBridge, stopBridge } from "@/main/bridge-lifecycle";
 import "./preload-env";
 import {
   app,
@@ -1760,6 +1761,12 @@ if (!IS_SELF_TEST && !IS_DOCTOR_CLI) {
       } catch (e) {
         logger.warn("re-encrypt secrets on startup failed:", e);
       }
+      // The browser bridge. Started after `onReady` is kicked off rather than
+      // inside it: it must never delay the first window, and every failure it
+      // can have is one the app opens perfectly well without.
+      void startBridge().catch((err: unknown) => {
+        logger.warn("bridge failed to start:", err);
+      });
       void onReady().catch((err: unknown) => {
         logger.error("onReady failed:", err);
         dialog.showErrorBox(
@@ -1980,6 +1987,10 @@ app.on("before-quit", (e) => {
     });
     return;
   }
+  // Closes the socket and removes its file. Fire-and-forget: the quit chain
+  // below is already the long pole, and a socket left behind is debris the next
+  // launch knows how to clear rather than something a user ever sees.
+  void stopBridge().catch(() => {});
   logger.info("[lifecycle] before-quit initiating flush+abortStreams", {
     rss: mu.rss,
     heapUsed: mu.heapUsed,
