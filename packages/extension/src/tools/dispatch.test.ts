@@ -49,6 +49,14 @@ let removed: number[];
 let injectResult: unknown;
 /** Every kernel request the page received, so a test can assert on dispatch. */
 let injected: unknown[];
+/**
+ * Which tab each injection LANDED ON, in order.
+ *
+ * The tab-targeting tests assert on this rather than on what the resolver
+ * returned, because "the resolver picked tab 7" and "the read happened on tab 7"
+ * are different claims and only the second one is the bug.
+ */
+let injectedTabs: number[];
 let created: Array<{ url?: string; active?: boolean }>;
 let storage: Map<string, unknown>;
 
@@ -69,6 +77,7 @@ function installFakeChrome() {
   created = [];
   storage = new Map();
   injected = [];
+  injectedTabs = [];
   injectResult = {
     url: "https://example.test/page",
     title: "Example",
@@ -104,8 +113,17 @@ function installFakeChrome() {
       },
     },
     tabs: {
-      async query() {
-        return tabs;
+      /**
+       * HONOURS THE FILTER, and it has to.
+       *
+       * This used to `return tabs` unconditionally, which made every
+       * `activeTab()` resolve to the first fixture tab whatever `active` said.
+       * A test asserting "the agent did not follow the user to another tab"
+       * then passed against code that followed it — the fixture, not the
+       * subject, was supplying the right answer.
+       */
+      async query(q?: { active?: boolean; currentWindow?: boolean }) {
+        return tabs.filter((t) => (q?.active ? t.active === true : true));
       },
       async get(id: number) {
         const tab = tabs.find((t) => t.id === id);
@@ -144,9 +162,15 @@ function installFakeChrome() {
       },
     },
     scripting: {
-      async executeScript(injection: { args?: unknown[] }) {
+      async executeScript(injection: {
+        args?: unknown[];
+        target?: { tabId?: number };
+      }) {
         const req = injection.args?.[0];
         injected.push(req);
+        if (typeof injection.target?.tabId === "number") {
+          injectedTabs.push(injection.target.tabId);
+        }
         // The overlay op returns its own shape, not the page-read fixture.
         if ((req as { op?: string })?.op === "overlay") {
           return [{ frameId: 0, result: { ok: true } }];
@@ -788,5 +812,111 @@ describe("the tool surface is a stable cache prefix", () => {
     const open = TOOL_SCHEMAS.find((s) => s.function.name === "open_tab");
     expect(open?.function.description).not.toMatch(/no separate search/i);
     expect(TOOL_SCHEMAS.some((s) => s.function.name === "web_search")).toBe(true);
+  });
+});
+
+describe("the tab a turn is about does not move under it", () => {
+  /**
+   * THE BUG THIS PINS. Every tool that takes an optional `tab_id` used to fall
+   * back to `tabs.query({active:true})`, evaluated fresh on each call. A user
+   * who switched tabs mid-turn silently re-pointed the agent: the read
+   * succeeded, the content came from a different page, and nothing said so.
+   *
+   * These assert on `injectedTabs` — WHERE THE READ LANDED — rather than on
+   * what the resolver returned. A resolver can pick the right tab and still
+   * have the injection go elsewhere, and only the second one is what the user
+   * experiences.
+   */
+  function addTab(id: number, url: string, groupId = -1) {
+    tabs.push({
+      id,
+      url,
+      title: `Tab ${id}`,
+      windowId: 1,
+      status: "complete",
+      groupId,
+    });
+    granted.add(new URL(url).origin + "/*");
+    const record = storage.get("atlarix.siteGrants.v1") as Record<
+      string,
+      unknown
+    >;
+    record[new URL(url).origin] = {
+      origin: new URL(url).origin,
+      grantedAt: 1,
+    };
+  }
+
+  it("reads the tab the user asked about, not the one they switched to", async () => {
+    addTab(8, "https://other.test/elsewhere");
+    const ctx = { ...CTX, subjectTabId: 7 };
+
+    await dispatchTool(call("read_page"), ctx);
+    expect(injectedTabs.at(-1)).toBe(7);
+
+    // The user looks at something else. Chrome's notion of "active" moves;
+    // the turn's subject must not.
+    tabs.find((t) => t.id === 7)!.active = false;
+    tabs.find((t) => t.id === 8)!.active = true;
+
+    await dispatchTool(call("read_page"), ctx);
+    expect(injectedTabs.at(-1)).toBe(7);
+  });
+
+  it("still obeys an explicit tab_id", async () => {
+    addTab(8, "https://other.test/elsewhere");
+    await dispatchTool(call("read_page", { tab_id: 8 }), {
+      ...CTX,
+      subjectTabId: 7,
+    });
+    expect(injectedTabs.at(-1)).toBe(8);
+  });
+
+  it("says the page was closed instead of answering about another one", async () => {
+    addTab(8, "https://other.test/elsewhere");
+    tabs = tabs.filter((t) => t.id !== 7);
+
+    const out = await dispatchTool(call("read_page"), {
+      ...CTX,
+      subjectTabId: 7,
+    });
+
+    // The failure mode being prevented: silently reading tab 8 and presenting
+    // it as the answer. Nothing may be injected at all.
+    expect(injectedTabs).toEqual([]);
+    expect(out.content).toMatch(/has been closed/i);
+    expect(out.content).toMatch(/list_tabs|open_tab/);
+  });
+
+  it("prefers its own tab once it has opened one", async () => {
+    const ctx = { ...CTX, subjectTabId: 7 };
+    await dispatchTool(call("open_tab", { url: "https://example.test/new" }), ctx);
+
+    // `tabs.create` hands back id 99 and `adoptTab` puts it in group 42, which
+    // the fake's tabGroups.get recognises — so this is the agent's own tab.
+    tabs.find((t) => t.id === 99)!.groupId = 42;
+    injectedTabs.length = 0;
+
+    await dispatchTool(call("read_page"), ctx);
+    expect(injectedTabs.at(-1)).toBe(99);
+  });
+
+  it("forgets its own tab when the conversation ends, not when a turn does", async () => {
+    const ctx = { ...CTX, subjectTabId: 7 };
+    await dispatchTool(call("open_tab", { url: "https://example.test/new" }), ctx);
+    tabs.find((t) => t.id === 99)!.groupId = 42;
+
+    // A turn ending leaves the workspace in place: the group is still the
+    // agent's and the next message will very likely continue in it.
+    await clearDrivenTabs("turn");
+    injectedTabs.length = 0;
+    await dispatchTool(call("read_page"), ctx);
+    expect(injectedTabs.at(-1)).toBe(99);
+
+    // The conversation ending does not.
+    await clearDrivenTabs("all");
+    injectedTabs.length = 0;
+    await dispatchTool(call("read_page"), ctx);
+    expect(injectedTabs.at(-1)).toBe(7);
   });
 });

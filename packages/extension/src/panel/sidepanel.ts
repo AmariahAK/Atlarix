@@ -101,7 +101,6 @@ import {
 import { chooseModel, optionsFor, shortModelName } from "./model-choice";
 import { summariseSteps, type Step } from "./steps";
 import {
-  MAX_MESSAGE_BYTES,
   SNIFF_BYTES,
   attachmentsIn,
   buildUserContent,
@@ -1610,7 +1609,16 @@ async function send(): Promise<void> {
       // sent and what is kept are the same thing. `pruneForModel` remains in
       // `sessions/store.ts` as the disk backstop it always should have been.
       messages,
-      tools: { windowId, sessionId, sessionTitle: currentTitle },
+      // `tab` was resolved once, above, to build the system prompt. Handing the
+      // SAME tab to the dispatcher is what stops the target moving when the
+      // user looks at something else mid-turn — the prompt says "the user is
+      // currently on X" and the tools now agree with it for the whole turn.
+      tools: {
+        windowId,
+        sessionId,
+        sessionTitle: currentTitle,
+        subjectTabId: tab?.id ?? null,
+      },
       signal: controller.signal,
       events: {
         onReasoning(delta) {

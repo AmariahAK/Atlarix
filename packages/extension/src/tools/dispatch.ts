@@ -185,6 +185,26 @@ export interface ToolContext {
    * the first tool call of a turn anyway.
    */
   recentToolResults?: readonly string[];
+  /**
+   * The tab the user was looking at WHEN THEY ASKED — resolved once, at the top
+   * of the turn, and then held still.
+   *
+   * THIS EXISTS BECAUSE THE TARGET USED TO MOVE UNDER THE AGENT. Every tool that
+   * takes an optional `tab_id` fell back to `activeTab()`, which is
+   * `tabs.query({active:true})` evaluated FRESH on each call — so a user who
+   * switched tabs mid-turn silently re-pointed the agent at whatever they
+   * happened to be reading now. The read succeeded, the content was wrong, and
+   * nothing anywhere said so. A question about the page you were on has to keep
+   * meaning that page for the whole turn, even when you look away.
+   *
+   * Injected by the harness, never named by the model — the panel already
+   * resolves this tab at turn start to build the system prompt, so it costs
+   * nothing to also hand it over.
+   *
+   * Optional, and `null` is meaningful: absent means an older caller or a test,
+   * `null` means the harness looked and there genuinely was no tab.
+   */
+  subjectTabId?: number | null;
 }
 
 function argsOf(call: ToolCall): Record<string, unknown> {
@@ -230,9 +250,53 @@ async function describeTab(tabId: number): Promise<string> {
   }
 }
 
-/** Resolve which tab a read applies to, or say why there is none. */
+/**
+ * The last tab the agent opened or worked in, this conversation.
+ *
+ * MODULE STATE, for the same reason `marked` below is: the panel owns the turn
+ * and the dispatcher is the only thing that knows which tab a tool actually
+ * landed on. Cleared by `clearDrivenTabs("all")` — NOT by `"turn"`, because the
+ * agent's group stays its workspace across messages, which is the whole point
+ * of having a group.
+ *
+ * Never trusted on its own. Every read of it goes through `isAgentTab`, because
+ * a tab id outlives the tab and the user may have dragged it out of the group.
+ */
+let lastAgentTab: number | null = null;
+
+/** Read a tab, or null if it has gone or has no address yet. */
+async function liveTab(id: number): Promise<{ id: number; url: string } | null> {
+  try {
+    const tab = await api().tabs.get(id);
+    if (tab.id === undefined || !tab.url) return null;
+    return { id: tab.id, url: tab.url };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve which tab a call applies to, or say why there is none.
+ *
+ * THE ORDER IS THE FEATURE. It used to be "the id you named, else whatever is
+ * active right now", and the second half was a bug with no symptom: a user who
+ * changed tabs mid-turn moved the agent's target without either of them
+ * knowing. The ladder below fixes that and, on the way, makes the agent prefer
+ * its OWN tabs — so once it has opened something, it keeps working there
+ * instead of reaching back into the user's browsing.
+ *
+ *   1. an explicit `tab_id` — the model said which, so obey it
+ *   2. the tab the agent last worked in, IF it is still in the agent's group
+ *   3. the subject tab, pinned at the top of this turn
+ *   4. whatever is active — only when none of the above exists
+ *
+ * Step 3 is deliberately allowed to FAIL LOUDLY rather than fall through to
+ * step 4. If the page the user asked about has been closed, silently answering
+ * about a different one is the original bug wearing a hat.
+ */
 async function targetTab(
   raw: unknown,
+  ctx?: ToolContext,
 ): Promise<{ id: number; url: string } | string> {
   if (typeof raw === "number" && Number.isInteger(raw)) {
     try {
@@ -240,11 +304,33 @@ async function targetTab(
       if (tab.id === undefined || !tab.url) {
         return `Tab ${raw} has no address yet — it may still be opening. Try list_tabs.`;
       }
+      if (await isAgentTab(tab.id)) lastAgentTab = tab.id;
       return { id: tab.id, url: tab.url };
     } catch {
       return `There is no tab ${raw} any more — it was probably closed. Call list_tabs for what is open now.`;
     }
   }
+
+  if (lastAgentTab !== null) {
+    const mine = (await isAgentTab(lastAgentTab))
+      ? await liveTab(lastAgentTab)
+      : null;
+    if (mine) return mine;
+    // Gone, or the user pulled it out of the group. Forget it rather than
+    // retrying a dead id on every call for the rest of the conversation.
+    lastAgentTab = null;
+  }
+
+  if (ctx?.subjectTabId != null) {
+    const subject = await liveTab(ctx.subjectTabId);
+    if (subject) return subject;
+    return (
+      `The page this was about has been closed. Nothing was read — another tab ` +
+      `is almost certainly not what was meant. Call list_tabs to see what is ` +
+      `open, or open_tab to fetch the page again.`
+    );
+  }
+
   const active = await activeTab();
   if (!active) {
     return "There is no active tab to read. Open one with open_tab, or ask the user to focus a tab.";
@@ -336,19 +422,19 @@ export async function dispatchTool(
   try {
     switch (name) {
       case "read_page":
-        return await readPage(args);
+        return await readPage(args, ctx);
       case "find_on_page":
-        return await findOnPage(args);
+        return await findOnPage(args, ctx);
       case "click":
-        return await clickRef(args);
+        return await clickRef(args, ctx);
       case "fill":
-        return await fillRef(args);
+        return await fillRef(args, ctx);
       case "press_key":
-        return await pressKeyOn(args);
+        return await pressKeyOn(args, ctx);
       case "hover":
-        return await hoverRef(args);
+        return await hoverRef(args, ctx);
       case "scroll":
-        return await scrollPage(args);
+        return await scrollPage(args, ctx);
       case "list_tabs":
         return await listTabs();
       case "open_tab":
@@ -394,8 +480,11 @@ export async function dispatchTool(
   }
 }
 
-async function readPage(args: Record<string, unknown>): Promise<ToolOutcome> {
-  const tab = await targetTab(args.tab_id);
+async function readPage(
+  args: Record<string, unknown>,
+  ctx?: ToolContext,
+): Promise<ToolOutcome> {
+  const tab = await targetTab(args.tab_id, ctx);
   if (typeof tab === "string") return { content: tab };
 
   const denied = await requireAccess(tab.url);
@@ -421,12 +510,15 @@ async function readPage(args: Record<string, unknown>): Promise<ToolOutcome> {
   };
 }
 
-async function findOnPage(args: Record<string, unknown>): Promise<ToolOutcome> {
+async function findOnPage(
+  args: Record<string, unknown>,
+  ctx?: ToolContext,
+): Promise<ToolOutcome> {
   const query = typeof args.query === "string" ? args.query.trim() : "";
   if (!query) {
     return { content: "find_on_page needs a non-empty `query`." };
   }
-  const tab = await targetTab(args.tab_id);
+  const tab = await targetTab(args.tab_id, ctx);
   if (typeof tab === "string") return { content: tab };
 
   const denied = await requireAccess(tab.url);
@@ -534,6 +626,11 @@ async function openTab(
   let adopted = true;
   try {
     await adoptTab(tab.id, ctx.windowId);
+    // From here on this is where work happens by default. A tool call that
+    // names no tab means "the one I am working in", and this is that one —
+    // which is what keeps the agent inside its own group instead of reaching
+    // back into whatever the user has focused.
+    lastAgentTab = tab.id;
   } catch {
     adopted = false;
   }
@@ -659,6 +756,11 @@ async function markDriven(tabId: number): Promise<void> {
 export async function clearDrivenTabs(
   scope: "turn" | "all" = "all",
 ): Promise<void> {
+  // The agent's working tab is a property of the CONVERSATION, not the turn:
+  // its group survives between messages and so should its place in it. Only a
+  // full clear forgets it.
+  if (scope === "all") lastAgentTab = null;
+
   const tabs = [...marked];
   const keep: number[] = [];
 
@@ -693,6 +795,7 @@ async function resolveForAction(
   action: AgentAction,
   args: Record<string, unknown>,
   value?: string | boolean,
+  ctx?: ToolContext,
 ): Promise<
   | { ok: false; outcome: ToolOutcome }
   | {
@@ -701,7 +804,7 @@ async function resolveForAction(
       resolved: PageActionResult;
     }
 > {
-  const tab = await targetTab(args.tab_id);
+  const tab = await targetTab(args.tab_id, ctx);
   if (typeof tab === "string") return { ok: false, outcome: { content: tab } };
 
   const denied = await requireAccess(tab.url);
@@ -752,8 +855,11 @@ function verbFor(action: AgentAction): string {
       : "Act on";
 }
 
-async function clickRef(args: Record<string, unknown>): Promise<ToolOutcome> {
-  const gate = await resolveForAction("click", args);
+async function clickRef(
+  args: Record<string, unknown>,
+  ctx?: ToolContext,
+): Promise<ToolOutcome> {
+  const gate = await resolveForAction("click", args, undefined, ctx);
   if (!gate.ok) return gate.outcome;
 
   const before = gate.resolved.url;
@@ -779,7 +885,10 @@ async function clickRef(args: Record<string, unknown>): Promise<ToolOutcome> {
   };
 }
 
-async function fillRef(args: Record<string, unknown>): Promise<ToolOutcome> {
+async function fillRef(
+  args: Record<string, unknown>,
+  ctx?: ToolContext,
+): Promise<ToolOutcome> {
   const raw = args.value;
   if (typeof raw !== "string" && typeof raw !== "boolean") {
     return {
@@ -787,7 +896,7 @@ async function fillRef(args: Record<string, unknown>): Promise<ToolOutcome> {
         'fill needs a `value` (the text to enter). Re-issue with value set, e.g. {"ref":"e7","value":"hello"}.',
     };
   }
-  const gate = await resolveForAction("fill", args, raw);
+  const gate = await resolveForAction("fill", args, raw, ctx);
   if (!gate.ok) return gate.outcome;
 
   await pause(CURSOR_PAUSE_MS);
@@ -806,7 +915,10 @@ async function fillRef(args: Record<string, unknown>): Promise<ToolOutcome> {
   };
 }
 
-async function scrollPage(args: Record<string, unknown>): Promise<ToolOutcome> {
+async function scrollPage(
+  args: Record<string, unknown>,
+  ctx?: ToolContext,
+): Promise<ToolOutcome> {
   const direction = args.direction;
   if (
     direction !== "up" &&
@@ -818,7 +930,7 @@ async function scrollPage(args: Record<string, unknown>): Promise<ToolOutcome> {
       content: 'scroll needs a `direction`: "up", "down", "top" or "bottom".',
     };
   }
-  const tab = await targetTab(args.tab_id);
+  const tab = await targetTab(args.tab_id, ctx);
   if (typeof tab === "string") return { content: tab };
   const denied = await requireAccess(tab.url);
   if (denied) return denied;
@@ -856,11 +968,12 @@ async function scrollPage(args: Record<string, unknown>): Promise<ToolOutcome> {
 async function requireAgentTab(
   args: Record<string, unknown>,
   what: string,
+  ctx?: ToolContext,
 ): Promise<
   | { ok: false; outcome: ToolOutcome }
   | { ok: true; tab: { id: number; url: string } }
 > {
-  const tab = await targetTab(args.tab_id);
+  const tab = await targetTab(args.tab_id, ctx);
   if (typeof tab === "string") return { ok: false, outcome: { content: tab } };
 
   if (!(await isAgentTab(tab.id))) {
@@ -882,14 +995,17 @@ async function requireAgentTab(
   return { ok: true, tab };
 }
 
-async function pressKeyOn(args: Record<string, unknown>): Promise<ToolOutcome> {
+async function pressKeyOn(
+  args: Record<string, unknown>,
+  ctx?: ToolContext,
+): Promise<ToolOutcome> {
   const key = typeof args.key === "string" ? args.key.trim() : "";
   if (!isNamedKey(key)) {
     return {
       content: `Unknown key "${key}". This build can press: ${namedKeys().join(", ")}.`,
     };
   }
-  const gate = await requireAgentTab(args, "press_key");
+  const gate = await requireAgentTab(args, "press_key", ctx);
   if (!gate.ok) return gate.outcome;
 
   // Enter submits. That is the whole point of a trusted keystroke, and it is
@@ -916,8 +1032,11 @@ async function pressKeyOn(args: Record<string, unknown>): Promise<ToolOutcome> {
   };
 }
 
-async function hoverRef(args: Record<string, unknown>): Promise<ToolOutcome> {
-  const gate = await requireAgentTab(args, "hover");
+async function hoverRef(
+  args: Record<string, unknown>,
+  ctx?: ToolContext,
+): Promise<ToolOutcome> {
+  const gate = await requireAgentTab(args, "hover", ctx);
   if (!gate.ok) return gate.outcome;
 
   // Resolve FIRST: a pointer event takes coordinates, not a node, and the rect
