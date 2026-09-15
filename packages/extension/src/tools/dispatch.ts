@@ -40,7 +40,8 @@ import {
 } from "@/lib/browser/page-scripts";
 import type { ToolCall } from "../core/client";
 import { activeTab, runInPage } from "../page/inject";
-import { isGranted, originOf } from "../permissions/site-grants";
+import { canActOn } from "../permissions/host-access";
+import { originOf } from "../permissions/site-grants";
 import { adoptTab, isAgentTab, noteAgentClosingTab } from "../tabs/group";
 import {
   classifyAction,
@@ -341,13 +342,15 @@ async function targetTab(
 /**
  * Gate a read on the user having allowed this origin.
  *
- * ONE RECORD NOW, not two. This used to require Chrome's answer as well as
- * ours, because a grant WAS a Chrome permission and the user could drop it from
- * chrome://extensions without telling us. Host access is held at install, so
- * the only question left is the one the user actually answered: did they allow
- * this site? What Chrome can still withhold is caught where it surfaces —
- * `page/inject.ts` translates that refusal into the setting only the user can
- * change.
+ * `canActOn` requires BOTH our own record and Chrome's own answer, because the
+ * user can revoke from chrome://extensions without telling us — so a stale
+ * record would produce a read that fails with a raw injection error instead of
+ * an honest "you took this back".
+ *
+ * KEEPING CHROME IN THE LOOP IS A PRODUCT DECISION, not an accident of history.
+ * It was briefly removed in favour of `host_permissions` and put back: an
+ * extension has no way to interrupt someone who has tabbed away, and Chrome's
+ * own permission dialog is the one thing that can. Our in-panel card cannot.
  */
 async function requireAccess(url: string): Promise<ToolOutcome | null> {
   const origin = originOf(url);
@@ -359,7 +362,7 @@ async function requireAccess(url: string): Promise<ToolOutcome | null> {
         `extension may touch. Nothing was read.`,
     };
   }
-  if (await isGranted(url)) return null;
+  if (await canActOn(url)) return null;
   return {
     content: `Waiting for the user to allow ${origin}.`,
     needsApproval: { kind: "host", url, origin },
@@ -566,7 +569,7 @@ async function listTabs(): Promise<ToolOutcome> {
     const origin = originOf(tab.url);
     const access = !origin
       ? "not readable (browser page)"
-      : (await isGranted(tab.url))
+      : (await canActOn(tab.url))
         ? "allowed"
         : "needs permission";
     const title = (tab.title ?? "").replace(/\s+/g, " ").slice(0, 80);
@@ -639,7 +642,7 @@ async function openTab(
   }
   const loaded = await waitForLoad(tab.id);
 
-  const granted = await isGranted(raw);
+  const granted = await canActOn(raw);
   // MARK IT NOW, not on the next tool call. The frame used to appear one tool
   // later — the tab opened, loaded, sat there looking ordinary, and only turned
   // green once something read it. The gap is exactly when a user glances over

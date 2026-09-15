@@ -17,6 +17,7 @@ vi.mock("../auth/sign-in", () => ({
 }));
 
 interface Fake {
+  held: Set<string>;
   /** Every `origins` array the RPC was sent, in order. */
   sent: string[][];
 }
@@ -42,8 +43,23 @@ function installFake(revoke: string[]): Fake {
     },
   };
 
+  const held = new Set<string>();
   (globalThis as Record<string, unknown>).chrome = {
     storage: { local: area, sync: area },
+    permissions: {
+      async request({ origins }: { origins?: string[] }) {
+        for (const o of origins ?? []) held.add(o);
+        return true;
+      },
+      async contains({ origins }: { origins?: string[] }) {
+        return (origins ?? []).every((o) => held.has(o));
+      },
+      async remove({ origins }: { origins?: string[] }) {
+        for (const o of origins ?? []) held.delete(o);
+        return true;
+      },
+      onRemoved: { addListener: () => {} },
+    },
   };
 
   // Only the FIRST call carries a revocation. The second is the push that
@@ -64,7 +80,7 @@ function installFake(revoke: string[]): Fake {
     }),
   );
 
-  return { sent };
+  return { held, sent };
 }
 
 beforeEach(() => {
@@ -118,22 +134,24 @@ describe("syncSiteGrants", () => {
     ]);
   });
 
-  it("applies a website revocation to the one record there now is", async () => {
-    // THIS USED TO ASSERT ON BOTH HALVES. A grant was a Chrome permission as
-    // well as a record, and dropping the record alone left the browser still
-    // allowing what the user had just revoked. Host access is held at install
-    // now, so there is one half, and applying a revocation is a local write —
-    // which is exactly why revoking on the website became instant.
+  it("applies a website revocation to BOTH halves, permission included", async () => {
     const fake = installFake(["https://app.example.com"]);
     await grantSite("https://app.example.com/x");
     await grantSite("https://other.test/y");
+    fake.held.add("https://app.example.com/*");
+    fake.held.add("https://other.test/*");
 
     const { revoked } = await syncSiteGrants();
 
     expect(revoked).toEqual(["https://app.example.com"]);
+    // The record is gone...
     expect((await listGrants()).map((g) => g.origin)).toEqual([
       "https://other.test",
     ]);
+    // ...and so is Chrome's permission. A record dropped without the permission
+    // leaves the browser still allowing what the user just revoked.
+    expect(fake.held.has("https://app.example.com/*")).toBe(false);
+    expect(fake.held.has("https://other.test/*")).toBe(true);
     // One push, not two: the next sync stops listing the origin, which is the
     // same condition the server was always testing for.
     expect(fake.sent).toHaveLength(1);
@@ -156,7 +174,7 @@ describe("syncSiteGrants", () => {
   it("NEVER adds an origin the server names but the browser never granted", async () => {
     // The valve. `revoke` is the only thing the server may say, and a server
     // that says something else must not be able to widen the agent's reach.
-    installFake(["https://evil.test"]);
+    const fake = installFake(["https://evil.test"]);
     await grantSite("https://app.example.com/x");
 
     await syncSiteGrants();
@@ -164,6 +182,7 @@ describe("syncSiteGrants", () => {
     expect((await listGrants()).map((g) => g.origin)).toEqual([
       "https://app.example.com",
     ]);
+    expect(fake.held.has("https://evil.test/*")).toBe(false);
   });
 
   it("is silent when signed out or offline — the panel must still open", async () => {

@@ -9,7 +9,7 @@ Atlarix is a browser agent. Its single purpose is to read and act on web pages o
 
 Everything the extension does serves that one purpose: reading the current page or a tab the user names, navigating and clicking within sites the user has granted, attaching the user's own files as context for a question, and presenting the answer in the panel.
 
-Atlarix acts only on sites the user has allowed. It asks the first time it needs a site, one origin at a time, at the moment the user asks it to work there, and the answer is recorded in a list the user can see and shorten from the side panel or from their account page. Revoking takes effect on the agent's very next action. Nothing is read or acted on before the user has allowed that site.
+Host access is NOT requested at install. It is declared as optional_host_permissions and requested one origin at a time, at the moment the user asks Atlarix to work on that site, behind Chrome's own permission prompt. A user who does not want to be asked per site can choose "Allow every site" on that same prompt, which grants the broad host permission through Chrome's own dialog in one step; Atlarix still asks before working on a site they have not allowed. The user can revoke any site from the panel or from their account page. The extension ships able to read nothing.
 ```
 
 ## identity
@@ -59,7 +59,7 @@ Used only for tabs the user has directed Atlarix to, or that Atlarix itself open
 ```
 To inject the page-reading and interaction scripts into a page the user has explicitly granted Atlarix access to — building a structured outline of the page's text and controls so the model can answer about it, and clicking or filling an element the user asked for.
 
-Injection is gated on that per-site grant: the origin is checked against the user's own allow-list before any script is injected, so a site the user has not allowed is never touched. The list is visible and revocable in the side panel and on the user's account page, and revoking takes effect on the agent's very next action. No remotely fetched script is ever injected; the injected functions are part of the extension package.
+Injection is gated on that per-site grant: chrome.permissions.contains() is checked for the origin before any script is injected, so a site the user has not allowed is never touched. No remotely fetched script is ever injected; the injected functions are part of the extension package.
 ```
 
 ## tabGroups
@@ -138,21 +138,14 @@ to the single purpose, no creditworthiness or lending use. All three are true.
 https://atlarix.dev/privacy
 ```
 
-## host_permissions (`<all_urls>`)
+## What is NOT on this form
 
-```
-Atlarix is a browser agent. Its single purpose is reading and acting on web pages on the user's behalf, and it cannot know in advance which sites a user will ask about — a person may ask about their issue tracker today and a research paper tomorrow. There is no set of origins that could be declared in advance without breaking the product for everyone whose work is not on that list.
-
-Holding the permission is not the same as using it. Access is governed by the user's own allow-list inside the extension: the agent asks the first time it needs a site, one origin at a time, and reads or acts on nothing until the user has said yes. That list is shown in the side panel and on the user's account page, and removing a site takes effect on the agent's very next action.
-
-The extension does not read, collect or transmit page content in the background. Nothing is injected into a page except in direct response to a request the user has just made, on a site the user has allowed.
-```
-
-**Note for whoever fills this in:** this field did not exist while the host
-patterns were declared as `optional_host_permissions`. It exists now, it is
-required, and broad host access draws the heaviest review scrutiny of anything
-on this form. It is worth reading the two paragraphs above against what the
-code actually does before pasting them.
+There is no justification field for `http://*/*` and `https://*/*`, because they
+are declared as `optional_host_permissions` rather than `permissions`. That is
+worth knowing rather than worrying about: the reason the field is absent is the
+same reason the extension is defensible — it holds no host access at install and
+asks per origin behind Chrome's own prompt. The single-purpose description says
+so explicitly, which is the right place for it.
 
 ---
 

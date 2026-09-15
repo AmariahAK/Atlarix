@@ -18,12 +18,16 @@
  * of origins arriving from the network and being granted is precisely the hole
  * this shape does not have.
  *
- * APPLYING A REVOCATION IS NOW A LOCAL WRITE, and that is what made revoking
- * from the website instant. It used to need `permissions.remove()`, which is
- * why it had to happen in the panel and why the website's row read "Revokes on
- * next open". Host access is held at install now, so a grant is only our own
- * record and dropping one is a `storage.sync` delete any context can perform —
- * before the very next tool call, mid-turn, anywhere.
+ * ORDER MATTERS ON THE WAY OUT. `revokeHostAccess()` removes Chrome's
+ * permission and then the record, and this module calls it rather than
+ * `revokeSite()` — a record dropped without the permission leaves the browser
+ * still allowing what the user just revoked on the website.
+ *
+ * WHAT CHANGED IS WHEN, NOT HOW. `permissions.remove()` needs no user gesture,
+ * only a context that can call it, so this runs at the TOP OF EVERY TURN rather
+ * than on panel focus. That is the fix for "Revokes on next open": a revocation
+ * made on the website is applied immediately before the turn that would
+ * otherwise have used the site.
  *
  * FAILURE IS SILENT, and here that convention is right: the grant list in the
  * panel is authoritative for this browser, the website's copy is a mirror, and
@@ -34,7 +38,8 @@
 import { GOTRUE } from "../auth/config";
 import { getAccessToken } from "../auth/sign-in";
 import { api } from "../shared/browser-api";
-import { listGrants, revokeSite } from "./site-grants";
+import { listGrants } from "./site-grants";
+import { revokeHostAccess } from "./host-access";
 
 /** Where this profile's id lives. `local`, NEVER `sync`. */
 const DEVICE_KEY = "atlarix.deviceId.v1";
@@ -146,10 +151,10 @@ export async function syncSiteGrants(): Promise<{ revoked: string[] }> {
     if (!answer || answer.revoke.length === 0) return { revoked: [] };
 
     // A revoked origin may already be gone locally — the user removed it in the
-    // panel before the panel pushed. `revokeSite` is idempotent, so applying it
-    // again is harmless.
+    // panel before the panel pushed. Both halves of `revokeHostAccess` are
+    // idempotent, so applying it again is harmless.
     for (const origin of answer.revoke) {
-      await revokeSite(origin);
+      await revokeHostAccess(origin);
     }
     return { revoked: answer.revoke };
   } catch {

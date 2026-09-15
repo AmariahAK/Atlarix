@@ -13,10 +13,9 @@ SIGNING IN
 WHAT TO TRY (about two minutes)
 1. Open any article, for example https://en.wikipedia.org/wiki/Antikythera_mechanism
 2. In the panel, ask: "What is this and what do researchers still disagree about?"
-3. Atlarix will ask for permission to read that one site. The prompt is
-   Atlarix's own card inside the panel, not a Chrome dialog — click Allow. The
-   agent asks per site, at the moment it needs one, and the sites you have
-   allowed are listed and revocable in the panel and on your account page.
+3. Atlarix will ask for permission to read that one site. Chrome's own
+   permission prompt appears — click Allow. Access is requested per site, at the
+   moment it is needed; the extension holds no host access at install.
 4. It reads the page and answers. The activity card above the answer expands to
    show exactly what it did.
 

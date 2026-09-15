@@ -129,18 +129,11 @@ phrased for a reviewer who has not read the code.
 > tab the user has granted, only for the duration of an action, and is never
 > used to read network traffic or page memory.
 
-**`host_permissions` (`<all_urls>`)**
-> Atlarix is a browser agent and cannot know in advance which sites a user will
-> ask about, so there is no set of origins that could be declared ahead of time
-> without breaking the product for everyone whose work is not on that list.
-> Holding the permission is not using it: the agent asks the first time it needs
-> a site, one origin at a time, and reads or acts on nothing until the user has
-> said yes. That list is shown in the panel and on the account page, and
-> removing a site takes effect on the agent's very next action.
->
-> **This field is new.** It did not exist while the patterns were
-> `optional_host_permissions`, and broad host access draws the heaviest review
-> scrutiny of anything on the form.
+**`optional_host_permissions` (`http://*/*`, `https://*/*`)**
+> Deliberately OPTIONAL rather than required. Atlarix requests access to one
+> origin at a time, at the moment the user asks it to work on that site, and the
+> user can revoke a site from the panel. The extension ships with access to no
+> sites at all.
 
 ---
 

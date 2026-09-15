@@ -179,39 +179,41 @@ cost of the panel is stated rather than hidden — closing it ends the turn in
 progress — and the transcript is saved after every round, so reopening shows
 everything up to the last completed one.
 
-**Host access is held at install; the GATE is the allow-list.**
-`host_permissions` is `<all_urls>`, so Chrome never prompts per origin. The
-decision the user actually makes lives in
-[`src/permissions/site-grants.ts`](src/permissions/site-grants.ts): the agent
-asks the first time it needs a site, one origin at a time, and reads nothing
-until the answer is yes.
+**Host access is optional, not granted at install.** `optional_host_permissions`
+is `http://*/*` and `https://*/*` — not `<all_urls>`, which would also cover
+`file://` and `ftp://`, schemes `originOf` in
+[`src/permissions/site-grants.ts`](src/permissions/site-grants.ts) refuses to
+produce an origin for. The manifest states the rule the code already enforces.
 
-This was the other way round until 2026-09-15, and the swap is worth
-understanding. A grant used to be BOTH a Chrome permission and our own record,
-and keeping two halves from lying about each other is what produced almost
-every awkward thing around it — a user-gesture constraint, a reconciliation
-pass, and a revocation from the website that could not take effect until the
-panel was next focused, because a web page cannot call
-`permissions.remove()`. One record has one truth, and revoking now applies on
-the agent's very next action.
+The install prompt therefore shows **no host warnings at all**, and each origin
+is requested from a side-panel button at the moment the user grants that site.
+That upgrades a site grant from a record of intent into something Chrome itself
+enforces — and because `chrome.permissions.request()` needs a user gesture and
+cannot be called from a service worker, **the agent loop structurally cannot
+widen its own reach.** That is better than a policy saying it mustn't.
 
-**What got weaker, and it should be said plainly.** `permissions.request()`
-needed a user gesture, so the agent loop *structurally* could not widen its own
-reach. `grantSite` is an ordinary storage write, so that property is now
-conventional: the loop returns `needsApproval` and awaits a boolean, and the
-only caller of `grantSite` is the approval card's click handler. This is the
-posture Claude Code and the Claude extension ship, and it is weaker than what
-it replaced.
+**There is an "Allow every site" option on the same card**, and it is the third
+action rather than the first. Asking per origin is right for a question about
+the page in front of you and wrong for a research task across a dozen domains
+nobody can name in advance — a developer who hits the prompt on every hop closes
+the panel rather than clicking through it. It goes through the same
+`permissions.request()` and the same Chrome dialog, which still says "Read and
+change all your data on all websites" in full, and it satisfies only the Chrome
+half of `canActOn`: the per-site allow-list still applies, so the agent still
+asks before a NEW site. "Stop asking Chrome" and "go anywhere" are different
+requests and only the first is being made.
 
-**Chrome can still withhold a site**, from `chrome://extensions → Site access`,
-and declaring a permission is not holding it. There is no event for this — the
-injection failure is the only signal — so
-[`src/page/inject.ts`](src/page/inject.ts) translates exactly that refusal into
-the setting and the path, and leaves every other failure wearing Chrome's own
-words.
+**Chrome's dialog is WANTED, not tolerated.** The extension declares no
+`notifications` permission, so when the user has tabbed away there is nothing
+Atlarix can do to reach them — the in-panel card is only visible to someone
+already looking at it. Chrome's prompt is the one interruption available, and it
+arrives wherever they are. That is a reason to keep the second prompt rather
+than a cost of having it.
 
-There are still **no declared content scripts**. Injection happens on demand,
-into a tab whose origin the user has allowed.
+There are **no declared content scripts**. A declared content script needs
+matching `host_permissions` at install, forcing the broad warning before the user
+has granted a single site — the exact inversion of this model. Injection happens
+on demand, into a tab whose origin was just granted.
 
 ## No new dependencies
 

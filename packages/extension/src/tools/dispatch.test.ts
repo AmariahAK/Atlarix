@@ -47,6 +47,7 @@ let tabs: FakeTab[];
 let removed: number[];
 let injectResult: unknown;
 /** Every kernel request the page received, so a test can assert on dispatch. */
+let granted: Set<string>;
 let injected: unknown[];
 /**
  * Which tab each injection LANDED ON, in order.
@@ -71,6 +72,7 @@ function installFakeChrome() {
       groupId: -1,
     },
   ];
+  granted = new Set(["https://example.test/*"]);
   removed = [];
   created = [];
   storage = new Map();
@@ -105,6 +107,15 @@ function installFakeChrome() {
 
   (globalThis as Record<string, unknown>).chrome = {
     storage: { local: area, sync: area },
+    permissions: {
+      async contains({ origins }: { origins?: string[] }) {
+        return (origins ?? []).every((o) => granted.has(o));
+      },
+      async remove({ origins }: { origins?: string[] }) {
+        for (const o of origins ?? []) granted.delete(o);
+        return true;
+      },
+    },
     tabs: {
       /**
        * HONOURS THE FILTER, and it has to.
@@ -172,8 +183,8 @@ function installFakeChrome() {
       },
     },
   };
-  // The allow-list is the only gate now — host access is held at install — so a
-  // fixture sets one thing rather than keeping two in step.
+  // `canActOn` requires BOTH halves to agree, so a fixture has to set both:
+  // our own record in storage.sync, and Chrome's own answer above.
   storage.set("atlarix.siteGrants.v1", {
     "https://example.test": { origin: "https://example.test", grantedAt: 1 },
   });
@@ -298,6 +309,7 @@ describe("page text reaches the model as data", () => {
 
 describe("a missing grant travels OUT, because only the loop can ask", () => {
   it("returns needsApproval rather than a refusal", async () => {
+    granted.clear();
     storage.delete("atlarix.siteGrants.v1");
     const out = await dispatchTool(call("read_page"), CTX);
     expect(out.needsApproval).toEqual({
@@ -339,6 +351,7 @@ describe("close_tab cannot touch the user's tabs", () => {
 
 describe("open_tab", () => {
   it("opens in the background and says whether it can be read", async () => {
+    granted.clear();
     const out = await dispatchTool(
       call("open_tab", { url: "https://other.test/x" }),
       CTX,
@@ -827,6 +840,7 @@ describe("the tab a turn is about does not move under it", () => {
       status: "complete",
       groupId,
     });
+    granted.add(new URL(url).origin + "/*");
     const record = storage.get("atlarix.siteGrants.v1") as Record<
       string,
       unknown

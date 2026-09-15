@@ -12,64 +12,57 @@ paths are closed — a repo can no longer replace Atlarix's operating instructio
 versions had shipped, then "v14.44 SHIPPED" while nothing was tagged. Update it in the same commit
 as the version bump, or do not trust it.
 
-## 🔐 PERMISSIONS MOVED INTO THE HARNESS — SHIPPED 2026-09-15 (unreleased, on `dev`)
+## 🔐 The permission model: moved into the harness, then moved BACK — 2026-09-15
 
-Copied from Anthropic's own implementation, verified by reading the installed Claude
-extension rather than documentation: `host_permissions: ["<all_urls>"]`, no Chrome prompt,
-and the site allow-list survives as the one gate — **Claude did not delete site
-permissions, it relocated them.**
+**Net result: `optional_host_permissions` stays, plus a new "Allow every site" option,
+plus instant revoke.** Both halves of that round trip are recorded because the argument
+that reversed it is not obvious and will be re-proposed otherwise.
 
-**The original bug is fixed by deletion.** The gate had two halves in two systems, and
-nearly everything awkward around it existed to stop those halves lying about each other:
-the user-gesture constraint, `pruneRevokedGrants`, `canActOn`'s conjunction, the
-`window.focus` listener, push-apply-push, and the website row reading "Revokes on next
-open". A web page cannot call `permissions.remove()`, so applying a revocation needed the
-panel. Now a grant is only our own record, so applying one is a storage write and the sync
-moved to the **top of every turn** — the moment it matters, immediately before the turn
-that would otherwise have used the site.
+**What was tried.** `host_permissions: ["<all_urls>"]`, copying Claude's extension, with the
+allow-list as the sole gate. It worked: one prompt instead of two, revoke instant by
+construction, −385 lines.
 
-**`syncSiteGrants` pushes once, not three times.** The second push only existed to clear
-the server's revoked row; the next sync stops listing the origin, which is the same
-condition the server was always testing.
+**WHY IT WAS REVERSED, and this is the part worth keeping.** The extension declares no
+`notifications` permission, so when the user has tabbed away from the panel **there is
+nothing Atlarix can do to reach them** — the in-panel approval card is only visible to
+someone already looking at it. Chrome's own permission dialog is the one interruption
+available, and it arrives wherever they are. Deleting it removed the only out-of-band
+signal the extension has. It also kept the clean install prompt, which is a genuine
+differentiator: `optional_host_permissions` shows **no host warning at install** where
+`<all_urls>` shows "Read and change all your data on all websites".
 
-**WHAT GOT WEAKER, and do not let a future docblock quietly restore the strong claim.**
-"The agent loop structurally cannot widen its own reach" was true because
-`permissions.request()` needed a gesture. `grantSite` is an ordinary storage write now, so
-the property is **conventional**: the only caller is the approval card's click handler.
-Six docblocks asserted the strong version and were rewritten, one of them inside a store
-submission.
+(The alternative is declaring `notifications`, which Claude's extension does. Not taken —
+another permission to justify, for a signal Chrome already gives free.)
 
-**THE HOLE THIS OPENED, and the net that closes it.** Chrome can still withhold a site from
-`chrome://extensions → Site access` even from an `<all_urls>` extension, and there is no
-event — the injection failure is the only signal. `canActOn`'s deleted half used to catch
-it. `page/inject.ts` now translates exactly that refusal into the setting and the path, and
-leaves every other failure wearing Chrome's own words. **Built BEFORE the deletion**, on
-purpose.
+**WHAT SURVIVED THE REVERT, because it never depended on the manifest:**
+- **Revoking on the website applies at the TOP OF EVERY TURN**, not on panel focus.
+  `permissions.remove()` needs no gesture, only a context that can call it, and a turn
+  starts in the panel. This is the fix for "Revokes on next open" — the row's own
+  complaint — and it is independent of which permission model is in play.
+- **`syncSiteGrants` pushes once, not twice.** The second push only cleared the server's
+  revoked row; the next sync stops listing the origin, which is the same condition.
+- **The withheld-host error mapping in `page/inject.ts`.** Chrome can narrow a site from
+  `chrome://extensions → Site access` and there is no event — the injection failure is the
+  only signal. Still true under `optional_host_permissions` for a user who granted a site
+  and later withheld it there.
+- **`always-ask.ts` moved to `src/lib/browser/`**, shared by both backends. The desktop's
+  own browser tool gains a gate it never had.
 
-**`always-ask.ts` moved to `src/lib/browser/`** — pure, zero imports, now shared, and the
-desktop's own browser tool gains a gate it never had.
+**NEW: "Allow every site", the third action on the host card.** One gesture, one Chrome
+dialog, for someone doing research across domains they cannot name in advance. It is
+deliberately last, styled quieter than "Not now", and **satisfies only the Chrome half of
+`canActOn`** — the per-site allow-list still applies, so the agent still asks before a NEW
+site. "Stop asking Chrome" and "go anywhere" are different requests.
 
-**Verified by breaking things, not by watching green.** Stubbing `isGranted` to allow any
-http(s) origin turns 9 tests red. The dead `permissions` mocks were deleted from two test
-files because a fixture driving a check nobody makes is how a deleted gate goes on looking
-tested — `granted.clear()` had already become a silent no-op in two tests.
+**Verified by breaking things, throughout.** Stubbing `isGranted` to allow any origin turns
+9 tests red. Making `requestAllSites` also write our own record turns its guard red. The
+dead `permissions` mocks were deleted during the teardown and restored with it — a fixture
+driving a check nobody makes is how a deleted gate goes on looking tested.
 
-**Deliberately NOT done: `externally_connectable` for a website→extension revoke push.**
-It was designed and dropped. With the gate in the harness and the sync at turn start, the
-agent already stops using a revoked site on its next turn; the push would only clear the
-UI row sooner, at the cost of a channel any script on the origin can message. Revisit only
-if someone reports the row itself as the problem.
-
-**STILL OWED before the next CWS submission, and it cannot be automated:**
-- `cws/screenshot-3-permission.png` is a picture of **Chrome's** permission dialog. Reshoot
-  it against Atlarix's own approval card.
-- The new `host_permissions` justification in `cws/PRIVACY-FORM.md` must be pasted into the
-  dashboard. **That field did not exist before** — broad host access draws the heaviest
-  review scrutiny there is, and `cws-submit.mjs` cannot reach it, so a clean submit tells
-  you nothing about whether it is filled in.
-- **Ship this before v1.0.0 clears review.** A permission INCREASE on a published item
-  disables the extension for existing users until they re-accept. Nothing is published yet,
-  so the cost is zero today and permanent afterwards.
+**Nothing is owed on the CWS dashboard.** The manifest is back to what the listing already
+describes, so `DESCRIPTION.txt`, `TEST-INSTRUCTIONS.txt` and `screenshot-3-permission.png`
+are all accurate again. The only edit is one sentence added to the single-purpose
+description mentioning the "Allow every site" option.
 
 ## 🎯 The agent's tab stops moving — SHIPPED 2026-09-15 (unreleased)
 

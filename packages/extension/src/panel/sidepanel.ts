@@ -7,21 +7,17 @@
  *
  *   1. **Sign-in.** `chrome.identity.launchWebAuthFlow` holds one promise open
  *      while the user reads a consent screen. The worker dies after ~30s idle.
- *   2. **Site grants.** Allowing a site is a write to the user's own allow-list,
- *      and the ONLY thing that performs it is the approval card's click handler
- *      in this file.
+ *   2. **Host grants.** `chrome.permissions.request()` must be called from
+ *      inside a user gesture and cannot be called from a service worker at all.
+ *      A button click here is the gesture.
  *   3. **The agent loop.** Chrome terminates the worker when a `fetch()`
  *      response takes over 30 seconds, which is precisely what a streamed model
  *      turn is. See `agent/loop.ts` for why an offscreen document is not the
  *      answer either.
  *
- * (2) USED TO BE A PLATFORM GUARANTEE AND IS NOW A CONVENTION, which is worth
- * saying rather than glossing. `chrome.permissions.request()` needed a user
- * gesture and could not be reached from a service worker, so the loop
- * structurally could not widen its own reach. Host access is held at install
- * now, so the same property holds because of where the one call site lives,
- * not because the platform forbids the alternative. The loop can ask. It still
- * cannot grant — but keep it that way deliberately.
+ * (2) is a containment property worth stating plainly: the loop runs in this
+ * document, but the only thing that can widen its reach is a button the USER
+ * clicks. The loop can ask. It cannot grant.
  *
  * WHAT THE LOOP RUNNING HERE COSTS: closing the panel ends the turn. That is
  * said out loud in the UI rather than hidden, and softened by saving the
@@ -52,11 +48,16 @@ import { buildQuestionCard } from "./question-card";
 // contract, and this string is what the MODEL reads on both surfaces.
 import { formatInteractiveQaLine } from "@/lib/interactive-qa-format";
 import {
+  canActOn,
+  pruneRevokedGrants,
+  requestAllSites,
+  requestHostAccess,
+  revokeHostAccess,
+} from "../permissions/host-access";
+import {
   grantSite,
-  isGranted,
   listGrants,
   revokeAll,
-  revokeSite,
 } from "../permissions/site-grants";
 import { activeTab } from "../page/inject";
 import { detachAll } from "../page/trusted-input";
@@ -1100,13 +1101,17 @@ function describeCall(call: ToolCall): string {
  * TWO KINDS THROUGH ONE CARD. A host grant and a dangerous action are different
  * problems with the same answer: only the user can say yes.
  *
- * For a host grant the answer is now simply recorded: host access is held at
- * install, so allowing a site is a write to our own list rather than a call
- * into Chrome. The gesture requirement that used to shape this handler — and
- * the rule that nothing could be awaited before it — is gone with
- * `permissions.request()`. What survives is the discipline: the ONLY caller of
- * `grantSite` is this click handler, so the loop still cannot widen its own
- * reach, by convention now rather than by platform.
+ * For a host grant, `requestHostAccess` is called from INSIDE the click handler,
+ * synchronously, because that is what makes it a user gesture —
+ * `permissions.request()` has no other way to succeed, and it resolves FALSE on
+ * a decline rather than rejecting, which is why `host-access.ts` orders the
+ * record after the answer.
+ *
+ * AND CHROME'S DIALOG IS WANTED, not tolerated. The extension cannot post a
+ * notification, so when the user has tabbed away from the panel there is
+ * nothing Atlarix can do to reach them — this card is only visible to someone
+ * already looking at it. Chrome's prompt is the one interruption available, and
+ * it arrives wherever they are.
  *
  * For an action, there is no platform call at all: the yes IS the answer. The
  * card still refuses to show the value being typed — `always-ask.ts` builds its
@@ -1157,8 +1162,8 @@ function approvalCard(request: Approval): Promise<boolean> {
     note.className = "grant__note";
     note.textContent =
       request.kind === "host"
-        ? "Atlarix can read this site until you remove it, and nothing else. " +
-          "Remove it from the panel or your account page and it stops at once."
+        ? "Chrome will ask you to confirm. Atlarix can read this site until you " +
+          "remove it, and nothing else."
         : `${request.reason} Allowing a site never covers this — Atlarix asks every time.`;
 
     const actions = document.createElement("div");
@@ -1174,14 +1179,65 @@ function approvalCard(request: Approval): Promise<boolean> {
     deny.className = "button";
     deny.textContent = request.kind === "host" ? "Not now" : "Stop";
 
+    /**
+     * "Every site", offered only on a HOST card and only as the third option.
+     *
+     * THIS IS THE ANSWER TO A REAL COMPLAINT, not an upsell. Asking per origin
+     * is right for a question about the page in front of you and wrong for a
+     * research task across a dozen domains nobody can name in advance — and a
+     * developer who hits the prompt on every hop closes the panel rather than
+     * clicking through it.
+     *
+     * DELIBERATELY NOT THE PRIMARY ACTION. It is last, it is not styled as the
+     * affirmative button, and Chrome's own dialog still appears and still says
+     * "Read and change all your data on all websites" in full. The broad answer
+     * is available to someone who wants it and is never the easy accident.
+     *
+     * It satisfies only the Chrome half of `canActOn`. The per-site allow-list
+     * still applies, so the agent still asks before a NEW site — "stop asking
+     * Chrome" and "go anywhere" are different requests.
+     */
+    // Narrowed once, here, so the click handler below carries the host fields
+    // with it — a closure cannot re-narrow the union on its own.
+    const hostRequest = request.kind === "host" ? request : null;
+    const always = hostRequest ? document.createElement("button") : null;
+    if (always) {
+      always.type = "button";
+      always.className = "button grant__always";
+      always.textContent = "Allow every site";
+      always.title =
+        "Grants Chrome's host access once, for all sites. Atlarix still asks " +
+        "before working on a site you have not allowed.";
+    }
+
     const settle = (answer: boolean, text: string) => {
       allow.remove();
       deny.remove();
+      always?.remove();
       card.classList.add("grant--settled");
       title.textContent = text;
       note.remove();
       resolve(answer);
     };
+
+    always?.addEventListener("click", () => {
+      if (!hostRequest) return;
+      allow.disabled = true;
+      deny.disabled = true;
+      always.disabled = true;
+      // Inside the gesture, exactly as `requestHostAccess` must be.
+      void requestAllSites().then(async (ok) => {
+        if (!ok) {
+          settle(false, `Declined ${hostRequest.origin}`);
+          return;
+        }
+        // Chrome now allows every origin, but `canActOn` is a conjunction —
+        // record THIS site too, or the very call that prompted the card would
+        // still be refused.
+        await grantSite(hostRequest.url);
+        settle(true, `Allowed every site`);
+      });
+    });
 
     allow.addEventListener("click", () => {
       allow.disabled = true;
@@ -1190,11 +1246,16 @@ function approvalCard(request: Approval): Promise<boolean> {
         settle(true, `Approved: ${request.summary}`);
         return;
       }
-      // No gesture requirement any more: the yes IS the answer, for a host
-      // exactly as for an action. `grantSite` is a storage write, and the only
-      // thing that calls it is this handler.
-      void grantSite(request.url).then((grant) => {
-        settle(grant !== null, grant ? `Allowed ${request.origin}` : `${request.origin} cannot be allowed — Atlarix only reads http(s) pages`);
+      // Inside the gesture. Do NOT await anything before this call.
+      void requestHostAccess(request.url).then((outcome) => {
+        settle(
+          outcome.ok,
+          outcome.ok
+            ? `Allowed ${request.origin}`
+            : outcome.reason === "unsupported-scheme"
+              ? `${request.origin} cannot be allowed — Atlarix only reads http(s) pages`
+              : `Declined ${request.origin}`,
+        );
       });
     });
 
@@ -1208,6 +1269,7 @@ function approvalCard(request: Approval): Promise<boolean> {
     });
 
     actions.append(allow, deny);
+    if (always) actions.append(always);
     card.append(title, note, actions);
     append(card);
   });
@@ -1554,7 +1616,7 @@ async function send(): Promise<void> {
         ? {
             title: (await tabTitle(tab.id)) ?? "",
             url: tab.url,
-            granted: await isGranted(tab.url),
+            granted: await canActOn(tab.url),
           }
         : null,
     });
@@ -2022,16 +2084,26 @@ async function refreshDrawer(): Promise<void> {
  * Publish this browser's allow-list, and apply anything revoked on the website.
  *
  * AT THE TOP OF EVERY TURN, which is both cheaper and stricter than what it
- * replaced. This used to run on panel focus, with a five-second throttle,
- * because APPLYING a revocation needed `permissions.remove()` and therefore
- * needed the panel. It no longer does — a grant is only our own record — so the
- * check moved to the one moment it actually matters: immediately before the
- * turn that would otherwise have used the revoked site.
+ * replaced. This used to run on panel focus with a five-second throttle, so
+ * revoking on the account page while the panel was already open did nothing
+ * until the user clicked away and back — the row sat reading "Revokes on next
+ * open", which looks like a request that hung. `permissions.remove()` needs no
+ * gesture, only a context that can call it, and a turn starts here. So the
+ * check moved to the one moment it matters: immediately before the turn that
+ * would otherwise have used the revoked site.
  *
  * It costs nothing extra. The panel already makes several requests here to
  * build the prompt, and this joins them.
  */
 async function syncGrantsForTurn(): Promise<void> {
+  // PRUNE FIRST, so what gets published is a list Chrome has already agreed
+  // with rather than one we only believe. The user can drop a host from
+  // chrome://extensions without telling us, and a record that outlives the
+  // permission produces a read failing with a raw injection error instead of an
+  // honest "you took this back".
+  const known = (await listGrants()).map((g) => g.origin);
+  await pruneRevokedGrants(known);
+
   const { revoked } = await syncSiteGrants();
 
   // SAY SO. A revocation that takes effect in silence is indistinguishable from
@@ -2571,7 +2643,7 @@ eraseButton?.addEventListener("click", () => {
     // leave the browser still granting host access for sites the user believes
     // they have just erased.
     for (const grant of await listGrants())
-      await revokeSite(grant.origin);
+      await revokeHostAccess(grant.origin);
     await revokeAll();
     // And the account's copy of them. `syncSiteGrants` publishes whatever is
     // left, which is now nothing, and the server drops the rows -- the same
