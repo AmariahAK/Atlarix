@@ -99,12 +99,23 @@ export class BridgeServer {
   async listen(): Promise<void> {
     if (this.server) return;
 
+    // THE LIVENESS PROBE RUNS ON EVERY PLATFORM. Only the unlink below is
+    // unix-specific. An earlier version guarded both together, which left
+    // Windows with no explicit check at all — the OS still refused the second
+    // bind, but as a bare `listen EADDRINUSE` instead of a sentence naming the
+    // cause. Same protection, worse diagnosis, and it read as a missing feature.
+    if (await isSocketLive(this.opts.socketPath)) {
+      throw new Error(
+        `another Atlarix is already listening on ${this.opts.socketPath}`,
+      );
+    }
+
+    // A unix socket is a FILE and a crash leaves it behind; binding over it
+    // fails EADDRINUSE, which reads as "already running" and would leave the
+    // bridge dead after one hard kill. Safe to remove only because the probe
+    // above just proved nothing is answering. A Windows named pipe has no
+    // filesystem entry to remove.
     if (!this.opts.socketPath.startsWith("\\\\")) {
-      if (await isSocketLive(this.opts.socketPath)) {
-        throw new Error(
-          `another Atlarix is already listening on ${this.opts.socketPath}`,
-        );
-      }
       await fs.rm(this.opts.socketPath, { force: true }).catch(() => {});
     }
 
