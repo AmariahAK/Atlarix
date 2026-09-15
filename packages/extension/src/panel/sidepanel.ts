@@ -39,12 +39,7 @@ import { signIn, signOut } from "../auth/sign-in";
 import { accountState } from "../auth/account";
 import { profileOf } from "../auth/profile";
 import type { OAuthProvider } from "../auth/gotrue";
-import {
-  canActOn,
-  pruneRevokedGrants,
-  requestHostAccess,
-  revokeHostAccess,
-} from "../permissions/host-access";
+
 import { syncSiteGrants } from "../permissions/grants-sync";
 import { buildQuestionCard } from "./question-card";
 // THE DESKTOP'S FORMATTER, IMPORTED NOT COPIED. A zero-import leaf reached
@@ -52,7 +47,13 @@ import { buildQuestionCard } from "./question-card";
 // the reason `tools/ask-user.ts` already states: a second copy is a second
 // contract, and this string is what the MODEL reads on both surfaces.
 import { formatInteractiveQaLine } from "@/lib/interactive-qa-format";
-import { listGrants, revokeAll } from "../permissions/site-grants";
+import {
+  grantSite,
+  isGranted,
+  listGrants,
+  revokeAll,
+  revokeSite,
+} from "../permissions/site-grants";
 import { activeTab } from "../page/inject";
 import { detachAll } from "../page/trusted-input";
 import { onGroupClosed, setGroupTitle } from "../tabs/group";
@@ -1095,11 +1096,13 @@ function describeCall(call: ToolCall): string {
  * TWO KINDS THROUGH ONE CARD. A host grant and a dangerous action are different
  * problems with the same answer: only the user can say yes.
  *
- * For a host grant, `requestHostAccess` is called from INSIDE the click handler,
- * synchronously, because that is what makes it a user gesture —
- * `permissions.request()` has no other way to succeed, and it resolves FALSE on
- * a decline rather than rejecting, which is why `host-access.ts` orders the
- * record after the answer.
+ * For a host grant the answer is now simply recorded: host access is held at
+ * install, so allowing a site is a write to our own list rather than a call
+ * into Chrome. The gesture requirement that used to shape this handler — and
+ * the rule that nothing could be awaited before it — is gone with
+ * `permissions.request()`. What survives is the discipline: the ONLY caller of
+ * `grantSite` is this click handler, so the loop still cannot widen its own
+ * reach, by convention now rather than by platform.
  *
  * For an action, there is no platform call at all: the yes IS the answer. The
  * card still refuses to show the value being typed — `always-ask.ts` builds its
@@ -1183,16 +1186,11 @@ function approvalCard(request: Approval): Promise<boolean> {
         settle(true, `Approved: ${request.summary}`);
         return;
       }
-      // Inside the gesture. Do NOT await anything before this call.
-      void requestHostAccess(request.url).then((outcome) => {
-        settle(
-          outcome.ok,
-          outcome.ok
-            ? `Allowed ${request.origin}`
-            : outcome.reason === "unsupported-scheme"
-              ? `${request.origin} cannot be allowed — Atlarix only reads http(s) pages`
-              : `Declined ${request.origin}`,
-        );
+      // No gesture requirement any more: the yes IS the answer, for a host
+      // exactly as for an action. `grantSite` is a storage write, and the only
+      // thing that calls it is this handler.
+      void grantSite(request.url).then((grant) => {
+        settle(grant !== null, grant ? `Allowed ${request.origin}` : `${request.origin} cannot be allowed — Atlarix only reads http(s) pages`);
       });
     });
 
@@ -1528,6 +1526,11 @@ async function send(): Promise<void> {
       listConnectorNames(),
       activeTab(),
       currentWindowId(),
+      // BEFORE the prompt reads which sites are allowed, not after. A
+      // revocation made on the website has to be in force for the turn it
+      // precedes, or the agent spends that turn believing it still has a site
+      // the user has taken back.
+      syncGrantsForTurn(),
     ]);
     const notes = buildNotesSection(noteMetas);
     const skills = accountSkills.length
@@ -1547,7 +1550,7 @@ async function send(): Promise<void> {
         ? {
             title: (await tabTitle(tab.id)) ?? "",
             url: tab.url,
-            granted: await canActOn(tab.url),
+            granted: await isGranted(tab.url),
           }
         : null,
     });
@@ -2009,54 +2012,26 @@ async function refreshDrawer(): Promise<void> {
     }
   }
 
-  // GRANTS: RECONCILE AND SYNC, BUT NO LONGER RENDER. The list moved to the
-  // account page; these two calls did not, because neither was ever about
-  // rendering.
-  //
-  //   - `pruneRevokedGrants` keeps our record honest against Chrome, which
-  //     drops host access when the user revokes from chrome://extensions and
-  //     does not tell us.
-  //   - `syncSiteGrants` publishes what survived and APPLIES anything revoked
-  //     on the website — `permissions.remove()` first, then the record. A
-  //     website cannot reach into Chrome, so this is the only moment a
-  //     revocation made there takes effect.
-  //
-  // Order matters: prune first, so what is published is a list Chrome has
-  // already agreed with rather than one we only believe.
-  await reconcileGrants();
 }
 
-/** No sooner than this between reconciliations, however often focus moves. */
-const GRANT_SYNC_MIN_MS = 5_000;
-let lastGrantSync = 0;
-
 /**
- * Prune against Chrome, publish, and apply anything revoked on the website.
+ * Publish this browser's allow-list, and apply anything revoked on the website.
  *
- * ON FOCUS AS WELL AS AT BOOT, and that is the fix for a reported bug rather
- * than a refinement. This ran only when the panel opened — so revoking a site
- * on the account page while the panel was ALREADY OPEN did nothing at all. The
- * row sat reading "Revoking…" indefinitely, which looks like a request that
- * hung, and the only way to apply it was to close the panel and reopen it,
- * which nobody would guess.
+ * AT THE TOP OF EVERY TURN, which is both cheaper and stricter than what it
+ * replaced. This used to run on panel focus, with a five-second throttle,
+ * because APPLYING a revocation needed `permissions.remove()` and therefore
+ * needed the panel. It no longer does — a grant is only our own record — so the
+ * check moved to the one moment it actually matters: immediately before the
+ * turn that would otherwise have used the revoked site.
  *
- * Focus rather than a timer. A poll would run forever against a value that
- * changes about twice a year, and every traffic scare this project has had so
- * far has turned out to be one of our own idle polls. Clicking back into the
- * panel after revoking on the website is the gesture that means "I am done over
- * there", and it costs one request.
+ * It costs nothing extra. The panel already makes several requests here to
+ * build the prompt, and this joins them.
  */
-async function reconcileGrants(): Promise<void> {
-  const now = Date.now();
-  if (now - lastGrantSync < GRANT_SYNC_MIN_MS) return;
-  lastGrantSync = now;
-
-  const known = (await listGrants()).map((g) => g.origin);
-  await pruneRevokedGrants(known);
+async function syncGrantsForTurn(): Promise<void> {
   const { revoked } = await syncSiteGrants();
 
   // SAY SO. A revocation that takes effect in silence is indistinguishable from
-  // one that did not, which is the half of this bug that survives the fix.
+  // one that did not.
   if (revoked.length > 0) {
     const names = revoked
       .map((origin) => {
@@ -2070,10 +2045,6 @@ async function reconcileGrants(): Promise<void> {
     setStatus(`Access to ${names} was revoked from your account.`);
   }
 }
-
-window.addEventListener("focus", () => {
-  void reconcileGrants();
-});
 
 async function openSession(id: string): Promise<void> {
   void clearDrivenTabs("all");
@@ -2596,7 +2567,7 @@ eraseButton?.addEventListener("click", () => {
     // leave the browser still granting host access for sites the user believes
     // they have just erased.
     for (const grant of await listGrants())
-      await revokeHostAccess(grant.origin);
+      await revokeSite(grant.origin);
     await revokeAll();
     // And the account's copy of them. `syncSiteGrants` publishes whatever is
     // left, which is now nothing, and the server drops the rows -- the same

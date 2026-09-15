@@ -18,10 +18,12 @@
  * of origins arriving from the network and being granted is precisely the hole
  * this shape does not have.
  *
- * ORDER MATTERS ON THE WAY OUT. `revokeHostAccess()` removes Chrome's
- * permission and then the record, and this module calls it rather than
- * `revokeSite()` — a record dropped without the permission leaves the browser
- * still allowing what the user just revoked on the website.
+ * APPLYING A REVOCATION IS NOW A LOCAL WRITE, and that is what made revoking
+ * from the website instant. It used to need `permissions.remove()`, which is
+ * why it had to happen in the panel and why the website's row read "Revokes on
+ * next open". Host access is held at install now, so a grant is only our own
+ * record and dropping one is a `storage.sync` delete any context can perform —
+ * before the very next tool call, mid-turn, anywhere.
  *
  * FAILURE IS SILENT, and here that convention is right: the grant list in the
  * panel is authoritative for this browser, the website's copy is a mirror, and
@@ -32,8 +34,7 @@
 import { GOTRUE } from "../auth/config";
 import { getAccessToken } from "../auth/sign-in";
 import { api } from "../shared/browser-api";
-import { listGrants } from "./site-grants";
-import { revokeHostAccess } from "./host-access";
+import { listGrants, revokeSite } from "./site-grants";
 
 /** Where this profile's id lives. `local`, NEVER `sync`. */
 const DEVICE_KEY = "atlarix.deviceId.v1";
@@ -127,32 +128,30 @@ async function callSync(
 }
 
 /**
- * Push, apply, push again.
+ * Publish what this browser allows, and apply anything the website revoked.
  *
- * The second push is not belt-and-braces: it is what CLEARS an applied
- * revocation. The server keeps a revoked row until the browser stops listing
- * the origin, so without the second call the website would keep showing the
- * site as "revoking" until the next time the panel opened.
- *
- * Call AFTER `pruneRevokedGrants`, so what gets published is a list Chrome has
- * already agreed with rather than one we only believe.
+ * ONE PUSH, NOT THREE. This used to push, apply, then push again, because the
+ * server keeps a revoked row until the browser stops listing the origin — so
+ * without a second call the website went on showing the site as revoking. The
+ * second call is gone and the NEXT sync clears the row instead: the origin is
+ * no longer in the list we send, which is the same condition the server was
+ * always testing. The cost is that a row can read as pending for one extra
+ * turn, on a page nobody is watching at that moment; the saving is a third of
+ * the requests on a path that runs before every turn.
  */
 export async function syncSiteGrants(): Promise<{ revoked: string[] }> {
   try {
     const origins = (await listGrants()).map((g) => g.origin);
-    const first = await callSync(origins);
-    if (!first || first.revoke.length === 0) return { revoked: [] };
+    const answer = await callSync(origins);
+    if (!answer || answer.revoke.length === 0) return { revoked: [] };
 
     // A revoked origin may already be gone locally — the user removed it in the
-    // panel before the panel pushed. Applying it again is harmless; both halves
-    // of `revokeHostAccess` are idempotent.
-    for (const origin of first.revoke) {
-      await revokeHostAccess(origin);
+    // panel before the panel pushed. `revokeSite` is idempotent, so applying it
+    // again is harmless.
+    for (const origin of answer.revoke) {
+      await revokeSite(origin);
     }
-
-    const remaining = (await listGrants()).map((g) => g.origin);
-    await callSync(remaining);
-    return { revoked: first.revoke };
+    return { revoked: answer.revoke };
   } catch {
     return { revoked: [] };
   }
