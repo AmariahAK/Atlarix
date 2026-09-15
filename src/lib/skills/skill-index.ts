@@ -28,6 +28,7 @@ import * as path from "node:path";
 import log from "electron-log";
 
 import { firstSentence } from "@/lib/text/first-sentence";
+import { materialiseAccountSkills } from "./account-skills";
 import { resolveBuiltinSkillsRoot } from "./skill-loader";
 import {
   filterSkillsForMode,
@@ -44,8 +45,13 @@ export interface SkillIndexEntry {
   /**
    * `"installed"` is gone with the marketplace (v14.45). It rendered identically to
    * `"repo"` in `formatSkillIndexForPrompt`, so nothing downstream distinguished them.
+   *
+   * `"account"` is a skill the user wrote on atlarix.dev. It renders with the
+   * guides rather than with repo skills, because the model reaches both the same
+   * way — by the absolute path in `readPath` — and neither is findable by a
+   * `grep` over the workspace.
    */
-  source: "repo" | "guide";
+  source: "repo" | "guide" | "account";
 }
 
 /**
@@ -132,6 +138,24 @@ export async function buildSkillIndex(
     }
   }
 
+  // Account skills before bundled guides: they are the user's own writing and
+  // more likely to be what they meant. Failure is an omitted section — a
+  // signed-out user, an unreachable website or a table that has not shipped to
+  // this account all produce the same empty list, which is correct for all
+  // three and worth no interruption in any of them.
+  try {
+    for (const s of await materialiseAccountSkills()) {
+      entries.push({
+        name: s.name,
+        description: firstSentence(s.description),
+        readPath: s.readPath,
+        source: "account",
+      });
+    }
+  } catch (err) {
+    logger.warn("[skill-index] account skills failed:", err);
+  }
+
   try {
     entries.push(...(await loadGuideEntries()));
   } catch (err) {
@@ -172,8 +196,11 @@ export async function buildSkillIndex(
 export function formatSkillIndexForPrompt(entries: SkillIndexEntry[]): string {
   if (!entries.length) return "";
 
-  const project = entries.filter((e) => e.source !== "guide");
-  const guides = entries.filter((e) => e.source === "guide");
+  const project = entries.filter((e) => e.source === "repo");
+  // Account skills render WITH the guides: both are reached by an absolute
+  // path rather than by grepping the workspace, which is the only distinction
+  // that matters to the model here.
+  const guides = entries.filter((e) => e.source !== "repo");
 
   const lines: string[] = [];
   if (project.length) {
