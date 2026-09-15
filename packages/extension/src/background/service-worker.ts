@@ -22,6 +22,7 @@
  */
 
 import { api } from "../shared/browser-api";
+import { connectBridge, installBridgeAlarm } from "../bridge/native-port";
 
 /**
  * Clicking the toolbar icon opens the side panel.
@@ -40,3 +41,23 @@ api()
     // as a broken extension.
     console.error("[atlarix] sidePanel.setPanelBehavior failed", err);
   });
+
+// ---------------------------------------------------------------------------
+// The desktop bridge
+// ---------------------------------------------------------------------------
+
+/**
+ * Opened at the TOP LEVEL, not from an install or startup event.
+ *
+ * A service worker is re-entered from scratch every time Chrome wakes it, and
+ * `onInstalled` fires once in the extension's life while `onStartup` fires only
+ * for a profile launch. Neither runs on the ordinary wake — a tab event, an
+ * alarm, a panel opening — so a bridge connected from either would be absent
+ * for most of the worker's actual lifetimes. Top level runs on every one.
+ *
+ * Cheap when there is nothing to connect to: `connectNative` throws immediately
+ * if no host manifest is installed, which is the state for everyone who has the
+ * extension and not the desktop app.
+ */
+installBridgeAlarm();
+connectBridge();

@@ -124,6 +124,7 @@ userData/
 # Rust build output for the Windows sandbox helper
 native/atlarix-sandbox/target/
 native/atlarix-sandbox-linux/target/
+native/atlarix-bridge/target/
 # On-device Model2Vec model (build artifact, fetched via npm run fetch-model2vec)
 assets/model2vec/
 

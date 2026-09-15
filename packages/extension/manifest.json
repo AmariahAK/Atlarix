@@ -13,7 +13,9 @@
     "tabs",
     "scripting",
     "tabGroups",
-    "debugger"
+    "debugger",
+    "nativeMessaging",
+    "alarms"
   ],
   "optional_host_permissions": ["http://*/*", "https://*/*"],
   "background": {

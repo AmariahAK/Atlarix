@@ -1,0 +1,26 @@
+[package]
+name = "atlarix-bridge"
+version = "0.1.0"
+edition = "2021"
+description = "Chrome native-messaging relay: stdio frames <-> the desktop app's local socket"
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "atlarix-bridge"
+path = "src/main.rs"
+
+# Matches the two sandbox helpers. `panic = "abort"` matters more here than it
+# does there: a panic that unwound would run destructors while Chrome is still
+# reading stdout, and a partial frame desyncs the stream permanently.
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
+panic = "abort"
+codegen-units = 1
+
+# NO DEPENDENCIES, deliberately. The whole program is two byte pumps and one
+# hand-written JSON literal; a serde build would be a minute of CI and a supply
+# chain, for a struct with two string fields.
+[dependencies]
