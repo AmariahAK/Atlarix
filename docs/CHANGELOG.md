@@ -3,6 +3,33 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.46.1] (2026-09-15) — A crash that replaced the whole app is fixed
+
+**Atlarix no longer crashes to an error card mid-answer.** Running two of the same tool at
+once — two shell commands in parallel, which a sub-agent does routinely — could wipe the
+one-line label off a tool card. The card is decoration, but the code that drew it assumed
+the label was always there, so the missing label threw during rendering and React replaced
+the entire window with "Sorry, that shouldn't have happened!". The work was not lost; the
+app just stopped showing it.
+
+### Fixed
+- `mergeToolItems` in `src/lib/chat/stream-thread.ts` merged two in-flight calls to the same
+  tool with an object spread, and object spread copies a property even when its value is
+  `undefined` — so a newer event without a summary ERASED the one already there rather than
+  falling through to it. Every other optional field on that path was re-fixed by hand right
+  below the spread; `summary` was the one omission, and it is the one the renderer calls
+  `.trim()` on. The other merge branch never had the bug, which is why this only appeared
+  when two calls of the same tool overlapped.
+- Three render sites that called `.trim()` on that label without a guard are now guarded —
+  `SubAgentRunCard.tsx`, `group-stream-tools.ts` and `stream-thread.ts`. Each already used
+  `?.` on the same field a few lines away. A missing one-line label must never be able to
+  take the window down with it.
+
+### Notes
+- Tests: 4,979 passing. The regression test drives the real reducer and was verified to fail
+  against the shipped code.
+- Nothing else changed. v14.46.0's contents are unaffected.
+
 ## [14.46.0] (2026-09-15) — Atlarix makes you files, and starts speaking to your own browser
 
 **The browser extension can build you a file.** Ask for a spreadsheet, a PDF, a CSV, an image

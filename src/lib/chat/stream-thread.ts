@@ -208,6 +208,25 @@ function mergeToolItems(
     resultText: next.resultText ?? prev.resultText,
     detail: next.detail ?? prev.detail,
     expand: next.expand ?? prev.expand,
+    // THE ONE FIELD THIS BRANCH USED TO FORGET, and it crashed the app.
+    //
+    // Object spread copies an OWN property even when its value is `undefined`,
+    // so `{ ...prev, ...next }` with `next.summary === undefined` ERASES the
+    // summary `prev` had — it does not fall through to it. Every other field
+    // that can be absent on `next` is re-fixed in the lines above; `summary`
+    // was the omission, and it is the one the renderer calls `.trim()` on
+    // unguarded, so the result was a white screen with
+    // "Cannot read properties of undefined (reading 'trim')" and the whole
+    // route replaced by the error boundary.
+    //
+    // Reached when two calls to the SAME tool are in flight at once — two
+    // parallel `run_command`s is what did it — because that is what produces an
+    // EQUAL-RANK re-merge. The rank-increase branch above never had the bug: it
+    // recomputes `summary` with a full fallback chain.
+    //
+    // `||` not `??`, matching that branch: an empty summary is as useless as a
+    // missing one.
+    summary: next.summary || prev.summary,
   };
 }
 
@@ -1040,7 +1059,11 @@ function buildSubagentAgentsFromActivity(
         agent.nestedItems,
         nested,
       );
-      if (nested.kind === "tool" && nested.summary.trim()) {
+      // `?.` for the same reason as the two sites in SubAgentRunCard: this
+      // folds a sub-agent's nested tool activity into its card during render,
+      // and the line immediately below already guards `item.label` with `?.` —
+      // this one was the inconsistency.
+      if (nested.kind === "tool" && nested.summary?.trim()) {
         agent.summary = nested.summary.trim();
       } else if (item.label?.trim()) {
         agent.summary = item.label.trim();

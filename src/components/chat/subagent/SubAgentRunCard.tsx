@@ -51,11 +51,21 @@ function latestNestedActivitySummary(
   const flat = flattenNestedItems(sortNestedByTime(items));
   let best: { ts: number; text: string } | null = null;
   for (const item of flat) {
-    if (item.kind === "tool" && item.summary.trim()) {
+    // `?.` on both, and the reason is not style. These types declare `summary`
+    // and `content` as required strings, but the items are assembled by a
+    // reducer from streamed events and can be re-merged mid-flight — a bug in
+    // that merge (fixed in `stream-thread.ts`) wiped `summary` and this line
+    // threw during render, replacing the whole app with the error boundary.
+    //
+    // The merge is fixed; this stays guarded anyway, because a summary is a
+    // one-line label on a collapsed card and losing one is not worth a white
+    // screen. Note lines below already used `summary?.trim()` — these two were
+    // the inconsistency.
+    if (item.kind === "tool" && item.summary?.trim()) {
       const text = item.summary.trim();
       if (!best || item.ts >= best.ts) best = { ts: item.ts, text };
     }
-    if (item.kind === "thought" && item.content.trim()) {
+    if (item.kind === "thought" && item.content?.trim()) {
       const text = item.content.trim();
       if (!best || item.ts >= best.ts) best = { ts: item.ts, text };
     }

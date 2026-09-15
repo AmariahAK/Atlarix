@@ -41,7 +41,12 @@ function summarizeTools(tools: StreamToolItem[], category: string): string {
     return `${category} · ${running} running, ${tools.length} total`;
   }
   const previews = tools
-    .map((t) => t.summary.trim())
+    // `?.` because a thread item can reach here with no `summary` at all, and
+    // this runs during render: an unguarded `.trim()` throws inside React and
+    // the route error boundary replaces the entire app with a crash card. A
+    // group preview is decoration — it must never be the reason the window goes
+    // blank. `filter(Boolean)` already drops the undefined.
+    .map((t) => t.summary?.trim())
     .filter(Boolean)
     .slice(0, 2);
   const tail =
