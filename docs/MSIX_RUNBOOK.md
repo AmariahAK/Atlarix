@@ -18,8 +18,9 @@ How to build, sign, install, and verify the Atlarix MSIX package **by hand**.
 >
 > What this document IS for: getting a signed package onto a Windows machine so the
 > deep-system behaviour can be verified **inside the package container** — §4. That
-> verification was **confirmed by the owner on 2026-09-04**; see `docs/TODO.md` →
-> _Windows/Linux verification — CLOSED_. §4 is kept as the procedure to re-run after
+> verification was **confirmed by the owner on 2026-09-04** (the TODO entry that
+> recorded it has since been closed out; the history is in `git log -- docs/TODO.md`).
+> §4 is kept as the procedure to re-run after
 > any change to the sandbox helper, the protocol handler, or the payload binaries.
 
 ---
@@ -221,8 +222,8 @@ Run the automated probes first, then the three things no probe can cover.
 > automated. Confirming that the deep-system features actually behave inside the
 > package container on real Windows was the last open piece, and the owner
 > **confirmed it on 2026-09-04** along with the Low-IL sandbox, on-device voice and
-> the `taskkill` process-tree kill. See `docs/TODO.md` → _Windows/Linux verification
-> — CLOSED_.
+> the `taskkill` process-tree kill. The TODO entry that recorded it has since been
+> closed out; the history is in `git log -- docs/TODO.md`.
 
 ### 4a. Baseline on the Squirrel build (do this FIRST)
 

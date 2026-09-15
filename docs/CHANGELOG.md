@@ -3,6 +3,64 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.46.0] (2026-09-15) — Atlarix makes you files, and starts speaking to your own browser
+
+**The browser extension can build you a file.** Ask for a spreadsheet, a PDF, a CSV, an image
+or a zip and it writes one, offered as a download in the conversation. There is no writer per
+format and there never will be — the model writes the code, and the code runs in a sandboxed
+worker with no network, no extension APIs and no access to the page. Files are held in memory
+for the life of the panel and are never written to extension storage.
+
+**Skills and connectors you set up on atlarix.dev now work in the desktop app.** The account
+page has said "available in the app, the browser extension and the CLI" for a while; the app
+was not a participant. It is now. A connector's credential still never reaches your machine —
+the app asks Atlarix Core to make the call.
+
+**The agent stops losing your tab.** A question about the page you were on keeps meaning that
+page for the whole turn, even if you switch tabs while it works. Previously every tool that
+took an optional tab id silently re-pointed at whatever you were looking at now.
+
+**Revoking a site takes effect on the next turn.** Revoking from the account page used to
+apply only when the extension's panel regained focus, which read as a request that hung. It is
+now applied at the top of every turn.
+
+**"Allow every site"** is offered alongside per-site permission, for research across domains
+nobody can name in advance. It goes through Chrome's own dialog and grants only Chrome's half —
+Atlarix still asks before working on a site you have not allowed.
+
+### Added
+- `run_code` in the extension: a manifest-sandboxed page plus a blob worker, `emit()` for files
+  and `zip()` for the OOXML container. `packages/extension/src/sandbox/`,
+  `packages/extension/src/tools/run-code.ts`, `packages/extension/src/files/store.ts`.
+- Account skills and connectors on the desktop: `src/lib/skills/account-skills.ts`,
+  `src/lib/mcp/account-connectors.ts`.
+- Chrome Web Store auto-deploy: `scripts/cws-submit.mjs`, `scripts/cws-auth.mjs`, a monthly
+  keepalive, and `scripts/cws-copy-check.mjs` (field limits, and the line shape that got v1.0.0
+  rejected for "excessive keywords").
+- The desktop↔extension bridge transport: `native/atlarix-bridge` (a dependency-free Rust
+  native-messaging relay), `src/lib/bridge/`, `src/main/bridge-lifecycle.ts`,
+  `packages/extension/src/bridge/`. **Dormant in this release** — the `target:"app"|"chrome"`
+  seam in `src/lib/tools/browser.ts` is not built, so no tool reaches it.
+
+### Changed
+- Extension manifest gains `nativeMessaging` and `alarms`, a second sandboxed page, and
+  `worker-src blob:` on the sandbox CSP (`child-src 'none'` alone blocks workers, and Chrome
+  reports that as a bare error event with no message).
+- `formatCents` groups thousands, and `PRO_SUMMARY` matches the website word for word — it
+  claimed to and did not.
+
+### Fixed
+- `build-msix` now depends on `build-linux`, not `quality` alone. It raced the job uploading the
+  artifact it downloads, and because that download is `continue-on-error` the miss surfaced two
+  minutes later as a missing `atlarix-sandbox-linux` — which reads like a packaging bug. This
+  stranded v14.45.0 as an invisible draft.
+- The Windows CI runners are un-pinned to `windows-latest`.
+
+### Notes
+- **There is no v14.44.0.** It was never tagged and has no changelog section; the work folded
+  into v14.45.0. `docs/TODO.md` claimed it shipped, which is corrected in this release.
+- Tests: 4,971 passing. `oxlint` reports zero errors across `src`, `packages` and `scripts`.
+
 ## [14.45.0] (2026-09-09) — The app is free, the meter is honest, and skills live in your repo
 
 **Atlarix is free.** Every feature is available on every plan — nothing in the app is

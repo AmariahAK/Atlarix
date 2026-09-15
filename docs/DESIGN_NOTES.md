@@ -537,7 +537,7 @@ but inside Atlarix. That is a worse outcome than not offering it.
 
 **It also could not ship.** `keychain-access-groups` is a provisioned entitlement; without an
 embedded provisioning profile the kernel SIGKILLs the signed app on exec while `codesign -v` reports
-it valid. It killed the signed v14.35.0 macOS build twice. See `docs/TODO.md`.
+it valid. It killed the signed v14.35.0 macOS build twice. See [`docs/TRAPS.md`](./TRAPS.md).
 
 **Why Brave can and we cannot.** Brave does not store that passkey either — it calls Apple's
 `AuthenticationServices` system provider, so macOS puts the credential in iCloud Keychain, shows its
@@ -1118,3 +1118,356 @@ Telemetry, activity events, log lines and labels tend to be written at the call 
 survive a refactor that unified everything underneath them — and they are the layer the user
 actually sees, which means the drift shows up as "the feature doesn't work" rather than as
 duplication.
+
+---
+
+> Moved out of `docs/TODO.md` at v14.46.0. None of it is scheduled; all of it is
+> reasoning somebody will otherwise re-derive.
+
+## 🖥️ QUEUED AFTER THE EXTENSION — the CLI (brief written 2026-09-11)
+
+**Superseded on ordering 2026-09-12 — the EXTENSION goes first.** Everything below
+stands as the CLI brief; only its position in the queue changed. The CLI remains the
+cheaper build (~80% done, name held on npm), so none of this expires.
+
+**What already exists.** `atlarix` is published on npm (v14.45.0, PROPRIETARY,
+`packages/headless`), driving the REAL agent loop through a 140-line Electron stub —
+`src/headless/` is 1,130 lines of driver, not an implementation.
+`src/headless/atlarix-headless.mts:5` already reserved room for an interactive mode and
+shaped the arg parsing so the published binary never has to change. **So this is a TUI,
+auth and billing job, not an agent job.**
+
+**The download number is not adoption — measured, do not repeat the mistake.** 794 in
+30 days looks like traction and is not: the package was first published 2026-09-01, so
+it is days old, 518 of those landed on publish day across four versions at once, and
+superseded versions from ten days earlier still pull 12-15/week each. That even spread
+across versions nobody would install deliberately is registry mirrors and scanners
+walking every version. Some of the rest may be our own benchmark containers. npm
+publishes NO source data, so nobody can attribute it further. Treat real users as zero.
+
+### Auth — loopback PKCE (RFC 8252), the Claude Code shape
+
+CLI opens a loopback server, sends the user to atlarix.dev, exchanges the code itself.
+
+- **Enumerate 2-3 fixed ports, never a wildcard.** Register each byte-identically in
+  Supabase Redirect URLs and pin it with a test, because **GoTrue silently falls back to
+  Site URL on a mismatch** — no error, just a bounce to the website with no session. That
+  is the trap `oauth-redirect-allowlist-match.test.ts` already exists for.
+- **Refresh the access token PER REQUEST, not per session.** `get_model_client.ts` re-reads
+  `getSession()` on every call precisely because a static ~1h token freezes into a long
+  agentic turn. Skipping this means hour-long runs dying at the 60-minute mark.
+- **Credential at rest is the one genuinely new decision.** The desktop encrypts with
+  Electron `safeStorage`; a CLI has no equivalent. OS keychain (`security` / libsecret /
+  wincred) or a `0600` file under `~/.atlarix/` — a plaintext refresh token in a dotfile is
+  a weaker posture than the app has today, so choose it, do not default into it.
+- BYOK is already done (`--provider-id`, `--provider-url`, `ATLARIX_HEADLESS_API_KEY`).
+  Core is the only new path: Supabase JWT as bearer to the proxy.
+
+### Payments — no new API is needed
+
+The proxy's error contract already carries it: `402 {error:"insufficient_credit",
+required_cents:N}`, plus `403 account_banned`, `400 model_not_permitted`,
+`503 core_unavailable`. The CLI renders "you are $X short → atlarix.dev/account" straight
+from that. `GET /v1/models` (unauthenticated by design) gives the live Core lineup.
+
+### TUI — TypeScript + Ink, green as an ACCENT
+
+- **TypeScript, linked directly against the loop.** A TUI in another language forces a
+  process boundary between terminal and engine — an architectural cost paid for cosmetics,
+  and a second place for state to desync. Ink reuses the renderer's React fluency.
+- **Do not clone opencode's TUI.** Our own recorded filter says CC and opencode are
+  references, not goals — and a cloned look forfeits the one thing a CLI gives free: being
+  recognisable in a screenshot.
+- **NEVER paint the background black.** Measured contrast for the brand green
+  (`--primary` dark = `#10b981`): 8.28:1 on black (AAA), 6.57:1 on `#1e1e1e` (AA), but
+  **2.54:1 on white — FAIL**. Painting black fights the user's theme and kills terminal
+  transparency; not painting strands light-terminal users. So: green accents on the
+  terminal's own background, `#047857` (5.48:1) or `#065f46` (7.68:1) as the light-terminal
+  variant, `COLORFGBG` detection, honour `NO_COLOR`, 256-colour fallback. The phosphor look
+  comes from box-drawing borders, not a black fill.
+
+### Distribution — one package covers more than it looks
+
+- **npm: done. bun: nothing to do** — `bun install -g` / `bunx` resolve from the npm
+  registry, same package. **pip/PyPI: skip** — a Python wrapper around a Node CLI buys a
+  listing and costs a second release train.
+- **"sudo" is not a channel.** People `sudo npm i -g` because the global prefix is not
+  writable; the fix is documenting a version manager, or shipping a standalone binary.
+- **Homebrew is free but homebrew-core is CLOSED to us while proprietary** — core formulae
+  must carry a DFSG/OSI licence, and notability is >=30 forks / >=30 watchers / >=75 stars,
+  which a private repo cannot accrue anyway. Casks do accept proprietary binaries but are
+  macOS-app shaped. **So: our own tap** (`brew tap AmariahAK/atlarix`, a repo named
+  `homebrew-atlarix`) — free, instant, no approval, no licence test. Scoop bucket, AUR and
+  a `curl | sh` installer are likewise free and self-hosted; WinGet is free with review.
+
+### `better-sqlite3` — and why the obvious fix is the WRONG one
+
+It is the ONLY native dependency, `external` in `scripts/build-headless.mjs`, compiled per
+platform AND per Node ABI. It is why the prebuilt linux/amd64 tarball fallback exists for
+musl, and why `vitest.config.mts` keeps a separate Node-ABI copy under `tests/infra`. Every
+distribution channel inherits that fragility.
+
+**The tempting fix is `node:sqlite`, and it is blocked. Measured 2026-09-11, so nobody
+re-derives it.** `drizzle-orm@0.45.2` IS the latest, and it ships no `node:sqlite` driver —
+its sqlite drivers are `better-sqlite3`, `bun-sqlite`, `durable-sqlite`, `expo-sqlite`,
+`libsql`, `op-sqlite` and `sqlite-proxy`. The only generic escape, `sqlite-proxy`, takes an
+**async** query callback, and our DB layer is synchronous throughout — `initializeDatabase()`
+at `src/db/index.ts:105` returns a value, not a promise, and session persistence, provider
+resolution and compaction all call into Drizzle synchronously. Making the whole app's
+database layer async to solve a PACKAGING problem is the wrong trade by a wide margin.
+
+**Do this instead: per-platform `optionalDependencies`.** Ship `@atlarix/cli-darwin-arm64`,
+`-darwin-x64`, `-linux-x64`, `-linux-x64-musl`, `-win32-x64` sidecar packages, each carrying
+the matching prebuilt `.node`, and let npm install exactly one. This is what esbuild, swc,
+sharp and rollup all do. It needs **no code change, no ORM swap and no async refactor** —
+only CI that builds the prebuilds — and it delivers the actual goal: `npm i -g atlarix`
+never compiles and never fails on musl. The existing fallback tarball then retires.
+
+Revisit `node:sqlite` only if Drizzle ships a driver for it. `libsql/node` is the other
+thing worth a look, since libSQL's prebuild coverage may be better than better-sqlite3's —
+but it is still a native module, so it changes the odds, not the shape.
+
+A standalone single-file binary (Node SEA / `bun build --compile`) stays a SEPARATE, later
+question: a `.node` file still has to be embedded and extracted at runtime. Do the sidecar
+packages first; they solve npm, and npm is the channel that matters now.
+
+### Banked: a second, separate argument about open-sourcing
+
+Staying proprietary is not merely harder for distribution, it is **categorically excluded**
+from homebrew-core and from several awesome-lists. That is a real cost to weigh against the
+one-way-door argument for NOT rushing it: open-sourcing the CLI means open-sourcing the
+ENGINE (the ~18.5k-line loop and ~16.8k lines of tools it drives — the Electron shell is the
+least valuable part), and you can open-source later but never un-open-source. Recommended
+sequence unchanged: **ship the TUI free and closed, measure, then decide once, with data.**
+
+---
+
+## 🧭 Three products, one engine — the boundary that decides scope (2026-09-11)
+
+Atlarix now has three shipping surfaces over one agent loop. Without a stated boundary they
+converge, because every one of them will at some point have a good reason to grow the
+others' capabilities. **The boundary is what each may TOUCH**, and it is a capability rule
+rather than a positioning one, so it answers scope questions on its own:
+
+|                 | **CLI**                                    | **Extension**                                   | **Desktop app**                            |
+| --------------- | ------------------------------------------ | ----------------------------------------------- | ------------------------------------------ |
+| Touches         | your files and your shell                  | your **browser session**                        | both, plus its own unauthenticated browser |
+| Never touches   | your browser session                       | any file, any shell — **not "later", never**    | —                                          |
+| Who it is for   | developers, in a repo                      | anyone with a browser, including non-developers | developers who want the whole workstation  |
+| Models          | any — BYOK, local Ollama, or Core          | **Core only**                                   | any                                        |
+| Atlarix account | **required** (BYOK too)                    | required                                        | **required** (BYOK too)                    |
+| Distribution    | npm, own brew tap                          | Chrome Web Store                                | atlarix.dev installers                     |
+| Its job         | reach and credibility in the dev ecosystem | volume, and a wider non-developer market        | the product people pay for                 |
+
+### One subscription, one balance, four surfaces (owner, 2026-09-11)
+
+Pro and the credit balance are **shared across desktop, CLI, browser extension and
+Reviewer**. Top up once; every surface draws from that wallet until it runs out. This is
+not new architecture — it is the existing model extended, and the schema already supports
+it:
+
+- **The wallet is already per-ACCOUNT, not per-product.** `credit_wallet` and
+  `credit_transactions` are keyed on `user_id`, and the README already states the rule for
+  the two surfaces that exist today: _"One subscription, one balance… they are not billed
+  separately and they do not hold separate balances."_ Adding the CLI and the extension
+  means they present the user's Supabase JWT exactly as the desktop does, and the same
+  `record_compass_usage` path runs. **No wallet change, no new endpoint, no new RPC.**
+- **The one real gap is ATTRIBUTION, and half of it is already built.**
+  `credit_transactions` carries `kind` and a free-text `ref`, and the service debit RPC
+  already takes `p_source text DEFAULT 'reviewer'` — which is how the account page itemises
+  reviewer spend separately today. The user-JWT path has no equivalent label, so desktop,
+  CLI and extension spend would collapse into one undifferentiated line.
+  **Work needed:** an `X-Atlarix-Surface` header on the client (modelled on the existing
+  `x-atlarix-repo`, which `server.ts:488` notes is "only a label on the ledger row — it
+  never selects an account"), threaded into `p_source` on the user path, and four rows on
+  the account page instead of two.
+- **Do the label BEFORE the surfaces ship, not after.** A ledger row cannot be
+  re-attributed later: spend recorded without a source is indistinguishable forever, so
+  the first month of CLI and extension usage would be permanently unsplittable from the
+  app's. This is cheap now and impossible retroactively.
+- **Refunds and clawbacks already have a trap here.** Per the money-path audit, ask whether
+  a number is a delta or a running total before trusting `(kind, ref)` dedupe — adding a
+  fourth source multiplies the ways two rows can collide on the same `ref`.
+
+**Three rules that follow, and exist to stop the drift:**
+
+1. **CLI v1 has no browser capability at all.** If it ever grows one it INHERITS the
+   extension's proven page-control layer — it does not grow its own. Letting CLI v1
+   scope-creep into "must also drive browsers" recreates the dependency the CLI exists to
+   avoid, and means debugging browser automation in a terminal.
+2. **Atlarix ships the extension no filesystem and no shell of its own — but a CONNECTOR
+   the user adds may extend it. AMENDED 2026-09-14; the original is below.**
+
+   This rule used to read: *"The extension never gets a filesystem or a shell. That is not
+   a missing feature, it is the containment: the extension is the user logged into their
+   bank and their email, and the absence of local execution is what bounds a
+   prompt-injection blast radius."* Account-side MCP connectors retire the second half of
+   that, because a remote MCP server can expose any tool it likes, including file and
+   command execution.
+
+   **Owner's decision, asked and answered 2026-09-14: no per-surface restriction.** Adding
+   a connector is already an explicit act of trust, and it is what Claude and ChatGPT both
+   do — their connectors are account-level and inherited by their browser extensions. A
+   surface allowlist and per-tool consent prompts were both offered and both declined.
+
+   **So the containment is now the user's choice of connector, not the platform.** Two
+   things follow and neither is optional:
+
+   * `wrapUntrustedData()` around connector metadata AND results stops being
+     defence-in-depth and becomes the ONLY remaining structural boundary between a page
+     the agent reads and a connector's tools. It is a prompt-injection mitigation, not a
+     capability boundary, and it should never be described as one.
+   * Site grants bound what the agent can TOUCH; they do not bound what it does with what
+     it reads. A turn that reads authenticated mail on a granted origin and then writes it
+     out through a connector is entirely inside the grant. That is the residual risk, and
+     it is written here rather than left implied.
+
+   Still true, and still the reason the first half of the rule survives: Atlarix itself
+   gives the extension no local execution. Artifacts (charts, PDF, CSV) are rendered in the
+   offscreen document and handed over via `chrome.downloads` — never written to a disk the
+   agent can reach.
+3. **A model restriction binds the LOOP, not the tool.** Whoever runs the agent loop inside
+   the extension must be Core. Whoever drives the extension AS A TOOL may be any model,
+   because that loop is in the desktop on the user's own key.
+
+**An account is required on every surface, BYOK included — verified, not assumed.**
+`chat_stream_handlers.ts:447` calls `requireAuthSession()` before every turn, so the desktop
+already works this way and the CLI matches it. What BYOK buys is free INFERENCE, not
+anonymity.
+
+**The cost of that, stated once so it can be mitigated rather than argued:** it spends the
+CLI's single best marketing lever. A CLI's advantage over an app is that trying it is one
+command, and "log in first" is exactly the friction an app has and a CLI is supposed to
+lack. Mitigate rather than reverse: make `atlarix login` a one-command browser round trip,
+make it the FIRST-RUN experience rather than an error the user hits after typing a prompt,
+and keep `--help`, `--version` and the model list working signed-out so the binary never
+feels inert before the account exists.
+
+**Trap already in the code.** `require_auth_session.ts` returns a SYNTHETIC session when
+`ATLARIX_HEADLESS=1`, deliberately — today's headless binary is BYOK-only with no Core
+metering, so it needs no login. The moment the CLI can reach Core that escape hatch must
+become conditional: synthetic is fine for BYOK, but a Core dispatch has to demand a real
+session. Otherwise the fake `atlarix-headless` user passes the local gate and fails later
+against the proxy's `jose` verification — a confusing failure deep in dispatch instead of a
+clear "log in first" at the top.
+
+---
+
+## 💵 Pricing — SETTLED 2026-08-26, and the code that implements it
+
+> Owner decisions, recorded so they are not re-argued. The reframe's rule survives intact: **never
+> ship a tier whose fee is fully consumed by bundled inference.** What changed is that the fee now
+> includes _some_ inference, because the old shape asked for two purchases before a new user's first
+> agent turn — and that is where the funnel was dying. 108 users at the time of this decision.
+
+- **Atlarix Pro stays $19/mo** and includes a monthly Core allowance, PAYG on top. Price
+  deliberately NOT raised: $19 sits under Cursor/Windsurf $20 on purpose, and raising it while
+  improving it makes the win ambiguous. **If more revenue is wanted, the lever is the allowance
+  size, not the sticker** — the sticker is what people compare.
+- **THE ALLOWANCE IS $19, NOT $10 — this section said $10 until 2026-09-10 and was wrong.**
+  `MONTHLY_GRANT_CENTS.pro = 1900` (`handle-lemon-webhook/index.ts`). It was raised on
+  2026-09-08 when Atlarix Reviewer folded into Pro — one subscription, one allowance, because
+  the alternative asked a customer who had already paid $19 to pay $19 again. The arithmetic
+  below was not updated with it, so this file claimed ~59% margin while the webhook's own
+  comment said ~23%. **The webhook is the source of truth; the number here is a copy.**
+- **`MARKUP = 1.8` since 2026-09-10, and a mark-up is not a margin.** It multiplies COST:
+  $1.80 of credit per $1.00 of inference is `0.80/1.80 = 44.4%` gross on the credit spent, and
+  LemonSqueezy's ~7.5% of money-in leaves `1 - (1/1.8)/(1-0.075) = ~40%` net at FULL
+  consumption. In dollars: $19 nets ~$17.57, buys ~$10.56 of inference, profit ~$7.01.
+  **It was 1.4, which netted only ~22.8%** — the number this file spent months describing as
+  "40%". Identical on PAYG, because both hand over $X of credit for $X paid, so the mark-up and
+  not the price is what sets the margin on both.
+- **The ceiling on the mark-up is BYOK, which we give away and price-tag per reply.** The app
+  shows the cost of every turn, so a user who can read that number and compare it to provider
+  list price has a free escape hatch built into the same dropdown. Realised margin also sits
+  above the full-consumption figure, because the allowance expires monthly and most
+  subscribers underspend.
+- **Do NOT publish the allowance figure.** Say "includes Core for everyday work". Denominating an allowance
+- **REVIEWER IS INCLUDED IN PRO. There is ONE product.** This section said the opposite until
+  2026-09-14 — "Atlarix Reviewer is $19/dev/mo" and "Pro and Reviewer are separate products,
+  link them with a discount, not inclusion" — and both were withdrawn on 2026-09-08 when
+  Reviewer folded into Pro, because the alternative asked a customer who had already paid $19
+  to pay $19 again. **The code is the proof, not this file:**
+  `handle-lemon-webhook/index.ts` declares `MONTHLY_GRANT_CENTS: Record<"pro", number>` — one
+  product, no classification step — and `20260908130000_drop_reviewer_subscriptions.sql`
+  dropped `reviewer_subscriptions`, `reviewer_entitlement_service` and
+  `upsert_reviewer_subscription_service`. **Verified absent from the live database
+  2026-09-14**, along with `credit_grants` holding exactly one product row: `pro`.
+- **So there is one wallet, one allowance and one grant row per user.** `credit_grants` is
+  still keyed `(user_id, product)` and `spend_from_wallet` still takes a preferred product —
+  both are correct shapes to keep, and they are why a second product would need no schema
+  change. But only `'pro'` is ever written today, so `debit_wallet_service`'s
+  `CASE WHEN p_source = 'reviewer' THEN 'reviewer' ELSE 'pro' END` never takes its first
+  branch: a reviewer debit finds no `'reviewer'` grant, falls through the "any other
+  allowance" loop, and spends the Pro allowance. **Right outcome, reached by a path that
+  reads as though two products exist.** Do not "fix" it — it is the correct shape if a second
+  product ever returns — but do not read it as evidence that one does.
+- **What is still true from the old reviewer pricing, and worth keeping:** no open-source
+  exemption (that was an INTENT never built, withdrawn 2026-09-04, spec §8 Rev 4 — the
+  reviewer has no repository-visibility logic, so a public repo hits the same gate and the
+  same debit as a private one); unlimited repos, because **nobody charges per repo** and
+  per-repo punishes microservice teams who have the most PRs and the most to gain; and it is
+  safe to give away because a dev's PR output is bounded by being human (~10/month regardless
+  of repo count). Seats become an upgrade when a team asks for one invoice — `github_installs`
+  already ties an installation to exactly one account, so that needs no seat detection, no LS
+  quantity API and no reconciliation job.
+
+**Built 2026-08-26, APPLIED AND DEPLOYED (verified 2026-08-27):**
+
+> `supabase migration list --linked` shows `20260826130000` / `140000` / `150000` with local ==
+> remote on `oubgrpkqyyjwytspycpd`; `supabase functions list` shows `bind-github-install` ACTIVE v1,
+> `create-checkout` v26, `cancel-subscription` v25 and `handle-lemon-webhook` **v43 with
+> `verify_jwt: false`** — the one setting a deploy can silently re-arm, checked and correct.
+> The launchpad `/login` → `/reviewer/setup` → `/account` pages shipped the same day.
+
+- `supabase/migrations/20260826130000_subscription_credit_grants.sql` — `credit_grants`
+  (one row per user × product), `spend_from_wallet`, `wallet_spendable`,
+  `grant_monthly_credit_service`, `clear_monthly_grant_service`, and grant-first rewrites of
+  `debit_wallet` / `debit_wallet_service` / both balance reads.
+- `supabase/migrations/20260826140000_reviewer_subscriptions.sql` — `reviewer_subscriptions`,
+  `upsert_reviewer_subscription_service`, `reviewer_entitlement_service`, and `not_subscribed` added
+  to `review_history`'s CHECK.
+- `create-checkout` gained a `mode: "reviewer"`; `handle-lemon-webhook` gained
+  `subscription_payment_success`, product classification, and allowance grant/clear on both products.
+- Reviewer repo: an entitlement gate ahead of the wallet check, `last_error` cleared on success, and
+  `installation_repositories` no longer confusable with an install removal.
+
+**Traps found while building it, worth not rediscovering:**
+
+- **`balance_cents` in every RPC result now means SPENDABLE total** (allowances + purchased), not the
+  purchased column. That is what makes the change need no client edits: the proxy's pre-flight gate,
+  the app's balance display, `--doctor` and the low-balance nudge all read that one key through an
+  RPC, and nothing anywhere reads `credit_wallet` directly. Verified across all three repos before
+  relying on it.
+- **An allowance is SET, not added, so `(kind, ref)` idempotency cannot protect it.** That index makes
+  repeated INSERTs safe, which assumes deltas add up. A replayed grant has to be refused _before_ any
+  arithmetic — hence `credit_grants.ref`, checked first.
+- **One `granted_cents` column cannot serve two products.** With SET semantics, whichever subscription
+  renews second silently wipes the other's allowance. Caught while wiring the reviewer, before it
+  shipped; the per-(user, product) row makes it structurally impossible.
+- **`users.plan` could not hold the reviewer entitlement.** `users_plan_check` and
+  `users_effective_tier_check` pin it to ('free','pro'), and the same pair is typed in five more
+  places. But the real reason is that Reviewer is not a rung on that ladder — it is held with Pro,
+  without Pro, or alone — so a tier column would force a fake ordering.
+- **`subscription_payment_success` carries a different payload shape.** Its object is an INVOICE, so
+  `event.data.id` is the invoice id and the subscription comes from
+  `attributes.subscription_id`. The `subscriptionId` every other case uses is the wrong value here.
+  The invoice id turns out to be the ideal per-period grant ref.
+- **A missing `switch` case is completely silent.** `default:` logs and 200-ACKs, which is right for
+  LemonSqueezy (a 4xx retries forever) and is exactly why the absent
+  `subscription_payment_success` branch went unnoticed while the event was already subscribed on the
+  LS side. If a paid behaviour does not fire, look for a missing case first.
+- **`review_history.kind` is CHECK-constrained**, so the worker's new `not_subscribed` outcome needed
+  the constraint widened or the insert would have raised 23514 on a path whose whole job is to decline
+  quietly.
+
+**How to apply the NEXT one, because this is not `db push`.** The local migration history is not in
+sync with hosted, so migrations go through the SQL editor and `supabase migration list --linked` is
+how you confirm one landed. **Re-check `verify_jwt` on `handle-lemon-webhook` after every deploy** —
+`supabase/config.toml` declares no `[functions.*]` section, so that setting lives only in the
+dashboard and a deploy can re-enable it, which would break every webhook (LemonSqueezy sends no JWT).
+
+**Refunds shipped in v14.38.0** and there is no longer a refund section below. Kept as a pointer because this paragraph is where someone reading the credit-grant work will look for it: the traps are in the shipped index, and `refund_grant_service` is the fifth service RPC.
+
+---
+

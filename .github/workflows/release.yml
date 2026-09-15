@@ -324,6 +324,38 @@ jobs:
       - name: Tests
         run: npm test
 
+      - name: Build the bridge relay (Rust, ${{ matrix.arch }})
+        run: |
+          # THE ARCH MUST MATCH THE APP. macos-latest is arm64, so the x64 leg
+          # of this matrix CROSS-COMPILES. A plain `cargo build` would place an
+          # arm64 binary inside an x64 .app, where it cannot exec — and the
+          # symptom is "the bridge does not work", not "the wrong binary", which
+          # is a long way from the cause.
+          case "${{ matrix.arch }}" in
+            arm64) TRIPLE=aarch64-apple-darwin ;;
+            x64)   TRIPLE=x86_64-apple-darwin ;;
+            *) echo "::error::unknown matrix arch ${{ matrix.arch }}"; exit 1 ;;
+          esac
+          rustup target add "$TRIPLE"
+          cargo build --release --target "$TRIPLE" \
+            --manifest-path native/atlarix-bridge/Cargo.toml
+
+          # forge.config.ts looks in target/release, which is where a NON-cross
+          # build lands. Copy rather than teach the config about triples: that
+          # same config runs `npm run package` on a developer machine, where
+          # there is no triple and the plain path is correct.
+          mkdir -p native/atlarix-bridge/target/release
+          cp "native/atlarix-bridge/target/$TRIPLE/release/atlarix-bridge" \
+             native/atlarix-bridge/target/release/atlarix-bridge
+
+          # HARD FAILURE, deliberately unlike the sandbox helpers'
+          # ALLOW_UNSANDBOXED_RELEASE hatch. An unsandboxed build is degraded but
+          # usable; a missing relay is a feature that is silently ABSENT, and
+          # absent is indistinguishable from dormant once it has shipped.
+          test -x native/atlarix-bridge/target/release/atlarix-bridge
+          # Printed so the arch is in the log rather than inferred from a failure.
+          file native/atlarix-bridge/target/release/atlarix-bridge
+
       - name: Build for macOS (${{ matrix.arch }})
         run: |
           set -euo pipefail
@@ -570,6 +602,14 @@ jobs:
           fi
         env:
           ALLOW_UNSANDBOXED_RELEASE: ${{ vars.ALLOW_UNSANDBOXED_RELEASE }}
+
+      - name: Build the bridge relay (Rust)
+        run: |
+          # No escape hatch, unlike the Landlock helper above — see the macOS job
+          # for the reasoning. The crate has no dependencies and builds in ~6s.
+          cargo build --release --manifest-path native/atlarix-bridge/Cargo.toml
+          test -x native/atlarix-bridge/target/release/atlarix-bridge
+          file native/atlarix-bridge/target/release/atlarix-bridge
 
       - name: Upload Landlock helper for Windows builds
         uses: actions/upload-artifact@v4
@@ -831,6 +871,26 @@ jobs:
             Write-Host "::error::atlarix-sandbox.exe failed to build — refusing to ship Windows unsandboxed. Fix the crate, or set ALLOW_UNSANDBOXED_RELEASE=1 to override."
             exit 1
           }
+
+      - name: Build the bridge relay (Rust)
+        shell: pwsh
+        run: |
+          # No escape hatch — see the macOS job. Signing stays OPTIONAL, exactly
+          # as it is for the sandbox helper: an unsigned relay relays identically,
+          # and the certificate only affects SmartScreen.
+          cargo build --release --manifest-path native/atlarix-bridge/Cargo.toml
+          $exe = "native/atlarix-bridge/target/release/atlarix-bridge.exe"
+          if (-not (Test-Path $exe)) {
+            Write-Host "::error::atlarix-bridge.exe failed to build — refusing to ship a release whose browser bridge is silently absent."
+            exit 1
+          }
+          if ($env:SM_CODE_SIGNING_CERT_SHA1_HASH) {
+            & signtool sign /sha1 $env:SM_CODE_SIGNING_CERT_SHA1_HASH /tr http://timestamp.digicert.com /td SHA256 /fd SHA256 $exe
+            if ($LASTEXITCODE -ne 0) { Write-Error "signtool failed for the bridge relay"; exit $LASTEXITCODE }
+          } else {
+            Write-Host "No SM_CODE_SIGNING_CERT_SHA1_HASH — shipping atlarix-bridge.exe unsigned (it relays identically)."
+          }
+          Write-Host "Built bridge relay: $exe"
 
       - name: Build for Windows (package + installers)
         timeout-minutes: 55
