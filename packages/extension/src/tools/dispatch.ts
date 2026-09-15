@@ -12,11 +12,12 @@
  * The one thing that is NOT a result is a missing site grant, and that is the
  * most important shape in this file. Reading an un-granted origin returns
  * `needsApproval` instead of a refusal, because the loop can do something about
- * it that the model cannot: ask the user. `chrome.permissions.request()`
- * requires a user gesture and is unreachable from anywhere the loop runs, so
- * the request has to travel out to a button in the panel and back. That is the
- * containment property this extension is built on, and here it is as a return
- * type: the agent cannot widen its own access, it can only ask.
+ * it that the model cannot: ask the user. The request travels out to a button
+ * in the panel and back, and that button is the only thing in the extension
+ * that writes a grant. Here it is as a return type: the agent cannot widen its
+ * own access, it can only ask. That used to be guaranteed by the platform —
+ * `permissions.request()` needed a gesture — and is now guaranteed by where the
+ * single call site lives. Keep it that way.
  *
  * PAGE TEXT IS UNTRUSTED INPUT. Everything read out of a page goes back to the
  * model inside `wrapUntrustedData`, tagged with the origin it came from — the
@@ -86,8 +87,8 @@ const EMPTY_FIND_HINT =
  * TWO KINDS, ONE CHANNEL, and they share it because they are the same shape of
  * problem: the loop cannot decide, and the panel is the only thing that can ask.
  *
- *   `host`    — an origin the user has not allowed. `permissions.request()`
- *               needs a user gesture and is unreachable from the loop.
+ *   `host`    — an origin the user has not allowed. Only the panel writes the
+ *               allow-list, and only from a button the user pressed.
  *   `action`  — an action a site grant can never unlock: entering a password,
  *               filling card details, clicking something that looks like it
  *               deletes or pays. `@/lib/browser/always-ask` decides, and its

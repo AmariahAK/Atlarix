@@ -179,23 +179,39 @@ cost of the panel is stated rather than hidden — closing it ends the turn in
 progress — and the transcript is saved after every round, so reopening shows
 everything up to the last completed one.
 
-**Host access is optional, not granted at install.** `optional_host_permissions`
-is `http://*/*` and `https://*/*` — not `<all_urls>`, which would also cover
-`file://` and `ftp://`, schemes `originOf` in
-[`src/permissions/site-grants.ts`](src/permissions/site-grants.ts) refuses to
-produce an origin for. The manifest states the rule the code already enforces.
+**Host access is held at install; the GATE is the allow-list.**
+`host_permissions` is `<all_urls>`, so Chrome never prompts per origin. The
+decision the user actually makes lives in
+[`src/permissions/site-grants.ts`](src/permissions/site-grants.ts): the agent
+asks the first time it needs a site, one origin at a time, and reads nothing
+until the answer is yes.
 
-The install prompt therefore shows **no host warnings at all**, and each origin
-is requested from a side-panel button at the moment the user grants that site.
-That upgrades a site grant from a record of intent into something Chrome itself
-enforces — and because `chrome.permissions.request()` needs a user gesture and
-cannot be called from a service worker, **the agent loop structurally cannot
-widen its own reach.** That is better than a policy saying it mustn't.
+This was the other way round until 2026-09-15, and the swap is worth
+understanding. A grant used to be BOTH a Chrome permission and our own record,
+and keeping two halves from lying about each other is what produced almost
+every awkward thing around it — a user-gesture constraint, a reconciliation
+pass, and a revocation from the website that could not take effect until the
+panel was next focused, because a web page cannot call
+`permissions.remove()`. One record has one truth, and revoking now applies on
+the agent's very next action.
 
-There are **no declared content scripts**. A declared content script needs
-matching `host_permissions` at install, forcing the broad warning before the user
-has granted a single site — the exact inversion of this model. Injection happens
-on demand, into a tab whose origin was just granted.
+**What got weaker, and it should be said plainly.** `permissions.request()`
+needed a user gesture, so the agent loop *structurally* could not widen its own
+reach. `grantSite` is an ordinary storage write, so that property is now
+conventional: the loop returns `needsApproval` and awaits a boolean, and the
+only caller of `grantSite` is the approval card's click handler. This is the
+posture Claude Code and the Claude extension ship, and it is weaker than what
+it replaced.
+
+**Chrome can still withhold a site**, from `chrome://extensions → Site access`,
+and declaring a permission is not holding it. There is no event for this — the
+injection failure is the only signal — so
+[`src/page/inject.ts`](src/page/inject.ts) translates exactly that refusal into
+the setting and the path, and leaves every other failure wearing Chrome's own
+words.
+
+There are still **no declared content scripts**. Injection happens on demand,
+into a tab whose origin the user has allowed.
 
 ## No new dependencies
 

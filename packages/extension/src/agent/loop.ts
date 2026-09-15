@@ -137,11 +137,11 @@ export interface AgentEvents {
   /**
    * Ask the user to authorise something the loop cannot.
    *
-   * A `host` request MUST be answered from inside a user gesture —
-   * `permissions.request()` is unreachable otherwise, and unreachable from every
-   * context this loop could run in. An `action` request is a policy stop rather
-   * than a platform one, but goes the same way so the panel has one card to
-   * render and the loop has one path to test.
+   * BOTH kinds are policy stops now. A `host` request once had to be answered
+   * from inside a user gesture, because `permissions.request()` was unreachable
+   * otherwise; host access is held at install, so allowing a site is a record
+   * the panel writes. They go the same way regardless, which is what gives the
+   * panel one card to render and the loop one path to test.
    *
    * Resolving false is a decline, which is a normal answer, not an error.
    */
@@ -411,7 +411,7 @@ export async function runTurn(args: TurnArgs): Promise<TurnOutcome> {
               `This still cannot proceed after the user approved it. Do not retry — ` +
               `tell the user what you were trying to do` +
               (request.kind === "host"
-                ? `, and suggest they check Atlarix's site access in chrome://extensions.`
+                ? `, and suggest they check Chrome's own Site access setting for Atlarix at chrome://extensions, which can withhold a site the allow-list already covers.`
                 : `.`),
           };
         }

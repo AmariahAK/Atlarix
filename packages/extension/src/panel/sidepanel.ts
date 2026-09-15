@@ -7,17 +7,21 @@
  *
  *   1. **Sign-in.** `chrome.identity.launchWebAuthFlow` holds one promise open
  *      while the user reads a consent screen. The worker dies after ~30s idle.
- *   2. **Host grants.** `chrome.permissions.request()` must be called from
- *      inside a user gesture and cannot be called from a service worker at all.
- *      A button click here is the gesture.
+ *   2. **Site grants.** Allowing a site is a write to the user's own allow-list,
+ *      and the ONLY thing that performs it is the approval card's click handler
+ *      in this file.
  *   3. **The agent loop.** Chrome terminates the worker when a `fetch()`
  *      response takes over 30 seconds, which is precisely what a streamed model
  *      turn is. See `agent/loop.ts` for why an offscreen document is not the
  *      answer either.
  *
- * (2) is a containment property worth stating plainly: the loop runs in this
- * document, but the only thing that can widen its reach is a button the USER
- * clicks. The loop can ask. It cannot grant.
+ * (2) USED TO BE A PLATFORM GUARANTEE AND IS NOW A CONVENTION, which is worth
+ * saying rather than glossing. `chrome.permissions.request()` needed a user
+ * gesture and could not be reached from a service worker, so the loop
+ * structurally could not widen its own reach. Host access is held at install
+ * now, so the same property holds because of where the one call site lives,
+ * not because the platform forbids the alternative. The loop can ask. It still
+ * cannot grant — but keep it that way deliberately.
  *
  * WHAT THE LOOP RUNNING HERE COSTS: closing the panel ends the turn. That is
  * said out loud in the UI rather than hidden, and softened by saving the
@@ -1153,8 +1157,8 @@ function approvalCard(request: Approval): Promise<boolean> {
     note.className = "grant__note";
     note.textContent =
       request.kind === "host"
-        ? "Chrome will ask you to confirm. Atlarix can read this site until you " +
-          "remove it, and nothing else."
+        ? "Atlarix can read this site until you remove it, and nothing else. " +
+          "Remove it from the panel or your account page and it stops at once."
         : `${request.reason} Allowing a site never covers this — Atlarix asks every time.`;
 
     const actions = document.createElement("div");
