@@ -12,6 +12,78 @@ paths are closed — a repo can no longer replace Atlarix's operating instructio
 versions had shipped, then "v14.44 SHIPPED" while nothing was tagged. Update it in the same commit
 as the version bump, or do not trust it.
 
+## 🔐 PERMISSIONS MOVED INTO THE HARNESS — SHIPPED 2026-09-15 (unreleased, on `dev`)
+
+Copied from Anthropic's own implementation, verified by reading the installed Claude
+extension rather than documentation: `host_permissions: ["<all_urls>"]`, no Chrome prompt,
+and the site allow-list survives as the one gate — **Claude did not delete site
+permissions, it relocated them.**
+
+**The original bug is fixed by deletion.** The gate had two halves in two systems, and
+nearly everything awkward around it existed to stop those halves lying about each other:
+the user-gesture constraint, `pruneRevokedGrants`, `canActOn`'s conjunction, the
+`window.focus` listener, push-apply-push, and the website row reading "Revokes on next
+open". A web page cannot call `permissions.remove()`, so applying a revocation needed the
+panel. Now a grant is only our own record, so applying one is a storage write and the sync
+moved to the **top of every turn** — the moment it matters, immediately before the turn
+that would otherwise have used the site.
+
+**`syncSiteGrants` pushes once, not three times.** The second push only existed to clear
+the server's revoked row; the next sync stops listing the origin, which is the same
+condition the server was always testing.
+
+**WHAT GOT WEAKER, and do not let a future docblock quietly restore the strong claim.**
+"The agent loop structurally cannot widen its own reach" was true because
+`permissions.request()` needed a gesture. `grantSite` is an ordinary storage write now, so
+the property is **conventional**: the only caller is the approval card's click handler.
+Six docblocks asserted the strong version and were rewritten, one of them inside a store
+submission.
+
+**THE HOLE THIS OPENED, and the net that closes it.** Chrome can still withhold a site from
+`chrome://extensions → Site access` even from an `<all_urls>` extension, and there is no
+event — the injection failure is the only signal. `canActOn`'s deleted half used to catch
+it. `page/inject.ts` now translates exactly that refusal into the setting and the path, and
+leaves every other failure wearing Chrome's own words. **Built BEFORE the deletion**, on
+purpose.
+
+**`always-ask.ts` moved to `src/lib/browser/`** — pure, zero imports, now shared, and the
+desktop's own browser tool gains a gate it never had.
+
+**Verified by breaking things, not by watching green.** Stubbing `isGranted` to allow any
+http(s) origin turns 9 tests red. The dead `permissions` mocks were deleted from two test
+files because a fixture driving a check nobody makes is how a deleted gate goes on looking
+tested — `granted.clear()` had already become a silent no-op in two tests.
+
+**Deliberately NOT done: `externally_connectable` for a website→extension revoke push.**
+It was designed and dropped. With the gate in the harness and the sync at turn start, the
+agent already stops using a revoked site on its next turn; the push would only clear the
+UI row sooner, at the cost of a channel any script on the origin can message. Revisit only
+if someone reports the row itself as the problem.
+
+**STILL OWED before the next CWS submission, and it cannot be automated:**
+- `cws/screenshot-3-permission.png` is a picture of **Chrome's** permission dialog. Reshoot
+  it against Atlarix's own approval card.
+- The new `host_permissions` justification in `cws/PRIVACY-FORM.md` must be pasted into the
+  dashboard. **That field did not exist before** — broad host access draws the heaviest
+  review scrutiny there is, and `cws-submit.mjs` cannot reach it, so a clean submit tells
+  you nothing about whether it is filled in.
+- **Ship this before v1.0.0 clears review.** A permission INCREASE on a published item
+  disables the extension for existing users until they re-accept. Nothing is published yet,
+  so the cost is zero today and permanent afterwards.
+
+## 🎯 The agent's tab stops moving — SHIPPED 2026-09-15 (unreleased)
+
+Every tool with an optional `tab_id` fell back to `activeTab()`, re-evaluated on EVERY
+call, so a user switching tabs mid-turn silently re-pointed the agent: the read succeeded,
+the content was wrong, nothing said so. `targetTab` now walks explicit id → the agent's own
+last tab (verified against the group) → the turn's subject tab → active. A closed subject
+fails loudly rather than answering about a different page.
+
+**A test in that change passed against the broken code and had to be fixed.** The fixture's
+`tabs.query()` ignored `{active:true}`, so `activeTab()` always returned the first tab —
+the test asserting "the agent did not follow the user" passed against code that followed
+it. Assert on WHERE THE READ LANDED, and revert the fix to check the test notices.
+
 ## 🧩 Chrome Web Store — v1.0.0 SUBMITTED 2026-09-14, automation waits for approval
 
 **Status: pending review.** Item `fkoacefbjjjhjceidagdajkgclfjacbe`, version 1.0.0, public,
