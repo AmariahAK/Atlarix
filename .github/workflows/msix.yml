@@ -296,6 +296,27 @@ jobs:
             Write-Host "::warning::atlarix-sandbox.exe failed to build — this MSIX will run run_command UNSANDBOXED. Acceptable for a spike build; do not ship it."
           }
 
+      - name: Build the bridge relay (Rust)
+        shell: pwsh
+        run: |
+          # THE FOURTH BUILD PATH. release.yml has three (macOS, Linux, Windows)
+          # and this reusable workflow is the one that gets forgotten — it was,
+          # and `verify-ci-package-out` caught it on the v14.46.0 tag run with
+          # "missing resource atlarix-bridge.exe ... check the build step for
+          # this helper ran", which is exactly what that check is for.
+          #
+          # Hard failure, unlike the sandbox helper above. That one degrades to
+          # an unsandboxed spike build, which is a stated trade; a missing relay
+          # is a feature that is silently absent, and absent is indistinguishable
+          # from dormant once it has shipped.
+          cargo build --release --manifest-path native/atlarix-bridge/Cargo.toml
+          $exe = "native/atlarix-bridge/target/release/atlarix-bridge.exe"
+          if (-not (Test-Path $exe)) {
+            Write-Host "::error::atlarix-bridge.exe failed to build — the MSIX would ship with the browser bridge silently absent."
+            exit 1
+          }
+          Write-Host "Built bridge relay: $exe"
+
       - name: Package (electron-forge)
         timeout-minutes: 55
         shell: pwsh
