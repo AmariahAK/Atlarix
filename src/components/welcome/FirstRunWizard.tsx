@@ -24,6 +24,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useSettings } from "@/hooks/useSettings";
 import { useAuth } from "@/lib/auth/useAuth";
+import { useTranslation } from "react-i18next";
 import { openWorkspaceFromDirectoryPicker } from "@/lib/open-workspace-session";
 import { useLoadApps } from "@/hooks/useLoadApps";
 import { showError } from "@/lib/toast";
@@ -79,8 +80,11 @@ function useLegacyOnboardingMarker(): () => Promise<boolean> {
 export function FirstRunWizard() {
   const { settings, updateSettings } = useSettings();
   const navigate = useNavigate();
-  const { refreshApps } = useLoadApps();
+  const { apps, refreshApps } = useLoadApps();
   const checkLegacyMarker = useLegacyOnboardingMarker();
+  const { t: tOnboarding } = useTranslation("onboarding");
+  /** A returning user restarting the guide, not somebody with an empty app. */
+  const hasWorkspaces = (apps?.length ?? 0) > 0;
 
   /**
    * Auth is a GATE here, not a display detail — see the effect below.
@@ -438,16 +442,26 @@ export function FirstRunWizard() {
 
           {step === 3 ? (
             <>
+              {/*
+                THIS STEP HAS TO KNOW WHETHER YOU ARE ACTUALLY NEW.
+                It was hardcoded "Open your first workspace", which was harmless
+                only while the wizard could never run — now that "Restart guide"
+                works, an existing user with open workspaces is told to open their
+                first one, while the window behind the dialog is plainly showing
+                the workspace they are already in. Copy that argues with the screen
+                behind it reads as a broken app, not a friendly nudge.
+              */}
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2">
                   <FolderOpen className="h-4 w-4 text-primary" />
-                  Open your first workspace
+                  {hasWorkspaces
+                    ? tOnboarding("workspace.titleExisting")
+                    : tOnboarding("workspace.titleFirst")}
                 </DialogTitle>
                 <DialogDescription>
-                  Atlarix is workspace-first — chat, sessions, tools and memory
-                  all belong to one project folder. Open a folder you already
-                  have, or an empty one — then ask the agent to clone into it,
-                  from any git host, using your own git credentials.
+                  {hasWorkspaces
+                    ? tOnboarding("workspace.bodyExisting")
+                    : tOnboarding("workspace.bodyFirst")}
                 </DialogDescription>
               </DialogHeader>
               {/* One entry point. "Clone repo…" used to sit beside this, opening a
@@ -465,7 +479,9 @@ export function FirstRunWizard() {
                   onClick={() => void handleOpenFolder()}
                 >
                   <FolderOpen className="h-4 w-4" />
-                  Open folder…
+                  {hasWorkspaces
+                    ? tOnboarding("workspace.openAnother")
+                    : tOnboarding("workspace.open")}
                 </Button>
               </div>
             </>

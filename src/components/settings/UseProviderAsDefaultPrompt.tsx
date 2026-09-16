@@ -45,10 +45,18 @@ export function UseProviderAsDefaultPrompt({
   const { data: modelsByProviders } = useLanguageModelsByProviders();
 
   /*
-   * The first model this provider actually offers. Read from the catalog rather
-   * than guessed, so we can never name a model the provider does not serve — and
-   * left undefined while the list is still refetching after the key save, which is
-   * why the confirm button is disabled rather than absent in that window.
+   * The model this offer would select — and it is NAMED IN THE UI below, which is
+   * the whole point.
+   *
+   * "First in the catalog" is an arbitrary rule. DeepSeek's list, for instance,
+   * begins `deepseek-v4-flash-vision-exp` — so a silent "Use DeepSeek" could set a
+   * user's default to an EXPERIMENTAL VISION model, and the first they would know
+   * of it is odd answers or a surprising bill. There is no "recommended" flag in
+   * the catalog to lean on, so rather than dress the guess up as a decision, the
+   * offer states which model it means and lets the user disagree before clicking.
+   *
+   * Undefined while the list refetches after the key save, which is why the confirm
+   * button is disabled rather than absent in that window.
    */
   const firstModel = useMemo(() => {
     const models = modelsByProviders?.[providerId];
@@ -77,6 +85,11 @@ export function UseProviderAsDefaultPrompt({
       <p className="mt-0.5 text-xs text-muted-foreground">
         {t("byokDefault.detail")}
       </p>
+      {firstModel ? (
+        <p className="mt-1 text-xs text-muted-foreground">
+          {t("byokDefault.willUse", { model: firstModel.displayName })}
+        </p>
+      ) : null}
       <div className="mt-2.5 flex flex-wrap gap-2">
         <Button
           type="button"

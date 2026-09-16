@@ -9,6 +9,15 @@
     "detail": "Your key is saved, but new chats still use Atlarix Core until you change the model.",
     "confirm": "Use {{provider}}",
     "dismiss": "Keep Core",
+    "willUse": "New chats would use {{model}}. Change it any time from the model picker.",
     "done": "New chats will use {{model}}."
+  },
+  "workspace": {
+    "titleFirst": "Open your first workspace",
+    "titleExisting": "Your workspaces",
+    "bodyFirst": "Atlarix is workspace-first — chat, sessions, tools and memory all belong to one project folder. Open a folder you already have, or an empty one — then ask the agent to clone into it, from any git host, using your own git credentials.",
+    "bodyExisting": "You are set up already — chat, sessions, tools and memory belong to the folder you are in. Add another folder whenever you want one, or finish and get back to work.",
+    "open": "Open folder…",
+    "openAnother": "Open another folder…"
   }
 }
