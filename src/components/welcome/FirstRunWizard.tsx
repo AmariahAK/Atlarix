@@ -148,7 +148,30 @@ export function FirstRunWizard() {
         setDecided(true);
         return;
       }
-      const legacyDone = await checkLegacyMarker();
+
+      /*
+       * `undefined` and `false` ARE DIFFERENT ANSWERS, and conflating them is what
+       * made "Restart onboarding guide" do nothing.
+       *
+       * The legacy marker reads `onboarding:get-completed`, which for a signed-in
+       * user who has onboarded before answers TRUE — that is what the column is for.
+       * Consulting it unconditionally means every restart is vetoed: Restart writes
+       * `false`, the gate asks the server, the server says "they onboarded", and the
+       * wizard re-marks itself complete instead of opening.
+       *
+       * `firstRunWizardCompleted` is optional, so:
+       *  - ABSENT  = never evaluated on this install; the pre-v10 migration may still
+       *              apply, so ask the legacy marker.
+       *  - `false` = a DECISION already recorded — a new user mid-flow, or someone who
+       *              just pressed Restart. Nothing older gets to override that.
+       *
+       * The alternative fix, writing `onboarding:set-completed(false)` from Restart,
+       * is what the old code did and it is worse: it tells the server that a user of
+       * long standing has never onboarded, corrupting the flag for everything else
+       * that reads it, purely to smuggle a signal past this check.
+       */
+      const neverEvaluated = settings.firstRunWizardCompleted === undefined;
+      const legacyDone = neverEvaluated ? await checkLegacyMarker() : false;
       if (cancelled) return;
       setDecided(true);
       if (legacyDone) {

@@ -302,6 +302,12 @@ export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
    * It also never cleared `userData/atlarix-tours.json`, which had NO reset path at
    * all — so a dismissed one-time hint stayed dismissed forever and "restart" was a
    * half-truth. Clearing it here is what makes the button mean what it says.
+   *
+   * THE TOAST IS NOT DECORATION. The wizard only opens for a signed-in session, and
+   * this button is reachable while signed out — in which case the restart is recorded
+   * and takes effect at the next sign-in, with nothing at all happening on screen
+   * right now. Silence there is indistinguishable from a broken button, which is
+   * exactly how this read when the gate was vetoing it.
    */
   const handleRestartOnboarding = async () => {
     try {
@@ -317,6 +323,7 @@ export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
       // ignore
     }
     await updateSettings({ firstRunWizardCompleted: false });
+    showSuccess("Setup guide reset — it opens on the home screen.");
     navigate({ to: "/" });
   };
 

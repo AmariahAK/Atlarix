@@ -172,6 +172,48 @@ describe("FirstRunWizard", () => {
     });
   });
 
+  /**
+   * "Restart onboarding guide" must actually restart it.
+   *
+   * The legacy marker reads `onboarding:get-completed`, which for a signed-in user
+   * who has onboarded before answers TRUE — that is the whole point of the column.
+   * So a gate that consults it unconditionally vetoes every restart: Restart sets
+   * `firstRunWizardCompleted: false`, the gate asks the server, the server says
+   * "they onboarded", and the wizard silently re-marks itself complete instead of
+   * opening. The button does nothing, visibly.
+   *
+   * The distinction that fixes it is `undefined` vs `false`. `firstRunWizardCompleted`
+   * is optional: absent means "never evaluated, so the legacy migration may still
+   * apply", while an explicit `false` is a DECISION — a new user mid-flow, or someone
+   * who just pressed Restart. Only the absent case may consult the legacy marker.
+   */
+  it("Restart re-opens the wizard even though the server says onboarding is completed", async () => {
+    onboardingCompleted.value = true; // they onboarded long ago — the column is true
+    settingsValue = { firstRunWizardCompleted: false }; // what Restart writes
+
+    renderWithProviders(<FirstRunWizard />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("first-run-wizard")).toBeInTheDocument();
+    });
+    expect(updateSettingsMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ firstRunWizardCompleted: true }),
+    );
+  });
+
+  it("still migrates a genuine pre-v10 user silently (field absent, marker set)", async () => {
+    onboardingCompleted.value = true;
+    settingsValue = {}; // never evaluated — the legacy path must still apply
+
+    renderWithProviders(<FirstRunWizard />);
+    await waitFor(() => {
+      expect(updateSettingsMock).toHaveBeenCalledWith({
+        firstRunWizardCompleted: true,
+      });
+    });
+    expect(screen.queryByTestId("first-run-wizard")).not.toBeInTheDocument();
+  });
+
   it("Open Settings navigates WITHOUT marking the wizard complete", async () => {
     settingsValue = { firstRunWizardCompleted: false };
     renderWithProviders(<FirstRunWizard />);
