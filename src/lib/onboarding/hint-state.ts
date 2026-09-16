@@ -21,7 +21,7 @@ export interface HintState {
 }
 
 /** Ids for the one-time hints. Listed here so a typo is a type error. */
-export type HintId = "byok-model";
+export type HintId = "byok-model" | "guided-tour";
 
 function getInvoke():
   | ((ch: string, ...args: unknown[]) => Promise<unknown>)

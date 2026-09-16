@@ -32,6 +32,7 @@
  */
 
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
+import { SettingsWorkspaceNav } from "@/components/settings/SettingsWorkspaceNav";
 import {
   Plug,
   Cpu,
@@ -114,6 +115,16 @@ export function IntegrationsLayout() {
   return (
     <div className="flex-1 min-h-0 bg-background overflow-y-auto">
       <div className="max-w-5xl mx-auto px-8 py-6 pb-20">
+        {/*
+          THE WAY OUT. The left rail is `showWorkspaceChrome = selectedAppId != null`
+          (`app/layout.tsx`), so with no workspace picked there is NO sidebar on any
+          route — and this page had no back control of its own. Arriving here without
+          a workspace therefore stranded the user completely: no nav, and a body that
+          says "open a workspace from the welcome screen or sidebar" while showing
+          neither. Settings has carried this nav for exactly this reason; Integrations
+          was the one that did not, and the onboarding walked people straight into it.
+        */}
+        <SettingsWorkspaceNav className="mb-4" />
         <div className="flex items-center gap-3 mb-2">
           <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
             <Plug className="w-5 h-5 text-primary" aria-hidden />

@@ -48,8 +48,22 @@ export interface CoachmarkProps {
    * hint cannot advertise a key the handler does not listen for.
    */
   keys?: string;
-  /** Label for the confirm button. */
+  /** Label for the confirm button (the last step's, when part of a sequence). */
   actionLabel: string;
+  /**
+   * Sequence position, when this coachmark is one step of a guided tour.
+   *
+   * Both must be present for the progress dots and the "Next" button to appear. A
+   * lone hint (the BYOK one) passes neither and renders exactly as before.
+   */
+  stepIndex?: number;
+  stepCount?: number;
+  /** Advance the sequence. When absent, the primary button dismisses instead. */
+  onNext?: () => void;
+  /** Label for the advance button. Required when `onNext` is set. */
+  nextLabel?: string;
+  /** Label for the "leave the tour" button, shown only in a sequence. */
+  skipLabel?: string;
   side?: "top" | "bottom" | "left" | "right";
   align?: "start" | "center" | "end";
   /** The control being explained. Becomes the popover's anchor and the spotlight. */
@@ -65,12 +79,18 @@ export function Coachmark({
   body,
   keys,
   actionLabel,
+  stepIndex,
+  stepCount,
+  onNext,
+  nextLabel,
+  skipLabel,
   side = "top",
   align = "end",
   children,
   className,
   "data-testid": testId = "coachmark",
 }: CoachmarkProps) {
+  const isSequence = stepIndex !== undefined && stepCount !== undefined;
   /*
    * Portalled rather than rendered in place: the composer row is inside several
    * stacking contexts (the panel splitter, the sticky footer), and a backdrop that
@@ -147,10 +167,52 @@ export function Coachmark({
             </kbd>
           </p>
         ) : null}
-        <div className="mt-3 flex justify-end">
-          <Button type="button" size="sm" onClick={onDismiss}>
-            {actionLabel}
-          </Button>
+        <div className="mt-3 flex items-center justify-between gap-2">
+          {/*
+            Progress dots, mirroring the wizard's. A guided tour with no sense of
+            length is a tour you cannot decide to sit through — the user should be
+            able to see it is three steps, not an unbounded stream of tips.
+          */}
+          {isSequence ? (
+            <div
+              className="flex items-center gap-1.5"
+              aria-label={`Step ${(stepIndex ?? 0) + 1} of ${stepCount}`}
+            >
+              {Array.from({ length: stepCount ?? 0 }, (_, i) => (
+                <span
+                  key={i}
+                  className={
+                    i === stepIndex
+                      ? "h-1.5 w-4 rounded-full bg-primary"
+                      : "h-1.5 w-1.5 rounded-full bg-muted-foreground/30"
+                  }
+                />
+              ))}
+            </div>
+          ) : (
+            <span />
+          )}
+          <div className="flex items-center gap-2">
+            {isSequence ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={onDismiss}
+                data-testid={`${testId}-skip`}
+              >
+                {skipLabel}
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              size="sm"
+              onClick={onNext ?? onDismiss}
+              data-testid={`${testId}-primary`}
+            >
+              {onNext ? (nextLabel ?? actionLabel) : actionLabel}
+            </Button>
+          </div>
         </div>
       </PopoverContent>
     </Popover>

@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { useSettings } from "@/hooks/useSettings";
 import { useAuth } from "@/lib/auth/useAuth";
 import { useTranslation } from "react-i18next";
+import { useGuidedTour } from "@/hooks/useGuidedTour";
 import { openWorkspaceFromDirectoryPicker } from "@/lib/open-workspace-session";
 import { useLoadApps } from "@/hooks/useLoadApps";
 import { showError } from "@/lib/toast";
@@ -83,6 +84,7 @@ export function FirstRunWizard() {
   const { apps, refreshApps } = useLoadApps();
   const checkLegacyMarker = useLegacyOnboardingMarker();
   const { t: tOnboarding } = useTranslation("onboarding");
+  const { start: startTour } = useGuidedTour();
   /** A returning user restarting the guide, not somebody with an empty app. */
   const hasWorkspaces = (apps?.length ?? 0) > 0;
 
@@ -224,9 +226,18 @@ export function FirstRunWizard() {
           to: navigateTo,
           ...(navigateSearch ? { search: navigateSearch } : {}),
         });
+        return;
       }
+      /*
+       * Finishing the wizard hands straight over to the guided tour, which points at
+       * the real controls in the composer instead of sending the user off to another
+       * screen to read about them. Only when we are STAYING here — a wizard exit that
+       * navigates elsewhere has no composer to anchor to.
+       */
+      navigate({ to: "/" });
+      startTour();
     },
-    [updateSettings, navigate],
+    [updateSettings, navigate, startTour],
   );
 
   /**

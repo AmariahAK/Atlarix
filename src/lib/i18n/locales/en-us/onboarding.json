@@ -12,6 +12,19 @@
     "willUse": "New chats would use {{model}}. Change it any time from the model picker.",
     "done": "New chats will use {{model}}."
   },
+  "tour": {
+    "next": "Next",
+    "done": "Done",
+    "skip": "Skip",
+    "workModes": {
+      "title": "Work modes decide what Atlarix may do",
+      "body": "Explore is read-only. Plan, Build, Debug and Review unlock more tools — file writes always wait for your approval, inline with a diff. Cycle them without leaving the composer."
+    },
+    "model": {
+      "title": "Change the model mid-chat",
+      "body": "Every provider you have set up appears here, alongside Atlarix Core. Switching takes effect on your next message."
+    }
+  },
   "workspace": {
     "titleFirst": "Open your first workspace",
     "titleExisting": "Your workspaces",

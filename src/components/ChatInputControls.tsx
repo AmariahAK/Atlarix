@@ -48,6 +48,8 @@ import { useLoadApps } from "@/hooks/useLoadApps";
 import { useTranslation } from "react-i18next";
 import { Coachmark } from "@/components/ui/coachmark";
 import { useByokModelHint } from "@/hooks/useByokModelHint";
+import { useGuidedTour } from "@/hooks/useGuidedTour";
+import { GUIDED_TOUR_STEPS, chordForStep } from "@/lib/onboarding/guided-tour";
 function formatTokens(n: number): string {
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
   return String(n);
@@ -81,6 +83,15 @@ export function ChatInputControls({ chatId }: { chatId?: number }) {
   const { t: tOnboarding } = useTranslation("onboarding");
   const { showByokHint, dismissByokHint, changeModelChord } =
     useByokModelHint();
+  const tour = useGuidedTour();
+  /*
+   * The guided tour OUTRANKS the standalone BYOK hint on this anchor. Both point at
+   * the same control, and two coachmarks on one anchor would fight over the popover;
+   * the tour is the explicit, user-started thing, so it wins and the BYOK hint waits
+   * for a later session.
+   */
+  const modelTourActive = tour.isStepActive("model");
+  const workModeChord = chordForStep(GUIDED_TOUR_STEPS[0]);
 
   // ONE shared rule with the picker beside it (`resolveSelectedWorkMode`). This used
   // to resolve the global preference ALONE — left behind when sessions gained their
@@ -258,12 +269,23 @@ export function ChatInputControls({ chatId }: { chatId?: number }) {
           the same sheet, one of which silently did nothing.
         */}
         <Coachmark
-          open={showByokHint}
-          onDismiss={dismissByokHint}
-          title={tOnboarding("byokModel.title")}
-          body={tOnboarding("byokModel.body")}
+          open={modelTourActive || showByokHint}
+          onDismiss={modelTourActive ? tour.end : dismissByokHint}
+          title={tOnboarding(
+            modelTourActive ? "tour.model.title" : "byokModel.title",
+          )}
+          body={tOnboarding(
+            modelTourActive ? "tour.model.body" : "byokModel.body",
+          )}
           keys={changeModelChord}
           actionLabel={tOnboarding("byokModel.action")}
+          stepIndex={
+            modelTourActive ? (tour.stepIndex ?? undefined) : undefined
+          }
+          stepCount={modelTourActive ? tour.stepCount : undefined}
+          onNext={modelTourActive ? tour.next : undefined}
+          nextLabel={tOnboarding("tour.next")}
+          skipLabel={tOnboarding("tour.skip")}
           side="top"
           align="end"
           data-testid="byok-model-coachmark"
@@ -289,9 +311,26 @@ export function ChatInputControls({ chatId }: { chatId?: number }) {
           </SheetContent>
         </Sheet>
 
-        <span className="inline-flex" data-tour="tour-ask-build">
-          <ChatIntentSelector />
-        </span>
+        <Coachmark
+          open={tour.isStepActive("workModes")}
+          onDismiss={tour.end}
+          title={tOnboarding("tour.workModes.title")}
+          body={tOnboarding("tour.workModes.body")}
+          keys={workModeChord}
+          actionLabel={tOnboarding("tour.done")}
+          stepIndex={tour.stepIndex ?? undefined}
+          stepCount={tour.stepCount}
+          onNext={tour.next}
+          nextLabel={tOnboarding("tour.next")}
+          skipLabel={tOnboarding("tour.skip")}
+          side="top"
+          align="end"
+          data-testid="work-modes-coachmark"
+        >
+          <span className="inline-flex" data-tour="tour-ask-build">
+            <ChatIntentSelector />
+          </span>
+        </Coachmark>
       </div>
     </div>
   );
