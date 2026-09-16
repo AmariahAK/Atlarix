@@ -23,6 +23,7 @@ import { CompassProviderSettings } from "./CompassProviderSettings";
 import { ModelsSection } from "./ModelsSection";
 import { TokenBudgetInput } from "./TokenBudgetInput";
 import { LocalProviderModelSelector } from "./LocalProviderModelSelector";
+import { UseProviderAsDefaultPrompt } from "./UseProviderAsDefaultPrompt";
 
 /**
  * A token budget applies to any BYOK cloud provider — the user pays per token, so
@@ -92,6 +93,8 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  /** Shown after a key save when chats would still go to Core. */
+  const [offerDefaultSwitch, setOfferDefaultSwitch] = useState(false);
   const router = useRouter();
 
   const providerDisplayName = providerData?.name ?? "Unknown Provider";
@@ -175,7 +178,16 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
       };
       await updateSettings(settingsUpdate);
       setApiKeyInput(""); // Clear input on success
-      // Optionally show a success message
+      /*
+       * A saved key does not change which model runs — the default is Atlarix Core
+       * and nothing in the app moves it. Offer the switch here, while the user is
+       * still looking at the provider they just configured, rather than letting them
+       * find out by watching Core credit drain. Only when they are actually ON Core;
+       * if they have already picked a BYOK model there is nothing to fix.
+       */
+      if (settings?.selectedModel?.provider === COMPASS_PROVIDER_ID) {
+        setOfferDefaultSwitch(true);
+      }
     } catch (error: any) {
       console.error("Error saving API key:", error);
       setSaveError(error.message || "Failed to save API key.");
@@ -365,6 +377,13 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
                   onDeleteKey={handleDeleteKey}
                   updateSettings={updateSettings}
                 />
+                {offerDefaultSwitch && (
+                  <UseProviderAsDefaultPrompt
+                    providerId={provider}
+                    providerName={providerDisplayName}
+                    onDismiss={() => setOfferDefaultSwitch(false)}
+                  />
+                )}
                 {supportsTokenBudget(provider, providerData) && (
                   <TokenBudgetInput providerId={provider} />
                 )}

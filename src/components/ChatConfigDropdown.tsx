@@ -52,7 +52,17 @@ export function useModelDisplayName(): string {
 export function ChatConfigDropdown({
   onOpenModelPicker,
 }: {
-  onOpenModelPicker?: () => void;
+  /**
+   * REQUIRED, and that is the fix rather than a detail.
+   *
+   * It was optional, and `ChatInputControls` passed `undefined` whenever the right
+   * panel was open — on the theory that `CompactModelSearch` takes over there. The
+   * result was a "Change model" item that did nothing in that state, while
+   * Cmd/Ctrl+J went on opening the same sheet perfectly well. Optionality is what
+   * allowed a call site to silently withhold the behaviour; making it required means
+   * the compiler refuses the next attempt instead of a user discovering it.
+   */
+  onOpenModelPicker: () => void;
 }) {
   const modelDisplayName = useModelDisplayName();
   const { settings, updateSettings } = useSettings();
@@ -130,12 +140,16 @@ export function ChatConfigDropdown({
           >
             {modelDisplayName}
           </div>
-          <DropdownMenuItem
-            onSelect={(e) => {
-              e.preventDefault();
-              onOpenModelPicker?.();
-            }}
-          >
+          {/*
+            NO `preventDefault` HERE, DELIBERATELY. It used to call it before
+            `onOpenModelPicker?.()`, and `preventDefault` on a Radix
+            `DropdownMenuItem.onSelect` suppresses auto-close unconditionally. With
+            the right panel open the prop was passed as `undefined`, so the item was
+            a no-op that ALSO left the menu hanging open — the click did nothing and
+            looked like nothing. Letting it close is the correct behaviour in both
+            states now that the callback is always supplied.
+          */}
+          <DropdownMenuItem onSelect={() => onOpenModelPicker()}>
             Change model
           </DropdownMenuItem>
           {reasoningCapable ? (

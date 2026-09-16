@@ -3,6 +3,82 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.47.0] (2026-09-16) — Onboarding runs at all now, and the light theme has surfaces
+
+**The first-run wizard has never been seen by anyone, and that is fixed.**
+`onboarding:get-completed` answers "completed" when nobody is signed in, and a brand-new
+user is always signed out at the moment the wizard's gate runs — it is mounted globally
+and renders on the sign-in screen. So the wizard read that answer as "already onboarded",
+marked itself complete and returned without ever opening. It also never reached the code
+that records completion on the server, and that server flag was what the in-app tour
+waited for. One ordering bug took out both onboarding surfaces, for every user, since v10.
+
+**Saving an API key now offers to use it.** The default model is Atlarix Core and nothing
+in the app ever moved it, so adding your own key changed which models were available and
+nothing about which one ran — the next turn still went to Core and still spent Core
+credit. Saving a key now asks whether new chats should use that provider.
+
+**And if you end up on Core with a key anyway, the app says so once.** A one-time hint
+points at the model picker and names the shortcut, instead of leaving you to discover it.
+
+**Light mode has an elevation ladder.** Cards, popovers and the page background were
+`#ffffff`, `#ffffff` and `#fafafa` — card against background measured 1.04:1 and popover
+against card was the same hex, so the whole app was one flat white plane held together by
+a 1.25:1 hairline. Dark mode has always had real steps, which is why it looked the more
+finished of the two.
+
+### Added
+- `Coachmark` (`src/components/ui/coachmark.tsx`) — an anchored one-time hint with a
+  dimmed, blurred backdrop, built on the app's own Radix popover and theme tokens.
+- `useHasByokProvider` — "has the user supplied a key?", which `isAnyProviderSetup()`
+  cannot answer: it counts Atlarix Core as a configured cloud provider and so returns
+  true for someone who has supplied nothing.
+- `useSelectModel` — one writer for the chat model, replacing the same three lines
+  copy-pasted across four components. The easily-forgotten half is the token-count
+  invalidation, without which the context meter reports the previous model's budget.
+
+### Fixed
+- `FirstRunWizard` waits for auth to resolve and only opens for a signed-in user, so the
+  signed-out "completed" answer is never consulted. `!isAuthenticated` during launch means
+  "no answer yet", not "signed out", and the two are now handled separately.
+- "Open Settings → AI" no longer completes the wizard on the way out. It was calling
+  `finish()`, so the one user who followed the wizard's own advice to go and add a key was
+  also the one user who never saw the step explaining where the model picker is.
+- "Change model" in the chat config dropdown was a dead item whenever the right panel was
+  open: the callback was passed as `undefined` and the handler called `preventDefault`
+  first, so the click did nothing *and* left the menu open. The prop is required now, so a
+  call site cannot withhold it without a compile error.
+- "Restart onboarding guide" clears the local hint record, which previously had no reset
+  path at all, and no longer tells the server that a long-standing user has not onboarded.
+- Deleting workspaces no longer resets onboarding state. Neither call could re-show the
+  wizard; their only live effect was on the tour.
+- Light theme: a real ladder (`#f1f4f2` background against white surfaces, 1.11:1, matching
+  dark's 1.10:1), a border at 1.42:1 instead of 1.25:1, and `--input` no longer aliasing
+  `--muted` so fields read as fields.
+- Light theme secondary text is a neutral slate rather than `#166534`. Its contrast was
+  never the problem (6.8:1); its hue was — a mid-green sitting 1.89:1 from the primary
+  green, so every piece of muted copy read as a link. The fix is hue, not contrast.
+- Six components authored for dark mode only (`ToolCallCard`, `HandoffResultCard`,
+  `TerminalOutputAttachmentChip`, `FixAllErrorsDialog` and others) now use theme tokens
+  instead of bare `zinc` utilities, which rendered dark-on-white in light mode.
+
+### Removed
+- **`shepherd.js`**, and the tour built on it. It shipped its own stylesheet with no theme
+  integration — a hard `#fff` popover and a flat black overlay, wrong in dark mode — was
+  typed as a bare `declare module` so every call was unchecked, and roughly three quarters
+  of its code was unreachable: the per-feature tours had no trigger anywhere in the app,
+  and two of the four pointed at anchors that no longer exist in the DOM. Its first-run
+  tour duplicated the wizard, which now actually runs. One-time hints continue through
+  `Coachmark`; the local state store it used is kept and reused.
+
+### Notes
+- Tests: 4,993 passing, 14 new. The regression test for the onboarding gate was written
+  first and confirmed failing against the shipped code.
+- The old wizard suite passed only because it stubbed `onboarding:get-completed` as
+  `{ completed: false }` — the one value production cannot return for a signed-out user.
+- Not changed: the ~110 remaining bare mid-gray utilities (`text-gray-500` and friends).
+  They are legible in light and merely flat in dark; converting them is a separate sweep.
+
 ## [14.46.1] (2026-09-15) — A crash that replaced the whole app is fixed
 
 **Atlarix no longer crashes to an error card mid-answer.** Running two of the same tool at

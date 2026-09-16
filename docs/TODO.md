@@ -1,9 +1,9 @@
 # Atlarix TODO
 
-**Current version:** v14.46.0 — **tagged 2026-09-15.** The browser extension can build you a
-file; skills and connectors from atlarix.dev reach the desktop; the agent stops losing your tab
-when you switch away; and the desktop↔extension bridge transport ships **dormant**. Narrative in
-[`docs/CHANGELOG.md`](./CHANGELOG.md).
+**Current version:** v14.47.0 — **staged 2026-09-16, not yet tagged.** Onboarding runs at
+all for the first time (the wizard self-completed unseen on every install since v10), saving
+a BYOK key offers to actually use it, and the light theme has an elevation ladder instead of
+one flat white plane. Shepherd.js is gone. Narrative in [`docs/CHANGELOG.md`](./CHANGELOG.md).
 
 **This header has been wrong before.** It read v14.42.0 while `package.json` said 14.43.0, and
 "v14.44 SHIPPED" while **v14.44 was never tagged and has no changelog section at all**. Update it
@@ -12,14 +12,14 @@ in the same commit as the version bump, or do not trust it.
 **This file is a QUEUE.** It was 3,194 lines at v14.46.0, against its own runbook rule to stay
 lean, and most of it was a log of finished work. What was in it now lives where it belongs:
 
-| | |
-|---|---|
-| What shipped, per version | [`docs/CHANGELOG.md`](./CHANGELOG.md) |
-| Findings that cost time to discover | [`docs/TRAPS.md`](./TRAPS.md) |
-| Designed, not scheduled | [`docs/DESIGN_NOTES.md`](./DESIGN_NOTES.md) |
-| Open work | here, and nowhere else |
+|                                     |                                             |
+| ----------------------------------- | ------------------------------------------- |
+| What shipped, per version           | [`docs/CHANGELOG.md`](./CHANGELOG.md)       |
+| Findings that cost time to discover | [`docs/TRAPS.md`](./TRAPS.md)               |
+| Designed, not scheduled             | [`docs/DESIGN_NOTES.md`](./DESIGN_NOTES.md) |
+| Open work                           | here, and nowhere else                      |
 
-**Last updated:** 2026-09-15
+**Last updated:** 2026-09-16
 
 ---
 
@@ -59,7 +59,7 @@ and `close_tab` on a user's own tab.
   the first prompt-cache breakpoint, and mutating the array invalidates the whole prefix.
 
 Add one kernel op while there: **`text`**. `inspectText` (`:398`) is raw eval with no kernel op,
-"read the page's text" is the most-used browser capability there is, and adding it *deletes* a
+"read the page's text" is the most-used browser capability there is, and adding it _deletes_ a
 raw-eval site on the desktop rather than adding one.
 
 Three defects found while mapping, worth fixing in passing: `action-scripts.ts:132` claims
@@ -179,12 +179,17 @@ A/B.
 
 ## 🔜 Blocked on the owner — not active work
 
-- **2026-09-17 — chase GitHub Marketplace if Atlarix Reviewer is still not listed.** Three weeks
-  after the App went public (2026-08-27). **FIRST check <https://github.com/settings/apps>** for
-  rejection notes or a still-pending review — the answer is often already there. If there is
-  genuinely no communication, file at <https://support.github.com/contact> → Marketplace → "App
-  review pending for X weeks", with the app name, App ID, the submitting org, and the SUBMISSION
-  date (which may differ from the date it went public).
+- **GitHub Marketplace — CHASED 2026-09-16, now waiting on GitHub.** The listing
+  (`atlarix-reviewer`) shows "Pending for publish" with every checklist item complete and no
+  requested change, three weeks after the 2026-08-27 submission. **GitHub Support no longer has a
+  Marketplace category** — `/contact` redirects to a six-option flow (Copilot, Codespaces,
+  Repositories, Education, Sign-in, Billing) and `/contact/marketplace` redirects into it; the only
+  surviving "GitHub Marketplace" control is a product dropdown under Billing whose required
+  trouble-reason field is payments-only. So the chase went to the community forum instead:
+  <https://github.com/orgs/community/discussions/208022> (Apps, API and Webhooks / Question).
+  Other publishers report the same silence at 30 days and 3 months, so this is a queue backlog
+  rather than anything about our listing. **Do not touch "Withdraw request"** — it returns the
+  listing to the back of the queue.
 - **Delete the "Atlarix Reviewer" LemonSqueezy product** (`1317705`, variant `2060123`). Zero
   subscriptions ever, checked against the live API. No code references the variant.
 - **Archive, do not delete, `AmariahAK/atlarix-skills`.** Archiving keeps the URL read-only;
@@ -223,4 +228,4 @@ Supabase requests/hour looked like website traffic and was a 5-second poll of ou
   the tools teams already use** — Slack, Discord, GitHub issues — the shape the PR reviewer already
   takes ([`atlarix-pr-bot-spec.md`](./atlarix-pr-bot-spec.md)); and (b) a **shared, observable agent
   session** where teammates watch one run live, steer, approve and hand off. The chat shell is not
-  the differentiator; the shared *agent* session is. Capture, don't build yet.
+  the differentiator; the shared _agent_ session is. Capture, don't build yet.

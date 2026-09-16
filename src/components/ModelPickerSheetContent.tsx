@@ -6,10 +6,9 @@
 
 import { useState, useMemo } from "react";
 import { useSettings } from "@/hooks/useSettings";
+import { useSelectModel } from "@/hooks/useSelectModel";
 import { useLanguageModelsByProviders } from "@/hooks/useLanguageModelsByProviders";
 import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
-import { useQueryClient } from "@tanstack/react-query";
-import { TOKEN_COUNT_QUERY_KEY } from "@/hooks/useCountTokens";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -32,8 +31,8 @@ export function ModelPickerSheetContent({
   /** When Auto routing is on — sheet should not be used; guard for safety. */
   disabled?: boolean;
 }) {
-  const { settings, updateSettings } = useSettings();
-  const queryClient = useQueryClient();
+  const { settings } = useSettings();
+  const selectModel = useSelectModel();
   const [searchQuery, setSearchQuery] = useState("");
   const { data: modelsByProviders, isLoading } = useLanguageModelsByProviders();
   const { data: providers } = useLanguageModelProviders();
@@ -52,8 +51,7 @@ export function ModelPickerSheetContent({
     providers?.find((p) => p.id === providerId)?.name ?? providerId;
 
   const onSelect = (model: LargeLanguageModel) => {
-    updateSettings({ selectedModel: model });
-    queryClient.invalidateQueries({ queryKey: TOKEN_COUNT_QUERY_KEY });
+    void selectModel(model);
     onClose();
   };
 

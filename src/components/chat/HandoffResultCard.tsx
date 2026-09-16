@@ -111,36 +111,36 @@ export const HandoffResultCard: React.FC<HandoffResultCardProps> = ({
           </span>
         )}
         {!expanded && preview && (
-          <span className="text-xs text-zinc-500 truncate min-w-0 font-mono">
+          <span className="text-xs text-muted-foreground truncate min-w-0 font-mono">
             {preview}
           </span>
         )}
         <div className="flex-1 min-w-2" />
         {expanded ? (
-          <ChevronUp size={14} className="text-zinc-500 shrink-0" />
+          <ChevronUp size={14} className="text-muted-foreground shrink-0" />
         ) : (
-          <ChevronDown size={14} className="text-zinc-500 shrink-0" />
+          <ChevronDown size={14} className="text-muted-foreground shrink-0" />
         )}
       </div>
 
       {expanded && (
-        <div className="px-3 pb-3 pt-1 border-t border-zinc-800/50 space-y-2">
+        <div className="px-3 pb-3 pt-1 border-t border-border space-y-2">
           <div>
-            <div className="text-[10px] uppercase tracking-wide text-zinc-500 mb-1">
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
               Summary
             </div>
             {/* Markdown, not machine output — see the note in SubAgentRunCard. The
                 structured payload below stays a JSON code block, which it is. */}
-            <div className="bg-zinc-950/50 rounded p-2 text-xs max-h-40 overflow-y-auto text-zinc-300 max-w-none">
+            <div className="bg-muted rounded p-2 text-xs max-h-40 overflow-y-auto text-foreground max-w-none">
               <AtlarixMarkdownSegment content={summary} isStreaming={false} />
             </div>
           </div>
           {payloadJson && (
             <div>
-              <div className="text-[10px] uppercase tracking-wide text-zinc-500 mb-1">
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
                 Structured payload
               </div>
-              <div className="bg-zinc-950/50 rounded p-2 text-xs max-h-60 overflow-y-auto">
+              <div className="bg-muted rounded p-2 text-xs max-h-60 overflow-y-auto">
                 <CodeHighlight className="language-json">
                   {payloadJson}
                 </CodeHighlight>

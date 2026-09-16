@@ -49,7 +49,6 @@ import { IpcClient } from "@/ipc/ipc_client";
 import { subscribeAutoSelfCorrect } from "@/lib/renderer-ipc-bridge";
 import { preloadSounds, setSoundPreferences } from "@/lib/sounds";
 import { FirstRunWizard } from "@/components/welcome/FirstRunWizard";
-import { TourManager } from "@/components/tour/TourManager";
 import { CommunityDialog } from "@/components/CommunityDialog";
 import { CommunityPrompts } from "@/components/community/CommunityPrompts";
 import { useRightPanelUserPreference } from "@/hooks/useRightPanelUserPreference";
@@ -477,7 +476,6 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <DeepLinkProvider>
           {/* v10: first-run setup wizard replaces the legacy 5-step overlay. */}
           <FirstRunWizard />
-          <TourManager />
           <CommunityDialog />
           <CommunityPrompts />
           <div>

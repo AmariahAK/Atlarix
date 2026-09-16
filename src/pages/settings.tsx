@@ -10,6 +10,7 @@ import { showSuccess, showError } from "@/lib/toast";
 // Hidden: ThinkingBudgetSelector, ReleaseChannelSelector, RuntimeModeSelector, NodePathSelector
 import { useSettings } from "@/hooks/useSettings";
 import { useTranslation } from "react-i18next";
+import { writeHintState } from "@/lib/onboarding/hint-state";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -289,13 +290,29 @@ export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
 
-  // v10: restart re-opens the first-run wizard (legacy overlay removed).
+  /**
+   * v10: restart re-opens the first-run wizard (legacy overlay removed).
+   *
+   * IT USED TO SET `onboarding:set-completed(false)` AND THAT WAS BACKWARDS. The
+   * Supabase `onboarding_completed` column was the gate the old Shepherd tour waited
+   * on, so "Restart guide" restarted the wizard and simultaneously re-blocked the
+   * tour. The tour is gone now, but the write was still wrong in its own right: it
+   * claims to the server that a user who has been here for months has not onboarded.
+   *
+   * It also never cleared `userData/atlarix-tours.json`, which had NO reset path at
+   * all — so a dismissed one-time hint stayed dismissed forever and "restart" was a
+   * half-truth. Clearing it here is what makes the button mean what it says.
+   */
   const handleRestartOnboarding = async () => {
     try {
       localStorage.removeItem("atlarix.onboarding_skipped");
       localStorage.removeItem("atlarix_onboarding_done");
-      const ipc = window.electron?.ipcRenderer;
-      if (ipc?.invoke) await ipc.invoke("onboarding:set-completed", false);
+      await writeHintState({
+        firstRunCompleted: false,
+        firstRunStep: 0,
+        dismissedAt: null,
+        featureTours: {},
+      });
     } catch {
       // ignore
     }

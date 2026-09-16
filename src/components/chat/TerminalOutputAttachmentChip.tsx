@@ -34,8 +34,8 @@ export function TerminalOutputAttachmentChip({
     <>
       <div
         className={cn(
-          "relative flex items-center gap-1.5 rounded-md border border-zinc-600/80",
-          "bg-zinc-900/90 px-2 py-1 max-w-[280px]",
+          "relative flex items-center gap-1.5 rounded-md border border-border",
+          "bg-muted/80 px-2 py-1 max-w-[280px]",
           "text-left cursor-pointer hover:bg-zinc-800/90 transition-colors",
         )}
         role="button"
@@ -48,8 +48,8 @@ export function TerminalOutputAttachmentChip({
           }
         }}
       >
-        <Terminal className="h-3.5 w-3.5 shrink-0 text-emerald-400/90" />
-        <span className="truncate text-xs font-mono text-zinc-100 max-w-[120px]">
+        <Terminal className="h-3.5 w-3.5 shrink-0 text-primary" />
+        <span className="truncate text-xs font-mono text-foreground max-w-[120px]">
           {title}
         </span>
         <button
@@ -62,7 +62,7 @@ export function TerminalOutputAttachmentChip({
           {copied ? (
             <Check className="h-3 w-3 text-emerald-400" />
           ) : (
-            <Copy className="h-3 w-3 text-zinc-400" />
+            <Copy className="h-3 w-3 text-muted-foreground" />
           )}
         </button>
         {!readOnly && onRemove ? (
@@ -75,7 +75,7 @@ export function TerminalOutputAttachmentChip({
             className="rounded-full p-0.5 hover:bg-zinc-700 shrink-0"
             aria-label="Remove terminal selection"
           >
-            <X className="h-3 w-3 text-zinc-400" />
+            <X className="h-3 w-3 text-muted-foreground" />
           </button>
         ) : null}
       </div>

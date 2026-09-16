@@ -223,7 +223,7 @@ export function FixAllErrorsDialog({
                         "flex items-start gap-3 p-2 rounded border cursor-pointer transition-colors",
                         selectedIds.has(error.id)
                           ? "bg-primary/5 border-primary/30"
-                          : "bg-zinc-900/50 border-zinc-800 hover:border-zinc-700",
+                          : "bg-card border-border hover:border-zinc-700",
                       )}
                       onClick={() => toggleError(error.id)}
                     >
@@ -232,11 +232,11 @@ export function FixAllErrorsDialog({
                         className="mt-0.5"
                       />
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm text-zinc-300 font-mono truncate">
+                        <p className="text-sm text-foreground font-mono truncate">
                           {error.message}
                         </p>
                         {error.file && (
-                          <p className="text-xs text-zinc-500 mt-0.5">
+                          <p className="text-xs text-muted-foreground mt-0.5">
                             📁 {error.file}
                             {error.line ? `:${error.line}` : ""}
                           </p>
@@ -251,8 +251,8 @@ export function FixAllErrorsDialog({
         </div>
 
         {/* Context Input */}
-        <div className="space-y-2 border-t border-zinc-800 pt-4">
-          <label className="text-sm text-zinc-400">
+        <div className="space-y-2 border-t border-border pt-4">
+          <label className="text-sm text-muted-foreground">
             Additional Context (optional)
           </label>
           <Textarea

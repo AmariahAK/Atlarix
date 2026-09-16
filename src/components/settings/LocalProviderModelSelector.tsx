@@ -5,14 +5,14 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Check, Search } from "lucide-react";
 import { useLocalModels } from "@/hooks/useLocalModels";
 import { useLocalLMSModels } from "@/hooks/useLMStudioModels";
 import { useSettings } from "@/hooks/useSettings";
-import { TOKEN_COUNT_QUERY_KEY } from "@/hooks/useCountTokens";
+import { useSelectModel } from "@/hooks/useSelectModel";
 import { cn } from "@/lib/utils";
 
 interface LocalProviderModelSelectorProps {
@@ -22,8 +22,8 @@ interface LocalProviderModelSelectorProps {
 export function LocalProviderModelSelector({
   providerId,
 }: LocalProviderModelSelectorProps) {
-  const { settings, updateSettings } = useSettings();
-  const queryClient = useQueryClient();
+  const { settings } = useSettings();
+  const selectModel = useSelectModel();
   const [searchQuery, setSearchQuery] = useState("");
   const ollama = useLocalModels();
   const lmStudio = useLocalLMSModels();
@@ -45,12 +45,9 @@ export function LocalProviderModelSelector({
 
   const applyAsChatModel = useCallback(
     async (modelName: string) => {
-      await updateSettings({
-        selectedModel: { provider: providerId, name: modelName },
-      });
-      queryClient.invalidateQueries({ queryKey: TOKEN_COUNT_QUERY_KEY });
+      await selectModel({ provider: providerId, name: modelName });
     },
-    [providerId, queryClient, updateSettings],
+    [providerId, selectModel],
   );
 
   if (loading && models.length === 0) {

@@ -6,13 +6,13 @@
 
 import { useState, useMemo, useCallback } from "react";
 import { useSettings } from "@/hooks/useSettings";
+import { useSelectModel } from "@/hooks/useSelectModel";
 import { useLanguageModelsByProviders } from "@/hooks/useLanguageModelsByProviders";
 import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
 import { useAtlarixCoreCatalog } from "@/hooks/useAtlarixCoreCatalog";
 import { useLocalModels } from "@/hooks/useLocalModels";
 import { useLocalLMSModels } from "@/hooks/useLMStudioModels";
-import { useQueryClient } from "@tanstack/react-query";
-import { TOKEN_COUNT_QUERY_KEY } from "@/hooks/useCountTokens";
+
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -48,8 +48,8 @@ export function CompactModelSearch({
   /** When true (Auto routing): no model picking; matches ChatConfigDropdown behavior. */
   disabled?: boolean;
 }) {
-  const { settings, updateSettings } = useSettings();
-  const queryClient = useQueryClient();
+  const { settings } = useSettings();
+  const selectModel = useSelectModel();
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const { data: modelsByProviders, isLoading } = useLanguageModelsByProviders();
@@ -121,8 +121,7 @@ export function CompactModelSearch({
   }, [modelsByProviders, searchQuery, providers, resolveOptionLabel]);
 
   const onSelect = (model: LargeLanguageModel) => {
-    updateSettings({ selectedModel: model });
-    queryClient.invalidateQueries({ queryKey: TOKEN_COUNT_QUERY_KEY });
+    void selectModel(model);
     setOpen(false);
     setSearchQuery("");
   };

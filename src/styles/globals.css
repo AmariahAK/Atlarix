@@ -108,19 +108,40 @@ html[data-fullscreen="true"] #layout-main-content-container {
      EMERALD LIGHT THEME - Green + Amber
      ═══════════════════════════════════════════════════════════ */
 
-  /* Background Palette - Neutral off-white (avoid yellow/cream cast) */
+  /*
+   * Background Palette — A LADDER, WHICH THIS THEME DID NOT HAVE.
+   *
+   * It used to be `#ffffff / #ffffff / #fafafa / #f2f2f2 / #e8e8e8` with
+   * `--card` and `--popover` BOTH `#ffffff`. Measured, that made
+   * card-vs-background 1.04:1 and popover-vs-card exactly 1.00:1 — the same hex,
+   * so a popover over a card had literally no edge but its border, and that
+   * border was 1.25:1. The whole app was one flat white plane. Dark mode, by
+   * contrast, has real steps (#0f1a14 → #162419 → #1c3a28, 1.10 and 1.30) which
+   * is why it has always looked the more finished of the two.
+   *
+   * Light elevates by LIGHTENING, so the ladder runs the other way from dark: the
+   * background recedes and surfaces stay white. Card-vs-background is now 1.11:1,
+   * which matches dark's 1.10:1 rather than merely improving on nothing. Popover
+   * stays white on purpose — at this point the separation it needs is a shadow and
+   * a border, not a third fill, and tinting it grey would make menus look disabled.
+   *
+   * The tint is a hint of the brand green (a touch more G than R/B) rather than a
+   * pure grey. Neutral #f4f4f4 against an emerald primary reads cold and slightly
+   * blue by simultaneous contrast; this stays out of the way without going cream,
+   * which is the cast the original comment was trying to avoid.
+   */
   --background-lightest: #ffffff;
   --background-lighter: #ffffff;
-  --background: #fafafa;
-  --background-darker: #f2f2f2;
-  --background-darkest: #e8e8e8;
+  --background: #f1f4f2;
+  --background-darker: #e8ece9;
+  --background-darkest: #dde3df;
 
   /* Text Colors */
-  --foreground: #052e16;
+  --foreground: #0b1f14;
   --card: #ffffff;
-  --card-foreground: #052e16;
+  --card-foreground: #0b1f14;
   --popover: #ffffff;
-  --popover-foreground: #052e16;
+  --popover-foreground: #0b1f14;
 
   /* Primary = Emerald */
   --primary: #059669;
@@ -149,9 +170,22 @@ html[data-fullscreen="true"] #layout-main-content-container {
   --secondary: #d97706;
   --secondary-foreground: #ffffff;
 
-  /* Muted */
-  --muted: #f2f2f2;
-  --muted-foreground: #166534;
+  /*
+   * Muted.
+   *
+   * `--muted-foreground` WAS `#166534` — a saturated mid-green. Its contrast was
+   * never the problem (6.8:1 on card, comfortably legible); its HUE was. It sat
+   * 1.89:1 from `--primary` (#059669) and shared its hue, so every piece of
+   * secondary text in the app read as an interactive accent — a link you could
+   * click — and the eye had no cue for "this is subordinate". That is what makes
+   * light-mode copy look subtly wrong in a way contrast checkers do not catch.
+   *
+   * A neutral slate fixes it by being a different HUE, not a different luminance:
+   * the ratio against primary barely moves (1.89 → 2.01) and that is fine. Two
+   * greens were indistinguishable in ROLE; grey against emerald is not.
+   */
+  --muted: #e8ece9;
+  --muted-foreground: #4b5563;
 
   /* Accent = Amber Gold */
   --accent: #f59e0b;
@@ -161,9 +195,21 @@ html[data-fullscreen="true"] #layout-main-content-container {
   --destructive: #dc2626;
   --destructive-foreground: #ffffff;
 
-  /* Borders & Inputs */
-  --border: #e6e6e6;
-  --input: #f2f2f2;
+  /*
+   * Borders & Inputs.
+   *
+   * The border was `#e6e6e6` — 1.25:1 against a white card, effectively invisible,
+   * which mattered far more here than in dark mode because with no fill ladder the
+   * border was the ONLY thing separating a card from the page. Now 1.42:1, in the
+   * same spirit as dark's note that its border is "slightly brighter than card so
+   * controls are distinct".
+   *
+   * `--input` no longer aliases `--muted`. They were both `#f2f2f2`, so a text
+   * field and the inert muted surface behind it were the same colour and fields
+   * did not read as fields. A shade deeper gives the input an edge of its own.
+   */
+  --border: #d3dad6;
+  --input: #e2e7e4;
   --ring: #059669;
 
   /* Charts */
@@ -191,14 +237,20 @@ html[data-fullscreen="true"] #layout-main-content-container {
 
   --radius: 0.625rem;
 
-  /* Sidebar */
-  --sidebar: #fafafa;
-  --sidebar-foreground: #052e16;
+  /*
+   * Sidebar — tracks the ladder above rather than carrying its own copy of the
+   * old flat values, which is what it was doing: `#fafafa / #f2f2f2 / #e6e6e6`
+   * were the pre-ladder background, muted and border, so after those moved the
+   * sidebar would have been the one surface still sitting at the old lightness.
+   * Dark already does this (its `--sidebar` IS its `--background`).
+   */
+  --sidebar: #f1f4f2;
+  --sidebar-foreground: #0b1f14;
   --sidebar-primary: #059669;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #f2f2f2;
-  --sidebar-accent-foreground: #052e16;
-  --sidebar-border: #e6e6e6;
+  --sidebar-accent: #e8ece9;
+  --sidebar-accent-foreground: #0b1f14;
+  --sidebar-border: #d3dad6;
   --sidebar-ring: #059669;
 
   /* Diff Colors */

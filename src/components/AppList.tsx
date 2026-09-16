@@ -226,13 +226,13 @@ export function AppList({ show }: { show?: boolean }) {
                     setActiveChatId(null);
                     setSelectedChatId(null);
                     navigate({ to: "/" });
-                    try {
-                      const ipc = window.electron?.ipcRenderer;
-                      if (ipc?.invoke)
-                        await ipc.invoke("onboarding:set-completed", false);
-                    } catch {
-                      // ignore
-                    }
+                    /*
+                     * No `onboarding:set-completed(false)` here any more. Deleting
+                     * your workspaces does not un-onboard you, and this never
+                     * touched `firstRunWizardCompleted`, so it could not re-show
+                     * the wizard either — its only live effect was telling the
+                     * server a long-standing user had never onboarded.
+                     */
                   }
                 }}
               >
@@ -308,15 +308,8 @@ export function AppList({ show }: { show?: boolean }) {
                       }
                     }
                     refreshApps?.();
-                    if (apps.length <= 1) {
-                      try {
-                        const ipc = window.electron?.ipcRenderer;
-                        if (ipc?.invoke)
-                          await ipc.invoke("onboarding:set-completed", false);
-                      } catch {
-                        /* ignore */
-                      }
-                    }
+                    // See the note on the delete-all path: removing your last
+                    // workspace is not the same as never having onboarded.
                   };
                   return (
                     <div

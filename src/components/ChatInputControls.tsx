@@ -45,6 +45,9 @@ import { useCompactionTokenVisuals } from "@/hooks/useCompactionTokenVisuals";
 import { selectionUsesCompass } from "@/hooks/useCompassSendGate";
 import { useCreditBalance } from "@/hooks/useCreditBalance";
 import { useLoadApps } from "@/hooks/useLoadApps";
+import { useTranslation } from "react-i18next";
+import { Coachmark } from "@/components/ui/coachmark";
+import { useByokModelHint } from "@/hooks/useByokModelHint";
 function formatTokens(n: number): string {
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
   return String(n);
@@ -75,6 +78,9 @@ export function ChatInputControls({ chatId }: { chatId?: number }) {
   const contextReport = useContextReport(chatId ?? null);
   const { pulse, flashSuccess } = useCompactionTokenVisuals(chatId ?? null);
   const creditBalance = useCreditBalance();
+  const { t: tOnboarding } = useTranslation("onboarding");
+  const { showByokHint, dismissByokHint, changeModelChord } =
+    useByokModelHint();
 
   // ONE shared rule with the picker beside it (`resolveSelectedWorkMode`). This used
   // to resolve the global preference ALONE — left behind when sessions gained their
@@ -243,13 +249,34 @@ export function ChatInputControls({ chatId }: { chatId?: number }) {
 
       <div className="flex items-center gap-2 flex-wrap">
         {rightPanelVisible && <CompactModelSearch className="shrink-0" />}
-        <span className="inline-flex" data-tour="tour-model-picker">
-          <ChatConfigDropdown
-            onOpenModelPicker={
-              rightPanelVisible ? undefined : () => setModelSheetOpen(true)
-            }
-          />
-        </span>
+        {/*
+          The handler is now UNCONDITIONAL. It used to be
+          `rightPanelVisible ? undefined : …`, on the theory that `CompactModelSearch`
+          replaces the picker when the panel is open — but the Sheet below is mounted
+          in every state precisely so Cmd/Ctrl+J still works there, so withholding the
+          callback only broke the menu item while the chord kept working. Two routes to
+          the same sheet, one of which silently did nothing.
+        */}
+        <Coachmark
+          open={showByokHint}
+          onDismiss={dismissByokHint}
+          title={tOnboarding("byokModel.title")}
+          body={tOnboarding("byokModel.body")}
+          keys={changeModelChord}
+          actionLabel={tOnboarding("byokModel.action")}
+          side="top"
+          align="end"
+          data-testid="byok-model-coachmark"
+        >
+          <span className="inline-flex" data-tour="tour-model-picker">
+            <ChatConfigDropdown
+              onOpenModelPicker={() => {
+                dismissByokHint();
+                setModelSheetOpen(true);
+              }}
+            />
+          </span>
+        </Coachmark>
 
         {/* Always mounted (not gated on panel visibility) so Cmd/Ctrl+J can open
             the full model picker in any state. Closed = renders nothing visible. */}

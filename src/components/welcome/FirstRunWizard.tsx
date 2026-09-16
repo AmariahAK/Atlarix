@@ -11,7 +11,7 @@
  * done without showing it.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
   Dialog,
@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useSettings } from "@/hooks/useSettings";
+import { useAuth } from "@/lib/auth/useAuth";
 import { openWorkspaceFromDirectoryPicker } from "@/lib/open-workspace-session";
 import { useLoadApps } from "@/hooks/useLoadApps";
 import { showError } from "@/lib/toast";
@@ -81,22 +82,66 @@ export function FirstRunWizard() {
   const { refreshApps } = useLoadApps();
   const checkLegacyMarker = useLegacyOnboardingMarker();
 
+  /**
+   * Auth is a GATE here, not a display detail — see the effect below.
+   *
+   * This is UI gating and nothing else. `useAuth` is unshared per call site by
+   * design, and none of the real enforcement lives in it: opening a workspace,
+   * and every chat turn, are gated in the IPC handlers (`requireAuthSession`).
+   * Do not promote this read into a security check.
+   */
+  const { isAuthenticated, authResolved } = useAuth();
+
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState(0);
-  const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const [decided, setDecided] = useState(false);
 
-  // "Restart guide" in Settings sets the flag back to false — re-evaluate.
+  /**
+   * "Restart guide" in Settings sets the flag back to false — re-evaluate.
+   *
+   * WATCHES THE TRANSITION, NOT THE STEADY STATE. This used to fire on the
+   * standing condition `completed === false && decided && !open`, which is also
+   * true every time the user steps out to Settings via `leaveWithoutFinishing` —
+   * so it would snap them back to step 0 and undo the resume point. Only a real
+   * true→false edge means somebody pressed Restart.
+   */
+  const prevCompleted = useRef(settings?.firstRunWizardCompleted);
   useEffect(() => {
-    if (settings?.firstRunWizardCompleted === false && decided && !open) {
+    const now = settings?.firstRunWizardCompleted;
+    const was = prevCompleted.current;
+    prevCompleted.current = now;
+    if (was === true && now === false) {
       setStep(0);
       setDecided(false);
     }
-  }, [settings?.firstRunWizardCompleted, decided, open]);
+  }, [settings?.firstRunWizardCompleted]);
 
-  // Gate: show only for genuinely new users; migrate legacy completion silently.
+  /**
+   * Gate: show only for genuinely new users; migrate legacy completion silently.
+   *
+   * THE AUTH GUARD IS LOAD-BEARING AND IT IS WHY THIS WIZARD NEVER RAN.
+   *
+   * `onboarding:get-completed` answers `{ completed: true }` when nobody is signed
+   * in — "not logged in => no onboarding" (`auth_handlers.ts:524`). The legacy-marker
+   * check below consults exactly that channel. And a fresh install is ALWAYS signed
+   * out at the moment this effect first runs: the wizard is mounted globally in
+   * `app/layout.tsx`, renders on `/sign-in`, and there is no session to restore.
+   *
+   * So the old order — legacy check first, auth afterwards and only for a label —
+   * read a signed-out `true` as "already onboarded", wrote `firstRunWizardCompleted`
+   * and returned without ever opening. It also never reached `finish()`, so the
+   * Supabase `onboarding_completed` column stayed false, and that column is what
+   * `TourManager` waits on. One ordering bug took out both onboarding surfaces.
+   *
+   * Two separate conditions, because they are different answers:
+   *  - `!authResolved` — startup restore has not settled. NOT signed out; no
+   *    decision may be taken yet, and in particular nothing may be written.
+   *  - `!isAuthenticated` — genuinely signed out. Stay closed and stay UNDECIDED,
+   *    so signing in re-runs this and opens the wizard without a reload.
+   */
   useEffect(() => {
     if (decided || !settings) return;
+    if (!authResolved || !isAuthenticated) return;
     let cancelled = false;
     void (async () => {
       if (settings.firstRunWizardCompleted) {
@@ -110,23 +155,19 @@ export function FirstRunWizard() {
         void updateSettings({ firstRunWizardCompleted: true });
         return;
       }
-      try {
-        const ipc = window.electron?.ipcRenderer;
-        const userResult = ipc?.invoke
-          ? ((await ipc.invoke("auth:get-current-user")) as {
-              user?: { id?: string };
-            })
-          : null;
-        if (!cancelled) setSignedIn(Boolean(userResult?.user?.id));
-      } catch {
-        if (!cancelled) setSignedIn(false);
-      }
       if (!cancelled) setOpen(true);
     })();
     return () => {
       cancelled = true;
     };
-  }, [settings, decided, checkLegacyMarker, updateSettings]);
+  }, [
+    settings,
+    decided,
+    checkLegacyMarker,
+    updateSettings,
+    authResolved,
+    isAuthenticated,
+  ]);
 
   const detectedProviders = useMemo(() => {
     const ps = settings?.providerSettings ?? {};
@@ -159,6 +200,36 @@ export function FirstRunWizard() {
       }
     },
     [updateSettings, navigate],
+  );
+
+  /**
+   * Leave to look at something, WITHOUT completing.
+   *
+   * "Open Settings → AI" used to call `finish()`, which set
+   * `firstRunWizardCompleted` on the way out — so the one user who followed the
+   * wizard's own advice to go and add an API key was also the one user who never
+   * saw step 2, the step that says where the model picker is. That is the whole
+   * BYOK dead end, created by the screen that was supposed to prevent it.
+   *
+   * Closing without deciding leaves the gate effect free to re-open the wizard
+   * when the user comes back, and `resumeStep` puts them on the step after the
+   * one they left from rather than back at "Welcome".
+   */
+  const leaveWithoutFinishing = useCallback(
+    (
+      navigateTo: string,
+      resumeStep: number,
+      navigateSearch?: Record<string, string>,
+    ) => {
+      setOpen(false);
+      setDecided(false);
+      setStep(resumeStep);
+      navigate({
+        to: navigateTo,
+        ...(navigateSearch ? { search: navigateSearch } : {}),
+      });
+    },
+    [navigate],
   );
 
   const handleOpenFolder = useCallback(async () => {
@@ -245,13 +316,10 @@ export function FirstRunWizard() {
                 <div className="flex items-center gap-2 rounded-md border border-border/60 px-3 py-2">
                   <Compass className="h-4 w-4 shrink-0 text-primary" />
                   <span className="flex-1">Atlarix Core</span>
-                  <span className="text-xs text-muted-foreground">
-                    {signedIn == null
-                      ? "…"
-                      : signedIn
-                        ? "Signed in"
-                        : "Sign in to use"}
-                  </span>
+                  {/* The "Sign in to use" / "Signed in" status that lived here is
+                      gone: the wizard now only opens for a resolved, signed-in
+                      session, so one branch was a tautology and the other was
+                      unreachable. */}
                 </div>
                 <div className="rounded-md border border-border/60 px-3 py-2">
                   <div className="flex items-center gap-2">
@@ -279,7 +347,7 @@ export function FirstRunWizard() {
                   variant="outline"
                   size="sm"
                   className="gap-1.5"
-                  onClick={() => void finish("/settings")}
+                  onClick={() => leaveWithoutFinishing("/settings", 2)}
                 >
                   <SettingsIcon className="h-3.5 w-3.5" />
                   Open Settings → AI
@@ -294,7 +362,9 @@ export function FirstRunWizard() {
                       size="sm"
                       className="h-6 px-2 text-xs"
                       onClick={() =>
-                        void finish("/integrations/mcp", { tab: "marketplace" })
+                        leaveWithoutFinishing("/integrations/mcp", 2, {
+                          tab: "marketplace",
+                        })
                       }
                     >
                       Browse

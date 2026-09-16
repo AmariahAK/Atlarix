@@ -151,7 +151,7 @@ export function ToolCallCard({
                     ? "border-red-500/30 bg-red-950/20"
                     : tool.status === "running"
                       ? "border-purple-500/30 bg-purple-950/10"
-                      : "border-zinc-700/50 bg-zinc-900/50 hover:bg-zinc-800/50"
+                      : "border-border bg-card hover:bg-zinc-800/50"
                 }
             `}
     >
@@ -186,13 +186,13 @@ export function ToolCallCard({
         />
 
         {/* Tool name */}
-        <span className="font-mono text-sm font-medium text-zinc-200">
+        <span className="font-mono text-sm font-medium text-foreground">
           {displayName}
         </span>
 
         {/* Param preview (collapsed only) */}
         {!isExpanded && paramPreview && (
-          <span className="text-xs text-zinc-500 truncate max-w-[200px]">
+          <span className="text-xs text-muted-foreground truncate max-w-[200px]">
             {paramPreview}
           </span>
         )}
@@ -205,26 +205,28 @@ export function ToolCallCard({
 
         {/* Expand/collapse chevron */}
         {isExpanded ? (
-          <ChevronUp size={16} className="text-zinc-500" />
+          <ChevronUp size={16} className="text-muted-foreground" />
         ) : (
-          <ChevronDown size={16} className="text-zinc-500" />
+          <ChevronDown size={16} className="text-muted-foreground" />
         )}
       </div>
 
       {/* Expanded content */}
       {isExpanded && (
-        <div className="px-3 pb-3 pt-1 border-t border-zinc-800/50">
+        <div className="px-3 pb-3 pt-1 border-t border-border">
           {/* Parameters */}
           {tool.params && Object.keys(tool.params).length > 0 && (
             <div className="mb-2">
-              <div className="text-xs text-zinc-500 mb-1">Parameters</div>
-              <div className="bg-zinc-950/50 rounded p-2 text-xs font-mono">
+              <div className="text-xs text-muted-foreground mb-1">
+                Parameters
+              </div>
+              <div className="bg-muted rounded p-2 text-xs font-mono">
                 {Object.entries(tool.params)
                   .filter(([k]) => !["workspace", "workspaceId"].includes(k))
                   .map(([key, value]) => (
                     <div key={key} className="flex gap-2 mb-1 last:mb-0">
                       <span className="text-purple-400">{key}:</span>
-                      <span className="text-zinc-300 break-all">
+                      <span className="text-foreground break-all">
                         {typeof value === "object"
                           ? JSON.stringify(value)
                           : String(value)}
@@ -238,8 +240,8 @@ export function ToolCallCard({
           {/* Result */}
           {tool.status === "complete" && tool.result && (
             <div>
-              <div className="text-xs text-zinc-500 mb-1">Result</div>
-              <div className="bg-zinc-950/50 rounded p-2 text-xs font-mono text-zinc-300 max-h-40 overflow-y-auto">
+              <div className="text-xs text-muted-foreground mb-1">Result</div>
+              <div className="bg-muted rounded p-2 text-xs font-mono text-foreground max-h-40 overflow-y-auto">
                 {typeof tool.result === "string"
                   ? tool.result.substring(0, 500) +
                     (tool.result.length > 500 ? "..." : "")

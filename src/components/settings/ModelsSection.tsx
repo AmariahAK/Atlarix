@@ -6,7 +6,7 @@ import {
   Search,
   TrashIcon,
 } from "lucide-react";
-import { useQueryClient } from "@tanstack/react-query";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -28,8 +28,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { useSettings } from "@/hooks/useSettings";
+import { useSelectModel } from "@/hooks/useSelectModel";
 import type { LargeLanguageModel } from "@/lib/schemas";
-import { TOKEN_COUNT_QUERY_KEY } from "@/hooks/useCountTokens";
 
 const PAGE_SIZE = 7;
 
@@ -75,8 +75,8 @@ interface ModelsSectionProps {
 }
 
 export function ModelsSection({ providerId }: ModelsSectionProps) {
-  const { settings, updateSettings } = useSettings();
-  const queryClient = useQueryClient();
+  const { settings } = useSettings();
+  const selectModel = useSelectModel();
   const [isCustomModelDialogOpen, setIsCustomModelDialogOpen] = useState(false);
   const [isEditModelDialogOpen, setIsEditModelDialogOpen] = useState(false);
   const [isConfirmDeleteDialogOpen, setIsConfirmDeleteDialogOpen] =
@@ -151,12 +151,9 @@ export function ModelsSection({ providerId }: ModelsSectionProps) {
 
   const applyAsChatModel = useCallback(
     async (model: LanguageModel) => {
-      await updateSettings({
-        selectedModel: languageModelToSelected(providerId, model),
-      });
-      queryClient.invalidateQueries({ queryKey: TOKEN_COUNT_QUERY_KEY });
+      await selectModel(languageModelToSelected(providerId, model));
     },
-    [providerId, queryClient, updateSettings],
+    [providerId, selectModel],
   );
 
   const handleModelRowActivate = (model: LanguageModel) => {
