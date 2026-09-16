@@ -7,77 +7,102 @@
 
 **The first-run wizard has never been seen by anyone, and that is fixed.**
 `onboarding:get-completed` answers "completed" when nobody is signed in, and a brand-new
-user is always signed out at the moment the wizard's gate runs — it is mounted globally
-and renders on the sign-in screen. So the wizard read that answer as "already onboarded",
-marked itself complete and returned without ever opening. It also never reached the code
-that records completion on the server, and that server flag was what the in-app tour
-waited for. One ordering bug took out both onboarding surfaces, for every user, since v10.
+user is always signed out at the moment the wizard's gate runs — it is mounted globally and
+renders on the sign-in screen. So the wizard read that answer as "already onboarded", marked
+itself complete and returned without ever opening. It also never reached the code that
+records completion on the server, and that server flag was what the in-app tour waited for.
+One ordering bug took out both onboarding surfaces, for every user, since v10.
 
-**Saving an API key now offers to use it.** The default model is Atlarix Core and nothing
-in the app ever moved it, so adding your own key changed which models were available and
-nothing about which one ran — the next turn still went to Core and still spent Core
-credit. Saving a key now asks whether new chats should use that provider.
+**Onboarding now guides you in place instead of sending you away.** The wizard used to hand
+you off to other screens to read about features. It finishes on the chat screen and hands
+over to a short guided tour that spotlights the real control and names its real shortcut —
+Shift+Tab for work modes, Cmd/Ctrl+J for the model picker.
 
-**And if you end up on Core with a key anyway, the app says so once.** A one-time hint
-points at the model picker and names the shortcut, instead of leaving you to discover it.
+**Saving an API key now offers to use it.** The default model is Atlarix Core and nothing in
+the app ever moved it, so adding your own key changed which models were available and nothing
+about which one ran — the next turn still went to Core and still spent Core credit. Saving a
+key now asks whether new chats should use that provider, and names the model it would pick.
+
+**And if you end up on Core with a key anyway, the app says so once**, pointing at the model
+picker rather than leaving you to find it.
 
 **Light mode has an elevation ladder.** Cards, popovers and the page background were
 `#ffffff`, `#ffffff` and `#fafafa` — card against background measured 1.04:1 and popover
-against card was the same hex, so the whole app was one flat white plane held together by
-a 1.25:1 hairline. Dark mode has always had real steps, which is why it looked the more
+against card was the same hex, so the whole app was one flat white plane held together by a
+1.25:1 hairline. Dark mode has always had real steps, which is why it looked the more
 finished of the two.
 
 ### Added
-- `Coachmark` (`src/components/ui/coachmark.tsx`) — an anchored one-time hint with a
-  dimmed, blurred backdrop, built on the app's own Radix popover and theme tokens.
-- `useHasByokProvider` — "has the user supplied a key?", which `isAnyProviderSetup()`
-  cannot answer: it counts Atlarix Core as a configured cloud provider and so returns
-  true for someone who has supplied nothing.
+
+- `Coachmark` (`src/components/ui/coachmark.tsx`) — an anchored hint with a dimmed, blurred
+  backdrop and an optional step sequence, built on the app's own Radix popover and theme
+  tokens. It generalises the pattern `ChatIntentSelector` has shipped for a while.
+- A guided tour (`src/lib/onboarding/guided-tour.ts`, `src/hooks/useGuidedTour.ts`) that
+  starts when the wizard finishes. Chords come from `lib/shortcuts.ts` — the same table the
+  conformance test dispatches synthetic events against — so a step cannot advertise a key
+  the handler does not listen for. It is recorded as seen on **every** exit, not only the
+  final "Done", so abandoning step one does not bring the whole thing back next launch.
+- `useHasByokProvider` — "has the user supplied a key?", which `isAnyProviderSetup()` cannot
+  answer: it counts Atlarix Core as a configured cloud provider and so returns true for
+  someone who has supplied nothing.
 - `useSelectModel` — one writer for the chat model, replacing the same three lines
   copy-pasted across four components. The easily-forgotten half is the token-count
   invalidation, without which the context meter reports the previous model's budget.
 
 ### Fixed
+
 - `FirstRunWizard` waits for auth to resolve and only opens for a signed-in user, so the
   signed-out "completed" answer is never consulted. `!isAuthenticated` during launch means
   "no answer yet", not "signed out", and the two are now handled separately.
 - "Open Settings → AI" no longer completes the wizard on the way out. It was calling
   `finish()`, so the one user who followed the wizard's own advice to go and add a key was
   also the one user who never saw the step explaining where the model picker is.
+- **"Restart onboarding guide" works.** It re-opens the wizard and clears the record of
+  one-time hints, which previously had no reset path at all. It also no longer tells the
+  server that a long-standing user has never onboarded.
+- **Integrations is no longer a dead end.** The left rail is `showWorkspaceChrome =
+selectedAppId != null` (`src/app/layout.tsx:306`), so before a workspace is picked there is
+  no sidebar on any route — and this page had no back control of its own, stranding the user
+  under a body that says "open a workspace from the welcome screen or sidebar" while showing
+  neither. It now carries `SettingsWorkspaceNav`, which Settings has had all along.
+- The wizard's last step no longer tells a returning user to open their _first_ workspace
+  while the window behind the dialog shows the one they are already in.
 - "Change model" in the chat config dropdown was a dead item whenever the right panel was
-  open: the callback was passed as `undefined` and the handler called `preventDefault`
-  first, so the click did nothing *and* left the menu open. The prop is required now, so a
-  call site cannot withhold it without a compile error.
-- "Restart onboarding guide" clears the local hint record, which previously had no reset
-  path at all, and no longer tells the server that a long-standing user has not onboarded.
+  open: the callback was passed as `undefined` and the handler called `preventDefault` first,
+  so the click did nothing _and_ left the menu open. The prop is required now, so a call site
+  cannot withhold it without a compile error.
 - Deleting workspaces no longer resets onboarding state. Neither call could re-show the
   wizard; their only live effect was on the tour.
 - Light theme: a real ladder (`#f1f4f2` background against white surfaces, 1.11:1, matching
   dark's 1.10:1), a border at 1.42:1 instead of 1.25:1, and `--input` no longer aliasing
   `--muted` so fields read as fields.
-- Light theme secondary text is a neutral slate rather than `#166534`. Its contrast was
-  never the problem (6.8:1); its hue was — a mid-green sitting 1.89:1 from the primary
-  green, so every piece of muted copy read as a link. The fix is hue, not contrast.
+- Light theme secondary text is a neutral slate rather than `#166534`. Its contrast was never
+  the problem (6.8:1); its hue was — a mid-green sitting 1.89:1 from the primary green, so
+  every piece of muted copy read as a link. The fix is hue, not contrast.
 - Six components authored for dark mode only (`ToolCallCard`, `HandoffResultCard`,
   `TerminalOutputAttachmentChip`, `FixAllErrorsDialog` and others) now use theme tokens
   instead of bare `zinc` utilities, which rendered dark-on-white in light mode.
 
 ### Removed
+
 - **`shepherd.js`**, and the tour built on it. It shipped its own stylesheet with no theme
   integration — a hard `#fff` popover and a flat black overlay, wrong in dark mode — was
-  typed as a bare `declare module` so every call was unchecked, and roughly three quarters
-  of its code was unreachable: the per-feature tours had no trigger anywhere in the app,
-  and two of the four pointed at anchors that no longer exist in the DOM. Its first-run
-  tour duplicated the wizard, which now actually runs. One-time hints continue through
-  `Coachmark`; the local state store it used is kept and reused.
+  typed as a bare `declare module` so every call was unchecked, and roughly three quarters of
+  its code was unreachable: the per-feature tours had no trigger anywhere in the app, and two
+  of the four pointed at anchors that no longer exist in the DOM. Its first-run tour
+  duplicated the wizard, which now actually runs.
 
 ### Notes
-- Tests: 4,993 passing, 14 new. The regression test for the onboarding gate was written
-  first and confirmed failing against the shipped code.
+
+- Tests: 5,001 passing, 20 new. The regression test for the onboarding gate was written first
+  and confirmed failing against the shipped code.
 - The old wizard suite passed only because it stubbed `onboarding:get-completed` as
   `{ completed: false }` — the one value production cannot return for a signed-out user.
-- Not changed: the ~110 remaining bare mid-gray utilities (`text-gray-500` and friends).
-  They are legible in light and merely flat in dark; converting them is a separate sweep.
+- The guided tour is two steps, both anchored in the composer row. A right-panel step was
+  written and dropped: `RightPanel` returns null when hidden so its anchor does not exist, and
+  its root is a flex container that a coachmark's inline-flex wrapper would visibly break.
+- Not changed: the ~110 remaining bare mid-gray utilities (`text-gray-500` and friends). They
+  are legible in light and merely flat in dark; converting them is a separate sweep.
 
 ## [14.46.1] (2026-09-15) — A crash that replaced the whole app is fixed
 
@@ -89,6 +114,7 @@ the entire window with "Sorry, that shouldn't have happened!". The work was not 
 app just stopped showing it.
 
 ### Fixed
+
 - `mergeToolItems` in `src/lib/chat/stream-thread.ts` merged two in-flight calls to the same
   tool with an object spread, and object spread copies a property even when its value is
   `undefined` — so a newer event without a summary ERASED the one already there rather than
@@ -102,6 +128,7 @@ app just stopped showing it.
   take the window down with it.
 
 ### Notes
+
 - Tests: 4,979 passing. The regression test drives the real reducer and was verified to fail
   against the shipped code.
 - Nothing else changed. v14.46.0's contents are unaffected.
@@ -132,6 +159,7 @@ nobody can name in advance. It goes through Chrome's own dialog and grants only 
 Atlarix still asks before working on a site you have not allowed.
 
 ### Added
+
 - `run_code` in the extension: a manifest-sandboxed page plus a blob worker, `emit()` for files
   and `zip()` for the OOXML container. `packages/extension/src/sandbox/`,
   `packages/extension/src/tools/run-code.ts`, `packages/extension/src/files/store.ts`.
@@ -146,6 +174,7 @@ Atlarix still asks before working on a site you have not allowed.
   seam in `src/lib/tools/browser.ts` is not built, so no tool reaches it.
 
 ### Changed
+
 - Extension manifest gains `nativeMessaging` and `alarms`, a second sandboxed page, and
   `worker-src blob:` on the sandbox CSP (`child-src 'none'` alone blocks workers, and Chrome
   reports that as a bare error event with no message).
@@ -153,6 +182,7 @@ Atlarix still asks before working on a site you have not allowed.
   claimed to and did not.
 
 ### Fixed
+
 - `build-msix` now depends on `build-linux`, not `quality` alone. It raced the job uploading the
   artifact it downloads, and because that download is `continue-on-error` the miss surfaced two
   minutes later as a missing `atlarix-sandbox-linux` — which reads like a packaging bug. This
@@ -160,6 +190,7 @@ Atlarix still asks before working on a site you have not allowed.
 - The Windows CI runners are un-pinned to `windows-latest`.
 
 ### Notes
+
 - **There is no v14.44.0.** It was never tagged and has no changelog section; the work folded
   into v14.45.0. `docs/TODO.md` claimed it shipped, which is corrected in this release.
 - Tests: 4,974 passing. `oxlint` reports zero errors across `src`, `packages` and `scripts`.
