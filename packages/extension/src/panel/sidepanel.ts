@@ -1490,6 +1490,22 @@ function renderConversation(history: CoreMessage[]): void {
       transcript.append(userBubble(message.content, userIndex));
       userIndex += 1;
     } else if (message.role === "assistant") {
+      // THE REASONING COMES BACK WITH THE CONVERSATION, collapsed.
+      //
+      // It used to live in a local variable in the live turn and vanish the
+      // moment the answer started, so reopening a session showed the answer
+      // with no trace of how it got there. That cost a real bug report: the
+      // model announced it could not see something, and there was nothing left
+      // to read. It renders BEFORE the prose because that is the order it
+      // happened in.
+      if (message.reasoning) {
+        const past = thinkingBlock();
+        past.open = false;
+        const body = past.querySelector("pre");
+        if (body) body.textContent = message.reasoning;
+        settleThinking(past);
+        transcript.append(past);
+      }
       // Prose ends a stretch of work; the tool calls on the SAME message open
       // the next one, which is the order they actually happened in.
       if (message.content) {
