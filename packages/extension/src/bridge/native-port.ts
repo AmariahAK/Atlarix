@@ -125,6 +125,11 @@ export function connectBridge(): void {
     type: "hello",
     protocol: 1,
     extensionVersion: native().runtime.getManifest?.()?.version ?? "unknown",
+    // WHICH BUILD, not just which release. The version follows the app's and so
+    // is identical across rebuilds of one release; this is a hash of the
+    // sources. It is what makes a stale extension load visible in the desktop
+    // log rather than something to be deduced from changed error wording.
+    buildId: __ATLARIX_BUILD_ID__,
     browser: browserName(),
   });
   refineBrowserName(opened);

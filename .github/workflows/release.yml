@@ -990,6 +990,130 @@ jobs:
     # other build jobs get from the top-level env block.
     secrets: inherit
 
+  build-extension:
+    # ══ THE EXTENSION SHIPS WITH EVERY RELEASE (owner, 2026-09-17) ══
+    #
+    # It used to go out on its own `ext-v*` tag with its own version line. Two
+    # release processes for one product meant "which extension goes with this
+    # app" was a question somebody had to answer, and the answer lived nowhere.
+    # Its version is now the app's (`scripts/sync-extension-version.mjs`, which
+    # build-extension.mjs asserts three ways) and the zip is a release asset
+    # like any other.
+    #
+    # THIS JOB IS IN `publish-release`'s `needs`, on the MSIX precedent and for
+    # the same reason: a thing that ships on every release is not optional, and
+    # v14.38.3 is what "optional" cost — the MSIX job failed, nothing was gated
+    # on it, and the majority of users got nothing from a green run. Submitting
+    # to the Store is the opposite case and is deliberately NOT gating; see
+    # `submit-extension`.
+    needs: [quality, create-draft]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.changed.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The changed-since check diffs against the PREVIOUS tag, and the
+          # default shallow clone does not contain it. Without this the check
+          # silently falls back to "changed", which re-submits every release —
+          # the exact behaviour this job exists to avoid.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      # `check:ts` is tsconfig.app.json, whose `include` is ["src","shared"] —
+      # `packages/extension` is invisible to it, so this is the only type check
+      # the shipped extension gets.
+      - name: Type check (extension)
+        run: npm run ts:extension
+
+      # Supabase/proxy values come from the workflow's top-level `env` block,
+      # which jobs in THIS workflow inherit (a called workflow would not).
+      - name: Build extension
+        run: npm run build:extension
+
+      # Resolved by glob rather than reconstructed, so this workflow never
+      # becomes another place that has to know the version.
+      - name: Locate the package
+        id: pkg
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          zips=(packages/extension/dist/atlarix-extension-*.zip)
+          if [ "${#zips[@]}" -ne 1 ]; then
+            echo "Expected exactly one built zip, found ${#zips[@]}: ${zips[*]:-(none)}" >&2
+            exit 1
+          fi
+          echo "zip=${zips[0]}" >> "$GITHUB_OUTPUT"
+          echo "Built ${zips[0]} ($(stat -c%s "${zips[0]}") bytes)"
+
+      - name: Upload extension to release
+        env:
+          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          set -euo pipefail
+          UPLOAD_URL="${{ needs.create-draft.outputs.upload_url }}"
+          UPLOAD_URL="${UPLOAD_URL%\{*}"
+          f="${{ steps.pkg.outputs.zip }}"
+          echo "Uploading $(basename "$f")..."
+          curl -sS --fail-with-body -X POST \
+            -H "Authorization: token $RELEASES_TOKEN" \
+            -H "Content-Type: application/zip" \
+            --data-binary "@$f" \
+            "$UPLOAD_URL?name=$(basename "$f")"
+
+      # Only a REAL change is worth a human reviewer's time, and a submission
+      # cannot be recalled. The input set comes from esbuild's metafile, so a
+      # change to the shared page kernel — which lives under `src/`, outside the
+      # package entirely — counts, and a version-only bump does not.
+      - name: Did the extension actually change?
+        id: changed
+        run: |
+          set -euo pipefail
+          prev=$(git describe --tags --abbrev=0 --match 'v*' "${GITHUB_REF_NAME}^" 2>/dev/null || true)
+          if [ -z "$prev" ]; then
+            echo "No previous v* tag — treating the extension as changed."
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Comparing against $prev"
+          changed=$(node scripts/extension-changed.mjs "$prev")
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+          echo "Extension changed since $prev: $changed"
+
+  submit-extension:
+    # DELIBERATELY NOT IN `publish-release`'s `needs`. Owner's rule: a Store API
+    # failure must never block a desktop release. The zip is already attached by
+    # then, so a failure here costs the Store submission and nothing else.
+    needs: [build-extension]
+    # OFF BY DEFAULT, and the default is the point. A Store submission needs
+    # dashboard copy — the justifications, single purpose, the host-permission
+    # field — that NO CI job can paste, and uploading a package whose copy has
+    # not been updated is how an item gets rejected rather than merely delayed.
+    # 2026-09-17 made that concrete twice over: the nativeMessaging
+    # justification had silently gone stale because it lived only in the
+    # dashboard, and a manual submission was in review when this job would have
+    # fired and replaced its pending draft.
+    #
+    # `build-extension` still attaches the zip to every release, which is what
+    # "the extension ships with every release" actually meant. Turn this on
+    # deliberately: gh variable set CWS_AUTO_SUBMIT --body true
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') &&
+      needs.build-extension.outputs.changed == 'true' &&
+      vars.CWS_AUTO_SUBMIT == 'true'
+    uses: ./.github/workflows/cws.yml
+    with:
+      target: default
+      no_publish: false
+    secrets: inherit
+
   publish-release:
     # build-msix IS REQUIRED. Owner's rule, 2026-08-28: the MSIX ships on EVERY
     # release, and it is never described as optional.
@@ -1013,6 +1137,7 @@ jobs:
         build-linux,
         build-windows,
         build-msix,
+        build-extension,
       ]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')

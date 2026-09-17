@@ -49,6 +49,8 @@ export type BridgeReply =
 export interface BridgeHello {
   type: "hello";
   extensionVersion?: string;
+  /** Hash of the extension's sources — distinguishes rebuilds of one version. */
+  buildId?: string;
   browser?: string;
   protocol?: number;
 }
@@ -187,7 +189,8 @@ export class BridgeServer {
       peer.hello = body as unknown as BridgeHello;
       this.log(
         `browser connected: ${String(body.browser ?? "chromium")} ` +
-          `extension ${String(body.extensionVersion ?? "?")}`,
+          `extension ${String(body.extensionVersion ?? "?")} ` +
+          `build ${String(body.buildId ?? "?")}`,
       );
       this.opts.onHello?.(peer.hello);
       return;

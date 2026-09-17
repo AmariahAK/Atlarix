@@ -23,11 +23,15 @@ import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
 import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
 
 const TAG = "build-extension";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const pkgDir = path.join(root, "packages/extension");
 const outDir = path.join(pkgDir, "dist");
+
+/** Replaced with the real hash once the sources have been read; see BUILD_ID. */
+const BUILD_ID_PLACEHOLDER = "__ATLARIX_BUILD_ID_PENDING__";
 const unpackedDir = path.join(outDir, "unpacked");
 
 /** `--allow-missing-config` builds the shell without Supabase credentials. */
@@ -52,10 +56,20 @@ const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
 const pkg = JSON.parse(
   fs.readFileSync(path.join(pkgDir, "package.json"), "utf8"),
 );
-if (manifest.version !== pkg.version) {
+const rootPkg = JSON.parse(
+  fs.readFileSync(path.join(root, "package.json"), "utf8"),
+);
+// THREE-WAY, AS OF 2026-09-17. The extension used to carry its own version line
+// (1.0.x against the app's 14.x) because it shipped on its own cadence. It now
+// ships with every desktop release, so the app's version IS the extension's —
+// one number, and "which app build is this extension from" stops being a
+// question anyone has to answer. `npm run sync:extension-version` writes it.
+if (manifest.version !== pkg.version || manifest.version !== rootPkg.version) {
   fatal(
     `version mismatch — manifest.json says ${manifest.version}, ` +
-      `packages/extension/package.json says ${pkg.version}`,
+      `packages/extension/package.json says ${pkg.version}, ` +
+      `and the app is ${rootPkg.version}. ` +
+      `Run \`npm run sync:extension-version\` to line them up.`,
   );
 }
 const version = manifest.version;
@@ -180,6 +194,7 @@ const result = await build({
     __ATLARIX_SUPABASE_URL__: JSON.stringify(supabaseUrl),
     __ATLARIX_SUPABASE_ANON_KEY__: JSON.stringify(supabaseAnonKey),
     __ATLARIX_EXTENSION_VERSION__: JSON.stringify(version),
+    __ATLARIX_BUILD_ID__: JSON.stringify(BUILD_ID_PLACEHOLDER),
     __ATLARIX_CORE_PROXY_URL__: JSON.stringify(coreProxyUrl),
   },
   plugins: [noNodeBuiltinsPlugin],
@@ -482,18 +497,91 @@ function makeZip(files) {
   return Buffer.concat([...locals, centralBuf, eocd]);
 }
 
+// EVERY SOURCE FILE THAT WENT INTO THIS BUILD, for two jobs: the release's
+// changed-since check, and the build id below.
+//
+// Taken from esbuild's metafile rather than a list of directories, because the
+// bundle reaches OUTSIDE the package: `bridge/serve.ts` pulls in
+// `src/lib/browser/page-scripts` and `a11y-format`, so a kernel change is an
+// extension change and a path heuristic rooted at packages/extension would miss
+// it — and shipping a stale extension is invisible until a user hits it.
+const inputs = [
+  ...new Set([
+    ...Object.keys(result.metafile.inputs),
+    ...Object.keys(sandboxResult.metafile.inputs),
+    "scripts/build-extension.mjs",
+    "packages/extension/manifest.json",
+  ]),
+]
+  .map((f) => path.relative(root, path.resolve(root, f)))
+  .filter((f) => !f.startsWith("..") && !f.includes("node_modules"))
+  .sort();
+fs.writeFileSync(
+  path.join(outDir, "inputs.json"),
+  JSON.stringify(inputs, null, 2) + "\n",
+);
+
+// WHICH BUILD IS ACTUALLY LOADED IN A BROWSER.
+//
+// The extension's version follows the app's, so it does NOT change between
+// rebuilds of one release — which made "did my reload take?" unanswerable. It
+// cost a live test: the desktop log said `extension 14.47.0`, the browser was
+// running a build from an hour earlier, and the only tell was a refusal quoting
+// wording that had since changed. The desktop prints this id on connect.
+//
+// HASHED FROM THE INPUTS, NEVER A TIMESTAMP. `cws.yml` states the zip is
+// reproducible so a reviewer's copy can be checksum-compared against a local
+// rebuild; a clock in the bundle would quietly make that false. Identical
+// sources give an identical id.
+const digest = createHash("sha256");
+for (const f of inputs) {
+  digest.update(f);
+  digest.update("\0");
+  try {
+    digest.update(fs.readFileSync(path.join(root, f)));
+  } catch {
+    // A metafile entry that is not a readable file (a virtual module). Its path
+    // still participates, which is all that is needed.
+  }
+}
+const BUILD_ID = digest.digest("hex").slice(0, 12);
+
+// Substituted after the fact rather than defined up front: the id is a hash OF
+// these sources and cannot be known before they are read.
+for (const name of fs.readdirSync(unpackedDir)) {
+  if (!name.endsWith(".js")) continue;
+  const file = path.join(unpackedDir, name);
+  const before = fs.readFileSync(file, "utf8");
+  if (!before.includes(BUILD_ID_PLACEHOLDER)) continue;
+  fs.writeFileSync(file, before.split(BUILD_ID_PLACEHOLDER).join(BUILD_ID));
+}
+
 const files = walk(unpackedDir);
 // manifest.json must sit at the ROOT of the archive, not under a folder — the
 // commonest way a first Web Store upload is rejected.
 if (!files.some((f) => f.name === "manifest.json")) {
   fatal("manifest.json is not at the zip root");
 }
+// PRUNE STALE ZIPS FIRST. The version now follows the app's, so it changes on
+// every release and a rebuilt dist/ accumulates one zip per version. CI asserts
+// there is EXACTLY ONE (`Locate the package`), so the second one turns a good
+// build into a confusing "found 2" failure — and locally it means uploading
+// whichever the glob happened to pick. Only this exact family is removed.
+for (const stale of fs.readdirSync(outDir)) {
+  if (/^atlarix-extension-.*\.zip$/.test(stale)) {
+    fs.rmSync(path.join(outDir, stale));
+  }
+}
+
 const zipPath = path.join(outDir, `atlarix-extension-${version}.zip`);
 const zip = makeZip(files);
 fs.writeFileSync(zipPath, zip);
 
 console.log(
   `[${TAG}] wrote ${path.relative(root, unpackedDir)} (${files.length} files)`,
+);
+console.log(
+  `[${TAG}] ${inputs.length} inputs, build ${BUILD_ID} -> dist/inputs.json`,
 );
 console.log(
   `[${TAG}] wrote ${path.relative(root, zipPath)} ` +

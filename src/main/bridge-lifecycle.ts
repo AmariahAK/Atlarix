@@ -88,7 +88,7 @@ export async function startBridge(): Promise<void> {
       onLog: (message) => logger.info(message),
       onHello: (hello) =>
         logger.info(
-          `browser attached: ${hello.browser ?? "chromium"} extension ${hello.extensionVersion ?? "?"}`,
+          `browser attached: ${hello.browser ?? "chromium"} extension ${hello.extensionVersion ?? "?"} build ${hello.buildId ?? "?"}`,
         ),
     });
     await next.listen();

@@ -26,6 +26,15 @@ declare const __ATLARIX_SUPABASE_ANON_KEY__: string;
 declare const __ATLARIX_EXTENSION_VERSION__: string;
 
 /**
+ * A hash of the sources this bundle was built from.
+ *
+ * The version follows the app's and so does not change between rebuilds of one
+ * release; this does. The desktop logs it on connect, which is how a stale
+ * extension load is spotted instead of being debugged.
+ */
+declare const __ATLARIX_BUILD_ID__: string;
+
+/**
  * The Atlarix Core proxy, e.g. `https://…up.railway.app` or `…/v1`.
  *
  * Public — it is a hostname, and the managed PROVIDER keys live on the proxy,

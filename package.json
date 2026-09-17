@@ -71,7 +71,10 @@
     "check:functions": "deno check supabase/functions/_shared/*.ts supabase/functions/*/index.ts",
     "check:i18n": "node scripts/check-i18n.mjs",
     "gen:readme-catalog": "node scripts/gen-readme-catalog.mjs",
-    "check:readme-catalog": "node scripts/gen-readme-catalog.mjs --check"
+    "check:readme-catalog": "node scripts/gen-readme-catalog.mjs --check",
+    "sync:extension-version": "node scripts/sync-extension-version.mjs",
+    "check:extension-version": "node scripts/sync-extension-version.mjs --check",
+    "extension:changed": "node scripts/extension-changed.mjs"
   },
   "keywords": [
     "ai",

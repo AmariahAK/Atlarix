@@ -1,17 +1,23 @@
 # Build the Chrome extension and submit it to the Chrome Web Store.
 #
-# ══ ITS OWN TRIGGER, NOT THE RELEASE TAG ══
+# ══ IT NOW HANGS OFF THE RELEASE TAG (owner, 2026-09-17) ══
 #
-# `msix.yml` hangs off `release.yml` because the MSIX ships on every desktop
-# release and was never optional. The extension is the other case: its version
-# is decoupled from the app's (1.0.0 against the app's 14.45.0), its cadence is
-# different, and `publish` here enters a HUMAN REVIEW QUEUE rather than
-# deploying. Coupling it to `v*` would mean every desktop patch release
-# re-submits an unchanged extension into that queue.
+# This used to have its own `ext-v*` trigger, and the reason given was that the
+# extension's version was decoupled from the app's and its cadence differed.
+# Both halves of that are gone: the extension ships with every desktop release
+# and its version IS the app's (`scripts/sync-extension-version.mjs`).
 #
-# So: `ext-v*` tags, plus `workflow_dispatch` for a manual draft or a staged
-# rollout. If that turns out to be wrong, the change is one `on:` block — but
-# make it deliberately, because a submission cannot be un-submitted.
+# The ONE true objection in the old note survives, and is answered rather than
+# ignored: `publish` here enters a HUMAN REVIEW QUEUE and cannot be recalled, so
+# coupling naively to `v*` would re-submit an unchanged extension on every
+# desktop patch. `release.yml` therefore builds and attaches the zip on EVERY
+# release, and calls this workflow only when `scripts/extension-changed.mjs`
+# says the bundle's actual inputs differ from the previous tag — a set taken
+# from esbuild's metafile, not from a directory, because 7 of the 74 inputs live
+# outside `packages/extension`.
+#
+# `ext-v*` is kept as an escape hatch for shipping the extension between desktop
+# releases. `workflow_dispatch` remains for a manual draft or a staged rollout.
 #
 # ══ THIS NEVER GATES ANYTHING ══
 #
@@ -35,6 +41,26 @@ on:
   push:
     tags:
       - "ext-v*"
+  # Called by release.yml on a `v*` tag, and only when the extension changed.
+  # Inputs are duplicated rather than shared because GitHub has no way to reuse
+  # a `workflow_dispatch` input block for `workflow_call`.
+  workflow_call:
+    inputs:
+      target:
+        description: "Who receives it"
+        required: false
+        default: "default"
+        type: string
+      deploy_percentage:
+        description: "Staged rollout % for the public target (blank = 100%)"
+        required: false
+        default: ""
+        type: string
+      no_publish:
+        description: "Upload the draft only — do not submit for review"
+        required: false
+        default: false
+        type: boolean
   workflow_dispatch:
     inputs:
       target:
