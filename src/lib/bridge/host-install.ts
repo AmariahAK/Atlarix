@@ -62,6 +62,16 @@ export const BRIDGE_HOST_NAME = "dev.atlarix.bridge";
 export const BRIDGE_EXTENSION_ID = "fkoacefbjjjhjceidagdajkgclfjacbe";
 export const BRIDGE_ALLOWED_ORIGIN = `chrome-extension://${BRIDGE_EXTENSION_ID}/`;
 
+/**
+ * Where a user without the extension goes to get it.
+ *
+ * DERIVED, never a second literal. The id appears once in this codebase and
+ * everything that needs it — the allowed origin, the host manifest, this link —
+ * is built from that one constant, so a re-publish under a different id cannot
+ * leave a stale URL pointing at someone else's extension.
+ */
+export const CHROME_STORE_URL = `https://chromewebstore.google.com/detail/${BRIDGE_EXTENSION_ID}`;
+
 /** Derive a Chrome extension id from a manifest `key`, for the pinning test. */
 export function extensionIdFromKey(base64Key: string): string {
   const digest = createHash("sha256")

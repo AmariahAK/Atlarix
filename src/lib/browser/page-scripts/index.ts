@@ -182,12 +182,46 @@ export interface PageActionResult {
   url?: string;
 }
 
+/**
+ * Raw visible text, for `browser_inspect(mode:"text")`.
+ *
+ * SEPARATE FROM THE SNAPSHOT ON PURPOSE. A snapshot is a structured a11y tree
+ * with refs; this is what a person would select and copy. A caller that wants
+ * prose — an article, an error page, a licence — gets nothing useful from a
+ * list of controls, and the two cannot share a return shape without one of them
+ * lying about what it contains.
+ *
+ * `clipped` is reported rather than silently truncating, because a model that
+ * cannot tell a short page from a cut-off one will summarise half a document
+ * and present it as the whole.
+ */
+export interface PageTextResult {
+  ok: boolean;
+  error?: string;
+  text: string;
+  clipped: boolean;
+  url?: string;
+  title?: string;
+  /** Present when the document has scrollable content, so a caller can say
+   *  whether there is more below what this text covers. */
+  scrollY?: number;
+  scrollMax?: number;
+}
+
 /** Max elements per read — keeps the payload small on huge pages. */
 export const MAX_ELEMENTS = 200;
 /** The combined read carries content too, so it gets a larger budget. */
 export const MAX_ELEMENTS_ALL = 400;
 /** Max matches returned by action:"find" before asking for a narrower query. */
 export const MAX_FIND_MATCHES = 20;
+/**
+ * Character budget for `op: "text"`.
+ *
+ * Shared rather than per-backend: the desktop and the extension must clip at
+ * the same point or the same page returns two different documents depending on
+ * which browser answered, and `clipped` stops meaning anything comparable.
+ */
+export const PAGE_TEXT_MAX_CHARS = 60_000;
 
 /** What the kernel is being asked to do. Must be JSON-serializable: the
  *  extension passes it through `chrome.scripting.executeScript`'s `args`, which
@@ -223,6 +257,7 @@ export type PageRequest =
    * rather than growing a second one.
    */
   | { op: "search-results"; max: number }
+  | { op: "text"; selector?: string; max: number }
   | { op: "click"; ref?: string; selector?: string }
   | { op: "fill"; ref?: string; selector?: string; value: string | boolean }
   /**
@@ -273,7 +308,12 @@ export type PageRequest =
  */
 export function atlarixPageKernel(
   req: PageRequest,
-): A11ySnapshot | A11yFindResult | PageActionResult | SearchResultsPayload {
+):
+  | A11ySnapshot
+  | A11yFindResult
+  | PageActionResult
+  | SearchResultsPayload
+  | PageTextResult {
   // The ref registry lives on the page's own window: a WeakMap keyed on DOM
   // nodes cannot be held by the main process, and is equally out of reach of a
   // service worker. It is also why the extension must inject with
@@ -793,9 +833,21 @@ export function atlarixPageKernel(
           "box-shadow:0 1px 6px rgba(0,0,0,.35);";
         frame.appendChild(tag);
         document.body.appendChild(frame);
+        // TWO WAYS IN, BECAUSE rAF DOES NOT FIRE IN A BACKGROUND TAB.
+        // The frame is built at opacity 0 and faded in. That was fine while the
+        // only caller was the panel, which drives the tab the user is looking
+        // at — but the desktop bridge opens its tabs inactive, so the callback
+        // never ran and the frame sat at zero opacity: present in the DOM,
+        // invisible on screen, and reported as a success by every layer. The
+        // timer is clamped to about 1 Hz in a hidden tab, which is slower than
+        // the fade and completely fine for a thing whose only job is to be seen
+        // eventually.
         requestAnimationFrame(function () {
           frame.style.opacity = "1";
         });
+        setTimeout(function () {
+          frame.style.opacity = "1";
+        }, 0);
       }
       const label = document.querySelector(
         "#" + FRAME_ID + ' [data-part="frame-label"]',
@@ -825,6 +877,55 @@ export function atlarixPageKernel(
       scrollY: Math.round(doc.scrollTop),
       scrollMax: Math.max(0, Math.round(doc.scrollHeight - window.innerHeight)),
       url: location.href,
+    };
+  }
+
+  if (req.op === "text") {
+    // innerText, NOT textContent. textContent returns the text of script and
+    // style elements and of anything display:none, all run together with no
+    // line breaks — it reads as garbage and inflates the payload with code the
+    // model then tries to interpret. innerText is render-aware: it is what a
+    // person selecting the page would get. textContent is the fallback only for
+    // a root that is not being rendered at all.
+    const root: Element | null = req.selector
+      ? document.querySelector(req.selector)
+      : document.body;
+    if (!root) {
+      return {
+        ok: false,
+        error:
+          'No element matched selector "' +
+          String(req.selector) +
+          '". Read the page first to see what is there.',
+        text: "",
+        clipped: false,
+        url: location.href,
+      };
+    }
+    let raw = (root as HTMLElement).innerText;
+    if (typeof raw !== "string") {
+      // THE FALLBACK HAD TO BE CLEANED, not just kept. innerText is
+      // layout-dependent and simply absent for a non-HTML element (an SVG root
+      // reached by selector) and in non-rendering hosts. textContent is the only
+      // other option, but it returns the SOURCE of script and style elements —
+      // so a page with an inline script handed the model a block of JavaScript
+      // labelled as page text, which it then tried to interpret. Strip them on a
+      // clone so the live document is untouched.
+      const clone = root.cloneNode(true) as Element;
+      const junk = clone.querySelectorAll("script,style,noscript,template");
+      for (let i = 0; i < junk.length; i++) junk[i].remove();
+      raw = clone.textContent ?? "";
+    }
+    const clipped = raw.length > req.max;
+    const doc = document.scrollingElement || document.documentElement;
+    return {
+      ok: true,
+      text: clipped ? raw.slice(0, req.max) : raw,
+      clipped,
+      url: location.href,
+      title: document.title,
+      scrollY: Math.round(doc.scrollTop),
+      scrollMax: Math.max(0, Math.round(doc.scrollHeight - window.innerHeight)),
     };
   }
 

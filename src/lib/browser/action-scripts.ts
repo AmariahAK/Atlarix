@@ -129,7 +129,15 @@ export function scrollToScript(target: Target): string {
   return `(() => ${kernelCall({ op: "resolve", ...target })}.ok)()`;
 }
 
-/** Scroll the page itself. Not a kernel op: it takes a direction, not a target. */
+/**
+ * Scroll the page itself.
+ *
+ * A kernel `scroll` op DOES exist (`page-scripts/index.ts`) and the extension
+ * uses it — this comment used to say there was none, which stopped being true
+ * when the op was added. The desktop keeps its own builder for two things the
+ * kernel op does not do: horizontal scrolling (left/right), and drawing the AI
+ * cursor label so the user can see the page being driven.
+ */
 export function scrollByScript(direction: string, amount: number): string {
   return `(() => {
         ${AI_CURSOR_LABEL_JS(`scroll ${direction}`, AI_CURSOR_DURATION_MS)}
