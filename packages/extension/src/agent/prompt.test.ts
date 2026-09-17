@@ -349,12 +349,22 @@ describe("attachments in the prompt", () => {
 });
 
 describe("connectors in the prompt", () => {
-  it("explains them in BASE, which is paid for once and cached forever", () => {
-    const p = buildSystemPrompt(base);
+  it("explains them only to an account that HAS one", () => {
+    // This paragraph used to sit in BASE, so every user paid ~90 tokens on
+    // every round of every turn to be told how a feature works that most of
+    // them have not set up. It is six lines a weak model also has to reason
+    // past. The wording is unchanged — only when it is sent.
+    const p = buildSystemPrompt({ ...base, connectors: ["Linear"] });
     expect(p).toMatch(/Connectors are services the user attached/);
     expect(p).toMatch(/NOT in your tool list/);
     // The instruction that makes discovery work: list, THEN decide.
     expect(p).toMatch(/never assume a connector exists and never assume one does not/);
+  });
+
+  it("says nothing about how connectors work when there are none", () => {
+    expect(buildSystemPrompt(base)).not.toMatch(
+      /Connectors are services the user attached/,
+    );
   });
 
   it("names them, and carries nothing else about them", () => {
@@ -378,5 +388,21 @@ describe("connectors in the prompt", () => {
     expect(p.indexOf("Connectors set up on this account")).toBeLessThan(
       p.indexOf("Today's date is"),
     );
+  });
+});
+
+describe("what it says about not being able to see", () => {
+  /**
+   * The owner's third report: the model announced it could not see something.
+   * The prompt already said *"I cannot see that" is almost never true* — a
+   * scolding, and it did not take. Telling a model its instinct is wrong leaves
+   * it with the instinct; telling it what it actually has replaces it.
+   */
+  it("says what it reads, rather than telling it off for saying it cannot", () => {
+    const p = buildSystemPrompt(base);
+    expect(p).toMatch(/TEXT AND STRUCTURE/);
+    expect(p).toMatch(/below the fold included/);
+    expect(p).toMatch(/not a picture of it/);
+    expect(p).not.toMatch(/almost never true/);
   });
 });
