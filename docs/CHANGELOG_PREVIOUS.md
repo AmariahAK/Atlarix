@@ -8,6 +8,11 @@
 > nobody is running — the app auto-updates — while the question it actually gets asked
 > is "when did X ship?", which a one-line index answers better than prose does.
 
+- **14.39.3** (2026-09-01) — The headless agent becomes installable, and stops handicapping itself
+- **14.39.2** (2026-09-01) — The trial credit goes to real accounts
+- **14.39.1** (2026-09-01) — A summary that stays out of the way, and a clearer answer about data
+- **14.39.0** (2026-09-01) — One way of compacting, and a way back to what it summarised
+- **14.38.4** (2026-08-29) — Sign-in works again, and signing out no longer leaves a window signed in
 - **14.38.3** (2026-08-28) — Core 1 is GLM 5.3, and the dead half of the realtime teardown is gone
 - **14.38.2** (2026-08-27) — Your plan updates when you come back, and Settings stops describing a button that is not there
 - **14.38.1** (2026-08-27) — The usage bar says a percentage, and two startup bugs
