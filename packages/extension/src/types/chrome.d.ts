@@ -47,11 +47,12 @@ declare namespace chrome {
    * Optional host access, requested per origin at the moment the user grants a
    * site.
    *
-   * THIS API NEEDS NO PERMISSION STRING of its own — only the
-   * `optional_host_permissions` entry in the manifest that says which origins
-   * may ever be asked for. Requesting rather than declaring is what keeps the
-   * install prompt free of "read your data on all websites" on an extension
-   * that will also ask for `debugger`.
+   * THIS API NEEDS NO PERMISSION STRING of its own. Host access moved to
+   * REQUIRED `host_permissions` on 2026-09-17 so the desktop app never has to
+   * ask, which means `request()` for an origin the manifest already holds
+   * resolves true without a prompt. It is kept because `contains()` is still
+   * how we read what Chrome currently allows — a user can narrow site access
+   * from chrome://extensions at any time, and Chrome does not tell us.
    *
    * `request()` REQUIRES A USER GESTURE and cannot be called from the service
    * worker, so it lives in the side panel. That is a containment property, not
@@ -232,6 +233,19 @@ declare namespace chrome {
     /** The user can click Cancel on the banner — this is a normal path. */
     const onDetach: {
       addListener(cb: (source: Debuggee, reason: string) => void): void;
+    };
+    /**
+     * Protocol events for every attached tab, on ONE listener.
+     *
+     * `Runtime.consoleAPICalled` and the `Network.*` family arrive here, which
+     * is what makes console and network capture possible at all — they are
+     * pushed, not polled, so a read that happens after the fact still sees what
+     * the page did, provided we were attached when it did it.
+     */
+    const onEvent: {
+      addListener(
+        cb: (source: Debuggee, method: string, params?: unknown) => void,
+      ): void;
     };
   }
 

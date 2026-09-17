@@ -30,6 +30,35 @@ interface Fake {
   log: string[];
 }
 
+/**
+ * Does held match pattern `held` cover requested pattern `want`?
+ *
+ * Enough of Chrome's match-pattern algebra for these tests: scheme wildcard,
+ * host wildcard, `*.suffix` host wildcard, and a `/*` path. Deliberately not a
+ * full implementation — an incomplete one that is honest about its scope beats
+ * a sprawling one nobody trusts.
+ */
+function patternCovers(held: string, want: string): boolean {
+  if (held === want) return true;
+  const parse = (p: string) => {
+    const m = /^(\*|https?):\/\/([^/]*)(\/.*)?$/.exec(p);
+    return m ? { scheme: m[1]!, host: m[2]!, path: m[3] ?? "/" } : null;
+  };
+  const h = parse(held);
+  const w = parse(want);
+  if (!h || !w) return false;
+  if (h.scheme !== "*" && h.scheme !== w.scheme) return false;
+  if (h.host !== "*") {
+    if (h.host.startsWith("*.")) {
+      const suffix = h.host.slice(1); // ".example.com"
+      if (!(w.host === h.host.slice(2) || w.host.endsWith(suffix))) return false;
+    } else if (h.host !== w.host) {
+      return false;
+    }
+  }
+  return h.path === "/*" || h.path === w.path;
+}
+
 function installFakeChrome(opts: { grants?: boolean } = {}): Fake {
   const store = new Map<string, unknown>();
   const held = new Set<string>();
@@ -66,7 +95,20 @@ function installFakeChrome(opts: { grants?: boolean } = {}): Fake {
     permissions: {
       request,
       async contains({ origins }: { origins?: string[] }) {
-        return (origins ?? []).every((o) => held.has(o));
+        // CHROME SUBSUMES PATTERNS, and a set lookup does not.
+        //
+        // This was `held.has(o)`, which answers "did we request this exact
+        // string". Real `permissions.contains()` answers "is this covered",
+        // so holding `https://*/*` makes a query for `https://a.example.com/*`
+        // return TRUE. The difference is not academic: `host_permissions` now
+        // declares the broad patterns, so EVERY `hasHostAccess` call in
+        // production is a specific-origin query answered by a broad grant. An
+        // exact-match fake reports every one of them as denied, which would fail
+        // tests for a reason that cannot happen in Chrome — and, worse, let a
+        // real "this origin is not covered" bug pass unnoticed.
+        return (origins ?? []).every((o) =>
+          [...held].some((h) => patternCovers(h, o)),
+        );
       },
       async remove({ origins }: { origins?: string[] }) {
         log.push("permissions.remove");

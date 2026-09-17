@@ -4,9 +4,11 @@
  * `site-grants.ts` records the user's INTENT, and its own docblock is honest
  * about the limit: `chrome.storage` is a LevelDB file any local process running
  * as the user can rewrite, so a record there is not a boundary. This module is
- * the boundary. Every grant is backed by a real `optional_host_permissions`
- * request, so an origin the user has not approved is one the browser will not
- * let us script — whatever the stored record says.
+ * the boundary. Host access is a REQUIRED `host_permissions` entry as of
+ * 2026-09-17 — the desktop app must never have to ask — so Chrome grants it at
+ * install, and a user NARROWS it from chrome://extensions rather than widening
+ * it from here. `hasHostAccess` therefore still answers honestly once someone
+ * sets a site to "On click".
  *
  * THE TWO MUST BE WRITTEN IN THIS ORDER, and it is the whole point:
  *
@@ -60,8 +62,8 @@ export type GrantOutcome =
 export async function requestHostAccess(url: string): Promise<GrantOutcome> {
   const pattern = matchPatternFor(url);
   // `originOf` returns null for anything that is not http(s) — a chrome://,
-  // file:// or about: page. The manifest's optional_host_permissions says the
-  // same thing, so this is the code and the manifest agreeing rather than two
+  // file:// or about: page. The manifest's host_permissions says the same
+  // thing, so this is the code and the manifest agreeing rather than two
   // separate rules.
   if (!pattern) return { ok: false, reason: "unsupported-scheme" };
 
@@ -74,9 +76,21 @@ export async function requestHostAccess(url: string): Promise<GrantOutcome> {
 
 /** Drop both halves. Leaving either behind is a lie about the other. */
 export async function revokeHostAccess(url: string): Promise<void> {
+  // CAUGHT, BECAUSE THIS CAN NO LONGER SUCCEED FOR THE BROAD PATTERNS.
+  // `http://*/*` and `https://*/*` are REQUIRED host permissions as of
+  // 2026-09-17, and Chrome refuses to let an extension give a required
+  // permission back — an uncaught rejection here would turn the settings
+  // "Revoke" button into an error. It is still attempted because a profile
+  // upgraded from the optional era may hold narrow per-origin patterns that CAN
+  // be dropped, and because the stored record below is what gates the panel.
+  //
+  // WHAT THIS NO LONGER DOES is stop the DESKTOP app. Nothing gates that path;
+  // see `bridge/serve.ts`.
   const pattern = matchPatternFor(url);
   if (pattern) {
-    await api().permissions.remove({ origins: [pattern] });
+    await api()
+      .permissions.remove({ origins: [pattern] })
+      .catch(() => false);
   }
   await revokeSite(url);
 }
