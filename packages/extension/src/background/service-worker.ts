@@ -24,26 +24,8 @@
 import { api } from "../shared/browser-api";
 import { connectBridge, installBridgeAlarm } from "../bridge/native-port";
 
-/**
- * Clicking the toolbar icon opens the side panel.
- *
- * This is why `action` in the manifest has no `default_popup`: a popup would
- * consume the click and the side panel would never open. Called at top level
- * rather than in `onInstalled`, because the worker is re-created after every
- * termination and the behaviour has to be re-registered each time.
- */
-api()
-  .sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
-  .catch((err: unknown) => {
-    // Firefox has `sidebarAction`, not `sidePanel`, and a port would reach this
-    // line before `browser-api.ts`'s capability probe could degrade it. Log
-    // rather than throw: an unhandled rejection at worker top level is reported
-    // as a broken extension.
-    console.error("[atlarix] sidePanel.setPanelBehavior failed", err);
-  });
-
 // ---------------------------------------------------------------------------
-// The desktop bridge
+// The desktop bridge — FIRST, and the order is the bug fix
 // ---------------------------------------------------------------------------
 
 /**
@@ -61,3 +43,81 @@ api()
  */
 installBridgeAlarm();
 connectBridge();
+
+// ---------------------------------------------------------------------------
+// Opening the panel
+// ---------------------------------------------------------------------------
+
+/**
+ * Clicking the toolbar icon opens the side panel — or a window, where there is
+ * no side panel to open.
+ *
+ * ══ WHY THIS IS BELOW THE BRIDGE AND WRAPPED, NOT AT THE TOP ══
+ *
+ * It used to be the worker's FIRST statement, written as
+ * `api().sidePanel.setPanelBehavior({…}).catch(log)`. In a Chromium fork with
+ * no `chrome.sidePanel` — Arc is the reported case — `api().sidePanel` is
+ * undefined and reading `.setPanelBehavior` throws a SYNCHRONOUS TypeError. The
+ * `.catch()` could never fire: it is chained onto the result of a call that
+ * never happened. Module evaluation aborted on line one, so `connectBridge()`
+ * below never ran and the extension was not panel-less, it was INERT. The user
+ * report was "it downloaded, but it didn't turn on", and that is exactly right.
+ *
+ * Two things follow, and the first matters more than the fallback:
+ *
+ *   1. The bridge starts BEFORE any of this. Panel wiring is presentation; a
+ *      browser quirk in it must never be able to take the desktop connection
+ *      down with it. Ordering is the fix; the try/catch is the belt.
+ *   2. Feature-detect rather than assume. `browser-api.ts` now types
+ *      `sidePanel` as optional, so this class of mistake is a type error.
+ *
+ * ══ WHY `onClicked` IS AVAILABLE EXACTLY WHEN IT IS NEEDED ══
+ *
+ * `action.onClicked` fires only when the action has neither a `default_popup`
+ * nor a registered panel behaviour. The manifest deliberately has no popup (it
+ * would consume the click and the panel would never open), so in a browser
+ * without `sidePanel` there is no behaviour to register either — which is the
+ * one situation where `onClicked` fires. The fallback is there precisely when
+ * the thing it replaces is not.
+ *
+ * Registered at top level rather than in `onInstalled`: the worker is recreated
+ * after every termination, so this has to re-register each time.
+ */
+function wirePanelOpening(): void {
+  try {
+    const ns = api();
+    const panel = ns.sidePanel;
+    if (panel?.setPanelBehavior) {
+      void panel
+        .setPanelBehavior({ openPanelOnActionClick: true })
+        .catch((err: unknown) => {
+          console.error("[atlarix] sidePanel.setPanelBehavior failed", err);
+        });
+      return;
+    }
+
+    // No side panel in this browser. Open the same document in a window.
+    ns.action?.onClicked.addListener(() => {
+      void ns.windows
+        .create({
+          url: ns.runtime.getURL("sidepanel.html"),
+          type: "popup",
+          width: 460,
+          height: 760,
+        })
+        .catch((err: unknown) => {
+          console.error("[atlarix] could not open the panel window", err);
+        });
+    });
+    console.info(
+      "[atlarix] no chrome.sidePanel in this browser — the toolbar button " +
+        "opens Atlarix in a window instead.",
+    );
+  } catch (err) {
+    // Nothing about opening a panel may break the worker. The bridge is already
+    // connected by the time this runs, and that is the point.
+    console.error("[atlarix] panel wiring failed", err);
+  }
+}
+
+wirePanelOpening();
