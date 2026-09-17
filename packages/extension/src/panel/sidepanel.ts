@@ -74,6 +74,7 @@ import { runTurn } from "../agent/loop";
 import { clearDrivenTabs, type Approval } from "../tools/dispatch";
 import { buildSystemPrompt } from "../agent/prompt";
 import { StreamPacer } from "./stream-pacer";
+import { errorMessageNodes } from "./error-link";
 import { buildNotesSection } from "../memory/index-render";
 import { migrateLegacyFacts } from "../memory/migrate";
 import { syncNotes } from "../memory/sync";
@@ -1082,7 +1083,12 @@ function workingRow(): HTMLElement {
 function errorBubble(text: string): HTMLElement {
   const div = document.createElement("div");
   div.className = "msg msg--error";
-  div.textContent = text;
+  // NOT `textContent`. The credit error ends "Top up at atlarix.dev/account"
+  // and that was rendered as prose, so the person who had just run out had to
+  // read an address off the screen and retype it. `errorMessageNodes` links
+  // that one literal and leaves everything else — including any URL a provider
+  // put in its own message — as plain text.
+  for (const node of errorMessageNodes(text)) div.append(node);
   return div;
 }
 

@@ -563,6 +563,19 @@ body {
 }
 
 /*
+ * The one link an error ever carries — "Top up at atlarix.dev/account".
+ *
+ * Inherits the bubble's colour instead of taking `--primary`: the accent green
+ * on the error red reads as a second, happier message, and this is the same
+ * one. The underline is what makes it recognisably a link without a colour.
+ */
+.msg--error a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/*
  * A tool call, collapsed to one line.
  *
  * `<details>` rather than a button plus state: it is the one disclosure widget
