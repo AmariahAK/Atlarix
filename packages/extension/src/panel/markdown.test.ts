@@ -253,3 +253,77 @@ describe("italics", () => {
     expect(host.querySelector("em")).toBeNull();
   });
 });
+
+/**
+ * Tables, promoted out of "unhandled is legible" on 2026-09-17.
+ *
+ * That rule holds for a blockquote, whose raw text still reads as what it is.
+ * A table's raw text is a wall of pipes and dashes, which is not a plainer
+ * rendering of the content — it is a wrong one. The owner hit it the first time
+ * a model answered with a comparison.
+ *
+ * The risky half is NOT the happy path: it is everything that looks a bit like
+ * a table and is not. Inventing structure that the model did not mean is worse
+ * than showing pipes, so most of these assert that prose is left alone.
+ */
+describe("tables", () => {
+  const TABLE = [
+    "| Tab | Site | Permission |",
+    "| --- | --- | --- |",
+    "| 554529584 | news.ycombinator.com | not granted |",
+    "| 554529585 | github.com | granted |",
+  ].join("\n");
+
+  it("renders a real table as a table", () => {
+    const el = render(TABLE);
+    const table = el.querySelector("table");
+    expect(table).not.toBeNull();
+    expect(el.querySelectorAll("thead th")).toHaveLength(3);
+    expect(el.querySelectorAll("tbody tr")).toHaveLength(2);
+    expect(el.querySelectorAll("tbody tr")[1].children[1].textContent).toBe(
+      "github.com",
+    );
+  });
+
+  it("still builds every node, never parsing HTML", () => {
+    const el = render("| A |\n| --- |\n| <img src=x onerror=alert(1)> |");
+    expect(el.querySelector("img")).toBeNull();
+    expect(el.querySelector("td")?.textContent).toContain("<img");
+  });
+
+  it("survives a ragged row without shifting later columns", () => {
+    // Common while a table is still streaming in.
+    const el = render("| A | B | C |\n| --- | --- | --- |\n| 1 | 2 |");
+    const cells = el.querySelectorAll("tbody td");
+    expect(cells).toHaveLength(3);
+    expect(cells[2].textContent).toBe("");
+  });
+
+  it("leaves a sentence containing a pipe alone", () => {
+    const el = render("Use grep | wc -l to count them.");
+    expect(el.querySelector("table")).toBeNull();
+    expect(el.textContent).toContain("grep | wc -l");
+  });
+
+  it("needs the separator row — a header alone is not a table", () => {
+    const el = render("| A | B |\n| 1 | 2 |");
+    expect(el.querySelector("table")).toBeNull();
+  });
+
+  it("ignores a separator whose column count disagrees with the header", () => {
+    const el = render("| A | B | C |\n| --- | --- |\n| 1 | 2 | 3 |");
+    expect(el.querySelector("table")).toBeNull();
+  });
+
+  it("accepts alignment markers and missing outer pipes", () => {
+    const el = render("A | B\n:--- | ---:\n1 | 2");
+    expect(el.querySelector("table")).not.toBeNull();
+    expect(el.querySelectorAll("thead th")).toHaveLength(2);
+  });
+
+  it("renders inline formatting inside cells", () => {
+    const el = render("| A |\n| --- |\n| **bold** and `code` |");
+    expect(el.querySelector("td strong")?.textContent).toBe("bold");
+    expect(el.querySelector("td code")?.textContent).toBe("code");
+  });
+});

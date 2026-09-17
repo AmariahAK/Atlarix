@@ -273,5 +273,28 @@ declare namespace chrome {
   namespace windows {
     const WINDOW_ID_NONE: number;
     function getCurrent(): Promise<{ id?: number }>;
+    /** The side-panel fallback for browsers with no `sidePanel` namespace. */
+    function create(options: {
+      url?: string;
+      type?: "normal" | "popup" | "panel";
+      width?: number;
+      height?: number;
+      focused?: boolean;
+    }): Promise<{ id?: number }>;
+  }
+
+  /**
+   * The toolbar button.
+   *
+   * ONLY `onClicked` IS DECLARED, and only because of the side-panel fallback:
+   * `onClicked` fires únicamente when the action has neither a `default_popup`
+   * nor a registered panel behaviour, which is exactly the state a browser
+   * without `chrome.sidePanel` leaves us in. These typings are hand-written on
+   * purpose — declaring an API we do not call is a claim nobody checks.
+   */
+  namespace action {
+    const onClicked: {
+      addListener(cb: (tab: { id?: number; windowId?: number }) => void): void;
+    };
   }
 }

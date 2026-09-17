@@ -39,6 +39,35 @@
  */
 const ORDERED = /^\s*(\d{1,9})[.)]\s+/;
 
+/**
+ * A table's separator row: `|---|:--:|` and friends.
+ *
+ * THIS is what makes a table a table. A header line alone is just a sentence
+ * with pipes in it, and treating one as a table would eat ordinary prose.
+ */
+const TABLE_SEP = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
+
+function isTableStart(lines: string[], i: number): boolean {
+  const head = lines[i];
+  const sep = lines[i + 1];
+  if (!head || !sep) return false;
+  if (!head.includes("|")) return false;
+  if (!TABLE_SEP.test(sep)) return false;
+  // Both rows must agree on the column count, or it is not the table the model
+  // meant and rendering it would invent structure that is not there.
+  return splitRow(head).length === splitRow(sep).length;
+}
+
+/** Cells of one row, with the optional leading and trailing pipes dropped. */
+function splitRow(line: string): string[] {
+  return line
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map((c) => c.trim());
+}
+
 /** Render `markdown` into `container`, replacing whatever was there. */
 export function renderMarkdown(container: HTMLElement, markdown: string): void {
   container.textContent = "";
@@ -72,6 +101,57 @@ function parseBlocks(markdown: string): Node[] {
       code.textContent = body.join("\n");
       pre.append(code);
       out.push(pre);
+      continue;
+    }
+
+    // ── Tables ──────────────────────────────────────────────────────────────
+    //
+    // PROMOTED OUT OF "UNHANDLED IS LEGIBLE" on 2026-09-17, for the same reason
+    // headings and numbered lists were. That rule holds for a blockquote, whose
+    // raw text still reads as what it is. A table's raw text is a wall of pipes
+    // and dashes: not a plainer rendering of the content, a wrong one. The
+    // owner hit it the first time a model answered with a comparison.
+    //
+    // Requires the separator row, which is what distinguishes a real table from
+    // a paragraph that happens to contain a pipe. Anything that does not match
+    // falls through to the branches below unchanged.
+    if (isTableStart(lines, i)) {
+      const head = splitRow(lines[i]);
+      const rows: string[][] = [];
+      i += 2; // the header and its ---|--- separator
+      while (i < lines.length && lines[i].includes("|") && lines[i].trim()) {
+        rows.push(splitRow(lines[i]));
+        i += 1;
+      }
+      const t = document.createElement("table");
+      const thead = document.createElement("thead");
+      const hr = document.createElement("tr");
+      for (const cell of head) {
+        const th = document.createElement("th");
+        appendInline(th, cell);
+        hr.append(th);
+      }
+      thead.append(hr);
+      t.append(thead);
+      const tbody = document.createElement("tbody");
+      for (const row of rows) {
+        const tr = document.createElement("tr");
+        // Pad or trim to the header's width. A ragged row is common in streamed
+        // output and must not shift the columns of every row after it.
+        for (let c = 0; c < head.length; c += 1) {
+          const td = document.createElement("td");
+          appendInline(td, row[c] ?? "");
+          tr.append(td);
+        }
+        tbody.append(tr);
+      }
+      t.append(tbody);
+      // The panel is ~320px wide and a table is the one construct that cannot
+      // reflow to fit. Scrolling it beats squeezing four columns into nothing.
+      const wrap = document.createElement("div");
+      wrap.className = "md-table-wrap";
+      wrap.append(t);
+      out.push(wrap);
       continue;
     }
 

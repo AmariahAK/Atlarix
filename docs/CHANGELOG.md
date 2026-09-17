@@ -3,6 +3,61 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.48.1] (2026-09-17) — The Chrome extension works in Arc, and shows its work
+
+**Atlarix's Chrome extension did not start at all in Arc.** Not "opened without a panel" —
+inert. The first statement in its background worker read `chrome.sidePanel.setPanelBehavior`,
+and in a Chromium fork that has no `chrome.sidePanel` that throws before the line finishes.
+Module evaluation stopped there, so the desktop bridge below it never connected either. The
+report was "it downloaded, but it didn't turn on", and that was exactly right. The extension
+attached to v14.48.0 still contains this; if you use Arc, this release is the one you need.
+
+Alongside it, four things the panel was doing badly enough to notice while recording it.
+
+### Fixed
+
+- **Arc, and any Chromium without a side panel.** `packages/extension/src/background/service-worker.ts`
+  now connects the bridge FIRST and wires the panel afterwards, behind a feature check — panel
+  wiring is presentation, and a browser quirk in it must never take the desktop connection down
+  with it. Ordering is the fix; the `try`/`catch` is the belt. Browsers with no `chrome.sidePanel`
+  get the same document in a window from the toolbar button, which works precisely because
+  `action.onClicked` only fires when no panel behaviour is registered. `shared/browser-api.ts`
+  now types `sidePanel` as optional, so this class of mistake is a type error rather than a
+  runtime one.
+- **Tables rendered as raw pipes.** `panel/markdown.ts` treated an unhandled block as "literal
+  text, which is legible", and for a table that is simply not true — a grid of `|` and `---` is
+  not something a reader can align by eye. Built with `createElement` and `textContent`, no
+  `innerHTML` and no dependency, because the input is model output downstream of web pages.
+  Anything that is not a header row followed by a separator still falls through to plain text.
+- **A streamed answer arrived in blocks.** `onText` re-rendered the whole message on every
+  chunk the provider sent, so a fast model looked like it was cutting rather than streaming,
+  and each chunk cost a full DOM rebuild. `panel/stream-pacer.ts` reveals the text at a rate
+  that adapts to how fast it is arriving: a slow stream is not held back, and a fast one cannot
+  fall more than a fixed distance behind, because a bigger backlog drains proportionally faster.
+- **"I cannot see that."** The prompt's answer to this was to tell the model it was wrong,
+  which does not work — it leaves the model with the instinct. It now says what the model
+  actually has: `read_page` returns the whole page as text and structure, below the fold
+  included, not a picture of it. `open_tab` is named in the prompt's prose for the first time;
+  it had only ever appeared inside the worked examples.
+- **The credit error's address was not a link.** "Top up at atlarix.dev/account" was plain
+  text, so someone who had just run out of credit had to read it off the screen and retype it.
+  Only that one literal is linked, and the destination is a constant — a URL a provider put in
+  its own error message stays unclickable.
+
+### Added
+
+- **The panel keeps the model's reasoning.** It used to stream into a local variable and vanish
+  the moment the answer began, so reopening a conversation showed the answer with no trace of
+  how it was reached — and a report of a wrong answer had no evidence attached to it. It is now
+  stored with the transcript and redrawn collapsed. Stored, never sent: `stripForWire` removes
+  it at the single point messages become a request.
+
+### Notes
+
+- Tests: 5,140 passing. Nothing in the desktop app changed — this release exists to get the
+  extension fixes out, and the extension's version is the app's by design.
+- The extension is attached to this release as `atlarix-extension-14.48.1.zip`.
+
 ## [14.48.0] (2026-09-17) — Atlarix can drive the browser you are already signed into
 
 **The browser tools take a `target`.** `browser_inspect` and `browser` now accept
@@ -637,187 +692,3 @@ command is now shown as failed, and its output is kept with it.
 **Cached input is reported as cached.** Providers charge far less for prompt text they have
 already seen, and unattended runs were reporting only the raw total, which makes a long run
 look many times more expensive than it was.
-
-## [14.39.3] (2026-09-01) — The headless agent becomes installable, and stops handicapping itself
-
-**Atlarix's headless agent installs with one command: `npm i -g atlarix`.** The Electron-free
-agent loop — the same one the desktop app runs — is now a published package with an `atlarix`
-binary, instead of a tarball you had to know the URL of. It exists for benchmarks, CI and
-unattended runs; `atlarix run --workspace <dir> --prompt-file <file>` is the shape.
-
-**Unattended runs were quietly reasoning one notch below the model's best.** The headless
-runner never set the Deep-thinking preference, and because that setting has no default, every
-benchmark run resolved to the lower level — for DeepSeek, Qwen and MiniMax models that meant
-`high` where the model offers `max`. Published leaderboard results for other harnesses all run
-the ceiling, so our own numbers were measured with the model held back. `--deep-thinking` now
-selects it explicitly, and a test asserts the level on the outgoing request rather than on the
-stored setting.
-
-**A ten-minute ceiling no longer cuts long tasks short.** A headless run imposed its own
-10-minute deadline unless an environment variable said otherwise, then exited as a failure.
-Benchmark harnesses allow hours and enforce their own timeouts, so the deadline now belongs to
-whoever launched the run; `--timeout` still sets one when you want it.
-
-**Runs can be replayed.** `--trajectory-file` writes a JSONL trace — every tool call with its
-arguments and result, the model's text, and real token and cost totals. It is written as the run
-happens rather than at the end, so a run that is killed still leaves everything up to that
-moment, and credentials are stripped from every line because these traces are meant to be
-published.
-
-**`--version` answers.** It previously exited with an error, which left benchmark harnesses
-recording the Node version as Atlarix's.
-
-## [14.39.2] (2026-09-01) — The trial credit goes to real accounts
-
-**The one-time $1 trial credit is now limited to accounts created with a sign-in method Atlarix
-actually offers** — Google, GitHub or Discord. Email and password sign-up was still switched on
-behind the scenes even though nothing in the app or the website has ever used it, which meant the
-credit could be claimed by accounts created straight against our servers with a throwaway address.
-That route is now closed in two places: the sign-up method is turned off, and the credit itself
-checks how the account was made before granting anything.
-
-**If you already have your credit, nothing changes** — it was only ever granted once per account,
-and existing balances are untouched.
-
-## [14.39.1] (2026-09-01) — A summary that stays out of the way, and a clearer answer about data
-
-**The summary Atlarix writes when a conversation gets long no longer shows up as a message.** When
-older turns are condensed, that summary was being saved like any other message — so it appeared in
-your chat as a block of `[COMPACTION MARKER]` text you never wrote, and turned up in
-`session_search` results as though it were part of the conversation. It is bookkeeping, and it now
-stays behind the scenes. Nothing about the conversation itself changed: the full history is still
-there, and the model still uses the summary exactly as before.
-
-**A summary can no longer be faked, or thrown away by accident.** Atlarix used to recognise its own
-summary purely by the text it started with — so a file you read, a pasted transcript, or a command's
-output that happened to begin the same way could be mistaken for one, and a long conversation could
-be cut short at the wrong place. It is now marked in the database instead of guessed from its
-wording. The same change stops the summary being deleted by the routine tidy-up of very long
-histories, which previously could remove it and force the whole conversation to be re-sent.
-
-**Clearer answers about what leaves your machine.** Two things were collected in ways our own
-documentation did not describe. Usage analytics is opt-in and always was — but crash and error
-reports are sent regardless of that choice, and nothing in the app said so. It now does, in the
-first-run prompt and in Settings. Separately, analytics no longer writes anything to your device
-before you have answered that prompt, and an error report about files changed outside Atlarix no
-longer includes the raw error text, which could contain file paths and your username. The website's
-privacy, security and data-use pages have been brought in line with what the code actually does,
-including naming every service that handles your data.
-
-**Security hardening for atlarix.dev.** Our domain now uses signed DNS, so the answers your computer
-gets when it looks up atlarix.dev can be verified rather than trusted, and we have published the
-records that let mail providers reject email pretending to be from us. This affects sign-in,
-downloads and anything we send you; nothing in the app changes.
-
-## [14.39.0] (2026-09-01) — One way of compacting, and a way back to what it summarised
-
-**Compaction had three different ideas about when to run, and one of them forgot its work.**
-Atlarix summarises older turns as a conversation approaches the model's context limit. The main
-automatic path already kept that summary across a restart — but a second, rarer one (the fallback for
-a conversation already over the limit) and the one that runs mid-task both threw their summary away
-when the turn ended, so the next message paid to summarise the same history again. They now keep it
-the same way the others do.
-
-**`session_search`: a new tool for reading what a summary left out.** A summary is shorter than the
-conversation on purpose, so detail does go missing — an exact path you gave once, an error string, a
-decision from twenty turns ago. Until now the agent's only options were to guess or to ask you to
-repeat yourself, even though the full transcript was still on disk for the scrollback. It can now
-search that transcript — this conversation's, or an earlier one in the same project — and page
-through whole turns around a hit. Available in every mode, since every mode compacts. It reads
-sessions in the open project only, and a deleted session is gone: there is nothing left to search.
-
-**Older turns survive longer before anything is summarised.** There is now ONE point at which
-Atlarix decides to summarise before sending a request, instead of two gates plus a third fallback
-that only acted once you were already over the limit.
-
-**And it now knows how much room it actually has.** Compaction used to trigger at a flat 90% of the
-context window. But the window has to hold the reply too, and how long a reply can be has nothing to
-do with a percentage: on a million-token model that reserved about 68,000 tokens more than any reply
-needs, so conversations were summarised far earlier than necessary; on a small model it reserved far
-too little to answer at all. It now subtracts the model's real output limit, read from the model
-catalogue.
-
-**Compaction works on small models again — it had quietly stopped.** Every step of it compared
-against a fixed token count tuned for large windows, so on a small one each step ruled itself out:
-one protected 20,000 tokens of recent tool output even when the whole budget was 16,000, another
-discarded its own work for freeing "only" 15,000 tokens, and summarising was blocked outright on
-conversations shorter than about five messages however large they were. A four-message, 41,000-token
-session against a 16,000-token budget compacted by exactly nothing, every turn. Those limits are now
-proportions of the budget, so they scale with whatever model you are on.
-
-**A long reply can no longer make itself un-compactable.** Recent turns are protected from
-summarising, and that protection used to be counted in turns rather than size — so one very long
-answer was untouchable simply because it was recent, even when it alone was larger than the entire
-budget. Protection is now a size, and the last thing you said is always kept intact.
-
-**A long turn no longer drags its whole tool history into the next message.** When the agent reads
-twenty files in one go, all of that was saved with the turn and re-read on your next message — so the
-next message paid to summarise work that had already been summarised mid-task. The saved copy is now
-trimmed: older tool output is clipped, the recent output is kept in full, and the transcript you see
-on screen is untouched. Measured on a four-file turn: what the model re-reads went from ~48,000
-tokens to under 8,000.
-
-**If you cap a provider's token budget in Settings, the model is now told that number.** It was
-being told the model's full catalogue window while every budget governing the request used your cap.
-
-**Sub-agent work is no longer missing from what a turn cost you.** Some providers return no usage
-figures at all — common on free routes — and a call like that was dropped from the turn's total
-entirely, not just its size but the fact it happened. A turn that ran four sub-agents could report
-one. Those calls are now counted, with their size estimated and shown as an estimate rather than
-passed off as a measured figure.
-
-**A conversation is no longer trimmed by deleting your oldest turns first.** When context ran out,
-the first thing Atlarix did was delete the two oldest messages, repeatedly, and only then try to
-summarise. Those turns reached no summary and left no trace. The order is now reversed: summarise,
-then trim the project context in the prompt, and only drop messages if a summary still does not fit —
-which now also tells the agent it happened, so it looks things up instead of guessing.
-
-**Compaction's own cost now appears in the token meter.** The one path whose summary survived a
-reload was also the only one that never recorded what its summarisation spent.
-
-**A conversation could be deleted when you reopened the app.** Atlarix tidies away empty "Untitled"
-sessions on start. The check for "is this empty" was broken in a way that made EVERY untitled session
-look empty, whatever it held — so a project with two or more untitled conversations kept the newest
-and deleted the rest, along with their messages. If a session ever came back blank, this was why.
-Fixed, and the tidy-up now re-checks each session against its own record before reusing or removing
-it — a stale sidebar row is a much better outcome than a lost conversation.
-
-**And reopening the app no longer leaves a new empty session behind each time.** The fix above was
-too cautious in one direction: it treated a session as "in use" if its record had been touched at
-all — and simply attaching the chat window to a session counted as touching it. So reusing an empty
-session was what stopped it being reused again, and every start added another "Untitled" to the
-sidebar that could never be tidied away. Attaching a window no longer counts, and the cautious check
-now applies only to deleting a session, never to reusing one. Existing stray sessions get picked back
-up rather than accumulating.
-
-**`session_search` can now read the conversation you are in.** The new tool defaults to searching the
-current conversation, and that default did not work — it could only search _every_ conversation in
-the project. Fixed, so the narrow, obvious thing the tool advertises is the thing it does.
-
-## [14.38.4] (2026-08-29) — Sign-in works again, and signing out no longer leaves a window signed in
-
-**Signing in works again.** Sign-in would open your browser, complete, and then land you on
-atlarix.dev with the app none the wiser — no error, nothing to retry. The address Atlarix asked for
-on the way back had one slash too many and stopped matching what the server would accept, so the
-server quietly substituted the website. It now asks for the right one.
-
-**Signing out signs you out everywhere.** With two windows open, signing out of one left the other
-showing your account until you restarted the app. Signing IN had the same gap in reverse: only the
-window you started from noticed. Both now reach every window.
-
-**Docker builds run again.** Any `docker build` or `docker compose build` failed with an
-unattributable "operation not permitted", because Docker writes a small timestamp file outside the
-folders Atlarix lets commands write to — and gives up entirely when it can't.
-
-**And when something else is denied, Atlarix now offers to grant it.** It already could, but only
-when the command reported failure. A command that hid its own failure — anything ending in `| tail`,
-`| head`, `| grep` — slipped past, so you got a confusing error instead of a "grant this folder?"
-prompt. Two spellings of the underlying message were also going unrecognised.
-
-**Edits are no longer labelled as new files.** An edit to an existing file could show as
-"Create · new file" with a single blank line, while the summary beside it correctly said +16. The
-count was right; the card was reading the change wrongly.
-
-**The agent is told your project's location.** It was never given the absolute path of the open
-project, so when it needed one it inferred it — and could infer a folder that does not exist, then
-spend several steps discovering that.

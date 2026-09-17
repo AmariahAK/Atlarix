@@ -563,6 +563,19 @@ body {
 }
 
 /*
+ * The one link an error ever carries — "Top up at atlarix.dev/account".
+ *
+ * Inherits the bubble's colour instead of taking `--primary`: the accent green
+ * on the error red reads as a second, happier message, and this is the same
+ * one. The underline is what makes it recognisably a link without a colour.
+ */
+.msg--error a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/*
  * A tool call, collapsed to one line.
  *
  * `<details>` rather than a button plus state: it is the one disclosure widget
@@ -1639,4 +1652,44 @@ button.file__chip:hover {
 /* Steps inside the card sit flush — the card already draws the border. */
 .steps__body > .tool {
   margin: 0;
+}
+
+/*
+ * Tables in a 320px column.
+ *
+ * A table is the one markdown construct that cannot reflow: four columns in a
+ * narrow panel either overlap or shrink to unreadable. So the wrapper scrolls
+ * horizontally and the cells refuse to wrap mid-value — a price or a date
+ * broken across two lines is worse than a swipe.
+ */
+.md-table-wrap {
+  overflow-x: auto;
+  margin: 10px 0;
+  border: 1px solid rgba(52, 211, 153, 0.22);
+  border-radius: 8px;
+}
+
+.md-table-wrap table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.md-table-wrap th,
+.md-table-wrap td {
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  white-space: nowrap;
+}
+
+.md-table-wrap th {
+  font-weight: 600;
+  background: rgba(52, 211, 153, 0.1);
+}
+
+.md-table-wrap tbody tr:last-child td {
+  border-bottom: 0;
 }
