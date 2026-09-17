@@ -1,11 +1,15 @@
 # Atlarix TODO
 
-**Current version:** v14.48.0 — **staged 2026-09-17, tagging in progress.** The browser tools
-take a `target`, so Atlarix can drive the browser you are already signed into rather than only
-its own: your logins, your tabs, in its own tab group, with a visible frame and no per-site
-prompt on the desktop path. Real keystrokes and the page console come with it, and the Chrome
-extension now ships with every release at the app's own version. Narrative in
+**Current version:** v14.48.1 — **staged 2026-09-17, tagging in progress.** An
+extension-only patch: the Chrome extension was INERT in Arc (the background worker threw on
+`chrome.sidePanel` before the bridge below it could connect), tables render as tables, a
+streamed answer is paced rather than painted per chunk, the panel keeps the model's reasoning,
+and the credit error's address is a link. No desktop code changed — the extension's version is
+the app's by design, so shipping an extension fix means cutting a release. Narrative in
 [`docs/CHANGELOG.md`](./CHANGELOG.md).
+
+v14.48.0 (2026-09-17) SHIPPED: the browser tools take a `target`, so Atlarix can drive the
+browser you are already signed into rather than only its own.
 
 **This header has been wrong before.** It read v14.42.0 while `package.json` said 14.43.0, and
 "v14.44 SHIPPED" while **v14.44 was never tagged and has no changelog section at all**. Update it

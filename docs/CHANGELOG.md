@@ -3,6 +3,61 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.48.1] (2026-09-17) — The Chrome extension works in Arc, and shows its work
+
+**Atlarix's Chrome extension did not start at all in Arc.** Not "opened without a panel" —
+inert. The first statement in its background worker read `chrome.sidePanel.setPanelBehavior`,
+and in a Chromium fork that has no `chrome.sidePanel` that throws before the line finishes.
+Module evaluation stopped there, so the desktop bridge below it never connected either. The
+report was "it downloaded, but it didn't turn on", and that was exactly right. The extension
+attached to v14.48.0 still contains this; if you use Arc, this release is the one you need.
+
+Alongside it, four things the panel was doing badly enough to notice while recording it.
+
+### Fixed
+
+- **Arc, and any Chromium without a side panel.** `packages/extension/src/background/service-worker.ts`
+  now connects the bridge FIRST and wires the panel afterwards, behind a feature check — panel
+  wiring is presentation, and a browser quirk in it must never take the desktop connection down
+  with it. Ordering is the fix; the `try`/`catch` is the belt. Browsers with no `chrome.sidePanel`
+  get the same document in a window from the toolbar button, which works precisely because
+  `action.onClicked` only fires when no panel behaviour is registered. `shared/browser-api.ts`
+  now types `sidePanel` as optional, so this class of mistake is a type error rather than a
+  runtime one.
+- **Tables rendered as raw pipes.** `panel/markdown.ts` treated an unhandled block as "literal
+  text, which is legible", and for a table that is simply not true — a grid of `|` and `---` is
+  not something a reader can align by eye. Built with `createElement` and `textContent`, no
+  `innerHTML` and no dependency, because the input is model output downstream of web pages.
+  Anything that is not a header row followed by a separator still falls through to plain text.
+- **A streamed answer arrived in blocks.** `onText` re-rendered the whole message on every
+  chunk the provider sent, so a fast model looked like it was cutting rather than streaming,
+  and each chunk cost a full DOM rebuild. `panel/stream-pacer.ts` reveals the text at a rate
+  that adapts to how fast it is arriving: a slow stream is not held back, and a fast one cannot
+  fall more than a fixed distance behind, because a bigger backlog drains proportionally faster.
+- **"I cannot see that."** The prompt's answer to this was to tell the model it was wrong,
+  which does not work — it leaves the model with the instinct. It now says what the model
+  actually has: `read_page` returns the whole page as text and structure, below the fold
+  included, not a picture of it. `open_tab` is named in the prompt's prose for the first time;
+  it had only ever appeared inside the worked examples.
+- **The credit error's address was not a link.** "Top up at atlarix.dev/account" was plain
+  text, so someone who had just run out of credit had to read it off the screen and retype it.
+  Only that one literal is linked, and the destination is a constant — a URL a provider put in
+  its own error message stays unclickable.
+
+### Added
+
+- **The panel keeps the model's reasoning.** It used to stream into a local variable and vanish
+  the moment the answer began, so reopening a conversation showed the answer with no trace of
+  how it was reached — and a report of a wrong answer had no evidence attached to it. It is now
+  stored with the transcript and redrawn collapsed. Stored, never sent: `stripForWire` removes
+  it at the single point messages become a request.
+
+### Notes
+
+- Tests: 5,140 passing. Nothing in the desktop app changed — this release exists to get the
+  extension fixes out, and the extension's version is the app's by design.
+- The extension is attached to this release as `atlarix-extension-14.48.1.zip`.
+
 ## [14.48.0] (2026-09-17) — Atlarix can drive the browser you are already signed into
 
 **The browser tools take a `target`.** `browser_inspect` and `browser` now accept
