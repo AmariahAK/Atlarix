@@ -73,6 +73,8 @@ import {
 import { runTurn } from "../agent/loop";
 import { clearDrivenTabs, type Approval } from "../tools/dispatch";
 import { buildSystemPrompt } from "../agent/prompt";
+import { StreamPacer } from "./stream-pacer";
+import { errorMessageNodes } from "./error-link";
 import { buildNotesSection } from "../memory/index-render";
 import { migrateLegacyFacts } from "../memory/migrate";
 import { syncNotes } from "../memory/sync";
@@ -1081,7 +1083,12 @@ function workingRow(): HTMLElement {
 function errorBubble(text: string): HTMLElement {
   const div = document.createElement("div");
   div.className = "msg msg--error";
-  div.textContent = text;
+  // NOT `textContent`. The credit error ends "Top up at atlarix.dev/account"
+  // and that was rendered as prose, so the person who had just run out had to
+  // read an address off the screen and retype it. `errorMessageNodes` links
+  // that one literal and leaves everything else — including any URL a provider
+  // put in its own message — as plain text.
+  for (const node of errorMessageNodes(text)) div.append(node);
   return div;
 }
 
@@ -1490,6 +1497,22 @@ function renderConversation(history: CoreMessage[]): void {
       transcript.append(userBubble(message.content, userIndex));
       userIndex += 1;
     } else if (message.role === "assistant") {
+      // THE REASONING COMES BACK WITH THE CONVERSATION, collapsed.
+      //
+      // It used to live in a local variable in the live turn and vanish the
+      // moment the answer started, so reopening a session showed the answer
+      // with no trace of how it got there. That cost a real bug report: the
+      // model announced it could not see something, and there was nothing left
+      // to read. It renders BEFORE the prose because that is the order it
+      // happened in.
+      if (message.reasoning) {
+        const past = thinkingBlock();
+        past.open = false;
+        const body = past.querySelector("pre");
+        if (body) body.textContent = message.reasoning;
+        settleThinking(past);
+        transcript.append(past);
+      }
       // Prose ends a stretch of work; the tool calls on the SAME message open
       // the next one, which is the order they actually happened in.
       if (message.content) {
@@ -1669,6 +1692,32 @@ async function send(): Promise<void> {
   stageRefusals = [];
 
   let windowId = api().windows.WINDOW_ID_NONE;
+
+  let bubble: HTMLElement | null = null;
+  let thinking: HTMLDetailsElement | null = null;
+  /**
+   * PACED, not painted per delta.
+   *
+   * `renderMarkdown` clears and rebuilds the whole bubble, and this used to
+   * run once for every chunk the provider sent. GLM-5.3 sends big chunks
+   * fast, so the answer arrived in visible blocks — "it appears like its
+   * cutting and going" — and each block cost a full DOM rebuild. The pacer
+   * reveals the same text at a rate the eye follows and repaints at most
+   * every 25 ms. It holds the authoritative string; nothing here needs to
+   * keep a second copy, because the stored transcript comes from the loop's
+   * own messages rather than from what was on screen.
+   */
+  const answer = new StreamPacer((text) => {
+    if (!bubble) bubble = append(assistantBubble());
+    renderMarkdown(bubble, text);
+    stickToBottom();
+  });
+  /** Reasoning streams just as fast, into a <pre>, and jumps the same way. */
+  const reasoning = new StreamPacer((text) => {
+    const body = thinking?.querySelector("pre");
+    if (body) body.textContent = text;
+    stickToBottom();
+  });
   try {
     // The migration runs before the first read of a turn, is idempotent, and
     // never throws — a corrupt legacy value costs an empty notes section and
@@ -1718,10 +1767,6 @@ async function send(): Promise<void> {
     // provider, and a rejection costs the same as a successful call.
     await compactIfNeeded(model, systemPromptTokens, controller.signal);
 
-    let bubble: HTMLElement | null = null;
-    let streamed = "";
-    let thinking: HTMLDetailsElement | null = null;
-    let thought = "";
     const chips = new Map<string, HTMLDetailsElement>();
 
     /**
@@ -1782,43 +1827,41 @@ async function send(): Promise<void> {
       events: {
         onReasoning(delta) {
           clearWorking();
-          thought += delta;
           if (!thinking) {
             thinking = thinkingBlock();
             stepInto({ kind: "thinking" }, thinking);
           }
-          const body = thinking.querySelector("pre");
-          if (body) body.textContent = thought;
-          stickToBottom();
+          reasoning.push(delta);
         },
         onText(delta) {
           clearWorking();
           // The answer has started, so the thinking is history. Collapsing it
           // here rather than at the end of the round is what keeps a long chain
           // of thought from pushing the answer off the bottom of the panel.
+          reasoning.flush();
+          reasoning.reset();
           settleThinking(thinking);
           thinking = null;
-          thought = "";
-          streamed += delta;
           // PROSE ENDS THE RUN. Whatever the model says — a remark on the way
           // or the final answer — belongs in the transcript, not inside a card
           // the user has to open to read it.
           settleSteps(activity.card);
           activity.card = null;
-          if (!bubble) bubble = append(assistantBubble());
-          renderMarkdown(bubble, streamed);
-          stickToBottom();
+          answer.push(delta);
         },
         onToolCall(call) {
           clearWorking();
           settleThinking(thinking);
           thinking = null;
-          thought = "";
           // A new assistant bubble after each tool round, so the transcript
           // reads in the order things happened rather than collecting all the
           // prose at the top.
+          // FLUSH BEFORE LETTING GO OF THE BUBBLE. Whatever is still buffered
+          // belongs in the bubble it was streaming into; dropping it here would
+          // silently truncate a remark the model made on its way to the call.
+          answer.flush();
+          answer.reset();
           bubble = null;
-          streamed = "";
           const chip = toolChip(call);
           chips.set(call.id, chip);
           stepInto({ kind: "tool", name: call.function.name }, chip);
@@ -1835,11 +1878,14 @@ async function send(): Promise<void> {
           // twice and concludes the model is broken.
           bubble?.remove();
           bubble = null;
-          streamed = "";
+          // RESET, NOT FLUSH — this round's text is void and its bubble is
+          // already gone. Painting it on the way out is how the retry's answer
+          // gets appended to the corpse of the first attempt.
+          answer.reset();
+          reasoning.reset();
           settleThinking(thinking);
           thinking?.remove();
           thinking = null;
-          thought = "";
           // The activity card may now be empty; an empty card is a row that says
           // "No steps", which is worse than nothing.
           if (activity.card && activity.card.steps.length === 0) {
@@ -1910,6 +1956,12 @@ async function send(): Promise<void> {
       },
     });
 
+    // The turn is over, so nothing more is coming to drain the buffers. This
+    // is also the guard that makes the pacing safe at all: whatever the frame
+    // callback did or did not do while the panel was in the background, the
+    // final text is on screen in full before anything else happens.
+    answer.flush();
+    reasoning.flush();
     clearWorking();
     settleThinking(thinking);
     settleSteps(activity.card);
@@ -1953,6 +2005,11 @@ async function send(): Promise<void> {
   } catch (err) {
     append(errorBubble(err instanceof Error ? err.message : String(err)));
   } finally {
+    // LAST RESORT. The flush above is skipped when `streamTurn` throws, and an
+    // answer left half-painted because of an unrelated error is the failure
+    // this pacer must never introduce. A settled pacer flushes to nothing.
+    answer.flush();
+    reasoning.flush();
     setRunning(false);
     // The USER'S tabs lose the frame now; the agent's own group keeps it for
     // the rest of the conversation, because those tabs remain its workspace and

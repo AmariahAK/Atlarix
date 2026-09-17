@@ -67,6 +67,24 @@ export type ContentPart =
   | { type: "image_url"; image_url: { url: string } }
   | { type: "file"; file: { filename: string; file_data: string } };
 
+/**
+ * Drop the fields that are ours, not the provider's.
+ *
+ * ONE PLACE, at the boundary, rather than trusting every caller to construct a
+ * clean message. The stored transcript and the wire format have diverged now
+ * that `reasoning` is kept locally, and the moment those two are the same type
+ * someone will send the wrong one.
+ *
+ * Exported for its test. Booting the client needs an extension context (auth,
+ * storage, the proxy URL define), and a test that stubs all of that to observe
+ * one field would be testing the stubs.
+ */
+export function stripForWire(m: CoreMessage): CoreMessage {
+  if (m.role !== "assistant" || m.reasoning === undefined) return m;
+  const { reasoning: _dropped, ...rest } = m;
+  return rest;
+}
+
 /** A turn's worth of conversation, in the shape the proxy forwards. */
 export type CoreMessage =
   | { role: "system"; content: string }
@@ -83,6 +101,19 @@ export type CoreMessage =
       role: "assistant";
       content: string | null;
       tool_calls?: ToolCall[];
+      /**
+       * The model's own reasoning for this turn. STORED, NEVER SENT.
+       *
+       * It rides in the stored transcript so reopening a conversation still
+       * shows how an answer was reached — the panel used to stream it into a
+       * local variable and drop it, which meant a user reporting "it said it
+       * could not see the page" had no evidence to hand and neither did we.
+       *
+       * `stripForWire` removes it before the request. Reasoning text is large,
+       * it is not part of any provider's message schema, and echoing a model's
+       * private chain back at it is a separate decision nobody has made.
+       */
+      reasoning?: string;
     }
   | { role: "tool"; tool_call_id: string; content: string };
 
@@ -358,7 +389,7 @@ export async function* streamTurn(
     signal: args.signal,
     body: JSON.stringify({
       model: args.model,
-      messages: args.messages,
+      messages: args.messages.map(stripForWire),
       stream: true,
       ...(args.tools?.length ? { tools: args.tools } : {}),
       ...(args.maxOutputTokens ? { max_tokens: args.maxOutputTokens } : {}),

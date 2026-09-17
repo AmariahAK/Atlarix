@@ -48,8 +48,19 @@ interface ExtensionApi {
   scripting: typeof chrome.scripting;
   debugger: typeof chrome._debugger;
   offscreen: typeof chrome.offscreen;
-  sidePanel: typeof chrome.sidePanel;
+  /**
+   * OPTIONAL, unlike its neighbours, and the `?` is load-bearing.
+   *
+   * A Chromium fork without `chrome.sidePanel` (Arc is the reported case) made
+   * `api().sidePanel.setPanelBehavior(...)` throw a synchronous TypeError at the
+   * service worker's first statement, which aborted the whole module — the
+   * bridge below it never connected and the extension was inert, not merely
+   * panel-less. Typing it as present is what let that read as safe.
+   */
+  sidePanel?: typeof chrome.sidePanel;
   windows: typeof chrome.windows;
+  /** The toolbar button. Only `onClicked`, for the side-panel fallback. */
+  action?: typeof chrome.action;
 }
 
 interface ApiCarrier {

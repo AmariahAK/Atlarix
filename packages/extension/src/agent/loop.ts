@@ -256,6 +256,7 @@ export async function runTurn(args: TurnArgs): Promise<TurnOutcome> {
 
     let text = "";
     let calls: ToolCall[] = [];
+    let reasoning = "";
     let attempt = 0;
 
     // ── One round, with retries ───────────────────────────────────────────────
@@ -269,6 +270,7 @@ export async function runTurn(args: TurnArgs): Promise<TurnOutcome> {
     for (;;) {
       text = "";
       calls = [];
+      reasoning = "";
       // Measured from the ACTUAL request, not reconstructed afterwards. The
       // tool schemas are part of what the provider counted, and leaving them out
       // would teach the calibration that the model is more expensive per
@@ -294,6 +296,14 @@ export async function runTurn(args: TurnArgs): Promise<TurnOutcome> {
             // Reasoning is a view of this turn, not part of the conversation: a
             // model handed its own previous thinking as assistant content starts
             // treating it as something it said out loud.
+            //
+            // KEPT ON THE MESSAGE ANYWAY, as of 2026-09-17. It used to exist
+            // only as a local in the panel and was dropped the moment the
+            // answer began, so a user reporting "it said it could not see the
+            // page" had no evidence and neither did we. `client.ts`
+            // `stripForWire` removes it before the request, so "never sent"
+            // still holds.
+            reasoning += event.delta;
             events.onReasoning?.(event.delta);
           } else if (event.type === "tool-calls") {
             calls = event.calls;
@@ -346,6 +356,7 @@ export async function runTurn(args: TurnArgs): Promise<TurnOutcome> {
       role: "assistant",
       content: text || null,
       ...(calls.length > 0 ? { tool_calls: calls } : {}),
+      ...(reasoning ? { reasoning } : {}),
     };
     history.push(assistant);
     produced.push(assistant);
@@ -482,6 +493,7 @@ async function finishWithoutTools(
       "and what you would need in order to continue.",
   };
   let text = "";
+  let reasoning = "";
   try {
     for await (const event of stream(
       {
@@ -498,6 +510,7 @@ async function finishWithoutTools(
         text += event.delta;
         events.onText?.(event.delta);
       } else if (event.type === "reasoning") {
+        reasoning += event.delta;
         events.onReasoning?.(event.delta);
       }
     }
@@ -505,6 +518,10 @@ async function finishWithoutTools(
     return null;
   }
   if (!text) return null;
-  produced.push({ role: "assistant", content: text });
+  produced.push({
+    role: "assistant",
+    content: text,
+    ...(reasoning ? { reasoning } : {}),
+  });
   return { kind: "stuck", messages: produced };
 }
