@@ -16,11 +16,13 @@ numbers are printed by `node scripts/cws-copy-check.mjs`.
 ## Single purpose description
 
 ```
-Atlarix is a browser agent. Its single purpose is to read and act on web pages on the user's behalf, in a side panel, using the sessions they are already signed into — so they can ask about sites they already have access to instead of copying content between them.
+Atlarix is a browser agent. Its single purpose is to read and act on web pages on the user's behalf, using the sessions they are already signed into, so they can ask about sites they already have access to instead of copying content between them.
 
-Everything it does serves that purpose: reading the current page or a tab the user names, navigating and clicking within sites they have granted, attaching their own files as context, presenting the answer in the panel, and — when they ask for the answer as a file rather than a message — building that file on the device to download.
+All of it serves that purpose: reading the current page or a named tab, navigating and clicking, attaching the user's files as context, and answering in the panel.
 
-Host access is NOT requested at install. It is declared as optional_host_permissions and requested one origin at a time, when the user asks Atlarix to work on that site, behind Chrome's own prompt. Someone who would rather not be asked per site can choose "Allow every site" on that prompt. Any site can be revoked from the panel or the account page. The extension ships able to read nothing.
+It is driven two ways. In the side panel, the agent asks before working on a site it has not been allowed on; that list is visible and revocable from the panel and from the user's account page.
+
+The other way is a separate Atlarix desktop app, which the user installs and connects over native messaging. Requests from it run without a per-site prompt in the browser — the user approved the action in that app, and asking again in a window they are not looking at is the same decision relocated, not a new one. Site access stays restrictable per site from chrome://extensions.
 ```
 
 ## identity
@@ -68,9 +70,11 @@ Used only for tabs the user has directed Atlarix to, or that Atlarix itself open
 ## scripting
 
 ```
-To inject the page-reading and interaction scripts into a page the user has explicitly granted Atlarix access to — building a structured outline of the page's text and controls so the model can answer about it, and clicking or filling an element the user asked for.
+To inject the page-reading and interaction scripts into a page the user asked about — building a structured outline of the page's text and controls so the model can answer about it, and clicking or filling an element the user asked for.
 
-Injection is gated on that per-site grant: chrome.permissions.contains() is checked for the origin before any script is injected, so a site the user has not allowed is never touched. No remotely fetched script is ever injected; the injected functions are part of the extension package.
+Injection is checked against Chrome's own host access first: chrome.permissions.contains() runs for the origin before any script is injected, so a site the user has restricted from chrome://extensions is never touched. For requests made in the side panel, the extension's own per-site allow-list is checked as well, and the agent asks before a site it has not been allowed on. Requests from the connected Atlarix desktop app are not asked about again, for the reason given under Single purpose.
+
+No remotely fetched script is ever injected; the injected functions are part of the extension package.
 ```
 
 ## tabGroups
@@ -89,6 +93,34 @@ Used only to dispatch trusted keyboard and mouse input to a page the user has ex
 chrome.debugger (Input.dispatchKeyEvent / Input.dispatchMouseEvent) is the only API in Chrome that produces events with isTrusted = true. Synthetic events created any other way are ignored by the web platform for the two cases that matter most: pressing Enter to submit a form, and CSS :hover states that reveal menus and dropdowns. Without this permission the agent appears to click and type while nothing happens.
 
 It is attached to a single granted tab, only for the duration of the action, and detached immediately afterwards. We do not use it to read network traffic, inspect memory, set breakpoints, evaluate script, or observe any tab the user has not granted.
+```
+
+## nativeMessaging
+
+THESE TWO LIVED ONLY IN THE DASHBOARD until 2026-09-17, which is why the op list
+below had gone stale and why this one claimed every page action was re-checked
+against the user's per-site permissions — true when it was written, false once
+the desktop path stopped asking. A field that is not in this file is a field
+`cws-copy-check.mjs` cannot measure and nobody diffs.
+
+```
+Atlarix has a companion desktop app. This permission lets the extension talk to it, so the app can work in the browser the user is already signed into rather than a separate automated window.
+
+One host only: dev.atlarix.bridge, a small relay shipped inside the desktop app. It makes no network connections — it passes messages between Chrome and a local socket on the same machine. Its manifest names this extension's ID as the only allowed origin. If the desktop app is not installed, the connection simply fails and the extension carries on.
+
+The extension replies to a fixed, closed list of requests: list tabs, read the URL, read page text or structure, find an element, click, fill, scroll, press a key, hover, read the console or network activity, navigate, open a tab, close a tab. Anything else is rejected.
+
+Keystrokes, pointer moves and console or network capture happen only in tabs Atlarix itself opened, never in the user's own. Nothing leaves the machine.
+```
+
+## alarms
+
+```
+Used for one thing: retrying the connection to the companion desktop app.
+
+That connection drops when the app quits or restarts, or was not running when the browser started. Reconnection uses short backoffs first, but a service worker is evicted after about 30 seconds idle and eviction destroys any pending setTimeout. Without an alarm, an extension that lost the connection while idle would never retry and the desktop app would look permanently disconnected.
+
+One alarm, atlarix-bridge-reconnect, is created once the short backoffs are spent. It fires once a minute and does nothing but try the connection again, and is cleared as soon as one succeeds. There are no other alarms: it is not used for polling, network requests, keepalive or token refresh.
 ```
 
 ## Remote code justification
@@ -151,14 +183,25 @@ to the single purpose, no creditworthiness or lending use. All three are true.
 https://atlarix.dev/privacy
 ```
 
-## What is NOT on this form
+## Host permission justification
 
-There is no justification field for `http://*/*` and `https://*/*`, because they
-are declared as `optional_host_permissions` rather than `permissions`. That is
-worth knowing rather than worrying about: the reason the field is absent is the
-same reason the extension is defensible — it holds no host access at install and
-asks per origin behind Chrome's own prompt. The single-purpose description says
-so explicitly, which is the right place for it.
+HEADINGS MATCH THE DASHBOARD'S FIELD LABELS, not the manifest keys. This one was
+`host_permissions (http://*/*, https://*/*)` for an afternoon and could not be
+found by searching for the thing the form actually calls it. The dashboard is
+the only place these are ever pasted; a heading that does not match its label is
+a field nobody locates under pressure.
+
+Covers `http://*/*` and `https://*/*`, REQUIRED as of 2026-09-17 — they were
+`optional_host_permissions` before that. The reason is in Single purpose, and
+the cost, Chrome's broad install warning, was taken deliberately.
+
+```
+Atlarix acts on whatever page the user asks about, and that set cannot be known in advance. The user names a site at the moment they ask — and, through the connected Atlarix desktop app, from outside the browser entirely, where no per-site prompt can be shown at all. A narrower declaration would mean the extension works on some of a user's sites and silently not others, with no way to tell which until it failed.
+
+The access is used only to read the page the user asked about and perform the action they asked for. Nothing is fetched and injected from a remote source; the injected functions ship inside the package. Page content goes only to the model provider the user chose, in service of their own request.
+
+It stays under the user's control: site access is restrictable per site from chrome://extensions, and the sites the agent has acted on are listed and revocable on their Atlarix account page.
+```
 
 ---
 

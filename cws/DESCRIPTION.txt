@@ -1,7 +1,7 @@
 Atlarix is an AI agent that works inside the browser you already use, with the sessions you are already signed into. Open the side panel, ask for something, and it reads the page, follows links, fills forms and pulls the answer together — without asking you to copy anything into a chat window.
 
-IT WORKS ON THE SITES YOU ALLOW, AND ONLY THOSE
-Access is granted one site at a time, by you, and can be revoked whenever you like from the panel or from your account. Atlarix never asks for access to every site you visit, and it ships with access to none.
+YOU DECIDE WHERE IT WORKS
+In the side panel, Atlarix asks the first time it touches a site, and every site it has worked on is listed and revocable from the panel or your account. Atlarix also pairs with its own desktop app, and what you ask for there runs without a second prompt in the browser — you already approved it in the app. You can narrow Atlarix to chosen sites, or switch it off for one, from your browser's extensions page at any time.
 
 IT FILLS FORMS BUT NEVER SUBMITS THEM
 Anything that sends, buys, posts or deletes stops and asks you first.

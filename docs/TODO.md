@@ -20,77 +20,144 @@ lean, and most of it was a log of finished work. What was in it now lives where 
 | Designed, not scheduled             | [`docs/DESIGN_NOTES.md`](./DESIGN_NOTES.md) |
 | Open work                           | here, and nowhere else                      |
 
-**Last updated:** 2026-09-16
+**Last updated:** 2026-09-17
 
 ---
 
 ## 🔭 Open — the queue
 
-### 1. The `target: "app" | "chrome"` seam — the last of the browser bridge
+### 1. The `target: "app" | "chrome"` seam — BUILT, awaiting a live end-to-end pass
 
-Everything under it is built and verified: the Rust relay (`native/atlarix-bridge`), the framing
-and socket server (`src/lib/bridge/`), the lifecycle (`src/main/bridge-lifecycle.ts`), and the
-extension's service-worker port (`packages/extension/src/bridge/`). A real Brave profile connected,
-answered `ping`, `list_tabs` and `get_url`, and correctly REFUSED `read_page` on an ungranted site
-and `close_tab` on a user's own tab.
+The seam is written and the suite is green (5,057 passing). `browser_inspect` and `browser` both
+take `target`, defaulting to `"app"`; `src/lib/tools/browser-target.ts` owns the whole Chrome path
+so the 46 `webContents` call sites keep their single meaning.
 
-**What remains is the seam in `src/lib/tools/browser.ts`**, which has three tools and ~25
-`webContents` call sites. Four things about it are not obvious and all four are load-bearing:
+**What is done, and the four load-bearing constraints all honoured:**
 
-- **The refusals must be LOUD and NAMED.** `mode:"console"`, `mode:"network"`, `mode:"visual"`,
-  `mode:"design"` and `mode:"text"` read from hooks `browser_view_manager.ts` injects per document
-  (`:564`, `:583`, `:683`, `:684`); an extension inherits none of them. **An empty console read is
-  indistinguishable from a clean page**, which is the worst available lie. Write the refusal test
-  before the happy path.
-- **`browser_test` does NOT get the parameter, deliberately.** It depends on
-  `getBrowserSurfaceErrors` and `runtimeFailuresSince`, and `failOnConsoleError` defaults to
-  **true** — so a Chrome-targeted test would return `success:true, "UI verified"` with **zero**
-  runtime-error coverage. A false pass on the tool whose whole job is preventing false passes. The
-  mitigation is the absence of the parameter, not a warning: the model cannot ask for what is not
-  in the schema.
-- **The delta promise must be scoped to `target:"app"`.** The tool description tells the model
-  "acting returns a light delta … so you usually do NOT need a follow-up `browser_inspect`". That
-  delta comes from `withDelta` (`:1097`), a raw-eval splice with no Chrome equivalent. Leave the
-  promise unscoped and the model skips its re-read and acts on refs the page has invalidated,
-  failing later with an error pointing at the wrong thing.
-- **The tool stays OUT of the offered array until the Web Store approves.** Owner's instruction:
-  build it end to end, do not tell Atlarix it exists yet. `resolve-toolset.ts:148-201` already
-  filters named tools out of the offered array while leaving them registered and executable. One
-  more switch, **fixed for the session and never toggled mid-turn** — tool definitions sit inside
-  the first prompt-cache breakpoint, and mutating the array invalidates the whole prefix.
+- Refusals are loud and named, and each one says the next move. `visual`, `design`, `console`,
+  `network`, `screenshot`, `key`, `hover` and `tabs operation:"switch"` each explain *why* rather
+  than reporting a generic failure. Every one is a returned result, never a throw, so the model can
+  recover to `target:"app"` inside the same turn. The refusal tests were written first.
+- `browser_test` has no `target`, and its description now says so.
+- The delta promise is scoped to `target:"app"` in the `browser` description.
+- The store link is derived from `BRIDGE_EXTENSION_ID` (`host-install.ts` exports `CHROME_STORE_URL`),
+  so the id still exists exactly once. It appears in the not-connected refusal — where someone is
+  actually blocked — and not in the schema, which is on every turn's prompt prefix.
 
-Add one kernel op while there: **`text`**. `inspectText` (`:398`) is raw eval with no kernel op,
-"read the page's text" is the most-used browser capability there is, and adding it _deletes_ a
-raw-eval site on the desktop rather than adding one.
+**Owner decisions folded in:** the tools stay offered in **every** mode (Explore/Plan/Build/Debug/
+Review — pinned by a test; `browser` survives the read-only modes because it mutates the open page
+and never the workspace). And the agent **prefers its own tab group**: `targetTab` used to fall
+through to the user's ACTIVE tab, so "read the page" meant whatever they had just switched to.
+It now prefers the agent's own tabs, a new `navigate` op reuses the agent's tab rather than breeding
+one per call, nothing ever activates a tab, and `navigate`/`close_tab` both refuse a tab the user
+owns. The user's tab is still reachable — by `tab_id` from `list_tabs`, which flags `active` and
+`agent`.
 
-Three defects found while mapping, worth fixing in passing: `action-scripts.ts:132` claims
-scroll-by "is not a kernel op" but `{op:"scroll"}` has existed at `page-scripts/index.ts:237` since
-the kernel refactor; `search-results` is a kernel op with no desktop caller; and `runInPage`'s
-`allFrames:false` means a bridged action against an iframed app silently targets the top frame,
-where the desktop's `executeJavaScript` has no such ambiguity — **that last one is the only place
-the two backends genuinely disagree and it must be surfaced in the result text.**
+**Defects found and fixed while mapping** (each was a silent wrong answer, not an error):
 
-Per-session tab groups need a storage migration: `tabs/group.ts` keys `windowId → groupId` under
-`atlarix.tabGroups.v1`; one group per chat session makes the key `${sid}:${windowId}`, needing
+- **Bridged `scroll` never worked.** It sent `{ref, to, by}` to a kernel op that reads
+  `{direction, amount}`, with an `as never` silencing the mismatch — so `direction` was always
+  `undefined` and every scroll went DOWN one viewport. Never up, never to top/bottom, `by` ignored.
+- **The `text` fallback leaked script source.** `innerText ?? textContent` returns the *source* of
+  `<script>`/`<style>`; the kernel now strips them on a clone. jsdom has no `innerText`, so the new
+  test exercises exactly that path.
+- `action-scripts.ts` claimed scroll-by "is not a kernel op" — it has been one since the kernel
+  refactor. The comment now says what is actually true: the desktop keeps its own builder for
+  horizontal scrolling and the AI cursor, neither of which the kernel op does.
+
+`text` is now a kernel op shared by both backends, and it **deleted** a raw-eval site: `inspectText`
+routes through `kernelCall` instead of splicing its own `querySelector`. `PAGE_TEXT_MAX_CHARS` moved
+into the kernel module so both clip at the same point.
+
+The `allFrames:false` disagreement is surfaced, not resolved: a Chrome read that comes back
+near-empty appends a note saying the extension reads the top frame only and to retry with
+`target:"app"` before reporting the page as blank.
+
+**What is NOT done:**
+
+- [ ] **A live end-to-end pass.** The relay binary is not built in this checkout, so
+      `resolveRelayPath()` returns null and the "no bridge in this build" branch is what runs here.
+      `cargo build --release` in `native/atlarix-bridge` is a prerequisite, not an optional extra.
+      Then: `ping` first, then a granted read, then `mode:"console"` to confirm the named refusal
+      and the model's recovery, then close the browser to confirm the install link appears.
+- [ ] The TODO's old claim that `search-results` has no desktop caller was stale —
+      `src/lib/search/browser-search.ts:117` calls it. No action, recorded so it is not re-checked.
+
+Per-session tab groups still need a storage migration: `tabs/group.ts` keys `windowId → groupId`
+under `atlarix.tabGroups.v1`; one group per chat session makes the key `${sid}:${windowId}`, needing
 `v2` plus a migration mapping old entries to a reserved `"panel"` session. Do not silently
-reinterpret v1 entries.
+reinterpret v1 entries. (Not required by the work above — the single per-window group is what ships.)
 
-### 2. Chrome Web Store — v1.0.0 is in review
+### 1b. Desktop-driven browsing does not ask, and does not manage
 
-Item `fkoacefbjjjhjceidagdajkgclfjacbe`, submitted 2026-09-14, **still pending**. It was rejected
-once before that for "Spam and Placement in the Store — excessive keywords", on a description line
-naming six file formats. `scripts/cws-copy-check.mjs` now enforces that shape (and every field's
-1,000-character limit) — run it before pasting anything.
+**Host access is a REQUIRED `host_permissions` entry** (`http://*/*`, `https://*/*`) as of
+2026-09-17. Chrome grants it at install, Site access defaults to "On all sites", and a
+desktop-driven request simply runs. `bridge/serve.ts` has **no permission check at all** —
+`requireGrant` is gone, replaced by a `tabUrl` lookup. If a user narrows Site access from
+chrome://extensions, `chrome.scripting` refuses the injection and Chrome's own error surfaces.
 
-**Owed on the next upload, whenever review resolves:**
+**Three rounds of live testing died on the gate this replaced**, and each of my fixes was more
+machinery in front of a door that should have been open: a clearer refusal, a toolbar badge, a
+panel banner, a proactive offer. All of it is deleted. Owner: *"no adding more security doesn't
+work… it should work, it doesn't need to manage anything."* The lesson worth keeping is that a
+permission whose remedy lives in a different window from its failure is not a permission, it is
+a dead end — and I answered it four times before removing it.
 
-- [ ] **Bump `packages/extension/manifest.json` from `1.0.0`.** The store copy in `cws/` is already
-      written for 1.1.0; the manifest is not.
-- [ ] **Re-paste the Remote code justification.** It described relics only, and 1.1.0 adds
-      `run_code`. A disclosure covering half of what an extension evaluates is the kind of
-      inaccuracy that pulls a live item rather than merely delaying one.
-- [ ] Re-paste Single purpose (gains a clause for producing a file) and Test instructions (gains a
-      step that exercises it). All three are in `cws/PRIVACY-FORM.md` / `cws/TEST-INSTRUCTIONS.txt`.
+**The panel's own agent is unchanged** and still asks per site (`canActOn` stays a
+conjunction). That asymmetry is now the safety story: broad access exists for the desktop
+integration; the in-browser agent keeps a self-imposed limit.
+
+**Known consequence, accepted:** `permissions.remove()` cannot take back a REQUIRED permission,
+so `revokeHostAccess` no longer stops the desktop path — it drops the panel's record and
+catches the Chrome call, which would otherwise reject and turn the settings "Revoke" button
+into an error. Revoking on the account page therefore constrains the PANEL only. The honest
+control for the desktop path is Site access in chrome://extensions.
+
+**Store copy rewritten and re-checked** (`node scripts/cws-copy-check.mjs`): Single purpose
+(988), `scripting` (836), a NEW **host_permissions justification** (905), and
+`cws/DESCRIPTION.txt`, which claimed *"Atlarix never asks for access to every site you visit,
+and it ships with access to none"* — public-facing and now false, which is the kind of
+inaccuracy that pulls a live item rather than delaying one.
+
+- [ ] **The next submission is on the MANUAL review track** — a permissions addition — and the
+      install prompt becomes "Read and change all your data on all websites". Both were taken
+      deliberately; see the plan file.
+
+**Also landed:** console and network capture over CDP (`page/cdp-capture.ts`), with
+`Network.enable` raced against a 2s timeout because the v14.31.0 trap is a HANG, and
+`unavailable` carried separately from an empty list. And a **build id** — a hash of the 75
+bundle inputs, sent in the handshake and logged by the desktop — because the extension version
+follows the app's and so cannot distinguish rebuilds. A stale extension load cost a full round
+of testing before it existed.
+
+### 2. Chrome Web Store — v1.0.0 is LIVE; 1.0.1 is built and not yet submitted
+
+Item `fkoacefbjjjhjceidagdajkgclfjacbe` is **published**. The two starred permission justifications
+(nativeMessaging, alarms) are written and **saved as a draft** in the dashboard.
+
+`packages/extension/dist/atlarix-extension-1.0.1.zip` is rebuilt (142.5 KB, 16 entries) with the
+manifest and package.json both at 1.0.1. Its user-visible changes are the `text` and `navigate` ops
+and the scroll fix.
+
+**Submit AFTER the live desktop↔extension pass, not before** — a CWS update starts a review that
+cannot be recalled, and 1.0.1 exists to be called by the desktop side. Note that a user still on
+1.0.0 asking for `mode:"text"` gets the extension's own honest refusal: *"This build may be older
+than the desktop app asking."*
+
+Review is hybrid automated/manual, **every update is reviewed**, and a permission addition pushes
+the item onto the manual track. 1.0.1 adds no permissions.
+
+It was rejected once, before publication, for "Spam and Placement in the Store — excessive
+keywords", on a description line naming six file formats. `scripts/cws-copy-check.mjs` enforces that
+shape (and every field's 1,000-character limit) — run it before pasting anything.
+
+**Owed on the next upload:**
+
+- [ ] **Re-paste the Remote code justification** if `run_code` ships. It described relics only. A
+      disclosure covering half of what an extension evaluates is the kind of inaccuracy that pulls a
+      live item rather than merely delaying one.
+- [ ] Re-paste Single purpose and Test instructions if that ships too. Both are in
+      `cws/PRIVACY-FORM.md` / `cws/TEST-INSTRUCTIONS.txt`.
 - [ ] Fill the reviewer credentials in the dashboard, not the file, and confirm that account still
       has credit. **A reviewer hitting a zero balance sees an extension that does not work, and the
       rejection will not mention money.**
