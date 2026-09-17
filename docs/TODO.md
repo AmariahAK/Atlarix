@@ -1,10 +1,11 @@
 # Atlarix TODO
 
-**Current version:** v14.47.0 — **released 2026-09-16.** Onboarding runs at all for the first
-time (the wizard self-completed unseen on every install since v10), it now guides you in place
-with anchored coachmarks instead of sending you to other screens, saving a BYOK key offers to
-actually use it, and the light theme has an elevation ladder instead of one flat white plane.
-Shepherd.js is gone. Narrative in [`docs/CHANGELOG.md`](./CHANGELOG.md).
+**Current version:** v14.48.0 — **staged 2026-09-17, tagging in progress.** The browser tools
+take a `target`, so Atlarix can drive the browser you are already signed into rather than only
+its own: your logins, your tabs, in its own tab group, with a visible frame and no per-site
+prompt on the desktop path. Real keystrokes and the page console come with it, and the Chrome
+extension now ships with every release at the app's own version. Narrative in
+[`docs/CHANGELOG.md`](./CHANGELOG.md).
 
 **This header has been wrong before.** It read v14.42.0 while `package.json` said 14.43.0, and
 "v14.44 SHIPPED" while **v14.44 was never tagged and has no changelog section at all**. Update it

@@ -3,6 +3,50 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.48.0] (2026-09-17) — Atlarix can drive the browser you are already signed into
+
+**The browser tools take a `target`.** `browser_inspect` and `browser` now accept
+`target: "app" | "chrome"`. `"app"` is the default and unchanged — Atlarix's built-in browser.
+`"chrome"` acts on **your own browser**, through the Atlarix extension: your logins, your
+cookies, your open tabs. Asking "am I signed in to GitHub, and as who?" now has an answer,
+because the page being read is the one your session actually loads.
+
+The transport for this had existed and been tested for weeks. What was missing was the seam:
+`bridge()` had **zero production callers**, so the user's browser and the user's agent could
+not meet.
+
+**It works beside you, not on top of you.** Atlarix works in its own tab group: it prefers its
+own tabs rather than whichever one you just switched to, reuses its tab instead of opening one
+per navigation, never takes focus, and never closes a tab it did not open. Every page it
+touches shows a green frame, and clicks and typing draw a visible pointer.
+
+**It no longer asks permission per site when you drive it from the desktop app.** You approved
+the action in the app; being asked again in a browser window you are not looking at is the same
+decision relocated to where you cannot answer it. The extension's own in-browser agent is
+unchanged and still asks per site.
+
+**Real keystrokes, and the page console.** `key` and `hover` work over the bridge — Enter
+actually submits a form, and `:hover` menus actually open. `mode:"console"` and
+`mode:"network"` read what the page logged and requested. Both report "Atlarix could not watch
+this tab" separately from "the page produced nothing", because an empty console read that means
+the former is the worst answer a debugging tool can give.
+
+**The extension ships with every release.** Its version is now the app's version, and the zip
+is attached to the release like any other asset, so "which extension goes with this build" is
+no longer a question anyone has to answer.
+
+**Four defects fixed, each a silent wrong answer rather than an error:**
+
+- Bridged `scroll` sent arguments the page kernel never reads, so every scroll went down one
+  viewport — never up, never to top or bottom.
+- Reading a page's text could return the contents of its `<script>` tags as if it were prose.
+- The "Atlarix is working here" frame was faded in from `requestAnimationFrame`, which does not
+  fire in a background tab — so it was created invisible and reported as success by every layer.
+- A test double did not model Chrome's permission-pattern matching, which made the main path of
+  the feature untestable.
+
+**5,097 tests pass**, up from 5,001.
+
 ## [14.47.0] (2026-09-16) — Onboarding runs at all now, and the light theme has surfaces
 
 **The first-run wizard has never been seen by anyone, and that is fixed.**
