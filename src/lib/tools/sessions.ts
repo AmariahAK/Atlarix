@@ -22,10 +22,11 @@
  *
  * WHY `LIKE` AND NOT FTS5
  * -----------------------
- * FTS5 was deliberately torn out in the retrieval teardown (v14.35.0) along with
- * BM25 and the symbol tagger, because an index that must be maintained drifts from
- * the thing it indexes. Re-introducing one for sessions would rebuild exactly that
- * surface for a corpus measured in thousands of rows, where a scan is already fast.
+ * FTS5 was deliberately torn out in the retrieval teardown (v14.9.0, 2026-07-10)
+ * along with BM25 and the symbol tagger, because an index that must be maintained
+ * drifts from the thing it indexes. Re-introducing one for sessions would rebuild
+ * exactly that surface for a corpus measured in thousands of rows, where a scan is
+ * already fast.
  * No index, no migration, no new dependency.
  *
  * ISOLATION IS STRUCTURAL, AND SO IS DELETION
