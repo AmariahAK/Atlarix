@@ -23,8 +23,7 @@
     "cli",
     "headless",
     "benchmark",
-    "terminal-bench",
-    "swe-bench"
+    "terminal-bench"
   ],
   "type": "module",
   "bin": {
