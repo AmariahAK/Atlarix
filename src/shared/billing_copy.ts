@@ -73,7 +73,7 @@ export function formatCents(cents: number): string {
  * change both when one changes. Both now read identically.
  */
 export const PRO_SUMMARY =
-  "Atlarix Reviewer, plus Atlarix Core included for everyday work — one subscription, one balance.";
+  "One subscription across all three surfaces — the desktop app, the Chrome extension and Atlarix Reviewer — with Atlarix Core included for everyday work, over one balance.";
 
 /**
  * The sentence that replaces "Atlarix Core is pay-as-you-go on every plan".

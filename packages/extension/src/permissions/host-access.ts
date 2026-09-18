@@ -126,66 +126,21 @@ export async function pruneRevokedGrants(urls: string[]): Promise<string[]> {
   return dropped;
 }
 
-/** The two patterns that together mean "every page Atlarix can ever read". */
-const ALL_SITES = ["http://*/*", "https://*/*"] as const;
-
 /**
- * Does Chrome currently hold access to every site?
+ * THERE IS NO BLANKET "EVERY SITE" PATH HERE ANY MORE.
  *
- * Asked of Chrome rather than remembered, for the same reason `hasHostAccess`
- * is: the user can take it back from `chrome://extensions` and we are not told.
- * A stored "they said yes once" would outlive the answer.
+ * `ALL_SITES`, `hasAllSites()`, `requestAllSites()` and `revokeAllSites()` were
+ * removed on 2026-09-18. They were written when host access was OPTIONAL, where
+ * `permissions.request()` on the broad patterns did real work. Host access
+ * became a REQUIRED manifest permission on 2026-09-17, after which Chrome
+ * already held those patterns at install: `request()` resolved true instantly
+ * with no dialog, `contains()` answered true for every http(s) origin, and
+ * `remove()` could not take a required permission back. All four functions
+ * became no-ops, and the panel button on top of them reported success while
+ * granting exactly one origin.
+ *
+ * `hasAllSites` and `revokeAllSites` never had a production caller at all — only
+ * the test file — which is how the whole group stayed green while meaning
+ * nothing. `canActOn` is now effectively the per-site allow-list alone, and that
+ * is the honest description of the gate.
  */
-export async function hasAllSites(): Promise<boolean> {
-  return api().permissions.contains({ origins: [...ALL_SITES] });
-}
-
-/**
- * Ask for every site at once — the escape hatch for people who do not want to
- * be asked again.
- *
- * WHY OFFER THIS AT ALL, when asking per origin is the thing that makes the
- * install prompt clean. Because the per-origin flow is right for someone
- * answering a question about the page in front of them, and wrong for someone
- * who has just pointed the agent at a research task across a dozen domains they
- * cannot name in advance. Refusing to offer it does not make that person safer;
- * it makes them close the panel.
- *
- * IT IS STILL ONE GESTURE AND ONE CHROME PROMPT, and Chrome's own dialog is
- * what asks. Nothing here can grant it quietly: like `requestHostAccess`, this
- * MUST be called synchronously from a click, so the agent loop cannot reach it.
- *
- * WHAT IT DOES NOT DO is grant every site in our own record. `canActOn` is a
- * conjunction, and this only satisfies the Chrome half — the per-site allow-list
- * still applies, so the agent still asks before touching a NEW site and the
- * user's Sites list still means what it says. That is deliberate: "stop asking
- * Chrome" and "let the agent go anywhere" are different requests, and only the
- * first one is being made here.
- */
-export async function requestAllSites(): Promise<boolean> {
-  try {
-    return await api().permissions.request({ origins: [...ALL_SITES] });
-  } catch {
-    // Thrown rather than resolved false when called outside a gesture. That is
-    // a programming error, not a user decision, so it must not be reported as
-    // a decline.
-    return false;
-  }
-}
-
-/**
- * Hand back blanket access, leaving individual sites alone.
- *
- * `permissions.remove` on the broad patterns does NOT remove narrower grants
- * the user made one at a time — those are separate entries — so this is a
- * genuine step down rather than a reset. Nothing is removed from our own
- * record, which is what makes it reversible without the user losing the list
- * they built.
- */
-export async function revokeAllSites(): Promise<boolean> {
-  try {
-    return await api().permissions.remove({ origins: [...ALL_SITES] });
-  } catch {
-    return false;
-  }
-}

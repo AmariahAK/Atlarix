@@ -50,15 +50,10 @@ import { formatInteractiveQaLine } from "@/lib/interactive-qa-format";
 import {
   canActOn,
   pruneRevokedGrants,
-  requestAllSites,
   requestHostAccess,
   revokeHostAccess,
 } from "../permissions/host-access";
-import {
-  grantSite,
-  listGrants,
-  revokeAll,
-} from "../permissions/site-grants";
+import { listGrants, revokeAll } from "../permissions/site-grants";
 import { activeTab } from "../page/inject";
 import { detachAll } from "../page/trusted-input";
 import { onGroupClosed, setGroupTitle } from "../tabs/group";
@@ -1266,64 +1261,38 @@ function approvalCard(request: Approval): Promise<boolean> {
     deny.textContent = request.kind === "host" ? "Not now" : "Stop";
 
     /**
-     * "Every site", offered only on a HOST card and only as the third option.
+     * THERE IS NO "ALLOW EVERY SITE" BUTTON, and its removal on 2026-09-18 was
+     * a correction rather than a scope cut.
      *
-     * THIS IS THE ANSWER TO A REAL COMPLAINT, not an upsell. Asking per origin
-     * is right for a question about the page in front of you and wrong for a
-     * research task across a dozen domains nobody can name in advance — and a
-     * developer who hits the prompt on every hop closes the panel rather than
-     * clicking through it.
+     * It shipped on 2026-09-15 and was correct then: host access was OPTIONAL,
+     * so `permissions.request()` for the broad patterns genuinely widened
+     * Chrome's half of `canActOn`. Two days later host access became a REQUIRED
+     * manifest permission (`manifest.json`, 2026-09-17) and the button became a
+     * no-op that reported success — Chrome resolved `request()` instantly
+     * because the permission was already held, and the handler then recorded
+     * exactly ONE origin, which is what plain "Allow" already did. The card said
+     * "Allowed every site" and the next domain asked again.
      *
-     * DELIBERATELY NOT THE PRIMARY ACTION. It is last, it is not styled as the
-     * affirmative button, and Chrome's own dialog still appears and still says
-     * "Read and change all your data on all websites" in full. The broad answer
-     * is available to someone who wants it and is never the easy accident.
+     * Making it work was considered and rejected. `isGranted` is an exact-key
+     * lookup and there is nowhere honest to put a wildcard: an origin-shaped
+     * sentinel does not match (`originOf("https://*&#47;*")` keys as
+     * `"https://*"`), and the grants table's CHECK constraint rejects `*` and
+     * drops the row SILENTLY on sync. A real fix is a schema migration plus
+     * account-page UI, which is a lot of surface for a control nobody has ever
+     * successfully used.
      *
-     * It satisfies only the Chrome half of `canActOn`. The per-site allow-list
-     * still applies, so the agent still asks before a NEW site — "stop asking
-     * Chrome" and "go anywhere" are different requests.
+     * Nothing was taken away from anyone: grants are per-domain and permanent —
+     * asked once per domain, never again — so the cost is one click on each NEW
+     * domain, and what is gone is a button that lied about what it did.
      */
-    // Narrowed once, here, so the click handler below carries the host fields
-    // with it — a closure cannot re-narrow the union on its own.
-    const hostRequest = request.kind === "host" ? request : null;
-    const always = hostRequest ? document.createElement("button") : null;
-    if (always) {
-      always.type = "button";
-      always.className = "button grant__always";
-      always.textContent = "Allow every site";
-      always.title =
-        "Grants Chrome's host access once, for all sites. Atlarix still asks " +
-        "before working on a site you have not allowed.";
-    }
-
     const settle = (answer: boolean, text: string) => {
       allow.remove();
       deny.remove();
-      always?.remove();
       card.classList.add("grant--settled");
       title.textContent = text;
       note.remove();
       resolve(answer);
     };
-
-    always?.addEventListener("click", () => {
-      if (!hostRequest) return;
-      allow.disabled = true;
-      deny.disabled = true;
-      always.disabled = true;
-      // Inside the gesture, exactly as `requestHostAccess` must be.
-      void requestAllSites().then(async (ok) => {
-        if (!ok) {
-          settle(false, `Declined ${hostRequest.origin}`);
-          return;
-        }
-        // Chrome now allows every origin, but `canActOn` is a conjunction —
-        // record THIS site too, or the very call that prompted the card would
-        // still be refused.
-        await grantSite(hostRequest.url);
-        settle(true, `Allowed every site`);
-      });
-    });
 
     allow.addEventListener("click", () => {
       allow.disabled = true;
@@ -1333,16 +1302,31 @@ function approvalCard(request: Approval): Promise<boolean> {
         return;
       }
       // Inside the gesture. Do NOT await anything before this call.
-      void requestHostAccess(request.url).then((outcome) => {
-        settle(
-          outcome.ok,
-          outcome.ok
-            ? `Allowed ${request.origin}`
-            : outcome.reason === "unsupported-scheme"
-              ? `${request.origin} cannot be allowed — Atlarix only reads http(s) pages`
-              : `Declined ${request.origin}`,
-        );
-      });
+      void requestHostAccess(request.url)
+        .then((outcome) => {
+          settle(
+            outcome.ok,
+            outcome.ok
+              ? `Allowed ${request.origin}`
+              : outcome.reason === "unsupported-scheme"
+                ? `${request.origin} cannot be allowed — Atlarix only reads http(s) pages`
+                : `Declined ${request.origin}`,
+          );
+        })
+        .catch(() => {
+          // A THROW IS NOT A DECLINE, and before this catch existed it was not
+          // anything at all: both buttons are already disabled, so an unhandled
+          // rejection left the card sitting there forever with the agent's turn
+          // still suspended behind it. `permissions.request` throws rather than
+          // resolving false when it is called outside a user gesture, and
+          // Chrome's handling of a withheld REQUIRED permission has varied
+          // across the versions this manifest supports.
+          //
+          // Settling false is right — the action must not proceed — but the
+          // wording must not tell the user they refused something they were
+          // never asked about.
+          settle(false, `Could not ask Chrome about ${request.origin}`);
+        });
     });
 
     deny.addEventListener("click", () => {
@@ -1355,7 +1339,6 @@ function approvalCard(request: Approval): Promise<boolean> {
     });
 
     actions.append(allow, deny);
-    if (always) actions.append(always);
     card.append(title, note, actions);
     append(card);
   });

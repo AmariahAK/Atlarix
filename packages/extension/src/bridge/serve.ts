@@ -7,32 +7,50 @@
  * nothing under `panel/`. `dispatch.ts` is the tempting one — it already knows
  * how to click a ref — and importing it would drag the model client and the
  * approval plumbing into the service worker, where they would run INSIDE a
- * bridged request. The user would be asked twice for one action: once by the
- * desktop, which already asked, and once by a panel that may not even be open.
+ * bridged request, raising a prompt in a panel that may not even be open for an
+ * action the user already initiated in the app.
  *
  * The rule is enforced by `bridge-imports.test.ts` rather than by this comment,
  * because the import that breaks it will look entirely reasonable.
  *
  * ══ WHO DECIDES WHETHER AN ACTION IS ALLOWED ══
  *
- * The desktop asked, so the DESKTOP owns the "should this happen" question —
- * its own approval flow ran before the request was sent, and asking again in
- * the browser would be the double prompt above.
+ * CORRECTED 2026-09-18. This section used to say the desktop "already asked" —
+ * that its own approval flow ran before the request was sent. **It does not.**
+ * Verified end to end: `browser.ts` dispatches on `target === "chrome"` as the
+ * FIRST statement of each handler, and `actOnChrome` / `inspectOnChrome` /
+ * `requestChrome` contain no approval call; `src/lib/browser/always-ask.ts` has
+ * no production importer under the desktop `src/` at all — its only non-test
+ * importer is THIS extension's `tools/dispatch.ts`. There is no approval,
+ * permission or confirmation step anywhere on the bridge path.
  *
- * NOTHING IS GATED HERE AT ALL, as of 2026-09-17. Host access is a REQUIRED
- * manifest permission, so Chrome grants it at install and a desktop-driven
- * request just runs. The extension's own per-site list is not consulted on this
- * path either: the user approved the action in the app, and asking again in a
- * window they are not looking at was the same decision relocated to where they
- * could not answer it. That was not a theory — it blocked three rounds of live
+ * So the accurate statement is: NOTHING GATES THIS PATH, on either side. Not a
+ * relocated decision — an absent one.
+ *
+ * The only lever that exists is the deny-only permission ruleset in the
+ * desktop's tool-execute funnel, and it is weaker than it sounds: opt-in and
+ * off unless a workspace has a rules file, name-only in its matching, and blind
+ * to `target`, so a rule cannot distinguish `target:"chrome"` from
+ * `target:"app"` and cannot gate a destination origin. It can refuse the tool
+ * outright. It cannot ask.
+ *
+ * WHY THAT IS STILL THE RIGHT SHAPE HERE, which is the part the old wording got
+ * right for the wrong reason: the turn is user-initiated in the app, and a
+ * prompt raised in a browser window the user is not looking at is a question
+ * they cannot answer. That is not a theory — it blocked three rounds of live
  * testing, and each "fix" was another layer in front of a door that should have
- * been open.
+ * been open. Host access being a REQUIRED manifest permission since 2026-09-17
+ * is what makes the door open; the extension's per-site list is deliberately
+ * not consulted here either.
  *
- * The panel's agent is unchanged and still asks per site. That asymmetry is the
- * safety story now, and the Web Store copy states it: broad access exists for
- * the desktop integration, while the in-browser agent keeps a self-imposed
- * limit. If a user narrows Site access from chrome://extensions, Chrome refuses
- * the injection and its own error surfaces.
+ * The real asymmetry, stated precisely, because the Web Store copy leans on it:
+ * the PANEL path has two gates — a per-origin grant that suspends the turn and
+ * renders an approval card on first contact with a domain, plus an always-ask
+ * classifier on click/fill/press_key that a site grant cannot override. The
+ * BRIDGE path has neither. Broad access exists for the desktop integration
+ * while the in-browser agent keeps a self-imposed limit. If a user narrows Site
+ * access from chrome://extensions, Chrome refuses the injection and its own
+ * error surfaces — that is the one external check on this path.
  *
  * ══ THE SERVICE WORKER IS THE RIGHT HOME, WHICH IS THE OPPOSITE OF THE LOOP ══
  *

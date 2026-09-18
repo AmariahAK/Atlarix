@@ -11,13 +11,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   canActOn,
-  hasAllSites,
   hasHostAccess,
   matchPatternFor,
   pruneRevokedGrants,
-  requestAllSites,
   requestHostAccess,
-  revokeAllSites,
   revokeHostAccess,
 } from "./host-access";
 import { isGranted, listGrants } from "./site-grants";
@@ -61,7 +58,16 @@ function patternCovers(held: string, want: string): boolean {
 
 function installFakeChrome(opts: { grants?: boolean } = {}): Fake {
   const store = new Map<string, unknown>();
-  const held = new Set<string>();
+  /**
+   * SEEDED, because that is what ships.
+   *
+   * `http://*&#47;*` and `https://*&#47;*` are REQUIRED `host_permissions` in
+   * `manifest.json`, so Chrome grants them at install and every real profile
+   * starts holding both. This set was empty until 2026-09-18 — the optional-era
+   * shape — which quietly made every host-permission test here run against a
+   * world that stopped existing on 2026-09-17.
+   */
+  const held = new Set<string>(["http://*/*", "https://*/*"]);
   const log: string[] = [];
 
   const area = {
@@ -206,8 +212,25 @@ describe("canActOn", () => {
   });
 });
 
+/**
+ * Take back what the manifest grants at install, the way a user does from
+ * `chrome://extensions` -> Site access -> "On specific sites".
+ *
+ * The two suites below are ONLY meaningful in that profile. On a default
+ * install Chrome holds `http://*&#47;*` and `https://*&#47;*` as required
+ * permissions, so `hasHostAccess` answers true for every http(s) origin,
+ * `permissions.remove` cannot take a required permission back, and there is by
+ * definition nothing for a prune to drop. Both suites asserted otherwise until
+ * 2026-09-18 and passed only because the fake started with no permissions held.
+ */
+function narrowSiteAccess(f: Fake) {
+  f.held.delete("http://*/*");
+  f.held.delete("https://*/*");
+}
+
 describe("revokeHostAccess", () => {
   it("drops both halves — leaving either is a lie about the other", async () => {
+    narrowSiteAccess(fake);
     await requestHostAccess("https://app.example.com/x");
     await revokeHostAccess("https://app.example.com/x");
     await expect(hasHostAccess("https://app.example.com/x")).resolves.toBe(
@@ -215,10 +238,25 @@ describe("revokeHostAccess", () => {
     );
     await expect(isGranted("https://app.example.com/x")).resolves.toBe(false);
   });
+
+  it("cannot reduce Chrome's answer on a default install, and says so", async () => {
+    // The broad patterns are REQUIRED, and Chrome refuses to hand a required
+    // permission back. Our own record still clears, which is the half we own —
+    // but the agent is not thereby locked out, and pretending otherwise in the
+    // UI is how "Revoke" came to promise more than it delivers.
+    await requestHostAccess("https://app.example.com/x");
+    await revokeHostAccess("https://app.example.com/x");
+
+    await expect(isGranted("https://app.example.com/x")).resolves.toBe(false);
+    await expect(hasHostAccess("https://app.example.com/x")).resolves.toBe(
+      true,
+    );
+  });
 });
 
 describe("pruneRevokedGrants", () => {
   it("drops records Chrome no longer backs, and reports which", async () => {
+    narrowSiteAccess(fake);
     await requestHostAccess("https://a.example.com/");
     await requestHostAccess("https://b.example.com/");
     fake.held.delete("https://a.example.com/*");
@@ -232,42 +270,30 @@ describe("pruneRevokedGrants", () => {
     await expect(isGranted("https://a.example.com/")).resolves.toBe(false);
     await expect(isGranted("https://b.example.com/")).resolves.toBe(true);
   });
-});
 
-describe("allowing every site", () => {
-  /**
-   * The escape hatch for someone doing research across domains they cannot name
-   * in advance. It has to widen Chrome's half and NOT our own, or the Sites
-   * list stops meaning anything.
-   */
-  it("asks Chrome for both schemes in one request", async () => {
-    await expect(hasAllSites()).resolves.toBe(false);
+  it("drops nothing while the manifest's broad access is intact", async () => {
+    await requestHostAccess("https://a.example.com/");
 
-    await expect(requestAllSites()).resolves.toBe(true);
-
-    expect(fake.log).toContain("permissions.request");
-    await expect(hasAllSites()).resolves.toBe(true);
-  });
-
-  it("does NOT grant any site in our own record", async () => {
-    await requestAllSites();
-
-    // Chrome would now allow the injection, but `canActOn` is a conjunction:
-    // the agent must still ask before working on a site the user has not
-    // allowed. "Stop asking Chrome" is not "go anywhere".
-    expect(await listGrants()).toEqual([]);
-    await expect(canActOn("https://app.example.com/x")).resolves.toBe(false);
-  });
-
-  it("hands blanket access back without losing the sites built up one by one", async () => {
-    await requestHostAccess("https://app.example.com/x");
-    await requestAllSites();
-
-    await expect(revokeAllSites()).resolves.toBe(true);
-
-    // The broad patterns are gone; the narrow grant is a separate entry and
-    // survives, so stepping down is not a reset.
-    await expect(hasAllSites()).resolves.toBe(false);
-    await expect(canActOn("https://app.example.com/x")).resolves.toBe(true);
+    await expect(
+      pruneRevokedGrants(["https://a.example.com/"]),
+    ).resolves.toEqual([]);
+    await expect(isGranted("https://a.example.com/")).resolves.toBe(true);
   });
 });
+
+/*
+ * The `describe("allowing every site")` block lived here until 2026-09-18 and is
+ * gone with the feature.
+ *
+ * It is worth recording WHY it never caught the regression, because the shape
+ * repeats. Its assertions were correct on the day they were written and became
+ * a description of a no-op two days later, when host access moved from optional
+ * to required — and one of them, `does NOT grant any site in our own record`,
+ * had by then inverted into a test that PINNED the bug: it asserted that after
+ * "Allow every site" nothing was granted and `canActOn` was still false, which
+ * by then was the whole defect rather than the intended design.
+ *
+ * The fake below now seeds `held` with the required patterns, so a test that
+ * assumes Chrome has to be asked for host access will fail instead of passing
+ * against a world that no longer ships.
+ */

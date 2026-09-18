@@ -2,13 +2,20 @@
  * The always-ask set: actions that stop for the user even on a site they have
  * already granted.
  *
- * SHARED BY BOTH BROWSER BACKENDS, which is why it lives here rather than in
- * the extension that first needed it. The classifier is pure — no imports, no
- * platform, no I/O — and that is the property that lets one copy serve the
- * extension (through the `@` alias, as it already does for the page kernel and
- * the a11y formatter) and the desktop's own browser tool. Two copies of a
- * safety classifier is two sets of rules that drift, and the one that drifts is
- * always the one nobody is looking at.
+ * WHERE IT IS ACTUALLY USED, corrected 2026-09-18: the EXTENSION'S panel agent,
+ * and nothing else. `tools/dispatch.ts` in the extension is this module's only
+ * non-test importer. The desktop's own browser tool does NOT call it — not on
+ * its in-app `WebContentsView` path and not on the `target:"chrome"` bridge
+ * path, where nothing gates at all (see `packages/extension/src/bridge/serve.ts`).
+ *
+ * It lives here rather than in the extension because it is pure — no imports,
+ * no platform, no I/O — so one copy CAN serve both backends through the `@`
+ * alias, as the page kernel and the a11y formatter already do. That was the
+ * intent and it remains the right home. But "shared by both browser backends",
+ * which this comment used to assert flatly, described a second caller that has
+ * never existed, and a safety component that looks wired up and is not is worse
+ * than one that is obviously absent — this module sat with 44 tests and no
+ * production caller at all until the extension's dispatcher picked it up.
  *
  * WHY THIS SHAPE. Both Claude in Chrome and OpenAI's extension gate on first
  * contact with a new domain, and both keep a smaller set that a site grant does

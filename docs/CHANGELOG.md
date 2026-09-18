@@ -52,8 +52,39 @@ Alongside it, four things the panel was doing badly enough to notice while recor
   stored with the transcript and redrawn collapsed. Stored, never sent: `stripForWire` removes
   it at the single point messages become a request.
 
+### Removed
+
+- **"Allow every site" on the permission card, because it had stopped doing anything.** It
+  shipped on 2026-09-15 and was correct then: host access was an OPTIONAL permission, so asking
+  Chrome for `http://*/*` and `https://*/*` genuinely widened what the extension could reach.
+  Host access became REQUIRED on 2026-09-17 so the desktop app never has to prompt — and from
+  that moment the button was a no-op that announced success. Chrome resolved the request
+  instantly against a permission it already held, showed no dialog, and the handler then
+  recorded exactly one origin, which is what plain "Allow" already did. The card said "Allowed
+  every site" and the next domain asked again.
+
+  It is removed rather than rebuilt. `isGranted` is an exact-key lookup and there is nowhere
+  honest to put a wildcard: an origin-shaped sentinel does not match, and the grants table's
+  CHECK constraint drops one silently on sync, so making it real means a schema migration and
+  account-page UI. Nothing is taken away from anyone — site grants are per-domain and
+  permanent, asked once per domain and never again — so the cost is one click on each new
+  domain, in exchange for losing a control that misreported what it did. `hasAllSites` and
+  `revokeAllSites` went with it; neither ever had a caller outside the test file.
+
 ### Notes
 
+- **Why CI never caught the above.** `host-access.test.ts` seeded its fake Chrome with zero
+  held permissions — the optional-era shape — so the whole suite ran against a world that
+  stopped existing on 2026-09-17, and one assertion had inverted into pinning the bug as
+  correct behaviour. The fake now seeds the required patterns, which immediately failed two
+  further tests that were also describing the old model; both were rewritten to narrow site
+  access first, which is the only situation where they are meaningful now.
+- A permission prompt that threw could leave the approval card hung forever with both buttons
+  disabled and the turn suspended behind it. It now settles, and says it could not ask rather
+  than claiming the user declined.
+- Corrected a comment in `bridge/serve.ts` that justified the ungated desktop path by saying
+  the desktop's "own approval flow ran before the request was sent". There is no such flow —
+  verified end to end. The path is ungated on both sides; the panel path is the one with gates.
 - Tests: 5,140 passing. Nothing in the desktop app changed — this release exists to get the
   extension fixes out, and the extension's version is the app's by design.
 - The extension is attached to this release as `atlarix-extension-14.48.1.zip`.

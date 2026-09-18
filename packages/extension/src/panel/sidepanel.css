@@ -722,28 +722,12 @@ body {
 }
 
 /*
- * "Allow every site" is the third option and must never read as the easy one.
- *
- * It does not flex with the other two: a 320px panel would otherwise give three
- * equal buttons, and equal weight is exactly the wrong signal for the broadest
- * answer on the card. It sits on its own line, quieter than "Not now", and the
- * user who wants it will still find it immediately.
+ * `flex-wrap` survives the removal of the "Allow every site" button (2026-09-18)
+ * because a host card's title can still be long enough to need it on a 320px
+ * panel. The `.grant__always` rules went with the button.
  */
 .grant__actions {
   flex-wrap: wrap;
-}
-
-.grant__always {
-  flex: 1 0 100%;
-  font-size: 11px;
-  color: var(--muted-fg);
-  border-color: transparent;
-  background: transparent;
-}
-
-.grant__always:not(:disabled):hover {
-  color: var(--fg);
-  border-color: var(--border);
 }
 
 .grant--settled {

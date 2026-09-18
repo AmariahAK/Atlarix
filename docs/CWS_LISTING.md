@@ -53,9 +53,12 @@ UPDATE to that draft, not a new item.
 > and it reads the page, follows links, fills forms and pulls the answer
 > together — without asking you to copy anything into a chat window.
 >
-> **It works on the sites you allow, and only those.** Access is granted per
-> site, by you, and can be revoked at any time from the panel or from your
-> account. Atlarix never asks for access to every site you visit.
+> **The in-panel agent asks the first time it touches a site.** Every site it has
+> worked on is listed and revocable from the panel or your account. Chrome will
+> tell you at install that Atlarix can read and change data on all websites —
+> that is required for the desktop app to drive the browser without a second
+> prompt, and you can narrow it to chosen sites from your browser's extensions
+> page at any time.
 >
 > **It fills forms but never submits them.** Anything that sends, buys, posts or
 > deletes stops and asks you first.
@@ -129,11 +132,23 @@ phrased for a reviewer who has not read the code.
 > tab the user has granted, only for the duration of an action, and is never
 > used to read network traffic or page memory.
 
-**`optional_host_permissions` (`http://*/*`, `https://*/*`)**
-> Deliberately OPTIONAL rather than required. Atlarix requests access to one
-> origin at a time, at the moment the user asks it to work on that site, and the
-> user can revoke a site from the panel. The extension ships with access to no
-> sites at all.
+**`host_permissions` (`http://*/*`, `https://*/*`)**
+> REQUIRED, as of 2026-09-17. Atlarix pairs with its own desktop application,
+> and a request the user has already made in that app must not raise a second
+> prompt in a browser window they are not looking at — which is what an optional
+> permission forced, since `permissions.request()` needs a user gesture and
+> cannot be called from a service worker.
+>
+> The in-panel agent nevertheless still asks the first time it touches a site,
+> and keeps its own per-origin record that Chrome's blanket grant does not fill
+> in; a smaller set — downloads, credential entry, payment entry — always asks
+> and cannot be unlocked by granting a site. Users narrow access from
+> chrome://extensions.
+
+<!-- Corrected 2026-09-18. This section described `optional_host_permissions`
+     and claimed "the extension ships with access to no sites at all", which
+     stopped being true on 2026-09-17 and is the opposite of what the install
+     prompt now says. It is listing copy, so it was wrong in public. -->
 
 ---
 

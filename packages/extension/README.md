@@ -226,29 +226,36 @@ cost of the panel is stated rather than hidden — closing it ends the turn in
 progress — and the transcript is saved after every round, so reopening shows
 everything up to the last completed one.
 
-**Host access is optional, not granted at install.** `optional_host_permissions`
-is `http://*/*` and `https://*/*` — not `<all_urls>`, which would also cover
+**Host access is REQUIRED and granted at install.** `host_permissions` is
+`http://*/*` and `https://*/*` — not `<all_urls>`, which would also cover
 `file://` and `ftp://`, schemes `originOf` in
 [`src/permissions/site-grants.ts`](src/permissions/site-grants.ts) refuses to
-produce an origin for. The manifest states the rule the code already enforces.
+produce an origin for.
 
-The install prompt therefore shows **no host warnings at all**, and each origin
-is requested from a side-panel button at the moment the user grants that site.
-That upgrades a site grant from a record of intent into something Chrome itself
-enforces — and because `chrome.permissions.request()` needs a user gesture and
-cannot be called from a service worker, **the agent loop structurally cannot
-widen its own reach.** That is better than a policy saying it mustn't.
+This section described the opposite until 2026-09-18, and the difference is the
+whole permission model. Host access was optional until **2026-09-17**, when it
+became required so that the desktop app driving the browser never has to ask.
+The consequence to state plainly: **the install prompt says "Read and change all
+your data on all websites"**, and a user NARROWS access from `chrome://extensions`
+rather than widening it from the panel.
 
-**There is an "Allow every site" option on the same card**, and it is the third
-action rather than the first. Asking per origin is right for a question about
-the page in front of you and wrong for a research task across a dozen domains
-nobody can name in advance — a developer who hits the prompt on every hop closes
-the panel rather than clicking through it. It goes through the same
-`permissions.request()` and the same Chrome dialog, which still says "Read and
-change all your data on all websites" in full, and it satisfies only the Chrome
-half of `canActOn`: the per-site allow-list still applies, so the agent still
-asks before a NEW site. "Stop asking Chrome" and "go anywhere" are different
-requests and only the first is being made.
+**The in-panel agent still asks per site anyway**, and that self-imposed limit is
+now the real gate — `canActOn` consults the extension's own per-origin record,
+which Chrome's blanket grant does not fill in. A grant is asked once per domain
+and then never again for that domain. Because `chrome.permissions.request()`
+needs a user gesture and cannot be called from a service worker, **the agent loop
+structurally cannot widen its own reach.** That is better than a policy saying it
+mustn't.
+
+**There is no longer an "Allow every site" option.** It shipped 2026-09-15, when
+host access was optional and the request genuinely widened Chrome's half. Once
+host access became required two days later, `permissions.request()` for those
+patterns resolved instantly against a permission already held and the handler
+recorded exactly one origin — identical to plain "Allow", while the card reported
+"Allowed every site". It was removed on 2026-09-18 rather than rebuilt: an
+all-sites flag has nowhere honest to live (`isGranted` is an exact-key lookup and
+the grants table's CHECK constraint drops a wildcard row silently), and per-domain
+grants are permanent, so the cost of removal is one click on each new domain.
 
 **Chrome's dialog is WANTED, not tolerated.** The extension declares no
 `notifications` permission, so when the user has tabbed away there is nothing
