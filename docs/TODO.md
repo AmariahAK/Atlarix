@@ -1,15 +1,16 @@
 # Atlarix TODO
 
-**Current version:** v14.48.1 — **staged 2026-09-17, tagging in progress.** An
-extension-only patch: the Chrome extension was INERT in Arc (the background worker threw on
-`chrome.sidePanel` before the bridge below it could connect), tables render as tables, a
-streamed answer is paced rather than painted per chunk, the panel keeps the model's reasoning,
-and the credit error's address is a link. No desktop code changed — the extension's version is
-the app's by design, so shipping an extension fix means cutting a release. Narrative in
+**Current version:** v14.49.0 — **released 2026-09-21.** The UI pass: the composer has a model
+chip that names the model you are on (nothing ever did), the sidebar's workspace row is a header
+rather than a tree row, session rows are one line, the rail footer is two buttons and a readable
+clock, and Integrations shows its provider grid on arrival. Fixed along the way: the sidebar was
+painting `--accent` (amber in BOTH themes) where `--sidebar-accent` belonged, two composers could
+both answer Cmd/Ctrl+J, a custom model picked from the old sheet lost its `customModelId`, and
+the account menu could not be dismissed by clicking away. Net −383 lines. Narrative in
 [`docs/CHANGELOG.md`](./CHANGELOG.md).
 
-v14.48.0 (2026-09-17) SHIPPED: the browser tools take a `target`, so Atlarix can drive the
-browser you are already signed into rather than only its own.
+v14.48.1 (2026-09-17) SHIPPED: the Chrome extension was INERT in Arc — the background worker
+threw on `chrome.sidePanel` before the bridge below it could connect.
 
 **This header has been wrong before.** It read v14.42.0 while `package.json` said 14.43.0, and
 "v14.44 SHIPPED" while **v14.44 was never tagged and has no changelog section at all**. Update it
@@ -25,7 +26,7 @@ lean, and most of it was a log of finished work. What was in it now lives where 
 | Designed, not scheduled             | [`docs/DESIGN_NOTES.md`](./DESIGN_NOTES.md) |
 | Open work                           | here, and nowhere else                      |
 
-**Last updated:** 2026-09-17
+**Last updated:** 2026-09-21
 
 ---
 
@@ -182,6 +183,43 @@ prove `electron-forge make` (Squirrel.Windows), which has never run on that imag
 `publish-release`. **If a tag fails there: re-run the job, then revert one line to `windows-2022`
 before assuming the maker is broken.** `windows-2022` is kept as a dispatch option for exactly that
 A/B.
+
+### 5. Launchpad — the three doors are two-thirds built (different repo)
+
+`atlarix-launchpad`, not this one. Atlarix is three surfaces in three SEO/GEO categories —
+desktop app, Chrome extension, PR reviewer — and the plan is one entity behind three doors on one
+domain, because LLMs and listicles answer by CATEGORY and "best AI coding agent" is the most
+crowded of the three.
+
+**Most of it already exists.** Routes `/`, `/reviewer`, `/extension` (`src/App.tsx:52-53`); the
+site is statically generated (`vite-react-ssg`), so all three ship real HTML; `structured-data.ts`
+already has `desktopApplication()` (`DeveloperApplication`), `browserExtension()`
+(`BrowserApplication`, with `isPartOf: {"@id": APP_ID}` tying it to the app entity), `faqPage()`,
+`graph()`; `public/llms.txt` lists all three; sitemap + IndexNow are wired.
+
+What is actually missing:
+
+- **`/reviewer` emits NO JSON-LD at all.** `Reviewer.tsx:55-59` passes no `jsonLd`, while
+  `Index.tsx:52` and `Extension.tsx:61` both do. Needs a `reviewerApplication()` beside the other
+  two, following `browserExtension()`'s `isPartOf` pattern. Honest caveat: schema.org has no
+  "code review" category, so it is `DeveloperApplication` again — the category field does less
+  work here than the three-doors idea implies.
+- **Three divergent `FAQPage` implementations.** `faqPage()` in `structured-data.ts` is used by
+  **nobody**; `FAQ.tsx` is orphaned (no importer) and hand-rolls its own; `PricingPage.tsx:33-41,
+  114-118` hand-rolls a third and injects it with raw `dangerouslySetInnerHTML`, bypassing
+  `graph()` so it never joins the Organization/WebSite graph. Route all three through `faqPage()`
+  + `usePageMeta`, then add FAQ blocks to `/reviewer` and `/extension`.
+- **A "better together" page** — the workstation hands context to the Reviewer and the Reviewer
+  judges it independently. The one claim nobody can copy, and it only exists because we own both
+  halves. New route takes `{ path, element, entry }`; the sitemap auto-discovers built HTML, but
+  add it to the `PAGES` map for `lastmod` and to `RULES` for a third-door priority.
+
+**Do not expect this to move the numbers.** Per the 2026-09-18 baseline, 89% of clicks are the
+literal word "atlarix" and **/pricing has never been crawled** — the bottleneck is AUTHORITY, not
+markup, and schema on a page nothing reaches changes nothing. This is foundation. The movement
+comes from the CWS listing, the GitHub Marketplace listing (still not approved as of the
+2026-09-16 chase) and staggered launches, which are crawlable third-party pages we do not have to
+build authority for from zero.
 
 ---
 

@@ -8,6 +8,7 @@
 > nobody is running — the app auto-updates — while the question it actually gets asked
 > is "when did X ship?", which a one-line index answers better than prose does.
 
+- **14.40.0** (2026-09-01) — A dropped connection no longer ends the run
 - **14.39.3** (2026-09-01) — The headless agent becomes installable, and stops handicapping itself
 - **14.39.2** (2026-09-01) — The trial credit goes to real accounts
 - **14.39.1** (2026-09-01) — A summary that stays out of the way, and a clearer answer about data

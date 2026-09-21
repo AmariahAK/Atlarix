@@ -3,7 +3,7 @@
  * mac, Ctrl elsewhere).
  * - Cmd/Ctrl+B: toggle right panel.
  * - Shift+Tab: cycle work mode Explore → Plan → Build → Debug → Review (workspace chats).
- * - Cmd/Ctrl+J: open the model picker (right-side sheet).
+ * - Cmd/Ctrl+J: open the model picker (the composer's model chip).
  * - Cmd/Ctrl+T: new browser tab (opens the browser panel).
  * - Cmd/Ctrl+I ← / Cmd/Ctrl+O → : move between right-panel tabs.
  * (Cmd/Ctrl+W closes the active browser tab — handled in main via before-input-event.)
@@ -127,7 +127,7 @@ export function usePanelShortcuts() {
         return;
       }
 
-      // Cmd/Ctrl+J: toggle the model picker (right-side sheet). Above the guard
+      // Cmd/Ctrl+J: toggle the model picker (the composer's model chip). Above the guard
       // so it works while composing.
       if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "j") {
         e.preventDefault();

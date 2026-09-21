@@ -132,20 +132,35 @@ export const SHORTCUTS: readonly KeyboardShortcut[] = [
   },
   {
     /**
-     * KNOWN BROKEN, and recorded here rather than omitted.
+     * WAS KNOWN BROKEN until the dialog was hoisted to the app root.
      *
-     * The listener lives inside `AppSearchDialog`, which is mounted only from `AppList`
-     * — and `AppList` returns null unless the Apps sidebar item is showing. So the chord
-     * does nothing most of the time. Advertising it would manufacture bug reports;
-     * leaving it out of the table entirely would let the next reader conclude no such
-     * shortcut exists and add a second one.
+     * The listener lives inside `AppSearchDialog`, which used to be mounted only from
+     * `AppList` — and `AppList` returns null unless the Apps sidebar item is showing, so
+     * the chord did nothing most of the time. That is why this row was `hidden`: it was
+     * real enough to record, not reliable enough to advertise.
+     *
+     * `components/GlobalAppSearch.tsx` now mounts it in `app/layout.tsx` beside the other
+     * always-live dialogs, so the chord works on every route and the row can be honest.
      */
     id: "app-search",
     combo: { mod: true, key: "k" },
     label: "Search workspaces",
     owner: "app-search",
-    scope: "only while the Apps sidebar is open — see the note in shortcuts.ts",
-    status: "hidden",
+    status: "advertised",
+  },
+  {
+    /**
+     * A NATIVE ACCELERATOR, registered on the File menu in `main.ts`, not a
+     * renderer keydown. The rail's "New window" button had no chord at all, and
+     * an OS accelerator is the right instrument for this one: it fires with the
+     * caret anywhere, including inside the composer, and File is where the
+     * platform convention puts New Window.
+     */
+    id: "new-window",
+    combo: { mod: true, key: "n" },
+    label: "Open a new window",
+    owner: "menu",
+    status: "advertised",
   },
   {
     id: "close-tab-or-window",

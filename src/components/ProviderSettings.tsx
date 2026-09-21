@@ -14,8 +14,6 @@ import {
   PlusIcon,
   Trash2,
   Edit,
-  ChevronDown,
-  ChevronUp,
 } from "lucide-react";
 import { Skeleton } from "./ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
@@ -73,7 +71,6 @@ export function ProviderSettingsGrid() {
   const [editingProvider, setEditingProvider] =
     useState<LanguageModelProvider | null>(null);
   const [providerToDelete, setProviderToDelete] = useState<string | null>(null);
-  const [sectionExpanded, setSectionExpanded] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [page, setPage] = useState(1);
   const [shuffledNonCompass, setShuffledNonCompass] = useState<
@@ -95,18 +92,28 @@ export function ProviderSettingsGrid() {
     [providers, searchQuery],
   );
 
+  /*
+   * Shuffled off `providers`, NOT off `filtered`.
+   *
+   * This used to depend on `filtered`, which changes identity on every
+   * keystroke — so the grid reshuffled itself as you typed and the card you
+   * were reaching for moved. The shuffle exists to stop the same handful of
+   * providers always winning the first page; it has nothing to do with the
+   * query, so the query must not retrigger it.
+   */
   const reshuffleForDisplay = useCallback(() => {
-    const rest = filtered.filter(
+    const rest = (providers ?? []).filter(
       (p) => p.id !== COMPASS_ID && p.id !== OPENROUTER_ID,
     );
     setShuffledNonCompass(shuffleArray(rest));
     setPage(1);
-  }, [filtered]);
+  }, [providers]);
 
+  // Runs on mount now that the section is always open — it used to be gated on
+  // the expand toggle, which was the only reason it did not.
   useEffect(() => {
-    if (!sectionExpanded) return;
     reshuffleForDisplay();
-  }, [sectionExpanded, reshuffleForDisplay]);
+  }, [reshuffleForDisplay]);
 
   const orderedForPaging = useMemo(() => {
     const compass = filtered.find((p) => p.id === COMPASS_ID);
@@ -214,33 +221,24 @@ export function ProviderSettingsGrid() {
     );
   }
 
+  /*
+   * NO COLLAPSIBLE WRAPPER, deliberately.
+   *
+   * This used to be a section that opened with a chevron, and it made sense when
+   * "AI Settings" was one card among eleven on a single Settings scroll. It is
+   * now the whole body of its own route — so the page header said
+   * "Integrations", the card said "Models & providers", and this said "Model
+   * providers": the same name three times, with a chevron in front of the only
+   * content on the screen. A first-time user arriving to connect a model met a
+   * closed box and no reason to think anything was behind it.
+   *
+   * The configured count survives as a line beside the search box, where it is
+   * useful whether or not anything is expanded.
+   */
   return (
     <div className="rounded-lg border border-border overflow-hidden bg-slate-900/20 dark:bg-slate-950/40">
-      <button
-        type="button"
-        onClick={() => setSectionExpanded((e) => !e)}
-        className="w-full px-4 py-3 flex items-center justify-between hover:bg-muted/30 transition-colors text-left"
-      >
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-sm font-medium text-foreground">
-            Model providers
-          </span>
-          {!sectionExpanded && (
-            <span className="text-xs text-muted-foreground truncate">
-              {configuredCount} provider{configuredCount === 1 ? "" : "s"}{" "}
-              configured
-            </span>
-          )}
-        </div>
-        {sectionExpanded ? (
-          <ChevronUp className="w-4 h-4 shrink-0 text-muted-foreground" />
-        ) : (
-          <ChevronDown className="w-4 h-4 shrink-0 text-muted-foreground" />
-        )}
-      </button>
-
-      {sectionExpanded && (
-        <div className="border-t border-border px-4 pb-4 pt-2 space-y-4">
+      <div className="px-4 pb-4 pt-4 space-y-4">
+        <div className="flex flex-wrap items-center gap-3">
           <Input
             placeholder="Search providers…"
             value={searchQuery}
@@ -250,6 +248,11 @@ export function ProviderSettingsGrid() {
             }}
             className="max-w-md"
           />
+          <span className="text-xs text-muted-foreground shrink-0">
+            {configuredCount} provider{configuredCount === 1 ? "" : "s"}{" "}
+            configured
+          </span>
+        </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {pageSlice.map((provider: LanguageModelProvider) => {
@@ -364,8 +367,7 @@ export function ProviderSettingsGrid() {
               </Button>
             </div>
           )}
-        </div>
-      )}
+      </div>
 
       <CreateCustomProviderDialog
         isOpen={isDialogOpen}

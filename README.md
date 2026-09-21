@@ -3,7 +3,7 @@
 ## The Private AI Workstation
 
 Atlarix is the agent workstation for engineering teams — managed cloud models
-via Atlarix Core, your own API keys across <!-- CATALOG:providers:START (generated — run scripts/gen-readme-catalog.mjs) -->210+ providers<!-- CATALOG:providers:END -->, and local models —
+via Atlarix Core, your own API keys across <!-- CATALOG:providers:START (generated — run scripts/gen-readme-catalog.mjs) -->220+ providers<!-- CATALOG:providers:END -->, and local models —
 all without replacing your editor.
 
 **What "private" means here:** your code stays on your machine. Nothing indexes
@@ -22,7 +22,7 @@ any repo size. The agent has a workspace. You have control.
 
 **Search** — Atlarix gives the agent fast, **bundled-ripgrep** search over your workspace — `grep` and `glob` with no index to build, no background file-watcher, and constant low memory at any repo size. Retrieval stays purely lexical: the agent reasons over ranked search results rather than a vector index or a structural map. Nothing is scanned until the agent searches.
 
-**Connect** — Wire in any LLM: local **Ollama / LM Studio**, **<!-- CATALOG:providers-and-models:START (generated — run scripts/gen-readme-catalog.mjs) -->210+ cloud providers and 6,500+ tool-capable models<!-- CATALOG:providers-and-models:END -->** read live from the [models.dev](https://models.dev) catalog (OpenAI, Anthropic, Google Gemini, and every OpenAI-compatible endpoint), or **Atlarix Core** (managed models with real catalog names, not raw tier ids — the Core tiers are configured remotely, so the underlying models stay current without an app update). The catalog refreshes hourly and ships with an offline snapshot, so new models appear without an app update and the picker is never empty.
+**Connect** — Wire in any LLM: local **Ollama / LM Studio**, **<!-- CATALOG:providers-and-models:START (generated — run scripts/gen-readme-catalog.mjs) -->220+ cloud providers and 6,500+ tool-capable models<!-- CATALOG:providers-and-models:END -->** read live from the [models.dev](https://models.dev) catalog (OpenAI, Anthropic, Google Gemini, and every OpenAI-compatible endpoint), or **Atlarix Core** (managed models with real catalog names, not raw tier ids — the Core tiers are configured remotely, so the underlying models stay current without an app update). The catalog refreshes hourly and ships with an offline snapshot, so new models appear without an app update and the picker is never empty.
 
 **Execute** — The agent plans, reads, writes, runs commands (inside a per-OS write-confining sandbox — writes confined to your workspace plus any folder you explicitly grant, network on), and searches the web. You approve every destructive action.
 
@@ -30,7 +30,7 @@ any repo size. The agent has a workspace. You have control.
 
 **Created by [NorahLabs](https://norahlabs.com)** (Nairobi, Kenya)  
 **Website:** [atlarix.dev](https://atlarix.dev)  
-**Current release:** **v14.48.1**
+**Current release:** **v14.49.0**
 
 **Downloads:** Installers for **macOS**, **Linux**, and **Windows** are on [atlarix.dev](https://atlarix.dev). _(Windows builds are currently unsigned; code signing is coming soon.)_
 
@@ -63,7 +63,7 @@ Release notes: **[docs/CHANGELOG.md](docs/CHANGELOG.md)** — the last ten relea
 - **Prompt caching:** Dispatches are cache-friendly out of the box — Anthropic API key turns place `cache_control` breakpoints over the stable system header and conversation history, cutting repeat-turn input cost and latency.
 - **Real terminal:** User terminal tabs are full interactive shells (xterm.js + PTY) — Tab completion, arrows, colors, vim/top. Tabs and scrollback **persist across app restarts**, and tab labels track the shell's live cwd. Agent commands run separately with captured output and approvals.
 
-**Providers:** **Atlarix Core** (managed models, configured remotely rather than pinned to a release) plus your own API keys across <!-- CATALOG:providers:START (generated — run scripts/gen-readme-catalog.mjs) -->210+ providers<!-- CATALOG:providers:END --> (OpenAI, Anthropic, Gemini, and more) and local models (Ollama, LM Studio).
+**Providers:** **Atlarix Core** (managed models, configured remotely rather than pinned to a release) plus your own API keys across <!-- CATALOG:providers:START (generated — run scripts/gen-readme-catalog.mjs) -->220+ providers<!-- CATALOG:providers:END --> (OpenAI, Anthropic, Gemini, and more) and local models (Ollama, LM Studio).
 
 ---
 

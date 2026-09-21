@@ -77,6 +77,7 @@ import { resolveSystemPath } from "./lib/resolve-path";
 import { warmOpenRouterModelCache } from "./lib/routing/tier-context-limits";
 import { warmCoreModelOverrides } from "./lib/routing/core-model-overrides";
 import { warmWhatsNew } from "./main/whats-new";
+import { createAppBrowserWindow } from "./main/create-app-browser-window";
 import { seedEphemeralCounterFromSessions } from "./ipc/handlers/workspace_session_handlers";
 import { isNoUsableModelOutputError } from "./ipc/utils/no_usable_model_output";
 import { isStreamStopAbort } from "./lib/stream/stream-stop-sentinels";
@@ -1365,6 +1366,27 @@ function setMainApplicationMenu(): void {
       // accelerator here (vs the default fileMenu role) avoids double-firing.
       label: "File",
       submenu: [
+        {
+          /*
+           * The rail's "New window" button had no chord. Registering it here
+           * rather than as a renderer keydown means it fires with focus
+           * anywhere — including inside the composer textarea, where a
+           * renderer-level handler is exactly where you would not want to be
+           * intercepting keys. `CmdOrCtrl+N` is free: the only accelerator this
+           * template binds is Close, and Electron's default `windowMenu` /
+           * `editMenu` roles do not claim N.
+           *
+           * `createAppBrowserWindow()` is the same call the `window:open-blank`
+           * IPC makes — an UNBOUND window that lands on the workspace chooser,
+           * which is the designed way to work on a second project.
+           */
+          label: "New Window",
+          accelerator: "CmdOrCtrl+N",
+          click: () => {
+            createAppBrowserWindow();
+          },
+        },
+        { type: "separator" as const },
         {
           label: "Close",
           accelerator: "CmdOrCtrl+W",
