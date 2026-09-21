@@ -1,7 +1,8 @@
 /**
  * Embedded chat tab — shown in the right panel when the chat area is hidden.
  * Same session as main chat: same chatId, messages atom, send flow.
- * Model selection uses CompactModelSearch (no full sidebar).
+ * Model selection is the composer's own model chip (`ModelPicker`), reached
+ * through ChatInputControls — this tab renders no picker of its own.
  */
 
 import { useCallback } from "react";

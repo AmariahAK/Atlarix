@@ -50,6 +50,30 @@ import {
 } from "@/lib/diag/session-load-diag";
 import { shouldUseStreamingSessionFastPath } from "@/lib/chat/activity-stream";
 
+/**
+ * "6m" / "14h" / "4d" — the age column beside a session title.
+ *
+ * `formatDistanceToNow` is the right thing for a tooltip and the wrong thing for
+ * a 240px sidebar: "less than a minute ago" is 21 characters competing with the
+ * session's own name. This is the same fact at a width the column can afford;
+ * the full phrasing stays in the row's `title`.
+ */
+function shortAge(date: Date): string {
+  const seconds = Math.max(0, (Date.now() - date.getTime()) / 1000);
+  if (seconds < 60) return "now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 5) return `${weeks}w`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months}mo`;
+  return `${Math.floor(days / 365)}y`;
+}
+
 export function WorkspaceSessionList({
   workspaceId,
   activeSessionId,
@@ -378,8 +402,14 @@ export function WorkspaceSessionList({
           <div
             key={session.id}
             className={cn(
-              "group flex items-center gap-1 px-2 py-1 rounded cursor-pointer hover:bg-accent",
-              activeSessionId === session.id && "bg-accent",
+              // `sidebar-accent`, NOT `accent`. `--accent` is #f59e0b in BOTH
+              // themes, so a selected row painted with it was a full-bleed amber
+              // block with mint-green (`--muted-foreground`, #6ee7b7) timestamp
+              // text on top at ~1.6:1. The rail next door was already using the
+              // sidebar pair, which is why it read calm and this did not.
+              "group relative flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer hover:bg-sidebar-accent",
+              activeSessionId === session.id &&
+                "bg-sidebar-accent font-medium",
               sessionSwitchBusy && "opacity-50 pointer-events-none",
             )}
             onClick={() => {
@@ -400,6 +430,14 @@ export function WorkspaceSessionList({
               void handleSelectSession(session.id);
             }}
           >
+            {/* The selected marker. A 2px rule plus the tinted surface reads as
+                "selected" without the row becoming a coloured block. */}
+            {activeSessionId === session.id && (
+              <span
+                aria-hidden
+                className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-primary"
+              />
+            )}
             {(() => {
               // backgroundStreamingSessionIdsAtom already applies the reverse-map
               // consistency guard (a stale forward entry can't spin the wrong row).
@@ -409,39 +447,58 @@ export function WorkspaceSessionList({
               return bgStream ? (
                 <Loader2 className="h-3 w-3 text-amber-600 animate-spin flex-shrink-0" />
               ) : (
-                <MessageSquare className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+                <MessageSquare
+                  className={cn(
+                    "h-3 w-3 flex-shrink-0",
+                    activeSessionId === session.id
+                      ? "text-primary"
+                      : "text-muted-foreground",
+                  )}
+                />
               );
             })()}
-            <div className="flex-1 min-w-0">
-              {renamingId === session.id ? (
-                <Input
-                  className="h-6 text-xs"
-                  value={renameValue}
-                  autoFocus
-                  onClick={(e) => e.stopPropagation()}
-                  onChange={(e) => setRenameValue(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") void handleRename(session.id);
-                    if (e.key === "Escape") setRenamingId(null);
-                  }}
-                  onBlur={() => void handleRename(session.id)}
-                />
-              ) : (
-                <>
-                  <div className="text-xs truncate">
-                    {titleGeneratingIds.has(session.id) &&
-                    session.title === "Untitled"
-                      ? "Naming…"
-                      : session.title}
-                  </div>
-                  <div className="text-[10px] text-muted-foreground">
-                    {formatDistanceToNow(new Date(session.updatedAt), {
-                      addSuffix: true,
-                    })}
-                  </div>
-                </>
-              )}
-            </div>
+            {renamingId === session.id ? (
+              <Input
+                className="h-6 flex-1 min-w-0 text-xs"
+                value={renameValue}
+                autoFocus
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => setRenameValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void handleRename(session.id);
+                  if (e.key === "Escape") setRenamingId(null);
+                }}
+                onBlur={() => void handleRename(session.id)}
+              />
+            ) : (
+              <>
+                <span className="flex-1 min-w-0 truncate text-xs">
+                  {titleGeneratingIds.has(session.id) &&
+                  session.title === "Untitled"
+                    ? "Naming…"
+                    : session.title}
+                </span>
+                {/*
+                  ONE LINE, and the age is a column rather than a second row.
+                  "about 14 hours ago" under every title cost 10px of height per
+                  session and pushed three sessions to ~102px; the sidebar is
+                  240px wide, so the vertical was the scarce axis, not the
+                  horizontal. The full phrasing survives in the tooltip.
+
+                  It goes INVISIBLE (not hidden) on hover and the menu button is
+                  absolutely positioned over it, so the title never reflows when
+                  the pointer crosses a row.
+                */}
+                <span
+                  className="shrink-0 text-[10px] text-muted-foreground tabular-nums group-hover:invisible"
+                  title={formatDistanceToNow(new Date(session.updatedAt), {
+                    addSuffix: true,
+                  })}
+                >
+                  {shortAge(new Date(session.updatedAt))}
+                </span>
+              </>
+            )}
             {renamingId !== session.id && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -449,7 +506,7 @@ export function WorkspaceSessionList({
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="h-6 w-6 opacity-0 group-hover:opacity-100 shrink-0"
+                    className="absolute right-1 h-5 w-5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 shrink-0"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <MoreHorizontal className="h-3.5 w-3.5" />

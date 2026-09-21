@@ -17,6 +17,18 @@ export const selectedWorkspaceInfoAtom = atom<{
   path?: string;
 } | null>(null);
 export const appsListAtom = atom<App[]>([]);
+
+/**
+ * Open state of the workspace-search palette (Cmd/Ctrl+K).
+ *
+ * Lifted out of `AppList` so the dialog can be mounted at the app root. Its
+ * keydown listener lives inside the dialog, and the dialog used to be mounted
+ * ONLY from `AppList` — which renders nothing unless the Apps rail item is
+ * showing. So the chord did nothing most of the time, and `shortcuts.ts` had
+ * to carry it as `status: "hidden"` to avoid advertising a key the app did not
+ * reliably listen for.
+ */
+export const appSearchOpenAtom = atom<boolean>(false);
 export const appBasePathAtom = atom<string>("");
 export const versionsListAtom = atom<Version[]>([]);
 export const appOutputAtom = atom<AppOutput[]>([]);

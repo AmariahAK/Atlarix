@@ -299,9 +299,19 @@ export const rightPanelOrderedTabsAtom = atom<{
   active: "sources",
 });
 
-/** Open state of the Cmd/Ctrl+J model-picker sheet (lifted from ChatInputControls
+/** Open state of the Cmd/Ctrl+J model picker (lifted from ChatInputControls
  *  so the global shortcut hub can open it). */
 export const modelSheetOpenAtom = atom<boolean>(false);
+
+/**
+ * Mounted composers, in mount order — the last one owns Cmd/Ctrl+J.
+ *
+ * `ChatInputControls` can be mounted twice (the main composer and the right
+ * panel's Chat tab), and `modelSheetOpenAtom` is one boolean, so without this
+ * the chord would open both pickers at once. See `hooks/useModelPickerOpen.ts`
+ * for the whole argument; nothing should read this atom directly.
+ */
+export const modelPickerMountsAtom = atom<string[]>([]);
 
 // ═══════════════════════════════════════════════════════════
 // FILE DIFF ATOMS (Code Changes)

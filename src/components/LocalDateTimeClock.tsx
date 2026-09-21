@@ -11,6 +11,8 @@ import { cn } from "@/lib/utils";
 type DateTimeParts = {
   dateLine: string;
   timeLine: string;
+  /** Hour and minute only — for surfaces too small to read a seconds column. */
+  timeShort: string;
   timeZoneShort: string;
   timeZoneId: string;
 };
@@ -28,18 +30,27 @@ function getDateTimeParts(now: Date): DateTimeParts {
     minute: "2-digit",
     second: "2-digit",
   }).format(now);
+  const timeShort = new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(now);
   const timeZoneShort =
     new Intl.DateTimeFormat(undefined, { timeZoneName: "short" })
       .formatToParts(now)
       .find((p) => p.type === "timeZoneName")?.value ?? timeZoneId;
 
-  return { dateLine, timeLine, timeZoneShort, timeZoneId };
+  return { dateLine, timeLine, timeShort, timeZoneShort, timeZoneId };
 }
 
 type LocalDateTimeClockProps = {
-  variant?: "welcome" | "compact";
+  /**
+   * `welcome` — the full block: date, time with seconds, timezone.
+   * `compact` — an icon button; the time is in its tooltip.
+   * `rail`    — a bare "09:41" line, no icon, no button, no tooltip chrome.
+   */
+  variant?: "welcome" | "compact" | "rail";
   className?: string;
-  /** Defaults to 1s (welcome) or 30s (compact). */
+  /** Defaults to 1s (welcome), 15s (rail) or 30s (compact). */
   tickMs?: number;
 };
 
@@ -49,7 +60,9 @@ export function LocalDateTimeClock({
   tickMs,
 }: LocalDateTimeClockProps) {
   const [parts, setParts] = useState(() => getDateTimeParts(new Date()));
-  const interval = tickMs ?? (variant === "welcome" ? 1000 : 30_000);
+  const interval =
+    tickMs ??
+    (variant === "welcome" ? 1000 : variant === "rail" ? 15_000 : 30_000);
 
   useEffect(() => {
     const update = () => setParts(getDateTimeParts(new Date()));
@@ -77,6 +90,30 @@ export function LocalDateTimeClock({
           <span className="font-mono">{parts.timeZoneId}</span>
         </p>
       </div>
+    );
+  }
+
+  /*
+   * The rail line.
+   *
+   * The sidebar rail used to spend a whole 56px icon button on the clock, and
+   * the time itself was only in its tooltip — so the one thing a clock is for
+   * cost a hover. This is the opposite trade: no chrome at all, and the time is
+   * simply readable. Seconds are dropped because they are unreadable at this
+   * size and would repaint the rail once a second to say so.
+   */
+  if (variant === "rail") {
+    return (
+      <span
+        className={cn(
+          "block text-center text-[10px] tabular-nums text-muted-foreground",
+          className,
+        )}
+        aria-live="polite"
+        title={title}
+      >
+        {parts.timeShort}
+      </span>
     );
   }
 

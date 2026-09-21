@@ -7,14 +7,14 @@
  * than a rendering bug, so it belongs in a test that does not need a DOM.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   FEATURE_TIP_IDS,
   buildTipPool,
   pickTip,
   type TipContext,
 } from "@/lib/composer-tips";
-import { SHORTCUTS, advertisedShortcuts } from "@/lib/shortcuts";
+import { advertisedShortcuts } from "@/lib/shortcuts";
 
 const t = {
   shortcutAction: (id: string, fallback: string) => `action:${id}|${fallback}`,
@@ -28,15 +28,64 @@ const FULL: TipContext = {
 };
 
 describe("the tip pool", () => {
-  it("never offers a shortcut the table marks hidden", () => {
-    const pool = buildTipPool(FULL, t);
-    const hidden = SHORTCUTS.filter((s) => s.status === "hidden");
-    // ⌘K is the live example: its listener unmounts with the Apps sidebar, so the chord
-    // does nothing most of the time. Advertising it would manufacture bug reports.
-    expect(hidden.length).toBeGreaterThan(0);
-    for (const s of hidden) {
-      expect(pool.some((p) => p.id === `shortcut:${s.id}`)).toBe(false);
-    }
+  /*
+   * THE POOL IS SOURCED FROM `advertisedShortcuts()`, NOT `SHORTCUTS`.
+   *
+   * REWRITTEN 2026-09-21, and the reason is worth keeping. This used to read
+   * the real table, assert `hidden.length > 0`, and check that no hidden id
+   * reached the pool. Two problems surfaced when ⌘K was fixed:
+   *
+   *  1. `app-search` was the ONLY hidden row, so the moment its listener was
+   *     hoisted to the app root and the row became advertised, the test failed
+   *     — it was pinned to a bug continuing to exist.
+   *  2. The check itself had no teeth either way. `buildTipPool` maps over
+   *     `advertisedShortcuts()` (`composer-tips.ts:111`), so a hidden row
+   *     cannot reach the pool by construction. Flipping a real row to
+   *     `hidden` and re-running left the test green.
+   *
+   * So the invariant is the SOURCING, and the only way to prove it is to hand
+   * `buildTipPool` a table that contains a hidden row and watch it drop it. A
+   * future edit that reaches for `SHORTCUTS` instead fails here.
+   */
+  it("drops hidden rows because it reads the advertised list, not the table", async () => {
+    vi.resetModules();
+    vi.doMock("@/lib/shortcuts", async () => {
+      const real =
+        await vi.importActual<typeof import("@/lib/shortcuts")>(
+          "@/lib/shortcuts",
+        );
+      const table = [
+        {
+          id: "fake-advertised",
+          combo: { mod: true, key: "1" },
+          label: "Visible thing",
+          owner: "panel",
+          status: "advertised",
+        },
+        {
+          id: "fake-hidden",
+          combo: { mod: true, key: "2" },
+          label: "Broken thing",
+          owner: "panel",
+          status: "hidden",
+        },
+      ];
+      return {
+        ...real,
+        SHORTCUTS: table,
+        advertisedShortcuts: () =>
+          table.filter((s) => s.status === "advertised"),
+      };
+    });
+
+    const { buildTipPool: build } = await import("@/lib/composer-tips");
+    const ids = build(FULL, t).map((p) => p.id);
+
+    expect(ids).toContain("shortcut:fake-advertised");
+    expect(ids).not.toContain("shortcut:fake-hidden");
+
+    vi.doUnmock("@/lib/shortcuts");
+    vi.resetModules();
   });
 
   it("drops the work-mode tip outside a workspace chat", () => {

@@ -2,7 +2,8 @@
  * The one way to change the chat model.
  *
  * This body was copy-pasted in four places — `ModelPickerSheetContent`,
- * `CompactModelSearch`, `ModelsSection` and `LocalProviderModelSelector` — each
+ * `CompactModelSearch`, `ModelsSection` and `LocalProviderModelSelector` (the
+ * first two are now one component, `ModelPicker`) — each
  * doing `updateSettings({ selectedModel })` followed by an invalidation of
  * `TOKEN_COUNT_QUERY_KEY`. The invalidation is the part that is easy to forget and
  * silent when missed: the context meter keeps reporting the OLD model's budget until

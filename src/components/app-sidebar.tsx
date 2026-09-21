@@ -7,14 +7,19 @@ import {
   AppWindow,
   LogIn,
   LogOut,
+  MoreHorizontal,
   User,
 } from "lucide-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { SHORTCUTS, formatCombo, isMacPlatform } from "@/lib/shortcuts";
 import { OAuthSignInButtons } from "@/components/auth/OAuthSignInButtons";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useSidebar } from "@/components/ui/sidebar"; // import useSidebar hook
 import { useEffect, useState, useRef } from "react";
-import { useAtom } from "jotai";
-import { dropdownOpenAtom } from "@/atoms/uiAtoms";
 import { useAuth } from "@/lib/auth/useAuth";
 
 import {
@@ -80,7 +85,12 @@ export function AppSidebar() {
   const [hoverState, setHoverState] = useState<HoverState>("no-hover");
   const expandedByHover = useRef(false);
   const [isHelpDialogOpen, setIsHelpDialogOpen] = useState(false); // State for dialog
-  const [isDropdownOpen] = useAtom(dropdownOpenAtom);
+  const [moreOpen, setMoreOpen] = useState(false);
+  // From the table the accelerator is registered against, never a literal.
+  const newWindowChord = (() => {
+    const row = SHORTCUTS.find((s) => s.id === "new-window");
+    return row ? formatCombo(row.combo, isMacPlatform()) : undefined;
+  })();
   const [showAuthMenu, setShowAuthMenu] = useState(false);
   const { balanceCents } = useCreditBalance();
 
@@ -103,14 +113,13 @@ export function AppSidebar() {
     if (
       hoverState === "clear-hover" &&
       state === "expanded" &&
-      expandedByHover.current &&
-      !isDropdownOpen
+      expandedByHover.current
     ) {
       toggleSidebar();
       expandedByHover.current = false;
       setHoverState("no-hover");
     }
-  }, [hoverState, toggleSidebar, state, setHoverState, isDropdownOpen]);
+  }, [hoverState, toggleSidebar, state, setHoverState]);
 
   const routerState = useRouterState();
   const isAppRoute = routerState.location.pathname === "/";
@@ -131,11 +140,16 @@ export function AppSidebar() {
   return (
     <Sidebar
       collapsible="icon"
-      onMouseLeave={() => {
-        if (!isDropdownOpen) {
-          setHoverState("clear-hover");
-        }
-      }}
+      /*
+       * `dropdownOpenAtom` used to guard this and the collapse effect above.
+       * Nothing ever WROTE it — it was declared in `atoms/uiAtoms.ts`, read
+       * only here, and permanently `false`, so both guards were no-ops
+       * pretending to hold the sidebar open under a menu. Deleted with the
+       * atom rather than wired up: every menu in the rail is a Radix popover
+       * now, and those portal outside the sidebar, so a collapse behind one
+       * does not take the menu with it.
+       */
+      onMouseLeave={() => setHoverState("clear-hover")}
     >
       <SidebarContent className="overflow-hidden">
         <div className="flex mt-8">
@@ -177,32 +191,49 @@ export function AppSidebar() {
                 <span className="text-xs text-muted-foreground">…</span>
               </SidebarMenuButton>
             ) : isAuthenticated && user ? (
-              // Logged in - show user avatar/name
-              <div className="relative">
-                <SidebarMenuButton
-                  size="sm"
-                  className="font-medium w-14 flex flex-col items-center gap-1 h-14 mb-2 rounded-2xl"
-                  onClick={() => setShowAuthMenu(!showAuthMenu)}
+              /*
+               * RADIX POPOVER, not a hand-rolled panel.
+               *
+               * This was `{showAuthMenu && <div className="absolute …">}` with
+               * the only way to close it being a second click on the avatar —
+               * no outside-click, no Escape, no focus handling. Clicking
+               * anywhere else on the app left it sitting over the sidebar, so
+               * the user had to go back and find the trigger again to dismiss
+               * something they had already moved on from.
+               *
+               * Radix gives dismiss-on-outside-click, Escape, focus return and
+               * collision handling for free, and it is what the rest of the app
+               * already uses — the rail was the last place still doing this by
+               * hand.
+               */
+              <Popover open={showAuthMenu} onOpenChange={setShowAuthMenu}>
+                <PopoverTrigger asChild>
+                  <SidebarMenuButton
+                    size="sm"
+                    className="font-medium w-14 flex flex-col items-center gap-1 h-14 mb-2 rounded-2xl"
+                  >
+                    {user.avatar ? (
+                      <img
+                        src={user.avatar}
+                        alt={user.name}
+                        className="h-5 w-5 rounded-full border border-primary"
+                      />
+                    ) : (
+                      <div className="h-5 w-5 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-[10px] font-bold text-white">
+                        {user.name?.charAt(0)?.toUpperCase() || "U"}
+                      </div>
+                    )}
+                    <span className="text-xs truncate max-w-[50px]">
+                      {user.name?.split(" ")[0] || "Account"}
+                    </span>
+                  </SidebarMenuButton>
+                </PopoverTrigger>
+                <PopoverContent
+                  side="right"
+                  align="end"
+                  sideOffset={8}
+                  className="w-60 p-2"
                 >
-                  {user.avatar ? (
-                    <img
-                      src={user.avatar}
-                      alt={user.name}
-                      className="h-5 w-5 rounded-full border border-primary"
-                    />
-                  ) : (
-                    <div className="h-5 w-5 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-[10px] font-bold text-white">
-                      {user.name?.charAt(0)?.toUpperCase() || "U"}
-                    </div>
-                  )}
-                  <span className="text-xs truncate max-w-[50px]">
-                    {user.name?.split(" ")[0] || "Account"}
-                  </span>
-                </SidebarMenuButton>
-
-                {/* Dropdown menu for sign out */}
-                {showAuthMenu && (
-                  <div className="absolute bottom-full left-0 mb-2 w-48 bg-popover border border-border rounded-lg shadow-lg p-2 z-50">
                     {/* User info */}
                     <div className="px-2 pb-2 mb-2 border-b border-border">
                       <div className="text-xs text-muted-foreground">
@@ -352,74 +383,115 @@ export function AppSidebar() {
                       <LogOut className="h-4 w-4" />
                       Sign Out
                     </button>
-                  </div>
-                )}
-              </div>
+                </PopoverContent>
+              </Popover>
             ) : (
-              // Logged out - show login button
-              <div className="relative">
-                <SidebarMenuButton
-                  size="sm"
-                  className="font-medium w-14 flex flex-col items-center gap-1 h-14 mb-2 rounded-2xl"
-                  onClick={() => setShowAuthMenu(!showAuthMenu)}
+              // Logged out — same treatment as the account menu above.
+              <Popover open={showAuthMenu} onOpenChange={setShowAuthMenu}>
+                <PopoverTrigger asChild>
+                  <SidebarMenuButton
+                    size="sm"
+                    className="font-medium w-14 flex flex-col items-center gap-1 h-14 mb-2 rounded-2xl"
+                  >
+                    <LogIn className="h-5 w-5" />
+                    <span className="text-xs">Login</span>
+                  </SidebarMenuButton>
+                </PopoverTrigger>
+                <PopoverContent
+                  side="right"
+                  align="end"
+                  sideOffset={8}
+                  className="w-60 p-3"
                 >
-                  <LogIn className="h-5 w-5" />
-                  <span className="text-xs">Login</span>
-                </SidebarMenuButton>
-
-                {/* Dropdown menu for login options */}
-                {showAuthMenu && (
-                  <div className="absolute bottom-full left-0 mb-2 w-60 bg-popover border border-border rounded-lg shadow-lg p-3 z-50">
-                    <OAuthSignInButtons
-                      size="sm"
-                      onAfterClick={() => setShowAuthMenu(false)}
-                    />
-                  </div>
-                )}
-              </div>
+                  <OAuthSignInButtons
+                    size="sm"
+                    onAfterClick={() => setShowAuthMenu(false)}
+                  />
+                </PopoverContent>
+              </Popover>
             )}
           </SidebarMenuItem>
 
-          {/* New window + clock. They lived in the AppList group header, which
-              only renders while the Apps rail item is hovered or the route is
-              "/", so they were effectively Home-only. Neither depends on a
-              workspace — `window:open-blank` deliberately opens an UNBOUND window
-              that lands on the chooser — so the rail is where they belong. */}
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              size="sm"
-              className="font-medium w-14 flex flex-col items-center gap-1 h-14 mb-2 rounded-2xl"
-              title="Open a new window"
-              onClick={() => {
-                void IpcClient.getInstance().openBlankWindow();
-              }}
-            >
-              <AppWindow className="h-5 w-5" />
-              <span className={"text-xs"}>Window</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
+          {/*
+            NEW WINDOW + HELP, behind one "More".
 
-          <SidebarMenuItem>
-            <div className="w-14 flex items-center justify-center mb-2">
-              <LocalDateTimeClock variant="compact" tickMs={1000} />
-            </div>
-          </SidebarMenuItem>
+            These were two more 56px stacked buttons. With the account button
+            above them the footer ran to ~224px of a rail whose job is four nav
+            items — and neither is something you reach for often. Folding them
+            into one popover halves the footer and leaves room for the things
+            that will want to live here later (check for updates, what's new)
+            without the rail growing again.
 
-          {/* Help Button */}
+            The clock did NOT fold in. It was a 56px button whose tooltip held
+            the time, so reading it cost a hover; below, it is simply legible.
+
+            Neither action depends on a workspace — `window:open-blank`
+            deliberately opens an UNBOUND window that lands on the chooser.
+          */}
           <SidebarMenuItem>
-            {/* Change button to open dialog instead of linking */}
-            <SidebarMenuButton
-              size="sm"
-              className="font-medium w-14 flex flex-col items-center gap-1 h-14 mb-2 rounded-2xl"
-              onClick={() => setIsHelpDialogOpen(true)} // Open dialog on click
-            >
-              <HelpCircle className="h-5 w-5" />
-              <span className={"text-xs"}>Help</span>
-            </SidebarMenuButton>
+            <Popover open={moreOpen} onOpenChange={setMoreOpen}>
+              <PopoverTrigger asChild>
+                <SidebarMenuButton
+                  size="sm"
+                  className="font-medium w-14 flex flex-col items-center gap-1 h-14 mb-1 rounded-2xl"
+                  aria-label="More"
+                >
+                  <MoreHorizontal className="h-5 w-5" />
+                  <span className="text-xs">More</span>
+                </SidebarMenuButton>
+              </PopoverTrigger>
+              <PopoverContent
+                side="right"
+                align="end"
+                sideOffset={8}
+                className="w-60 p-2"
+              >
+                <div className="border-b border-border px-2 pb-2">
+                  <LocalDateTimeClock
+                    variant="welcome"
+                    className="text-left"
+                    tickMs={1000}
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="mt-1.5 flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-sm transition-colors hover:bg-muted"
+                  onClick={() => {
+                    setMoreOpen(false);
+                    void IpcClient.getInstance().openBlankWindow();
+                  }}
+                >
+                  <AppWindow className="h-4 w-4 shrink-0" aria-hidden />
+                  <span className="flex-1 text-left">New window</span>
+                  {newWindowChord && (
+                    <span className="text-xs tabular-nums text-muted-foreground">
+                      {newWindowChord}
+                    </span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-sm transition-colors hover:bg-muted"
+                  onClick={() => {
+                    setMoreOpen(false);
+                    setIsHelpDialogOpen(true);
+                  }}
+                >
+                  <HelpCircle className="h-4 w-4 shrink-0" aria-hidden />
+                  <span className="flex-1 text-left">Help &amp; shortcuts</span>
+                </button>
+              </PopoverContent>
+            </Popover>
             <HelpDialog
               isOpen={isHelpDialogOpen}
               onClose={() => setIsHelpDialogOpen(false)}
             />
+          </SidebarMenuItem>
+
+          <SidebarMenuItem>
+            <div className="w-14 pb-2">
+              <LocalDateTimeClock variant="rail" />
+            </div>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>

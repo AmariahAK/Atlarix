@@ -1,17 +1,10 @@
 import { useCallback } from "react";
-import { ModelPickerSheetContent } from "./ModelPickerSheetContent";
 import { ChatConfigDropdown } from "./ChatConfigDropdown";
 import { ChatIntentSelector } from "./ChatIntentSelector";
 import { useSettings } from "@/hooks/useSettings";
 import { useContextTokenCount } from "@/hooks/useCountTokens";
 import { useContextReport } from "@/hooks/useContextReport";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import { useAtomValue, useAtom } from "jotai";
+import { useAtomValue } from "jotai";
 import {
   pendingWorkspaceAppIdAtom,
   selectedAppIdAtom,
@@ -31,9 +24,8 @@ import {
   turnWorkModeByChatIdAtom,
 } from "@/atoms/chatAtoms";
 import { activeSessionWorkModeAtom } from "@/atoms/sessionAtoms";
-import { rightPanelVisibleAtom, modelSheetOpenAtom } from "@/atoms/sourceAtoms";
 import { NoWorkspaceBanner } from "./chat/NoWorkspaceBanner";
-import { CompactModelSearch } from "./CompactModelSearch";
+import { ModelPicker } from "./ModelPicker";
 import type { WorkMode } from "@/lib/schemas";
 import {
   labelForWorkMode,
@@ -67,10 +59,7 @@ export function ChatInputControls({ chatId }: { chatId?: number }) {
     threadChatId != null ? messagesByChatId.get(threadChatId) : undefined;
   const hasUserMessageInThread =
     threadMessages?.some((m) => m.role === "user") ?? false;
-  const rightPanelVisible = useAtomValue(rightPanelVisibleAtom);
   const { settings } = useSettings();
-  // Lifted to a jotai atom so the global Cmd/Ctrl+J shortcut can open it.
-  const [modelSheetOpen, setModelSheetOpen] = useAtom(modelSheetOpenAtom);
   // PASS8 E3: Shared context-only token count (dedup'd via React Query key).
   const { result: tokenResult } = useContextTokenCount(chatId ?? null);
   // v14.6 (Bug 1): prefer the model-facing dispatched size (Feed B) — the same
@@ -259,14 +248,13 @@ export function ChatInputControls({ chatId }: { chatId?: number }) {
       </div>
 
       <div className="flex items-center gap-2 flex-wrap">
-        {rightPanelVisible && <CompactModelSearch className="shrink-0" />}
         {/*
-          The handler is now UNCONDITIONAL. It used to be
-          `rightPanelVisible ? undefined : …`, on the theory that `CompactModelSearch`
-          replaces the picker when the panel is open — but the Sheet below is mounted
-          in every state precisely so Cmd/Ctrl+J still works there, so withholding the
-          callback only broke the menu item while the chord kept working. Two routes to
-          the same sheet, one of which silently did nothing.
+          THE MODEL CHIP, unconditional.
+
+          It used to be `rightPanelVisible && <CompactModelSearch />` — the same
+          control, hidden in the layout state most people are in. That is the
+          shape of bug worth naming: a surface that exists in one layout and
+          vanishes in another teaches people it does not exist at all.
         */}
         <Coachmark
           open={modelTourActive || showByokHint}
@@ -291,25 +279,20 @@ export function ChatInputControls({ chatId }: { chatId?: number }) {
           data-testid="byok-model-coachmark"
         >
           <span className="inline-flex" data-tour="tour-model-picker">
-            <ChatConfigDropdown
-              onOpenModelPicker={() => {
+            <ModelPicker
+              resetKey={threadChatId}
+              onOpened={() => {
+                // Opening the picker IS completing the tour step, and it is the
+                // hint's whole ask — both would otherwise paint underneath the
+                // popover they are pointing at.
                 dismissByokHint();
-                setModelSheetOpen(true);
+                if (modelTourActive) tour.next();
               }}
             />
           </span>
         </Coachmark>
 
-        {/* Always mounted (not gated on panel visibility) so Cmd/Ctrl+J can open
-            the full model picker in any state. Closed = renders nothing visible. */}
-        <Sheet open={modelSheetOpen} onOpenChange={setModelSheetOpen}>
-          <SheetContent side="right" className="sm:max-w-md overflow-y-auto">
-            <SheetHeader>
-              <SheetTitle>Change model</SheetTitle>
-            </SheetHeader>
-            <ModelPickerSheetContent onClose={() => setModelSheetOpen(false)} />
-          </SheetContent>
-        </Sheet>
+        <ChatConfigDropdown />
 
         <Coachmark
           open={tour.isStepActive("workModes")}

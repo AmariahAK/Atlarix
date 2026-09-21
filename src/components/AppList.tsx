@@ -1,48 +1,169 @@
 import { useNavigate } from "@tanstack/react-router";
 import {
-  ChevronDown,
-  ChevronRight,
-  Plus,
   Folder,
+  FolderOpen,
   MessageSquare,
+  MoreHorizontal,
   Search,
+  Trash2,
   EyeOff,
 } from "lucide-react";
-import { Trash2 } from "lucide-react";
 import { useAtom, useSetAtom } from "jotai";
 import { selectedAppIdAtom, selectedWorkspaceInfoAtom } from "@/atoms/appAtoms";
+import { appSearchOpenAtom } from "@/atoms/appAtoms";
 import { startNewWorkspaceConversation } from "@/lib/open-workspace-session";
 import { activeWorkspaceSessionIdAtom } from "@/atoms/sessionAtoms";
 import { WorkspaceSessionList } from "@/components/workspace/WorkspaceSessionList";
 import {
   SidebarGroup,
   SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarMenu,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { activeChatIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
 import { useLoadApps } from "@/hooks/useLoadApps";
 import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { clearDeletedWorkspaceClientState } from "@/lib/workspace-delete-cleanup";
-import { AppSearchDialog } from "./AppSearchDialog";
-import { pushRecentWorkspace } from "@/lib/workspace-recents";
-import { openWorkspaceFolder } from "@/lib/open-workspace-session";
 import { Badge } from "@/components/ui/badge";
 import { IpcClient } from "@/ipc/ipc_client";
 import { useAuth } from "@/lib/auth/useAuth";
+import { SHORTCUTS, formatCombo, isMacPlatform } from "@/lib/shortcuts";
+import { removalAlsoDeletesFiles } from "@/pages/welcome-launcher";
 
 interface WorkspaceWithChats {
   id: number;
   name: string;
   path: string;
   chats: { id: number; title: string | null; createdAt: Date }[];
-  isExpanded: boolean;
   /** active = folder on disk; missing = path absent */
   workspaceStatus?: "active" | "missing";
 }
 
+/** The advertised chord for workspace search, read from the table it is dispatched from. */
+function appSearchChord(): string | undefined {
+  const row = SHORTCUTS.find((s) => s.id === "app-search");
+  return row ? formatCombo(row.combo, isMacPlatform()) : undefined;
+}
+
+/**
+ * The workspace `⋯` — the rare actions, off the header's critical path.
+ *
+ * NO "SWITCH WORKSPACE" HERE, deliberately. A new window opens an unbound
+ * window that lands on the chooser (`window:open-blank`), and that is the
+ * designed way to work on a second project: one workspace per window, so a
+ * command cannot run against the folder you were not looking at.
+ *
+ * Remove routes to the launcher's own dialog copy rather than a bare
+ * `confirm()`. The sidebar used to claim removal only "removes it from
+ * Atlarix", which is untrue for a workspace inside Atlarix's own apps
+ * directory — `removalAlsoDeletesFiles` is the predicate that tells them
+ * apart, and the launcher has honoured it since it was written.
+ */
+function WorkspaceOverflowMenu({
+  name,
+  path,
+  onRemove,
+}: {
+  name: string;
+  path: string;
+  onRemove: () => void;
+}) {
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const alsoDeletesFiles = removalAlsoDeletesFiles(path);
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 w-6 shrink-0 p-0"
+            aria-label="Workspace options"
+            data-testid="workspace-overflow"
+          >
+            <MoreHorizontal className="h-3.5 w-3.5" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-52">
+          <DropdownMenuItem
+            disabled={!path}
+            onClick={() => {
+              if (path) void IpcClient.getInstance().showItemInFolder(path);
+            }}
+          >
+            <FolderOpen className="mr-2 h-4 w-4" />
+            Reveal in file manager
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className="text-destructive focus:text-destructive"
+            onClick={() => setConfirmOpen(true)}
+          >
+            <Trash2 className="mr-2 h-4 w-4" />
+            {alsoDeletesFiles ? "Delete workspace…" : "Remove workspace…"}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {alsoDeletesFiles
+                ? `Delete “${name}” and its files?`
+                : `Remove “${name}” from Atlarix?`}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {alsoDeletesFiles
+                ? "This workspace lives inside Atlarix, so removing it deletes the folder and everything in it. This cannot be undone."
+                : "Atlarix forgets this workspace and its sessions. The folder on disk is left exactly as it is."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setConfirmOpen(false);
+                onRemove();
+              }}
+            >
+              {alsoDeletesFiles ? "Delete files" : "Remove"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
+
+/**
+ * The workspace panel.
+ *
+ * IT ALWAYS SHOWS EXACTLY ONE WORKSPACE. `AppSidebar` mounts only when
+ * `selectedAppId != null` (`app/layout.tsx:306,484`), so every branch this file
+ * used to carry for "browsing all workspaces with none open" — a delete-ALL
+ * button, an add-workspace `+`, a "No workspaces" empty state, a "Workspaces"
+ * fallback title — was unreachable code describing a screen that cannot occur.
+ * They are gone. Adding and switching workspaces happen on the welcome
+ * launcher, which is where a list of workspaces actually exists.
+ */
 export function AppList({ show }: { show?: boolean }) {
   const navigate = useNavigate();
   const [selectedAppId, setSelectedAppId] = useAtom(selectedAppIdAtom);
@@ -50,21 +171,12 @@ export function AppList({ show }: { show?: boolean }) {
   const [, setSelectedChatId] = useAtom(selectedChatIdAtom);
   const { apps, loading, error, refreshApps } = useLoadApps();
   const queryClient = useQueryClient();
-  // Auth hook for checking plan/workspace limits
-  const { status, isAuthenticated } = useAuth();
+  const { isAuthenticated } = useAuth();
 
-  // Workspaces with nested chats
   const [workspaces, setWorkspaces] = useState<WorkspaceWithChats[]>([]);
-  const [isSearchDialogOpen, setIsSearchDialogOpen] = useState(false);
+  const setSearchOpen = useSetAtom(appSearchOpenAtom);
   const setActiveChatId = useSetAtom(activeChatIdAtom);
   const [activeWorkspaceSessionId] = useAtom(activeWorkspaceSessionIdAtom);
-
-  // Workspaces are unlimited on every plan (2026-09-08). Signed in is the only
-  // requirement — a workspace is still an account-scoped row.
-  const canAddWorkspace = useMemo(
-    () => isAuthenticated && !!status,
-    [status, isAuthenticated],
-  );
 
   // Load chats for each workspace
   useEffect(() => {
@@ -91,7 +203,6 @@ export function AppList({ show }: { show?: boolean }) {
               name: app.name,
               path: app.path || "",
               chats: chats.slice(0, 10),
-              isExpanded: app.id === selectedAppId,
               workspaceStatus,
             };
           } catch {
@@ -100,7 +211,6 @@ export function AppList({ show }: { show?: boolean }) {
               name: app.name,
               path: app.path || "",
               chats: [],
-              isExpanded: false,
               workspaceStatus:
                 app.status ?? (app.pathExists === false ? "missing" : "active"),
             };
@@ -113,43 +223,19 @@ export function AppList({ show }: { show?: boolean }) {
     loadChats();
   }, [apps, selectedAppId]);
 
-  const allApps = useMemo(
-    () =>
-      apps.map((a) => ({
-        id: a.id,
-        name: a.name,
-        createdAt: a.createdAt,
-        matchedChatTitle: null,
-        matchedChatMessage: null,
-      })),
-    [apps],
+  /** The one open workspace. `undefined` only while its row is still loading. */
+  const openWorkspace = useMemo(
+    () => workspaces.find((w) => w.id === selectedAppId),
+    [workspaces, selectedAppId],
   );
 
-  /** When a workspace is open, show only that folder in the sidebar (switch via recents / +). */
-  const visibleWorkspaces = useMemo(() => {
-    if (selectedAppId == null) return workspaces;
-    return workspaces
-      .filter((w) => w.id === selectedAppId)
-      .map((w) => ({ ...w, isExpanded: true }));
-  }, [workspaces, selectedAppId]);
-
-  const activeWorkspaceLabel = useMemo(() => {
-    if (selectedAppId == null) return "Workspaces";
-    const ws = workspaces.find((w) => w.id === selectedAppId);
-    return ws?.name ?? "Workspace";
-  }, [selectedAppId, workspaces]);
+  const workspaceLabel = openWorkspace?.name ?? "Workspace";
+  const sessionCount = openWorkspace?.chats.length ?? 0;
+  const chord = appSearchChord();
 
   if (!show) {
     return null;
   }
-
-  const toggleWorkspace = (workspaceId: number) => {
-    setWorkspaces((prev) =>
-      prev.map((w) =>
-        w.id === workspaceId ? { ...w, isExpanded: !w.isExpanded } : w,
-      ),
-    );
-  };
 
   const handleNewConversationInWorkspace = async (workspaceId: number) => {
     const st = apps.find((a) => a.id === workspaceId);
@@ -163,333 +249,161 @@ export function AppList({ show }: { show?: boolean }) {
     });
   };
 
-  const handleNewChatInWorkspace = handleNewConversationInWorkspace;
-
-  const handleBrowseWorkspace = async () => {
-    try {
-      const result = (await window.electron?.ipcRenderer.invoke(
-        "dialog:openDirectory",
-      )) as { canceled?: boolean; filePaths?: string[] } | undefined;
-      if (result && !result.canceled && result.filePaths?.[0]) {
-        pushRecentWorkspace(result.filePaths[0]);
-        await handleWorkspaceSelect(result.filePaths[0]);
-      }
-    } catch (error) {
-      console.error("Failed to open folder picker:", error);
+  const removeWorkspace = async (workspaceId: number) => {
+    clearDeletedWorkspaceClientState(workspaceId, queryClient);
+    setWorkspaces((prev) => prev.filter((w) => w.id !== workspaceId));
+    if (selectedAppId === workspaceId) {
+      // Removing the workspace you are inside leaves nowhere to be: drop the
+      // selection so the layout falls back to the welcome launcher.
+      setSelectedAppId(null);
+      setSelectedWorkspaceInfo(null);
+      setActiveChatId(null);
+      setSelectedChatId(null);
+      navigate({ to: "/" });
     }
+    try {
+      await IpcClient.getInstance().deleteApp(workspaceId);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "";
+      if (
+        !errorMessage.includes("not found") &&
+        !errorMessage.includes("already been deleted")
+      ) {
+        console.error("Failed to delete workspace:", err);
+      }
+    }
+    refreshApps?.();
   };
 
-  const handleWorkspaceSelect = async (folderPath: string) => {
-    pushRecentWorkspace(folderPath);
-    await openWorkspaceFolder({
-      folderPath,
-      navigate: (opts) => navigate(opts),
-      refreshApps,
-    });
-  };
+  const isMissing = openWorkspace?.workspaceStatus === "missing";
 
   return (
-    <>
-      <SidebarGroup
-        className="flex min-h-0 flex-1 flex-col overflow-y-auto h-[calc(100vh-112px)]"
-        data-testid="app-list-container"
-      >
-        <SidebarGroupLabel className="flex items-center justify-between group/header">
-          <span className="truncate pr-1" title={activeWorkspaceLabel}>
-            {activeWorkspaceLabel}
-          </span>
-          <div className="flex items-center gap-1 shrink-0">
-            {/* Only when browsing all workspaces (no folder open) */}
-            {isAuthenticated && selectedAppId == null && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 w-6 p-0 opacity-0 group-hover/header:opacity-100 transition-opacity hover:text-destructive"
-                title="Delete ALL Workspaces"
-                onClick={async () => {
-                  if (
-                    confirm(
-                      "WARNING: DELETE ALL WORKSPACES? This removes all workspaces from Atlarix.",
-                    )
-                  ) {
-                    for (const app of apps) {
-                      clearDeletedWorkspaceClientState(app.id, queryClient);
-                      try {
-                        await IpcClient.getInstance().deleteApp(app.id);
-                      } catch {
-                        // Ignore errors - some may already be deleted
-                      }
-                    }
-                    refreshApps?.();
-                    setSelectedAppId(null);
-                    setSelectedWorkspaceInfo(null);
-                    setActiveChatId(null);
-                    setSelectedChatId(null);
-                    navigate({ to: "/" });
-                    /*
-                     * No `onboarding:set-completed(false)` here any more. Deleting
-                     * your workspaces does not un-onboard you, and this never
-                     * touched `firstRunWizardCompleted`, so it could not re-show
-                     * the wizard either — its only live effect was telling the
-                     * server a long-standing user had never onboarded.
-                     */
-                  }
-                }}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
-            )}
-            {/* Add workspace only when browsing the list (not while a folder is open) */}
-            {selectedAppId == null && canAddWorkspace && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 w-6 p-0"
-                title="Add workspace (browse folder)"
-                onClick={() => void handleBrowseWorkspace()}
-              >
-                <Plus className="h-4 w-4" />
-              </Button>
-            )}
-          </div>
-        </SidebarGroupLabel>
-        <SidebarGroupContent className="min-h-0">
-          <div className="flex min-h-0 flex-col">
-            {/* Search Apps */}
-            <Button
-              onClick={() => setIsSearchDialogOpen(!isSearchDialogOpen)}
-              variant="ghost"
-              size="sm"
-              className="flex items-center justify-start gap-2 mx-2 mb-2"
-              data-testid="search-apps-button"
-            >
-              <Search size={14} />
-              <span className="text-xs">Search</span>
-            </Button>
+    <SidebarGroup
+      className="flex min-h-0 flex-1 flex-col overflow-y-auto h-[calc(100vh-112px)]"
+      data-testid="app-list-container"
+    >
+      {/*
+        THE WORKSPACE IDENTITY BAR — a header, not a row in a list.
 
-            {/* Workspaces List */}
-            {!isAuthenticated ? (
-              <div className="py-3 px-4 text-sm text-muted-foreground text-center">
-                <EyeOff className="w-5 h-5 mx-auto mb-2 opacity-50" />
-                <p>Login to access workspaces</p>
-              </div>
-            ) : loading ? (
-              <div className="py-2 px-4 text-sm text-muted-foreground">
-                Loading...
-              </div>
-            ) : error ? (
-              <div className="py-2 px-4 text-sm text-destructive">
-                Error loading apps
-              </div>
-            ) : visibleWorkspaces.length === 0 ? (
-              <div className="py-2 px-4 text-sm text-muted-foreground">
-                {selectedAppId != null ? "Loading workspace…" : "No workspaces"}
-              </div>
+        It was dressed as a tree row: a disclosure chevron that could only hide
+        the panel's only content, a count badge, a `+` duplicating the "New
+        conversation" button 200px below it, and a destructive delete one pixel
+        from that `+`. All four are gone, and dropping them is what gives the
+        name room — at 240px wide with six controls beside it, "wisdom-drop"
+        truncated to "wisdom-dr…" at ELEVEN characters.
+
+        Not `SidebarGroupLabel`: that is hard-coded `h-8` (`ui/sidebar.tsx:384`)
+        and this bar is two lines. Nothing queries `data-sidebar="group-label"`.
+      */}
+      <div className="flex items-start gap-2 border-b border-border/60 px-2 pb-2.5 pt-1">
+        <Folder
+          className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500"
+          aria-hidden
+        />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-semibold" title={workspaceLabel}>
+            {workspaceLabel}
+          </div>
+          <div className="text-[11px] text-muted-foreground">
+            {isMissing ? (
+              <Badge
+                variant="outline"
+                className="h-4 text-[10px] text-muted-foreground"
+              >
+                Folder not found
+              </Badge>
             ) : (
-              <SidebarMenu className="space-y-0.5" data-testid="app-list">
-                {visibleWorkspaces.map((ws) => {
-                  const isMissing = ws.workspaceStatus === "missing";
-                  const runDeleteWorkspace = async () => {
-                    clearDeletedWorkspaceClientState(ws.id, queryClient);
-                    setWorkspaces((prev) => prev.filter((w) => w.id !== ws.id));
-                    if (selectedAppId === ws.id) {
-                      navigate({ to: "/" });
-                    }
-                    try {
-                      await IpcClient.getInstance().deleteApp(ws.id);
-                    } catch (err) {
-                      const errorMessage =
-                        err instanceof Error ? err.message : "";
-                      if (
-                        !errorMessage.includes("not found") &&
-                        !errorMessage.includes("already been deleted")
-                      ) {
-                        console.error("Failed to delete workspace:", err);
-                      }
-                    }
-                    refreshApps?.();
-                    // See the note on the delete-all path: removing your last
-                    // workspace is not the same as never having onboarded.
-                  };
-                  return (
-                    <div
-                      key={ws.id}
-                      className={`border-b border-border/50 ${isMissing ? "opacity-50" : ""}`}
-                    >
-                      {/* Workspace Header */}
-                      <div
-                        className={`group flex items-center gap-1 px-2 py-1.5 transition-colors ${isMissing ? "cursor-default" : "cursor-pointer hover:bg-accent/50"} ${
-                          selectedAppId === ws.id && !isMissing
-                            ? "bg-accent"
-                            : ""
-                        }`}
-                        onClick={() => {
-                          if (isMissing) return;
-                          setSelectedAppId(ws.id);
-                          setSelectedWorkspaceInfo({
-                            id: ws.id,
-                            name: ws.name,
-                            path: ws.path,
-                          });
-                          setWorkspaces((prev) =>
-                            prev.map((w) =>
-                              w.id === ws.id
-                                ? { ...w, isExpanded: true }
-                                : { ...w, isExpanded: false },
-                            ),
-                          );
-                        }}
-                        onDoubleClick={() => {
-                          if (isMissing) return;
-                          handleNewChatInWorkspace(ws.id);
-                        }}
-                      >
-                        <button
-                          type="button"
-                          disabled={isMissing}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (isMissing) return;
-                            toggleWorkspace(ws.id);
-                          }}
-                          className="p-0.5 hover:bg-accent rounded disabled:opacity-40 disabled:pointer-events-none"
-                        >
-                          {ws.isExpanded ? (
-                            <ChevronDown className="h-3 w-3" />
-                          ) : (
-                            <ChevronRight className="h-3 w-3" />
-                          )}
-                        </button>
-
-                        <Folder className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0" />
-
-                        <span className="flex-1 text-sm font-medium truncate">
-                          {ws.name}
-                        </span>
-
-                        {isMissing ? (
-                          <Badge
-                            variant="outline"
-                            className="text-[10px] h-4 shrink-0 text-muted-foreground"
-                          >
-                            Folder not found
-                          </Badge>
-                        ) : null}
-
-                        {ws.chats.length > 0 && !isMissing ? (
-                          <Badge
-                            variant="secondary"
-                            className="text-[10px] h-4"
-                          >
-                            {ws.chats.length}
-                          </Badge>
-                        ) : null}
-
-                        {isMissing ? (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="h-7 text-xs shrink-0 pointer-events-auto"
-                            onClick={async (e) => {
-                              e.stopPropagation();
-                              if (
-                                confirm(
-                                  `Remove workspace "${ws.name}" from Atlarix? The folder is missing on disk.`,
-                                )
-                              ) {
-                                await runDeleteWorkspace();
-                              }
-                            }}
-                          >
-                            Remove
-                          </Button>
-                        ) : (
-                          <div
-                            className={`flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity ${selectedAppId === ws.id ? "opacity-100" : ""}`}
-                          >
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleNewChatInWorkspace(ws.id);
-                              }}
-                              className="p-1 hover:bg-emerald-500/20 rounded text-muted-foreground hover:text-emerald-500"
-                              title="New chat in workspace"
-                            >
-                              <Plus className="h-3.5 w-3.5" />
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={async (e) => {
-                                e.stopPropagation();
-                                if (
-                                  confirm(
-                                    `Delete workspace "${ws.name}"? This will remove it from Atlarix.`,
-                                  )
-                                ) {
-                                  await runDeleteWorkspace();
-                                }
-                              }}
-                              className="p-1 hover:bg-destructive/10 rounded text-muted-foreground hover:text-destructive"
-                              title="Delete workspace"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Sessions — when expanded */}
-                      {ws.isExpanded && !isMissing && (
-                        <div className="pl-6 pr-2 pt-1">
-                          <div className="text-[10px] font-medium text-muted-foreground px-1 mb-1">
-                            Sessions
-                          </div>
-                          <div data-onboarding="workspace-sessions">
-                            <WorkspaceSessionList
-                              workspaceId={ws.id}
-                              activeSessionId={
-                                selectedAppId === ws.id
-                                  ? activeWorkspaceSessionId
-                                  : null
-                              }
-                            />
-                          </div>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="w-full justify-start text-xs mt-2 h-8"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              void handleNewConversationInWorkspace(ws.id);
-                            }}
-                          >
-                            <MessageSquare className="h-3.5 w-3.5 mr-2" />
-                            New conversation
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </SidebarMenu>
+              `${sessionCount} session${sessionCount === 1 ? "" : "s"}`
             )}
           </div>
-        </SidebarGroupContent>
-      </SidebarGroup>
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-6 w-6 shrink-0 p-0"
+          title={chord ? `Search workspaces (${chord})` : "Search workspaces"}
+          aria-label="Search workspaces"
+          data-testid="search-apps-button"
+          onClick={() => setSearchOpen(true)}
+        >
+          <Search className="h-3.5 w-3.5" />
+        </Button>
+        {openWorkspace && (
+          <WorkspaceOverflowMenu
+            name={openWorkspace.name}
+            path={openWorkspace.path}
+            onRemove={() => void removeWorkspace(openWorkspace.id)}
+          />
+        )}
+      </div>
 
-      <AppSearchDialog
-        open={isSearchDialogOpen}
-        onOpenChange={setIsSearchDialogOpen}
-        onSelectApp={(id) => {
-          setSelectedAppId(id);
-          setIsSearchDialogOpen(false);
-        }}
-        allApps={allApps}
-      />
-    </>
+      <SidebarGroupContent className="min-h-0">
+        <div className="flex min-h-0 flex-col pt-2">
+          {!isAuthenticated ? (
+            <div className="px-4 py-3 text-center text-sm text-muted-foreground">
+              <EyeOff className="mx-auto mb-2 h-5 w-5 opacity-50" />
+              <p>Login to access workspaces</p>
+            </div>
+          ) : error ? (
+            <div className="px-4 py-2 text-sm text-destructive">
+              Error loading apps
+            </div>
+          ) : !openWorkspace ? (
+            <div className="px-4 py-2 text-sm text-muted-foreground">
+              {loading ? "Loading…" : "Loading workspace…"}
+            </div>
+          ) : isMissing ? (
+            <div className="space-y-2 px-2 py-2">
+              <p className="text-xs text-muted-foreground">
+                This folder is no longer on disk, so its sessions cannot be
+                opened.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 w-full text-xs"
+                onClick={() => void removeWorkspace(openWorkspace.id)}
+              >
+                Remove from Atlarix
+              </Button>
+            </div>
+          ) : (
+            <SidebarMenu className="space-y-0.5" data-testid="app-list">
+              <div className="px-2">
+                <div className="mb-1 px-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Sessions
+                </div>
+                <div data-onboarding="workspace-sessions">
+                  <WorkspaceSessionList
+                    workspaceId={openWorkspace.id}
+                    activeSessionId={activeWorkspaceSessionId}
+                  />
+                </div>
+                {/*
+                  ONE "new conversation" control. The header used to carry a `+`
+                  doing exactly this, 200px above the button that says so in
+                  words — `handleNewChatInWorkspace` was a bare alias of this
+                  same handler.
+                */}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="mt-2 h-8 w-full justify-start text-xs"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleNewConversationInWorkspace(openWorkspace.id);
+                  }}
+                >
+                  <MessageSquare className="mr-2 h-3.5 w-3.5" />
+                  New conversation
+                </Button>
+              </div>
+            </SidebarMenu>
+          )}
+        </div>
+      </SidebarGroupContent>
+    </SidebarGroup>
   );
 }

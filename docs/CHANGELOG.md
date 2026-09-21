@@ -3,6 +3,73 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.49.0] (2026-09-21) — The model has a name again, and the sidebar stops shouting
+
+**Nothing in the composer ever told you which model you were on.** The only control was an
+unlabelled sliders icon whose menu held the name as text you could not click. So people added
+their own API key, watched their models appear in the picker, and went on spending Atlarix Core
+credit with no cue that anything was still pointed at Core — the app had grown a persisted
+one-time coachmark to announce a fact the interface could simply have shown. It shows it now:
+the model's name is the button, it is there in every layout, and clicking it opens the picker.
+
+The sidebar's other problem was a wrong token rather than a taste. `--accent` is `#f59e0b` in
+both light and dark, and five places inside the sidebar were painting with it instead of
+`--sidebar-accent` — which is why a selected workspace read as a warning banner, with its
+timestamp sitting on top at roughly 1.6:1.
+
+### Added
+
+- **A model chip in the composer** (`src/components/ModelPicker.tsx`). Names the current model,
+  opens the picker, and answers `Cmd/Ctrl+J`. Prices are shown per row, providers are grouped
+  when you have not typed anything, and an empty list now says "no providers configured" and
+  where to fix it rather than "type to search".
+- **`Cmd/Ctrl+N` opens a new window** — a real File-menu accelerator (`src/main.ts`), so it works
+  with the caret anywhere, and it is listed in the shortcuts sheet.
+- **`Cmd/Ctrl+K` works everywhere.** The workspace-search palette is mounted at the app root
+  (`src/components/GlobalAppSearch.tsx`) instead of inside a sidebar panel that only renders on
+  some routes. The shortcut table carried it as `hidden` for exactly that reason; it is
+  advertised now.
+
+### Changed
+
+- **The sidebar's workspace row is a header, not a tree row** (`src/components/AppList.tsx`). The
+  disclosure chevron could only hide the panel's one piece of content, the `+` duplicated the
+  "New conversation" button below it, and a destructive delete sat a pixel from that `+`. All
+  gone, and the workspace name has room — it used to truncate at eleven characters. Removing a
+  workspace now goes through the same dialog the launcher uses, which tells you whether files are
+  deleted.
+- **Sessions are one line** with a short age column (`6m` / `14h` / `4d`); the full phrasing stays
+  in the tooltip.
+- **The rail footer is two buttons and a readable clock**, down from four buttons and a clock
+  whose time was only in a tooltip.
+- **Integrations → Models & providers shows its grid on arrival.** The page title, the card and
+  the collapsible inside it all said the same thing, with a chevron in front of the only content
+  on the screen.
+
+### Fixed
+
+- **The sidebar's amber.** Five sites moved from `--accent` to `--sidebar-accent`; the active row
+  is a tinted surface with a rule rather than a colour block.
+- **Two composers could both open the model picker.** With the right panel widened to its Chat
+  tab, `ChatInputControls` mounts twice, and `Cmd/Ctrl+J` opened a picker in each — two search
+  boxes, one stealing the other's focus. Ownership is now explicit
+  (`src/hooks/useModelPickerOpen.ts`), and pinned by a test that fails with "expected one open
+  picker, got 2".
+- **Picking a custom model could write an unresolvable identity.** The old sheet dropped
+  `customModelId` on select.
+- **The account menu could not be dismissed by clicking away** — it was a hand-rolled panel with
+  no outside-click or Escape handling.
+
+### Removed
+
+- `CompactModelSearch`, `ModelPickerSheetContent`, `ui/sheet.tsx` and `atoms/uiAtoms.ts`, plus
+  every unreachable "no workspace open" branch in `AppList` — the sidebar only ever renders with
+  one workspace open, so a delete-all button and an add-workspace `+` described a screen that
+  cannot occur. Net **−383 lines**.
+
+**Tests:** 5,143 passing. Typecheck, lint, sandbox cross-target, i18n and edge-function checks
+clean.
+
 ## [14.48.1] (2026-09-17) — The Chrome extension works in Arc, and shows its work
 
 **Atlarix's Chrome extension did not start at all in Arc.** Not "opened without a panel" —
@@ -695,31 +762,3 @@ Atlarix Core. The MCP page opened with three Linux-only sandbox controls, above 
 for adding a server; they are now under "Advanced" at the bottom. The sidebar's settings
 list can no longer point at a section that does not exist — that used to be caught by a
 comment asking people to remember, and is now caught by a test.
-
-## [14.40.0] (2026-09-01) — A dropped connection no longer ends the run
-
-> The headless agent was published to npm as 14.39.4 while this was being tested; it is the
-> same code as this release.
-
-**A provider connection that drops mid-answer used to end the whole run.** Atlarix already
-knew how to reconnect — it retries three times, waiting a little longer each time — but the
-failure was arriving in a form that skipped that handling entirely and stopped the program
-outright. Found on a real benchmark task, where the run died with the work half finished and
-nothing in the log to say a reconnect had even been attempted. Dropped connections are now
-handed to the retry that was always meant to receive them, while genuine faults still stop the
-run as before.
-
-**Atlarix also mistook some dropped connections for its own bugs.** A disconnect can arrive
-described in several different ways, and only some of them were recognised; the rest were
-treated as programming errors, which are never retried. All of them are now recognised,
-including the ones that only name the problem one layer down.
-
-**A command that failed no longer looks like it succeeded.** When a command exited with an
-error, or you declined it, the card in chat still showed a tick and a past-tense success label —
-"Ran the tests" beside output saying they had not run. The same card also lost the command's own
-output, so there was nothing to read back after the fact. Both are fixed: a failed or declined
-command is now shown as failed, and its output is kept with it.
-
-**Cached input is reported as cached.** Providers charge far less for prompt text they have
-already seen, and unattended runs were reporting only the raw total, which makes a long run
-look many times more expensive than it was.

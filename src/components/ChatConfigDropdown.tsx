@@ -1,70 +1,35 @@
 /**
- * Single Config button opening a dropdown: Models & provider, Deep reasoning.
- * Lucide icons only.
+ * The composer's config menu: reasoning effort and voice input.
+ *
+ * NOT the model. The model is the chip beside this button
+ * (`components/ModelPicker.tsx`) — it names what you are on, which this menu
+ * could not do from behind an unlabelled sliders icon.
  *
  * Pass 7: Blueprint-in-prompt tier override removed with the Blueprint subsystem.
  * v12.7: MCP entry removed — MCP management lives in Settings → MCP Servers.
+ * 2026-09-21: model section removed — see the note at the menu body.
  */
 
 import { useSettings } from "@/hooks/useSettings";
 import { useLanguageModelsByProviders } from "@/hooks/useLanguageModelsByProviders";
-import { useLocalModels } from "@/hooks/useLocalModels";
-import { useLocalLMSModels } from "@/hooks/useLMStudioModels";
 import { useTranscriptionProviders } from "@/hooks/useTranscriptionProviders";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { SlidersHorizontal, Cpu, Brain, Mic } from "lucide-react";
-import { useAtlarixCoreCatalog } from "@/hooks/useAtlarixCoreCatalog";
-import { resolveModelDisplayLabel } from "@/lib/resolve-model-display-label";
+import { SlidersHorizontal, Brain, Mic } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-export function useModelDisplayName(): string {
-  const { settings } = useSettings();
-  const { data: catalog = [] } = useAtlarixCoreCatalog();
-  const { data: modelsByProviders } = useLanguageModelsByProviders();
-  const { models: ollamaModels = [] } = useLocalModels();
-  const { models: lmStudioModels = [] } = useLocalLMSModels();
-
-  return resolveModelDisplayLabel(settings?.selectedModel, {
-    catalog,
-    modelsByProviders: modelsByProviders ?? undefined,
-    ollamaDisplayName: ollamaModels.find(
-      (m) => m.modelName === settings?.selectedModel?.name,
-    )?.displayName,
-    lmStudioDisplayName: lmStudioModels.find(
-      (m) => m.modelName === settings?.selectedModel?.name,
-    )?.displayName,
-  });
-}
-
-export function ChatConfigDropdown({
-  onOpenModelPicker,
-}: {
-  /**
-   * REQUIRED, and that is the fix rather than a detail.
-   *
-   * It was optional, and `ChatInputControls` passed `undefined` whenever the right
-   * panel was open — on the theory that `CompactModelSearch` takes over there. The
-   * result was a "Change model" item that did nothing in that state, while
-   * Cmd/Ctrl+J went on opening the same sheet perfectly well. Optionality is what
-   * allowed a call site to silently withhold the behaviour; making it required means
-   * the compiler refuses the next attempt instead of a user discovering it.
-   */
-  onOpenModelPicker: () => void;
-}) {
-  const modelDisplayName = useModelDisplayName();
+export function ChatConfigDropdown() {
   const { settings, updateSettings } = useSettings();
   const { data: modelsByProviders } = useLanguageModelsByProviders();
   // Only offer "deep thinking" for models that can actually reason (opencode's
@@ -118,7 +83,8 @@ export function ChatConfigDropdown({
             </Button>
           </DropdownMenuTrigger>
         </TooltipTrigger>
-        <TooltipContent>Config: model</TooltipContent>
+        {/* NOT "Config: model" any more — the model left this menu. */}
+        <TooltipContent>Reasoning &amp; voice</TooltipContent>
       </Tooltip>
       <DropdownMenuContent
         align="start"
@@ -130,31 +96,22 @@ export function ChatConfigDropdown({
         className="z-200 w-72 max-h-(--radix-dropdown-menu-content-available-height) overflow-y-auto overflow-x-hidden p-0"
       >
         <div className="p-1">
-          <DropdownMenuLabel className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-            <Cpu className="h-3.5 w-3.5" />
-            Model
-          </DropdownMenuLabel>
-          <div
-            className="px-2 py-1 text-sm text-foreground truncate"
-            title={modelDisplayName}
-          >
-            {modelDisplayName}
-          </div>
           {/*
-            NO `preventDefault` HERE, DELIBERATELY. It used to call it before
-            `onOpenModelPicker?.()`, and `preventDefault` on a Radix
-            `DropdownMenuItem.onSelect` suppresses auto-close unconditionally. With
-            the right panel open the prop was passed as `undefined`, so the item was
-            a no-op that ALSO left the menu hanging open — the click did nothing and
-            looked like nothing. Letting it close is the correct behaviour in both
-            states now that the callback is always supplied.
+            NO MODEL SECTION HERE ANY MORE.
+            ==============================
+            This used to open with a "Model" label, the current model's name as
+            text you could not click, and a "Change model" item. All three moved
+            into the composer's model chip, which names the model on the surface
+            instead of two clicks inside an unlabelled icon — the reason people
+            added an API key and never realised their turns were still going to
+            Atlarix Core.
+
+            Leaving a second route here would have been the thing worth
+            avoiding: two controls that both change the model, one of which
+            shows you what it currently is.
           */}
-          <DropdownMenuItem onSelect={() => onOpenModelPicker()}>
-            Change model
-          </DropdownMenuItem>
           {reasoningCapable ? (
             <>
-              <DropdownMenuSeparator />
               <DropdownMenuLabel className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                 <Brain className="h-3.5 w-3.5" />
                 Reasoning
@@ -176,7 +133,10 @@ export function ChatConfigDropdown({
               </p>
             </>
           ) : null}
-          <DropdownMenuSeparator />
+          {/* Only a separator when there is something above it to separate —
+              the Reasoning block is conditional, and a rule at the very top of
+              the menu reads as a rendering slip. */}
+          {reasoningCapable ? <DropdownMenuSeparator /> : null}
           <DropdownMenuLabel className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
             <Mic className="h-3.5 w-3.5" />
             Voice input

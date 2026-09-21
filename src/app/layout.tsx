@@ -51,6 +51,7 @@ import { preloadSounds, setSoundPreferences } from "@/lib/sounds";
 import { FirstRunWizard } from "@/components/welcome/FirstRunWizard";
 import { CommunityDialog } from "@/components/CommunityDialog";
 import { CommunityPrompts } from "@/components/community/CommunityPrompts";
+import { GlobalAppSearch } from "@/components/GlobalAppSearch";
 import { useRightPanelUserPreference } from "@/hooks/useRightPanelUserPreference";
 import type { FileAttachment } from "@/ipc/ipc_types";
 import { startNewWorkspaceConversation } from "@/lib/open-workspace-session";
@@ -478,6 +479,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <FirstRunWizard />
           <CommunityDialog />
           <CommunityPrompts />
+          {/* Cmd/Ctrl+K from anywhere — see GlobalAppSearch for why it cannot
+              live inside AppList. */}
+          <GlobalAppSearch />
           <div>
             <SidebarProvider>
               <TitleBar />
