@@ -574,6 +574,14 @@ export type LanguageModel =
        * contained `compass`.
        */
       supportsDeepThinking?: boolean;
+      /**
+       * Does this model accept AUDIO input? Gates the composer's microphone.
+       *
+       * Resolved in MAIN for exactly the reason above: the models.dev modality
+       * registry is main-process module state, so a renderer-side lookup comes
+       * back empty and the mic would hide for every model.
+       */
+      supportsAudioInput?: boolean;
       type: "custom";
     }
   | {
@@ -591,6 +599,8 @@ export type LanguageModel =
       supportsToolChoice?: boolean;
       /** See the `custom` variant above — resolved in main, never in the renderer. */
       supportsDeepThinking?: boolean;
+      /** See the `custom` variant above — resolved in main, never in the renderer. */
+      supportsAudioInput?: boolean;
       type: "local" | "cloud";
     };
 

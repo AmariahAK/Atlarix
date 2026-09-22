@@ -58,22 +58,24 @@ ToolRegistry.register({
   name: "run_command",
   // The git block below used to live in the SYSTEM PROMPT (mode-prompt-bundle's
   // GIT_VIA_TERMINAL_NOTE / getGitTerminalNote), where it cost tokens on every
-  // turn in every mode — including Plan, which has no run_command at all. It
-  // belongs here: conditional on the tool being bound, and next to the thing it
-  // governs. Note what it says and does NOT say — the model already knows how to
-  // run `git status`; it cannot know THIS PROJECT'S policy, so only the policy
+  // turn in every mode — including, at the time, Plan, which had no run_command.
+  // It belongs here: conditional on the tool being bound, and next to the thing
+  // it governs. Note what it says and does NOT say — the model already knows how
+  // to run `git status`; it cannot know THIS PROJECT'S policy, so only the policy
   // is stated. OS/shell facts are interpolated live, never assumed.
   description:
     "Run a shell command — builds, tests, scripts, package managers, git, deployment, reading logs, and anything else that needs a shell. " +
     `Running on ${os.type()} ${os.release()} (${os.arch()}) through \`${resolveDescriptionShell()}\` — use that shell's syntax and this OS's path conventions. ` +
     "Use the cwd parameter, not 'cd … && command'. " +
     "Do NOT use this for file operations — reading, writing, editing, searching or finding files. Use read_file, edit_file, glob and grep, which are cheaper and reviewable. " +
-    "Long-running work (builds, installs, watch/dev tasks) auto-backgrounds after ~15s — or set background=true to detach immediately; either way you get a job_id and the exit result is delivered automatically, so keep working or end your turn while it runs (manage jobs with background_jobs). You do not need to poll for it: the result is delivered, you are pinged if a job goes quiet, and you are told when one is genuinely stuck. " +
-    "A quiet job MAY not be stuck, so rather than cancelling it, give yourself a signal: wake_on with a success|failure marker (wake_on_regex:true for a pattern) wakes you the instant it appears, timeout_ms bounds how long it may run, and allow_stalled:true says a job is EXPECTED to be quiet (a dev server, a file watcher) so silence isn't reported. For external state (CI/deploy), background a command that BLOCKS until done (e.g. `gh run watch`) rather than checking repeatedly. " +
+    "Long-running work (builds, installs, watch/dev tasks) auto-backgrounds after ~15s — or set background=true to detach at once. Either way you get a job_id and the exit result is delivered automatically, so keep working or end your turn while it runs (manage jobs with background_jobs). You do not need to poll for it: you are pinged if a job goes quiet, and you are told when one is genuinely stuck. " +
+    "A quiet job MAY not be stuck, so rather than cancelling it, give yourself a signal: wake_on (a success|failure marker, wake_on_regex:true for a pattern) wakes you the instant it appears, timeout_ms bounds the run, and allow_stalled:true says a job is EXPECTED to be quiet (a dev server, a watcher). For external state (CI/deploy), background a command that BLOCKS until done (`gh run watch`) rather than checking repeatedly. " +
     'A printed http://localhost:PORT can be opened as a browser tab with browser({action:"navigate", url}) and driven with browser / browser_inspect. ' +
     "For scaffolding, pass non-interactive flags (e.g. --template, --no-interactive). " +
-    "Git: only commit, amend, push or open a PR/MR when asked. Before committing, inspect the status and diff, stage only what you intended, and never commit secrets. Do not change git config, skip hooks, or force-push; if a commit fails or a hook rejects it, fix the cause and make a NEW commit rather than amending. Do not discard uncommitted work you did not create — if a reset really is the right fix, say what will be lost first. For forge work use whichever CLI the remote actually uses (`gh` for GitHub, `glab` for GitLab, the Bitbucket CLI, …) — check the remote rather than assuming — and report the resulting PR/MR URL. " +
-    "If a command fails you are told exactly why, with its exit code and output. Commands run in a sandbox scoped to the current work mode: reads and non-mutating work always run, but a write to your source can be refused at the OS layer in a read-only mode — ask the user to switch to Build or Debug rather than retrying the same command.",
+    "Git: only commit, amend, push or open a PR/MR when asked. Inspect status and diff first, stage only what you intended, never commit secrets. Do not skip hooks or force-push; if a commit is rejected, fix the cause and make a NEW commit rather than amending. Do not discard uncommitted work you did not create — if a reset really is right, say what will be lost first. For forge work use the CLI the remote actually uses (`gh`, `glab`, the Bitbucket CLI, …) — check, don't assume — and report the PR/MR URL. " +
+    "A failure tells you exactly why, with its exit code and output. The workspace is writable in EVERY mode, so builds, installs, tests and dev servers work normally. " +
+    "In Explore, Plan and Review the source is still not yours to change: an in-place edit, a redirect into a file, or a git write goes to the user for approval — a pause, not a failure. If you need to change files, ask the user to switch to Build or Debug rather than retrying the same command. " +
+    "Never touch git config, git hooks, or `.atlarix/` — they decide what runs next.",
   requiresWorkspace: true,
   isCore: true,
   isReadOnly: false,

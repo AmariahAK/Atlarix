@@ -30,7 +30,7 @@ any repo size. The agent has a workspace. You have control.
 
 **Created by [NorahLabs](https://norahlabs.com)** (Nairobi, Kenya)  
 **Website:** [atlarix.dev](https://atlarix.dev)  
-**Current release:** **v14.49.0**
+**Current release:** **v14.50.0**
 
 **Downloads:** Installers for **macOS**, **Linux**, and **Windows** are on [atlarix.dev](https://atlarix.dev). _(Windows builds are currently unsigned; code signing is coming soon.)_
 
@@ -56,7 +56,7 @@ Release notes: **[docs/CHANGELOG.md](docs/CHANGELOG.md)** — the last ten relea
 - **Native tool history:** Tool calls/results ride as provider-native blocks (not flattened text) — weak and local models perform notably better, and multi-step prompt caching holds.
 - **Approvals & command sandbox:** File writes wait for explicit approval with a diff preview — accept or reject **individual hunks**, not just whole files, all **inline in chat** (no separate panel). Shell commands run inside a per-OS write-confining sandbox and only the genuinely dangerous ones ask; Explore/Plan/Review are read-only. Allow-once / always-allow decisions are **scoped to the workspace** — approvals saved in one project never carry to another.
 - **Work beyond one folder:** The workspace is the default scope, not a wall. The agent reads and searches another project by absolute path with no ceremony; the first _write_ to a folder outside the workspace asks you once for that folder, and the grant then covers both file edits and shell commands. Cross-repo edits are snapshotted like any other, so **Revert covers them too**.
-- **Voice-to-text:** Dictate to the composer — free on-device **Whisper** by default (private, no key), or use your own cloud key (OpenAI / Groq / Gemini — never billed to Atlarix Core).
+- **Voice-to-text:** Dictate to the composer — with your own provider key (OpenAI / Groq / Gemini, never billed to Atlarix Core), or straight through the model you're on when it accepts audio. The mic only appears when one of the two is available.
 - **Automations:** Schedule unattended runs on a cron or MCP trigger from the Automations tab, with a triage feed of past runs — up to **10 per workspace**.
 - **Interactive questions:** The agent can ask you **up to 5 questions in one inline card** (options + free text) and the stream genuinely pauses until you answer — no invented answers, no missed prompts.
 - **Native web search:** On providers with built-in search (Anthropic, OpenAI, Gemini 2+) the provider's own search tool runs at dispatch with **inline citations that survive reload**; everywhere else a built-in search chain provides a universal fallback, with optional local private search via Docker.

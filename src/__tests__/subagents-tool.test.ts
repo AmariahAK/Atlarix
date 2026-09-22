@@ -261,16 +261,18 @@ describe("task no longer manages sub-agents", () => {
 });
 
 describe("mode availability", () => {
-  it("is callable in Plan mode, where background_jobs is not", async () => {
+  it("is callable in every mode, Plan included", async () => {
     const { isToolAllowedInMode } = await import(
       "@/lib/tools/mode-tool-registry"
     );
-    // Plan can't run commands, so it has no business managing background
-    // commands — but it delegates read-only sub-agents, so it must manage those.
-    expect(isToolAllowedInMode("subagents", "plan")).toBe(true);
-    expect(isToolAllowedInMode("background_jobs", "plan")).toBe(false);
-    for (const mode of ["ask", "build", "debug", "review"] as const) {
+    // A mode that can delegate must be able to list, read and cancel what it
+    // delegated. This used to also assert `background_jobs` was NOT in Plan, on
+    // the reasoning that "Plan can't run commands" — Plan has run_command now,
+    // and a foreground command auto-promotes to the background after ~15s, so
+    // withholding the job manager would lose that output permanently.
+    for (const mode of ["ask", "plan", "build", "debug", "review"] as const) {
       expect(isToolAllowedInMode("subagents", mode)).toBe(true);
+      expect(isToolAllowedInMode("background_jobs", mode)).toBe(true);
     }
   });
 });

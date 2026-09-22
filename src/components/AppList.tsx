@@ -1,13 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
-import {
-  Folder,
-  FolderOpen,
-  MessageSquare,
-  MoreHorizontal,
-  Search,
-  Trash2,
-  EyeOff,
-} from "lucide-react";
+import { Folder, MessageSquare, Search, EyeOff } from "lucide-react";
 import { useAtom, useSetAtom } from "jotai";
 import { selectedAppIdAtom, selectedWorkspaceInfoAtom } from "@/atoms/appAtoms";
 import { appSearchOpenAtom } from "@/atoms/appAtoms";
@@ -20,22 +12,6 @@ import {
   SidebarMenu,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { activeChatIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
 import { useLoadApps } from "@/hooks/useLoadApps";
 import { useEffect, useMemo, useState } from "react";
@@ -45,7 +21,6 @@ import { Badge } from "@/components/ui/badge";
 import { IpcClient } from "@/ipc/ipc_client";
 import { useAuth } from "@/lib/auth/useAuth";
 import { SHORTCUTS, formatCombo, isMacPlatform } from "@/lib/shortcuts";
-import { removalAlsoDeletesFiles } from "@/pages/welcome-launcher";
 
 interface WorkspaceWithChats {
   id: number;
@@ -60,97 +35,6 @@ interface WorkspaceWithChats {
 function appSearchChord(): string | undefined {
   const row = SHORTCUTS.find((s) => s.id === "app-search");
   return row ? formatCombo(row.combo, isMacPlatform()) : undefined;
-}
-
-/**
- * The workspace `⋯` — the rare actions, off the header's critical path.
- *
- * NO "SWITCH WORKSPACE" HERE, deliberately. A new window opens an unbound
- * window that lands on the chooser (`window:open-blank`), and that is the
- * designed way to work on a second project: one workspace per window, so a
- * command cannot run against the folder you were not looking at.
- *
- * Remove routes to the launcher's own dialog copy rather than a bare
- * `confirm()`. The sidebar used to claim removal only "removes it from
- * Atlarix", which is untrue for a workspace inside Atlarix's own apps
- * directory — `removalAlsoDeletesFiles` is the predicate that tells them
- * apart, and the launcher has honoured it since it was written.
- */
-function WorkspaceOverflowMenu({
-  name,
-  path,
-  onRemove,
-}: {
-  name: string;
-  path: string;
-  onRemove: () => void;
-}) {
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const alsoDeletesFiles = removalAlsoDeletesFiles(path);
-
-  return (
-    <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 w-6 shrink-0 p-0"
-            aria-label="Workspace options"
-            data-testid="workspace-overflow"
-          >
-            <MoreHorizontal className="h-3.5 w-3.5" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-52">
-          <DropdownMenuItem
-            disabled={!path}
-            onClick={() => {
-              if (path) void IpcClient.getInstance().showItemInFolder(path);
-            }}
-          >
-            <FolderOpen className="mr-2 h-4 w-4" />
-            Reveal in file manager
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            className="text-destructive focus:text-destructive"
-            onClick={() => setConfirmOpen(true)}
-          >
-            <Trash2 className="mr-2 h-4 w-4" />
-            {alsoDeletesFiles ? "Delete workspace…" : "Remove workspace…"}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {alsoDeletesFiles
-                ? `Delete “${name}” and its files?`
-                : `Remove “${name}” from Atlarix?`}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {alsoDeletesFiles
-                ? "This workspace lives inside Atlarix, so removing it deletes the folder and everything in it. This cannot be undone."
-                : "Atlarix forgets this workspace and its sessions. The folder on disk is left exactly as it is."}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                setConfirmOpen(false);
-                onRemove();
-              }}
-            >
-              {alsoDeletesFiles ? "Delete files" : "Remove"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
-  );
 }
 
 /**
@@ -301,9 +185,43 @@ export function AppList({ show }: { show?: boolean }) {
           aria-hidden
         />
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold" title={workspaceLabel}>
+          {/*
+            THE NAME IS THE "REVEAL IN FILE MANAGER" CONTROL.
+
+            It used to live in a `⋯` menu beside a "Remove workspace" that was
+            both a duplicate of the launcher's own row and a strange thing for a
+            menu INSIDE a workspace to offer — removing the folder you are
+            standing in drops you straight back to the launcher. Deleting that
+            item left a one-item dropdown, which is not worth a menu, and a
+            second icon button next to Search would just re-spend the space the
+            v14.49 header pass reclaimed.
+
+            So it moved onto the row that already IS the folder: a folder icon
+            and the folder's name. Clicking it opens the folder — the least
+            surprising thing that row could do. The tooltip now carries the full
+            absolute path, which also fixes a smaller wrongness: `title` used to
+            repeat the name already on screen.
+          */}
+          <button
+            type="button"
+            className="block w-full truncate rounded text-left text-sm font-semibold hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-default disabled:no-underline"
+            title={
+              openWorkspace?.path
+                ? `Reveal in file manager — ${openWorkspace.path}`
+                : workspaceLabel
+            }
+            disabled={!openWorkspace?.path}
+            data-testid="workspace-reveal"
+            onClick={() => {
+              if (openWorkspace?.path) {
+                void IpcClient.getInstance().showItemInFolder(
+                  openWorkspace.path,
+                );
+              }
+            }}
+          >
             {workspaceLabel}
-          </div>
+          </button>
           <div className="text-[11px] text-muted-foreground">
             {isMissing ? (
               <Badge
@@ -328,13 +246,6 @@ export function AppList({ show }: { show?: boolean }) {
         >
           <Search className="h-3.5 w-3.5" />
         </Button>
-        {openWorkspace && (
-          <WorkspaceOverflowMenu
-            name={openWorkspace.name}
-            path={openWorkspace.path}
-            onRemove={() => void removeWorkspace(openWorkspace.id)}
-          />
-        )}
       </div>
 
       <SidebarGroupContent className="min-h-0">

@@ -28,6 +28,7 @@ import { SimpleInlineChat } from "@/components/SimpleInlineChat";
 import { ChatTabStrip } from "@/components/chat/ChatTabStrip";
 import { RightPanel } from "@/components/RightPanel";
 import { WorkspaceNotFoundBanner } from "@/components/WorkspaceNotFoundBanner";
+import { WorkspaceDeletedScreen } from "@/components/WorkspaceDeletedScreen";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import WhatsNewPanel from "@/components/WhatsNewPanel";
 import { AnalyticsConsentModal } from "@/components/AnalyticsConsentModal";
@@ -520,6 +521,15 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                   <PersistentChatContainer />
                   <div className="relative z-0 flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
                     {!suppressOutletForHomeChat && children}
+                    {/*
+                      Deleted in another window. Mounted LAST and positioned
+                      absolute inside this container so it covers the outlet and
+                      takes its clicks — a window still accepting input into a
+                      workspace that no longer exists is the failure it exists to
+                      stop. It renders null unless this window is the one
+                      standing in the deleted workspace.
+                    */}
+                    <WorkspaceDeletedScreen />
                   </div>
                 </div>
                 {/* Right panel: on chat page whenever visible (works for workspace and web-only chats) */}

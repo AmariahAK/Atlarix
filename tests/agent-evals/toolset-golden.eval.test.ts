@@ -88,24 +88,28 @@ const GOLDEN = {
     "tool_help",
     "web_search",
   ],
+  // Plan gained `run_command` + `background_jobs`; it lost `automations`,
+  // `manage_mcp_server`, the mobile pair and the two browser tools. A deliberate
+  // contract change: Plan could not check anything it planned against, and
+  // everything it lost is an ACT or a look at something RUNNING — a plan
+  // describes an act rather than performing one, and verification is Explore's
+  // job. `list_available_mcps` stays so Plan can still see what exists. The
+  // mobile pair is the only entry in MODE_EXCLUDED_TOOLS; see the budget eval's
+  // 2026-09-22 note for what each removal bought.
   plan: [
     "ask_user",
-    "automations",
-    "browser",
-    "browser_inspect",
+    "background_jobs",
     "compress_context",
     "glob",
     "grep",
     "list_attachments",
     "list_available_mcps",
-    "manage_mcp_server",
     "mcp_call",
-    "mobile",
-    "mobile_inspect",
     "plan",
     "read_attachment",
     "read_file",
     "read_url",
+    "run_command",
     "schedule_wakeup",
     "session_search",
     "subagents",

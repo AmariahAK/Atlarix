@@ -48,6 +48,8 @@ function broadcastTerminalOutput(payload: {
   commandId: string;
   command: string;
   output: string;
+  /** Only what is new since the last event. Absent on completed/error. */
+  delta?: string;
   status: "running" | "completed" | "error";
   exitCode?: number;
   source?: "user" | "agent";
@@ -128,13 +130,18 @@ export function registerTerminalHandlers(): void {
             onSpawn: (p) => {
               proc = p;
             },
-            onOutput: ({ stdout, stderr }) => {
+            onOutput: ({ stdout, stderr, deltaStdout, deltaStderr }) => {
               const output = stdout + (stderr ? `\n${stderr}` : "");
               broadcastTerminalOutput({
                 chatId,
                 commandId: operationId,
                 command,
                 output,
+                // The user-command path gets the same delta as the agent path.
+                // Without it the renderer falls back to replacing with the
+                // accumulated buffer on every chunk — correct, but the quadratic
+                // shape this whole change exists to remove.
+                delta: deltaStdout + deltaStderr,
                 status: "running",
                 source,
               });

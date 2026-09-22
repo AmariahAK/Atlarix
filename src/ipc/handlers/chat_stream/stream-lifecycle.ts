@@ -22,6 +22,7 @@ import { clearWaitTrackersForChat } from "../permissions/handlers";
 import { clearScheduledWakeupsForChat } from "@/lib/agent/scheduled-wakeups";
 import { killForegroundCommandsForChat } from "@/lib/agent/background-commands";
 import { cancelAllSubagentTasksForChat } from "@/lib/tools/spawn-task";
+import { getStreamTransportAppId } from "@/lib/chat/stream-transport";
 import {
   activeStreams,
   activeStreamRuns,
@@ -246,6 +247,43 @@ export function abortAllStreams(): void {
   activeStreamId.clear();
   partialResponses.clear();
   logger.log(`[Cleanup] All AI streams aborted`);
+}
+
+/**
+ * Abort every live turn belonging to a workspace, because that workspace is
+ * being deleted.
+ *
+ * THE BUG THIS EXISTS FOR: `delete-app` stopped the dev server and cascaded the
+ * chat rows but never touched `activeStreams`. So a Build turn could be
+ * mid-`run_command` against a folder while `rm -rf` ran over it, and whatever it
+ * wrote next went to a chat row that no longer existed. Nothing reported any of
+ * that — the turn simply failed somewhere deep, in a window still showing a
+ * working sidebar.
+ *
+ * Call it BEFORE the files are removed, not after: the point is to stop the
+ * commands, and stopping them once the directory is already gone stops nothing.
+ *
+ * Built on `cancelStreamForAutomation` rather than beside it, so a workspace
+ * deletion tears down exactly what an automation timeout does — the abort, the
+ * registry entry, the blocking foreground commands, and the sub-agent tasks.
+ * Returns how many turns it stopped, so the window that has to explain itself
+ * can say whether there was anything to explain.
+ */
+export function cancelStreamsForApp(appId: number): number {
+  let cancelled = 0;
+  // Snapshot first: `cancelStreamForAutomation` deletes from `activeStreams`,
+  // and mutating a Map while iterating its keys is how you miss half of them.
+  for (const chatId of [...activeStreams.keys()]) {
+    if (getStreamTransportAppId(chatId) !== appId) continue;
+    cancelStreamForAutomation(chatId);
+    cancelled++;
+  }
+  if (cancelled > 0) {
+    logger.log(
+      `[workspace-deleted] aborted ${cancelled} live turn(s) for app ${appId}`,
+    );
+  }
+  return cancelled;
 }
 
 /**

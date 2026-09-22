@@ -91,10 +91,50 @@ function resolveWorkingDirectory(
   }
 }
 
+/**
+ * What a streamed-output consumer is handed on each flush.
+ *
+ * BOTH SHAPES, ON PURPOSE. `stdout`/`stderr` are the accumulated buffers, exactly
+ * as before; `deltaStdout`/`deltaStderr` are only what is new since the previous
+ * flush. Every consumer that existed before this change keeps reading the
+ * accumulated fields and is unaffected — the delta fields are opt-in, converted
+ * one consumer at a time with its own test.
+ *
+ * That additive shape was chosen after auditing the consumers: FIVE of them would
+ * have produced silently WRONG output under a straight swap (the in-chat card, the
+ * main-side terminal buffer, the background-job cursor, the error toast, and the
+ * right-panel transcript), and one — the ~15s promotion handoff at
+ * `interceptor.ts` — has no test at all. A flag day across all of them at once was
+ * not worth it. `dev-server:output` already ships this exact pairing.
+ *
+ * WHY THE CUMULATIVE FIELDS ARE THE PROBLEM. They are re-sent on every `data`
+ * event, so a command emitting N bytes over K chunks pushes ~N·K/2 bytes through
+ * every consumer. Measured on a 4.9 MB build log in 75 chunks: 187 MB re-sent, and
+ * 218 ms of renderer main-thread parsing per command against 6 ms for the deltas.
+ */
+export interface StreamedOutput {
+  /** Everything so far. The original contract; unchanged. */
+  stdout: string;
+  stderr: string;
+  /** Only what is new since the previous flush. */
+  deltaStdout: string;
+  deltaStderr: string;
+}
+
+/**
+ * How long a trailing partial line is held before being flushed anyway.
+ *
+ * Long enough that a normal line's newline arrives in the same tick and nothing
+ * is split; short enough that a `\r`-redrawn progress bar or an interactive
+ * prompt — neither of which ever emits a newline — still reaches the UI promptly
+ * instead of looking like a hang.
+ */
+const PARTIAL_LINE_HOLD_MS = 120;
+
 interface RunShellProcessOptions {
   command: string;
   cwd?: string;
-  onOutput?: (accumulated: { stdout: string; stderr: string }) => void;
+  onOutput?: (o: StreamedOutput) => void;
   /** Called immediately after spawn so callers can kill the process on timeout. */
   onSpawn?: (proc: ChildProcess) => void;
   /** When set, confine filesystem writes via the per-OS sandbox. */
@@ -160,6 +200,9 @@ function runShellProcess(
     const finish = (result: CommandResult) => {
       if (settled) return;
       settled = true;
+      // The tail of a command that ended without a trailing newline would
+      // otherwise never be delivered to a delta consumer.
+      emitFinal();
       resolve({
         stdout: result.stdout.trim(),
         stderr: result.stderr.trim(),
@@ -168,8 +211,78 @@ function runShellProcess(
       });
     };
 
-    const emit = () => {
-      onOutput?.({ stdout, stderr });
+    // ── Delta emission, flushed on LINE boundaries ────────────────────────
+    //
+    // How much of each buffer a consumer has already been shown. The delta is
+    // the slice past these marks.
+    let emittedOut = 0;
+    let emittedErr = 0;
+    // Set when a partial trailing line is being held back, so it can still be
+    // flushed if the process then goes quiet (a `\r` progress bar or a prompt
+    // never emits a newline, and holding its output forever would look like a
+    // hang).
+    let holdTimer: NodeJS.Timeout | null = null;
+
+    /**
+     * Why line boundaries rather than raw chunks.
+     *
+     * Two bug classes appear the moment a consumer parses a delta instead of the
+     * whole buffer, and both are invisible today because the cumulative resend
+     * papers over them:
+     *
+     *  1. A chunk can end mid-line. `trimEnd()`-ing that and pushing it as a
+     *     complete line splits one log line into two.
+     *  2. A chunk can end mid-ANSI-escape (`\x1b[3` … `2m`). Neither half matches
+     *     the SGR regex, so the colour code leaks into the text as garbage.
+     *
+     * A complete line cannot contain either — an SGR sequence has no newline in
+     * it. So holding the trailing partial until its newline arrives fixes both at
+     * once, for every consumer, rather than each of them carrying its own
+     * remainder buffer.
+     */
+    const splitAtLastNewline = (buf: string, from: number): number => {
+      const idx = buf.lastIndexOf("\n");
+      return idx >= from ? idx + 1 : from;
+    };
+
+    const emit = (force = false) => {
+      const outTo = force
+        ? stdout.length
+        : splitAtLastNewline(stdout, emittedOut);
+      const errTo = force
+        ? stderr.length
+        : splitAtLastNewline(stderr, emittedErr);
+      const deltaStdout = stdout.slice(emittedOut, outTo);
+      const deltaStderr = stderr.slice(emittedErr, errTo);
+
+      if (!force && !deltaStdout && !deltaStderr) {
+        // Nothing but a partial line so far. Arm a one-shot flush so output that
+        // never ends in a newline still reaches the UI.
+        if (!holdTimer) {
+          holdTimer = setTimeout(() => {
+            holdTimer = null;
+            emit(true);
+          }, PARTIAL_LINE_HOLD_MS);
+          holdTimer.unref?.();
+        }
+        return;
+      }
+      if (holdTimer) {
+        clearTimeout(holdTimer);
+        holdTimer = null;
+      }
+      emittedOut = outTo;
+      emittedErr = errTo;
+      onOutput?.({ stdout, stderr, deltaStdout, deltaStderr });
+    };
+
+    /** Flush whatever is held, without waiting for a newline. */
+    const emitFinal = () => {
+      if (holdTimer) {
+        clearTimeout(holdTimer);
+        holdTimer = null;
+      }
+      if (emittedOut < stdout.length || emittedErr < stderr.length) emit(true);
     };
 
     const proc = spawnArgs
@@ -247,8 +360,8 @@ export function runShellCommand(
 }
 
 export interface RunShellCommandStreamingOptions {
-  /** Called on each stdout/stderr chunk with accumulated output so far. */
-  onOutput: (accumulated: { stdout: string; stderr: string }) => void;
+  /** Called on each flush with both the accumulated output and the new delta. */
+  onOutput: (o: StreamedOutput) => void;
   /** Called immediately after spawn so callers can kill the process on timeout. */
   onSpawn?: (proc: ChildProcess) => void;
   /** When set, confine filesystem writes via the per-OS sandbox. */

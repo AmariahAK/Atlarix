@@ -16,15 +16,27 @@ import {
   isSystemScopeCommand,
   getSystemScopeExplanation,
 } from "@/lib/system-scope-commands";
+import {
+  firstMutatingSegment,
+  getMutationExplanation,
+} from "@/lib/mutating-commands";
 
 const logger = log.scope("chat_stream_handlers");
 
 /**
- * Command work-mode gate. The read-only enforcement (Explore/Plan/Review can't
- * modify the workspace source) is now done by the OS SANDBOX at execution time
- * (`buildRunCommandSandbox` → read-only profile), NOT by classifying command
- * strings — so there is no mutating/git command taxonomy here. This gate only
- * fail-closes when the work mode itself can't be resolved.
+ * Command work-mode gate — the invalid-mode fail-close, and nothing else.
+ *
+ * Read-only enforcement for Explore/Plan/Review lives in
+ * `classifySegment` (command_permission_handlers.ts), which routes a
+ * write-shaped command to the approval queue. It deliberately does NOT live
+ * here: this function has no notion of approval, and overloading it with one is
+ * how the previous design got muddy — its ancestor hard-BLOCKED mutating
+ * commands, which is why a model could be told to stop retrying but never told
+ * it could simply ask.
+ *
+ * It also no longer lives in the OS sandbox. Read-only modes run with a writable
+ * workspace now, because the strict profile broke vitest, installs, builds and
+ * dev servers — everything the mode prompts promised.
  */
 export function runCommandGateResult(
   _command: string,
@@ -85,10 +97,16 @@ export function emitFilePermissionActivity(
 export function enrichPermissionRequestForUi(
   permRequest: { operation: string; preview: unknown },
   appId: number | null | undefined,
-  workspaceRoot?: string,
+  workspaceRoot: string | undefined,
+  readOnlySource: boolean,
 ) {
   if (permRequest.operation === "run_command") {
-    return enrichRunCommandPermissionRequest(permRequest, appId, workspaceRoot);
+    return enrichRunCommandPermissionRequest(
+      permRequest,
+      appId,
+      workspaceRoot,
+      readOnlySource,
+    );
   }
   return enrichFilePermissionRequest(
     permRequest as import("@/lib/tools/permissions/schema").PermissionRequest,
@@ -179,9 +197,15 @@ export function runCommandCategoryGateToolResult(
   appId: number | null | undefined,
   chatId: number,
   sender: Electron.WebContents,
-  workspaceRoot?: string,
+  workspaceRoot: string | undefined,
+  readOnlySource: boolean,
 ): string | null {
-  const preflight = runCommandCategoryPreflight(command, appId, workspaceRoot);
+  const preflight = runCommandCategoryPreflight(
+    command,
+    appId,
+    workspaceRoot,
+    readOnlySource,
+  );
   if (preflight.type === "auto_deny") {
     emitRunCommandPermissionActivity(
       sender,
@@ -208,9 +232,15 @@ export function shouldSkipPermissionWaitForRunCommand(
   appId: number | null | undefined,
   chatId: number,
   sender: Electron.WebContents,
-  workspaceRoot?: string,
+  workspaceRoot: string | undefined,
+  readOnlySource: boolean,
 ): boolean {
-  const preflight = runCommandCategoryPreflight(command, appId, workspaceRoot);
+  const preflight = runCommandCategoryPreflight(
+    command,
+    appId,
+    workspaceRoot,
+    readOnlySource,
+  );
   if (preflight.type === "auto_allow") {
     emitRunCommandPermissionActivity(
       sender,
@@ -253,7 +283,12 @@ export function requiresHumanReviewDespiteAutoApprove(permRequest: {
 
 export function enrichRunCommandPermissionRequest<
   T extends { operation: string; preview: unknown },
->(permRequest: T, appId: number | null | undefined, workspaceRoot?: string): T {
+>(
+  permRequest: T,
+  appId: number | null | undefined,
+  workspaceRoot: string | undefined,
+  readOnlySource: boolean,
+): T {
   if (permRequest.operation !== "run_command") return permRequest;
   const preview = permRequest.preview as {
     command?: string;
@@ -263,6 +298,7 @@ export function enrichRunCommandPermissionRequest<
     preview.command ?? "",
     appId,
     workspaceRoot,
+    readOnlySource,
   );
   const dangerous = preflight.type === "prompt" ? preflight.dangerous : false;
   // System-scope = changes something OUTSIDE the project (on-device install, sudo,
@@ -287,6 +323,18 @@ export function enrichRunCommandPermissionRequest<
       systemScopeExplanation: systemScope
         ? getSystemScopeExplanation(command, root)
         : undefined,
+      // Why this card exists, in the user's words.
+      //
+      // Without it a mutation card is indistinguishable from any other prompt:
+      // the same shape appears for `git commit` and for `brew install`, and the
+      // only visible difference is a category slug like `mutate:git-write`. The
+      // card already does this for danger and for system scope; a mutation has
+      // the same claim on an explanation, and more so — it is the newest reason
+      // a command can stop, so it is the one a user has no prior for.
+      mutationExplanation:
+        preflight.type === "prompt" && preflight.reason === "mutation"
+          ? getMutationExplanation(firstMutatingSegment(command) ?? command)
+          : undefined,
       // Dangerous commands can now be always-allowed too (the badge is
       // informational, not a blocker). Only a resolved auto_allow/deny (no
       // longer "prompt") hides the button.

@@ -115,6 +115,18 @@ export function buildWorkstationIdentityBlock(args: {
    * Stable per workspace, like `memoryDir`, so this stays cache-prefix safe.
    */
   workspaceRoot?: string;
+  /**
+   * Absolute path to this workspace's scratch directory.
+   *
+   * Published for the same reason `memoryDir` is: an agent that has not been
+   * told where to put a temp file picks one, and what it picks is `/tmp`. Those
+   * files then sit beside the user's own and can never be swept, because a sweep
+   * that went near them would be one bad glob from deleting something
+   * irreplaceable. Naming a directory fixes the guess and the cleanup at once.
+   *
+   * Stable per workspace, so it stays cache-prefix safe beside the other two.
+   */
+  scratchDir?: string;
 }): string {
   const { modelDisplayName, providerBrand, appVersion } = args;
   const selfLabel =
@@ -132,6 +144,10 @@ Do not call yourself "Atlarix AI" or claim to be a product of Atlarix — Atlari
   }${
     args.memoryDir
       ? `\n**Project memory (the only store):** \`${args.memoryDir}\` — read and write notes there and nowhere else; do not search for another location.`
+      : ""
+  }${
+    args.scratchDir
+      ? `\n**Scratch space:** \`${args.scratchDir}\` — temp files go here, not /tmp. Cleaned up for you.`
       : ""
   }
 If asked who built Atlarix, say **NorahLabs** ([norahlabs.com](https://norahlabs.com/)). If asked what you are, identify as **${selfLabel}** running inside Atlarix — not as Atlarix itself.`;

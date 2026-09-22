@@ -50,9 +50,8 @@ export const EVERY_MODE_TOOLS = [
   // R1: opt-in self-wake — available in every mode (build/debug get it via "*").
   "schedule_wakeup",
   // v14.21: managing sub-agents belongs wherever delegating them does — which
-  // is every mode. (background_jobs is withheld from Plan because Plan can't
-  // run commands; Plan CAN delegate read-only recon and web research, so it
-  // must be able to list, read, and cancel what it delegated.)
+  // is every mode. Plan delegates read-only recon and web research, so it must
+  // be able to list, read and cancel what it delegated.
   "subagents",
   // v14.34: the fetch half of per-mode progressive tool reveal. Must be in
   // EVERY mode — a peripheral tool's bound description points at it, so a mode
@@ -75,11 +74,37 @@ export const EVERY_MODE_TOOLS = [
   "mobile",
 ] as const;
 
-function withEveryModeTools(list: readonly string[]): readonly string[] {
+/**
+ * Tools an otherwise-every-mode entry does NOT reach in a given mode.
+ *
+ * This exists for exactly one case and should stay that small. `mobile_inspect`
+ * and `mobile` were made every-mode on the argument, recorded in
+ * EVERY_MODE_TOOLS above, that "what does the app look like on a phone" is a
+ * QUESTION rather than a build step. That argument is about Explore. Plan does
+ * not answer questions about a running device; it writes down what should be
+ * done, and it is the one mode with no budget headroom to spare — the pair is a
+ * measured 471 tokens per mode (`prompt-budget.eval.test.ts`), and Plan is where
+ * `run_command` now has to fit.
+ *
+ * Anything excluded here is genuinely unreachable in that mode, including at the
+ * execute-time gate, so add to it only when the mode truly has no use for the
+ * tool — never merely to save tokens somewhere with room.
+ */
+export const MODE_EXCLUDED_TOOLS: Partial<
+  Record<ModeRegistryKey, readonly string[]>
+> = {
+  plan: ["mobile", "mobile_inspect"],
+};
+
+function withEveryModeTools(
+  list: readonly string[],
+  excluded: readonly string[] = [],
+): readonly string[] {
+  const drop = new Set(excluded);
   return Object.freeze(
-    [...new Set([...list, ...EVERY_MODE_TOOLS])].sort((a, b) =>
-      a.localeCompare(b),
-    ),
+    [...new Set([...list, ...EVERY_MODE_TOOLS])]
+      .filter((t) => !drop.has(t))
+      .sort((a, b) => a.localeCompare(b)),
   );
 }
 
@@ -98,21 +123,56 @@ const ASK_TOOLS = [
   "task",
 ] as const;
 
-// Plan mode is filesystem-read-only: it authors its PLAN via the `plan` tool
-// (session artifact) but must NOT touch the workspace. edit_file (except the
-// .atlarix docs) / destructive run_command stay excluded from the advertised
-// list and the execute-gate (incl. the text-tool fallback path).
+/**
+ * Plan authors a PLAN and must not edit the source — so it has no `edit_file`,
+ * and a write-shaped command asks the user first (`mutating-commands.ts`).
+ *
+ * IT DOES HAVE `run_command` NOW, and that is the point of the mode. Plan was
+ * expected to produce an informed plan while being unable to check anything: no
+ * `git log`, no `ls`, no typecheck, no test names. It inferred where it should
+ * have looked. (It was also the worst of both — `run_command` carries
+ * `allowInAskMode`, so a hallucinated call EXECUTED even though the tool was
+ * never offered. Binding it reduces surprise rather than expanding surface.)
+ *
+ * `background_jobs` comes with it and is not optional: a foreground command
+ * auto-promotes to the background after ~15s, so a Plan turn that runs the test
+ * suite would otherwise lose its output permanently.
+ *
+ * WHAT CAME OUT TO PAY FOR THEM.
+ *
+ * `automations` and `manage_mcp_server` are both ACTS, and Plan's job is to write
+ * down that an act should happen. Creating a scheduled automation is the thing a
+ * plan step describes; installing an MCP server is, by `mcp.ts`'s own
+ * description, "approving arbitrary process execution at the user's privilege".
+ * `list_available_mcps` stays, so Plan can still see what exists and plan around
+ * it.
+ *
+ * `browser` and `browser_inspect` came out too, and that one was a REVERSAL —
+ * the plan for this change said to keep them, on the strength of the note in
+ * mode-prompt-bundle.ts about a previous removal of Plan's browser GUIDANCE. But
+ * that note is about suppressing guidance for tools Plan HAD, which is the
+ * opposite mismatch; removing the tools removes their guidance with them.
+ *
+ * What actually decided it: `browser_inspect` cannot navigate — navigation lives
+ * on `browser`. So keeping only the cheap one would have left Plan able to
+ * inspect whatever page happened to be open and unable to open one, which is a
+ * worse trap than having neither. And the pair is expensive: 1,324 tokens of
+ * Plan's prefix, measured, because `browser_inspect` is in NEVER_TRIM and
+ * `browser` carries a large action enum. Driving and reading a running app is
+ * verification, which is what Explore is for — Plan can write "verify X in
+ * Explore" as a step. With them gone Plan is SMALLER than before it gained
+ * run_command (9,879 against a 10,962 baseline), which is the right shape for a
+ * mode whose job is to decide rather than to do.
+ */
 const PLAN_TOOLS = [
-  "automations",
-  "browser",
-  "browser_inspect",
+  "background_jobs",
   "glob",
   "grep",
   "list_available_mcps",
-  "manage_mcp_server",
   "mcp_call",
   "plan",
   "read_file",
+  "run_command",
   "task",
 ] as const;
 
@@ -133,7 +193,7 @@ const REVIEW_TOOLS = [
 
 /** Full per-mode allowlists (mode-specific tools ∪ every-mode tools). */
 const ASK_ALLOWLIST = withEveryModeTools(ASK_TOOLS);
-const PLAN_ALLOWLIST = withEveryModeTools(PLAN_TOOLS);
+const PLAN_ALLOWLIST = withEveryModeTools(PLAN_TOOLS, MODE_EXCLUDED_TOOLS.plan);
 const REVIEW_ALLOWLIST = withEveryModeTools(REVIEW_TOOLS);
 
 /** Backward-compatible export for system_prompt and tests. */

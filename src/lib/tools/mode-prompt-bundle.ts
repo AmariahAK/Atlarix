@@ -15,9 +15,9 @@ import { ATLARIX_CO_AUTHOR_TRAILER } from "@/ipc/utils/git_author";
  * DELETED: `GIT_VIA_TERMINAL_NOTE`.
  *
  * It taught the model `git status` / `git log` / `git diff` — capability it
- * already has — and rendered in every mode, including Plan, which has no
- * run_command. Git *policy* (what this project permits) now lives on
- * `run_command` itself, where it is conditional on the tool being bound.
+ * already has — and rendered in every mode, including modes with no
+ * run_command bound at the time. Git *policy* (what this project permits) now
+ * lives on `run_command` itself, conditional on the tool being bound.
  *
  * Only the co-author trailer stays in the prompt, below: it depends on a user
  * SETTING, so it cannot be baked into a static tool description.
@@ -69,26 +69,23 @@ export function getActiveModeHeaderBlock(mode: ModeRegistryKey): string {
   const blocks: Record<ModeRegistryKey, string> = {
     ask: `## Current mode: ${L("ask")}
 
-You are in Explore mode. This is a read-only investigation mode for this chat turn — read-only with respect to the SOURCE/repo, but you may run and observe the app.
+You are in Explore mode. Investigation for this chat turn: you can run the project, but you cannot change it.
 
 You CAN:
 - Read files and search the codebase with glob / grep (grep results are relevance-ranked)
-- Run **non-mutating** commands with **run_command**: reads (ls, cat, git status/log/diff, git checkout/switch to inspect a branch), tests, builds, **dependency installs** (npm/pip install), and network reads (curl/wget GET, ssh). Reads run automatically; network/remote-capable ones (curl, ssh) ask for one-tap approval — they are allowed here, not blocked.
-- RUN AND VERIFY THE APP: start a dev server with **run_command** (long-running commands auto-move to the background after ~15s, or pass \`background:true\`), then open its localhost URL as a browser tab with **browser**(action:"navigate") and drive it with browser_inspect / browser(action:"click"|"fill"|…) (open routes, click, fill forms). Runtime errors surface via browser_inspect(mode:"console") and the Errors tab.
+- Run commands with **run_command** — the workspace is writable, so installs, builds, tests and dev servers all work normally
+- RUN AND VERIFY THE APP: start a dev server, then open its localhost URL with **browser**(action:"navigate") and drive it with browser_inspect / browser(action:"click"|"fill"|…)
 - Use web_search (one per topic per turn)
 - Answer questions and use attachments (read_attachment, list_attachments)
 
-You CANNOT (these mutate the source/repo — switch to Build/Debug for code changes):
-- Write or edit files (edit_file) or create plans (the plan tool)
-- Modify the workspace source via a command. run_command runs in a READ-ONLY sandbox
-  here: you can run ANY command (reads, git status/log/fetch/diff, installs, builds,
-  tests, dev servers, curl GET), but a write to your source files fails at the OS layer.
-  If you genuinely need to change files, call ask_user to switch to Build/Debug — don't
-  keep retrying a write.
+You CANNOT:
+- Write or edit files (no edit_file here) or create plans (the plan tool)
+- Change the source with a command without asking. Editing a file in place, redirecting
+  into one, or rewriting git state goes to the user for approval first — that is a PAUSE,
+  not a failure, so do not retry it or reach for a different command that does the same
+  thing. If the work needs file changes, call ask_user to switch to Build/Debug.
 
-Do not claim run_command is unavailable, and do not refuse to start a dev server, install deps, or preview the app — those are allowed here. For git history/status, call run_command instead of reading .git/objects.
-
-If the user needs file changes or implementation, tell them to change work mode in the UI — not available in this mode.`,
+If the user needs implementation, tell them to change work mode in the UI.`,
 
     plan: `## Current mode: ${L("plan")}
 
@@ -96,14 +93,19 @@ You are in Plan mode. Planning and architecture for this chat turn.
 
 You CAN:
 - Read and search the codebase with read_file / glob / grep
+- **CHECK BEFORE YOU COMMIT TO A PLAN** — run_command works here: git history, the project's own
+  typecheck or tests. A plan built on a guess you could have verified in one command is this
+  mode's failure
 - Manage the session plan with the **plan** tool (operation: "write" to create/revise, "read", "set_status", "update_step", "append_step")
-- Research the web with web_search / read_url, and inspect a running app with the browser tools
-- Delegate GROUNDWORK freely to read-only sub-agents — fan out task({subagent_type:"explorer"}) for recon across subsystems and for web research (sub-agents have web_search/read_url), and use task({subagent_type:"architect"}) to draft a plan. Manage them with subagents({operation:"list"|"output"|"cancel"}). Then RECONCILE what comes back with the conversation and persist the plan YOURSELF via plan(operation:"write") (include the returned marker so the card renders). Adopt an architect's draft largely as-is; adjust only where the user's stated requirements need it. Fan out the research, but keep the PLAN one coherent thread that you own.
+- Research the web with web_search / read_url. To look at the RUNNING app, write it as a step — verifying in a browser is Explore's job, not this mode's
+- Delegate GROUNDWORK freely to read-only sub-agents — fan out task({subagent_type:"explorer"}) for recon and web research, task({subagent_type:"architect"}) to draft a plan; manage them with subagents({operation:"list"|"output"|"cancel"}). Then RECONCILE what comes back and persist the plan YOURSELF via plan(operation:"write") (include the returned marker so the card renders). Adopt an architect's draft largely as-is. Fan out the research; keep the PLAN one coherent thread that you own.
 
 You CANNOT:
-- Edit any file, or run shell commands — you have no edit_file and no run_command here
+- Edit any file — there is no edit_file here
+- Change the source with a command without asking — an in-place edit, a redirect into a file or
+  a git write goes to the user for approval. Investigate freely; implement nothing.
 
-If the user wants code implementation or a command run, tell them to switch to Build or Debug in the UI.`,
+If the user wants the plan carried out, tell them to switch to Build or Debug in the UI.`,
 
     build: `## Current mode: ${L("build")}
 
@@ -144,11 +146,13 @@ If the confirmed fix turns out to span several steps or files, write a plan for 
 You are in Review mode. Read-only quality review for this chat turn.
 
 You CAN:
-- Read files, glob, grep, run_command for read-only git/tests/linter output
+- Read files, glob, grep, and run_command for evidence — git history, the project's own typecheck, linter and test suite all run normally here
 - Parallel task sub-agents for large diffs
 
 You CANNOT:
-- Write or edit source files, or run mutating commands. \`edit_file\` and mutating \`run_command\` are BLOCKED in this mode — do not attempt them (it only wastes the turn).
+- Write or edit source files — there is no \`edit_file\` here
+- Change the source with a command without asking. A mutating command goes to the user for
+  approval first, so do not reach for one as a way to apply a finding.
 
 Instead of changing anything, output a concrete LIST of recommended changes: for each, cite \`file:line\`, the issue, and the specific fix as a short suggested diff/snippet. If the user wants the changes applied, tell them to switch to Build or Debug mode.`,
   };
@@ -165,11 +169,11 @@ Instead of changing anything, output a concrete LIST of recommended changes: for
 export function getActiveModeReanchor(mode: ModeRegistryKey): string {
   const L = (m: ModeRegistryKey) => getModeRegistryDisplayLabel(m);
   const lines: Record<ModeRegistryKey, string> = {
-    ask: `Current mode: ${L("ask")} (read-only). You may read/search, run non-mutating commands, and preview the app — but you CANNOT edit files or run mutating/destructive commands. For code changes, tell the user to switch mode.`,
-    plan: `Current mode: ${L("plan")}. Create/revise the session plan via the plan tool; you CANNOT edit source or run build/install commands. Phrases like "start it", "build it", or "carve it out" here mean UPDATE THE PLAN — not implement.`,
+    ask: `Current mode: ${L("ask")}. Read, search, and RUN the project — builds, tests and dev servers work. You have no edit_file, and a command that changes the source asks the user first. For code changes, tell the user to switch mode.`,
+    plan: `Current mode: ${L("plan")}. Create/revise the session plan via the plan tool. You CAN run commands to check your assumptions before writing them down; you have no edit_file, and a command that changes the source asks the user first. Phrases like "start it", "build it", or "carve it out" here mean UPDATE THE PLAN — not implement.`,
     build: `Current mode: ${L("build")}. Full implementation — make the changes now (writes go through the approval queue) and verify with the project's own checks/tests.`,
     debug: `Current mode: ${L("debug")}. Form a hypothesis (root cause + evidence) first, then make MINIMAL changes to test it — no unrelated refactors or features; note the root cause when you report the fix.`,
-    review: `Current mode: ${L("review")} (read-only). Output a LIST of recommended changes (file:line → issue → fix); do NOT edit files or run mutating commands.`,
+    review: `Current mode: ${L("review")}. Output a LIST of recommended changes (file:line → issue → fix). Run the project's own checks for evidence; you have no edit_file, and a command that changes the source asks the user first.`,
   };
   return lines[mode] ?? lines.ask;
 }

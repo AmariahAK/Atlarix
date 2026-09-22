@@ -133,7 +133,6 @@ export default function WelcomeLauncher() {
           phase="thinking"
           minimalChrome
           theme="auto"
-          className="shadow-sm"
         />
         <p className="text-muted-foreground">Restoring your session…</p>
         {/*
@@ -177,13 +176,7 @@ export default function WelcomeLauncher() {
         className="flex flex-col items-center justify-center min-h-[60vh] px-6 text-center gap-4"
       >
         <LocalDateTimeClock variant="welcome" className="mb-2" />
-        <AtlarixAnimation
-          size="sm"
-          phase="done"
-          minimalChrome
-          theme="auto"
-          className="shadow-sm"
-        />
+        <AtlarixAnimation size="sm" phase="done" minimalChrome theme="auto" />
         <p className="text-muted-foreground max-w-sm">
           This account has been banned.
         </p>
@@ -202,13 +195,7 @@ export default function WelcomeLauncher() {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] px-6 text-center gap-4">
         <LocalDateTimeClock variant="welcome" className="mb-2" />
-        <AtlarixAnimation
-          size="sm"
-          phase="done"
-          minimalChrome
-          theme="auto"
-          className="shadow-sm"
-        />
+        <AtlarixAnimation size="sm" phase="done" minimalChrome theme="auto" />
         <p className="text-muted-foreground">Sign in to open a workspace.</p>
         <div className="w-full max-w-xs">
           <OAuthSignInButtons size="md" />
@@ -260,13 +247,7 @@ export default function WelcomeLauncher() {
       </a>
       <header className="flex flex-col items-center gap-3 w-full">
         <LocalDateTimeClock variant="welcome" className="mb-1" />
-        <AtlarixAnimation
-          size="sm"
-          phase="done"
-          minimalChrome
-          theme="auto"
-          className="shadow-sm"
-        />
+        <AtlarixAnimation size="sm" phase="done" minimalChrome theme="auto" />
         <div className="flex flex-wrap items-center justify-center gap-2">
           <h1 className="text-xl font-semibold tracking-tight">
             Hello, {displayName}

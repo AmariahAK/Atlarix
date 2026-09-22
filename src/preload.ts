@@ -6,8 +6,8 @@ import { contextBridge, ipcRenderer, webFrame } from "electron";
 // Whitelist of valid channels
 const validInvokeChannels = [
   "voice:transcribe-cloud",
+  "voice:transcribe-model",
   "voice:list-transcription-providers",
-  "voice:log",
   "get-language-models",
   "get-language-models-by-providers",
   "create-custom-language-model",
@@ -331,6 +331,7 @@ const validReceiveChannels = [
   "force-close-detected",
   "db-ready", // Main: DB initialized, renderer can show app
   "apps:status-changed", // Main: workspace folder presence changed (focus refresh)
+  "workspace:deleted", // Main: a workspace was removed — other windows must stop pretending it exists
   // Help bot
   // MCP consent request from main to renderer
   "command-permission-blocked",

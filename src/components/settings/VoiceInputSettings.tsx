@@ -6,14 +6,16 @@
  * Settings. Both surfaces read and write the same `voiceTranscriptionProvider`
  * setting, so they stay in lockstep; this is a second door, not a second source
  * of truth.
+ *
+ * The on-device engine, its mode toggle and its "Clear cache" button are all
+ * gone with the local model (see `useVoiceInput.ts`). What is left is BYOK plus
+ * the spoken-language hint, and when there is no BYOK key this section explains
+ * the model-audio route rather than offering a picker with nothing in it.
  */
 
-import { useState } from "react";
 import { useSettings } from "@/hooks/useSettings";
 import { useTranscriptionProviders } from "@/hooks/useTranscriptionProviders";
-import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { showError, showSuccess } from "@/lib/toast";
 import {
   Select,
   SelectContent,
@@ -23,20 +25,10 @@ import {
 } from "@/components/ui/select";
 
 /**
- * Shown while the live list loads or if it errors — voice must never present an
- * empty picker. Mirrors the composer dropdown's fallback.
- */
-const FALLBACK_PROVIDERS = [
-  { id: "local", label: "On-device (free)" },
-  { id: "openai", label: "OpenAI (BYOK)" },
-  { id: "groq", label: "Groq (BYOK)" },
-  { id: "gemini", label: "Gemini (BYOK)" },
-];
-
-/**
- * Deliberately short. Whisper supports ~99 languages, but a wall of them helps
- * nobody — "Auto-detect" covers everything not listed, and the unset default
- * already follows the OS locale (see resolveVoiceLanguage).
+ * Deliberately short. The STT models behind these providers support ~99
+ * languages, but a wall of them helps nobody — "Auto-detect" covers everything
+ * not listed, and the unset default already follows the OS locale (see
+ * resolveVoiceLanguage).
  */
 const COMMON_LANGUAGES = [
   { code: "en", label: "English" },
@@ -53,75 +45,62 @@ const COMMON_LANGUAGES = [
 /** Sentinel for "follow the OS locale" — distinct from an explicit "auto". */
 const SYSTEM = "__system__";
 
-/**
- * Delete the on-device model weights from Cache Storage.
- *
- * The on-device engine fetches ~250-500 MB of ONNX weights on first use and caches
- * them under userData. There was no way to clear that: a load that failed for any
- * reason (interrupted fetch, a quantisation the machine's runtime cannot build a
- * session for) left the user with hundreds of megabytes cached, no retry path, and
- * no recourse short of hand-deleting AppData. Because userData is INHERITED across
- * reinstalls — including a Squirrel-to-Store switch — reinstalling never cleared it
- * either.
- *
- * Runs entirely in the renderer: transformers.js uses the `caches` API, so no IPC.
- */
-async function clearOnDeviceModelCache(): Promise<number> {
-  if (typeof caches === "undefined") return 0;
-  const keys = await caches.keys();
-  // transformers.js names its cache "transformers-cache"; match loosely so a rename
-  // upstream degrades to "cleared nothing" rather than clearing unrelated caches.
-  const targets = keys.filter((k) => /transformers|onnx/i.test(k));
-  await Promise.all(targets.map((k) => caches.delete(k)));
-  return targets.length;
-}
-
 export function VoiceInputSettings() {
   const { settings, updateSettings } = useSettings();
   const { data: liveProviders } = useTranscriptionProviders();
-  const [clearing, setClearing] = useState(false);
 
-  const providers =
-    liveProviders && liveProviders.length > 0
-      ? liveProviders
-      : FALLBACK_PROVIDERS;
-  const provider = settings?.voiceTranscriptionProvider ?? "local";
-  const mode = settings?.voiceInputMode ?? "dictate";
+  // No curated fallback: the list is (providers with a key) ∩ (providers with an
+  // audio-input model), and empty is a real answer, not a loading artifact.
+  const providers = liveProviders ?? [];
+  const stored = settings?.voiceTranscriptionProvider;
+  // `"local"` named an engine that no longer exists — read it as unset.
+  const provider =
+    stored && stored !== "local" && providers.some((p) => p.id === stored)
+      ? stored
+      : (providers[0]?.id ?? "");
   const language = settings?.voiceLanguage ?? SYSTEM;
 
   return (
     <div className="mt-6 space-y-4 border-t border-border pt-6">
       <h3 className="text-sm font-medium text-foreground">Voice input</h3>
 
-      <div className="flex items-center justify-between max-w-md gap-4">
-        <div className="space-y-0.5">
-          <Label htmlFor="voice-provider" className="text-sm">
-            Transcription engine
-          </Label>
-          <p className="text-xs text-muted-foreground">
-            On-device is free and private — audio never leaves your machine.
-            Cloud engines use your own provider key and are never billed to
-            Atlarix Core.
-          </p>
+      {providers.length > 0 ? (
+        <div className="flex items-center justify-between max-w-md gap-4">
+          <div className="space-y-0.5">
+            <Label htmlFor="voice-provider" className="text-sm">
+              Transcription engine
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              Uses your own provider key and is never billed to Atlarix Core.
+              Works on every model, including ones that can't hear.
+            </p>
+          </div>
+          <Select
+            value={provider}
+            onValueChange={(v) =>
+              updateSettings({ voiceTranscriptionProvider: v })
+            }
+          >
+            <SelectTrigger id="voice-provider" className="w-44 shrink-0">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {providers.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
-        <Select
-          value={provider}
-          onValueChange={(v) =>
-            updateSettings({ voiceTranscriptionProvider: v })
-          }
-        >
-          <SelectTrigger id="voice-provider" className="w-44 shrink-0">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {providers.map((p) => (
-              <SelectItem key={p.id} value={p.id}>
-                {p.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      ) : (
+        <p className="max-w-md text-xs text-muted-foreground">
+          No transcription key is set. The mic still works on models that accept
+          audio — it sends the clip to the model you're on. To dictate on any
+          model, add a key for a provider with a speech endpoint (OpenAI, Groq
+          or Gemini) in Settings → Providers.
+        </p>
+      )}
 
       <div className="flex items-center justify-between max-w-md gap-4">
         <div className="space-y-0.5">
@@ -153,69 +132,6 @@ export function VoiceInputSettings() {
           </SelectContent>
         </Select>
       </div>
-
-      <div className="flex items-center justify-between max-w-md gap-4">
-        <div className="space-y-0.5">
-          <Label htmlFor="voice-mode" className="text-sm">
-            Mode
-          </Label>
-          <p className="text-xs text-muted-foreground">
-            Dictate transcribes once when you stop — the most accurate. Live
-            streams words as you speak (on-device + WebGPU only).
-          </p>
-        </div>
-        <Select
-          value={mode}
-          onValueChange={(v) =>
-            updateSettings({ voiceInputMode: v as "dictate" | "live" })
-          }
-        >
-          <SelectTrigger id="voice-mode" className="w-44 shrink-0">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="dictate">Dictate (accurate)</SelectItem>
-            <SelectItem value="live">Live (fast)</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* Only meaningful for the on-device engine — the BYOK engines cache nothing. */}
-      {provider === "local" && (
-        <div className="flex items-center justify-between max-w-md gap-4">
-          <div className="space-y-0.5">
-            <Label className="text-sm">Downloaded model</Label>
-            <p className="text-xs text-muted-foreground">
-              The on-device engine caches its weights after the first use so it
-              works offline. Clear them if transcription is stuck or failing —
-              they re-download next time you dictate.
-            </p>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="shrink-0"
-            disabled={clearing}
-            onClick={async () => {
-              setClearing(true);
-              try {
-                const removed = await clearOnDeviceModelCache();
-                showSuccess(
-                  removed > 0
-                    ? "Cached voice model cleared — it will re-download next time you dictate."
-                    : "No cached voice model found.",
-                );
-              } catch (e) {
-                showError(e);
-              } finally {
-                setClearing(false);
-              }
-            }}
-          >
-            {clearing ? "Clearing…" : "Clear cache"}
-          </Button>
-        </div>
-      )}
     </div>
   );
 }

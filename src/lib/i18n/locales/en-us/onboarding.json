@@ -18,7 +18,7 @@
     "skip": "Skip",
     "workModes": {
       "title": "Work modes decide what Atlarix may do",
-      "body": "Explore is read-only. Plan, Build, Debug and Review unlock more tools — file writes always wait for your approval, inline with a diff. Cycle them without leaving the composer."
+      "body": "Explore reads and runs, but never edits. Plan, Build, Debug and Review unlock more tools — file writes always wait for your approval, inline with a diff. Cycle them without leaving the composer."
     },
     "model": {
       "title": "Change the model mid-chat",

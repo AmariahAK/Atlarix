@@ -35,8 +35,10 @@ const npm = process.platform === "win32" ? "npm.cmd" : "npm";
  * first v14.30.0 tag.
  *
  * The guard that patch-package actually applied lives where it can be enforced: CI runs
- * `npx patch-package` as its own step, and a unit test asserts the patched bytes are
- * present in the shipped `transformers.web.js`.
+ * `npx patch-package` as its own step, and each remaining patch has a test that asserts
+ * its bytes are present in the installed tree (`node-gyp-vs2026-patch.test.ts`,
+ * `scripts/verify-forge-patch.mjs`). The third patch, on `transformers.web.js`, went with
+ * the on-device speech engine.
  */
 function runNpmInstall(cwd: string, args: string[]): Promise<void> {
   const useShell = process.platform === "win32";

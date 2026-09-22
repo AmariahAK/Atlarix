@@ -78,12 +78,22 @@ const CORE_TOOLS_BY_MODE: Record<ModeRegistryKey, readonly string[]> = {
     "ask_user",
     "tool_help",
   ],
-  // Plan — same reading surface, plus the artifact it exists to author. No
-  // run_command in this mode's allowlist at all.
+  // Plan — the reading surface, the artifact it exists to author, and the
+  // ability to CHECK before committing a plan to a guess. `run_command` is core
+  // rather than peripheral because a tool the model has to look up first is a
+  // tool it skips, and "go and verify" is the whole reason Plan has it.
+  //
+  // `background_jobs` is bound but PERIPHERAL here, unlike in Build. Its core
+  // billing there is that a foreground command auto-promotes after ~15s and the
+  // model must understand the mechanism whether or not it asked for it — but
+  // `run_command`'s own description already states that, and in Plan
+  // `run_command` is core, so the mechanism is in front of the model either way.
+  // Paying for the full text twice is what the reveal stage exists to avoid.
   plan: [
     "read_file",
     "grep",
     "glob",
+    "run_command",
     "plan",
     "web_search",
     "task",
@@ -218,10 +228,40 @@ export function parametersForMode(
   mode: ModeRegistryKey,
 ): unknown {
   const parameters = tool.parameters;
-  if (revealTierForMode(tool.name, tool.description, mode) === "core") {
+  if (schemaTierForMode(tool.name, tool.description, mode) === "core") {
     return parameters;
   }
   return trimParameterProse(parameters);
+}
+
+/**
+ * The tier for a tool's SCHEMA, which is not always the tier for its text.
+ *
+ * `NEVER_TRIM` is a description rule and says so: a description that exists to
+ * steer away from a known failure has to be in front of the model at decision
+ * time, because a model about to make the mistake never thinks to call
+ * `tool_help` first. `browser_inspect` is the worked example — its wording
+ * routes "what do you see" to a visual read and removes a screenshot lure that
+ * caused an observed bug, and none of that survives a first sentence.
+ *
+ * None of that reasoning reaches its PARAMETER PROSE. Trimming a parameter's
+ * description to its first sentence removes no correction — it keeps every
+ * parameter, type, enum and default, so nothing a call depends on changes — and
+ * `browser_inspect`'s schema is 1,824 chars, the second-largest on Plan's
+ * surface. The two tests that pin this tool (`tool-reveal.test.ts:82-92`,
+ * `capability-trim.eval.test.ts:166`) both assert on the description, which is
+ * the right thing for them to assert.
+ *
+ * So the schema follows the ordinary tier and skips the `NEVER_TRIM` exemption.
+ */
+function schemaTierForMode(
+  toolName: string,
+  description: string,
+  mode: ModeRegistryKey,
+): RevealTier {
+  if (CORE_TOOLS_BY_MODE[mode]?.includes(toolName)) return "core";
+  if (description.length <= ALREADY_SHORT_CHARS) return "core";
+  return "peripheral";
 }
 
 /**

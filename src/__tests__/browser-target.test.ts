@@ -23,7 +23,12 @@ const serverPresent = { value: true };
 vi.mock("@/main/bridge-lifecycle", () => ({
   bridge: () =>
     serverPresent.value
-      ? { get connected() { return connected.value; }, request: requestMock }
+      ? {
+          get connected() {
+            return connected.value;
+          },
+          request: requestMock,
+        }
       : null,
 }));
 
@@ -165,7 +170,9 @@ describe("no refusal invents a login requirement", () => {
       (m) => (chromeInspectOp(m) as { error: string }).error,
     );
     for (const msg of [noRelay, noBrowser, ...modes]) {
-      expect(msg).not.toMatch(/\bsign in\b|\blog in\b|\blogged in\b|\bsigned in to the extension\b/i);
+      expect(msg).not.toMatch(
+        /\bsign in\b|\blog in\b|\blogged in\b|\bsigned in to the extension\b/i,
+      );
     }
     // The connected-browser message says the opposite, on purpose.
     expect(noBrowser).toContain("needs no sign-in of its own");
@@ -184,26 +191,36 @@ describe("the iframe disagreement is surfaced, not resolved", () => {
 });
 
 /**
- * EVERY MODE, and pinned because it is a product decision that reads as an
- * accident. `browser` is `isReadOnly: false`, which is normally what excludes a
- * tool from Explore/Plan/Review — it survives because it mutates the open PAGE
- * and never the workspace, so Plan's filesystem-read-only rule is untouched.
- * Someone tidying the read-only modes would drop it without realising that is a
- * capability change.
+ * Pinned because it is a product decision that reads as an accident. `browser`
+ * is `isReadOnly: false`, which is normally what excludes a tool from
+ * Explore/Review — it survives because it mutates the open PAGE and never the
+ * workspace, so those modes' filesystem rule is untouched. Someone tidying the
+ * read-only modes would drop it without realising that is a capability change.
  *
- * `browser_test` is the deliberate exception: it is a verification tool for code
- * you just changed, and its verdict depends on console + network capture. It
- * stays on the build/debug surface.
+ * PLAN IS NOW THE EXCEPTION, and deliberately so. Driving and reading a running
+ * app is verification; Plan decides what should be done and writes "verify X in
+ * Explore" as a step. The deciding fact was that `browser_inspect` cannot
+ * navigate — keeping only the cheaper of the pair would have left Plan able to
+ * inspect whatever page happened to be open and unable to open one, which is a
+ * worse trap than having neither. See mode-tool-registry.ts for the full
+ * argument and the measured cost.
+ *
+ * `browser_test` is the other deliberate exception: it is a verification tool
+ * for code you just changed, and its verdict depends on console + network
+ * capture. It stays on the build/debug surface.
  */
 describe("mode availability", () => {
-  const MODES = ["ask", "plan", "build", "debug", "review"] as const;
+  const BROWSER_MODES = ["ask", "build", "debug", "review"] as const;
 
   it.each(["browser", "browser_inspect"])(
-    "%s is offered in every mode, Explore and Plan included",
+    "%s is offered in Explore, Review, Build and Debug — but not Plan",
     (tool) => {
-      for (const mode of MODES) {
+      for (const mode of BROWSER_MODES) {
         expect(isToolAllowedInMode(tool, mode)).toBe(true);
       }
+      // Both halves of the pair, together. Plan holding one without the other
+      // is the trap this asserts against, not merely the token cost.
+      expect(isToolAllowedInMode(tool, "plan")).toBe(false);
     },
   );
 

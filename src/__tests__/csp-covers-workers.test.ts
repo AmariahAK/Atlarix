@@ -1,5 +1,5 @@
 /**
- * The app CSP must reach the whisper worker, not just the document.
+ * The app CSP must reach a dedicated worker, not just the document.
  *
  * `installContentSecurityPolicy` matched only mainFrame/subFrame, so a dedicated
  * worker loaded from file:// — which does NOT inherit its owner document's
@@ -10,6 +10,11 @@
  *
  * Electron's WebRequest has no `worker` resourceType, so the rule keys on the
  * types a module worker's script actually arrives as.
+ *
+ * The worker that exposed the gap was the on-device speech engine's, and it is
+ * deleted — the renderer currently spawns no dedicated worker at all. The rule
+ * and this test stay: the next worker added must not have to rediscover that a
+ * worker carries its own policy. Keeping it is what makes that free.
  */
 import { describe, it, expect } from "vitest";
 import { isCspPolicyTarget } from "@/main/csp-policy-target";
@@ -24,12 +29,12 @@ describe("isCspPolicyTarget", () => {
   });
 
   it("covers a module worker's own script, which is what the gap was", () => {
-    // Vite emits the worker as its own chunk; it arrives as `script` or `other`.
+    // Vite emits a worker as its own chunk; it arrives as `script` or `other`.
     expect(
-      isCspPolicyTarget("script", `${FILE}/assets/whisper-worker-a1b2c3.js`),
+      isCspPolicyTarget("script", `${FILE}/assets/some-worker-a1b2c3.js`),
     ).toBe(true);
     expect(
-      isCspPolicyTarget("other", `${FILE}/assets/whisper-worker-a1b2c3.js`),
+      isCspPolicyTarget("other", `${FILE}/assets/some-worker-a1b2c3.js`),
     ).toBe(true);
   });
 

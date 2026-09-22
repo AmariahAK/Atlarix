@@ -123,4 +123,124 @@ describe("agent command output is buffered in main", () => {
     ).not.toThrow();
     expect(listTerminalInstances(SCOPE)).toHaveLength(0);
   });
+
+  /**
+   * THE DELTA CONTRACT — what the streaming path actually sends now.
+   *
+   * The cumulative cases above still pass because that path is kept for callers
+   * that have not migrated. But `emitTerminalOutput` now passes `delta`, and the
+   * two shapes have opposite requirements: a cumulative call must SUPERSEDE this
+   * operation's previous output (or every chunk duplicates the whole command),
+   * while a delta call must APPEND (or every chunk throws away everything before
+   * it, leaving `background_jobs({operation:"read"})` returning the last few
+   * hundred bytes of a build log and calling it the retained output).
+   *
+   * Getting these backwards is silent in both directions, which is why both are
+   * pinned here rather than only the new one.
+   */
+  describe("delta appends instead of superseding", () => {
+    it("accumulates across chunks", () => {
+      const opened = openTerminalInstance(SCOPE, {
+        owner: "agent",
+        operationId: "op-d1",
+        commandHint: "npm run build",
+        background: false,
+      });
+      expect(opened.success).toBe(true);
+
+      appendAgentCommandOutput(SCOPE, {
+        operationId: "op-d1",
+        command: "npm run build",
+        output: "one\n",
+        delta: "one\n",
+        status: "running",
+      });
+      appendAgentCommandOutput(SCOPE, {
+        operationId: "op-d1",
+        command: "npm run build",
+        output: "one\ntwo\n",
+        delta: "two\n",
+        status: "running",
+      });
+      appendAgentCommandOutput(SCOPE, {
+        operationId: "op-d1",
+        command: "npm run build",
+        output: "one\ntwo\nthree\n",
+        delta: "three\n",
+        status: "completed",
+      });
+
+      const read = readTerminalInstance(SCOPE, opened.instanceId!);
+      expect(read.success).toBe(true);
+      if (!read.success) return;
+      const text = read.text!;
+      expect(text).toContain("one");
+      expect(text).toContain("two");
+      expect(text).toContain("three");
+      expect(text).toContain("exit 0");
+    });
+
+    it("keeps a legitimately repeated line rather than collapsing it", () => {
+      // Two deltas can carry identical text — a repeated progress line, a second
+      // "waiting…". Keying entry ids on content or on accumulated length would
+      // silently drop the second one.
+      const opened = openTerminalInstance(SCOPE, {
+        owner: "agent",
+        operationId: "op-d2",
+        commandHint: "npm run watch",
+        background: false,
+      });
+      expect(opened.success).toBe(true);
+
+      for (let i = 0; i < 3; i++) {
+        appendAgentCommandOutput(SCOPE, {
+          operationId: "op-d2",
+          command: "npm run watch",
+          output: "waiting\n".repeat(i + 1),
+          delta: "waiting\n",
+          status: "running",
+        });
+      }
+
+      const read = readTerminalInstance(SCOPE, opened.instanceId!);
+      expect(read.success).toBe(true);
+      if (!read.success) return;
+      const waits = (read.text!.match(/waiting/g) ?? []).length;
+      expect(waits).toBe(3);
+    });
+
+    it("does not re-add output that earlier chunks already recorded", () => {
+      // The inverse failure: if the delta path kept the cumulative rebuild, the
+      // accumulated `output` field would be re-split and appended on top of the
+      // deltas, duplicating everything.
+      const opened = openTerminalInstance(SCOPE, {
+        owner: "agent",
+        operationId: "op-d3",
+        commandHint: "npm test",
+        background: false,
+      });
+      expect(opened.success).toBe(true);
+
+      appendAgentCommandOutput(SCOPE, {
+        operationId: "op-d3",
+        command: "npm test",
+        output: "alpha\n",
+        delta: "alpha\n",
+        status: "running",
+      });
+      appendAgentCommandOutput(SCOPE, {
+        operationId: "op-d3",
+        command: "npm test",
+        output: "alpha\nbeta\n",
+        delta: "beta\n",
+        status: "running",
+      });
+
+      const read = readTerminalInstance(SCOPE, opened.instanceId!);
+      expect(read.success).toBe(true);
+      if (!read.success) return;
+      const alphas = (read.text!.match(/alpha/g) ?? []).length;
+      expect(alphas).toBe(1);
+    });
+  });
 });

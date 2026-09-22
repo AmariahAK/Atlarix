@@ -195,6 +195,74 @@ function measureFirstRequest(scenarioId: string): PrefixMeasurement {
  * ContextAssembler's project-instruction and skills-index pointers. That gap IS
  * the reason to measure here rather than by calling the builder directly.
  *
+ * MEASURED 2026-09-22 — read-only modes stop lying, and Plan gains run_command.
+ *
+ * Measured BOTH SIDES at the same commit rather than against the column above,
+ * because that column is from 2026-09-07 and the prefix drifted ~600 tokens over
+ * the releases since. A delta against a stale number is not a delta.
+ *
+ *              HEAD before    after    delta   ceiling   headroom
+ *   ask           11,527     11,150    −377    11,800      650
+ *   plan          10,962      9,879  −1,083    11,200    1,321
+ *   build         15,243     15,092    −151    15,850      758
+ *   review        11,178     11,048    −130    11,400      352
+ *   debug         14,652     14,501    −151    15,250      749
+ *   build-fr      15,285     15,134    −151    15,950      816
+ *
+ * WHAT WAS BOUGHT. Plan gained `run_command` and `background_jobs`. It was
+ * expected to produce an informed plan while unable to run `git log`, `ls` or a
+ * typecheck — so it inferred what it could have checked. (It was also already
+ * paying for `run_command` in the worst way: `allowInAskMode` let a hallucinated
+ * call EXECUTE, into the profile that could not run a build.)
+ *
+ * WHAT PAID FOR IT, in the order applied, each defensible on its own merits:
+ *
+ *  1. `automations` and `manage_mcp_server` out of PLAN_TOOLS. Both are ACTS, and
+ *     a plan describes an act rather than performing one — `mcp.ts` calls adding
+ *     a stdio server "approving arbitrary process execution at the user's
+ *     privilege". `list_available_mcps` stays, so Plan can still see and plan
+ *     around what exists.
+ *  2. `background_jobs` PERIPHERAL in Plan, unlike Build. Its core billing there
+ *     is that a foreground command auto-promotes after ~15s and the model must
+ *     know the mechanism — but `run_command`'s own description says exactly that,
+ *     and in Plan `run_command` is core. Paying for the text twice is what the
+ *     reveal stage exists to avoid.
+ *  3. The mobile pair out of Plan (MODE_EXCLUDED_TOOLS). EVERY_MODE_TOOLS
+ *     justifies them with "'what does the app look like on a phone' is a
+ *     QUESTION" — which is Explore's job, not Plan's.
+ *  3b. `browser` + `browser_inspect` out of Plan — 1,324 tokens, the largest
+ *     single item, and a REVERSAL of what this change originally planned. The
+ *     deciding fact was not the budget: `browser_inspect` cannot navigate, so
+ *     keeping only the cheaper one would leave Plan able to inspect whatever
+ *     page happened to be open and unable to open one. Driving and reading a
+ *     running app is verification, which is Explore's job; Plan writes
+ *     "verify X in Explore" as a step. See mode-tool-registry.ts for the full
+ *     argument, including why the browser-guidance note in mode-prompt-bundle.ts
+ *     does not forbid this.
+ *  4. SCHEMA tiering split from DESCRIPTION tiering (tool-reveal.ts). `NEVER_TRIM`
+ *     exists because a description can carry a correction the model must read
+ *     before it decides; parameter PROSE carries no such correction, and every
+ *     parameter, type, enum and default is kept either way. This is the one lever
+ *     that pays in every mode, and it is where the budget note below already
+ *     pointed: the schemas are the residue.
+ *  5. Explore's mode block stopped re-teaching `run_command` — backgrounding, the
+ *     localhost handoff, the sandbox, a "do not claim run_command is unavailable"
+ *     nag — all of which live on the tool itself. Same consolidation this file
+ *     performed on GIT_VIA_TERMINAL_NOTE and BROWSER_NOTE, for the same reason.
+ *     Deleting it also removed a FALSE promise: it told the model dependency
+ *     installs worked, and under the old read-only profile they could not.
+ *  6. `run_command`'s own description tightened (~700 chars), which is a discount
+ *     on all five modes since it is core in every one.
+ *
+ * Net: EVERY mode came down, Plan most of all. It gained the ability to check
+ * what it is planning against and still ended 1,083 tokens lighter than it
+ * started, because what it gave up — acts it should only ever describe, and a
+ * running app it has no business driving — was worth more than what it gained
+ * was expensive. THE CEILINGS DO NOT MOVE. Plan's headroom is real slack now
+ * rather than the 33 tokens an earlier round of this squeaked under with, and a
+ * margin that thin is not a pass: this file's own note warns the prefix jitters
+ * by a few tokens per run.
+ *
  * `maxTotal` is the baseline + ~8%, so a one-line addition does not fail the
  * build but a paragraph does. `minTotal` is the baseline − ~15%.
  *
