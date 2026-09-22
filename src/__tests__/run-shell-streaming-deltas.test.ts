@@ -40,6 +40,9 @@ import type { StreamedOutput } from "@/ipc/utils/runShellCommand";
  * quietly degrade into the single-chunk no-op again.
  */
 let BIG = "";
+let DUMP_SCRIPT = "";
+/** The command under test. See `DUMP_SCRIPT` for why this is not `cat`. */
+let DUMP = "";
 let ansiLines = 0;
 
 beforeAll(() => {
@@ -51,6 +54,35 @@ beforeAll(() => {
   }
   ansiLines = 20_000;
   fs.writeFileSync(BIG, body);
+
+  /*
+   * NOT `cat ${BIG}`, AND THAT IS THE SECOND TIME THIS FILE HAS BEEN WRONG ABOUT
+   * ITS OWN PROBE.
+   *
+   * `build-windows` failed five assertions here, all of them "expected 0/1 to be
+   * greater than 1" — the command produced no usable output. What separates the
+   * five failures from the tests that passed is exact: **every failing case
+   * interpolated `BIG` into a shell string, and every passing case
+   * (`echo one; echo two`, `printf …`) used no path at all.** On Windows that
+   * path is `C:\Users\RUNNER~1\AppData\...\big.txt`, unquoted, with
+   * backslashes and a drive-letter colon going through a shell that treats them
+   * as escapes. Missing `cat` would be the obvious guess, but it does not explain
+   * why `printf` — equally absent from cmd — passed in the same run.
+   *
+   * Both readings are fixed the same way, which is why this does not need the
+   * cause settled: the path is `JSON.stringify`-quoted, and the runtime is
+   * `process.execPath` rather than any shell builtin.
+   *
+   * It is also a BETTER probe than `cat` was: one `readFileSync` + one `write` is
+   * a single large write by construction, so the split into chunks comes from the
+   * OS pipe rather than from whatever buffering `cat` happened to use.
+   */
+  DUMP_SCRIPT = path.join(dir, "dump.js");
+  fs.writeFileSync(
+    DUMP_SCRIPT,
+    `process.stdout.write(require("fs").readFileSync(${JSON.stringify(BIG)}, "utf8"));\n`,
+  );
+  DUMP = `${JSON.stringify(process.execPath)} ${JSON.stringify(DUMP_SCRIPT)}`;
 });
 
 afterAll(() => {
@@ -70,7 +102,7 @@ function collect(command: string) {
 
 describe("streamed output: the delta is a faithful partition", () => {
   it("concatenated deltas reproduce stdout exactly", async () => {
-    const { events, result } = await collect(`cat ${BIG}`);
+    const { events, result } = await collect(DUMP);
     expect(events.length).toBeGreaterThan(1);
     const rebuilt = events.map((e) => e.deltaStdout).join("");
     // `result.stdout` is trimmed on resolve, so compare on trimmed text.
@@ -80,7 +112,7 @@ describe("streamed output: the delta is a faithful partition", () => {
   });
 
   it("no line is delivered twice", async () => {
-    const { events } = await collect(`cat ${BIG}`);
+    const { events } = await collect(DUMP);
     const all = events
       .map((e) => e.deltaStdout)
       .join("")
@@ -102,15 +134,16 @@ describe("streamed output: the delta is a faithful partition", () => {
 
 describe("deltas break on line boundaries", () => {
   it("the probe really does split lines and escapes — or it proves nothing", async () => {
-    // Guards the guards. If `cat` ever stops producing multi-chunk output here,
+    // Guards the guards. If the dumper ever stops producing multi-chunk output,
     // every assertion below becomes vacuous and this test says so.
     const chunks: string[] = [];
-    await runShellCommandStreaming(`cat ${BIG}`, undefined, {
+    await runShellCommandStreaming(DUMP, undefined, {
       onOutput: () => {},
     });
     const { spawn } = await import("node:child_process");
     await new Promise<void>((resolve) => {
-      const p = spawn("sh", ["-c", `cat ${BIG}`]);
+      // argv, not a shell string — nothing to quote, and no `sh` to be missing.
+      const p = spawn(process.execPath, [DUMP_SCRIPT]);
       p.stdout.on("data", (d) => chunks.push(d.toString()));
       p.on("close", () => resolve());
     });
@@ -123,7 +156,7 @@ describe("deltas break on line boundaries", () => {
 
   it("every delta ends on a newline, except the final flush", async () => {
     const events: StreamedOutput[] = [];
-    await runShellCommandStreaming(`cat ${BIG}`, undefined, {
+    await runShellCommandStreaming(DUMP, undefined, {
       onOutput: (o) => events.push({ ...o }),
     });
     const withOut = events.filter((e) => e.deltaStdout);
@@ -145,7 +178,7 @@ describe("deltas break on line boundaries", () => {
     // (an SGR sequence contains no newline, so a whole line always contains whole
     // sequences) and is kept because it is free and states the actual invariant.
     const events: StreamedOutput[] = [];
-    await runShellCommandStreaming(`cat ${BIG}`, undefined, {
+    await runShellCommandStreaming(DUMP, undefined, {
       onOutput: (o) => events.push({ ...o }),
     });
     expect(events.length).toBeGreaterThan(1);
@@ -192,7 +225,7 @@ describe("deltas break on line boundaries", () => {
 
 describe("the amplification this exists to remove", () => {
   it("total delta bytes are ~the output size, not a multiple of it", async () => {
-    const { events, result } = await collect(`cat ${BIG}`);
+    const { events, result } = await collect(DUMP);
     const deltaBytes = events.reduce((n, e) => n + e.deltaStdout.length, 0);
     const cumulativeBytes = events.reduce((n, e) => n + e.stdout.length, 0);
     const size = result.stdout.length;
