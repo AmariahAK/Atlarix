@@ -98,6 +98,17 @@ const modelsDevVisionById = new Map<string, boolean>();
  * that can only take an image.
  */
 const modelsDevPdfById = new Map<string, boolean>();
+/**
+ * Models that accept AUDIO input.
+ *
+ * Gates the composer's mic exactly as the vision map gates image attachments.
+ * The local Whisper engine that used to make dictation provider-independent is
+ * gone — it materialised a ~285 MB model in the renderer on every session start
+ * and took an 8 GB machine down twice — so dictation now needs either a model
+ * that can hear or a BYOK transcription key, and this is the first half of that
+ * question.
+ */
+const modelsDevAudioById = new Map<string, boolean>();
 
 function registerModality(
   map: Map<string, boolean>,
@@ -121,6 +132,8 @@ export function registerModelsDevVision(
     acceptsImages: boolean;
     /** Optional so an older/partial caller still registers vision correctly. */
     acceptsPdf?: boolean;
+    /** Optional for the same reason. */
+    acceptsAudio?: boolean;
   }>,
 ): void {
   for (const e of entries) {
@@ -135,6 +148,12 @@ export function registerModelsDevVision(
       e.providerId,
       e.modelId,
       e.acceptsPdf === true,
+    );
+    registerModality(
+      modelsDevAudioById,
+      e.providerId,
+      e.modelId,
+      e.acceptsAudio === true,
     );
   }
 }
@@ -207,6 +226,28 @@ export function detectPdfCapability(
   const id = (modelApiId ?? "").trim();
   if (!id) return false;
   return modalityLookup(modelsDevPdfById, builtinProviderId, id) === true;
+}
+
+/**
+ * Does this model accept AUDIO input?
+ *
+ * Gates the composer's microphone, the same way `detectPdfCapability` gates a
+ * document part. `audio` is a first-class input modality in the catalog — 727
+ * models declare it — so this needs no hardcoded list and picks up new models
+ * without a release, which is the same reason the vision gate was rewritten
+ * this way in v14.8.11.
+ *
+ * False is the safe answer: with no BYOK transcription key configured the mic is
+ * hidden rather than offered and then failing, exactly as the Deep-thinking
+ * toggle hides for a model that cannot reason.
+ */
+export function detectAudioCapability(
+  builtinProviderId: string | undefined,
+  modelApiId?: string,
+): boolean {
+  const id = (modelApiId ?? "").trim();
+  if (!id) return false;
+  return modalityLookup(modelsDevAudioById, builtinProviderId, id) === true;
 }
 
 /**

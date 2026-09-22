@@ -24,7 +24,12 @@ import {
   COMPASS_PROVIDER_ID,
   getCompassSyntheticModels,
 } from "./compass_constants";
-import { isReasoningCapableModel } from "@/lib/routing/reasoning-detector";
+import {
+  isReasoningCapableModel,
+  resolveCapabilityProviderId,
+  resolveReasoningCatalogModelId,
+} from "@/lib/routing/reasoning-detector";
+import { detectAudioCapability } from "@/lib/routing/model-capability-profile";
 
 /**
  * Fetches language model providers from both the database (custom) and hardcoded constants (cloud),
@@ -363,8 +368,12 @@ export async function getLanguageModelsByProviders(): Promise<
  * `useAtlarixCoreCatalog` already read it, and it is already invalidated on
  * `core-models:changed` and provider CRUD — so a Core lineup change updates the
  * toggle with no extra wiring, and no channel needs allowlisting in `preload.ts`.
+ *
+ * Exported only so a test can drive THIS function rather than a copy of it: the
+ * defect worth catching is a call site that stops resolving Core tiers, and a
+ * test that rebuilds the call itself would keep passing through exactly that.
  */
-function stampDeepThinkingSupport(
+export function stampDeepThinkingSupport(
   modelsByProvider: Record<string, LanguageModel[]>,
 ): Record<string, LanguageModel[]> {
   for (const [providerId, models] of Object.entries(modelsByProvider)) {
@@ -374,6 +383,29 @@ function stampDeepThinkingSupport(
         name: model.apiName,
         provider: providerId,
       }),
+      // AUDIO input rides the same payload for the same reasons: the modality
+      // registry is main-process state, and this row is already invalidated on
+      // provider CRUD and `core-models:changed`, so the mic follows a lineup
+      // change with no extra wiring and no new allowlisted channel.
+      //
+      // RESOLVED THROUGH THE CORE TIER→VENDOR MAP, not passed raw. For an Atlarix
+      // Core row the provider is the synthetic `compass` and the name is a tier id
+      // (`core-1`), and the catalog has a row for neither — so `(compass, core-1)`
+      // misses every lookup and returns false for the entire Core lineup, exactly
+      // the bug this payload exists to fix for Deep thinking. These two resolvers
+      // are what `isReasoningCapableModel` uses one line up; they are named for
+      // reasoning but do nothing reasoning-specific, and sharing them is what keeps
+      // the two gates from drifting apart on the next lineup change.
+      supportsAudioInput: detectAudioCapability(
+        resolveCapabilityProviderId({
+          provider: providerId,
+          name: model.apiName,
+        }),
+        resolveReasoningCatalogModelId({
+          provider: providerId,
+          name: model.apiName,
+        }),
+      ),
     }));
   }
   return modelsByProvider;

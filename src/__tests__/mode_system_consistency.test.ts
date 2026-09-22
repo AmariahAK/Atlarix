@@ -11,6 +11,7 @@ import {
   getModeRegistryDisplayLabel,
   isToolAllowedInMode,
   EVERY_MODE_TOOLS,
+  MODE_EXCLUDED_TOOLS,
 } from "../lib/tools/mode-tool-registry";
 import { ToolRegistry } from "../lib/tools/registry";
 import "../lib/tools";
@@ -185,14 +186,44 @@ describe("mode system consistency", () => {
     });
   }
 
+  /**
+   * An every-mode tool reaches every mode, EXCEPT where a mode subtracts it.
+   *
+   * `MODE_EXCLUDED_TOOLS` has exactly one entry — the mobile pair, out of Plan.
+   * The pair was made every-mode on the argument that "what does the app look
+   * like on a phone" is a QUESTION, which is Explore's job; Plan writes down
+   * what should be done, and it is the mode with no budget headroom left once it
+   * gained run_command. The exclusion is REAL, not cosmetic: the tool is
+   * unreachable in that mode at the execute-time gate too, which is why this
+   * asserts both halves rather than only the advertised list.
+   *
+   * Keep this list tiny. Every entry is a place where "every mode" stops being
+   * literally true, and a reader has to come here to find out why.
+   */
   for (const mode of ["ask", "plan", "review"] as const) {
     it(`${mode} allowlist includes every-mode tools (tool_contract parity)`, () => {
+      const excluded = new Set(MODE_EXCLUDED_TOOLS[mode] ?? []);
       for (const tool of EVERY_MODE_TOOLS) {
+        if (excluded.has(tool)) {
+          expect(getModeToolAllowlist(mode)).not.toContain(tool);
+          expect(isToolAllowedInMode(tool, mode)).toBe(false);
+          continue;
+        }
         expect(getModeToolAllowlist(mode)).toContain(tool);
         expect(isToolAllowedInMode(tool, mode)).toBe(true);
       }
     });
   }
+
+  it("the only every-mode subtraction is the mobile pair, out of Plan", () => {
+    // Pinned so a future exclusion is a deliberate edit here rather than a
+    // quiet erosion of what "every mode" means.
+    expect(Object.keys(MODE_EXCLUDED_TOOLS)).toEqual(["plan"]);
+    expect([...(MODE_EXCLUDED_TOOLS.plan ?? [])].sort()).toEqual([
+      "mobile",
+      "mobile_inspect",
+    ]);
+  });
   it("every-mode tools are allowed in debug (full surface)", () => {
     for (const tool of EVERY_MODE_TOOLS) {
       expect(isToolAllowedInMode(tool, "debug")).toBe(true);
@@ -210,9 +241,12 @@ describe("mode system consistency", () => {
       expect(isToolAllowedInMode(tool, "ask")).toBe(false);
       expect(isToolAllowedInMode(tool, "review")).toBe(false);
     }
-    // Plan is filesystem-read-only — it authors plans via the `plan` tool, NOT write_file/run_command.
+    // Plan authors plans via the `plan` tool and has no file-writing tool. It
+    // DOES have run_command: "does not implement" is enforced by having no
+    // edit_file plus the gate's mutation verdict, not by refusing `git log`.
     expect(isToolAllowedInMode("write_file", "plan")).toBe(false);
-    expect(isToolAllowedInMode("run_command", "plan")).toBe(false);
+    expect(isToolAllowedInMode("edit_file", "plan")).toBe(false);
+    expect(isToolAllowedInMode("run_command", "plan")).toBe(true);
     // Build allows all.
     expect(isToolAllowedInMode("write_file", "build")).toBe(true);
   });

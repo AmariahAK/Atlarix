@@ -22,6 +22,7 @@
 import path from "node:path";
 import os from "node:os";
 import { commandSegments } from "./command-segments";
+import { isTempPath } from "./auto-writable-paths";
 
 interface SystemScopeMatch {
   id: string;
@@ -180,6 +181,11 @@ function targetsOutsideWorkspace(
   if (
     redir?.[2] &&
     !/^\/dev\/(null|stdout|stderr|tty|fd\/\d+)$/.test(redir[2]) &&
+    // The OS temp roots are not a "system change" either. They are already in
+    // the sandbox's writable set, and the prompt hands the agent a scratch
+    // directory under them by name — so flagging a redirect there as
+    // system-scope would raise a card for the exact thing we asked it to do.
+    !isTempPath(expandHome(redir[2])) &&
     isOutsideWorkspace(expandHome(redir[2]), workspaceRoot)
   ) {
     return true;

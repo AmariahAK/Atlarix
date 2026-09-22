@@ -21,6 +21,7 @@ import os from "node:os";
 import path from "node:path";
 import log from "electron-log";
 import { wrapWsl } from "./wsl";
+import { readOnlyDenyPaths } from "./deny-paths";
 
 const logger = log.scope("command-sandbox");
 
@@ -34,10 +35,18 @@ export interface SandboxRequest {
   /** Extra absolute paths to allow writes to (from settings). */
   extraWritablePaths?: string[];
   /**
-   * Read-only mode (Explore/Plan/Review): the command can read anything but the
-   * WORKSPACE (and extra paths) are NOT writable — only /tmp + toolchain caches +
-   * /dev. A write to the source fails cleanly at the OS layer instead of being
-   * pre-blocked by a command classifier.
+   * SOURCE-PROTECTED mode (Explore / Plan / Review, and every sub-agent command).
+   *
+   * The workspace is STILL WRITABLE. This used to drop it from the writable set
+   * entirely, which enforced "no source edits" by also breaking vitest at
+   * startup, `npm install`, every build, every dev server and `git fetch` — all
+   * of which the mode prompts promised worked.
+   *
+   * What it now means is the reference-harness shape: workspace writable, plus a
+   * short deny set of execution/identity paths (`deny-paths.ts`). "Don't edit
+   * the source" moved one layer up, to the command gate
+   * (`classifySegment` → `mutating-commands.ts`), which is where Claude Code,
+   * Codex and Cursor all enforce it.
    */
   readOnly?: boolean;
 }
@@ -53,6 +62,19 @@ export interface WrappedSpawn {
   useShellOption: boolean;
   /** Human-readable reason when not sandboxed. */
   note?: string;
+  /**
+   * Whether the KERNEL is enforcing the source-protection deny set, as opposed
+   * to the command gate alone.
+   *
+   * Callers cannot derive this — it depends on which mechanism was available on
+   * this machine (Seatbelt and bwrap can deny; the Landlock helper and Windows
+   * Low IL cannot). It is reported rather than assumed, because a
+   * write-confining control that degrades silently is the exact failure this
+   * file already had once, with AppContainer.
+   *
+   * False whenever `readOnly` was not requested — there is nothing to enforce.
+   */
+  denyEnforced: boolean;
 }
 
 /** Realpath a dir if it exists; return null otherwise (so we never bind a missing path). */
@@ -295,13 +317,13 @@ function defaultWritablePaths(
 
 const SANDBOX_EXEC = "/usr/bin/sandbox-exec";
 
-function buildSeatbeltProfile(writable: string[]): string {
+function buildSeatbeltProfile(writable: string[], deny: string[] = []): string {
   // Last matching rule wins in SBPL: allow-all, then deny writes, then re-allow
   // writes to the confined set. Network is left allowed by `(allow default)`.
   const allows = writable
     .map((p) => `  (subpath ${JSON.stringify(p)})`)
     .join("\n");
-  return [
+  const lines = [
     "(version 1)",
     "(allow default)",
     "(deny file-write*)",
@@ -309,22 +331,44 @@ function buildSeatbeltProfile(writable: string[]): string {
     allows,
     `  (subpath "/dev")`, // /dev/null, /dev/tty, etc.
     ")",
-  ].join("\n");
+  ];
+  // THE DENY BLOCK MUST COME LAST. SBPL is last-match-wins, so this is what
+  // carves the execution/identity paths back out of the workspace grant above;
+  // emitted before it, the `(allow file-write* (subpath <workspace>))` would
+  // simply win and the protection would be silently absent.
+  //
+  // `literal` for the single file, `subpath` for the directories. Seatbelt
+  // accepts a path that does not exist yet, which is what lets the deny stop
+  // `.atlarix/` being CREATED rather than only stopping it being edited.
+  if (deny.length > 0) {
+    lines.push(
+      "(deny file-write*",
+      ...deny.map((p) =>
+        p.endsWith("config")
+          ? `  (literal ${JSON.stringify(p)})`
+          : `  (subpath ${JSON.stringify(p)})`,
+      ),
+      ")",
+    );
+  }
+  return lines.join("\n");
 }
 
 function wrapMacos(
   req: SandboxRequest,
   writable: string[],
+  deny: string[],
 ): WrappedSpawn | null {
   if (!existsSync(SANDBOX_EXEC)) {
     return null;
   }
-  const profile = buildSeatbeltProfile(writable);
+  const profile = buildSeatbeltProfile(writable, deny);
   return {
     file: SANDBOX_EXEC,
     args: ["-p", profile, req.shell, "-c", req.command],
     sandboxed: true,
     useShellOption: false,
+    denyEnforced: deny.length > 0,
   };
 }
 
@@ -384,20 +428,38 @@ export function findLinuxHelper(): string | null {
 function wrapLinux(
   req: SandboxRequest,
   writable: string[],
+  deny: string[],
 ): WrappedSpawn | null {
   // Prefer the bundled Landlock helper (self-contained); same CLI contract as the
   // Windows helper: --workspace <dir> [--writable <dir>]... -- <cmd>.
   const helper = findLinuxHelper();
   if (helper) {
     const args = ["--workspace", req.workspacePath];
-    if (req.readOnly) args.push("--read-only"); // deny workspace writes
     for (const p of writable) args.push("--writable", p);
     // Pass the RESOLVED shell. The helper used to hardcode `/bin/sh`, so a command
     // using bashisms worked unsandboxed and failed sandboxed — the sandbox was
     // changing language semantics, not just permissions.
     args.push("--shell", req.shell);
     args.push("--", req.command);
-    return { file: helper, args, sandboxed: true, useShellOption: false };
+    // NO `--read-only`, and no deny set: LANDLOCK HAS NO DENY PRIMITIVE.
+    //
+    // `path_beneath_rules` grants write beneath a root; there is no way to punch
+    // a hole in one. The obvious workaround — grant every child of the workspace
+    // EXCEPT `.git` and `.atlarix` — does not work, and nobody should try it: it
+    // leaves the workspace root itself ungranted, so `mkdir node_modules`,
+    // `touch newfile` and vitest's own `.vite-temp` creation all fail on a fresh
+    // tree. That is precisely the bug this change exists to fix.
+    //
+    // `--read-only` is also gone: it used to mean "drop the workspace", which is
+    // what broke builds and tests. Source protection here is the command gate's
+    // `protected-path` rule, and `denyEnforced: false` says so out loud.
+    return {
+      file: helper,
+      args,
+      sandboxed: true,
+      useShellOption: false,
+      denyEnforced: false,
+    };
   }
   // Fallback: OS-installed bubblewrap.
   const bwrap = findBwrap();
@@ -420,8 +482,25 @@ function wrapLinux(
   for (const p of writable) {
     args.push("--bind-try", p, p);
   }
+  // Re-bind the protected paths READ-ONLY, over the writable bind above.
+  //
+  // Mount order is last-wins in bwrap, so this must come AFTER the loop or the
+  // workspace bind shadows it back to writable. `-try` because a project need
+  // not have a `.atlarix/` yet — but note that unlike Seatbelt, a missing path
+  // therefore stays unprotected here, so the gate's `protected-path` rule is
+  // what stops it being created. That is the one gap between the two kernel
+  // mechanisms, and it is why `denyEnforced` is not the whole story anywhere.
+  for (const p of deny) {
+    args.push("--ro-bind-try", p, p);
+  }
   args.push(req.shell, "-c", req.command);
-  return { file: bwrap, args, sandboxed: true, useShellOption: false };
+  return {
+    file: bwrap,
+    args,
+    sandboxed: true,
+    useShellOption: false,
+    denyEnforced: deny.length > 0,
+  };
 }
 
 // ── Windows (Low Integrity Level helper) ─────────────────────────────────────
@@ -510,15 +589,32 @@ function wrapWindows(
   if (!helper) return null;
   if (!windowsSandboxUsable(helper)) return null;
   const args = ["--workspace", req.workspacePath];
-  if (req.readOnly) args.push("--read-only"); // deny workspace writes
   for (const p of writable) args.push("--writable", p);
+  // NO `--read-only`, and no deny set: a Low mandatory label INHERITS downward.
+  //
+  // The helper grants writes by stamping `S:(ML;OICI;NW;;;LW)` on each writable
+  // root, so everything under the workspace — including `.git/` — inherits it.
+  // Carving a hole means writing a HIGHER label on those paths and protecting the
+  // SACL from inheritance, which leaves persistent ACL changes inside the user's
+  // real repository. That is a native-helper change with a permanent side effect
+  // on the user's disk, and it is deliberately not taken here.
+  //
+  // `--read-only` is gone for the same reason it is gone on Linux: it meant
+  // "don't stamp the workspace", which is what broke builds, installs and tests.
+  // Source protection on Windows is the command gate's `protected-path` rule.
   // Same shell the unsandboxed path uses. On Windows `getAcceptableShell()` prefers
   // Git bash when it's installed, while the helper used to hardcode `cmd.exe /c` —
   // so POSIX-shaped commands failed under the sandbox with cmd syntax errors that
   // looked like sandbox denials but weren't.
   args.push("--shell", req.shell);
   args.push("--", req.command);
-  return { file: helper, args, sandboxed: true, useShellOption: false };
+  return {
+    file: helper,
+    args,
+    sandboxed: true,
+    useShellOption: false,
+    denyEnforced: false,
+  };
 }
 
 // ── Entry ─────────────────────────────────────────────────────────────────────
@@ -534,25 +630,32 @@ export function wrapCommandInSandbox(req: SandboxRequest): WrappedSpawn {
   // dir; Landlock (Linux) / AppContainer ACLs (Windows) need the path to exist,
   // so there we create the curated caches first (see resolveWritablePath).
   const createMissingCaches = process.platform !== "darwin";
-  // Read-only: writable = only toolchain caches + /tmp (+ /dev), NOT the workspace
-  // or extra paths. Passing "" as the workspace drops it from the candidate set.
-  const writable = req.readOnly
-    ? defaultWritablePaths("", [], createMissingCaches)
-    : defaultWritablePaths(
-        workspaceReal,
-        req.extraWritablePaths,
-        createMissingCaches,
-      );
+  // THE WORKSPACE IS WRITABLE IN BOTH PROFILES NOW.
+  //
+  // `readOnly` used to pass "" here, dropping the workspace AND every granted
+  // extra path from the candidate set. Measured on a real project, that meant
+  // vitest could not start (`node_modules/.vite-temp`), `npm install` could not
+  // write `node_modules`, no build could emit `dist/`, and `git fetch` could not
+  // lock a ref — while three mode prompts told the model all four were allowed.
+  //
+  // What `readOnly` now buys is the deny set below: the execution/identity paths
+  // that must not change whatever else does.
+  const writable = defaultWritablePaths(
+    workspaceReal,
+    req.extraWritablePaths,
+    createMissingCaches,
+  );
+  const deny = req.readOnly ? readOnlyDenyPaths(workspaceReal) : [];
 
   let wrapped: WrappedSpawn | null = null;
   let unavailableNote = "";
   switch (process.platform) {
     case "darwin":
-      wrapped = wrapMacos(req, writable);
+      wrapped = wrapMacos(req, writable, deny);
       unavailableNote = "sandbox-exec not found";
       break;
     case "linux":
-      wrapped = wrapLinux(req, writable);
+      wrapped = wrapLinux(req, writable, deny);
       unavailableNote = "bubblewrap (bwrap) not installed";
       break;
     case "win32": {
@@ -577,6 +680,9 @@ export function wrapCommandInSandbox(req: SandboxRequest): WrappedSpawn {
             args: viaWsl.args,
             sandboxed: true,
             useShellOption: false,
+            // The WSL route builds its own bwrap invocation in wsl.ts and does
+            // not carry the deny set through, so claim nothing for it.
+            denyEnforced: false,
           };
         }
         // Routed into the distro but unconfined: still the right OS to run in, so
@@ -587,6 +693,7 @@ export function wrapCommandInSandbox(req: SandboxRequest): WrappedSpawn {
           sandboxed: false,
           useShellOption: false,
           note: viaWsl.note,
+          denyEnforced: false,
         };
       }
       wrapped = wrapWindows(req, writable);
@@ -603,8 +710,18 @@ export function wrapCommandInSandbox(req: SandboxRequest): WrappedSpawn {
     // affirmatively observable. Previously only its FAILURE was logged (at warn),
     // so "the sandbox is on" could only ever be inferred from the absence of a
     // warning — which is how a broken Windows sandbox went unnoticed for releases.
+    //
+    // The deny status is reported for the same reason, and it is the part a
+    // reader is most likely to assume rather than check: on Windows and on the
+    // bundled Linux helper the protected paths are enforced ONLY by the command
+    // gate, because neither mechanism has a deny primitive.
+    const denyStatus = !req.readOnly
+      ? "not requested"
+      : wrapped.denyEnforced
+        ? `kernel-enforced (${deny.length} paths)`
+        : "GATE ONLY — no kernel deny primitive on this mechanism";
     logger.info(
-      `Sandboxing run_command (${process.platform}); ${writable.length} writable roots`,
+      `Sandboxing run_command (${process.platform}); ${writable.length} writable roots; source-protection deny: ${denyStatus}`,
     );
     return wrapped;
   }
@@ -615,6 +732,7 @@ export function wrapCommandInSandbox(req: SandboxRequest): WrappedSpawn {
     sandboxed: false,
     useShellOption: true,
     note: unavailableNote,
+    denyEnforced: false,
   };
 }
 

@@ -127,11 +127,7 @@ import {
   filterActivityForChat,
 } from "@/lib/chat/activity-stream";
 import { showInfo } from "@/lib/toast";
-
-function stripAnsi(str: string): string {
-  // eslint-disable-next-line no-control-regex -- strip ANSI SGR escape sequences
-  return str.replace(/\x1b\[[0-9;]*m/g, "");
-}
+import { appendCapped, pushRing, stripAnsi } from "@/lib/chat/output-stream";
 
 function isForegroundChatId(chatId: number): boolean {
   const store = getDefaultStore();
@@ -153,12 +149,6 @@ function isErrorLikeLine(line: string): boolean {
   return /\b(error|failed|exception|traceback|fatal|warn(ing)?)\b/i.test(line);
 }
 
-function pushRing(buf: string[], lines: string[], max: number): string[] {
-  if (max <= 0) return [];
-  const next = buf.length ? [...buf, ...lines] : [...lines];
-  if (next.length <= max) return next;
-  return next.slice(next.length - max);
-}
 import { playNotify, playRemaining } from "@/lib/sounds";
 
 /** PASS6: cap renderer-held chat history to limit heap growth (SQLite still has full history). */
@@ -947,9 +937,51 @@ export function useStreamChat({
           progLines: [] as string[],
           lastIncomingLine: null as string | null,
         };
+        /**
+         * Deltas waiting to be written into `terminalOutputs`, keyed by command.
+         *
+         * Deltas removed the per-chunk COST (218 ms → 6 ms of parsing per 4.9 MB
+         * command); this removes the per-chunk RE-RENDER. A command emitting 75
+         * chunks used to drive 75 React state updates, each copying the Map — so
+         * the right panel re-rendered 75 times for one command.
+         *
+         * Coalesced on the same 250 ms timer as the live output lines, so the two
+         * land together. A terminating event bypasses it entirely: `duration` is
+         * recomputed from the last event received, so deferring the final one
+         * would record a time up to a full window wrong.
+         */
+        const pendingTerminalDeltas = new Map<string, string>();
+        /**
+         * Commands whose entry already exists in `terminalOutputs`.
+         *
+         * Tracked here rather than read from state: this handler is a closure over
+         * a stale `terminalOutputs`, and the first event for a command is the one
+         * that creates its entry — coalescing before that would drop output into a
+         * Map slot that does not exist yet.
+         */
+        const seenTerminalCommands = new Set<string>();
         let toolLiveFlushTimer: ReturnType<typeof setTimeout> | null = null;
+        const flushTerminalDeltas = () => {
+          if (pendingTerminalDeltas.size === 0) return;
+          const batch = new Map(pendingTerminalDeltas);
+          pendingTerminalDeltas.clear();
+          setTerminalOutputs((prev) => {
+            const next = new Map(prev);
+            for (const [commandId, delta] of batch) {
+              const existing = next.get(commandId);
+              if (!existing) continue;
+              next.set(commandId, {
+                ...existing,
+                output: appendCapped(existing.output, delta),
+              });
+            }
+            return next;
+          });
+        };
+
         const flushToolLive = () => {
           toolLiveFlushTimer = null;
+          flushTerminalDeltas();
           const rawLines = pendingToolLiveRef.rawLines;
           const errLines = pendingToolLiveRef.errLines;
           const progLines = pendingToolLiveRef.progLines;
@@ -985,24 +1017,35 @@ export function useStreamChat({
         const unsubscribeTerminal = IpcClient.getInstance().onTerminalOutput(
           chatId,
           (payload) => {
-            // Stream live output into tool indicator when it's active for this chat
-            const raw = stripAnsi(payload.output ?? "");
+            // THE DELTA, not the accumulated buffer.
+            //
+            // This block used to parse `payload.output` — the whole command's
+            // output so far — on EVERY chunk: stripAnsi over N bytes, a split
+            // into ~70,000 strings, then a map and a filter over all of them,
+            // then pushing every line again. Measured on a 4.9 MB build log in
+            // 75 chunks: 218 ms of blocked renderer main thread and 2.66 M line
+            // strings, against 6 ms and 70 K for the deltas.
+            //
+            // The dedupe that used to guard this only fired when the payload was
+            // a SINGLE line, which for any multi-line command never happens — so
+            // it never did anything, and each chunk re-appended the whole output.
+            // It is gone rather than adapted: with deltas it would silently drop
+            // a legitimately repeated line (progress dots, a repeated "waiting…").
+            //
+            // Falls back to `output` so a consumer still on the old shape — the
+            // synthesised completed/error events, which carry final text and no
+            // delta — is not silently dropped.
+            const chunk = payload.delta ?? payload.output ?? "";
+            const raw = stripAnsi(chunk);
             const incomingLines = raw
               .split(/\r?\n/)
               .map((l) => l.trimEnd())
               .filter(Boolean);
             if (incomingLines.length > 0) {
-              // Dedupe (cheap): avoid repeating the exact same last incoming line endlessly.
-              const lastIncoming = pendingToolLiveRef.lastIncomingLine;
-              if (
-                incomingLines.length === 1 &&
-                lastIncoming &&
-                incomingLines[0] === lastIncoming
-              ) {
-                // no-op
-              } else {
+              {
                 pendingToolLiveRef.lastIncomingLine =
-                  incomingLines[incomingLines.length - 1] ?? lastIncoming;
+                  incomingLines[incomingLines.length - 1] ??
+                  pendingToolLiveRef.lastIncomingLine;
                 for (const ln of incomingLines) {
                   pendingToolLiveRef.rawLines.push(ln);
                   if (isErrorLikeLine(ln)) pendingToolLiveRef.errLines.push(ln);
@@ -1017,15 +1060,67 @@ export function useStreamChat({
               }
             }
 
-            // Update terminal outputs Map for CommandOutputCard display
+            // APPEND the delta; never replace with the accumulated buffer.
+            //
+            // This read `payload.output` and replaced the stored value on every
+            // chunk — the single largest cost on this path, because that string
+            // is the whole command's output and the Map was copied around it each
+            // time. It is also the site that would break silently if the wire
+            // format switched to deltas without this change: the card would show
+            // only the last chunk.
+            //
+            // Capped, per the owner's call: the card keeps a tail, so renderer
+            // memory is bounded by the cap rather than by command size (a 50 MB
+            // build log used to mean 50 MB retained in React state, per command).
+            // Nothing is lost — the full output stays in the model's tool result,
+            // the Terminal tab's own store, and background_jobs.
+            //
+            // The terminating completed/error event carries final full text and
+            // no delta, so it replaces rather than appends — which is what makes
+            // the finished card show the whole (capped) run.
+            const isFinal =
+              payload.status === "completed" || payload.status === "error";
+
+            // A mid-run delta for a command we have already seen is BUFFERED and
+            // written on the shared 250 ms flush, so 75 chunks cost one render
+            // rather than 75. Anything else — the first event for a command,
+            // which has to create the entry, a terminating event, or a payload
+            // with no delta (the user path before it was converted, or a legacy
+            // sender) — is written straight through.
+            const canCoalesce =
+              !isFinal &&
+              payload.delta != null &&
+              seenTerminalCommands.has(payload.commandId);
+            if (canCoalesce) {
+              pendingTerminalDeltas.set(
+                payload.commandId,
+                (pendingTerminalDeltas.get(payload.commandId) ?? "") +
+                  payload.delta,
+              );
+              if (!toolLiveFlushTimer) {
+                toolLiveFlushTimer = setTimeout(flushToolLive, 250);
+              }
+              return;
+            }
+
+            // Anything written straight through must not be overtaken by a
+            // buffered delta that arrived earlier for the same command.
+            flushTerminalDeltas();
+            seenTerminalCommands.add(payload.commandId);
+
             setTerminalOutputs((prev) => {
               const next = new Map(prev);
               const existing = next.get(payload.commandId);
+              const nextOutput = isFinal
+                ? appendCapped("", payload.output || "")
+                : payload.delta != null
+                  ? appendCapped(existing?.output ?? "", payload.delta)
+                  : payload.output || "";
 
               const output: TerminalOutput = {
                 operationId: payload.commandId,
                 command: payload.command,
-                output: payload.output || "",
+                output: nextOutput,
                 status: payload.status,
                 exitCode: payload.exitCode,
                 background: payload.background === true,
@@ -1459,6 +1554,14 @@ export function useStreamChat({
           unsubscribeUserQuestion?.();
           unsubscribePermission?.();
           unsubscribeTerminal?.();
+          // The 250 ms flush timer was never cleared here, so a pending flush
+          // could fire after teardown and set state on an unmounted subscription.
+          // Pre-existing; it matters more now that the timer also carries the
+          // buffered terminal deltas.
+          if (toolLiveFlushTimer) {
+            clearTimeout(toolLiveFlushTimer);
+            toolLiveFlushTimer = null;
+          }
           unsubscribeOperationStatus?.();
           unsubscribeChatActivity?.();
           unsubPlanArtifact?.();

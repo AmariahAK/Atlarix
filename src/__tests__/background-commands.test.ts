@@ -17,6 +17,7 @@ import {
   setWakeCondition,
   setAllowStalled,
   killAllBackgroundJobs,
+  getBackgroundJobOutput,
 } from "@/lib/agent/background-commands";
 import {
   recordSubagentStart,
@@ -526,6 +527,83 @@ describe("background-commands wait-timer coordination (WS1)", () => {
     vi.advanceTimersByTime(360_000);
     expect(statuses.filter((s) => s === "stalled")).toHaveLength(2);
 
+    clearBackgroundCommandsForChat(chatId);
+  });
+});
+
+describe("a running job's buffers are bounded", () => {
+  /**
+   * `job.output` used to grow for the entire life of a job, with
+   * `OUTPUT_TAIL_CAP` applied only when the value was READ. A six-hour
+   * `npm run dev` therefore held its whole log in the main process, and
+   * `wakeConditionMatches` ran a user-supplied regex over all of it once a
+   * minute. The cap is at write time now.
+   */
+  it("retains a bounded tail, not the whole transcript", () => {
+    const chatId = 8801;
+    recordBackgroundCommandStart(chatId, "op-big", "npm run dev", Date.now());
+    // 5 MB in 1 KB deltas.
+    for (let i = 0; i < 5_000; i++) {
+      updateBackgroundOutput(chatId, "op-big", "", `${"z".repeat(1023)}\n`);
+    }
+    const detail = getBackgroundJobOutput(chatId, "op-big");
+    expect(detail).not.toBeNull();
+    // Bounded, and by a wide margin — the point is that it does not scale with
+    // the 5 MB that was printed.
+    expect(detail!.output.length).toBeLessThan(100_000);
+    // Leaving a job running keeps the stall watchdog armed under REAL timers,
+    // which then cannot be driven by a later test's fake timers.
+    clearBackgroundCommandsForChat(chatId);
+  });
+
+  it("the unread buffer is bounded too, for a job nobody reads", () => {
+    const chatId = 8802;
+    recordBackgroundCommandStart(
+      chatId,
+      "op-unread",
+      "npm run dev",
+      Date.now(),
+    );
+    for (let i = 0; i < 5_000; i++) {
+      updateBackgroundOutput(chatId, "op-unread", "", `${"q".repeat(1023)}\n`);
+    }
+    const read = readBackgroundOutput(chatId, "op-unread");
+    expect(read.found).toBe(true);
+    expect(read.newOutput.length).toBeLessThan(200_000);
+    // …and draining it really does drain it.
+    expect(readBackgroundOutput(chatId, "op-unread").newOutput).toBe("");
+    clearBackgroundCommandsForChat(chatId);
+  });
+
+  it("wake_on still fires when the match scrolls out of the tail", () => {
+    // THE REGRESSION THE CAP WOULD OTHERWISE INTRODUCE. The watchdog scans once
+    // a minute and used to re-match against the job's entire transcript. Against
+    // a bounded tail, a busy job can print the matching line and push it out
+    // before the next scan — so the match is now recorded as it arrives.
+    vi.useFakeTimers();
+    const chatId = 8803;
+    const statuses: string[] = [];
+    setBackgroundJobNotifier((cid, ev) => {
+      if (cid === chatId) statuses.push(ev.status);
+    });
+    recordBackgroundCommandStart(chatId, "op-wake", "npm run dev", Date.now(), {
+      pattern: "compiled successfully",
+    });
+    updateBackgroundOutput(
+      chatId,
+      "op-wake",
+      "",
+      "compiled successfully in 1.2s\n",
+    );
+    // Bury it far beyond the tail.
+    for (let i = 0; i < 2_000; i++) {
+      updateBackgroundOutput(chatId, "op-wake", "", `${"n".repeat(1023)}\n`);
+    }
+    const detail = getBackgroundJobOutput(chatId, "op-wake");
+    expect(detail!.output).not.toContain("compiled successfully");
+
+    vi.advanceTimersByTime(61_000);
+    expect(statuses.filter((x) => x === "condition_met")).toHaveLength(1);
     clearBackgroundCommandsForChat(chatId);
   });
 });

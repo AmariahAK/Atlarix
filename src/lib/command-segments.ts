@@ -57,23 +57,44 @@ const LEADING_WRAPPER_RE =
  * return null. Unbalanced quotes → null. Length is preserved 1:1 (quoted chars →
  * spaces) so skeleton offsets map onto the original string.
  */
-function unquotedSkeleton(command: string): string | null {
+export function unquotedSkeleton(command: string): string | null {
   let s = command.replace(/'[^']*'/g, (m) => " ".repeat(m.length));
-  let rejected = false;
-  s = s.replace(/"[^"]*"/g, (m) => {
-    if (/[$`]/.test(m)) rejected = true;
-    return " ".repeat(m.length);
-  });
-  if (rejected) return null;
+  /*
+   * A DOUBLE-QUOTED SPAN IS BLANKED, NOT REJECTED.
+   *
+   * This used to set a `rejected` flag whenever a double-quoted span contained
+   * `$` or a backtick, so the whole command came back `null` and
+   * `resolveRunCommandPermissionGate` fell through to a blanket prompt. That
+   * made `echo "HEAD: $(git log --oneline -1)"` — and even `echo "$HOME"` —
+   * ask for approval every single time, which is most of what an agent writes:
+   * 24 approval blocks in one half-hour session, on commands the model is
+   * designed to auto-run.
+   *
+   * It was protecting nothing. The blanking here only decides WHERE the
+   * separators are; `quoteAwareSegments` slices each segment out of the
+   * ORIGINAL string, so the substitution text survives into the segment and
+   * reaches `isDangerousCommand`, which splits `$(…)` and backticks itself.
+   * Measured: `echo "$(rm -rf /)"` and ``echo "`rm -rf /`"`` are both reported
+   * dangerous with the spans blanked, exactly as the unquoted `cat $(rm -rf x)`
+   * case already was.
+   *
+   * Blanking is also the RIGHT answer for separators: a `;` or `|` inside the
+   * quotes must not split the command, and an inner command's own separators
+   * still reach the danger gate through `commandSegments`.
+   */
+  s = s.replace(/"[^"]*"/g, (m) => " ".repeat(m.length));
+  // An unbalanced quote is still unparseable — fail safe to a prompt.
   if (/['"]/.test(s)) return null;
   return s;
 }
 
 /**
  * Split `command` into its pipeline/chain segments, quote-aware. Returns `null`
- * when the command can't be safely segmented (substitution inside double quotes,
- * or unbalanced quotes) — the caller should treat that as "prompt". Benign
- * leading `cd DIR`/`time`/`nice` wrappers are stripped; empty segments dropped.
+ * only when the command can't be safely segmented (unbalanced quotes) — the
+ * caller should treat that as "prompt". Substitution inside double quotes is
+ * segmented normally and left intact in the segment text, so the danger gate
+ * still sees it (see `unquotedSkeleton`). Benign leading `cd DIR`/`time`/`nice`
+ * wrappers are stripped; empty segments dropped.
  */
 export function quoteAwareSegments(command: string): string[] | null {
   const trimmed = (command || "").trim();

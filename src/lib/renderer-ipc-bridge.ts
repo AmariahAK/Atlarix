@@ -10,10 +10,31 @@ export type AppPathStatusPayload = {
 
 type AutoSelfCorrectPayload = { chatId: number };
 
+export type WorkspaceDeletedPayload = {
+  appId: number;
+  path?: string;
+  name?: string;
+  /** Live turns main aborted for this workspace before deleting it. */
+  cancelledTurns?: number;
+};
+
 const autoSelfCorrectListeners = new Set<
   (data: AutoSelfCorrectPayload) => void
 >();
 const appsStatusListeners = new Set<(data: AppPathStatusPayload) => void>();
+const workspaceDeletedListeners = new Set<
+  (data: WorkspaceDeletedPayload) => void
+>();
+/**
+ * The last deletion seen, replayed to late subscribers.
+ *
+ * Without it this is a race nobody would ever reproduce deliberately: the event
+ * arrives while a window is still mounting, the hook subscribes a tick later,
+ * and that window goes on showing a workspace that is already gone — which is
+ * the exact failure the broadcast exists to fix. Same reason `auth-ipc-bridge`
+ * retains `lastAuthResolved`.
+ */
+let lastWorkspaceDeleted: WorkspaceDeletedPayload | null = null;
 
 let registered = false;
 
@@ -38,6 +59,13 @@ function ensureRegistered(): void {
     if (!data?.statuses?.length) return;
     for (const fn of appsStatusListeners) fn(data);
   }) as (...args: unknown[]) => void);
+
+  ipcRenderer.on("workspace:deleted", ((...args: unknown[]) => {
+    const data = ipcPayload<WorkspaceDeletedPayload>(args);
+    if (data?.appId == null) return;
+    lastWorkspaceDeleted = data;
+    for (const fn of workspaceDeletedListeners) fn(data);
+  }) as (...args: unknown[]) => void);
 }
 
 export function subscribeAutoSelfCorrect(
@@ -54,4 +82,14 @@ export function subscribeAppsStatusChanged(
   ensureRegistered();
   appsStatusListeners.add(fn);
   return () => appsStatusListeners.delete(fn);
+}
+
+export function subscribeWorkspaceDeleted(
+  fn: (data: WorkspaceDeletedPayload) => void,
+): () => void {
+  ensureRegistered();
+  workspaceDeletedListeners.add(fn);
+  // Replay, so a window that mounted a tick after the broadcast still learns.
+  if (lastWorkspaceDeleted) fn(lastWorkspaceDeleted);
+  return () => workspaceDeletedListeners.delete(fn);
 }

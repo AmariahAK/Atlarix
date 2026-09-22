@@ -93,6 +93,10 @@ import { killAllPtys } from "./lib/pty/pty-session-manager";
 import { shutdownHiddenPages } from "./lib/browser/headless-page";
 import { __setDevCoreKeyProvider } from "./ipc/shared/compass_constants";
 import { getDevCoreApiKey, getDevCoreModelId } from "./ipc/utils/dev_core_env";
+import {
+  scheduleStartupTempSweep,
+  startPeriodicTempSweep,
+} from "./main/temp-hygiene";
 
 // Silence EPIPE: when stdout/stderr is closed (e.g. parent shell terminated),
 // `console.log` raises EPIPE asynchronously. electron-log's default catcher
@@ -208,8 +212,49 @@ if (
   app.commandLine.appendSwitch("disable-gpu-sandbox");
 }
 app.commandLine.appendSwitch("disable-software-rasterizer");
-// Raise V8 old-space ceiling before Chromium hits partition_alloc hard OOM on heavy renderer work
-app.commandLine.appendSwitch("js-flags", "--max-old-space-size=4096");
+/*
+ * NO `js-flags --max-old-space-size` HERE ANY MORE, and it must not come back.
+ *
+ * This line shipped from v8.0.4 (03e51978) as
+ *
+ *   // Raise V8 old-space ceiling before Chromium hits partition_alloc hard OOM
+ *   app.commandLine.appendSwitch("js-flags", "--max-old-space-size=4096");
+ *
+ * It could not do that. Measured with a bare Electron probe on this 8 GB
+ * machine, reading `v8.getHeapStatistics().heap_size_limit` in main and
+ * `performance.memory.jsHeapSizeLimit` in a renderer:
+ *
+ *   flag                       main        renderer
+ *   (none)                     4192 MB     3586 MB
+ *   --max-old-space-size=4096  4192 MB     3586 MB   ← asked to RAISE: no change
+ *   --max-old-space-size=256   4192 MB      368 MB   ← asked to LOWER: applied
+ *
+ * Two facts fall out, and they invert the comment the line carried:
+ *
+ *  1. **Main ignores it entirely.** The flag is a no-op once the isolate exists,
+ *     and the main isolate is already running by the time this file executes.
+ *     Even 256 MB moved nothing.
+ *  2. **The renderer honours it only DOWNWARD.** It cannot raise the ceiling
+ *     above what Chromium already allows, so on this machine 4096 was inert —
+ *     and on a machine whose adaptive default exceeds 4096 (anything much past
+ *     ~8-9 GB) the same line would silently CAP the renderer, which is the exact
+ *     opposite of "raise".
+ *
+ * What it was overriding is already the dynamic answer: Chromium/V8 size the
+ * heap from physical memory — here ~4.2 GB main / ~3.6 GB renderer on 8 GB,
+ * about half the machine. Node has done this since v12; hardcoding a number is
+ * how you lose it. So the correct value for every user on every device is NO
+ * FLAG, which is what this comment is standing guard over.
+ *
+ * And a ceiling was never the fix. The OOMs this app actually had were
+ * allocation bugs — ~285 MB of speech-model weights materialised in the renderer
+ * on composer mount, and command output re-sent in full on every chunk with
+ * nothing bounding retention. Both are fixed at the source (see
+ * `useVoiceInput.ts` and `lib/chat/output-stream.ts`). Cursor reports the same
+ * split publicly — acute OOMs from loading too much at once, slow ones from
+ * undisposed state — and an ~80% drop in OOMs per session from fixing those
+ * rather than from raising a limit.
+ */
 
 // Swallow EPIPE on stdout/stderr — happens when the app's parent shell closes
 // the pipe before electron-log finishes flushing during shutdown. Anything
@@ -413,27 +458,35 @@ if (IS_MICROSOFT_STORE_BUILD) {
  * WORKERS (the gap this used to have, and the reason it now matches `script`):
  * a dedicated worker does NOT inherit its owner document's CSP — it takes the
  * policy from its OWN script response. This handler only matched mainFrame /
- * subFrame, so `whisper-worker` ran with no policy at all and `eval()` was free
+ * subFrame, so the whisper worker ran with no policy at all and `eval()` was free
  * inside it, while the docstring claimed A13/M-6 coverage it did not have.
  *
  * Electron's WebRequest has no `worker` resourceType, so a module worker's
  * script arrives as `script` (or `other`). Matching those is safe rather than
  * broad: a CSP header on an ordinary subresource script response is IGNORED by
  * the renderer — only documents and worker scripts honour their own response
- * policy — so widening changes behaviour for workers and nothing else.
- * `'wasm-unsafe-eval'` stays because it is what lets onnxruntime-web compile its
- * WASM backend; removing it would break on-device voice, which is worse than the
- * gap being closed. ATLARIX_DEBUG_CSP=1 logs what actually matched, so the
- * resourceType can be confirmed on a real packaged run instead of assumed.
+ * policy — so widening changes behaviour for workers and nothing else. The rule
+ * stays even though the renderer currently spawns no dedicated worker at all:
+ * the next one to be added must not have to rediscover this.
+ * ATLARIX_DEBUG_CSP=1 logs what actually matched, so the resourceType can be
+ * confirmed on a real packaged run instead of assumed.
  */
 function installContentSecurityPolicy(): void {
   if (!app.isPackaged) return;
   const csp = [
     "default-src 'self'",
-    // 'wasm-unsafe-eval' lets on-device Whisper (onnxruntime-web) compile its
-    // WASM backend; without it WebAssembly.instantiate is blocked in packaged
-    // builds. It does NOT permit arbitrary JS eval (that's 'unsafe-eval').
-    "script-src 'self' 'wasm-unsafe-eval'",
+    // 'wasm-unsafe-eval' REMOVED along with the on-device speech engine, which
+    // was the only thing in the renderer that compiled WASM. Verified rather than
+    // assumed, by grepping the built renderer chunks for the compiling calls:
+    //
+    //   whisper-worker-*.js : WebAssembly.instantiate, WebAssembly.Instance
+    //   every other chunk   : only `[object WebAssembly.Exception]`, which is
+    //                         Sentry's error-type switch and compiles nothing
+    //
+    // Re-check that grep before adding a dependency that wants WASM (a tokenizer,
+    // a codec, sql.js) — it fails at runtime in packaged builds only, which is the
+    // hardest place to notice it.
+    "script-src 'self'",
     "style-src 'self' 'unsafe-inline'",
     // Allow OAuth provider avatars (GitHub / Google / Discord) — user profile pictures.
     "img-src 'self' data: blob: https://avatars.githubusercontent.com https://*.googleusercontent.com https://cdn.discordapp.com",
@@ -520,6 +573,14 @@ export async function onReady() {
   }
 
   createWindow();
+  // APP OPEN: take whatever the last APP CLOSE did not, because a close can be
+  // skipped by a crash, a kill -9 or a forced reboot — and Windows never cleans
+  // %TEMP% itself. Deferred so the user is never waiting on it. Neither pass can
+  // touch the directories this run holds open; only the quit sweep takes those.
+  scheduleStartupTempSweep();
+  // And a slow timer for an app left running for days, where open has already
+  // happened and close has not happened yet.
+  startPeriodicTempSweep();
 
   /**
    * INVARIANT: window creation must NEVER await a network call.
@@ -2078,6 +2139,16 @@ app.on("before-quit", (e) => {
         killAllBackgroundJobs();
       } catch (bgErr) {
         logger.warn("killAllBackgroundJobs on quit:", bgErr);
+      }
+      // LAST, deliberately: the steps above can still be writing into our temp
+      // directories (attachment spill, a background job's output), so sweeping
+      // before them would delete files that are then recreated. Single-instance
+      // lock means nothing else is using them by now.
+      try {
+        const { sweepTempOnQuit } = await import("./main/temp-hygiene");
+        await sweepTempOnQuit();
+      } catch (tmpErr) {
+        logger.warn("temp sweep on quit:", tmpErr);
       }
     } catch (shutdownErr) {
       // Belt-and-suspenders: each step is individually guarded above, but if the

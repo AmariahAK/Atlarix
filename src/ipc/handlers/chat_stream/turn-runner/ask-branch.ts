@@ -35,7 +35,7 @@ import { feedTerminalOutput } from "@/lib/streams/StreamManager";
 import { getToolActivityLabel } from "@/lib/tool-activity-labels";
 import { ToolRegistry } from "@/lib/tools";
 import { getModeToolAllowSets } from "@/lib/tools/mode-tool-registry";
-import { toolExecutionChatMode } from "@/lib/work-mode";
+import { isReadOnlyWorkMode, toolExecutionChatMode } from "@/lib/work-mode";
 import { constructSystemPromptParts } from "@/prompts/system_prompt";
 import { memoryDirFor } from "@/lib/agent-memory";
 import { getEffectiveModelForOptions } from "@/ipc/utils/get_model_client";
@@ -212,13 +212,21 @@ export async function runAskBranch(
   // + Agent terminal tab) — parity with Build mode. Ask runs read-only
   // run_command, but without this its output never reaches the UI tab.
   askPermissionInterceptor.on("terminal-output", (payload: any) => {
-    feedTerminalOutput(req.chatId, payload.output ?? "");
+    // THE DELTA, not the accumulated buffer. `feedTerminalOutput` splits its
+    // input into lines and re-scans every one of them; fed the cumulative buffer
+    // it re-processed the whole command on every chunk, guarded only by a
+    // single-line dedupe. This is the one consumer that becomes CORRECT under
+    // deltas rather than merely cheaper — `stream_terminal_output` used to
+    // collect each matching line roughly once per chunk until its own byte cap
+    // deactivated the stream early.
+    feedTerminalOutput(req.chatId, payload.delta ?? payload.output ?? "");
     handleStreamActivityPulse();
     safeSend(event.sender, "terminal-output", {
       chatId: req.chatId,
       commandId: payload.operationId,
       command: payload.command,
       output: payload.output,
+      delta: payload.delta,
       status: payload.status,
       exitCode: payload.exitCode,
       background: payload.background === true,
@@ -620,6 +628,7 @@ export async function runAskBranch(
                   req.chatId,
                   event.sender,
                   appPath,
+                  isReadOnlyWorkMode(liveWorkMode),
                 );
                 if (categoryBlock) return categoryBlock;
               }
@@ -657,6 +666,7 @@ export async function runAskBranch(
                     req.chatId,
                     event.sender,
                     appPath,
+                    isReadOnlyWorkMode(liveWorkMode),
                   )) ||
                 shouldAutoApprovePermissions(settings.agentMode, req.chatId) ||
                 askPermissionInterceptor.shouldAlwaysAutoApprove(permRequest);
@@ -681,6 +691,7 @@ export async function runAskBranch(
                     permRequest,
                     effectiveAppId,
                     appPath,
+                    isReadOnlyWorkMode(liveWorkMode),
                   ),
                 });
 

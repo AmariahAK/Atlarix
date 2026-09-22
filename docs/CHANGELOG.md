@@ -3,6 +3,112 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.50.0] (2026-09-22) — Dictation goes where the audio can actually go, and the app stops holding what it cannot use
+
+**On-device speech recognition is gone, and that is the headline fix.** Dictation ran
+whisper-small (transformers.js + onnxruntime-web) inside the renderer, and it was warmed on a
+`useEffect` whenever a composer MOUNTED — with `"local"` as the default engine, that meant every
+session start. Sampled on an 8 GB Mac, one second apart:
+
+```
+idle   renderer   149 MB   cpu   0%
++1s    renderer 1,530 MB   cpu 508%
+```
+
+Thirteen seconds of multi-core saturation and ~285 MB of weights, whether or not the microphone
+was ever touched. The app's own crash snapshot recorded `systemMemoryUsageMB: 7885 / 8192`. It
+took the whole machine down twice.
+
+The rest of this release is the same theme: the app was holding, re-sending and reserving things
+it could not use.
+
+### Added
+
+- **The mic follows a capability, the way Deep thinking does.** It appears when there is somewhere
+  to transcribe and hides when there is not — never appears and then fails. Two independent
+  routes, either one enough: a **BYOK speech key** (billed to your key, never to Atlarix Core,
+  works on every model including Anthropic, which declares audio on zero catalog models), or **the
+  selected model itself** when it declares `audio` input, sent over the same client and routing a
+  chat turn uses, needing no key at all.
+- `audio` is a first-class modality in the models.dev catalog, so this needs no hardcoded list.
+  The answer is resolved in MAIN and stamped on the model row — **through the Core tier→vendor
+  map**, because a Core row's provider is the synthetic `compass` and its name is a tier id, and
+  asking the registry about `(compass, core-1)` answers false for the entire lineup. That is the
+  bug that hid Deep thinking for every Core model once already; a test now fails against the
+  unresolved pair.
+- **A window whose workspace was deleted elsewhere says so.** `delete-app` broadcast no event, so
+  a second window kept rendering a workspace that no longer existed, with every action failing on
+  a missing path. It now stops its streams and shows what happened.
+- **Temp directories are swept** on quit, at startup, and on a timer. `atlarix-attachments` and
+  the agent's scratch files were created and never removed — fine on macOS, mostly fine on Linux,
+  and simply false on Windows, which never cleans `%TEMP%` unless Storage Sense is on. One
+  startup measured 478 leftover directories.
+- **Writes to the memory folder and the agent scratch directory no longer raise an approval card.**
+  The prompt tells the agent to use exactly those two places, and the gate then asked about every
+  write to them — the harness arguing with itself, at a card per note. Containment-checked, never
+  substring.
+
+### Changed
+
+- **Command output streams deltas instead of the whole buffer.** Every `data` event used to ship
+  the entire accumulated output to every consumer, unthrottled — measured at 38x amplification on
+  a 5 MB build log, and 218 ms of blocked renderer main thread per command against 6 ms for the
+  deltas. Deltas break on line boundaries, so an ANSI escape can no longer be split across a
+  chunk and leak into the UI as text.
+- **What the UI retains is now bounded by a constant, not by what your command prints.** A 50 MB
+  build log used to mean 50 MB held in renderer state per command, for as long as the card lived.
+  The full output is still intact in the tool result, the Terminal tab and `background_jobs`.
+- **Read-only modes deny the source tree instead of dropping the workspace.** Explore, Plan and
+  Review used to remove the workspace from the writable set entirely, which also broke every
+  Vite-based project at startup, `npm install`, every build, every dev server and `git fetch` —
+  all of which those modes' prompts claimed worked. The prompts no longer claim it, either.
+- **Recording asks for ogg/opus first**, falling back to webm. Not cosmetic now that the clip is
+  always uploaded: OpenAI's `/audio/transcriptions` takes both, but Gemini's inline audio part
+  documents wav/mp3/aiff/aac/ogg/flac and **not** webm — which is what Chromium's MediaRecorder
+  produces by default. The upload filename follows the container too, since OpenAI validates the
+  extension independently of the content type.
+
+### Removed
+
+- **The on-device speech engine**: `whisper-worker.ts`, `whisper-config.ts`, the
+  `@huggingface/transformers` dependency and its `patches/` entry, live transcription (it
+  re-transcribed a growing buffer every 1.5s — viable only against a local WebGPU pipeline;
+  against a metered API it would bill every 1.5s for the same audio), the `voiceInputMode`
+  setting, the model-download progress UI, the "Clear cache" button and the `voice:log` channel.
+  Weights cached by previous versions are deleted once at startup, because `userData` survives
+  reinstalls and nothing else would ever remove them.
+- **`'wasm-unsafe-eval'` from `script-src`.** The speech worker was the only thing in the renderer
+  that compiled WASM — verified by grepping the built chunks for `WebAssembly.instantiate` rather
+  than assumed. The `@huggingface/transformers` → `onnxruntime-node` → `adm-zip` → `sharp`
+  advisory chain that had no fix available is also gone from `npm audit` entirely.
+- **A hardcoded 4 GB V8 heap ceiling** that had shipped since v8.0.4 commented "Raise V8 old-space
+  ceiling". It could not raise anything. Measured with a bare Electron probe on an 8 GB machine:
+
+```
+flag                        main       renderer
+(none)                      4192 MB    3586 MB
+--max-old-space-size=4096   4192 MB    3586 MB   ← asked to RAISE: no change
+--max-old-space-size=256    4192 MB     368 MB   ← asked to LOWER: applied
+```
+
+  Main ignores it outright; the renderer honours it only downward, so past ~9 GB of RAM it would
+  silently CAP the renderer. Chromium and V8 already size the heap from physical memory — about
+  half the machine, on macOS, Windows and Linux alike — which is the adaptive behaviour a
+  hardcoded number destroys.
+
+### Internal
+
+- Build and test tooling is sized to the machine rather than to a constant
+  (`scripts/lib/machine-limits.mjs`). Packaging asked for an 8 GB heap and Vitest forked
+  `ncpu - 1` workers with no regard for RAM; on an 8 GB laptop that reached 39.7 GB of swap and
+  4% free memory. Now: heap = half the machine (floor 2 GB, ceiling 8 GB), workers = the lower of
+  what the CPU and the memory allow. CI is unchanged — the CPU is still the binding limit there.
+  Measured after: swap peaked at 494 MB, and the suite took the same wall-clock time, because the
+  machine was memory-bound rather than CPU-bound.
+
+**Tests:** 5,353 passing. Typecheck, lint, sandbox cross-target, i18n and edge-function checks
+clean.
+
 ## [14.49.0] (2026-09-21) — The model has a name again, and the sidebar stops shouting
 
 **Nothing in the composer ever told you which model you were on.** The only control was an

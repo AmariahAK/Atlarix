@@ -59,14 +59,41 @@ interface RunningJob {
   command: string;
   startedAt: number;
   proc: ChildProcess | null;
-  /** Latest accumulated combined output. */
+  /**
+   * A BOUNDED TAIL of everything this job has printed.
+   *
+   * It used to be the full, unbounded transcript for the life of the job — a
+   * six-hour dev server held its entire log in main, and `wakeConditionMatches`
+   * ran a user-supplied regex over all of it once a minute. `OUTPUT_TAIL_CAP`
+   * was only ever applied when the value was READ, never to what was retained.
+   */
   output: string;
-  /** Chars already returned by `output` reads (incremental cursor). */
-  readCursor: number;
+  /**
+   * Output printed since the last incremental read, kept separately.
+   *
+   * This replaced a `readCursor` byte index into `output`. That index was only
+   * sound while `output` grew monotonically — the moment it is tail-capped (as
+   * it now is) the cursor points into text dropped from the front, and
+   * `slice(readCursor)` returns garbage or nothing. Holding the unread text
+   * itself removes the coupling entirely.
+   */
+  unread: string;
   /** A4: last time output changed — drives the output-idle hang watchdog. */
   lastOutputAt: number;
   /** v14.8.10: opt-in wake condition; fires once when the output matches. */
   wakeOn?: WakeCondition;
+  /**
+   * The wake pattern has been SEEN in the output, but the advisory has not been
+   * queued yet (that happens on the next watchdog scan).
+   *
+   * Needed because `output` is now a bounded tail. The scan runs once a minute
+   * and used to re-match against the job's entire transcript, so a pattern
+   * printed at any point was still there to find. Against a tail, a busy job can
+   * print the matching line and scroll it away inside one scan interval — the
+   * wake would simply never fire. Checking on every update closes that window
+   * without changing WHEN the advisory is delivered.
+   */
+  wakeSeen?: boolean;
   /** v14.8.10: set once the wake condition has fired (so it fires only once). */
   wakeMatched?: boolean;
   /**
@@ -109,6 +136,26 @@ export interface BackgroundJobInfo {
 }
 
 const OUTPUT_TAIL_CAP = 8_000;
+
+/**
+ * How much unread output is held for a job the model has not checked on.
+ *
+ * Larger than the display tail because this is what the model actually reads
+ * back, and dropping the middle of a build failure is worse than holding a bit
+ * more. Still bounded: an incremental read that nobody ever performs must not
+ * turn into an unbounded queue, which is the failure `output` itself had.
+ */
+const UNREAD_CAP = 64_000;
+
+/**
+ * Keep the last `cap` characters, marking that the head was dropped.
+ *
+ * The leading ellipsis is not decoration — without it a reader cannot tell a
+ * truncated tail from a command that simply started there.
+ */
+function capTail(s: string, cap = OUTPUT_TAIL_CAP): string {
+  return s.length > cap ? `…${s.slice(-cap)}` : s;
+}
 const MAX_QUEUED_PER_CHAT = 10;
 /**
  * A4: a running job that emits NO output for this long is flagged as STALLED —
@@ -194,10 +241,9 @@ function scanForStalledJobs(): void {
     // unaffected; only the idle-stall ping is suppressed.
     const wakeupActive = hasActiveScheduledWakeup(chatId);
     for (const job of jobs.values()) {
-      const tail =
-        job.output.length > OUTPUT_TAIL_CAP
-          ? `…${job.output.slice(-OUTPUT_TAIL_CAP)}`
-          : job.output;
+      // `job.output` is already a bounded tail (capped at write time), so this
+      // is a no-op guard rather than the truncation it used to perform.
+      const tail = capTail(job.output);
 
       // v14.8.10: wake_on condition — fire once when the output matches. This is
       // ADDITIVE to the idle-stall backstop below (a job with a wake_on still
@@ -205,7 +251,7 @@ function scanForStalledJobs(): void {
       if (
         job.wakeOn &&
         !job.wakeMatched &&
-        wakeConditionMatches(job.wakeOn, job.output)
+        (job.wakeSeen || wakeConditionMatches(job.wakeOn, job.output))
       ) {
         job.wakeMatched = true;
         const list = advisoriesByChat.get(chatId) ?? [];
@@ -275,7 +321,7 @@ export function recordBackgroundCommandStart(
     startedAt,
     proc: null,
     output: "",
-    readCursor: 0,
+    unread: "",
     lastOutputAt: startedAt,
     ...(wakeOn ? { wakeOn } : {}),
     ...(allowStalled ? { allowStalled: true } : {}),
@@ -348,14 +394,28 @@ export function registerBackgroundProc(
 }
 
 /** Update a running job's latest accumulated output (for `output` reads). */
+/**
+ * Record new output for a running job.
+ *
+ * TAKES A DELTA. It used to take the accumulated buffer and derive the delta
+ * itself — `output.slice(job.output.length)` after an O(N) string equality — on
+ * every chunk, which is O(n²) over a command and the reason the caller had to
+ * keep a full cumulative copy at all.
+ *
+ * `deltaIn` is optional: absent, the old derivation runs, so a caller that still
+ * passes the accumulated buffer keeps working. The promotion handoff in
+ * `interceptor.ts` deliberately still does.
+ */
 export function updateBackgroundOutput(
   chatId: number,
   operationId: string,
   output: string,
+  deltaIn?: string,
 ): void {
   const job = runningJobsByChat.get(chatId)?.get(operationId);
   if (!job) return;
-  if (output === job.output) return;
+  if (deltaIn == null && output === job.output) return;
+  if (deltaIn != null && !deltaIn) return;
   // A4: any output change is LIVENESS — reset the idle clock so an actively
   // updating job (incl. a `\r`-redrawn progress bar, which never emits a new
   // line) is never mis-flagged as stuck.
@@ -365,11 +425,25 @@ export function updateBackgroundOutput(
   // clear `stalledNotified` and let the 3-min ping re-fire on the next quiet
   // gap. Re-arm only when the delta carries a genuine new line — real progress
   // worth re-advising if the job then goes quiet again.
-  const grew = output.length > job.output.length;
-  const delta = grew ? output.slice(job.output.length) : output;
+  const delta =
+    deltaIn ??
+    (output.length > job.output.length
+      ? output.slice(job.output.length)
+      : output);
   const meaningfulChange = delta.includes("\n");
-  job.output = output;
+  // Append + tail-cap rather than replace-with-everything. The unread buffer is
+  // capped too — a job nobody reads must not become an unbounded queue.
+  job.output = capTail(deltaIn == null ? output : job.output + delta);
+  job.unread = capTail(job.unread + delta, UNREAD_CAP);
   job.lastOutputAt = Date.now();
+  if (
+    job.wakeOn &&
+    !job.wakeMatched &&
+    !job.wakeSeen &&
+    wakeConditionMatches(job.wakeOn, job.output)
+  ) {
+    job.wakeSeen = true;
+  }
   if (meaningfulChange) {
     stalledNotified.delete(operationId);
   }
@@ -439,10 +513,8 @@ export function getBackgroundJobOutput(
   if (!job) return null;
   return {
     command: job.command,
-    output:
-      job.output.length > OUTPUT_TAIL_CAP
-        ? `…${job.output.slice(-OUTPUT_TAIL_CAP)}`
-        : job.output,
+    // Already capped at write time; kept for callers that hand in a raw string.
+    output: capTail(job.output),
     elapsedMs: Date.now() - job.startedAt,
   };
 }
@@ -454,8 +526,8 @@ export function readBackgroundOutput(
 ): { found: boolean; newOutput: string; running: boolean } {
   const job = runningJobsByChat.get(chatId)?.get(operationId);
   if (!job) return { found: false, newOutput: "", running: false };
-  const newOutput = job.output.slice(job.readCursor);
-  job.readCursor = job.output.length;
+  const newOutput = job.unread;
+  job.unread = "";
   return { found: true, newOutput, running: true };
 }
 

@@ -45,17 +45,35 @@ describe("mode-tool-registry", () => {
     expect(ask).not.toContain("get_mode_tool_registry");
   });
 
-  it("plan mode is filesystem read-only but keeps plan-artifact tools", () => {
-    // Must NOT be able to mutate the workspace or run shell.
+  it("plan cannot EDIT, but can run commands to check its assumptions", () => {
+    // No file-writing tool. This is what "Plan does not implement" now rests on
+    // — the mode has no edit_file, and a write-shaped COMMAND is routed to the
+    // approval queue by the gate (`mutating-commands.ts`) rather than by an
+    // allowlist that also blocks `git log`.
     expect(isToolAllowedInMode("write_file", "plan")).toBe(false);
     expect(isToolAllowedInMode("edit_file", "plan")).toBe(false);
-    expect(isToolAllowedInMode("run_command", "plan")).toBe(false);
-    // Must still be able to author the plan + read the workspace.
+    expect(MODE_SYSTEM_TOOL_LISTS.plan).not.toContain("write_file");
+    expect(MODE_SYSTEM_TOOL_LISTS.plan).not.toContain("edit_file");
+
+    // Commands ARE allowed. Plan was expected to produce an informed plan while
+    // unable to run `git log` or a typecheck, so it inferred what it could have
+    // checked. `background_jobs` comes with it because a foreground command
+    // auto-promotes after ~15s and its output would otherwise be lost.
+    expect(isToolAllowedInMode("run_command", "plan")).toBe(true);
+    expect(isToolAllowedInMode("background_jobs", "plan")).toBe(true);
+    expect(MODE_SYSTEM_TOOL_LISTS.plan).toContain("run_command");
+    expect(MODE_SYSTEM_TOOL_LISTS.plan).toContain("background_jobs");
+
+    // Still able to author the plan + read the workspace.
     expect(isToolAllowedInMode("plan", "plan")).toBe(true);
     expect(isToolAllowedInMode("read_file", "plan")).toBe(true);
-    // And the advertised system tool list must not name them.
-    expect(MODE_SYSTEM_TOOL_LISTS.plan).not.toContain("write_file");
-    expect(MODE_SYSTEM_TOOL_LISTS.plan).not.toContain("run_command");
+
+    // What paid for them: both are ACTS, and a plan describes acts.
+    expect(isToolAllowedInMode("automations", "plan")).toBe(false);
+    expect(isToolAllowedInMode("manage_mcp_server", "plan")).toBe(false);
+    // …but Plan can still SEE what MCP servers exist, to plan around them.
+    expect(isToolAllowedInMode("list_available_mcps", "plan")).toBe(true);
+    expect(isToolAllowedInMode("mcp_call", "plan")).toBe(true);
   });
 
   it("MODE_SYSTEM_TOOL_LISTS.ask is alphabetically sorted", () => {

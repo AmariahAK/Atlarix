@@ -11,9 +11,10 @@
  * because a generated uuid is exactly the kind of string a model gets one
  * character wrong.
  *
- * Available in EVERY mode, Plan included. Plan can't run commands — which is
- * why `background_jobs` is withheld from it — but it can and should delegate
- * read-only recon and web research, so it needs to manage what it delegated.
+ * Available in EVERY mode, Plan included: a mode that can delegate must be able
+ * to list, read and cancel what it delegated. (This note used to explain that
+ * Plan lacked `background_jobs` "because Plan can't run commands" — Plan has
+ * both now.)
  */
 
 import {

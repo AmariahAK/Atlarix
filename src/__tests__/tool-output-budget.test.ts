@@ -64,6 +64,13 @@ describe("maybeTruncateToolOutput (in-band token budget envelope)", () => {
     expect(value).toContain("END-MARKER exit code 1");
     expect(value).toContain("chars omitted");
     // No fragile temp-file path handed back to the model.
+    // Disk spill is GONE (registry.ts: over-budget output is truncated in
+    // place and the model re-reads the original file). The read exemption that
+    // used to accompany it — `isAllowedToolOutputPath`, granting read_file
+    // access to $TMPDIR/atlarix-tool-outputs — is deleted with this assertion's
+    // subject: nothing had written that directory for releases, so it was a
+    // standing permission on a shared temp path, readable by anything that
+    // dropped a .txt there.
     expect(value).not.toContain("atlarix-tool-outputs");
     expect(value.toLowerCase()).not.toContain("written to");
   });

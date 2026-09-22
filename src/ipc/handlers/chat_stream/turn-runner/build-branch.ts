@@ -34,7 +34,7 @@ import {
 import { feedTerminalOutput } from "@/lib/streams/StreamManager";
 import { getToolActivityLabel } from "@/lib/tool-activity-labels";
 import { ToolRegistry } from "@/lib/tools";
-import { toolExecutionChatMode } from "@/lib/work-mode";
+import { isReadOnlyWorkMode, toolExecutionChatMode } from "@/lib/work-mode";
 import { captureSafe } from "@/main/lib/analytics";
 import { type ChatContextReport } from "@/ipc/ipc_types";
 import { getEffectiveModelForOptions } from "@/ipc/utils/get_model_client";
@@ -271,7 +271,14 @@ export async function runBuildBranch(
 
   // Listen for terminal output events and forward to frontend; v3.9: also feed to StreamManager for stream_terminal_output
   permissionInterceptor.on("terminal-output", (payload: any) => {
-    feedTerminalOutput(req.chatId, payload.output ?? "");
+    // THE DELTA, not the accumulated buffer. `feedTerminalOutput` splits its
+    // input into lines and re-scans every one of them; fed the cumulative buffer
+    // it re-processed the whole command on every chunk, guarded only by a
+    // single-line dedupe. This is the one consumer that becomes CORRECT under
+    // deltas rather than merely cheaper — `stream_terminal_output` used to
+    // collect each matching line roughly once per chunk until its own byte cap
+    // deactivated the stream early.
+    feedTerminalOutput(req.chatId, payload.delta ?? payload.output ?? "");
     // Streaming output IS activity — pulse so the inline status doesn't
     // falsely flip to "Reconnecting…" during a long/quiet command.
     handleStreamActivityPulse();
@@ -280,6 +287,7 @@ export async function runBuildBranch(
       commandId: payload.operationId,
       command: payload.command,
       output: payload.output,
+      delta: payload.delta,
       status: payload.status,
       exitCode: payload.exitCode,
       background: payload.background === true,
@@ -686,6 +694,7 @@ export async function runBuildBranch(
                   req.chatId,
                   event.sender,
                   workspacePath,
+                  isReadOnlyWorkMode(effectiveWorkMode),
                 );
                 if (categoryBlock) return categoryBlock;
               }
@@ -726,6 +735,7 @@ export async function runBuildBranch(
                       req.chatId,
                       event.sender,
                       workspacePath,
+                      isReadOnlyWorkMode(effectiveWorkMode),
                     )) ||
                   shouldAutoApprovePermissions(
                     settings.agentMode,
@@ -1051,6 +1061,7 @@ export async function runBuildBranch(
                 permRequest,
                 effectiveAppId,
                 workspacePath,
+                isReadOnlyWorkMode(effectiveWorkMode),
               );
               if (process.env.ATLARIX_DIAG_146 === "1") {
                 const prev = permRequest.preview as {
@@ -1618,6 +1629,7 @@ export async function runBuildBranch(
                   req.chatId,
                   event.sender,
                   workspacePath,
+                  isReadOnlyWorkMode(effectiveWorkMode),
                 );
                 if (categoryBlock) {
                   iterationResults.push({
@@ -1667,6 +1679,7 @@ export async function runBuildBranch(
                       req.chatId,
                       event.sender,
                       workspacePath,
+                      isReadOnlyWorkMode(effectiveWorkMode),
                     )) ||
                   shouldAutoApprovePermissions(
                     settings.agentMode,
@@ -1769,6 +1782,7 @@ export async function runBuildBranch(
                     permRequest,
                     effectiveAppId,
                     workspacePath,
+                    isReadOnlyWorkMode(effectiveWorkMode),
                   ),
                 });
                 logger.log(

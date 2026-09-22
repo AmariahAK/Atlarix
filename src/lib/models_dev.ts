@@ -144,6 +144,7 @@ function publishVisionModalities(data: ModelsDevData): void {
       modelId: string;
       acceptsImages: boolean;
       acceptsPdf: boolean;
+      acceptsAudio: boolean;
     }> = [];
     for (const [providerId, provider] of Object.entries(data)) {
       if (!provider?.models) continue;
@@ -157,13 +158,24 @@ function publishVisionModalities(data: ModelsDevData): void {
         // see images without accepting a document part, so this is NOT derivable
         // from the vision flag.
         const acceptsPdf = inputs.includes("pdf");
-        entries.push({ providerId, modelId, acceptsImages, acceptsPdf });
+        // `audio` gates the composer's microphone. Declared by 727 models in the
+        // catalog, so the mic follows the model the user picked with no
+        // hardcoded list — the same reason the vision gate reads modalities.
+        const acceptsAudio = inputs.includes("audio");
+        entries.push({
+          providerId,
+          modelId,
+          acceptsImages,
+          acceptsPdf,
+          acceptsAudio,
+        });
         if (atlarixId)
           entries.push({
             providerId: atlarixId,
             modelId,
             acceptsImages,
             acceptsPdf,
+            acceptsAudio,
           });
       }
     }

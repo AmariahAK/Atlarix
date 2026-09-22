@@ -166,6 +166,7 @@ export function setTerminalScopeState(
 }
 
 export function clearAllTerminalScopes(): void {
+  agentOutputSeq.clear();
   ensureLoadedFromDisk();
   scopes.clear();
   schedulePersist();
@@ -253,12 +254,60 @@ export function listRetainedAgentCommands(scopeKey: string) {
  * keyed on the accumulated length so a re-emitted chunk replaces rather than
  * duplicates.
  */
+/**
+ * Record a command's output into its terminal tab.
+ *
+ * TAKES A DELTA WHEN ONE IS OFFERED, and that is the whole point of this
+ * rewrite. It used to take only the ACCUMULATED output and, on every chunk:
+ * filter every previous output line for this operation out of the array,
+ * re-split the entire buffer on `\n`, and push all of it back — then
+ * `schedulePersist()`. That is O(total) work per chunk, so O(n²) over a command,
+ * plus a disk write per chunk. On a 4.9 MB build log delivered in 75 chunks it
+ * re-split ~187 MB of text to end up with the same 70,000 lines.
+ *
+ * The filter-and-rebuild was not gratuitous: ids were keyed on the accumulated
+ * LENGTH (`-out-<len>-<i>`) precisely so a re-emitted cumulative chunk would
+ * supersede its predecessor rather than duplicate it. With a delta there is
+ * nothing to supersede — each delta is new text exactly once — so the ids key on
+ * a per-operation counter instead and the rebuild disappears.
+ *
+ * `delta` is optional so a caller that still sends only the accumulated buffer
+ * keeps the old superseding behaviour. Both paths are covered by
+ * `agent-output-buffer-main-side.test.ts`.
+ */
+/**
+ * Monotonic sequence per operation, for delta entry ids.
+ *
+ * Kept OUT of the persisted scope state on purpose: it only has to be unique
+ * within a run, and persisting it would make a reload resume mid-sequence for an
+ * operation that no longer exists. A collision after reload is harmless anyway —
+ * the old entries were already capped away or belong to a finished command.
+ */
+const agentOutputSeq = new Map<string, number>();
+
+function nextAgentOutputSeq(
+  scope: { agentOpMap: Record<string, string> },
+  operationId: string,
+): number {
+  const key = `${scope.agentOpMap[operationId] ?? "?"}:${operationId}`;
+  // Bounded, because an unbounded map keyed per operation is the same class of
+  // bug this whole change is removing. A reset is harmless: the ids only have to
+  // be unique among the entries a tab is currently holding, and `capTerminalLines`
+  // has long since evicted anything from 4,000 operations ago.
+  if (agentOutputSeq.size > 4_000) agentOutputSeq.clear();
+  const n = (agentOutputSeq.get(key) ?? 0) + 1;
+  agentOutputSeq.set(key, n);
+  return n;
+}
+
 export function appendAgentCommandOutput(
   scopeKey: string,
   args: {
     operationId: string;
     command: string;
     output: string;
+    /** Only the text new since the previous call. Preferred when present. */
+    delta?: string;
     status: "running" | "completed" | "error";
   },
 ): void {
@@ -272,9 +321,12 @@ export function appendAgentCommandOutput(
     : undefined;
   if (!inst) return;
 
-  const lines = inst.lines.filter(
-    (l) => !l.id.startsWith(`${args.operationId}-out-`),
-  );
+  // A delta is new text; there is nothing to supersede, so keep what is there.
+  // Only the cumulative path still has to drop and rebuild.
+  const isDelta = args.delta != null;
+  const lines = isDelta
+    ? [...inst.lines]
+    : inst.lines.filter((l) => !l.id.startsWith(`${args.operationId}-out-`));
   if (!lines.some((l) => l.id === `${args.operationId}-cmd`)) {
     lines.push({
       id: `${args.operationId}-cmd`,
@@ -283,7 +335,8 @@ export function appendAgentCommandOutput(
       kind: "prompt",
     });
   }
-  if (args.output.trim()) {
+  const text = isDelta ? args.delta! : args.output;
+  if (text.trim()) {
     // One entry PER LINE, not one entry per chunk.
     //
     // `readTerminalInstance(maxLines)` and `capTerminalLines` both slice by
@@ -292,12 +345,20 @@ export function appendAgentCommandOutput(
     // `background_jobs({operation:"read"})` puts in the context window — an
     // unbounded dev-server log would land there whole. Ids stay keyed on the
     // accumulated length so a re-emitted chunk still supersedes its predecessor.
-    const chunk = args.output.replace(/\n+$/, "").split("\n");
-    chunk.forEach((text, i) => {
+    // The id must stay unique per entry. On the cumulative path that is the
+    // accumulated length (so a re-emit supersedes); on the delta path it is a
+    // monotonic per-operation counter, because two deltas can legitimately carry
+    // identical text (a repeated progress line) and must not collapse.
+    const seq = isDelta ? nextAgentOutputSeq(scope, args.operationId) : null;
+    const chunk = text.replace(/\n+$/, "").split("\n");
+    chunk.forEach((line, i) => {
       lines.push({
-        id: `${args.operationId}-out-${args.output.length}-${i}`,
+        id:
+          seq != null
+            ? `${args.operationId}-out-d${seq}-${i}`
+            : `${args.operationId}-out-${args.output.length}-${i}`,
         prefix: "[Agent]",
-        text,
+        text: line,
         kind: "output",
       });
     });

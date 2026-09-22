@@ -2,9 +2,10 @@
  * Which responses get the app's Content-Security-Policy stamped on them.
  *
  * Extracted from `installContentSecurityPolicy` so the rule is testable without
- * booting Electron — it decides whether the whisper worker runs under a policy
- * at all, and it was wrong for several releases with a docstring that said
- * otherwise.
+ * booting Electron — it decides whether a dedicated worker runs under a policy at
+ * all, and it was wrong for several releases with a docstring that said
+ * otherwise. (The worker that exposed it was the on-device speech engine's, since
+ * deleted; the rule stays for the next one.)
  */
 
 /** Electron WebRequest resource types this predicate cares about. */

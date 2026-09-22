@@ -32,6 +32,12 @@ import { useAuth } from "./lib/auth/useAuth";
 import * as Sentry from "@sentry/electron/renderer";
 import { sentryBeforeSendDropExpected } from "./lib/sentry-before-send";
 import { SENTRY_IGNORE_ERROR_PATTERNS } from "./lib/sentry-ignore-patterns";
+import { purgeLegacyVoiceModelCache } from "./lib/voice/purge-legacy-model-cache";
+
+// The on-device speech engine is gone; its ~285 MB of cached weights are not,
+// and nothing else would ever remove them. Fire-and-forget — it must not delay
+// first paint, and there is nothing to report either way.
+void purgeLegacyVoiceModelCache();
 
 // @ts-ignore
 console.log("Running in mode:", import.meta.env.MODE);

@@ -1,10 +1,15 @@
 /**
- * BYOK cloud transcription (optional accuracy upgrade over on-device Whisper).
+ * BYOK transcription.
  *
- * The renderer records audio and, when the user picks a cloud transcription
- * provider, sends it here as base64. Main resolves the user's own key and calls
- * the provider's speech-to-text endpoint. This never touches Atlarix Core quota
- * — it's the user's key, their bill. Local Whisper stays the free default.
+ * The renderer records audio and sends it here as base64. Main resolves the
+ * user's own key and calls the provider's speech-to-text endpoint. This never
+ * touches Atlarix Core quota — it's the user's key, their bill.
+ *
+ * THIS IS THE ONLY TRANSCRIPTION PATH. The on-device Whisper engine that used to
+ * be the free default is deleted: it materialised ~285 MB of weights in the
+ * RENDERER whenever a composer mounted, and took an 8 GB machine to
+ * "your system has run out of application memory" twice. See `useVoiceInput.ts`
+ * for the measurements.
  */
 
 import { ipcMain } from "electron";
@@ -83,6 +88,29 @@ type TranscribeResult =
   | { ok: true; text: string }
   | { ok: false; error: string };
 
+/**
+ * OpenAI rejects an upload whose FILENAME has no recognised audio extension,
+ * regardless of the part's content type — so the name has to follow the
+ * container the renderer actually recorded, which is ogg where the platform
+ * offers it and webm otherwise.
+ */
+const EXTENSION_BY_MEDIA_TYPE: Record<string, string> = {
+  "audio/ogg": "ogg",
+  "audio/opus": "ogg",
+  "audio/webm": "webm",
+  "audio/mpeg": "mp3",
+  "audio/mp3": "mp3",
+  "audio/mp4": "mp4",
+  "audio/wav": "wav",
+  "audio/x-wav": "wav",
+  "audio/flac": "flac",
+};
+
+export function audioFilename(mimeType: string): string {
+  const bare = (mimeType.split(";")[0] || "").trim().toLowerCase();
+  return `audio.${EXTENSION_BY_MEDIA_TYPE[bare] ?? "webm"}`;
+}
+
 /** OpenAI + Groq share the OpenAI `/audio/transcriptions` multipart contract. */
 async function transcribeOpenAiCompatible(
   baseUrl: string,
@@ -92,7 +120,7 @@ async function transcribeOpenAiCompatible(
   language?: string,
 ): Promise<string> {
   const form = new FormData();
-  form.append("file", audio, "audio.webm");
+  form.append("file", audio, audioFilename(audio.type));
   form.append("model", model);
   if (language) form.append("language", language);
   form.append("response_format", "json");
@@ -154,15 +182,15 @@ async function transcribeGemini(
 
 export type TranscriptionProviderOption = { id: string; label: string };
 
-/** Always first: free, on-device, needs no key. */
-const LOCAL_OPTION: TranscriptionProviderOption = {
-  id: "local",
-  label: "On-device (free)",
-};
-
 /**
  * Build the composer's transcription list: providers the user has a key for
  * AND that expose an audio-input model, labelled from the cloud catalog.
+ *
+ * MAY BE EMPTY, and that is a meaningful answer rather than a failure. It used
+ * to be seeded with an always-present on-device entry, so "no options" was
+ * unrepresentable; now an empty list is how the composer learns there is no BYOK
+ * transcription, and it falls back to the active model's own audio input (or
+ * hides the mic entirely).
  *
  * Exported for tests — the IPC wrapper below is a thin shell around it.
  */
@@ -194,14 +222,10 @@ export async function buildTranscriptionProviderOptions(deps: {
   }
 
   out.sort((a, b) => a.label.localeCompare(b.label));
-  return [LOCAL_OPTION, ...out];
+  return out;
 }
 
 export function registerVoiceHandlers() {
-  ipcMain.handle("voice:log", (_e, message: unknown) => {
-    logger.info(`[diag] ${String(message)}`);
-  });
-
   ipcMain.handle(
     "voice:list-transcription-providers",
     async (): Promise<TranscriptionProviderOption[]> => {
@@ -216,8 +240,10 @@ export function registerVoiceHandlers() {
         });
       } catch (e) {
         logger.warn("failed to list transcription providers", e);
-        // Never leave the picker empty — on-device always works.
-        return [LOCAL_OPTION];
+        // Empty, not a guess. A catalog failure must not advertise a provider
+        // whose key we could not confirm — the mic then falls back to the active
+        // model's own audio input, which needs no key at all.
+        return [];
       }
     },
   );
@@ -235,7 +261,7 @@ export function registerVoiceHandlers() {
         if (!apiKey) {
           return {
             ok: false,
-            error: `No API key set for ${provider}. Add one in Settings → Providers, or use local transcription.`,
+            error: `No API key set for ${provider}. Add one in Settings → Providers, or pick a model that accepts audio.`,
           };
         }
 
@@ -243,7 +269,7 @@ export function registerVoiceHandlers() {
         if (!model) {
           return {
             ok: false,
-            error: `No speech-to-text model found for ${provider}. Pick another transcription provider, or use local transcription.`,
+            error: `No speech-to-text model found for ${provider}. Pick another transcription provider, or a model that accepts audio.`,
           };
         }
 
@@ -260,7 +286,7 @@ export function registerVoiceHandlers() {
         if (!baseUrl) {
           return {
             ok: false,
-            error: `No API endpoint known for ${provider}. Pick another transcription provider, or use local transcription.`,
+            error: `No API endpoint known for ${provider}. Pick another transcription provider, or a model that accepts audio.`,
           };
         }
         const bytes = Buffer.from(dataBase64, "base64");
@@ -276,6 +302,95 @@ export function registerVoiceHandlers() {
       } catch (e) {
         const error = e instanceof Error ? e.message : String(e);
         logger.warn(`cloud transcription failed: ${error}`);
+        return { ok: false, error };
+      }
+    },
+  );
+
+  /**
+   * Transcribe through the CHAT MODEL the user is already on.
+   *
+   * The other route needs a BYOK key for a provider with a speech endpoint. This
+   * one needs no key at all: it sends the clip to whatever model is selected, over
+   * the same client and the same routing a chat turn uses — which is what makes
+   * the mic work on Atlarix Core, where the user has no key to bring.
+   *
+   * The model is read from SETTINGS, not from the renderer. The renderer knows it
+   * too, but taking it over IPC would let a compromised renderer name any model
+   * and any provider and have main resolve a key for it.
+   *
+   * Only reached when the selected model declares `audio` input
+   * (`supportsAudioInput`, stamped in main from the models.dev catalog) — a model
+   * that cannot hear returns text about an attachment it never received, and the
+   * composer hides the mic rather than letting that happen.
+   *
+   * It bills like any other turn on that model, so the usage is recorded rather
+   * than left invisible.
+   */
+  ipcMain.handle(
+    "voice:transcribe-model",
+    async (
+      _e,
+      params: {
+        mimeType: string;
+        dataBase64: string;
+        language?: string;
+        /** Only for usage attribution — never for routing. */
+        chatId?: number;
+      },
+    ): Promise<TranscribeResult> => {
+      try {
+        const { readSettings } = await import("../../main/settings");
+        const settings = readSettings();
+        const selected = settings.selectedModel;
+        if (!selected) {
+          return { ok: false, error: "No model selected." };
+        }
+
+        const { getModelClient } = await import("../utils/get_model_client");
+        const { generateText } = await import("ai");
+        const { modelClient } = await getModelClient(selected, settings);
+
+        const languageNote = params.language
+          ? ` The audio is in ${params.language}.`
+          : "";
+        const result = await generateText({
+          model: modelClient.model,
+          messages: [
+            {
+              role: "user" as const,
+              content: [
+                {
+                  type: "text" as const,
+                  // "Verbatim" and "only the transcript" both matter: a chat model
+                  // asked to transcribe will otherwise summarise it, answer it, or
+                  // wrap it in "Here is the transcription:".
+                  text:
+                    "Transcribe the attached audio verbatim." +
+                    languageNote +
+                    " Output only the transcript text, with no preamble, no" +
+                    " commentary and no quotation marks. If there is no speech," +
+                    " output nothing.",
+                },
+                {
+                  type: "file" as const,
+                  data: params.dataBase64,
+                  mediaType: params.mimeType || "audio/webm",
+                },
+              ],
+            },
+          ],
+        } as Parameters<typeof generateText>[0]);
+
+        const { recordAuxUsage } = await import(
+          "@/lib/usage/turn-usage-aggregator"
+        );
+        recordAuxUsage(params.chatId ?? null, result.usage, "transcription");
+
+        return { ok: true, text: result.text.trim() };
+      } catch (e) {
+        const error = e instanceof Error ? e.message : String(e);
+        logger.warn(`model transcription failed: ${error}`);
         return { ok: false, error };
       }
     },

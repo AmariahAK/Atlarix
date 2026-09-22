@@ -45,6 +45,7 @@ import {
   selectedAppIdAtom,
   selectedWorkspaceInfoAtom,
 } from "@/atoms/appAtoms";
+import { stripAnsi } from "@/lib/chat/output-stream";
 
 // Tab configurations for each panel type. v13.1: 'plan' is no longer its own
 // panel type — it's appended as a tab to 'code-preview' when a plan is active
@@ -307,8 +308,6 @@ function getDataForType(
 ) {
   // Helper to prepare terminal output
   const prepareTerminalOutput = () => {
-    // eslint-disable-next-line no-control-regex -- strip ANSI SGR escape sequences
-    const stripAnsi = (str: string) => str.replace(/\x1b\[[0-9;]*m/g, "");
     const rawOutput = state.terminalOutput?.output || "";
     const cleanOutput = stripAnsi(rawOutput);
     const lines = cleanOutput.split("\n").filter((line: string, i: number) => {

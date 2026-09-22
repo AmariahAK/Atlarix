@@ -7,10 +7,21 @@
  * only ever offer something that would actually work: a provider with no key
  * fails at transcription time, and a provider with no audio model has nothing
  * to transcribe with.
+ *
+ * IT MAY NOW BE EMPTY, which it could not be before. The list used to be seeded
+ * with an always-present on-device entry, so "no transcription provider" was
+ * unrepresentable and every caller could assume at least one option. With the
+ * local engine deleted, empty is the honest answer and it is what tells the
+ * composer to fall back to the selected model's own audio input — or to hide the
+ * mic. A stray fallback entry here would put back a provider the user has no key
+ * for, which is the exact failure this function exists to prevent.
  */
 
 import { describe, expect, it } from "vitest";
-import { buildTranscriptionProviderOptions } from "@/ipc/handlers/voice_handlers";
+import {
+  audioFilename,
+  buildTranscriptionProviderOptions,
+} from "@/ipc/handlers/voice_handlers";
 
 const AUDIO_BY_PROVIDER: Record<string, string[]> = {
   openai: ["gpt-4o-transcribe"],
@@ -28,11 +39,15 @@ const build = (configured: string[]) =>
   });
 
 describe("buildTranscriptionProviderOptions", () => {
-  it("offers on-device first, always", async () => {
-    const none = await build([]);
-    expect(none).toEqual([{ id: "local", label: "On-device (free)" }]);
-    const some = await build(["openai"]);
-    expect(some[0].id).toBe("local");
+  it("is empty when nothing is configured, rather than inventing an entry", async () => {
+    expect(await build([])).toEqual([]);
+  });
+
+  it("never offers the deleted on-device engine", async () => {
+    // It used to be unconditionally first. Re-adding it would offer an engine
+    // that no longer exists, and the mic would fail on click instead of hiding.
+    const ids = (await build(["openai", "groq", "gemini"])).map((o) => o.id);
+    expect(ids).not.toContain("local");
   });
 
   it("lists only providers that are BOTH key-configured and audio-capable", async () => {
@@ -72,5 +87,30 @@ describe("buildTranscriptionProviderOptions", () => {
   it("labels entries from the cloud catalog", async () => {
     const opts = await build(["openai"]);
     expect(opts.find((o) => o.id === "openai")?.label).toMatch(/OpenAI/);
+  });
+});
+
+/**
+ * The upload's FILENAME, which OpenAI validates independently of the part's
+ * content type.
+ *
+ * The renderer no longer always records webm: `audio/ogg;codecs=opus` is asked
+ * for first, because it is the one container both OpenAI's `/audio/transcriptions`
+ * and Gemini's inline audio part accept (webm is absent from Gemini's list, and
+ * webm is what Chromium's MediaRecorder produces by default). A hardcoded
+ * `audio.webm` filename over ogg bytes is rejected with an unhelpful 400.
+ */
+describe("audioFilename", () => {
+  it("follows the container, including the codec-parameter form", () => {
+    expect(audioFilename("audio/ogg;codecs=opus")).toBe("audio.ogg");
+    expect(audioFilename("audio/ogg")).toBe("audio.ogg");
+    expect(audioFilename("audio/webm;codecs=opus")).toBe("audio.webm");
+    expect(audioFilename("AUDIO/WAV")).toBe("audio.wav");
+  });
+
+  it("falls back to an extension OpenAI accepts, never to none", () => {
+    // A name with no extension is the failure case; anything recognised beats it.
+    expect(audioFilename("")).toBe("audio.webm");
+    expect(audioFilename("application/octet-stream")).toBe("audio.webm");
   });
 });

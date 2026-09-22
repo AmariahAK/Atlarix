@@ -804,9 +804,19 @@ export class IpcClient {
               console.error("[IPC] terminal-output handler threw:", err);
             }
           }
-        } else {
-          console.log("[IPC] Terminal output received:", payload);
         }
+        // NO `console.log` FALLBACK.
+        //
+        // This used to log the WHOLE payload whenever no handler was registered
+        // for the chat — and `terminal_handlers.ts` defaults `chatId` to 0, which
+        // never matches a subscriber, so every user-initiated command logged
+        // every chunk in full. With the old cumulative payloads that was a
+        // quadratic devtools flood that Chromium then retained.
+        //
+        // Dropped rather than rate-limited: an unhandled terminal event carries
+        // no information the main-side log does not already have, and the one
+        // shape that reliably hit it (chatId 0) is a routing quirk, not an error
+        // worth reporting on every chunk.
       }
     });
 
@@ -1109,15 +1119,10 @@ export class IpcClient {
     return () => this.tokenUsageHandlers.delete(handler);
   }
 
-  /** Fire-and-forget voice diagnostics → main's electron-log (renderer console
-   * isn't captured in the packaged main.log). */
-  public logVoiceDiag(message: string): void {
-    void this.ipcRenderer.invoke("voice:log", message);
-  }
-
-  /** Transcription engines offered in the composer: on-device plus every
-   * provider the user has a key for that can accept audio. Main-process only
-   * (the catalog touches fs), hence the IPC. */
+  /** BYOK transcription providers offered in the composer: every provider the
+   * user has a key for that can also accept audio. MAY BE EMPTY — the mic then
+   * falls back to the selected model's own audio input, or hides. Main-process
+   * only (the catalog touches fs), hence the IPC. */
   public async listTranscriptionProviders(): Promise<
     Array<{ id: string; label: string }>
   > {
@@ -1139,6 +1144,28 @@ export class IpcClient {
   }): Promise<string> {
     const res = (await this.ipcRenderer.invoke(
       "voice:transcribe-cloud",
+      params,
+    )) as { ok: true; text: string } | { ok: false; error: string };
+    if (!res.ok) throw new Error(res.error);
+    return res.text;
+  }
+
+  /**
+   * Transcribe through the chat model that is already selected.
+   *
+   * No key and no transcription provider — main reads the selected model from
+   * settings and sends the clip over the same client a chat turn uses. This is
+   * the route that makes the mic work on Atlarix Core. Only call it when the
+   * model declares audio input (`supportsAudioInput`).
+   */
+  public async transcribeAudioWithModel(params: {
+    mimeType: string;
+    dataBase64: string;
+    language?: string;
+    chatId?: number;
+  }): Promise<string> {
+    const res = (await this.ipcRenderer.invoke(
+      "voice:transcribe-model",
       params,
     )) as { ok: true; text: string } | { ok: false; error: string };
     if (!res.ok) throw new Error(res.error);
@@ -3212,7 +3239,18 @@ export class IpcClient {
       chatId: number;
       commandId: string;
       command: string;
+      /**
+       * The accumulated output so far.
+       *
+       * Kept for the synthesised completed/error events, which carry the final
+       * full text. A live `running` event also still carries it, but a consumer
+       * should prefer `delta` — re-reading this on every chunk is what made the
+       * renderer quadratic (measured: 218 ms of blocked main thread per 4.9 MB
+       * command, against 6 ms for the deltas).
+       */
       output: string;
+      /** Only what is new since the previous event. Absent on completed/error. */
+      delta?: string;
       status: "running" | "completed" | "error";
       exitCode?: number;
       background?: boolean; // A long-running/background process — gets its own tab

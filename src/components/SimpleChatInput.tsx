@@ -394,6 +394,7 @@ export function SimpleChatInput({
           <VoiceInputButton
             disabled={mustSignIn}
             onInsertText={handleTranscript}
+            chatId={chatId}
           />
 
           {/* v13.2: ONE action slot — Stop replaces Send while

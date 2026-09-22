@@ -51,22 +51,25 @@ export function ChatConfigDropdown() {
       (m) => m.apiName === settings.selectedModel.name,
     )?.supportsDeepThinking === true;
   const deepThinking = !!settings?.deepThinking;
-  const voiceProvider = settings?.voiceTranscriptionProvider ?? "local";
-  const voiceMode = settings?.voiceInputMode ?? "dictate";
   // Derived in main from (providers with a key) ∩ (providers with an
   // audio-input model), so the menu can't offer something that would fail at
-  // transcription time. The curated list stays as the fallback while the query
-  // is loading/errored — voice must never present an empty picker.
+  // transcription time.
+  //
+  // NO CURATED FALLBACK any more, and no always-present on-device entry. Both
+  // existed because "voice must never present an empty picker" — which was true
+  // while there was a free local engine to fall back to. Now an empty list is the
+  // honest answer: there is no BYOK transcription, and the section hides. The mic
+  // itself can still appear, off the selected model's own audio input
+  // (`useVoiceCapability`), which needs nothing to pick.
   const { data: voiceProviders } = useTranscriptionProviders();
-  const VOICE_PROVIDERS =
-    voiceProviders && voiceProviders.length > 0
-      ? voiceProviders
-      : [
-          { id: "local", label: "On-device (free)" },
-          { id: "openai", label: "OpenAI (BYOK)" },
-          { id: "groq", label: "Groq (BYOK)" },
-          { id: "gemini", label: "Gemini (BYOK)" },
-        ];
+  const VOICE_PROVIDERS = voiceProviders ?? [];
+  // `"local"` is a setting for an engine that no longer exists — treat it as unset
+  // rather than leaving a checkmark on a row that is not there.
+  const stored = settings?.voiceTranscriptionProvider;
+  const voiceProvider = stored && stored !== "local" ? stored : undefined;
+  const effectiveVoiceProvider =
+    VOICE_PROVIDERS.find((p) => p.id === voiceProvider)?.id ??
+    VOICE_PROVIDERS[0]?.id;
 
   return (
     <DropdownMenu>
@@ -136,39 +139,36 @@ export function ChatConfigDropdown() {
           {/* Only a separator when there is something above it to separate —
               the Reasoning block is conditional, and a rule at the very top of
               the menu reads as a rendering slip. */}
-          {reasoningCapable ? <DropdownMenuSeparator /> : null}
-          <DropdownMenuLabel className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-            <Mic className="h-3.5 w-3.5" />
-            Voice input
-          </DropdownMenuLabel>
-          {VOICE_PROVIDERS.map((p) => (
-            <DropdownMenuCheckboxItem
-              key={p.id}
-              checked={voiceProvider === p.id}
-              onCheckedChange={() =>
-                updateSettings({ voiceTranscriptionProvider: p.id })
-              }
-              onSelect={(e) => e.preventDefault()}
-            >
-              {p.label}
-            </DropdownMenuCheckboxItem>
-          ))}
-          <DropdownMenuCheckboxItem
-            checked={voiceMode === "live"}
-            onCheckedChange={(v) =>
-              updateSettings({ voiceInputMode: v ? "live" : "dictate" })
-            }
-            onSelect={(e) => e.preventDefault()}
-          >
-            Live transcription
-            <span className="ml-auto text-[10px] text-muted-foreground">
-              {voiceMode === "live" ? "on" : "off"}
-            </span>
-          </DropdownMenuCheckboxItem>
-          <p className="px-2 pb-1 pt-0.5 text-[10px] leading-snug text-muted-foreground">
-            On-device is free & private (first use downloads a small model).
-            Live shows words as you speak (on-device + WebGPU).
-          </p>
+          {reasoningCapable && VOICE_PROVIDERS.length > 0 ? (
+            <DropdownMenuSeparator />
+          ) : null}
+          {/* Nothing to choose between with no BYOK speech key — the whole
+              section goes, rather than showing a label over an empty list. */}
+          {VOICE_PROVIDERS.length > 0 ? (
+            <>
+              <DropdownMenuLabel className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                <Mic className="h-3.5 w-3.5" />
+                Voice input
+              </DropdownMenuLabel>
+              {VOICE_PROVIDERS.map((p) => (
+                <DropdownMenuCheckboxItem
+                  key={p.id}
+                  checked={effectiveVoiceProvider === p.id}
+                  onCheckedChange={() =>
+                    updateSettings({ voiceTranscriptionProvider: p.id })
+                  }
+                  onSelect={(e) => e.preventDefault()}
+                >
+                  {p.label}
+                </DropdownMenuCheckboxItem>
+              ))}
+              <p className="px-2 pb-1 pt-0.5 text-[10px] leading-snug text-muted-foreground">
+                Transcribed with your own provider key — never billed to Atlarix
+                Core. Works on every model. Without one, the mic uses the
+                selected model when it accepts audio.
+              </p>
+            </>
+          ) : null}
         </div>
       </DropdownMenuContent>
     </DropdownMenu>

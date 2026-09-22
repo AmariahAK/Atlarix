@@ -119,16 +119,30 @@ export async function runSubagentCommandViaParent(opts: {
   // command run unsandboxed. A sub-agent must not be able to drop the sandbox.
   delete preview.systemScopeInteractive;
 
+  // A sub-agent command is ALWAYS read-only-source, as a hard literal.
+  //
+  // This is the whole reason the gate takes a boolean policy rather than a work
+  // mode: there is no mode here to pass. A worker borrows the parent turn's
+  // interceptor, so on a Build turn it would otherwise inherit workspace-write —
+  // the opposite of a role whose job is to observe. `true` is unreachable from
+  // the tool envelope above (`preview.readOnly` is forced, `readOnly:false` is
+  // ignored), which is what "narrow, never widen" means here.
+  //
+  // What it costs the worker is nothing it should have had: a mutating command
+  // now surfaces as a card in the PARENT session, labelled `requestedByAgent`,
+  // rather than being refused silently by a kernel nobody was watching.
   const enriched = enrichRunCommandPermissionRequest(
     request as { operation: string; preview: unknown },
     workspaceId ?? null,
     workspacePath,
+    true,
   ) as PermissionRequest;
 
   const verdict = runCommandCategoryPreflight(
     command,
     workspaceId ?? null,
     workspacePath,
+    true,
   );
 
   if (verdict.type === "auto_deny") {

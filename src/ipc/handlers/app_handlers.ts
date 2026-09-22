@@ -61,6 +61,8 @@ import { capture as analyticsCapture } from "../../main/lib/analytics";
 import { SENTRY_DSN } from "../../main/sentry-config";
 
 import { getAppPort } from "../../../shared/ports";
+import { broadcastToAllWindows } from "../utils/broadcast_all_windows";
+import { cancelStreamsForApp } from "./chat_stream/stream-lifecycle";
 
 function getDefaultCommand(appId: number): string {
   const port = getAppPort(appId);
@@ -647,6 +649,16 @@ export function registerAppHandlers() {
           );
         }
 
+        // STOP THE AGENT BEFORE TOUCHING THE FILES.
+        //
+        // This handler used to stop the dev server and cascade the chat rows
+        // while leaving `activeStreams` completely alone — so a live turn could
+        // be mid-`run_command` inside a directory this function was about to
+        // `rm -rf`, writing its result to a chat row that no longer existed.
+        // Order matters: aborting after the delete stops nothing that was
+        // running during it.
+        const cancelledTurns = cancelStreamsForApp(appId);
+
         // Stop the app if it's running
         if (runningApps.has(appId)) {
           const appInfo = runningApps.get(appId)!;
@@ -740,6 +752,27 @@ export function registerAppHandlers() {
           logger.warn(`Could not clear workspace cache: ${error}`);
           // Don't fail - main deletion succeeded
         }
+
+        // TELL EVERY WINDOW, because nothing else does.
+        //
+        // `useLoadApps` refreshes on mount and then only reacts to
+        // `apps:status-changed`, whose reducer patches ids it ALREADY has — so a
+        // deleted id is never removed from any other window's list, not even on
+        // focus. That window kept a working-looking sidebar, session list and
+        // composer for a workspace that no longer existed, and the failure only
+        // surfaced when the next turn tried to write to a cascaded chat row.
+        //
+        // Broadcast rather than `sendToWorkspaceWindowQuiet`: the path→window
+        // registry only knows windows that actually loaded the workspace, and
+        // the renderer-side cleanup is already a no-op in a window that had a
+        // different workspace selected. So this is safe to send to everyone,
+        // including the window that asked for the delete.
+        broadcastToAllWindows("workspace:deleted", {
+          appId,
+          path: app.path,
+          name: app.name,
+          cancelledTurns,
+        });
       });
     },
   );

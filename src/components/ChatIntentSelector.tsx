@@ -55,12 +55,12 @@ const WORK_MODES: {
   {
     value: "ask",
     icon: MessageCircle,
-    desc: "Read-only: read, search, run non-mutating commands, and preview the app. No file edits — use Plan for roadmaps, Build to implement.",
+    desc: "Read, search, run the project, and preview the app. No file edits, and changing the source with a command asks you first — use Plan for roadmaps, Build to implement.",
   },
   {
     value: "plan",
     icon: ListTodo,
-    desc: "Plan the work with the plan tool (shown as a card). No source edits — switch to Build to implement.",
+    desc: "Plan the work with the plan tool (shown as a card). Can run commands to check its assumptions. No source edits — switch to Build to implement.",
   },
   {
     value: "build",

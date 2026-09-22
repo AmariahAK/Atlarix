@@ -90,11 +90,13 @@ export default function AtlarixAnimation({
   const phaseRef = useRef(phase);
   const playOnceRef = useRef(playOnce);
   const bareRef = useRef(bare);
+  const isFullRef = useRef(size === "full");
   const playOnceStartRef = useRef<number | null>(null);
   const frozenLtRef = useRef<number | null>(null);
   phaseRef.current = phase;
   playOnceRef.current = playOnce;
   bareRef.current = bare;
+  isFullRef.current = size === "full";
 
   useEffect(() => {
     const syncPalette = () => setPalette(resolveAnimationPalette(theme));
@@ -717,7 +719,10 @@ export default function AtlarixAnimation({
         rafRef.current = requestAnimationFrame(frame);
         return;
       }
-      drawBg(ctx!, W!, H!);
+      // Only the full-screen backdrop paints a background; everywhere else the
+      // `clearRect` above leaves the canvas transparent so the animation sits on
+      // the surface behind it rather than inside a box of its own.
+      if (isFullRef.current) drawBg(ctx!, W!, H!);
       drawGrid(ctx!, W!, H!, 0.8);
 
       drawCrosshair(ctx!, cx!, cy!, R!, ringAlpha);
@@ -762,7 +767,14 @@ export default function AtlarixAnimation({
   const containerStyle: React.CSSProperties = {
     width: typeof dims.width === "number" ? dims.width : dims.width,
     height: typeof dims.height === "number" ? dims.height : dims.height,
-    background: bare ? "transparent" : palette.bg,
+    // NO TILE. The animation floats on whatever is behind it.
+    //
+    // `palette.bg` is an opaque fill (#030a06 dark / #f6fbf8 light) that used to
+    // give the logo a plane of its own. On any real surface it reads as an
+    // unexplained square with a hard rounded edge, which is exactly what it was
+    // reported as. The only place the fill is the POINT is `size="full"`, where
+    // the animation is the backdrop rather than something sitting on one.
+    background: bare || !isFull ? "transparent" : palette.bg,
     overflow: "hidden",
     position: "relative",
     borderRadius: isFull ? 0 : 8,

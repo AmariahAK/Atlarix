@@ -29,6 +29,7 @@ import {
 import { renderModePromptBundle } from "../lib/tools/mode-prompt-bundle";
 import { getAppVersion } from "../lib/app-version";
 import { memoryDirFor } from "../lib/agent-memory";
+import { agentScratchDirFor } from "../lib/agent-scratch";
 import { getAcceptableShell } from "../lib/shell/resolve-shell";
 import { readSettings } from "../main/settings";
 import { LOCALE_ENGLISH_NAMES } from "@/lib/i18n/locales";
@@ -159,14 +160,14 @@ export const getAgentsMdForWorkMode = (_mode: ModeSystemKey): string => {
 };
 
 const MODE_SYSTEM_DESCRIPTIONS: Record<ModeSystemKey, string> = {
-  ask: "Explore (read-only). Answer questions, summarise code, and never mutate the workspace.",
-  plan: "Author the session plan (plan tool) and .atlarix/atlarix.md before production code changes.",
+  ask: "Explore. Answer questions and summarise code; run the project freely, but changing the source needs the user's approval.",
+  plan: "Author the session plan (plan tool) and .atlarix/atlarix.md before production code changes. Verify assumptions with run_command first; do not implement.",
   build:
     "Full implementation surface. All registered tools are available; respect approval flows for writes / commands.",
   debug:
     "Debug mode — hypothesis-first fixes. Form a hypothesis (root cause + evidence) before any write, apply minimal changes that test it, then verify by running the project's own failing tests/checks via run_command; note the root cause when you report the fix.",
   review:
-    "Read-only review. Inspect changes, surface findings; do not mutate files. Use run_command for read-only checks (git diff, the project's typecheck/lint/tests) when signals help.",
+    "Review. Inspect changes and surface findings; do not mutate files. Use run_command for evidence (git diff, the project's typecheck/lint/tests) — they run normally here.",
 };
 
 /**
@@ -350,6 +351,22 @@ In user-visible text, tool summaries, and markdown replies, prefer short ASCII m
             appVersion,
             workspaceRoot,
             memoryDir,
+            // The PATH only — never `ensureAgentScratchDir`, which creates it.
+            //
+            // This builder runs on every turn for every workspace the app ever
+            // sees, including the temp workspaces the suite builds, so creating
+            // here made one empty directory per workspace: 446 of them under
+            // `atlarix-scratch/` after a single test run. That is precisely the
+            // mistake the memory directory already made once — see the
+            // constructor note in permissions/interceptor.ts about 435 empty
+            // `atlarix-grant-…` directories in a developer's real home.
+            //
+            // The directory is created on the first write that actually targets
+            // it (`ensureScratchDirForWrite`, same file), which is also where the
+            // containment check needs it to exist.
+            scratchDir: workspaceRoot
+              ? agentScratchDirFor(workspaceRoot)
+              : undefined,
           })
         : `# Atlarix runtime identity
 You run inside **Atlarix** ([atlarix.dev](https://atlarix.dev)) — an agent workstation built by **NorahLabs** ([norahlabs.com](https://norahlabs.com/)).
@@ -383,7 +400,7 @@ You run inside **Atlarix** ([atlarix.dev](https://atlarix.dev)) — an agent wor
   // shell commands genuinely run in, including a user's own $SHELL.
   const deviceInfo = `# Device
 Operating system: **${os.type()} ${os.release()}** (${os.arch()}). Shell commands run through **\`${resolvePromptShell()}\`** — use that shell's syntax and this OS's path conventions.
-This machine has **${cpuCount} CPU cores** and **${totalMemGb} GB RAM**. Dev servers, the browser, and concurrent sub-agents all compete for those — scale what you run at once to these specs.`;
+This machine has **${cpuCount} CPU cores** and **${totalMemGb} GB RAM**. Dev servers, page previews, and concurrent sub-agents all compete for those — scale what you run at once to these specs.`;
 
   // The model was never told its own window, so `compress_context` — whose
   // description says "when context is filling up" — got called on intuition. A

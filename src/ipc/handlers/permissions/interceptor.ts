@@ -66,6 +66,8 @@ import {
   appendAgentCommandOutput,
 } from "../../../lib/terminal-instance-store";
 import { isAgentMemoryDisabled, memoryDirFor } from "@/lib/agent-memory";
+import { isAutoWritablePath } from "@/lib/auto-writable-paths";
+import { agentScratchDirFor } from "@/lib/agent-scratch";
 import { isOutsidePathOnlySystemScope } from "@/lib/system-scope-commands";
 import { injectAgentGitIdentity } from "../../utils/git_author";
 import { hasConfiguredGitIdentity } from "../../utils/git_utils";
@@ -211,6 +213,7 @@ export class PermissionInterceptor extends EventEmitter {
 
   /** One mkdir per interceptor at most. */
   private memoryDirEnsured = false;
+  private scratchDirEnsured = false;
 
   /**
    * The user pressed "Allow all this turn" — approve everything for the rest of
@@ -326,6 +329,31 @@ export class PermissionInterceptor extends EventEmitter {
     } catch {
       // Memory is optional; never block a turn on it.
     }
+    // This workspace's SCRATCH directory is writable for file tools too.
+    //
+    // The runtime identity block hands the agent `<tmp>/atlarix-scratch/<slug>`
+    // by name and tells it to put temp files there rather than guessing at
+    // `/tmp`. But `edit_file` resolves through `resolvePathWithinWorkspace`,
+    // which refused anything outside the workspace or an allowed root — so the
+    // prompt gave the model a path and the file tool threw "Path is outside
+    // workspace" when it used it, leaving shelling out as the only way to write
+    // a file it had just been told to write.
+    //
+    // THE SCRATCH DIRECTORY, NOT THE TEMP ROOT. Granting all of `os.tmpdir()`
+    // was the first attempt and it was too broad in a way the tests caught
+    // immediately: the suite builds its workspaces under the temp root, so
+    // "outside the workspace" stopped meaning anything — the outside-folder
+    // escalation never fired and a symlink escaping a granted folder landed
+    // inside an allowed root. On macOS that root is `/var/folders`, which is
+    // every app's cache, not a scratch area. Per-workspace, like the memory
+    // directory, so one project's turn cannot reach another's scratch either.
+    try {
+      if (workspacePath) {
+        this.allowedRoots.add(path.resolve(agentScratchDirFor(workspacePath)));
+      }
+    } catch {
+      /* scratch is optional; never block a turn on it */
+    }
     // snapshotTurnId left null → disk snapshots disabled for this interceptor instance (e.g. Ask + ephemeral).
     logger.log(
       `[PermissionInterceptor] Initialized for workspace: ${workspacePath} (id: ${workspaceId}, turn: ${this.snapshotTurnId ?? "none"}, chat: ${this.activeChatId})`,
@@ -358,6 +386,27 @@ export class PermissionInterceptor extends EventEmitter {
     if (this.turnBlanketApproved) return true;
     const checkPath = (filePath: string): boolean => {
       try {
+        // Places the harness ITSELF pointed the agent at: the OS temp roots and
+        // this workspace's memory directory. The runtime identity block tells
+        // the model to write its notes to one and its temp files to the other,
+        // and then this gate asked about every write to both — a card per note,
+        // for a path the prompt supplied.
+        //
+        // Checked BEFORE the `../` guard below, because both legitimately live
+        // outside the workspace. That is safe only because the check is
+        // CONTAINMENT against this workspace's own resolved memory root, not a
+        // substring — the substring version is precisely what let
+        // `../other-repo/.atlarix/hooks/hooks.json` through.
+        if (
+          path.isAbsolute(filePath) &&
+          isAutoWritablePath(
+            path.resolve(filePath),
+            this.memoryDir,
+            this.workspacePath ? agentScratchDirFor(this.workspacePath) : null,
+          )
+        ) {
+          return true;
+        }
         const rel = this.toWorkspaceRelativePosix(filePath);
         // NOTHING outside the workspace is ever blanket auto-approved,
         // whatever it is named.
@@ -1360,6 +1409,7 @@ export class PermissionInterceptor extends EventEmitter {
     // check that needs it to exist (it realpaths every allowed root and SKIPS
     // the ones it cannot resolve, which would silently refuse the first note).
     this.ensureMemoryDirForWrite(resolved);
+    this.ensureScratchDirForWrite(resolved);
     // A9/M-2: the string containment above is symlink-blind. Verify the REAL
     // target (resolving symlinks in the path) still lands inside the real
     // workspace/allowed roots — else a symlink committed into the repo could
@@ -1374,6 +1424,31 @@ export class PermissionInterceptor extends EventEmitter {
    * Create this project's memory directory the first time a write actually targets
    * it — never for a workspace whose agent simply never wrote a note.
    */
+  /**
+   * Create the scratch directory on demand, for the same reason
+   * `ensureMemoryDirForWrite` exists: `assertRealpathContained` resolves
+   * symlinks on both sides, and a root that does not exist yet cannot be
+   * realpath'd — so the FIRST write to it is refused with "Path escapes the
+   * workspace", which is both wrong and unactionable.
+   *
+   * On demand rather than in the constructor, because an interceptor is built
+   * for every workspace path the app ever sees — including the temp workspaces
+   * the suite creates. Doing this eagerly is what once left 435 empty
+   * directories behind (see the memory-dir note in the constructor).
+   */
+  private ensureScratchDirForWrite(resolved: string): void {
+    if (!this.workspacePath || this.scratchDirEnsured) return;
+    const scratch = agentScratchDirFor(this.workspacePath);
+    const rel = path.relative(scratch, resolved);
+    if (rel.startsWith("..") || path.isAbsolute(rel)) return;
+    try {
+      fsSync.mkdirSync(scratch, { recursive: true });
+      this.scratchDirEnsured = true;
+    } catch {
+      // Scratch is optional; never block a turn on it.
+    }
+  }
+
   private ensureMemoryDirForWrite(resolved: string): void {
     if (!this.memoryDir || this.memoryDirEnsured) return;
     const rel = path.relative(this.memoryDir, resolved);
@@ -1879,6 +1954,20 @@ export class PermissionInterceptor extends EventEmitter {
     operationId: string;
     command: string;
     output: string;
+    /**
+     * Only what is new since the last emit for this operation.
+     *
+     * Carried ALONGSIDE `output`, not instead of it, so consumers migrate one at
+     * a time. `output` is the accumulated buffer that has always been sent and is
+     * what makes this path quadratic: a command emitting N bytes over K chunks
+     * pushes ~N·K/2 bytes through every listener. Measured on a 4.9 MB build log,
+     * 187 MB re-sent and 218 ms of renderer main-thread parsing per command.
+     *
+     * Absent on the synthesised terminal events (completed/error), where `output`
+     * is the final full text rather than a stream increment — a consumer that
+     * appends must treat a missing delta as "nothing new".
+     */
+    delta?: string;
     status: "running" | "completed" | "error";
     background: boolean;
     exitCode?: number;
@@ -1891,6 +1980,7 @@ export class PermissionInterceptor extends EventEmitter {
           operationId: payload.operationId,
           command: payload.command,
           output: payload.output,
+          delta: payload.delta,
           status: payload.status,
         },
       );
@@ -1911,11 +2001,12 @@ export class PermissionInterceptor extends EventEmitter {
     return runShellCommandStreaming(command, workingDir, {
       sandbox,
       workspaceRoot: this.workspacePath,
-      onOutput: ({ stdout, stderr }) => {
+      onOutput: ({ stdout, stderr, deltaStdout, deltaStderr }) => {
         this.emitTerminalOutput({
           operationId,
           command,
           output: stdout + (stderr ? `\n${stderr}` : ""),
+          delta: deltaStdout + deltaStderr,
           status: "running" as const,
           background: false,
         });
@@ -1938,6 +2029,37 @@ export class PermissionInterceptor extends EventEmitter {
    * result, or null when there is nothing to escalate / the user declined.
    * Bounded so a command that keeps hitting new denials can't loop forever.
    */
+  /**
+   * A parsed denial that must NOT become a grant card.
+   *
+   * Two cases. A path already in `granted` was approved earlier in this same
+   * run, so a second card would ask for something the user has given. A path
+   * INSIDE the workspace cannot be granted at all in a read-only profile —
+   * granting your way out of read-only is the one thing that profile exists to
+   * prevent.
+   *
+   * Extracted from the closure in `maybeEscalateSandboxDenial` so that
+   * `executeRunCommand` can ask the SAME question when it decides whether the
+   * failure was already attributed. It could not before, and that was the bug:
+   * `alreadyAttributed` was computed from whether a path had been PARSED, while
+   * this predicate decided whether a card was actually RAISED. For an
+   * in-workspace denial both were true at once — no card, and no
+   * "this ran in READ-ONLY mode" note either, because the note suppresses itself
+   * when something else is supposed to be explaining the failure. The model got
+   * a bare non-zero exit for a command the prompt had just told it was allowed.
+   */
+  private isSkippableDenialPath(
+    p: string,
+    granted: ReadonlySet<string>,
+  ): boolean {
+    if (granted.has(p)) return true;
+    const workspaceReal = this.workspacePath;
+    return !!(
+      workspaceReal &&
+      (p === workspaceReal || p.startsWith(workspaceReal + path.sep))
+    );
+  }
+
   private async maybeEscalateSandboxDenial(
     result: CommandResult,
     ctx: {
@@ -1966,13 +2088,8 @@ export class PermissionInterceptor extends EventEmitter {
     if (!sandboxOpts) return null; // no sandbox applied → nothing to grant
 
     const granted = new Set(sandboxOpts.extraWritablePaths ?? []);
-    const workspaceReal = this.workspacePath;
     const isSkippable = (p: string): boolean =>
-      granted.has(p) ||
-      !!(
-        workspaceReal &&
-        (p === workspaceReal || p.startsWith(workspaceReal + path.sep))
-      );
+      this.isSkippableDenialPath(p, granted);
 
     let queue = parseSandboxDenialsFromOutput(
       `${result.stderr ?? ""}\n${result.stdout ?? ""}`,
@@ -2316,15 +2433,28 @@ export class PermissionInterceptor extends EventEmitter {
           bg.registerForegroundProc(chatIdForBg, operationId, p);
         }
       },
-      onOutput: ({ stdout, stderr }) => {
+      onOutput: ({ stdout, stderr, deltaStdout, deltaStderr }) => {
+        // `accOutput` stays CUMULATIVE deliberately. It is the sole carrier of
+        // pre-promotion output into the background job at `promote()` below, and
+        // nothing tests that handoff — leaving it as it was means it cannot
+        // regress while the display path migrates to deltas.
         accOutput = stdout + (stderr ? `\n${stderr}` : "");
         if (promoted && chatIdForBg != null) {
-          bg.updateBackgroundOutput(chatIdForBg, operationId, accOutput);
+          // Delta on the per-chunk path. The promotion handoff below still
+          // passes the accumulated buffer, because it is seeding a job that has
+          // printed nothing yet and must carry everything from before promotion.
+          bg.updateBackgroundOutput(
+            chatIdForBg,
+            operationId,
+            accOutput,
+            deltaStdout + deltaStderr,
+          );
         }
         this.emitTerminalOutput({
           operationId,
           command: commandToRun,
           output: accOutput,
+          delta: deltaStdout + deltaStderr,
           status: "running" as const,
           background: promoted,
         });
@@ -2424,10 +2554,20 @@ export class PermissionInterceptor extends EventEmitter {
             ],
             ...(sandboxOpts?.readOnly ? { readOnly: true } : {}),
             exitCode: result.exitCode,
-            alreadyAttributed:
-              parseSandboxDenialsFromOutput(
-                `${result.stderr ?? ""}\n${result.stdout ?? ""}`,
-              ).length > 0,
+            // Attributed means a grant CARD was raised, not that a path was
+            // parsed. `maybeEscalateSandboxDenial` drops in-workspace and
+            // already-granted paths (`isSkippableDenialPath`), so counting
+            // parsed denials suppressed this note in exactly the two cases
+            // where nothing else explains the failure.
+            alreadyAttributed: parseSandboxDenialsFromOutput(
+              `${result.stderr ?? ""}\n${result.stdout ?? ""}`,
+            ).some(
+              (d) =>
+                !this.isSkippableDenialPath(
+                  d.grantPath,
+                  new Set(sandboxOpts?.extraWritablePaths ?? []),
+                ),
+            ),
           });
           thrownError = new Error(
             `Command failed with exit code ${result.exitCode}${errDetail}` +

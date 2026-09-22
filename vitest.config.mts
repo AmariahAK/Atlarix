@@ -1,8 +1,38 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { defineConfig } from "vitest/config";
+import { resolveMaxWorkers } from "./scripts/lib/machine-limits.mjs";
 
 const root = import.meta.dirname;
+
+/**
+ * How many suites may run at once.
+ *
+ * Vitest's default is `ncpu - 1` FORKED processes, each a full Node with its own
+ * V8 heap, and several of these projects boot jsdom on top of that. It sizes
+ * itself to the CPU and never looks at the RAM — fine on a build server, not
+ * fine on a laptop.
+ *
+ * Measured here on an 8 GB / 8-logical-core MacBook Air: the default 7 workers
+ * against 560 suites drove the machine to 4% free memory and 39.7 GB of swap,
+ * with `kernel_task` at 151% CPU — macOS throttling a thrashing system. Every
+ * app lagged and it ended in a hard restart. The CPU count said 7 was
+ * reasonable; the 8 GB of RAM said it was not.
+ *
+ *   8 GB  /  8 cores  →  4 workers   (was 7 — the setting that crashed it)
+ *   16 GB /  4 cores  →  3 workers   (CI unchanged; CPU is still binding)
+ *   32 GB / 10 cores  →  9 workers   (unchanged)
+ *
+ * The policy lives in `scripts/lib/machine-limits.mjs` so the packaging heap and
+ * this share one definition of "how much of the machine may we take", and so it
+ * can be tested against machine shapes nobody here owns.
+ */
+const MAX_WORKERS = resolveMaxWorkers(
+  os.cpus().length,
+  os.totalmem(),
+  process.env,
+);
 
 /**
  * The agent-evals project aliases `better-sqlite3` to a Node-ABI copy under
@@ -77,6 +107,8 @@ export default defineConfig({
     },
   },
   test: {
+    // Applies to every project below; each one may still override it.
+    maxWorkers: MAX_WORKERS,
     projects: [
       {
         resolve: {

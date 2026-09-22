@@ -1,7 +1,14 @@
 /**
- * Mic dictation button for the composer. Default engine is free on-device
- * Whisper (transformers.js); Settings can switch to a BYOK cloud provider. Talk,
- * then the transcript is inserted into the composer for review before sending.
+ * Mic dictation button for the composer.
+ *
+ * SHOWN ONLY WHEN DICTATION CAN ACTUALLY HAPPEN. It used to be unconditional,
+ * because the fallback was a free on-device model that was always there; that
+ * model is deleted (see `useVoiceInput.ts`), so the button now follows a
+ * capability the way the Deep-thinking toggle does — a BYOK speech key, or a
+ * selected model that declares audio input. Neither, and it renders nothing.
+ *
+ * Talk, then the transcript is inserted into the composer for review before
+ * sending.
  */
 
 import { Loader2, Mic, Square } from "lucide-react";
@@ -16,46 +23,47 @@ import {
 } from "@/components/ui/tooltip";
 import { useSettings } from "@/hooks/useSettings";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
+import { useVoiceCapability } from "@/hooks/useVoiceCapability";
+import type { VoiceRoute } from "@/hooks/useVoiceCapability";
 import { resolveVoiceLanguage } from "@/lib/voice/language";
-
-/** Whole megabytes — the numbers here are hundreds of MB, so decimals are noise. */
-function formatMegabytes(bytes: number): string {
-  return `${Math.round(bytes / 1_048_576)} MB`;
-}
 
 interface VoiceInputButtonProps {
   disabled?: boolean;
   /** Insert transcribed text into the composer (interim replaces, final appends). */
   onInsertText: (text: string, isFinal: boolean) => void;
+  /** Only for usage attribution when transcribing through the chat model. */
+  chatId?: number;
 }
 
-export function VoiceInputButton({
+export function VoiceInputButton(props: VoiceInputButtonProps) {
+  const route = useVoiceCapability();
+  // The gate is OUTSIDE the hook-bearing component on purpose: `useVoiceInput`
+  // owns a MediaRecorder and a live MediaStream, and mounting that machinery for
+  // a button that is about to render `null` would hold a device handle for
+  // nothing. An early `return null` after the hooks would still have run them.
+  if (!route) return null;
+  return <VoiceInputButtonWithRoute {...props} route={route} />;
+}
+
+function VoiceInputButtonWithRoute({
   disabled,
   onInsertText,
-}: VoiceInputButtonProps) {
+  chatId,
+  route,
+}: VoiceInputButtonProps & { route: VoiceRoute }) {
   const { settings } = useSettings();
-  const provider = settings?.voiceTranscriptionProvider ?? "local";
-  const mode = settings?.voiceInputMode ?? "dictate";
   // Without this the engine got `undefined` and detected the language on every
   // clip — unreliable on short dictation and a silent source of bad transcripts.
   const language = resolveVoiceLanguage(settings?.voiceLanguage);
   const errorShownRef = useRef<string | null>(null);
 
-  const {
-    isRecording,
-    isTranscribing,
-    modelLoadProgress,
-    modelLoadBytes,
-    error,
-    start,
-    stop,
-    supported,
-  } = useVoiceInput({
-    provider,
-    mode,
-    language,
-    onTranscript: onInsertText,
-  });
+  const { isRecording, isTranscribing, error, start, stop, supported } =
+    useVoiceInput({
+      route,
+      language,
+      chatId,
+      onTranscript: onInsertText,
+    });
 
   useEffect(() => {
     if (error && error !== errorShownRef.current) {
@@ -67,34 +75,13 @@ export function VoiceInputButton({
 
   if (!supported) return null;
 
-  const loading = modelLoadProgress != null;
-  /**
-   * The model download deliberately does NOT make the button busy.
-   *
-   * It used to: `busy` included `loading`, and `busy` disables the button — so on first
-   * use the mic was an unclickable spinner for the entire (then ~800 MB) download, which
-   * is what "it spins endlessly, no beginning no end, not even usable" described.
-   * Recording needs no model; only `transcribe` awaits the pipeline. So you can talk
-   * immediately and the transcript arrives once the weights land.
-   */
-  const busy = isTranscribing;
-
-  const downloadLabel = loading
-    ? modelLoadBytes && modelLoadBytes.total > 0
-      ? `Downloading speech model… ${Math.round((modelLoadProgress ?? 0) * 100)}% (${formatMegabytes(
-          modelLoadBytes.loaded,
-        )} of ${formatMegabytes(modelLoadBytes.total)}) — you can start talking now`
-      : `Downloading speech model… ${Math.round((modelLoadProgress ?? 0) * 100)}% — you can start talking now`
-    : null;
-
   const title = isRecording
     ? "Stop & transcribe"
     : isTranscribing
       ? "Transcribing…"
-      : (downloadLabel ??
-        (provider === "local"
-          ? "Dictate (on-device)"
-          : `Dictate (${provider})`));
+      : route.kind === "byok"
+        ? `Dictate (${route.provider})`
+        : "Dictate (current model)";
 
   return (
     <TooltipProvider>
@@ -107,20 +94,17 @@ export function VoiceInputButton({
             className={
               isRecording ? "mx-1 text-red-500 hover:text-red-600" : "mx-1"
             }
-            disabled={disabled || (busy && !isRecording)}
+            disabled={disabled || (isTranscribing && !isRecording)}
             onClick={() => (isRecording ? stop() : void start())}
             title={title}
             aria-label={title}
           >
             {isRecording ? (
               <Square className="h-4 w-4 fill-current animate-pulse" />
-            ) : busy ? (
+            ) : isTranscribing ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
-              // Still a mic while the model downloads — the button works, so it must not
-              // look like it doesn't. Dimming plus the tooltip carries the download; a
-              // spinner here would be indistinguishable from the old unusable state.
-              <Mic className={loading ? "h-4 w-4 opacity-50" : "h-4 w-4"} />
+              <Mic className="h-4 w-4" />
             )}
           </Button>
         </TooltipTrigger>

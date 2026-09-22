@@ -407,32 +407,46 @@ export const UserSettingsSchema = z.object({
   // Context is now bounded solely by the token budget + compaction, which is
   // always on. Both keys are simply stripped from an existing settings.json
   // (this schema is non-strict), so no migration is needed.
-  /** Voice dictation: transcription engine. "local" = free on-device Whisper
-   * (default); anything else is a BYOK cloud provider id, transcribed with that
-   * provider's own key. Deliberately a free-form id rather than an enum — the
-   * handler resolves the endpoint and STT model from the live catalog, so a new
-   * provider needs no schema change. */
-  voiceTranscriptionProvider: z.string().optional(),
-  /** Voice dictation mode: "dictate" = transcribe on stop (default, most
-   * accurate); "live" = stream words as you speak (local + WebGPU only). */
-  voiceInputMode: z.enum(["dictate", "live"]).optional(),
-  /** Spoken language as an ISO-639-1 code ("en", "sw", …), or "auto" to let
-   * Whisper detect it per clip. Unset = derive from the OS locale.
+  /**
+   * Voice dictation: which BYOK provider transcribes, by provider id.
    *
-   * Detection is the accuracy problem this exists to avoid: Whisper re-runs it
-   * on every clip, it is unreliable on short dictation, and a wrong guess
-   * mis-transcribes the whole utterance. Free-form rather than an enum so a new
-   * language never needs a schema change (same reasoning as
-   * `voiceTranscriptionProvider`). */
+   * Unset means "no preference" — the composer takes the first provider the user
+   * has a speech-capable key for, or, failing that, sends the clip to the
+   * selected chat model when it accepts audio.
+   *
+   * `"local"` used to be the value AND the default, naming a free on-device
+   * Whisper engine. That engine is deleted (it materialised ~285 MB in the
+   * renderer on composer mount and exhausted an 8 GB machine's memory), so a
+   * persisted `"local"` names nothing. It is READ AS UNSET rather than migrated
+   * away: this schema is non-strict, every reader already has to handle a
+   * provider id it does not recognise — a key can be removed at any time — and a
+   * settings migration for a value with a correct interpretation is machinery
+   * for nothing.
+   *
+   * Free-form rather than an enum: the handler resolves the endpoint and STT
+   * model from the live catalog, so a new provider needs no schema change.
+   */
+  voiceTranscriptionProvider: z.string().optional(),
+  // `voiceInputMode` REMOVED. Its "live" value streamed a re-transcription of a
+  // growing buffer every 1.5s, which was only viable against the local WebGPU
+  // pipeline; against a metered API it would bill every 1.5s for the same audio.
+  // Simply stripped from an existing settings.json (this schema is non-strict).
+  /** Spoken language as an ISO-639-1 code ("en", "sw", …), or "auto" to let the
+   * engine detect it per clip. Unset = derive from the OS locale.
+   *
+   * Detection is the accuracy problem this exists to avoid: it re-runs on every
+   * clip, it is unreliable on short dictation, and a wrong guess mis-transcribes
+   * the whole utterance. Free-form rather than an enum so a new language never
+   * needs a schema change (same reasoning as `voiceTranscriptionProvider`). */
   voiceLanguage: z.string().optional(),
   /**
    * UI language AND the language the assistant replies in.
    *
    * An ENUM, unlike `voiceLanguage` directly above, and the divergence is
    * deliberate: that one is free-form because any ISO-639-1 code is meaningful to
-   * Whisper, so a new language needs no schema change. A value HERE selects a
-   * bundled catalog, so an unrecognised tag renders a blank UI rather than a
-   * degraded one.
+   * a speech model, so a new language needs no schema change. A value HERE
+   * selects a bundled catalog, so an unrecognised tag renders a blank UI rather
+   * than a degraded one.
    *
    * Unset means "derive from the OS locale", resolved at READ time rather than
    * defaulted at first launch — so a user who changes their system language sees
