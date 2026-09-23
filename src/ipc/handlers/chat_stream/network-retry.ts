@@ -69,6 +69,12 @@ export function jitteredDelay(
 export function isNetworkStreamError(err: unknown, depth = 0): boolean {
   if (!err) return false;
   if ((err as { name?: string })?.name === "AbortError") return false;
+  // Atlarix Auto's daily limit is a 429 with a Retry-After of HOURS. Retrying it
+  // (capped at 60s) would spin, then surface as a disconnect instead of the
+  // "resets in Xh" message the classifier gives it. A decision, not a fault.
+  if (/free_usage_limit/.test(String((err as { responseBody?: unknown })?.responseBody ?? ""))) {
+    return false;
+  }
   // A provider error delivered as a successful finish reason (HTTP 200, clean
   // stream, `finish_reason: "network_error"`). Recognized by CLASS rather than
   // left to the message regex below: that regex happens to match "network_error"

@@ -99,7 +99,12 @@ import {
   questionsFromArgs,
   type AskUserQuestion,
 } from "../tools/ask-user";
-import { chooseModel, optionsFor, shortModelName } from "./model-choice";
+import {
+  AUTO_TIER,
+  chooseModel,
+  optionsFor,
+  shortModelName,
+} from "./model-choice";
 import { summariseSteps, type Step } from "./steps";
 import {
   SNIFF_BYTES,
@@ -1558,6 +1563,57 @@ function renderConversation(history: CoreMessage[]): void {
   refreshContextBar();
 }
 
+/* ── Atlarix Auto consent ─────────────────────────────────────────────────── */
+
+const AUTO_CONSENT_KEY = "atlarix.autoConsentAt.v1";
+
+async function autoConsented(): Promise<boolean> {
+  try {
+    const got = await api().storage.local.get(AUTO_CONSENT_KEY);
+    return typeof got?.[AUTO_CONSENT_KEY] === "string";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The one-time explanation, inline in the conversation — not a `confirm()`,
+ * which blocks the whole panel document. Accepting records the answer and sends
+ * what was typed; "Pick another model" hands focus to the picker.
+ */
+function showAutoConsent(): void {
+  transcript?.querySelector(".auto-consent")?.remove();
+  const card = document.createElement("div");
+  card.className = "auto-consent ask";
+  const title = document.createElement("strong");
+  title.textContent = "Use Atlarix Auto for free?";
+  const body = document.createElement("p");
+  body.textContent =
+    "Atlarix Auto costs nothing because the prompts and replies it handles " +
+    "are shared with OpenAI, which may use them to improve its models. Don't " +
+    "use it for anything you can't share — every other model is not shared.";
+  const accept = document.createElement("button");
+  accept.type = "button";
+  accept.textContent = "Use Atlarix Auto";
+  accept.addEventListener("click", () => {
+    void api()
+      .storage.local.set({ [AUTO_CONSENT_KEY]: new Date().toISOString() })
+      .then(() => {
+        card.remove();
+        void send();
+      });
+  });
+  const other = document.createElement("button");
+  other.type = "button";
+  other.textContent = "Pick another model";
+  other.addEventListener("click", () => {
+    card.remove();
+    modelSelect?.focus();
+  });
+  card.append(title, body, accept, other);
+  append(card);
+}
+
 /* ── Sending ──────────────────────────────────────────────────────────────── */
 
 function setRunning(isRunning: boolean): void {
@@ -1580,6 +1636,16 @@ async function send(): Promise<void> {
     // No id to send. Guessing one produces `model_not_permitted` on top of
     // whatever already stopped the lineup from loading.
     setStatus("No Atlarix Core model is available yet.");
+    return;
+  }
+
+  // Atlarix Auto needs a one-time yes to its data sharing before its first
+  // message. The text stays in the box, so accepting sends exactly what was
+  // typed. (The proxy cannot check this — it is the user's choice, recorded
+  // here, the same as the desktop records it in settings.)
+  const chosen = lineup.find((m) => m.id === model);
+  if (chosen?.tier === AUTO_TIER && !(await autoConsented())) {
+    showAutoConsent();
     return;
   }
 

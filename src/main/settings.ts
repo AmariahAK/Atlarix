@@ -216,6 +216,17 @@ export function readSettings(): UserSettings {
         };
       }
     }
+    // The old "auto" PROVIDER (automatic model routing) was removed, and a
+    // selection still carrying it failed every turn with "Automatic model
+    // routing was removed". It moves to the default PAID Core tier — never to
+    // Atlarix Auto, whose prompts are shared with OpenAI and which must only
+    // ever be chosen deliberately, with consent.
+    if (combinedSettings.selectedModel?.provider === "auto") {
+      combinedSettings.selectedModel = {
+        provider: "compass",
+        name: DEFAULT_NEW_USER_CORE_TIER,
+      };
+    }
     // v12 0.1: the vestigial "agent" chat-mode path was deleted — persisted
     // legacy rows coerce to "build" (the same loop, correctly wired). The
     // schema still parses "agent" so old settings files load; written back as

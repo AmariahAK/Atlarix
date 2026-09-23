@@ -1173,6 +1173,16 @@ export class IpcClient {
     return res.text;
   }
 
+  /** Atlarix Auto's live readout: which model answered, free share left. */
+  public onAutoStatus(
+    listener: (status: import("@/main/auto-status").AutoStatus) => void,
+  ): () => void {
+    const off = this.ipcRenderer.on("core:auto-status", (payload: unknown) =>
+      listener(payload as import("@/main/auto-status").AutoStatus),
+    );
+    return typeof off === "function" ? off : () => {};
+  }
+
   /**
    * Streamed transcript preview from `voice:transcribe-model`. The text is the
    * whole transcript so far, not a delta.

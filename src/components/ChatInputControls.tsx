@@ -1,4 +1,6 @@
 import { useCallback } from "react";
+import { AtlarixAutoStatus } from "@/components/chat/AtlarixAutoStatus";
+import { isCoreAutoTier } from "@/ipc/shared/compass_constants";
 import { ChatConfigDropdown } from "./ChatConfigDropdown";
 import { ChatIntentSelector } from "./ChatIntentSelector";
 import { useSettings } from "@/hooks/useSettings";
@@ -167,8 +169,14 @@ export function ChatInputControls({ chatId }: { chatId?: number }) {
   }
 
   const usesCore = selectionUsesCompass(settings?.selectedModel);
+  // Atlarix Auto never draws on the balance, so the free readout replaces it.
+  const usesAuto =
+    usesCore && isCoreAutoTier(settings?.selectedModel?.name ?? undefined);
   const coreCreditLabel =
-    usesCore && !creditBalance.loading && creditBalance.balanceCents != null
+    usesCore &&
+    !usesAuto &&
+    !creditBalance.loading &&
+    creditBalance.balanceCents != null
       ? `$${(creditBalance.balanceCents / 100).toFixed(2)}`
       : null;
 
@@ -222,6 +230,7 @@ export function ChatInputControls({ chatId }: { chatId?: number }) {
             Core: {coreCreditLabel}
           </span>
         )}
+        {usesAuto && <AtlarixAutoStatus />}
         {chatId != null && budgetTokens > 0 && tokenResult && (
           <div
             className="flex items-center gap-1.5 shrink-0"

@@ -15,6 +15,7 @@ import {
 } from "@/lib/format-openrouter-model-label";
 import { CORE_TIER_ROWS } from "../../shared/compass_product_copy";
 import {
+  getCoreAuto,
   getCoreModelOverrideId,
   getCoreTierRouting,
 } from "@/ipc/shared/core-model-override-store";
@@ -27,6 +28,16 @@ export const CORE_TIER_1 = "core-1";
 export const CORE_TIER_2 = "core-2";
 export const CORE_TIER_3 = "core-3";
 export const CORE_TIER_4 = "core-4";
+
+/**
+ * Atlarix Auto: a FREE Core option (OpenAI complimentary tokens, a $0 floor
+ * behind it), offered when the hosted config carries an `auto` block. A tier id
+ * like the others so selection, dispatch, the JWT fetch and error handling are
+ * all the existing Core path — but deliberately NOT in `CORE_TIER_ORDER`: it is
+ * never a default, never a fallback, and never substituted for a paid slot.
+ * Its prompts are shared with OpenAI, so it is only ever chosen on purpose.
+ */
+export const CORE_TIER_AUTO = "core-auto";
 
 export const CORE_TIER_ORDER = [
   CORE_TIER_1,
@@ -48,9 +59,16 @@ export function normalizeCoreTierId(internalTierId: string): string {
 }
 
 export function isCoreTierId(internalTierId: string): boolean {
-  return (CORE_TIER_ORDER as readonly string[]).includes(
-    normalizeCoreTierId(internalTierId),
+  const norm = normalizeCoreTierId(internalTierId);
+  return (
+    (CORE_TIER_ORDER as readonly string[]).includes(norm) ||
+    norm === CORE_TIER_AUTO
   );
+}
+
+/** True for the free Atlarix Auto tier. */
+export function isCoreAutoTier(internalTierId: string | undefined): boolean {
+  return !!internalTierId && normalizeCoreTierId(internalTierId) === CORE_TIER_AUTO;
 }
 
 function compassProviderSlug(openRouterModelId: string): string {
@@ -67,7 +85,25 @@ function compassProviderSlug(openRouterModelId: string): string {
  * pick up a `core-models.json` change without an app restart.
  */
 export function getCompassSyntheticModels(): LanguageModel[] {
-  return CORE_TIER_ROWS.flatMap((row) => {
+  const auto = getCoreAuto();
+  // First in the Core group when offered. The answering model changes per turn
+  // (the proxy walks a chain), so no single model name is claimed.
+  const autoRow: LanguageModel[] = auto
+    ? [
+        {
+          apiName: CORE_TIER_AUTO,
+          displayName: auto.label,
+          description: "Free · prompts are shared with OpenAI",
+          type: "cloud" as const,
+          dollarSigns: 0,
+          maxOutputTokens: 32_000,
+          // The smallest window in the chain, so compaction never overshoots
+          // whichever model answers.
+          contextWindow: 128_000,
+        },
+      ]
+    : [];
+  return [...autoRow, ...CORE_TIER_ROWS.flatMap((row) => {
     const openRouterModelId =
       getOpenRouterModelIdForCoreTier(row.id)?.trim() ?? "";
     // A slot with no configured model is NOT shown. There are four slots but the
@@ -91,7 +127,7 @@ export function getCompassSyntheticModels(): LanguageModel[] {
       // proposal handler) reads the same conservative ceiling the stream uses.
       contextWindow: 200_000,
     };
-  });
+  })];
 }
 
 /** Main-process only; renderer has no `process.env`. */
@@ -187,6 +223,8 @@ export function getCoreModelIdForCoreTier(
   internalTierId: string,
 ): string | undefined {
   const norm = normalizeCoreTierId(internalTierId);
+  // Auto has no env fallback: it exists only while the hosted config offers it.
+  if (norm === CORE_TIER_AUTO) return getCoreAuto()?.id;
   // Runtime override (hosted core-models.json) wins over the build-time env, so
   // Core models can change without repackaging. Null/absent → env fallback.
   const override = getCoreModelOverrideId(norm);
@@ -300,6 +338,9 @@ export function resolveConfiguredCoreTier(
   const norm = normalizeCoreTierId(internalTierId);
   if (getCoreModelIdForCoreTier(norm)?.trim())
     return { tier: norm, substituted: false };
+  // A withdrawn Auto NEVER falls forward: every other tier is paid, and moving a
+  // user who chose "free" onto a billed model is a charge they did not agree to.
+  if (norm === CORE_TIER_AUTO) return undefined;
   const fallback = CORE_TIER_ORDER.find(
     (tier) => !!getCoreModelIdForCoreTier(tier)?.trim(),
   );

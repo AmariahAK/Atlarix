@@ -48,13 +48,6 @@ export function resolveActiveModelIdentity(
   settings?: UserSettings | null,
   catalog?: AtlarixCoreTierPresentation[],
 ): ActiveModelIdentity {
-  if (model.provider === "auto") {
-    return {
-      modelDisplayName: "Unconfigured model",
-      providerBrand: "auto",
-      labelWithProvider: "Select a model in chat settings",
-    };
-  }
   if (model.provider === "compass" || isCompassTierId(model.name)) {
     const core = resolveAtlarixCoreIdentity(model.name, catalog);
     return {

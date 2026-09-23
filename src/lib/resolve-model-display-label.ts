@@ -48,10 +48,6 @@ export function resolveModelDisplayLabel(
   if (!selectedModel?.name) return "—";
   const { catalog = [], modelsByProviders } = options;
 
-  if (selectedModel.provider === "auto") {
-    return "Select a model";
-  }
-
   if (
     selectedModel.provider === "compass" ||
     isCompassTierId(selectedModel.name)

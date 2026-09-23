@@ -311,6 +311,16 @@ export const UserSettingsSchema = z.object({
    */
   telemetryConsent: z.enum(["opted_in", "opted_out", "unset"]).optional(),
   telemetryUserId: z.string().optional(),
+  /**
+   * When the user accepted Atlarix Auto's terms (ISO time), or absent.
+   *
+   * Auto is served from OpenAI's complimentary tokens, which exist only for
+   * traffic shared with OpenAI to improve its models — so a user must say yes
+   * to that ONCE, knowingly, before their first Auto turn. Checked in MAIN at
+   * dispatch (get_model_client), not only in the picker: a saved selection or a
+   * synced setting must never send a prompt the user did not agree to share.
+   */
+  atlarixAutoConsentAt: z.string().optional(),
   hasRunBefore: z.boolean().optional(),
   /**
    * What the browser tells the model about, once per turn.

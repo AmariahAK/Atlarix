@@ -99,9 +99,27 @@ export function getCoreTierRouting(
   return CORE_MODEL_ROUTING?.[normalizedTierId];
 }
 
+/**
+ * Atlarix Auto, from the hosted `auto` block: the wire id the proxy expects and
+ * the name to show. Null when the lineup does not offer it — then no Auto row
+ * appears and a saved Auto selection falls forward like any removed slot.
+ */
+export type CoreAutoConfig = { id: string; label: string };
+
+let CORE_AUTO: CoreAutoConfig | null = null;
+
+export function setCoreAuto(auto: CoreAutoConfig | null): void {
+  CORE_AUTO = auto ? { ...auto } : null;
+}
+
+export function getCoreAuto(): CoreAutoConfig | null {
+  return CORE_AUTO;
+}
+
 /** Test-only: clear the store between cases. */
 export function __resetCoreModelOverridesForTests(): void {
   CORE_MODEL_OVERRIDES = null;
   CORE_MODEL_WEB_SEARCH = null;
   CORE_MODEL_ROUTING = null;
+  CORE_AUTO = null;
 }

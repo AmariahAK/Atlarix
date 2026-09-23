@@ -305,6 +305,17 @@ describe("tool-call assembly", () => {
 });
 
 describe("errors say what to do about them", () => {
+  it("says when Atlarix Auto's free share comes back, and does not retry it", async () => {
+    const error = await collect(
+      streamTurn(
+        TURN,
+        failing(429, { error: "free_usage_limit", retry_after_seconds: 7200 }),
+      ),
+    ).catch((e: CoreError) => e);
+    expect((error as CoreError).message).toMatch(/about 2 hours/);
+    expect((error as CoreError).retryable).toBe(false);
+  });
+
   it("states the figure on insufficient credit", async () => {
     // A 402 that does not say what it would take is the blunt version of this.
     const f = failing(402, {

@@ -224,13 +224,28 @@ function coreErrorFrom(
         ? "This account cannot use Atlarix Core. Contact support if that is unexpected."
         : code === "model_not_permitted"
           ? `That model is not available on Core${typeof body.model === "string" ? ` (${body.model})` : ""}.`
-          : code === "core_unavailable"
-            ? "Atlarix Core is temporarily unavailable. Try again shortly."
-            : status === 401
-              ? "Your session expired. Sign in again."
-              : `Core request failed (${code}).`;
+          : code === "free_usage_limit"
+            ? freeLimitMessage(body)
+            : code === "free_busy"
+              ? "Atlarix Auto's free models are busy right now. Try again in a moment, or pick a Core model."
+              : code === "core_unavailable"
+                ? "Atlarix Core is temporarily unavailable. Try again shortly."
+                : status === 401
+                  ? "Your session expired. Sign in again."
+                  : `Core request failed (${code}).`;
 
   return new CoreError(status, code, message, required);
+}
+
+/** Atlarix Auto's daily limit, with when it comes back. */
+function freeLimitMessage(body: Record<string, unknown>): string {
+  const secs =
+    typeof body.retry_after_seconds === "number" ? body.retry_after_seconds : 0;
+  const hours = secs > 0 ? Math.max(1, Math.round(secs / 3600)) : 0;
+  const when = hours
+    ? ` It resets in about ${hours} hour${hours === 1 ? "" : "s"}.`
+    : " It resets at midnight UTC.";
+  return `Today's free Atlarix Auto share is used up.${when} Pick a Core model to keep going.`;
 }
 
 function formatCents(cents: number): string {

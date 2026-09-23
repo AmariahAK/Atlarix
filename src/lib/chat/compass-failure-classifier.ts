@@ -20,6 +20,8 @@ import {
   compassBadRequestUserMessage,
   coreExhaustedUserMessage,
   coreUnavailableUserMessage,
+  freeBusyUserMessage,
+  freeUsageLimitUserMessage,
 } from "@/shared/billing_copy";
 // The 402 parser lives in `lib/billing/insufficient-credit` because the sub-agent
 // path needs the same figure and never reaches this classifier. Imported rather
@@ -39,6 +41,18 @@ export function classifyCompassFailure(
   // FIRST, and by body not status — see the note above.
   if (/account_banned/.test(bodyStr)) {
     return { message: accountBannedUserMessage(), isCompassInfraError: false };
+  }
+  // Atlarix Auto. Before 402/503: the limit is a 429 and "busy" a 503, and the
+  // generic 503 branch would call a full free share "Core is unavailable".
+  if (/free_usage_limit/.test(bodyStr)) {
+    const m = /"retry_after_seconds"\s*:\s*(\d+)/.exec(bodyStr);
+    return {
+      message: freeUsageLimitUserMessage(m ? Number(m[1]) : null),
+      isCompassInfraError: false,
+    };
+  }
+  if (/free_busy/.test(bodyStr)) {
+    return { message: freeBusyUserMessage(), isCompassInfraError: false };
   }
   if (statusCode === 402 || /insufficient_credit/.test(bodyStr)) {
     return {

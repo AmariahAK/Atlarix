@@ -260,6 +260,29 @@ export function accountBannedUserMessage(): string {
 }
 
 /**
+ * Atlarix Auto: today's free share is used (proxy 429 `free_usage_limit`).
+ *
+ * Says when it comes back, in hours — the proxy sends seconds to the UTC reset
+ * — and names the two real ways forward. Not an error the user caused, and not
+ * our outage either, so it is never reported to Sentry.
+ */
+export function freeUsageLimitUserMessage(retryAfterSeconds?: number | null): string {
+  const hours =
+    typeof retryAfterSeconds === "number" && retryAfterSeconds > 0
+      ? Math.max(1, Math.round(retryAfterSeconds / 3600))
+      : null;
+  const when = hours
+    ? ` It resets in about ${hours} hour${hours === 1 ? "" : "s"}.`
+    : " It resets at midnight UTC.";
+  return `Today's free Atlarix Auto share is used up.${when} To keep going now, pick a Core model (Pro includes GPT-6 Astra and Sol), or add your own API key in Settings.`;
+}
+
+/** Atlarix Auto's free models are all busy right now (proxy 503 `free_busy`). */
+export function freeBusyUserMessage(): string {
+  return "Atlarix Auto's free models are busy right now. Try again in a moment, or pick a Core model above.";
+}
+
+/**
  * Shown when Atlarix Core fails on OUR side (the proxy returns 503 core_unavailable
  * because a managed provider key is out of credit / rate-limited / down). Neutral
  * by design — the user is never told "we ran out of money"; the owner is alerted

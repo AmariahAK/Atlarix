@@ -125,3 +125,27 @@ describe("labels", () => {
     expect(shortModelName("bare-id")).toBe("bare-id");
   });
 });
+
+describe("Atlarix Auto in the picker", () => {
+  const WITH_AUTO: Pick<CoreModel, "id" | "tier">[] = [
+    { id: "atlarix/auto", tier: "auto" },
+    { id: "z-ai/glm-5.3", tier: "core-1" },
+  ];
+
+  it("is labelled for what it is", () => {
+    expect(optionsFor(WITH_AUTO)[0]?.label).toBe("Atlarix Auto · free");
+  });
+
+  it("is NEVER the default, even listed first with no core-3", () => {
+    // Its prompts are shared with OpenAI — only a deliberate choice may pick it.
+    expect(chooseModel(optionsFor(WITH_AUTO), null)).toBe("z-ai/glm-5.3");
+  });
+
+  it("stays chosen once the user chose it", () => {
+    expect(chooseModel(optionsFor(WITH_AUTO), "atlarix/auto")).toBe("atlarix/auto");
+  });
+
+  it("is not a default even when it is the only model", () => {
+    expect(chooseModel(optionsFor([{ id: "atlarix/auto", tier: "auto" }]), null)).toBeNull();
+  });
+});

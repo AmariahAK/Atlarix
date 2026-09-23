@@ -6,6 +6,7 @@
 import {
   CORE_TIER_ORDER,
   getCoreModelIdForCoreTier,
+  isCoreAutoTier,
   normalizeCoreTierId,
 } from "@/ipc/shared/compass_constants";
 import {
@@ -152,7 +153,14 @@ export function coreTierPresentationFromModel(model: {
 }): AtlarixCoreTierPresentation {
   const match = /^(.*?)\s*\(([^()]+)\)\s*$/.exec(model.displayName);
   const modelDisplayName = (match?.[1] ?? model.displayName).trim();
-  const providerSlug = (match?.[2] ?? "openrouter").trim().toLowerCase();
+  // Atlarix Auto names no single model (the proxy picks per turn), so its slug
+  // is Atlarix's own — never "openrouter", which would put a false provider in
+  // the model's identity line.
+  const providerSlug = (
+    match?.[2] ?? (isCoreAutoTier(model.apiName) ? "atlarix" : "openrouter")
+  )
+    .trim()
+    .toLowerCase();
   return {
     internalTierId: model.apiName,
     coreModelId: "",

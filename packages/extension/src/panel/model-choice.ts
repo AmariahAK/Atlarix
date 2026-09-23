@@ -54,6 +54,9 @@ export interface ModelOption {
  */
 const PREFERRED_TIER = "core-3";
 
+/** The proxy's tier for Atlarix Auto — free, data shared with OpenAI. */
+export const AUTO_TIER = "auto";
+
 /** `core-1` → `Core 1`. Anything unrecognised is shown as it came. */
 export function tierLabel(tier: string): string {
   const match = /^core-(\d+)$/.exec(tier);
@@ -81,9 +84,14 @@ export function optionsFor(
     .filter((m) => m.id)
     .map((m) => ({
       value: m.id,
-      label: m.tier
-        ? `${tierLabel(m.tier)} · ${shortModelName(m.id)}`
-        : shortModelName(m.id),
+      // Auto names no single model — the proxy picks per turn — so it is
+      // labelled for what it is, not as a tier plus a model id.
+      label:
+        m.tier === AUTO_TIER
+          ? "Atlarix Auto · free"
+          : m.tier
+            ? `${tierLabel(m.tier)} · ${shortModelName(m.id)}`
+            : shortModelName(m.id),
       // May be "" — the proxy has served a lineup without tiers before, and an
       // option with no tier simply never matches PREFERRED_TIER.
       tier: m.tier ?? "",
@@ -125,5 +133,8 @@ export function chooseModel(
   if (stored && options.some((o) => o.value === stored)) return stored;
   const preferred = options.find((o) => o.tier === PREFERRED_TIER);
   if (preferred) return preferred.value;
-  return options[0].value;
+  // NEVER Auto by default: its prompts are shared with OpenAI, so it is only
+  // ever chosen deliberately. The proxy lists it first, which made it the
+  // `options[0]` fallback for any lineup without core-3.
+  return options.find((o) => o.tier !== AUTO_TIER)?.value ?? null;
 }

@@ -22,9 +22,11 @@ import {
   normalizeCoreTierId,
 } from "@/ipc/shared/compass_constants";
 import {
+  setCoreAuto,
   setCoreModelOverrides,
   setCoreModelWebSearch,
   setCoreModelRouting,
+  type CoreAutoConfig,
   type CoreTierRouting,
 } from "@/ipc/shared/core-model-override-store";
 
@@ -54,6 +56,11 @@ interface CoreModelsPayload {
    * per-tier rollback lever).
    */
   routing?: Record<string, unknown>;
+  /**
+   * Optional Atlarix Auto block. The client needs only its wire `id` and
+   * `label`; the chain and sizing are the proxy's business.
+   */
+  auto?: unknown;
 }
 
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -89,8 +96,15 @@ function applyOverridesAndNotify(raw: unknown): void {
   setCoreModelOverrides(map);
   setCoreModelWebSearch(parseCoreWebSearchOverrides(raw));
   setCoreModelRouting(parseCoreRouting(raw));
+  const auto = parseCoreAuto(raw);
+  setCoreAuto(auto);
+  // Auto is part of what the picker lists, so offering or withdrawing it must
+  // reach the renderer like a lineup change does.
   const serialized = map
-    ? JSON.stringify(Object.entries(map).sort(([a], [b]) => a.localeCompare(b)))
+    ? JSON.stringify([
+        Object.entries(map).sort(([a], [b]) => a.localeCompare(b)),
+        auto,
+      ])
     : null;
   if (serialized !== lastAppliedSerialized) {
     lastAppliedSerialized = serialized;
@@ -165,6 +179,21 @@ function parseCoreRouting(
     map[norm] = { provider, apiModelId };
   }
   return Object.keys(map).length > 0 ? map : null;
+}
+
+/** The Atlarix Auto block's wire id and label, or null when not offered. */
+export function parseCoreAuto(raw: unknown): CoreAutoConfig | null {
+  if (!raw || typeof raw !== "object") return null;
+  const auto = (raw as CoreModelsPayload).auto;
+  if (!auto || typeof auto !== "object") return null;
+  const a = auto as Record<string, unknown>;
+  const id = typeof a.id === "string" ? a.id.trim() : "";
+  if (!id) return null;
+  const label =
+    typeof a.label === "string" && a.label.trim()
+      ? a.label.trim()
+      : "Atlarix Auto";
+  return { id, label };
 }
 
 /** Read + JSON-parse the cached raw payload, or null on miss/invalid. */

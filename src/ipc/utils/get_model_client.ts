@@ -47,9 +47,11 @@ import {
   getCompassMasterApiKey,
   getCoreModelIdForCoreTier,
   getFirstConfiguredCoreTier,
+  isCoreAutoTier,
   resolveConfiguredCoreTier,
 } from "../shared/compass_constants";
 import { ATLARIX_SURFACE, getCoreProxyBaseUrl } from "../shared/core_proxy";
+import { broadcastAutoStatus } from "@/main/auto-status";
 import { getSession } from "../../lib/auth/supabase-client";
 import { LM_STUDIO_BASE_URL } from "./lm_studio_utils";
 import { createOllamaProvider } from "./ollama_provider";
@@ -284,9 +286,19 @@ async function getRegularModelClient(
       // breaks every user whose saved selection pointed at the removed slot, on their
       // next message, with nothing they did wrong.
       const resolvedTier = resolveConfiguredCoreTier(model.name);
+      if (!resolvedTier && isCoreAutoTier(model.name)) {
+        throw new Error(
+          "Atlarix Auto isn't offered right now. Pick a Core model above, or add your own API key in Settings.",
+        );
+      }
       if (!resolvedTier) {
         throw new Error(
           `No Atlarix Core model is configured for this build. Add your own API keys in Settings, or use a release build.`,
+        );
+      }
+      if (isCoreAutoTier(resolvedTier.tier) && !settings.atlarixAutoConsentAt) {
+        throw new Error(
+          "Atlarix Auto needs a one-time OK before its first message: it is free because its prompts are shared with OpenAI to improve their models. Open the model picker and choose Atlarix Auto to review and accept, or pick another model.",
         );
       }
       if (resolvedTier.substituted) {
@@ -296,6 +308,7 @@ async function getRegularModelClient(
         model = { ...model, name: resolvedTier.tier };
       }
       const coreModelId = getCoreModelIdForCoreTier(resolvedTier.tier);
+      const isAutoTier = isCoreAutoTier(resolvedTier.tier);
       if (!coreModelId) {
         throw new Error(
           `Atlarix Core model "${model.name}" is not configured for this build. Choose another Core model or add BYOK keys in Settings.`,
@@ -362,7 +375,11 @@ async function getRegularModelClient(
             // 'desktop' would split one product across two rows on the account
             // page and need every historical row backfilled.
             headers.set("X-Atlarix-Surface", ATLARIX_SURFACE);
-            return fetch(input as RequestInfo, { ...init, headers });
+            const res = await fetch(input as RequestInfo, { ...init, headers });
+            // Atlarix Auto says which model answered and how much free share is
+            // left; hand that to the composer.
+            if (isAutoTier && res.ok) broadcastAutoStatus(res.headers);
+            return res;
           },
         });
         return {
