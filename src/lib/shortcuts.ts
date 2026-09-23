@@ -100,13 +100,6 @@ export const SHORTCUTS: readonly KeyboardShortcut[] = [
     status: "advertised",
   },
   {
-    id: "new-browser-tab",
-    combo: { mod: true, key: "t" },
-    label: "Open a new browser tab in the panel",
-    owner: "panel",
-    status: "advertised",
-  },
-  {
     id: "prev-panel-tab",
     combo: { mod: true, key: "i" },
     label: "Previous panel tab",

@@ -71,7 +71,7 @@ function mountAndActivate(payload: PlanArtifactPayload = PLAN) {
 describe("plan restore", () => {
   beforeEach(() => {
     const { store } = renderWithProviders(<div />);
-    store.set(previewTabAtom, "browser");
+    store.set(previewTabAtom, "terminal");
     store.set(rightPanelVisibleAtom, false);
     store.set(planUnreadAtom, false);
     store.set(workspacePlanPanelAtom, {
@@ -87,7 +87,7 @@ describe("plan restore", () => {
 
   it("does not switch the right panel to Plan", () => {
     const store = mountAndActivate();
-    expect(store.get(previewTabAtom)).toBe("browser");
+    expect(store.get(previewTabAtom)).toBe("terminal");
   });
 
   it("does not force the right panel open", () => {
@@ -149,7 +149,7 @@ describe("plan restore", () => {
 
     it("still badges the tab, so the activation is not silent", () => {
       const store = seedPinned();
-      store.set(previewTabAtom, "browser");
+      store.set(previewTabAtom, "terminal");
       store.set(planUnreadAtom, false);
       act(() => {
         fireActivated?.(PLAN);

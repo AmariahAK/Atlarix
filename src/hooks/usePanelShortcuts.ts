@@ -4,9 +4,7 @@
  * - Cmd/Ctrl+B: toggle right panel.
  * - Shift+Tab: cycle work mode Explore → Plan → Build → Debug → Review (workspace chats).
  * - Cmd/Ctrl+J: open the model picker (the composer's model chip).
- * - Cmd/Ctrl+T: new browser tab (opens the browser panel).
  * - Cmd/Ctrl+I ← / Cmd/Ctrl+O → : move between right-panel tabs.
- * (Cmd/Ctrl+W closes the active browser tab — handled in main via before-input-event.)
  * Panels open at 30% window width; close does not change stored width.
  */
 
@@ -21,7 +19,6 @@ import {
   rightPanelOrderedTabsAtom,
 } from "@/atoms/sourceAtoms";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
-import { IpcClient } from "@/ipc/ipc_client";
 import { showInfo } from "@/lib/toast";
 import type { PanelTab } from "@/atoms/sourceAtoms";
 import { useSettings } from "@/hooks/useSettings";
@@ -132,17 +129,6 @@ export function usePanelShortcuts() {
       if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "j") {
         e.preventDefault();
         setModelSheetOpen((v) => !v);
-        return;
-      }
-
-      // Cmd/Ctrl+T: new browser tab (browser panel is already multi-tab). Open
-      // the panel on the browser tab, then create the tab; BrowserPanel refreshes
-      // via onBrowserStateChanged.
-      if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "t") {
-        e.preventDefault();
-        if (!rightPanelVisible) openRightPanel();
-        setPreviewTab("browser");
-        void IpcClient.getInstance().browserCreateTab();
         return;
       }
 

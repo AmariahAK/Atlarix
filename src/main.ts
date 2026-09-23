@@ -69,10 +69,7 @@ import os from "node:os";
 import { restoreAuthSessionOnStartup } from "./lib/auth/supabase-client";
 import { markStartupAuthResolved } from "./lib/auth/startup-auth-state";
 import { SubscriptionManager } from "./lib/SubscriptionManager";
-import {
-  closeActiveBrowserTabIfVisible,
-  resolveBrowserScope,
-} from "./ipc/utils/browser_view_manager";
+import { destroyBrowserHosts } from "./ipc/utils/browser_view_manager";
 import { resolveSystemPath } from "./lib/resolve-path";
 import { warmOpenRouterModelCache } from "./lib/routing/tier-context-limits";
 import { warmCoreModelOverrides } from "./lib/routing/core-model-overrides";
@@ -1452,16 +1449,7 @@ function setMainApplicationMenu(): void {
           label: "Close",
           accelerator: "CmdOrCtrl+W",
           click: () => {
-            // Cmd+W acts on the FOCUSED window's browser — closing another
-            // window's tab because it happened to be first would be baffling.
-            const focusedScope = resolveBrowserScope();
-            if (
-              !(focusedScope && closeActiveBrowserTabIfVisible(focusedScope)) &&
-              mainWindow &&
-              !mainWindow.isDestroyed()
-            ) {
-              mainWindow.close();
-            }
+            if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
           },
         },
         ...(isMac
@@ -2195,8 +2183,10 @@ app.on("will-quit", () => {
   }
   // v10: tear down interactive terminal shells.
   killAllPtys();
-  // Release any hidden window `web_search` or `read_url` left warm.
+  // Release any hidden window `web_search` or `read_url` left warm, and the
+  // agent browser's hidden hosts — a live hidden window blocks quitting.
   shutdownHiddenPages();
+  destroyBrowserHosts();
   analyticsShutdown();
 
   // Stop the periodic update re-check.

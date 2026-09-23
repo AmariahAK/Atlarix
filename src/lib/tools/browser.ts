@@ -1,6 +1,8 @@
 /**
- * In-app browser agent tools (v11) — the model drives the Browser panel's
- * WebContentsView (Cursor/Antigravity-style). Six tools → TWO (v14.41):
+ * Agent browser tools. `target:"app"` drives Atlarix's own HIDDEN browser — a
+ * WebContentsView in an off-screen host window at a fixed 1280x800 (the visible
+ * Browser panel was retired on 2026-09-23); `target:"chrome"` drives the user's
+ * signed-in Chrome through the extension. Six tools → TWO (v14.41):
  *
  *   browser_inspect — READ the page: mode "read" | "snapshot" | "text" |
  *                     "visual" | "design" | "screenshot" | "console" | "network"
@@ -55,7 +57,6 @@ import {
   getBrowserSurfaceErrors,
   getBrowserSurfaceNetworkFailures,
   isAllowedBrowserUrl,
-  requestBrowserPanel,
   capturePaintable,
   resolveBrowserScope,
   type BrowserScope,
@@ -267,7 +268,6 @@ async function loadUrlInBrowserTab(
   scope: BrowserScope,
   url: string,
 ): Promise<ActiveTabView | null> {
-  await requestBrowserPanel(scope);
   const view = ensureTab(scope);
   await view.webContents.loadURL(url).catch((err: Error) => {
     if (!/ERR_ABORTED/.test(String(err))) throw err;
@@ -368,9 +368,6 @@ async function browserNavigate(
     };
   }
   let view: ActiveTabView;
-  // Ask the UI to open the Browser panel first, so the tab is created and
-  // attached inside real, chrome-framed bounds rather than as a bare view.
-  await requestBrowserPanel(scope);
   if (getTabCount(scope) === 0) {
     view = ensureTab(scope);
   } else {
@@ -492,8 +489,8 @@ async function inspectVisual(view: ActiveTabView, chatSessionId?: number) {
     tab: tabInfo(view),
     content: untrustedPageEnvelope(
       origin,
-      // Layout facts are only meaningful with the width they were measured at —
-      // the panel is resizable, so this would otherwise silently vary per user.
+      // Layout facts are only meaningful with the width they were measured at,
+      // so the (fixed) viewport is always stated.
       `${viewport ? `Measured at viewport ${viewport}.\n` : ""}${formatVisualLintReport(report)}`,
     ),
   };
@@ -534,11 +531,8 @@ async function inspectScreenshot(
   chatSessionId?: number,
 ) {
   await waitForLoad(view.webContents);
-  // capturePage() returns an EMPTY image when the view isn't attached to the
-  // window (the right-panel tab is hidden / zero-size). capturePaintable
-  // off-screen-attaches, paints, captures, then detaches — so screenshots work
-  // whether or not the user is looking at the panel. Fall back to a direct
-  // capture only if the paintable path returns null.
+  // capturePaintable captures from the hidden host (attaching a background tab
+  // long enough to paint a current frame). A direct capture is the fallback.
   const image =
     (await capturePaintable(scope, view)) ??
     (await view.webContents.capturePage());
@@ -546,7 +540,7 @@ async function inspectScreenshot(
     return {
       success: false,
       error:
-        "Capture returned an empty image (panel hidden or zero-size bounds?).",
+        "Capture returned an empty image — the hidden browser did not paint this tab. Try again, or read the page as text.",
     };
   }
   // Keep payloads sane: cap width at 1280 (aspect preserved).
@@ -953,7 +947,7 @@ ToolRegistry.register({
         type: "string",
         enum: ["app", "chrome"],
         description:
-          'Omit for "app" (Atlarix\'s built-in browser). "chrome" is the user\'s own browser — pick it when the task needs a session they are already signed into.',
+          'Omit for "app" (Atlarix\'s own browser — hidden from the user, signed in to nothing). "chrome" is the user\'s own browser via the Atlarix extension — pick it when the task needs a session they are already signed into, or when they should see it happen.',
       },
       tab_id: {
         type: "number",
@@ -1714,9 +1708,6 @@ async function browserTabs(
           };
         }
       }
-      // Open the panel first so the new tab is attached inside real bounds
-      // (a view whose rect doesn't intersect the window lays out at 0px wide).
-      await requestBrowserPanel(scope);
       createTab(scope, url || undefined);
       const view = getActiveTabView(scope);
       if (view && url) await waitForLoad(view.webContents);
@@ -2078,7 +2069,7 @@ ToolRegistry.register({
         type: "string",
         enum: ["app", "chrome"],
         description:
-          'Omit for "app" (Atlarix\'s built-in browser). "chrome" is the user\'s own browser — pick it when the task needs a session they are already signed into.',
+          'Omit for "app" (Atlarix\'s own browser — hidden from the user, signed in to nothing). "chrome" is the user\'s own browser via the Atlarix extension — pick it when the task needs a session they are already signed into, or when they should see it happen.',
       },
       tab_id: {
         type: "number",

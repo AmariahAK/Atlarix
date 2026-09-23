@@ -17,7 +17,6 @@ import {
 import { IpcClient } from "@/ipc/ipc_client";
 import { useBrowserErrorListener } from "@/hooks/useBrowserErrorListener";
 import { usePageConsoleListener } from "@/hooks/usePageConsoleListener";
-import { useBrowserPanelRequest } from "@/hooks/useBrowserPanelRequest";
 import {
   deduplicateErrors,
   type ParsedError,
@@ -35,9 +34,6 @@ export function DevServerProvider({ children }: { children: React.ReactNode }) {
   // build errors above — same tab, different shape. Mounted here so it fills
   // while the Console tab is closed, exactly like the error listener.
   usePageConsoleListener();
-  // Agent asks for the Browser panel (see useBrowserPanelRequest) — must be
-  // mounted here, not in BrowserPanel, since it fires while that panel is shut.
-  useBrowserPanelRequest();
 
   useEffect(() => {
     if (!workspaceId) {

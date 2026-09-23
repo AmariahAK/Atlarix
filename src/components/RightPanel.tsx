@@ -63,7 +63,6 @@ import {
 import { type PanelTab } from "@/atoms/sourceAtoms";
 import { useWorkspacePlanPanel } from "@/hooks/useWorkspacePlanPanel";
 import { PlanExecutionPanel } from "@/components/preview_panel/PlanExecutionPanel";
-import { BrowserPanel } from "@/components/browser/BrowserPanel";
 import { NetworkPanel } from "@/components/preview_panel/NetworkPanel";
 
 // Icon configuration for secondary tabs
@@ -88,7 +87,6 @@ const TAB_ICONS: Record<PanelTab, { icon: React.ElementType; label: string }> =
     tools: { icon: Wrench, label: "Tools" },
     debug: { icon: Terminal, label: "Debug" },
     chat: { icon: MessageSquare, label: "Chat" },
-    browser: { icon: Globe, label: "Browser" },
   };
 
 export function RightPanel() {
@@ -469,11 +467,6 @@ function PanelContent({
     return <EmbeddedChatTab />;
   }
 
-  // v11 in-app browser (WebContentsView renders natively over the panel)
-  if (context.activeTab === "browser") {
-    return <BrowserPanel />;
-  }
-
   // v13.1: plan is a coexisting tab, not a takeover panel.
   if (context.activeTab === "plan") {
     return <PlanExecutionPanel />;
@@ -535,9 +528,6 @@ function PanelContent({
           <ul className="text-xs mt-3 space-y-1 text-left">
             <li>
               <strong>Search</strong> - Web search results
-            </li>
-            <li>
-              <strong>Browser</strong> - Run and inspect your app
             </li>
           </ul>
           <p className="text-xs mt-4 opacity-60">

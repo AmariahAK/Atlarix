@@ -46,12 +46,9 @@ import { makeFakeIpc } from "./helpers";
  * The full fake, not a two-method stub. `usePanelShortcuts` reaches `useSettings`, which
  * subscribes to `onSettingsChanged` — a hand-rolled mock missing one method fails inside
  * an effect, which reads as a broken test rather than a missing mock. `makeFakeIpc`'s
- * Proxy fills every gap; only `browserCreateTab` needs to be observable.
+ * Proxy fills every gap.
  */
-const browserCreateTab = vi.fn();
 const fakeIpc = makeFakeIpc();
-(fakeIpc as unknown as Record<string, unknown>).browserCreateTab =
-  browserCreateTab;
 vi.mock("@/ipc/ipc_client", () => ({
   IpcClient: { getInstance: () => fakeIpc },
 }));
@@ -149,7 +146,6 @@ const EFFECTS: Record<string, () => unknown> = {
   "toggle-right-panel": () => getDefaultStore().get(rightPanelVisibleAtom),
   "cycle-work-mode": () => undefined, // asserted via preventDefault only — see below
   "change-model": () => getDefaultStore().get(modelSheetOpenAtom),
-  "new-browser-tab": () => browserCreateTab.mock.calls.length,
   "prev-panel-tab": () => getDefaultStore().get(previewTabAtom),
   "next-panel-tab": () => getDefaultStore().get(previewTabAtom),
 };
@@ -173,7 +169,6 @@ beforeEach(() => {
     active: "preview",
   } as never);
   store.set(selectedAppIdAtom, 1);
-  browserCreateTab.mockClear();
 });
 
 afterEach(() => {
@@ -248,7 +243,6 @@ describe("the table cannot go stale by omission", () => {
       [
         "change-model",
         "cycle-work-mode",
-        "new-browser-tab",
         "next-panel-tab",
         "prev-panel-tab",
         "toggle-right-panel",

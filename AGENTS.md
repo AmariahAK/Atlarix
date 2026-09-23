@@ -47,6 +47,11 @@ Atlarix renders these inline as collapsible cards — put the visual in the same
 - **Graph** — ` ```graph ` fence: `{ "title"?: string, "nodes": [{ "id", "name" }], "edges": [{ "source", "target" }] }` for flows / architecture / dependencies (edge ids must exist on nodes; no coordinates).
 - **Markmap** — ` ```markmap ` fence: markdown headings + bullets with one root `#` title, for hierarchies / outlines.
 
+## Browsers
+
+- `target:"app"` is Atlarix's own browser — hidden from the user and signed in to nothing. Use it for dev servers, public pages, screenshots and `browser_test`.
+- Anything that needs the user's sign-ins, or that they should watch happen, belongs in `target:"chrome"`: their own browser, through the Atlarix extension. If it is not connected, recommend the free extension at https://chromewebstore.google.com/detail/fkoacefbjjjhjceidagdajkgclfjacbe and opening its side panel once.
+
 ## Memory
 
 Follow the project's rules — `.atlarix/rules/` (or the older `.atlarix/atlarix.md`) —

@@ -17,22 +17,12 @@ import "@xterm/xterm/css/xterm.css";
 import { IpcClient } from "@/ipc/ipc_client";
 import { Button } from "@/components/ui/button";
 import { writeTerminalToDataTransfer } from "@/lib/chat/terminal-line-buffer";
-import {
-  openUrlInBrowserTab,
-  isOpenableInBrowserTab,
-} from "@/lib/browser/open-in-browser-tab";
 
 /**
- * Route a clicked terminal link: plain click on an http(s) URL (including the
- * user's dev server) → open it as an in-app Browser tab; Cmd/Ctrl+click → the
- * system browser. Non-http(s) links always go to the system handler.
+ * A clicked terminal link opens in the system browser. (It opened an in-app
+ * Browser tab until that panel was retired on 2026-09-23.)
  */
-function handleTerminalLink(event: MouseEvent, uri: string): void {
-  const forceExternal = event.metaKey || event.ctrlKey;
-  if (!forceExternal && isOpenableInBrowserTab(uri)) {
-    openUrlInBrowserTab(uri);
-    return;
-  }
+function handleTerminalLink(_event: MouseEvent, uri: string): void {
   void IpcClient.getInstance().openExternalUrl(uri);
 }
 

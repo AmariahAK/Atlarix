@@ -19,13 +19,12 @@ import {
 import { IpcClient } from "@/ipc/ipc_client";
 
 /**
- * Open a cited page in Atlarix's own browser tab — an isolated WebContentsView,
- * which is where untrusted third-party pages belong. Falls back to the OS browser if
- * the panel can't be opened, so the action never silently does nothing.
+ * Open a cited page in the user's own browser. (It opened an in-app browser tab
+ * until that panel was retired on 2026-09-23.)
  */
 async function openInAppBrowser(url: string): Promise<void> {
   try {
-    await IpcClient.getInstance().browserCreateTab(url);
+    await IpcClient.getInstance().openExternalUrl(url);
   } catch {
     window.open(url, "_blank");
   }

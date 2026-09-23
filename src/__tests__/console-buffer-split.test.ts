@@ -298,15 +298,14 @@ describe("capture with the panel closed", () => {
   /**
    * A CONSTRAINT to preserve, not a feature to admire.
    *
-   * `scope.visible` controls only which view paints into the window; the
-   * WebContentsViews keep running, and the listeners live in the main process
-   * rather than in the panel component. This breaks the moment someone "tidies"
-   * a listener into the React tree — at which point closing the right panel would
-   * silently stop recording, and nobody would notice until the data was needed.
+   * The WebContentsViews run in a hidden host and the listeners live in the main
+   * process, not in any React tree. This breaks the moment someone "tidies" a
+   * listener into a component — at which point recording would stop whenever
+   * that component is unmounted, and nobody would notice until the data was
+   * needed.
    */
-  it("keeps recording while the right panel is closed", () => {
+  it("keeps recording with no panel mounted", () => {
     const scope = makeScope();
-    scope.visible = false;
     scope.activeTabId = 1;
 
     pushBrowserSurfaceError(scope, {

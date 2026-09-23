@@ -95,26 +95,14 @@ describe("per-window browser scopes", () => {
     expect(one).not.toBe(two);
     expect(one.tabs).not.toBe(two.tabs);
 
-    // Simulate window 1 opening a tab and going visible.
+    // Simulate window 1 opening a tab.
     one.tabs.set(101, {} as never);
     one.activeTabId = 101;
-    one.visible = true;
 
     expect(getTabCount(one)).toBe(1);
     expect(getTabCount(two)).toBe(0);
     expect(getActiveTabId(two)).toBeNull();
-    expect(getBrowserPanelState(two).visible).toBe(false);
-  });
-
-  it("REGRESSION: panel geometry is per window", () => {
-    // Two differently-sized windows previously shared one `lastBounds`, so the
-    // view laid out at the wrong width in whichever had not reported last.
-    const one = browserScopeForWindow(makeWindow(1));
-    const two = browserScopeForWindow(makeWindow(2));
-    one.lastBounds = { x: 0, y: 0, width: 800, height: 600 };
-    two.lastBounds = { x: 0, y: 0, width: 400, height: 300 };
-    expect(one.lastBounds.width).toBe(800);
-    expect(two.lastBounds.width).toBe(400);
+    expect(getBrowserPanelState(two).tabs).toEqual([]);
   });
 
   it("REGRESSION: page errors belong to the window that produced them", () => {

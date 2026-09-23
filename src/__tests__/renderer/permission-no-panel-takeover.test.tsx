@@ -97,7 +97,7 @@ describe("a permission request does not open the right panel", () => {
     store.set(selectedChatIdAtom, CHAT);
     store.set(rightPanelVisibleAtom, false);
     store.set(pendingProposalsAtom, []);
-    store.set(previewTabAtom, "browser");
+    store.set(previewTabAtom, "terminal");
   });
 
   afterEach(() => cleanup());

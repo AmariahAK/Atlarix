@@ -246,17 +246,6 @@ const validInvokeChannels = [
   "dev-server:stop",
   "dev-server:status",
   "dev-server:list-running",
-  // v11 in-app browser (WebContentsView panel)
-  "browser:get-state",
-  "browser:create-tab",
-  "browser:close-tab",
-  "browser:set-active-tab",
-  "browser:navigate",
-  "browser:back",
-  "browser:forward",
-  "browser:reload",
-  "browser:set-bounds",
-  "browser:set-visible",
   // Runtime errors captured from the browser tabs (Errors tab)
   "browser:get-errors",
   "browser:clear-errors",
@@ -379,10 +368,8 @@ const validReceiveChannels = [
   "plan:artifact-activated",
   "plan:artifact-updated",
   "plan:file-updated",
-  "browser:state-changed", // v11 in-app browser: main → renderer tab/nav state
   "browser:error", // main → renderer: runtime error captured from a browser tab (console/uncaught/load/crash/network)
   "browser:console", // main → renderer: coalesced BATCH of console entries at EVERY level (the Console tab). `browser:error` stays error/warning-only for its existing consumers.
-  "browser:request-panel", // main → renderer: the agent needs the Browser panel open (mirrors the plan-artifact auto-open)
   "chat:background-job-update", // main → renderer: background job started/finished/cancelled
   "chat:interjections", // main → renderer: the pending mid-turn-message queue changed
   "automation:run-update", // main → renderer: automation run started/finished (triage feed refresh)

@@ -124,8 +124,14 @@ function destroyIfLastWindow(): void {
   setImmediate(() => {
     try {
       const ours = ourWindows();
+      // The agent browser's hidden hosts are not user windows either — they
+      // are torn down with the window they belong to (browser_view_manager).
       const others = electron.BrowserWindow.getAllWindows().filter(
-        (w) => !ours.has(w) && !w.isDestroyed(),
+        (w) =>
+          !ours.has(w) &&
+          !w.isDestroyed() &&
+          (w as unknown as Record<string, unknown>).__atlarixBrowserHost !==
+            true,
       );
       if (others.length === 0) shutdownHiddenPages();
     } catch {

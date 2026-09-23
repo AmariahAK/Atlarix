@@ -14,10 +14,6 @@ import { CustomTagState } from "./stateTypes";
 import { AtlarixOutput } from "./AtlarixOutput";
 import { AtlarixProblemSummary } from "./AtlarixProblemSummary";
 import { IpcClient } from "@/ipc/ipc_client";
-import {
-  openUrlInBrowserTab,
-  isOpenableInBrowserTab,
-} from "@/lib/browser/open-in-browser-tab";
 import { LOCALHOST_URL_RE } from "@/lib/browser/localhost-url";
 import { AtlarixWebSearchResult } from "./AtlarixWebSearchResult";
 import { AtlarixWebSearch } from "./AtlarixWebSearch";
@@ -67,13 +63,8 @@ const customLink = ({
       const url = props.href;
       if (!url) return;
       e.preventDefault();
-      // Plain click on an http(s) URL (incl. the user's localhost app) opens it
-      // as an in-app Browser tab; Cmd/Ctrl+click sends it to the system browser.
-      if (!(e.metaKey || e.ctrlKey) && isOpenableInBrowserTab(url)) {
-        openUrlInBrowserTab(url);
-      } else {
-        IpcClient.getInstance().openExternalUrl(url);
-      }
+      // Links open in the system browser (the in-app panel was retired).
+      IpcClient.getInstance().openExternalUrl(url);
     }}
   />
 );
@@ -120,11 +111,10 @@ function renderTextWithPathMentions(children: React.ReactNode) {
           href={href}
           onClick={(e) => {
             e.preventDefault();
-            if (!(e.metaKey || e.ctrlKey)) openUrlInBrowserTab(href);
-            else IpcClient.getInstance().openExternalUrl(href);
+            IpcClient.getInstance().openExternalUrl(href);
           }}
           className="font-mono text-xs text-primary underline decoration-dotted underline-offset-2 hover:decoration-solid cursor-pointer"
-          title="Open in the in-app browser (⌘/Ctrl+click for system browser)"
+          title="Open in your browser"
         >
           {token}
         </a>,

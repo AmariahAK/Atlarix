@@ -65,7 +65,6 @@ export type BrowserTabState = {
 export type BrowserPanelState = {
   tabs: BrowserTabState[];
   activeTabId: number | null;
-  visible: boolean;
 };
 
 export type {
@@ -102,17 +101,23 @@ const NOISY_PREVIEW_RESOURCE_TYPES: ReadonlySet<string> = new Set([
  * window had not reported last.
  *
  * Deliberately NOT per window: the `persist:atlarix-browser` session (one cookie
- * jar, so a login the user performed themselves works everywhere — what
- * the browser tool already promises the model) and `paintHost` (a compositor
- * surface, not state).
+ * jar, so a login performed once works everywhere — what the browser tool
+ * already promises the model).
+ *
+ * THERE IS NO VISIBLE PANEL ANY MORE (removed 2026-09-23 in favour of the
+ * Chrome extension for anything the user watches or signs in to). The tabs live
+ * in a hidden `host` window per scope, always attached, always 1280x800 and
+ * always drawn — so layout, screenshots and `browser_test` behave identically
+ * every time, with nothing on screen. `window` stays the user's window: it is
+ * where console, error and network events for this scope are delivered.
  */
 export type BrowserScope = {
-  /** The window this panel belongs to. */
+  /** The user's window this browser belongs to (event target). */
   window: BrowserWindow;
+  /** Hidden window hosting the tabs. Created on first tab, destroyed with `window`. */
+  host: BrowserWindow | null;
   tabs: Map<number, WebContentsView>;
   activeTabId: number | null;
-  visible: boolean;
-  lastBounds: Rect | null;
   /**
    * Console-side entries: every console level, plus load/crash events.
    * Separate from `networkEntries` because a chatty page logging at `info`/`log`
@@ -125,9 +130,6 @@ export type BrowserScope = {
   /** Pending coalesced `browser:console` payload; flushed on a short timer. */
   consoleFlushQueue: BrowserSurfaceError[];
   consoleFlushTimer: NodeJS.Timeout | null;
-  panelWaiters: Array<() => void>;
-  /** True once a panel request went unanswered — the user wants it closed. */
-  panelRequestDeclined: boolean;
 };
 
 /** Tab ids stay globally unique so an id can never mean two things at once. */
@@ -146,16 +148,13 @@ export function browserScopeForWindow(win: BrowserWindow): BrowserScope {
     return existing;
   const scope: BrowserScope = {
     window: win,
+    host: null,
     tabs: new Map(),
     activeTabId: null,
-    visible: false,
-    lastBounds: null,
     consoleEntries: [],
     networkEntries: [],
     consoleFlushQueue: [],
     consoleFlushTimer: null,
-    panelWaiters: [],
-    panelRequestDeclined: false,
   };
   scopes.set(win.id, scope);
   win.once("closed", () => {
@@ -168,9 +167,69 @@ export function browserScopeForWindow(win: BrowserWindow): BrowserScope {
         /* shutdown best-effort */
       }
     }
+    // A live hidden window keeps `window-all-closed` from ever firing, so on
+    // Windows and Linux the app would not quit after the user closed theirs.
+    destroyHost(scope);
     scopes.delete(win.id);
   });
   return scope;
+}
+
+/** Fixed viewport every hidden tab lays out at — reported to the model as such. */
+export const BROWSER_VIEWPORT = { width: 1280, height: 800 } as const;
+
+/**
+ * Marks a hidden host so window enumeration elsewhere can skip it. A property
+ * rather than a module-level set because `headless-page.ts` must recognise one
+ * without importing this module.
+ */
+export const BROWSER_HOST_MARK = "__atlarixBrowserHost";
+
+/** True for a browser host window — never a user window. */
+export function isBrowserHostWindow(win: BrowserWindow): boolean {
+  return (win as unknown as Record<string, unknown>)[BROWSER_HOST_MARK] === true;
+}
+
+/**
+ * The scope's hidden host, created on first use.
+ *
+ * `show:false` still composites (measured on Electron 38: `capturePage` returns
+ * a current frame after ~250ms). NOT `offscreen:true` — that switches to
+ * offscreen rendering, a different paint and capture model. Not focusable, off
+ * the taskbar: nothing about it is ever the user's.
+ */
+function hostFor(scope: BrowserScope): BrowserWindow | null {
+  if (scope.host && !scope.host.isDestroyed()) return scope.host;
+  try {
+    const host = new BrowserWindow({
+      show: false,
+      width: BROWSER_VIEWPORT.width,
+      height: BROWSER_VIEWPORT.height,
+      skipTaskbar: true,
+      focusable: false,
+      webPreferences: { backgroundThrottling: false },
+    });
+    (host as unknown as Record<string, unknown>)[BROWSER_HOST_MARK] = true;
+    scope.host = host;
+    return host;
+  } catch (e) {
+    logger.warn(`[browser] could not create hidden host: ${String(e)}`);
+    return null;
+  }
+}
+
+function destroyHost(scope: BrowserScope): void {
+  try {
+    if (scope.host && !scope.host.isDestroyed()) scope.host.destroy();
+  } catch {
+    /* shutdown best-effort */
+  }
+  scope.host = null;
+}
+
+/** Tear down every hidden host — from `will-quit`, so none can outlive the app. */
+export function destroyBrowserHosts(): void {
+  for (const scope of scopes.values()) destroyHost(scope);
 }
 
 /**
@@ -191,7 +250,11 @@ export function resolveBrowserScope(
   }
   const focused = BrowserWindow.getFocusedWindow();
   if (focused && !focused.isDestroyed()) return browserScopeForWindow(focused);
-  const only = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed());
+  // Skipping hosts: a hidden host must never be mistaken for a user window and
+  // given a browser scope (and a host) of its own.
+  const only = BrowserWindow.getAllWindows().find(
+    (w) => !w.isDestroyed() && !isBrowserHostWindow(w),
+  );
   return only ? browserScopeForWindow(only) : null;
 }
 
@@ -200,28 +263,9 @@ function allScopes(): BrowserScope[] {
   return [...scopes.values()].filter((s) => !s.window.isDestroyed());
 }
 
-/**
- * Bounds to attach with before the renderer's ResizeObserver has reported real
- * ones (`browser:set-bounds`). Without this, the first agent navigation with
- * the panel never opened attaches the view with NO bounds — and a view whose
- * rect doesn't intersect the window gets a 0x0 layout viewport, so the document
- * lays out at zero width and every geometry answer is plausible but wrong.
- * Derived from the host window so it's a realistic reading width, never 0.
- */
-function fallbackBounds(win: BrowserWindow): Rect {
-  const { width, height } = win.getContentBounds();
-  const w = Math.max(480, Math.round(width / 2));
-  return {
-    x: Math.max(0, width - w),
-    y: 0,
-    width: w,
-    height: Math.max(360, height),
-  };
-}
-
-/** Real bounds if THIS window's renderer has reported them, else a sane default. */
-function boundsFor(scope: BrowserScope): Rect {
-  return scope.lastBounds ?? fallbackBounds(scope.window);
+/** Every tab fills its host. */
+function boundsFor(): Rect {
+  return { x: 0, y: 0, ...BROWSER_VIEWPORT };
 }
 
 export function isAllowedBrowserUrl(rawUrl: string): boolean {
@@ -448,15 +492,6 @@ export function uploadDataToText(
 /** Request bodies are captured for inspection, not archival. */
 const UPLOAD_BODY_MAX = 4000;
 
-function broadcastState(scope: BrowserScope): void {
-  if (scope.window.isDestroyed()) return;
-  safeSend(
-    scope.window.webContents,
-    "browser:state-changed",
-    getBrowserPanelState(scope),
-  );
-}
-
 /**
  * Send an event to one window's renderer.
  *
@@ -486,7 +521,6 @@ export function getBrowserPanelState(scope: BrowserScope): BrowserPanelState {
       canGoForward: view.webContents.navigationHistory.canGoForward(),
     })),
     activeTabId: scope.activeTabId,
-    visible: scope.visible,
   };
 }
 
@@ -539,19 +573,6 @@ export function scopeForView(view: WebContentsView): BrowserScope | null {
 }
 
 /**
- * Cmd/Ctrl+W handler: close the active browser tab only when the browser panel
- * is actually visible with a tab. Returns true if a tab was closed (the caller
- * then swallows the key); false lets the OS default (window close) proceed.
- */
-export function closeActiveBrowserTabIfVisible(scope: BrowserScope): boolean {
-  if (!scope.visible || scope.activeTabId == null || scope.tabs.size === 0) {
-    return false;
-  }
-  closeTab(scope, scope.activeTabId);
-  return true;
-}
-
-/**
  * Bodies come from CDP when it is live, so the page-side wrapper is installed
  * ONLY on a degraded tab. Injecting it always would wrap `fetch` in every page
  * the user browses to buy nothing.
@@ -589,15 +610,6 @@ function wireTabEvents(
   view: WebContentsView,
 ): void {
   const wc = view.webContents;
-  for (const evt of [
-    "did-navigate",
-    "did-navigate-in-page",
-    "page-title-updated",
-    "did-start-loading",
-    "did-stop-loading",
-  ] as const) {
-    wc.on(evt as never, () => broadcastState(scope));
-  }
   // ── Runtime error capture (the Errors tab + the agent's completion gate) ──
   // console.error / warn (and our injected [[ATLARIX_ERR]] sentinel carrying a
   // stack) surface here. Signature differs across Electron majors (positional
@@ -654,10 +666,7 @@ function wireTabEvents(
     });
   });
   wc.on("did-fail-load", (_e, code, desc, url) => {
-    if (code === -3 /* aborted (redirects/SPAs) */) {
-      broadcastState(scope);
-      return;
-    }
+    if (code === -3 /* aborted (redirects/SPAs) */) return;
     logger.warn(`[browser] load failed (${code}) ${desc} ${url}`);
     pushBrowserSurfaceError(scope, {
       type: "load-failed",
@@ -666,7 +675,6 @@ function wireTabEvents(
       timestamp: nowTs(),
       tabId: id,
     });
-    broadcastState(scope);
   });
   wc.on("render-process-gone", (_e, details) => {
     pushBrowserSurfaceError(scope, {
@@ -815,8 +823,6 @@ export function createTab(
     .catch((e) => {
       logger.warn(`[browser] tab ${id} initial load failed: ${String(e)}`);
     });
-
-  broadcastState(scope);
   return getBrowserPanelState(scope);
 }
 
@@ -826,8 +832,8 @@ export function closeTab(scope: BrowserScope, id: number): BrowserPanelState {
     // Detach BEFORE close: a debugger still attached to a destroyed webContents
     // is exactly the shape of the native crash we already have open in Sentry.
     detachNetworkCapture(id, view.webContents);
-    if (!scope.window.isDestroyed())
-      scope.window.contentView.removeChildView(view);
+    if (scope.host && !scope.host.isDestroyed())
+      scope.host.contentView.removeChildView(view);
     view.webContents.close();
     scope.tabs.delete(id);
     // Tab ids never repeat, so a retained epoch would leak for the app's life.
@@ -839,47 +845,35 @@ export function closeTab(scope: BrowserScope, id: number): BrowserPanelState {
       scope.tabs.size > 0 ? [...scope.tabs.keys()].pop()! : null;
     if (scope.activeTabId != null) setActiveTab(scope, scope.activeTabId);
   }
-  broadcastState(scope);
   return getBrowserPanelState(scope);
 }
 
 /**
- * Attach the active tab and give it a size, whether or not the panel is open.
+ * Attach the active tab to the hidden host, sized and DRAWN.
  *
- * THE BUG THIS FIXES, and it is worth stating because the guard against it was
- * already written and simply never ran. `fallbackBounds` exists (see its
- * docblock) because "a view whose rect doesn't intersect the window gets a 0x0
- * layout viewport, so the document lays out at zero width and every geometry
- * answer is plausible but wrong". But bounds were only ever applied while
- * ATTACHING, and attaching only happened when `scope.visible` — so with the
- * right panel closed the view was never attached at all, which is the same
- * failure one step worse. The agent's browser tools reported an empty or
- * unusable page against a local dev server until the user opened the panel by
- * hand, and `requestBrowserPanel`'s claim that "the browser tools work fine with
- * the panel shut" was simply false.
- *
- * So: always attached, always sized, and `View.setVisible` decides whether it is
- * DRAWN. That separation is the whole point — a laid-out page the compositor
- * skips is what an agent needs, while a drawn one with no chrome around it is
- * the bare browser slab over half the app that made this conditional in the
- * first place.
+ * Drawn matters: a view that is attached but not visible still lays out, but
+ * the compositor skips it, and a screenshot of it is the last retained frame.
+ * In a hidden host there is nothing to hide it from, so it is always drawn.
  */
 function attachActive(scope: BrowserScope, view: WebContentsView): void {
-  scope.window.contentView.addChildView(view);
-  view.setBounds(boundsFor(scope));
-  view.setVisible(scope.visible);
+  const host = hostFor(scope);
+  if (!host) return;
+  host.contentView.addChildView(view);
+  view.setBounds(boundsFor());
+  view.setVisible(true);
 }
 
 export function setActiveTab(scope: BrowserScope, id: number): void {
   const view = scope.tabs.get(id);
   if (!view || scope.window.isDestroyed()) return;
   // Detach all, then attach the active one (single surface).
-  for (const [, v] of scope.tabs) {
-    scope.window.contentView.removeChildView(v);
+  if (scope.host && !scope.host.isDestroyed()) {
+    for (const [, v] of scope.tabs) {
+      scope.host.contentView.removeChildView(v);
+    }
   }
   scope.activeTabId = id;
   attachActive(scope, view);
-  broadcastState(scope);
 }
 
 export function navigate(
@@ -913,83 +907,7 @@ export function reload(scope: BrowserScope): void {
   getActiveTabView(scope)?.webContents.reload();
 }
 
-export function setBounds(scope: BrowserScope, rect: Rect): void {
-  scope.lastBounds = rect;
-  // No `scope.visible` guard any more: the view is always attached, so a fresh
-  // rect is always worth applying. It only ever arrives from a mounted panel
-  // anyway, and gating it here meant the LAST reported rect was discarded on the
-  // way to a closed panel and had to be re-derived on reopen.
-  const view = getActiveTabView(scope);
-  if (view) view.setBounds(rect);
-  // Wake anything waiting for the panel to actually be on screen.
-  const waiters = scope.panelWaiters;
-  scope.panelWaiters = [];
-  for (const w of waiters) w();
-}
-
-/**
- * The agent needs the browser on screen — ask the RENDERER to open the right
- * panel on its Browser tab, exactly like a plan artifact does, and wait briefly
- * for it to report bounds.
- *
- * Why not just `setVisible(true)`: that DRAWS the `WebContentsView` over the
- * window with no tab strip and no URL bar, because the React chrome isn't
- * mounted. With the right panel closed that renders as a bare browser slab
- * covering half the app — which is what a user actually sees, and it looks
- * broken. `setVisible` stays the RENDERER's call (panel mount/unmount); agent
- * code asks for the panel and lets the UI drive visibility.
- *
- * The tools genuinely do work with the panel shut — but only since the view
- * started being ATTACHED regardless of visibility (see `attachActive`). Before
- * that this docblock made the claim and the code did not support it: an
- * unattached view has no layout viewport, so the page laid out at zero width and
- * every answer about it was plausible and wrong. Opening the panel by hand was
- * the only fix, which is exactly how the bug was reported.
- */
-export async function requestBrowserPanel(
-  scope: BrowserScope,
-  timeoutMs = 1200,
-): Promise<void> {
-  if (scope.visible) return; // panel already mounted — nothing to ask for
-  broadcastToRenderer(scope, "browser:request-panel", {});
-  // If the user has closed the panel (or suppressed auto-open) the renderer
-  // won't open it, and blocking the full timeout on every later call would tax
-  // a deliberate choice. Ask once, then stop waiting — the browser tools work
-  // fine with the panel shut, and `visible` flips the moment they reopen it.
-  if (scope.panelRequestDeclined) return;
-  await new Promise<void>((resolve) => {
-    const timer = setTimeout(() => {
-      scope.panelWaiters = scope.panelWaiters.filter((w) => w !== wake);
-      scope.panelRequestDeclined = true;
-      resolve();
-    }, timeoutMs);
-    const wake = () => {
-      clearTimeout(timer);
-      resolve();
-    };
-    scope.panelWaiters.push(wake);
-  });
-}
-
-export function setVisible(scope: BrowserScope, nextVisible: boolean): void {
-  scope.visible = nextVisible;
-  // Reopening the panel clears the "user wants it closed" memory.
-  if (nextVisible) scope.panelRequestDeclined = false;
-  if (scope.window.isDestroyed()) return;
-  const view = getActiveTabView(scope);
-  if (!view) {
-    if (nextVisible) createTab(scope);
-    return;
-  }
-  // Hiding the panel no longer DETACHES the view — it stops drawing it. A
-  // detached view has no layout viewport, and the agent's browser tools go on
-  // working while the panel is shut; they were the casualty of the old
-  // remove-on-hide. See `attachActive`.
-  attachActive(scope, view);
-  broadcastState(scope);
-}
-
-/** Ensure a tab exists (agent navigation may run before the panel was opened). */
+/** Ensure a tab exists — the agent's first navigation creates it. */
 export function ensureTab(scope: BrowserScope): WebContentsView {
   const existing = getActiveTabView(scope);
   if (existing) return existing;
@@ -1253,96 +1171,42 @@ export function normalizeConsoleLevel(
 // to the window (no compositor surface). A screenshot must still work when the
 // user has the Browser panel closed or is on another tab — so if the view isn't currently attached, temporarily attach
 // it OFF-SCREEN, let it paint, capture, then detach. Best-effort; never throws.
-/**
- * A hidden window used purely as a paint surface for tabs that aren't currently
- * on screen (background tabs, or any tab while the user has the Browser panel
- * closed). Created lazily and reused.
- *
- * This replaces parking the view at `{x:-20000}` inside the main window, which
- * NEVER worked: measured on Electron 38.2.2, a WebContentsView whose rect does
- * not intersect its window gets a 0x0 viewport and produces an EMPTY capture —
- * at any offset, ordering or settle time. That path only appeared to work
- * because a previously-visible tab still holds its last painted frame.
- */
-let paintHost: BrowserWindow | null = null;
-
-/** How long the borrowed host needs to paint a CURRENT frame (measured). */
+/** How long a freshly attached view needs to paint a CURRENT frame (measured). */
 const PAINT_SETTLE_MS = 250;
-
-function getPaintHost(): BrowserWindow | null {
-  if (paintHost && !paintHost.isDestroyed()) return paintHost;
-  try {
-    paintHost = new BrowserWindow({
-      show: false,
-      width: 1280,
-      height: 800,
-      // Never focusable/visible — it exists only to give detached views a
-      // compositor surface.
-      skipTaskbar: true,
-    });
-    return paintHost;
-  } catch (e) {
-    logger.warn(`[browser] could not create paint host: ${String(e)}`);
-    return null;
-  }
-}
-
-export function destroyPaintHost(): void {
-  try {
-    if (paintHost && !paintHost.isDestroyed()) paintHost.destroy();
-  } catch {
-    /* shutdown best-effort */
-  }
-  paintHost = null;
-}
 
 export async function capturePaintable(
   scope: BrowserScope,
   view: WebContentsView,
 ): Promise<import("electron").NativeImage | null> {
   if (scope.window.isDestroyed() || view.webContents.isDestroyed()) return null;
-  if (scope.window.contentView.children.includes(view)) {
+  const host = hostFor(scope);
+  if (!host) return null;
+  // The active tab is permanently attached and drawn in the host.
+  if (host.contentView.children.includes(view)) {
     try {
       return await view.webContents.capturePage();
     } catch {
       return null;
     }
   }
-  // Not on screen: borrow the hidden host so the compositor produces a CURRENT
-  // frame. Keep the size identical to the panel's so the page doesn't reflow
-  // (and then reflow back) just because we took a picture.
-  const host = getPaintHost();
-  if (host) {
-    const size = scope.lastBounds ?? { x: 0, y: 0, width: 1024, height: 768 };
-    try {
-      host.contentView.addChildView(view);
-      view.setBounds({ x: 0, y: 0, width: size.width, height: size.height });
-      // The hidden host DOES composite, but it needs long enough to produce a
-      // fresh frame — measured: at 80ms `capturePage` still returns the frame
-      // retained from when the tab was last on screen, which would put stale
-      // pictures in the session recording. ~250ms yields a current one.
-      await new Promise((r) => setTimeout(r, PAINT_SETTLE_MS));
-      const image = await view.webContents.capturePage();
-      if (!image.isEmpty()) return image;
-    } catch {
-      /* fall through to the retained-frame attempt */
-    } finally {
-      try {
-        host.contentView.removeChildView(view);
-        if (scope.visible && scope.activeTabId != null) {
-          setActiveTab(scope, scope.activeTabId);
-        }
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-  // Last resort: a tab that has been on screen before still holds its last
-  // painted frame, which beats no frame at all in the session recording.
+  // A background tab: attach it alongside, let it paint, capture, put back.
+  // At 80ms `capturePage` still returns the frame retained from the tab's last
+  // attach; ~250ms yields a current one (measured).
   try {
-    const retained = await view.webContents.capturePage();
-    return retained.isEmpty() ? null : retained;
+    host.contentView.addChildView(view);
+    view.setBounds(boundsFor());
+    view.setVisible(true);
+    await new Promise((r) => setTimeout(r, PAINT_SETTLE_MS));
+    const image = await view.webContents.capturePage();
+    return image.isEmpty() ? null : image;
   } catch {
     return null;
+  } finally {
+    try {
+      host.contentView.removeChildView(view);
+      if (scope.activeTabId != null) setActiveTab(scope, scope.activeTabId);
+    } catch {
+      /* ignore */
+    }
   }
 }
