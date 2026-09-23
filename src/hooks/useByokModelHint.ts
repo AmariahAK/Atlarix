@@ -2,9 +2,10 @@
  * The one-time hint that points a BYOK user at the model picker.
  *
  * WHAT STATE THIS IS FOR, EXACTLY: the user has supplied their own API key, and the
- * chat is still going to Atlarix Core, because the default model is Core and saving a
- * key never moved it. They are paying Core credit for turns they believe are running
- * on their own key. Nothing in the UI says so.
+ * chat is still going to Atlarix Core (since 2026-09-23 the default is Atlarix Auto),
+ * because saving a key never moved it. They believe their turns run on their own key —
+ * while paying Core credit, or on free Auto sharing prompts with OpenAI. Nothing in the
+ * UI says so.
  *
  * WHY NOT JUST A COMPOSER TIP. There is already a `change-model` tip in
  * `lib/composer-tips.ts`, and it cannot do this job: the pool holds ~17 tips, one is

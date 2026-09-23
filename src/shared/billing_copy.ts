@@ -84,8 +84,8 @@ export const PRO_SUMMARY =
  */
 export const CORE_PAYMENT_SUMMARY =
   `${ATLARIX_CORE_CATEGORY_LABEL} runs on a prepaid credit balance, metered per use. ` +
-  "Pro includes Core for everyday work and draws on your credit only beyond that; " +
-  "Free draws on it from the start. Your own API keys and local models are always free.";
+  "Pro includes Core for everyday work and draws on your credit only beyond that. " +
+  "With no credit, Atlarix Auto is still free. Your own API keys and local models are always free.";
 
 // ─── The two moments worth a message ─────────────────────────────────────────
 

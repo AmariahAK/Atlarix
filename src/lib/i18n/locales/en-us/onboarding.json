@@ -1,14 +1,14 @@
 {
   "byokModel": {
-    "title": "You have your own API key — but chats still use Atlarix Core",
+    "title": "You have your own API key — but chats still use Atlarix",
     "body": "Pick one of your provider's models here to run on your key instead. The button opens the full list.",
     "action": "Got it"
   },
   "byokDefault": {
     "prompt": "Use {{provider}} for new chats?",
-    "detail": "Your key is saved, but new chats still use Atlarix Core until you change the model.",
+    "detail": "Your key is saved, but new chats still use Atlarix Auto until you change the model.",
     "confirm": "Use {{provider}}",
-    "dismiss": "Keep Core",
+    "dismiss": "Keep Atlarix Auto",
     "willUse": "New chats would use {{model}}. Change it any time from the model picker.",
     "done": "New chats will use {{model}}."
   },

@@ -220,7 +220,7 @@ call shown in the app.
 
 |          | Price  | What it is                                                                                                                    |
 | -------- | ------ | ----------------------------------------------------------------------------------------------------------------------------- |
-| **Free** | $0     | The whole app. Core on pay-as-you-go credit.                                                                                  |
+| **Free** | $0     | The whole app. Atlarix Auto free (a fair daily share); Core models on pay-as-you-go credit.                                   |
 | **Pro**  | $19/mo | The whole app, plus **Atlarix Reviewer**, plus Atlarix Core included for everyday work. Heavier use draws on the same credit. |
 
 **One subscription, one balance.** Pro covers the desktop app and Atlarix Reviewer from a

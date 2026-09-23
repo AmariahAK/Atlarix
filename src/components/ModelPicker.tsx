@@ -380,13 +380,13 @@ export function ModelPicker({
                 <p className="text-xs font-medium">No providers configured</p>
                 <p className="text-xs text-muted-foreground">
                   Add a key in Integrations → Models &amp; providers, or use
-                  Atlarix Core, which needs none.
+                  Atlarix Auto, which needs no key and is free to start.
                 </p>
               </div>
             ) : searchQuery.trim() ? (
               matches.length === 0 ? (
                 <p className="py-3 text-center text-xs text-muted-foreground">
-                  No matches. Try openrouter, claude, grok…
+                  No matches. Try claude, gpt, gemini…
                 </p>
               ) : (
                 <>

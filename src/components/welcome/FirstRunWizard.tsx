@@ -375,8 +375,7 @@ export function FirstRunWizard() {
                     </p>
                   ) : (
                     <p className="mt-1 text-xs text-muted-foreground">
-                      OpenAI, Anthropic, Gemini, OpenRouter, Ollama, LM Studio,
-                      and more.
+                      OpenAI, Anthropic, Gemini, Ollama, LM Studio, and more.
                     </p>
                   )}
                 </div>
@@ -410,8 +409,7 @@ export function FirstRunWizard() {
                   </div>
                   <p className="mt-1 text-xs text-muted-foreground">
                     One-click integrations (GitHub, Slack, search, …) per
-                    workspace. Marketplace installs are a Pro feature — browsing
-                    is free.
+                    workspace. Free on every plan.
                   </p>
                 </div>
               </div>

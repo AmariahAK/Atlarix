@@ -1,5 +1,11 @@
 # Atlarix Core billing & plan limits (pay-as-you-go credit wallet)
 
+> **2026-09-23 — ATLARIX AUTO is one option for everyone, and the default for new installs.**
+> The proxy decides who pays from the account: with a Pro allowance or credit, Auto is
+> PAID, routed per step (mode / purpose / deep thinking / media) and never shared; with
+> nothing to pay with, Auto is FREE on OpenAI's shared-data tokens after a one-time OK,
+> with a fair daily share. Pinned Core models always need Pro or credit.
+
 > **v14.45.0 (2026-09-10) — the app is FREE, and the price catalog is models.dev.**
 > Every feature is on every plan; the only paid thing is Core inference. The skills
 > marketplace and its `SKILLS_WORKSPACE_MAX` cap are gone — repo skills under
@@ -96,7 +102,8 @@ row here claiming one is fiction.
 
 | Capability              | Every plan           |
 | ----------------------- | -------------------- |
-| Atlarix Core            | Pay-as-you-go credit |
+| Atlarix Auto            | Free with no credit; paid with Pro or credit |
+| Atlarix Core (pinned)   | Pro allowance or pay-as-you-go credit |
 | Workspaces              | Unlimited            |
 | MCP servers / workspace | 10                   |
 | Automations / workspace | 10                   |

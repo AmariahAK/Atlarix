@@ -76,7 +76,7 @@ const FEATURES: ToolFeature[] = [
       "Watch the context bar on long threads; each Core model uses its own context window",
     ],
     howItWorks:
-      "Atlarix Core is billed against your prepaid credit balance (metered per use). BYOK (OpenRouter, OpenAI, Anthropic, Gemini, local Ollama, etc.) can run alongside Core—pick the active model per chat.",
+      "Atlarix Auto is free for accounts with no credit; with Pro or credit, Auto and every Core model draw on your allowance or balance, metered per use. Your own keys (OpenAI, Anthropic, Gemini, local Ollama, etc.) run alongside Core — pick the active model per chat.",
     link: { label: "Settings → Providers", to: "/settings" },
   },
   {
