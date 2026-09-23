@@ -82,6 +82,25 @@ not trust it.
 - **Selecting an older session leaves the empty "Untitled" / "New conversation" row behind.** When
   the user switches to an existing session, an unused empty session should be pruned (or not
   shown) — the session-reuse log shows `msgs=0,"Untitled"` candidates lingering.
+- **Sub-agents: cut the built-ins to TWO — explore + implement — and rename them.** Owner decision
+  2026-09-23. Delete `architect` (Plan MODE in the main loop already does this; its tools were
+  identical to explorer's) and `qa` (no competitor ships a testing sub-agent; the main loop already
+  runs tests and `browser_test`). `src/lib/agents/builtin-agents.ts` → two entries; update the
+  `subagent_type` enum/description, the plan-card renderer's agent labels
+  (`src/lib/plan-cards/plan-card-renderer.ts`), tools page copy, tests and DESIGN_NOTES "QA
+  sub-agents". Explorer keeps code AND web tools (it already has `web_search` + `read_url`) and
+  becomes where deep research happens. **Names need work** — pick clear, plain ones before
+  shipping (e.g. "explore" / "build"-style verbs, matching Claude Code's "Explore" and opencode's
+  "explore"/"general"). Users can still define their own agents in `.atlarix/agents/`.
+- **Web tools: two plain primitives, no modes.** `web_search` currently has quick vs `deep: true`
+  synthesis, a legacy `mode: quick|deep|comprehensive` alias, `max_sources` and a `sources` picker,
+  plus a separate `read_url` — three overlapping ways to research. Every reference tool uses just
+  search + fetch (Claude Code WebSearch/WebFetch, opencode websearch/webfetch, Codex web_search,
+  Cursor @Web); none has a "deep" mode — the agent loop IS the deep mode (search → pick → read →
+  search again). Make `web_search` = `query` (+ optional result count) → top results (title, URL,
+  snippet); keep `read_url`; delete `deep`, `mode`, `max_sources`, `sources` and the deep-synthesis
+  code path + its "deep research" UI/labels. Deep research = the explorer sub-agent chaining the two.
+  Shorter per-turn tool description as a bonus.
 - **Remove the right panel's Console and Network tabs, and their code.** The Chrome extension now
   covers what they were for (console + network of the agent's tabs, over CDP). Delete the tabs,
   the capture plumbing that only feeds them (e.g. `browser_network_capture.ts`, the
