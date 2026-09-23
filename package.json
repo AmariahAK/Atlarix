@@ -1,7 +1,7 @@
 {
   "name": "atlarix",
   "productName": "Atlarix",
-  "version": "14.50.0",
+  "version": "14.50.1",
   "private": true,
   "description": "The private AI workstation for engineering teams — your code stays on your machine, with managed Atlarix Core models, any-model BYOK across 145+ providers, and local execution.",
   "main": ".vite/build/main.js",
