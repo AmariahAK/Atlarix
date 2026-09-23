@@ -45,5 +45,7 @@ export function useContextReport(
     return unsubscribe;
   }, [chatId]);
 
-  return report;
+  // useState only initialises on mount, so for the one render between a chat
+  // switch and the effect above, `report` still belongs to the previous chat.
+  return report?.chatId === chatId ? report : null;
 }

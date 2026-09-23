@@ -1,8 +1,4 @@
-import {
-  keepPreviousData,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { IpcClient } from "@/ipc/ipc_client";
 import type { TokenCountResult } from "@/ipc/ipc_types";
 import { useCallback, useEffect, useState } from "react";
@@ -58,7 +54,13 @@ export function useCountTokens(chatId: number | null, input: string = "") {
         workMode,
       });
     },
-    placeholderData: keepPreviousData,
+    // Hold the previous count across keystrokes and mode switches of the SAME
+    // chat so the meter doesn't flicker — but never across chats. Carrying it
+    // over is how a new session showed the last session's 29% until its first
+    // message: the new chat's query was "loading" with the old chat's data as
+    // its placeholder. Across chats, show nothing until the real count lands.
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[1] === chatId ? previous : undefined,
     enabled: chatId !== null,
     refetchOnWindowFocus: false,
     staleTime: chatId != null && chatId < 0 ? 5_000 : 0,
