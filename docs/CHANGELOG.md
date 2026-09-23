@@ -3,6 +3,55 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.51.0] (2026-09-23) — One Atlarix Auto for everyone, and the browser moves out of the way
+
+**Atlarix Auto is now the model new installs start on, and it works for every account.** It
+picks the model for each step, and the account decides who pays. With Atlarix Pro or credit,
+Auto is paid and private: each request is routed by what it is — Explore and Build run on
+GLM-5.3, Plan and Review on GPT-6 Sol, sub-agents and titles on the cheapest model, deep
+thinking moves each lane one level up, and a step carrying an image or PDF goes to a model
+that can read it. Nothing it handles is used for training. With no credit, Auto in the desktop
+app is free on OpenAI's shared-data allowance, after a one-time notice, with a fair daily share
+per account that resets at midnight UTC — shown on your own clock. The Chrome extension runs on
+paid Auto only.
+
+### Added
+
+- **Atlarix Auto** — paid routing by mode, purpose, deep thinking and media; free on the desktop
+  for accounts with no credit; the default for new installs (existing selections are kept).
+  Model names are hidden under Auto — the composer says "Auto · Included / Credits / Free".
+- **Badges that follow the account.** Auto reads Free, Included (Pro) or Credits; a pinned Core
+  model reads Included or Credits, and is locked for an account with nothing to pay with.
+- **One upgrade line, with Upgrade to Pro and Add credit buttons,** wherever a free account hits
+  a wall: the locked picker rows, the free-limit message, the low-balance hint, the extension.
+- **"Try with a stronger model"** on a failed paid-Auto turn — the same turn, one level up.
+- **Screenshots in the Chrome extension**, for its own agent and for the desktop over the bridge.
+- **Voice shows the wait** — a listening meter, the recorded clip's waveform while it
+  transcribes, and words streaming in as they are recognised.
+- **Opening the extension's side panel starts a new conversation.**
+
+### Changed
+
+- **The visible Browser panel is gone.** The agent's browser runs in a hidden host; the Errors
+  and Network tabs stay. Anything that needs your logins goes to your own Chrome through the
+  Atlarix extension. ⌘W now simply closes the window.
+- **Auto's context window follows the account** — about 1M for a paying account, 400K on free —
+  so the context ring and compaction match what the models can actually hold.
+- **Onboarding, the pricing copy and the docs describe the product as it is now:** no signup
+  trial, Auto free to start, Pro or credit for Core models.
+
+### Fixed
+
+- **Models & providers search filters the whole grid** — it used to leave every provider but
+  Core and OpenRouter unfiltered, so a search changed nothing.
+- **The model picker is readable in both themes** — hover and selection were amber under green
+  text; price badges now meet contrast in light and dark.
+- **The workspace selector's light mode matches the workspace** — no more amber hovers.
+- **A new session no longer shows the previous session's context percentage.**
+- **The deleted on-device Whisper cache is swept from every origin**, and the tip claiming local
+  Whisper still existed is gone.
+- **No balance check is sent while signed out.**
+
 ## [14.50.0] (2026-09-22) — Dictation goes where the audio can actually go, and the app stops holding what it cannot use
 
 **On-device speech recognition is gone, and that is the headline fix.** Dictation ran
@@ -629,242 +678,3 @@ reachable from every screen instead of only from Home.
 **A setting changed in one window now reaches every window.** Each window used to
 load settings once and never hear about later changes, which is why zoom could
 differ between two windows of the same app until one was reloaded.
-
-## [14.42.0] (2026-09-03) — Talk to it while it is working
-
-**A message you type mid-turn now reaches the turn that is running.** It used to be
-parked until the turn ended and then replayed as a brand-new one — and only one
-message fitted. A second was silently rejected, with no feedback at all, because
-Enter bypasses the disabled Send button, so your text just sat in the box. Now
-each message is handed to the running turn and arrives on its next step, and it
-appears in the transcript the moment the agent takes it. Type as many as you like;
-each stays cancellable until it is picked up. If the turn ends before one can be
-delivered, it opens the next turn instead — never both, and never neither.
-
-**Answering a question no longer needs a Stop.** The question tool deliberately
-ends the turn, and the queued-message flush ran at exactly that moment — so a
-message you had typed started a fresh turn on top of the question card, and
-pressing Stop was the only way back to it. That Stop then latched the chat as
-stopped, and releasing the latch required a non-empty prompt, which an answer
-never sends because the answers travel out of band. One question round could
-leave a chat latched for good: five sub-agents finished over the following five
-minutes and every one of their wakes was refused. Commands, automations and
-scheduled self-wakes all lost the same eager delivery. Their results were never
-lost — only the automatic pickup was.
-
-**Sub-agent cards finish counting.** A card could sit on "4/5 running" after all
-five had in fact finished, because the listener that would have settled it
-unsubscribed when the turn ended, leaving the completion events that arrived
-afterwards with no receiver.
-
-**Your own messages stopped glaring.** The bubble borrowed the button colour —
-full-saturation emerald — and in dark mode the near-black text it was meant to
-pair with never applied, because the markdown inside forces light prose text. The
-result was white on full emerald, the highest-glare pair the palette can produce.
-The bubble now has its own surface colours: deep emerald in dark mode, a pale
-tint in light, with a border to keep its edge legible.
-
-## [14.41.0] (2026-09-02) — The context meter starts telling the truth
-
-**The context meter was hiding about 10,000 tokens.** It counted the system prompt and
-nothing else, so the tool descriptions and parameter schemas that ship on every single
-turn — and are billed on every single turn — were invisible to it. In Build mode the real
-fixed cost of starting a turn is around 14,600 tokens; the meter said about 4,000. It now
-counts the whole thing and breaks it into three lines you can read: the instructions, the
-tool descriptions, and the tool schemas. It also names which work mode it priced, because
-Build and Plan genuinely cost different amounts.
-
-**And it was pricing the wrong mode.** The meter worked out your work mode with its own
-copy of the logic, which had two faults: it fell back to a prompt shape that no real turn
-has ever used, and it read your global mode preference even though each chat has owned its
-own mode since v14.36.0 — so a chat set to Debug could be measured as Explore. It now asks
-the same question the same way the turn itself does.
-
-**The agent stops being shown settings it cannot change.** Four tools advertised parameters
-that the app fills in itself and overwrites — a workspace id, a session id — so the model
-was paying for them on every turn and being invited to guess values that were thrown away.
-Those are gone from what the model sees, while the app keeps filling them in exactly as
-before.
-
-**Fewer wrong ways to call the same tool.** Reading a file offered three different ways to
-ask for part of a file, and several tools carried a second name for a parameter they
-already had. The extra spellings are no longer advertised, so there is one obvious way to
-do each thing — and every old spelling still works, so nothing that already knew the older
-name breaks.
-
-**Tool parameter help now arrives the same way tool descriptions do.** For the tools a given
-mode rarely uses, the long parameter notes are shortened to their first line, with the full
-text one call away. The tools each mode leans on — running commands, editing files,
-delegating work — keep their parameters in full, because that is where getting a parameter
-wrong costs the most.
-
-**Six browser tools became two.** Driving a page took one tool to navigate, another to
-click and type, another to manage tabs, another to find an element, and another to run
-several of those in a row — five tools for one job, and every one of them described in
-full on every turn. There are now two: **browser_inspect** to read a page, and **browser**
-to act on it (`action: navigate / find / click / fill / key / hover / scroll / tabs /
-batch`). Reading and acting stay apart on purpose — reading is free and repeatable, acting
-changes something.
-
-The act tool no longer takes a CSS selector, only an element reference from a page read.
-A selector that matches the wrong element succeeds quietly on the wrong thing; a stale
-reference fails loudly and tells you so. All five old names still work.
-
-Measured on the wire, per mode: Explore 11,539 → 10,875; Plan 10,891 → 10,310; Build
-15,329 → 14,644; Review 11,199 → 10,526; Debug 14,738 → 14,053. Every mode is smaller than
-it was, and every mode also gained the two mobile tools below — the browser consolidation
-on its own was about 10%, and roughly half of that was spent on being able to see a phone.
-A new check fails the build if the fixed prompt grows past a ceiling — or shrinks below a
-floor, since a mode that quietly stops offering a tool looks exactly like a saving.
-
-**Settings is two pages now: Settings and Integrations.** Settings had become one long
-scroll doing three unrelated jobs, with model providers sitting next to appearance and
-telemetry. The new split is by KIND, not by scope:
-
-- **Settings** is how the app behaves for you — General, Diagnostics, Browser, Search,
-  Notifications, Voice input, Community, and the danger zone.
-- **Integrations** is a new page in the sidebar, alongside Apps, Tools and Settings. It
-  holds everything Atlarix is connected to and what it may do there: Models & providers,
-  MCP servers, Skills, GitHub, and this project's permissions. Each is its own screen
-  rather than another section on a long page.
-
-Nothing was removed, and every deep link still lands somewhere sensible: an MCP sign-in
-prompt now opens Integrations → MCP servers, and a model error opens Integrations →
-Models & providers.
-
-**The token budget cap can be cleared again.** Deleting the last digit put the old value
-straight back, so the only way to remove a cap was to type a second digit and then delete
-the first — which left a `0` on screen while the provider was actually back on automatic.
-The field now clears properly, says which state it is in ("No cap — using the model's full
-context window" or "Capped at 50,000 tokens"), and has a **Use auto** button so getting
-back to automatic is one click rather than a guess. A number below the minimum is raised to
-it and you are told, instead of being silently thrown away.
-
-**Atlarix can see a phone screen now.** It could already build a mobile app and run its
-build commands, and then had no idea what it had drawn — a web app it can drive end to end,
-a mobile app it could only compile. Two new tools close that, in the same shape as the
-browser pair: **mobile_inspect** reads a running Android emulator or iOS Simulator, and
-**mobile** acts on it (tap, type, key, swipe, launch).
-
-The default read is the UI hierarchy **as text** — every element with a reference, a few
-hundred tokens — not a screenshot. A screenshot is thousands of tokens and answers fewer
-questions; it is there for when you genuinely need the image. Actions address elements by
-reference, never by coordinate: a coordinate is right for one screen size and taps empty
-space on every other, and it fails by _succeeding_, which is the worst way for a test to
-fail.
-
-iOS is honest about what it cannot do. Screenshots and logs work; the hierarchy and input
-injection do not, because Apple's simulator tooling has no equivalent — so those calls say
-exactly that, and say not to retry, rather than failing in a way that invites the agent to
-try again.
-
-Reading a device's log takes an app name, and it is worth giving it one: a phone's log is the
-whole operating system, and naming your app is the difference between megabytes of system
-chatter and the few lines that are actually your crash.
-
-**Both are available in every mode**, from Explore to Debug — the same reasoning that keeps
-the browser everywhere: driving an emulator changes the state of a device, not your project,
-so Plan's read-only rule is untouched, and "what does this look like on a phone" is a
-question rather than a build step. They stay affordable because the progressive reveal
-already introduced this release applies to them: every mode binds one sentence and a pointer
-to the full instructions, not the whole description.
-
-They are **not** offered where there is nothing to look at: the headless command-line agent
-has no emulator, and an unattended automation has nobody watching one. That is now checked by
-a test that names the tools rather than matching a prefix — the previous version of that check
-matched `browser_` and so quietly stopped covering the consolidated `browser` tool.
-
-**And you can watch it work.** Driving a page already draws a visible pointer, a ring around
-each target and a label naming the action. An emulator is a separate window Atlarix cannot draw
-on, so it uses Android's own equivalent instead: the first time Atlarix taps in a session it
-turns on the system touch indicator, tells you it did, and puts the setting back the way it
-found it when Atlarix quits. A device that already had it on is left alone.
-
-The arithmetic for Build: six browser tools plus nothing for mobile became two browser tools
-plus two mobile ones. Fewer tools, more that Atlarix can actually see.
-
-**"Clone repo" is gone, and that is the point.** It signed you in to GitHub, stored a
-second GitHub token, and cloned a repository — which meant it worked for GitHub and could
-never work for GitLab, Bitbucket, a self-hosted server, or a plain SSH remote. Cloning
-already works everywhere through the terminal, using the credentials you already have
-(your SSH keys, your credential helper, `gh` or `glab`) — credentials Atlarix never has to
-hold. Open a folder, then ask the agent to clone into it, on any host.
-
-This also retires the token people kept confusing with signing in to Atlarix. **Signing in
-with GitHub is untouched** — that goes through Supabase and never used this credential.
-
-**The Automations "GitHub event" trigger is gone for the same reason.** It was a
-purpose-built poller for one company's API. Polling for a new pull request, a mention, or
-a finished job is the same problem on every host, and Atlarix already has the general
-answer: an **MCP trigger** can poll any API, and a schedule plus a command covers the
-rest. Automations now has schedule and MCP triggers. An existing automation on the removed
-trigger is disabled and tells you why, rather than sitting enabled and never firing.
-
-**Two defects found while doing the above, both in the same seam.** Retired tool names are
-supposed to keep working, and the registry did map each old name to its new tool — but the
-code that dispatches a tool call checked the model's name against the list of _current_
-tools first, so an old name died there as "Unknown tool" and the mapping was decoration.
-That is fixed. And once old names actually run, a permission rule you wrote against one had
-to keep biting: a rule denying `browser` now also stops the retired names, and a rule you
-already wrote against a retired name still stops that. Both directions are checked, so
-adding a name can only ever tighten the rule, never loosen it.
-
-**You can see compaction happen now — whichever way it starts.** When a turn gets long,
-Atlarix summarises its own context to keep going: a pause of several seconds during which the
-screen said nothing at all, indistinguishable from a hang. It now shows a pulsing "Compressing
-context…" while it works and the before/after numbers for a few seconds after, then gets out of
-the way and the turn continues. Mid-task, start or end.
-
-When it finishes it leaves ONE line behind — "Context compressed · 120000 → 40000 tokens" —
-rather than the two stacked rows an earlier build of this release produced, and a run in Build
-mode now shows that it started at all.
-
-Compaction can begin three ways — automatically before a turn is sent, part-way through a long
-turn, or because the agent asked for it — and each one had been announcing itself differently.
-The one that fires automatically, which is the one you are most likely to notice as an
-unexplained pause, announced itself in a way nothing displayed. All three now report through
-one path, so a pause is always explained and the wording is always the same. A run that finds
-nothing worth compacting says so, rather than claiming it compressed something.
-
-**Filling a form field works on more pages.** A page's element references can point at a
-WRAPPER rather than the field itself — a search box whose visible part is a container with
-the real input inside it, which is how most modern component libraries are built. Filling
-one of those failed with "Illegal invocation", a message that told the agent nothing, so it
-retried, tried a workaround, and concluded the browser tools were broken. It now finds the
-field inside the wrapper and fills it; when there genuinely is no field, it says what the
-element actually is and what to try instead.
-
-**Reading a tool's instructions shows the instructions.** Atlarix keeps long tool
-documentation one call away rather than in every prompt, and the card for that call
-displayed a single word: "Done". It now shows which tool was asked about and what came back,
-and the activity row names the tool instead of reading "Read tool usage" every time.
-
-**Settings and Integrations tabs stay on one line.** With eight sections, "Danger zone"
-wrapped onto a row of its own, which reads as a separate group rather than the last tab —
-and made the page's layout shift as you resized the window. The tabs now scroll sideways
-with arrows on either end, like the sheet tabs in a spreadsheet, and the arrows appear only
-when there is something in that direction.
-
-**Releases now ship the dependency versions that were tested.** The packaging step is supposed
-to install the app's runtime dependencies at the exact versions in the lockfile. A shadowed
-variable made that check fail every single time, silently, so each build installed whatever was
-newest at the moment it ran. Nothing is known to have broken because of it, but a release should
-contain what was tested, and now it does.
-
-**"Tool failed" no longer appears where nothing failed.** Two of the most common results in a
-long session were being reported as errors: compacting a context that is already small
-("nothing worth compacting" — a correct answer), and the guard that stops the agent repeating
-an identical call ("this call was NOT executed; change your approach" — a protection working).
-Both wrote a clear explanation of themselves, in a field the card did not read, so both showed
-a red "Tool failed" with the real reason discarded — under a green checkmark, because the call
-itself had completed. One row managed to be wrong in both directions at once.
-
-Cards now read every field a tool uses to explain itself, and a call that was declined or had
-nothing to do is shown as ordinary text rather than an error. The compaction row says "Context
-already compact" when that is what happened, instead of "Context compacted".
-
-**Small things found along the way.** Settings said "Compass is built in" where it meant
-Atlarix Core. The MCP page opened with three Linux-only sandbox controls, above the form
-for adding a server; they are now under "Advanced" at the bottom. The sidebar's settings
-list can no longer point at a section that does not exist — that used to be caught by a
-comment asking people to remember, and is now caught by a test.
