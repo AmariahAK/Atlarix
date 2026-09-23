@@ -22,6 +22,9 @@ not trust it.
 
 ## Next up — reported by the owner 2026-09-23
 
+- **FIRST THING next session: push the local `dev` commits** (email-template cleanup +
+  these TODO updates) via the usual route — check tracked secrets, flip `Atlarix` public, push,
+  wait for green "Atlarix CI", flip back private. No tag.
 - **Session titles: adopt the reference tools' universal pattern (NOT a small `maxOutputTokens`).**
   Symptom: DeepSeek V4 Pro (BYOK) titled "hey how are you? could u tell me about yourself?" as
   "Hey! I'm doing well, thanks for asking. 😊 I'm **DeepSeek V4 Pro**, running ins…" — the model
