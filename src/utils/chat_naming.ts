@@ -218,7 +218,9 @@ export async function generateAIChatName(
 
     const settings = readSettings();
     const summarizationModel = await getSummarizationModelAsync(settings);
-    const { modelClient } = await getModelClient(summarizationModel, settings);
+    const { modelClient } = await getModelClient(summarizationModel, settings, {
+      purpose: "title",
+    });
 
     const conversationSummary = messages
       .slice(0, 6)

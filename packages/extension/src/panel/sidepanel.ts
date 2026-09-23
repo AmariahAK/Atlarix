@@ -60,6 +60,7 @@ import { onGroupClosed, setGroupTitle } from "../tabs/group";
 import {
   CoreError,
   listModels,
+  setAutoFreeConsent,
   type ContentPart,
   type CoreMessage,
   type CoreModel,
@@ -1589,9 +1590,10 @@ function showAutoConsent(): void {
   title.textContent = "Use Atlarix Auto for free?";
   const body = document.createElement("p");
   body.textContent =
-    "Atlarix Auto costs nothing because the prompts and replies it handles " +
-    "are shared with OpenAI, which may use them to improve its models. Don't " +
-    "use it for anything you can't share — every other model is not shared.";
+    "With no credit, Atlarix Auto costs nothing because the prompts and " +
+    "replies it handles are shared with OpenAI, which may use them to improve " +
+    "its models. Don't use it for anything you can't share. With Pro or " +
+    "credit, Auto is paid and never shared — and neither is any other model.";
   const accept = document.createElement("button");
   accept.type = "button";
   accept.textContent = "Use Atlarix Auto";
@@ -1599,6 +1601,7 @@ function showAutoConsent(): void {
     void api()
       .storage.local.set({ [AUTO_CONSENT_KEY]: new Date().toISOString() })
       .then(() => {
+        setAutoFreeConsent(true);
         card.remove();
         void send();
       });
@@ -2034,6 +2037,11 @@ async function send(): Promise<void> {
         void handleAuthLoss("Your session expired. Sign in again.");
         return;
       }
+      if (error.code === "auto_consent_required") {
+        // Consent was cleared, or never recorded on this browser: ask, and let
+        // the answer apply to the next send.
+        showAutoConsent();
+      }
       append(errorBubble(describeError(error)));
     } else if (outcome.kind === "aborted") {
       setStatus("Stopped.");
@@ -2171,8 +2179,14 @@ async function nameConversation(model: string): Promise<void> {
  * what the panel knows and the client cannot: where to go about credit.
  */
 function describeError(error: CoreError): string {
-  if (error.code === "insufficient_credit") {
-    return `${error.message} Top up at atlarix.dev/account.`;
+  // The upgrade line is already in these messages; the two addresses become
+  // the buttons (see error-link.ts, which links only these constants).
+  if (
+    error.code === "insufficient_credit" ||
+    error.code === "free_usage_limit" ||
+    error.code === "auto_consent_required"
+  ) {
+    return `${error.message} Upgrade at atlarix.dev/pricing · add credit at atlarix.dev/account.`;
   }
   if (error.code === "not_signed_in" || error.status === 401) {
     return `${error.message} Open the menu and sign in again.`;
@@ -2443,6 +2457,9 @@ function renderAccountChip(profile: {
  */
 async function loadModels(): Promise<void> {
   if (!modelSelect) return;
+  // Free Auto's consent rides every Core request as a header; load it before
+  // the first one can be sent.
+  setAutoFreeConsent(await autoConsented());
   const stored = await readStoredModel();
 
   const fill = (

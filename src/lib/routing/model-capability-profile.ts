@@ -158,6 +158,22 @@ export function registerModelsDevVision(
   }
 }
 
+/**
+ * The media id call sites pass for ATLARIX AUTO (see `resolveMediaModelId`).
+ * Auto has no single model: the proxy sends any step carrying an image or a
+ * PDF to a model that reads it, and lifts screenshots out of tool results into
+ * a user message, so Auto counts as able to see both — through tool results
+ * too — whichever model would have answered a text-only step.
+ */
+export const ATLARIX_AUTO_MEDIA_ID = "atlarix/auto";
+
+function isAtlarixAutoMedia(
+  builtinProviderId: string | undefined,
+  modelApiId: string | undefined,
+): boolean {
+  return builtinProviderId === "compass" && modelApiId === ATLARIX_AUTO_MEDIA_ID;
+}
+
 function modalityLookup(
   map: Map<string, boolean>,
   builtinProviderId: string | undefined,
@@ -197,6 +213,7 @@ export function detectVisionCapability(
   if (builtinProviderId && NATIVE_VISION_PROVIDERS.has(builtinProviderId)) {
     return true;
   }
+  if (isAtlarixAutoMedia(builtinProviderId, modelApiId)) return true;
   const id = (modelApiId ?? "").trim();
   if (!id) return false;
   if (id.includes("/")) {
@@ -223,6 +240,7 @@ export function detectPdfCapability(
   builtinProviderId: string | undefined,
   modelApiId?: string,
 ): boolean {
+  if (isAtlarixAutoMedia(builtinProviderId, modelApiId)) return true;
   const id = (modelApiId ?? "").trim();
   if (!id) return false;
   return modalityLookup(modelsDevPdfById, builtinProviderId, id) === true;
@@ -268,6 +286,8 @@ export function providerSupportsToolMedia(
   if (builtinProviderId && NATIVE_VISION_PROVIDERS.has(builtinProviderId)) {
     return true;
   }
+  // The proxy lifts Auto's tool-result screenshots into a user message.
+  if (isAtlarixAutoMedia(builtinProviderId, modelApiId)) return true;
   const id = (modelApiId ?? "").trim();
   if (id.includes("/")) {
     const row = getCachedOpenRouterModelRow(id);

@@ -96,6 +96,7 @@ import { computeDiffHunks } from "@/lib/diff/compose-hunks";
 import { simplifyToolParametersForProfile } from "@/lib/routing/model-capability-profile";
 import {
   detectReasoningCapability,
+  resolveMediaModelId,
   resolveReasoningCatalogModelId,
 } from "@/lib/routing/reasoning-detector";
 import { shouldUseTextToolFallback } from "@/lib/stream/text-tool-fallback";
@@ -365,7 +366,7 @@ export async function runBuildBranch(
       toModelOutput: ({ output }: { output: unknown }) =>
         buildToolModelOutput(toolName, output, {
           builtinProviderId: modelClient.builtinProviderId,
-          modelApiId: resolveReasoningCatalogModelId(effectiveModel),
+          modelApiId: resolveMediaModelId(effectiveModel),
         }) ?? {
           type: "text",
           value: typeof output === "string" ? output : JSON.stringify(output),

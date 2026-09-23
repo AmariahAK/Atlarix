@@ -99,6 +99,7 @@ import {
   ChatPromptSafetyError,
 } from "../../lib/security/chat-prompt-gate";
 import {
+  resolveMediaModelId,
   resolveReasoningCatalogModelId,
   resolveCapabilityProviderId,
   resolveDispatchCapabilityProviderId,
@@ -1066,6 +1067,17 @@ export function registerChatStreamHandlers() {
           const mainOptions: GetModelClientOptions = {
             agentMode: settings.agentMode ?? "direct",
             delegationRole: "main",
+            // Paid Atlarix Auto routes on the work mode, so it is resolved here
+            // from the same inputs as `effectiveWorkMode` below (which needs the
+            // client to exist first).
+            purpose: "main",
+            workMode: resolveEffectiveWorkMode({
+              workModeOverride: req.workModeOverride,
+              intentMode: settings.intentMode,
+              workModePreference: settings.workModePreference,
+              selectedChatMode: settings.selectedChatMode ?? "ask",
+            }),
+            escalate: req.escalate === true,
           };
           let effectiveModel = getEffectiveModel(settings);
           if (req.modelOverride) {
@@ -1935,7 +1947,7 @@ export function registerChatStreamHandlers() {
                       return regateNativeMediaForProvider(
                         envelope.messages,
                         modelClient.builtinProviderId,
-                        resolveReasoningCatalogModelId(effectiveModel),
+                        resolveMediaModelId(effectiveModel),
                       );
                     }
                   }
@@ -2052,7 +2064,7 @@ export function registerChatStreamHandlers() {
               if (
                 !detectPdfCapability(
                   modelClient.builtinProviderId,
-                  resolveReasoningCatalogModelId(effectiveModel),
+                  resolveMediaModelId(effectiveModel),
                 )
               ) {
                 return [];

@@ -18,6 +18,7 @@
  */
 
 import { getAccessToken } from "../auth/sign-in";
+import { UPGRADE_LINE } from "./upgrade-line";
 
 /** Which surface is spending. See `core_proxy.ts` in the desktop for the rule. */
 const SURFACE = "extension";
@@ -205,6 +206,16 @@ export class CoreError extends Error {
   }
 }
 
+/**
+ * Whether the user has OK'd FREE Atlarix Auto (its prompts are shared with
+ * OpenAI). Set by the panel from storage; sent as a header so the proxy may
+ * serve an account with no credit for free. Paying accounts never need it.
+ */
+let autoFreeConsent = false;
+export function setAutoFreeConsent(value: boolean): void {
+  autoFreeConsent = value;
+}
+
 function coreErrorFrom(
   status: number,
   body: Record<string, unknown>,
@@ -215,11 +226,20 @@ function coreErrorFrom(
 
   // Every message here is written for the person reading it, not for a log. A
   // 402 that does not say what it would take is the blunt version of this.
+  // A 402 that offers free Auto is a consent question, not a top-up.
+  if (code === "insufficient_credit" && body.consent_required === true) {
+    return new CoreError(
+      status,
+      "auto_consent_required",
+      `Atlarix Auto is free once you OK sharing its prompts with OpenAI to improve their models. ${UPGRADE_LINE}`,
+      required,
+    );
+  }
   const message =
     code === "insufficient_credit"
       ? required !== undefined
-        ? `Not enough credit to start a turn — you need at least ${formatCents(required)}.`
-        : "Not enough credit to start a turn."
+        ? `Not enough credit to start a turn — you need at least ${formatCents(required)}. ${UPGRADE_LINE}`
+        : `Not enough credit to start a turn. ${UPGRADE_LINE}`
       : code === "account_banned"
         ? "This account cannot use Atlarix Core. Contact support if that is unexpected."
         : code === "model_not_permitted"
@@ -237,15 +257,27 @@ function coreErrorFrom(
   return new CoreError(status, code, message, required);
 }
 
-/** Atlarix Auto's daily limit, with when it comes back. */
-function freeLimitMessage(body: Record<string, unknown>): string {
+/**
+ * Atlarix Auto's daily limit, with when it comes back ON THE USER'S CLOCK —
+ * the free tokens reset at 00:00 UTC, a different hour everywhere — and the
+ * upgrade line. Same words as the desktop's `freeUsageLimitUserMessage`.
+ */
+export function freeLimitMessage(
+  body: Record<string, unknown>,
+  now: number = Date.now(),
+  timeZone?: string,
+): string {
   const secs =
     typeof body.retry_after_seconds === "number" ? body.retry_after_seconds : 0;
-  const hours = secs > 0 ? Math.max(1, Math.round(secs / 3600)) : 0;
-  const when = hours
-    ? ` It resets in about ${hours} hour${hours === 1 ? "" : "s"}.`
-    : " It resets at midnight UTC.";
-  return `Today's free Atlarix Auto share is used up.${when} Pick a Core model to keep going.`;
+  const when =
+    secs > 0
+      ? ` · resets at ${new Date(now + secs * 1000).toLocaleTimeString(undefined, {
+          hour: "numeric",
+          minute: "2-digit",
+          ...(timeZone ? { timeZone } : {}),
+        })}`
+      : " · resets at midnight UTC";
+  return `Today's free share is used up${when}. ${UPGRADE_LINE}`;
 }
 
 function formatCents(cents: number): string {
@@ -256,6 +288,21 @@ function formatCents(cents: number): string {
 function baseUrl(): string {
   const raw = __ATLARIX_CORE_PROXY_URL__.trim().replace(/\/+$/, "");
   return raw.endsWith("/v1") ? raw : `${raw}/v1`;
+}
+
+/**
+ * What a call is for, so paid Atlarix Auto can pick a model per request (the
+ * extension has no work modes; its turns are build-like). Hints only — the
+ * proxy bills the model that answered — and ignored for a pinned Core model.
+ */
+export type CorePurpose = "main" | "compaction" | "title";
+
+function autoHeaders(purpose: CorePurpose): Record<string, string> {
+  return {
+    "X-Atlarix-Purpose": purpose,
+    ...(purpose === "main" ? { "X-Atlarix-Mode": "build" } : {}),
+    ...(autoFreeConsent ? { "X-Atlarix-Free-Consent": "1" } : {}),
+  };
 }
 
 async function authHeaders(): Promise<Record<string, string>> {
@@ -395,12 +442,13 @@ export async function* streamTurn(
     tools?: ToolSchema[];
     maxOutputTokens?: number;
     signal?: AbortSignal;
+    purpose?: CorePurpose;
   },
   f: typeof fetch = fetch,
 ): AsyncGenerator<CoreEvent> {
   const res = await f(`${baseUrl()}/chat/completions`, {
     method: "POST",
-    headers: await authHeaders(),
+    headers: { ...(await authHeaders()), ...autoHeaders(args.purpose ?? "main") },
     signal: args.signal,
     body: JSON.stringify({
       model: args.model,

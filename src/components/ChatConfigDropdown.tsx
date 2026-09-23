@@ -11,6 +11,11 @@
  */
 
 import { useSettings } from "@/hooks/useSettings";
+import { useTranslation } from "react-i18next";
+import {
+  COMPASS_PROVIDER_ID,
+  isCoreAutoTier,
+} from "@/ipc/shared/compass_constants";
 import { useLanguageModelsByProviders } from "@/hooks/useLanguageModelsByProviders";
 import { useTranscriptionProviders } from "@/hooks/useTranscriptionProviders";
 import { Button } from "@/components/ui/button";
@@ -51,6 +56,10 @@ export function ChatConfigDropdown() {
       (m) => m.apiName === settings.selectedModel.name,
     )?.supportsDeepThinking === true;
   const deepThinking = !!settings?.deepThinking;
+  const { t } = useTranslation("chat");
+  const onAuto =
+    settings?.selectedModel?.provider === COMPASS_PROVIDER_ID &&
+    isCoreAutoTier(settings.selectedModel.name);
   // Derived in main from (providers with a key) ∩ (providers with an
   // audio-input model), so the menu can't offer something that would fail at
   // transcription time.
@@ -130,10 +139,16 @@ export function ChatConfigDropdown() {
                   {deepThinking ? "on" : "off"}
                 </span>
               </DropdownMenuCheckboxItem>
-              <p className="px-2 pb-1 pt-0.5 text-[10px] leading-snug text-muted-foreground">
-                Off = high reasoning (default); on = the maximum this model
-                supports. Scales automatically to each model's capability.
-              </p>
+              {onAuto ? (
+                <p className="px-2 pb-1 pt-0.5 text-[10px] leading-snug text-muted-foreground">
+                  {t("atlarixAuto.deepThinkingHint")}
+                </p>
+              ) : (
+                <p className="px-2 pb-1 pt-0.5 text-[10px] leading-snug text-muted-foreground">
+                  Off = high reasoning (default); on = the maximum this model
+                  supports. Scales automatically to each model's capability.
+                </p>
+              )}
             </>
           ) : null}
           {/* Only a separator when there is something above it to separate —

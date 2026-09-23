@@ -10,9 +10,17 @@ import remarkGfm from "remark-gfm";
 import { openSettingsSection } from "@/lib/open-settings-section";
 import { AI_STREAMING_ERROR_MESSAGE_PREFIX } from "@/shared/texts";
 import {
+  AUTO_CONSENT_MARKER,
   CORE_EXHAUSTED_MARKER,
   CORE_REACHABILITY_MARKER,
+  FREE_LIMIT_MARKER,
+  UPGRADE_LINE,
 } from "@/shared/billing_copy";
+import { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { useSettings } from "@/hooks/useSettings";
+import { AtlarixAutoConsentDialog } from "@/components/AtlarixAutoConsentDialog";
+import { UpgradeButtons } from "@/components/billing/UpgradeActions";
 
 /** Open Settings → AI so the user can switch provider / model or add an API key. */
 function openAiSettings() {
@@ -59,6 +67,22 @@ export function ChatErrorBox({
         </div>
       </ChatInfoContainer>
     );
+  }
+
+  // Atlarix Auto's free share is used for today — the reset time is in the
+  // message; the two ways to keep going are the buttons.
+  if (error.includes(FREE_LIMIT_MARKER)) {
+    return (
+      <ChatInfoContainer onDismiss={onDismiss}>
+        <span>{error.replace(AI_STREAMING_ERROR_MESSAGE_PREFIX, "")}</span>
+        <UpgradeButtons className="mt-2" />
+      </ChatInfoContainer>
+    );
+  }
+
+  // Atlarix Auto with no credit, before the one-time OK for its free path.
+  if (error.includes(AUTO_CONSENT_MARKER)) {
+    return <AutoConsentError error={error} onDismiss={onDismiss} />;
   }
 
   // Transient: couldn't reach Atlarix Core — retry or switch provider.
@@ -191,6 +215,50 @@ function ExternalLink({
       <span>{children}</span>
       {iconElement}
     </a>
+  );
+}
+
+/** Free Auto needs the consent notice; accepting records it and the next send is free. */
+function AutoConsentError({
+  error,
+  onDismiss,
+}: {
+  error: string;
+  onDismiss: () => void;
+}) {
+  const { t } = useTranslation("chat");
+  const { updateSettings } = useSettings();
+  const [open, setOpen] = useState(false);
+  const text = error
+    .replace(AI_STREAMING_ERROR_MESSAGE_PREFIX, "")
+    .replace(UPGRADE_LINE, "")
+    .trim();
+  return (
+    <ChatInfoContainer onDismiss={onDismiss}>
+      <AtlarixAutoConsentDialog
+        open={open}
+        onAccept={() => {
+          setOpen(false);
+          void updateSettings({
+            atlarixAutoConsentAt: new Date().toISOString(),
+          }).then(onDismiss);
+        }}
+        onCancel={() => setOpen(false)}
+      />
+      <span>{text}</span>
+      <p className="mt-1 text-muted-foreground">{UPGRADE_LINE}</p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <button
+          type="button"
+          data-testid="auto-review-consent"
+          className="inline-flex cursor-pointer items-center rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:bg-muted"
+          onClick={() => setOpen(true)}
+        >
+          {t("atlarixAuto.reviewConsent")}
+        </button>
+        <UpgradeButtons />
+      </div>
+    </ChatInfoContainer>
   );
 }
 

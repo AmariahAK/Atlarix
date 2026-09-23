@@ -13,7 +13,9 @@ import {
 import {
   getCoreModelIdForCoreTier,
   getCoreModelsDevTargetForTier,
+  isCoreAutoTier,
 } from "@/ipc/shared/compass_constants";
+import { ATLARIX_AUTO_MEDIA_ID } from "@/lib/routing/model-capability-profile";
 import { PROVIDERS_THAT_SUPPORT_THINKING } from "@/ipc/shared/language_model_constants";
 import {
   catalogSaysReasons,
@@ -89,6 +91,18 @@ export function resolveReasoningCatalogModelId(
     );
   }
   return name;
+}
+
+/**
+ * The model id the MEDIA gates (vision, PDF, tool-result images) key on. The
+ * catalog id above for every model except Atlarix Auto, which has no single
+ * model and so is named by its own id — see ATLARIX_AUTO_MEDIA_ID.
+ */
+export function resolveMediaModelId(effectiveModel: LargeLanguageModel): string {
+  if (effectiveModel.provider === "compass" && isCoreAutoTier(effectiveModel.name ?? "")) {
+    return ATLARIX_AUTO_MEDIA_ID;
+  }
+  return resolveReasoningCatalogModelId(effectiveModel);
 }
 
 /**
@@ -187,6 +201,11 @@ export function isReasoningCapableModel(
   model: LargeLanguageModel | undefined | null,
 ): boolean {
   if (!model) return false;
+
+  // Atlarix Auto: on paid Auto the toggle picks the LEVEL (deep thinking moves
+  // each lane one model up), so it must always be there, whatever model a
+  // text-only step would have landed on.
+  if (model.provider === "compass" && isCoreAutoTier(model.name ?? "")) return true;
 
   // Per-model catalog answer wins where we have one: a provider allowlist showed the
   // toggle for every model of a "thinking" provider, including ones that don't reason

@@ -1687,6 +1687,8 @@ export class IpcClient {
       };
       /** Resend/edit: work mode for this turn only. */
       workModeOverride?: import("@/lib/schemas").WorkMode;
+      /** "Try with a stronger model" (paid Atlarix Auto). */
+      escalate?: boolean;
     },
   ): void {
     const {
@@ -1704,6 +1706,7 @@ export class IpcClient {
       workspaceSessionId,
       prefillTaskLedger,
       workModeOverride,
+      escalate,
       displayPrompt,
       pasteAttachments,
     } = options;
@@ -1733,6 +1736,7 @@ export class IpcClient {
               workspaceSessionId: workspaceSessionId ?? undefined,
               prefillTaskLedger: prefillTaskLedger ?? undefined,
               workModeOverride: workModeOverride ?? undefined,
+              escalate: escalate || undefined,
             })
             .then((res) => this.endStreamDispatch(chatId, res))
             .catch((err) => {
@@ -1767,6 +1771,7 @@ export class IpcClient {
           workspaceSessionId: workspaceSessionId ?? undefined,
           prefillTaskLedger: prefillTaskLedger ?? undefined,
           workModeOverride: workModeOverride ?? undefined,
+          escalate: escalate || undefined,
         })
         .then((res) => this.endStreamDispatch(chatId, res))
         .catch((err) => {

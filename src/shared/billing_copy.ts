@@ -114,7 +114,7 @@ export function lowBalanceNudge(balanceCents: number): {
 } {
   return {
     title: `${ATLARIX_CORE_CATEGORY_LABEL} credit is running low`,
-    description: `${formatCents(balanceCents)} left — top up in Settings to avoid interruptions.`,
+    description: `${formatCents(balanceCents)} left — add credit to avoid interruptions.`,
   };
 }
 
@@ -259,22 +259,74 @@ export function accountBannedUserMessage(): string {
   );
 }
 
+// ─── The one upgrade line ────────────────────────────────────────────────────
+
+/**
+ * The single "how to get more" line, shown wherever a free user hits a wall:
+ * the locked Core rows in the model picker, Auto's free limit, the low-balance
+ * hint — and copied VERBATIM into the Chrome extension and the Reviewer's
+ * out-of-credit comment (a test holds the extension's copy to this one).
+ *
+ * Two routes, both real: Pro (a monthly allowance that covers every surface)
+ * and credit (pay only for what you use). There is no trial — the $1 signup
+ * credit was removed on 2026-09-08 — so nothing here may promise one.
+ */
+export const UPGRADE_LINE =
+  "Get more with Atlarix Pro — $19/month, includes Core usage across the app, the Chrome extension and Reviewer. Or add credit and pay only for what you use.";
+export const UPGRADE_PRO_LABEL = "Upgrade to Pro";
+/** Picker badges for Core rows, by account (see useAccountKind). */
+export const CORE_BADGE = {
+  free: "Free",
+  included: "Included",
+  credits: "Credits",
+  locked: "Pro / Credits",
+} as const;
+export const ADD_CREDIT_LABEL = "Add credit";
+
+/**
+ * A reset moment as the user's own clock shows it — "3:00 AM" — rather than a
+ * countdown or a UTC time. Exported for tests, which pin the zone.
+ */
+export function localResetTime(
+  retryAfterSeconds: number,
+  now: number = Date.now(),
+  timeZone?: string,
+): string {
+  return new Date(now + retryAfterSeconds * 1000).toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    ...(timeZone ? { timeZone } : {}),
+  });
+}
+
 /**
  * Atlarix Auto: today's free share is used (proxy 429 `free_usage_limit`).
  *
- * Says when it comes back, in hours — the proxy sends seconds to the UTC reset
- * — and names the two real ways forward. Not an error the user caused, and not
- * our outage either, so it is never reported to Sentry.
+ * Says WHEN it comes back on the user's clock — the free tokens reset at 00:00
+ * UTC, which is a different hour everywhere — then the upgrade line. Not an
+ * error the user caused, and not our outage either, so it is never reported to
+ * Sentry. Starts with FREE_LIMIT_MARKER so ChatErrorBox can offer the buttons.
  */
-export function freeUsageLimitUserMessage(retryAfterSeconds?: number | null): string {
-  const hours =
+export function freeUsageLimitUserMessage(
+  retryAfterSeconds?: number | null,
+  now: number = Date.now(),
+  timeZone?: string,
+): string {
+  const when =
     typeof retryAfterSeconds === "number" && retryAfterSeconds > 0
-      ? Math.max(1, Math.round(retryAfterSeconds / 3600))
-      : null;
-  const when = hours
-    ? ` It resets in about ${hours} hour${hours === 1 ? "" : "s"}.`
-    : " It resets at midnight UTC.";
-  return `Today's free Atlarix Auto share is used up.${when} To keep going now, pick a Core model (Pro includes GPT-6 Astra and Sol), or add your own API key in Settings.`;
+      ? ` · resets at ${localResetTime(retryAfterSeconds, now, timeZone)}`
+      : " · resets at midnight UTC";
+  return `Today's free share is used up${when}. ${UPGRADE_LINE}`;
+}
+
+/**
+ * Atlarix Auto with no credit and no consent yet (proxy 402 `consent_required`).
+ * Free Auto shares prompts with OpenAI, so it needs a one-time OK; paying
+ * needs none. Starts with AUTO_CONSENT_MARKER so ChatErrorBox can open the
+ * notice.
+ */
+export function autoConsentRequiredUserMessage(): string {
+  return `Atlarix Auto is free once you OK sharing its prompts with OpenAI to improve their models. Review and accept to keep going. ${UPGRADE_LINE}`;
 }
 
 /** Atlarix Auto's free models are all busy right now (proxy 503 `free_busy`). */
@@ -344,4 +396,6 @@ export function compassBadRequestUserMessage(detail?: string): string {
 // once someone edits either side.
 
 export const CORE_EXHAUSTED_MARKER = "balance is used up";
+export const FREE_LIMIT_MARKER = "free share is used up";
+export const AUTO_CONSENT_MARKER = "Atlarix Auto is free once you OK";
 export const CORE_REACHABILITY_MARKER = "trouble reaching Atlarix Core";

@@ -346,8 +346,8 @@ export function FirstRunWizard() {
                   Models & providers
                 </DialogTitle>
                 <DialogDescription>
-                  Use Atlarix Core (pay-as-you-go — $1 free to start) or bring
-                  your own keys.
+                  Start free with Atlarix Auto, use Core models with Pro or
+                  pay-as-you-go credit, or bring your own keys.
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-2 text-sm">

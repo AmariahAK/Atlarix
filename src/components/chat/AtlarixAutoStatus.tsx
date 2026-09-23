@@ -1,39 +1,62 @@
 /**
- * Atlarix Auto's live readout beside the context line: how much of today's free
- * share is left, and which model answered last. Shown only while Auto is the
- * selected model; empty until the first Auto reply of the session.
+ * Atlarix Auto's live readout beside the context line. Auto hides model names —
+ * it picks one per step — so this says only how the step was paid for: the free
+ * share left today, or "Included" (Pro) / "Credits" (pay-as-you-go). Shown only
+ * while Auto is selected; before the first reply it follows the account.
  *
- * The nudge appears once the share runs low — the one moment a Pro prompt is
- * useful rather than an ad.
+ * The nudge appears once a free share runs low — the one moment an upgrade
+ * prompt is useful rather than an ad.
  */
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { IpcClient } from "@/ipc/ipc_client";
 import type { AutoStatus } from "@/main/auto-status";
+import { useAccountKind } from "@/hooks/useAccountKind";
+import { UPGRADE_LINE } from "@/shared/billing_copy";
 
-/** Below this percentage of today's share, suggest Pro. */
+/** Below this percentage of today's share, suggest upgrading. */
 export const AUTO_LOW_SHARE_PERCENT = 20;
 
 export function AtlarixAutoStatus() {
+  const { t } = useTranslation("chat");
+  const account = useAccountKind();
   const [status, setStatus] = useState<AutoStatus | null>(null);
   useEffect(() => IpcClient.getInstance().onAutoStatus(setStatus), []);
-  if (!status) return null;
-  const { freeRemaining, servedModel } = status;
+
+  const paid =
+    status?.billing === "paid" ||
+    (status?.billing == null && (account === "pro" || account === "payg"));
+  const freeRemaining = paid ? null : (status?.freeRemaining ?? null);
   const low = freeRemaining != null && freeRemaining < AUTO_LOW_SHARE_PERCENT;
+  if (!status && account === "unknown") return null;
+
+  const label = paid
+    ? account === "pro"
+      ? t("atlarixAuto.statusIncluded")
+      : t("atlarixAuto.statusCredits")
+    : freeRemaining != null
+      ? t("atlarixAuto.statusFree", { percent: freeRemaining })
+      : t("atlarixAuto.statusFreePlain");
+
   return (
     <span
       data-testid="atlarix-auto-status"
       className="shrink-0 text-[10px] tabular-nums text-muted-foreground/90"
       title={
-        servedModel
-          ? `Atlarix Auto answered with ${servedModel}. Free share left today, as of that reply.`
-          : "Free share left today"
+        low
+          ? UPGRADE_LINE
+          : paid
+            ? `${t("atlarixAuto.statusTitle")} ${t("atlarixAuto.privateTitle")}`
+            : t("atlarixAuto.statusTitle")
       }
     >
-      {freeRemaining != null ? `Free today ~${freeRemaining}%` : "Free"}
-      {servedModel ? ` · ${servedModel}` : ""}
+      {label}
+      {paid && (
+        <span className="ml-1 text-primary">· {t("atlarixAuto.privateShort")}</span>
+      )}
       {low && (
         <span className="ml-1 text-amber-600 dark:text-amber-400">
-          · running low — Pro includes GPT-6
+          · {t("atlarixAuto.lowShare")}
         </span>
       )}
     </span>

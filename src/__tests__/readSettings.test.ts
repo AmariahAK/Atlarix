@@ -78,7 +78,7 @@ describe("readSettings", () => {
           "releaseChannel": "stable",
           "selectedChatMode": "ask",
           "selectedModel": {
-            "name": "core-3",
+            "name": "core-auto",
             "provider": "compass",
           },
           "telemetryConsent": "unset",
@@ -263,7 +263,7 @@ describe("readSettings", () => {
           "releaseChannel": "stable",
           "selectedChatMode": "ask",
           "selectedModel": {
-            "name": "core-3",
+            "name": "core-auto",
             "provider": "compass",
           },
           "telemetryConsent": "unset",

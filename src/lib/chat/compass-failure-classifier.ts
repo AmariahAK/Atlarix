@@ -16,6 +16,7 @@
 import {
   COMPASS_REACHABILITY_ERROR,
   accountBannedUserMessage,
+  autoConsentRequiredUserMessage,
   compassAuthExpiredUserMessage,
   compassBadRequestUserMessage,
   coreExhaustedUserMessage,
@@ -53,6 +54,12 @@ export function classifyCompassFailure(
   }
   if (/free_busy/.test(bodyStr)) {
     return { message: freeBusyUserMessage(), isCompassInfraError: false };
+  }
+  // Atlarix Auto with no credit: free was on offer, it just needs the one-time
+  // OK. Before the generic 402, which would say "top up" to someone who can use
+  // Auto for free.
+  if (/"consent_required"\s*:\s*true/.test(bodyStr)) {
+    return { message: autoConsentRequiredUserMessage(), isCompassInfraError: false };
   }
   if (statusCode === 402 || /insufficient_credit/.test(bodyStr)) {
     return {

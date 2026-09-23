@@ -663,6 +663,7 @@ export function useStreamChat({
       systemWake,
       prefillTaskLedger,
       workModeOverride,
+      escalate,
     }: {
       prompt: string;
       chatId: number;
@@ -682,6 +683,8 @@ export function useStreamChat({
       };
       /** Resend/edit: work mode for this stream turn only. */
       workModeOverride?: import("@/lib/schemas").WorkMode;
+      /** "Try with a stronger model": paid Atlarix Auto answers one level up. */
+      escalate?: boolean;
       /** Persisted workspace session id for this stream turn. */
       workspaceSessionId?: string | null;
     }) => {
@@ -1672,6 +1675,7 @@ export function useStreamChat({
           // and v14.34.0 bugs. A session with no stored mode still sends nothing
           // and still resolves from the global, exactly as before.
           workModeOverride: workModeOverride ?? sessionWorkMode ?? undefined,
+          escalate,
           onUpdate: (updatedMessages: Message[]) => {
             // v11.1: no freeze-baseline clamp — the turn ends at ask_user, so
             // there is no speculative streaming to suppress while pending.

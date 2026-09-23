@@ -27,7 +27,7 @@ import {
   computeCoreSlotChange,
   effectiveCoreModelId,
 } from "@/lib/routing/core-slot-change";
-import { DEFAULT_NEW_USER_CORE_TIER } from "@/ipc/shared/compass_constants";
+import { DEFAULT_PAID_CORE_TIER } from "@/ipc/shared/compass_constants";
 
 const GLM = "z-ai/glm-5.3";
 const TERRA = "openai/gpt-5.5-terra";
@@ -93,7 +93,7 @@ describe("whether to show the notice", () => {
     });
     const after = effectiveCoreModelId({
       provider: "compass",
-      name: DEFAULT_NEW_USER_CORE_TIER,
+      name: DEFAULT_PAID_CORE_TIER,
     });
     expect(before).toBe(GLM);
     expect(after).toBe(ASTRA);

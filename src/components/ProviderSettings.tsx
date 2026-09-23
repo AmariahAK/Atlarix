@@ -65,6 +65,50 @@ function filterProviders(
   );
 }
 
+/**
+ * The grid's order: Core, then OpenRouter, then the rest in a STABLE shuffle —
+ * all of it narrowed by the query. Exported for the regression test.
+ */
+export function orderProvidersForPaging(
+  filtered: LanguageModelProvider[],
+  shuffledNonCompass: LanguageModelProvider[],
+  searchQuery: string,
+): LanguageModelProvider[] {
+  const compass = filtered.find((p) => p.id === COMPASS_ID);
+  const openrouter = filtered.find((p) => p.id === OPENROUTER_ID);
+  const q = searchQuery.trim().toLowerCase();
+  const compassVisible =
+    compass &&
+    (!q ||
+      compass.name.toLowerCase().includes(q) ||
+      compass.id.toLowerCase().includes(q));
+  const openrouterVisible =
+    openrouter &&
+    (!q ||
+      openrouter.name.toLowerCase().includes(q) ||
+      openrouter.id.toLowerCase().includes(q));
+
+  // THE QUERY FILTERS THE TAIL TOO. The shuffle is kept off the query (see
+  // `reshuffleForDisplay`) — but the shuffled list is the UNFILTERED lineup, so taking it
+  // as-is meant a search changed nothing past Core and OpenRouter: typing
+  // "deepseek" left all 35 pages and the user paged to find it (reported
+  // 2026-09-23). Filter the stable shuffle instead of re-shuffling.
+  const tail = filterProviders(shuffledNonCompass, searchQuery).filter(
+    (p) => p.id !== COMPASS_ID && p.id !== OPENROUTER_ID,
+  );
+
+  if (compassVisible && openrouterVisible) {
+    return [compass, openrouter, ...tail];
+  }
+  if (compassVisible) {
+    return [compass, ...tail];
+  }
+  if (openrouterVisible) {
+    return [openrouter, ...tail];
+  }
+  return shuffledNonCompass.length > 0 ? tail : filtered;
+}
+
 export function ProviderSettingsGrid() {
   const navigate = useNavigate();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -115,36 +159,10 @@ export function ProviderSettingsGrid() {
     reshuffleForDisplay();
   }, [reshuffleForDisplay]);
 
-  const orderedForPaging = useMemo(() => {
-    const compass = filtered.find((p) => p.id === COMPASS_ID);
-    const openrouter = filtered.find((p) => p.id === OPENROUTER_ID);
-    const q = searchQuery.trim().toLowerCase();
-    const compassVisible =
-      compass &&
-      (!q ||
-        compass.name.toLowerCase().includes(q) ||
-        compass.id.toLowerCase().includes(q));
-    const openrouterVisible =
-      openrouter &&
-      (!q ||
-        openrouter.name.toLowerCase().includes(q) ||
-        openrouter.id.toLowerCase().includes(q));
-
-    const tail = shuffledNonCompass.filter(
-      (p) => p.id !== COMPASS_ID && p.id !== OPENROUTER_ID,
-    );
-
-    if (compassVisible && openrouterVisible) {
-      return [compass, openrouter, ...tail];
-    }
-    if (compassVisible) {
-      return [compass, ...tail];
-    }
-    if (openrouterVisible) {
-      return [openrouter, ...tail];
-    }
-    return shuffledNonCompass.length > 0 ? shuffledNonCompass : filtered;
-  }, [filtered, searchQuery, shuffledNonCompass]);
+  const orderedForPaging = useMemo(
+    () => orderProvidersForPaging(filtered, shuffledNonCompass, searchQuery),
+    [filtered, searchQuery, shuffledNonCompass],
+  );
 
   const totalPages = Math.max(
     1,

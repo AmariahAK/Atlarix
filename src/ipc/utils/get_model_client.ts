@@ -72,9 +72,39 @@ export interface GetModelClientOptions {
   delegationRole?: "main" | "agent" | "subagent";
   delegationDepth?: number;
   complexityBump?: boolean;
+  /**
+   * What this call is for, sent to Atlarix Core as `X-Atlarix-Purpose` so paid
+   * Auto can pick a model per request. Hints only: the proxy bills the model
+   * that answered. Ignored off Core.
+   */
+  purpose?: "main" | "subagent" | "title" | "compaction" | "summary" | "transcribe";
+  /** The turn's work mode (`X-Atlarix-Mode`): build | debug | ask | plan. */
+  workMode?: string;
+  /** "Try with a stronger model": one level up for this turn (`X-Atlarix-Escalate`). */
+  escalate?: boolean;
 }
 
 const logger = log.scope("getModelClient");
+
+/**
+ * The hints Atlarix Auto routes on. Paid Auto picks a model from them; free
+ * Auto needs the consent header (the free path shares prompts with OpenAI).
+ */
+export function autoRequestHeaders(
+  settings: Pick<UserSettings, "deepThinking" | "atlarixAutoConsentAt">,
+  options?: GetModelClientOptions,
+): Record<string, string> {
+  const out: Record<string, string> = {
+    "X-Atlarix-Purpose":
+      options?.purpose ??
+      (options?.delegationRole === "subagent" ? "subagent" : "main"),
+    "X-Atlarix-Thinking": settings.deepThinking ? "1" : "0",
+  };
+  if (options?.workMode) out["X-Atlarix-Mode"] = options.workMode;
+  if (options?.escalate) out["X-Atlarix-Escalate"] = "1";
+  if (settings.atlarixAutoConsentAt) out["X-Atlarix-Free-Consent"] = "1";
+  return out;
+}
 
 /** True if a provider has a usable API key (settings → DB → env). */
 export async function hasUsableProviderKey(
@@ -104,7 +134,7 @@ export async function hasUsableProviderKey(
 export async function getModelClient(
   model: LargeLanguageModel,
   settings: UserSettings,
-  _options?: GetModelClientOptions,
+  options?: GetModelClientOptions,
 ): Promise<{
   modelClient: ModelClient;
   /** True when the selected provider had no usable key and we fell back to Atlarix Core. */
@@ -169,7 +199,7 @@ export async function getModelClient(
   }
 
   return {
-    ...(await getRegularModelClient(model, settings, providerConfig)),
+    ...(await getRegularModelClient(model, settings, providerConfig, options)),
     fellBackToCore,
   };
 }
@@ -178,6 +208,7 @@ async function getRegularModelClient(
   model: LargeLanguageModel,
   settings: UserSettings,
   providerConfig: LanguageModelProvider,
+  options?: GetModelClientOptions,
 ): Promise<{
   modelClient: ModelClient;
   backupModelClients: ModelClient[];
@@ -296,11 +327,10 @@ async function getRegularModelClient(
           `No Atlarix Core model is configured for this build. Add your own API keys in Settings, or use a release build.`,
         );
       }
-      if (isCoreAutoTier(resolvedTier.tier) && !settings.atlarixAutoConsentAt) {
-        throw new Error(
-          "Atlarix Auto needs a one-time OK before its first message: it is free because its prompts are shared with OpenAI to improve their models. Open the model picker and choose Atlarix Auto to review and accept, or pick another model.",
-        );
-      }
+      // No consent gate here any more: Auto is paid for anyone with credit, and
+      // only the FREE path shares prompts. The consent header below lets the
+      // proxy serve free; without it a no-credit caller gets a 402 that the
+      // classifier turns into the consent notice.
       if (resolvedTier.substituted) {
         logger.info(
           `Core tier "${model.name}" is not in the current lineup — using ${resolvedTier.tier}.`,
@@ -346,6 +376,7 @@ async function getRegularModelClient(
         // place that has to be right for every Core call. The static apiKey is
         // kept as the construction-time default and as the fallback if a session
         // read fails mid-turn — never worse than today's behaviour.
+        const autoHeaders = autoRequestHeaders(settings, options);
         const core = createOpenAICompatible({
           name: COMPASS_PROVIDER_ID,
           baseURL: proxyBaseUrl,
@@ -375,6 +406,9 @@ async function getRegularModelClient(
             // 'desktop' would split one product across two rows on the account
             // page and need every historical row backfilled.
             headers.set("X-Atlarix-Surface", ATLARIX_SURFACE);
+            if (isAutoTier) {
+              for (const [k, v] of Object.entries(autoHeaders)) headers.set(k, v);
+            }
             const res = await fetch(input as RequestInfo, { ...init, headers });
             // Atlarix Auto says which model answered and how much free share is
             // left; hand that to the composer.

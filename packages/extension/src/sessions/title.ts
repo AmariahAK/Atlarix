@@ -104,6 +104,7 @@ export async function generateTitle(
         // No tools. A title call that decided to read a page would be absurd,
         // and the client omits the field entirely when the list is empty.
         maxOutputTokens: TITLE_OUTPUT_TOKENS,
+        purpose: "title",
         signal: opts.signal,
       },
       fetch,

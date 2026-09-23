@@ -2,7 +2,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAtomValue } from "jotai";
 import { toast } from "sonner";
 import { compassUsageBumpAtom } from "@/atoms/viewAtoms";
-import { allowanceUsedUpNudge, lowBalanceNudge } from "@/shared/billing_copy";
+import {
+  ADD_CREDIT_LABEL,
+  UPGRADE_PRO_LABEL,
+  allowanceUsedUpNudge,
+  lowBalanceNudge,
+} from "@/shared/billing_copy";
+import { openSettingsSection } from "@/lib/open-settings-section";
+import { triggerUpgrade } from "@/hooks/useUpgrade";
 
 /** Warn once when the Core credit balance drops below this (but isn't yet empty). */
 const LOW_CREDIT_CENTS = 100; // $1
@@ -166,7 +173,8 @@ export function useCreditBalance(): CreditBalanceState {
  * Call this ONCE from an always-mounted component, not per consumer.
  */
 export function useLowBalanceNudge(): void {
-  const { balanceCents, grantedCents, purchasedCents } = useCreditBalance();
+  const { balanceCents, grantedCents, grantedTotalCents, purchasedCents } =
+    useCreditBalance();
   const nudgedRef = useRef(false);
   const allowanceNudgedRef = useRef(false);
 
@@ -195,7 +203,25 @@ export function useLowBalanceNudge(): void {
     if (balanceCents > 0 && !nudgedRef.current) {
       nudgedRef.current = true;
       const { title, description } = lowBalanceNudge(balanceCents);
-      toast.message(title, { description, duration: 8000 });
+      // The two ways to keep going, as buttons — Upgrade only for an account
+      // that is not already Pro (a Pro account has an allowance).
+      const isPro = (grantedTotalCents ?? 0) > 0;
+      toast.message(title, {
+        description,
+        duration: 12000,
+        action: {
+          label: ADD_CREDIT_LABEL,
+          onClick: () => openSettingsSection("ai"),
+        },
+        ...(isPro
+          ? {}
+          : {
+              cancel: {
+                label: UPGRADE_PRO_LABEL,
+                onClick: () => void triggerUpgrade(),
+              },
+            }),
+      });
     }
-  }, [balanceCents]);
+  }, [balanceCents, grantedTotalCents]);
 }

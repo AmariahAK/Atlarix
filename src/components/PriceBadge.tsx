@@ -1,22 +1,53 @@
+import { Lock } from "lucide-react";
+import type { AccountKind } from "@/hooks/useAccountKind";
+import { CORE_BADGE } from "@/shared/billing_copy";
+
 const basePill =
   "text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 whitespace-nowrap";
 
 /**
  * Model price badge:
- *  - Atlarix Core → "Paid" (pay-as-you-go metered credit, not free).
+ *  - Atlarix Core → what it means for THIS account: Atlarix Auto is "Free" for
+ *    a free account, "Included" on Pro, "Credits" on pay-as-you-go; a pinned
+ *    Core model is "Included" / "Credits", or locked ("Pro / Credits") for a
+ *    free account.
  *  - Priced BYOK/catalog models → real output price per 1M tokens (models.dev).
  *  - Local models + genuinely $0 models → "Free".
  */
 export function PriceBadge({
   cost,
-  isCore,
+  core,
+  account = "unknown",
 }: {
   cost?: { input: number; output: number };
-  isCore?: boolean;
+  /** Set for Atlarix Core rows. */
+  core?: "auto" | "pinned";
+  account?: AccountKind;
 }) {
-  if (isCore) {
+  if (core) {
+    const label =
+      account === "pro"
+        ? CORE_BADGE.included
+        : account === "payg"
+          ? CORE_BADGE.credits
+          : core === "auto"
+            ? CORE_BADGE.free
+            : account === "free"
+              ? CORE_BADGE.locked
+              : CORE_BADGE.credits;
+    const locked = core === "pinned" && account === "free";
     return (
-      <span className={`${basePill} bg-primary/10 text-primary`}>Paid</span>
+      <span
+        data-testid="core-badge"
+        className={`${basePill} inline-flex items-center gap-1 ${
+          label === CORE_BADGE.free
+            ? "text-primary border border-primary"
+            : "bg-primary/10 text-primary"
+        }`}
+      >
+        {locked && <Lock className="h-2.5 w-2.5" aria-hidden />}
+        {label}
+      </span>
     );
   }
 

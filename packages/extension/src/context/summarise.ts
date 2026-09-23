@@ -44,7 +44,13 @@ export function summariserFor(
   ): Promise<string> {
     let out = "";
     for await (const event of stream(
-      { model, messages, maxOutputTokens: COMPACTION_OUTPUT_TOKENS, signal },
+      {
+        model,
+        messages,
+        maxOutputTokens: COMPACTION_OUTPUT_TOKENS,
+        signal,
+        purpose: "compaction",
+      },
       fetch,
     )) {
       if (event.type === "text") out += event.delta;

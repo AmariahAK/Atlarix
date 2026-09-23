@@ -74,6 +74,8 @@ export interface ChatStreamParams {
   streamChatModeOverride?: "ask" | "agent" | "build";
   /** Resend/edit: use this work mode for prompt + tool allowlist for this turn only. */
   workModeOverride?: WorkMode;
+  /** "Try with a stronger model": paid Atlarix Auto answers this turn one level up. */
+  escalate?: boolean;
   /** v12 7A: run this turn as a user-defined agent (.atlarix/agents/<name>.md). */
   agentOverride?: string;
   /**

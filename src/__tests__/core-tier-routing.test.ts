@@ -42,6 +42,7 @@ import {
 import {
   CORE_TIER_ORDER,
   DEFAULT_NEW_USER_CORE_TIER,
+  DEFAULT_PAID_CORE_TIER,
   getCoreModelIdForCoreTier,
   getOpenRouterModelIdForCoreTier,
   getCoreModelsDevTargetForTier,
@@ -490,13 +491,19 @@ describe("getCoreModelIdForCoreTier rename", () => {
  * was untouched.
  */
 describe("the new-user default tier", () => {
-  it("is a SLOT id, never a model id", () => {
-    // Owner constraint, and the reason the lineup can change without an app
-    // update: a model id here would pin new users to one model forever, and would
-    // stop resolving the day that model left the lineup.
-    expect(CORE_TIER_ORDER).toContain(DEFAULT_NEW_USER_CORE_TIER);
-    expect(DEFAULT_NEW_USER_CORE_TIER).toMatch(/^core-\d+$/);
+  it("is Atlarix Auto — a slot id, never a model id", () => {
+    // Owner decision 2026-09-23: new installs start on Auto, which is free for
+    // an account with nothing to pay with and routed per step otherwise.
+    expect(DEFAULT_NEW_USER_CORE_TIER).toBe("core-auto");
     expect(DEFAULT_NEW_USER_CORE_TIER).not.toContain("/");
+  });
+
+  it("the paid fallback is a SLOT id, never a model id", () => {
+    // Owner constraint, and the reason the lineup can change without an app
+    // update: a model id here would pin users to one model forever, and would
+    // stop resolving the day that model left the lineup.
+    expect(CORE_TIER_ORDER).toContain(DEFAULT_PAID_CORE_TIER);
+    expect(DEFAULT_PAID_CORE_TIER).toMatch(/^core-\d+$/);
   });
 
   it("is the same tier an unopinionated caller would be given", () => {
@@ -507,14 +514,14 @@ describe("the new-user default tier", () => {
       "core-2": "openai/gpt-5.5-terra",
       "core-3": "openai/gpt-6-astra",
     });
-    expect(getFirstConfiguredCoreTier()).toBe(DEFAULT_NEW_USER_CORE_TIER);
+    expect(getFirstConfiguredCoreTier()).toBe(DEFAULT_PAID_CORE_TIER);
   });
 
   it("survives its slot being dropped from the lineup", () => {
     // A new install must not be stranded by a config change it never saw. The
     // constant still names core-3; resolution falls forward in slot order.
     setCoreModelOverrides({ "core-1": "z-ai/glm-5.3" });
-    const resolved = resolveConfiguredCoreTier(DEFAULT_NEW_USER_CORE_TIER);
+    const resolved = resolveConfiguredCoreTier(DEFAULT_PAID_CORE_TIER);
     expect(resolved).toEqual({ tier: "core-1", substituted: true });
   });
 });

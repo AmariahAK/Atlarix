@@ -14,7 +14,7 @@
  * service into a clickable link in a surface that holds the user's session is
  * the shape of a phishing primitive, not a convenience.
  *
- * So: exactly one literal is recognised, and the `href` is a CONSTANT in this
+ * So: exactly two literals are recognised, and the `href` is a CONSTANT in this
  * file rather than anything taken from the matched text. A message carrying
  * some other URL keeps it as plain, unclickable prose, which is the correct
  * outcome for text nobody here wrote.
@@ -24,11 +24,16 @@
  * things Atlarix does not control.
  */
 
-/** The only address ever linked. Never read from the message. */
+/** The only addresses ever linked. Never read from the message. */
 export const ACCOUNT_URL = "https://atlarix.dev/account";
+export const PRICING_URL = "https://atlarix.dev/pricing";
 
-/** The literal that appears in `describeError`, matched case-insensitively. */
-const ACCOUNT_TEXT = /atlarix\.dev\/account/gi;
+/** The literals `describeError` writes, matched case-insensitively. */
+const LINKED_TEXT = /atlarix\.dev\/(account|pricing)/gi;
+
+function hrefFor(matched: string): string {
+  return /pricing/i.test(matched) ? PRICING_URL : ACCOUNT_URL;
+}
 
 /**
  * Split a message into text and at most-one-per-occurrence anchors.
@@ -42,14 +47,14 @@ export function errorMessageNodes(text: string): Node[] {
 
   // `matchAll` needs the `g` flag and a fresh index each call; the regex is
   // module-level, so reset it rather than trusting the last caller.
-  ACCOUNT_TEXT.lastIndex = 0;
-  for (const match of text.matchAll(ACCOUNT_TEXT)) {
+  LINKED_TEXT.lastIndex = 0;
+  for (const match of text.matchAll(LINKED_TEXT)) {
     const at = match.index ?? 0;
     if (at > cursor) {
       nodes.push(document.createTextNode(text.slice(cursor, at)));
     }
     const link = document.createElement("a");
-    link.href = ACCOUNT_URL;
+    link.href = hrefFor(match[0]);
     // The visible text is what the message said; the destination is ours.
     link.textContent = match[0];
     link.target = "_blank";

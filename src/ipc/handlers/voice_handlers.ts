@@ -355,7 +355,9 @@ export function registerVoiceHandlers() {
 
         const { getModelClient } = await import("../utils/get_model_client");
         const { streamText } = await import("ai");
-        const { modelClient } = await getModelClient(selected, settings);
+        const { modelClient } = await getModelClient(selected, settings, {
+          purpose: "transcribe",
+        });
 
         const languageNote = params.language
           ? ` The audio is in ${params.language}.`

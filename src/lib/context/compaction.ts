@@ -1149,7 +1149,9 @@ export async function summarizeMessagesWithCompactionPrompt(params: {
   try {
     const settings = readSettings();
     const summarizationModel = await getCompactionSummarizationModel(settings);
-    const { modelClient } = await getModelClient(summarizationModel, settings);
+    const { modelClient } = await getModelClient(summarizationModel, settings, {
+      purpose: "compaction",
+    });
 
     const result = await generateText({
       model: modelClient.model,

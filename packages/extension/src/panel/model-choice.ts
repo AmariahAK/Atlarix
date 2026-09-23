@@ -37,7 +37,8 @@ export interface ModelOption {
 }
 
 /**
- * The tier the panel opens on when the user has not chosen for themselves.
+ * The PAID tier the panel opens on when the user has not chosen and the proxy
+ * does not offer Atlarix Auto (Auto is preferred above all — see chooseModel).
  *
  * A TIER, deliberately, and never a wire id. The lineup is configuration that
  * has changed before — `core-3` was `deepseek-v4-pro` and is `gpt-6-astra`
@@ -52,9 +53,13 @@ export interface ModelOption {
  * multimodal end of the lineup. This costs more per turn than core-1, which was
  * weighed and accepted: this is the surface a non-developer meets first.
  */
-const PREFERRED_TIER = "core-3";
+const PAID_PREFERRED_TIER = "core-3";
 
-/** The proxy's tier for Atlarix Auto — free, data shared with OpenAI. */
+/**
+ * The proxy's tier for Atlarix Auto — ONE option for everyone: free (shared
+ * with OpenAI, after a one-time OK) for an account with no credit, routed per
+ * request and billed for one with Pro or credit. The default since 2026-09-23.
+ */
 export const AUTO_TIER = "auto";
 
 /** `core-1` → `Core 1`. Anything unrecognised is shown as it came. */
@@ -88,12 +93,12 @@ export function optionsFor(
       // labelled for what it is, not as a tier plus a model id.
       label:
         m.tier === AUTO_TIER
-          ? "Atlarix Auto · free"
+          ? "Atlarix Auto"
           : m.tier
             ? `${tierLabel(m.tier)} · ${shortModelName(m.id)}`
             : shortModelName(m.id),
       // May be "" — the proxy has served a lineup without tiers before, and an
-      // option with no tier simply never matches PREFERRED_TIER.
+      // option with no tier simply never matches a preferred tier.
       tier: m.tier ?? "",
     }));
 }
@@ -131,10 +136,12 @@ export function chooseModel(
 ): string | null {
   if (options.length === 0) return null;
   if (stored && options.some((o) => o.value === stored)) return stored;
-  const preferred = options.find((o) => o.tier === PREFERRED_TIER);
+  // Atlarix Auto first: it works for every account, and the free path asks for
+  // its one-time OK before anything is shared. Then the paid preference, then
+  // whatever the proxy listed first.
+  const auto = options.find((o) => o.tier === AUTO_TIER);
+  if (auto) return auto.value;
+  const preferred = options.find((o) => o.tier === PAID_PREFERRED_TIER);
   if (preferred) return preferred.value;
-  // NEVER Auto by default: its prompts are shared with OpenAI, so it is only
-  // ever chosen deliberately. The proxy lists it first, which made it the
-  // `options[0]` fallback for any lineup without core-3.
-  return options.find((o) => o.tier !== AUTO_TIER)?.value ?? null;
+  return options[0]?.value ?? null;
 }

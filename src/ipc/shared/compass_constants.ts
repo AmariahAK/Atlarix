@@ -310,7 +310,16 @@ const DEFAULT_CORE_TIER_ORDER = [
  * update. If this slot is ever unconfigured, `resolveConfiguredCoreTier` falls
  * forward in slot order, so a persisted selection never becomes a dead end.
  */
-export const DEFAULT_NEW_USER_CORE_TIER: string = DEFAULT_CORE_TIER_ORDER[0];
+export const DEFAULT_PAID_CORE_TIER: string = DEFAULT_CORE_TIER_ORDER[0];
+
+/**
+ * Brand-new installs start on ATLARIX AUTO (owner decision 2026-09-23): one
+ * option that is free for an account with nothing to pay with and routed per
+ * step for one that pays, so a first message works for everyone. Existing
+ * selections are untouched. Fallbacks still use DEFAULT_PAID_CORE_TIER — a
+ * withdrawn Auto errors rather than landing anyone on a tier they never chose.
+ */
+export const DEFAULT_NEW_USER_CORE_TIER: string = CORE_TIER_AUTO;
 
 /**
  * Resolve a requested Core tier to one that is actually configured.

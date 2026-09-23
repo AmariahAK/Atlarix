@@ -17,7 +17,15 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { CoreError, listModels, streamTurn, type CoreEvent } from "./client";
+import {
+  CoreError,
+  freeLimitMessage,
+  listModels,
+  setAutoFreeConsent,
+  streamTurn,
+  type CoreEvent,
+} from "./client";
+import { UPGRADE_LINE } from "./upgrade-line";
 
 /** A signed-in session, so `getAccessToken` returns a token. */
 function installFakeChrome() {
@@ -312,8 +320,44 @@ describe("errors say what to do about them", () => {
         failing(429, { error: "free_usage_limit", retry_after_seconds: 7200 }),
       ),
     ).catch((e: CoreError) => e);
-    expect((error as CoreError).message).toMatch(/about 2 hours/);
+    expect((error as CoreError).message).toMatch(/free share is used up · resets at \d{1,2}:\d{2}/);
+    expect((error as CoreError).message).toContain(UPGRADE_LINE);
     expect((error as CoreError).retryable).toBe(false);
+  });
+
+  it("names the reset on the user's clock — 00:00 UTC is 3:00 AM in Nairobi", () => {
+    const midnightUtc = Date.UTC(2026, 8, 24);
+    expect(
+      freeLimitMessage({ retry_after_seconds: 7200 }, midnightUtc - 7200 * 1000, "Africa/Nairobi"),
+    ).toMatch(/resets at 3:00\sAM/);
+  });
+
+  it("turns a 402 that offers free Auto into a consent question", async () => {
+    const error = await collect(
+      streamTurn(
+        TURN,
+        failing(402, { error: "insufficient_credit", free_available: true, consent_required: true }),
+      ),
+    ).catch((e: CoreError) => e);
+    expect((error as CoreError).code).toBe("auto_consent_required");
+  });
+
+  it("sends the routing hints, and consent only once given", async () => {
+    const seen: Headers[] = [];
+    const f = (async (_url: unknown, init?: RequestInit) => {
+      seen.push(new Headers(init?.headers));
+      return new Response("data: [DONE]\n\n", { status: 200 });
+    }) as unknown as typeof fetch;
+    setAutoFreeConsent(false);
+    await collect(streamTurn({ ...TURN, purpose: "title" }, f)).catch(() => {});
+    setAutoFreeConsent(true);
+    await collect(streamTurn(TURN, f)).catch(() => {});
+    setAutoFreeConsent(false);
+    expect(seen[0]?.get("x-atlarix-purpose")).toBe("title");
+    expect(seen[0]?.get("x-atlarix-free-consent")).toBeNull();
+    expect(seen[1]?.get("x-atlarix-purpose")).toBe("main");
+    expect(seen[1]?.get("x-atlarix-mode")).toBe("build");
+    expect(seen[1]?.get("x-atlarix-free-consent")).toBe("1");
   });
 
   it("states the figure on insufficient credit", async () => {

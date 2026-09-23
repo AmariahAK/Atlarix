@@ -27,6 +27,14 @@ import {
 import { classifyCompassFailure } from "@/lib/chat/compass-failure-classifier";
 import { isNetworkStreamError } from "@/ipc/handlers/chat_stream/network-retry";
 import { autoStatusFromHeaders } from "@/main/auto-status";
+import {
+  AUTO_CONSENT_MARKER,
+  CORE_EXHAUSTED_MARKER,
+  FREE_LIMIT_MARKER,
+  UPGRADE_LINE,
+  freeUsageLimitUserMessage,
+} from "@/shared/billing_copy";
+import { autoRequestHeaders } from "@/ipc/utils/get_model_client";
 
 beforeEach(() => {
   __resetCoreModelOverridesForTests();
@@ -83,9 +91,26 @@ describe("Auto's limit is a limit", () => {
 
   it("says when it resets and what to do, and is not reported as our outage", () => {
     const c = classifyCompassFailure(429, body);
-    expect(c.message).toMatch(/free Atlarix Auto share is used up/);
-    expect(c.message).toMatch(/about 5 hours/);
+    expect(c.message).toContain(FREE_LIMIT_MARKER);
+    expect(c.message).toMatch(/resets at \d{1,2}:\d{2}/);
+    expect(c.message).toContain(UPGRADE_LINE);
     expect(c.isCompassInfraError).toBe(false);
+  });
+
+  it("names the reset on the user's own clock — 00:00 UTC is 3:00 AM in Nairobi", () => {
+    const midnightUtc = Date.UTC(2026, 8, 24, 0, 0, 0);
+    const fiveHoursBefore = midnightUtc - 5 * 3600 * 1000;
+    const m = freeUsageLimitUserMessage(5 * 3600, fiveHoursBefore, "Africa/Nairobi");
+    expect(m).toMatch(/resets at 3:00\sAM/);
+  });
+
+  it("a 402 that offers free Auto asks for consent instead of a top-up", () => {
+    const c = classifyCompassFailure(
+      402,
+      JSON.stringify({ error: "insufficient_credit", free_available: true, consent_required: true }),
+    );
+    expect(c.message).toContain(AUTO_CONSENT_MARKER);
+    expect(c.message).not.toContain(CORE_EXHAUSTED_MARKER);
   });
 
   it("is never retried — Retry-After is hours, and a retry reads as a disconnect", () => {
@@ -124,7 +149,10 @@ describe("the live readout", () => {
           "x-atlarix-free-remaining": "62",
         }),
       ),
-    ).toEqual({ servedModel: "gpt-5.4-mini", freeRemaining: 62 });
+    ).toEqual({ servedModel: "gpt-5.4-mini", freeRemaining: 62, billing: null, costCents: null });
+    expect(
+      autoStatusFromHeaders(new Headers({ "x-atlarix-billing": "paid", "x-atlarix-cost-cents": "3" })),
+    ).toMatchObject({ billing: "paid", costCents: 3 });
     expect(autoStatusFromHeaders(new Headers())).toBeNull();
   });
 });
@@ -157,6 +185,31 @@ describe("Auto's identity and capabilities", () => {
     expect(getCoreModelsDevTargetForTier("core-auto")).toEqual({
       providerId: "openai",
       modelId: "gpt-5.4-mini",
+    });
+  });
+});
+
+describe("the routing hints", () => {
+  it("carry purpose, mode, deep thinking — and consent only once given", () => {
+    expect(
+      autoRequestHeaders(
+        { deepThinking: true, atlarixAutoConsentAt: undefined },
+        { purpose: "main", workMode: "plan" },
+      ),
+    ).toEqual({
+      "X-Atlarix-Purpose": "main",
+      "X-Atlarix-Thinking": "1",
+      "X-Atlarix-Mode": "plan",
+    });
+    const h = autoRequestHeaders(
+      { deepThinking: false, atlarixAutoConsentAt: "2026-09-23T00:00:00Z" },
+      { delegationRole: "subagent", escalate: true },
+    );
+    expect(h).toMatchObject({
+      "X-Atlarix-Purpose": "subagent",
+      "X-Atlarix-Thinking": "0",
+      "X-Atlarix-Escalate": "1",
+      "X-Atlarix-Free-Consent": "1",
     });
   });
 });

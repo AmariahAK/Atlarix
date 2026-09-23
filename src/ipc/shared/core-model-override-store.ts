@@ -102,7 +102,9 @@ export function getCoreTierRouting(
 /**
  * Atlarix Auto, from the hosted `auto` block: the wire id the proxy expects and
  * the name to show. Null when the lineup does not offer it — then no Auto row
- * appears and a saved Auto selection falls forward like any removed slot.
+ * appears and a saved Auto selection ERRORS ("isn't offered right now") rather
+ * than falling forward: every other slot is paid, and moving someone who chose
+ * Auto onto one is a charge they never agreed to (resolveConfiguredCoreTier).
  */
 export type CoreAutoConfig = {
   id: string;

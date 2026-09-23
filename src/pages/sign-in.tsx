@@ -104,7 +104,8 @@ export function SignInPage() {
                   />
                 </svg>
                 <span>
-                  $1 free Atlarix Core credit to start — pay-as-you-go after
+                  Start free with Atlarix Auto — Pro $19/mo or pay-as-you-go
+                  credit for Core models
                 </span>
               </div>
               <div className="flex items-center gap-2">

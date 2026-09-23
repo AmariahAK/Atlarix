@@ -37,7 +37,14 @@ import { LoadedSessionBanner } from "@/components/chat/LoadedSessionBanner";
 import { CoreSlotChangeBanner } from "@/components/chat/CoreSlotChangeBanner";
 import { InlineStreamStatus } from "@/components/chat/InlineStreamStatus";
 import { discardedTurnSnapshotIds } from "@/lib/chat/discarded-turn-snapshots";
-import { CORE_EXHAUSTED_MARKER } from "@/shared/billing_copy";
+import {
+  CORE_EXHAUSTED_MARKER,
+  FREE_LIMIT_MARKER,
+} from "@/shared/billing_copy";
+import { useTranslation } from "react-i18next";
+import { useSettings } from "@/hooks/useSettings";
+import { useAccountKind } from "@/hooks/useAccountKind";
+import { COMPASS_PROVIDER_ID, isCoreAutoTier } from "@/ipc/shared/compass_constants";
 import { showError } from "@/lib/toast";
 import {
   AlertDialog,
@@ -89,6 +96,13 @@ export function SimpleInlineChat({
   const snapshotByMessageId = useAtomValue(turnSnapshotTurnIdByMessageIdAtom);
   const setSnapshotByMessageId = useSetAtom(turnSnapshotTurnIdByMessageIdAtom);
   const { streamMessage } = useStreamChat({ hasChatId: false });
+  const { t } = useTranslation("chat");
+  const { settings } = useSettings();
+  const account = useAccountKind();
+  const onPaidAuto =
+    settings?.selectedModel?.provider === COMPASS_PROVIDER_ID &&
+    isCoreAutoTier(settings.selectedModel.name) &&
+    (account === "pro" || account === "payg");
   const [chatAppId, setChatAppId] = useState<number | null>(() =>
     selectedAppId != null ? selectedAppId : null,
   );
@@ -561,7 +575,8 @@ export function SimpleInlineChat({
                           the failure is transient. Only an exhausted balance is a state
                           that a repeat request cannot change.
                         */}
-            {!error.includes(CORE_EXHAUSTED_MARKER) && (
+            {!error.includes(CORE_EXHAUSTED_MARKER) &&
+              !error.includes(FREE_LIMIT_MARKER) && (
               <div className="mt-2 flex flex-wrap gap-2">
                 <Button
                   type="button"
@@ -582,6 +597,32 @@ export function SimpleInlineChat({
                 >
                   Retry
                 </Button>
+                {/* Paid Auto only: the same turn, one level up. Never
+                    automatic — a failure retries on the same model first. */}
+                {onPaidAuto && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    data-testid="try-stronger-model"
+                    title={t("atlarixAuto.strongerModelTitle")}
+                    onClick={() => {
+                      setErrorById((prev) => {
+                        const next = new Map(prev);
+                        next.delete(chatId);
+                        return next;
+                      });
+                      streamMessage({
+                        prompt: "",
+                        chatId,
+                        continueAfterQuestions: true,
+                        escalate: true,
+                      });
+                    }}
+                  >
+                    {t("atlarixAuto.strongerModel")}
+                  </Button>
+                )}
                 <div className="text-xs text-muted-foreground flex items-center">
                   If this keeps happening, switch models using the selector
                   below.

@@ -2,7 +2,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { getUserDataPath } from "../paths/paths";
-import { DEFAULT_NEW_USER_CORE_TIER } from "../ipc/shared/compass_constants";
+import {
+  DEFAULT_NEW_USER_CORE_TIER,
+  DEFAULT_PAID_CORE_TIER,
+} from "../ipc/shared/compass_constants";
 import {
   UserSettingsSchema,
   type UserSettings,
@@ -218,13 +221,13 @@ export function readSettings(): UserSettings {
     }
     // The old "auto" PROVIDER (automatic model routing) was removed, and a
     // selection still carrying it failed every turn with "Automatic model
-    // routing was removed". It moves to the default PAID Core tier — never to
-    // Atlarix Auto, whose prompts are shared with OpenAI and which must only
-    // ever be chosen deliberately, with consent.
+    // routing was removed". It moves to the default PAID Core tier: a saved
+    // choice keeps meaning "a model I pay for", and Atlarix Auto stays the
+    // default only for installs that never chose.
     if (combinedSettings.selectedModel?.provider === "auto") {
       combinedSettings.selectedModel = {
         provider: "compass",
-        name: DEFAULT_NEW_USER_CORE_TIER,
+        name: DEFAULT_PAID_CORE_TIER,
       };
     }
     // v12 0.1: the vestigial "agent" chat-mode path was deleted — persisted

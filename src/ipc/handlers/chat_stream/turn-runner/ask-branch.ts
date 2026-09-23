@@ -77,7 +77,7 @@ import {
   toolResultTextForExpand,
 } from "@/lib/chat/stream-tool-display";
 import { simplifyToolParametersForProfile } from "@/lib/routing/model-capability-profile";
-import { resolveReasoningCatalogModelId } from "@/lib/routing/reasoning-detector";
+import { resolveMediaModelId } from "@/lib/routing/reasoning-detector";
 import { resolveToolsetForSession } from "@/lib/tools/resolve-toolset";
 import {
   describeToolForMode,
@@ -331,7 +331,7 @@ export async function runAskBranch(
       toModelOutput: ({ output }: { output: unknown }) =>
         buildToolModelOutput(tool.name, output, {
           builtinProviderId: modelClient.builtinProviderId,
-          modelApiId: resolveReasoningCatalogModelId(effectiveModel),
+          modelApiId: resolveMediaModelId(effectiveModel),
         }) ?? {
           type: "text",
           value: typeof output === "string" ? output : JSON.stringify(output),

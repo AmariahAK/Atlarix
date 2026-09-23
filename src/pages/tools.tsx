@@ -68,7 +68,7 @@ const FEATURES: ToolFeature[] = [
     // The live lineup is rendered from `useAtlarixCoreCatalog()` instead, so this
     // cannot go stale again.
     shortDescription:
-      "Atlarix Core is the managed provider (no API key) — Core models appear in the picker under their real model names. Pay-as-you-go: top up credit and it's metered per use.",
+      "Atlarix Core is the managed provider (no API key) — Core models appear in the picker under their real model names, with Atlarix Auto first: free for accounts with no credit. Pro ($19/month) includes Core usage; or add credit and it's metered per use.",
     category: "models",
     steps: [
       "Sign in for Atlarix Core, or add BYOK keys under Settings → Model Providers",

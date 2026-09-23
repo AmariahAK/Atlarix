@@ -50,6 +50,9 @@ import type { LanguageModel } from "@/ipc/ipc_types";
 import { resolveModelDisplayLabel } from "@/lib/resolve-model-display-label";
 import { AtlarixAutoConsentDialog } from "@/components/AtlarixAutoConsentDialog";
 import { isCoreAutoTier } from "@/ipc/shared/compass_constants";
+import { useAccountKind } from "@/hooks/useAccountKind";
+import { useTranslation } from "react-i18next";
+import { UpgradeActions } from "@/components/billing/UpgradeActions";
 
 const COMPASS_ID = "compass";
 /** Rows rendered per provider before the list offers search instead. */
@@ -96,6 +99,10 @@ export function ModelPicker({
   );
   const { open, setOpen } = useModelPickerOpen(resetKey);
   const [searchQuery, setSearchQuery] = useState("");
+  const account = useAccountKind();
+  const { t } = useTranslation("chat");
+  // A free account picked a pinned Core model: show the upgrade line in place.
+  const [lockedPick, setLockedPick] = useState(false);
   const { data: modelsByProviders, isLoading } = useLanguageModelsByProviders();
   const { data: providers } = useLanguageModelProviders();
   const { data: catalog = [] } = useAtlarixCoreCatalog();
@@ -192,11 +199,22 @@ export function ModelPicker({
   }, [groups, searchQuery]);
 
   const onSelect = (model: LargeLanguageModel) => {
+    const isCore = model.provider === COMPASS_ID;
+    const isAuto = isCore && isCoreAutoTier(model.name);
+    // Pinned Core models are paid: a free account gets the two ways to pay
+    // instead of a selection that 402s on the first message.
+    if (isCore && !isAuto && account === "free") {
+      setLockedPick(true);
+      return;
+    }
     setOpen(false);
     setSearchQuery("");
+    setLockedPick(false);
+    // Only FREE Auto shares prompts, so only an account with nothing to pay
+    // with is asked. A paying account's Auto is billed and never shared.
     if (
-      model.provider === COMPASS_ID &&
-      isCoreAutoTier(model.name) &&
+      isAuto &&
+      (account === "free" || account === "unknown") &&
       !settings?.atlarixAutoConsentAt
     ) {
       setPendingAuto(model);
@@ -211,6 +229,16 @@ export function ModelPicker({
     if (!model) return;
     await updateSettings({ atlarixAutoConsentAt: new Date().toISOString() });
     void selectModel(model);
+  };
+
+  // Atlarix Auto's row says, in plain words, what happens to the prompts:
+  // paid Auto (Pro or credit) is private and never trains anything; free Auto
+  // is shared with OpenAI. Unknown account (signed out, loading): no claim.
+  const autoPrivacyLine = (o: Option): string | null => {
+    if (o.providerId !== COMPASS_ID || !isCoreAutoTier(o.model.apiName)) return null;
+    if (account === "pro" || account === "payg") return t("atlarixAuto.rowPrivate");
+    if (account === "free") return t("atlarixAuto.rowFree");
+    return null;
   };
 
   const isSelected = (o: Option) =>
@@ -229,20 +257,30 @@ export function ModelPicker({
         })
       }
       className={cn(
-        "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent",
-        isSelected(o) && "bg-secondary",
+        // NOT `accent` / `secondary`: both are AMBER in both themes, and this
+        // row's text is green (muted-foreground, the price badge) or white —
+        // unreadable on amber (reported by a user 2026-09-23). A neutral hover
+        // and a primary-tinted selection keep every line legible.
+        "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted",
+        isSelected(o) && "bg-primary/15 ring-1 ring-inset ring-primary/30",
       )}
     >
       <span className="min-w-0 flex-1">
         <span className="block truncate font-medium">{o.primary}</span>
         <span className="block truncate text-xs text-muted-foreground">
-          {o.secondary}
+          {autoPrivacyLine(o) ?? o.secondary}
         </span>
       </span>
       <PriceBadge
         cost={"cost" in o.model ? o.model.cost : undefined}
-        // Atlarix Auto is Core but FREE — it must not read "Paid".
-        isCore={o.providerId === COMPASS_ID && !isCoreAutoTier(o.model.apiName)}
+        core={
+          o.providerId !== COMPASS_ID
+            ? undefined
+            : isCoreAutoTier(o.model.apiName)
+              ? "auto"
+              : "pinned"
+        }
+        account={account}
       />
     </button>
   );
@@ -262,6 +300,7 @@ export function ModelPicker({
         open={open}
         onOpenChange={(next) => {
           setOpen(next);
+          if (!next) setLockedPick(false);
           if (next) onOpened?.();
         }}
       >
@@ -316,6 +355,14 @@ export function ModelPicker({
             </div>
           </div>
 
+          {lockedPick && (
+            <div
+              data-testid="model-picker-locked"
+              className="border-b border-border bg-muted/40 p-3"
+            >
+              <UpgradeActions />
+            </div>
+          )}
           <div className="max-h-[300px] overflow-y-auto p-1">
             {isLoading ? (
               <p className="py-3 text-center text-xs text-muted-foreground">

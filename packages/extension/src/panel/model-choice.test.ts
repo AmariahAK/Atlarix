@@ -132,20 +132,40 @@ describe("Atlarix Auto in the picker", () => {
     { id: "z-ai/glm-5.3", tier: "core-1" },
   ];
 
-  it("is labelled for what it is", () => {
-    expect(optionsFor(WITH_AUTO)[0]?.label).toBe("Atlarix Auto · free");
+  it("is labelled for what it is — free or paid is the account's business", () => {
+    expect(optionsFor(WITH_AUTO)[0]?.label).toBe("Atlarix Auto");
   });
 
-  it("is NEVER the default, even listed first with no core-3", () => {
-    // Its prompts are shared with OpenAI — only a deliberate choice may pick it.
-    expect(chooseModel(optionsFor(WITH_AUTO), null)).toBe("z-ai/glm-5.3");
+  it("is the default when offered (owner decision 2026-09-23)", () => {
+    // One option for everyone: free with a one-time OK for an account with no
+    // credit, billed and never shared for one with Pro or credit.
+    expect(chooseModel(optionsFor(WITH_AUTO), null)).toBe("atlarix/auto");
+    expect(
+      chooseModel(optionsFor([...WITH_AUTO, { id: "openai/gpt-6-astra", tier: "core-3" }]), null),
+    ).toBe("atlarix/auto");
+  });
+
+  it("without Auto the paid preference still applies", () => {
+    expect(
+      chooseModel(
+        optionsFor([
+          { id: "z-ai/glm-5.3", tier: "core-1" },
+          { id: "openai/gpt-6-astra", tier: "core-3" },
+        ]),
+        null,
+      ),
+    ).toBe("openai/gpt-6-astra");
+  });
+
+  it("a stored paid choice still wins over Auto", () => {
+    expect(chooseModel(optionsFor(WITH_AUTO), "z-ai/glm-5.3")).toBe("z-ai/glm-5.3");
   });
 
   it("stays chosen once the user chose it", () => {
     expect(chooseModel(optionsFor(WITH_AUTO), "atlarix/auto")).toBe("atlarix/auto");
   });
 
-  it("is not a default even when it is the only model", () => {
-    expect(chooseModel(optionsFor([{ id: "atlarix/auto", tier: "auto" }]), null)).toBeNull();
+  it("is chosen when it is the only model", () => {
+    expect(chooseModel(optionsFor([{ id: "atlarix/auto", tier: "auto" }]), null)).toBe("atlarix/auto");
   });
 });

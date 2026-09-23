@@ -1,8 +1,10 @@
 /**
- * Main refuses to send an Atlarix Auto request until the user has said yes to
- * its data sharing. The picker asks first, but a saved selection or a synced
- * setting could reach dispatch without passing the picker — so the check that
- * matters is here, at dispatch.
+ * Atlarix Auto dispatches WITHOUT a recorded yes: an account with Pro or credit
+ * gets paid Auto, which is never shared, and needs no consent. Only the FREE
+ * path shares prompts, and the proxy serves it only with the consent header —
+ * which main sends once the user has accepted (see autoRequestHeaders). With
+ * no credit and no header the proxy answers 402 consent_required, and the app
+ * shows the notice.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -47,10 +49,9 @@ beforeEach(() => {
 });
 
 describe("Atlarix Auto consent at dispatch", () => {
-  it("refuses without a recorded yes, and says how to give one", async () => {
-    await expect(getModelClient(AUTO as never, {} as never)).rejects.toThrow(
-      /one-time OK[\s\S]*shared with OpenAI/,
-    );
+  it("dispatches without a recorded yes — the proxy decides free vs paid", async () => {
+    const out = await getModelClient(AUTO as never, {} as never);
+    expect(out.modelClient.builtinProviderId).toBe("compass");
   });
 
   it("dispatches once the user has accepted", async () => {

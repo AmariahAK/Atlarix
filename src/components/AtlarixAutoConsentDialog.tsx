@@ -1,11 +1,12 @@
 /**
  * The one-time OK for Atlarix Auto.
  *
- * Auto is free because OpenAI gives complimentary tokens for traffic that is
- * shared with it to improve its models. That trade has to be the user's choice,
- * made knowingly, before their first Auto message — so it is asked here, in
- * plain words, and main refuses to dispatch Auto without the recorded answer
- * (get_model_client), so a saved selection can never skip it.
+ * FREE Auto is free because OpenAI gives complimentary tokens for traffic that
+ * is shared with it to improve its models. That trade has to be the user's
+ * choice, made knowingly — so it is asked here, in plain words. Only the free
+ * path needs it: an account with Pro or credit gets paid Auto, which is never
+ * shared. The app sends `X-Atlarix-Free-Consent` only once this is accepted,
+ * and the proxy never serves free Auto without it.
  */
 import { useTranslation } from "react-i18next";
 import {
