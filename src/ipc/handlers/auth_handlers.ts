@@ -292,9 +292,14 @@ export function registerAuthHandlers() {
     // so a top-up shows up immediately.
     coalesce("get-credit-balance", async () => {
       try {
-        const { getSupabaseClient } = await import(
+        const { getSupabaseClient, getSession } = await import(
           "../../lib/auth/supabase-client"
         );
+        // Signed out: answer locally. Calling the RPC anonymously is refused by
+        // design (anon has no EXECUTE — security audit) and only adds a Postgres
+        // "permission denied" and a wasted request per read. `ok:false` with no
+        // error is the renderer's "needs sign-in" (useCreditBalance).
+        if (!(await getSession())) return { ok: false, balanceCents: 0 };
         const supabase = getSupabaseClient();
         const { data, error } = await supabase.rpc("get_credit_balance");
         if (error) return { ok: false, error: error.message, balanceCents: 0 };

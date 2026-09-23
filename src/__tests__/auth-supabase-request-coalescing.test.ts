@@ -21,8 +21,10 @@ const { rpc, getSubscriptionDetails } = vi.hoisted(() => ({
   })),
 }));
 
+const session = vi.fn(async () => ({ access_token: "jwt" }) as unknown);
 vi.mock("@/lib/auth/supabase-client", () => ({
   getSupabaseClient: () => ({ rpc }),
+  getSession: () => session(),
   getSubscriptionDetails,
   getOnboardingCompleted: () => true,
   setOnboardingCompleted: () => {},
@@ -78,6 +80,14 @@ describe("auth IPC coalescing — one Supabase call per burst", () => {
     // Reset the remembered claim so each test starts from a signed-out state.
     await latestHandler("auth:sign-out")({});
     rpc.mockReset();
+  });
+
+  it("signed out, answers 'needs sign-in' locally — no anonymous RPC to be refused", async () => {
+    session.mockResolvedValueOnce(null);
+    const result = (await latestHandler("auth:get-credit-balance")({})) as { ok: boolean; error?: string };
+    expect(result.ok).toBe(false);
+    expect(result.error).toBeUndefined();
+    expect(rpc).not.toHaveBeenCalled();
   });
 
   it("collapses concurrent balance reads into ONE rpc", async () => {
