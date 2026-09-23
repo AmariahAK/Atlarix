@@ -46,7 +46,7 @@ export function broadcastAutoStatus(headers: Headers): void {
   const status = autoStatusFromHeaders(headers);
   if (!status) return;
   // Paid vs free decides Auto's context window (auto-context-window.ts).
-  noteAutoBilling(status.billing);
+  void noteAutoBilling(status.billing);
   // The one place the answering model is recorded on this machine.
   log.scope("atlarix-auto").info(
     `Auto reply: billing=${status.billing ?? "?"} model=${status.servedModel ?? "?"}`,

@@ -17,14 +17,20 @@ import path from "node:path";
 import { getCoreAuto } from "@/ipc/shared/core-model-override-store";
 import { getUserDataPath } from "@/paths/paths";
 
-let lastBilling: "free" | "paid" | null = null;
+type Billing = "free" | "paid";
+
+/** Paid/free per ACCOUNT (Supabase user id), remembered across launches. */
+let byAccount: Record<string, Billing> = {};
 let loaded = false;
+/** Tests: bypass the session lookup. */
+let accountOverride: string | null | undefined;
 
 /**
- * REMEMBERED ACROSS LAUNCHES. Without it the first Auto message after every app
- * start assumed free (400K) — and that turn's window is what the chat keeps —
- * so a paying account's ring read 3% on a chat GLM-5.3 showed at 1% (seen live
- * 2026-09-23). A tiny file, written only when the answer changes.
+ * REMEMBERED PER ACCOUNT, ACROSS LAUNCHES. Per chat was the original bug — a
+ * chat's first turn guessed "free" (400K) and kept it, so a paying account's
+ * ring read 3% where GLM-5.3 showed 1% (seen 2026-09-23). Per install would
+ * carry "paid" over to a free account after switching. Per account is right from
+ * the first message either way. A tiny file, written only when an answer changes.
  */
 function billingFile(): string | null {
   // Only inside the real app: outside Electron the path helper falls back to a
@@ -33,7 +39,7 @@ function billingFile(): string | null {
   try {
     return path.join(getUserDataPath(), "atlarix-auto-billing.json");
   } catch {
-    return null; // no Electron app (tests)
+    return null;
   }
 }
 
@@ -43,38 +49,62 @@ function loadOnce(): void {
   const file = billingFile();
   if (!file) return;
   try {
-    const v = JSON.parse(fs.readFileSync(file, "utf-8")) as { billing?: unknown };
-    if (v.billing === "free" || v.billing === "paid") lastBilling = v.billing;
+    const v = JSON.parse(fs.readFileSync(file, "utf-8")) as { byAccount?: unknown };
+    if (v.byAccount && typeof v.byAccount === "object") {
+      for (const [id, b] of Object.entries(v.byAccount as Record<string, unknown>)) {
+        if (b === "free" || b === "paid") byAccount[id] = b;
+      }
+    }
   } catch {
     /* no file yet — unknown, the free window applies */
   }
 }
 
+async function currentAccount(): Promise<string | null> {
+  if (accountOverride !== undefined) return accountOverride;
+  try {
+    const { getSession } = await import("@/lib/auth/supabase-client");
+    return (await getSession())?.user?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** Called with each Auto reply's `X-Atlarix-Billing`. */
-export function noteAutoBilling(billing: "free" | "paid" | null): void {
+export async function noteAutoBilling(billing: Billing | null): Promise<void> {
   loadOnce();
-  if (!billing || billing === lastBilling) return;
-  lastBilling = billing;
+  if (!billing) return;
+  const account = await currentAccount();
+  if (!account || byAccount[account] === billing) return;
+  byAccount[account] = billing;
   const file = billingFile();
   if (!file) return;
   try {
-    fs.writeFileSync(file, JSON.stringify({ billing }));
+    fs.writeFileSync(file, JSON.stringify({ byAccount }));
   } catch {
     /* best effort — the next reply sets it again */
   }
 }
 
+/** Test-only: switch the signed-in account without forgetting the others. */
+export function __setAccountForTests(account: string | null): void {
+  accountOverride = account;
+}
+
 /** Test-only. */
-export function __resetAutoBilling(): void {
-  lastBilling = null;
+export function __resetAutoBilling(account: string | null = "test-account"): void {
+  byAccount = {};
   loaded = true;
+  accountOverride = account;
 }
 
 export async function autoContextWindow(): Promise<number | null> {
   loadOnce();
   const auto = getCoreAuto();
+  const account = await currentAccount();
+  const billing = account ? byAccount[account] : undefined;
   const models =
-    lastBilling === "paid" ? auto?.paidModels : (auto?.freeModels ?? auto?.paidModels);
+    billing === "paid" ? auto?.paidModels : (auto?.freeModels ?? auto?.paidModels);
   if (!models?.length) return null;
   const { getModelsDevLimits } = await import("@/lib/models_dev");
   let min: number | null = null;

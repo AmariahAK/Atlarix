@@ -253,12 +253,20 @@ describe("Auto's context window follows the account", () => {
       "@/lib/context/auto-context-window"
     );
     setCoreAuto(parseCoreAuto(RAW)!);
-    __resetAutoBilling();
-    expect(await autoContextWindow()).toBe(400_000);
-    noteAutoBilling("paid");
+    __resetAutoBilling("pro-account");
+    expect(await autoContextWindow()).toBe(400_000); // unknown → free window
+    await noteAutoBilling("paid");
     expect(await autoContextWindow()).toBe(1_000_000);
-    noteAutoBilling("free");
+    await noteAutoBilling("free");
     expect(await autoContextWindow()).toBe(400_000);
+    await noteAutoBilling("paid");
+    // Another account signs in: its own answer, not the previous account's…
+    const mod = await import("@/lib/context/auto-context-window");
+    mod.__setAccountForTests("free-account");
+    expect(await autoContextWindow()).toBe(400_000);
+    // …and switching back remembers the paying account.
+    mod.__setAccountForTests("pro-account");
+    expect(await autoContextWindow()).toBe(1_000_000);
     vi.doUnmock("@/lib/models_dev");
   });
 });
