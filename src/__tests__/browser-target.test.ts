@@ -79,7 +79,6 @@ describe("mode and action refusals name the gap", () => {
   it.each([
     ["visual", "instrumentation"],
     ["design", "instrumentation"],
-    ["screenshot", "does not capture screenshots"],
   ])("mode:%s explains why and offers the app", (mode, fragment) => {
     const r = chromeInspectOp(mode);
     expect(isChromeRefusal(r)).toBe(true);
@@ -92,7 +91,8 @@ describe("mode and action refusals name the gap", () => {
   // console/network joined this list on 2026-09-17. They used to refuse with a
   // reason claiming the extension COULD not capture them; it could, and the
   // `debugger` permission it needed was already granted and justified.
-  it.each(["read", "snapshot", "text", "console", "network"])(
+  // screenshot joined on 2026-09-23 (CDP on the agent's own tabs).
+  it.each(["read", "snapshot", "text", "console", "network", "screenshot"])(
     "mode:%s maps to a bridged op",
     (mode) => {
       expect(typeof chromeInspectOp(mode)).toBe("string");
@@ -166,7 +166,7 @@ describe("no refusal invents a login requirement", () => {
     serverPresent.value = true;
     connected.value = false;
     const noBrowser = chromeUnavailable()!.error;
-    const modes = ["visual", "design", "screenshot"].map(
+    const modes = ["visual", "design"].map(
       (m) => (chromeInspectOp(m) as { error: string }).error,
     );
     for (const msg of [noRelay, noBrowser, ...modes]) {

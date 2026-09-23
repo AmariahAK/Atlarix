@@ -51,6 +51,7 @@ import {
 } from "@/lib/browser/always-ask";
 import {
   attach,
+  captureScreenshot,
   isNamedKey,
   movePointer,
   namedKeys,
@@ -162,6 +163,13 @@ export interface ToolOutcome {
    * than drawing nothing where one used to be.
    */
   files?: MadeFile[];
+  /**
+   * A picture for the model to look at (the `screenshot` tool). Beside
+   * `content` because a tool message is text-only on the wire: the loop shows
+   * it to the model as a user image part for the rest of the turn, and it is
+   * never written to the stored transcript.
+   */
+  image?: { mimeType: string; data: string };
 }
 
 /** Everything the dispatcher needs that it should not go and find for itself. */
@@ -219,6 +227,13 @@ export interface ToolContext {
    * `null` means the harness looked and there genuinely was no tab.
    */
   subjectTabId?: number | null;
+  /**
+   * Whether the selected model accepts image input. Injected by the harness.
+   * `false` makes `screenshot` decline with a way forward instead of taking a
+   * picture nothing can look at; absent (older callers, tests) means unknown,
+   * which is allowed to try.
+   */
+  canSeeImages?: boolean;
 }
 
 function argsOf(call: ToolCall): Record<string, unknown> {
@@ -454,6 +469,8 @@ export async function dispatchTool(
         return await hoverRef(args, ctx);
       case "scroll":
         return await scrollPage(args, ctx);
+      case "screenshot":
+        return await screenshotTab(args, ctx);
       case "list_tabs":
         return await listTabs();
       case "open_tab":
@@ -1014,6 +1031,56 @@ async function requireAgentTab(
   if (denied) return { ok: false, outcome: denied };
   await markDriven(tab.id);
   return { ok: true, tab };
+}
+
+async function screenshotTab(
+  args: Record<string, unknown>,
+  ctx?: ToolContext,
+): Promise<ToolOutcome> {
+  if (ctx?.canSeeImages === false) {
+    return {
+      content:
+        "The selected model cannot see images, so a screenshot would be " +
+        "wasted. Use read_page for the page's content, or tell the user a " +
+        "model that accepts images is needed for this.",
+    };
+  }
+  const target = await targetTab(args.tab_id, ctx);
+  if (typeof target === "string") return { content: target };
+  const denied = await requireAccess(target.url);
+  if (denied) return denied;
+  const tab = await api().tabs.get(target.id);
+  const where = tab?.title ? `"${tab.title}" (${target.url})` : target.url;
+
+  if (await isAgentTab(target.id)) {
+    const shot = await captureScreenshot(target.id);
+    return {
+      content: `Screenshot of ${where} follows as an image.`,
+      label: `Looked at ${tab?.title || originOf(target.url) || "the page"}`,
+      image: { mimeType: "image/png", data: shot.data },
+    };
+  }
+  // The user's own tab: only while it is the one on screen. Switching to it
+  // would take focus, which the agent never does.
+  if (tab?.active && tab.windowId !== undefined) {
+    const dataUrl = await api().tabs.captureVisibleTab(tab.windowId, {
+      format: "png",
+    });
+    return {
+      content: `Screenshot of ${where} follows as an image.`,
+      label: `Looked at ${tab.title || originOf(target.url) || "the page"}`,
+      image: {
+        mimeType: "image/png",
+        data: dataUrl.replace(/^data:image\/png;base64,/, ""),
+      },
+    };
+  }
+  return {
+    content:
+      `Tab ${target.id} is the user's and is not the one on screen, so it ` +
+      `cannot be photographed without switching to it — which you must not do. ` +
+      `Open the page with open_tab and screenshot that copy, or use read_page.`,
+  };
 }
 
 async function pressKeyOn(

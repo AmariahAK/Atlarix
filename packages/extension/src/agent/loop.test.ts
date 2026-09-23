@@ -637,3 +637,39 @@ describe("ask_user ends the turn", () => {
     expect(calls()).toBe(2);
   });
 });
+
+describe("a screenshot reaches the model, never the transcript", () => {
+  it("sends the image as a user part after the tool result, and saves only text", async () => {
+    const { stream, seen } = scriptedStream([
+      toolRound(toolCall("screenshot")),
+      textRound("It is a bar chart."),
+    ]);
+    const dispatch = (async () => ({
+      content: "Screenshot of the page follows as an image.",
+      image: { mimeType: "image/png", data: "QUJD" },
+    })) as unknown as TurnArgs["dispatch"];
+
+    const out = await runTurn({ ...BASE, stream, dispatch });
+
+    // Saved: no image anywhere in what the caller persists.
+    expect(out.messages.map((m) => m.role)).toEqual([
+      "assistant",
+      "tool",
+      "assistant",
+    ]);
+    expect(JSON.stringify(out.messages)).not.toContain("QUJD");
+
+    // Sent: the tool result, then a user message carrying the picture.
+    const second = seen[1].messages as Array<{ role: string; content: unknown }>;
+    expect(second.map((m) => m.role)).toEqual([
+      "system",
+      "user",
+      "assistant",
+      "tool",
+      "user",
+    ]);
+    expect(JSON.stringify(second[4].content)).toContain(
+      "data:image/png;base64,QUJD",
+    );
+  });
+});

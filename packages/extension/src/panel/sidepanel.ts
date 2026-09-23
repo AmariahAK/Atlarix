@@ -105,6 +105,7 @@ import {
   SNIFF_BYTES,
   attachmentsIn,
   buildUserContent,
+  capabilityOf,
   describeAttachment,
   gateAttachments,
   readAttachment,
@@ -1159,6 +1160,10 @@ function describeCall(call: ToolCall): string {
       return `Pressing ${String(args.key ?? "")}`;
     case "hover":
       return `Hovering ${String(args.ref ?? args.selector ?? "an element")}`;
+    case "screenshot":
+      return args.tab_id
+        ? `Looking at tab ${String(args.tab_id)}`
+        : "Looking at this page";
     case "scroll":
       return `Scrolling ${String(args.direction ?? "")}`;
     case "list_tabs":
@@ -1803,6 +1808,11 @@ async function send(): Promise<void> {
         sessionId,
         sessionTitle: currentTitle,
         subjectTabId: tab?.id ?? null,
+        canSeeImages: (() => {
+          const cap = capabilityOf(lineup.find((m) => m.id === model));
+          // Unknown modalities are allowed to try; only a known "no" declines.
+          return cap.known ? cap.images : undefined;
+        })(),
       },
       signal: controller.signal,
       events: {

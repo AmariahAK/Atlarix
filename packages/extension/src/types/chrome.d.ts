@@ -116,6 +116,15 @@ declare namespace chrome {
     }): Promise<Tab[]>;
     function remove(tabIds: number | number[]): Promise<void>;
     /**
+     * A PNG data URL of the ACTIVE tab of `windowId` — the visible one, and
+     * only that one. Used for the user's own tab while it is on screen; the
+     * agent's background tabs are captured over CDP instead.
+     */
+    function captureVisibleTab(
+      windowId: number,
+      options: { format: "png" | "jpeg"; quality?: number },
+    ): Promise<string>;
+    /**
      * Navigating a tab the agent already owns, rather than opening a third one
      * for every step of a flow. Restricted by its caller to tabs inside the
      * agent's group — `tabs.update` would otherwise redirect whatever tab the

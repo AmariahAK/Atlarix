@@ -28,6 +28,8 @@ const armNetworkMock = vi.fn();
 const endCaptureMock = vi.fn();
 const readConsoleMock = vi.fn();
 const readNetworkMock = vi.fn();
+const captureScreenshotMock = vi.fn();
+const captureVisibleTabMock = vi.fn();
 
 vi.mock("../page/inject", () => ({
   runInPage: (...a: unknown[]) => runInPage(...a),
@@ -49,6 +51,7 @@ vi.mock("../page/trusted-input", () => ({
   attach: (...a: unknown[]) => attachMock(...a),
   pressKey: (...a: unknown[]) => pressKeyMock(...a),
   movePointer: (...a: unknown[]) => movePointerMock(...a),
+  captureScreenshot: (...a: unknown[]) => captureScreenshotMock(...a),
   isNamedKey: (n: string) => ["Enter", "Escape", "Tab"].includes(n),
   namedKeys: () => ["Enter", "Escape", "Tab"],
 }));
@@ -59,6 +62,7 @@ vi.mock("../shared/browser-api", () => ({
       query: (...a: unknown[]) => tabsQuery(...a),
       create: (...a: unknown[]) => tabsCreate(...a),
       update: (...a: unknown[]) => tabsUpdate(...a),
+      captureVisibleTab: (...a: unknown[]) => captureVisibleTabMock(...a),
       remove: async () => {},
     },
   }),
@@ -86,6 +90,10 @@ beforeEach(() => {
   endCaptureMock.mockReset().mockResolvedValue(undefined);
   readConsoleMock.mockReset().mockReturnValue({ entries: [] });
   readNetworkMock.mockReset().mockReturnValue({ entries: [] });
+  captureScreenshotMock
+    .mockReset()
+    .mockResolvedValue({ data: "AAAA", width: 1280, height: 720 });
+  captureVisibleTabMock.mockReset().mockResolvedValue("data:image/png;base64,BBBB");
 });
 
 /** Page-op calls with the overlay assertion filtered out. */
@@ -426,5 +434,40 @@ describe("console and network ops", () => {
     const reply = await call("console", { tab_id: 42 });
     expect(reply.ok).toBe(true);
     expect(readConsoleMock).toHaveBeenCalled();
+  });
+});
+
+describe("screenshot", () => {
+  it("photographs the agent's own tab over CDP, without taking focus", async () => {
+    const r = await call("screenshot");
+    expect(r.ok).toBe(true);
+    expect(captureScreenshotMock).toHaveBeenCalledWith(7);
+    expect(captureVisibleTabMock).not.toHaveBeenCalled();
+    expect(tabsUpdate).not.toHaveBeenCalled();
+    expect((r as { result: Record<string, unknown> }).result).toMatchObject({
+      mimeType: "image/png",
+      data: "AAAA",
+      width: 1280,
+    });
+  });
+
+  it("uses captureVisibleTab for the user's tab only while it is on screen", async () => {
+    isAgentTabMock.mockResolvedValue(false);
+    tabsGet.mockResolvedValue({ id: 7, url: "https://x.dev/", windowId: 1, active: true });
+    const r = await call("screenshot", { tab_id: 7 });
+    expect(r.ok).toBe(true);
+    expect(captureVisibleTabMock).toHaveBeenCalledWith(1, { format: "png" });
+    expect((r as { result: { data: string } }).result.data).toBe("BBBB");
+    expect(captureScreenshotMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses the user's background tab rather than switching to it", async () => {
+    isAgentTabMock.mockResolvedValue(false);
+    tabsGet.mockResolvedValue({ id: 7, url: "https://x.dev/", windowId: 1, active: false });
+    const r = await call("screenshot", { tab_id: 7 });
+    expect(r.ok).toBe(false);
+    expect((r as { error: string }).error).toMatch(/never does/);
+    expect(tabsUpdate).not.toHaveBeenCalled();
+    expect(captureVisibleTabMock).not.toHaveBeenCalled();
   });
 });

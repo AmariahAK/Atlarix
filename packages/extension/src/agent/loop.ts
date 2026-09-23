@@ -444,6 +444,28 @@ export async function runTurn(args: TurnArgs): Promise<TurnOutcome> {
       };
       history.push(message);
       produced.push(message);
+      // A picture from `screenshot`: shown to the model as a user image part
+      // for the REST OF THIS TURN only. It goes into `history` (what is sent)
+      // and not `produced` (what is saved), so a transcript never carries
+      // megabytes of base64 into chrome.storage — the tool message above
+      // records that a screenshot was taken.
+      if (outcome.image) {
+        history.push({
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "The screenshot from that tool call:",
+            },
+            {
+              type: "image_url",
+              image_url: {
+                url: `data:${outcome.image.mimeType};base64,${outcome.image.data}`,
+              },
+            },
+          ],
+        });
+      }
       events.onToolResult?.(
         call,
         outcome.content,

@@ -84,6 +84,7 @@ import {
 } from "../page/cdp-capture";
 import {
   attach,
+  captureScreenshot,
   isNamedKey,
   movePointer,
   namedKeys,
@@ -349,6 +350,52 @@ async function run(op: string, args: Record<string, unknown>): Promise<unknown> 
       });
       if (!res.ok) throw new Error(res.error ?? "the page text could not be read");
       return { tabId, url, text: res.text, clipped: res.clipped };
+    }
+
+    /**
+     * A PNG of what the tab shows. The agent's own tabs go over CDP, which
+     * needs no focus change (their tabs sit in the background by design). The
+     * user's tab can only be captured while it is the one in front —
+     * `captureVisibleTab` photographs the visible tab and nothing else — and a
+     * user tab that is not in front is refused rather than switched to, because
+     * taking focus is the one thing this bridge never does.
+     *
+     * Not marked as driven: the green frame would land in the picture.
+     */
+    case "screenshot": {
+      const tabId = await targetTab(args);
+      const tab = await api().tabs.get(tabId);
+      const url = tab?.url ?? "";
+      if (await isAgentTab(tabId)) {
+        const shot = await captureScreenshot(tabId);
+        return {
+          tabId,
+          url,
+          title: tab?.title ?? "",
+          mimeType: "image/png",
+          data: shot.data,
+          width: shot.width,
+          height: shot.height,
+        };
+      }
+      if (tab?.active && tab.windowId !== undefined) {
+        const dataUrl = await api().tabs.captureVisibleTab(tab.windowId, {
+          format: "png",
+        });
+        return {
+          tabId,
+          url,
+          title: tab.title ?? "",
+          mimeType: "image/png",
+          data: dataUrl.replace(/^data:image\/png;base64,/, ""),
+        };
+      }
+      throw new Error(
+        `Tab ${tabId} is the user's and is not the one on screen, so it cannot ` +
+          `be photographed without switching to it — which this never does. ` +
+          `Open the page yourself (tabs operation:"create") and screenshot ` +
+          `that copy, or read its text instead.`,
+      );
     }
 
     case "find_on_page": {

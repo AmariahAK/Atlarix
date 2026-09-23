@@ -52,6 +52,10 @@ const VERBS: Record<string, { one: string; many: (n: number) => string }> = {
   fill: { one: "Filled a field", many: (n) => `Filled ${n} fields` },
   press_key: { one: "Pressed a key", many: (n) => `Pressed ${n} keys` },
   hover: { one: "Hovered", many: (n) => `Hovered ${n} times` },
+  screenshot: {
+    one: "Took a screenshot",
+    many: (n) => `Took ${n} screenshots`,
+  },
   scroll: { one: "Scrolled", many: (n) => `Scrolled ${n} times` },
   list_tabs: { one: "Listed the tabs", many: () => "Listed the tabs" },
   open_tab: { one: "Opened a tab", many: (n) => `Opened ${n} tabs` },

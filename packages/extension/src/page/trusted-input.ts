@@ -279,6 +279,84 @@ export async function clickAt(
   });
 }
 
+/** Screenshots wider than this are scaled down: plenty for a model to read, and
+ * a 4K capture is several MB of base64 for no gain. Matches the desktop cap. */
+export const SCREENSHOT_MAX_WIDTH = 1280;
+
+/**
+ * How long to wait for Chrome to paint. A tab in the background of its window
+ * may not be composited at all, and `Page.captureScreenshot` then waits instead
+ * of failing — so the wait is bounded and the failure is named.
+ */
+const SCREENSHOT_TIMEOUT_MS = 8_000;
+
+/**
+ * The visible viewport of an Atlarix-opened tab, as PNG base64, over CDP.
+ *
+ * CDP rather than `chrome.tabs.captureVisibleTab` because that one only sees
+ * the ACTIVE tab of a window, and the agent's tabs sit in the background by
+ * design — capturing the visible tab would photograph whatever the user is
+ * reading. This needs no focus change and no extra permission.
+ */
+export async function captureScreenshot(
+  tabId: number,
+): Promise<{ data: string; width: number; height: number }> {
+  await attach(tabId);
+  const call = async <T>(
+    method: string,
+    params: Record<string, unknown>,
+  ): Promise<T> => {
+    try {
+      return (await api().debugger.sendCommand({ tabId }, method, params)) as T;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (/detached|not attached/i.test(message)) attached.delete(tabId);
+      throw new TrustedInputError(`${method} failed: ${message}`);
+    }
+  };
+  const metrics = await call<{
+    cssVisualViewport?: {
+      clientWidth: number;
+      clientHeight: number;
+      pageX: number;
+      pageY: number;
+    };
+  }>("Page.getLayoutMetrics", {});
+  const vp = metrics.cssVisualViewport;
+  const width = Math.round(vp?.clientWidth ?? 0);
+  const height = Math.round(vp?.clientHeight ?? 0);
+  const scale = width > SCREENSHOT_MAX_WIDTH ? SCREENSHOT_MAX_WIDTH / width : 1;
+  const params: Record<string, unknown> = {
+    format: "png",
+    captureBeyondViewport: false,
+  };
+  if (vp && width > 0 && height > 0 && scale < 1) {
+    params.clip = { x: vp.pageX, y: vp.pageY, width, height, scale };
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const shot = await Promise.race([
+    call<{ data: string }>("Page.captureScreenshot", params),
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () =>
+          reject(
+            new TrustedInputError(
+              "Chrome did not paint this tab within 8s — a background tab is " +
+                "not always rendered. Read the page's text instead, or ask the " +
+                "user to switch to the tab once and try again.",
+            ),
+          ),
+        SCREENSHOT_TIMEOUT_MS,
+      );
+    }),
+  ]).finally(() => clearTimeout(timer));
+  return {
+    data: shot.data,
+    width: Math.round(width * scale),
+    height: Math.round(height * scale),
+  };
+}
+
 /**
  * The message to give a model when this browser has no trusted input.
  *

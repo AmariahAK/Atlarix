@@ -924,3 +924,47 @@ describe("the tab a turn is about does not move under it", () => {
     expect(injectedTabs.at(-1)).toBe(7);
   });
 });
+
+describe("screenshot", () => {
+  const withCapture = () => {
+    const calls: number[] = [];
+    (
+      (globalThis as Record<string, unknown>).chrome as {
+        tabs: Record<string, unknown>;
+      }
+    ).tabs.captureVisibleTab = async (windowId: number) => {
+      calls.push(windowId);
+      return "data:image/png;base64,QUJD";
+    };
+    return calls;
+  };
+
+  it("declines up front when the model cannot see images", async () => {
+    const calls = withCapture();
+    const out = await dispatchTool(call("screenshot"), {
+      ...CTX,
+      canSeeImages: false,
+    });
+    expect(out.image).toBeUndefined();
+    expect(out.content).toMatch(/cannot see images/);
+    expect(calls).toEqual([]);
+  });
+
+  it("photographs the user's tab while it is on screen, as an image beside the text", async () => {
+    const calls = withCapture();
+    const out = await dispatchTool(call("screenshot", { tab_id: 7 }), CTX);
+    expect(calls).toEqual([1]);
+    expect(out.image).toEqual({ mimeType: "image/png", data: "QUJD" });
+    // The model is told in words too — a tool message carries text only.
+    expect(out.content).toMatch(/Screenshot of "Example"/);
+  });
+
+  it("refuses the user's tab when it is not the one on screen", async () => {
+    const calls = withCapture();
+    tabs[0]!.active = false;
+    const out = await dispatchTool(call("screenshot", { tab_id: 7 }), CTX);
+    expect(calls).toEqual([]);
+    expect(out.image).toBeUndefined();
+    expect(out.content).toMatch(/not the one on screen/);
+  });
+});

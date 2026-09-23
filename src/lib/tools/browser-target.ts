@@ -52,7 +52,9 @@ const INSPECT_OPS: Record<string, string | null> = {
   text: "text",
   visual: null,
   design: null,
-  screenshot: null,
+  // Since 2026-09-23: the agent's own tabs over CDP, the user's tab only while
+  // it is the one on screen (see the extension's `screenshot` op).
+  screenshot: "screenshot",
   // Captured over CDP on the agent's own tabs since 2026-09-17. They were
   // `null` here with a reason claiming the extension COULD not do this; it
   // could, and had held the `debugger` permission all along.
@@ -98,8 +100,6 @@ const UNBRIDGED_REASON: Record<string, string> = {
     "the visual report measures layout, contrast and CLS through instrumentation that only Atlarix's built-in browser installs",
   design:
     "the design report samples the rendered palette, type scale and layout regions through instrumentation that only Atlarix's built-in browser installs",
-  screenshot:
-    "the extension does not capture screenshots",
 };
 
 export interface ChromeRefusal {

@@ -664,6 +664,41 @@ async function inspectOnChrome(args: {
     return captureOnChrome(op, args);
   }
 
+  // Same result shape as the built-in browser's screenshot, so
+  // `extractImageMedia` turns it into an image part for the model unchanged.
+  if (op === "screenshot") {
+    const shot = await requestChrome(
+      "screenshot",
+      args.tab_id != null ? { tab_id: args.tab_id } : {},
+    );
+    if (isChromeRefusal(shot)) return shot;
+    const r = (shot.result ?? {}) as {
+      tabId?: number;
+      url?: string;
+      title?: string;
+      mimeType?: string;
+      data?: string;
+      width?: number;
+      height?: number;
+    };
+    if (!r.data) {
+      return { success: false, error: "The browser returned no image." };
+    }
+    return {
+      success: true,
+      target: "chrome",
+      url: r.url,
+      title: r.title,
+      tab_id: r.tabId,
+      ...(r.width && r.height
+        ? { viewport: { width: r.width, height: r.height } }
+        : {}),
+      mimeType: r.mimeType ?? "image/png",
+      data: r.data,
+      note: "Screenshot of the tab in the user's own browser.",
+    };
+  }
+
   const callArgs: Record<string, unknown> = {};
   if (args.tab_id != null) callArgs.tab_id = args.tab_id;
   if (op === "read_page") {

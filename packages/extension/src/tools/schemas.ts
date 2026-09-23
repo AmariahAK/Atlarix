@@ -42,6 +42,7 @@ export const TOOL_NAMES = [
   "press_key",
   "hover",
   "scroll",
+  "screenshot",
   "list_tabs",
   "open_tab",
   "close_tab",
@@ -75,8 +76,8 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
       name: "read_page",
       description:
         "Read a page's controls and text as a compact list, each line carrying " +
-        "a [ref] that stays valid until the page reloads. There is no " +
-        "screenshot here; this is how you see a page. Defaults to the tab the " +
+        "a [ref] that stays valid until the page reloads. This is how you find " +
+        "and act on a page; screenshot shows how it looks. Defaults to the tab the " +
         "user is on. An unallowed site comes back asking the user for " +
         "permission — say what you want it for and try again after they " +
         "decide.",
@@ -273,6 +274,29 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
           },
         },
         required: ["direction"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "screenshot",
+      description:
+        "See a tab as a picture — layout, images, charts, anything read_page's " +
+        "text list cannot convey. read_page stays the way to find and act on " +
+        "controls; use this when how the page LOOKS matters. Works on tabs " +
+        "Atlarix opened, and on the user's tab only while it is the one on " +
+        "screen. Only available when the selected model can see images.",
+      parameters: {
+        type: "object",
+        properties: {
+          tab_id: {
+            type: "number",
+            description:
+              "Which tab. Defaults to the tab the user was on when they asked.",
+          },
+        },
         additionalProperties: false,
       },
     },
