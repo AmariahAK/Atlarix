@@ -82,8 +82,6 @@ import {
   listSessions,
   loadSession,
   newSessionId,
-  openSessionId,
-  rememberOpenSession,
   rewindToUserMessage,
   saveSession,
 } from "../sessions/store";
@@ -2267,7 +2265,6 @@ async function openSession(id: string): Promise<void> {
   void clearDrivenTabs("all");
   cancelEdit();
   sessionId = id;
-  void rememberOpenSession(id);
   toolLabels.clear();
   usageAnchor = null;
   staged = [];
@@ -2285,9 +2282,6 @@ function startNewChat(): void {
   void clearDrivenTabs("all");
   cancelEdit();
   sessionId = newSessionId();
-  // Recorded immediately, not on first save: the point is to survive a panel
-  // close that happens BEFORE anything is typed.
-  void rememberOpenSession(sessionId);
   currentTitle = "";
   toolLabels.clear();
   usageAnchor = null;
@@ -2480,6 +2474,9 @@ function reportCapabilities(): void {
  * the account and Core's idea of the account are established by the same call, at
  * the one moment the user is looking.
  */
+/** Set by the first signed-in render; see the comment in {@link render}. */
+let conversationStarted = false;
+
 async function render(): Promise<void> {
   const { signedIn: isIn, session } = await accountState();
 
@@ -2498,29 +2495,18 @@ async function render(): Promise<void> {
     // unlabelled icon. "How do I sign out" was a real question asked of this
     // panel, and the answer being two discoveries deep was the reason.
     renderAccountChip(profile);
-    // Reopening the panel lands you back in the conversation you were having,
-    // which is what a docked panel implies. A blank chat every time makes the
-    // history list the only way back to work that was one click away.
+    // OPENING THE PANEL STARTS A NEW CONVERSATION (owner decision, 2026-09-23).
+    // It used to restore the conversation last on screen; in practice a panel is
+    // opened for the page in front of you, and landing in yesterday's thread
+    // meant pressing New first every time. History is one click away in the
+    // drawer, and an empty chat costs nothing: it is not saved until it has a
+    // message.
     //
-    // WHAT IT WAS LOOKING AT, NOT WHAT WAS SAVED LAST. This used to take the
-    // newest index entry, and a new chat is not in the index until it has a
-    // message worth saving — so pressing New, closing the panel and reopening
-    // it dropped the user straight back into the conversation they had just
-    // left. The fresh chat silently never existed.
-    const remembered = await openSessionId();
-    const sessions = await listSessions();
-    const restored = remembered
-      ? (sessions.find((s) => s.id === remembered) ?? null)
-      : (sessions[0] ?? null);
-    if (restored) {
-      sessionId = restored.id;
-      currentTitle = restored.title;
-      messages = await loadSession(restored.id);
-    } else if (remembered) {
-      // A remembered id with no saved transcript is an EMPTY NEW CHAT, and
-      // landing on it is the whole point. Keep the id so the first message
-      // saves under the conversation the user started rather than a third one.
-      sessionId = remembered;
+    // ONCE PER PANEL LIFETIME. render() also runs on sign-in, auth loss and
+    // sign-out; a conversation already under way must survive those.
+    if (!conversationStarted) {
+      conversationStarted = true;
+      startNewChat();
     }
     // Loaded before the first render so a reopened panel starts calibrated
     // rather than relearning the ratio on the user's first message.

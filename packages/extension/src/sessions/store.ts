@@ -35,8 +35,12 @@ import { dropAllFiles, dropSessionFiles } from "../files/store";
 
 const INDEX_KEY = "atlarix.sessions.v1";
 const transcriptKey = (id: string) => `atlarix.session.${id}.v1`;
-/** Which conversation the panel was last looking at. See `rememberOpenSession`. */
-const OPEN_KEY = "atlarix.openSession.v1";
+/**
+ * Retired 2026-09-23: the panel used to reopen the conversation it was last
+ * showing; it now always opens on a new one. Kept only so "erase everything"
+ * still clears the value older builds wrote.
+ */
+const LEGACY_OPEN_KEY = "atlarix.openSession.v1";
 
 /**
  * How many conversations are kept.
@@ -206,35 +210,6 @@ export async function saveSession(
   return { evicted };
 }
 
-/**
- * Remember which conversation the panel is showing.
- *
- * WHY THIS IS NOT "the most recent session". Reopening the panel used to load
- * the newest entry in the index, and a brand-new chat is not in the index at
- * all until it has a message to save — so pressing New, closing the panel and
- * reopening it put the user straight back into the conversation they had just
- * left. The fresh chat they asked for silently never existed.
- *
- * So the panel records what it is LOOKING at, which is a different fact from
- * what was written to most recently, and the only one that survives an empty
- * chat.
- */
-export async function rememberOpenSession(id: string): Promise<void> {
-  await api().storage.local.set({ [OPEN_KEY]: id });
-}
-
-/**
- * The conversation to open, or null to fall back to the most recent.
- *
- * Null covers a first run and a profile whose record was cleared; the caller
- * decides what that means rather than this guessing.
- */
-export async function openSessionId(): Promise<string | null> {
-  const stored = await api().storage.local.get(OPEN_KEY);
-  const id = stored?.[OPEN_KEY];
-  return typeof id === "string" && id ? id : null;
-}
-
 export async function deleteSession(id: string): Promise<void> {
   const index = await listSessions();
   await api().storage.local.set({
@@ -244,19 +219,13 @@ export async function deleteSession(id: string): Promise<void> {
   await deleteSessionAttachments([id]);
   await deleteSessionRelics([id]);
   dropSessionFiles([id]);
-  // Deleting the conversation the panel is pointed at must not leave it
-  // pointed there, or the next open restores a transcript that no longer has
-  // an index entry and the history list disagrees with the screen.
-  if ((await openSessionId()) === id) {
-    await api().storage.local.remove(OPEN_KEY);
-  }
 }
 
 export async function deleteAllSessions(): Promise<void> {
   const index = await listSessions();
   await api().storage.local.remove([
     INDEX_KEY,
-    OPEN_KEY,
+    LEGACY_OPEN_KEY,
     ...index.map((s) => transcriptKey(s.id)),
   ]);
   // Erase everything has to mean everything. An attached file left behind is
