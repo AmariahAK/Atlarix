@@ -1,10 +1,7 @@
 # Atlarix TODO
 
-**Current version:** 14.50.1 in `package.json`. v14.50.0 was the last desktop tag (2026-09-22);
-14.50.1 went out as the extension-only tag `ext-v14.50.1` (2026-09-23), carrying the extension's
-free Atlarix Auto, screenshots and new-session-on-open. Desktop work on `dev` not yet in a
-desktop release: Atlarix Auto (free, then paid routing), the Browser panel's retirement, the
-context-meter fix and the voice follow-ups.
+**Current version:** 14.51.0, released 2026-09-23 (desktop + extension in one `v*` tag): one
+Atlarix Auto for everyone, the Browser panel retired, voice and extension follow-ups.
 Narrative in [`docs/CHANGELOG.md`](./CHANGELOG.md).
 
 **This header has been wrong before.** Update it in the same commit as the version bump, or do
@@ -22,6 +19,34 @@ not trust it.
 **Last updated:** 2026-09-23
 
 ---
+
+## Next up — reported by the owner 2026-09-23
+
+- **Session titles from chatty / reasoning models are the model's REPLY, not a title.** Seen on
+  DeepSeek V4 Pro (BYOK): "hey how are you? could u tell me about yourself?" was titled "Hey! I'm
+  doing well, thanks for asking. 😊 I'm **DeepSeek V4 Pro**, running ins…". Cause:
+  `generateAIChatName` (`src/utils/chat_naming.ts:241`) passes `maxTokens: 30`, which ai@6 no
+  longer reads (it is `maxOutputTokens`) — a type cast hides it, so the 30-token cap is IGNORED and
+  a model that answers the transcript instead of titling it has its first 80 chars kept by
+  `resolveGeneratedChatTitle`. Same wrong name in compaction (`src/lib/context/compaction.ts:1160`,
+  `maxTokens: 1500`) — summaries are unbounded too. Fix: `maxOutputTokens`, drop the casts, strip
+  markdown/newlines from titles, and reject a "title" that reads like a reply (first person,
+  greeting, > ~8 words) in favour of `generateSimpleChatName`; consider turning reasoning off for
+  the title call. NOT a regression from 14.51.0 and does not affect the main turn — the DeepSeek
+  turn itself ran end-to-end normally (verified in the log). Core/Auto models happen to obey the
+  title prompt, which is why other sessions name fine.
+- **Session list: the "⋯" menu sits at the very edge and is hard to hit.** Widen the row's right
+  padding / give the menu button a larger hit area so delete is easy to click.
+- **Selecting an older session leaves the empty "Untitled" / "New conversation" row behind.** When
+  the user switches to an existing session, an unused empty session should be pruned (or not
+  shown) — the session-reuse log shows `msgs=0,"Untitled"` candidates lingering.
+- **Remove the right panel's Console and Network tabs, and their code.** The Chrome extension now
+  covers what they were for (console + network of the agent's tabs, over CDP). Delete the tabs,
+  the capture plumbing that only feeds them (e.g. `browser_network_capture.ts`, the
+  `PageConsole` / Network panel components, their IPC), and update the tool descriptions and
+  DESIGN_NOTES "Errors tab → Console + Network". Keep whatever `browser_test` still needs for its
+  own failure verdict (`FAILURE_CONSOLE_LEVELS`) — check reachability before deleting.
+
 
 ## 🔭 Open — the queue
 
