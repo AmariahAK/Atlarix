@@ -24,7 +24,10 @@ file that holds its value. The one public figure is the Pro price, **$19/month**
     answered (`atlarix-proxy/src/paid-auto.ts`). A paying caller never falls into the free pool.
   - **With nothing to pay with**, Auto is FREE. It is served from OpenAI's complimentary
     shared-data tokens with a $0 floor model behind them, and requires a one-time consent in
-    the app or extension (`X-Atlarix-Free-Consent: 1`; `src/components/AtlarixAutoConsentDialog.tsx`).
+    the desktop app (`X-Atlarix-Free-Consent: 1`; `src/components/AtlarixAutoConsentDialog.tsx`).
+    **The Chrome extension is paid-only** (owner decision 2026-09-23): the proxy never serves the
+    `extension` surface from the free pool, so a no-credit extension user gets the 402 and the
+    upgrade line.
     Each user gets a fair daily share of what is left in the pools
     (`atlarix-proxy/src/free-auto.ts`). It never touches the wallet.
   - **Reviewer** gets free Auto only for **public** repositories: the installer of a private

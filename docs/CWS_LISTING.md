@@ -55,8 +55,9 @@ Checked against the code on 2026-09-23. Anything the listing claims should be on
   labels, compaction summaries). Raw tool results, including page text, never sync
   (`packages/extension/src/sessions/sync.ts`).
 - **Models: Atlarix Auto is the default** (`chooseModel`, `packages/extension/src/panel/model-choice.ts`).
-  With no credit it is free after a one-time OK to share its prompts with OpenAI; with Pro or
-  credit it is paid and private. Pinned Core models need Pro or credit. The extension is
+  The extension is PAID-ONLY: Auto here is always the paid, private version (Pro allowance or
+  credit), and the proxy never serves the extension from the free pool — free Auto is
+  desktop-only. A no-credit account gets the upgrade line. The extension is
   Core-only: there is no BYOK path in it. See [`CORE_BILLING.md`](./CORE_BILLING.md).
 
 ---
@@ -64,7 +65,7 @@ Checked against the code on 2026-09-23. Anything the listing claims should be on
 ## Short description (132 characters max)
 
 > An AI agent in a side panel that reads and acts on the pages you are already signed into.
-> Free to start with Atlarix Auto.
+> Runs on Atlarix Pro or credit.
 
 ---
 
@@ -109,10 +110,7 @@ Checked against the code on 2026-09-23. Anything the listing claims should be on
 > it has touched.
 >
 > WHAT IT COSTS
-> Atlarix requires an account. It starts on Atlarix Auto, which is free once you agree to
-> share those prompts with OpenAI to improve their models, with a fair daily share for
-> everyone. Atlarix Pro, or pay-as-you-go credit, makes Auto private and unlocks every
-> Atlarix Core model. You always see what a conversation is using in the panel.
+> Atlarix requires an account with Atlarix Pro or credit. It runs on Atlarix Auto, which picks the right model for each step. Atlarix Pro — $19/month — includes Core usage across the desktop app, this extension and Reviewer; or pay as you go with credit topped up at atlarix.dev. You always see what a conversation is using in the panel, and Atlarix will not start a turn it cannot pay for.
 >
 > Read how we handle data at https://atlarix.dev/privacy and https://atlarix.dev/data-use
 

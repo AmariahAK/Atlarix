@@ -162,15 +162,11 @@ TICK these four:
 - **Website content** — page text, and screenshots of Atlarix's own tabs, are
   sent to the language model to answer the question the user asked.
 
-ATLARIX AUTO AND TRAINING — say it plainly if asked. The default model, Atlarix
-Auto, is PAID and private for an account with Pro or credit: nothing it handles
-is shared or used for training. For an account with no credit it is FREE, and
-that free path runs on OpenAI traffic that is shared with OpenAI to improve its
-models. The user accepts that once, in the panel, before any free use; every
-other path (paid Auto, any pinned Core model) is never shared. If a reviewer
-reads this against the Limited Use certification, the honest position is: it is
-disclosed, opt-in, and avoidable by paying — raise it with the owner rather than
-wording around it.
+TRAINING — the extension is PAID-ONLY (owner decision 2026-09-23). It runs on
+paid Atlarix Auto or a pinned Core model, never on free Auto, and the proxy
+enforces that by surface. Nothing the extension sends is shared with a model
+provider for training. (Free Atlarix Auto — shared with OpenAI — exists only in
+the desktop app.) So the Limited Use certification holds without qualification.
 
 LEAVE these unticked, and the reasoning if a reviewer asks:
 
@@ -225,11 +221,9 @@ run a local model. The extension cannot: `core/client.ts` is Core-only by
 design — "what makes this a paid product rather than a free client for someone
 else's key."
 
-There is no signup credit (the $1 trial was dropped on 2026-09-08). Since
-2026-09-23 a new account CAN chat: Atlarix Auto, the default, is free for an
-account with no credit after a one-time consent, with a daily share. But Pro and
-Core credit are sold for everything beyond that — pinned Core models, paid
-(private) Auto, and use past the free share.
+There is no signup credit (the $1 trial was dropped on 2026-09-08), and the
+extension is paid-only: a new account with no credit gets a 402 and the upgrade
+line (Pro or credit) on its first message.
 
 The "Free of charge" radio asserts the item "doesn't contain any functionality
 to purchase additional goods, content, services or functionality". Pro and
@@ -242,10 +236,9 @@ This is the most likely single cause of rejection for this extension, and the
 rejection would not mention money.
 
 The extension signs in with Google or GitHub OAuth only — there is no
-email/password path in `auth/sign-in.ts`. A reviewer on their own account lands
-on free Auto, which first asks for the data-sharing consent and is subject to a
-daily share — workable, but a funded account shows the product as customers who
-pay see it, with no consent card in the way. Give them the funded account.
+email/password path in `auth/sign-in.ts`. So a reviewer signs in with their own
+account, lands on a zero balance, sends one message and gets "Not enough credit
+to start a turn." From the outside that is an extension that does not work.
 
 BEFORE SUBMITTING:
 

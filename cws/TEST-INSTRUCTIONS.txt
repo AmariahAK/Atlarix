@@ -1,7 +1,6 @@
-Atlarix requires an account. Please use the account below, which has credit
-for review, so the default model (Atlarix Auto) runs as the paid, private
-version. (A brand-new account with no credit can also use Atlarix Auto for
-free, after accepting a one-time notice that free use is shared with OpenAI.)
+Atlarix requires an account with Atlarix Pro or credit — a brand-new account
+with no credit is refused with "Not enough credit" and an upgrade prompt.
+Please use the account below, which is funded for review.
 
 SIGNING IN
 1. Click the Atlarix icon to open the side panel.

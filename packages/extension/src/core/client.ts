@@ -206,16 +206,6 @@ export class CoreError extends Error {
   }
 }
 
-/**
- * Whether the user has OK'd FREE Atlarix Auto (its prompts are shared with
- * OpenAI). Set by the panel from storage; sent as a header so the proxy may
- * serve an account with no credit for free. Paying accounts never need it.
- */
-let autoFreeConsent = false;
-export function setAutoFreeConsent(value: boolean): void {
-  autoFreeConsent = value;
-}
-
 function coreErrorFrom(
   status: number,
   body: Record<string, unknown>,
@@ -226,15 +216,6 @@ function coreErrorFrom(
 
   // Every message here is written for the person reading it, not for a log. A
   // 402 that does not say what it would take is the blunt version of this.
-  // A 402 that offers free Auto is a consent question, not a top-up.
-  if (code === "insufficient_credit" && body.consent_required === true) {
-    return new CoreError(
-      status,
-      "auto_consent_required",
-      `Atlarix Auto is free once you OK sharing its prompts with OpenAI to improve their models. ${UPGRADE_LINE}`,
-      required,
-    );
-  }
   const message =
     code === "insufficient_credit"
       ? required !== undefined
@@ -294,6 +275,8 @@ function baseUrl(): string {
  * What a call is for, so paid Atlarix Auto can pick a model per request (the
  * extension has no work modes; its turns are build-like). Hints only — the
  * proxy bills the model that answered — and ignored for a pinned Core model.
+ * No consent header: the extension is paid-only, and the proxy never serves
+ * it from the free pool.
  */
 export type CorePurpose = "main" | "compaction" | "title";
 
@@ -301,7 +284,6 @@ function autoHeaders(purpose: CorePurpose): Record<string, string> {
   return {
     "X-Atlarix-Purpose": purpose,
     ...(purpose === "main" ? { "X-Atlarix-Mode": "build" } : {}),
-    ...(autoFreeConsent ? { "X-Atlarix-Free-Consent": "1" } : {}),
   };
 }
 

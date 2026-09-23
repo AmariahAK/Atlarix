@@ -21,7 +21,6 @@ import {
   CoreError,
   freeLimitMessage,
   listModels,
-  setAutoFreeConsent,
   streamTurn,
   type CoreEvent,
 } from "./client";
@@ -332,32 +331,18 @@ describe("errors say what to do about them", () => {
     ).toMatch(/resets at 3:00\sAM/);
   });
 
-  it("turns a 402 that offers free Auto into a consent question", async () => {
-    const error = await collect(
-      streamTurn(
-        TURN,
-        failing(402, { error: "insufficient_credit", free_available: true, consent_required: true }),
-      ),
-    ).catch((e: CoreError) => e);
-    expect((error as CoreError).code).toBe("auto_consent_required");
-  });
-
-  it("sends the routing hints, and consent only once given", async () => {
+  it("sends the routing hints, and never a free-consent header (paid-only surface)", async () => {
     const seen: Headers[] = [];
     const f = (async (_url: unknown, init?: RequestInit) => {
       seen.push(new Headers(init?.headers));
       return new Response("data: [DONE]\n\n", { status: 200 });
     }) as unknown as typeof fetch;
-    setAutoFreeConsent(false);
     await collect(streamTurn({ ...TURN, purpose: "title" }, f)).catch(() => {});
-    setAutoFreeConsent(true);
     await collect(streamTurn(TURN, f)).catch(() => {});
-    setAutoFreeConsent(false);
     expect(seen[0]?.get("x-atlarix-purpose")).toBe("title");
-    expect(seen[0]?.get("x-atlarix-free-consent")).toBeNull();
     expect(seen[1]?.get("x-atlarix-purpose")).toBe("main");
     expect(seen[1]?.get("x-atlarix-mode")).toBe("build");
-    expect(seen[1]?.get("x-atlarix-free-consent")).toBe("1");
+    for (const h of seen) expect(h.get("x-atlarix-free-consent")).toBeNull();
   });
 
   it("states the figure on insufficient credit", async () => {

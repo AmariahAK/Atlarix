@@ -60,7 +60,6 @@ import { onGroupClosed, setGroupTitle } from "../tabs/group";
 import {
   CoreError,
   listModels,
-  setAutoFreeConsent,
   type ContentPart,
   type CoreMessage,
   type CoreModel,
@@ -101,7 +100,6 @@ import {
   type AskUserQuestion,
 } from "../tools/ask-user";
 import {
-  AUTO_TIER,
   chooseModel,
   optionsFor,
   shortModelName,
@@ -1564,59 +1562,6 @@ function renderConversation(history: CoreMessage[]): void {
   refreshContextBar();
 }
 
-/* ── Atlarix Auto consent ─────────────────────────────────────────────────── */
-
-const AUTO_CONSENT_KEY = "atlarix.autoConsentAt.v1";
-
-async function autoConsented(): Promise<boolean> {
-  try {
-    const got = await api().storage.local.get(AUTO_CONSENT_KEY);
-    return typeof got?.[AUTO_CONSENT_KEY] === "string";
-  } catch {
-    return false;
-  }
-}
-
-/**
- * The one-time explanation, inline in the conversation — not a `confirm()`,
- * which blocks the whole panel document. Accepting records the answer and sends
- * what was typed; "Pick another model" hands focus to the picker.
- */
-function showAutoConsent(): void {
-  transcript?.querySelector(".auto-consent")?.remove();
-  const card = document.createElement("div");
-  card.className = "auto-consent ask";
-  const title = document.createElement("strong");
-  title.textContent = "Use Atlarix Auto for free?";
-  const body = document.createElement("p");
-  body.textContent =
-    "With no credit, Atlarix Auto costs nothing because the prompts and " +
-    "replies it handles are shared with OpenAI, which may use them to improve " +
-    "its models. Don't use it for anything you can't share. With Pro or " +
-    "credit, Auto is paid and never shared — and neither is any other model.";
-  const accept = document.createElement("button");
-  accept.type = "button";
-  accept.textContent = "Use Atlarix Auto";
-  accept.addEventListener("click", () => {
-    void api()
-      .storage.local.set({ [AUTO_CONSENT_KEY]: new Date().toISOString() })
-      .then(() => {
-        setAutoFreeConsent(true);
-        card.remove();
-        void send();
-      });
-  });
-  const other = document.createElement("button");
-  other.type = "button";
-  other.textContent = "Pick another model";
-  other.addEventListener("click", () => {
-    card.remove();
-    modelSelect?.focus();
-  });
-  card.append(title, body, accept, other);
-  append(card);
-}
-
 /* ── Sending ──────────────────────────────────────────────────────────────── */
 
 function setRunning(isRunning: boolean): void {
@@ -1642,15 +1587,9 @@ async function send(): Promise<void> {
     return;
   }
 
-  // Atlarix Auto needs a one-time yes to its data sharing before its first
-  // message. The text stays in the box, so accepting sends exactly what was
-  // typed. (The proxy cannot check this — it is the user's choice, recorded
-  // here, the same as the desktop records it in settings.)
-  const chosen = lineup.find((m) => m.id === model);
-  if (chosen?.tier === AUTO_TIER && !(await autoConsented())) {
-    showAutoConsent();
-    return;
-  }
+  // No consent step: the extension is PAID-only (owner decision 2026-09-23).
+  // Atlarix Auto here is always the paid, private version; an account with no
+  // credit gets the 402 and the upgrade line. Free Auto is desktop-only.
 
   if (input) {
     input.value = "";
@@ -2037,11 +1976,6 @@ async function send(): Promise<void> {
         void handleAuthLoss("Your session expired. Sign in again.");
         return;
       }
-      if (error.code === "auto_consent_required") {
-        // Consent was cleared, or never recorded on this browser: ask, and let
-        // the answer apply to the next send.
-        showAutoConsent();
-      }
       append(errorBubble(describeError(error)));
     } else if (outcome.kind === "aborted") {
       setStatus("Stopped.");
@@ -2183,8 +2117,7 @@ function describeError(error: CoreError): string {
   // the buttons (see error-link.ts, which links only these constants).
   if (
     error.code === "insufficient_credit" ||
-    error.code === "free_usage_limit" ||
-    error.code === "auto_consent_required"
+    error.code === "free_usage_limit"
   ) {
     return `${error.message} Upgrade at atlarix.dev/pricing · add credit at atlarix.dev/account.`;
   }
@@ -2457,9 +2390,6 @@ function renderAccountChip(profile: {
  */
 async function loadModels(): Promise<void> {
   if (!modelSelect) return;
-  // Free Auto's consent rides every Core request as a header; load it before
-  // the first one can be sent.
-  setAutoFreeConsent(await autoConsented());
   const stored = await readStoredModel();
 
   const fill = (

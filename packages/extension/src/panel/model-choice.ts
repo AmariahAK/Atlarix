@@ -56,9 +56,10 @@ export interface ModelOption {
 const PAID_PREFERRED_TIER = "core-3";
 
 /**
- * The proxy's tier for Atlarix Auto — ONE option for everyone: free (shared
- * with OpenAI, after a one-time OK) for an account with no credit, routed per
- * request and billed for one with Pro or credit. The default since 2026-09-23.
+ * The proxy's tier for Atlarix Auto — routed per request and billed to the
+ * account's Pro allowance or credit. The default since 2026-09-23. In the
+ * extension it is ALWAYS paid: the extension is a paid surface, and the proxy
+ * never serves it from the free (shared) pool — free Auto is desktop-only.
  */
 export const AUTO_TIER = "auto";
 
@@ -136,9 +137,8 @@ export function chooseModel(
 ): string | null {
   if (options.length === 0) return null;
   if (stored && options.some((o) => o.value === stored)) return stored;
-  // Atlarix Auto first: it works for every account, and the free path asks for
-  // its one-time OK before anything is shared. Then the paid preference, then
-  // whatever the proxy listed first.
+  // Atlarix Auto first (paid, routed per request), then the paid preference,
+  // then whatever the proxy listed first.
   const auto = options.find((o) => o.tier === AUTO_TIER);
   if (auto) return auto.value;
   const preferred = options.find((o) => o.tier === PAID_PREFERRED_TIER);
