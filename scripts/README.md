@@ -2,40 +2,20 @@
 
 This directory contains utility scripts for the project.
 
-## send-user-feedback-email.mjs
+## send-atlarix-auto-email.mjs
 
-One-off outreach to confirmed Supabase users (product research email). Reads [`Atlarix/.env`](../.env) (`SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY`, `EMAIL_SOURCE`).
-
-```bash
-cd Atlarix
-npm run email:user-feedback:dry-run
-npm run email:user-feedback -- --only you@example.com
-npm run email:user-feedback
-```
-
-- Prefers **From:** `Amariah <amariah@atlarix.dev>`; falls back to `EMAIL_SOURCE` with `reply_to: amariah@atlarix.dev` if Resend rejects the sender.
-- Excludes `amariah.abish@gmail.com` and `amani.kamau06@gmail.com` by default.
-- Log: `scripts/.outreach-sent.log.json` (gitignored).
-
-## send-v85-upgrade-emails.mjs
-
-One-off outreach: notify confirmed Supabase users that **v8.5.0** is available at [atlarix.dev](https://atlarix.dev). Reads [`Atlarix/.env`](../.env). Replies go to **amariah@atlarix.dev**.
+Outreach (2026-09-23): Atlarix Auto — free models, no API key, no credit. Emails confirmed Supabase users through Resend. Reads [`Atlarix/.env`](../.env) (`SUPABASE_SERVICE_ROLE_KEY` or `NEXT_PUBLIC_SUPABASE_SECRET_KEY`, `RESEND_API_KEY`, optional `EMAIL_SOURCE` / `OUTREACH_FROM`).
 
 ```bash
 cd Atlarix
-npm run email:v85-upgrade:dry-run
-npm run email:v85-upgrade -- --only you@example.com
-npm run email:v85-upgrade
+npm run email:atlarix-auto:dry-run
+npm run email:atlarix-auto -- --only you@example.com
+npm run email:atlarix-auto
 ```
 
-- **From:** `Amariah @ Atlarix <amariah@atlarix.dev>` (or `EMAIL_SOURCE` in `.env`)
-- **Reply-To:** `amariah@atlarix.dev`
-- Excludes `amariah.abish@gmail.com` and `amani.kamau06@gmail.com`
-- Ledger: `scripts/.feedback-outreach-v85-sent.jsonl` (gitignored)
-- `--init-ledger-from-supabase` — seed ledger without sending
-- `--include-unconfirmed` — include users without confirmed email
-
-Workspace copy (same campaign): `../scripts/send-v85-upgrade-emails.mjs` with `node --env-file=../Atlarix/.env`.
+- **Never emails anyone in `scripts/.email-suppression.json`** (gitignored — personal data): people who replied "stop" or asked for account deletion. It beats `--only`. Every future campaign must read it.
+- From `Amariah <amariah@atlarix.dev>`, replies to `amariah@atlarix.dev`; 5 s between sends.
+- Log: `scripts/.outreach-atlarix-auto-2026-09-23.log.json` (gitignored) — reruns skip anyone already sent.
 
 ## run-packaged-self-test.mjs
 

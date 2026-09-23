@@ -8,6 +8,8 @@ src/lib/monaco/grammars/*
 
 scripts/.outreach-sent.log.json
 scripts/.outreach-*.log.json
+# Outreach do-not-email list — personal data, never commit.
+scripts/.email-suppression.json
 scripts/.feedback-outreach-v85-sent.jsonl
 
 # Supabase local audit dumps (not committed)

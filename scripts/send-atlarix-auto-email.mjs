@@ -1,11 +1,16 @@
 #!/usr/bin/env node
 /**
- * One-off outreach: email confirmed Supabase users about the v14.45 free release.
+ * Outreach 2026-09-23: Atlarix Auto — free models, no API key, no credit (v14.51.0).
  *
  * Usage (from Atlarix/):
- *   node scripts/send-free-gpt6-email.mjs --dry-run
- *   node scripts/send-free-gpt6-email.mjs --only you@example.com
- *   node scripts/send-free-gpt6-email.mjs
+ *   npm run email:atlarix-auto:dry-run
+ *   npm run email:atlarix-auto -- --only you@example.com
+ *   npm run email:atlarix-auto
+ *
+ * NEVER EMAILS ANYONE ON THE SUPPRESSION LIST — `scripts/.email-suppression.json`
+ * (gitignored: it holds people's addresses, and this repo is sometimes public).
+ * People who replied "stop" or asked for their account to be deleted go there,
+ * and every future campaign script must read it too.
  */
 
 import { readFile, writeFile, mkdir } from "fs/promises";
@@ -19,7 +24,8 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 // Campaign-specific log so this send does NOT dedup against earlier campaigns.
 // MUST differ from every previous campaign file, or everyone who received the
 // 2026-08 email is silently skipped as "already sent".
-const LOG_FILE = join(ROOT, "scripts", ".outreach-free-gpt6-2026-09.log.json");
+const LOG_FILE = join(ROOT, "scripts", ".outreach-atlarix-auto-2026-09-23.log.json");
+const SUPPRESSION_FILE = join(ROOT, "scripts", ".email-suppression.json");
 
 const EXCLUDED_EMAILS = new Set(
   ["amariah.abish@gmail.com", "amani.kamau06@gmail.com"].map((e) =>
@@ -27,7 +33,7 @@ const EXCLUDED_EMAILS = new Set(
   ),
 );
 
-const SUBJECT = "Atlarix is free now, and it runs GPT-6 Astra";
+const SUBJECT = "Atlarix now has free models: no API key, no credit";
 const PREFERRED_FROM = "Amariah <amariah@atlarix.dev>";
 const DEFAULT_REPLY_TO = "amariah@atlarix.dev";
 // 600ms put all 96 out in under a minute, which from a domain that rarely sends
@@ -100,90 +106,78 @@ function deriveFirstName(user) {
 }
 
 /**
- * Campaign 2026-09: the app went free, and Core runs a frontier lineup.
- *
- * The 2026-08 campaign asked "what stopped you?". This one answers the two most
- * common reasons anyone gives for not staying with a tool like this — it cost
- * money, and the models were not the ones they actually want — because both
- * genuinely changed in v14.45.
- *
- * WRITTEN FOR PEOPLE WHO DO NOT READ CHANGELOGS. Most of this list signed up once
- * and left; they do not know what Atlarix Core is, and they will not learn it from
- * an email. So: no tier names, no wallet mechanics, no feature matrix. Three facts
- * and a link.
- *
- * DELIBERATELY NOT IN HERE:
- *   - The size of the Pro allowance in dollars. Publishing it prices our own cost
- *     structure and invites a "$19 for $10" comparison — the rule at the top of
- *     `src/shared/billing_copy.ts`.
- *   - The security fixes. "A repo can no longer override Atlarix's instructions" is
- *     real and worth shipping, but to someone who has not opened the app in months
- *     it reads as "there was a hole", which is a worse first impression than silence.
- *     It is in the changelog for anyone who looks.
- *   - "You never came back." True of most of this list and wrong for some, and being
- *     wrong to someone's face costs more than the line is worth.
- *
- * OWNER'S CALL, recorded because both are deliberate:
- *   - It NAMES two models (Astra, Terra). The lineup is remote config and can change the
- *     week after this sends, so this email dates itself. Accepted: naming them is the
- *     news, and an email is a moment rather than a document.
- *   - It PROMISES a browser extension. Forward-looking, to every user, hedged as "still
- *     in development".
- *
- * The cross-tool paragraph is accurate, and checked against the code rather than the
- * roadmap: AGENTS.md § "Other tools' configuration" (commit 9b1ac1dc) tells the agent to
- * never silently follow another tool's rules file, to ask, and to offer to write the
- * answer into `.atlarix/rules/` so it stops asking; `readProjectInstructions` reads
- * AGENTS.md and CLAUDE.md natively (read-only, never copied); and `manage_mcp_server`
- * proposes servers from any config shape — its description names `.mcp.json` and
- * `.cursor/mcp.json` — with per-server approval and no unilateral writes. It works for
- * Cursor through the GENERIC path, not a per-vendor parser: that importer was dropped on
- * purpose, which is what makes "or something I've never heard of" true rather than
- * marketing.
+ * Campaign 2026-09-23 — the owner's own words, verbatim; only {first_name} is filled.
+ * Every claim is true of v14.51.0: free Auto is desktop-only and shared with
+ * OpenAI (asked once), paid Auto never trains, BYOK and local are unchanged, the
+ * extension runs on paid Auto, and Reviewer is included in Pro ($19/month).
  */
 function buildBodies(firstName) {
   const text = `Hey ${firstName},
 
-Amariah here — I build Atlarix. Real email, replies come to me.
+Amariah here, I build Atlarix. This is a real email, and replies come straight to me.
 
-To everyone who uses Atlarix — thank you for making it what it is today. Its growth, the mentions out in the wild, the ways you've put it to work — thank you, genuinely, for all of it. Here's what's new.
+Short one: you can now use Atlarix without an API key and without paying for a model.
 
-GPT-6 Astra is in Atlarix. It's in the model picker now, with GPT-5.6 Terra alongside it for quicker everyday work — reach for Astra when you want deep reasoning, Terra when you just want it done. No API key from anyone required: sign in and pick one.
+It's called Atlarix Auto. Instead of you choosing a model, Auto picks the right one for each step of the work: planning, building, reviewing, even reading a screenshot or a PDF. On a free account, Auto in the desktop app costs nothing. You get a fair daily allowance that resets every day, and the app shows you when on your own clock.
 
-The app is free. Not a trial, not a limited tier — every feature, for everyone. Bring your own projects and use the whole thing without paying for the app at all. The only thing that costs money is inference on the hosted models — and you can skip even that: plug in your own OpenAI or Anthropic key, or point it at a local model (Ollama, LM Studio), and Atlarix costs you nothing, ever. If you'd rather use the hosted models, top up a balance from $10 and the app shows you what each reply cost.
+One thing I want to be upfront about, because privacy is the reason Atlarix exists: free Auto runs on OpenAI's data-sharing program. That's what makes it free, and it means requests you send on free Auto can be used by OpenAI to improve their models. The app tells you this once before you start, and you choose whether to go ahead. If you'd rather keep everything private, you still can:
 
-It picks up your existing setup — including from other tools. Atlarix reads the workflows, MCP servers, skills and rules you already have and keeps working on them, and it can carry across a setup from Claude Code, Codex, Cursor or something I've never heard of. It proposes what it finds and acts once you approve — it won't adopt another tool's config or connect anything on its own.
+- Paid Auto (with Pro or credit) is never used for training.
+- Your own API keys work exactly as before.
+- Local models through Ollama or LM Studio never leave your machine.
 
-Among a lot of other updates — the money side is honest now (stop the agent mid-answer and you're billed for what it actually produced; a dropped connection reconnects instead of losing the run), and you can teach it your project's conventions with a markdown file that travels with the repo for your whole team.
+To try it:
+1. Open Atlarix. It updates itself; if it doesn't, grab the latest from atlarix.dev.
+2. If you picked a model before, switch to Auto in the model picker. New installs start on it.
+3. Give it a real task on your own code.
 
-One thing that's coming: a browser extension that lets Atlarix work in the browser you already use — the tabs you're logged into, not a separate window. Still in development; I'll tell you when it lands.
+If it's been a while: Atlarix is a desktop app where the agent plans, edits your code, runs commands in a sandbox, and runs your tests before it calls anything done. Every change waits for your approval. There's also a Chrome extension (it runs on paid Auto) and Atlarix Reviewer, which reviews your pull requests on Pro ($19/month).
 
-Download or update: https://atlarix.dev
+If you try it, hit reply and tell me what worked and what didn't. I read every one.
 
-To you who stayed and made Atlarix what it is — thank you, and here's to many more achievements ahead.
+Amariah Abishai
+Atlarix · atlarix.dev
 
-Amariah
-I build Atlarix
-
-Don't want emails like this? Reply "stop" and I won't send another.`;
+Don't want these emails? Reply "stop" and I'll take you off the list.`;
 
   const html = `<!DOCTYPE html>
 <html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.6;color:#0f172a;max-width:560px;">
 <p>Hey ${escapeHtml(firstName)},</p>
-<p>Amariah here — I build Atlarix. Real email, replies come to me.</p>
-<p>To everyone who uses Atlarix — thank you for making it what it is today. Its growth, the mentions out in the wild, the ways you've put it to work — thank you, genuinely, for all of it. Here's what's new.</p>
-<p><strong>GPT-6 Astra is in Atlarix.</strong> It's in the model picker now, with GPT-5.6 Terra alongside it for quicker everyday work — reach for Astra when you want deep reasoning, Terra when you just want it done. No API key from anyone required: sign in and pick one.</p>
-<p><strong>The app is free.</strong> Not a trial, not a limited tier — every feature, for everyone. Bring your own projects and use the whole thing without paying for the app at all. The only thing that costs money is inference on the hosted models — and you can skip even that: plug in your own OpenAI or Anthropic key, or point it at a local model (Ollama, LM Studio), and Atlarix costs you nothing, ever. If you'd rather use the hosted models, top up a balance from $10 and the app shows you what each reply cost.</p>
-<p><strong>It picks up your existing setup — including from other tools.</strong> Atlarix reads the workflows, MCP servers, skills and rules you already have and keeps working on them, and it can carry across a setup from Claude Code, Codex, Cursor or something I've never heard of. It proposes what it finds and acts once you approve — it won't adopt another tool's config or connect anything on its own.</p>
-<p>Among a lot of other updates — the money side is honest now (stop the agent mid-answer and you're billed for what it actually produced; a dropped connection reconnects instead of losing the run), and you can teach it your project's conventions with a markdown file that travels with the repo for your whole team.</p>
-<p>One thing that's coming: a browser extension that lets Atlarix work in the browser you already use — the tabs you're logged into, not a separate window. Still in development; I'll tell you when it lands.</p>
-<p><a href="https://atlarix.dev">Download or update Atlarix</a></p>
-<p>To you who stayed and made Atlarix what it is — thank you, and here's to many more achievements ahead.</p>
-<p>Amariah<br />I build Atlarix</p>
-<p style="color:#94a3b8;font-size:12px;">Don't want emails like this? Reply "stop" and I won't send another.</p>
+<p>Amariah here, I build Atlarix. This is a real email, and replies come straight to me.</p>
+<p>Short one: you can now use Atlarix without an API key and without paying for a model.</p>
+<p>It's called <strong>Atlarix Auto</strong>. Instead of you choosing a model, Auto picks the right one for each step of the work: planning, building, reviewing, even reading a screenshot or a PDF. On a free account, Auto in the desktop app costs nothing. You get a fair daily allowance that resets every day, and the app shows you when on your own clock.</p>
+<p>One thing I want to be upfront about, because privacy is the reason Atlarix exists: free Auto runs on OpenAI's data-sharing program. That's what makes it free, and it means requests you send on free Auto can be used by OpenAI to improve their models. The app tells you this once before you start, and you choose whether to go ahead. If you'd rather keep everything private, you still can:</p>
+<ul>
+<li>Paid Auto (with Pro or credit) is never used for training.</li>
+<li>Your own API keys work exactly as before.</li>
+<li>Local models through Ollama or LM Studio never leave your machine.</li>
+</ul>
+<p>To try it:</p>
+<ol>
+<li>Open Atlarix. It updates itself; if it doesn't, grab the latest from <a href="https://atlarix.dev">atlarix.dev</a>.</li>
+<li>If you picked a model before, switch to Auto in the model picker. New installs start on it.</li>
+<li>Give it a real task on your own code.</li>
+</ol>
+<p>If it's been a while: Atlarix is a desktop app where the agent plans, edits your code, runs commands in a sandbox, and runs your tests before it calls anything done. Every change waits for your approval. There's also a Chrome extension (it runs on paid Auto) and Atlarix Reviewer, which reviews your pull requests on Pro ($19/month).</p>
+<p>If you try it, hit reply and tell me what worked and what didn't. I read every one.</p>
+<p>Amariah Abishai<br />Atlarix · <a href="https://atlarix.dev">atlarix.dev</a></p>
+<p style="color:#94a3b8;font-size:12px;">Don't want these emails? Reply "stop" and I'll take you off the list.</p>
 </body></html>`;
 
   return { text, html };
+}
+
+/** Addresses that must never be emailed again (replied "stop" / asked for deletion). */
+async function loadSuppression() {
+  if (!existsSync(SUPPRESSION_FILE)) return new Set();
+  const raw = JSON.parse(await readFile(SUPPRESSION_FILE, "utf8"));
+  const list = Array.isArray(raw) ? raw : (raw.emails ?? []);
+  return new Set(
+    list
+      .map((e) => (typeof e === "string" ? e : e?.email))
+      .filter(Boolean)
+      .map((e) => e.trim().toLowerCase()),
+  );
 }
 
 function escapeHtml(s) {
@@ -228,7 +222,7 @@ async function fetchAllUsers(supabase) {
   return all;
 }
 
-function buildRecipientList(users) {
+function buildRecipientList(users, suppressed) {
   const seen = new Set();
   const recipients = [];
 
@@ -242,6 +236,8 @@ function buildRecipientList(users) {
     // Without this, `--only amani.kamau06@gmail.com` reported "no confirmed
     // recipient found" and sent nothing, which reads like the account is missing.
     if (EXCLUDED_EMAILS.has(email) && email !== ONLY_EMAIL) continue;
+    // Permanent, and it beats --only: a suppressed address is never sent to.
+    if (suppressed.has(email)) continue;
     if (seen.has(email)) continue;
     seen.add(email);
 
@@ -329,7 +325,13 @@ async function main() {
   const users = await fetchAllUsers(supabase);
   console.log(`Total auth users: ${users.length}`);
 
-  let recipients = buildRecipientList(users);
+  const suppressed = await loadSuppression();
+  console.log(`Suppression list: ${suppressed.size} address(es) never emailed`);
+  if (ONLY_EMAIL && suppressed.has(ONLY_EMAIL)) {
+    console.error(`${ONLY_EMAIL} is on the suppression list — refusing to send.`);
+    process.exit(1);
+  }
+  let recipients = buildRecipientList(users, suppressed);
   if (ONLY_EMAIL) {
     recipients = recipients.filter((r) => r.email === ONLY_EMAIL);
     if (!recipients.length) {
@@ -353,7 +355,7 @@ async function main() {
     : recipients.filter((r) => !sentEmails.has(r.email));
 
   console.log(
-    `Recipients after filters (excl. your 2 emails): ${recipients.length}`,
+    `Recipients after filters (excl. your 2 emails and the suppression list): ${recipients.length}`,
   );
   console.log(`Already sent (skipped): ${recipients.length - pending.length}`);
   console.log(`To send this run: ${pending.length}`);
