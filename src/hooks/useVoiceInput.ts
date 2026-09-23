@@ -67,6 +67,19 @@ export interface UseVoiceInputState {
   isRecording: boolean;
   isTranscribing: boolean;
   error: string | null;
+  /** Live input level while recording, newest last, each 0..1. */
+  levels: number[];
+  /**
+   * The finished clip's level envelope, {@link WAVEFORM_BARS} bars, 0..1 —
+   * replayed while the clip transcribes so the wait has something to look at.
+   */
+  waveform: number[];
+  /** Length of the clip being transcribed, in ms. */
+  recordedMs: number;
+  /** Epoch ms the current recording started (for a live elapsed display). */
+  recordingStartedAt: number;
+  /** True once the first streamed words of this clip have reached the composer. */
+  hasPartial: boolean;
   start: () => Promise<void>;
   stop: () => void;
   cancel: () => void;
@@ -94,6 +107,29 @@ const PREFERRED_MIME_TYPES = [
   "audio/webm;codecs=opus",
   "audio/webm",
 ] as const;
+
+/** Bars in the finished-clip waveform. */
+export const WAVEFORM_BARS = 32;
+/** Live bars kept while recording. */
+const LIVE_BARS = 12;
+/** Level samples per second — plenty for a meter, cheap for React. */
+const LEVEL_HZ = 15;
+
+/** Peak-preserving downsample of a level history to `bars` values. */
+export function downsampleLevels(history: number[], bars: number): number[] {
+  if (history.length === 0) return new Array(bars).fill(0);
+  const out: number[] = [];
+  for (let i = 0; i < bars; i++) {
+    const from = Math.floor((i * history.length) / bars);
+    const to = Math.max(from + 1, Math.floor(((i + 1) * history.length) / bars));
+    let peak = 0;
+    for (let j = from; j < to && j < history.length; j++) {
+      peak = Math.max(peak, history[j] ?? 0);
+    }
+    out.push(peak);
+  }
+  return out;
+}
 
 function pickRecordingMimeType(): string | undefined {
   if (typeof MediaRecorder === "undefined") return undefined;
@@ -128,8 +164,25 @@ export function useVoiceInput({
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [levels, setLevels] = useState<number[]>([]);
+  const [waveform, setWaveform] = useState<number[]>([]);
+  const [recordedMs, setRecordedMs] = useState(0);
+  const [hasPartial, setHasPartial] = useState(false);
 
   const recorderRef = useRef<MediaRecorder | null>(null);
+  // Level metering: an AnalyserNode on the same stream the recorder uses. It
+  // is display-only — nothing here touches the recorded audio.
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const historyRef = useRef<number[]>([]);
+  const startedAtRef = useRef(0);
+  // Whether a streamed preview of the current clip is sitting in the composer —
+  // it then has to be committed or cleared, even by an empty result or a cancel.
+  const previewShownRef = useRef(false);
+  // Held in a ref so `cancel`/`transcribe` keep a stable identity: callers pass
+  // a fresh closure every render, and `cancel` is lifted into parent state.
+  const onTranscriptRef = useRef(onTranscript);
+  onTranscriptRef.current = onTranscript;
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const cancelledRef = useRef(false);
@@ -139,10 +192,70 @@ export function useVoiceInput({
     !!navigator.mediaDevices?.getUserMedia &&
     typeof MediaRecorder !== "undefined";
 
+  const stopMetering = useCallback(() => {
+    if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+    rafRef.current = null;
+    void audioCtxRef.current?.close().catch(() => {});
+    audioCtxRef.current = null;
+  }, []);
+
+  const startMetering = useCallback((stream: MediaStream) => {
+    historyRef.current = [];
+    setLevels([]);
+    // Absent in some environments (tests, locked-down builds). Metering is a
+    // nicety; dictation works without it.
+    if (typeof AudioContext === "undefined") return;
+    try {
+      const ctx = new AudioContext();
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 512;
+      ctx.createMediaStreamSource(stream).connect(analyser);
+      audioCtxRef.current = ctx;
+      const buf = new Uint8Array(analyser.fftSize);
+      let last = 0;
+      const tick = (now: number) => {
+        rafRef.current = requestAnimationFrame(tick);
+        if (now - last < 1000 / LEVEL_HZ) return;
+        last = now;
+        analyser.getByteTimeDomainData(buf);
+        let sum = 0;
+        for (const v of buf) {
+          const x = (v - 128) / 128;
+          sum += x * x;
+        }
+        // Speech RMS sits around 0.02-0.25; scale so normal speech fills the bar.
+        const level = Math.min(1, Math.sqrt(sum / buf.length) * 4);
+        historyRef.current.push(level);
+        setLevels((prev) => [...prev.slice(-(LIVE_BARS - 1)), level]);
+      };
+      rafRef.current = requestAnimationFrame(tick);
+    } catch {
+      /* no metering — fine */
+    }
+  }, []);
+
   const transcribe = useCallback(
     async (blob: Blob) => {
       if (cancelledRef.current) return;
       setIsTranscribing(true);
+      setHasPartial(false);
+      previewShownRef.current = false;
+      // Partials are tagged with this id so a preview from a clip the user has
+      // cancelled can never land in the composer.
+      const requestId =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random()}`;
+      const ipc = IpcClient.getInstance();
+      const offPartial =
+        route.kind === "model"
+          ? ipc.onVoiceTranscriptPartial((p) => {
+              if (p.requestId !== requestId || cancelledRef.current) return;
+              previewShownRef.current = true;
+              setHasPartial(true);
+              onTranscriptRef.current(p.text, false);
+            })
+          : () => {};
       try {
         // Both routes run in MAIN — it holds the keys and, for the model route,
         // the provider routing. Audio crosses as base64 because the IPC bridge
@@ -158,7 +271,6 @@ export function useVoiceInput({
         }
         const dataBase64 = btoa(binary);
         const mimeType = bareMediaType(blob.type) || "audio/ogg";
-        const ipc = IpcClient.getInstance();
         const text =
           route.kind === "byok"
             ? await ipc.transcribeAudioCloud({
@@ -172,15 +284,23 @@ export function useVoiceInput({
                 dataBase64,
                 language,
                 chatId,
+                requestId,
               });
-        if (!cancelledRef.current && text) onTranscript(text, true);
+        // Final even when empty if a preview was shown: the composer must
+        // commit (or clear) what the preview put there.
+        if (!cancelledRef.current && (text || previewShownRef.current)) {
+          onTranscriptRef.current(text, true);
+        }
+        previewShownRef.current = false;
       } catch (e) {
         setError(e instanceof Error ? e.message : "Transcription failed");
       } finally {
+        offPartial();
         setIsTranscribing(false);
+        setHasPartial(false);
       }
     },
-    [route, onTranscript, language, chatId],
+    [route, language, chatId],
   );
 
   const start = useCallback(async () => {
@@ -205,6 +325,8 @@ export function useVoiceInput({
         },
       });
       streamRef.current = stream;
+      startMetering(stream);
+      startedAtRef.current = Date.now();
       // Default recorder bitrate is tuned for size, not fidelity, and this blob
       // is now ALWAYS uploaded verbatim — there is no local decode back to PCM
       // to absorb the codec loss.
@@ -219,6 +341,10 @@ export function useVoiceInput({
         if (e.data.size > 0) chunksRef.current.push(e.data);
       };
       recorder.onstop = () => {
+        stopMetering();
+        setRecordedMs(Date.now() - startedAtRef.current);
+        setWaveform(downsampleLevels(historyRef.current, WAVEFORM_BARS));
+        setLevels([]);
         streamRef.current?.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
         if (cancelledRef.current || chunksRef.current.length === 0) return;
@@ -238,7 +364,7 @@ export function useVoiceInput({
             : "Could not start microphone",
       );
     }
-  }, [supported, isRecording, transcribe]);
+  }, [supported, isRecording, transcribe, startMetering, stopMetering]);
 
   const stop = useCallback(() => {
     if (recorderRef.current?.state === "recording") recorderRef.current.stop();
@@ -247,24 +373,38 @@ export function useVoiceInput({
 
   const cancel = useCallback(() => {
     cancelledRef.current = true;
+    // Take a half-streamed preview back out, restoring what was typed before.
+    if (previewShownRef.current) {
+      previewShownRef.current = false;
+      onTranscriptRef.current("", true);
+    }
     if (recorderRef.current?.state === "recording") recorderRef.current.stop();
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     chunksRef.current = [];
+    stopMetering();
+    setLevels([]);
     setIsRecording(false);
     setIsTranscribing(false);
-  }, []);
+    setHasPartial(false);
+  }, [stopMetering]);
 
   useEffect(() => {
     return () => {
+      stopMetering();
       streamRef.current?.getTracks().forEach((t) => t.stop());
     };
-  }, []);
+  }, [stopMetering]);
 
   return {
     isRecording,
     isTranscribing,
     error,
+    levels,
+    waveform,
+    recordedMs,
+    recordingStartedAt: startedAtRef.current,
+    hasPartial,
     start,
     stop,
     cancel,

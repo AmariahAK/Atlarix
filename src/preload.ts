@@ -369,6 +369,7 @@ const validReceiveChannels = [
   "chat:activity",
   "chat:context-report", // v10: context meter (per-section sizes + trims)
   "chat:token-usage", // live per-turn token usage (real per-step + stream estimate)
+  "voice:transcript-partial", // dictation: streamed transcript preview (model route)
   // v10 PTY terminal (pty:data/exit/cwd received; pty:input/resize sent via send())
   "pty:data",
   "pty:exit",

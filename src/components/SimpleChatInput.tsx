@@ -35,6 +35,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { TokenBar } from "@/components/chat/TokenBar";
+import { VoiceDictationStatus } from "@/components/chat/VoiceDictationStatus";
 import { VoiceInputButton } from "@/components/chat/VoiceInputButton";
 import type { FileAttachment } from "@/ipc/ipc_types";
 import { useState } from "react";
@@ -318,6 +319,8 @@ export function SimpleChatInput({
         />
 
         <DragDropOverlay isDraggingOver={isDraggingOver} />
+
+        <VoiceDictationStatus chatId={chatId} />
 
         <form onSubmit={handleSubmit} className="flex items-center">
           <textarea

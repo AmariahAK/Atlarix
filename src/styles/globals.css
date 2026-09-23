@@ -504,6 +504,32 @@ html[data-fullscreen="true"] #layout-main-content-container {
   animation: shimmer 2.2s linear infinite;
 }
 
+/* Dictation: the recorded clip's waveform, swept left-to-right while it
+   transcribes (per-bar animation-delay set inline). */
+@keyframes voice-wave-sweep {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scaleY(0.7);
+  }
+  50% {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+
+.voice-wave-sweep {
+  animation: voice-wave-sweep 1.4s ease-in-out infinite;
+  transform-origin: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-wave-sweep {
+    animation: none;
+    opacity: 0.7;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .tool-shimmer-text {
     animation: none;

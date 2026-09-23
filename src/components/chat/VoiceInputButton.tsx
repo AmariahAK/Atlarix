@@ -14,6 +14,8 @@
 import { Loader2, Mic, Square } from "lucide-react";
 import { toast } from "sonner";
 import { useEffect, useRef } from "react";
+import { useSetAtom } from "jotai";
+import { voiceDictationByChatAtom } from "@/atoms/chatAtoms";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -57,13 +59,75 @@ function VoiceInputButtonWithRoute({
   const language = resolveVoiceLanguage(settings?.voiceLanguage);
   const errorShownRef = useRef<string | null>(null);
 
-  const { isRecording, isTranscribing, error, start, stop, supported } =
-    useVoiceInput({
-      route,
-      language,
-      chatId,
-      onTranscript: onInsertText,
+  const voice = useVoiceInput({
+    route,
+    language,
+    chatId,
+    onTranscript: onInsertText,
+  });
+  const {
+    isRecording,
+    isTranscribing,
+    error,
+    start,
+    stop,
+    supported,
+    hasPartial,
+    levels,
+    waveform,
+    recordedMs,
+    recordingStartedAt,
+    cancel,
+  } = voice;
+  // Published per chat for the dictation strip above the composer (see
+  // voiceDictationByChatAtom for why this is an atom).
+  const setDictation = useSetAtom(voiceDictationByChatAtom);
+  useEffect(() => {
+    if (chatId == null) return;
+    setDictation((prev) => {
+      const next = new Map(prev);
+      if (isRecording || isTranscribing) {
+        next.set(chatId, {
+          isRecording,
+          isTranscribing,
+          hasPartial,
+          levels,
+          waveform,
+          recordedMs,
+          recordingStartedAt,
+          cancel,
+        });
+      } else if (!next.delete(chatId)) {
+        return prev;
+      }
+      return next;
     });
+  }, [
+    chatId,
+    setDictation,
+    isRecording,
+    isTranscribing,
+    hasPartial,
+    levels,
+    waveform,
+    recordedMs,
+    recordingStartedAt,
+    cancel,
+  ]);
+  // Unmounting mid-dictation (route lost, composer torn down) must not leave
+  // the strip on screen.
+  useEffect(
+    () => () => {
+      if (chatId == null) return;
+      setDictation((prev) => {
+        if (!prev.has(chatId)) return prev;
+        const next = new Map(prev);
+        next.delete(chatId);
+        return next;
+      });
+    },
+    [chatId, setDictation],
+  );
 
   useEffect(() => {
     if (error && error !== errorShownRef.current) {

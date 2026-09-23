@@ -13,6 +13,7 @@
  */
 
 import { ipcMain } from "electron";
+import { safeSend } from "../utils/safe_sender";
 import { getProviderApiKey } from "../shared/provider_api_keys";
 import { CLOUD_PROVIDERS } from "../shared/language_model_constants";
 import log from "electron-log";
@@ -330,13 +331,18 @@ export function registerVoiceHandlers() {
   ipcMain.handle(
     "voice:transcribe-model",
     async (
-      _e,
+      e,
       params: {
         mimeType: string;
         dataBase64: string;
         language?: string;
         /** Only for usage attribution — never for routing. */
         chatId?: number;
+        /**
+         * Echoed on every `voice:transcript-partial` so the renderer can drop
+         * partials from a clip it has since cancelled or superseded.
+         */
+        requestId?: string;
       },
     ): Promise<TranscribeResult> => {
       try {
@@ -348,14 +354,24 @@ export function registerVoiceHandlers() {
         }
 
         const { getModelClient } = await import("../utils/get_model_client");
-        const { generateText } = await import("ai");
+        const { streamText } = await import("ai");
         const { modelClient } = await getModelClient(selected, settings);
 
         const languageNote = params.language
           ? ` The audio is in ${params.language}.`
           : "";
-        const result = await generateText({
+        // STREAMED, so the composer can show words as they arrive instead of a
+        // spinner that reads as stuck on a long clip. The final text is still
+        // the return value — partials are a preview, never the source of truth.
+        // streamText reports a provider failure through onError and ends the
+        // stream empty rather than throwing, which would turn "the model
+        // refused the audio" into a silent empty transcript. Rethrown below.
+        let streamError: unknown;
+        const result = streamText({
           model: modelClient.model,
+          onError: ({ error }) => {
+            streamError = error;
+          },
           messages: [
             {
               role: "user" as const,
@@ -380,14 +396,28 @@ export function registerVoiceHandlers() {
               ],
             },
           ],
-        } as Parameters<typeof generateText>[0]);
+        } as Parameters<typeof streamText>[0]);
+
+        let soFar = "";
+        for await (const delta of result.textStream) {
+          soFar += delta;
+          const preview = soFar.trim();
+          if (preview) {
+            safeSend(e.sender, "voice:transcript-partial", {
+              requestId: params.requestId,
+              text: preview,
+            });
+          }
+        }
+
+        if (streamError && !soFar.trim()) throw streamError;
 
         const { recordAuxUsage } = await import(
           "@/lib/usage/turn-usage-aggregator"
         );
-        recordAuxUsage(params.chatId ?? null, result.usage, "transcription");
+        recordAuxUsage(params.chatId ?? null, await result.usage, "transcription");
 
-        return { ok: true, text: result.text.trim() };
+        return { ok: true, text: (await result.text).trim() };
       } catch (e) {
         const error = e instanceof Error ? e.message : String(e);
         logger.warn(`model transcription failed: ${error}`);

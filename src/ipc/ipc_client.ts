@@ -1163,6 +1163,7 @@ export class IpcClient {
     dataBase64: string;
     language?: string;
     chatId?: number;
+    requestId?: string;
   }): Promise<string> {
     const res = (await this.ipcRenderer.invoke(
       "voice:transcribe-model",
@@ -1170,6 +1171,21 @@ export class IpcClient {
     )) as { ok: true; text: string } | { ok: false; error: string };
     if (!res.ok) throw new Error(res.error);
     return res.text;
+  }
+
+  /**
+   * Streamed transcript preview from `voice:transcribe-model`. The text is the
+   * whole transcript so far, not a delta.
+   */
+  public onVoiceTranscriptPartial(
+    listener: (payload: { requestId?: string; text: string }) => void,
+  ): () => void {
+    const off = this.ipcRenderer.on(
+      "voice:transcript-partial",
+      (payload: unknown) =>
+        listener(payload as { requestId?: string; text: string }),
+    );
+    return typeof off === "function" ? off : () => {};
   }
 
   // ── v10 interactive PTY terminal ────────────────────────────────────────

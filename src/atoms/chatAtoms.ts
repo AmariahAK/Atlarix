@@ -481,3 +481,13 @@ export const summarizationProgressAtom = atom<{
   chatId: null,
   label: undefined,
 });
+
+/**
+ * Dictation state per chat, written by the mic button and read ONLY by the
+ * dictation strip. An atom rather than composer state because the live level
+ * meter updates ~15x a second, and lifting it through the composer would
+ * re-render the whole composer at that rate.
+ */
+export const voiceDictationByChatAtom = atom<
+  Map<number, import("@/components/chat/VoiceDictationStatus").VoiceDictationState>
+>(new Map());
