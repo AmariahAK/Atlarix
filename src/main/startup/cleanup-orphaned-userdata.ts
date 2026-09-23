@@ -14,6 +14,13 @@
  *   of a run, so what remains is the crash/kill residue — but a checkout each,
  *   so it adds up.
  *
+ * - **v14.50.0 on-device voice removal** — transformers.js cached ~285 MB of
+ *   whisper weights in Chromium Cache Storage, per ORIGIN. The renderer purge
+ *   (`purge-legacy-model-cache.ts`) can only see its own origin, so a cache
+ *   written under another one (the dev server's `http://localhost:5173`, which
+ *   shares this userData) was never reachable. {@link purgeLegacyVoiceCacheStorage}
+ *   sweeps every origin from disk.
+ *
  * No live code references any of these directories, so removal is safe.
  *
  * A deleted worktree also leaves a registry entry in the user's own repo
@@ -36,7 +43,7 @@ import { getUserDataPath } from "../../paths/paths";
  * earlier one. (Reusing the old name would silently skip every upgrader, which
  * is most of them; the re-walk of already-deleted dirs is a fast no-op.)
  */
-const MARKER_FILE = ".orphaned-userdata-cleanup-v3";
+const MARKER_FILE = ".orphaned-userdata-cleanup-v4";
 
 /**
  * Orphaned directory names under userData, written by the removed FTS5 indexer,
@@ -75,6 +82,61 @@ async function dirSizeBytes(dir: string): Promise<number> {
   return total;
 }
 
+/** transformers.js names its cache `transformers-cache`; ORT adds its own. */
+const LEGACY_CACHE_RE = /transformers|onnx/i;
+
+/**
+ * Cache names recorded in a Cache Storage origin's `index.txt`. The file is a
+ * protobuf, but every cache name sits in it as a plain run of printable bytes,
+ * next to the origin URL and one UUID per cache — those are dropped, and what
+ * is left is the names.
+ */
+export function cacheNamesFromIndex(buf: Buffer): string[] {
+  const runs = buf.toString("latin1").match(/[\x20-\x7e]{4,}/g) ?? [];
+  return runs.filter(
+    (r) =>
+      !/^[a-z-]+:\/\//i.test(r) && // the origin, e.g. http://localhost:5173/
+      !/^\$?[0-9a-f]{8}-[0-9a-f]{4}-/i.test(r), // per-cache UUID directory
+  );
+}
+
+/**
+ * Remove every origin folder under `Service Worker/CacheStorage` whose caches
+ * are ALL legacy voice-model caches. A folder that also holds any other cache is
+ * left for the renderer purge, which deletes caches by name through the real API
+ * instead of taking a whole origin with it. Returns bytes reclaimed.
+ */
+export async function purgeLegacyVoiceCacheStorage(
+  userData: string,
+): Promise<number> {
+  const root = path.join(userData, "Service Worker", "CacheStorage");
+  let origins: Dirent[];
+  try {
+    origins = await fs.readdir(root, { withFileTypes: true });
+  } catch {
+    return 0; // never had Cache Storage
+  }
+  let reclaimed = 0;
+  for (const origin of origins) {
+    if (!origin.isDirectory()) continue;
+    const dir = path.join(root, origin.name);
+    try {
+      const names = cacheNamesFromIndex(
+        await fs.readFile(path.join(dir, "index.txt")),
+      );
+      if (names.length === 0 || !names.every((n) => LEGACY_CACHE_RE.test(n))) {
+        continue;
+      }
+      const size = await dirSizeBytes(dir);
+      await fs.rm(dir, { recursive: true, force: true });
+      reclaimed += size;
+    } catch {
+      /* no index or unreadable — leave it alone */
+    }
+  }
+  return reclaimed;
+}
+
 /**
  * Delete the orphaned dirs once. Idempotent: after a successful run the marker
  * file short-circuits every subsequent launch.
@@ -107,6 +169,16 @@ export async function cleanupOrphanedUserData(): Promise<void> {
     } catch (err) {
       log.warn(`[orphaned-userdata-cleanup] failed to remove ${name}:`, err);
     }
+  }
+
+  try {
+    const voice = await purgeLegacyVoiceCacheStorage(userData);
+    if (voice > 0) {
+      reclaimed += voice;
+      removed.push(`voice model cache (${(voice / 1e6).toFixed(0)} MB)`);
+    }
+  } catch (err) {
+    log.warn("[orphaned-userdata-cleanup] voice cache sweep failed:", err);
   }
 
   try {

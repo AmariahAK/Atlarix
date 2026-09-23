@@ -21,7 +21,7 @@
     "autocomplete": "Type / for commands, or @ to point at a file.",
     "mcp": "Connect MCP servers in Settings \u2192 Integrations to give Atlarix your own tools.",
     "skills": "Drop a markdown file in .atlarix/skills/ to teach Atlarix a repeatable job \u2014 or ask it to write one.",
-    "voice": "Dictate instead of typing \u2014 Whisper runs on your machine, so it needs no key.",
+    "voice": "Dictate instead of typing \u2014 it works with any model that accepts audio, or with your own speech-to-text key.",
     "automations": "Put recurring work on a schedule with automations.",
     "subagents": "Hand independent work to sub-agents and let them run in parallel."
   },

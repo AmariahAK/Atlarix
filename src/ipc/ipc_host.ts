@@ -104,5 +104,5 @@ export function registerIpcHandlers() {
   registerBrowserHandlers(); // v11 in-app browser (WebContentsView) + WebMCP
   registerBackgroundHandlers(); // v14 background-job indicator/cancel + auto-wake
   registerAutomationHandlers(); // Automations: definitions CRUD + triage feed + proposal apply
-  registerVoiceHandlers(); // BYOK cloud transcription (optional; local Whisper is default)
+  registerVoiceHandlers(); // dictation: BYOK speech-to-text, or the selected model's audio input
 }

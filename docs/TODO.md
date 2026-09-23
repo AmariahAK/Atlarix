@@ -258,7 +258,7 @@ build authority for from zero.
   Moving it needs its own commit and its own `[prompt-cache] read=` measurement.
 - **Accepted advisories, with reasons.** The `@huggingface/transformers` → `onnxruntime-node` →
   `adm-zip` → `sharp` chain that had no fix is GONE — the on-device voice stack it belonged to
-  was deleted in v14.49.0, so `npm audit` no longer lists any of the four. `shepherd.js` →
+  was deleted in v14.50.0, so `npm audit` no longer lists any of the four. `shepherd.js` →
   `deepmerge-ts` needs a major; the call site was checked rather than assumed — tour options are
   static literals, so nothing attacker- or model-controlled reaches the merge.
 
