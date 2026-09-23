@@ -158,7 +158,7 @@ export const SHORTCUTS: readonly KeyboardShortcut[] = [
   {
     id: "close-tab-or-window",
     combo: { mod: true, key: "w" },
-    label: "Close the browser tab, or the window",
+    label: "Close the window",
     owner: "menu",
     status: "advertised",
   },
