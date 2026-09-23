@@ -1,13 +1,14 @@
 # Atlarix design notes
 
-Work that has been **designed but not scheduled**. Each entry exists so the conversation resumes
-cold instead of being re-derived. [`docs/TODO.md`](./TODO.md) carries a one-line pointer per entry;
-this file carries the reasoning.
+The **why** behind decisions that still stand, and work that has been designed but not
+scheduled. Each entry exists so the conversation resumes cold instead of being re-derived.
+[`docs/TODO.md`](./TODO.md) carries a one-line pointer per open entry; this file carries the
+reasoning. What shipped is in [`docs/CHANGELOG.md`](./CHANGELOG.md); how Core is billed is in
+[`docs/CORE_BILLING.md`](./CORE_BILLING.md).
 
-Nothing here is a commitment. An entry graduates to TODO when it becomes active work, and to
-[`docs/CHANGELOG.md`](./CHANGELOG.md) when it ships.
+Nothing unscheduled here is a commitment. An entry graduates to TODO when it becomes active work.
 
-**Last updated:** 2026-08-19
+**Last updated:** 2026-09-23
 
 ---
 
@@ -59,14 +60,14 @@ the difference between a policy and a bluff.
 
 **Why the check rides `get_credit_balance` rather than being its own RPC.** The proxy already reads
 the wallet on every request. Folding the ban into that read costs zero extra round-trips and inherits
-`balance-cache.ts`'s 3-second TTL, which becomes the honest bound on how fast a ban bites. A separate
+the TTL in the proxy's `balance-cache.ts`, which becomes the honest bound on how fast a ban bites. A separate
 RPC would have doubled the per-request Supabase traffic to answer a question that is almost always
 "no". It is deliberately NOT in `debit_wallet`: tokens already consumed should still be billed, so the
 gate belongs at the start of a call.
 
 **Why "at next sign-in" was never acceptable.** A ban that waits for a re-login is not a ban — a
-signed-in user with a valid JWT could work indefinitely. Two mechanisms close that: the 3s cache TTL
-on the proxy side, and the realtime `postgres_changes` subscription the app already holds on its own
+signed-in user with a valid JWT could work indefinitely. Two mechanisms close that: the short cache
+TTL on the proxy side, and the realtime `postgres_changes` subscription the app already holds on its own
 `users` row, which pushes the flip to a live client. The second was free; the channel existed for
 plan upgrades.
 
@@ -89,8 +90,10 @@ person for the wrong reason.
 
 ## QA sub-agents
 
-_Recorded 2026-08-15. The agent's own QA pass: after building something, spawn workers that
-exercise the running app and report findings._
+_Recorded 2026-08-15. **Shipped in v14.34.0** as the `qa` built-in agent
+(`src/lib/agents/builtin-agents.ts`). The agent's own QA pass: after building something, spawn
+workers that exercise the running app and report findings. Where the shipped shape differs from
+the design below, it is marked._
 
 **It is not stress testing** — it is acceptance and exploratory QA. If it is named or prompted as
 "stress test", the model will fire a thousand requests at a dev server and call that work.
@@ -125,6 +128,11 @@ exercise the running app and report findings._
 - **Terminal is a per-surface grant** the main agent declares, for CLI surfaces only, in the
   read-only sandbox profile. Running the project's own e2e suite stays the main agent's job — the
   suite is regression, QA is exploratory.
+- **What shipped instead of the scoped `http_request`:** no such tool was built. The `qa` agent
+  gets `run_command`, forced into the READ-ONLY sandbox with the network on
+  (`subagent-command.ts`), plus `background_jobs` for the dev server's log and the browser and
+  mobile tools — and no `edit_file`. The containment is the profile (cannot write), not an
+  origin binding, so the egress concern under _Boundaries_ is still open.
 
 ### Findings contract
 
@@ -181,12 +189,16 @@ tool.
 accounts for everything at the end. If live progress is wanted, derive it from the activity stream
 that already feeds the per-worker cards rather than from a new tool.
 
+**As shipped,** the per-item `## Coverage` shape (`PASS | FAIL | BLOCKED | NOT REACHED`) is required
+by the `qa` prompt; the harness-side validation that re-prompts on a missing item is the part still
+to build if weak models are seen dropping items.
+
 ### Reuse
 
 Build on **`browser_test`** (`src/lib/tools/browser.ts`), which already runs a step sequence and
 reports `passed` plus console errors and 4xx/5xx. QA is the exploratory loop _around_ it, not a
-replacement. The in-app browser tools (`browser_navigate` / `browser_inspect` / `browser_interact`,
-with stable element `ref`s), background commands with auto-promote, and per-mode tool profiles
+replacement. The in-app browser tools (`browser` with an `action`, and `browser_inspect`, with
+stable element `ref`s), background commands with auto-promote, and per-mode tool profiles
 (`resolve-toolset.ts`, `mode-tool-registry.ts`) all already exist — this is a new **role** in
 existing machinery, not a new subsystem.
 
@@ -226,8 +238,10 @@ the app.
 
 ## Errors tab → Console + Network
 
-_Recorded 2026-08-15 after an audit. **Both halves shipped in v14.31.0** (2026-08-16). What is kept
-below is the record of what the audit found, the spike that overturned the CDP decision, and the
+_Recorded 2026-08-15 after an audit. **Both halves shipped in v14.31.0** (2026-08-16). The visible
+Browser panel was retired 2026-09-23 — agent tabs now live in a hidden per-window host in
+`src/ipc/utils/browser_view_manager.ts` — and the Console, Errors and Network tabs were kept, fed by
+those hidden tabs. What is kept below is the spike that overturned the CDP decision and the
 reasoning that outlived the implementation._
 
 ### What actually landed, and the one thing that changed the design
@@ -235,11 +249,11 @@ reasoning that outlived the implementation._
 The plan was "upgrade the Errors tab". Testing the shipped Console tab against YouTube changed it
 into something else: Google's logged-out `passive=true` probe returned 401, the completion gate read
 that as "the app you built is broken", and the agent burned turns explaining to a gate that could
-not hear it. **So the gate went, entirely.** The harness cannot tell whose error it is — a frontend
-on `:5173` calling its own API on `:8080` is one app across two origins, a staging URL is the app
-under test, an embedded Stripe script is third-party until it is yours — and every rule we could
-write is wrong in one direction. A wrong block costs accuracy, which is the thing this whole app is
-for.
+not hear it. **So the gate went, entirely** (`src/lib/agent/preview-verify.ts` opens with "This no
+longer gates anything"). The harness cannot tell whose error it is — a frontend on `:5173` calling
+its own API on `:8080` is one app across two origins, a staging URL is the app under test, an
+embedded Stripe script is third-party until it is yours — and every rule we could write is wrong in
+one direction. A wrong block costs accuracy, which is the thing this whole app is for.
 
 What replaced it, in both directions:
 
@@ -269,83 +283,48 @@ attempt showed a bogus −76.5% request drop that was entirely cache):
 
 Attached saw _more_ requests and loaded _faster_, so **no sign of
 [#23035](https://github.com/electron/electron/issues/23035)** ("attach blocks some requests") on
-this version. It survived navigation (`requestWillBeSent` 51 → 172), stayed attached with no
-`detach` event, and closed cleanly. Memory delta was smaller than the plain load's.
+this version. It survived navigation, stayed attached with no `detach` event, and closed cleanly.
 
-**Two findings that change the plan:**
+**Two findings that shaped the build:**
 
 1. **`Network.enable` hangs forever on a tab that has never navigated.** `attach()` succeeds, then
    the command simply never resolves — no error, no timeout. The target has no renderer to service
-   it. Fix: prime with `about:blank` (or attach after the first load) before enabling. Any
-   implementation MUST wrap `sendCommand` in a timeout — a silent hang here would look exactly like
-   the session-restore bug fixed the same day.
+   it. Tab creation in `browser_view_manager.ts` therefore primes with `about:blank`, attaches,
+   then navigates; any `sendCommand` must also be wrapped in a timeout.
 2. **On-demand body retrieval is unreliable on a heavy page: 4/25 and 9/25 across two runs**, failing
-   with `No resource with given identifier found` — the buffer had already evicted them. The
-   approved choice was "on demand, per row", and on YouTube that means most bodies are gone before
-   anyone asks. YouTube is a worst case (huge, streaming, constant churn) and a typical localhost dev
-   app with a handful of XHRs would fare far better — but the UI must be honest that a body can be
-   unavailable, and if bodies turn out to matter in practice the fix is fetching at
-   `loadingFinished` for `xhr`/`fetch` only, which was the option declined at planning time. **Worth
-   revisiting with real numbers rather than re-arguing.**
+   with `No resource with given identifier found` — the buffer had already evicted them. YouTube is
+   a worst case and a typical localhost dev app fares far better, but the UI and the
+   `browser_inspect` schema both say a body may already be evicted. If bodies turn out to matter in
+   practice, the fix is fetching at `loadingFinished` for `xhr`/`fetch` only. **Revisit with real
+   numbers rather than re-arguing.**
 
-Also observed: CDP reported **more** requests than `webRequest` for the same load (47 finished vs 39
-completed), so the two are not interchangeable inventories — CDP sees things webRequest does not.
+Also observed: CDP reported **more** requests than `webRequest` for the same load, so the two are
+not interchangeable inventories — CDP sees things webRequest does not.
 
-**Still open — the Network tab.** `webRequest.onCompleted` still early-returns on `status < 400`,
-so successful requests are never recorded and there is nothing to render. The design decision it
-carries: `webRequest` exposes method, status, resourceType and headers, but **no transfer size and
-no timing breakdown**. Duration has to come from our own `onBeforeRequest`→`onCompleted`
-timestamps (request lifetime, not Chrome's phase breakdown) and size from `content-length` when the
-server sends it. Devtools-grade numbers would require CDP — which takes `webContents.debugger`
-exclusively and would reintroduce the exact conflict the Console work just removed. Recommendation:
-stay on `webRequest` and be honest in the UI about what the numbers mean.
+### What the Network tab became
 
-**Direction: two real devtools-style tabs; the Errors tab folds in and severity becomes a filter.**
-Dev-server/build errors become a labelled _source_ inside Console, not a casualty. The completion
-gate keeps reading only errors underneath.
+CDP is the primary source (`attachNetworkCapture` in `browser_network_capture.ts`). `webRequest` —
+which has no transfer size and no timing breakdown — is only the **fallback tier** for a tab that
+degrades off CDP, and its blocking `onBeforeRequest` hook is installed lazily, the first time any
+tab degrades, because a blocking hook charges every request in every tab a main-process round trip.
+Console and Network keep separate buffers (`console-buffer-split.test.ts`) so a chatty page cannot
+evict the network failures, and dev-server/build errors (`devServerErrorParser.ts`,
+`DevServerProvider.tsx`) survive as a labelled source rather than a casualty.
 
-```
-Right panel
-├─ Browser
-├─ Console   [All ▾] [Errors] [Warnings] [Logs]
-│    ▸ dev-server  ✗ TS2345 src/auth.ts:12
-│    ▸ page        ⚠ React key warning
-│    ▸ page        ℹ mounted
-├─ Network   [All ▾] [XHR] [Doc] [Failed]
-│    POST /api/items   500   142ms   1.2kB
-│    GET  /api/me      200    31ms   840B
-└─ Terminal
-```
+### The risk that defined this change
 
-### What the audit found — the tab is thinner than it looks
-
-- `src/ipc/utils/browser_view_manager.ts` — the `webRequest.onCompleted` hook opens with
-  `if (status < 400) return;`. **Successful requests are never recorded at all**, so there is no
-  data to build a Network tab from yet. It needs every request with method, status, resource type,
-  timing and size.
-- `src/lib/browser/error-hook.ts` — the injected hook only catches `window.error` and
-  `unhandledrejection`. Plain `console.log` / `info` / `warn` never arrive. A Console tab needs a
-  real console-message channel, not the `[[ATLARIX_ERR]]` sentinel alone.
-- One buffer (`surfaceErrors`, capped at 50) holds both streams. Console and Network need separate
-  ring buffers with their own caps — a chatty page currently evicts the network failures.
-- **Three streams, not two.** Dev-server/build errors arrive via `src/lib/devServerErrorParser.ts`
-  and `DevServerProvider.tsx`. They must survive the redesign as a labelled source.
-
-### The risk that defines this change
-
-**The completion gate must not widen with the panel.** `error-hook.ts` documents why: the gate
-filters to `level: "error"` because React/Next dev mode emits benign warnings that must not block a
-turn, and `NOISY_PREVIEW_RESOURCE_TYPES` is excluded so a missing favicon can't trip it.
-
-Widening _capture_ for the UI while leaving the _gate_ predicate untouched is the whole job — and
-`browser_test` reads the same buffer, so a mistake here silently changes when the agent believes it
-is finished.
+**The verdict must not widen with the capture.** Capture now takes every console level and every
+request; what `browser_test` counts as a failure is still `FAILURE_CONSOLE_LEVELS` (`error` only) in
+`preview-verify.ts`, with `NOISY_PREVIEW_RESOURCE_TYPES` excluded so a missing favicon can't trip it.
+React/Next dev mode emits benign warnings constantly, and `browser_test` reads the same buffer, so a
+mistake here silently changes when the agent believes its test passed.
 
 ### Agent side — DONE
 
-`browser_inspect(mode:"console"|"network")` were failure-only lenses. Both now show everything with
-an explicit failures filter (`include:"failures"|"all"`), plus `tab_id` on both and `request_id` for
-one row's headers and bodies. The point was never completeness for its own sake: an agent that can
+`browser_inspect(mode:"console"|"network")` were failure-only lenses. Both can now show everything —
+console via `level` (`all` by default, or `errors`/`warnings`), network via `include`
+(`failures` by default, or `all`) — plus `tab_id` on both and `request_id` for one row's headers
+and bodies. The point was never completeness for its own sake: an agent that can
 only see failures can never **confirm a success**, which is also why a QA sub-agent could not have
 used the old Errors tab as its observation channel.
 
@@ -354,8 +333,7 @@ used the old Errors tab as its observation channel.
 ## Fork sub-agents — CLOSED, the economics do not work
 
 _Recorded 2026-08-15, **rejected 2026-08-17** after doing the arithmetic. Kept as a record so the
-idea is not re-derived; the original sketch is preserved below the verdict because the mechanics
-were sound even though the premise was not._
+idea is not re-derived. The implementation sketch was dropped from this file; `git log` has it._
 
 ### Why it was dropped
 
@@ -384,56 +362,14 @@ already established. Pointers cost a few hundred tokens and let the worker read 
 the same reasoning that makes `.atlarix/skills` and project memory an index rather than a payload.
 That is prompt and tool-description work, not a subsystem.
 
-### The original sketch (retained for reference only — not scheduled)
+### The premise, for whoever proposes it again
 
-`src/lib/agents/run-subagent.ts` builds `msgs` as a single `{ role: "user", content: prompt }`.
-Workers start cold: they re-derive context the main agent already has, and every worker is a fresh
-cache write rather than a read. On Core — a prepaid wallet metered at +80% — that is real money per
-delegated turn.
-
-### Why it is bigger than the release note suggests
-
-For Anthropic the request is `tools → system → messages`, so the cached prefix covers all three. A
-fork with a **different toolset or system header than its parent invalidates the cache entirely**
-and the feature buys nothing.
-
-So a real fork must share the parent's tool definitions _and_ system header. It is "another
-instance of me with a sub-task" — **a distinct worker kind, not a flag on
-explorer/architect/implementer.**
-
-### Which resolves the read-only question
-
-**A fork is constrained by policy, not by toolset.** Keep the parent's tool _definitions_ (prefix
-intact) and refuse write execution at the existing funnel — `ToolRegistry.execute`
-(`src/lib/tools/registry.ts`) and `src/ipc/handlers/permissions/interceptor.ts`. The same shape as
-the committable `.atlarix/permissions.json` deny rules, reused rather than reinvented.
-
-### Sketch
-
-1. **Expose the parent's history.** The turn's `msgs` is a local in the stream handler;
-   `StreamTurnContext` does not hold it. A `forkableTurnStateByChatId` map in
-   `src/ipc/handlers/chat_stream/stream-state.ts` follows the `Map<number, X>` pattern already used
-   there (`partialResponses`, `streamTurnIdByChatId`), carrying history + system header + tool
-   definitions. Keeps the satellite rule intact — no satellite imports the parent handler.
-2. `RunSubagentArgs` gains an optional inherited context; `msgs` becomes
-   `[...history, { role: "user", content: prompt }]`.
-   `buildStreamMessagesWithCacheBreakpoints` already takes `systemHeader` + `history`, so no new
-   cache machinery is needed.
-3. `subagent_type: "fork"` in `spawn-task.ts` / `builtin-agents.ts`, through the existing
-   `runSubagent` call.
-4. **Guard the size.** A fork inherits the whole conversation, so a long thread makes an expensive
-   worker. Gate on remaining context budget and fall back to a cold scout with a logged reason
-   rather than failing.
-5. **Tool-description guidance** on `task`: fork for a sub-task that depends on what just happened;
-   explorer for independent recon where a cold, cheap context is the point. Getting this wrong
-   makes every delegation expensive.
-
-### Verification when it lands
-
-The honest check is a real dispatch, not a unit test: run a turn with an Anthropic key, spawn a
-fork, and read the `[prompt-cache]` log line already emitted in `simple-stream-text.ts` — a fork
-should show a large `read=` where a cold scout shows `write=`. Then an `agent-evals` scenario
-asserting a fork sees prior-turn context a cold scout cannot.
+`src/lib/agents/run-subagent.ts` starts every worker cold: a single user message, so each worker
+re-derives context the parent already has and is a fresh cache write rather than a read. The idea
+was to hand a worker the parent's history so it read the prefix instead. For Anthropic the cached
+prefix is `tools → system → messages`, so a fork with a **different toolset or system header than
+its parent invalidates the cache entirely** — a real fork must share both, which is what forced the
+read-only question above into a policy check rather than a capability boundary.
 
 ### The inversion worth keeping — amended
 
@@ -464,12 +400,13 @@ other secret on the user's machine — the ones in their `.env`, their CI config
 forever, and _presenting itself as a guarantee it cannot make_. A partial redactor is arguably worse
 than none, because it changes what users believe is safe to hand the agent. The owner's original
 position stands: **we trust the agent and the provider with credentials, and we do not pretend to
-scrub them.** That is also consistent with the deliberate decision at `lib/tools/glob.ts:221` that
+scrub them.** That is also consistent with the deliberate decision in `lib/tools/glob.ts` that
 in-workspace files including `.env` are enumerable.
 
-Unaffected and still in place: **display- and telemetry-side** redaction — Sentry `beforeSend`, and
-`redactGitUrlCredentials` on git stderr — which scrub values we _do_ own on paths that leave the
-user's control.
+Unaffected and still in place: **display- and telemetry-side** redaction —
+`redactSecretsInText` (`src/lib/security/redact-secrets.ts`) on the display copy of tool output,
+log lines and Sentry `beforeSend` — which scrubs high-confidence shapes on paths that leave the
+user's control, and never touches the model-facing result.
 
 ---
 
@@ -522,7 +459,10 @@ place our write-confinement story stops answering the question.
 
 **Do not rebuild this from the same premise.** The premise was: "the built-in browser should behave
 like a browser, so a user who set up a passkey on a site can just sign in." Electron's
-`app.configureWebAuthn({ touchID })` does not do that, and cannot.
+`app.configureWebAuthn({ touchID })` does not do that, and cannot. Since 2026-09-23 the question
+is mostly moot: the visible Browser panel is gone, the agent's own browser is hidden and signed in
+to nothing, and sign-in work goes to the user's own Chrome through the extension — where their
+passkeys already live.
 
 Electron's own documentation, quoted because the wording is the whole argument: credentials are
 "stored in the macOS keychain and bound to this device's Secure Enclave", Electron "generates and
@@ -561,7 +501,9 @@ the _same_ credential Brave would have used. Both go through Chromium on every p
 entitlement. The work that made that usable is the `select-webauthn-account` chooser: WebAuthn is
 not an Electron permission type, so a multi-credential request had nothing listening and the page
 hung for ever, and declining outright meant a security key holding two credentials could never be
-used. **That chooser is the feature. Do not remove it as passkey dead code.**
+used. **That chooser is the feature. Do not remove it as passkey dead code** — it is still wired
+in `browser_view_manager.ts`, beside `webauthn-notice.ts`, which reports a platform-authenticator
+attempt instead of letting the page hang silently.
 
 **A trap in the adjacent copy:** npm packages exist for macOS Touch ID (`LocalAuthentication`
 wrappers). They prompt for a fingerprint and report success. That is not a WebAuthn assertion — it
@@ -583,8 +525,8 @@ working is ever wanted). What must not be re-derived:
   Sentry breadcrumbs and `canonicalizeParamAliases`. It passes `__permission_required` through
   untouched and decides nothing about access. The name and its folder invite exactly this
   confusion, which is why it is written down.
-- **Complexity is concentrated, not spread**: `interceptor.ts` is still 2,127 lines, ~40% of the
-  surface in one file. If anything here is overcomplicated it is that file's internal structure,
+- **Complexity is concentrated, not spread**: `interceptor.ts` is still by far the largest file of
+  the surface. If anything here is overcomplicated it is that file's internal structure,
   and deleting _modules_ cannot touch it. Not a task — there is no observed failure — but it is
   where to look first if one appears.
 - The audit's other finding (`ask` rules compiled, matched, logged and never enforced) **was
@@ -620,14 +562,12 @@ into `edit_file` (reachability, not presence, is what made deletion the right an
 
 ## Smaller items from the 2026-08-15 upstream review
 
-Noted, not scheduled. Sources: opencode `v1.18.17`, claude-code `v2.1.229` / `232` / `233`.
+Noted, not scheduled unless marked. Sources: opencode `v1.18.17`, claude-code `v2.1.229` / `232` /
+`233`.
 
-- **Native PDF document parts.** PDFs are locally text-extracted today
-  (`lib/tools/workspace.ts`), so scanned/image-only PDFs fail outright — the tool says so — and
-  table/layout fidelity is lost even on good ones. Anthropic, Gemini and OpenAI all accept native
-  PDF parts with vision, and we already send images as native parts
-  (`chat_stream/message-postprocess.ts`). Gate on model capability, keep extraction as the
-  fallback. opencode shipped this for Copilot models.
+- **Native PDF document parts — SHIPPED.** Capable models now receive the PDF itself, gated per
+  MODEL from the models.dev `pdf` input modality rather than per provider; local extraction stays
+  the fallback (`pdf-native-parts.test.ts`).
 - **`run_command` memory/CPU containment.** Claude Code added a Linux memory cgroup so a runaway
   build can't stall the session. The stronger version for us is **Windows Job Objects**, which also
   fixes orphaned grandchildren on cancel — a classic Electron bug worth checking regardless.
@@ -636,18 +576,19 @@ Noted, not scheduled. Sources: opencode `v1.18.17`, claude-code `v2.1.229` / `23
   it's that `/props` reports the true `n_ctx` and chat template, retiring the guesswork in
   `resolve-model-context-limit.ts` / `context-window-heuristics.ts`. Wrong context limits on local
   models are a silent correctness bug.
-  - **Embedded inference via `node-llama-cpp` is NOT recommended.** We have the precedent (Whisper,
-    ONNX, worker thread, WebGPU/WASM fallback) and know what it cost: three diagnoses before the
-    device×dtype matrix settled it. Inference multiplies that — native module per platform × ABI on
+  - **Embedded inference via `node-llama-cpp` is NOT recommended.** We have the precedent — local
+    Whisper on ONNX, with a worker thread and a WebGPU/WASM fallback — and know what it cost: three
+    diagnoses before the device×dtype matrix settled it, and it was deleted outright in v14.50.0. Inference multiplies that — native module per platform × ABI on
     top of better-sqlite3/node-pty/keytar, Metal/CUDA/Vulkan backends, a 4–8GB download — for a
     model still weak at agentic tool-calling. Ollama already solves this for whoever wants it.
 - **Per-model sampling defaults.** opencode fixed DeepSeek V4 Flash specifically; GLM tool-calling is
   genuinely temperature-sensitive, so this is a quality lever on the Core path. Re-check it against
-  the GPT 5.6 tiers, which replaced DeepSeek on core-2/3 and reject `temperature` outright.
-- **Route chore calls to the cheapest available model** — session titles, compaction summaries, the
-  streaming compass one-liner, commit messages. They don't need the top tier — and the saving grew
-  when core-2/3 became GPT 5.6 at $2.00/$12.00 and $4.00/$20.00 per M. Same saving as embedded
-  inference with no new
+  the current lineup (`core-models.json` in `atlarix-releases`): some models on it reject
+  `temperature` outright (see `responses-request.ts` in `atlarix-proxy`).
+- **Route chore calls to the cheapest available model** — session titles, compaction summaries,
+  commit messages. They don't need the top tier. Paid Atlarix Auto already does this on the proxy
+  (`paid-auto.ts` routes on a `purpose` hint: title, compaction, summary…); pinned Core tiers and
+  BYOK still send chores to the chosen model. Same saving as embedded inference with no new
   dependency.
 - **Malformed tool args.** Claude Code fixed a hard crash on a non-string `glob` / `file_path` /
   `command`. We explicitly target weak and local models, which emit `file_path: ["a","b"]`
@@ -677,12 +618,10 @@ Noted, not scheduled. Sources: opencode `v1.18.17`, claude-code `v2.1.229` / `23
   cloned repo ships `.atlarix/hooks.json`, which is `/bin/sh -c`'d on every tool call. The original
   hole was closed with authority-file approval — the open question is still whether a repo cloned
   _mid-session_ re-triggers that approval, and it is now worth more than it was.
-- **Approval notifications.** Upstream fixed Notification hooks not firing for permission prompts.
-  An OS notification when the window is backgrounded and a turn is waiting for approval is small
-  and immediately felt, especially alongside automations.
-- **Session-scoped web fetch cache.** Upstream made its 15-minute URL cache TTL configurable, which
-  implies the cache. If the agent fetches the same URL three times in a research turn, that is
-  tokens and latency paid twice.
+- **Approval notifications — SHIPPED.** An OS notification when the window is unfocused and a turn
+  is waiting on the user (`showAgentNotification` in `permissions/handlers.ts`).
+- **Session-scoped web fetch cache — SHIPPED** as the `read_url` cache in `lib/tools/web.ts`, which
+  also dedupes concurrent fetches of the same page by parallel sub-agents.
 - **Signal, not a task:** Anthropic removed TodoWrite/task tools on Opus 4.8, Sonnet 5, Fable 5 and
   newer — modern models don't need the scaffold — and deleted the startup tip suggesting custom
   subagents. That is upstream arriving at our own net-less-surface filter. It argues for an eval on
@@ -865,12 +804,6 @@ The lifecycle routes through `setDeviceCliRunnerForTests`, an explicit seam: `vi
 intercept it, because `ensureTapFeedback` calls `runDeviceCli` from inside the same module and
 the call is a lexical binding that never goes through the module's exports.
 
-**No npm or Harbor change was needed for any of this,** which was worth checking rather than
-assuming: the headless surface is COMPUTED by `resolveToolsetForSession`, never declared, and
-`headless-runner.ts` sets `ATLARIX_HEADLESS=1` before any turn resolves a toolset. Nothing in
-`src/headless/` or the docs enumerates a tool list, so making the mobile tools every-MODE did
-not put them in the CLI's surface.
-
 **These calls do NOT go through the command sandbox, and that is worth saying out loud.**
 `run_command` is enforced by the OS sandbox (Seatbelt / AppContainer / Landlock); the mobile
 tools `execFile` `adb` directly from the main process, exactly as the browser tools call
@@ -922,12 +855,6 @@ a booted iPhone 17 simulator, and the mocked suite had been green through all of
 - A simulator log is the whole OS: 3.2 MB over two minutes filtered to errors, versus 184
   characters with a process filter. That gap is why `package` exists on the read.
 - A real screenshot is 2.85 MB, i.e. ~3.8 MB of base64.
-
-Every one of those is a thing that "works" in a mock, because a mock returns what you told it
-to. **The general lesson is not "write more tests" — it is that a wrapper around an external
-CLI has to be run against that CLI at least once**, and the assertion that catches these is
-about the SHAPE of the real output (PNG magic bytes, a non-zero character count), not about
-the arguments we passed.
 
 The suite keeps `mobile-live-ios.test.ts` and `describe.skipIf`s it when nothing is booted, so
 it costs nothing on a machine without Xcode and is there the moment someone boots a device.
@@ -1126,15 +1053,15 @@ duplication.
 
 ## 🖥️ QUEUED AFTER THE EXTENSION — the CLI (brief written 2026-09-11)
 
-**Superseded on ordering 2026-09-12 — the EXTENSION goes first.** Everything below
-stands as the CLI brief; only its position in the queue changed. The CLI remains the
-cheaper build (~80% done, name held on npm), so none of this expires.
+**Superseded on ordering 2026-09-12 — the EXTENSION went first, and has since shipped.**
+Everything below stands as the CLI brief; only its position in the queue changed. The CLI
+remains the cheaper build (name held on npm), so none of this expires.
 
-**What already exists.** `atlarix` is published on npm (v14.45.0, PROPRIETARY,
-`packages/headless`), driving the REAL agent loop through a 140-line Electron stub —
-`src/headless/` is 1,130 lines of driver, not an implementation.
-`src/headless/atlarix-headless.mts:5` already reserved room for an interactive mode and
-shaped the arg parsing so the published binary never has to change. **So this is a TUI,
+**What already exists.** `atlarix` is published on npm (PROPRIETARY, `packages/headless`),
+driving the REAL agent loop through a small Electron stub — `src/headless/` is a driver,
+not an implementation. The header of `src/headless/atlarix-headless.mts` already reserved
+room for an interactive mode and shaped the arg parsing so the published binary never has
+to change. **So this is a TUI,
 auth and billing job, not an agent job.**
 
 **The download number is not adoption — measured, do not repeat the mistake.** 794 in
@@ -1166,8 +1093,9 @@ CLI opens a loopback server, sends the user to atlarix.dev, exchanges the code i
 ### Payments — no new API is needed
 
 The proxy's error contract already carries it: `402 {error:"insufficient_credit",
-required_cents:N}`, plus `403 account_banned`, `400 model_not_permitted`,
-`503 core_unavailable`. The CLI renders "you are $X short → atlarix.dev/account" straight
+required_cents:N}` — which since Atlarix Auto also says whether free Auto is on offer
+(`free_available`, `consent_required`) — plus `403 account_banned`, `model_not_permitted`,
+`core_unavailable` and `free_usage_limit`. The CLI renders "you are $X short → atlarix.dev/account" straight
 from that. `GET /v1/models` (unauthenticated by design) gives the live Core lineup.
 
 ### TUI — TypeScript + Ink, green as an ACCENT
@@ -1212,7 +1140,7 @@ re-derives it.** `drizzle-orm@0.45.2` IS the latest, and it ships no `node:sqlit
 its sqlite drivers are `better-sqlite3`, `bun-sqlite`, `durable-sqlite`, `expo-sqlite`,
 `libsql`, `op-sqlite` and `sqlite-proxy`. The only generic escape, `sqlite-proxy`, takes an
 **async** query callback, and our DB layer is synchronous throughout — `initializeDatabase()`
-at `src/db/index.ts:105` returns a value, not a promise, and session persistence, provider
+in `src/db/index.ts` returns a value, not a promise, and session persistence, provider
 resolution and compaction all call into Drizzle synchronously. Making the whole app's
 database layer async to solve a PACKAGING problem is the wrong trade by a wide margin.
 
@@ -1236,8 +1164,7 @@ packages first; they solve npm, and npm is the channel that matters now.
 Staying proprietary is not merely harder for distribution, it is **categorically excluded**
 from homebrew-core and from several awesome-lists. That is a real cost to weigh against the
 one-way-door argument for NOT rushing it: open-sourcing the CLI means open-sourcing the
-ENGINE (the ~18.5k-line loop and ~16.8k lines of tools it drives — the Electron shell is the
-least valuable part), and you can open-source later but never un-open-source. Recommended
+ENGINE (the loop and the tools it drives — the Electron shell is the least valuable part), and you can open-source later but never un-open-source. Recommended
 sequence unchanged: **ship the TUI free and closed, measure, then decide once, with data.**
 
 ---
@@ -1251,7 +1178,7 @@ rather than a positioning one, so it answers scope questions on its own:
 
 |                 | **CLI**                                    | **Extension**                                   | **Desktop app**                            |
 | --------------- | ------------------------------------------ | ----------------------------------------------- | ------------------------------------------ |
-| Touches         | your files and your shell                  | your **browser session**                        | both, plus its own unauthenticated browser |
+| Touches         | your files and your shell                  | your **browser session**                        | both, plus its own hidden, signed-out browser |
 | Never touches   | your browser session                       | any file, any shell — **not "later", never**    | —                                          |
 | Who it is for   | developers, in a repo                      | anyone with a browser, including non-developers | developers who want the whole workstation  |
 | Models          | any — BYOK, local Ollama, or Core          | **Core only**                                   | any                                        |
@@ -1267,24 +1194,20 @@ not new architecture — it is the existing model extended, and the schema alrea
 it:
 
 - **The wallet is already per-ACCOUNT, not per-product.** `credit_wallet` and
-  `credit_transactions` are keyed on `user_id`, and the README already states the rule for
-  the two surfaces that exist today: _"One subscription, one balance… they are not billed
-  separately and they do not hold separate balances."_ Adding the CLI and the extension
-  means they present the user's Supabase JWT exactly as the desktop does, and the same
-  `record_compass_usage` path runs. **No wallet change, no new endpoint, no new RPC.**
-- **The one real gap is ATTRIBUTION, and half of it is already built.**
-  `credit_transactions` carries `kind` and a free-text `ref`, and the service debit RPC
-  already takes `p_source text DEFAULT 'reviewer'` — which is how the account page itemises
-  reviewer spend separately today. The user-JWT path has no equivalent label, so desktop,
-  CLI and extension spend would collapse into one undifferentiated line.
-  **Work needed:** an `X-Atlarix-Surface` header on the client (modelled on the existing
-  `x-atlarix-repo`, which `server.ts:488` notes is "only a label on the ledger row — it
-  never selects an account"), threaded into `p_source` on the user path, and four rows on
-  the account page instead of two.
-- **Do the label BEFORE the surfaces ship, not after.** A ledger row cannot be
+  `credit_transactions` are keyed on `user_id`, and the README states the rule: _"One
+  subscription, one balance."_ The CLI and the extension present the user's Supabase JWT
+  exactly as the desktop does, and the same `debit_wallet` path runs. **No wallet change,
+  no new endpoint, no new RPC.**
+- **The one real gap was ATTRIBUTION — BUILT 2026-09-13.** Every client sends
+  `X-Atlarix-Surface` (`ATLARIX_SURFACE` in `src/ipc/shared/core_proxy.ts`, and the
+  extension's `core/client.ts`); the proxy maps it through `USER_SURFACES` in
+  `entitlement.ts` (unknown values fall back to `app`; `reviewer` is service-token only),
+  and `20260913120000_ledger_surface_attribution.sql` widened the ledger's `source` CHECK.
+  `get_credit_breakdown` groups by source, so each surface renders as its own row.
+- **Why it was done BEFORE the surfaces shipped, not after.** A ledger row cannot be
   re-attributed later: spend recorded without a source is indistinguishable forever, so
-  the first month of CLI and extension usage would be permanently unsplittable from the
-  app's. This is cheap now and impossible retroactively.
+  the first month of CLI and extension usage would have been permanently unsplittable from
+  the app's. `core-surface-header.test.ts` pins the literal value for the same reason.
 - **Refunds and clawbacks already have a trap here.** Per the money-path audit, ask whether
   a number is a delta or a running total before trusting `(kind, ref)` dedupe — adding a
   fourth source multiplies the ways two rows can collide on the same `ref`.
@@ -1331,7 +1254,7 @@ it:
    because that loop is in the desktop on the user's own key.
 
 **An account is required on every surface, BYOK included — verified, not assumed.**
-`chat_stream_handlers.ts:447` calls `requireAuthSession()` before every turn, so the desktop
+`chat_stream_handlers.ts` calls `requireAuthSession()` before every turn, so the desktop
 already works this way and the CLI matches it. What BYOK buys is free INFERENCE, not
 anonymity.
 
@@ -1353,46 +1276,51 @@ clear "log in first" at the top.
 
 ---
 
-## 💵 Pricing — SETTLED 2026-08-26, and the code that implements it
+## 💵 Pricing — SETTLED 2026-08-26, amended since, and the code that implements it
 
-> Owner decisions, recorded so they are not re-argued. The reframe's rule survives intact: **never
-> ship a tier whose fee is fully consumed by bundled inference.** What changed is that the fee now
-> includes _some_ inference, because the old shape asked for two purchases before a new user's first
-> agent turn — and that is where the funnel was dying. 108 users at the time of this decision.
+> Owner decisions, recorded so they are not re-argued. **The live model — what is free, what Pro
+> includes, who pays for Atlarix Auto — is [`docs/CORE_BILLING.md`](./CORE_BILLING.md)**; this
+> section keeps the reasoning. The rule that survives every revision: **never ship a tier whose fee
+> is fully consumed by bundled inference.** The fee includes _some_ inference because the older
+> shape asked for two purchases before a new user's first agent turn — and that is where the funnel
+> was dying.
 
-- **Atlarix Pro stays $19/mo** and includes a monthly Core allowance, PAYG on top. Price
-  deliberately NOT raised: $19 sits under Cursor/Windsurf $20 on purpose, and raising it while
-  improving it makes the win ambiguous. **If more revenue is wanted, the lever is the allowance
-  size, not the sticker** — the sticker is what people compare.
-- **THE ALLOWANCE IS $19, NOT $10 — this section said $10 until 2026-09-10 and was wrong.**
-  `MONTHLY_GRANT_CENTS.pro = 1900` (`handle-lemon-webhook/index.ts`). It was raised on
-  2026-09-08 when Atlarix Reviewer folded into Pro — one subscription, one allowance, because
-  the alternative asked a customer who had already paid $19 to pay $19 again. The arithmetic
-  below was not updated with it, so this file claimed ~59% margin while the webhook's own
-  comment said ~23%. **The webhook is the source of truth; the number here is a copy.**
-- **`MARKUP = 1.8` since 2026-09-10, and a mark-up is not a margin.** It multiplies COST:
-  $1.80 of credit per $1.00 of inference is `0.80/1.80 = 44.4%` gross on the credit spent, and
-  LemonSqueezy's ~7.5% of money-in leaves `1 - (1/1.8)/(1-0.075) = ~40%` net at FULL
-  consumption. In dollars: $19 nets ~$17.57, buys ~$10.56 of inference, profit ~$7.01.
-  **It was 1.4, which netted only ~22.8%** — the number this file spent months describing as
-  "40%". Identical on PAYG, because both hand over $X of credit for $X paid, so the mark-up and
-  not the price is what sets the margin on both.
+- **The app is free, with no feature gating** (v14.45.0). The only paid thing is Core inference.
+  BYOK and local models are free. The skills marketplace went in the same release, and the $1
+  signup trial credit was removed 2026-09-08.
+- **Atlarix Pro stays $19/mo** and includes a monthly Core allowance shared by the app, the
+  extension and Reviewer; pay-as-you-go credit sits on top. Price deliberately NOT raised: $19
+  sits under Cursor/Windsurf $20 on purpose, and raising it while improving it makes the win
+  ambiguous. **If more revenue is wanted, the lever is the allowance size, not the sticker** —
+  the sticker is what people compare.
+- **Atlarix Auto (2026-09-23) is one option for everyone and the default for new installs.** The
+  proxy, not the client, decides who pays: an account with a Pro allowance or credit gets paid,
+  per-step-routed Auto that is never shared; an account with neither gets free Auto on OpenAI's
+  shared-data tokens after a one-time consent, with a fair daily share. Pinned Core models need
+  Pro or credit. Details and limits live in `CORE_BILLING.md` and the proxy's `free-auto.ts` /
+  `paid-auto.ts`, not here.
+- **The allowance and the mark-up are CODE, and this file must not copy them.** The allowance is
+  `MONTHLY_GRANT_CENTS` in `supabase/functions/handle-lemon-webhook/index.ts`; the mark-up is
+  `MARKUP` in `atlarix-proxy/src/server.ts`. This section once copied both and was wrong both
+  times — it quoted an allowance the webhook had already raised, and described a mark-up that
+  netted far less as "40%" for months.
+- **A mark-up is not a margin.** It multiplies COST: at mark-up `m`, gross margin on credit spent
+  is `(m − 1) / m`, and LemonSqueezy's cut of money-in comes off before that, so the net at FULL
+  consumption is lower still. It is identical on Pro and PAYG, because both hand over $X of credit
+  for $X paid — the mark-up, not the price, sets the margin on both. Realised margin sits above
+  the full-consumption figure, because the allowance expires monthly and most subscribers
+  underspend.
 - **The ceiling on the mark-up is BYOK, which we give away and price-tag per reply.** The app
   shows the cost of every turn, so a user who can read that number and compare it to provider
-  list price has a free escape hatch built into the same dropdown. Realised margin also sits
-  above the full-consumption figure, because the allowance expires monthly and most
-  subscribers underspend.
-- **Do NOT publish the allowance figure.** Say "includes Core for everyday work". Denominating an allowance
-- **REVIEWER IS INCLUDED IN PRO. There is ONE product.** This section said the opposite until
-  2026-09-14 — "Atlarix Reviewer is $19/dev/mo" and "Pro and Reviewer are separate products,
-  link them with a discount, not inclusion" — and both were withdrawn on 2026-09-08 when
-  Reviewer folded into Pro, because the alternative asked a customer who had already paid $19
-  to pay $19 again. **The code is the proof, not this file:**
-  `handle-lemon-webhook/index.ts` declares `MONTHLY_GRANT_CENTS: Record<"pro", number>` — one
-  product, no classification step — and `20260908130000_drop_reviewer_subscriptions.sql`
-  dropped `reviewer_subscriptions`, `reviewer_entitlement_service` and
-  `upsert_reviewer_subscription_service`. **Verified absent from the live database
-  2026-09-14**, along with `credit_grants` holding exactly one product row: `pro`.
+  list price has a free escape hatch built into the same dropdown.
+- **Do NOT publish the allowance figure.** Say what it buys, never the dollars — the rule and its
+  reasoning are at the top of `src/shared/billing_copy.ts`.
+- **REVIEWER IS INCLUDED IN PRO. There is ONE product** (2026-09-08). The separate Reviewer
+  subscription was withdrawn because it asked a customer who had already paid $19 to pay $19
+  again. **The code is the proof, not this file:** `handle-lemon-webhook/index.ts` declares
+  `MONTHLY_GRANT_CENTS: Record<"pro", number>` — one product, no classification step — and
+  `20260908130000_drop_reviewer_subscriptions.sql` dropped `reviewer_subscriptions`,
+  `reviewer_entitlement_service` and `upsert_reviewer_subscription_service`.
 - **So there is one wallet, one allowance and one grant row per user.** `credit_grants` is
   still keyed `(user_id, product)` and `spend_from_wallet` still takes a preferred product —
   both are correct shapes to keep, and they are why a second product would need no schema
@@ -1402,35 +1330,24 @@ clear "log in first" at the top.
   allowance" loop, and spends the Pro allowance. **Right outcome, reached by a path that
   reads as though two products exist.** Do not "fix" it — it is the correct shape if a second
   product ever returns — but do not read it as evidence that one does.
-- **What is still true from the old reviewer pricing, and worth keeping:** no open-source
-  exemption (that was an INTENT never built, withdrawn 2026-09-04, spec §8 Rev 4 — the
-  reviewer has no repository-visibility logic, so a public repo hits the same gate and the
-  same debit as a private one); unlimited repos, because **nobody charges per repo** and
-  per-repo punishes microservice teams who have the most PRs and the most to gain; and it is
-  safe to give away because a dev's PR output is bounded by being human (~10/month regardless
-  of repo count). Seats become an upgrade when a team asks for one invoice — `github_installs`
-  already ties an installation to exactly one account, so that needs no seat detection, no LS
-  quantity API and no reconciliation job.
+- **What is still true from the old reviewer pricing, and worth keeping:** unlimited repos,
+  because **nobody charges per repo** and per-repo punishes microservice teams who have the
+  most PRs and the most to gain; and it is safe to give away because a dev's PR output is
+  bounded by being human, regardless of repo count. Seats become an upgrade when a team asks
+  for one invoice — `github_installs` already ties an installation to exactly one account, so
+  that needs no seat detection, no LS quantity API and no reconciliation job. The old "no
+  open-source exemption" line (withdrawn 2026-09-04; the spec now lives in the
+  `atlarix-reviewer` repo) is partly overtaken: the reviewer sends
+  `X-Atlarix-Repo-Visibility: public` for a public repo, and the proxy offers free Auto to that
+  request when the account has nothing to pay with. A private repo still needs Pro or credit.
 
-**Built 2026-08-26, APPLIED AND DEPLOYED (verified 2026-08-27):**
-
-> `supabase migration list --linked` shows `20260826130000` / `140000` / `150000` with local ==
-> remote on `oubgrpkqyyjwytspycpd`; `supabase functions list` shows `bind-github-install` ACTIVE v1,
-> `create-checkout` v26, `cancel-subscription` v25 and `handle-lemon-webhook` **v43 with
-> `verify_jwt: false`** — the one setting a deploy can silently re-arm, checked and correct.
-> The launchpad `/login` → `/reviewer/setup` → `/account` pages shipped the same day.
-
-- `supabase/migrations/20260826130000_subscription_credit_grants.sql` — `credit_grants`
-  (one row per user × product), `spend_from_wallet`, `wallet_spendable`,
-  `grant_monthly_credit_service`, `clear_monthly_grant_service`, and grant-first rewrites of
-  `debit_wallet` / `debit_wallet_service` / both balance reads.
-- `supabase/migrations/20260826140000_reviewer_subscriptions.sql` — `reviewer_subscriptions`,
-  `upsert_reviewer_subscription_service`, `reviewer_entitlement_service`, and `not_subscribed` added
-  to `review_history`'s CHECK.
-- `create-checkout` gained a `mode: "reviewer"`; `handle-lemon-webhook` gained
-  `subscription_payment_success`, product classification, and allowance grant/clear on both products.
-- Reviewer repo: an entitlement gate ahead of the wallet check, `last_error` cleared on success, and
-  `installation_repositories` no longer confusable with an install removal.
+**The credit-grant machinery (built 2026-08-26):**
+`supabase/migrations/20260826130000_subscription_credit_grants.sql` — `credit_grants` (one row per
+user × product), `spend_from_wallet`, `wallet_spendable`, `grant_monthly_credit_service`,
+`clear_monthly_grant_service`, and grant-first rewrites of `debit_wallet` /
+`debit_wallet_service` / both balance reads. `handle-lemon-webhook` handles
+`subscription_payment_success` and the allowance grant/clear. (The reviewer-subscription
+migration, checkout mode and entitlement gate built alongside it were removed 2026-09-08.)
 
 **Traps found while building it, worth not rediscovering:**
 
@@ -1443,12 +1360,8 @@ clear "log in first" at the top.
   repeated INSERTs safe, which assumes deltas add up. A replayed grant has to be refused _before_ any
   arithmetic — hence `credit_grants.ref`, checked first.
 - **One `granted_cents` column cannot serve two products.** With SET semantics, whichever subscription
-  renews second silently wipes the other's allowance. Caught while wiring the reviewer, before it
-  shipped; the per-(user, product) row makes it structurally impossible.
-- **`users.plan` could not hold the reviewer entitlement.** `users_plan_check` and
-  `users_effective_tier_check` pin it to ('free','pro'), and the same pair is typed in five more
-  places. But the real reason is that Reviewer is not a rung on that ladder — it is held with Pro,
-  without Pro, or alone — so a tier column would force a fake ordering.
+  renews second silently wipes the other's allowance. The per-(user, product) row makes it
+  structurally impossible, which is why it stays even with one product.
 - **`subscription_payment_success` carries a different payload shape.** Its object is an INVOICE, so
   `event.data.id` is the invoice id and the subscription comes from
   `attributes.subscription_id`. The `subscriptionId` every other case uses is the wrong value here.
@@ -1457,17 +1370,18 @@ clear "log in first" at the top.
   LemonSqueezy (a 4xx retries forever) and is exactly why the absent
   `subscription_payment_success` branch went unnoticed while the event was already subscribed on the
   LS side. If a paid behaviour does not fire, look for a missing case first.
-- **`review_history.kind` is CHECK-constrained**, so the worker's new `not_subscribed` outcome needed
-  the constraint widened or the insert would have raised 23514 on a path whose whole job is to decline
-  quietly.
+- **A CHECK-constrained outcome column needs widening with the code.** `review_history.kind` would
+  have raised 23514 on a path whose whole job was to decline quietly. (That outcome,
+  `not_subscribed`, is now historical only.)
 
 **How to apply the NEXT one, because this is not `db push`.** The local migration history is not in
 sync with hosted, so migrations go through the SQL editor and `supabase migration list --linked` is
-how you confirm one landed. **Re-check `verify_jwt` on `handle-lemon-webhook` after every deploy** —
-`supabase/config.toml` declares no `[functions.*]` section, so that setting lives only in the
-dashboard and a deploy can re-enable it, which would break every webhook (LemonSqueezy sends no JWT).
+how you confirm one landed. `verify_jwt` is now DECLARED per function in `supabase/config.toml`
+(since 2026-09-08) — before that it lived only in the dashboard and a deploy could re-enable it on
+`handle-lemon-webhook`, which would break every webhook (LemonSqueezy sends no JWT).
 
-**Refunds shipped in v14.38.0** and there is no longer a refund section below. Kept as a pointer because this paragraph is where someone reading the credit-grant work will look for it: the traps are in the shipped index, and `refund_grant_service` is the fifth service RPC.
+**Refunds shipped in v14.38.0.** Kept as a pointer because this is where someone reading the
+credit-grant work will look for it: the traps are in the shipped index, and
+`refund_grant_service` is the fifth service RPC.
 
 ---
-

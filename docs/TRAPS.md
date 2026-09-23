@@ -12,7 +12,7 @@ find twice.
 Each entry is kept in the words it was written in, at the moment it was measured. Where an
 entry says something has since changed, believe the code over the entry and fix the entry.
 
-**Last updated:** 2026-09-15
+**Last updated:** 2026-09-23
 
 ---
 
@@ -46,7 +46,7 @@ defend against.
 
 1. **All twelve call sites pass attacker-influenceable bodies, and several have byte 0 under
    the attacker's control** — an MCP server's tool description and its tool result
-   (`lib/tools/mcp.ts:174,389`), a search response, a PR title, command output. The guard did
+   (`lib/tools/mcp.ts:178,458`), a search response, a PR title, command output. The guard did
    not need a clever payload; it needed a prefix.
 2. **A stricter check does not fix it.** "Is this a COMPLETE envelope" still no-ops on a
    complete envelope followed by a second close tag. Content cannot prove its own provenance,
@@ -84,7 +84,8 @@ Related: the two $1M rows on `0d66d5eb…` are a deliberate permanent owner comp
 
 `MARKUP` multiplies COST. 1.4 charged $1.40 per $1.00 of inference — `0.40/1.40 = 28.6%`
 gross, and ~22.8% net once LemonSqueezy took 7.5% of money-in. Every doc called it "+40%"
-for months. It is 1.8 now, which nets ~40%. **The ceiling is BYOK**: free in the same app,
+for months. The live value is `MARKUP` in `atlarix-proxy/src/server.ts` (economics in
+`docs/CORE_BILLING.md`) — read it there rather than here. **The ceiling is BYOK**: free in the same app,
 with a per-reply cost on screen, so the escape hatch is one dropdown away.
 
 ### `signInWithOAuth` never returns an error — it rejects
@@ -110,8 +111,8 @@ caller was providing.
 
 "145+ providers and 4,400+ tool-capable models" sat in ten strings across seven files while
 the bundled catalogue carried 213 and ~6,590. Nobody caught it because the claim never became
-FALSE — it just stopped being impressive. Same shape as the TODO advertising a $10 allowance
-after it became $19: both halves were defensible in isolation. Derive anything a config or a
+FALSE — it just stopped being impressive. Same shape as the TODO advertising the old Pro
+allowance after it had been raised: both halves were defensible in isolation. Derive anything a config or a
 third party decides; `scripts/gen-readme-catalog.mjs` and the launchpad's
 `gen-core-lineup.mjs` are the two worked examples.
 
@@ -247,23 +248,15 @@ then invisible with nothing to explain why. It is unreachable (both insert paths
 it STAYS, because flipping a default in SQLite means rebuilding the table — the same cost as
 dropping the column. Changing it in `schema.ts` without a migration would be worse still: new
 installs would get one default and existing ones the other, so the schema would describe
-neither. Same reasoning kept `installed_skills.scope`, which is part of a composite primary
-key. **Narrow the TYPES, leave the columns.**
+neither. **Narrow the TYPES, leave the columns.**
 
-**Except that `installed_skills` itself goes in v14.45** — the whole table, via a NEW
-migration, because the skills marketplace is being deleted and nothing else reads it. That
+**`installed_skills` itself went in v14.45** — the whole table, via a NEW migration
+(`drizzle/0076_drop_installed_skills.sql`), because the skills marketplace was deleted and
+nothing else read it. That
 does not weaken the rule above: dropping a table nothing uses is not the same as changing a
 column that live code binds. The old migrations (`0042`, `0049`) and their journal entries
 stay exactly as they are — they are applied history keyed by hash, and rewriting them breaks
 every existing install's ledger.
-
-### A comment asking people to remember is not a control
-
-`SettingsList.tsx` opened with a comment saying an entry with no matching section "is a dead
-link that silently does nothing", and cited `team` as a past instance. Then the per-project
-move deleted the `workflow`, `mcp` and `skills` sections — and would have left three more
-dead entries, for exactly the reason the comment described. `settings-nav-parity.test.ts` is
-the control now (and was verified to FAIL against a reintroduced dead entry before being kept).
 
 ### Moving DNS: the zone is bigger than the zone you can see
 
@@ -306,7 +299,8 @@ email-auth call site anywhere, from which I concluded email signup was closed. I
 project had `"email": true, "disable_signup": false`, and the anon key that reaches it ships inside
 the app binary and the website bundle. **What your client calls places no limit on what anyone else
 can call with the same key.** The cost was a `$1`-per-account payout claimable without ever touching
-our UI.
+our UI. (The signup trial and its `claim_signup_credit()` RPC were removed outright on 2026-09-08;
+the rule is unchanged.)
 
 The check is one read-only request — `curl -H "apikey: <anon>" https://<ref>.supabase.co/auth/v1/settings`
 — and the general form is: enumerate the exposed surface from the SERVICE (auth settings, function
@@ -324,8 +318,9 @@ the provider's own login page is where bot defence actually applies. Before budg
 "does any auth endpoint take a credential in a request body I control?" If not, the item **closes**
 rather than defers. The trap is answering "add a CAPTCHA to login" without checking the auth _shape_
 — and its mirror, which caught me here: having concluded that, do not then assume there is nothing
-to protect. `claim_signup_credit()` is an RPC that pays out real money per account and _could_ carry
-a token. Auth flow and money flow are different questions.
+to protect. `claim_signup_credit()` (dropped 2026-09-08 with the signup trial) was an RPC that paid
+out real money per account and _could_ have carried a token. Auth flow and money flow are different
+questions — see the anon-key entry above.
 
 ### A `sql` template does not qualify its columns — a subquery can silently self-compare
 
@@ -389,8 +384,8 @@ latter, which is `tsc -p **tsconfig.app.json**` — and that is the project that
 (378 files, 3381 tests, `check:sandbox`) and then failed `quality` on the release push, 2026-08-29.
 
 **Run `npm run check:ts`, not a hand-rolled `tsc -p tsconfig.json`.** The launchpad has the mirror
-of this and its own note says so: "typechecked with tsconfig.app.json — the root tsconfig does not
-check src". Same shape, two repos. A gate that does not run CI's own command is not the gate.
+of this: its `check:ts` is also `tsc -p tsconfig.app.json`, and the root tsconfig does not check
+`src`. Same shape, two repos. A gate that does not run CI's own command is not the gate.
 
 ### An audit line that RE-DERIVES a decision will eventually state the opposite of it
 
@@ -683,7 +678,8 @@ query --linked` exists and needs no password:
   default PUBLIC grant on replace, so a migration written to NARROW a function widens it unless the
   `REVOKE … FROM PUBLIC` is re-asserted — and the migration succeeds either way. This is how
   `credit_wallet_service` became callable by anon (20260714150000). Re-asserting the revoke is half
-  the fix; confirming it stuck is the other half.
+  the fix; confirming it stuck is the other half. A plain `CREATE FUNCTION` grants EXECUTE to PUBLIC
+  too — REVOKE for every service-only DEFINER RPC.
 - **The source of truth for a `CREATE OR REPLACE` body is the newest MIGRATION that defines it** —
   never an audit snapshot, a docstring, or an older migration. `supabase/audit/prod_schema.sql` is
   **stale**: it predates the pricing-reframe teardown, which dropped `team_members`, `teams`,
@@ -695,7 +691,6 @@ query --linked` exists and needs no password:
 - **A verification fixture more generous than production verifies nothing.**
   `verify-ban-guard.mjs` invented `team_id`, `has_db_studio_legacy` and a `team_members` table, so it
   passed a body that could not run. Its column list now mirrors the live table.
-- **Postgres `CREATE FUNCTION` grants EXECUTE to PUBLIC** — REVOKE for service-only DEFINER RPCs.
 - **`created_at` defaults to `unixepoch()` — whole SECONDS.** Ties are undefined, so message order
   needs a **`rowid`** tiebreak; `id` is a random UUID, deterministic but WRONG. Worse, the DELETE
   paths sliced on that order, so a tie could delete the wrong message.
@@ -706,11 +701,13 @@ query --linked` exists and needs no password:
 - **`compass` is a WIRE id, not a vendor, and conflating them makes reasoning silently
   inert.** Rule, stated in the code: **dispatch keys off the wire provider; capability
   keys off the vendor** (`resolveDispatchCapabilityProviderId`).
-  `detectReasoningCapability` deliberately keeps the WIRE provider — it classifies which
-  request SHAPE a route accepts, not who serves the model, which is what routes an
-  OpenRouter-backed Core tier to the `reasoning` object while a direct-routed one gets
-  `reasoning_effort`. A tier's catalog id encodes the difference by itself (slashed =
-  OpenRouter, bare = direct), so no branch is needed. (v14.37.0)
+  `detectReasoningCapability` (`lib/routing/reasoning-detector.ts`) deliberately keeps the
+  WIRE provider — it classifies which request SHAPE a route accepts, not who serves the
+  model, which is what sends a slashed (OpenRouter-shaped) id to the `reasoning` object while
+  a bare, direct-routed id gets `reasoning_effort`. The catalog id encodes the difference by
+  itself (slashed = OpenRouter, bare = direct), so no branch is needed. Core is 100% direct
+  now, so production Core tiers are bare ids; the slashed shape remains for OpenRouter BYOK
+  and Core's dev-only no-proxy fallback. (v14.37.0)
 - **A camelCase `reasoningEffort` key sends NOTHING and throws nothing.** Provider option
   keys are wire contracts; a plausible-looking one is accepted and dropped. Assert on the
   DISPATCHED request body, never on the settings object. (v14.37.0)
@@ -792,8 +789,6 @@ matches` notice only prints for files named explicitly. Four of our own source f
 - **Never publish a fillable path in a prompt.** `~/.atlarix/projects/<slug>/memory/` is an
   invitation to complete it: the agent ran `find`, took a stale copy, and broke mid-session with the
   right path in context all along. Publish the RESOLVED path and say it is the only one.
-- **An error names the model that REPORTED it, not one that was ever loaded** — run the
-  device × dtype matrix before diagnosing.
 - **Measure the thing; do not infer it from a manifest.** vite 7+ was capped by reasoning about
   export conditions, and `require("vite")` resolves fine at 8.2.1 under both Node builds.
 - **Scope by what the repo contains, not by where you last looked.** The dyad-removal manifest
@@ -933,7 +928,7 @@ is _what happens when the list is incomplete_; the reasoning is in git and `DESI
   it. `tsc` catches it; a grep-and-replace does not. Prefer quote-free prose in model-facing strings.
 - **Retiring a feature leaves typed orphans a type-checker will not find.** §3 deleted the GitHub
   poller but left `GithubTriggerEventSchema` (a runtime value, so knip could not see it as an unused
-  type) and `GithubCursor`. Run `npx knip` AND grep the feature's noun after any deletion.
+  type) and `GithubCursor` (both since deleted). Run `npx knip` AND grep the feature's noun after any deletion.
 - **`keytar` / `mysql2` / `pg` — the premise was WRONG, and the residue is one line.**
   This was filed as "three staged deps that look unnecessary… real install cost and a
   build-failure surface", with a warning that removing them might crash the packaged app.
@@ -1202,11 +1197,13 @@ is _what happens when the list is incomplete_; the reasoning is in git and `DESI
 Proposed for deletion 2026-09-04 as "never in use". It is in use, end to end, and the chain is short
 enough to re-check in one grep — so this note exists to stop the next proposal:
 
-`browser.ts` calls `recordBrowserAction` at ~15 sites, and at `browser.ts:595-619` attaches
+`browser.ts` calls `recordBrowserAction` at ~14 sites, and at `browser.ts:557-588` attaches
 `sessionWalkthrough` (markdown, back-compat) and `sessionSteps` (structured) to the **screenshot**
-result → `tool-expand-view.ts:1226` reads `payload.sessionSteps` and at `:1237` produces
-`kind: "browser_recording"` → `ToolExpandPanel.tsx:43` renders `ToolBrowserRecordingExpand`. Covered
-by `tool-expand-view.test.ts:174-188` and `browser-recorder.test.ts`.
+result → `tool-expand-view.ts:1273` reads `payload.sessionSteps` and at `:1288` produces
+`kind: "browser_recording"` → `ToolExpandPanel.tsx:47` renders `ToolBrowserRecordingExpand`. Covered
+by `tool-expand-view.test.ts:219-241` and `browser-recorder.test.ts`. The browser it records is now
+the hidden per-window host (`src/ipc/utils/browser_view_manager.ts`) — the visible panel is gone,
+the recorder is not.
 
 **Why it FEELS unused, which is the real point:** its only trigger is
 `browser_inspect(mode:"screenshot")`, which the tool description deliberately calls a LAST RESORT.

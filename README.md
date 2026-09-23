@@ -225,7 +225,7 @@ call shown in the app.
 
 **One subscription, one balance.** Pro covers the desktop app and Atlarix Reviewer from a
 single monthly Core allowance — they are not billed separately and they do not hold
-separate balances. See [docs/compass-limits.md](docs/compass-limits.md).
+separate balances. See [docs/CORE_BILLING.md](docs/CORE_BILLING.md).
 
 ### Atlarix Reviewer
 

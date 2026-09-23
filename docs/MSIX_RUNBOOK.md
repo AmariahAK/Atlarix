@@ -18,10 +18,9 @@ How to build, sign, install, and verify the Atlarix MSIX package **by hand**.
 >
 > What this document IS for: getting a signed package onto a Windows machine so the
 > deep-system behaviour can be verified **inside the package container** — §4. That
-> verification was **confirmed by the owner on 2026-09-04** (the TODO entry that
-> recorded it has since been closed out; the history is in `git log -- docs/TODO.md`).
-> §4 is kept as the procedure to re-run after
-> any change to the sandbox helper, the protocol handler, or the payload binaries.
+> verification was **confirmed by the owner on 2026-09-04**. §4 is kept as the procedure
+> to re-run after any change to the sandbox helper, the protocol handler, or the payload
+> binaries.
 
 ---
 
@@ -54,11 +53,14 @@ the job builds the `.msix`, wraps it as `.msixupload`, and submits it to Partner
 Center in the same job, reading straight from `out/msix/`.
 
 `build-msix` **is** in `publish-release`'s `needs` (owner's rule, 2026-08-28), so a
-failure to BUILD the MSIX blocks the desktop publish as well. This page said the
-opposite until v14.42.0, which is the same wrong belief that let v14.38.3 ship
-desktop-only. Two safeguards remain:
+failure to BUILD the MSIX blocks the desktop publish as well: `publish-release` never
+runs and the draft stays invisible with all its assets attached. Recover with a job
+re-run, not a new tag. (Believing the opposite is what let v14.38.3 ship desktop-only.)
+Two safeguards remain:
 
-- Submission to Partner Center is `continue-on-error: true`, so a Store API outage
+- Submission to Partner Center (`scripts/store-submit.mjs`, Submission API v1, Azure AD
+  client credentials from the `AZURE_AD_TENANT_ID` / `AZURE_AD_CLIENT_ID` /
+  `AZURE_AD_CLIENT_SECRET` secrets) is `continue-on-error: true`, so a Store API outage
   cannot fail a release — only a failed build can.
 - The package is **not** uploaded to `atlarix-releases`. It is unsigned, and an
   unsigned `.msix` cannot be installed without the signer's certificate — publishing
@@ -88,6 +90,8 @@ tripped an Actions budget that blocked all CI. Retention is now 2 days.
   hardcodes `ARCH = "x64"`.
 - `upload_wrapper` defaults to off for manual runs (a test build doesn't need the
   Store wrapper) and on for release runs.
+- `runner` defaults to `windows-latest` (the VS 2026 image); `windows-2022` is kept as
+  a dispatch option for an A/B when a Windows build fails.
 
 The `atlarix-msix-x64` artifact then contains:
 
@@ -173,7 +177,7 @@ Import-Certificate -FilePath "$HOME\atlarix-msix-test.cer" `
 
 Uninstall the normal Atlarix (`Setup.exe`) install before testing deep links.
 With both present they compete for the `atlarix://` handler and you will misread
-the result — which is the single most important thing the spike measures.
+the result — and the protocol handler is the most important thing §4 checks.
 
 ---
 
@@ -219,20 +223,17 @@ Run the automated probes first, then the three things no probe can cover.
 
 > This was written as a gate to clear _before_ submitting to the Store. That gate has
 > been passed: the app is listed, certification succeeded, and submission is
-> automated. Confirming that the deep-system features actually behave inside the
-> package container on real Windows was the last open piece, and the owner
-> **confirmed it on 2026-09-04** along with the Low-IL sandbox, on-device voice and
-> the `taskkill` process-tree kill. The TODO entry that recorded it has since been
-> closed out; the history is in `git log -- docs/TODO.md`.
+> automated. The owner **confirmed the in-container behaviour on 2026-09-04**, along
+> with the Low-IL sandbox and the `taskkill` process-tree kill. (On-device voice was
+> confirmed then too; it was removed in v14.50.0 and is no longer part of this check.)
 
 ### 4a. Baseline on the Squirrel build (do this FIRST)
 
 Capture a baseline on a normal install before uninstalling it, so any failure inside
 MSIX is attributable to MSIX rather than to the thing being tested.
 
-> **Note:** older builds have only 4 probes. The `context`, `child-exec`,
-> `fs-outside-container` and `sandbox` probes were added later, so a baseline taken
-> from a pre-14.28 build will report `PASSED (4/4)` — that is complete, not missing.
+> **Note:** older builds report fewer probes. Diff by probe NAME, not by count — a
+> baseline from an older Squirrel build that lacks a probe is complete, not failing.
 
 > **Do not use `npm run self-test:packaged` for this.** It sets
 > `E2E_TEST_BUILD=true`, which redirects the app's data paths
@@ -260,8 +261,9 @@ atlarix.exe --self-test
 Get-Content $env:ATLARIX_SELF_TEST_OUT
 ```
 
-Expected probes: `pty-spawn`, `proxy-worker`, `ripgrep`, `ai-sdk-deps`, `context`,
-`child-exec`, `fs-outside-container`, `sandbox`.
+Expected probes (the list in `src/main/self-test.ts` is the authority): `pty-spawn`,
+`sqlite`, `proxy-worker`, `ripgrep`, `ai-sdk-deps`, `context`, `child-exec`,
+`fs-outside-container`, `sandbox`.
 
 **Diff the MSIX log against the Squirrel baseline.** What to look for:
 
@@ -270,6 +272,7 @@ Expected probes: `pty-spawn`, `proxy-worker`, `ripgrep`, `ai-sdk-deps`, `context
 | `context`              | `windowsStore=true` confirms the MSIX branch is live. **Compare `userData=` against the baseline** — if it differs, a Squirrel user switching to the Store build gets a fresh profile (no workspaces, chats, or credentials) and we need a migration. Record the value either way.                         |
 | `child-exec`           | Proves a command actually _executed_ (asserts on exit code, unlike `pty-spawn`). The `git=` field surfaces how an external dev tool resolves under inherited package identity.                                                                                                                             |
 | `fs-outside-container` | A `REDIRECTED` note means writes to `$HOME` are being sent elsewhere by the container — that would be a serious finding.                                                                                                                                                                                   |
+| `sqlite`               | The `better-sqlite3` native module loads and round-trips a row. A failure is an ABI mismatch or a prune that lost the unpacked binary.                                                                                                                                                                       |
 | `pty-spawn`            | Terminal spawning via conpty. Note: on Windows this probe is weak — it writes `printf` into a PowerShell pty and PowerShell has no `printf`, so the marker appears in the _error_ text. Trust `child-exec` for execution; trust this one only for "node-pty loads and streams".                            |
 | `sandbox`              | The write-confining sandbox, end to end: write-inside allowed, write-outside denied, **read-outside allowed**, a non-system binary execs, `truncate` outside denied. A failure here is a real finding — this is the probe that exists because the AppContainer helper shipped broken for several releases. |
 
@@ -302,36 +305,13 @@ Expected probes: `pty-spawn`, `proxy-worker`, `ripgrep`, `ai-sdk-deps`, `context
 7. **CLI entry point** — `atlarix C:\some\repo` should open that folder as a
    workspace.
 
-A green probe table plus 1–7 by hand is the go/no-go for Store submission.
+A green probe table plus 1–7 by hand is the go/no-go after a change to any of the above.
 
 ### Teardown
 
 ```powershell
 Get-AppxPackage *Atlarix* | Remove-AppxPackage
 ```
-
----
-
-## 5. Completed
-
-All items shipped:
-
-- **Store listing** — live at `https://apps.microsoft.com/detail/9p3rr11dvzpw`.
-- **`runFullTrust` justification** — approved by Microsoft.
-- **Lemon Squeezy / IAP note** — approved.
-- **Certification passed** — Microsoft re-signs with a trusted certificate.
-- **Release automation** — `release.yml` calls `msix.yml` on every `v*` tag.
-  **GATING as of 2026-08-28** — `build-msix` IS in `publish-release`'s `needs`
-  (`release.yml:913`). This line previously said the opposite, and that belief is
-  exactly what shipped v14.38.3 desktop-only when MSIX failed on an npm race and
-  nothing was gated on it. If the MSIX BUILD fails, `publish-release` never runs
-  and the draft stays invisible with all its assets attached — recover with a job
-  re-run, not a new tag. Store SUBMISSION failing blocks nothing
-  (`continue-on-error: true`).
-- **Automated Store submission** — `scripts/store-submit.mjs` uses the Partner
-  Center Submission API v1 (Azure AD client credentials). Triggered on release
-  tags, `continue-on-error: true`. Requires three GitHub secrets:
-  `AZURE_AD_TENANT_ID`, `AZURE_AD_CLIENT_ID`, `AZURE_AD_CLIENT_SECRET`.
 
 ---
 
@@ -345,5 +325,5 @@ All items shipped:
 | `.github/workflows/msix.yml`           | the MSIX build — manual (`workflow_dispatch`) **and** called by `release.yml` on every `v*` tag. **The authority on what CI does; this document is not.** |
 | `scripts/store-submit.mjs`             | automated Partner Center submission (Submission API v1)                                                                                                   |
 | `src/main/update-helpers.ts`           | `chooseUpdaterKind` returns `none` for Store installs                                                                                                     |
-| `src/main/self-test.ts`                | the spike probes                                                                                                                                          |
+| `src/main/self-test.ts`                | the self-test probes                                                                                                                                      |
 | `src/main.ts`                          | `IS_MICROSOFT_STORE_BUILD`; skips runtime protocol registration                                                                                           |

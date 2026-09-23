@@ -1,245 +1,177 @@
-# Chrome Web Store submission — Atlarix
+# Chrome Web Store listing — Atlarix
 
-Everything the dashboard asks for, written out so it is composed here rather
-than in a web form. Paste from this file.
+The store copy for the extension, and how it gets to the store.
 
-**Account facts** (verified 2026-09-12): `amariah@atlarix.dev`, $5 one-time fee
-paid, trader declaration filed, new publishers capped at 2 items. The draft item
-already exists — its id is `fkoacefbjjjhjceidagdajkgclfjacbe`, which is pinned in
-`packages/extension/manifest.json` and in `src/auth/redirect.ts`. This is an
-UPDATE to that draft, not a new item.
+**Item:** `fkoacefbjjjhjceidagdajkgclfjacbe`, published. The id is pinned by the manifest `key`
+in `packages/extension/manifest.json`, and used by `packages/extension/src/auth/redirect.ts`
+and `src/lib/bridge/host-install.ts`. Publisher account: `amariah@atlarix.dev`.
 
----
+**Where each field's text lives:**
 
-## Blockers to clear first
+| Dashboard tab             | Source                                                                      |
+| ------------------------- | --------------------------------------------------------------------------- |
+| Store listing → short and detailed description | this file (below); the detailed text is pasted from `cws/DESCRIPTION.txt`, which must match it |
+| Privacy (single purpose, every permission, remote code, data use, host permission) | `cws/PRIVACY-FORM.md` |
+| Access → Test instructions | `cws/TEST-INSTRUCTIONS.txt` (credentials go in the dashboard, not the file) |
+| Screenshots and promo tiles | `cws/*.png`                                                               |
 
-1. **Publisher display name still reads `amariah`.** It appears on the public
-   listing. Change it to **NorahLabs** in the developer dashboard's Account
-   settings before anything is public. This is the one item that cannot be fixed
-   after the fact without a visible edit.
-2. **The trader declaration publishes a legal name, phone and address** at the
-   bottom of the listing. Use NorahLabs' registered address, not a home one.
-3. ~~Decide the version.~~ **DONE — `1.0.0`**, set in both
-   `packages/extension/manifest.json` and `packages/extension/package.json`
-   (the build asserts they agree).
-4. **The extension work is on the `dev` branch.** Decide whether the submitted
-   zip should be built from `main` first.
-5. **Screenshots do not exist yet** — see the shot list below. This is the only
-   item that needs the extension running in front of a human.
+Run `node scripts/cws-copy-check.mjs` before pasting anything. It enforces the
+1,000-character field limit and the line shape that got v1.0.0 rejected ("Spam and Placement
+in the Store — excessive keywords", for a description line naming six file formats).
+
+The Store API sets the PACKAGE and nothing else. Description, screenshots and
+justifications are dashboard-only, so a green CI run never means the listing is current.
 
 ---
 
-## Single purpose
+## What the extension does today
 
-> Atlarix is a browser agent: it reads and acts on the pages you are already
-> signed into, in a side panel, so you can ask for something across sites you
-> already have access to instead of copying and pasting between them.
+Checked against the code on 2026-09-23. Anything the listing claims should be on this list.
+
+- **A side-panel agent.** The whole UI is the side panel (`side_panel` in the manifest); in a
+  Chromium without `chrome.sidePanel` (Arc), the toolbar button opens the same page in a
+  window. Opening the panel starts a new conversation.
+- **Reads and acts on pages:** `read_page`, `find_on_page`, `click`, `fill`, `press_key`,
+  `hover`, `scroll`, and `screenshot` (declined up front when the selected model cannot see
+  images). Tabs: `list_tabs`, `open_tab`, `close_tab`; tabs it opens go into an "Atlarix" tab
+  group, and it only closes tabs in that group. Tool list:
+  `packages/extension/src/tools/schemas.ts`.
+- **Asks per site in the panel.** The panel's agent asks the first time it touches a site
+  (reading included); grants are listed and revocable from the panel and the account page. Password, payment,
+  download and destructive actions always ask, whatever the site grant
+  (`src/lib/browser/always-ask.ts`). Filling a form stops short of submitting unless the user
+  asked it to submit (the agent prompt, `packages/extension/src/agent/prompt.ts`).
+- **Pairs with the desktop app** over native messaging (`dev.atlarix.bridge`). Requests from
+  the desktop run without a per-site prompt; host access is a REQUIRED permission for that
+  reason, and users narrow it from chrome://extensions.
+- **Attachments, relics and files.** Attach a document or spreadsheet and it reads the whole
+  file on the device; `create_relic` builds a self-contained page opened in its own tab;
+  `run_code` builds a file (CSV, workbook, PDF, image, zip) offered as a Download card. Relics
+  and `run_code` execute only in the manifest's `sandbox` pages with `connect-src 'none'`.
+- **Also:** `web_search`, notes (`remember` / `read_note` / `forget_note`), `recall` of earlier
+  conversations, `ask_user`, and the account's MCP connectors (`list_available_mcps`,
+  `mcp_call`).
+- **Conversations sync** across devices as what was said (messages, replies, one-line tool
+  labels, compaction summaries). Raw tool results, including page text, never sync
+  (`packages/extension/src/sessions/sync.ts`).
+- **Models: Atlarix Auto is the default** (`chooseModel`, `packages/extension/src/panel/model-choice.ts`).
+  With no credit it is free after a one-time OK to share its prompts with OpenAI; with Pro or
+  credit it is paid and private. Pinned Core models need Pro or credit. The extension is
+  Core-only: there is no BYOK path in it. See [`CORE_BILLING.md`](./CORE_BILLING.md).
 
 ---
 
 ## Short description (132 characters max)
 
-> Ask Atlarix to read and act on the pages you are already signed into — in a
-> side panel, on the sites you allow.
-
-*(118 characters.)*
+> An AI agent in a side panel that reads and acts on the pages you are already signed into.
+> Free to start with Atlarix Auto.
 
 ---
 
 ## Detailed description
 
-> Atlarix is an AI agent that works inside the browser you already use, with the
-> sessions you are already signed into. Open the side panel, ask for something,
-> and it reads the page, follows links, fills forms and pulls the answer
-> together — without asking you to copy anything into a chat window.
+`cws/DESCRIPTION.txt` is what gets pasted; keep it identical to this block.
+
+> Atlarix is an AI agent that works inside the browser you already use, with the sessions you
+> are already signed into. Open the side panel, ask for something, and it reads the page,
+> follows links, fills forms and pulls the answer together — without asking you to copy
+> anything into a chat window.
 >
-> **The in-panel agent asks the first time it touches a site.** Every site it has
-> worked on is listed and revocable from the panel or your account. Chrome will
-> tell you at install that Atlarix can read and change data on all websites —
-> that is required for the desktop app to drive the browser without a second
-> prompt, and you can narrow it to chosen sites from your browser's extensions
-> page at any time.
+> YOU DECIDE WHERE IT WORKS
+> In the side panel, Atlarix asks the first time it touches a site, and every site it has
+> worked on is listed and revocable from the panel or your account. Passwords, payments,
+> downloads and anything destructive always stop and ask, whatever you have allowed.
+> Atlarix also pairs with its own desktop app, and what you ask for there runs without a
+> second prompt in the browser — you already asked for it in the app. You can narrow Atlarix
+> to chosen sites from your browser's extensions page at any time.
 >
-> **It fills forms but never submits them.** Anything that sends, buys, posts or
-> deletes stops and asks you first.
+> IT FILLS FORMS, AND LEAVES SUBMITTING TO YOU
+> Unless you ask it to submit, it fills the form and stops.
 >
-> **What you can do with it**
-> - Read and summarise the page you are on, or a tab you have not opened yet
-> - Work across several tabs at once — compare, cross-reference, collect
-> - Attach files and ask about them: text and code, images, PDFs, Word, Excel,
->   PowerPoint, OpenDocument and EPUB. Nothing is truncated; Atlarix reads as
->   much of a file as the question needs.
-> - Ask for a relic — a self-contained chart, table or calculator it builds for
->   you and you open in its own tab
-> - Pick up a conversation on another device, because what was said follows your
->   account
+> WHAT YOU CAN DO WITH IT
+> • Read and summarise the page you are on, or a tab you have not opened yet
+> • Work across several tabs at once — compare, cross-reference, collect
+> • Let it click, type, scroll and take a screenshot to check what it sees
+> • Attach a document or a spreadsheet and ask about it. Atlarix reads the whole file, not
+>   the first page of it
+> • Ask for a relic: a self-contained chart, table or calculator it builds for you and you
+>   open in its own tab
+> • Ask for the answer as a file instead of a message, and it writes one you can download
+> • Pick a conversation back up on another device, because what was said follows your account
 >
-> **What stays on your device.** The contents of pages Atlarix reads never leave
-> your machine, and neither do the files you attach. What syncs to your account
-> is what was said — your messages and its replies — so a conversation can be
-> continued elsewhere. Page content is not part of that.
+> WHAT SYNCS, AND WHAT DOES NOT
+> Page text goes to the model to answer what you asked. It is never synced to your account:
+> what syncs is what was said — your messages and its replies — so a conversation can be
+> continued elsewhere. The files you attach stay on your device; only what the model reads
+> from them is sent to it.
 >
-> Atlarix requires an account. See atlarix.dev/privacy and atlarix.dev/data-use.
+> Every tab Atlarix opens is collected into a labelled group, so you can see at a glance what
+> it has touched.
+>
+> WHAT IT COSTS
+> Atlarix requires an account. It starts on Atlarix Auto, which is free once you agree to
+> share those prompts with OpenAI to improve their models, with a fair daily share for
+> everyone. Atlarix Pro, or pay-as-you-go credit, makes Auto private and unlocks every
+> Atlarix Core model. You always see what a conversation is using in the panel.
+>
+> Read how we handle data at https://atlarix.dev/privacy and https://atlarix.dev/data-use
 
 ---
 
-## Permission justifications
+## Permissions
 
-The dashboard asks for one per permission. Each of these is the real reason,
-phrased for a reviewer who has not read the code.
+The manifest's list, for spotting a change. Each one's justification is in
+`cws/PRIVACY-FORM.md`; a permission added to `manifest.json` needs its justification written
+there and pasted by hand, and moves the next review onto the manual track.
 
-**`identity`**
-> Used solely for sign-in. Atlarix requires an account, and
-> `chrome.identity.launchWebAuthFlow` runs the OAuth flow against our own
-> authentication service. No contacts, profile or other identity data is read.
+`identity`, `storage`, `unlimitedStorage`, `sidePanel`, `tabs`, `scripting`, `tabGroups`,
+`debugger`, `nativeMessaging`, `alarms`, and `host_permissions` `http://*/*` +
+`https://*/*` (REQUIRED since 2026-09-17).
 
-**`storage`**
-> Conversations, the user's saved notes, their site-access grants and their
-> model preference are kept locally so the panel survives being closed.
-
-**`unlimitedStorage`**
-> Files the user attaches are kept on the device rather than uploaded to a
-> server, and are deliberately never truncated, so that the model can read a
-> whole spreadsheet or log. The default 10 MB quota is shared with conversation
-> history and a single large attachment exhausts it, which would silently stop
-> conversations saving. Nothing is uploaded in exchange for this.
-
-**`sidePanel`**
-> The entire user interface is a side panel. There is no other surface.
-
-**`tabs`**
-> To read the title and URL of the tab the user is asking about, to open a tab
-> when asked, and to keep the agent's own tabs in a labelled group separate from
-> the user's. Browsing history is never read, stored or transmitted.
-
-**`scripting`**
-> To inject the reading and interaction scripts into a page the user has
-> explicitly granted access to. Injection is gated on that per-site grant and
-> happens nowhere else.
-
-**`tabGroups`**
-> Tabs the agent opens are collected into a group titled "Atlarix" so the user
-> can see at a glance what it has touched, and closing that group stops the
-> agent. It is the product's visible boundary and its stop gesture.
-
-**`debugger`** — *expect this one to draw questions; answer it fully*
-> Used only to dispatch trusted keyboard and mouse events to a page the user has
-> granted access to. `chrome.debugger` is the only API in Chrome that can
-> produce events with `isTrusted = true`, and untrusted synthetic events are
-> silently ignored by the web platform for the two cases that matter most:
-> Enter-to-submit on a form, and CSS `:hover` states that reveal menus. Without
-> it the agent appears to click and nothing happens. It is attached only to a
-> tab the user has granted, only for the duration of an action, and is never
-> used to read network traffic or page memory.
-
-**`host_permissions` (`http://*/*`, `https://*/*`)**
-> REQUIRED, as of 2026-09-17. Atlarix pairs with its own desktop application,
-> and a request the user has already made in that app must not raise a second
-> prompt in a browser window they are not looking at — which is what an optional
-> permission forced, since `permissions.request()` needs a user gesture and
-> cannot be called from a service worker.
->
-> The in-panel agent nevertheless still asks the first time it touches a site,
-> and keeps its own per-origin record that Chrome's blanket grant does not fill
-> in; a smaller set — downloads, credential entry, payment entry — always asks
-> and cannot be unlocked by granting a site. Users narrow access from
-> chrome://extensions.
-
-<!-- Corrected 2026-09-18. This section described `optional_host_permissions`
-     and claimed "the extension ships with access to no sites at all", which
-     stopped being true on 2026-09-17 and is the opposite of what the install
-     prompt now says. It is listing copy, so it was wrong in public. -->
+**`debugger` is used for more than input now.** It dispatches trusted keyboard and mouse
+events (`Input.*`), records console and network activity in the agent's own tabs (`Runtime.*` /
+`Network.*`, `packages/extension/src/page/cdp-capture.ts`, since v14.48.0), and captures
+screenshots of the agent's own tabs (`Page.captureScreenshot`, since 2026-09-23), staying attached
+for the life of such a tab. Any justification that says it is "never used to read network
+traffic" or is attached "only for the duration of an action" is out of date; see the open
+item in `docs/TODO.md`.
 
 ---
 
-## Remote code
+## Screenshots
 
-**Answer: Yes — and the justification matters.**
+1280×800 (preferred) or 640×400, up to five, from a clean profile with no personal tabs, one
+theme throughout. `cws/fit-screenshot.py` fits a capture to size.
 
-> Atlarix can build a "relic": a single self-contained HTML document, generated
-> in response to the user's request, which the user opens by clicking. It is not
-> fetched from a third party and it is not part of the extension's own logic.
->
-> It executes only inside a page declared under the manifest's `sandbox` key,
-> which Chrome loads into an opaque origin with no access to extension APIs, no
-> same-origin handle back to the extension, and `postMessage` as its only
-> channel. The sandbox's Content Security Policy additionally sets
-> `connect-src 'none'`, `form-action 'none'`, `object-src 'none'` and a
-> restricted `img-src`, so a relic has no network access of any kind and cannot
-> exfiltrate anything.
->
-> This is the pattern Chrome's own remote-hosted-code guidance names for exactly
-> this case: code that must be executed but is not trusted belongs in a
-> sandboxed iframe where "the Content Security Policy that blocks the usage of
-> eval can be lifted". The extension's own pages remain under the default MV3
-> policy with no `unsafe-eval` and no `unsafe-inline`, and no code outside the
-> sandbox is ever fetched or evaluated at runtime.
+In `cws/` today: `screenshot-1-relic.png`, `screenshot-2-reading.png`,
+`screenshot-3-permission.png`, `screenshot-4-attachment.png`, `screenshot-5-preview.png`, plus
+the `promo-small-440x280.png` and `promo-marquee-1400x560.png` tiles.
+
+None of them shows Atlarix Auto as the selected model, the agent acting on a page (click or
+fill with the pointer and the green frame), or a screenshot in the conversation. Worth
+retaking the reading shot with the model chip on Auto.
+
+Avoid any real email address, signed-in personal account, or page with a name or balance on it.
 
 ---
 
-## Data use disclosures
+## How a build reaches the store
 
-Tick, with the reason:
+- **Every desktop release** (`v*` tag): `release.yml` builds the extension and attaches
+  `atlarix-extension-<version>.zip` to the release. It calls `.github/workflows/cws.yml` to
+  upload and submit only when `scripts/extension-changed.mjs` says the bundle's inputs
+  changed since the previous tag, and only while the `CWS_AUTO_SUBMIT` repo variable is
+  `true`.
+- **Between desktop releases:** push an `ext-v<version>` tag, which runs `cws.yml` directly.
+  The extension's version is the app's (`scripts/sync-extension-version.mjs`).
+- **Manual:** dispatch `cws.yml`. It defaults to `trustedTesters`, can upload a draft without
+  submitting, and can stage a public rollout by percentage.
+- Submission never gates a release, and a submitted review cannot be recalled.
+- `cws-keepalive.yml` keeps the API refresh token alive.
 
-- **Personally identifiable information** — yes: an email address, for
-  authentication only.
-- **Authentication information** — yes: the session token for the user's own
-  Atlarix account.
-- **Website content** — yes, and be precise in the note: page content is sent to
-  the language model to answer the question the user asked, and is not retained
-  after the response. It is not stored on our servers, not used for training,
-  and not synced between devices.
-- **User activity** — no.
-- **Personal communications, financial, health, location** — no.
+Local build: `npm run build:extension` writes `packages/extension/dist/atlarix-extension-<version>.zip`.
 
-Three certifications to accept: data is not sold to third parties; data is not
-used for purposes unrelated to the single purpose; data is not used to determine
-creditworthiness or for lending.
-
-Privacy policy URL: `https://atlarix.dev/privacy`
-
----
-
-## Screenshot shot list
-
-1280×800 (preferred) or 640×400, at least one, up to five. Use a clean profile
-with no personal tabs visible, and a light or dark theme consistently.
-
-1. **The panel answering about a page** — the side panel open beside a real
-   article, mid-answer, with an activity card visible. This is the product in
-   one image and should be first.
-2. **Per-site access** — the grant prompt or the site list, which is the
-   strongest differentiator and the answer to "what can it see".
-3. **An attachment** — a spreadsheet attached and a question about it, showing
-   the chip in the transcript.
-4. **A relic** — the relic tab open with a chart or calculator in it.
-5. **Tab work** — the "Atlarix" tab group with two or three tabs it opened.
-
-Avoid: any real email address, any signed-in personal account, any page with a
-name or balance on it.
-
----
-
-## Submission steps
-
-1. Clear the blockers above — publisher name first.
-2. `npm run build:extension` and take
-   `packages/extension/dist/atlarix-extension-<version>.zip`.
-3. Developer dashboard → the existing item → **Package** → Upload new package.
-4. **Store listing** — paste the description, upload screenshots, set the
-   category (Productivity / Workflow & Planning), language, and the privacy
-   policy URL.
-5. **Privacy practices** — paste the single purpose, every permission
-   justification, the remote-code justification, and tick the data disclosures.
-6. **Distribution** — **public**, decided 2026-09-14.
-7. Submit for review. Expect days, not hours, and expect `debugger` to be the
-   thing they ask about.
-
----
-
-## Before pressing submit
-
-One full pass on the built extension by a human, in the browser, because
-everything shipped today was verified by unit tests and isolated probe pages:
-attachments (including a real `.xlsx`), paging a large file, chip folding,
-headings in an answer, a relic that opens, per-site grants, and sign-in.
+**By hand, whenever the copy or permissions change:** paste the changed blocks from this file
+and `cws/PRIVACY-FORM.md` into the dashboard, upload any new screenshots, and make sure the
+review account named in the dashboard's test instructions still works (see
+`cws/PRIVACY-FORM.md`, "Access → Test instructions").
