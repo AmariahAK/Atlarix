@@ -282,16 +282,16 @@ const FEATURES: ToolFeature[] = [
     id: "agent-browser",
     title: "Agent browser & dev-server testing",
     shortDescription:
-      "Open your local dev server (or any site) in a browser tab the agent can drive — navigate, click, fill, and verify.",
+      "The agent opens your local dev server (or any public site) in its own background browser and drives it — navigate, click, fill, screenshot, and verify. For sites you are signed into, it works in your Chrome through the Atlarix extension.",
     category: "browser",
     steps: [
       "Start the dev command from Build",
-      "Open its URL in a Browser tab",
-      "Let the agent navigate/click/fill and check the Errors tab",
+      "Ask the agent to open the URL and test the flow",
+      "Check the Errors and Network tabs in the right panel",
     ],
     howItWorks:
-      "The browser tabs capture runtime errors (console, uncaught exceptions with stack, failed requests) into the Errors tab, so UI failures line up with code.",
-    link: { label: "Right panel → Browser", to: "/" },
+      "The agent's browser captures runtime errors (console, uncaught exceptions with stack, failed requests) into the Errors and Network tabs, so UI failures line up with code. Anything that needs your logins goes to your own Chrome via the extension.",
+    link: { label: "Right panel → Errors", to: "/" },
   },
   {
     id: "websearch",
@@ -373,7 +373,7 @@ export default function ToolsPage() {
                 features" named the Team tier that was killed in the pricing reframe.
                 Both were advertised here after they stopped existing. */}
             What the desktop app can do today — modes, attachments, search,
-            Agent Behaviors, MCP, the browser, and automations.
+            skills, MCP, the browser, and automations.
           </p>
         </div>
 
@@ -381,9 +381,9 @@ export default function ToolsPage() {
           <p className="font-medium text-foreground mb-1">Models</p>
           <p className="text-muted-foreground mb-2">
             {CORE_PAYMENT_SUMMARY} Every feature is on every plan — workspaces,
-            the Agent Behaviors and MCP marketplaces, one-click connectors,
-            automations — plus your own keys and local models. What you pay for
-            is Atlarix Core inference.
+            skills, the MCP marketplace, one-click connectors, automations —
+            plus your own keys and local models. What you pay for is Atlarix
+            Core inference.
           </p>
           {/* The live lineup, so this card states what is ACTUALLY configured rather
               than a hardcoded count. `useAtlarixCoreCatalog` omits unmapped slots, so

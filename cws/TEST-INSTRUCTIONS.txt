@@ -1,6 +1,7 @@
-Atlarix requires an account, and the agent runs on paid credit — a brand-new
-account has a zero balance and will refuse to start a turn. Please use the
-account below, which is funded for review.
+Atlarix requires an account. Please use the account below, which has credit
+for review, so the default model (Atlarix Auto) runs as the paid, private
+version. (A brand-new account with no credit can also use Atlarix Auto for
+free, after accepting a one-time notice that free use is shared with OpenAI.)
 
 SIGNING IN
 1. Click the Atlarix icon to open the side panel.
@@ -13,15 +14,17 @@ SIGNING IN
 WHAT TO TRY (about two minutes)
 1. Open any article, for example https://en.wikipedia.org/wiki/Antikythera_mechanism
 2. In the panel, ask: "What is this and what do researchers still disagree about?"
-3. Atlarix will ask for permission to read that one site. Chrome's own
-   permission prompt appears — click Allow. Access is requested per site, at the
-   moment it is needed; the extension holds no host access at install.
+3. The first time Atlarix works on a site, the panel asks you to allow it —
+   click Allow. That per-site list is visible and revocable from the panel menu.
 4. It reads the page and answers. The activity card above the answer expands to
    show exactly what it did.
 
 OPTIONAL, IF YOU WANT TO SEE THE REST
 - Attach a file with the + button and ask a question about it. Text, images,
-  PDFs and Office documents are read on the device; nothing is uploaded.
+  PDFs and Office documents are parsed on the device and kept there; the parts
+  the question needs are sent to the model with it.
+- Ask "open example.com in a new tab and take a screenshot of it". Atlarix
+  opens its own tab (in the "Atlarix" tab group) and shows what it saw.
 - Ask "make me a relic that converts currencies". This generates a small
   self-contained HTML document which opens in its own tab.
 - Ask "make me a CSV of the ten largest countries by area". Atlarix writes the
@@ -37,11 +40,13 @@ OPTIONAL, IF YOU WANT TO SEE THE REST
   panel menu, or at atlarix.dev/account.
 
 NOTES FOR REVIEW
-- The "debugger" permission is used only to dispatch trusted keyboard and mouse
-  input to a granted tab, because it is the only API in Chrome that produces
-  events with isTrusted = true. Without it, pressing Enter to submit a form and
-  CSS :hover menus do nothing. It attaches to one granted tab for the duration
-  of an action and detaches immediately. It is never used to read network
-  traffic, evaluate script, or observe an ungranted tab.
+- The "debugger" permission is used only on tabs Atlarix itself opened (its
+  "Atlarix" tab group) and refuses any tab you opened. There it sends trusted
+  keyboard and mouse input (the only API giving isTrusted events — without it
+  Enter does not submit and :hover menus do not open), records that tab's
+  console and network activity so the agent can explain a failing page, and
+  takes screenshots of it. Chrome's "started debugging" banner shows on those
+  tabs while they are open. It never inspects memory, sets breakpoints or
+  evaluates script.
 - Atlarix fills forms but never submits them. Anything that sends, buys, posts
   or deletes stops and asks the user first.

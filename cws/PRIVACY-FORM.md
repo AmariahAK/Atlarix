@@ -88,11 +88,11 @@ It is also the stop gesture: closing the group ends the run. This is the product
 ## debugger
 
 ```
-Used only to dispatch trusted keyboard and mouse input to a page the user has explicitly granted Atlarix access to.
+Used only on tabs Atlarix itself opened — the tabs in its own "Atlarix" tab group. It refuses to attach to any tab the user opened.
 
-chrome.debugger (Input.dispatchKeyEvent / Input.dispatchMouseEvent) is the only API in Chrome that produces events with isTrusted = true. Synthetic events created any other way are ignored by the web platform for the two cases that matter most: pressing Enter to submit a form, and CSS :hover states that reveal menus and dropdowns. Without this permission the agent appears to click and type while nothing happens.
+On those tabs it does three things. It dispatches trusted keyboard and mouse input (Input.dispatchKeyEvent / dispatchMouseEvent): the only API that produces isTrusted events, without which Enter does not submit a form and :hover menus never open. It records the tab's console messages and network requests (Runtime and Network domains) from when the tab opens, so the agent can tell the user why a page failed. And it captures a screenshot of the tab (Page.captureScreenshot) when the user's task needs to see the page.
 
-It is attached to a single granted tab, only for the duration of the action, and detached immediately afterwards. We do not use it to read network traffic, inspect memory, set breakpoints, evaluate script, or observe any tab the user has not granted.
+It stays attached while that agent tab is open, so Chrome shows its "started debugging" banner on it, and detaches when the tab closes or the run ends. We do not use it to inspect memory, set breakpoints, or evaluate script, and never on a tab the user opened.
 ```
 
 ## nativeMessaging
@@ -108,9 +108,9 @@ Atlarix has a companion desktop app. This permission lets the extension talk to 
 
 One host only: dev.atlarix.bridge, a small relay shipped inside the desktop app. It makes no network connections — it passes messages between Chrome and a local socket on the same machine. Its manifest names this extension's ID as the only allowed origin. If the desktop app is not installed, the connection simply fails and the extension carries on.
 
-The extension replies to a fixed, closed list of requests: list tabs, read the URL, read page text or structure, find an element, click, fill, scroll, press a key, hover, read the console or network activity, navigate, open a tab, close a tab. Anything else is rejected.
+The extension replies to a fixed, closed list of requests: list tabs, read the URL, read page text or structure, find an element, click, fill, scroll, press a key, hover, read the console or network activity, take a screenshot, navigate, open a tab, close a tab. Anything else is rejected.
 
-Keystrokes, pointer moves and console or network capture happen only in tabs Atlarix itself opened, never in the user's own. Nothing leaves the machine.
+Keystrokes, pointer moves, screenshots and console or network capture happen only in tabs Atlarix itself opened, never in the user's own.
 ```
 
 ## alarms
@@ -159,8 +159,18 @@ TICK these four:
   the user's direction rather than passive browsing surveillance, but it meets
   the definition on the form, and under-disclosing is a policy violation while
   over-disclosing is not.
-- **Website content** — page text is sent to the language model to answer the
-  question the user asked.
+- **Website content** — page text, and screenshots of Atlarix's own tabs, are
+  sent to the language model to answer the question the user asked.
+
+ATLARIX AUTO AND TRAINING — say it plainly if asked. The default model, Atlarix
+Auto, is PAID and private for an account with Pro or credit: nothing it handles
+is shared or used for training. For an account with no credit it is FREE, and
+that free path runs on OpenAI traffic that is shared with OpenAI to improve its
+models. The user accepts that once, in the panel, before any free use; every
+other path (paid Auto, any pinned Core model) is never shared. If a reviewer
+reads this against the Limited Use certification, the honest position is: it is
+disclosed, opt-in, and avoidable by paying — raise it with the owner rather than
+wording around it.
 
 LEAVE these unticked, and the reasoning if a reviewer asks:
 
@@ -215,15 +225,16 @@ run a local model. The extension cannot: `core/client.ts` is Core-only by
 design — "what makes this a paid product rather than a free client for someone
 else's key."
 
-And the $1 signup trial is gone: `20260908140000_remove_signup_trial_credit.sql`
-dropped `claim_signup_credit()` outright on 2026-09-08, because Core's lineup
-moved to models where $1 bought one or two turns rather than twenty. So a new
-account's balance is ZERO and its first message returns a 402.
+There is no signup credit (the $1 trial was dropped on 2026-09-08). Since
+2026-09-23 a new account CAN chat: Atlarix Auto, the default, is free for an
+account with no credit after a one-time consent, with a daily share. But Pro and
+Core credit are sold for everything beyond that — pinned Core models, paid
+(private) Auto, and use past the free share.
 
 The "Free of charge" radio asserts the item "doesn't contain any functionality
-to purchase additional goods, content, services or functionality". The whole
-product depends on purchased Core credit. Ticking it would be inaccurate, and
-inaccurate disclosure is what pulls a live item rather than merely delaying one.
+to purchase additional goods, content, services or functionality". Pro and
+credit are exactly that. Ticking it would be inaccurate, and inaccurate
+disclosure is what pulls a live item rather than merely delaying one.
 
 ## Access → Test instructions — DO NOT SKIP THIS
 
@@ -231,9 +242,10 @@ This is the most likely single cause of rejection for this extension, and the
 rejection would not mention money.
 
 The extension signs in with Google or GitHub OAuth only — there is no
-email/password path in `auth/sign-in.ts`. So a reviewer signs in with their own
-account, lands on a zero balance, sends one message and gets "Not enough credit
-to start a turn." From the outside that is an extension that does not work.
+email/password path in `auth/sign-in.ts`. A reviewer on their own account lands
+on free Auto, which first asks for the data-sharing consent and is subject to a
+daily share — workable, but a funded account shows the product as customers who
+pay see it, with no consent card in the way. Give them the funded account.
 
 BEFORE SUBMITTING:
 
