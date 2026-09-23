@@ -107,7 +107,9 @@ export async function getContextWindowDetailed(
   const settings = readSettings();
   const target = model ?? settings.selectedModel;
   if (target.provider === "compass") {
-    if (chatId != null) {
+    // Auto's window follows the ACCOUNT, not the chat: the per-chat value a turn
+    // captured can predate learning the account pays (see auto-context-window).
+    if (chatId != null && !isCoreAutoTier(target.name)) {
       const live = getCompassContextWindow(chatId);
       if (live) return { contextWindow: live, source: "compass-live" };
     }

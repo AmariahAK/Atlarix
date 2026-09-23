@@ -12,21 +12,66 @@
  * `X-Atlarix-Billing`, recorded by `auto-status.ts`. Before the first reply of a
  * session it is unknown, and the FREE set applies — the smaller, safe window.
  */
+import fs from "node:fs";
+import path from "node:path";
 import { getCoreAuto } from "@/ipc/shared/core-model-override-store";
+import { getUserDataPath } from "@/paths/paths";
 
 let lastBilling: "free" | "paid" | null = null;
+let loaded = false;
+
+/**
+ * REMEMBERED ACROSS LAUNCHES. Without it the first Auto message after every app
+ * start assumed free (400K) — and that turn's window is what the chat keeps —
+ * so a paying account's ring read 3% on a chat GLM-5.3 showed at 1% (seen live
+ * 2026-09-23). A tiny file, written only when the answer changes.
+ */
+function billingFile(): string | null {
+  // Only inside the real app: outside Electron the path helper falls back to a
+  // repo-local ./userData, and a test run must not write files there.
+  if (!process.versions.electron) return null;
+  try {
+    return path.join(getUserDataPath(), "atlarix-auto-billing.json");
+  } catch {
+    return null; // no Electron app (tests)
+  }
+}
+
+function loadOnce(): void {
+  if (loaded) return;
+  loaded = true;
+  const file = billingFile();
+  if (!file) return;
+  try {
+    const v = JSON.parse(fs.readFileSync(file, "utf-8")) as { billing?: unknown };
+    if (v.billing === "free" || v.billing === "paid") lastBilling = v.billing;
+  } catch {
+    /* no file yet — unknown, the free window applies */
+  }
+}
 
 /** Called with each Auto reply's `X-Atlarix-Billing`. */
 export function noteAutoBilling(billing: "free" | "paid" | null): void {
-  if (billing) lastBilling = billing;
+  loadOnce();
+  if (!billing || billing === lastBilling) return;
+  lastBilling = billing;
+  const file = billingFile();
+  if (!file) return;
+  try {
+    fs.writeFileSync(file, JSON.stringify({ billing }));
+  } catch {
+    /* best effort — the next reply sets it again */
+  }
 }
 
 /** Test-only. */
 export function __resetAutoBilling(): void {
   lastBilling = null;
+  loaded = true;
 }
 
 export async function autoContextWindow(): Promise<number | null> {
+  loadOnce();
   const auto = getCoreAuto();
   const models =
     lastBilling === "paid" ? auto?.paidModels : (auto?.freeModels ?? auto?.paidModels);
