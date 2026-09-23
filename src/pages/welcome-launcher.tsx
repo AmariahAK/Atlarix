@@ -184,7 +184,12 @@ export default function WelcomeLauncher() {
           If you think this is a mistake, contact{" "}
           <span className="font-medium">support@atlarix.dev</span>.
         </p>
-        <Button variant="outline" size="sm" onClick={() => void signOut()}>
+        <Button
+          variant="outline"
+          size="sm"
+          className="hover:bg-muted hover:text-foreground"
+          onClick={() => void signOut()}
+        >
           Sign out
         </Button>
       </div>
@@ -200,7 +205,12 @@ export default function WelcomeLauncher() {
         <div className="w-full max-w-xs">
           <OAuthSignInButtons size="md" />
         </div>
-        <Button asChild variant="outline" size="sm">
+        <Button
+          asChild
+          variant="outline"
+          size="sm"
+          className="hover:bg-muted hover:text-foreground"
+        >
           <Link to="/sign-in">More about sign in</Link>
         </Button>
       </div>
@@ -252,7 +262,12 @@ export default function WelcomeLauncher() {
           <h1 className="text-xl font-semibold tracking-tight">
             Hello, {displayName}
           </h1>
-          <Badge variant="secondary" className="font-normal">
+          {/* Light mode: the workspace's primary-tint pill, not solid amber
+              (`secondary` is amber in light). Dark keeps `secondary`. */}
+          <Badge
+            variant="secondary"
+            className="font-normal border-transparent bg-primary/10 text-emerald-800 dark:bg-secondary dark:text-secondary-foreground"
+          >
             {tierLabel}
           </Badge>
         </div>
@@ -280,7 +295,7 @@ export default function WelcomeLauncher() {
       <div className="grid grid-cols-1 gap-3 w-full max-w-xs">
         <Button
           variant="outline"
-          className="h-auto py-4 flex flex-col gap-2"
+          className="h-auto py-4 flex flex-col gap-2 hover:bg-muted hover:text-foreground"
           data-onboarding="welcome-open-folder"
           onClick={() =>
             void (async () => {
@@ -334,7 +349,9 @@ export default function WelcomeLauncher() {
               />
             </div>
           ) : null}
-          <ul className="border rounded-lg divide-y max-h-64 overflow-y-auto">
+          {/* A white card in light mode, like the workspace's panels; dark
+              keeps the flat outlined list. */}
+          <ul className="border border-border rounded-lg divide-y divide-border bg-card dark:bg-transparent max-h-64 overflow-y-auto">
             {visibleRecents.length === 0 ? (
               <li className="px-4 py-6 text-center text-xs text-muted-foreground">
                 No workspace matches “{recentQuery.trim()}”.
@@ -346,7 +363,8 @@ export default function WelcomeLauncher() {
                   type="button"
                   className={cn(
                     "flex-1 flex items-center justify-between gap-4 px-4 py-3 text-left min-w-0",
-                    "hover:bg-accent/50 transition-colors",
+                    // `accent` is amber in light mode; the workspace hovers muted.
+                    "hover:bg-muted dark:hover:bg-accent/50 transition-colors",
                   )}
                   onClick={() =>
                     void openWorkspaceFolder({
