@@ -213,3 +213,52 @@ describe("the routing hints", () => {
     });
   });
 });
+
+describe("Auto's context window follows the account", () => {
+  const RAW = {
+    auto: {
+      id: "atlarix/auto",
+      chain: [
+        { provider: "openai-shared", apiModelId: "gpt-5.4-mini", pool: "mini" },
+        { provider: "zai", apiModelId: "glm-4.7-flash", pool: "floor" },
+      ],
+      paid: {
+        levels: {
+          glm: [{ provider: "zai", apiModelId: "glm-5.3" }],
+          sol: [{ provider: "openai", apiModelId: "gpt-6-sol" }],
+        },
+      },
+    },
+  };
+
+  it("parses the free set without the $0 floor, and the paid set from every level", () => {
+    const auto = parseCoreAuto(RAW)!;
+    expect(auto.freeModels).toEqual([{ providerId: "openai", modelId: "gpt-5.4-mini" }]);
+    expect(auto.paidModels).toEqual([
+      { providerId: "zai", modelId: "glm-5.3" },
+      { providerId: "openai", modelId: "gpt-6-sol" },
+    ]);
+  });
+
+  it("is the smallest window among the models that could answer — free until a paid reply says otherwise", async () => {
+    const windows: Record<string, number> = {
+      "openai/gpt-5.4-mini": 400_000,
+      "zai/glm-5.3": 1_000_000,
+      "openai/gpt-6-sol": 1_050_000,
+    };
+    vi.doMock("@/lib/models_dev", () => ({
+      getModelsDevLimits: async (p: string, m: string) => ({ context: windows[`${p}/${m}`] }),
+    }));
+    const { autoContextWindow, noteAutoBilling, __resetAutoBilling } = await import(
+      "@/lib/context/auto-context-window"
+    );
+    setCoreAuto(parseCoreAuto(RAW)!);
+    __resetAutoBilling();
+    expect(await autoContextWindow()).toBe(400_000);
+    noteAutoBilling("paid");
+    expect(await autoContextWindow()).toBe(1_000_000);
+    noteAutoBilling("free");
+    expect(await autoContextWindow()).toBe(400_000);
+    vi.doUnmock("@/lib/models_dev");
+  });
+});

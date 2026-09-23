@@ -204,9 +204,32 @@ export function parseCoreAuto(raw: unknown): CoreAutoConfig | null {
       : "";
   // `openai-shared` is the same vendor behind a different key.
   const providerId = provider.replace(/-shared$/, "");
-  return providerId && modelId
-    ? { id, label, capability: { providerId, modelId } }
-    : { id, label };
+  const ref = (r: unknown) => {
+    if (!r || typeof r !== "object") return null;
+    const o = r as Record<string, unknown>;
+    const p = typeof o.provider === "string" ? o.provider.replace(/-shared$/, "") : "";
+    const m = typeof o.apiModelId === "string" ? o.apiModelId : "";
+    return p && m ? { providerId: p, modelId: m } : null;
+  };
+  // The $0 floor is left out on purpose: the proxy skips it for a request too
+  // big for its window, so it must not shrink everyone's window.
+  const freeModels = (Array.isArray(a.chain) ? a.chain : [])
+    .filter((r) => !(r && typeof r === "object" && (r as Record<string, unknown>).pool === "floor"))
+    .map(ref)
+    .filter((x): x is { providerId: string; modelId: string } => x !== null);
+  const paid = a.paid && typeof a.paid === "object" ? (a.paid as Record<string, unknown>) : null;
+  const levels = paid?.levels && typeof paid.levels === "object" ? Object.values(paid.levels as Record<string, unknown>) : [];
+  const paidModels = levels
+    .flatMap((l) => (Array.isArray(l) ? l : []))
+    .map(ref)
+    .filter((x): x is { providerId: string; modelId: string } => x !== null);
+  return {
+    id,
+    label,
+    ...(providerId && modelId ? { capability: { providerId, modelId } } : {}),
+    ...(freeModels.length ? { freeModels } : {}),
+    ...(paidModels.length ? { paidModels } : {}),
+  };
 }
 
 /** Read + JSON-parse the cached raw payload, or null on miss/invalid. */

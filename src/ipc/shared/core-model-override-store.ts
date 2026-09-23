@@ -116,6 +116,14 @@ export type CoreAutoConfig = {
    * thoughts. Absent when the block names no usable first rung.
    */
   capability?: { providerId: string; modelId: string };
+  /**
+   * Every model a FREE Auto step can land on before the $0 floor, and every model
+   * a PAID step can land on — models.dev coordinates. Auto's context window is the
+   * smallest real window among the set that applies to the account, so the ring
+   * and compaction never assume room one of those models does not have.
+   */
+  freeModels?: Array<{ providerId: string; modelId: string }>;
+  paidModels?: Array<{ providerId: string; modelId: string }>;
 };
 
 let CORE_AUTO: CoreAutoConfig | null = null;

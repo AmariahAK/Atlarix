@@ -9,6 +9,7 @@
 import { BrowserWindow } from "electron";
 import log from "electron-log";
 import { safeSend } from "@/ipc/utils/safe_sender";
+import { noteAutoBilling } from "@/lib/context/auto-context-window";
 
 export type AutoStatus = {
   /** Vendor model id that answered the last Auto request, e.g. gpt-5.4-mini. */
@@ -44,6 +45,8 @@ export function autoStatusFromHeaders(headers: Headers): AutoStatus | null {
 export function broadcastAutoStatus(headers: Headers): void {
   const status = autoStatusFromHeaders(headers);
   if (!status) return;
+  // Paid vs free decides Auto's context window (auto-context-window.ts).
+  noteAutoBilling(status.billing);
   // The one place the answering model is recorded on this machine.
   log.scope("atlarix-auto").info(
     `Auto reply: billing=${status.billing ?? "?"} model=${status.servedModel ?? "?"}`,

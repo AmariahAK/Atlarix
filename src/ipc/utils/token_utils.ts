@@ -4,7 +4,10 @@ import { Message } from "../ipc_types";
 
 import { findLanguageModel } from "./findLanguageModel";
 import { exactTokenCountText } from "@/lib/context/token-counter";
-import { getCoreModelsDevTargetForTier } from "@/ipc/shared/compass_constants";
+import {
+  getCoreModelsDevTargetForTier,
+  isCoreAutoTier,
+} from "@/ipc/shared/compass_constants";
 import { getModelsDevLimits } from "@/lib/models_dev";
 import { supportsTemperatureParam } from "@/lib/routing/model-reasoning-profile";
 
@@ -113,6 +116,11 @@ export async function getContextWindowDetailed(
     // otherwise the first turn over-prunes context. Keyed by the tier's provider +
     // vendor model id: the OpenRouter catalog this used to read knows nothing about
     // a vendor-native id, so a directly-routed tier silently got the 200K floor.
+    if (isCoreAutoTier(target.name)) {
+      const { autoContextWindow } = await import("@/lib/context/auto-context-window");
+      const auto = await autoContextWindow().catch(() => null);
+      if (auto) return { contextWindow: auto, source: "compass-fallback" };
+    }
     const coreTarget = getCoreModelsDevTargetForTier(target.name);
     if (coreTarget) {
       const limits = await getModelsDevLimits(

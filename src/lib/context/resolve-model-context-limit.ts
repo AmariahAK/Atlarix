@@ -8,7 +8,10 @@ import {
   warmOpenRouterModelCache,
   getCachedOpenRouterModelRow,
 } from "@/lib/routing/tier-context-limits";
-import { getCoreModelsDevTargetForTier } from "@/ipc/shared/compass_constants";
+import {
+  getCoreModelsDevTargetForTier,
+  isCoreAutoTier,
+} from "@/ipc/shared/compass_constants";
 import { findLanguageModel } from "@/ipc/utils/findLanguageModel";
 import log from "electron-log";
 
@@ -168,6 +171,13 @@ function openRouterCatalogId(model: LargeLanguageModel): string | null {
 async function compassContextLength(
   model: LargeLanguageModel,
 ): Promise<number | null> {
+  if (isCoreAutoTier(model.name ?? "")) {
+    // Auto has no single model: the smallest window among those that could
+    // answer this account (see auto-context-window.ts).
+    const { autoContextWindow } = await import("@/lib/context/auto-context-window");
+    const auto = await autoContextWindow().catch(() => null);
+    if (auto) return auto;
+  }
   const target = getCoreModelsDevTargetForTier(model.name ?? "");
   if (!target) return null;
   try {
