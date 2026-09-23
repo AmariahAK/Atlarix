@@ -104,7 +104,17 @@ export function getCoreTierRouting(
  * the name to show. Null when the lineup does not offer it — then no Auto row
  * appears and a saved Auto selection falls forward like any removed slot.
  */
-export type CoreAutoConfig = { id: string; label: string };
+export type CoreAutoConfig = {
+  id: string;
+  label: string;
+  /**
+   * models.dev coordinates of the chain's FIRST rung — the model that answers
+   * while the free share lasts. Used for capability detection (reasoning,
+   * vision, audio); without it Auto read as "no reasoning" and never asked for
+   * thoughts. Absent when the block names no usable first rung.
+   */
+  capability?: { providerId: string; modelId: string };
+};
 
 let CORE_AUTO: CoreAutoConfig | null = null;
 

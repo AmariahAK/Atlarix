@@ -128,3 +128,35 @@ describe("the live readout", () => {
     expect(autoStatusFromHeaders(new Headers())).toBeNull();
   });
 });
+
+describe("Auto's identity and capabilities", () => {
+  it("is named Atlarix Auto everywhere, never '(openrouter)'", async () => {
+    const { buildAtlarixCoreTierCatalog, resolveAtlarixCoreIdentity, displayLabelForCompassTier } =
+      await import("@/lib/atlarix-core-catalog");
+    setCoreAuto({ id: "atlarix/auto", label: "Atlarix Auto" });
+    const catalog = buildAtlarixCoreTierCatalog();
+    expect(catalog[0]).toMatchObject({ internalTierId: "core-auto", labelWithProvider: "Atlarix Auto" });
+    const id = resolveAtlarixCoreIdentity("core-auto", catalog);
+    expect(id.labelWithProvider).toBe("Atlarix Auto");
+    expect(JSON.stringify(id)).not.toMatch(/openrouter/);
+    // The loading-time fallback (no catalog yet) too.
+    expect(displayLabelForCompassTier("core-auto")).toBe("Atlarix Auto");
+    expect(displayLabelForCompassTier("core-3")).not.toMatch(/openrouter/);
+  });
+
+  it("takes reasoning/vision capability from the first rung (shared suffix stripped)", async () => {
+    const { getCoreModelsDevTargetForTier } = await import("@/ipc/shared/compass_constants");
+    setCoreAuto(
+      parseCoreAuto({
+        auto: {
+          id: "atlarix/auto",
+          chain: [{ provider: "openai-shared", apiModelId: "gpt-5.4-mini", pool: "mini" }],
+        },
+      }),
+    );
+    expect(getCoreModelsDevTargetForTier("core-auto")).toEqual({
+      providerId: "openai",
+      modelId: "gpt-5.4-mini",
+    });
+  });
+});

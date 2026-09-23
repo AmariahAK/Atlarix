@@ -72,8 +72,9 @@ export function isCoreAutoTier(internalTierId: string | undefined): boolean {
 }
 
 function compassProviderSlug(openRouterModelId: string): string {
-  if (!openRouterModelId.includes("/")) return "openrouter";
-  return openRouterModelId.split("/")[0]?.toLowerCase() || "openrouter";
+  // Core is direct, not OpenRouter: a vendor-less id is Atlarix's own.
+  if (!openRouterModelId.includes("/")) return "atlarix";
+  return openRouterModelId.split("/")[0]?.toLowerCase() || "atlarix";
 }
 
 /**
@@ -365,6 +366,7 @@ export function getCoreModelsDevTargetForTier(
   internalTierId: string,
 ): { providerId: string; modelId: string } | undefined {
   const norm = normalizeCoreTierId(internalTierId);
+  if (norm === CORE_TIER_AUTO) return getCoreAuto()?.capability;
   const routing = getCoreTierRouting(norm);
   if (routing) {
     return { providerId: routing.provider, modelId: routing.apiModelId };

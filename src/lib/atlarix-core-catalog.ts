@@ -4,11 +4,21 @@
  */
 
 import {
+  CORE_TIER_AUTO,
   CORE_TIER_ORDER,
   getCoreModelIdForCoreTier,
   isCoreAutoTier,
   normalizeCoreTierId,
 } from "@/ipc/shared/compass_constants";
+import { getCoreAuto } from "@/ipc/shared/core-model-override-store";
+
+/**
+ * The slug shown when a Core model names no vendor. ATLARIX, not "openrouter":
+ * Core has been 100% direct since the OpenRouter migration, and this fallback
+ * reached both the chip ("Core 3 (openrouter)" while loading) and the model's own
+ * identity line ("I'm Core Auto (openrouter)").
+ */
+const CORE_FALLBACK_SLUG = "atlarix";
 import {
   formatModelApiNameForDisplay,
   formatModelWithProvider,
@@ -28,14 +38,24 @@ export type AtlarixCoreTierPresentation = {
 /** Display slug from the wire id's vendor segment. */
 function providerSlugFromCoreModelId(coreModelId: string): string {
   const trimmed = coreModelId.trim();
-  if (!trimmed.includes("/")) return "openrouter";
-  return trimmed.split("/")[0]?.toLowerCase() || "openrouter";
+  if (!trimmed.includes("/")) return CORE_FALLBACK_SLUG;
+  return trimmed.split("/")[0]?.toLowerCase() || CORE_FALLBACK_SLUG;
 }
 
 function presentationForInternalTier(
   internalTierId: string,
 ): AtlarixCoreTierPresentation {
   const coreModelId = getCoreModelIdForCoreTier(internalTierId)?.trim() ?? "";
+  if (isCoreAutoTier(internalTierId) && coreModelId) {
+    const label = getCoreAuto()?.label ?? "Atlarix Auto";
+    return {
+      internalTierId: CORE_TIER_AUTO,
+      coreModelId,
+      modelDisplayName: label,
+      providerSlug: CORE_FALLBACK_SLUG,
+      labelWithProvider: label,
+    };
+  }
   const modelDisplayName = coreModelId
     ? formatModelApiNameForDisplay(coreModelId)
     : formatModelApiNameForDisplay(
@@ -59,7 +79,8 @@ function presentationForInternalTier(
  * "Core 4" entry that resolved to nothing and threw at dispatch.
  */
 export function buildAtlarixCoreTierCatalog(): AtlarixCoreTierPresentation[] {
-  return CORE_TIER_ORDER.map((internalTierId) =>
+  // Auto first, as in the picker; filtered out below when not offered.
+  return [CORE_TIER_AUTO, ...CORE_TIER_ORDER].map((internalTierId) =>
     presentationForInternalTier(internalTierId),
   ).filter((entry) => entry.coreModelId !== "");
 }
@@ -100,8 +121,10 @@ export function resolveAtlarixCoreIdentity(
     /^core-/,
     "Core ",
   );
-  const modelDisplayName = formatModelApiNameForDisplay(fallbackName);
-  const slug = "openrouter";
+  const modelDisplayName = isCoreAutoTier(internalTierId)
+    ? "Atlarix Auto"
+    : formatModelApiNameForDisplay(fallbackName);
+  const slug = CORE_FALLBACK_SLUG;
   return {
     modelDisplayName,
     providerSlug: slug,
@@ -127,11 +150,12 @@ export function displayLabelForCompassTier(
   ) {
     return fromList;
   }
+  if (isCoreAutoTier(internalTierId)) return "Atlarix Auto";
   return formatModelWithProvider(
     formatModelApiNameForDisplay(
       normalizeCoreTierId(internalTierId).replace(/^core-/, "Core "),
     ),
-    "openrouter",
+    CORE_FALLBACK_SLUG,
   );
 }
 
@@ -157,7 +181,7 @@ export function coreTierPresentationFromModel(model: {
   // is Atlarix's own — never "openrouter", which would put a false provider in
   // the model's identity line.
   const providerSlug = (
-    match?.[2] ?? (isCoreAutoTier(model.apiName) ? "atlarix" : "openrouter")
+    match?.[2] ?? CORE_FALLBACK_SLUG
   )
     .trim()
     .toLowerCase();

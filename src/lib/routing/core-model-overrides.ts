@@ -193,7 +193,20 @@ export function parseCoreAuto(raw: unknown): CoreAutoConfig | null {
     typeof a.label === "string" && a.label.trim()
       ? a.label.trim()
       : "Atlarix Auto";
-  return { id, label };
+  const first = Array.isArray(a.chain) ? a.chain[0] : null;
+  const provider =
+    first && typeof first === "object"
+      ? String((first as Record<string, unknown>).provider ?? "")
+      : "";
+  const modelId =
+    first && typeof first === "object"
+      ? String((first as Record<string, unknown>).apiModelId ?? "")
+      : "";
+  // `openai-shared` is the same vendor behind a different key.
+  const providerId = provider.replace(/-shared$/, "");
+  return providerId && modelId
+    ? { id, label, capability: { providerId, modelId } }
+    : { id, label };
 }
 
 /** Read + JSON-parse the cached raw payload, or null on miss/invalid. */

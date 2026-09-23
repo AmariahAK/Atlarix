@@ -241,7 +241,8 @@ export function ModelPicker({
       </span>
       <PriceBadge
         cost={"cost" in o.model ? o.model.cost : undefined}
-        isCore={o.providerId === COMPASS_ID}
+        // Atlarix Auto is Core but FREE — it must not read "Paid".
+        isCore={o.providerId === COMPASS_ID && !isCoreAutoTier(o.model.apiName)}
       />
     </button>
   );

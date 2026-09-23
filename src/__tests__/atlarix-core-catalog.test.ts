@@ -47,7 +47,8 @@ describe("atlarix-core-catalog", () => {
     });
     expect(p.internalTierId).toBe("core-2");
     expect(p.labelWithProvider).toBe("Core 2");
-    expect(p.providerSlug).toBe("openrouter");
+    // Core is direct; a vendor-less name is Atlarix's own, never "openrouter".
+    expect(p.providerSlug).toBe("atlarix");
   });
 
   it("formatModelWithProvider uses lowercase provider slug", () => {
