@@ -22,19 +22,61 @@ not trust it.
 
 ## Next up — reported by the owner 2026-09-23
 
-- **Session titles from chatty / reasoning models are the model's REPLY, not a title.** Seen on
-  DeepSeek V4 Pro (BYOK): "hey how are you? could u tell me about yourself?" was titled "Hey! I'm
-  doing well, thanks for asking. 😊 I'm **DeepSeek V4 Pro**, running ins…". Cause:
-  `generateAIChatName` (`src/utils/chat_naming.ts:241`) passes `maxTokens: 30`, which ai@6 no
-  longer reads (it is `maxOutputTokens`) — a type cast hides it, so the 30-token cap is IGNORED and
-  a model that answers the transcript instead of titling it has its first 80 chars kept by
-  `resolveGeneratedChatTitle`. Same wrong name in compaction (`src/lib/context/compaction.ts:1160`,
-  `maxTokens: 1500`) — summaries are unbounded too. Fix: `maxOutputTokens`, drop the casts, strip
-  markdown/newlines from titles, and reject a "title" that reads like a reply (first person,
-  greeting, > ~8 words) in favour of `generateSimpleChatName`; consider turning reasoning off for
-  the title call. NOT a regression from 14.51.0 and does not affect the main turn — the DeepSeek
-  turn itself ran end-to-end normally (verified in the log). Core/Auto models happen to obey the
-  title prompt, which is why other sessions name fine.
+- **Session titles: adopt the reference tools' universal pattern (NOT a small `maxOutputTokens`).**
+  Symptom: DeepSeek V4 Pro (BYOK) titled "hey how are you? could u tell me about yourself?" as
+  "Hey! I'm doing well, thanks for asking. 😊 I'm **DeepSeek V4 Pro**, running ins…" — the model
+  ANSWERED the transcript and `resolveGeneratedChatTitle` kept its first 80 chars. The 30-token cap
+  (`maxTokens` in `src/utils/chat_naming.ts:241`) is ignored by ai@6, but the owner's call is right:
+  do NOT "fix" it with a tiny `maxOutputTokens` — no reference tool does that, and a reasoning model
+  can spend the whole budget thinking and return empty. Auto/Core naming works today; keep it
+  working. Not a 14.51.0 regression; the main turn is unaffected (verified end-to-end in the log).
+
+  **What the references do (researched 2026-09-23):**
+  - opencode (`atlarix-references/opencode`, `session/prompt.ts:216-249`, `agent/prompt/title.txt`):
+    model = `title` agent → configured `small_model` → newest small model on the SAME provider
+    (gemini-flash / gpt-nano / claude-haiku family order) → the user's model. Lowest reasoning
+    variant (`smallOptions`), normal output cap (≤32k), temp 0.5. Input = first user message ONLY.
+    Output: strip `<think>`, first non-empty line, cap 100. Runs forked in the background on step 1.
+  - Codex CLI (`codex-rs/tui/src/app/thread_title.rs`): dedicated small model when available, else
+    the user's; reasoning Low; JSON schema `{title, maxLength 36}`; prompt ends "Do not answer the
+    request."; input = first user message (≤960 bytes); strips quotes/trailing punctuation; on
+    failure no title (list shows the first message). Background; dropped if the user renamed.
+  - Claude Code: background Haiku (falls back to the main model where Haiku is unavailable),
+    thinking disabled, structured output; titles in the conversation's language; changelog shows the
+    same failure class we hit (greeting → junk title, refusal text as title, multi-line titles).
+  - Cursor: auto-named from the first input; internals not public.
+
+  **Universal fix for Atlarix:**
+  1. *Model chain:* a cheap non-reasoning title model on Core when the account can use Core/Auto
+     (Auto's `title` lane already routes to the cheapest level) → else a small model on the user's
+     OWN BYOK provider (flash/nano/mini/haiku/lite family from our catalog, or a `small_model`
+     setting) → else the selected model. BYOK-only users never fall onto the shared Core key.
+  2. *Settings:* lowest reasoning effort / thinking off per provider (wire-case in
+     `providerOptions`); NO small output cap (if any, ≥1–2k as runaway insurance); ~10–15 s timeout,
+     one retry, temperature ~0.5.
+  3. *Prompt:* opencode's `title.txt` style + Codex's "Do not answer the request." + "≤6 words, ≤50
+     chars", same language as the user. User turn = "Generate a title for this conversation:" +
+     ONLY the first user message (~1 KB, in `<user_message>` tags). Stop sending the assistant reply
+     — that is what invites chatty models to reply. Structured output only where the catalog says
+     the model supports it; text + sanitise is the universal path.
+  4. *Sanitise:* strip `<think>…</think>` (and an unclosed one), parse `.title` if JSON, strip
+     markdown / emoji / quotes / a "Title:" label, first non-empty line, collapse whitespace, drop
+     trailing `.?!:`, cap ~50 chars on a word boundary.
+  5. *Reject "a reply, not a title":* >~8 words or >60 chars, a sentence break followed by more
+     text, starts with a greeting (hi/hey/hello/sure/certainly), first person (I/I'm/my) or "you",
+     "as an AI" / "I can't", ends with "?", echoes the model's own name, or empty → deterministic
+     fallback (no retry on another model).
+  6. *Deterministic fallback:* from the first user message — remove code fences, URLs, @mentions,
+     markdown and leading filler ("please", "can you", "hey"); first 6–8 words, ≤50 chars,
+     capitalised; a bare greeting becomes "Greeting". Show it IMMEDIATELY as the placeholder and
+     replace it only with an LLM title that passes step 5.
+  7. *Timing:* start in the background on the first real user message (parallel to the turn, never
+     awaited); only while the title is still the placeholder; drop the result if the user renamed
+     or deleted the session; skip synthetic/tool-only first messages; once per session.
+  Same `maxTokens` naming issue in compaction (`src/lib/context/compaction.ts:1160`) — review it with
+  the same care (compaction output SHOULD be bounded, but not so tightly a reasoning model returns
+  nothing).
+
 - **Session list: the "⋯" menu sits at the very edge and is hard to hit.** Widen the row's right
   padding / give the menu button a larger hit area so delete is easy to click.
 - **Selecting an older session leaves the empty "Untitled" / "New conversation" row behind.** When
