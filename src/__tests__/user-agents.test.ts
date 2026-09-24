@@ -90,45 +90,59 @@ describe("listUserAgents", () => {
     fs.writeFileSync(path.join(agentsDir(), "notes.txt"), "ignored");
     expect(listUserAgents(dir).map((a) => a.name)).toEqual([
       "alpha",
-      "architect",
-      "explorer",
-      "implementer",
-      "qa",
+      "build",
+      "explore",
       "zeta",
     ]);
   });
 
   it("returns just the built-ins when the workspace dir is absent", () => {
     expect(listUserAgents(dir).map((a) => a.name)).toEqual([
-      "architect",
-      "explorer",
-      "implementer",
-      "qa",
+      "build",
+      "explore",
     ]);
   });
 });
 
 describe("built-in agents + write derivation", () => {
   it("resolves built-ins by name without any workspace file", () => {
-    const impl = loadUserAgent(dir, "implementer")!;
-    expect(impl.mode).toBe("build");
-    expect(impl.tools).toContain("edit_file");
-    expect(loadUserAgent(dir, "explorer")!.mode).toBe("ask");
-    expect(loadUserAgent(dir, "architect")!.mode).toBe("plan");
+    const build = loadUserAgent(dir, "build")!;
+    expect(build.mode).toBe("build");
+    expect(build.tools).toContain("edit_file");
+    const explore = loadUserAgent(dir, "explore")!;
+    expect(explore.mode).toBe("ask");
+    expect(explore.tools).toEqual(
+      expect.arrayContaining(["web_search", "read_url"]),
+    );
+    expect(explore.tools).not.toContain("edit_file");
   });
 
-  it("v14.8.9: implementer keeps web tools (parity with a generic write:true writer)", () => {
-    const impl = loadUserAgent(dir, "implementer")!;
+  it("v14.52.0: retired names resolve to their replacement, never to null", () => {
+    expect(loadUserAgent(dir, "explorer")!.name).toBe("explore");
+    expect(loadUserAgent(dir, "architect")!.name).toBe("explore");
+    expect(loadUserAgent(dir, "qa")!.name).toBe("explore");
+    expect(loadUserAgent(dir, "implementer")!.name).toBe("build");
+    // The alias follows a workspace override of the NEW name...
+    writeAgent("build", `---\ndescription: team build\nmode: build\n---\nOurs.`);
+    expect(loadUserAgent(dir, "implementer")!.description).toBe("team build");
+    // ...but a workspace file under the OLD name is the user's and still wins.
+    writeAgent("implementer", `---\ndescription: legacy\nmode: build\n---\nOld.`);
+    expect(loadUserAgent(dir, "implementer")!.description).toBe("legacy");
+    expect(loadUserAgent(dir, "nope")).toBeNull();
+  });
+
+  it("v14.8.9: build keeps web tools (parity with a generic write:true writer)", () => {
+    const impl = loadUserAgent(dir, "build")!;
     expect(impl.tools).toContain("web_search");
     expect(impl.tools).toContain("read_url");
   });
 
   it("lets a workspace file OVERRIDE a built-in of the same name", () => {
     writeAgent(
-      "implementer",
+      "build",
       `---\ndescription: custom\nmode: debug\ntools: [read_file]\n---\nCustom implementer.`,
     );
-    const a = loadUserAgent(dir, "implementer")!;
+    const a = loadUserAgent(dir, "build")!;
     expect(a.description).toBe("custom");
     expect(a.mode).toBe("debug");
     expect(a.tools).toEqual(["read_file"]);
@@ -136,9 +150,8 @@ describe("built-in agents + write derivation", () => {
   });
 
   it("agentIsWriter: edit_file on a build/debug profile", () => {
-    expect(agentIsWriter(loadUserAgent(dir, "implementer")!)).toBe(true);
-    expect(agentIsWriter(loadUserAgent(dir, "explorer")!)).toBe(false);
-    expect(agentIsWriter(loadUserAgent(dir, "architect")!)).toBe(false);
+    expect(agentIsWriter(loadUserAgent(dir, "build")!)).toBe(true);
+    expect(agentIsWriter(loadUserAgent(dir, "explore")!)).toBe(false);
     // build profile, no tools list → inherits the full writer toolset
     writeAgent("freeform", `---\nmode: build\n---\nbody`);
     expect(agentIsWriter(loadUserAgent(dir, "freeform")!)).toBe(true);
@@ -153,13 +166,13 @@ describe("built-in agents + write derivation", () => {
   it("subagentWillWrite: named writer implies write; flag governs the generic path", () => {
     // Named writer agent → write without write:true.
     expect(
-      subagentWillWrite({ subagentType: "implementer", workspacePath: dir }),
+      subagentWillWrite({ subagentType: "build", workspacePath: dir }),
     ).toBe(true);
     // Named read-only agent stays read-only even if write:true is passed.
     expect(
       subagentWillWrite({
         write: true,
-        subagentType: "explorer",
+        subagentType: "explore",
         workspacePath: dir,
       }),
     ).toBe(false);

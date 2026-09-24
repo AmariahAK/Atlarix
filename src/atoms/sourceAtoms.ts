@@ -246,7 +246,7 @@ export interface ActivityStreamItem {
   modelId?: string;
   /** Agent bus: response duration in ms (optional). */
   responseMs?: number;
-  /** Sub-agent card: specialist id (explore, architect, …). */
+  /** Sub-agent card: specialist id (explore, build, …). */
   agentType?: string;
   /** Workspace scope label (focus path, preset, repo snippet). */
   scope?: string;

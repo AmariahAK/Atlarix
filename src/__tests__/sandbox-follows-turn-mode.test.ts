@@ -171,38 +171,17 @@ describe("command sandbox follows the turn's work mode", () => {
 });
 
 /**
- * `preview.readOnly` — how a SUB-AGENT gets the observe-only profile.
- *
- * A QA sub-agent borrows the interceptor of the turn that spawned it, so on a
- * Build turn it would inherit workspace-write: the opposite of a worker whose job
- * is to observe. The preview flag narrows that per command.
- *
- * It narrows only. There is deliberately no way to request write access from a
- * preview, because a worker must never be able to widen what the turn allows.
+ * Enforcement. `preview.readOnly` (the QA sub-agent's per-command narrowing) was
+ * removed with QA in v14.52.0; the sandbox profile is the turn's alone again.
  */
-describe("preview.readOnly narrows, never widens", () => {
-  it("forces read-only on a Build turn (the QA sub-agent case)", () => {
+describe("sandbox enforcement", () => {
+  it("ignores a stray preview.readOnly — the turn decides the profile", () => {
     const ws = makeWorkspace();
     globalSettings = { workModePreference: "build", selectedChatMode: "build" };
 
-    expect(sandboxFor(ws, "build")?.readOnly).toBe(false);
-    expect(sandboxFor(ws, "build", { readOnly: true })?.readOnly).toBe(true);
-  });
-
-  it("cannot widen a read-only turn", () => {
-    const ws = makeWorkspace();
-    globalSettings = { workModePreference: "build", selectedChatMode: "build" };
-
-    // readOnly:false is not "please give me writes" — an Explore turn stays
-    // read-only whatever the preview says.
-    expect(sandboxFor(ws, "ask", { readOnly: false })?.readOnly).toBe(true);
-  });
-
-  it("a caller-forced read-only run is ENFORCED, so it fails rather than running unconfined", () => {
-    const ws = makeWorkspace();
-    globalSettings = { workModePreference: "build", selectedChatMode: "build" };
-
-    expect(sandboxFor(ws, "build", { readOnly: true })?.enforce).toBe(true);
+    const sandbox = sandboxFor(ws, "build", { readOnly: true });
+    expect(sandbox?.readOnly).toBe(false);
+    expect(sandbox?.enforce).toBe(false);
   });
 
   it("mode-driven read-only is NOT enforced — that would break Explore where no OS sandbox exists", () => {

@@ -1,7 +1,7 @@
 /**
  * Work mode dropdown (Explore / Plan / Build / Debug / Review).
  *
- * v14.8.9: sub-agents (architect/explorer/implementer + .atlarix/agents/*.md) are
+ * v14.8.9: sub-agents (explore/build + .atlarix/agents/*.md) are
  * `task`-tool targets the main agent spawns — NOT user-selectable chat modes — so
  * they are no longer shown here. The picker is the five work modes only.
  */

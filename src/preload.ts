@@ -83,7 +83,6 @@ const validInvokeChannels = [
   "chat:set-display-snapshot",
   "copy-app",
   "get-chat",
-  "agents:list",
   "list-apps",
   "get-app",
   "get-app-env-vars",

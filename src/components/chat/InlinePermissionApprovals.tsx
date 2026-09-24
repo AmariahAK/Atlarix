@@ -59,7 +59,6 @@ function queueEntryFromPermission(
     operation: (request.operation as QueuedOperation["operation"]) || "unknown",
     command: preview.command as string | undefined,
     path: preview.path as string | undefined,
-    requestedByAgent: preview.requestedByAgent as string | undefined,
     content: preview.content as string | undefined,
     oldContent: preview.oldContent as string | undefined,
     description: preview.description as string | undefined,
@@ -338,17 +337,6 @@ function CommandPermissionCard({
             {systemScope ? (
               <span className="rounded bg-sky-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-900 dark:text-sky-200">
                 System change
-              </span>
-            ) : null}
-            {/*
-              WHO is asking. A sub-agent's request surfaces in this same queue, and
-              an unlabelled ask from a worker the user did not know was running is
-              worse than no ask — they cannot tell whether the main agent decided to
-              do this or a delegated worker wandered into it.
-            */}
-            {operation.requestedByAgent ? (
-              <span className="rounded bg-violet-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-900 dark:text-violet-200">
-                {operation.requestedByAgent}
               </span>
             ) : null}
           </div>

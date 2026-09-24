@@ -198,8 +198,34 @@ export function listUserAgents(workspacePath: string): UserAgent[] {
 }
 
 /**
+ * Retired built-in names → their v14.52.0 replacement. Old transcripts, habit and
+ * workspace docs still say `explorer` or `implementer`; without this they resolved
+ * to null and silently degraded to a generic scout — a named writer became a
+ * read-only worker. `qa` maps to explore, not build: QA never edited anything.
+ */
+export const BUILTIN_AGENT_ALIASES: Readonly<Record<string, string>> =
+  Object.freeze({
+    explorer: "explore",
+    architect: "explore",
+    qa: "explore",
+    implementer: "build",
+  });
+
+function readWorkspaceAgent(
+  workspacePath: string,
+  name: string,
+): UserAgent | null {
+  const file = path.join(userAgentsDir(workspacePath), `${name}.md`);
+  try {
+    return toUserAgent(name, fs.readFileSync(file, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Load one agent by name: a workspace `.atlarix/agents/<name>.md` if present,
- * else the built-in of that name, else null.
+ * else the built-in of that name (following a retired alias), else null.
  */
 export function loadUserAgent(
   workspacePath: string,
@@ -210,14 +236,15 @@ export function loadUserAgent(
   if (name.includes("/") || name.includes("\\") || name.includes("..")) {
     return null;
   }
-  const file = path.join(userAgentsDir(workspacePath), `${name}.md`);
-  try {
-    const fromWorkspace = toUserAgent(name, fs.readFileSync(file, "utf8"));
-    if (fromWorkspace) return fromWorkspace;
-  } catch {
-    // no workspace file — fall through to built-ins
+  // A workspace file under the OLD name still wins — the user wrote it.
+  const exact = readWorkspaceAgent(workspacePath, name);
+  if (exact) return exact;
+  const canonical = BUILTIN_AGENT_ALIASES[name] ?? name;
+  if (canonical !== name) {
+    const overridden = readWorkspaceAgent(workspacePath, canonical);
+    if (overridden) return overridden;
   }
-  return BUILTIN_AGENTS[name] ?? null;
+  return BUILTIN_AGENTS[canonical] ?? null;
 }
 
 /**

@@ -37,7 +37,6 @@ import {
 import { markCreditExhausted } from "@/lib/agents/credit-halt";
 import { coreExhaustedUserMessage } from "@/shared/billing_copy";
 import { loadSkill } from "../skills/skill-loader";
-import { runSubagentCommandViaParent } from "./subagent-command";
 import { readSettings } from "../../main/settings";
 import {
   getModelClient,
@@ -124,38 +123,6 @@ const SUBAGENT_TOOL_NAMES = [
 const WRITER_SUBAGENT_TOOL_NAMES = [
   ...SUBAGENT_TOOL_NAMES,
   "edit_file",
-] as const;
-
-/**
- * QA sub-agents exercise a RUNNING app, so they get the two things every other
- * worker is denied: a terminal and the browser.
- *
- * That is not a loosening of the writer rule, it is the other side of it. A
- * writer's output is a diff, so everything it does can be deferred and reviewed —
- * which is exactly why `run_command` is withheld there (a command writes for real
- * and leaves nothing to review). For QA the opposite holds: running the thing IS
- * the observation, so deferring it means the worker learns nothing, cannot
- * iterate, and stops being exploratory.
- *
- * What keeps it safe is not the toolset but the profile: no `edit_file` at all,
- * and every command forced into the READ-ONLY OS sandbox by
- * `runSubagentCommandViaParent` — workspace writes denied by the OS, while
- * caches, /tmp and the network stay available.
- *
- * `background_jobs` is here so a worker can read the dev server's log the MAIN
- * agent started; a 500 with an empty body means the trace is only there.
- */
-const QA_SUBAGENT_TOOL_NAMES = [
-  ...SUBAGENT_TOOL_NAMES,
-  "run_command",
-  "background_jobs",
-  "browser",
-  "browser_inspect",
-  "browser_test",
-  // v14.41: a QA worker verifying a mobile build needs the same read/act pair
-  // it gets for the web — running the thing IS the observation.
-  "mobile",
-  "mobile_inspect",
 ] as const;
 
 /** Tools whose nested expand detail may be larger (read/search payloads). */
@@ -321,15 +288,11 @@ export async function runSubagent(
     let systemPrompt = "";
     let userAgentTools: readonly string[] | null = null;
     const requestedAgent = args.subagentType?.trim();
-    // Keyed on the RESOLVED agent name, so a workspace `.atlarix/agents/qa.md`
-    // override is still recognised as a QA worker and still gets the QA profile.
-    let isQa = false;
     if (requestedAgent && workspace.trim()) {
       const userAgent = loadUserAgent(workspace, requestedAgent);
       if (userAgent) {
         systemPrompt = renderUserAgentSystemBlock(userAgent);
         if (userAgent.tools?.length) userAgentTools = userAgent.tools;
-        isQa = userAgent.name === "qa";
       }
     }
     if (!systemPrompt.trim()) {
@@ -369,11 +332,7 @@ export async function runSubagent(
     // Toolset: read-only scout by default, or read+scoped-write for writer mode,
     // optionally intersected with the user agent's allowlist.
     const allowed = new Set<string>(
-      isImplement
-        ? WRITER_SUBAGENT_TOOL_NAMES
-        : isQa
-          ? QA_SUBAGENT_TOOL_NAMES
-          : SUBAGENT_TOOL_NAMES,
+      isImplement ? WRITER_SUBAGENT_TOOL_NAMES : SUBAGENT_TOOL_NAMES,
     );
     let toolsForAgent = ToolRegistry.getAll().filter((t) =>
       allowed.has(t.name),
@@ -462,25 +421,6 @@ export async function runSubagent(
           // (so its next edit to this file sees this one) and the review surface
           // the main agent accepts file by file. Without this the model believes
           // it edited and nothing anywhere changed.
-          // QA sub-agents: `run_command` also returns only a
-          // `__permission_required` envelope, for the same reason edit_file does —
-          // no interceptor lives in this path. Unlike an edit there is nothing to
-          // propose: running the command IS the observation, so defer it and the
-          // worker learns nothing. Route it through the interceptor of the turn
-          // that spawned this worker instead, which supplies the read-only
-          // sandbox, the danger gate and an approval card attributed to this
-          // agent. See subagent-command.ts for why borrowing is sound.
-          if (isQa && t.name === "run_command") {
-            result = await runSubagentCommandViaParent({
-              chatId: args.chatId,
-              agentName: requestedAgent || "qa",
-              workspaceId: args.workspaceId,
-              workspacePath: execWorkspace,
-              envelope: result,
-              abortSignal: args.abortSignal,
-            });
-          }
-
           if (isImplement && t.name === "edit_file" && proposalSetId) {
             try {
               const recorded = recordEditProposal(proposalSetId, result);

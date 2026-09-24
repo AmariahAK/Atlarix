@@ -1511,13 +1511,6 @@ export class IpcClient {
     return this.ipcRenderer.invoke("set-app-env-vars", params);
   }
 
-  /** v12 7A: list a workspace's user-defined agents (.atlarix/agents/*.md). */
-  public async listAgents(
-    appId: number,
-  ): Promise<Array<{ name: string; description: string; mode: string }>> {
-    return this.ipcRenderer.invoke("agents:list", appId);
-  }
-
   public async getChat(chatId: number): Promise<Chat> {
     try {
       const data = await this.ipcRenderer.invoke("get-chat", chatId);

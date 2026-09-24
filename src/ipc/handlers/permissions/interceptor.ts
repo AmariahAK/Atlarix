@@ -1917,24 +1917,15 @@ export class PermissionInterceptor extends EventEmitter {
       ...(cfg?.extraWritablePaths ?? []),
       ...workspaceGranted,
     ];
-    // A preview may NARROW to read-only but never widen. `preview.readOnly` is
-    // how a sub-agent (QA) gets the observe-only profile while borrowing a
-    // Build turn's interceptor — without it the worker would inherit the
-    // turn's workspace-write, which is the opposite of the intended role.
-    const forcedReadOnly = preview?.readOnly === true;
-    const readOnly = isReadOnlyWorkMode(workMode) || forcedReadOnly;
+    const readOnly = isReadOnlyWorkMode(workMode);
     return {
       workspacePath: this.workspacePath,
       extraWritablePaths:
         extraWritablePaths.length > 0 ? extraWritablePaths : undefined,
-      // A read-only profile the CALLER forced must fail rather than run
-      // unconfined when no OS sandbox exists, or "read-only" is only a
-      // suggestion — and the caller is a sub-agent nobody is watching
-      // closely. Deliberately NOT applied to mode-driven read-only: that
-      // would newly refuse every Explore/Plan/Review command on a machine
-      // with no sandbox available, which is a behaviour change nobody asked
-      // for and which the graceful-fallback design chose against.
-      enforce: cfg?.enforce === true || forcedReadOnly,
+      // Mode-driven read-only deliberately does NOT enforce: that would refuse
+      // every Explore/Plan/Review command on a machine with no sandbox, which
+      // the graceful-fallback design chose against.
+      enforce: cfg?.enforce === true,
       readOnly,
     };
   }

@@ -6,7 +6,6 @@ export type PlanTaskStatus = "pending" | "in_progress" | "done" | "failed";
 
 export type PlanAgentId =
   | "main"
-  | "architect"
   | "builder"
   | "reviewer"
   | "researcher"
