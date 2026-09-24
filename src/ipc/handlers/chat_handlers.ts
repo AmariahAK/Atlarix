@@ -2,7 +2,6 @@ import { ipcMain } from "electron";
 import { db } from "../../db";
 import { apps } from "../../db/schema";
 import { eq } from "drizzle-orm";
-import { createLoggedHandler } from "./safe_handle";
 import {
   parseDisplaySnapshot,
   type DisplaySnapshotV1,
@@ -15,10 +14,6 @@ import {
   getStreamTransport,
   isStreamTransportId,
 } from "@/lib/chat/stream-transport";
-import log from "electron-log";
-
-const logger = log.scope("chat_handlers");
-const handle = createLoggedHandler(logger);
 
 const LEGACY_CHAT_REMOVED =
   "Legacy database chats were removed. Open a workspace session from the sidebar.";
