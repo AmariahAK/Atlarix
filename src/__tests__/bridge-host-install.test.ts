@@ -233,10 +233,54 @@ describe("installing on Windows", () => {
       platform: "win32",
       runReg: async () => {},
     });
-    const copy = windowsRelayCopyPath(home);
-    expect(await fs.readFile(copy, "utf8")).toBe("relay-bytes");
     const env = await fs.readFile(result.hostEnv, "utf8");
-    expect(env).toContain(`ATLARIX_BRIDGE_RELAY=${copy}`);
+    const copy = /ATLARIX_BRIDGE_RELAY=(.*)/.exec(env)?.[1]?.trim() ?? "";
+    expect(path.dirname(copy)).toBe(path.dirname(windowsRelayCopyPath(home)));
+    expect(path.basename(copy)).toMatch(/^atlarix-bridge-[0-9a-f]{12}\.exe$/);
+    expect(await fs.readFile(copy, "utf8")).toBe("relay-bytes");
+  });
+
+  // 14.52.1 shipped a fixed relay that never ran: the old one was running, so
+  // Windows locked its file, the copy over it failed, and host.env kept
+  // pointing at the old deadlocking binary. A new build must land at a NEW path.
+  it("a new relay build lands at a new path, never over the one that may be running", async () => {
+    const home = await tempHome();
+    const relayPath = await fakeRelay(home);
+    const first = await installNativeHost({ relayPath, home, platform: "win32", runReg: async () => {} });
+    const firstEnv = await fs.readFile(first.hostEnv, "utf8");
+
+    await fs.writeFile(relayPath, "relay-bytes-v2");
+    const second = await installNativeHost({ relayPath, home, platform: "win32", runReg: async () => {} });
+    const secondEnv = await fs.readFile(second.hostEnv, "utf8");
+
+    expect(secondEnv).not.toBe(firstEnv);
+    const copy = /ATLARIX_BRIDGE_RELAY=(.*)/.exec(secondEnv)?.[1]?.trim() ?? "";
+    expect(await fs.readFile(copy, "utf8")).toBe("relay-bytes-v2");
+  });
+
+  it("removes older copies, including the pre-14.52.2 fixed-name one", async () => {
+    const home = await tempHome();
+    const dir = path.dirname(windowsRelayCopyPath(home));
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(windowsRelayCopyPath(home), "old");
+    await fs.writeFile(windowsRelayCopyPath(home, "aaaaaaaaaaaa"), "older");
+
+    await installNativeHost({ relayPath: await fakeRelay(home), home, platform: "win32", runReg: async () => {} });
+    const exes = (await fs.readdir(dir)).filter((f) => f.endsWith(".exe"));
+    expect(exes).toHaveLength(1);
+    expect(exes[0]).toMatch(/^atlarix-bridge-[0-9a-f]{12}\.exe$/);
+  });
+
+  it("falls back to the packaged relay, never to an older copy, when the copy fails", async () => {
+    const home = await tempHome();
+    const dir = path.dirname(windowsRelayCopyPath(home));
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(windowsRelayCopyPath(home), "old");
+
+    const missing = path.join(home, "no-such-relay.exe");
+    const result = await installNativeHost({ relayPath: missing, home, platform: "win32", runReg: async () => {} });
+    expect(await fs.readFile(result.hostEnv, "utf8")).toContain(`ATLARIX_BRIDGE_RELAY=${missing}`);
+    expect(result.skipped.some((s) => s.reason.includes("relay copy failed"))).toBe(true);
   });
 
   it("a registry failure is recorded, never thrown — the app must still open", async () => {

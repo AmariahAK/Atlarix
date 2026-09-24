@@ -103,6 +103,32 @@ describe("a browser connecting", () => {
     ext.client.destroy();
   });
 
+  // A relay wedged in the 14.52.0 Windows pipe deadlock connected and then
+  // said nothing, forever, holding Chrome's port open so the extension never
+  // reconnected to a fixed relay. Silence past the deadline is dropped.
+  it("drops a peer that never says hello, so the browser reconnects", async () => {
+    const socketPath = socketFor();
+    const server = new BridgeServer({ socketPath, helloDeadlineMs: 50 });
+    await server.listen();
+    open.push({ server });
+    const ext = await connectFakeExtension(socketPath);
+    const closed = new Promise<void>((r) => ext.client.once("close", () => r()));
+    await closed;
+    expect(server.connected).toBe(false);
+  });
+
+  it("keeps a peer that said hello past the deadline", async () => {
+    const socketPath = socketFor();
+    const server = new BridgeServer({ socketPath, helloDeadlineMs: 50 });
+    await server.listen();
+    open.push({ server });
+    const ext = await connectFakeExtension(socketPath);
+    ext.hello();
+    await new Promise((r) => setTimeout(r, 120));
+    expect(server.connected).toBe(true);
+    ext.client.destroy();
+  });
+
   it("refuses a request when nothing is connected, and says which way it dials", async () => {
     const { server } = await start();
     await expect(server.request("read_page")).rejects.toThrow(

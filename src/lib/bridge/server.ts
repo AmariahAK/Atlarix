@@ -61,6 +61,18 @@ export const BRIDGE_PROTOCOL = 1;
 /** How long a request waits before the caller is told the browser went quiet. */
 export const REQUEST_TIMEOUT_MS = 30_000;
 
+/**
+ * How long a connection may sit silent before it is dropped.
+ *
+ * The extension sends its hello the instant the port opens, so a peer that has
+ * said nothing after this long is not slow — it is a relay that cannot deliver.
+ * The case that made this necessary: a relay stuck in a Windows pipe deadlock
+ * held Chrome's port open forever, so the extension never reconnected and never
+ * picked up the fixed relay. Dropping it breaks the relay's pipe read, the relay
+ * exits, the port closes, and the extension's reconnect spawns a fresh host.
+ */
+export const HELLO_DEADLINE_MS = 10_000;
+
 interface Pending {
   resolve: (value: unknown) => void;
   reject: (err: Error) => void;
@@ -78,6 +90,8 @@ export interface BridgeServerOptions {
   /** Called when a browser connects and identifies itself. */
   onHello?: (hello: BridgeHello) => void;
   onLog?: (message: string) => void;
+  /** Override `HELLO_DEADLINE_MS` — tests only. */
+  helloDeadlineMs?: number;
 }
 
 export class BridgeServer {
@@ -150,6 +164,13 @@ export class BridgeServer {
     this.peers.add(peer);
     const reader = new FrameReader();
 
+    const deadline = setTimeout(() => {
+      if (peer.hello) return;
+      this.log("peer sent no hello in time — dropping it so the browser reconnects");
+      socket.destroy();
+    }, this.opts.helloDeadlineMs ?? HELLO_DEADLINE_MS);
+    deadline.unref?.();
+
     socket.on("data", (chunk: Buffer) => {
       let messages: unknown[];
       try {
@@ -166,6 +187,7 @@ export class BridgeServer {
     });
 
     const done = () => {
+      clearTimeout(deadline);
       this.peers.delete(peer);
       // Anything still waiting on THIS peer will never be answered. Failing it
       // now turns a permanent hang into an error the caller can report.

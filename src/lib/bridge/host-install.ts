@@ -216,9 +216,57 @@ const runRegExe: RegRunner = (args) =>
  * ACL-restricted: a process outside the package (Chrome, launching the host)
  * cannot rely on executing from there. A copy beside the wrapper, in the
  * user's own profile, has no such question.
+ *
+ * ══ NAMED BY CONTENT, BECAUSE A RUNNING EXE CANNOT BE REPLACED ══
+ *
+ * Windows locks an executable's file while any process runs it, and Chrome
+ * keeps a relay running for as long as its port is up — which, with the
+ * extension reconnecting on every disconnect, is effectively always. One fixed
+ * name meant an update could never land: the copy failed on the lock, the old
+ * binary stayed, and 14.52.1's pipe fix sat unused behind 14.52.0's deadlocked
+ * relay. A name derived from the bytes is never the file being run by an older
+ * relay, so the new one is always written beside it rather than over it.
  */
-export function windowsRelayCopyPath(home: string = os.homedir()): string {
-  return path.join(bridgeHome(home), "atlarix-bridge.exe");
+export function windowsRelayCopyPath(
+  home: string = os.homedir(),
+  contentTag?: string,
+): string {
+  const name = contentTag ? `atlarix-bridge-${contentTag}.exe` : "atlarix-bridge.exe";
+  return path.join(bridgeHome(home), name);
+}
+
+/** First 12 hex of the relay's SHA-256 — plenty to tell two builds apart. */
+async function relayContentTag(relayPath: string): Promise<string> {
+  const bytes = await fs.readFile(relayPath);
+  return createHash("sha256").update(bytes).digest("hex").slice(0, 12);
+}
+
+/**
+ * Put the relay at its content-addressed path and remove every other copy.
+ *
+ * Written to a temp name and renamed, so Chrome can never spawn a half-written
+ * exe. Old copies are removed best-effort: one still running is locked, stays
+ * this launch, and goes on the next.
+ */
+async function placeWindowsRelay(relayPath: string, home: string): Promise<string> {
+  const target = windowsRelayCopyPath(home, await relayContentTag(relayPath));
+  const present = await fs
+    .access(target)
+    .then(() => true)
+    .catch(() => false);
+  if (!present) {
+    const tmp = `${target}.${process.pid}.tmp`;
+    await fs.copyFile(relayPath, tmp);
+    await fs.rename(tmp, target);
+  }
+
+  const dir = bridgeHome(home);
+  const keep = path.basename(target);
+  for (const entry of await fs.readdir(dir).catch(() => [] as string[])) {
+    if (entry === keep || !/^atlarix-bridge.*\.(exe|tmp)$/i.test(entry)) continue;
+    await fs.rm(path.join(dir, entry), { force: true }).catch(() => {});
+  }
+  return target;
 }
 
 export interface HostManifest {
@@ -335,25 +383,18 @@ export async function installNativeHost(opts: {
 
   const skipped: { dir: string; reason: string }[] = [];
 
-  // Windows: run the relay from a copy in the user's profile (see
-  // `windowsRelayCopyPath`). A copy that is in use — Chrome holds the relay
-  // open while a port is up — cannot be replaced; the previous copy keeps
-  // working and the next launch refreshes it.
+  // Windows: run the relay from a content-addressed copy in the user's profile
+  // (see `windowsRelayCopyPath`). If the copy cannot be made, run the packaged
+  // relay directly — NEVER fall back to whatever copy is already there, which is
+  // by definition an older build, and was once a deadlocking one.
   let relay = opts.relayPath;
   if (platform === "win32") {
-    const copy = windowsRelayCopyPath(home);
     try {
-      await fs.copyFile(opts.relayPath, copy);
-      relay = copy;
+      relay = await placeWindowsRelay(opts.relayPath, home);
     } catch (err) {
-      const exists = await fs
-        .access(copy)
-        .then(() => true)
-        .catch(() => false);
-      if (exists) relay = copy;
       skipped.push({
-        dir: copy,
-        reason: `relay copy not refreshed: ${err instanceof Error ? err.message : String(err)}`,
+        dir: bridgeHome(home),
+        reason: `relay copy failed, using the packaged relay: ${err instanceof Error ? err.message : String(err)}`,
       });
     }
   }

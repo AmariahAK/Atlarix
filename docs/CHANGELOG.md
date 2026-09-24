@@ -3,6 +3,23 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.52.2] (2026-09-25) — The Windows Chrome fix actually reaches Windows
+
+**14.52.1 fixed the Windows relay, but updating never installed the fix.** Atlarix copies the
+relay into your profile so Chrome can run it, always to the same file name. On Windows a program
+that is running cannot be overwritten, and Chrome keeps the relay running for as long as the
+extension is connected, so the update's copy failed and the old, deadlocking relay stayed in
+place. Each relay build now gets its own file name, so an update writes beside the running copy
+instead of over it. The app also drops any connection that has not identified itself within 10
+seconds. That ends a relay that is stuck, and the extension reconnects through the new one on its
+own, with no restart and nothing to reinstall.
+
+### Fixed
+
+- **The Chrome bridge on Windows, after updating from 14.52.0 or 14.52.1.** Older relay copies are
+  cleaned up once nothing is running them.
+- **If the relay can't be copied, Atlarix runs the one it installed**, never an older copy.
+
 ## [14.52.1] (2026-09-25) — The Chrome connection works on Windows
 
 **On Windows, Atlarix could never talk to the Chrome extension, and now it can.** The small
