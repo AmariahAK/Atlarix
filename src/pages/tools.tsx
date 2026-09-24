@@ -141,17 +141,17 @@ const FEATURES: ToolFeature[] = [
   },
   {
     id: "subagents",
-    title: "Explore & Review sub-agents",
+    title: "Sub-agents: explore and build",
     shortDescription:
-      "Up to five readonly sub-agents per turn, scoped to paths you choose — shown in the Sub-agents panel.",
+      "Up to five sub-agents per turn: explore searches code and the web read-only, build drafts a scoped change for review.",
     category: "ai",
     steps: [
-      "In Build, ask to explore or review specific folders",
-      "Watch scoped cards (e.g. Mapping: api) in the chat stream",
-      "Expand a card for nested tools and progress",
+      "Ask to map several areas, research a question, or implement a scoped change",
+      "Watch each sub-agent's card in the chat stream",
+      "Review a build sub-agent's proposed edits file by file before they are written",
     ],
     howItWorks:
-      "Explore and Review sub-agents map repos in parallel with grouped tool summaries; Plan/Build/Debug do not expose delegation tools.",
+      "explore is read-only — code search plus web_search and read_url, so deep research happens here. build returns per-file proposals the main agent reviews; nothing is written without the normal approval. Define your own in .atlarix/agents/.",
     link: { label: "Workspace chat", to: "/" },
   },
   {
@@ -295,18 +295,18 @@ const FEATURES: ToolFeature[] = [
   },
   {
     id: "websearch",
-    title: "Web & deep research",
+    title: "Web search",
     shortDescription:
-      "Built-in web search when the provider supports it; optional local SearxNG via Docker.",
+      "Two plain tools: web_search returns the top results, read_url reads one page.",
     category: "integration",
     steps: [
-      "Ask for external docs or CVEs",
-      "Review citations in Search tab",
-      "Use deep research sparingly—it's multi-step",
+      "Ask for external docs, versions, error strings or CVEs",
+      "The agent searches, reads the promising pages, and searches again",
+      "For a broad question it hands the research to the explore sub-agent",
     ],
     howItWorks:
-      "Remote calls obey your networking and consent settings; local search keeps traffic on-machine.",
-    link: { label: "Home → Search tab", to: "/" },
+      "Search runs through Atlarix's own hidden browser, with nothing to install; models with built-in search use their provider's instead. Every answer cites the pages it read.",
+    link: { label: "Settings → Search", to: "/settings" },
   },
   {
     id: "workspace-connectors",

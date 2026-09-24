@@ -18,7 +18,6 @@ import { describe, it, expect } from "vitest";
 import {
   optimizeSearchQueryKeywords,
   filterRelevantResults,
-  requestedDeveloperSources,
 } from "@/lib/tools/web";
 
 const DOSTOEVSKY =
@@ -105,26 +104,5 @@ describe("relevance filtering never turns results into no results", () => {
 
   it("returns nothing only when it was given nothing", () => {
     expect(filterRelevantResults([], DOSTOEVSKY, 5)).toEqual([]);
-  });
-});
-
-describe("the open web outranks developer sites unless asked otherwise", () => {
-  it("treats 'all' as breadth, NOT as a code question", () => {
-    // `runDeepSearch` used to hardcode "all", which took the developer-first ranking
-    // and put `general` last — so a deep search for quotes returned StackOverflow,
-    // MDN and GitHub pages and the result cap dropped every real web hit. That is
-    // the "mostly SEO/site content" the agent reported.
-    expect(requestedDeveloperSources(["all"])).toBe(false);
-  });
-
-  it("treats an unspecified source list the same way", () => {
-    expect(requestedDeveloperSources(["general"])).toBe(false);
-    expect(requestedDeveloperSources([])).toBe(false);
-  });
-
-  it("ranks developer sources first only when they were actually named", () => {
-    expect(requestedDeveloperSources(["stackoverflow", "github"])).toBe(true);
-    expect(requestedDeveloperSources(["mdn"])).toBe(true);
-    expect(requestedDeveloperSources(["general", "github"])).toBe(true);
   });
 });

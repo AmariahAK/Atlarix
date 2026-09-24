@@ -68,16 +68,12 @@ const NEVER_TRUNCATE = new Set<string>(["browser_screenshot"]);
 // gain — exempt it; the envelope is for unbounded outputs (commands, etc.).
 // read_attachment self-pages the same way since W3 (v14.8.11) — offset/limit
 // over the cached full extraction, page size bounded in the tool itself.
-// web_search joined 2026-09-07 for a different reason worth stating: its result is
-// FIVE INDEPENDENT PAGES, not one stream. Head+tail on that keeps page 1 and
-// discards pages 2-5 entirely — measured, 6.1% retained, four sources fetched and
-// thrown away unread. It now allocates its own budget across the pages it actually
-// has and points at `read_url` for the rest (a warm cache hit, 15-minute TTL).
+// web_search was exempt while its deep mode concatenated five fetched pages; since
+// v14.52.0 it returns only titles, URLs and snippets, so the envelope applies again.
 const SELF_PAGINATED_TOOLS = new Set<string>([
   "read_file",
   "read_attachment",
   "session_search",
-  "web_search",
 ]);
 
 /**
@@ -99,6 +95,7 @@ const TRUNCATION_HINTS: Record<string, string> = {
     "call the same MCP tool with narrower arguments, or ask the server for a specific field.",
   read_url:
     "call read_url again with a smaller max_length, or a more specific URL.",
+  web_search: "lower num_results, or read one result with read_url.",
   grep: "narrow the path/include, or lower max_results.",
   glob: "narrow the pattern, or lower the limit.",
 };

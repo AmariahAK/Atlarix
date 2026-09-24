@@ -1,13 +1,17 @@
 /**
  * Atlarix Web Tools
  * ================
- * Combines Perplexica + StackSense approaches:
+ * Two primitives, no modes: `web_search` (query → ranked results) and `read_url`
+ * (one page, extracted). Deep research is the agent loop chaining the two —
+ * search, pick, read, search again — usually inside the `explore` sub-agent.
+ * Every reference tool ships exactly this pair (Claude Code WebSearch/WebFetch,
+ * opencode websearch/webfetch); a built-in "deep" mode was a third, overlapping
+ * way to research, and the model had to choose between them.
+ *
  * - Tiered smart search: Atlarix's own Chromium > self-hosted SearxNG > DDG Instant
- * - Parallel async searches across StackOverflow, GitHub, Reddit, MDN (StackSense)
- * - URL content extraction with summaries (Perplexica)
- * - Rich previews for inline reading
  * - Serper API for Google results (optional)
- * - Query optimization and caching
+ * - URL content extraction with a JS-shell browser escalation
+ * - Caching and in-flight dedup for both
  */
 
 import { ToolRegistry, createParameters, stringParam } from "./registry";
@@ -33,124 +37,6 @@ const WEB_SEARCH_SETUP_HINT =
 /** Default read budget per page (v13.1: raised from 5K — modern docs need more). */
 const READ_URL_DEFAULT_MAX = 20_000;
 const READ_URL_MAX_CAP = 50_000;
-/**
- * Per-page content budget for deep/comprehensive web_search fetches — the FLOOR,
- * and the value used when all five slots are filled.
- *
- * MEASURED 2026-09-07, because the owner saw the model reason around our own
- * truncation marker ("mostly resilience-focused and truncated") and work the gap
- * with extra searches. Two questions had to be separated before touching a number,
- * and v13.1 had already raised this once from 5K, so a blind raise was the
- * anti-goal:
- *
- * 1. Does the SYNTHESIS step drop content that was fetched? **No.** The assembly
- *    below concatenates each page's content verbatim — no second truncation, no
- *    summarisation. Every byte that survives this cap reaches the model.
- * 2. Is 20K/page too small for the pages deep search picks? **Yes**, on every
- *    page sampled — extracted text ran 25K-75K chars (kubernetes.io's Deployment
- *    page is 3.8x the cap; react.dev, docs.python.org and Wikipedia all ~2x).
- *
- * So the cap was the whole problem — but raising it flat multiplies by the page
- * count, and 5 x 20K is already ~25K tokens for one tool call. Instead the budget
- * is now allocated across the pages actually being fetched: a TOTAL, divided by
- * how many URLs came back. Worst case is unchanged (five pages, 20K each); the
- * common case of one or two usable results gets the whole budget instead of
- * leaving four fifths of it unspent. Strictly better, with no new ceiling.
- */
-const DEEP_FETCH_MAX = 20_000;
-/** Total across all pages in one deep fetch. Held at the old worst case, 5 x 20K. */
-const DEEP_FETCH_TOTAL = 100_000;
-
-/**
- * Per-page budget for a deep fetch of `pageCount` URLs.
- *
- * Never below DEEP_FETCH_MAX (so this can only ever help) and never above
- * READ_URL_MAX_CAP, which is the ceiling a user can ask for on a single
- * `read_url` — one page arriving through search should not out-read that.
- */
-/**
- * TOTAL model-facing characters for the assembled `Detailed Content Analysis`.
- *
- * `web_search` is in `SELF_PAGINATED_TOOLS`, so the registry's head+tail envelope
- * no longer runs on it — which means this number is now the ONLY thing standing
- * between a 100 KB fetch and the model's context. It is set just under the
- * ~6,000-token envelope it is exempt from, so exempting the tool bought FAIRNESS,
- * not a bigger allowance.
- *
- * WHY IT HAD TO BE THE TOOL'S JOB. The envelope kept head 1,500 + tail 500 tokens
- * of the whole assembled document. For one command's stdout that is right — you
- * want the start and the error at the end. For five concatenated web pages it kept
- * page 1 and discarded pages 2-5 entirely: measured 6.1% retained, four sources
- * fetched and thrown away unread, under a header claiming "analyzed 5 pages in
- * depth". Only the tool knows its result is N independent documents.
- */
-const SEARCH_OUTPUT_TOTAL_CHARS = 24_000;
-
-type FetchedPage = {
-  title: string;
-  url: string;
-  content: string;
-  source?: string;
-};
-
-/**
- * Render fetched pages into a bounded section that keeps SOMETHING from every page
- * and says truthfully what it kept.
- *
- * The three signalling channels are copied deliberately from `read_file`
- * (`src/lib/tools/file.ts`), the tool in this repo that already got this right:
- *   1. a header on EVERY page stating position in the whole ("chars 1-N of M"),
- *      with "(complete)" as a distinct literal when nothing was cut;
- *   2. an EMPTY footer when nothing remains — absence is the terminal signal;
- *   3. a footer naming the EXACT next call, never a vague "narrow it".
- *
- * Here the next call is `read_url` on the page's own URL, which is nearly free:
- * `fetchUrlContentCached` shares one cache with this path (the User-Agent is
- * deliberately kept out of the key) with a 15-minute TTL, so the follow-up is a
- * warm hit rather than a second fetch.
- */
-export function renderFetchedPages(pages: FetchedPage[]): {
-  text: string;
-  fullyIncluded: number;
-} {
-  if (pages.length === 0) return { text: "", fullyIncluded: 0 };
-
-  // Chrome (heading, url line, footers) is charged AGAINST the budget rather than
-  // added on top, so the total is a real ceiling and not an estimate.
-  const CHROME_PER_PAGE = 220;
-  const perPage = Math.max(
-    500,
-    Math.floor(SEARCH_OUTPUT_TOTAL_CHARS / pages.length) - CHROME_PER_PAGE,
-  );
-
-  let out = "";
-  let fullyIncluded = 0;
-  pages.forEach((page, idx) => {
-    const total = page.content.length;
-    const kept = Math.min(total, perPage);
-    const complete = kept >= total;
-    if (complete) fullyIncluded++;
-
-    out += `### ${idx + 1}. ${page.title}\n`;
-    out += `📍 ${page.source ? `[${page.source}] ` : ""}${page.url}\n`;
-    out += complete
-      ? `chars 1-${total} of ${total} (complete)\n\n`
-      : `chars 1-${kept} of ${total}\n\n`;
-    out += page.content.slice(0, kept);
-    // Empty when complete — that absence is how the model knows it has all of it.
-    out += complete
-      ? `\n\n---\n\n`
-      : `\n\n(truncated — ${total - kept} more chars; call read_url with url="${page.url}" for the full page)\n\n---\n\n`;
-  });
-
-  return { text: out, fullyIncluded };
-}
-
-export function deepFetchBudget(pageCount: number): number {
-  if (pageCount <= 0) return DEEP_FETCH_MAX;
-  const share = Math.floor(DEEP_FETCH_TOTAL / pageCount);
-  return Math.min(READ_URL_MAX_CAP, Math.max(DEEP_FETCH_MAX, share));
-}
 /** Default page-fetch timeout (v13.1: 10–15s was too tight for CDN-slow docs). */
 const FETCH_TIMEOUT_MS = 20_000;
 const FETCH_TIMEOUT_MAX_MS = 60_000;
@@ -431,10 +317,10 @@ function truncateForRead(content: string, maxLength: number): string {
 /**
  * Fetch first, browser on failure.
  *
- * Browser-ALWAYS was rejected: deep `web_search` fetches up to five URLs
- * concurrently while the hidden window serializes, which would turn one round of
- * parallel requests into five sequential page loads. The browser is the exception
- * path, and `shouldEscalate` below is what keeps it exceptional.
+ * Browser-ALWAYS was rejected: the agent often reads several URLs in parallel
+ * while the hidden window serializes, which would turn one round of parallel
+ * requests into sequential page loads. The browser is the exception path, and
+ * `shouldEscalate` below is what keeps it exceptional.
  */
 async function fetchUrlContent(
   url: string,
@@ -526,24 +412,12 @@ function normalizeWebSearchUserQuery(raw: string): string {
     .trim();
 }
 
-function stableSourcesKey(sourcesStr: string): string {
-  return sourcesStr
-    .toLowerCase()
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .sort()
-    .join(",");
-}
-
 function canonicalWebSearchCacheKey(
-  sourcesStr: string,
   query: string,
   numResults: number,
 ): string {
   const q = normalizeWebSearchUserQuery(query);
-  const src = stableSourcesKey(sourcesStr);
-  return `${src}:${q}:${numResults}`;
+  return `${q}:${numResults}`;
 }
 
 /** First `site:…` in query → root URL for direct fetch (ASCII or fullwidth colon; token may be full URL) */
@@ -771,8 +645,8 @@ export async function fetchUrlContentCached(
 ): Promise<Awaited<ReturnType<typeof fetchUrlContent>>> {
   // The User-Agent is deliberately NOT part of the key. It only labels which
   // caller asked; the page it comes back with is the same one. Keying on it would
-  // give read_url and deep search separate caches, which is the sharing this
-  // wrapper exists to provide.
+  // give read_url and the `site:` fetch separate caches, which is the sharing
+  // this wrapper exists to provide.
   const cacheKey = readUrlCacheKey(url, maxLength);
 
   const cached = getReadUrlCached(cacheKey);
@@ -802,59 +676,49 @@ export async function fetchUrlContentCached(
 }
 
 // ═══════════════════════════════════════════════════════════
-// WEB SEARCH - Combined Perplexica + StackSense approach
+// WEB SEARCH — query → results. No modes.
 // ═══════════════════════════════════════════════════════════
+
+/** Results returned when the caller does not say. */
+const WEB_SEARCH_DEFAULT_RESULTS = 5;
+const WEB_SEARCH_MAX_RESULTS = 10;
+/** Budget for the page fetched directly by a `site:` query. */
+const SITE_ROOT_FETCH_MAX = 8_000;
+
+function faviconFor(url: string): string | undefined {
+  return url
+    ? `https://www.google.com/s2/favicons?domain=${extractDomain(url)}&sz=32`
+    : undefined;
+}
 
 ToolRegistry.register({
   name: "web_search",
-  // Absorbs the `webResearchRules` block that used to sit in the system prompt for
-  // every web-capable mode. Conditional here, and next to the call.
-  //
   // Deliberately carries NO setup or recovery advice: this string is loaded every
   // turn inside the first prompt-cache breakpoint, so guidance for the rare empty
   // result would be billed on every turn that never sees one. That lives in
   // WEB_SEARCH_SETUP_HINT, which is appended to the failure paths instead.
   description:
-    "Search the web — facts, version checks, error strings, single-query lookups. Set `deep: true` for multi-source synthesis: it fetches full content from the top results and combines them with citations. Use that for broad or comparative topics; plain web_search for a quick fact.",
+    "Search the web. Returns the top results (title, URL, snippet). To go deeper, read the promising pages with read_url and search again.",
   requiresWorkspace: false,
   isCore: true,
   isReadOnly: true,
   parameters: createParameters(
     {
       query: stringParam("Search query"),
-      deep: {
-        type: "boolean",
-        description:
-          "When true, perform multi-source deep synthesis (formerly deep_search) — fetch full content from the top URLs and aggregate. Default: false (quick lookup).",
-        default: false,
-      },
-      // `mode` is a legacy alias for `deep` and is still accepted by the
-      // handler; advertising it invited the model to choose between two
-      // spellings of one flag.
-      sources: stringParam(
-        "Sources to search. For news/articles use 'general'. For code use 'stackoverflow,github,mdn'. Default: 'general'",
-      ),
       num_results: {
         type: "number",
-        description:
-          "Results per source (default 3, max 10). Raise only when one page of hits is genuinely too few.",
-      },
-      max_sources: {
-        type: "number",
-        description:
-          "When deep:true — number of top URLs to fetch full content from (default 3, max 5).",
+        description: `How many results (default ${WEB_SEARCH_DEFAULT_RESULTS}, max ${WEB_SEARCH_MAX_RESULTS}).`,
       },
     },
     ["query"],
   ),
+  // `deep`, `mode`, `sources` and `max_sources` were removed in v14.52.0. Old
+  // transcripts and habit-driven models still send them; they are accepted and
+  // ignored rather than rejected, so a stale flag never costs a failed call.
   handler: async (args: {
     query?: string;
     input?: { query?: string };
-    mode?: string;
-    sources?: string;
     num_results?: number;
-    deep?: boolean;
-    max_sources?: number;
   }) => {
     const nestedQ =
       args?.input && typeof args.input === "object"
@@ -867,56 +731,28 @@ ToolRegistry.register({
           ? nestedQ
           : "";
     const query = normalizeWebSearchUserQuery(rawQuery);
-    const mode = args.mode ?? "quick";
-    const sources = args.sources ?? "general";
-    const num_results = args.num_results;
 
-    if (args.deep === true) {
-      if (!query || query === "") {
-        return {
-          text: "⚠️ web_search({ deep: true }) requires a query.",
-          sources: [],
-        };
-      }
-      return runDeepSearch(query, args.max_sources ?? 3, sources);
-    }
-
-    // Validate query parameter
-    if (!query || query === "") {
-      console.log("[web_search] ERROR: No query provided");
+    if (!query) {
       return {
-        text: "⚠️ Please provide a search query. Example: web_search({ query: 'React hooks', mode: 'deep' })",
+        text: "⚠️ Please provide a search query. Example: web_search({ query: 'React useEffect cleanup' })",
         sources: [],
       };
     }
 
-    // Normalize mode
-    const searchMode = (mode || "quick").toLowerCase();
-    const validModes = ["quick", "deep", "comprehensive"];
-    if (!validModes.includes(searchMode)) {
-      return {
-        text: `⚠️ Invalid mode: "${mode}". Use 'quick', 'deep', or 'comprehensive'.`,
-        sources: [],
-      };
-    }
+    const maxResults = Math.min(
+      typeof args.num_results === "number" && args.num_results > 0
+        ? Math.floor(args.num_results)
+        : WEB_SEARCH_DEFAULT_RESULTS,
+      WEB_SEARCH_MAX_RESULTS,
+    );
 
     try {
-      console.log(
-        `[web_search] Mode: ${searchMode}, Query: "${query}", Sources: ${String(sources)}`,
-      );
-      const aggregator = new WebSearchAggregator();
-
-      const modeCap =
-        searchMode === "comprehensive" ? 10 : searchMode === "deep" ? 8 : 5;
-      const maxResults = Math.min(
-        typeof num_results === "number" && num_results > 0 ? num_results : 3,
-        modeCap,
-      );
-
       const siteRoot = detectSiteRootUrl(query);
       if (siteRoot) {
-        const maxLen = searchMode === "quick" ? 8000 : DEEP_FETCH_MAX;
-        const fetched = await fetchUrlContentCached(siteRoot, maxLen);
+        const fetched = await fetchUrlContentCached(
+          siteRoot,
+          SITE_ROOT_FETCH_MAX,
+        );
         if (!fetched.ok) {
           return {
             text: `**No page fetched for site query**\n\n${fetched.error}\n\n_Tried: ${siteRoot}_`,
@@ -927,11 +763,12 @@ ToolRegistry.register({
           fetched.content.length > 500
             ? fetched.content.substring(0, 500) + "…"
             : fetched.content;
-        const text =
-          `**Direct page (site: operator)**\n\n` +
-          `📄 **${fetched.title}**\n📍 ${siteRoot}\n\n---\n\n${fetched.content}`;
         return {
-          text,
+          text: wrapUntrustedData(
+            "web_search",
+            `**Direct page (site: operator)**\n\n` +
+              `📄 **${fetched.title}**\n📍 ${siteRoot}\n\n---\n\n${fetched.content}`,
+          ),
           sources: [
             {
               title: fetched.title,
@@ -939,112 +776,36 @@ ToolRegistry.register({
               content: snippet,
               source: "general",
               score: 100,
-              favicon: `https://www.google.com/s2/favicons?domain=${extractDomain(siteRoot)}&sz=32`,
+              favicon: faviconFor(siteRoot),
             },
           ],
         };
       }
 
-      const searchResults = await aggregator.search(query, sources, maxResults);
-      console.log(`[web_search] Found ${searchResults.sources.length} sources`);
-
-      // For quick mode, return immediately
-      if (searchMode === "quick") {
-        return {
-          text: searchResults.formattedText,
-          sources: searchResults.sources.map((result) => ({
-            title: result.title,
-            url: result.url,
-            content: result.snippet,
-            source: result.source,
-            score: result.score,
-            favicon: result.url
-              ? `https://www.google.com/s2/favicons?domain=${extractDomain(result.url)}&sz=32`
-              : undefined,
-          })),
-        };
-      }
-
-      // For deep/comprehensive modes, fetch full content from URLs
-      const urlsToFetch = searchResults.sources
-        .filter((r) => r.url && r.url.startsWith("http"))
-        .slice(0, searchMode === "comprehensive" ? 5 : 3);
-
-      // Through `fetchUrlContentCached`, not an inline fetch: that is what gives
-      // these pages the JS-shell escalation, the 15-minute cache and the
-      // in-flight dedup that the duplicated fetch never had. Still
-      // `allSettled` over the whole set, so the parallelism is unchanged.
-      const fetchedContent = await Promise.allSettled(
-        urlsToFetch.map(async (result) => {
-          const fetched = await fetchUrlContentCached(
-            result.url,
-            DEEP_FETCH_MAX,
-            FETCH_TIMEOUT_MS,
-            "Atlarix/1.0 (Web Research)",
-          );
-          if (!fetched.ok) return null;
-          return {
-            title: result.title,
-            url: result.url,
-            source: result.source,
-            content: fetched.content,
-          };
-        }),
+      const searchResults = await new WebSearchAggregator().search(
+        query,
+        maxResults,
       );
-
-      const validFetched = fetchedContent
-        .filter((r) => r.status === "fulfilled" && r.value !== null)
-        .map((r) => (r as PromiseFulfilledResult<any>).value);
-
-      // Build response
-      const rendered = renderFetchedPages(validFetched);
-      let response = `# 🔍 ${searchMode.toUpperCase()} Search: "${query}"\n\n`;
-      // Same honesty rule as runDeepSearch: describe what is here, not what
-      // was fetched. This branch had the identical defect.
-      response += `_Searched ${searchResults.sources.length} sources`;
-      if (validFetched.length > 0) {
-        response += `; ${validFetched.length} page(s) read`;
-        response +=
-          rendered.fullyIncluded === validFetched.length
-            ? `, all included in full`
-            : `, ${rendered.fullyIncluded} in full and ${validFetched.length - rendered.fullyIncluded} excerpted (read_url for the rest)`;
-      }
-      response += `_\n\n`;
-
-      // Quick overview
-      response += `## Quick Overview\n${searchResults.formattedText}\n\n`;
-
-      // Detailed analysis for deep/comprehensive
-      if (validFetched.length > 0) {
-        response += `## Detailed Content Analysis\n\n${rendered.text}`;
-      }
-
-      // For comprehensive mode, add cross-references
-      if (searchMode === "comprehensive" && validFetched.length > 1) {
-        response += `## Cross-Reference Summary\n`;
-        response += `Based on analysis of ${validFetched.length} sources, key themes include:\n`;
-        response += `- Multiple sources confirm various approaches\n`;
-        response += `- See individual source analyses above for details\n\n`;
-      }
+      console.log(`[web_search] Found ${searchResults.sources.length} results`);
 
       return {
-        // Remote search/page content is untrusted — data, not instructions.
-        text: wrapUntrustedData("web_search", response),
+        // Remote search content is untrusted — data, not instructions.
+        text:
+          searchResults.sources.length > 0
+            ? wrapUntrustedData("web_search", searchResults.formattedText)
+            : searchResults.formattedText,
         sources: searchResults.sources.map((result) => ({
           title: result.title,
           url: result.url,
           content: result.snippet,
           source: result.source,
           score: result.score,
-          favicon: result.url
-            ? `https://www.google.com/s2/favicons?domain=${extractDomain(result.url)}&sz=32`
-            : undefined,
+          favicon: faviconFor(result.url),
         })),
       };
     } catch (error) {
       console.error("[web_search] Error:", error);
 
-      // Check for 403 rate limit errors and provide helpful message
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       const is403Error =
@@ -1071,86 +832,6 @@ Search runs through Atlarix's own browser, so there is nothing to install — th
     }
   },
 });
-
-// ═══════════════════════════════════════════════════════════
-// DEEP SEARCH IMPL — invoked by web_search({ deep: true })
-// (Standalone deep_search tool removed in Pass 7; routed via web_search.)
-// ═══════════════════════════════════════════════════════════
-
-async function runDeepSearch(
-  query: string,
-  maxSources: number = 3,
-  /**
-   * Same default as the quick path (`general`). This used to be hardcoded to
-   * `"all"`, which pulled in StackOverflow / GitHub / MDN / Reddit for EVERY deep
-   * search and — under the old ranking — put them ahead of the open web, so a deep
-   * search on any non-code topic came back as developer-site content. Deep is a
-   * depth setting, not a subject matter one.
-   */
-  sources: string = "general",
-) {
-  const aggregator = new WebSearchAggregator();
-  const cap = Math.max(1, Math.min(maxSources, 5));
-  const searchResults = await aggregator.search(query, sources, cap);
-
-  const topUrls = searchResults.sources
-    .filter((r) => r.url && r.url.startsWith("http"))
-    .slice(0, cap);
-
-  // See the note in `web_search` — same reason, same wrapper, still parallel.
-  const perPage = deepFetchBudget(topUrls.length);
-  const fetchedContent = await Promise.allSettled(
-    topUrls.map(async (result) => {
-      const fetched = await fetchUrlContentCached(
-        result.url,
-        perPage,
-        FETCH_TIMEOUT_MS,
-        "Atlarix/1.0 (Deep Search)",
-      );
-      if (!fetched.ok) return null;
-      return {
-        title: result.title,
-        url: result.url,
-        content: fetched.content,
-      };
-    }),
-  );
-
-  const validFetched = fetchedContent
-    .filter((r) => r.status === "fulfilled" && r.value !== null)
-    .map((r) => (r as PromiseFulfilledResult<any>).value);
-
-  const rendered = renderFetchedPages(validFetched);
-  let response = `# Deep Search Results for: "${query}"\n\n`;
-  // The header states what the model ACTUALLY RECEIVES. It used to claim
-  // "analyzed N pages in depth" while the envelope was delivering one of them —
-  // a producer claiming a complete retained output after discarding bytes.
-  response += `_Searched ${searchResults.sources.length} sources; ${validFetched.length} page(s) read`;
-  if (validFetched.length > 0) {
-    response +=
-      rendered.fullyIncluded === validFetched.length
-        ? `, all included in full`
-        : `, ${rendered.fullyIncluded} in full and ${validFetched.length - rendered.fullyIncluded} excerpted (read_url for the rest)`;
-  }
-  response += `_\n\n`;
-  response += `## Quick Overview\n${searchResults.formattedText}\n\n`;
-  if (validFetched.length > 0) {
-    response += `## Detailed Content Analysis\n\n${rendered.text}`;
-  }
-
-  return {
-    // Remote deep-search content is untrusted — data, not instructions.
-    text: wrapUntrustedData("web_search", response),
-    sources: searchResults.sources.map((result) => ({
-      title: result.title,
-      url: result.url,
-      content: result.snippet,
-      favicon: result.url
-        ? `https://www.google.com/s2/favicons?domain=${extractDomain(result.url)}&sz=32`
-        : undefined,
-    })),
-  };
-}
 
 // ═══════════════════════════════════════════════════════════
 // URL READING - Perplexica-style content extraction
@@ -1205,23 +886,22 @@ ToolRegistry.register({
 });
 
 // ═══════════════════════════════════════════════════════════
-// HELPER CLASSES - Combined StackSense + Perplexica approach
+// SEARCH AGGREGATOR
 // ═══════════════════════════════════════════════════════════
 
 /**
- * Keyword reduction for the SITE-SCOPED searchers (StackSense approach).
+ * Keyword reduction — the FALLBACK for a raw query that found nothing.
  *
- * NOT for the open web. This shrinks a query to at most six keywords, which is the
- * right idea when asking StackOverflow or MDN about an error string, and destructive
- * for anything written as prose. A real example from a user session:
+ * Never the first attempt. This shrinks a query to at most six keywords, which
+ * rescues an over-long chatty question no engine matches verbatim, and is
+ * destructive for anything written as prose. A real example from a user session:
  *
  *   "The mystery of human existence lies not in just staying alive, but in finding
  *    something to live for" Dostoevsky Brothers Karamazov
  *      → `"the mystery human existence lies not`
  *
- * — the phrase shredded, the author dropped, and a dangling unclosed quote sent to
- * the engine, which returned nothing. `runSearchMerged` now gives the general web the
- * RAW query and keeps this for the site-scoped sources only.
+ * — the phrase shredded, the author dropped. So the open web always gets the RAW
+ * query first (`searchGeneralWithFallback`).
  *
  * Quoted spans survive whole even here: a `"…"` phrase is an explicit instruction to
  * match exactly, and no keyword heuristic may overrule it. They are also exempt from
@@ -1229,25 +909,6 @@ ToolRegistry.register({
  *
  * Exported for the test that pins the phrase rule.
  */
-/**
- * Did the caller actually ask for developer sources?
- *
- * Only then should StackOverflow / MDN / GitHub outrank the open web. `all` used to
- * land in that branch, which ranked `general` LAST — so a deep search for literary
- * quotes came back as developer-site pages and every real web result was dropped by
- * the result cap. "All sources" is a request for breadth, not a statement that the
- * question is about code; unspecified means the same.
- *
- * Exported for the test that pins the ranking.
- */
-export function requestedDeveloperSources(
-  requested: readonly string[],
-): boolean {
-  return requested.some(
-    (s) => s === "stackoverflow" || s === "github" || s === "mdn",
-  );
-}
-
 export function optimizeSearchQueryKeywords(rawQuery: string): string {
   const stopWords = new Set([
     "the",
@@ -1317,24 +978,14 @@ export function optimizeSearchQueryKeywords(rawQuery: string): string {
 class WebSearchAggregator {
   private timeout = 10000;
 
-  /** Site-scoped searchers only — see `optimizeSearchQueryKeywords`. */
-  private optimizeQuery(rawQuery: string): string {
-    return optimizeSearchQueryKeywords(rawQuery);
-  }
-
-  /**
-   * Search across multiple sources in parallel (StackSense approach)
-   * @returns Object with formattedText and sources array
-   */
   async search(
     query: string,
-    sourcesStr: string,
     numResults: number,
   ): Promise<{
     formattedText: string;
     sources: SearchResult[];
   }> {
-    const cacheKey = canonicalWebSearchCacheKey(sourcesStr, query, numResults);
+    const cacheKey = canonicalWebSearchCacheKey(query, numResults);
 
     const cached = getGlobalWebSearchCached(cacheKey);
     if (cached) {
@@ -1362,11 +1013,7 @@ class WebSearchAggregator {
       queueMicrotask(() => {
         void (async () => {
           try {
-            const out = await this.runSearchMerged(
-              query,
-              sourcesStr,
-              numResults,
-            );
+            const out = await this.runSearch(query, numResults);
             setGlobalWebSearchCached(cacheKey, out.sources);
             resolve(out);
           } catch (err) {
@@ -1386,133 +1033,40 @@ class WebSearchAggregator {
    * General web search on the RAW query, falling back to the keyword reduction
    * only when the raw query finds nothing.
    *
-   * This keeps whatever value the old heuristic had — rescuing an over-long,
-   * chatty question that no engine matches verbatim — without letting it damage
-   * the far more common case of a precise query. The second round trip is only
-   * paid on a search that already failed, so nothing that works today gets slower.
+   * The second round trip is only paid on a search that already failed, so
+   * nothing that works today gets slower.
    */
   private async searchGeneralWithFallback(
     rawQuery: string,
-    optimizedQuery: string,
     numResults: number,
   ): Promise<SearchResult[]> {
     const direct = await this.searchGeneral(rawQuery, numResults);
     if (direct.length > 0) return direct;
-    const trimmedRaw = rawQuery.trim();
-    if (!optimizedQuery || optimizedQuery.trim() === trimmedRaw) return direct;
+    const optimizedQuery = optimizeSearchQueryKeywords(rawQuery);
+    if (!optimizedQuery || optimizedQuery.trim() === rawQuery.trim()) {
+      return direct;
+    }
     console.log(
       `[WebSearch] raw query found nothing — retrying with keywords: "${optimizedQuery}"`,
     );
     return this.searchGeneral(optimizedQuery, numResults);
   }
 
-  private async runSearchMerged(
+  private async runSearch(
     query: string,
-    sourcesStr: string,
     numResults: number,
   ): Promise<{ formattedText: string; sources: SearchResult[] }> {
-    const optimizedQuery = this.optimizeQuery(query);
-
-    const requestedSources = sourcesStr
-      .toLowerCase()
-      .split(",")
-      .map((s) => s.trim());
-    const allSources = ["stackoverflow", "github", "reddit", "mdn", "general"];
-    let sourcesToSearch = requestedSources.includes("all")
-      ? [...allSources]
-      : requestedSources.filter((s) => allSources.includes(s));
-
-    if (sourcesToSearch.length === 0) {
-      sourcesToSearch = ["general"];
-    }
-
-    const tasks: Promise<SearchResult[]>[] = [];
-
-    if (sourcesToSearch.includes("stackoverflow")) {
-      tasks.push(this.searchStackOverflow(optimizedQuery, numResults));
-    }
-    if (sourcesToSearch.includes("github")) {
-      tasks.push(this.searchGitHub(optimizedQuery, numResults));
-    }
-    if (sourcesToSearch.includes("reddit")) {
-      tasks.push(this.searchReddit(optimizedQuery, numResults));
-    }
-    if (sourcesToSearch.includes("mdn")) {
-      tasks.push(this.searchMDN(optimizedQuery, numResults));
-    }
-    if (sourcesToSearch.includes("general")) {
-      // The RAW query. The open web is the one source that can honour a phrase,
-      // an author name, or an error message exactly as written — handing it the
-      // six-keyword reduction is what made a quote lookup return SEO pages, and
-      // an exact-phrase lookup return nothing at all.
-      tasks.push(
-        this.searchGeneralWithFallback(query, optimizedQuery, numResults),
-      );
-    }
-
-    const resultsArrays = await Promise.allSettled(tasks);
-
-    const allResults: SearchResult[] = [];
-    const sourceNames = sourcesToSearch;
-    resultsArrays.forEach((result, idx) => {
-      if (result.status === "fulfilled" && result.value) {
-        allResults.push(...result.value);
-        console.log(
-          `[WebSearch] ✅ ${sourceNames[idx]}: ${result.value.length} results`,
-        );
-      } else if (result.status === "rejected") {
-        console.warn(
-          `[WebSearch] ❌ ${sourceNames[idx]} failed:`,
-          result.reason,
-        );
-      }
-    });
-
-    const deduped = dedupeSearchResultsByUrl(allResults);
-    const relevant = filterRelevantResults(deduped, query, numResults);
-
-    // Developer sources outrank the open web ONLY when the caller explicitly asked
-    // for developer sources. `all` used to fall into that branch, which ranked
-    // `general` LAST — so a deep search for literary quotes returned StackOverflow,
-    // MDN and GitHub pages and dropped every real web result at the `slice` below.
-    // "All sources" is a request for breadth, not a statement that the question is
-    // about code, and unspecified means the same.
-    const isGeneralFocused = !requestedDeveloperSources(requestedSources);
-
-    const sourcePriority: Record<string, number> = isGeneralFocused
-      ? {
-          general: 5,
-          reddit: 4,
-          stackoverflow: 3,
-          github: 2,
-          mdn: 1,
-        }
-      : {
-          stackoverflow: 5,
-          mdn: 4,
-          github: 3,
-          reddit: 2,
-          general: 1,
-        };
-
-    relevant.sort((a, b) => {
-      const aPriority = sourcePriority[a.source] || 0;
-      const bPriority = sourcePriority[b.source] || 0;
-      if (aPriority !== bPriority) return bPriority - aPriority;
-      return b.score - a.score;
-    });
-
-    const topResults = relevant.slice(0, numResults);
-
+    const results = await this.searchGeneralWithFallback(query, numResults);
+    const deduped = dedupeSearchResultsByUrl(results);
+    const top = filterRelevantResults(deduped, query, numResults)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, numResults);
     return {
-      formattedText: this.formatResults(query, topResults),
-      sources: topResults,
+      formattedText: this.formatResults(query, top),
+      sources: top,
     };
   }
 
-  /**
-   * Format results with inline readable content (Perplexica approach)
-   */
   private formatResults(
     originalQuery: string,
     results: SearchResult[],
@@ -1522,214 +1076,17 @@ class WebSearchAggregator {
     }
 
     const lines: string[] = [
-      `**🔍 Search Results for: "${originalQuery}"**`,
-      `_Found ${results.length} results across multiple sources_\n`,
+      `**Search results for: "${originalQuery}"**\n`,
     ];
-
-    const sourceEmojis: Record<string, string> = {
-      stackoverflow: "💡",
-      github: "🐙",
-      reddit: "📢",
-      mdn: "📚",
-      general: "🌐",
-    };
-
     results.forEach((result, idx) => {
-      const emoji = sourceEmojis[result.source] || "🔗";
-      lines.push(`### ${idx + 1}. ${emoji} ${result.title}`);
-      lines.push(`📍 [${result.source.toUpperCase()}](${result.url})`);
-
-      // Rich preview - inline readable content
+      lines.push(`### ${idx + 1}. ${result.title}`);
+      lines.push(result.url);
       if (result.snippet) {
         lines.push(`\n> ${result.snippet}\n`);
       }
-
-      // Metadata preview
-      if (result.metadata) {
-        const metaParts: string[] = [];
-        if (result.metadata.answers !== undefined) {
-          metaParts.push(`✅ ${result.metadata.answers} answers`);
-        }
-        if (result.metadata.views !== undefined) {
-          metaParts.push(`👁 ${result.metadata.views.toLocaleString()} views`);
-        }
-        if (result.metadata.comments !== undefined) {
-          metaParts.push(`💬 ${result.metadata.comments} comments`);
-        }
-        if (result.metadata.subreddit) {
-          metaParts.push(`r/${result.metadata.subreddit}`);
-        }
-        if (result.metadata.state) {
-          metaParts.push(`Status: ${result.metadata.state}`);
-        }
-        if (metaParts.length > 0) {
-          lines.push(`_${metaParts.join(" | ")}_`);
-        }
-      }
       lines.push("");
     });
-
     return lines.join("\n");
-  }
-
-  // ===== SOURCE-SPECIFIC SEARCH METHODS =====
-
-  async searchStackOverflow(
-    query: string,
-    limit: number,
-  ): Promise<SearchResult[]> {
-    try {
-      const params = new URLSearchParams({
-        order: "desc",
-        sort: "relevance",
-        intitle: query,
-        site: "stackoverflow",
-        pagesize: String(limit),
-        filter: "withbody",
-      });
-
-      const response = await fetch(
-        `https://api.stackexchange.com/2.3/search?${params}`,
-        { signal: AbortSignal.timeout(this.timeout) },
-      );
-
-      if (!response.ok) return [];
-      const data = await response.json();
-
-      return (data.items || []).slice(0, limit).map((item: any) => ({
-        source: "stackoverflow",
-        title: decodeHtmlEntities(item.title || ""),
-        url: item.link || "",
-        snippet:
-          item.body_markdown?.substring(0, 500) ||
-          stripHtml(item.body || "").substring(0, 500) ||
-          "",
-        score: item.score || 0,
-        metadata: {
-          answers: item.answer_count || 0,
-          views: item.view_count || 0,
-          isAnswered: item.is_answered,
-        },
-      }));
-    } catch (e) {
-      console.error("[WebSearch] StackOverflow error:", e);
-      return [];
-    }
-  }
-
-  async searchGitHub(query: string, limit: number): Promise<SearchResult[]> {
-    try {
-      const response = await fetch(
-        `https://api.github.com/search/issues?q=${encodeURIComponent(query)}&sort=relevance&per_page=${limit}`,
-        {
-          signal: AbortSignal.timeout(this.timeout),
-          headers: { Accept: "application/vnd.github.v3+json" },
-        },
-      );
-
-      if (!response.ok) return [];
-      const data = await response.json();
-
-      return (data.items || [])
-        .slice(0, limit)
-        .map((item: any, idx: number) => ({
-          source: "github",
-          title: item.title || "",
-          url: item.html_url || "",
-          snippet: item.body?.substring(0, 500) || "",
-          // Normalize score: use position-based scoring + engagement
-          // GitHub returns issue/PR data, not relevance scores
-          score: Math.max(
-            20,
-            30 - idx * 3 + Math.min(10, (item.comments || 0) / 10),
-          ),
-          metadata: {
-            state: item.state,
-            comments: item.comments || 0,
-          },
-        }));
-    } catch (e) {
-      console.error("[WebSearch] GitHub error:", e);
-      return [];
-    }
-  }
-
-  async searchReddit(query: string, limit: number): Promise<SearchResult[]> {
-    try {
-      const params = new URLSearchParams({
-        q: `${query} subreddit:programming OR subreddit:webdev OR subreddit:learnprogramming`,
-        limit: String(limit),
-        sort: "relevance",
-      });
-
-      const response = await fetch(
-        `https://www.reddit.com/search.json?${params}`,
-        {
-          signal: AbortSignal.timeout(this.timeout),
-          headers: { "User-Agent": "Atlarix/1.0" },
-        },
-      );
-
-      if (!response.ok) return [];
-      const data = await response.json();
-
-      return (data.data?.children || [])
-        .slice(0, limit)
-        .map((post: any, index: number) => {
-          const postData = post.data || {};
-          return {
-            source: "reddit",
-            title: postData.title || "",
-            url: `https://reddit.com${postData.permalink || ""}`,
-            snippet: postData.selftext?.substring(0, 500) || "",
-            // Normalize score: position-based + engagement (upvotes + comments)
-            // Reddit scores are upvotes which vary wildly, normalize to 15-35 range
-            score: Math.max(
-              15,
-              25 -
-                index * 2 +
-                Math.min(
-                  10,
-                  Math.log10((postData.score || 1) + 1) * 3 +
-                    (postData.num_comments || 0) / 100,
-                ),
-            ),
-            metadata: {
-              subreddit: postData.subreddit,
-              comments: postData.num_comments || 0,
-            },
-          };
-        });
-    } catch (e) {
-      console.error("[WebSearch] Reddit error:", e);
-      return [];
-    }
-  }
-
-  async searchMDN(query: string, limit: number): Promise<SearchResult[]> {
-    try {
-      const response = await fetch(
-        `https://developer.mozilla.org/api/v1/search?q=${encodeURIComponent(query)}`,
-        { signal: AbortSignal.timeout(this.timeout) },
-      );
-
-      if (!response.ok) return [];
-      const data = await response.json();
-
-      return (data.documents || []).slice(0, limit).map((doc: any) => ({
-        source: "mdn",
-        title: doc.title || "",
-        url: `https://developer.mozilla.org${doc.mdn_url || ""}`,
-        snippet: doc.summary?.substring(0, 500) || "",
-        score: doc.score || 0,
-        metadata: {
-          locale: doc.locale || "en-US",
-        },
-      }));
-    } catch (e) {
-      console.error("[WebSearch] MDN error:", e);
-      return [];
-    }
   }
 
   async searchGeneral(query: string, limit: number): Promise<SearchResult[]> {
