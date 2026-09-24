@@ -70,13 +70,13 @@ Used only for tabs the user has directed Atlarix to, or that Atlarix itself open
 ## scripting
 
 ```
-To inject the page-reading and interaction scripts into a page the user asked about — building a structured outline of the page's text and controls so the model can answer about it, and clicking or filling an element the user asked for.
+To inject the page-reading and interaction scripts into a page the user asked about: building an outline of the page's text and controls so the model can answer about it, and clicking or filling an element the user asked for.
 
-Injection is checked against Chrome's own host access first: chrome.permissions.contains() runs for the origin before any script is injected, so a site the user has restricted from chrome://extensions is never touched. For requests made in the side panel, the extension's own per-site allow-list is checked as well, and the agent asks before a site it has not been allowed on. Requests from the connected Atlarix desktop app are not asked about again, for the reason given under Single purpose.
+Chrome's own host access is checked first (chrome.permissions.contains() for the origin), so a site the user restricted in chrome://extensions is never touched. Side-panel requests also check the extension's per-site allow-list and ask before a new site. Requests from the connected Atlarix desktop app are not asked again, as explained under Single purpose.
 
-It also measures how a page renders — layout defects, colour contrast and layout shift — when the agent checks a page it built; for the contrast rules it injects axe-core, an open-source accessibility library shipped unmodified inside the package (vendor/axe.min.js).
+It also checks how a page renders (layout, colour contrast, layout shift) using axe-core, an open-source accessibility library shipped unmodified in the package (vendor/axe.min.js).
 
-No remotely fetched script is ever injected; the injected functions and files are part of the extension package.
+No remote script is ever injected; every injected function and file is part of the package.
 ```
 
 ## tabGroups
@@ -90,11 +90,11 @@ It is also the stop gesture: closing the group ends the run. This is the product
 ## debugger
 
 ```
-Used only on tabs Atlarix itself opened — the tabs in its own "Atlarix" tab group. It refuses to attach to any tab the user opened.
+Used only on tabs Atlarix opened itself, in its own "Atlarix" tab group. It refuses to attach to any tab the user opened.
 
-On those tabs it does three things. It dispatches trusted keyboard and mouse input (Input.dispatchKeyEvent / dispatchMouseEvent): the only API that produces isTrusted events, without which Enter does not submit a form and :hover menus never open. It records the tab's console messages and network requests (Runtime and Network domains) from when the tab opens, and fetches one response's body on demand (Network.getResponseBody) when the agent asks about that request, so it can tell the user why a page failed. And it captures a screenshot of the tab (Page.captureScreenshot) when the user's task needs to see the page.
+On those tabs it does three things. It sends trusted keyboard and mouse input (Input.dispatchKeyEvent / dispatchMouseEvent), the only way to produce isTrusted events, without which Enter does not submit a form and hover menus never open. It records the tab's console messages and network requests (Runtime and Network domains) from when the tab opens, and fetches one response body on demand (Network.getResponseBody), so the agent can tell the user why a page failed. And it takes a screenshot of the tab (Page.captureScreenshot) when the task needs to see the page.
 
-It stays attached while that agent tab is open, so Chrome shows its "started debugging" banner on it, and detaches when the tab closes or the run ends. We do not use it to inspect memory, set breakpoints, or evaluate script, and never on a tab the user opened.
+It stays attached while that tab is open, so Chrome shows its debugging banner, and detaches when the tab closes. It is never used to inspect memory, set breakpoints or evaluate script.
 ```
 
 ## nativeMessaging
