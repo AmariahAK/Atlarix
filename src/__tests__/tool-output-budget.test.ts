@@ -82,12 +82,16 @@ describe("maybeTruncateToolOutput (in-band token budget envelope)", () => {
     expect(out.value).toBe(big);
   });
 
-  it("exempts web_search (its result is N independent pages, not one stream)", async () => {
+  // v14.52.0: web_search returns titles/URLs/snippets only (no deep mode that
+  // concatenated pages), so it is under the envelope again — and the
+  // truncation keeps the `sources` array citations depend on.
+  it("bounds web_search again, keeping its sources array", async () => {
     const out = await maybeTruncateToolOutput("web_search", {
       text: "x".repeat(120_000),
       sources: [{ title: "t", url: "https://example.com" }],
     });
-    expect(out.truncated).toBe(false);
+    expect(out.truncated).toBe(true);
+    expect(JSON.stringify(out)).toContain("https://example.com");
   });
 });
 

@@ -139,7 +139,9 @@ describe("preload invoke-channel allowlist", () => {
     // Guards the PARSER, not the product: a rename or reformat that made
     // `readAllowlist` return a handful of entries would turn the check above into
     // a permanent pass. The real list is several hundred long.
-    expect(readAllowlist().size).toBeGreaterThan(250);
+    // A sanity floor, not a count: v14.52.0 deleted the in-app browser's and
+    // agents:list channels, so the list legitimately shrank below 250.
+    expect(readAllowlist().size).toBeGreaterThan(200);
   });
 
   it("keeps the known-unreachable list honest", () => {

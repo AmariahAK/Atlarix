@@ -1,8 +1,8 @@
 # Atlarix TODO
 
-**Current version:** 14.51.0, released 2026-09-23 (desktop + extension in one `v*` tag): one
-Atlarix Auto for everyone, the Browser panel retired, voice and extension follow-ups.
-Narrative in [`docs/CHANGELOG.md`](./CHANGELOG.md).
+**Current version:** 14.52.0, staged 2026-09-25 (desktop + extension in one `v*` tag): one browser
+— the agent drives the user's Chrome; two sub-agents (explore/build); web_search + read_url; titles
+from the first message. Narrative in [`docs/CHANGELOG.md`](./CHANGELOG.md).
 
 **This header has been wrong before.** Update it in the same commit as the version bump, or do
 not trust it.
@@ -16,7 +16,7 @@ not trust it.
 | Designed, not scheduled             | [`docs/DESIGN_NOTES.md`](./DESIGN_NOTES.md) |
 | Open work                           | here, and nowhere else                      |
 
-**Last updated:** 2026-09-23
+**Last updated:** 2026-09-25
 
 ---
 

@@ -8,6 +8,7 @@
 > nobody is running — the app auto-updates — while the question it actually gets asked
 > is "when did X ship?", which a one-line index answers better than prose does.
 
+- **14.43.0** (2026-09-08) — It speaks your language
 - **14.42.0** (2026-09-03) — Talk to it while it is working
 - **14.41.0** (2026-09-02) — The context meter starts telling the truth
 - **14.40.0** (2026-09-01) — A dropped connection no longer ends the run
