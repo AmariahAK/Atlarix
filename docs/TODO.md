@@ -20,97 +20,20 @@ not trust it.
 
 ---
 
-## Next up — reported by the owner 2026-09-23
+## Next up — after v14.52.0
 
-- **FIRST THING next session: push the local `dev` commits** (email-template cleanup +
-  these TODO updates) via the usual route — check tracked secrets, flip `Atlarix` public, push,
-  wait for green "Atlarix CI", flip back private. No tag.
-- **Session titles: adopt the reference tools' universal pattern (NOT a small `maxOutputTokens`).**
-  Symptom: DeepSeek V4 Pro (BYOK) titled "hey how are you? could u tell me about yourself?" as
-  "Hey! I'm doing well, thanks for asking. 😊 I'm **DeepSeek V4 Pro**, running ins…" — the model
-  ANSWERED the transcript and `resolveGeneratedChatTitle` kept its first 80 chars. The 30-token cap
-  (`maxTokens` in `src/utils/chat_naming.ts:241`) is ignored by ai@6, but the owner's call is right:
-  do NOT "fix" it with a tiny `maxOutputTokens` — no reference tool does that, and a reasoning model
-  can spend the whole budget thinking and return empty. Auto/Core naming works today; keep it
-  working. Not a 14.51.0 regression; the main turn is unaffected (verified end-to-end in the log).
-
-  **What the references do (researched 2026-09-23):**
-  - opencode (`atlarix-references/opencode`, `session/prompt.ts:216-249`, `agent/prompt/title.txt`):
-    model = `title` agent → configured `small_model` → newest small model on the SAME provider
-    (gemini-flash / gpt-nano / claude-haiku family order) → the user's model. Lowest reasoning
-    variant (`smallOptions`), normal output cap (≤32k), temp 0.5. Input = first user message ONLY.
-    Output: strip `<think>`, first non-empty line, cap 100. Runs forked in the background on step 1.
-  - Codex CLI (`codex-rs/tui/src/app/thread_title.rs`): dedicated small model when available, else
-    the user's; reasoning Low; JSON schema `{title, maxLength 36}`; prompt ends "Do not answer the
-    request."; input = first user message (≤960 bytes); strips quotes/trailing punctuation; on
-    failure no title (list shows the first message). Background; dropped if the user renamed.
-  - Claude Code: background Haiku (falls back to the main model where Haiku is unavailable),
-    thinking disabled, structured output; titles in the conversation's language; changelog shows the
-    same failure class we hit (greeting → junk title, refusal text as title, multi-line titles).
-  - Cursor: auto-named from the first input; internals not public.
-
-  **Universal fix for Atlarix:**
-  1. *Model chain:* a cheap non-reasoning title model on Core when the account can use Core/Auto
-     (Auto's `title` lane already routes to the cheapest level) → else a small model on the user's
-     OWN BYOK provider (flash/nano/mini/haiku/lite family from our catalog, or a `small_model`
-     setting) → else the selected model. BYOK-only users never fall onto the shared Core key.
-  2. *Settings:* lowest reasoning effort / thinking off per provider (wire-case in
-     `providerOptions`); NO small output cap (if any, ≥1–2k as runaway insurance); ~10–15 s timeout,
-     one retry, temperature ~0.5.
-  3. *Prompt:* opencode's `title.txt` style + Codex's "Do not answer the request." + "≤6 words, ≤50
-     chars", same language as the user. User turn = "Generate a title for this conversation:" +
-     ONLY the first user message (~1 KB, in `<user_message>` tags). Stop sending the assistant reply
-     — that is what invites chatty models to reply. Structured output only where the catalog says
-     the model supports it; text + sanitise is the universal path.
-  4. *Sanitise:* strip `<think>…</think>` (and an unclosed one), parse `.title` if JSON, strip
-     markdown / emoji / quotes / a "Title:" label, first non-empty line, collapse whitespace, drop
-     trailing `.?!:`, cap ~50 chars on a word boundary.
-  5. *Reject "a reply, not a title":* >~8 words or >60 chars, a sentence break followed by more
-     text, starts with a greeting (hi/hey/hello/sure/certainly), first person (I/I'm/my) or "you",
-     "as an AI" / "I can't", ends with "?", echoes the model's own name, or empty → deterministic
-     fallback (no retry on another model).
-  6. *Deterministic fallback:* from the first user message — remove code fences, URLs, @mentions,
-     markdown and leading filler ("please", "can you", "hey"); first 6–8 words, ≤50 chars,
-     capitalised; a bare greeting becomes "Greeting". Show it IMMEDIATELY as the placeholder and
-     replace it only with an LLM title that passes step 5.
-  7. *Timing:* start in the background on the first real user message (parallel to the turn, never
-     awaited); only while the title is still the placeholder; drop the result if the user renamed
-     or deleted the session; skip synthetic/tool-only first messages; once per session.
-  Same `maxTokens` naming issue in compaction (`src/lib/context/compaction.ts:1160`) — review it with
-  the same care (compaction output SHOULD be bounded, but not so tightly a reasoning model returns
-  nothing).
-
-- **Session list: the "⋯" menu sits at the very edge and is hard to hit.** Widen the row's right
-  padding / give the menu button a larger hit area so delete is easy to click.
-- **Selecting an older session leaves the empty "Untitled" / "New conversation" row behind.** When
-  the user switches to an existing session, an unused empty session should be pruned (or not
-  shown) — the session-reuse log shows `msgs=0,"Untitled"` candidates lingering.
-- **Sub-agents: cut the built-ins to TWO — explore + implement — and rename them.** Owner decision
-  2026-09-23. Delete `architect` (Plan MODE in the main loop already does this; its tools were
-  identical to explorer's) and `qa` (no competitor ships a testing sub-agent; the main loop already
-  runs tests and `browser_test`). `src/lib/agents/builtin-agents.ts` → two entries; update the
-  `subagent_type` enum/description, the plan-card renderer's agent labels
-  (`src/lib/plan-cards/plan-card-renderer.ts`), tools page copy, tests and DESIGN_NOTES "QA
-  sub-agents". Explorer keeps code AND web tools (it already has `web_search` + `read_url`) and
-  becomes where deep research happens. **Names need work** — pick clear, plain ones before
-  shipping (e.g. "explore" / "build"-style verbs, matching Claude Code's "Explore" and opencode's
-  "explore"/"general"). Users can still define their own agents in `.atlarix/agents/`.
-- **Web tools: two plain primitives, no modes.** `web_search` currently has quick vs `deep: true`
-  synthesis, a legacy `mode: quick|deep|comprehensive` alias, `max_sources` and a `sources` picker,
-  plus a separate `read_url` — three overlapping ways to research. Every reference tool uses just
-  search + fetch (Claude Code WebSearch/WebFetch, opencode websearch/webfetch, Codex web_search,
-  Cursor @Web); none has a "deep" mode — the agent loop IS the deep mode (search → pick → read →
-  search again). Make `web_search` = `query` (+ optional result count) → top results (title, URL,
-  snippet); keep `read_url`; delete `deep`, `mode`, `max_sources`, `sources` and the deep-synthesis
-  code path + its "deep research" UI/labels. Deep research = the explorer sub-agent chaining the two.
-  Shorter per-turn tool description as a bonus.
-- **Remove the right panel's Console and Network tabs, and their code.** The Chrome extension now
-  covers what they were for (console + network of the agent's tabs, over CDP). Delete the tabs,
-  the capture plumbing that only feeds them (e.g. `browser_network_capture.ts`, the
-  `PageConsole` / Network panel components, their IPC), and update the tool descriptions and
-  DESIGN_NOTES "Errors tab → Console + Network". Keep whatever `browser_test` still needs for its
-  own failure verdict (`FAILURE_CONSOLE_LEVELS`) — check reachability before deleting.
-
+- **Verify the Chrome bridge on a real Windows machine, MSIX build, BEFORE tagging 14.52.0**
+  (owner). The bridge had never worked on Windows (no registry key was ever written). Check: the
+  HKCU `…\NativeMessagingHosts\dev.atlarix.bridge` keys exist for Chrome/Edge after launch
+  (`reg query`), `~/.atlarix/chrome/atlarix-bridge.exe` exists, Settings → Browser says
+  Connected, and the agent can open a localhost page in Chrome. Test the direct `.exe` too.
+- **MS Store submission needs the `unvirtualizedResources` justification.** The MSIX manifest now
+  declares it (with `desktop6:RegistryWriteVirtualization` disabled) so the bridge's registry key
+  reaches the real HKCU. It is a restricted capability: Partner Center asks why. Text is in the
+  manifest comment.
+- **Launchpad homepage video cards describe the retired in-app browser**
+  (`src/components/marketing/VideoWalkthroughs.tsx`: "A full browser inside the app…"). The copy
+  can change; the video itself shows the old browser — needs a decision on re-recording.
 
 ## 🔭 Open — the queue
 
@@ -120,11 +43,11 @@ CI uploads and submits the PACKAGE (14.48.1 on 2026-09-17, 14.50.1 on 2026-09-23
 below is dashboard-only, so no green run covers it. Proposed listing text is in
 [`docs/CWS_LISTING.md`](./CWS_LISTING.md); run `node scripts/cws-copy-check.mjs` before pasting.
 
-- [ ] **Fix the `debugger` justification — it is now inaccurate.** `cws/PRIVACY-FORM.md` says
-      `debugger` is attached only for the duration of an action and never used to read network
-      traffic. Since v14.48.0 it stays attached to the agent's own tabs to capture console and
-      network activity (`page/cdp-capture.ts`), and since 2026-09-23 it also takes screenshots
-      (`Page.captureScreenshot`). An inaccurate disclosure is what pulls a live item.
+- [ ] **Paste the `debugger` and `scripting` justifications into the dashboard.**
+      `cws/PRIVACY-FORM.md` is current as of v14.52.0 (stays attached to agent tabs for console,
+      network, on-demand response bodies and screenshots; injects the packaged axe-core for the
+      visual report). The dashboard still carries the older text — an inaccurate disclosure is
+      what pulls a live item.
 - [ ] **Rewrite `cws/DESCRIPTION.txt`** to match `docs/CWS_LISTING.md`. "What it costs" still
       says Core is pay-as-you-go only, with no word of free Atlarix Auto, and "the contents of
       pages Atlarix reads never leave your machine" contradicts the data disclosure (page text

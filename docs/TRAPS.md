@@ -761,16 +761,9 @@ matches` notice only prints for files named explicitly. Four of our own source f
   fill is required, because the notice and the excerpt reservations depend on each other.
 - **The AI SDK stack must stay on MATCHING majors** — `ai@7` + v4-spec providers, and zod moves with
   them. Never mix spec lines.
-- **A sub-agent borrowing the parent's interceptor inherits the parent's `turnWorkMode`** — a QA
-  worker spawned from a Build turn would get workspace-write. `preview.readOnly` is NARROWING-only,
-  and `enforce` is deliberately NOT set for the mode-driven case, or every Explore/Plan/Review command
-  would newly fail on a machine with no OS sandbox.
-- **`resolveBrowserScope` falls back to the focused window**, so a caller that forgets
-  `_ownerWindowId` silently drives whichever window the user is looking at — and retargets mid-task if
-  they switch. Worse than an error, because nothing reports it.
-
-### Auth, bans and the client
-
+- **`enforce` is deliberately NOT set for mode-driven read-only**, or every Explore/Plan/Review
+  command would newly fail on a machine with no OS sandbox. (The QA sub-agent's per-command
+  `preview.readOnly` went with QA in v14.52.0.)
 - **`useAuth.loading` cannot distinguish "signed out" from "not known yet"** — use `authResolved`.
 - **Naming a column that does not exist yet in the plan SELECT makes EVERY user read as free.** The
   PostgREST error falls through to `offlinePlanOr('free')`. Deploy the migration first, or query the
@@ -840,14 +833,12 @@ is _what happens when the list is incomplete_; the reasoning is in git and `DESI
   `level` and HTTP status, never on curated strings. Already derived.
 - **`file-permission-scope.ts`** — the v14.23.0 protected-path deletion has not crept back.
 - **`models_dev.ts` / provider dispatch** — de-hardcoded in v14.23.0; only documented pins remain.
-- **Browser `KEY_ALIASES` / `MODIFIER_TOKENS`** — a closed set from the DOM spec.
 - **The permission surface is layered, not duplicated** — four duplication hypotheses, all four
   refuted by the code. `guard.ts` is not a permission mechanism at all. Do not re-open without new
   evidence; see `DESIGN_NOTES.md`.
-- **`write:true` cannot turn a `qa` spawn into a writer** — `subagentWillWrite` returns
-  `agentIsWriter(agent)` for a NAMED agent and ignores the flag. Non-obvious, load-bearing, pinned.
-- **QA is NOT advertised in Plan mode**, deliberately: you plan before building, so there is nothing
-  running to test.
+- **`write:true` cannot turn a named read-only agent (`explore`) into a writer** —
+  `subagentWillWrite` returns `agentIsWriter(agent)` for a NAMED agent and ignores the flag.
+  Non-obvious, load-bearing, pinned.
 
 ---
 
@@ -1192,24 +1183,13 @@ is _what happens when the list is incomplete_; the reasoning is in git and `DESI
 
 ---
 
-## ✅ `browser-recorder.ts` is LIVE — do not delete it
+## `browser-recorder.ts` — REMOVED in v14.52.0, deliberately
 
-Proposed for deletion 2026-09-04 as "never in use". It is in use, end to end, and the chain is short
-enough to re-check in one grep — so this note exists to stop the next proposal:
-
-`browser.ts` calls `recordBrowserAction` at ~14 sites, and at `browser.ts:557-588` attaches
-`sessionWalkthrough` (markdown, back-compat) and `sessionSteps` (structured) to the **screenshot**
-result → `tool-expand-view.ts:1273` reads `payload.sessionSteps` and at `:1288` produces
-`kind: "browser_recording"` → `ToolExpandPanel.tsx:47` renders `ToolBrowserRecordingExpand`. Covered
-by `tool-expand-view.test.ts:219-241` and `browser-recorder.test.ts`. The browser it records is now
-the hidden per-window host (`src/ipc/utils/browser_view_manager.ts`) — the visible panel is gone,
-the recorder is not.
-
-**Why it FEELS unused, which is the real point:** its only trigger is
-`browser_inspect(mode:"screenshot")`, which the tool description deliberately calls a LAST RESORT.
-A feature reachable only from a discouraged path is rarely seen and still wired. _Rarely exercised is
-not the same as unreachable_ — this is the same reachability-not-presence rule the Dyad-era removal
-ran on.
+It was live (screenshot → walkthrough card) until the in-app agent browser went. In the user's
+Chrome the user watches the agent act in its own tab group, so a recorded walkthrough of the same
+thing is redundant; the owner chose to drop it rather than port it. `ToolBrowserRecordingExpand`
+stays so OLD transcripts still render their recording cards. The rule this note used to teach
+still holds: _rarely exercised is not the same as unreachable_ — check reachability, not presence.
 
 ---
 

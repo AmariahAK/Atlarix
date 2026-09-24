@@ -88,245 +88,36 @@ person for the wrong reason.
 
 ---
 
-## QA sub-agents
+## QA sub-agents — RETIRED in v14.52.0
 
-_Recorded 2026-08-15. **Shipped in v14.34.0** as the `qa` built-in agent
-(`src/lib/agents/builtin-agents.ts`). The agent's own QA pass: after building something, spawn
-workers that exercise the running app and report findings. Where the shipped shape differs from
-the design below, it is marked._
-
-**It is not stress testing** — it is acceptance and exploratory QA. If it is named or prompted as
-"stress test", the model will fire a thousand requests at a dev server and call that work.
-
-### Shape
-
-- **Surfaces, not roles.** The main agent declares up to **3** surfaces, each
-  `(name, how to reach it, tool profile)` — web, api, mobile, mcp, cli. The kind is resolved per
-  project; only the cap is fixed. Don't hardcode frontend/backend: a "mobile" surface in practice
-  tests the API the app consumes (you can't realistically drive a simulator), and a CLI surface
-  tests a binary.
-- **Why a sub-agent and not the main agent — independence of judgment, not parallelism.** The main
-  agent wrote the code and holds a prior about what should work, which is the worst mindset for
-  finding bugs: it will test the happy path it designed. **The QA agent gets the requirement and
-  the URL, deliberately NOT the diff.** That is also what makes it a distinct worker kind rather
-  than a prompt on an existing one.
-
-### Tools
-
-- **A scoped `http_request`, not the terminal.** `curl` hands over the whole shell to solve an HTTP
-  problem — with it comes `rm`, `git checkout`, restarting the DB, reading `.env` into a prompt —
-  and a QA agent is the likeliest to wander, because its job is literally "try things".
-  - A native tool returns `{status, headers, body, ms}`, which _is_ the evidence the findings
-    contract needs. Parsing `curl` output is where hallucinated findings come from.
-  - It can be bound to the surface's declared origin. A shell cannot; a prompt asking it to stay on
-    localhost is a suggestion, not a boundary (cf. the `cd` lesson — any absolute path shown to a
-    model is somewhere it may go).
-  - It generalizes: api, mobile and mcp surfaces are all the same tool.
-- **Log READ, not command access.** A 500 with an empty body means the trace is in the dev server's
-  stdout — already captured, because the main agent started it as a background command. Give the QA
-  agent read access to that stream.
-- **Terminal is a per-surface grant** the main agent declares, for CLI surfaces only, in the
-  read-only sandbox profile. Running the project's own e2e suite stays the main agent's job — the
-  suite is regression, QA is exploratory.
-- **What shipped instead of the scoped `http_request`:** no such tool was built. The `qa` agent
-  gets `run_command`, forced into the READ-ONLY sandbox with the network on
-  (`subagent-command.ts`), plus `background_jobs` for the dev server's log and the browser and
-  mobile tools — and no `edit_file`. The containment is the profile (cannot write), not an
-  origin binding, so the egress concern under _Boundaries_ is still open.
-
-### Findings contract
-
-- **Individual findings, one shared contract.** Shared notes conflict on write and contaminate —
-  one agent reads another's speculation ("login seems broken") and hunts a bug that doesn't exist.
-  Independence is the point of having two testers. What crosses between them is _observations at
-  the boundary_ — the actual request/response — never opinions.
-- **No evidence, no finding.** An agent that finds nothing feels like it failed, so it will invent
-  something. This single risk decides whether the feature is loved or switched off.
-  - Every finding carries a screenshot / status code / console line / log excerpt.
-  - "Exercised X, Y, Z — all worked" is an explicitly blessed successful outcome.
-  - "This is broken" is separate from "this is untested" — different confidence, different action.
-  - Findings come back as claims the main agent **reproduces**, exactly like implementer proposals.
-- **Record shape:** what I did → what I expected → what happened → evidence → does it reproduce.
-
-### The plan is a floor, not a ceiling
-
-A coverage contract (these must be exercised and reported) plus explicit licence to exceed it.
-Enumerating the task alone would make it a slower, costlier test runner — and the checklist would
-be written by the agent whose prior disqualified it from testing in the first place.
-
-The report has two parts: per-item results (mechanical, complete, auditable) and unprompted
-findings (exploratory).
-
-**Structure lives in the spawn payload and the return schema — never as a tool the sub-agent
-calls.** That is the TodoWrite pattern Anthropic retired on newer models as scaffold overhead, and
-it would fail our own net-less-surface filter. The agent receives a list and returns a result keyed
-to it; it never checks anything off.
-
-> **The generalized rule: structure the return, not the work.** Every worker type returns a schema.
-> Only workers whose value is _coverage_ (QA, implementer) receive an enumerated task; workers
-> whose value is _discovery_ (explorer, architect) receive an objective.
-
-**Settled 2026-08-17 — how an item gets marked done.** The alternative on the table was a
-check-off tool the worker calls as it goes. Rejected, and the reason is enforcement rather than
-surface area: a check-off is **self-report**, so a model that forgets the call looks like it skipped
-an item it did, and a model that calls it eagerly marks done what it never touched — and _neither
-mistake is detectable by us_. The return schema is checkable, because the harness still holds the
-contract it sent: the worker must come back with one entry per item
-(`{item, status: pass | fail | blocked | not-reached, evidence}`), and a missing item is a
-validation failure that re-prompts naming exactly what is unaccounted for, not silence the user has
-to notice. `not-reached` is first-class — it is the same "broken vs untested" distinction the
-findings contract already insists on.
-
-The counter, recorded honestly: Anthropic retired TodoWrite because _frontier_ models don't need the
-scaffold, and we deliberately target weak and local models that genuinely do drift on a six-item
-list. But a drifting model is precisely the one whose self-reported check-offs cannot be trusted.
-**Build the contract and the validated return, measure on `tests/agent-evals` against a weak model,
-and only if items are being dropped add a per-step `<system-reminder>` restating the contract with
-current per-item status** — a few hundred tokens, needing no cooperation from the model, and no new
-tool.
-
-**What this costs:** live progress. A check-off tool could show "3 of 6" mid-run; a validated return
-accounts for everything at the end. If live progress is wanted, derive it from the activity stream
-that already feeds the per-worker cards rather than from a new tool.
-
-**As shipped,** the per-item `## Coverage` shape (`PASS | FAIL | BLOCKED | NOT REACHED`) is required
-by the `qa` prompt; the harness-side validation that re-prompts on a missing item is the part still
-to build if weak models are seen dropping items.
-
-### Reuse
-
-Build on **`browser_test`** (`src/lib/tools/browser.ts`), which already runs a step sequence and
-reports `passed` plus console errors and 4xx/5xx. QA is the exploratory loop _around_ it, not a
-replacement. The in-app browser tools (`browser` with an `action`, and `browser_inspect`, with
-stable element `ref`s), background commands with auto-promote, and per-mode tool profiles
-(`resolve-toolset.ts`, `mode-tool-registry.ts`) all already exist — this is a new **role** in
-existing machinery, not a new subsystem.
-
-### Boundaries
-
-- **Egress consent.** Loopback and private ranges are the default. Any non-local origin needs an
-  explicit per-origin grant, shaped like the outside-workspace write grant: asked once, scoped to
-  the workspace, recorded. Testing a URL you don't own **is attacking it** — indistinguishable from
-  an attacker, from the user's IP, with Atlarix's name on it.
-- **This is the first feature where the agent's actions leave the machine and land on someone
-  else's infrastructure.** Our whole containment story is write-confinement, which says nothing
-  about egress. It turns the gap noted in the `h5i` entry from theoretical into load-bearing.
-- **A browser agent told "test the app" can click Delete Account**, and someone's `.env` will point
-  at staging. Destructive interactions go through the existing approval path.
-
-### Non-goals
-
-- **Load / stress testing.** Recorded with the reasoning so it isn't re-litigated. Without a
-  baseline, a controlled environment and warm-up, numbers off a dev machine hitting a debug build
-  through a dev server are noise people will make decisions on. If a user explicitly asks, the
-  honest deliverable is a k6/vegeta script they run from somewhere that isn't their laptop.
-  _Functional testing asks a question; load testing applies force — consent for the first is not
-  consent for the second,_ and volume is a separate, higher gate with a declared, capped rate.
-- **Environment bring-up.** v1 requires the app already running with URLs named. Auto-detecting dev
-  servers, seeding DBs and handling auth would eat the whole feature and yield a demo that works on
-  Vite hello-world and dies on every real repo. Reading `Local: http://localhost:5173` out of a
-  background command's stdout is the honest 80%.
-
-### Direction past v1
-
-A finding comes back **with a failing test that reproduces it**, feeding the verified-edits loop
-rather than being a report read once. That also answers the "no test measures whether our own suite
-is sensitive" note in TODO from the dynamic side: a QA agent doesn't trust the suite, it exercises
-the app.
+_Shipped in v14.34.0 as the `qa` built-in agent; removed in v14.52.0 with `architect`, leaving
+two built-ins, `explore` and `build`._ No reference tool ships a testing sub-agent, and the main
+loop already runs the tests and drives the browser itself. Its one structural idea — a worker that
+forms expectations from the REQUIREMENT, never the diff — is still the right way to prompt an
+`explore` sub-agent for a review; its forced-read-only command routing (`subagent-command.ts`,
+`preview.readOnly`) went with it. The old names still resolve (`BUILTIN_AGENT_ALIASES` in
+`user-agents.ts`), so a habit or a stored transcript never degrades to a generic scout. The full
+design is in `git log` for this file.
 
 ---
 
-## Errors tab → Console + Network
+## Errors tab → Console + Network — RETIRED in v14.52.0 with the in-app agent browser
 
-_Recorded 2026-08-15 after an audit. **Both halves shipped in v14.31.0** (2026-08-16). The visible
-Browser panel was retired 2026-09-23 — agent tabs now live in a hidden per-window host in
-`src/ipc/utils/browser_view_manager.ts` — and the Console, Errors and Network tabs were kept, fed by
-those hidden tabs. What is kept below is the spike that overturned the CDP decision and the
-reasoning that outlived the implementation._
+_Shipped in v14.31.0 (2026-08-16); the visible Browser panel went on 2026-09-23 and the hidden
+agent browser, its capture and these tabs on v14.52.0._ The agent's only browser is now the user's
+own Chrome / Edge / Brave through the Atlarix extension; it reads console and network over CDP
+(`packages/extension/src/page/cdp-capture.ts`) with `browser_inspect`, and the right panel shows
+neither. What outlived the implementation:
 
-### What actually landed, and the one thing that changed the design
-
-The plan was "upgrade the Errors tab". Testing the shipped Console tab against YouTube changed it
-into something else: Google's logged-out `passive=true` probe returned 401, the completion gate read
-that as "the app you built is broken", and the agent burned turns explaining to a gate that could
-not hear it. **So the gate went, entirely** (`src/lib/agent/preview-verify.ts` opens with "This no
-longer gates anything"). The harness cannot tell whose error it is — a frontend on `:5173` calling
-its own API on `:8080` is one app across two origins, a staging URL is the app under test, an
-embedded Stripe script is third-party until it is yours — and every rule we could write is wrong in
-one direction. A wrong block costs accuracy, which is the thing this whole app is for.
-
-What replaced it, in both directions:
-
-- **To the model:** one `systemReminder` pointer per turn naming counts and the read tool. Never a
-  dump — a chatty page costs one line, and the cost of watching a noisy tab is constant. What
-  triggers it is `browserRuntimeNotice` in settings, defaulting broad, because no severity policy in
-  the harness can be right for everyone.
-- **To the user:** unread badges and "Send to Atlarix" on a row, a tab, or everything shown. This is
-  the half that actually replaces the gate: when something genuinely IS broken, the person looking
-  at it knows, and the harness does not have to guess.
-
-The reasoning worth keeping: _a guard that cannot be right should inform, not block._ That is the
-same conclusion `atlarix-loop-termination-no-caps` and the v14.8.10 "guards guide via the result
-channel, never dead-end" note reached from different directions.
-
-### CDP viability spike — RUN 2026-08-16, Electron 38.2.2
-
-Attaching `webContents.debugger` + `Network.enable` to a **browser tab** (never the app window) is
-**viable**. Measured with a cold cache on both sides — separate session partitions, because a shared
-session makes the second load hit a warm HTTP cache and the comparison meaningless (the first
-attempt showed a bogus −76.5% request drop that was entirely cache):
-
-|                    | plain  | CDP attached |
-| ------------------ | ------ | ------------ |
-| requests completed | 29     | **39**       |
-| load time          | 5337ms | **2467ms**   |
-
-Attached saw _more_ requests and loaded _faster_, so **no sign of
-[#23035](https://github.com/electron/electron/issues/23035)** ("attach blocks some requests") on
-this version. It survived navigation, stayed attached with no `detach` event, and closed cleanly.
-
-**Two findings that shaped the build:**
-
-1. **`Network.enable` hangs forever on a tab that has never navigated.** `attach()` succeeds, then
-   the command simply never resolves — no error, no timeout. The target has no renderer to service
-   it. Tab creation in `browser_view_manager.ts` therefore primes with `about:blank`, attaches,
-   then navigates; any `sendCommand` must also be wrapped in a timeout.
-2. **On-demand body retrieval is unreliable on a heavy page: 4/25 and 9/25 across two runs**, failing
-   with `No resource with given identifier found` — the buffer had already evicted them. YouTube is
-   a worst case and a typical localhost dev app fares far better, but the UI and the
-   `browser_inspect` schema both say a body may already be evicted. If bodies turn out to matter in
-   practice, the fix is fetching at `loadingFinished` for `xhr`/`fetch` only. **Revisit with real
-   numbers rather than re-arguing.**
-
-Also observed: CDP reported **more** requests than `webRequest` for the same load, so the two are
-not interchangeable inventories — CDP sees things webRequest does not.
-
-### What the Network tab became
-
-CDP is the primary source (`attachNetworkCapture` in `browser_network_capture.ts`). `webRequest` —
-which has no transfer size and no timing breakdown — is only the **fallback tier** for a tab that
-degrades off CDP, and its blocking `onBeforeRequest` hook is installed lazily, the first time any
-tab degrades, because a blocking hook charges every request in every tab a main-process round trip.
-Console and Network keep separate buffers (`console-buffer-split.test.ts`) so a chatty page cannot
-evict the network failures, and dev-server/build errors (`devServerErrorParser.ts`,
-`DevServerProvider.tsx`) survive as a labelled source rather than a casualty.
-
-### The risk that defined this change
-
-**The verdict must not widen with the capture.** Capture now takes every console level and every
-request; what `browser_test` counts as a failure is still `FAILURE_CONSOLE_LEVELS` (`error` only) in
-`preview-verify.ts`, with `NOISY_PREVIEW_RESOURCE_TYPES` excluded so a missing favicon can't trip it.
-React/Next dev mode emits benign warnings constantly, and `browser_test` reads the same buffer, so a
-mistake here silently changes when the agent believes its test passed.
-
-### Agent side — DONE
-
-`browser_inspect(mode:"console"|"network")` were failure-only lenses. Both can now show everything —
-console via `level` (`all` by default, or `errors`/`warnings`), network via `include`
-(`failures` by default, or `all`) — plus `tab_id` on both and `request_id` for one row's headers
-and bodies. The point was never completeness for its own sake: an agent that can
-only see failures can never **confirm a success**, which is also why a QA sub-agent could not have
-used the old Errors tab as its observation channel.
+- **An empty read must never look like a clean page.** The extension carries `unavailable`
+  ("we could not watch") separately from an empty list, and the desktop refuses to call it clean.
+- **Capture has to start before the page loads.** `navigate`/`open_tab` open at `about:blank`,
+  attach, then load — console events are pushed, and a buffer opened later misses them.
+- **Nothing blocks a turn on a page error.** The harness cannot tell whose error a page reported.
+  The once-per-turn runtime notice went too; console/network reads default to entries since the
+  agent's last navigate (`resolveSince` in `browser.ts`), which is what `browser_test`'s baseline
+  gave — and `browser_test` itself is gone.
+- The CDP spike (Electron 38, 2026-08-16) and the webRequest fallback tier are in `git log`.
 
 ---
 
@@ -459,10 +250,10 @@ place our write-confinement story stops answering the question.
 
 **Do not rebuild this from the same premise.** The premise was: "the built-in browser should behave
 like a browser, so a user who set up a passkey on a site can just sign in." Electron's
-`app.configureWebAuthn({ touchID })` does not do that, and cannot. Since 2026-09-23 the question
-is mostly moot: the visible Browser panel is gone, the agent's own browser is hidden and signed in
-to nothing, and sign-in work goes to the user's own Chrome through the extension — where their
-passkeys already live.
+`app.configureWebAuthn({ touchID })` does not do that, and cannot. Since v14.52.0 the question
+is moot: there is no in-app agent browser at all, and every page the agent opens is in the user's
+own Chrome through the extension — where their passkeys already live. The account chooser that
+used to be wired in `browser_view_manager.ts` went with that file.
 
 Electron's own documentation, quoted because the wording is the whole argument: credentials are
 "stored in the macOS keychain and bound to this device's Secure Enclave", Electron "generates and
@@ -501,9 +292,9 @@ the _same_ credential Brave would have used. Both go through Chromium on every p
 entitlement. The work that made that usable is the `select-webauthn-account` chooser: WebAuthn is
 not an Electron permission type, so a multi-credential request had nothing listening and the page
 hung for ever, and declining outright meant a security key holding two credentials could never be
-used. **That chooser is the feature. Do not remove it as passkey dead code** — it is still wired
-in `browser_view_manager.ts`, beside `webauthn-notice.ts`, which reports a platform-authenticator
-attempt instead of letting the page hang silently.
+used. That chooser was the feature while the in-app browser existed; **superseded in v14.52.0** —
+the in-app agent browser, the chooser and `webauthn-notice.ts` are gone, and the user's own Chrome
+handles every WebAuthn flow natively.
 
 **A trap in the adjacent copy:** npm packages exist for macOS Touch ID (`LocalAuthentication`
 wrappers). They prompt for a fingerprint and report success. That is not a WebAuthn assertion — it

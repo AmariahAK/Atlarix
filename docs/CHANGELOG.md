@@ -3,6 +3,55 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.52.0] (2026-09-25) — One browser, two sub-agents, two web tools, and titles that are titles
+
+**The agent now works in your own browser, and only there.** The hidden in-app agent browser is
+gone: `browser` and `browser_inspect` drive Chrome, Edge or Brave through the free Atlarix
+extension, in Atlarix's own tab group, without taking focus or touching your tabs. Test a
+localhost dev server there, and read its console (every level, with stacks) and network
+requests — which now default to what happened since the agent's last navigate, so "did that
+throw?" is one read. Web search still runs through Atlarix's own hidden Chromium. It works on
+the free plan; only the extension's own side-panel agent is paid.
+
+### Added
+
+- **Settings → Browser** shows whether your browser is connected, which one, and the extension
+  version — with an install button when it is not.
+- **The visual and design reports work in your browser** (layout defects, contrast, CLS; palette,
+  type scale, spacing). axe-core ships inside the extension.
+- **One request's headers and response body** from `browser_inspect` mode:"network" in Chrome.
+
+### Changed
+
+- **Two built-in sub-agents: `explore` and `build`.** explore is read-only and does code search
+  and web research; build drafts a scoped change as per-file proposals. `architect` and `qa`
+  are gone (their old names, and `explorer` / `implementer`, still resolve).
+- **Web tools are two plain primitives:** `web_search` (query → results) and `read_url`. The
+  deep mode and the sources picker are gone — research is the agent searching, reading and
+  searching again, usually in the explore sub-agent.
+- **Session titles come from your first message, straight away.** Your own words appear at once;
+  a small model then names it — Auto stays on Auto, a paid Core tier uses the cheapest one, your
+  own key uses a small model on your provider (or the same model if it has none), and never
+  Core. A reply that comes back instead of a title ("Hey! I'm doing well…") is rejected.
+- **The right panel is simpler:** the Console and Network tabs and the build-errors list are gone.
+- **Switching to an older session removes the empty "Untitled" you left**, and the session "⋯"
+  menu is easier to hit.
+
+### Removed
+
+- **`browser_test`** — the agent drives the page and checks the console itself.
+
+### Fixed
+
+- **The browser bridge works on Windows.** It never had: Chromium finds a native host only
+  through a registry key, and nothing wrote one. The Store build also turns off registry-write
+  virtualization so the browser can see it.
+- **`key` and `hover` work in Chrome** — both always failed because their arguments were dropped.
+- **Navigating waits for the page to load, and capture starts before it does**, so a page's first
+  console lines and requests are no longer missed.
+- **The extension connects when the browser starts**, not only after something else wakes it.
+- **Compaction's summary call has a real output cap** — ai 7 silently ignored the old one.
+
 ## [14.51.0] (2026-09-23) — One Atlarix Auto for everyone, and the browser moves out of the way
 
 **Atlarix Auto is now the model new installs start on, and it works for every account.** It
