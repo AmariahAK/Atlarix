@@ -795,6 +795,44 @@ async function persistSessionStreamChatId(
 }
 
 /**
+ * Delete a session row (messages cascade) and the in-memory transport state
+ * bound to it. v12 (TODO 2.4): the DB delete alone leaked the ephemeral chat,
+ * partial responses, last stream request and ask_user state.
+ */
+async function deleteSessionAndTransport(
+  sessionId: string,
+  streamChatId: number | null,
+): Promise<number | null> {
+  await db.delete(chatSessions).where(eq(chatSessions.id, sessionId));
+  if (streamChatId != null && isStreamTransportId(streamChatId)) {
+    deleteStreamTransport(streamChatId);
+    const { clearChatStreamStateForChat } = await import(
+      "./chat_stream_handlers"
+    );
+    clearChatStreamStateForChat(streamChatId);
+  }
+  return streamChatId;
+}
+
+/** See the `sessions:prune-if-empty` handler. Exported for the eval. */
+export async function pruneSessionIfEmpty(
+  sessionId: string,
+): Promise<{ pruned: boolean; streamChatId: number | null }> {
+  const check = await verifyTrulyEmptySession(sessionId, "prune");
+  if (!check.empty || !check.row) {
+    return { pruned: false, streamChatId: null };
+  }
+  const streamChatId = await deleteSessionAndTransport(
+    sessionId,
+    check.row.streamChatId ?? null,
+  );
+  logger.info(
+    `[session-prune] left empty session ${sessionId.slice(0, 8)} removed`,
+  );
+  return { pruned: true, streamChatId };
+}
+
+/**
  * Write an AUTO title only if the session still holds `expected` and nobody
  * claimed it. A user rename (titleSource "user"), a delete, or another title
  * landing first all make this a no-op — so a slow model can never overwrite a
@@ -840,6 +878,9 @@ export async function titleSessionFromFirstMessage(
   rawUserText: string,
   opts: { chatId?: number | null } = {},
 ): Promise<void> {
+  // The headless CLI has no sidebar to show a title in; a benchmark run should
+  // not pay for one.
+  if (process.env.ATLARIX_HEADLESS === "1") return;
   try {
     const text = stripContentForTitleSource(rawUserText, "user");
     if (!text) return;
@@ -1027,26 +1068,30 @@ export function registerWorkspaceSessionHandlers(): void {
   );
 
   handle("sessions:delete", async (_event, sessionId: string) => {
-    // v12 (TODO 2.4): prune the in-memory transport state too — the DB delete
-    // alone leaked the ephemeral chat, partial responses, last stream request
-    // and ask_user state for every deleted session.
     const session = await db.query.chatSessions.findFirst({
       where: eq(chatSessions.id, sessionId),
     });
-    await db.delete(chatSessions).where(eq(chatSessions.id, sessionId));
-
-    const streamChatId = session?.streamChatId ?? null;
-    if (streamChatId != null && isStreamTransportId(streamChatId)) {
-      deleteStreamTransport(streamChatId);
-      const { clearChatStreamStateForChat } = await import(
-        "./chat_stream_handlers"
-      );
-      clearChatStreamStateForChat(streamChatId);
-    }
-
+    const streamChatId = await deleteSessionAndTransport(
+      sessionId,
+      session?.streamChatId ?? null,
+    );
     // Returned so the renderer can clear its per-chat atoms for this transport.
     return { ok: true, streamChatId };
   });
+
+  /**
+   * Delete a session the user is LEAVING, but only if it is truly empty.
+   *
+   * Switching to an older session used to leave the fresh "Untitled" behind,
+   * and it sat in the list until the next "New conversation" happened to reuse
+   * or prune it. The same guard that protects reuse decides here —
+   * `verifyTrulyEmptySession(…, "prune")`: zero messages on a fresh re-count, a
+   * default title, and never written to. Anything else is refused, because a
+   * wrong "empty" here deletes a conversation.
+   */
+  handle("sessions:prune-if-empty", async (_event, sessionId: string) =>
+    pruneSessionIfEmpty(sessionId),
+  );
 
   handle(
     "sessions:get",

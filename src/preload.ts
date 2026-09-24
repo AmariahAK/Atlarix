@@ -64,6 +64,7 @@ const validInvokeChannels = [
   "sessions:rename",
   "sessions:set-work-mode",
   "sessions:delete",
+  "sessions:prune-if-empty",
   "sessions:get",
   "sessions:generate-title",
   // Rehydrates the revert-turn affordance after a relaunch. It was MISSING, and

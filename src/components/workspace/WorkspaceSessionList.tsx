@@ -132,7 +132,58 @@ export function WorkspaceSessionList({
     void loadSessions();
   }, [loadSessions, sessionsRefreshKey]);
 
+  /**
+   * Renderer-side forgetting of a session that main has deleted: its per-chat
+   * atoms, its tab, and the session→chat binding. Shared by an explicit delete
+   * and by pruning the empty session the user just left.
+   */
+  const forgetDeletedSession = async (
+    sessionId: string,
+    streamChatId: number | null,
+  ) => {
+    if (streamChatId != null) {
+      // v12 (TODO 2.4): prune the per-chat jotai atoms for the deleted
+      // session's transport — they were never cleared (renderer leak).
+      const { clearChatAtomsForChat } = await import(
+        "@/lib/chat/clear-chat-atoms"
+      );
+      clearChatAtomsForChat(streamChatId);
+      // Drop its concurrent-session tab too (otherwise a dead tab lingers).
+      removeOpenChatTab(streamChatId);
+    }
+    // Prune the forward session→chat binding so a deleted session can never
+    // leave a stale entry that mis-attributes a spinner to it later.
+    setSessionIdToChatId((prev) => {
+      if (!prev.has(sessionId)) return prev;
+      const next = new Map(prev);
+      next.delete(sessionId);
+      return next;
+    });
+  };
+
+  /**
+   * Switch sessions, then remove the one left behind IF it was never used.
+   * Main decides emptiness with the same guard reuse relies on; a session with
+   * so much as one message is never touched.
+   */
   const handleSelectSession = async (sessionId: string) => {
+    const leaving = getDefaultStore().get(activeWorkspaceSessionIdAtom);
+    await switchToSession(sessionId);
+    const now = getDefaultStore().get(activeWorkspaceSessionIdAtom);
+    if (!leaving || leaving === sessionId || now === leaving) return;
+    try {
+      const { pruned, streamChatId } =
+        await IpcClient.getInstance().pruneWorkspaceSessionIfEmpty(leaving);
+      if (!pruned) return;
+      await forgetDeletedSession(leaving, streamChatId);
+      await loadSessions();
+      onSessionsChange?.();
+    } catch (e) {
+      console.error("Failed to prune the empty session:", e);
+    }
+  };
+
+  const switchToSession = async (sessionId: string) => {
     if (sessionSwitchBusy) return;
 
     const mappedChatId = sessionIdToChatId.get(sessionId);
@@ -304,24 +355,7 @@ export function WorkspaceSessionList({
     try {
       const { streamChatId } =
         await IpcClient.getInstance().deleteWorkspaceSession(sessionId);
-      // v12 (TODO 2.4): prune the per-chat jotai atoms for the deleted
-      // session's transport — they were never cleared (renderer leak).
-      if (streamChatId != null) {
-        const { clearChatAtomsForChat } = await import(
-          "@/lib/chat/clear-chat-atoms"
-        );
-        clearChatAtomsForChat(streamChatId);
-        // Drop its concurrent-session tab too (otherwise a dead tab lingers).
-        removeOpenChatTab(streamChatId);
-      }
-      // Prune the forward session→chat binding so a deleted session can never
-      // leave a stale entry that mis-attributes a spinner to it later.
-      setSessionIdToChatId((prev) => {
-        if (!prev.has(sessionId)) return prev;
-        const next = new Map(prev);
-        next.delete(sessionId);
-        return next;
-      });
+      await forgetDeletedSession(sessionId, streamChatId);
       if (streamChatId != null) {
         if (activeChatIdValue === streamChatId) {
           setActiveChatId(null);
@@ -490,7 +524,7 @@ export function WorkspaceSessionList({
                   the pointer crosses a row.
                 */}
                 <span
-                  className="shrink-0 text-[10px] text-muted-foreground tabular-nums group-hover:invisible"
+                  className="shrink-0 min-w-7 text-right text-[10px] text-muted-foreground tabular-nums group-hover:invisible"
                   title={formatDistanceToNow(new Date(session.updatedAt), {
                     addSuffix: true,
                   })}
@@ -506,7 +540,8 @@ export function WorkspaceSessionList({
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="absolute right-1 h-5 w-5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 shrink-0"
+                    aria-label="Session actions"
+                    className="absolute right-0.5 top-1/2 h-7 w-7 -translate-y-1/2 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 shrink-0"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <MoreHorizontal className="h-3.5 w-3.5" />

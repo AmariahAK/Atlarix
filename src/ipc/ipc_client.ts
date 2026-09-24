@@ -2008,6 +2008,13 @@ export class IpcClient {
     return this.ipcRenderer.invoke("sessions:delete", sessionId);
   }
 
+  /** Delete `sessionId` only if it is truly empty (the one being left). */
+  public async pruneWorkspaceSessionIfEmpty(
+    sessionId: string,
+  ): Promise<{ pruned: boolean; streamChatId: number | null }> {
+    return this.ipcRenderer.invoke("sessions:prune-if-empty", sessionId);
+  }
+
   public async getWorkspaceSession(
     sessionId: string,
     opts?: { limit?: number },

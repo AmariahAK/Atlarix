@@ -59,3 +59,17 @@ vi.mock("@/lib/auth/supabase-client", async (importOriginal) => {
     })),
   };
 });
+
+/**
+ * Session titling (v14.52.0) runs in the BACKGROUND the moment a first user
+ * message is saved, and would send its own request to the scripted fake LLM —
+ * consuming a response some scenario scripted for its turn. Evals exercise the
+ * turn, not the namer, so the model call is stubbed out here; the placeholder
+ * path still runs. `session-title-first-message.eval.test.ts` overrides this
+ * with a controllable fake.
+ */
+vi.mock("@/lib/session-title/generate-title", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/session-title/generate-title")>();
+  return { ...actual, generateSessionTitle: vi.fn(async () => null) };
+});

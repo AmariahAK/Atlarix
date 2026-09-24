@@ -383,3 +383,41 @@ describe("reuse SURVIVES being reused — the Untitled-litter regression", () =>
     expect(await sessionExists("prune-drifted-touched")).toBe(true);
   });
 });
+
+/**
+ * v14.52.0: switching to an older session removes the empty one LEFT behind —
+ * through the same guard as reuse, because a wrong "empty" deletes a
+ * conversation.
+ */
+describe("pruning the session the user left", () => {
+  const prune = async (id: string) => {
+    const { pruneSessionIfEmpty } = await import(
+      "@/ipc/handlers/workspace_session_handlers"
+    );
+    return pruneSessionIfEmpty(id);
+  };
+
+  it("removes a fresh, untouched, default-titled empty session", async () => {
+    await seedSession(1, "left-empty");
+    expect((await prune("left-empty")).pruned).toBe(true);
+    expect(await sessionExists("left-empty")).toBe(false);
+  });
+
+  it("never removes one with a message", async () => {
+    await seedSession(1, "left-with-message", { messages: 1 });
+    expect((await prune("left-with-message")).pruned).toBe(false);
+    expect(await sessionExists("left-with-message")).toBe(true);
+  });
+
+  it("never removes one the user named", async () => {
+    await seedSession(1, "left-named", { title: "Keep me" });
+    expect((await prune("left-named")).pruned).toBe(false);
+    expect(await sessionExists("left-named")).toBe(true);
+  });
+
+  it("never removes one that has been written to", async () => {
+    await seedSession(1, "left-touched", { touch: true });
+    expect((await prune("left-touched")).pruned).toBe(false);
+    expect(await sessionExists("left-touched")).toBe(true);
+  });
+});
