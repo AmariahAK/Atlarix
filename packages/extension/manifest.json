@@ -2,7 +2,7 @@
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA3HdZ3Cf4XQQ44hl9ZrRUxwecGjvMSw9jgs97ptKciSrf+hqEsTpdhpblDZ9ncAsBFNpI/SJWOjiSsNdMUhy/FHOGfTFeQkP88uFj9hJu+UZ0vgU8tN1d1e7RVyjqbwWNs7ADXVMUuyPVn/HyMgu18PaBYYFqIcYf7bPbVwrUehz1d066o9ZOqSlhPNLMdTQonSDIiMUqezRcE7wQBgo0DiWwg5XcX2m0+xNz7sQYCRNBk5zT02HOR/rSHHkunefbb4rOq1YxzxZTR8ABmLwVgkdII04vh3xT2FBhmnxIqRxExyATqyR9R7sZleDyzeHdfMq/q6FOQtuOYUxu/MVqjwIDAQAB",
   "manifest_version": 3,
   "name": "Atlarix",
-  "version": "14.52.0",
+  "version": "14.52.1",
   "description": "Drives the browser you are already signed into.",
   "minimum_chrome_version": "116",
   "permissions": [

@@ -878,6 +878,12 @@ jobs:
           # No escape hatch — see the macOS job. Signing stays OPTIONAL, exactly
           # as it is for the sandbox helper: an unsigned relay relays identically,
           # and the certificate only affects SmartScreen.
+          # The relay's Windows pipe test runs HERE, on real Windows, because it
+          # needs a real named pipe: a read pending on one half while the other
+          # writes. v14.52.0 shipped a synchronous pipe that deadlocked exactly
+          # there, and no macOS or Linux test could see it.
+          cargo test --release --manifest-path native/atlarix-bridge/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::atlarix-bridge tests failed on Windows"; exit $LASTEXITCODE }
           cargo build --release --manifest-path native/atlarix-bridge/Cargo.toml
           $exe = "native/atlarix-bridge/target/release/atlarix-bridge.exe"
           if (-not (Test-Path $exe)) {

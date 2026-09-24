@@ -1,8 +1,8 @@
 # Atlarix TODO
 
-**Current version:** 14.52.0, staged 2026-09-25 (desktop + extension in one `v*` tag): one browser
-— the agent drives the user's Chrome; two sub-agents (explore/build); web_search + read_url; titles
-from the first message. Narrative in [`docs/CHANGELOG.md`](./CHANGELOG.md).
+**Current version:** 14.52.1, staged 2026-09-25 (desktop + extension in one `v*` tag): the Windows
+Chrome bridge deadlock fix, and free-Auto consent continuing the turn. 14.52.0 (released
+2026-09-24) moved the agent to the user's Chrome. Narrative in [`docs/CHANGELOG.md`](./CHANGELOG.md).
 
 **This header has been wrong before.** Update it in the same commit as the version bump, or do
 not trust it.
@@ -22,11 +22,10 @@ not trust it.
 
 ## Next up — after v14.52.0
 
-- **Verify the Chrome bridge on a real Windows machine, MSIX build, BEFORE tagging 14.52.0**
-  (owner). The bridge had never worked on Windows (no registry key was ever written). Check: the
-  HKCU `…\NativeMessagingHosts\dev.atlarix.bridge` keys exist for Chrome/Edge after launch
-  (`reg query`), `~/.atlarix/chrome/atlarix-bridge.exe` exists, Settings → Browser says
-  Connected, and the agent can open a localhost page in Chrome. Test the direct `.exe` too.
+- **Verify the Chrome bridge on Windows with 14.52.1** (owner, UTM Windows 11 ARM VM). 14.52.0's
+  registry key, manifest and launcher were verified correct in the VM; the relay deadlocked on
+  its synchronous named pipe, fixed in 14.52.1 (overlapped I/O + a Windows-runner test). Check
+  Settings → Browser = Connected and the agent opens a page in Chrome.
 - **MS Store submission needs the `unvirtualizedResources` justification.** The MSIX manifest now
   declares it (with `desktop6:RegistryWriteVirtualization` disabled) so the bridge's registry key
   reaches the real HKCU. It is a restricted capability: Partner Center asks why. Text is in the

@@ -564,6 +564,18 @@ export function SimpleInlineChat({
                   return next;
                 });
               }}
+              onRetry={() => {
+                setErrorById((prev) => {
+                  const next = new Map(prev);
+                  next.delete(chatId);
+                  return next;
+                });
+                streamMessage({
+                  prompt: "",
+                  chatId,
+                  continueAfterQuestions: true,
+                });
+              }}
             />
             {/*
                           RETRY IS HIDDEN WHEN RETRYING CANNOT WORK.

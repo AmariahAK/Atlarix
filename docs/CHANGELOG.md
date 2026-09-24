@@ -3,6 +3,23 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.52.1] (2026-09-25) — The Chrome connection works on Windows
+
+**On Windows, Atlarix could never talk to the Chrome extension, and now it can.** The small
+relay that carries messages between Chrome and the app opened its connection to the app in a
+mode where Windows makes a write wait for any read in progress. The relay starts by waiting to
+read, so the extension's first message queued behind that read forever: the extension was
+installed and working, and Settings → Browser still said "Not connected". It now opens the
+connection so both directions run at once. A test on the Windows release runner does a read and
+a write at the same time and fails the release if they block each other again.
+
+### Fixed
+
+- **The Chrome bridge on Windows** — found in a Windows 11 VM with a space in the username;
+  registry key, manifest and launcher were all correct.
+- **Allowing free Atlarix Auto continues your message.** After "Use Atlarix Auto", the turn you
+  sent runs straight away instead of asking you to send it again.
+
 ## [14.52.0] (2026-09-25) — One browser, two sub-agents, two web tools, and titles that are titles
 
 **The agent now works in your own browser, and only there.** The hidden in-app agent browser is

@@ -50,9 +50,16 @@ function openAiSettings() {
 
 export function ChatErrorBox({
   onDismiss,
+  onRetry,
   error,
 }: {
   onDismiss: () => void;
+  /**
+   * Re-run the failed turn. Given, the free-Auto consent card uses it: once the
+   * user says yes, the message they already sent should simply go through —
+   * making them send it again is a second ask for the same thing.
+   */
+  onRetry?: () => void;
   error: string;
 }) {
   // Atlarix Core credit used up (PAYG) — top up, or switch to a BYOK model,
@@ -82,7 +89,9 @@ export function ChatErrorBox({
 
   // Atlarix Auto with no credit, before the one-time OK for its free path.
   if (error.includes(AUTO_CONSENT_MARKER)) {
-    return <AutoConsentError error={error} onDismiss={onDismiss} />;
+    return (
+      <AutoConsentError error={error} onDismiss={onDismiss} onRetry={onRetry} />
+    );
   }
 
   // Transient: couldn't reach Atlarix Core — retry or switch provider.
@@ -218,13 +227,19 @@ function ExternalLink({
   );
 }
 
-/** Free Auto needs the consent notice; accepting records it and the next send is free. */
+/**
+ * Free Auto needs the consent notice. Accepting records it and then RE-RUNS the
+ * turn that was refused, so the user's message goes through without being sent
+ * twice (reported 2026-09-25: "if allowed, it should continue the task").
+ */
 function AutoConsentError({
   error,
   onDismiss,
+  onRetry,
 }: {
   error: string;
   onDismiss: () => void;
+  onRetry?: () => void;
 }) {
   const { t } = useTranslation("chat");
   const { updateSettings } = useSettings();
@@ -239,9 +254,11 @@ function AutoConsentError({
         open={open}
         onAccept={() => {
           setOpen(false);
+          // The retry must follow the WRITE: main reads the consent from
+          // settings when it builds the request header.
           void updateSettings({
             atlarixAutoConsentAt: new Date().toISOString(),
-          }).then(onDismiss);
+          }).then(() => (onRetry ? onRetry() : onDismiss()));
         }}
         onCancel={() => setOpen(false)}
       />

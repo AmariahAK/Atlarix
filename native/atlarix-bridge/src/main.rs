@@ -184,13 +184,295 @@ fn connect(path: &str) -> io::Result<(Box<dyn Read + Send>, Box<dyn Write + Send
 
 /// Windows has no unix sockets in std, so the desktop listens on a named pipe.
 ///
-/// A named pipe opened read/write through `OpenOptions` is a byte stream in
-/// both directions, which is all this needs — the framing is in the bytes, not
-/// in the transport, so nothing here depends on message-mode pipe semantics.
+/// ══ OPENED OVERLAPPED, AND THAT IS THE WHOLE FIX FOR v14.52.1 ══
+///
+/// This used to be `OpenOptions::new().read(true).write(true).open(path)` plus
+/// `try_clone()`. On Windows that is a SYNCHRONOUS handle, and synchronous I/O
+/// on one file object is serialized by the kernel — `try_clone` duplicates the
+/// handle, not the file object. So the main thread's blocking `ReadFile`
+/// (waiting for the desktop to speak) held the object while the stdin thread's
+/// `WriteFile` (the extension's hello) queued behind it, forever. The desktop
+/// never heard the hello, never marked the browser connected, and never spoke
+/// first: a deadlock by construction, invisible on macOS/Linux where a socket's
+/// two directions are independent. Measured on Windows 11 (UTM, ARM64), 2026-09-25.
+///
+/// With `FILE_FLAG_OVERLAPPED` each direction issues its own I/O with its own
+/// `OVERLAPPED` and event and waits on that, so a pending read and a write can
+/// be in flight at once — which is what "two independent halves" needs.
+///
+/// Hand-written FFI rather than the `windows` crate: this crate has no
+/// dependencies on purpose (see Cargo.toml), and seven kernel32 calls do not
+/// change that trade.
 #[cfg(windows)]
 fn connect(path: &str) -> io::Result<(Box<dyn Read + Send>, Box<dyn Write + Send>)> {
-    use std::fs::OpenOptions;
-    let pipe = OpenOptions::new().read(true).write(true).open(path)?;
-    let read_half = pipe.try_clone()?;
-    Ok((Box::new(read_half), Box::new(pipe)))
+    let pipe = std::sync::Arc::new(win::Pipe::open(path)?);
+    Ok((
+        Box::new(win::Half::new(pipe.clone())?),
+        Box::new(win::Half::new(pipe)?),
+    ))
+}
+
+#[cfg(windows)]
+mod win {
+    use std::ffi::c_void;
+    use std::io::{self, Read, Write};
+    use std::os::windows::ffi::OsStrExt;
+    use std::sync::Arc;
+
+    type Handle = *mut c_void;
+
+    const GENERIC_READ: u32 = 0x8000_0000;
+    const GENERIC_WRITE: u32 = 0x4000_0000;
+    const OPEN_EXISTING: u32 = 3;
+    const FILE_FLAG_OVERLAPPED: u32 = 0x4000_0000;
+    const ERROR_BROKEN_PIPE: i32 = 109;
+    const ERROR_MORE_DATA: i32 = 234;
+    const ERROR_PIPE_NOT_CONNECTED: i32 = 233;
+    const ERROR_IO_PENDING: i32 = 997;
+
+    fn invalid(h: Handle) -> bool {
+        h.is_null() || h as isize == -1
+    }
+
+    /// `OVERLAPPED`. `Offset`/`OffsetHigh` share a union with `Pointer`; two
+    /// u32s are the same size and alignment on every Windows target.
+    #[repr(C)]
+    pub(super) struct Overlapped {
+        internal: usize,
+        internal_high: usize,
+        offset: u32,
+        offset_high: u32,
+        event: Handle,
+    }
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn CreateFileW(
+            name: *const u16,
+            access: u32,
+            share: u32,
+            security: *mut c_void,
+            disposition: u32,
+            flags: u32,
+            template: Handle,
+        ) -> Handle;
+        fn CreateEventW(security: *mut c_void, manual: i32, initial: i32, name: *const u16) -> Handle;
+        fn ReadFile(h: Handle, buf: *mut u8, len: u32, read: *mut u32, ov: *mut Overlapped) -> i32;
+        fn WriteFile(h: Handle, buf: *const u8, len: u32, written: *mut u32, ov: *mut Overlapped) -> i32;
+        fn GetOverlappedResult(h: Handle, ov: *mut Overlapped, n: *mut u32, wait: i32) -> i32;
+        fn CloseHandle(h: Handle) -> i32;
+    }
+
+    /// The pipe handle, shared by both halves and closed once.
+    pub struct Pipe(Handle);
+    // The handle is only ever used through overlapped calls, each with its own
+    // OVERLAPPED, which Windows explicitly allows from several threads at once.
+    unsafe impl Send for Pipe {}
+    unsafe impl Sync for Pipe {}
+
+    impl Pipe {
+        pub fn open(path: &str) -> io::Result<Pipe> {
+            let wide: Vec<u16> = std::ffi::OsStr::new(path)
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect();
+            let h = unsafe {
+                CreateFileW(
+                    wide.as_ptr(),
+                    GENERIC_READ | GENERIC_WRITE,
+                    0,
+                    std::ptr::null_mut(),
+                    OPEN_EXISTING,
+                    FILE_FLAG_OVERLAPPED,
+                    std::ptr::null_mut(),
+                )
+            };
+            if invalid(h) {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(Pipe(h))
+        }
+    }
+
+    impl Drop for Pipe {
+        fn drop(&mut self) {
+            unsafe {
+                CloseHandle(self.0);
+            }
+        }
+    }
+
+    /// One direction: its own event, its own OVERLAPPED per call.
+    pub struct Half {
+        pipe: Arc<Pipe>,
+        event: Handle,
+    }
+    unsafe impl Send for Half {}
+
+    impl Half {
+        pub fn new(pipe: Arc<Pipe>) -> io::Result<Half> {
+            // Manual-reset: GetOverlappedResult(wait=TRUE) waits on it, and a
+            // fresh OVERLAPPED per call resets it via ReadFile/WriteFile.
+            let event = unsafe { CreateEventW(std::ptr::null_mut(), 1, 0, std::ptr::null()) };
+            if invalid(event) {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(Half { pipe, event })
+        }
+
+        fn overlapped(&self) -> Overlapped {
+            Overlapped {
+                internal: 0,
+                internal_high: 0,
+                offset: 0,
+                offset_high: 0,
+                event: self.event,
+            }
+        }
+
+        /// Finish an overlapped call: pending → wait for it; a closed pipe → 0.
+        fn complete(&self, ok: i32, ov: &mut Overlapped) -> io::Result<usize> {
+            if ok == 0 {
+                let err = io::Error::last_os_error();
+                match err.raw_os_error() {
+                    Some(ERROR_IO_PENDING) => {}
+                    Some(ERROR_BROKEN_PIPE) | Some(ERROR_PIPE_NOT_CONNECTED) => return Ok(0),
+                    Some(ERROR_MORE_DATA) => {}
+                    _ => return Err(err),
+                }
+            }
+            let mut n: u32 = 0;
+            let done = unsafe { GetOverlappedResult(self.pipe.0, ov, &mut n, 1) };
+            if done == 0 {
+                let err = io::Error::last_os_error();
+                return match err.raw_os_error() {
+                    Some(ERROR_BROKEN_PIPE) | Some(ERROR_PIPE_NOT_CONNECTED) => Ok(0),
+                    Some(ERROR_MORE_DATA) => Ok(n as usize),
+                    _ => Err(err),
+                };
+            }
+            Ok(n as usize)
+        }
+    }
+
+    impl Drop for Half {
+        fn drop(&mut self) {
+            unsafe {
+                CloseHandle(self.event);
+            }
+        }
+    }
+
+    impl Read for Half {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            let mut ov = self.overlapped();
+            let len = buf.len().min(u32::MAX as usize) as u32;
+            let ok = unsafe {
+                ReadFile(self.pipe.0, buf.as_mut_ptr(), len, std::ptr::null_mut(), &mut ov)
+            };
+            self.complete(ok, &mut ov)
+        }
+    }
+
+    impl Write for Half {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            let mut ov = self.overlapped();
+            let len = buf.len().min(u32::MAX as usize) as u32;
+            let ok = unsafe {
+                WriteFile(self.pipe.0, buf.as_ptr(), len, std::ptr::null_mut(), &mut ov)
+            };
+            match self.complete(ok, &mut ov)? {
+                0 if !buf.is_empty() => Err(io::Error::from(io::ErrorKind::BrokenPipe)),
+                n => Ok(n),
+            }
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            // Writes complete before `write` returns; there is no buffer here.
+            Ok(())
+        }
+    }
+}
+
+/// The deadlock this file used to have, as a test: a read pending on one half
+/// while the other half writes. With the old synchronous handle the write never
+/// returns. Runs on the Windows release runner (`cargo test` in build-windows).
+#[cfg(all(test, windows))]
+mod windows_pipe_tests {
+    use super::connect;
+    use super::win::Overlapped;
+    use std::ffi::c_void;
+    use std::io::{Read, Write};
+    use std::os::windows::ffi::OsStrExt;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn CreateNamedPipeW(
+            name: *const u16,
+            open_mode: u32,
+            pipe_mode: u32,
+            max_instances: u32,
+            out_size: u32,
+            in_size: u32,
+            timeout: u32,
+            security: *mut c_void,
+        ) -> *mut c_void;
+        fn ConnectNamedPipe(h: *mut c_void, ov: *mut c_void) -> i32;
+        fn ReadFile(h: *mut c_void, buf: *mut u8, len: u32, read: *mut u32, ov: *mut Overlapped) -> i32;
+        fn WriteFile(h: *mut c_void, buf: *const u8, len: u32, w: *mut u32, ov: *mut Overlapped) -> i32;
+    }
+
+    struct Raw(*mut c_void);
+    unsafe impl Send for Raw {}
+
+    #[test]
+    fn a_pending_read_does_not_block_a_write() {
+        // A space in the name, like the "Amariah Abishai" pipe that found this.
+        let name = format!(r"\\.\pipe\atlarix-bridge-test {}", std::process::id());
+        let wide: Vec<u16> = std::ffi::OsStr::new(&name)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        // PIPE_ACCESS_DUPLEX, byte mode, like libuv's server.
+        let server = unsafe {
+            CreateNamedPipeW(wide.as_ptr(), 3, 0, 1, 65536, 65536, 0, std::ptr::null_mut())
+        };
+        assert!(!server.is_null() && server as isize != -1, "server pipe");
+        let server = Raw(server);
+
+        let (tx, rx) = mpsc::channel();
+        let serve = std::thread::spawn(move || {
+            let server = server;
+            unsafe { ConnectNamedPipe(server.0, std::ptr::null_mut()) };
+            // The desktop's side: wait for the hello BEFORE saying anything.
+            let mut buf = [0u8; 5];
+            let mut n = 0u32;
+            unsafe { ReadFile(server.0, buf.as_mut_ptr(), 5, &mut n, std::ptr::null_mut::<Overlapped>()) };
+            tx.send(buf[..n as usize].to_vec()).unwrap();
+            let mut w = 0u32;
+            unsafe { WriteFile(server.0, b"reply".as_ptr(), 5, &mut w, std::ptr::null_mut::<Overlapped>()) };
+            server
+        });
+
+        std::thread::sleep(Duration::from_millis(100));
+        let (mut reader, mut writer) = connect(&name).expect("connect");
+
+        // Read pending first — exactly the relay's main thread.
+        let read = std::thread::spawn(move || {
+            let mut buf = [0u8; 5];
+            let n = reader.read(&mut buf).unwrap();
+            buf[..n].to_vec()
+        });
+        std::thread::sleep(Duration::from_millis(100));
+
+        writer.write_all(b"hello").unwrap();
+        let heard = rx.recv_timeout(Duration::from_secs(5)).expect(
+            "the write never reached the server: the pending read blocked it (the v14.52.0 deadlock)",
+        );
+        assert_eq!(heard, b"hello");
+        assert_eq!(read.join().unwrap(), b"reply");
+        drop(serve.join());
+    }
 }

@@ -10,6 +10,7 @@ import { act, fireEvent, screen } from "@testing-library/react";
 import { chatErrorByIdAtom } from "@/atoms/chatAtoms";
 import {
   COMPASS_REACHABILITY_ERROR,
+  autoConsentRequiredUserMessage,
   coreExhaustedUserMessage,
 } from "@/shared/billing_copy";
 import { makeFakeIpc, renderWithProviders } from "./helpers";
@@ -157,5 +158,62 @@ describe("chat error banner placement (v11.1)", () => {
     expect(dismiss).toBeTruthy();
     fireEvent.click(dismiss!);
     expect(store.get(chatErrorByIdAtom).get(CHAT_ID)).toBeUndefined();
+  });
+
+  /**
+   * Reported 2026-09-25: after OK-ing free Auto the user had to send the same
+   * message again. Accepting now records the consent FIRST (main reads it when
+   * it builds the request) and then re-runs the refused turn.
+   */
+  it("accepting free-Auto consent saves it, then re-runs the turn", async () => {
+    // Saving settings runs the telemetry opt-out, which touches localStorage —
+    // and jsdom's stub here has no removeItem.
+    const mem = new Map<string, string>();
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: {
+        getItem: (k: string) => mem.get(k) ?? null,
+        setItem: (k: string, v: string) => void mem.set(k, String(v)),
+        removeItem: (k: string) => void mem.delete(k),
+        clear: () => mem.clear(),
+        key: (i: number) => Array.from(mem.keys())[i] ?? null,
+        get length() {
+          return mem.size;
+        },
+      },
+    });
+    fakeIpc.setUserSettings.mockClear();
+    const order: string[] = [];
+    fakeIpc.setUserSettings.mockImplementation(async (s: object) => {
+      order.push("save");
+      return s;
+    });
+    streamMessage.mockImplementation(() => order.push("retry"));
+    const { store } = renderWithProviders(
+      <SimpleInlineChat chatId={CHAT_ID} onSendMessage={() => {}} />,
+    );
+    act(() => {
+      store.set(
+        chatErrorByIdAtom,
+        new Map([[CHAT_ID, autoConsentRequiredUserMessage()]]),
+      );
+    });
+
+    fireEvent.click(screen.getByTestId("auto-review-consent"));
+    await act(async () => {
+      fireEvent.click(await screen.findByRole("button", { name: "Use Atlarix Auto" }));
+    });
+
+    expect(fakeIpc.setUserSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ atlarixAutoConsentAt: expect.any(String) }),
+    );
+    expect(streamMessage).toHaveBeenCalledWith({
+      prompt: "",
+      chatId: CHAT_ID,
+      continueAfterQuestions: true,
+    });
+    expect(order).toEqual(["save", "retry"]);
+    expect(store.get(chatErrorByIdAtom).get(CHAT_ID)).toBeUndefined();
+    streamMessage.mockImplementation(() => undefined);
   });
 });
