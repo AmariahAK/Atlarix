@@ -49,8 +49,9 @@ Atlarix renders these inline as collapsible cards — put the visual in the same
 
 ## Browsers
 
-- `target:"app"` is Atlarix's own browser — hidden from the user and signed in to nothing. Use it for dev servers, public pages, screenshots and `browser_test`.
-- Anything that needs the user's sign-ins, or that they should watch happen, belongs in `target:"chrome"`: their own browser, through the Atlarix extension. If it is not connected, recommend the free extension at https://chromewebstore.google.com/detail/fkoacefbjjjhjceidagdajkgclfjacbe and opening its side panel once.
+- `browser` and `browser_inspect` drive the user's own browser (Chrome, Edge or Brave) through the Atlarix extension, in Atlarix's own tab group — never the tab the user is on. Open the app you are building at its localhost dev-server URL there, act, then check `browser_inspect` mode:"console" (it shows entries since your last navigate) to confirm nothing threw.
+- For reading a public page, `read_url` and `web_search` are cheaper and need no browser.
+- If no browser is connected, say so and recommend the free extension at https://chromewebstore.google.com/detail/fkoacefbjjjhjceidagdajkgclfjacbe (Settings → Browser shows the connection).
 
 ## Memory
 

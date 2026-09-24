@@ -41,7 +41,7 @@ export const TOOL_RECOVERY_HINTS: Record<string, string> = {
   browser:
     'Every page action is one tool: browser({action:…}). Only http(s) URLs for action:"navigate" — to drive the app you are building, navigate to its dev-server URL (e.g. http://localhost:3000) like any other page. Act by `ref` (there is no `selector`): get a fresh one from browser_inspect(mode:"snapshot") or action:"find". With more than one tab open, pass the same tab_id you inspected.',
   browser_inspect:
-    'Open a page first with browser({action:"navigate", url}). mode:"snapshot" lists interactive refs; mode:"console" shows runtime errors with stacks.',
+    'Open a page first with browser({action:"navigate", url}). mode:"snapshot" lists interactive refs; mode:"console" shows runtime errors with stacks. If no browser is connected, the user needs Chrome/Edge/Brave open with the Atlarix extension — say so rather than retrying.',
   mobile_inspect:
     'Check what is running with mode:"devices" first. If nothing is, an emulator or simulator has to be started — say so rather than retrying. iOS Simulator has no hierarchy dump: only screenshot and logs work there.',
   mobile:

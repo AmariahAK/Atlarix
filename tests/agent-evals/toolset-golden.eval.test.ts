@@ -123,7 +123,6 @@ const GOLDEN = {
     "background_jobs",
     "browser",
     "browser_inspect",
-    "browser_test",
     "compress_context",
     "edit_file",
     "glob",

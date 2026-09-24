@@ -1,19 +1,20 @@
 /**
- * `target: "app" | "chrome"` — which browser a browser tool acts on.
+ * The seam between the browser tools and the user's Chrome.
  *
- * WHY THIS IS ITS OWN MODULE. `browser.ts` has 46 `webContents` call sites and
- * every one of them means Atlarix's own `WebContentsView`. Threading `bridge()`
- * through them would put a null check in front of each and make the extension
- * path a second meaning for the same code. Instead the seam is here: one place
- * that owns "can Chrome serve this, and if not, what do we tell the model".
+ * Since v14.52.0 the agent has ONE browser: the user's own Chrome (or Edge /
+ * Brave), driven through the Atlarix extension over the native-messaging
+ * bridge. The in-app agent browser is gone; Atlarix's hidden Chromium now only
+ * serves web search. This module owns "can Chrome serve this, and if not, what
+ * do we tell the model".
  *
  * ══ EVERY FAILURE IS A RESULT, NOT A THROW ══
  *
  * A thrown error ends the step and the model gets a stack it cannot act on. A
- * returned `{success:false, error}` lets it recover inside the same turn — and
- * in almost every case here the recovery is the same one sentence: retry with
- * `target:"app"`. That is why each refusal below NAMES its cause and names the
- * next move, rather than reporting that something went wrong.
+ * returned `{success:false, error}` lets it recover inside the same turn, so
+ * each refusal below NAMES its cause and the next move. There is no other
+ * browser to fall back to any more, so the next move is either a different
+ * approach on this page or something the user has to do (open Chrome, install
+ * or update the extension).
  *
  * ══ WHAT IS DELIBERATELY ABSENT ══
  *
@@ -21,85 +22,53 @@
  * `chat_stream_handlers.ts` calls `requireAuthSession()` at the top of every
  * turn before any tool runs, and it is provider-agnostic — BYOK is gated
  * exactly like Core. The one bypass (`ATLARIX_HEADLESS=1`) drops every browser
- * tool via `DRIVES_A_VIEW` in `resolve-toolset.ts`. So a browser tool only ever
- * executes inside an authenticated turn, and a refusal naming a login would
- * send the user hunting for a sign-in that is not the problem.
- *
- * The extension itself needs no sign-in of its own: `bridge/serve.ts` imports
- * no auth and no model client, enforced by `bridge-imports.test.ts`. It rides
- * the account the desktop app is already signed into.
+ * tool via `DRIVES_A_VIEW` in `resolve-toolset.ts`. The extension needs no
+ * sign-in of its own (`bridge/serve.ts` imports no auth, enforced by
+ * `bridge-imports.test.ts`), and the bridge has no plan gate: it works on the
+ * free plan. Only the extension's own side-panel agent is paid.
  *
  * ══ IT WORKS IN ITS OWN TAB GROUP, BESIDE THE USER ══
  *
- * Everything on this path lands in Atlarix's own (emerald, titled) tab group:
- * `navigate` reuses the agent's tab, `open_tab` creates inside the group, no op
- * ever activates a tab, and `close_tab` refuses a tab the agent did not open.
- * So a turn can read and act while the user keeps working in their own tabs —
- * nothing takes focus and nothing navigates out from under them. Acting on the
- * user's current tab is still possible, but it has to be asked for by `tab_id`
- * from a tabs listing, which flags `active` and `agent`.
+ * Everything lands in Atlarix's own (emerald, titled) tab group: `navigate`
+ * reuses the agent's tab, `open_tab` creates inside the group, no op ever
+ * activates a tab, and `close_tab` refuses a tab the agent did not open. So a
+ * turn can read and act while the user keeps working in their own tabs.
+ * Acting on the user's current tab is still possible, but it has to be asked
+ * for by `tab_id` from a tabs listing, which flags `active` and `agent`.
  */
 
 import { bridge } from "@/main/bridge-lifecycle";
 import { CHROME_STORE_URL } from "@/lib/bridge/host-install";
 
-export type BrowserTarget = "app" | "chrome";
-
-/** Every `browser_inspect` mode, and the bridged op that serves it — or null. */
-const INSPECT_OPS: Record<string, string | null> = {
+/** Every `browser_inspect` mode, and the bridged op that serves it. */
+const INSPECT_OPS: Record<string, string> = {
   read: "read_page",
   snapshot: "read_page",
   text: "text",
-  visual: null,
-  design: null,
-  // Since 2026-09-23: the agent's own tabs over CDP, the user's tab only while
-  // it is the one on screen (see the extension's `screenshot` op).
+  visual: "visual",
+  design: "design",
+  // The agent's own tabs over CDP; the user's tab only while it is the one on
+  // screen (see the extension's `screenshot` op).
   screenshot: "screenshot",
-  // Captured over CDP on the agent's own tabs since 2026-09-17. They were
-  // `null` here with a reason claiming the extension COULD not do this; it
-  // could, and had held the `debugger` permission all along.
+  // Captured over CDP on the agent's own tabs from before their first load.
   console: "console",
   network: "network",
 };
 
-/** Every `browser` action, and the bridged op that serves it — or null. */
-const ACTION_OPS: Record<string, string | null> = {
+/** Every `browser` action, and the bridged op that serves it. */
+const ACTION_OPS: Record<string, string> = {
   find: "find_on_page",
   click: "click",
   fill: "fill",
   scroll: "scroll",
   navigate: "navigate",
   tabs: "list_tabs", // the operation decides the real op; see `chromeTabsOp`
-  batch: "batch", // sequenced here, step by step
+  batch: "batch", // sequenced on the desktop, step by step
   // Real keystrokes and pointer moves, over `chrome.debugger`. Only on tabs
   // Atlarix opened — the extension refuses the user's own tab by name, because
   // attaching banners the tab and evicts DevTools from it.
   key: "key",
   hover: "hover",
-};
-
-/**
- * Why a mode or action cannot cross the bridge.
- *
- * Each names the missing capability rather than saying "unsupported", because
- * the model's next move differs: a console read has no Chrome equivalent at all
- * and must go back to the app, while a hover simply has no op yet.
- */
-/**
- * WRITE "THIS BUILD DOES NOT", NEVER "THIS CANNOT".
- *
- * Twice now a refusal here has described an unwritten feature as an impossible
- * one. `action:"key"` said "the extension has no key-press op" while `pressKey`
- * sat one import away, and `mode:"console"` said it needed instrumentation only
- * the built-in browser installs while the extension held the `debugger`
- * permission and was already attaching CDP. Both sent the reader looking for a
- * feature to build instead of a case to add. A refusal describes THIS BUILD.
- */
-const UNBRIDGED_REASON: Record<string, string> = {
-  visual:
-    "the visual report measures layout, contrast and CLS through instrumentation that only Atlarix's built-in browser installs",
-  design:
-    "the design report samples the rendered palette, type scale and layout regions through instrumentation that only Atlarix's built-in browser installs",
 };
 
 export interface ChromeRefusal {
@@ -123,50 +92,49 @@ export function chromeUnavailable(): ChromeRefusal | null {
   if (!server) {
     return refuse(
       "This build of Atlarix has no browser bridge — the native relay it needs " +
-        "is not installed. Retry with target:\"app\" to use Atlarix's built-in " +
-        "browser, which needs nothing extra.",
+        "is not installed, so it cannot drive a browser. Tell the user; " +
+        "reinstalling Atlarix restores it. Web research still works through " +
+        "web_search and read_url.",
     );
   }
   if (!server.connected) {
     // NOT DISTINGUISHABLE FROM HERE, and saying so is better than guessing.
-    // "extension not installed", "browser closed" and "side panel never opened"
-    // all present as zero peers, because the browser opens this connection —
-    // the app cannot reach out and probe for it. One message covers all three
-    // and orders the steps so the cheapest check comes first.
+    // "extension not installed", "browser closed" and "worker asleep" all
+    // present as zero peers, because the browser opens this connection — the
+    // app cannot reach out and probe for it. One message covers all three and
+    // orders the steps so the cheapest check comes first.
     return refuse(
-      "No browser is connected to Atlarix, so target:\"chrome\" cannot run. " +
-        "Tell the user to check, in this order: (1) is Chrome, Brave or Edge " +
-        "running? (2) is the Atlarix extension installed — if not, it is free " +
-        `at ${CHROME_STORE_URL}; (3) open the Atlarix side panel in the browser ` +
-        "once, which is what opens this connection — the app cannot open it " +
-        "from its side. The extension needs no sign-in of its own; it uses the " +
-        "account this app is already signed into. Meanwhile target:\"app\" " +
-        "works with no extension at all.",
+      "No browser is connected to Atlarix. The agent's browser is the user's " +
+        "own Chrome, Edge or Brave, driven through the Atlarix extension. Tell " +
+        "the user to check, in this order: (1) is the browser running? (2) is " +
+        "the Atlarix extension installed — it is free at " +
+        `${CHROME_STORE_URL}; (3) if both, click the Atlarix icon in the ` +
+        "browser once to wake it. Settings → Browser in Atlarix shows whether " +
+        "it is connected. It needs no sign-in of its own. Meanwhile, web_search " +
+        "and read_url still work for reading public pages.",
     );
   }
   return null;
 }
 
-/** The bridged op for a `browser_inspect` mode, or a refusal naming the gap. */
+/** The bridged op for a `browser_inspect` mode, or a refusal. */
 export function chromeInspectOp(mode: string): string | ChromeRefusal {
   const op = INSPECT_OPS[mode];
   if (op) return op;
-  const why = UNBRIDGED_REASON[mode] ?? "the extension has no op for it";
   return refuse(
-    `mode:"${mode}" is not available over the Chrome extension — ${why}. ` +
-      `Retry the same call with target:"app" (Atlarix's built-in browser ` +
-      `supports every mode), or say what you needed it for.`,
+    `Unknown mode "${mode}". Omit mode for the default read, or use "text", ` +
+      `"visual", "design", "screenshot", "console" or "network".`,
   );
 }
 
-/** The bridged op for a `browser` action, or a refusal naming the gap. */
+/** The bridged op for a `browser` action, or a refusal. */
 export function chromeActionOp(action: string): string | ChromeRefusal {
   const op = ACTION_OPS[action];
   if (op) return op;
-  const why = UNBRIDGED_REASON[action] ?? "the extension has no op for it";
   return refuse(
-    `action:"${action}" is not available over the Chrome extension — ${why}. ` +
-      `Retry with target:"app", which supports it.`,
+    `Unknown action "${action}". Use navigate, find, click, fill, key, hover, ` +
+      `scroll, tabs, or batch. (The five retired browser_* tools are now ` +
+      `actions on this one tool.)`,
   );
 }
 
@@ -181,10 +149,9 @@ export function chromeTabsOp(operation: string): string | ChromeRefusal {
       return "close_tab";
     case "switch":
       return refuse(
-        'tabs operation:"switch" is not available over the Chrome extension — ' +
-          "it will not take focus away from whatever the user is doing in their " +
-          "own browser. Read a specific tab instead by passing its tab_id, or " +
-          'use target:"app".',
+        'tabs operation:"switch" is not available — the agent never takes ' +
+          "focus away from whatever the user is doing in their own browser. " +
+          "Every call already takes a tab_id: pass the one you want to work in.",
       );
     default:
       return refuse(`unknown tabs operation "${operation}"`);
@@ -211,7 +178,19 @@ export async function requestChrome(
     const result = await bridge()!.request(op, args);
     return { ok: true, result };
   } catch (err) {
-    return refuse(err instanceof Error ? err.message : String(err));
+    const message = err instanceof Error ? err.message : String(err);
+    // An extension older than this app answers a new op with "has no bridged
+    // op". Web Store review lags a desktop release by days, so this is an
+    // expected state, not a bug — say what fixes it.
+    if (/has no bridged op/.test(message)) {
+      return refuse(
+        `The Atlarix extension in the user's browser is older than this app ` +
+          `and cannot do "${op}" yet. Everything else still works. Chrome ` +
+          `updates extensions on its own within a day; the user can force it ` +
+          `at chrome://extensions (Developer mode → Update).`,
+      );
+    }
+    return refuse(message);
   }
 }
 
@@ -239,6 +218,7 @@ export function noteIfThin(text: string): string | undefined {
   return (
     "This page returned almost no content. The extension reads the top frame " +
     "only, so a page whose content sits in an iframe looks empty here even " +
-    'when it is not. Before reporting the page as blank, retry with target:"app".'
+    "when it is not. Before reporting the page as blank, take a screenshot or " +
+    'use mode:"visual" to see what is actually rendered.'
   );
 }

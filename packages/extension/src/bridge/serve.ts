@@ -17,9 +17,8 @@
  *
  * CORRECTED 2026-09-18. This section used to say the desktop "already asked" —
  * that its own approval flow ran before the request was sent. **It does not.**
- * Verified end to end: `browser.ts` dispatches on `target === "chrome"` as the
- * FIRST statement of each handler, and `actOnChrome` / `inspectOnChrome` /
- * `requestChrome` contain no approval call; `src/lib/browser/always-ask.ts` has
+ * Verified end to end: the desktop's `browser.ts` handlers go straight to
+ * `requestChrome`, and neither contains an approval call; `src/lib/browser/always-ask.ts` has
  * no production importer under the desktop `src/` at all — its only non-test
  * importer is THIS extension's `tools/dispatch.ts`. There is no approval,
  * permission or confirmation step anywhere on the bridge path.
@@ -29,10 +28,9 @@
  *
  * The only lever that exists is the deny-only permission ruleset in the
  * desktop's tool-execute funnel, and it is weaker than it sounds: opt-in and
- * off unless a workspace has a rules file, name-only in its matching, and blind
- * to `target`, so a rule cannot distinguish `target:"chrome"` from
- * `target:"app"` and cannot gate a destination origin. It can refuse the tool
- * outright. It cannot ask.
+ * off unless a workspace has a rules file, and name-only in its matching, so it
+ * cannot gate a destination origin. It can refuse the tool outright. It cannot
+ * ask.
  *
  * WHY THAT IS STILL THE RIGHT SHAPE HERE, which is the part the old wording got
  * right for the wrong reason: the turn is user-initiated in the app, and a
@@ -73,7 +71,19 @@ import {
 } from "@/lib/browser/page-scripts";
 import { formatFind, formatSnapshot } from "@/lib/browser/a11y-format";
 import { api } from "../shared/browser-api";
-import { activeTab, runInPage } from "../page/inject";
+import {
+  activeTab,
+  injectPackagedFile,
+  runInPage,
+  runPageFunction,
+} from "../page/inject";
+import {
+  atlarixDesignSnapshot,
+  atlarixVisualLint,
+  type DesignSnapshot,
+  type VisualLintRaw,
+} from "@/lib/browser/page-scripts/visual";
+import { VISUAL_LINT_ARGS } from "@/lib/browser/visual-report";
 import { adoptTab, isAgentTab, setGroupTitle } from "../tabs/group";
 import {
   armNetwork,
@@ -81,6 +91,7 @@ import {
   endCapture,
   readConsole,
   readNetwork,
+  readNetworkBody,
 } from "../page/cdp-capture";
 import {
   attach,
@@ -273,13 +284,86 @@ async function requireOwnTabForInput(tabId: number, what: string): Promise<void>
 }
 
 /**
+ * How long `navigate` / `open_tab` wait for the page to finish loading.
+ *
+ * Under the desktop's 30s bridge timeout with room to spare. A page that is
+ * still loading after this is reported as such (`loaded: false`) rather than
+ * failed — a slow dev server is not an error.
+ */
+const LOAD_WAIT_MS = 15_000;
+
+/**
+ * Resolve when `tabId` reports `status: "complete"`, or false on timeout.
+ *
+ * CALL IT BEFORE STARTING THE NAVIGATION. A fast page can complete before a
+ * listener added afterwards exists, and the wait would then run to its timeout
+ * on a page that loaded instantly.
+ */
+function waitForTabLoad(tabId: number, timeoutMs = LOAD_WAIT_MS): Promise<boolean> {
+  const tabs = api().tabs;
+  return new Promise((resolve) => {
+    let settled = false;
+    const listener = (id: number, info: { status?: string }) => {
+      if (id === tabId && info.status === "complete") finish(true);
+    };
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    function finish(ok: boolean) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      tabs.onUpdated.removeListener(listener);
+      resolve(ok);
+    }
+    tabs.onUpdated.addListener(listener);
+  });
+}
+
+/**
+ * Load `url` in one of the agent's tabs with capture ALREADY RUNNING.
+ *
+ * Console and network are pushed events: a buffer opened after the page
+ * started loading misses its first logs and requests, and a missed log reads
+ * exactly like a clean page. So capture is begun first (a no-op on a tab that
+ * is already watched), the navigation second, and the network armed while the
+ * load is in flight — `Network.enable` hangs on a tab that has not navigated.
+ */
+async function loadInAgentTab(tabId: number, url: string) {
+  await beginCapture(tabId);
+  const loaded = waitForTabLoad(tabId);
+  await api().tabs.update(tabId, { url });
+  await armNetwork(tabId);
+  const ok = await loaded;
+  const tab = await api().tabs.get(tabId).catch(() => undefined);
+  return {
+    tabId,
+    url: tab?.url || url,
+    title: tab?.title ?? "",
+    loaded: ok,
+    navigatedAt: Date.now(),
+  };
+}
+
+/**
+ * A fresh background tab in the agent's group, at about:blank, so capture can
+ * attach before the real page loads (see `loadInAgentTab`).
+ */
+async function createAgentTab(): Promise<number> {
+  const tab = await api().tabs.create({ url: "about:blank", active: false });
+  if (tab?.id === undefined) throw new Error("the browser did not open a tab");
+  if (tab.windowId !== undefined) {
+    await adoptTab(tab.id, tab.windowId).catch(() => {});
+  }
+  return tab.id;
+}
+
+/**
  * Ops the desktop may ask for.
  *
  * DELIBERATELY SHORTER THAN THE PANEL'S TOOL LIST. Everything here maps onto a
- * kernel op or a `chrome.tabs` call that exists. Anything whose data comes from
- * a hook the desktop's own BrowserView installs — console, network, visual
- * diffing — is absent rather than stubbed, because an empty console read is
- * indistinguishable from a clean page and is the worst possible lie.
+ * kernel op, a portable page function, a CDP buffer, or a `chrome.tabs` call
+ * that exists — never a stub, because an empty read that only LOOKS like a
+ * clean page is the worst possible lie. Since v14.52.0 this is the desktop
+ * agent's ONLY browser, so it carries everything the in-app one did.
  */
 export async function serveBridgeRequest(
   request: BridgeRequest,
@@ -475,9 +559,9 @@ async function run(op: string, args: Record<string, unknown>): Promise<unknown> 
       const direction = str(args.direction);
       if (direction === "left" || direction === "right") {
         throw new Error(
-          `scrolling ${direction} is not available over the browser extension — ` +
-            `the shared page kernel scrolls vertically only. Retry with ` +
-            `target:"app" if you need horizontal scrolling.`,
+          `scrolling ${direction} is not supported — the page kernel scrolls ` +
+            `vertically. Scroll a horizontally-scrolling element into view by ` +
+            `its ref instead, or read the page text to reach its content.`,
         );
       }
       if (
@@ -610,52 +694,67 @@ async function run(op: string, args: Record<string, unknown>): Promise<unknown> 
               `a tab of your own.`,
           );
         }
-        await api().tabs.update(explicit, { url });
-        await beginCapture(explicit);
-        await armNetwork(explicit);
-        return { tabId: explicit, url, reused: true };
+        return { ...(await loadInAgentTab(explicit, url)), reused: true };
       }
       const all = await api().tabs.query({});
       for (const t of all) {
         if (t.id !== undefined && (await isAgentTab(t.id))) {
-          await api().tabs.update(t.id, { url });
-          await beginCapture(t.id);
-          await armNetwork(t.id);
-          return { tabId: t.id, url, reused: true };
+          return { ...(await loadInAgentTab(t.id, url)), reused: true };
         }
       }
-      const tab = await api().tabs.create({ url, active: false });
-      if (tab?.id !== undefined && tab.windowId !== undefined) {
-        await adoptTab(tab.id, tab.windowId).catch(() => {});
-      }
-      if (tab?.id !== undefined) {
-        await beginCapture(tab.id);
-        await armNetwork(tab.id);
-      }
-      return { tabId: tab?.id ?? null, url, reused: false };
+      const tabId = await createAgentTab();
+      return { ...(await loadInAgentTab(tabId, url)), reused: false };
     }
 
+    /**
+     * Always a NEW tab in the agent's group — "open this as well". Same order
+     * as `navigate`: capture first, then the page, then wait for it.
+     */
     case "open_tab": {
       const url = str(args.url);
       if (!/^https?:\/\//i.test(url)) {
         throw new Error(`open_tab needs an http(s) URL, got "${url}"`);
       }
-      const tab = await api().tabs.create({ url, active: false });
-      // INTO THE AGENT'S GROUP, exactly as the panel does it. A tab Atlarix
-      // opened must be visibly Atlarix's whichever surface asked for it, or the
-      // group stops meaning "what it touched" and the user loses their stop
-      // gesture.
-      if (tab?.id !== undefined && tab.windowId !== undefined) {
-        await adoptTab(tab.id, tab.windowId).catch(() => {});
-      }
-      // WATCH IT FROM THE START. Console and network are pushed events, so a
-      // buffer opened at read time is empty for a page that already loaded —
-      // and an empty console read is indistinguishable from a clean page.
-      if (tab?.id !== undefined) {
-        await beginCapture(tab.id);
-        await armNetwork(tab.id);
-      }
-      return { tabId: tab?.id ?? null, url };
+      const tabId = await createAgentTab();
+      return loadInAgentTab(tabId, url);
+    }
+
+    /**
+     * The visual report: blank render, broken images, invisible text,
+     * collapsed containers, overlap, axe contrast/name rules, CLS.
+     *
+     * NOT marked as driven: the green frame is part of the page it would
+     * measure. axe is injected from the packaged file first; if that fails the
+     * report still runs and says the contrast checks did not.
+     */
+    case "visual": {
+      const tabId = await targetTab(args);
+      const url = await tabUrl(tabId);
+      await injectPackagedFile(tabId, "vendor/axe.min.js");
+      const raw = await runPageFunction<VisualLintRaw, [typeof VISUAL_LINT_ARGS]>(
+        tabId,
+        atlarixVisualLint,
+        [VISUAL_LINT_ARGS],
+      );
+      return { tabId, url, raw };
+    }
+
+    /** Palette, type scale, spacing and layout regions, for "remake this". */
+    case "design": {
+      const tabId = await targetTab(args);
+      const url = await tabUrl(tabId);
+      const snapshot = await runPageFunction<DesignSnapshot, []>(
+        tabId,
+        atlarixDesignSnapshot,
+        [],
+      );
+      return { tabId, url, snapshot };
+    }
+
+    /** One request's headers and its response body, fetched on demand. */
+    case "network_body": {
+      const tabId = await targetTab(args);
+      return { tabId, ...(await readNetworkBody(tabId, str(args.request_id))) };
     }
 
     case "close_tab": {

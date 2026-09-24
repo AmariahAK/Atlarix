@@ -23,6 +23,12 @@ declare namespace chrome {
      */
     function getManifest(): { permissions?: string[]; version?: string };
     function sendMessage<T = unknown>(message: unknown): Promise<T>;
+    /**
+     * Fires at browser profile launch. Registering it is what makes Chrome WAKE
+     * the service worker at launch, so the desktop bridge connects before the
+     * user touches anything (`background/service-worker.ts`).
+     */
+    const onStartup: { addListener(cb: () => void): void };
     const onMessage: {
       addListener(
         cb: (

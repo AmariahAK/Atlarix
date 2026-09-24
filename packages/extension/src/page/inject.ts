@@ -84,13 +84,27 @@ export async function runInPage<T>(
   tabId: number,
   req: PageRequest,
 ): Promise<T> {
+  return runPageFunction<T, [PageRequest]>(tabId, atlarixPageKernel, [req]);
+}
+
+/**
+ * Run any PORTABLE page function (kernel rules: no imports, no module scope)
+ * in the tab's main world. `runInPage` is this with the kernel; the visual and
+ * design reports (`page-scripts/visual.ts`) are the other callers. An async
+ * function is fine — Chrome awaits the promise and returns its value.
+ */
+export async function runPageFunction<T, A extends unknown[]>(
+  tabId: number,
+  func: (...args: A) => unknown,
+  args: A,
+): Promise<T> {
   let results;
   try {
     results = await api().scripting.executeScript({
       target: { tabId },
       world: "MAIN",
-      func: atlarixPageKernel,
-      args: [req],
+      func: func as (...a: unknown[]) => unknown,
+      args: args as unknown[],
     });
   } catch (err) {
     // The common causes are all the same shape to the caller: a restricted page
@@ -112,6 +126,29 @@ export async function runInPage<T>(
     );
   }
   return hit.result as T;
+}
+
+/**
+ * Inject a file PACKAGED with the extension (e.g. `vendor/axe.min.js`) into the
+ * tab's main world. `files` is the only other thing `executeScript` accepts, and
+ * a packaged file runs under the extension's review, not as a string.
+ * Best-effort: returns false rather than throwing, because every caller has a
+ * useful answer without it.
+ */
+export async function injectPackagedFile(
+  tabId: number,
+  file: string,
+): Promise<boolean> {
+  try {
+    await api().scripting.executeScript({
+      target: { tabId },
+      world: "MAIN",
+      files: [file],
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**

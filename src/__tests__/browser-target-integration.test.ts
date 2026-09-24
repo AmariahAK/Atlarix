@@ -103,12 +103,12 @@ describe("the desktop tool layer really reaches a connected peer", () => {
     expect(res.result).toMatchObject({ url: "https://example.com/", text: "the page" });
   });
 
-  it("surfaces the extension's unknown-op refusal verbatim (the 1.0.0 text case)", async () => {
+  it("turns an older extension's unknown-op refusal into the fix, over the real socket", async () => {
     await withPeer({});
     const res = await requestChrome("text", {});
     expect(isChromeRefusal(res)).toBe(true);
     if (!isChromeRefusal(res)) return;
-    expect(res.error).toContain("older than the desktop app");
+    expect(res.error).toContain("older than this app");
   });
 
   it("refuses with the install link when nothing is connected", async () => {

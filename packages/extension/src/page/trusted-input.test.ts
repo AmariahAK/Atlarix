@@ -284,6 +284,6 @@ describe("degrading loudly", () => {
     const { unavailableMessage } = await load();
     const message = unavailableMessage("key");
     expect(message).toMatch(/nothing was done/i);
-    expect(message).toContain('target:"app"');
+    expect(message).not.toContain('target:"app"');
   });
 });

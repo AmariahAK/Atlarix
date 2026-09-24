@@ -38,6 +38,7 @@
  * possible time to find it.
  */
 
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -150,8 +151,8 @@ export function manifestDirs(
   }
   if (platform === "win32") {
     // On Windows the manifest is found through the registry rather than a
-    // well-known directory, so the file may live anywhere; the registry key is
-    // written by `installNativeHost`.
+    // well-known directory, so the file may live anywhere; the registry keys
+    // (`windowsRegistryKeys`) are written by `installNativeHost`.
     return [bridgeHome(home)];
   }
   const config = process.env.XDG_CONFIG_HOME ?? path.join(home, ".config");
@@ -162,6 +163,62 @@ export function manifestDirs(
     path.join(config, "microsoft-edge", suffix),
     path.join(config, "vivaldi", suffix),
   ];
+}
+
+/**
+ * The per-browser registry keys Chromium reads on Windows. Each key's DEFAULT
+ * value is the absolute path to the host manifest.
+ *
+ * WINDOWS HAS NO MANIFEST DIRECTORY — THE KEY IS THE WHOLE LOOKUP. Until
+ * v14.52.0 nothing wrote these, so the bridge had never worked on Windows: the
+ * manifest sat in `~/.atlarix/chrome` and no browser knew to look there.
+ * HKCU, so no elevation is needed; every fork is written for the same reason
+ * `manifestDirs` writes every fork on macOS and Linux.
+ */
+export function windowsRegistryKeys(): string[] {
+  const tail = `NativeMessagingHosts\\${BRIDGE_HOST_NAME}`;
+  return [
+    `HKCU\\Software\\Google\\Chrome\\${tail}`,
+    `HKCU\\Software\\Chromium\\${tail}`,
+    `HKCU\\Software\\Microsoft\\Edge\\${tail}`,
+    `HKCU\\Software\\BraveSoftware\\Brave-Browser\\${tail}`,
+    `HKCU\\Software\\Vivaldi\\${tail}`,
+  ];
+}
+
+/**
+ * `reg.exe` arguments that set `key`'s default value to `manifestPath`.
+ *
+ * `reg.exe` rather than a native module: no new dependency, and it is an
+ * EXTERNAL process — in the MSIX build it writes through the package's
+ * registry virtualization only if the manifest leaves it on, which is why the
+ * package declares `desktop6:RegistryWriteVirtualization` disabled (see
+ * build/msix/AppxManifest.template.xml).
+ */
+export function regAddArgs(key: string, manifestPath: string): string[] {
+  return ["add", key, "/ve", "/t", "REG_SZ", "/d", manifestPath, "/f"];
+}
+
+/** Runs one `reg.exe` invocation. Injected so tests never touch a registry. */
+export type RegRunner = (args: string[]) => Promise<void>;
+
+const runRegExe: RegRunner = (args) =>
+  new Promise((resolve, reject) => {
+    execFile("reg", args, { windowsHide: true, timeout: 10_000 }, (err) =>
+      err ? reject(err) : resolve(),
+    );
+  });
+
+/**
+ * Where the relay is copied on Windows.
+ *
+ * The packaged relay lives under `C:\Program Files\WindowsApps`, which is
+ * ACL-restricted: a process outside the package (Chrome, launching the host)
+ * cannot rely on executing from there. A copy beside the wrapper, in the
+ * user's own profile, has no such question.
+ */
+export function windowsRelayCopyPath(home: string = os.homedir()): string {
+  return path.join(bridgeHome(home), "atlarix-bridge.exe");
 }
 
 export interface HostManifest {
@@ -238,6 +295,8 @@ export interface InstallResult {
   manifests: string[];
   /** Directories that could not be written, with the reason. Never thrown. */
   skipped: { dir: string; reason: string }[];
+  /** Windows only: registry keys written. */
+  registryKeys?: string[];
 }
 
 /**
@@ -256,6 +315,8 @@ export async function installNativeHost(opts: {
   socketPath?: string;
   home?: string;
   platform?: NodeJS.Platform;
+  /** Windows registry writer — defaults to `reg.exe`. */
+  runReg?: RegRunner;
 }): Promise<InstallResult> {
   const platform = opts.platform ?? process.platform;
   const home = opts.home ?? os.homedir();
@@ -272,14 +333,38 @@ export async function installNativeHost(opts: {
     await fs.chmod(wrapper, 0o755);
   }
 
+  const skipped: { dir: string; reason: string }[] = [];
+
+  // Windows: run the relay from a copy in the user's profile (see
+  // `windowsRelayCopyPath`). A copy that is in use — Chrome holds the relay
+  // open while a port is up — cannot be replaced; the previous copy keeps
+  // working and the next launch refreshes it.
+  let relay = opts.relayPath;
+  if (platform === "win32") {
+    const copy = windowsRelayCopyPath(home);
+    try {
+      await fs.copyFile(opts.relayPath, copy);
+      relay = copy;
+    } catch (err) {
+      const exists = await fs
+        .access(copy)
+        .then(() => true)
+        .catch(() => false);
+      if (exists) relay = copy;
+      skipped.push({
+        dir: copy,
+        reason: `relay copy not refreshed: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+  }
+
   const envFile = hostEnvPath(home);
-  await fs.writeFile(envFile, hostEnvContents(opts.relayPath, socket), "utf8");
+  await fs.writeFile(envFile, hostEnvContents(relay, socket), "utf8");
   // 0600: it names a socket that accepts commands for this user's browser.
   await fs.chmod(envFile, 0o600).catch(() => {});
 
   const body = `${JSON.stringify(hostManifest(wrapper), null, 2)}\n`;
   const manifests: string[] = [];
-  const skipped: { dir: string; reason: string }[] = [];
 
   for (const target of manifestDirs(home, platform)) {
     const file = path.join(target, `${BRIDGE_HOST_NAME}.json`);
@@ -295,5 +380,27 @@ export async function installNativeHost(opts: {
     }
   }
 
-  return { wrapper, hostEnv: envFile, manifests, skipped };
+  if (platform !== "win32") {
+    return { wrapper, hostEnv: envFile, manifests, skipped };
+  }
+
+  // Windows: point every fork's registry key at the manifest. Without this no
+  // browser finds the host at all.
+  const manifestFile = manifests[0];
+  const registryKeys: string[] = [];
+  if (manifestFile) {
+    const runReg = opts.runReg ?? runRegExe;
+    for (const key of windowsRegistryKeys()) {
+      try {
+        await runReg(regAddArgs(key, manifestFile));
+        registryKeys.push(key);
+      } catch (err) {
+        skipped.push({
+          dir: key,
+          reason: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  }
+  return { wrapper, hostEnv: envFile, manifests, skipped, registryKeys };
 }

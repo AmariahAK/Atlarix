@@ -30,9 +30,20 @@ const readConsoleMock = vi.fn();
 const readNetworkMock = vi.fn();
 const captureScreenshotMock = vi.fn();
 const captureVisibleTabMock = vi.fn();
+const runPageFunctionMock = vi.fn();
+const injectPackagedFileMock = vi.fn();
+const readNetworkBodyMock = vi.fn();
+/** Every call in order, to pin capture-BEFORE-navigation. */
+const order: string[] = [];
+/** The onUpdated listener serve.ts registered, so a test can fire "complete". */
+let updatedListener:
+  | ((id: number, info: { status?: string }) => void)
+  | null = null;
 
 vi.mock("../page/inject", () => ({
   runInPage: (...a: unknown[]) => runInPage(...a),
+  runPageFunction: (...a: unknown[]) => runPageFunctionMock(...a),
+  injectPackagedFile: (...a: unknown[]) => injectPackagedFileMock(...a),
   activeTab: async () => ({ id: 7, url: "https://example.com/" }),
 }));
 vi.mock("../tabs/group", () => ({
@@ -46,6 +57,7 @@ vi.mock("../page/cdp-capture", () => ({
   endCapture: (...a: unknown[]) => endCaptureMock(...a),
   readConsole: (...a: unknown[]) => readConsoleMock(...a),
   readNetwork: (...a: unknown[]) => readNetworkMock(...a),
+  readNetworkBody: (...a: unknown[]) => readNetworkBodyMock(...a),
 }));
 vi.mock("../page/trusted-input", () => ({
   attach: (...a: unknown[]) => attachMock(...a),
@@ -62,6 +74,14 @@ vi.mock("../shared/browser-api", () => ({
       query: (...a: unknown[]) => tabsQuery(...a),
       create: (...a: unknown[]) => tabsCreate(...a),
       update: (...a: unknown[]) => tabsUpdate(...a),
+      onUpdated: {
+        addListener: (cb: typeof updatedListener) => {
+          updatedListener = cb;
+        },
+        removeListener: () => {
+          updatedListener = null;
+        },
+      },
       captureVisibleTab: (...a: unknown[]) => captureVisibleTabMock(...a),
       remove: async () => {},
     },
@@ -77,7 +97,13 @@ beforeEach(() => {
   runInPage.mockReset();
   tabsGet.mockReset().mockResolvedValue({ id: 7, url: "https://example.com/", windowId: 1 });
   tabsQuery.mockReset().mockResolvedValue([]);
-  tabsUpdate.mockReset().mockResolvedValue(undefined);
+  order.length = 0;
+  updatedListener = null;
+  // A navigation "completes" as soon as it is issued, like a fast page.
+  tabsUpdate.mockReset().mockImplementation(async (id: number) => {
+    order.push(`update:${id}`);
+    queueMicrotask(() => updatedListener?.(id, { status: "complete" }));
+  });
   tabsCreate.mockReset().mockResolvedValue({ id: 9, windowId: 1 });
   // Default for the arg-mapping suites: tab 7 is the agent's own.
   isAgentTabMock.mockReset().mockResolvedValue(true);
@@ -85,7 +111,12 @@ beforeEach(() => {
   attachMock.mockReset().mockResolvedValue(undefined);
   pressKeyMock.mockReset().mockResolvedValue(undefined);
   movePointerMock.mockReset().mockResolvedValue(undefined);
-  beginCaptureMock.mockReset().mockResolvedValue(undefined);
+  beginCaptureMock.mockReset().mockImplementation(async (id: number) => {
+    order.push(`capture:${id}`);
+  });
+  runPageFunctionMock.mockReset();
+  injectPackagedFileMock.mockReset().mockResolvedValue(true);
+  readNetworkBodyMock.mockReset();
   armNetworkMock.mockReset().mockResolvedValue(undefined);
   endCaptureMock.mockReset().mockResolvedValue(undefined);
   readConsoleMock.mockReset().mockReturnValue({ entries: [] });
@@ -128,7 +159,8 @@ describe("scroll sends what the kernel actually reads", () => {
     expect(reply.ok).toBe(false);
     if (reply.ok) return;
     expect(reply.error).toContain("left");
-    expect(reply.error).toContain('target:"app"');
+    // There is no other browser to send the model to any more.
+    expect(reply.error).not.toContain('target:"app"');
     expect(runInPage).not.toHaveBeenCalled();
   });
 
@@ -256,11 +288,40 @@ describe("navigate stays inside the agent's group", () => {
     tabsQuery.mockResolvedValue([{ id: 3 }]);
     isAgentTabMock.mockResolvedValue(false);
 
-    await call("navigate", { url: "https://b.example/" });
+    const reply = await call("navigate", { url: "https://b.example/" });
+    expect(reply.ok).toBe(true);
+    // Opened BLANK, so capture can attach before the real page loads...
     expect(tabsCreate).toHaveBeenCalledWith({
-      url: "https://b.example/",
+      url: "about:blank",
       active: false,
     });
+    // ...then pointed at the page.
+    expect(tabsUpdate).toHaveBeenCalledWith(9, { url: "https://b.example/" });
+  });
+
+  it("starts capture BEFORE the page loads, so its first logs are not missed", async () => {
+    tabsQuery.mockResolvedValue([]);
+    await call("navigate", { url: "https://b.example/" });
+    expect(order).toEqual(["capture:9", "update:9"]);
+  });
+
+  it("waits for the load and reports it", async () => {
+    tabsQuery.mockResolvedValue([{ id: 42 }]);
+    isAgentTabMock.mockImplementation(async (id: number) => id === 42);
+    const reply = await call("navigate", { url: "https://b.example/" });
+    expect(reply.ok).toBe(true);
+    if (!reply.ok) return;
+    expect(reply.result).toMatchObject({ tabId: 42, loaded: true, reused: true });
+    expect(typeof (reply.result as { navigatedAt?: unknown }).navigatedAt).toBe(
+      "number",
+    );
+  });
+
+  it("open_tab uses the same capture-first order in a new tab", async () => {
+    const reply = await call("open_tab", { url: "https://c.example/" });
+    expect(reply.ok).toBe(true);
+    expect(tabsCreate).toHaveBeenCalledWith({ url: "about:blank", active: false });
+    expect(order).toEqual(["capture:9", "update:9"]);
   });
 
   it("refuses to navigate a tab the user owns", async () => {
@@ -469,5 +530,43 @@ describe("screenshot", () => {
     expect((r as { error: string }).error).toMatch(/never does/);
     expect(tabsUpdate).not.toHaveBeenCalled();
     expect(captureVisibleTabMock).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * v14.52.0: the extension is the agent's ONLY browser, so the reports the
+ * in-app browser used to produce have to come from here.
+ */
+describe("visual, design and network_body", () => {
+  it("visual injects axe from the packaged file, then runs the report", async () => {
+    runPageFunctionMock.mockResolvedValue({ url: "https://example.com/", defects: [] });
+    const reply = await call("visual", { tab_id: 7 });
+    expect(reply.ok).toBe(true);
+    expect(injectPackagedFileMock).toHaveBeenCalledWith(7, "vendor/axe.min.js");
+    expect(runPageFunctionMock).toHaveBeenCalledTimes(1);
+    if (!reply.ok) return;
+    expect(reply.result).toMatchObject({ tabId: 7, raw: { defects: [] } });
+  });
+
+  it("visual still runs when axe cannot be injected", async () => {
+    injectPackagedFileMock.mockResolvedValue(false);
+    runPageFunctionMock.mockResolvedValue({ defects: [], axeAvailable: false });
+    const reply = await call("visual", { tab_id: 7 });
+    expect(reply.ok).toBe(true);
+  });
+
+  it("design returns the snapshot", async () => {
+    runPageFunctionMock.mockResolvedValue({ palette: [], layout: [] });
+    const reply = await call("design", { tab_id: 7 });
+    expect(reply.ok).toBe(true);
+    if (!reply.ok) return;
+    expect(reply.result).toMatchObject({ tabId: 7, snapshot: { palette: [] } });
+  });
+
+  it("network_body asks the capture for that request's body", async () => {
+    readNetworkBodyMock.mockResolvedValue({ body: "{}", base64: false });
+    const reply = await call("network_body", { tab_id: 7, request_id: "r1" });
+    expect(reply.ok).toBe(true);
+    expect(readNetworkBodyMock).toHaveBeenCalledWith(7, "r1");
   });
 });

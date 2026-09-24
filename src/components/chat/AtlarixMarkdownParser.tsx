@@ -71,7 +71,7 @@ const customLink = ({
 
 // A bare localhost:PORT URL (LOCALHOST_URL_RE) OR an "@/path:line" mention. The
 // localhost pattern lets the user/agent click a schemeless dev-server URL in
-// prose to open it in an in-app browser tab (remark-gfm only autolinks full
+// prose to open it in their browser (remark-gfm only autolinks full
 // http(s):// URLs → those go through customLink).
 const TOKEN_RE = new RegExp(
   `@\\/[^\\s]+?(?::\\d+(?:-\\d+)?)?|${LOCALHOST_URL_RE.source}`,
@@ -84,7 +84,7 @@ function renderTextWithPathMentions(children: React.ReactNode) {
     return children;
 
   // Render "@/absolute/path:line-range" as inline code (no leading "@"), and
-  // bare localhost:PORT URLs as a highlighted link that opens an in-app browser tab.
+  // bare localhost:PORT URLs as a highlighted link that opens in the user's browser.
   const parts: React.ReactNode[] = [];
   const re = new RegExp(TOKEN_RE.source, "g");
   let last = 0;

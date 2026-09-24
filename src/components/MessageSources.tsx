@@ -18,11 +18,8 @@ import {
 } from "@/components/ui/dialog";
 import { IpcClient } from "@/ipc/ipc_client";
 
-/**
- * Open a cited page in the user's own browser. (It opened an in-app browser tab
- * until that panel was retired on 2026-09-23.)
- */
-async function openInAppBrowser(url: string): Promise<void> {
+/** Open a cited page in the user's own browser. */
+async function openExternal(url: string): Promise<void> {
   try {
     await IpcClient.getInstance().openExternalUrl(url);
   } catch {
@@ -246,8 +243,8 @@ export function MessageSources({ sources }: MessageSourcesProps) {
                                 X-Frame-Options: DENY, and embedding untrusted pages in
                                 the app renderer is a real security regression. The
                                 search snippet we already have is a genuine preview,
-                                and the in-app browser (an isolated WebContentsView) is
-                                the right place to open the page itself. */}
+                                and the user's own browser is the right place to open
+                                the page itself. */}
               <div className="overflow-y-auto max-h-[70vh] p-4 space-y-4">
                 {(selectedSource.snippet ?? selectedSource.content)?.trim() ? (
                   <p className="text-sm leading-relaxed whitespace-pre-wrap">
@@ -262,7 +259,7 @@ export function MessageSources({ sources }: MessageSourcesProps) {
                   <Button
                     size="sm"
                     onClick={() => {
-                      void openInAppBrowser(selectedSource.url);
+                      void openExternal(selectedSource.url);
                       setIsPreviewOpen(false);
                     }}
                   >

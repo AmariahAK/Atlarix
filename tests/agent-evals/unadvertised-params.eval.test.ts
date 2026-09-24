@@ -94,6 +94,8 @@ const RETIRED_ALIASES: Record<string, readonly string[]> = {
   read_file: ["file_path", "max_lines", "start_line", "end_line"],
   background_jobs: ["job_id"],
   web_search: ["mode", "deep", "sources", "max_sources"],
+  browser: ["target"],
+  browser_inspect: ["target"],
   ask_user: ["choices"],
 };
 

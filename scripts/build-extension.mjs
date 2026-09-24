@@ -161,6 +161,7 @@ const noNodeBuiltinsPlugin = {
 // packs whatever is in the directory.
 fs.rmSync(unpackedDir, { recursive: true, force: true });
 fs.mkdirSync(path.join(unpackedDir, "icons"), { recursive: true });
+fs.mkdirSync(path.join(unpackedDir, "vendor"), { recursive: true });
 
 const result = await build({
   entryPoints: {
@@ -288,6 +289,14 @@ const ASSETS = [
   { src: path.join(pkgDir, "src/relics/sandbox.html"), dest: "sandbox.html" },
   { src: path.join(pkgDir, "src/relics/sandbox.js"), dest: "sandbox.js" },
   { src: path.join(pkgDir, "src/sandbox/runner.html"), dest: "runner.html" },
+  // axe-core for the bridged visual report (`browser_inspect mode:"visual"`).
+  // Injected as a FILE because MV3 cannot run a code string, and shipped
+  // unmodified from the pinned dependency so review can checksum it against
+  // the published package.
+  {
+    src: path.join(root, "node_modules/axe-core/axe.min.js"),
+    dest: "vendor/axe.min.js",
+  },
   { src: iconset("icon_16x16.png"), dest: "icons/16.png", px: 16 },
   { src: iconset("icon_32x32.png"), dest: "icons/32.png", px: 32 },
   { src: iconset("icon_128x128.png"), dest: "icons/128.png", px: 128 },

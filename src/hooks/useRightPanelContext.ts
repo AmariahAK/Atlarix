@@ -30,7 +30,6 @@ import {
   devServerUrlAtom,
   aiPanelIntentAtom,
   mapIntentToView,
-  browserErrorsAtom,
   rightPanelWidthAtom,
   rightPanelVisibleAtom,
   workspacePlanPanelAtom,
@@ -52,7 +51,7 @@ import { stripAnsi } from "@/lib/chat/output-stream";
 // (see the context memo below), so terminal/preview stay usable.
 const PANEL_TABS: Record<PanelType, PanelTab[]> = {
   "web-search": [],
-  "code-preview": ["terminal", "errors", "network", "automations"],
+  "code-preview": ["terminal", "automations"],
   terminal: ["terminal"],
   files: ["files"],
   tools: [], // Deprecated - ThinkingCard handles tools
@@ -91,7 +90,6 @@ export function useRightPanelContext(): RightPanelContextResult {
     return outputs.sort((a, b) => b.startTime - a.startTime)[0] || null;
   }, [terminalOutputs]);
   const devServerUrl = useAtomValue(devServerUrlAtom);
-  const browserErrors = useAtomValue(browserErrorsAtom);
   const [pinnedPanel, setPinnedPanel] = useAtom(pinnedPanelAtom);
   const [activeTab, setActiveTab] = useAtom(previewTabAtom);
 
@@ -145,7 +143,7 @@ export function useRightPanelContext(): RightPanelContextResult {
       return "terminal";
     }
 
-    // Priority 4: Workspace chat – always full tabs (preview, terminal, errors, etc.)
+    // Priority 4: Workspace chat – always full tabs (terminal, automations, etc.)
     if (currentApp ?? selectedAppId) {
       return "code-preview";
     }
@@ -220,7 +218,6 @@ export function useRightPanelContext(): RightPanelContextResult {
         terminalOutputs,
         toolTimeline,
         devServerUrl,
-        browserErrors,
         // Use selected workspace when currentApp not yet loaded (e.g. sidebar file click)
         workspacePath: currentApp?.path || selectedWorkspaceInfo?.path || "",
         appId: currentApp?.id ?? selectedAppId ?? null,
@@ -235,7 +232,6 @@ export function useRightPanelContext(): RightPanelContextResult {
     terminalOutputs,
     toolTimeline,
     devServerUrl,
-    browserErrors,
     aiPanelIntent,
     currentApp,
     selectedAppId,
@@ -300,7 +296,6 @@ function getDataForType(
     terminalOutputs: Map<string, any>;
     toolTimeline: any[];
     devServerUrl: string | null;
-    browserErrors: any[];
     workspacePath: string;
     appId: number | null;
     aiContext?: AIPanelIntentState["context"];
@@ -338,7 +333,6 @@ function getDataForType(
         url: state.devServerUrl,
         terminal: prepareTerminalOutput(),
         terminalOutputs: state.terminalOutputs,
-        errors: state.browserErrors,
         sources: state.sources,
         workspacePath: state.workspacePath,
         appId: state.appId,

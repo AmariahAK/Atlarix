@@ -322,22 +322,6 @@ export const UserSettingsSchema = z.object({
    */
   atlarixAutoConsentAt: z.string().optional(),
   hasRunBefore: z.boolean().optional(),
-  /**
-   * What the browser tells the model about, once per turn.
-   *
-   * A SETTING rather than a constant on purpose. Nothing here blocks a turn any
-   * more, but the harness still cannot tell whose error a page reported, so any
-   * severity policy baked in would be wrong for someone: a third-party auth
-   * probe returning 401 is noise, and the same 401 from your own API is the bug.
-   *
-   *   any      — the default: anything the browser recorded, counted by kind.
-   *              The notice is one line of counts, so a broad default is cheap,
-   *              and "3 other console entries" is itself worth knowing.
-   *   failures — narrow to failed requests, console errors, and load/crash
-   *              events, for someone who finds the broad version noisy.
-   *   off      — say nothing; the model reads with browser_inspect when it wants.
-   */
-  browserRuntimeNotice: z.enum(["off", "failures", "any"]).optional(),
   // Activation-funnel markers (analytics): epoch ms of the first agent turn
   // started / completed, so first_task_* events each fire exactly once.
   firstTaskStartedAt: z.number().optional(),

@@ -26,11 +26,6 @@ import {
   getMutationFailureFeedback,
   getUnverifiedEditFeedback,
 } from "@/lib/agent/mutation-verify";
-import {
-  ensurePreviewBaseline,
-  clearPreviewBaseline,
-  buildRuntimeNotice,
-} from "@/lib/agent/preview-verify";
 import { trackTaskStarted, trackTaskCompleted } from "@/main/lib/analytics";
 import { runMidLoopCompaction } from "@/lib/context/mid_loop_compaction";
 import {
@@ -232,11 +227,6 @@ export async function runAgentTurn(
   // Funnel: a real agent turn is starting (fires first_task_started once).
   trackTaskStarted({ mode: profile.mode });
 
-  // Preview gate baseline: only runtime errors observed from here on (this turn)
-  // can block completion — a preview left broken by a prior turn won't trap this
-  // one.
-  ensurePreviewBaseline(rt.streamTurnId, Date.now());
-
   const loopStartTime = Date.now();
   let agenticIteration = 0;
   let agenticProseOnlyStreak = 0;
@@ -250,14 +240,6 @@ export async function runAgentTurn(
   // with a yield re-arms the 6-cap indefinitely (observed: 3+ full nudge cycles
   // in a single turn). This bounds the whole turn, not just the streak.
   let planNudgeTotal = 0;
-  /**
-   * ONCE per turn, never per round. The browser notice replaced the removed
-   * runtime gates, and the fold path below records why repetition is dangerous
-   * here: a per-round "continue/verify" nudge was re-eliciting `read_file` on
-   * open-weight models until the turn exhausted. One notice is context; the same
-   * notice every round is a loop.
-   */
-  let runtimeNoticeSent = false;
   let agenticMessages: ModelMessage[] = [...rt.seedMessages];
   const allToolResults: Array<{ tool: string; result: string }> = [];
   let totalToolExecutions = 0;
@@ -738,13 +720,12 @@ export async function runAgentTurn(
       if (gateFeedback == null) {
         gateFeedback = getUnverifiedEditFeedback(rt.streamTurnId);
       }
-      // NOTE: the browser runtime and visual GATES used to sit here. Both were
-      // removed — the harness cannot tell whether an error belongs to the app
-      // being built or to a page the agent merely opened, and a wrong block costs
-      // more accuracy than a missed one. What the browser saw is now delivered as
-      // a non-blocking notice (see the round-boundary emit below); the agent reads
-      // the detail itself with browser_inspect, and the user can route entries to
-      // it from the Console/Network tab.
+      // NOTE: the browser runtime and visual GATES used to sit here, and later a
+      // once-per-turn runtime notice. All removed — the harness cannot tell
+      // whether an error belongs to the app being built or to a page the agent
+      // merely opened. Since v14.52.0 the agent's browser is the user's Chrome;
+      // it checks the console itself with browser_inspect (since its last
+      // navigate), which is the one reading that knows which page it meant.
       // v14.8.9 continue-until-done: after the red-verification gates, the
       // plan-completeness gate keeps the turn going while the session plan has
       // steps left. It uses its OWN (higher) cap so it isn't the red gates' 3.
@@ -867,26 +848,6 @@ export async function runAgentTurn(
       }
     }
 
-    // What the browser recorded this turn — a POINTER, not a payload, and not a
-    // gate. This rides a continuation the model already asked for (this path is
-    // only reached on finish_reason:"tool-calls"), so it can never extend a turn
-    // the way the removed gates did: if the model wants to stop, it stops and
-    // this is simply never emitted. Transient steering → request only, never
-    // persisted, exactly like the gate-nudge path above.
-    if (!runtimeNoticeSent) {
-      const runtimeNotice = buildRuntimeNotice(rt.streamTurnId);
-      if (runtimeNotice) {
-        agenticMessages.push({
-          role: "user" as const,
-          content: systemReminder(runtimeNotice),
-        });
-        runtimeNoticeSent = true;
-        logger.log(
-          `${L} Browser runtime notice delivered (non-blocking, once per turn)`,
-        );
-      }
-    }
-
     // Mid-turn auto-compaction (tool results land in agenticMessages FIRST).
     {
       // Stage 3 (opencode-alignment): the string-based summarizer still needs a
@@ -948,8 +909,6 @@ export async function runAgentTurn(
     // fingerprint than a metric.
     duration_bucket: durationBucket(Date.now() - loopStartTime),
   });
-  clearPreviewBaseline(rt.streamTurnId);
-
   return {
     fullResponse,
     iterations: agenticIteration,

@@ -14,8 +14,8 @@ export type CspResourceType = string;
 /**
  * True when this response should carry the app CSP.
  *
- * `file://` only: the in-app browser runs in its own `persist:atlarix-browser`
- * session and must not be constrained by the app's policy.
+ * `file://` only: web search's hidden pages load arbitrary sites in their own
+ * sessions and must not be constrained by the app's policy.
  *
  * `mainFrame`/`subFrame` are the app document. `script`/`other` are how a
  * DEDICATED MODULE WORKER's own script arrives — Electron's WebRequest has no

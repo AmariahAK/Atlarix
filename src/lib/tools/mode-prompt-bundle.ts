@@ -29,7 +29,7 @@ import { ATLARIX_CO_AUTHOR_TRAILER } from "@/ipc/utils/git_author";
  * Every line of it moved onto the browser tool that owns it (browser.ts). Tool
  * descriptions are progressive — they enter context only when the tool is bound —
  * so a turn that never touches a browser now pays nothing, and guidance for a
- * Build/Debug-only tool like `browser_test` can no longer be shown to a mode that
+ * mode-restricted tool can no longer be shown to a mode that
  * cannot call it. Asserted by mode-reanchor.test.ts against the descriptions.
  */
 
@@ -231,8 +231,8 @@ export function renderModePromptBundle(
     // browser tool that owns it (browser.ts), which is progressive — the guidance
     // arrives exactly when the tool is bound, and costs nothing on a turn that
     // never touches the browser. That also fixes it structurally rather than by
-    // deleting information: `browser_test` guidance rides browser_test, so it is
-    // only ever shown to a mode that actually has it.
+    // deleting information: each tool's guidance rides that tool, so it is only
+    // ever shown to a mode that actually has it.
     canCommit
       ? getCommitAuthoringNote(opts?.includeCoAuthorTrailer !== false)
       : "",

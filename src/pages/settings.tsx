@@ -138,42 +138,89 @@ export function SettingsLayout() {
   );
 }
 
-/** Browser — what the in-app browser tells the agent about. */
+/**
+ * Browser — whether the user's own browser is connected.
+ *
+ * Since v14.52.0 the agent's only browser is the user's Chrome (or Edge /
+ * Brave) through the Atlarix extension, so "connected, and which version" is
+ * the first thing to check when browsing does not work. The browser opens the
+ * connection, so this polls rather than connects.
+ */
 export function BrowserSettings() {
-  const { settings, updateSettings } = useSettings();
+  const [status, setStatus] = useState<Awaited<
+    ReturnType<IpcClient["getBridgeStatus"]>
+  > | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    const read = () =>
+      IpcClient.getInstance()
+        .getBridgeStatus()
+        .then((s) => {
+          if (alive) setStatus(s);
+        })
+        .catch(() => {});
+    read();
+    const timer = setInterval(read, 3000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, []);
+
+  const peer = status?.browsers[status.browsers.length - 1];
   return (
     <div className="bg-card rounded-xl shadow-sm p-6 border border-border">
       <h2 className="text-lg font-medium text-foreground mb-4">Browser</h2>
       <div className="space-y-3">
-        <label
-          htmlFor="browser-runtime-notice"
-          className="text-sm text-foreground block"
-        >
-          Tell the agent when a page logs something
-        </label>
-        <select
-          id="browser-runtime-notice"
-          value={settings?.browserRuntimeNotice ?? "any"}
-          onChange={(e) =>
-            updateSettings({
-              browserRuntimeNotice: e.target.value as
-                | "off"
-                | "failures"
-                | "any",
-            })
-          }
-          className="w-full max-w-xs rounded-md border border-border bg-background px-3 py-2 text-sm"
-        >
-          <option value="any">Anything it recorded (default)</option>
-          <option value="failures">Only failures</option>
-          <option value="off">Never</option>
-        </select>
-        <p className="text-xs text-muted-foreground">
-          One line per turn, with counts — never the entries themselves. It
-          never blocks the agent from finishing; it is a pointer the agent may
-          follow or ignore, and you can always send specific entries yourself
-          from the Console and Network tabs.
+        <p className="text-sm text-muted-foreground">
+          The agent opens and tests pages — including your localhost dev
+          server — in your own Chrome, Edge or Brave, through the free Atlarix
+          extension. It works in its own tab group and never touches your tabs.
         </p>
+        <div className="flex items-center gap-2 text-sm">
+          <span
+            className={cn(
+              "h-2 w-2 rounded-full",
+              status?.connected ? "bg-emerald-500" : "bg-muted-foreground/40",
+            )}
+          />
+          {status == null ? (
+            <span className="text-muted-foreground">Checking…</span>
+          ) : !status.available ? (
+            <span className="text-foreground">
+              This build has no browser bridge. Reinstall Atlarix to restore
+              it.
+            </span>
+          ) : status.connected ? (
+            <span className="text-foreground">
+              Connected
+              {peer?.browser ? ` to ${peer.browser}` : ""}
+              {peer?.extensionVersion
+                ? ` — extension ${peer.extensionVersion}`
+                : ""}
+            </span>
+          ) : (
+            <span className="text-foreground">Not connected</span>
+          )}
+        </div>
+        {status?.available && !status.connected ? (
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">
+              Open your browser and make sure the Atlarix extension is
+              installed. If it already is, click its icon once to wake it.
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                IpcClient.getInstance().openExternalUrl(status.storeUrl)
+              }
+            >
+              Install the extension
+            </Button>
+          </div>
+        ) : null}
       </div>
     </div>
   );

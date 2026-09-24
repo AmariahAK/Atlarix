@@ -1,7 +1,7 @@
 /**
  * DevServerProvider
  * =================
- * Subscribes to dev server terminal output and browser error parsing only.
+ * Subscribes to dev server terminal output only.
  * Does not probe workspaces or auto-start servers — use useDevServer().start().
  */
 
@@ -12,28 +12,13 @@ import {
   devServerUrlAtom,
   terminalOutputsAtom,
   type TerminalOutput,
-  browserErrorsAtom,
 } from "@/atoms/sourceAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
-import { useBrowserErrorListener } from "@/hooks/useBrowserErrorListener";
-import { usePageConsoleListener } from "@/hooks/usePageConsoleListener";
-import {
-  deduplicateErrors,
-  type ParsedError,
-} from "@/lib/devServerErrorParser";
-import { TerminalIntelligence } from "@/lib/terminal-intelligence";
 
 export function DevServerProvider({ children }: { children: React.ReactNode }) {
   const workspaceId = useAtomValue(selectedAppIdAtom);
   const setDevServerUrl = useSetAtom(devServerUrlAtom);
   const setTerminalOutputs = useSetAtom(terminalOutputsAtom);
-  const setBrowserErrors = useSetAtom(browserErrorsAtom);
-
-  useBrowserErrorListener();
-  // The page console (every level) is a separate stream from the parsed
-  // build errors above — same tab, different shape. Mounted here so it fills
-  // while the Console tab is closed, exactly like the error listener.
-  usePageConsoleListener();
 
   useEffect(() => {
     if (!workspaceId) {
@@ -57,23 +42,10 @@ export function DevServerProvider({ children }: { children: React.ReactNode }) {
         next.set(terminalOutput.operationId, terminalOutput);
         return next;
       });
-
-      const parsedErrors = TerminalIntelligence.parse(payload.output);
-
-      setBrowserErrors((prev) => {
-        const runtimeErrors = (prev as ParsedError[]).filter(
-          (e) => e.framework === "browser",
-        );
-        const uniqueBuildErrors =
-          parsedErrors.length > 0
-            ? deduplicateErrors([] as ParsedError[], parsedErrors)
-            : [];
-        return [...runtimeErrors, ...uniqueBuildErrors] as ParsedError[];
-      });
     });
 
     return unsubscribe;
-  }, [setTerminalOutputs, setBrowserErrors]);
+  }, [setTerminalOutputs]);
 
   useEffect(() => {
     return () => {

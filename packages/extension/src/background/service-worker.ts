@@ -44,6 +44,23 @@ import { connectBridge, installBridgeAlarm } from "../bridge/native-port";
 installBridgeAlarm();
 connectBridge();
 
+/**
+ * ...AND a startup listener, for a different reason than connecting.
+ *
+ * The top-level call above runs whenever the worker runs — but after a browser
+ * LAUNCH nothing may run it: with no tab event, alarm or panel, the worker
+ * stays asleep and the desktop sees "no browser connected" until the user
+ * happens to touch something. A registered `onStartup` listener is what makes
+ * Chrome wake the worker at profile launch; the handler itself is just the
+ * idempotent connect. Guarded like the panel wiring below, so a browser without
+ * the event can never take the bridge down.
+ */
+try {
+  api().runtime.onStartup.addListener(() => connectBridge());
+} catch {
+  /* no onStartup in this browser — the alarm reconnects within a minute */
+}
+
 // ---------------------------------------------------------------------------
 // Opening the panel
 // ---------------------------------------------------------------------------

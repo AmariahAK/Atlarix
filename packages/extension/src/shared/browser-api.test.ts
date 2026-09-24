@@ -212,7 +212,7 @@ describe("degrading loudly", () => {
     const msg = unsupportedActionMessage("key", "trustedInput");
     expect(msg).toMatch(/nothing was done/i);
     // The honest fallback: Atlarix's own browser has the full action set.
-    expect(msg).toContain('target:"app"');
+    expect(msg).not.toContain('target:"app"');
     // And it must say WHY, or the model will just retry the same call.
     expect(msg).toMatch(/silently do nothing|trusted/i);
   });

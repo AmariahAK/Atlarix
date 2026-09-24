@@ -69,7 +69,6 @@ import os from "node:os";
 import { restoreAuthSessionOnStartup } from "./lib/auth/supabase-client";
 import { markStartupAuthResolved } from "./lib/auth/startup-auth-state";
 import { SubscriptionManager } from "./lib/SubscriptionManager";
-import { destroyBrowserHosts } from "./ipc/utils/browser_view_manager";
 import { resolveSystemPath } from "./lib/resolve-path";
 import { warmOpenRouterModelCache } from "./lib/routing/tier-context-limits";
 import { warmCoreModelOverrides } from "./lib/routing/core-model-overrides";
@@ -446,8 +445,8 @@ if (IS_MICROSOFT_STORE_BUILD) {
  * XSS in rendered model/tool/web content cannot execute, which is what makes the
  * IPC bridge reachable (H-2). Packaged-only: the dev server needs
  * 'unsafe-inline'/'unsafe-eval' + ws: for HMR, and dev isn't a shipped surface.
- * Scoped to file:// so it constrains only our own content (the in-app browser
- * uses a separate `persist:atlarix-browser` session and is unaffected).
+ * Scoped to file:// so it constrains only our own content (web search's hidden
+ * pages use their own sessions and are unaffected).
  * `style-src`/`connect-src` stay permissive enough not to break the UI
  * (Radix/framer inline styles, Supabase/Sentry/provider calls) — TUNE against a
  * packaged smoke-test before relying on it.
@@ -1419,9 +1418,8 @@ function setMainApplicationMenu(): void {
         ]
       : []),
     {
-      // Custom File menu so Cmd/Ctrl+W closes the active BROWSER tab when the
-      // browser panel is visible, else the OS-standard Close Window. Owning the
-      // accelerator here (vs the default fileMenu role) avoids double-firing.
+      // Custom File menu (vs the default fileMenu role) so the New Window chord
+      // can live beside Close without the role's own accelerators double-firing.
       label: "File",
       submenu: [
         {
@@ -1462,8 +1460,7 @@ function setMainApplicationMenu(): void {
       // Explicit View submenu rather than `role: "viewMenu"`, which ships Reload
       // (Cmd+R) and Force Reload (Cmd+Shift+R). Reloading the renderer mid-turn
       // tears down a live stream, and there is nothing in this app a reload is
-      // the right answer to — the in-app browser has its own reload control, and
-      // a genuinely wedged window can be closed. So the accelerator is simply not
+      // the right answer to, and a genuinely wedged window can be closed. So the accelerator is simply not
       // bound, instead of being bound and then fought by a keydown handler in the
       // renderer (which is what used to happen, and left the behaviour depending
       // on which of the two won).
@@ -2183,10 +2180,9 @@ app.on("will-quit", () => {
   }
   // v10: tear down interactive terminal shells.
   killAllPtys();
-  // Release any hidden window `web_search` or `read_url` left warm, and the
-  // agent browser's hidden hosts — a live hidden window blocks quitting.
+  // Release any hidden window `web_search` or `read_url` left warm — a live
+  // hidden window blocks quitting.
   shutdownHiddenPages();
-  destroyBrowserHosts();
   analyticsShutdown();
 
   // Stop the periodic update re-check.

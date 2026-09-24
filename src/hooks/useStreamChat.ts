@@ -1150,7 +1150,7 @@ export function useStreamChat({
               // Show error toast to inform user when command fails — but ONLY for
               // user-initiated commands. Agent/LLM-run command failures are normal
               // agentic flow (the model reacts to them itself) and already surface
-              // as in-chat tool cards + the Errors tab, so a popup would just be
+              // as in-chat tool cards, so a popup would just be
               // noise. Legacy/undefined source still pops (treated as user-facing).
               if (payload.status === "error" && payload.source !== "agent") {
                 const shortCmd =

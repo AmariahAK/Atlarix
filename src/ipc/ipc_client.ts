@@ -52,7 +52,6 @@ import type {
   ProposalResult,
 } from "@/lib/schemas";
 import { showError } from "@/lib/toast";
-import type { BrowserNetworkSnapshot } from "@/lib/browser/network-entry";
 import { classifyContent } from "@/lib/file-content-type";
 import { DeepLinkData } from "./deep_link_data";
 import { getDefaultStore } from "jotai";
@@ -3740,76 +3739,11 @@ export class IpcClient {
     return this.ipcRenderer.invoke("edit-stats:summary");
   }
 
-  // ── The agent's hidden browser (no visible panel since 2026-09-23) ──────
-
-  // Runtime errors captured from the browser tabs (Errors tab).
-  public async browserGetErrors(): Promise<
-    import("@/ipc/utils/browser_view_manager").BrowserSurfaceError[]
+  /** Is the user's browser connected through the Atlarix extension? */
+  public async getBridgeStatus(): Promise<
+    import("@/ipc/handlers/bridge_handlers").BridgeStatus
   > {
-    return this.ipcRenderer.invoke("browser:get-errors");
-  }
-
-  public async browserClearErrors(): Promise<void> {
-    return this.ipcRenderer.invoke("browser:clear-errors");
-  }
-
-  /**
-   * Every tab's request log, PULLED.
-   *
-   * Deliberately not a push channel: a page load is hundreds of requests, and
-   * streaming each one to the renderer is the flood shape that has already cost
-   * this app a thermal regression. The Network tab polls while it is on screen;
-   * capture in the main process runs either way.
-   */
-  public async browserGetNetwork(): Promise<BrowserNetworkSnapshot> {
-    return this.ipcRenderer.invoke("browser:get-network");
-  }
-
-  /** One response body, on demand. Frequently unavailable — say so, don't fake it. */
-  public async browserGetNetworkBody(
-    tabId: number,
-    requestId: string,
-  ): Promise<{ body: string; base64: boolean } | { unavailable: string }> {
-    return this.ipcRenderer.invoke(
-      "browser:get-network-body",
-      tabId,
-      requestId,
-    );
-  }
-
-  public onBrowserSurfaceError(
-    listener: (
-      error: import("@/ipc/utils/browser_view_manager").BrowserSurfaceError,
-    ) => void,
-  ): () => void {
-    const off = this.ipcRenderer.on("browser:error", (error) =>
-      listener(
-        error as import("@/ipc/utils/browser_view_manager").BrowserSurfaceError,
-      ),
-    );
-    return typeof off === "function" ? off : () => {};
-  }
-
-  /**
-   * Coalesced console entries at EVERY level (the Console tab's source).
-   *
-   * Distinct from `onBrowserSurfaceError`, which stays per-entry and
-   * error/warning-only for its existing consumers. Subscribe to ONE of the two —
-   * both carry error-level entries, so a consumer listening to both renders them
-   * twice.
-   */
-  public onBrowserConsoleBatch(
-    listener: (
-      entries: import("@/ipc/utils/browser_view_manager").BrowserSurfaceError[],
-    ) => void,
-  ): () => void {
-    const off = this.ipcRenderer.on("browser:console", (entries) =>
-      listener(
-        (entries ??
-          []) as import("@/ipc/utils/browser_view_manager").BrowserSurfaceError[],
-      ),
-    );
-    return typeof off === "function" ? off : () => {};
+    return this.ipcRenderer.invoke("bridge:status");
   }
 
   // Background jobs (v14).

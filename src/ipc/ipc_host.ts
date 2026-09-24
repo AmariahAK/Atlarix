@@ -30,7 +30,7 @@ import { registerAppEnvVarsHandlers } from "./handlers/app_env_vars_handlers";
 import { registerPortalHandlers } from "./handlers/portal_handlers";
 import { registerMcpHandlers } from "./handlers/mcp_handlers";
 import { registerMcpOAuthHandlers } from "./handlers/mcp_oauth_handlers";
-import { registerBrowserHandlers } from "./handlers/browser_handlers";
+import { registerBridgeHandlers } from "./handlers/bridge_handlers";
 import { registerBackgroundHandlers } from "./handlers/background_handlers";
 import { registerAutomationHandlers } from "./handlers/automation_handlers";
 import { registerVoiceHandlers } from "./handlers/voice_handlers";
@@ -101,7 +101,7 @@ export function registerIpcHandlers() {
   registerCommandPermissionHandlers();
   registerFilePermissionHandlers();
   registerDoctorHandlers();
-  registerBrowserHandlers(); // v11 in-app browser (WebContentsView) + WebMCP
+  registerBridgeHandlers(); // v14.52: Chrome-extension connection status (Settings → Browser)
   registerBackgroundHandlers(); // v14 background-job indicator/cancel + auto-wake
   registerAutomationHandlers(); // Automations: definitions CRUD + triage feed + proposal apply
   registerVoiceHandlers(); // dictation: BYOK speech-to-text, or the selected model's audio input

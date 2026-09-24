@@ -156,9 +156,6 @@ export function resolveToolsetForSession(
     "read_url",
     "read_attachment",
     "list_attachments",
-    // browser_test drives a browser-tab WebContentsView (like browser_*, but
-    // doesn't share the prefix) — no such view exists in the Electron-free CLI.
-    "browser_test",
   ]);
   /**
    * DRIVES A UI SURFACE THE RUN DOES NOT HAVE — dropped headless AND unattended.
@@ -183,11 +180,11 @@ export function resolveToolsetForSession(
   // Unattended (automation) runs happen inside the real app — MCP servers,
   // web search, attachments all exist — so only human-handoff and UI-view
   // tools are dropped: ask_user would park the turn forever (no responder),
-  // and browser_*/browser_test drive views nobody is watching. read_url is
+  // and browser/browser_* drive the user's browser with nobody watching. read_url is
   // also dropped — an arbitrary-host fetch is a data-exfil channel for
   // prompt-injected unattended runs, with little unattended value (web_search
   // routes through the configured aggregator and keeps triage utility).
-  const UNATTENDED_DROP = new Set(["ask_user", "browser_test", "read_url"]);
+  const UNATTENDED_DROP = new Set(["ask_user", "read_url"]);
   const afterHeadless =
     process.env.ATLARIX_HEADLESS === "1"
       ? preTrim.filter(

@@ -245,11 +245,8 @@ const validInvokeChannels = [
   "dev-server:stop",
   "dev-server:status",
   "dev-server:list-running",
-  // Runtime errors captured from the browser tabs (Errors tab)
-  "browser:get-errors",
-  "browser:clear-errors",
-  "browser:get-network",
-  "browser:get-network-body",
+  // Chrome-extension connection status (Settings → Browser)
+  "bridge:status",
   // Background jobs (v14)
   "chat:background-jobs-list",
   "chat:background-job-cancel",
@@ -368,8 +365,6 @@ const validReceiveChannels = [
   "plan:artifact-activated",
   "plan:artifact-updated",
   "plan:file-updated",
-  "browser:error", // main → renderer: runtime error captured from a browser tab (console/uncaught/load/crash/network)
-  "browser:console", // main → renderer: coalesced BATCH of console entries at EVERY level (the Console tab). `browser:error` stays error/warning-only for its existing consumers.
   "chat:background-job-update", // main → renderer: background job started/finished/cancelled
   "chat:interjections", // main → renderer: the pending mid-turn-message queue changed
   "automation:run-update", // main → renderer: automation run started/finished (triage feed refresh)

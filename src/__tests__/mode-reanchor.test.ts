@@ -88,10 +88,10 @@ describe("browser_inspect — visual is the way to SEE; screenshot is last resor
     // if the prose had been dropped in the move — so assert on the canonical
     // tool, which is the one actually bound in the prompt.
     const browserDesc = String(ToolRegistry.get("browser")!.description);
-    expect(browserDesc).toMatch(/every tab shares one browser session/i);
-    expect(browserDesc).toMatch(/scroll position/i);
-    expect(String(ToolRegistry.get("browser_test")!.description)).toMatch(
-      /turn will not finish while the app is throwing runtime errors/i,
-    );
+    expect(browserDesc).toMatch(/every tab shares the user's browser session/i);
+    expect(browserDesc).toMatch(/localhost/i);
+    // v14.52.0: browser_test is gone; "did my change throw?" is a console read
+    // since the last navigate, and the description has to say so.
+    expect(desc()).toMatch(/since your last navigate/i);
   });
 });

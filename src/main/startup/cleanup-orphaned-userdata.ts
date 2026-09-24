@@ -21,6 +21,10 @@
  *   shares this userData) was never reachable. {@link purgeLegacyVoiceCacheStorage}
  *   sweeps every origin from disk.
  *
+ * - **v14.52.0 in-app agent browser removal** — the agent now drives the user's
+ *   own Chrome, so the `persist:atlarix-browser` session (cookies, cache and
+ *   storage of every page the agent opened) is dead weight on disk.
+ *
  * No live code references any of these directories, so removal is safe.
  *
  * A deleted worktree also leaves a registry entry in the user's own repo
@@ -43,7 +47,7 @@ import { getUserDataPath } from "../../paths/paths";
  * earlier one. (Reusing the old name would silently skip every upgrader, which
  * is most of them; the re-walk of already-deleted dirs is a fast no-op.)
  */
-const MARKER_FILE = ".orphaned-userdata-cleanup-v4";
+const MARKER_FILE = ".orphaned-userdata-cleanup-v5";
 
 /**
  * Orphaned directory names under userData, written by the removed FTS5 indexer,
@@ -57,6 +61,7 @@ const ORPHANED_DIRS = [
   "diagram-git",
   "media",
   "subagent-worktrees",
+  "Partitions/atlarix-browser",
 ] as const;
 
 async function dirSizeBytes(dir: string): Promise<number> {

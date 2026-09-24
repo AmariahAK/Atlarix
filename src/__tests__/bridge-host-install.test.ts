@@ -33,6 +33,9 @@ import {
   hostManifest,
   installNativeHost,
   manifestDirs,
+  regAddArgs,
+  windowsRegistryKeys,
+  windowsRelayCopyPath,
   wrapperScript,
 } from "@/lib/bridge/host-install";
 
@@ -168,6 +171,103 @@ describe("installing", () => {
     const home = await tempHome();
     const result = await installNativeHost({ relayPath: "/opt/r", home, platform: "darwin" });
     expect((await fs.stat(result.hostEnv)).mode & 0o777).toBe(0o600);
+  });
+});
+
+/**
+ * WINDOWS FINDS A NATIVE HOST ONLY THROUGH THE REGISTRY. Until v14.52.0 nothing
+ * wrote a key, so the bridge had never worked there — and no test noticed,
+ * because every test ran with a manifest DIRECTORY, which Windows does not
+ * read. These run with a fake `reg.exe` so they pass on any OS and never touch
+ * a real registry.
+ */
+describe("installing on Windows", () => {
+  async function fakeRelay(dir: string): Promise<string> {
+    const relay = path.join(dir, "packaged-atlarix-bridge.exe");
+    await fs.writeFile(relay, "relay-bytes");
+    return relay;
+  }
+
+  it("points every fork's HKCU key at the manifest", async () => {
+    const home = await tempHome();
+    const calls: string[][] = [];
+    const result = await installNativeHost({
+      relayPath: await fakeRelay(home),
+      socketPath: "\\\\.\\pipe\\atlarix-bridge-me",
+      home,
+      platform: "win32",
+      runReg: async (args) => {
+        calls.push(args);
+      },
+    });
+
+    const manifest = result.manifests[0]!;
+    expect(result.registryKeys).toEqual(windowsRegistryKeys());
+    expect(calls).toEqual(windowsRegistryKeys().map((k) => regAddArgs(k, manifest)));
+    // Chrome, Edge and Brave at minimum — the browsers the product names.
+    const keys = windowsRegistryKeys().join("\n");
+    expect(keys).toContain("Google\\Chrome\\NativeMessagingHosts\\dev.atlarix.bridge");
+    expect(keys).toContain("Microsoft\\Edge\\NativeMessagingHosts");
+    expect(keys).toContain("BraveSoftware\\Brave-Browser\\NativeMessagingHosts");
+    for (const k of windowsRegistryKeys()) expect(k.startsWith("HKCU\\")).toBe(true);
+  });
+
+  it("sets the key's DEFAULT value, which is where Chrome reads the path", () => {
+    expect(regAddArgs("HKCU\\X", "C:\\m.json")).toEqual([
+      "add",
+      "HKCU\\X",
+      "/ve",
+      "/t",
+      "REG_SZ",
+      "/d",
+      "C:\\m.json",
+      "/f",
+    ]);
+  });
+
+  it("runs the relay from a copy in the user's profile, not from WindowsApps", async () => {
+    const home = await tempHome();
+    const result = await installNativeHost({
+      relayPath: await fakeRelay(home),
+      home,
+      platform: "win32",
+      runReg: async () => {},
+    });
+    const copy = windowsRelayCopyPath(home);
+    expect(await fs.readFile(copy, "utf8")).toBe("relay-bytes");
+    const env = await fs.readFile(result.hostEnv, "utf8");
+    expect(env).toContain(`ATLARIX_BRIDGE_RELAY=${copy}`);
+  });
+
+  it("a registry failure is recorded, never thrown — the app must still open", async () => {
+    const home = await tempHome();
+    const result = await installNativeHost({
+      relayPath: await fakeRelay(home),
+      home,
+      platform: "win32",
+      runReg: async () => {
+        throw new Error("Access is denied.");
+      },
+    });
+    expect(result.registryKeys).toEqual([]);
+    expect(result.skipped.some((s) => s.reason.includes("Access is denied"))).toBe(
+      true,
+    );
+  });
+
+  it("writes no registry keys off Windows", async () => {
+    const home = await tempHome();
+    let called = false;
+    const result = await installNativeHost({
+      relayPath: "/opt/r",
+      home,
+      platform: "darwin",
+      runReg: async () => {
+        called = true;
+      },
+    });
+    expect(called).toBe(false);
+    expect(result.registryKeys).toBeUndefined();
   });
 });
 

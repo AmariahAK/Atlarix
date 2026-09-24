@@ -1,5 +1,7 @@
 /**
- * `target: "app" | "chrome"` — the refusals, which ARE the feature.
+ * The Chrome seam — the refusals, which ARE the feature. Since v14.52.0 the
+ * user's Chrome is the agent's only browser, so no refusal may send the model
+ * to a `target:"app"` that no longer exists.
  *
  * WHY THE ASSERTIONS ARE ON MESSAGE TEXT AND NOT ON `success === false`.
  * Every state below already failed before this change; it just failed the same
@@ -55,7 +57,7 @@ describe("availability refusals", () => {
     serverPresent.value = false;
     const r = chromeUnavailable();
     expect(r?.error).toContain("no browser bridge");
-    expect(r?.error).toContain('target:"app"');
+    expect(r?.error).not.toContain('target:"app"');
     // Must NOT tell the user to install an extension — the extension is not
     // the missing piece, and sending them to the store would waste their time.
     expect(r?.error).not.toContain(CHROME_STORE_URL);
@@ -65,7 +67,8 @@ describe("availability refusals", () => {
     connected.value = false;
     const r = chromeUnavailable();
     expect(r?.error).toContain(CHROME_STORE_URL);
-    expect(r?.error).toContain("side panel");
+    expect(r?.error).toContain("Settings → Browser");
+    expect(r?.error).not.toContain('target:"app"');
     // All three indistinguishable causes are offered, cheapest first.
     expect(r?.error).toMatch(/running\?/);
   });
@@ -76,23 +79,29 @@ describe("availability refusals", () => {
 });
 
 describe("mode and action refusals name the gap", () => {
-  it.each([
-    ["visual", "instrumentation"],
-    ["design", "instrumentation"],
-  ])("mode:%s explains why and offers the app", (mode, fragment) => {
-    const r = chromeInspectOp(mode);
+  it("an unknown mode names the real ones instead of an alternative browser", () => {
+    const r = chromeInspectOp("xray");
     expect(isChromeRefusal(r)).toBe(true);
     if (!isChromeRefusal(r)) return;
-    expect(r.error).toContain(fragment);
-    expect(r.error).toContain('target:"app"');
-    expect(r.error).toContain(`mode:"${mode}"`);
+    expect(r.error).toContain('"visual"');
+    expect(r.error).not.toContain('target:"app"');
   });
 
   // console/network joined this list on 2026-09-17. They used to refuse with a
   // reason claiming the extension COULD not capture them; it could, and the
   // `debugger` permission it needed was already granted and justified.
   // screenshot joined on 2026-09-23 (CDP on the agent's own tabs).
-  it.each(["read", "snapshot", "text", "console", "network", "screenshot"])(
+  // visual/design joined on v14.52.0, ported into portable page functions.
+  it.each([
+    "read",
+    "snapshot",
+    "text",
+    "visual",
+    "design",
+    "console",
+    "network",
+    "screenshot",
+  ])(
     "mode:%s maps to a bridged op",
     (mode) => {
       expect(typeof chromeInspectOp(mode)).toBe("string");
@@ -140,15 +149,19 @@ describe("the extension's own errors reach the model verbatim", () => {
     expect(r.error).toBe(grant);
   });
 
-  it("passes the unknown-op refusal through unchanged (the 1.0.0 text case)", async () => {
+  it("turns an older extension's unknown-op refusal into the fix", async () => {
+    // Web Store review lags a desktop release, so an extension that predates a
+    // new op (visual, design, network_body) is an expected state.
     const stale =
-      'the browser extension has no bridged op "text". This build may be ' +
+      'the browser extension has no bridged op "visual". This build may be ' +
       "older than the desktop app asking.";
     requestMock.mockRejectedValueOnce(new Error(stale));
-    const r = await requestChrome("text", {});
+    const r = await requestChrome("visual", {});
     expect(isChromeRefusal(r)).toBe(true);
     if (!isChromeRefusal(r)) return;
-    expect(r.error).toBe(stale);
+    expect(r.error).toContain("older than this app");
+    expect(r.error).toContain('"visual"');
+    expect(r.error).toContain("chrome://extensions");
   });
 
   it("does not reach the extension at all when nothing is connected", async () => {
@@ -166,7 +179,7 @@ describe("no refusal invents a login requirement", () => {
     serverPresent.value = true;
     connected.value = false;
     const noBrowser = chromeUnavailable()!.error;
-    const modes = ["visual", "design"].map(
+    const modes = ["xray"].map(
       (m) => (chromeInspectOp(m) as { error: string }).error,
     );
     for (const msg of [noRelay, noBrowser, ...modes]) {
@@ -182,7 +195,7 @@ describe("no refusal invents a login requirement", () => {
 describe("the iframe disagreement is surfaced, not resolved", () => {
   it("adds a note when a Chrome read comes back near-empty", () => {
     expect(noteIfThin("   ")).toContain("top frame");
-    expect(noteIfThin("   ")).toContain('target:"app"');
+    expect(noteIfThin("   ")).toContain('mode:"visual"');
   });
 
   it("stays quiet on a normal read", () => {
@@ -204,10 +217,6 @@ describe("the iframe disagreement is surfaced, not resolved", () => {
  * inspect whatever page happened to be open and unable to open one, which is a
  * worse trap than having neither. See mode-tool-registry.ts for the full
  * argument and the measured cost.
- *
- * `browser_test` is the other deliberate exception: it is a verification tool
- * for code you just changed, and its verdict depends on console + network
- * capture. It stays on the build/debug surface.
  */
 describe("mode availability", () => {
   const BROWSER_MODES = ["ask", "build", "debug", "review"] as const;
@@ -224,11 +233,4 @@ describe("mode availability", () => {
     },
   );
 
-  it("browser_test stays build/debug only", () => {
-    expect(isToolAllowedInMode("browser_test", "build")).toBe(true);
-    expect(isToolAllowedInMode("browser_test", "debug")).toBe(true);
-    for (const mode of ["ask", "plan", "review"] as const) {
-      expect(isToolAllowedInMode("browser_test", mode)).toBe(false);
-    }
-  });
 });

@@ -4,7 +4,7 @@
  * ══ WHY THIS EXISTS, AND WHAT IT REPLACES ══
  *
  * `browser_inspect(mode:"console")` used to refuse over the extension with
- * "needs instrumentation only Atlarix's built-in browser installs". The first
+ * "needs instrumentation only Atlarix's own browser installs". The first
  * half of that was true — nothing here captured a console — and the second half
  * was false: this package holds the `debugger` permission and already attaches
  * CDP for keystrokes (`trusted-input.ts`). The events below ride that same
@@ -44,7 +44,7 @@ import { attach, detach } from "./trusted-input";
 import type {
   BrowserConsoleLevel,
   BrowserSurfaceError,
-} from "@/lib/browser/error-hook";
+} from "@/lib/browser/console-entry";
 import type { NetworkEntry } from "@/lib/browser/network-entry";
 
 /**
@@ -391,6 +391,71 @@ export function readNetwork(
 }
 
 /** For tests and for `close_tab`, which must not leave a buffer behind. */
+/** Longest response body handed back in one read. */
+const MAX_BODY_CHARS = 8_000;
+
+export interface NetworkBodyRead {
+  entry?: NetworkEntry;
+  body?: string;
+  base64?: boolean;
+  truncated?: boolean;
+  /** Why there is no body — never combined with `body`. */
+  bodyUnavailable?: string;
+  /** Set when the request itself is unknown or capture is off. */
+  unavailable?: string;
+}
+
+/**
+ * One request's headers plus its response body, fetched ON DEMAND.
+ *
+ * Bodies are never captured eagerly — CDP's buffer is bounded and holding every
+ * response would cost more than it is worth. So the body is asked for now, and
+ * an evicted one is reported as evicted rather than returned as empty, which
+ * would read as "the response had no body".
+ */
+export async function readNetworkBody(
+  tabId: number,
+  requestId: string,
+): Promise<NetworkBodyRead> {
+  const cap = bufferFor(tabId);
+  if (!cap || cap.unavailable) {
+    return {
+      unavailable:
+        "Atlarix was not watching this tab's network, so it has no request " +
+        "to show.",
+    };
+  }
+  const entry = cap.network.get(requestId);
+  if (!entry) {
+    return {
+      unavailable:
+        `No request with id "${requestId}" in tab ${tabId}. List them first ` +
+        `with mode:"network".`,
+    };
+  }
+  try {
+    const res = (await api().debugger.sendCommand(
+      { tabId },
+      "Network.getResponseBody",
+      { requestId },
+    )) as { body?: string; base64Encoded?: boolean } | undefined;
+    const raw = res?.body ?? "";
+    return {
+      entry: { ...entry },
+      body: raw.slice(0, MAX_BODY_CHARS),
+      base64: Boolean(res?.base64Encoded),
+      truncated: raw.length > MAX_BODY_CHARS,
+    };
+  } catch (err) {
+    return {
+      entry: { ...entry },
+      bodyUnavailable:
+        "the browser no longer holds this response body (it evicts them), or " +
+        `the request had none: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+}
+
 export function isCapturing(tabId: number): boolean {
   return captures.has(tabId);
 }

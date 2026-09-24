@@ -107,7 +107,10 @@ export async function startBridge(): Promise<void> {
   try {
     const install = await installNativeHost({ relayPath, socketPath });
     logger.info(
-      `native host installed for ${install.manifests.length} browser profile(s)`,
+      `native host installed for ${install.manifests.length} browser profile(s)` +
+        (install.registryKeys
+          ? `, ${install.registryKeys.length} registry key(s)`
+          : ""),
     );
     for (const { dir, reason } of install.skipped) {
       logger.warn(`could not write ${dir}: ${reason}`);

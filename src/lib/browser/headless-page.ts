@@ -124,14 +124,8 @@ function destroyIfLastWindow(): void {
   setImmediate(() => {
     try {
       const ours = ourWindows();
-      // The agent browser's hidden hosts are not user windows either — they
-      // are torn down with the window they belong to (browser_view_manager).
       const others = electron.BrowserWindow.getAllWindows().filter(
-        (w) =>
-          !ours.has(w) &&
-          !w.isDestroyed() &&
-          (w as unknown as Record<string, unknown>).__atlarixBrowserHost !==
-            true,
+        (w) => !ours.has(w) && !w.isDestroyed(),
       );
       if (others.length === 0) shutdownHiddenPages();
     } catch {
@@ -177,9 +171,8 @@ function getWindow(slot: PageSlot, partition: string): Win {
   if (slot.window && !slot.window.isDestroyed()) return slot.window;
   const { BrowserWindow, session } = electron;
 
-  // Same hardening posture as the user-facing browser tabs (browser_view_manager):
-  // isolated partition, sandboxed, no preload, no node, downloads and permissions
-  // denied. This window renders a hostile third-party page and does nothing else.
+  // Hardened: isolated partition, sandboxed, no preload, no node, downloads and
+  // permissions denied. This window renders a hostile third-party page and does nothing else.
   const ses = session.fromPartition(partition, { cache: true });
   const hardened = ses as Electron.Session & {
     __atlarixHiddenPageHardened?: boolean;

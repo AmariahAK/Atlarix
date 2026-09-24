@@ -275,12 +275,12 @@ export function unsupportedActionMessage(
     return (
       `action:"${action}" needs trusted keyboard/pointer input, which this browser ` +
       `does not expose to extensions. Nothing was done — a synthetic event would ` +
-      `look like it worked and silently do nothing. Open the page in Atlarix's ` +
-      `built-in browser (target:"app") for the full action set.`
+      `look like it worked and silently do nothing. Click the control instead, ` +
+      `or use Chrome, where trusted input is available.`
     );
   }
   return (
     `action:"${action}" is unavailable in this browser (missing ${capability}). ` +
-    `Nothing was done. Try target:"app" for Atlarix's built-in browser.`
+    `Nothing was done. Chrome supports the full action set.`
   );
 }

@@ -282,16 +282,16 @@ const FEATURES: ToolFeature[] = [
     id: "agent-browser",
     title: "Agent browser & dev-server testing",
     shortDescription:
-      "The agent opens your local dev server (or any public site) in its own background browser and drives it — navigate, click, fill, screenshot, and verify. For sites you are signed into, it works in your Chrome through the Atlarix extension.",
+      "The agent opens your local dev server (or any site) in your own Chrome, Edge or Brave through the free Atlarix extension, in its own tab group — navigate, click, fill, screenshot, and verify.",
     category: "browser",
     steps: [
+      "Install the Atlarix extension (Settings → Browser shows the connection)",
       "Start the dev command from Build",
       "Ask the agent to open the URL and test the flow",
-      "Check the Errors and Network tabs in the right panel",
     ],
     howItWorks:
-      "The agent's browser captures runtime errors (console, uncaught exceptions with stack, failed requests) into the Errors and Network tabs, so UI failures line up with code. Anything that needs your logins goes to your own Chrome via the extension.",
-    link: { label: "Right panel → Errors", to: "/" },
+      "The agent reads each page's console (every level, with stacks) and network requests from the moment it opens the tab, plus a text report of layout defects — so UI failures line up with code. It never takes focus or touches your own tabs.",
+    link: { label: "Settings → Browser", to: "/settings" },
   },
   {
     id: "websearch",

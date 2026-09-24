@@ -25,11 +25,8 @@ import {
   rightPanelWidthAtom,
   pinnedPanelAtom,
   rightPanelSuppressAutoOpenAtom,
-  consoleUnreadCountAtom,
-  networkUnreadCountAtom,
   planUnreadAtom,
 } from "@/atoms/sourceAtoms";
-import { chatInputValueAtom } from "@/atoms/chatAtoms";
 import SourcePreviewPanel from "./preview_panel/SourcePreviewPanel";
 import CodePreviewPanel from "./preview_panel/CodePreviewPanel";
 import { EmbeddedChatTab } from "./panels/EmbeddedChatTab";
@@ -40,7 +37,6 @@ import {
   Wrench,
   Search,
   Eye,
-  SquareTerminal,
   Shield,
   Globe,
   Code2,
@@ -48,10 +44,8 @@ import {
   MessageSquare,
   ListTree,
   AlarmClock,
-  ArrowUpDown,
 } from "lucide-react";
 import { TerminalPanel } from "./panels/TerminalPanel";
-import { type ParsedError } from "@/lib/devServerErrorParser";
 import { ToolCallCard, ToolStatus } from "./ToolCallCard";
 import { useRef, useEffect, useState, useCallback } from "react";
 import {
@@ -63,7 +57,6 @@ import {
 import { type PanelTab } from "@/atoms/sourceAtoms";
 import { useWorkspacePlanPanel } from "@/hooks/useWorkspacePlanPanel";
 import { PlanExecutionPanel } from "@/components/preview_panel/PlanExecutionPanel";
-import { NetworkPanel } from "@/components/preview_panel/NetworkPanel";
 
 // Icon configuration for secondary tabs
 const TAB_ICONS: Record<PanelTab, { icon: React.ElementType; label: string }> =
@@ -71,11 +64,6 @@ const TAB_ICONS: Record<PanelTab, { icon: React.ElementType; label: string }> =
     preview: { icon: Eye, label: "Preview" },
     terminal: { icon: Terminal, label: "Terminal" },
     automations: { icon: AlarmClock, label: "Automations" },
-    // The tab ID stays `errors` deliberately — it is persisted in panel state and
-    // listed in useRightPanelContext's tab order. Only the user-facing name moved,
-    // because the tab now shows the page console at every level, not just failures.
-    errors: { icon: SquareTerminal, label: "Console" },
-    network: { icon: ArrowUpDown, label: "Network" },
     permissions: { icon: Shield, label: "Permissions" },
     search: { icon: Globe, label: "Search" },
     sources: { icon: Globe, label: "Sources" },
@@ -95,8 +83,6 @@ export function RightPanel() {
   useWorkspacePlanPanel();
   const { context, setActiveTab } = useRightPanelContext();
   const automationsUnread = useAtomValue(automationsUnreadCountAtom);
-  const [consoleUnread, setConsoleUnread] = useAtom(consoleUnreadCountAtom);
-  const [networkUnread, setNetworkUnread] = useAtom(networkUnreadCountAtom);
   const [planUnread, setPlanUnread] = useAtom(planUnreadAtom);
   const setAutomationsFocusRunId = useSetAtom(automationsFocusRunIdAtom);
   // OS-notification click → open the automations feed at the run.
@@ -114,25 +100,11 @@ export function RightPanel() {
   // way an unread count can lie.
   useEffect(() => {
     if (!isVisible) return;
-    if (context.activeTab === "errors" && consoleUnread > 0)
-      setConsoleUnread(0);
-    if (context.activeTab === "network" && networkUnread > 0)
-      setNetworkUnread(0);
     if (context.activeTab === "plan" && planUnread) setPlanUnread(false);
-  }, [
-    isVisible,
-    context.activeTab,
-    consoleUnread,
-    networkUnread,
-    setConsoleUnread,
-    setNetworkUnread,
-    planUnread,
-    setPlanUnread,
-  ]);
+  }, [isVisible, context.activeTab, planUnread, setPlanUnread]);
   const setSuppressRightAutoOpen = useSetAtom(rightPanelSuppressAutoOpenAtom);
   const [width, setWidth] = useAtom(rightPanelWidthAtom);
   const [_pinnedPanel, _setPinnedPanel] = useAtom(pinnedPanelAtom);
-  const [chatInputValue, setChatInput] = useAtom(chatInputValueAtom);
 
   // Get chatId from URL route as fallback for PermissionQueuePanel
   let routeChatId: number | undefined;
@@ -145,105 +117,6 @@ export function RightPanel() {
   } catch {
     // Not on chat route, that's fine
   }
-
-  // Handle "Solve with AI" button click - appends error context to existing chat input
-  const handleSolveWithAI = useCallback(
-    (error: {
-      message: string;
-      file?: string;
-      line?: number;
-      stack?: string;
-    }) => {
-      // Check if message already includes user suggestion (from Suggest button)
-      const hasSuggestion = error.message.includes("User's suggestion:");
-
-      let errorContext: string;
-      if (hasSuggestion) {
-        // Split message and suggestion (supports "User's suggestion:" or legacy "💡 User's suggestion:")
-        const [errorPart, suggestionPart] = error.message.split(
-          /\n\n(?:💡 )?User's suggestion:/,
-        );
-        errorContext = `Please identify the issue and provide a fix.
-
-Error: ${errorPart}${
-          error.file
-            ? `
-File: ${error.file}${error.line ? `:${error.line}` : ""}`
-            : ""
-        }
-
-User's suggestion:${suggestionPart}`;
-      } else {
-        errorContext = `Please identify the issue and provide a fix.
-
-Error: ${error.message}${
-          error.file
-            ? `
-File: ${error.file}${error.line ? `:${error.line}` : ""}`
-            : ""
-        }`;
-      }
-
-      // Append to existing input instead of replacing
-      const existingInput = chatInputValue?.trim() || "";
-      if (existingInput) {
-        // User has typed something - append error context
-        setChatInput(`${existingInput}\n\n---\n${errorContext.trim()}`);
-      } else {
-        // No existing input - just set the error
-        setChatInput(errorContext.trim());
-      }
-    },
-    [chatInputValue, setChatInput],
-  );
-
-  // Handle "Fix All" button click - formats multiple errors for AI
-  const handleSolveAllWithAI = useCallback(
-    (errors: ParsedError[], context: string) => {
-      // Group errors by type for better organization
-      const errorsByType = errors.reduce(
-        (acc, err) => {
-          const type = err.type || "unknown";
-          if (!acc[type]) acc[type] = [];
-          acc[type].push(err);
-          return acc;
-        },
-        {} as Record<string, ParsedError[]>,
-      );
-
-      // Format errors list
-      const errorsList = Object.entries(errorsByType)
-        .map(([type, errs]) => {
-          const header = `### ${type.toUpperCase()} ERRORS`;
-          const items = errs
-            .map(
-              (e, i) =>
-                `${i + 1}. **${e.file || "Unknown file"}${e.line ? `:${e.line}` : ""}**\n   ${e.message}${e.stack ? `\n   \`\`\`\n   ${e.stack.slice(0, 200)}...\n   \`\`\`` : ""}`,
-            )
-            .join("\n\n");
-          return `${header}\n${items}`;
-        })
-        .join("\n\n---\n\n");
-
-      const prompt = `Please fix the following ${errors.length} error${errors.length !== 1 ? "s" : ""} in my application:
-
-${errorsList}
-${
-  context
-    ? `
----
-
-**Additional Context from User:**
-${context}`
-    : ""
-}
-
-Please fix these errors in priority order (structural/build errors first, then runtime errors). Provide fixes for each error.`;
-
-      setChatInput(prompt.trim());
-    },
-    [setChatInput],
-  );
 
   // Drag resize state
   const [isDragging, setIsDragging] = useState(false);
@@ -377,14 +250,7 @@ Please fix these errors in priority order (structural/build errors first, then r
                 // Same badge vocabulary as automations, for the same
                 // reason: nothing blocks a turn any more, so a count the
                 // user can act on — or ignore — is how they find out.
-                const unread =
-                  tab === "automations"
-                    ? automationsUnread
-                    : tab === "errors"
-                      ? consoleUnread
-                      : tab === "network"
-                        ? networkUnread
-                        : 0;
+                const unread = tab === "automations" ? automationsUnread : 0;
                 // Plan is a "there is one" dot, not a count: a session
                 // has a plan or it doesn't, and restoring one no longer
                 // seizes the panel to tell you.
@@ -432,8 +298,6 @@ Please fix these errors in priority order (structural/build errors first, then r
       <div className="flex-1 overflow-auto min-h-0">
         <PanelContent
           context={context}
-          onSolveWithAI={handleSolveWithAI}
-          onSolveAllWithAI={handleSolveAllWithAI}
           setActiveTab={setActiveTab}
           fallbackChatId={routeChatId}
         />
@@ -447,18 +311,10 @@ Please fix these errors in priority order (structural/build errors first, then r
  */
 function PanelContent({
   context,
-  onSolveWithAI,
-  onSolveAllWithAI,
   setActiveTab: _setActiveTab,
   fallbackChatId: _fallbackChatId,
 }: {
   context: ReturnType<typeof useRightPanelContext>["context"];
-  onSolveWithAI?: (error: {
-    message: string;
-    source?: string;
-    stack?: string;
-  }) => void;
-  onSolveAllWithAI?: (errors: ParsedError[], context: string) => void;
   setActiveTab?: (tab: import("@/atoms/sourceAtoms").PanelTab) => void;
   fallbackChatId?: number;
 }) {
@@ -482,12 +338,6 @@ function PanelContent({
       if (context.activeTab === "terminal") {
         return <TerminalPanel />;
       }
-      if (context.activeTab === "network") {
-        // `active` drives the poll: the panel reads while it is on screen,
-        // and capture in the main process runs regardless, so nothing is
-        // lost while the user is on another tab.
-        return <NetworkPanel active />;
-      }
       if (context.activeTab === "automations") {
         return (
           <AutomationsTab
@@ -501,8 +351,6 @@ function PanelContent({
         <CodePreviewPanel
           data={context.data}
           activeTab={context.activeTab}
-          onSolveWithAI={onSolveWithAI}
-          onSolveAllWithAI={onSolveAllWithAI}
         />
       );
 

@@ -115,6 +115,17 @@ describe("AppxManifest template — declarations the runtime depends on", () => 
     expect(raw).toContain('<uap:Protocol Name="atlarix">');
   });
 
+  it("lets the Chrome bridge registry key reach the real registry", () => {
+    // Chromium on Windows finds a native messaging host only via HKCU; with
+    // MSIX registry virtualization on, the key is written to a package-private
+    // hive no browser reads. Both halves are needed: the property AND the
+    // restricted capability that permits it.
+    expect(raw).toMatch(
+      /<desktop6:RegistryWriteVirtualization>disabled<\/desktop6:RegistryWriteVirtualization>/,
+    );
+    expect(raw).toMatch(/<rescap:Capability Name="unvirtualizedResources"\s*\/>/);
+  });
+
   it("declares the atlarix.exe execution alias", () => {
     // Needed to run the packaged self-test inside the container, and doubles as
     // the CLI entry point (`atlarix <dir>`).

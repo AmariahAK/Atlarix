@@ -23,8 +23,9 @@
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
   xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
   xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+  xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
-  IgnorableNamespaces="uap uap3 desktop rescap">
+  IgnorableNamespaces="uap uap3 desktop desktop6 rescap">
 
   <Identity
     Name="AmariahAbishai.Atlarix"
@@ -36,6 +37,16 @@
     <DisplayName>Atlarix</DisplayName>
     <PublisherDisplayName>Amariah Abishai</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
+    <!--
+      The Chrome bridge (v14.52.0). Chromium on Windows finds a native messaging
+      host ONLY through a registry key under HKCU, and MSIX virtualizes HKCU
+      writes into a package-private hive that no browser can see. With
+      virtualization on, the key src/lib/bridge/host-install.ts writes would be
+      invisible and the agent would have no browser on the Store build. Needs
+      the unvirtualizedResources restricted capability declared below. Ignored
+      before Windows 10 1903, where the Store build has no bridge.
+    -->
+    <desktop6:RegistryWriteVirtualization>disabled</desktop6:RegistryWriteVirtualization>
   </Properties>
 
   <Dependencies>
@@ -126,5 +137,12 @@
       package managers) and reads/writes the user's own source trees.
     -->
     <rescap:Capability Name="runFullTrust" />
+    <!--
+      RESTRICTED as well. Required by RegistryWriteVirtualization disabled
+      above. Justification: Atlarix registers a Chrome native messaging host so
+      its agent can work in the user's own browser; browsers read that
+      registration from the real HKCU registry, never from a package hive.
+    -->
+    <rescap:Capability Name="unvirtualizedResources" />
   </Capabilities>
 </Package>

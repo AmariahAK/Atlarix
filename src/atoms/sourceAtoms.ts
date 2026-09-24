@@ -5,7 +5,6 @@
  */
 
 import { atom } from "jotai";
-import { type ParsedError } from "@/lib/devServerErrorParser";
 import type { PlanChangesPayload } from "@/lib/plan-changes/plan-changes";
 
 // ═══════════════════════════════════════════════════════════
@@ -30,8 +29,6 @@ export type PanelTab =
   | "files"
   | "approve"
   | "permission"
-  | "errors"
-  | "network"
   | "permissions"
   | "search"
   | "chat"
@@ -442,59 +439,6 @@ export const subagentJobsByChatIdAtom = atom<Record<number, SubagentJobView[]>>(
   {},
 );
 
-// ═══════════════════════════════════════════════════════════
-// BROWSER ERRORS (Live Preview Console Errors)
-// ═══════════════════════════════════════════════════════════
-
-export type BrowserError = ParsedError;
-
-/** Browser errors captured from the live preview iframe */
-export const browserErrorsAtom = atom<ParsedError[]>([]);
-
-/** Stable signature for an error (message + file + line). Used to re-show dismissed errors when the same error recurs. */
-export function getErrorSignature(error: ParsedError): string {
-  return `${error.message}|${error.file ?? ""}|${error.line ?? ""}`;
-}
-
-/** Signatures of errors the user has marked done. When the same error is seen again (same message/file/line), it is re-shown and removed from this set. */
-export const dismissedErrorSignaturesAtom = atom<Set<string>>(
-  new Set<string>(),
-);
-
-/** Visible browser errors: current list minus those whose signature is in the dismissed set. */
-export const visibleBrowserErrorsAtom = atom((get) => {
-  const errors = get(browserErrorsAtom);
-  const dismissed = get(dismissedErrorSignaturesAtom);
-  return errors.filter((e) => !dismissed.has(getErrorSignature(e)));
-});
-
-// ═══════════════════════════════════════════════════════════
-// PAGE CONSOLE (every level, from the in-app browser tabs)
-// ═══════════════════════════════════════════════════════════
-// Distinct from `browserErrorsAtom` above, which holds parsed BUILD/dev-server
-// errors grouped by file. This is the page's own console as a chronological
-// stream — a console is not a file tree — and it carries `log`/`info`/`debug`
-// too, so the panel can show that something WORKED rather than only that
-// something broke.
-
-export type PageConsoleEntry =
-  import("@/ipc/utils/browser_view_manager").BrowserSurfaceError;
-
-/** Rolling page-console stream. Capped in the listener, not here. */
-export const pageConsoleAtom = atom<PageConsoleEntry[]>([]);
-
-/**
- * Unread counts for the Console and Network tabs, mirroring automations'
- * `unreadCount`.
- *
- * This is what replaced the completion gate on the USER's side. Nothing blocks a
- * turn any more, so the way a person finds out something broke is a badge they
- * can act on — or ignore, which is the whole point. Cleared by RightPanel when
- * the matching tab is on screen.
- */
-export const consoleUnreadCountAtom = atom(0);
-export const networkUnreadCountAtom = atom(0);
-
 /**
  * The Plan tab has a plan the user has not looked at yet.
  *
@@ -505,58 +449,8 @@ export const networkUnreadCountAtom = atom(0);
  * the same shape as a card labelled with the wrong page.
  *
  * A badge says the same thing without taking the surface: the plan is still
- * there, still in the transcript as an inline card, one click away. Same
- * vocabulary as Console/Network, cleared by RightPanel when the tab is shown.
+ * there, still in the transcript as an inline card, one click away. Cleared by
+ * RightPanel when the tab is shown.
  */
 export const planUnreadAtom = atom(false);
 
-export type ConsoleLevelFilter =
-  | "problems"
-  | "all"
-  | "errors"
-  | "warnings"
-  | "logs";
-
-/**
- * Defaults to `problems` — errors + warnings + load/crash/request failures —
- * which is exactly what the tab showed before every level was captured. Nothing
- * changes on screen until the user asks for more.
- */
-export const consoleLevelFilterAtom = atom<ConsoleLevelFilter>("problems");
-
-export const visiblePageConsoleAtom = atom((get) => {
-  const entries = get(pageConsoleAtom);
-  const filter = get(consoleLevelFilterAtom);
-  // Navigation markers survive EVERY filter. They are dividers, not entries —
-  // hiding them is how you end up reading one page's logs under another page's
-  // heading, which is the confusion they exist to remove.
-  const keep = (e: PageConsoleEntry, matches: boolean) =>
-    e.type === "navigated" || matches;
-  if (filter === "all") return entries;
-  if (filter === "errors") {
-    return entries.filter((e) =>
-      keep(e, e.level === "error" || e.type !== "console-error"),
-    );
-  }
-  if (filter === "warnings")
-    return entries.filter((e) => keep(e, e.level === "warning"));
-  if (filter === "logs") {
-    return entries.filter((e) =>
-      keep(
-        e,
-        e.type === "console-error" &&
-          e.level !== "error" &&
-          e.level !== "warning",
-      ),
-    );
-  }
-  // 'problems' (default): errors, warnings, and non-console failures.
-  return entries.filter((e) =>
-    keep(
-      e,
-      e.type !== "console-error" ||
-        e.level === "error" ||
-        e.level === "warning",
-    ),
-  );
-});
