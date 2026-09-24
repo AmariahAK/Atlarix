@@ -864,9 +864,10 @@ export function registerChatStreamHandlers() {
           !req.continueAfterQuestions &&
           !req.continueInterrupted
         ) {
-          const { persistWorkspaceSessionUserMessage } = await import(
-            "./workspace_session_handlers"
-          );
+          const {
+            persistWorkspaceSessionUserMessage,
+            titleSessionFromFirstMessage,
+          } = await import("./workspace_session_handlers");
           const persistOnce = () =>
             persistWorkspaceSessionUserMessage(
               req.workspaceSessionId!,
@@ -894,6 +895,13 @@ export function registerChatStreamHandlers() {
               }
             });
             persistedUserRowId = row?.id;
+            // Name the session from this message if it is the first — in the
+            // background, parallel to the turn, never awaited by it.
+            void titleSessionFromFirstMessage(
+              req.workspaceSessionId,
+              userDisplayContent,
+              { chatId: req.chatId },
+            );
           } catch (err) {
             logger.error(
               "Failed to persist workspace session user message (after retry) — a resume of this turn will see attachment stubs without bodies:",

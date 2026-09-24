@@ -1,6 +1,6 @@
 import { getDefaultStore } from "jotai";
 import { IpcClient } from "@/ipc/ipc_client";
-import { isLowQualityGeneratedTitle } from "@/utils/chat_naming";
+import { isLowQualityGeneratedTitle } from "@/lib/session-title/title-quality";
 import {
   workspaceSessionsRefreshAtom,
   workspaceSessionTitleGeneratingAtom,
@@ -76,175 +76,43 @@ function setSessionTitleGenerating(
 }
 
 /**
- * Chats whose title has already been generated this run.
+ * Keep the sidebar and open tabs in step with titles MAIN writes.
  *
- * Module-level rather than a component ref because two places need it: the
- * stream hook (which generates after the first exchange) and the composer
- * (which must ALLOW a regeneration when the first prompt is edited). A ref in
- * one component is unreachable from the other.
+ * Since v14.52.0 naming happens entirely in main, the moment the first user
+ * message is saved: a placeholder from the user's own words at once, then the
+ * generated title when it lands (`titleSessionFromFirstMessage`). Main pushes
+ * each one here; nothing in the renderer decides when to name a session any
+ * more, which is what retired the per-chat attempt counters.
+ *
+ * Idempotent per window — call once at startup. Returns the unsubscribe.
  */
-const titleGeneratedChats = new Set<number>();
-
-/**
- * Attempts spent on chats that have not produced a title yet.
- *
- * A single unconditional attempt was the second half of the "Untitled forever"
- * bug: the caller marked the chat done BEFORE generating, so a first turn with
- * nothing nameable in it burned the only chance. Two live sessions sat at 10 and
- * 20 messages still called "Untitled" — by turn two there was ample material.
- *
- * Bounded rather than unbounded: a session that genuinely cannot be named stops
- * asking instead of spending a title call every turn, forever.
- */
-const titleAttemptsByChat = new Map<number, number>();
-const MAX_TITLE_ATTEMPTS = 3;
-
-/** True when this chat still needs a generated title. */
-export function needsGeneratedTitle(chatId: number): boolean {
-  if (titleGeneratedChats.has(chatId)) return false;
-  return (titleAttemptsByChat.get(chatId) ?? 0) < MAX_TITLE_ATTEMPTS;
-}
-
-export function markTitleGenerated(chatId: number): void {
-  titleGeneratedChats.add(chatId);
-  titleAttemptsByChat.delete(chatId);
-}
-
-/** An attempt that produced nothing — spend one try, but keep the door open. */
-export function noteTitleAttemptFailed(chatId: number): void {
-  titleAttemptsByChat.set(chatId, (titleAttemptsByChat.get(chatId) ?? 0) + 1);
+export function subscribeToSessionTitleUpdates(): () => void {
+  return IpcClient.getInstance().onSessionTitleUpdated(({ sessionId, title }) => {
+    getDefaultStore().set(workspaceSessionsRefreshAtom, (n) => n + 1);
+    // The tab strip holds a title SNAPSHOT — push the new name into any open
+    // tab for this session or it keeps the old one.
+    updateOpenChatTabTitleForSession(sessionId, title);
+  });
 }
 
 /**
- * The first prompt changed, so the title derived from it is stale — let the next
- * completed turn regenerate it.
+ * The first prompt was edited, so the title derived from it is stale.
  *
- * Only the FIRST exchange feeds the title, so only an edit to it should reopen
- * this; editing a later message leaves the title alone. A title the user typed
- * by hand is still protected downstream by `titleSource === "user"`.
+ * Only the FIRST message feeds the title, so only an edit to it re-titles; a
+ * title the user typed is protected in main (`titleSource === "user"`).
  */
-export function allowRetitleAfterFirstPromptEdit(chatId: number): void {
-  titleGeneratedChats.delete(chatId);
-  titleAttemptsByChat.delete(chatId);
-}
-
-/**
- * Async AI title from first user + assistant messages after the first turn
- * completes. Returns whether a real title landed, so the caller knows whether
- * this chat is done or should try again on the next turn.
- */
-export async function applyAIWorkspaceSessionTitle(
-  sessionId: string,
-): Promise<boolean> {
+export async function regenerateSessionTitle(sessionId: string): Promise<void> {
   setSessionTitleGenerating(sessionId, true);
   try {
-    // `limit: 1` because only `session.titleSource` is read below. Unbounded, this
-    // pulled every message body, modelContent and display snapshot in the session
-    // across IPC — megabytes on a long session — and discarded all of it, after
-    // every completed turn.
-    const { session } = await IpcClient.getInstance().getWorkspaceSession(
-      sessionId,
-      {
-        limit: 1,
-      },
-    );
-    // Ownership, not "is it still Untitled". Re-deriving a title the USER typed
-    // would be worse than never re-titling; re-deriving one we generated is the
-    // whole point when the prompt it came from has changed.
-    // A title the user typed is theirs — done, and never retry.
-    if (session.titleSource === "user") return true;
-
     const { title } =
       await IpcClient.getInstance().generateWorkspaceSessionTitle(sessionId);
-    if (
-      title &&
-      !isDefaultSessionTitle(title) &&
-      !isLowQualityGeneratedTitle(title)
-    ) {
+    if (title && !isDefaultSessionTitle(title)) {
       getDefaultStore().set(workspaceSessionsRefreshAtom, (n) => n + 1);
-      // v14.8.11: the tab strip holds a title SNAPSHOT — push the new name
-      // into any open tab for this session or it stays "Untitled" forever.
       updateOpenChatTabTitleForSession(sessionId, title);
-      return true;
     }
-
-    // THE AI PATH PRODUCED NOTHING — fall back to the user's own words.
-    //
-    // Why this matters more than tidiness. Generation needs an assistant reply to
-    // summarise, so a turn that ERRORED yields no title. But the user's message has
-    // already persisted, which leaves the session in a state that is neither nameable
-    // nor reusable: `pickSessionReuse` only reuses a session with zero messages, so the
-    // next "New chat" creates ANOTHER "Untitled". Every failed turn stranded one, and
-    // they accumulated — two visible after two failures, observed 2026-09-08.
-    //
-    // The tempting fix is to loosen "empty" to "has no assistant reply" so those become
-    // reusable again. DO NOT: `pickSessionReuse` also DELETES, and on 2026-08-31 a
-    // correlation bug made every default-titled session look empty and cascaded real
-    // conversations through `session_messages`. The title check is what limited the blast
-    // radius. Naming the session instead solves the same symptom without widening
-    // anything that can delete.
-    return await applyFallbackSessionTitle(sessionId);
   } catch (e) {
-    console.error("Failed to apply AI workspace session title:", e);
-    return false;
+    console.error("Failed to regenerate the session title:", e);
   } finally {
     setSessionTitleGenerating(sessionId, false);
   }
-}
-
-/**
- * A title from the user's first message, with no model call.
- *
- * Deliberately dumb: the text is already in hand, so this cannot fail the way generation
- * can, which is the entire point — it is the path taken WHEN generation failed. Returns
- * true only if a title actually landed, so the caller's attempt accounting is unchanged.
- *
- * `titleSource` stays "auto". The user did not name this, and marking it "user" would
- * permanently block the real generated title from replacing it on a later successful turn.
- */
-export async function applyFallbackSessionTitle(
-  sessionId: string,
-): Promise<boolean> {
-  try {
-    const ipc = IpcClient.getInstance();
-    const { messages } = await ipc.getWorkspaceSession(sessionId, { limit: 4 });
-    const firstUser = (messages ?? []).find(
-      (m: { role?: string }) => m.role === "user",
-    ) as { content?: unknown } | undefined;
-    const title = summariseFirstPrompt(
-      typeof firstUser?.content === "string" ? firstUser.content : "",
-    );
-    if (!title) return false;
-
-    await ipc.renameWorkspaceSession(sessionId, title);
-    getDefaultStore().set(workspaceSessionsRefreshAtom, (n) => n + 1);
-    updateOpenChatTabTitleForSession(sessionId, title);
-    return true;
-  } catch (e) {
-    console.error("Failed to apply fallback workspace session title:", e);
-    return false;
-  }
-}
-
-/**
- * First line of a prompt, trimmed to something that fits a sidebar row.
- *
- * Attachment chips and pasted blocks arrive as part of the message, so this takes the
- * FIRST non-empty line rather than the first N characters — "hey how are you?" is a
- * better name than the opening of a 400-line paste. Returns null when there is nothing
- * nameable, which is a real case: a session opened by pasting text alone strips to "".
- */
-const FALLBACK_TITLE_MAX = 48;
-
-export function summariseFirstPrompt(content: string): string | null {
-  const line = content
-    .split("\n")
-    .map((l) => l.trim())
-    .find((l) => l.length > 0);
-  if (!line) return null;
-  const cleaned = line.replace(/\s+/g, " ").trim();
-  if (!cleaned || isDefaultSessionTitle(cleaned)) return null;
-  return cleaned.length > FALLBACK_TITLE_MAX
-    ? `${cleaned.slice(0, FALLBACK_TITLE_MAX - 1).trimEnd()}…`
-    : cleaned;
 }

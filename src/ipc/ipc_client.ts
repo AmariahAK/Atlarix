@@ -2028,6 +2028,16 @@ export class IpcClient {
     return this.ipcRenderer.invoke("sessions:generate-title", sessionId);
   }
 
+  /** Main named a session (placeholder or generated title). */
+  public onSessionTitleUpdated(
+    listener: (payload: { sessionId: string; title: string }) => void,
+  ): () => void {
+    const off = this.ipcRenderer.on("sessions:title-updated", (payload) =>
+      listener(payload as { sessionId: string; title: string }),
+    );
+    return typeof off === "function" ? off : () => {};
+  }
+
   public async addSessionMessage(
     sessionId: string,
     role: "user" | "assistant" | "tool",

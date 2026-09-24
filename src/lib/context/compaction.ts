@@ -895,7 +895,8 @@ export async function runSteppedCompaction(
       });
 
       // v11.1 guard: a runaway summary defeats the purpose — cap it at 25%
-      // of the budget (rare; generateText maxTokens already bounds it).
+      // of the budget. The call's own `maxOutputTokens` (COMPACTION_MAX_OUTPUT_
+      // TOKENS) is generous on purpose, so this is the real bound on length.
       if (summary) {
         const summaryTokens = exactTokenCountText(summary);
         const cap = Math.max(1_000, Math.floor(tierLimit * 0.25));
@@ -1103,6 +1104,18 @@ export async function resolveUsableBudget(
 const HEAD_TOOL_TOKENS = 40_000;
 
 /**
+ * Output cap for the compaction summary call.
+ *
+ * This was `maxTokens: 1500` behind an `as` cast — and ai 7 has no `maxTokens`
+ * (it is `maxOutputTokens`), so the call had NO cap at all while its comment
+ * claimed one. 1,500 would also be wrong now: a reasoning model spends part of
+ * any cap thinking, and a summary that comes back empty loses the whole head
+ * of the conversation. So the cap is generous — runaway insurance — and the
+ * 25%-of-budget truncation after the call bounds the summary itself.
+ */
+const COMPACTION_MAX_OUTPUT_TOKENS = 8_000;
+
+/**
  * Same summarization path as runSteppedCompaction's step 4 (CONTEXT_COMPACTION_*
  * + summarization model), no DB writes. Used for pre-dispatch tier context
  * budgeting (tier_context_budget.ts).
@@ -1157,8 +1170,8 @@ export async function summarizeMessagesWithCompactionPrompt(params: {
       model: modelClient.model,
       system: CONTEXT_COMPACTION_SYSTEM,
       messages: [{ role: "user" as const, content: userPrompt }],
-      maxTokens: 1500,
-    } as Parameters<typeof generateText>[0]);
+      maxOutputTokens: COMPACTION_MAX_OUTPUT_TOKENS,
+    });
     recordAuxUsage(params.chatId, result.usage, "compaction");
 
     const summaryText = result.text.trim();

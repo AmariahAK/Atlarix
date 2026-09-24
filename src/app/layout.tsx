@@ -5,6 +5,7 @@ import { DeepLinkProvider } from "../contexts/DeepLinkContext";
 import { Toaster, toast } from "sonner";
 import { TitleBar } from "./TitleBar";
 import { useEffect, useCallback, useRef, type ReactNode } from "react";
+import { subscribeToSessionTitleUpdates } from "@/lib/workspace-session-title";
 import { useAtomValue, useSetAtom, useAtom, getDefaultStore } from "jotai";
 import {
   selectedAppIdAtom,
@@ -290,6 +291,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   useEffect(() => {
     preloadSounds();
   }, []);
+
+  // Session titles are written by main (placeholder, then generated title);
+  // this keeps the sidebar and open tabs in step with them.
+  useEffect(() => subscribeToSessionTitleUpdates(), []);
 
   // F1: keep the sound module's enabled/volume in sync with the user setting
   // (default on at 0.7 when unset, matching DEFAULT_SETTINGS).

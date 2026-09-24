@@ -97,12 +97,6 @@ import { invalidateAppQuery } from "./useLoadApp";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { resolveStreamAppId } from "@/lib/chat-workspace-binding";
 import { ensureWorkspaceSessionForChat } from "@/lib/ensure-workspace-session";
-import {
-  applyAIWorkspaceSessionTitle,
-  markTitleGenerated,
-  needsGeneratedTitle,
-  noteTitleAttemptFailed,
-} from "@/lib/workspace-session-title";
 import { collectPasteAttachmentsFromFileAttachments } from "@/lib/chat/paste-attachment-meta";
 import { buildPromptWithTextPastes } from "@/lib/chat/text-paste-attachment";
 import {
@@ -2373,18 +2367,6 @@ export function useStreamChat({
                     ? persistExtras
                     : undefined,
                 );
-                // Shared module state, not a component ref: editing the first
-                // prompt must be able to reopen this from the composer.
-                if (needsGeneratedTitle(response.chatId)) {
-                  // Mark it done only if a title actually landed. Marking first
-                  // meant a turn with nothing nameable in it — a session opened by
-                  // pasting text, whose first message strips to "" — spent the one
-                  // attempt and left the session "Untitled" for good.
-                  const named =
-                    await applyAIWorkspaceSessionTitle(sessionIdForPersist);
-                  if (named) markTitleGenerated(response.chatId);
-                  else noteTitleAttemptFailed(response.chatId);
-                }
                 const activeSessionId = getDefaultStore().get(
                   activeWorkspaceSessionIdAtom,
                 );

@@ -33,6 +33,7 @@ import type { FileAttachment, Message } from "@/ipc/ipc_types";
 import { ChatErrorBox } from "@/components/chat/ChatErrorBox";
 import { Button } from "@/components/ui/button";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
+import { chatIdToSessionIdAtom } from "@/atoms/sessionAtoms";
 import { LoadedSessionBanner } from "@/components/chat/LoadedSessionBanner";
 import { CoreSlotChangeBanner } from "@/components/chat/CoreSlotChangeBanner";
 import { InlineStreamStatus } from "@/components/chat/InlineStreamStatus";
@@ -280,10 +281,15 @@ export function SimpleInlineChat({
         messagesForChat.find((m) => m.role === "user")?.id === messageId;
       await IpcClient.getInstance().editMessage(chatId, messageId, newContent);
       if (isFirstUserMessage) {
-        const { allowRetitleAfterFirstPromptEdit } = await import(
-          "@/lib/workspace-session-title"
-        );
-        allowRetitleAfterFirstPromptEdit(chatId);
+        const sessionId = getDefaultStore()
+          .get(chatIdToSessionIdAtom)
+          .get(chatId);
+        if (sessionId) {
+          const { regenerateSessionTitle } = await import(
+            "@/lib/workspace-session-title"
+          );
+          void regenerateSessionTitle(sessionId);
+        }
       }
       const chat = await IpcClient.getInstance().getChat(chatId);
       setChatAppId(chat.appId ?? null);

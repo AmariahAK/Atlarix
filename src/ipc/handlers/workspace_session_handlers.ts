@@ -12,12 +12,10 @@ import {
   SESSION_LOAD_MESSAGE_LIMIT,
   SESSION_STORE_MESSAGE_MAX,
 } from "@/constants/session_constants";
-import {
-  generateAIChatName,
-  generateSimpleChatName,
-  isLowQualityGeneratedTitle,
-  stripContentForTitleSource,
-} from "../../utils/chat_naming";
+import { stripContentForTitleSource } from "../../utils/chat_naming";
+import { deterministicTitle } from "@/lib/session-title/title-text";
+import { generateSessionTitle } from "@/lib/session-title/generate-title";
+import { broadcastToAllWindows } from "../utils/broadcast_all_windows";
 import {
   parseDisplaySnapshot,
   type DisplaySnapshotV1,
@@ -796,6 +794,90 @@ async function persistSessionStreamChatId(
     .where(eq(chatSessions.id, sessionId));
 }
 
+/**
+ * Write an AUTO title only if the session still holds `expected` and nobody
+ * claimed it. A user rename (titleSource "user"), a delete, or another title
+ * landing first all make this a no-op — so a slow model can never overwrite a
+ * name the user typed while it was thinking. `updatedAt` is left alone: naming
+ * a session is not activity, and must not reorder the sidebar.
+ */
+async function setAutoTitleIfUnchanged(
+  sessionId: string,
+  title: string,
+  expected: string,
+): Promise<boolean> {
+  const changed = await db
+    .update(chatSessions)
+    .set({ title, titleSource: "auto" })
+    .where(
+      and(
+        eq(chatSessions.id, sessionId),
+        eq(chatSessions.title, expected),
+        eq(chatSessions.titleSource, "auto"),
+      ),
+    )
+    .returning({ id: chatSessions.id });
+  if (changed.length === 0) return false;
+  broadcastToAllWindows("sessions:title-updated", { sessionId, title });
+  return true;
+}
+
+/**
+ * Name a session from its FIRST user message, the moment it is saved.
+ *
+ * The universal pattern (opencode, Codex CLI, Claude Code): runs in the
+ * background, parallel to the turn, never awaited by it; the user's own words
+ * appear at once as the placeholder; a generated title replaces it only if it
+ * is a real title and the session is still ours to name. Once per session —
+ * a session that already has a non-default title is left alone.
+ *
+ * Because the placeholder lands before the model is even asked, a turn that
+ * errors still leaves a named session — which is what used to strand
+ * "Untitled" rows after every failed first turn.
+ */
+export async function titleSessionFromFirstMessage(
+  sessionId: string,
+  rawUserText: string,
+  opts: { chatId?: number | null } = {},
+): Promise<void> {
+  try {
+    const text = stripContentForTitleSource(rawUserText, "user");
+    if (!text) return;
+    const session = await db.query.chatSessions.findFirst({
+      where: eq(chatSessions.id, sessionId),
+    });
+    if (!session || session.titleSource === "user") return;
+    let current = session.title.trim();
+    if (!DEFAULT_SESSION_TITLES.has(current)) return;
+    const [{ n }] = await db
+      .select({ n: sql<number>`count(*)` })
+      .from(sessionMessages)
+      .where(
+        and(
+          eq(sessionMessages.sessionId, sessionId),
+          eq(sessionMessages.role, "user"),
+        ),
+      );
+    if (Number(n) > 1) return;
+
+    const placeholder = deterministicTitle(text);
+    if (placeholder && placeholder !== current) {
+      if (await setAutoTitleIfUnchanged(sessionId, placeholder, session.title)) {
+        current = placeholder;
+      } else {
+        return; // renamed or deleted under us
+      }
+    }
+
+    const generated = await generateSessionTitle(text, opts);
+    if (generated && generated !== current) {
+      await setAutoTitleIfUnchanged(sessionId, generated, current);
+    }
+  } catch (err) {
+    logger.warn("titleSessionFromFirstMessage failed:", err);
+  }
+}
+
 export function registerWorkspaceSessionHandlers(): void {
   handle("sessions:list", async (_event, workspaceId: number) => {
     const rows = await db
@@ -1112,114 +1194,48 @@ export function registerWorkspaceSessionHandlers(): void {
     return { ok: true };
   });
 
+  /**
+   * Re-title from the first user message ON REQUEST — the first prompt was
+   * edited, so the title derived from it is stale. Ordinary naming happens in
+   * `titleSessionFromFirstMessage`, the moment the first message is saved.
+   */
   handle("sessions:generate-title", async (_event, sessionId: string) => {
     const session = await db.query.chatSessions.findFirst({
       where: eq(chatSessions.id, sessionId),
     });
     if (!session) throw new Error("Session not found");
-
-    const currentTitle = session.title.trim();
-    // Gate on OWNERSHIP, not on the title still reading "Untitled". The old
-    // check meant that once a session had any name — including one generated
-    // from its first exchange — editing that first prompt could never update it.
-    if (session.titleSource === "user") {
-      return { title: currentTitle };
-    }
+    const currentTitle = session.title;
+    if (session.titleSource === "user") return { title: currentTitle };
 
     const rows = await db
       .select()
       .from(sessionMessages)
-      .where(eq(sessionMessages.sessionId, sessionId))
+      .where(
+        and(
+          eq(sessionMessages.sessionId, sessionId),
+          eq(sessionMessages.role, "user"),
+        ),
+      )
       .orderBy(asc(sessionMessages.createdAt));
+    // The first user message that still says something ONCE STRIPPED — a
+    // session opened by pasting an attachment strips its first message to "".
+    const text =
+      rows
+        .map((m) => stripContentForTitleSource(m.content ?? "", "user").trim())
+        .find((t) => t.length > 0) ?? "";
+    if (!text) return { title: currentTitle };
 
-    const firstAssistant = rows.find((m) => m.role === "assistant");
-
-    // Pick the first user message that still says something ONCE STRIPPED, not
-    // simply the first one.
-    //
-    // Live bug: a session opened by pasting text — first message is nothing but
-    // `<atlarix-text-attachment … />` — stripped to "" (chat_naming.ts removes all
-    // tags). That empty string was fed to the title model AND was what the
-    // simple-name fallback below is gated on, so both paths starved and the
-    // session stayed "Untitled" forever.
-    const firstUser = rows.find(
-      (m) =>
-        m.role === "user" &&
-        stripContentForTitleSource(m.content ?? "", "user").trim(),
-    );
-
-    const userText = firstUser
-      ? stripContentForTitleSource(firstUser.content ?? "", "user").trim()
-      : "";
-    const assistantText = firstAssistant
-      ? stripContentForTitleSource(firstAssistant.content ?? "", "assistant")
-          .trim()
-          .slice(0, 2000)
-      : "";
-
-    // Bail only when there is NOTHING to name from — not when one side is empty.
-    //
-    // Looking past an attachment-only message is right, but when it is the ONLY
-    // user message there is nothing to look past to, and the old `!firstUser ||
-    // !firstAssistant` gate returned here with a full assistant reply sitting
-    // unread. Two live sessions (10 and 20 messages) stayed "Untitled" for their
-    // whole lives on exactly that shape. Either side alone is enough: the AI namer
-    // takes what it is given, and the `generateSimpleChatName` last resort below
-    // already prefers the user's words and falls back to the assistant's.
-    if (!userText && !assistantText) {
-      return { title: currentTitle };
-    }
-
-    const conversationMessages = [
-      { role: "user", content: userText },
-      { role: "assistant", content: assistantText },
-    ];
-
-    let newTitle = currentTitle;
-    try {
-      newTitle = await generateAIChatName(conversationMessages, currentTitle);
-    } catch (err) {
-      logger.warn("AI session title generation failed:", err);
-      // `firstAssistant` is optional now — a session can reach here on the user's
-      // words alone, before any reply has been written.
-      const summaryMatch = (firstAssistant?.content ?? "").match(
-        /<atlarix-chat-summary>([\s\S]*?)<\/atlarix-chat-summary>/,
-      );
-      if (summaryMatch?.[1]?.trim()) {
-        newTitle = summaryMatch[1]
-          .trim()
-          .split(/\s+/)
-          .slice(0, 6)
-          .join(" ")
-          .slice(0, 80);
-      }
-    }
-
-    // Last resort: derive a name from whatever text we DO have. Prefer the user's
-    // words; fall back to the assistant's visible answer, so a session where the
-    // user only ever pasted attachments still gets a name instead of "Untitled".
-    const trimmed = newTitle.trim();
-    if (isLowQualityGeneratedTitle(trimmed)) {
-      const source =
-        conversationMessages[0]?.content?.trim() ||
-        conversationMessages[1]?.content?.trim();
-      if (source) newTitle = generateSimpleChatName(source);
-    }
-
-    const finalTitle = newTitle.trim();
+    const next =
+      (await generateSessionTitle(text, {
+        chatId: session.streamChatId ?? null,
+      })) ?? deterministicTitle(text);
     if (
-      finalTitle &&
-      finalTitle !== currentTitle &&
-      !DEFAULT_SESSION_TITLES.has(finalTitle) &&
-      !isLowQualityGeneratedTitle(finalTitle)
+      next &&
+      next !== currentTitle &&
+      (await setAutoTitleIfUnchanged(sessionId, next, currentTitle))
     ) {
-      await db
-        .update(chatSessions)
-        .set({ title: finalTitle, titleSource: "auto", updatedAt: new Date() })
-        .where(eq(chatSessions.id, sessionId));
-      return { title: finalTitle };
+      return { title: next };
     }
-
     return { title: currentTitle };
   });
 }
