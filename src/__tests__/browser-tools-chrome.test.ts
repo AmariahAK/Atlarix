@@ -77,6 +77,22 @@ describe("act: the arguments reach the extension", () => {
     expect(requestMock).not.toHaveBeenCalled();
   });
 
+  it("a tab opened with no url is a malformed call, not a policy block", async () => {
+    // Observed on Windows 14.52.2: "in a second tab, go to …" produced
+    // tabs create with no url, three times, each answered "Blocked by URL
+    // policy: Invalid URL: ".
+    for (const args of [
+      { action: "tabs", operation: "create" },
+      { action: "navigate", url: "  " },
+    ]) {
+      const res = await browser(args);
+      expect(res.success).toBe(false);
+      expect(String(res.error)).not.toContain("policy");
+      expect(String(res.error)).toMatch(/needs `url`/);
+    }
+    expect(requestMock).not.toHaveBeenCalled();
+  });
+
   it("navigate says where it happened, and when the page was still loading", async () => {
     requestMock.mockResolvedValue({ tabId: 5, loaded: false, navigatedAt: 1 });
     const res = await browser({ action: "navigate", url: "http://localhost:3000/" });
