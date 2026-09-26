@@ -1242,9 +1242,12 @@ export async function runBuildBranch(
                 status: activityStatus,
               });
             }
+            // The verdict rides on the end event too: it arrives before the
+            // activity below, and a status-less end finalizes the card "done".
             safeSend(event.sender, "chat:tool:end", {
               chatId: req.chatId,
               toolCallId,
+              status: activityStatus === "error" ? "error" : "done",
             });
             safeSend(event.sender, "chat:activity", {
               id: toolActivityId,

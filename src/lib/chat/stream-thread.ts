@@ -368,13 +368,16 @@ function finalizeToolItem(
 function findRunningToolIndex(
   items: StreamThreadItem[],
   keys: (string | undefined)[],
+  opts?: { settled?: boolean },
 ): number {
   const normalized = keys
     .map((k) => k?.trim())
     .filter((k): k is string => Boolean(k));
   for (let i = items.length - 1; i >= 0; i--) {
     const item = items[i];
-    if (!isRunningTool(item)) continue;
+    if (opts?.settled) {
+      if (item?.kind !== "tool" || item.status === "running") continue;
+    } else if (!isRunningTool(item)) continue;
     for (const key of normalized) {
       if (
         item.id === key ||
@@ -470,6 +473,32 @@ export function completeStreamToolOnEnd(
       },
     );
     return next;
+  }
+
+  // THE CALL ALREADY SETTLED — a second terminal event for the same call id.
+  // The turn runners send `chat:tool:end` and then `chat:activity` for every
+  // call, and only the activity carries the failure; when the end lands first
+  // the card is finalized "done" and the later "error" found no running card.
+  // It then fell through to the last-running fallback and marked a DIFFERENT
+  // card failed, leaving a green tick over the real failure's error text
+  // (Windows, 14.52.2: "Opened a new tab" ✓ above "Blocked by URL policy").
+  // A worse verdict for the same call wins; an equal or better one is a no-op
+  // and must never reach the fallback.
+  if (opts?.toolCallId != null) {
+    const settledIdx = findRunningToolIndex(items, [opts.toolCallId], {
+      settled: true,
+    });
+    if (settledIdx >= 0) {
+      const settled = items[settledIdx] as Extract<StreamThreadItem, { kind: "tool" }>;
+      if (toolStatusRank(status) <= toolStatusRank(settled.status)) return items;
+      const next = [...items];
+      next[settledIdx] = finalizeToolItem(settled, status, {
+        detail: opts.detail ?? settled.detail,
+        resultText: opts.resultText ?? settled.resultText,
+        expand: opts.expand,
+      });
+      return next;
+    }
   }
 
   return completeLastRunningStreamTool(items, status, opts);

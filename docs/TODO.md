@@ -20,13 +20,8 @@ not trust it.
 
 ---
 
-## Next up — after v14.52.2
+## Next up — after v14.52.3
 
-- **Windows: an Explore turn ended with no answer** (owner, VM, 14.52.2, Atlarix Auto). The
-  bridge was Connected; the agent listed tabs, hit three `tabs create` calls with no `url` (now
-  its own error, see the unreleased fix), then the turn stopped streaming with no final text and
-  no error card. Only 3 identical calls, so the doom-loop guard (fires at 9) is not it. Needs the
-  VM's `%APPDATA%\Atlarix\logs\main.log` for that turn before anything is changed.
 - **Windows sandbox: move from Low IL to Codex's unelevated design.** Low IL works, but the
   workspace's Low label lets ANY Low-IL process for the user write there, and HKCU/%APPDATA%
   writes fail. Codex (openai/codex `codex-rs/windows-sandbox-rs`, Apache-2.0: `token.rs`,

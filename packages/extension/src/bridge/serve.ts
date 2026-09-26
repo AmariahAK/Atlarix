@@ -711,7 +711,16 @@ async function run(op: string, args: Record<string, unknown>): Promise<unknown> 
      * as `navigate`: capture first, then the page, then wait for it.
      */
     case "open_tab": {
-      const url = str(args.url);
+      const url = str(args.url).trim();
+      // NO URL IS A BLANK TAB, as in Claude in Chrome: `tabs_create_mcp` opens
+      // an empty tab and `navigate` fills it. Models trained on that ask for a
+      // "second tab" first and a page second; refusing the first step meant no
+      // tab and no group ever appeared. The blank tab is already in the group,
+      // so the user sees it the moment the agent asks for it.
+      if (!url) {
+        const tabId = await createAgentTab();
+        return { tabId, url: "about:blank", title: "", loaded: true, blank: true };
+      }
       if (!/^https?:\/\//i.test(url)) {
         throw new Error(`open_tab needs an http(s) URL, got "${url}"`);
       }

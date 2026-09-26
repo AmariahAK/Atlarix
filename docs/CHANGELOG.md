@@ -3,6 +3,26 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.52.3] (2026-09-26) — Chrome tabs open the way models expect, and a dropped connection no longer ends the turn
+
+**Asking the agent to "open a second tab" now opens one.** Models expect browser tools where a
+new tab starts empty and is then pointed at a page. Atlarix required the page in the same call, and refused the empty tab before Chrome ever heard about it, so on
+Windows a Wikipedia-and-Hacker-News task opened nothing at all: no tab and no Atlarix tab group.
+A new tab can now start blank in the Atlarix group and be navigated next, and a URL written
+without `https://` gets one (`http://` for localhost) instead of being refused.
+
+**A connection that drops partway through a turn no longer ends it silently.** When the
+connection to the model failed after the agent had already finished some steps, the turn simply
+stopped, with no answer and no error. It now waits a moment and continues from the steps it
+finished, and it no longer re-runs tools that already ran. If the connection stays down, you get
+the usual Reconnect button.
+
+### Fixed
+
+- **A refused tool call shows as failed**, never with a green tick over its own error.
+- **Opening a blank tab needs the 14.52.3 extension.** Until Chrome updates it, the agent is told
+  to pass the page instead, and everything else works as before.
+
 ## [14.52.2] (2026-09-25) — The Windows Chrome fix actually reaches Windows
 
 **14.52.1 fixed the Windows relay, but updating never installed the fix.** Atlarix copies the

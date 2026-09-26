@@ -324,6 +324,15 @@ describe("navigate stays inside the agent's group", () => {
     expect(order).toEqual(["capture:9", "update:9"]);
   });
 
+  it("open_tab with no url opens a blank tab in the group and loads nothing", async () => {
+    const reply = await call("open_tab", {});
+    expect(reply.ok).toBe(true);
+    if (!reply.ok) return;
+    expect(tabsCreate).toHaveBeenCalledWith({ url: "about:blank", active: false });
+    expect(tabsUpdate).not.toHaveBeenCalled();
+    expect(reply.result).toMatchObject({ tabId: 9, url: "about:blank", blank: true });
+  });
+
   it("refuses to navigate a tab the user owns", async () => {
     isAgentTabMock.mockResolvedValue(false);
     const reply = await call("navigate", {

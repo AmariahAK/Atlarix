@@ -16,9 +16,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const requestMock = vi.fn();
 const blockedUrls = new Set<string>();
+let extensionVersion: string | undefined = "14.52.3";
 
 vi.mock("@/main/bridge-lifecycle", () => ({
-  bridge: () => ({ connected: true, request: requestMock }),
+  bridge: () => ({
+    connected: true,
+    request: requestMock,
+    activeHello: { type: "hello", extensionVersion },
+  }),
 }));
 vi.mock("@/lib/security/url-policy", () => ({
   assertUrlAllowed: async (url: string) => {
@@ -29,7 +34,11 @@ vi.mock("@/lib/security/url-policy", () => ({
 
 import "@/lib/tools/browser";
 import { ToolRegistry } from "@/lib/tools/registry";
-import { __resetNavigationMarksForTests, resolveSince } from "@/lib/tools/browser";
+import {
+  __resetNavigationMarksForTests,
+  normalizeAgentUrl,
+  resolveSince,
+} from "@/lib/tools/browser";
 
 const browser = (args: Record<string, unknown>) =>
   ToolRegistry.get("browser")!.handler(args as never) as Promise<
@@ -43,6 +52,7 @@ const inspect = (args: Record<string, unknown>) =>
 beforeEach(() => {
   requestMock.mockReset();
   blockedUrls.clear();
+  extensionVersion = "14.52.3";
   __resetNavigationMarksForTests();
 });
 
@@ -77,20 +87,47 @@ describe("act: the arguments reach the extension", () => {
     expect(requestMock).not.toHaveBeenCalled();
   });
 
-  it("a tab opened with no url is a malformed call, not a policy block", async () => {
-    // Observed on Windows 14.52.2: "in a second tab, go to …" produced
-    // tabs create with no url, three times, each answered "Blocked by URL
-    // policy: Invalid URL: ".
-    for (const args of [
-      { action: "tabs", operation: "create" },
-      { action: "navigate", url: "  " },
-    ]) {
-      const res = await browser(args);
+  it("tabs create with no url opens a blank tab, as in Claude in Chrome", async () => {
+    // Observed on Windows 14.52.2: "in a second tab, go to …" produced tabs
+    // create with no url, and the desktop refused it before Chrome saw anything,
+    // so no tab and no group ever appeared.
+    requestMock.mockResolvedValue({ tabId: 7, url: "about:blank", blank: true });
+    const res = await browser({ action: "tabs", operation: "create" });
+    expect(requestMock).toHaveBeenCalledWith("open_tab", {});
+    expect(res.success).toBe(true);
+    expect(res.tab_id).toBe(7);
+    expect(String(res.content)).toContain('action:"navigate", tab_id 7');
+  });
+
+  it("an extension older than blank tabs gets the clear url message, not a request", async () => {
+    for (const v of ["14.52.0", undefined]) {
+      extensionVersion = v;
+      const res = await browser({ action: "tabs", operation: "create" });
       expect(res.success).toBe(false);
-      expect(String(res.error)).not.toContain("policy");
       expect(String(res.error)).toMatch(/needs `url`/);
+      expect(String(res.error)).not.toContain("policy");
     }
     expect(requestMock).not.toHaveBeenCalled();
+  });
+
+  it("navigate with no url is a malformed call, not a policy block", async () => {
+    const res = await browser({ action: "navigate", url: "  " });
+    expect(res.success).toBe(false);
+    expect(String(res.error)).toMatch(/needs `url`/);
+    expect(String(res.error)).not.toContain("policy");
+    expect(requestMock).not.toHaveBeenCalled();
+  });
+
+  it("a scheme-less url gets one before it reaches the browser", async () => {
+    requestMock.mockResolvedValue({ tabId: 5, loaded: true, navigatedAt: 1 });
+    await browser({ action: "navigate", url: "news.ycombinator.com" });
+    expect(requestMock).toHaveBeenLastCalledWith("navigate", {
+      url: "https://news.ycombinator.com",
+    });
+    await browser({ action: "tabs", operation: "create", url: "localhost:3000/login" });
+    expect(requestMock).toHaveBeenLastCalledWith("open_tab", {
+      url: "http://localhost:3000/login",
+    });
   });
 
   it("navigate says where it happened, and when the page was still loading", async () => {
@@ -248,5 +285,24 @@ describe("visual and design", () => {
     });
     const res = await inspect({ mode: "design", tab_id: 5 });
     expect(String(res.content)).toContain("Palette (most-used first): rgb(0, 0, 0) (×9)");
+  });
+});
+
+describe("normalizeAgentUrl", () => {
+  it.each([
+    ["https://a.test/x", "https://a.test/x"],
+    ["news.ycombinator.com", "https://news.ycombinator.com"],
+    ["example.com:8080/x", "https://example.com:8080/x"],
+    ["localhost:3000", "http://localhost:3000"],
+    ["app.localhost/x", "http://app.localhost/x"],
+    ["127.0.0.1:5173", "http://127.0.0.1:5173"],
+    ["[::1]:3000/", "http://[::1]:3000/"],
+    ["//cdn.test/a", "https://cdn.test/a"],
+    // A named scheme is left alone, so the URL policy still refuses it.
+    ["javascript:alert(1)", "javascript:alert(1)"],
+    ["file:///etc/passwd", "file:///etc/passwd"],
+    ["", ""],
+  ])("%s → %s", (input, expected) => {
+    expect(normalizeAgentUrl(input)).toBe(expected);
   });
 });

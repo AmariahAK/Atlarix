@@ -194,6 +194,27 @@ export async function requestChrome(
   }
 }
 
+/** The first extension build whose `open_tab` opens a blank tab when given no url. */
+const BLANK_TAB_SINCE = [14, 52, 3];
+
+/**
+ * Can the connected extension open a blank tab?
+ *
+ * Asked BEFORE sending, not learned from a refusal: an older build answers an
+ * empty `open_tab` with "needs an http(s) URL", which is the right answer to a
+ * question the model did not mean to ask. An unknown version counts as old.
+ */
+export function chromeOpensBlankTabs(): boolean {
+  const version = bridge()?.activeHello?.extensionVersion;
+  if (typeof version !== "string") return false;
+  const parts = version.split(".").map((n) => Number.parseInt(n, 10));
+  for (let i = 0; i < BLANK_TAB_SINCE.length; i++) {
+    const have = Number.isFinite(parts[i]) ? parts[i]! : 0;
+    if (have !== BLANK_TAB_SINCE[i]) return have > BLANK_TAB_SINCE[i]!;
+  }
+  return true;
+}
+
 export function isChromeRefusal(v: unknown): v is ChromeRefusal {
   return (
     typeof v === "object" &&

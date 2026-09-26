@@ -246,6 +246,22 @@ export class BridgeServer {
   }
 
   /**
+   * The hello of the browser a request goes to, so a caller can ask what that
+   * extension build supports before asking it to do something. Web Store review
+   * lags a desktop release by days, so an older extension is an ordinary state.
+   */
+  get activeHello(): BridgeHello | null {
+    return this.newestPeer()?.hello ?? null;
+  }
+
+  /** The most recently connected peer that has said hello — the one requests use. */
+  private newestPeer(): Peer | null {
+    const peers = [...this.peers].filter((p) => p.hello !== null);
+    if (peers.length === 0) return null;
+    return peers.reduce((a, b) => (b.connectedAt > a.connectedAt ? b : a));
+  }
+
+  /**
    * Ask the extension to do something.
    *
    * THE MOST RECENT PEER WINS when several browsers are connected. Chrome and
@@ -260,15 +276,14 @@ export class BridgeServer {
     args: Record<string, unknown> = {},
     timeoutMs = REQUEST_TIMEOUT_MS,
   ): Promise<unknown> {
-    const peers = [...this.peers].filter((p) => p.hello !== null);
-    if (peers.length === 0) {
+    const peer = this.newestPeer();
+    if (!peer) {
       throw new Error(
         "no browser is connected to Atlarix. Open the Atlarix side panel in " +
           "Chrome, Brave or Edge — the browser opens this connection, the app " +
           "cannot open it from this side.",
       );
     }
-    const peer = peers.reduce((a, b) => (b.connectedAt > a.connectedAt ? b : a));
 
     const id = `d${this.nextId++}`;
     const frame = encodeFrame({ id, op, args } satisfies BridgeRequest);

@@ -113,6 +113,37 @@ export async function runStreamRoundWithEmptyOutputRetry(
     // failure it saw — the SDK throws a substitute error that no longer
     // carries that. Fresh per iteration, so a retry can't read a stale verdict.
     let bundle: SimpleStreamTextBundle | undefined;
+    /**
+     * A transport fault after the round had already completed steps: continue
+     * from them (the stall path's continue-from-partial) instead of restarting,
+     * which re-ran every tool call — the duplicated tool rows on Windows 14.52.2.
+     * Spends the same network attempt budget and backoff as a restart. Null when
+     * there is nothing to resume from or the budget is gone; the caller then
+     * takes the ordinary restart / [Reconnect] path.
+     */
+    const resumeAfterNetworkFault = async (
+      current: SimpleStreamTextBundle | undefined,
+      fault: unknown,
+    ): Promise<ModelMessage[] | null> => {
+      const resumeMessages = current?.getResumeMessages?.() ?? [];
+      if (resumeMessages.length === 0) return null;
+      if (networkAttempt >= RECONNECT_DELAYS_MS.length) return null;
+      const delay = jitteredDelay(networkAttempt, retryAfterMs(fault));
+      networkAttempt++;
+      logger.warn(
+        `[stream] Network error after ${resumeMessages.length} completed step-message(s) — resuming from them after ${delay}ms (attempt ${networkAttempt}/${RECONNECT_DELAYS_MS.length}): ${
+          fault instanceof Error ? fault.message : String(fault)
+        }`,
+      );
+      sentryAddBreadcrumbSafe({
+        category: "stream_retry",
+        message: `network_resume_from_partial steps=${resumeMessages.length} attempt ${networkAttempt}/${RECONNECT_DELAYS_MS.length}`,
+        level: "warning",
+      });
+      await new Promise((r) => setTimeout(r, delay));
+      if (params.abortController.signal.aborted) throw new Error("aborted");
+      return resumeMessages;
+    };
     try {
       bundle = await params.runSimpleStream({
         abortSignal: roundAbort.signal,
@@ -201,6 +232,29 @@ export async function runStreamRoundWithEmptyOutputRetry(
       }
       // Only await finishReason on a non-stalled (non-aborted) bundle.
       const finishReason = await bundle.finishReason;
+      /**
+       * A TRANSPORT FAULT THAT DID NOT THROW. Once a round has completed a step,
+       * the SDK ends a stream whose NEXT request fails as if it had finished:
+       * the error goes to `onError` (which records it and paints nothing) and
+       * `finishReason` resolves. Only the catch below ever looked at the
+       * recording, so the turn just stopped — no answer, no error, no retry
+       * (Windows 14.52.2: two steps done, step 3 "Cannot connect to API").
+       */
+      const recordedFault = bundle.getRecordedNetworkError?.();
+      if (recordedFault != null) {
+        const resumeMessages = await resumeAfterNetworkFault(bundle, recordedFault);
+        if (resumeMessages) {
+          return {
+            bundle,
+            fullResponse,
+            finishReason: "unknown" as Awaited<
+              SimpleStreamTextBundle["finishReason"]
+            >,
+            resumeFromStall: resumeMessages,
+          };
+        }
+        throw recordedFault;
+      }
       return { bundle, fullResponse, finishReason };
     } catch (caught) {
       // User abort always wins over any retry path.
@@ -295,6 +349,19 @@ export async function runStreamRoundWithEmptyOutputRetry(
       // the in-flight partial — both backend accumulator and the
       // renderer's streaming buffer — then wait with backoff and
       // retry the same streamText call. Three attempts at 2s/5s/10s.
+      if (isNetworkStreamError(err)) {
+        const resumeMessages = await resumeAfterNetworkFault(bundle, err);
+        if (resumeMessages) {
+          return {
+            bundle: bundle!,
+            fullResponse,
+            finishReason: "unknown" as Awaited<
+              SimpleStreamTextBundle["finishReason"]
+            >,
+            resumeFromStall: resumeMessages,
+          };
+        }
+      }
       if (
         isNetworkStreamError(err) &&
         networkAttempt < RECONNECT_DELAYS_MS.length

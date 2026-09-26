@@ -891,9 +891,12 @@ export async function runAskBranch(
               askActivityStatus === "error" ? "error" : "done",
             );
             const resultText = toolResultTextForExpand(toolResultForActivity);
+            // The verdict rides on the end event too: it arrives before the
+            // activity below, and a status-less end finalizes the card "done".
             safeSend(event.sender, "chat:tool:end", {
               chatId: req.chatId,
               toolCallId,
+              status: askActivityStatus === "error" ? "error" : "done",
             });
             safeSend(event.sender, "chat:activity", {
               id: toolActivityId,

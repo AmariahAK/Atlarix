@@ -80,6 +80,59 @@ describe("stream-thread", () => {
     expect(ended[1]?.kind === "tool" && ended[1].status).toBe("running");
   });
 
+  it("a failure that arrives after a status-less end still turns the card red", () => {
+    // Windows, 14.52.2: `chat:tool:end` (no status → "done") landed before the
+    // `chat:activity` carrying the error, so the refused "Opened a new tab"
+    // kept its green tick and the error was applied to the OTHER running card.
+    const open = streamThreadItemFromToolStart({
+      toolId: "browser",
+      toolCallId: "call_open",
+      toolArgs: { action: "tabs", operation: "create" },
+    });
+    const other = streamThreadItemFromToolStart({
+      toolId: "read_file",
+      toolCallId: "call_other",
+      toolArgs: { path: "x.ts" },
+    });
+    let items = upsertStreamThreadItem(upsertStreamThreadItem([], open), other);
+    items = handleStreamToolEnd(items, { toolCallId: "call_open", toolName: "browser" });
+    items = handleStreamToolEnd(items, {
+      toolCallId: "call_open",
+      toolName: "browser",
+      status: "error",
+      resultText: '{"success":false,"error":"Blocked"}',
+    });
+    const byId = (id: string) =>
+      items.find((i) => i.kind === "tool" && i.id === id) as
+        | { status: string; summary: string }
+        | undefined;
+    expect(byId("call_open")?.status).toBe("error");
+    expect(byId("call_open")?.summary).toMatch(/^Failed/);
+    expect(byId("call_other")?.status).toBe("running");
+  });
+
+  it("a later success never downgrades a failed card, and touches no other card", () => {
+    const open = streamThreadItemFromToolStart({
+      toolId: "browser",
+      toolCallId: "call_open",
+      toolArgs: { action: "tabs", operation: "create" },
+    });
+    const other = streamThreadItemFromToolStart({
+      toolId: "read_file",
+      toolCallId: "call_other",
+      toolArgs: { path: "x.ts" },
+    });
+    let items = upsertStreamThreadItem(upsertStreamThreadItem([], open), other);
+    items = handleStreamToolEnd(items, { toolCallId: "call_open", status: "error" });
+    items = handleStreamToolEnd(items, { toolCallId: "call_open", status: "done" });
+    expect(items.find((i) => i.kind === "tool" && i.id === "call_open")).toMatchObject({
+      status: "error",
+    });
+    expect(items.find((i) => i.kind === "tool" && i.id === "call_other")).toMatchObject({
+      status: "running",
+    });
+  });
+
   it("pins ts on running→done merge so the card never reorders (Fix 2)", () => {
     const running = streamThreadItemFromToolStart({
       toolId: "read_file",
