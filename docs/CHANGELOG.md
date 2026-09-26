@@ -3,6 +3,18 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.52.4] (2026-09-26) — A failed step stays marked as failed after the turn ends
+
+**A tool call that failed now still shows as failed when you come back to the conversation.**
+14.52.3 fixed the card while the turn was running, but a finished turn is redrawn from the saved
+conversation, which recorded every tool result as a success. A refused call went back to a green
+tick above its own error. The saved result now records whether the call worked.
+
+### Fixed
+
+- **Finished turns show failed steps in red**, matching what you saw while the turn ran. Turns
+  saved before this version keep their old look.
+
 ## [14.52.3] (2026-09-26) — Chrome tabs open the way models expect, and a dropped connection no longer ends the turn
 
 **Asking the agent to "open a second tab" now opens one.** Models expect browser tools where a

@@ -5,10 +5,24 @@ import { isNoUsableModelOutputError } from "../utils/no_usable_model_output";
 import { cleanFullResponse } from "../utils/cleanFullResponse";
 import { escapeAtlarixTags } from "../utils/escape_atlarix_tags";
 import { isStreamDebugLoggingEnabled } from "@/lib/stream/stream-debug";
+import { isFailedToolResult } from "@/lib/tools/tool-result-status";
 import {
   ProviderFinishReasonError,
   errorShapedFinishReason,
 } from "../utils/provider_finish_error";
+
+
+/** A tool result as the object it encodes: turn runners hand the SDK JSON strings. */
+function parseToolOutput(output: unknown): unknown {
+  if (typeof output !== "string") return output;
+  const trimmed = output.trim();
+  if (!trimmed.startsWith("{")) return output;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return output;
+  }
+}
 
 const logger = log.scope("stream-chunk-tags");
 
@@ -542,7 +556,14 @@ export async function processStreamChunks({
             : JSON.stringify(part.output),
         );
         if (!serverName || serverName === toolName) {
-          chunk = `<atlarix-tool-result tool="${toolName}" status="complete">\n${content}\n</atlarix-tool-result>\n`;
+          // The saved verdict, not a constant. This tag is what a finished turn
+          // is redrawn from, and "complete" on every result left a refused call
+          // with a green tick over its own error once the live card was gone.
+          // Same predicate the live card uses (`toolActivityStatusFor`).
+          const status = isFailedToolResult(parseToolOutput(part.output))
+            ? "error"
+            : "complete";
+          chunk = `<atlarix-tool-result tool="${toolName}" status="${status}">\n${content}\n</atlarix-tool-result>\n`;
         } else {
           chunk = `<atlarix-mcp-tool-result server="${serverName}" tool="${toolName}">\n${content}\n</atlarix-mcp-tool-result>\n`;
         }

@@ -22,15 +22,6 @@ not trust it.
 
 ## Next up — after v14.52.3
 
-- **Windows sandbox: move from Low IL to Codex's unelevated design.** Low IL works, but the
-  workspace's Low label lets ANY Low-IL process for the user write there, and HKCU/%APPDATA%
-  writes fail. Codex (openai/codex `codex-rs/windows-sandbox-rs`, Apache-2.0: `token.rs`,
-  `workspace_acl.rs`, `cap.rs`) uses `CreateRestrictedToken(DISABLE_MAX_PRIVILEGE | LUA_TOKEN |
-  WRITE_RESTRICTED)` plus a synthetic capability SID granted by ACE on each writable root: no
-  UAC, no local accounts, same user so pipes/devices/shared memory behave (what AppContainer
-  broke). Keep our `--probe` + enforce/warn contract. Their elevated mode (sandbox users +
-  firewall/WFP) needs UAC; only worth adding for OS-level network blocking. Cursor uses WSL2;
-  Claude Code has no native Windows sandbox. Discuss before building.
 - **MS Store submission needs the `unvirtualizedResources` justification.** The MSIX manifest now
   declares it (with `desktop6:RegistryWriteVirtualization` disabled) so the bridge's registry key
   reaches the real HKCU. It is a restricted capability: Partner Center asks why. Text is in the

@@ -119,6 +119,53 @@ describe("processStreamChunks", () => {
     expect(fullResponse).toContain("It is sunny.");
   });
 
+  it("saves a failed tool result as status=error, so the finished turn redraws it red", async () => {
+    // Windows, 14.52.3: the live card was red, but once the turn finished the
+    // card was redrawn from this tag — always "complete" — with a green tick.
+    async function* fullStream() {
+      yield {
+        type: "tool-call" as const,
+        toolCallId: "tc-1",
+        toolName: "browser",
+        input: { action: "tabs", operation: "create" },
+      };
+      // The turn runners return JSON strings to the SDK.
+      yield {
+        type: "tool-result" as const,
+        toolCallId: "tc-1",
+        toolName: "browser",
+        output: JSON.stringify({ success: false, error: "needs `url`" }),
+      };
+      yield {
+        type: "tool-call" as const,
+        toolCallId: "tc-2",
+        toolName: "browser",
+        input: { action: "tabs", operation: "list" },
+      };
+      yield {
+        type: "tool-result" as const,
+        toolCallId: "tc-2",
+        toolName: "browser",
+        output: JSON.stringify({ success: true, result: [] }),
+      };
+    }
+
+    const { fullResponse } = await processStreamChunks({
+      fullStream: fullStream() as unknown as Parameters<
+        typeof processStreamChunks
+      >[0]["fullStream"],
+      fullResponse: "",
+      abortController: new AbortController(),
+      chatId: -1,
+      processResponseChunkUpdate: async ({ fullResponse }) => fullResponse,
+    });
+
+    const statuses = [
+      ...fullResponse.matchAll(/<atlarix-tool-result tool="browser" status="(\w+)">/g),
+    ].map((m) => m[1]);
+    expect(statuses).toEqual(["error", "complete"]);
+  });
+
   it("flushes provider-native search sources as an <atlarix-sources> tag", async () => {
     async function* fullStream() {
       yield { type: "text-delta" as const, text: "Per the docs, " };
