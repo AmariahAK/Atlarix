@@ -37,8 +37,6 @@
 import "./log-setup";
 import "./bundled-assets";
 import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { runHeadlessAgent } from "./headless-runner";
 import { isNetworkStreamError } from "@/ipc/handlers/chat_stream/network-retry";
 import { setPinnedCoreToken } from "@/ipc/shared/core_proxy";

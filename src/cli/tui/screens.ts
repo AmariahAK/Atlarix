@@ -8,7 +8,7 @@ import fs from "node:fs";
 import { CORE_PAYMENT_SUMMARY, formatCents } from "@/shared/billing_copy";
 import os from "node:os";
 import path from "node:path";
-import type { AgentSession, PendingQuestion, SubagentJob } from "../agent/session";
+import type { AgentSession, PendingQuestion } from "../agent/session";
 import type { AutomationDraft, AutomationSummary, CliServices, SavedPermission } from "../agent/services";
 import { clockFromCron, formatClock } from "@/lib/automations/cron-time";
 import { glyph } from "./glyphs";

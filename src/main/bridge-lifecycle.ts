@@ -36,8 +36,6 @@ import {
 
 const logger = log.scope("bridge");
 
-let server: BridgeServer | null = null;
-
 /**
  * The relay binary, or null when this build does not carry one.
  *
