@@ -158,6 +158,7 @@ Actions minutes.
 - **The terminal app has its own marks:** ◆ for Atlarix's replies, ∴ for thinking, ◌ ◇ ✕ for a tool call that is running, done or failed, and ╰ for its result.
 
 ### Fixed
+- **The CLI never upgrades a database an older desktop app still uses.** Desktop 14.x and older deletes a database it finds newer than itself, so installing the CLI before the app updated would have cost every session. The CLI now leaves such a database untouched and asks you to update the app first; the 15.0 app marks the database as safe the first time it opens it (`assertNoOlderDesktopForUpgrade`, `src/db/migrate_atlarix.ts`). `ATLARIX_UPGRADE_SHARED_DB=1` lets someone who no longer uses the app go ahead.
 - **Cloud agent, own-key runs: found by running the action's agent step for real** (DeepSeek, a test repository):
   - The key handed over with `--api-key-file` was read, then ignored: the check deciding "this provider has no key" didn't look at it, so the run fell back to Atlarix Core. It is used now, and an own-key run never falls back to Core: with no key for the model's provider it stops with an error saying what to set.
   - A run whose turn ended on an error exited 0 as "completed", so the action would have reported "no changes". It fails now, with the error.

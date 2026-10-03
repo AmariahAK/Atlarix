@@ -7,6 +7,7 @@
 import {
   DatabaseInUseForUpgradeError,
   DatabaseNewerThanClientError,
+  OlderDesktopAppError,
 } from "@/db/migrate_atlarix";
 
 export function isDebug(argv: readonly string[] = process.argv): boolean {
@@ -15,7 +16,11 @@ export function isDebug(argv: readonly string[] = process.argv): boolean {
 
 /** The sentence to show. Known failures carry their own, already written for people. */
 export function friendlyMessage(err: unknown): string {
-  if (err instanceof DatabaseNewerThanClientError || err instanceof DatabaseInUseForUpgradeError) {
+  if (
+    err instanceof DatabaseNewerThanClientError ||
+    err instanceof DatabaseInUseForUpgradeError ||
+    err instanceof OlderDesktopAppError
+  ) {
     return err.message;
   }
   if (err instanceof Error) return err.message || err.name;

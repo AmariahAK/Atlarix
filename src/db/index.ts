@@ -14,6 +14,9 @@ import {
   assertReadableByThisBuild,
   countAtlarixMigrations,
   DatabaseInUseForUpgradeError,
+  assertNoOlderDesktopForUpgrade,
+  markDesktopKeepsNewerDatabase,
+  OlderDesktopAppError,
   DatabaseNewerThanClientError,
   pendingBundledMigrations,
   registerDatabaseClient,
@@ -201,6 +204,12 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
       // be shared with the other Atlarix program (app or CLI), so a migration
       // that goes wrong would take BOTH programs' history with it.
       const pending = pendingBundledMigrations(sqlite);
+      // The CLI on the desktop's database: never upgrade one a 14.x desktop
+      // still uses (that app deletes a database it finds newer). See
+      // assertNoOlderDesktopForUpgrade.
+      if (process.env.ATLARIX_DB_SHARED === "1") {
+        assertNoOlderDesktopForUpgrade(sqlite, pending);
+      }
       if (pending.length > 0 && isCoreSchemaComplete(sqlite)) {
         backupBeforeMigrating(sqlite, pending.length);
       }
@@ -331,6 +340,16 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
         );
       }
 
+      // The desktop app (not the CLI) records that it keeps a database a newer
+      // build migrated, which is what lets the CLI upgrade it from now on.
+      if (process.env.ATLARIX_DB_SHARED !== "1" && process.env.ATLARIX_SURFACE !== "cli") {
+        try {
+          markDesktopKeepsNewerDatabase(sqlite);
+        } catch (error) {
+          logger.warn("[DB] Could not record the desktop's skew-safe mark (non-fatal):", error);
+        }
+      }
+
       _db = drizzleDb;
       stopClientHeartbeat?.();
       stopClientHeartbeat = registerDatabaseClient(
@@ -349,7 +368,8 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
       const unknownHash = error instanceof UnknownDrizzleMigrationHashError;
       const tooNew =
         error instanceof DatabaseNewerThanClientError ||
-        error instanceof DatabaseInUseForUpgradeError;
+        error instanceof DatabaseInUseForUpgradeError ||
+        error instanceof OlderDesktopAppError;
       // The CLI opens the DESKTOP's database. It must never be the program that
       // deletes someone's chat history, whatever went wrong.
       const shared = process.env.ATLARIX_DB_SHARED === "1";

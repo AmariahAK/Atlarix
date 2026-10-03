@@ -287,6 +287,65 @@ export class DatabaseNewerThanClientError extends Error {
   }
 }
 
+// ─── The desktop apps that shipped before this protection ────────────────────
+//
+// Desktop 14.x and older counted migrations for EQUALITY and, finding more than
+// it shipped, deleted the database and started over. Measured on 2026-10-04:
+// the 15.0 CLI applied 0077, the owner opened desktop 14.52.4, and every
+// session was gone (recovered only because the CLI still had the file open).
+// Those builds are installed everywhere and cannot be changed, so the CLI must
+// not upgrade a database such a desktop still uses. A desktop that is safe
+// (15.0+) says so here, permanently; until a database carries that mark, the CLI
+// leaves its schema alone and asks for the app to be updated first.
+
+const DESKTOP_SAFE_KEY = "desktop_keeps_newer_db";
+
+function schemaMetaValue(sqlite: Database.Database, key: string): string | undefined {
+  const hasTable = sqlite
+    .prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`)
+    .get(SCHEMA_META_TABLE);
+  if (!hasTable) return undefined;
+  const row = sqlite.prepare(`SELECT value FROM ${SCHEMA_META_TABLE} WHERE key = ?`).get(key) as
+    | { value?: string }
+    | undefined;
+  return row?.value;
+}
+
+/** The desktop app (15.0+) records that it keeps a database a newer build migrated. */
+export function markDesktopKeepsNewerDatabase(sqlite: Database.Database): void {
+  sqlite.exec(`CREATE TABLE IF NOT EXISTS ${SCHEMA_META_TABLE} (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+  sqlite.prepare(`INSERT OR REPLACE INTO ${SCHEMA_META_TABLE} (key, value) VALUES (?, '1')`).run(DESKTOP_SAFE_KEY);
+}
+
+/** The CLI would upgrade a database that an older desktop app (14.x) still uses. Nothing was changed. */
+export class OlderDesktopAppError extends Error {
+  constructor(readonly pending: string[]) {
+    super(
+      "The Atlarix desktop app on this computer is older than this CLI, and an older app deletes a database " +
+        "that a newer Atlarix has upgraded. Open the Atlarix app and let it update (or download the latest from " +
+        "atlarix.dev), then run atlarix again. Nothing was changed. If you no longer use the desktop app, run " +
+        "with ATLARIX_UPGRADE_SHARED_DB=1.",
+    );
+    this.name = "OlderDesktopAppError";
+  }
+}
+
+/**
+ * For the CLI on the desktop's database: refuse to apply `pending` migrations
+ * while the database has only ever been used by a desktop app that predates
+ * this protection. A database with no migrations yet holds no one's history.
+ */
+export function assertNoOlderDesktopForUpgrade(
+  sqlite: Database.Database,
+  pending: readonly string[],
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  if (pending.length === 0 || env.ATLARIX_UPGRADE_SHARED_DB === "1") return;
+  if (countAtlarixMigrations(sqlite) === 0) return;
+  if (schemaMetaValue(sqlite, DESKTOP_SAFE_KEY) === "1") return;
+  throw new OlderDesktopAppError([...pending]);
+}
+
 /** Migrations recorded in the database that this build does not ship. */
 export function unknownAppliedMigrations(sqlite: Database.Database): string[] {
   const hasTable = sqlite
