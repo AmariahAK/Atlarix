@@ -1,29 +1,40 @@
 {
   "name": "atlarix",
   "version": "14.52.4",
-  "description": "Atlarix in your terminal — the interactive coding agent with any model, and the batch agent (`atlarix run`) for CI and benchmarks.",
+  "description": "Atlarix in your terminal \u2014 the interactive coding agent with any model, and the batch agent (`atlarix run`) for CI and benchmarks.",
   "license": "PROPRIETARY",
   "author": {
     "name": "NorahLabs",
     "email": "support@norahlabs.com",
     "url": "https://norahlabs.com"
   },
-  "homepage": "https://atlarix.dev",
+  "homepage": "https://atlarix.dev/cli",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/AmariahAK/Atlarix.git"
+    "url": "git+https://github.com/AmariahAK/atlarix-releases.git"
   },
   "bugs": {
     "url": "https://github.com/AmariahAK/atlarix-releases/issues"
   },
   "keywords": [
     "ai",
-    "agent",
+    "ai-coding-agent",
     "coding-agent",
+    "ai-agent",
     "cli",
-    "headless",
-    "benchmark",
-    "terminal-bench"
+    "terminal",
+    "tui",
+    "llm",
+    "claude",
+    "gpt",
+    "deepseek",
+    "ollama",
+    "byok",
+    "mcp",
+    "code-review",
+    "pair-programming",
+    "developer-tools",
+    "atlarix"
   ],
   "type": "module",
   "bin": {
@@ -31,7 +42,8 @@
   },
   "files": [
     "bin",
-    "dist-headless"
+    "dist-headless",
+    "README.md"
   ],
   "engines": {
     "node": ">=20"
