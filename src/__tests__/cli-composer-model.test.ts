@@ -37,7 +37,9 @@ describe("pastes", () => {
 });
 
 describe("dropped and pasted paths", () => {
-  it("reads the spellings terminals use for a dragged file", () => {
+  // The spellings macOS and Linux terminals use for a drag (`My\ File`, a
+  // file:// URL of a POSIX path). On Windows these resolve to drive paths.
+  it.skipIf(process.platform === "win32")("reads the spellings terminals use for a dragged file", () => {
     expect(pastedPath("/Users/me/My\\ File.pdf")).toBe("/Users/me/My File.pdf");
     expect(pastedPath("'/Users/me/My File.pdf'")).toBe("/Users/me/My File.pdf");
     expect(pastedPath("file:///Users/me/My%20File.pdf")).toBe("/Users/me/My File.pdf");
@@ -48,11 +50,14 @@ describe("dropped and pasted paths", () => {
   });
 
   it("an image becomes [Image #N], a folder [Folder …], anything else [File …]", () => {
-    const fs = fakeFs({ "/p/shot.png": "file", "/p/docs": "dir", "/p/spec.pdf": "file" });
+    // path.resolve on both sides: the code resolves what was pasted, and on
+    // Windows "/p/docs" becomes "D:\p\docs".
+    const r = (p: string) => path.resolve(p);
+    const fs = fakeFs({ [r("/p/shot.png")]: "file", [r("/p/docs")]: "dir", [r("/p/spec.pdf")]: "file" });
     const c = freshCounters();
     expect(labelFor(classifyPaste("/p/shot.png", c, { fs })!)).toBe("[Image #1]");
-    expect(labelFor(classifyPaste("/p/docs", c, { fs })!)).toBe("[Folder /p/docs]");
-    expect(labelFor(classifyPaste("/p/spec.pdf", c, { fs })!)).toBe("[File /p/spec.pdf]");
+    expect(labelFor(classifyPaste("/p/docs", c, { fs })!)).toBe(`[Folder ${r("/p/docs")}]`);
+    expect(labelFor(classifyPaste("/p/spec.pdf", c, { fs })!)).toBe(`[File ${r("/p/spec.pdf")}]`);
   });
 
   it("a path that does not exist is just text", () => {
@@ -77,7 +82,7 @@ describe("submitting", () => {
       { label: labelFor(file), attachment: file },
       { label: labelFor(img), attachment: img },
     ]);
-    expect(labelFor(file)).toBe("[File ~/spec.pdf]");
+    expect(labelFor(file)).toBe(`[File ${path.join("~", "spec.pdf")}]`);
     expect(s.prompt).toContain(`[File ${path.join(home, "spec.pdf")}]`);
     expect(s.prompt).toContain("[Image #1]");
     expect(s.images).toEqual([{ label: "[Image #1]", path: "/p/a.png", mime: "image/png" }]);

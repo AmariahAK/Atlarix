@@ -1,5 +1,5 @@
 # The `atlarix` CLI as .deb and .rpm (release.yml build-cli, linux glibc legs).
-# nfpm expands ${VAR} from the environment: VERSION, NFPM_ARCH (amd64|arm64),
+# release.yml fills in ${VAR} with envsubst first (nfpm does not expand `src`): VERSION, NFPM_ARCH (amd64|arm64),
 # CLI_BINARY (path to the built binary).
 name: atlarix
 arch: ${NFPM_ARCH}

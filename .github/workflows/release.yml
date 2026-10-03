@@ -1198,7 +1198,10 @@ jobs:
 
       - name: Smoke test (musl, in Alpine)
         if: matrix.musl
-        run: docker run --rm -v "$PWD/out/cli:/cli" alpine:3 /cli/atlarix --version
+        # Bun's musl builds link the C++ runtime dynamically: on Alpine that is
+        # `apk add libstdc++ libgcc` (the installer says so). Without it the
+        # binary fails with "Error relocating … symbol not found" (v15.0.0).
+        run: docker run --rm -v "$PWD/out/cli:/cli" alpine:3 sh -c 'apk add --no-cache libstdc++ libgcc >/dev/null && /cli/atlarix --version'
 
       - name: Sign and notarize (macOS)
         if: startsWith(matrix.target, 'darwin')
@@ -1254,8 +1257,12 @@ jobs:
           if [ -n "${{ matrix.nfpm }}" ]; then
             go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.43.0
             export VERSION NFPM_ARCH="${{ matrix.nfpm }}" CLI_BINARY="$PWD/out/cli/atlarix"
-            "$(go env GOPATH)/bin/nfpm" package --config packaging/nfpm.yaml --packager deb --target out/assets/
-            "$(go env GOPATH)/bin/nfpm" package --config packaging/nfpm.yaml --packager rpm --target out/assets/
+            # nfpm expands ${VAR} in fields like version and arch, but NOT in a
+            # file's `src` ("glob failed: ${CLI_BINARY}" on v15.0.0), so the
+            # config is filled in first.
+            envsubst < packaging/nfpm.yaml > out/nfpm.yaml
+            "$(go env GOPATH)/bin/nfpm" package --config out/nfpm.yaml --packager deb --target out/assets/
+            "$(go env GOPATH)/bin/nfpm" package --config out/nfpm.yaml --packager rpm --target out/assets/
             for f in out/assets/*.deb out/assets/*.rpm; do mv "$f" "out/assets/atlarix-cli-${{ matrix.target }}.${f##*.}"; done
           fi
           ls -la out/assets

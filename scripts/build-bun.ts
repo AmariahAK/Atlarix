@@ -18,6 +18,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { assetFiles, cliPlugin, root } from "./bun-cli-plugin";
 // Bun 1.3.8 crashed compiled binaries natively 30-60 s into a session (a
 // JavaScriptCore wasm compiler thread freeing memory twice). .bun-version pins
@@ -91,9 +92,9 @@ const TREE_SITTER_WORKER = "opentui-tree-sitter-worker.js";
 // ("darwin" contains "win": match the platform exactly, not a substring.)
 const targetsWindows = target ? target.includes("windows") : process.platform === "win32";
 const bunfsRoot = targetsWindows ? "B:/~BUN/root/" : "/$bunfs/root/";
-const treeSitterWorker = await Bun.file(
-  new URL(import.meta.resolve("@opentui/core/parser.worker")).pathname,
-).text();
+// fileURLToPath, not `.pathname`: on Windows that is "/D:/a/…", not a path
+// (the v15.0.0 Windows CLI build failed with ENOENT on it).
+const treeSitterWorker = await Bun.file(fileURLToPath(import.meta.resolve("@opentui/core/parser.worker"))).text();
 
 // PUBLIC configuration only (the same keys the desktop embeds, minus billing).
 // Applied at startup as defaults by src/cli/build-env.ts. Bun loads .env when

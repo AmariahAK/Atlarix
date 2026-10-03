@@ -19,7 +19,9 @@ import path from "node:path";
 // The real temp root, captured BEFORE the `node:os` mock below rewrites
 // `tmpdir()` — otherwise this file would try to create its scratch dirs inside
 // the fake root it is about to define, which is the previous test's deleted one.
-const REAL_TMP = fs.realpathSync(process.env.TMPDIR || "/tmp");
+// Windows sets TEMP/TMP, not TMPDIR; "/tmp" there resolves to D:\tmp, which
+// does not exist (the v15.0.0 Windows job failed on exactly that).
+const REAL_TMP = fs.realpathSync(process.env.TMPDIR || process.env.TEMP || process.env.TMP || "/tmp");
 
 vi.mock("electron-log", () => {
   const scope = () => ({
