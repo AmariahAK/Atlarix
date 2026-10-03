@@ -555,8 +555,10 @@ jobs:
 
       - name: Install appimagetool (required by @reforged/maker-appimage)
         run: |
-          wget -q -O /tmp/appimagetool.AppImage \
-            "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"
+          # The maintained repo (AppImageKit's is retired), with retries: a
+          # one-off server error here failed the whole v15.0.0 release once.
+          wget -q --tries=5 --waitretry=10 --retry-on-http-error=500,502,503,504 -O /tmp/appimagetool.AppImage \
+            "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
           chmod +x /tmp/appimagetool.AppImage
           # Extract in-place — FUSE is not available in GitHub runners
           /tmp/appimagetool.AppImage --appimage-extract-and-run --help > /dev/null 2>&1 || true

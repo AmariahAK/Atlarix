@@ -126,7 +126,13 @@ export function cliPlugin(
           (a) => ({ path: aliases[a.path]! }),
         );
       }
-      b.onResolve({ filter: /^@\// }, (a) => {
+      // The compiled build resolves `@/…` through tsconfig.json's paths, so ONE
+      // resolver names every file. Resolving it here as well gave Windows two
+      // spellings of the same file (this path.join vs Bun's own for relative
+      // imports), so Bun bundled src/db twice: the copy the runner initialized
+      // and the copy the chat handler read ("Database not initialized", the
+      // v15.0.0 Windows smoke test). `bun test` (runtime) still needs it.
+      if (runtime) b.onResolve({ filter: /^@\// }, (a) => {
         const base = path.join(root, "src", a.path.slice(2));
         for (const ext of ["", ".ts", ".tsx", ".mts", "/index.ts", "/index.tsx"]) {
           if (fs.existsSync(base + ext) && fs.statSync(base + ext).isFile()) {
