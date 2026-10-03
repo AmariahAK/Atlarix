@@ -30,5 +30,8 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src", "shared"]
+  "include": ["src", "shared"],
+  // The CLI's terminal UI uses opentui's JSX elements (<text>, <box>), which are
+  // not the DOM's; tsconfig.cli.json checks it (`npm run ts:cli`).
+  "exclude": ["src/cli/tui"]
 }

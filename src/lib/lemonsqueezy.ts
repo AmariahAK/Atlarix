@@ -34,6 +34,21 @@ async function createCheckoutViaEdge(
   }
 }
 
+/**
+ * A checkout link without opening it: the CLI opens it in the user's browser
+ * itself (and shows it, for SSH sessions), where `shell.openExternal` is a no-op.
+ * Signed-in is checked by the edge function, from the session's JWT.
+ */
+export async function checkoutUrl(
+  mode: "subscription" | "credit",
+  amountCents?: number,
+): Promise<string | null> {
+  if (mode === "credit" && (!Number.isFinite(amountCents) || (amountCents ?? 0) < 1000)) return null;
+  return createCheckoutViaEdge(
+    mode === "credit" ? { mode, amount_cents: Math.floor(amountCents!) } : { mode },
+  );
+}
+
 /** Atlarix Pro subscription checkout. */
 export async function openUpgradeCheckout(): Promise<{
   success: boolean;

@@ -47,6 +47,10 @@ Atlarix renders these inline as collapsible cards — put the visual in the same
 - **Graph** — ` ```graph ` fence: `{ "title"?: string, "nodes": [{ "id", "name" }], "edges": [{ "source", "target" }] }` for flows / architecture / dependencies (edge ids must exist on nodes; no coordinates).
 - **Markmap** — ` ```markmap ` fence: markdown headings + bullets with one root `#` title, for hierarchies / outlines.
 
+## Relics
+
+A **relic** (the `relic` tool) is a self-contained web page to SHARE, not a file of the project: a design to agree on before building, an explainer, a report. Reach for one when a page shows it better than chat does; one relic per thing, updated in place with its `id`. Tell the user the link or path it returns. Never put secrets in one.
+
 ## Browsers
 
 - `browser` and `browser_inspect` drive the user's own browser (Chrome, Edge or Brave) through the Atlarix extension, in Atlarix's own tab group — never the tab the user is on. Open the app you are building at its localhost dev-server URL there, act, then check `browser_inspect` mode:"console" (it shows entries since your last navigate) to confirm nothing threw.

@@ -162,7 +162,7 @@ describe("requests and replies", () => {
     ext.client.destroy();
   });
 
-  it("carries the op and args through untouched", async () => {
+  it("carries the op and args through untouched, plus which Atlarix is asking", async () => {
     const { server, socketPath } = await start();
     const ext = await connectFakeExtension(socketPath, (req, reply) =>
       reply({ id: req.id, ok: true, result: req.args }),
@@ -171,6 +171,8 @@ describe("requests and replies", () => {
     await settle();
 
     await expect(server.request("click", { ref: "e12", why: "héllo 🌍" })).resolves.toEqual({
+      // The extension keeps each Atlarix's tabs in its own group (tabs/group.ts).
+      client: "app",
       ref: "e12",
       why: "héllo 🌍",
     });

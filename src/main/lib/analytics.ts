@@ -155,7 +155,13 @@ export function capture(
   if (!isOptedIn()) return;
   const posthog = getPostHog();
   if (!posthog) return;
-  posthog.capture({ distinctId: resolveDistinctId(), event, properties });
+  posthog.capture({
+    distinctId: resolveDistinctId(),
+    event,
+    // Which Atlarix sent it: the desktop app or the terminal app (the CLI runs
+    // this same code in-process, with ATLARIX_SURFACE=cli).
+    properties: { surface: process.env.ATLARIX_SURFACE === "cli" ? "cli" : "app", ...properties },
+  });
 }
 
 /** Fire-and-forget capture; never throws (analytics must not break the app). */
@@ -281,13 +287,67 @@ export function trackPeerPushPrompt(
   captureSafe("peerpush_prompt", { action });
 }
 
+/** Who pays for a turn's model: Atlarix Core, the user's own key, or a model on their machine. */
+export type TurnBilling = "core" | "byok" | "local";
+
+export function billingOf(provider: string, providerType?: string): TurnBilling {
+  if (provider === "compass") return "core";
+  if (providerType === "local") return "local";
+  return "byok";
+}
+
+/**
+ * The billing of the most recent turn, added to task_* events so the existing
+ * funnels break down by it. Two turns running at once can mix this up; the
+ * `model_turn` event itself is always exact.
+ */
+let lastTurn: { billing: TurnBilling; provider: string } | null = null;
+
+/**
+ * One `model_turn` per agent turn: who paid for the model, which provider and
+ * model, no content. Usage used to be read from paid Core alone, so someone on
+ * their own key or a local model looked like they had dropped off. The person
+ * properties make the whole person segmentable (`uses_byok`, `last_billing`).
+ */
+export function trackModelTurn(t: {
+  provider: string;
+  providerType?: string;
+  model: string;
+  mode?: string;
+  fellBackToCore?: boolean;
+}): void {
+  try {
+    const billing = t.fellBackToCore ? "core" : billingOf(t.provider, t.providerType);
+    lastTurn = { billing, provider: t.provider };
+    captureSafe("model_turn", {
+      billing,
+      provider: t.provider,
+      model: t.model,
+      ...(t.mode ? { mode: t.mode } : {}),
+      ...(t.fellBackToCore ? { fell_back_to_core: true } : {}),
+      $set: {
+        last_billing: billing,
+        last_provider: t.provider,
+        ...(billing === "byok" ? { uses_byok: true } : billing === "local" ? { uses_local: true } : { uses_core: true }),
+      },
+      ...(billing === "byok" ? { $set_once: { first_byok_at: new Date().toISOString() } } : {}),
+    });
+  } catch {
+    /* analytics must never break the turn */
+  }
+}
+
+function withBilling(properties?: Record<string, unknown>): Record<string, unknown> | undefined {
+  return lastTurn ? { ...properties, billing: lastTurn.billing, provider: lastTurn.provider } : properties;
+}
+
 /** The first real agent turn in a workspace started (fires once). */
 export function trackTaskStarted(properties?: Record<string, unknown>): void {
   try {
     if (!isOptedIn()) return;
     if (readSettings().firstTaskStartedAt) return;
     writeSettings({ firstTaskStartedAt: Date.now() });
-    captureSafe("first_task_started", properties);
+    captureSafe("first_task_started", withBilling(properties));
   } catch {
     /* analytics must never break the turn */
   }
@@ -302,9 +362,9 @@ export function trackTaskCompleted(properties?: Record<string, unknown>): void {
     if (!isOptedIn()) return;
     if (!readSettings().firstTaskCompletedAt) {
       writeSettings({ firstTaskCompletedAt: Date.now() });
-      captureSafe("first_task_completed", properties);
+      captureSafe("first_task_completed", withBilling(properties));
     } else {
-      captureSafe("task_completed", properties);
+      captureSafe("task_completed", withBilling(properties));
     }
   } catch {
     /* analytics must never break the turn */
@@ -319,6 +379,17 @@ export function shutdown(): void {
     client.flush();
     client = null;
   }
+}
+
+/**
+ * Send what is queued and close, WAITING for it: the CLI exits right after
+ * (`shutdown` above only starts a flush, which the app outlives, a process
+ * about to exit does not). Bounded by the caller.
+ */
+export async function flushAndClose(): Promise<void> {
+  const c = client;
+  client = null;
+  if (c) await c.shutdown();
 }
 
 /** Config for renderer PostHog init (API key + anonymous ID). Key is undefined if not set. */

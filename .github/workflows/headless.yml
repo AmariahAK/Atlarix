@@ -176,6 +176,10 @@ jobs:
           OUT="$(node packages/headless/dist-headless/atlarix-headless.mjs --version)"
           echo "reported: ${OUT} / expected: ${VER}"
           [ "$OUT" = "$VER" ] || { echo "::error::--version reported '${OUT}', expected '${VER}'"; exit 1; }
+          # The npm entry point (bin/atlarix.js): with no atlarix-<platform>
+          # package installed, as here, it must fall back to the Node build.
+          VIA_LAUNCHER="$(node packages/headless/bin/atlarix.js --version)"
+          [ "$VIA_LAUNCHER" = "$VER" ] || { echo "::error::bin/atlarix.js --version reported '${VIA_LAUNCHER}', expected '${VER}'"; exit 1; }
 
       # Trusted publishing needs npm >= 11.5.1. Node 24 ships an 11.x npm, but a
       # runner-image change could regress that, and the failure mode is bad: npm

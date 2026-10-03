@@ -37,6 +37,16 @@ why does my useEffect run twice in dev -> React useEffect runs twice
 hey how are you? could u tell me about yourself? -> Greeting and introduction
 migrate the users table to postgres 16 -> Users table Postgres 16 migration`;
 
+/**
+ * What a session is named from. The terminal sends a paste as a placeholder
+ * ("[Pasted text #1 +32 lines]") for display, and sessions came out named
+ * "Pasted text with 32 lines"; the text sent to the model has the paste. Only
+ * then: elsewhere the model text can hold whole attached files.
+ */
+export function titleSourceText(display: string, model: string): string {
+  return /\[Pasted text #\d+/.test(display) && model.trim() ? model : display;
+}
+
 /** The user turn for the title model: the first user message ONLY. */
 export function titleUserPrompt(firstUserText: string): string {
   return (

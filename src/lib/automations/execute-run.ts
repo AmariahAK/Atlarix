@@ -18,6 +18,7 @@ import {
 import { makeFakeSender } from "@/headless/fake-sender";
 import { wrapUntrustedData } from "@/lib/streaming/untrusted-data";
 import { automationAutoApprove } from "./auto-approve";
+import { PROCESS_OWNER } from "./process-owner";
 import type { AutomationRunStatus } from "./types";
 import type { ChatStreamParams } from "@/ipc/ipc_types";
 
@@ -270,6 +271,10 @@ export async function executeAutomationRun(
     status: "running",
     triggerContext,
     startedAt: now,
+    // Which process runs it, beating while it does (runner.ts): another
+    // Atlarix starting up must not take this live run for an interrupted one.
+    owner: PROCESS_OWNER,
+    heartbeatAt: now,
   });
   await db
     .update(automations)

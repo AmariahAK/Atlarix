@@ -1,0 +1,38 @@
+# Rendered by scripts/ci/render-homebrew-formula.mjs on every release and pushed
+# to AmariahAK/homebrew-atlarix (Formula/atlarix.rb). Do not edit there.
+class Atlarix < Formula
+  desc "AI coding agent in your terminal: any model, the Atlarix app's sessions and settings"
+  homepage "https://atlarix.dev"
+  version "{{VERSION}}"
+  license :cannot_represent
+
+  on_macos do
+    on_arm do
+      url "https://github.com/AmariahAK/atlarix-releases/releases/download/v{{VERSION}}/atlarix-cli-darwin-arm64.tar.gz"
+      sha256 "{{SHA_DARWIN_ARM64}}"
+    end
+    on_intel do
+      url "https://github.com/AmariahAK/atlarix-releases/releases/download/v{{VERSION}}/atlarix-cli-darwin-x64.tar.gz"
+      sha256 "{{SHA_DARWIN_X64}}"
+    end
+  end
+
+  on_linux do
+    on_arm do
+      url "https://github.com/AmariahAK/atlarix-releases/releases/download/v{{VERSION}}/atlarix-cli-linux-arm64.tar.gz"
+      sha256 "{{SHA_LINUX_ARM64}}"
+    end
+    on_intel do
+      url "https://github.com/AmariahAK/atlarix-releases/releases/download/v{{VERSION}}/atlarix-cli-linux-x64.tar.gz"
+      sha256 "{{SHA_LINUX_X64}}"
+    end
+  end
+
+  def install
+    bin.install "atlarix"
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/atlarix --version")
+  end
+end

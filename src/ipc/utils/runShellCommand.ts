@@ -300,6 +300,10 @@ function runShellProcess(
           ...PROCESS_GROUP_SPAWN_OPTIONS,
         });
 
+    liveShellProcesses.add(proc);
+    const forget = () => liveShellProcesses.delete(proc);
+    proc.once("exit", forget);
+    proc.once("error", forget);
     onSpawn?.(proc);
 
     proc.stdout?.on("data", (data) => {
@@ -475,6 +479,19 @@ function killProcessTreeWindows(proc: ChildProcess): void {
  * the real work running — holding its port, writing to the workspace, and
  * invisible to the user who just pressed stop.
  */
+/**
+ * Every command this process has running, foreground included. They run in
+ * their own process group (detached), so they OUTLIVE this process unless
+ * killed: a CLI that exited mid-command left `sleep 20` reparented and running.
+ */
+const liveShellProcesses = new Set<ChildProcess>();
+
+/** Kill every running command's process tree. For quitting (desktop and CLI). */
+export function killAllShellProcesses(): void {
+  for (const proc of liveShellProcesses) killShellProcess(proc);
+  liveShellProcesses.clear();
+}
+
 export function killShellProcess(proc: ChildProcess | null | undefined): void {
   if (!proc || proc.killed) return;
 

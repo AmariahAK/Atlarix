@@ -1,3 +1,4 @@
+import * as titleText from "@/lib/session-title/title-text";
 /**
  * Session titles (v14.52.0) — the text rules and the model chain.
  *
@@ -197,5 +198,16 @@ describe("resolveTitleModel", () => {
       },
     });
     expect(await resolveTitleModel(s)).toEqual(custom);
+  });
+});
+
+describe("titleSourceText", () => {
+  it("names a session from the paste, not its placeholder", () => {
+    const { titleSourceText } = titleText;
+    expect(titleSourceText("[Pasted text #1 +32 lines]", "fix the B008 false positive for frozen dataclasses")).toBe(
+      "fix the B008 false positive for frozen dataclasses",
+    );
+    // Anything else: what you typed (the model text can hold whole attached files).
+    expect(titleSourceText("explain this file", "explain this file\n<attached>…10k lines…</attached>")).toBe("explain this file");
   });
 });

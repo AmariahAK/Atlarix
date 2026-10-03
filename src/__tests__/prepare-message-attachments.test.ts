@@ -31,9 +31,11 @@ describe("prepareMessageWithAttachments — image embedding", () => {
     expect(String(parts[0]!.text)).toContain("what is in this image?");
     expect(String(parts[0]!.text)).toContain("FILES ATTACHED");
     expect(String(parts[0]!.text)).toContain("read_attachment is NOT needed");
+    // A `file` part with an image media type (AI SDK 7 deprecated `image`).
     expect(parts[1]).toEqual({
-      type: "image",
-      image: PNG_B64,
+      type: "file",
+      data: PNG_B64,
+      filename: "diagram.png",
       mediaType: "image/png",
     });
   });
@@ -76,6 +78,6 @@ describe("prepareMessageWithAttachments — image embedding", () => {
       })),
     });
     const parts = out.content as Array<Record<string, unknown>>;
-    expect(parts.filter((p) => p.type === "image")).toHaveLength(8);
+    expect(parts.filter((p) => p.type === "file" && String(p.mediaType).startsWith("image/"))).toHaveLength(8);
   });
 });

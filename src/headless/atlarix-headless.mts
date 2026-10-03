@@ -22,6 +22,10 @@
  * builtin: reasoning is only placed in the request when the wire provider is known,
  * so a bare custom endpoint dispatches without it.
  *
+ * Run (Atlarix Core with a job-scoped token — the cloud agent in GitHub Actions):
+ *   ATLARIX_CORE_PROXY_URL=… node dist-headless/atlarix-headless.mjs --workspace . \
+ *     --prompt-file task.md --provider-id compass --model core-2 --core-token-file tok
+ *
  * `--trajectory-file <path>` streams a JSONL trace of the run (see
  * trajectory-writer.ts). Prefer it over parsing this process's console output.
  *
@@ -30,25 +34,16 @@
  *
  * Exits 0 when the turn completes (or the agent emits <task_complete>), 1 otherwise.
  */
+import "./log-setup";
+import "./bundled-assets";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runHeadlessAgent } from "./headless-runner";
 import { isNetworkStreamError } from "@/ipc/handlers/chat_stream/network-retry";
-
-// Point the catalog at the snapshot shipped beside this bundle. Without it the
-// snapshot is looked for under `cwd` — the task directory in a benchmark run —
-// so it is never found and the model catalog depends on reaching models.dev over
-// the network. Terminal-Bench sandboxes enforce an egress allow-list that does
-// not include it, and with no catalog the per-model reasoning profile is
-// unavailable, which changes the SHAPE of the reasoning parameter sent. Same
-// command, different request, depending on the sandbox's egress. Not overridden
-// if the operator already set it.
-if (!process.env.ATLARIX_MODELS_SNAPSHOT) {
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  const shipped = path.join(here, "models-snapshot.json.gz");
-  if (fs.existsSync(shipped)) process.env.ATLARIX_MODELS_SNAPSHOT = shipped;
-}
+import { setPinnedCoreToken } from "@/ipc/shared/core_proxy";
+import { setPinnedProviderKey } from "@/ipc/shared/pinned-provider-key";
+import { formatFatal } from "@/cli/errors";
 
 /**
  * Injected by esbuild (`scripts/build-headless.mjs`) from the root package.json.
@@ -144,6 +139,47 @@ async function main() {
   const trajectoryFile =
     arg("trajectory-file") ?? process.env.ATLARIX_HEADLESS_TRAJECTORY_FILE;
 
+  // Atlarix Core with a job-scoped token (the cloud agent). Read once, then the
+  // file is deleted and the token lives only in this process's memory — never
+  // in the environment the agent's shell commands inherit.
+  const coreTokenFile = arg("core-token-file");
+  if (coreTokenFile) {
+    setPinnedCoreToken(fs.readFileSync(coreTokenFile, "utf8"));
+    fs.rmSync(coreTokenFile, { force: true });
+  }
+  // The user's own provider key (the cloud agent's own-key runs): the same
+  // treatment as the Core token. Read once, the file deleted, the key held in
+  // memory for `--provider-id` only. Never written to user-settings.json, which
+  // is what `--api-key` does, and never put in the environment.
+  const apiKeyFile = arg("api-key-file");
+  if (apiKeyFile) {
+    if (!providerId || providerId === "compass") {
+      console.error("atlarix-headless: --api-key-file needs --provider-id naming the key's provider (e.g. anthropic)");
+      process.exit(2);
+    }
+    const key = fs.readFileSync(apiKeyFile, "utf8");
+    fs.rmSync(apiKeyFile, { force: true });
+    if (!key.trim()) {
+      console.error("atlarix-headless: the --api-key-file was empty");
+      process.exit(2);
+    }
+    setPinnedProviderKey(providerId, key);
+  }
+  if (providerId === "compass") {
+    if (!process.env.ATLARIX_CORE_PROXY_URL) {
+      console.error(
+        "atlarix-headless: --provider-id compass needs ATLARIX_CORE_PROXY_URL",
+      );
+      process.exit(2);
+    }
+    // The desktop warms the Core lineup at boot; headless has no boot, and
+    // without it `core-N` resolves to nothing. Awaited, not background.
+    const { refreshCoreModelOverrides } = await import(
+      "@/lib/routing/core-model-overrides"
+    );
+    await refreshCoreModelOverrides();
+  }
+
   const res = await runHeadlessAgent({
     workspaceDir: fs.realpathSync(workspace),
     prompt,
@@ -163,7 +199,9 @@ async function main() {
   });
 
   if (outputFile) {
-    fs.writeFileSync(outputFile, res.lastAssistant ?? "");
+    // The answer alone: the stored message also holds the run's tool calls.
+    const { finalAnswerText } = await import("@/lib/chat/assistant-message-parts");
+    fs.writeFileSync(outputFile, res.lastAssistant ? finalAnswerText(res.lastAssistant) : "");
   }
 
   console.error(
@@ -197,11 +235,11 @@ process.on("unhandledRejection", (reason) => {
     );
     return;
   }
-  console.error("[atlarix-headless] fatal (unhandled rejection):", reason);
+  console.error(formatFatal(reason));
   process.exit(1);
 });
 
 main().catch((err) => {
-  console.error("[atlarix-headless] fatal:", err);
+  console.error(formatFatal(err));
   process.exit(1);
 });

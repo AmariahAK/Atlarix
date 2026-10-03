@@ -3,9 +3,14 @@
  * =============
  * Smart search for Atlarix, in tiers.
  *
- * Tier 0: Atlarix's own Chromium - the only one that passes a bot check
+ * Tier 0: Atlarix's own Chromium - the only one that passes a bot check (the app)
+ * Tier 0b: the user's Chrome      - through the extension (the CLI; the app's
+ *           fallback) (chrome-search.ts)
  * Tier 1: SearxNG (self-hosted)  - unmetered and private, when the user runs one
  * Tier 2: DDG Instant API        - an instant-ANSWER API, NOT a web search
+ *
+ * No search API is built in (owner decision 2026-10-02): with no browser, search
+ * comes from an MCP server the user adds, and the CLI says so (tools/web.ts).
  *
  * The last line is not a criticism, it is the measurement. On 2026-08-19, three
  * ordinary developer queries run through every tier within the same minute:
@@ -88,6 +93,15 @@ export async function smartSearch(
     }
   } catch {
     /* never let the browser tier break the chain */
+  }
+
+  // Tier 0b: the user's own Chrome, through the extension.
+  try {
+    const { chromeSearch } = await import("./chrome-search");
+    const viaChrome = await chromeSearch(query.trim() || effectiveQuery, limit);
+    if (viaChrome.length > 0) return viaChrome;
+  } catch {
+    /* never let a tier break the chain */
   }
 
   // Get unified config (works in both renderer and main process)

@@ -24,6 +24,7 @@ export function InlineToolPartCard({
       expand={card.expand}
       status={card.status}
       toolName={card.toolName}
+      resultText={part.resultText}
     />
   );
 }

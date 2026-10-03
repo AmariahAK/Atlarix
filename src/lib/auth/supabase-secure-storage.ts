@@ -18,12 +18,21 @@ const logger = log.scope("supabase-secure-storage");
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+/**
+ * The CLI keeps its OWN session file in the shared folder: two programs
+ * refreshing one Supabase session race on its rotating refresh token, and the
+ * loser is signed out. See DESIGN_NOTES, "The CLI shares the desktop's data".
+ */
+function sessionFileStem(): string {
+  return process.env.ATLARIX_AUTH_SESSION_STEM || "supabase-auth";
+}
+
 function legacyJsonPath(): string {
-  return path.join(app.getPath("userData"), "supabase-auth.json");
+  return path.join(app.getPath("userData"), `${sessionFileStem()}.json`);
 }
 
 function fallbackEncryptedPath(): string {
-  return path.join(app.getPath("userData"), "supabase-auth.enc");
+  return path.join(app.getPath("userData"), `${sessionFileStem()}.enc`);
 }
 
 let storageCache: Record<string, string> | null = null;

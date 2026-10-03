@@ -17,6 +17,17 @@ let cached: string | null = null;
 
 export async function resolveRipgrepPath(): Promise<string> {
   if (cached) return cached;
+  // The compiled CLI carries its own rg; nothing else is installed beside it.
+  try {
+    const { unpackEmbeddedBinary } = await import("@/runtime/embedded-bin");
+    const embedded = await unpackEmbeddedBinary(
+      process.platform === "win32" ? "rg.exe" : "rg",
+      process.env.ATLARIX_EMBEDDED_RG,
+    );
+    if (embedded) return (cached = embedded);
+  } catch {
+    /* fall through to the bundled package / PATH */
+  }
   try {
     const mod = (await import("@vscode/ripgrep")) as {
       rgPath?: string;

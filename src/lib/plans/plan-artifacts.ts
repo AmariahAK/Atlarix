@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { db } from "@/db";
-import { sessionMessages } from "@/db/schema";
+import { chatSessions, sessionMessages } from "@/db/schema";
 import type { PlanArtifactStatus } from "@/db/schema";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, ne } from "drizzle-orm";
 
 export type PlanArtifactRow = {
   id: string;
@@ -184,6 +184,48 @@ export async function listPlanArtifactsForSession(
     )
     .orderBy(desc(sessionMessages.createdAt));
   return rows.map(mapRow);
+}
+
+/** A plan from another session in the same folder, with that session's name. */
+export type WorkspacePlanRow = PlanArtifactRow & { sessionTitle: string | null };
+
+/**
+ * Every plan in a folder's sessions, newest first — so a plan written in an
+ * earlier session (closed, or in the other app) can be read and built again.
+ * The CLI's /plan and the desktop's Plan panel both list these under "Earlier
+ * sessions".
+ */
+export async function listPlanArtifactsForWorkspace(
+  workspaceId: number,
+  opts: { excludeSessionId?: string; limit?: number } = {},
+): Promise<WorkspacePlanRow[]> {
+  const rows = await db
+    .select({ plan: sessionMessages, sessionTitle: chatSessions.title })
+    .from(sessionMessages)
+    .innerJoin(chatSessions, eq(sessionMessages.sessionId, chatSessions.id))
+    .where(
+      and(
+        eq(chatSessions.workspaceId, workspaceId),
+        eq(sessionMessages.kind, "plan"),
+        ...(opts.excludeSessionId ? [ne(sessionMessages.sessionId, opts.excludeSessionId)] : []),
+      ),
+    )
+    .orderBy(desc(sessionMessages.createdAt))
+    .limit(opts.limit ?? 50);
+  return rows.map((r) => ({ ...mapRow(r.plan), sessionTitle: r.sessionTitle ?? null }));
+}
+
+/**
+ * Bring a plan from an earlier session into this one, to build it here. A copy:
+ * the original keeps its own status and history.
+ */
+export async function copyPlanArtifactToSession(
+  planId: string,
+  sessionId: string,
+): Promise<PlanArtifactRow | null> {
+  const source = await getPlanArtifact(planId);
+  if (!source) return null;
+  return createPlanArtifact(sessionId, source.content, source.title ?? undefined);
 }
 
 /**

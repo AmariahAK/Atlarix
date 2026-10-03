@@ -261,3 +261,50 @@ describe("getAccessToken", () => {
     await expect(getAccessToken()).resolves.toBe("ok");
   });
 });
+
+describe("signIn('email')", () => {
+  /** Resolve launchWebAuthFlow with a hand-off that echoes `state`, or not. */
+  function answerWith(stateFor: (sent: string) => string, extra = "&refresh_token=handed") {
+    chromeFake.launch.mockImplementation(async ({ url }: { url: string }) => {
+      const sent = new URL(url).searchParams.get("state")!;
+      return `${REDIRECT}#access_token=handed-at${extra}&state=${stateFor(sent)}`;
+    });
+  }
+
+  it("opens atlarix.dev's hand-off page with a nonce, not a provider consent screen", async () => {
+    answerWith((s) => s);
+    const { signIn, EMAIL_SIGN_IN_URL } = await loadSignIn();
+    await signIn("email");
+    const url = new URL(chromeFake.launch.mock.calls[0][0].url);
+    expect(`${url.origin}${url.pathname}`).toBe(EMAIL_SIGN_IN_URL);
+    expect(url.searchParams.get("client")).toBe("extension");
+    expect(url.searchParams.get("state")).toMatch(/^[A-Za-z0-9_-]{16,128}$/);
+  });
+
+  it("stores a session from a REFRESH of the handed token, never the handed one", async () => {
+    answerWith((s) => s);
+    const { signIn } = await loadSignIn();
+    const result = await signIn("email");
+    expect(result.kind).toBe("session");
+    const [url, init] = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(String(url)).toContain("grant_type=refresh_token");
+    expect(JSON.parse(init.body)).toEqual({ refresh_token: "handed" });
+    const stored = JSON.stringify([...chromeFake.store.entries()]);
+    expect(stored).not.toContain("handed");
+  });
+
+  it("refuses an answer whose state is not ours, and stores nothing", async () => {
+    answerWith(() => "someone-elses-state-value");
+    const { signIn } = await loadSignIn();
+    const result = await signIn("email");
+    expect(result.kind).toBe("error");
+    expect(fetch).not.toHaveBeenCalled();
+    expect(chromeFake.store.size).toBe(0);
+  });
+
+  it("treats a closed window as cancelled", async () => {
+    chromeFake.launch.mockResolvedValue(undefined);
+    const { signIn } = await loadSignIn();
+    await expect(signIn("email")).resolves.toEqual({ kind: "cancelled" });
+  });
+});

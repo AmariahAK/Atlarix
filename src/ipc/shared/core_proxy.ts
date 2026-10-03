@@ -28,7 +28,10 @@
  * copy for the same reason the rest of that package does: it cannot import
  * anything that reaches Node.
  */
-export const ATLARIX_SURFACE = "app";
+export const ATLARIX_SURFACE: "app" | "cli" =
+  // Set by the interactive CLI before anything is imported (src/cli/desktop-data.ts).
+  // Anything else, the desktop included, is `app`.
+  process.env.ATLARIX_SURFACE === "cli" ? "cli" : "app";
 
 export function getCoreProxyBaseUrl(): string | undefined {
   const raw =
@@ -40,4 +43,24 @@ export function getCoreProxyBaseUrl(): string | undefined {
   // The OpenRouter provider appends `/chat/completions` to baseURL, so the base
   // must end at the `/v1` root the proxy serves.
   return trimmed.endsWith("/v1") ? trimmed : `${trimmed}/v1`;
+}
+
+/**
+ * A Core bearer token handed to a headless run, used INSTEAD of the Supabase
+ * session.
+ *
+ * The cloud agent runs in the user's GitHub Actions with no Atlarix sign-in:
+ * our server mints a run token scoped to one job (see `atlarix-proxy`
+ * `resolveCaller`, iss `atlarix-cloud`) and the CLI reads it from
+ * `--core-token-file`. It lives in memory only, never in `process.env`, so the
+ * agent's own shell commands cannot inherit it.
+ */
+let pinnedCoreToken: string | null = null;
+
+export function setPinnedCoreToken(token: string | null): void {
+  pinnedCoreToken = token && token.trim() ? token.trim() : null;
+}
+
+export function getPinnedCoreToken(): string | null {
+  return pinnedCoreToken;
 }

@@ -110,11 +110,12 @@ describe("processStreamChunks", () => {
       processResponseChunkUpdate: async ({ fullResponse }) => fullResponse,
     });
 
+    // `call` pairs the result with its call (parallel calls of one tool).
     expect(fullResponse).toContain(
-      '<atlarix-tool-call tool="web_search" status="running">',
+      '<atlarix-tool-call tool="web_search" call="tc-1" status="running">',
     );
     expect(fullResponse).toContain(
-      '<atlarix-tool-result tool="web_search" status="complete">',
+      '<atlarix-tool-result tool="web_search" call="tc-1" status="complete">',
     );
     expect(fullResponse).toContain("It is sunny.");
   });
@@ -161,7 +162,7 @@ describe("processStreamChunks", () => {
     });
 
     const statuses = [
-      ...fullResponse.matchAll(/<atlarix-tool-result tool="browser" status="(\w+)">/g),
+      ...fullResponse.matchAll(/<atlarix-tool-result tool="browser"(?: call="[^"]*")? status="(\w+)">/g),
     ].map((m) => m[1]);
     expect(statuses).toEqual(["error", "complete"]);
   });

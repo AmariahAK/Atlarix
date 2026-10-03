@@ -316,33 +316,39 @@ export function splitByToolResultEnvelopes(
   const out: Array<
     { kind: "markdown"; text: string } | { kind: "envelope"; raw: string }
   > = [];
+  // Text between envelopes is accumulated, NOT emitted per brace. Emitting each
+  // non-envelope "{" as its own chunk split ordinary prose at every brace —
+  // `recordings/{year}/items/{id}` and every ```json / ```graph fence came out
+  // as separate paragraphs ("{", blank line, "year}/items/", …).
+  let text = "";
+  const flushText = () => {
+    if (text.trim()) out.push({ kind: "markdown", text });
+    text = "";
+  };
   let i = 0;
   while (i < content.length) {
     const brace = content.indexOf("{", i);
     if (brace === -1) {
-      const tail = content.slice(i);
-      if (tail.trim()) out.push({ kind: "markdown", text: tail });
+      text += content.slice(i);
       break;
     }
-    if (brace > i) {
-      const mid = content.slice(i, brace);
-      if (mid.trim()) out.push({ kind: "markdown", text: mid });
-    }
+    text += content.slice(i, brace);
     const end = findJsonObjectEnd(content, brace);
     if (end == null) {
-      out.push({ kind: "markdown", text: content.slice(brace) });
+      text += content.slice(brace);
       break;
     }
-    const slice = content.slice(brace, end);
-    const parsed = parseToolResultEnvelope(slice);
+    const parsed = parseToolResultEnvelope(content.slice(brace, end));
     if (parsed) {
+      flushText();
       out.push({ kind: "envelope", raw: parsed.raw });
       i = end;
     } else {
-      out.push({ kind: "markdown", text: "{" });
+      text += "{";
       i = brace + 1;
     }
   }
+  flushText();
   return out;
 }
 

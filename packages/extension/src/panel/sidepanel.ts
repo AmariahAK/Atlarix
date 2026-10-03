@@ -2563,7 +2563,7 @@ async function handleAuthLoss(message: string): Promise<void> {
 
 for (const button of providerButtons) {
   button.addEventListener("click", () => {
-    const provider = button.dataset.provider as OAuthProvider | undefined;
+    const provider = button.dataset.provider as OAuthProvider | "email" | undefined;
     if (!provider) return;
 
     // Disable every provider for the round trip. A second click would start a
@@ -2604,7 +2604,9 @@ for (const button of providerButtons) {
  * Registered once at load. `onGroupClosed` reports which WINDOW went away, so a
  * group closed in another window does not cancel a turn the user can see.
  */
-onGroupClosed((windowId) => {
+onGroupClosed((windowId, client) => {
+  // The CLI's group closing is the CLI's business, not this panel's turn.
+  if (client !== "app") return;
   void currentWindowId().then((mine) => {
     if (windowId !== mine || !running) return;
     running.abort();

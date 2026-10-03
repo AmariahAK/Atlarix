@@ -48,6 +48,7 @@ import { registerCommandPermissionHandlers } from "./handlers/command_permission
 import { registerFilePermissionHandlers } from "./handlers/file_permission_handlers";
 import { registerDoctorHandlers } from "./handlers/doctor_handlers";
 import { registerPlanArtifactHandlers } from "./handlers/plan_artifact_handlers";
+import { registerRelicHandlers } from "./handlers/relic_handlers";
 import { registerRemoteSshHandlers } from "../main/remote-ssh/remote_ssh_handlers";
 import "./handlers/dev_server_handlers"; // Auto-registers on import (Lovable-style live preview)
 
@@ -98,6 +99,7 @@ export function registerIpcHandlers() {
   registerTourHandlers(); // Shepherd tour state (electron-store–style local JSON)
   registerCommunityHandlers(); // Discord invite metadata for Community dialog
   registerPlanArtifactHandlers();
+  registerRelicHandlers();
   registerCommandPermissionHandlers();
   registerFilePermissionHandlers();
   registerDoctorHandlers();

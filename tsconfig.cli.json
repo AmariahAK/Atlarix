@@ -1,0 +1,10 @@
+{
+  // Everything the app config checks, plus src/cli/tui (which it excludes):
+  // those files use opentui's JSX through their `@jsxImportSource` pragma.
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.cli.tsbuildinfo"
+  },
+  "include": ["src", "shared"],
+  "exclude": []
+}

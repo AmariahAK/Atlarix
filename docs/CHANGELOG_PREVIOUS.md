@@ -1,13 +1,28 @@
 # Atlarix Changelog — archive
 
-> One line per version. Full prose for the current window is in
-> [`CHANGELOG.md`](./CHANGELOG.md), which keeps roughly the last ten releases; older
+> One line per version, before 15.0. Full prose for the current major is in
+> [`CHANGELOG.md`](./CHANGELOG.md); older
 > prose lives in git history (`git log -p -- docs/CHANGELOG.md`).
 >
 > Collapsed 2026-09-09. It had grown to 2,212 lines of release notes for versions
 > nobody is running — the app auto-updates — while the question it actually gets asked
 > is "when did X ship?", which a one-line index answers better than prose does.
 
+- **14.52.4** (2026-09-26) — A failed step stays marked as failed after the turn ends
+- **14.52.3** (2026-09-26) — Chrome tabs open the way models expect, and a dropped connection no longer ends the turn
+- **14.52.2** (2026-09-25) — The Windows Chrome fix actually reaches Windows
+- **14.52.1** (2026-09-25) — The Chrome connection works on Windows
+- **14.52.0** (2026-09-25) — One browser, two sub-agents, two web tools, and titles that are titles
+- **14.51.0** (2026-09-23) — One Atlarix Auto for everyone, and the browser moves out of the way
+- **14.50.0** (2026-09-22) — Dictation goes where the audio can actually go, and the app stops holding what it cannot use
+- **14.49.0** (2026-09-21) — The model has a name again, and the sidebar stops shouting
+- **14.48.1** (2026-09-17) — The Chrome extension works in Arc, and shows its work
+- **14.48.0** (2026-09-17) — Atlarix can drive the browser you are already signed into
+- **14.47.0** (2026-09-16) — Onboarding runs at all now, and the light theme has surfaces
+- **14.46.1** (2026-09-15) — A crash that replaced the whole app is fixed
+- **14.46.0** (2026-09-15) — Atlarix makes you files, and starts speaking to your own browser
+- **14.45.0** (2026-09-09) — The app is free, the meter is honest, and skills live in your repo
+- **14.44.0** (2026-09-09) — The app is free, and the meter is honest
 - **14.43.0** (2026-09-08) — It speaks your language
 - **14.42.0** (2026-09-03) — Talk to it while it is working
 - **14.41.0** (2026-09-02) — The context meter starts telling the truth

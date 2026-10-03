@@ -56,14 +56,63 @@ export const app = {
 // missing function throws rather than degrading — which is how it reached the
 // model as "This model failed (...)" instead of a window warning.
 export const BrowserWindow = {
-  getAllWindows: () => [] as unknown[],
+  getAllWindows: () => (cliWindow ? [cliWindow] : []) as unknown[],
   getFocusedWindow: () => null,
 };
 
-export const safeStorage = {
+/**
+ * The interactive CLI stands in for the app's window. Main-process code
+ * broadcasts to every window (the mid-turn message queue, session titles,
+ * background jobs); with no window those went nowhere. Batch runs attach none.
+ * Reports itself focused, so nothing raises an OS notification for a terminal.
+ */
+let cliWindow: unknown = null;
+
+export function attachCliWindow(send: (channel: string, payload: unknown) => void): void {
+  const webContents = {
+    id: 1,
+    isDestroyed: () => false,
+    isCrashed: () => false,
+    send,
+  };
+  cliWindow = {
+    id: 1,
+    webContents,
+    isDestroyed: () => false,
+    isFocused: () => true,
+    isVisible: () => true,
+    isMinimized: () => false,
+    focus: noop,
+    show: noop,
+  };
+}
+
+interface SafeStorageImpl {
+  isEncryptionAvailable(): boolean;
+  encryptString(s: string): Buffer;
+  decryptString(b: Buffer): string;
+}
+
+/** Batch runs: no OS encryption (secrets stay in their throwaway folder). */
+let safeStorageImpl: SafeStorageImpl = {
   isEncryptionAvailable: () => false,
   encryptString: (s: string) => Buffer.from(s, "utf8"),
   decryptString: (b: Buffer) => b.toString("utf8"),
+};
+
+/**
+ * The interactive CLI installs the desktop's own OS key here
+ * (src/runtime/oscrypt.ts), so EVERY secret store — provider keys, the sign-in
+ * session, MCP credentials — reads and writes what the desktop app does.
+ */
+export function setSafeStorageImpl(impl: SafeStorageImpl): void {
+  safeStorageImpl = impl;
+}
+
+export const safeStorage = {
+  isEncryptionAvailable: () => safeStorageImpl.isEncryptionAvailable(),
+  encryptString: (s: string) => safeStorageImpl.encryptString(s),
+  decryptString: (b: Buffer) => safeStorageImpl.decryptString(b),
 };
 
 export const dialog = {

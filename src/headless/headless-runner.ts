@@ -7,6 +7,7 @@
  * Provider is a custom OpenAI-compatible endpoint (DeepSeek/Atlarix Core/Ollama)
  * resolved by `getModelClient` from a seeded DB row + settings.
  */
+import { workspaceAppIdForPath } from "@/lib/workspace-app-by-path";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -82,6 +83,14 @@ const PROVIDER_ID = "atlarix-headless";
 export async function runHeadlessAgent(
   opts: RunHeadlessOptions,
 ): Promise<RunHeadlessResult> {
+  // Batch runs rewrite user-settings.json (the model, a plaintext key) and add a
+  // workspace row per run. That is right for their throwaway folder and wrong
+  // for a person's desktop data, which the interactive CLI shares.
+  if (process.env.ATLARIX_DB_SHARED === "1") {
+    throw new Error(
+      "atlarix run cannot use the desktop app's data folder (ATLARIX_DB_SHARED=1). Unset it, or point ATLARIX_USER_DATA_DIR at a separate folder.",
+    );
+  }
   // No self-imposed deadline by default: whoever launched this owns the timeout.
   // A benchmark orchestrator already enforces one (Terminal-Bench 4.0 allows eight
   // hours), and the old 10-minute default silently capped every long task ~48x
@@ -153,15 +162,9 @@ export async function runHeadlessAgent(
       opts.provider.openrouterProviderJson;
   }
 
-  // Seed the workspace app row at the target directory.
-  const appRows = await db
-    .insert(schema.apps)
-    .values({
-      name: path.basename(opts.workspaceDir) || "headless",
-      path: opts.workspaceDir,
-    })
-    .returning({ id: schema.apps.id });
-  const appId = appRows[0].id;
+  // The workspace row for the target directory: reused when the folder already
+  // has one (a shared data folder), so repeated runs don't add duplicates.
+  const appId = await workspaceAppIdForPath(opts.workspaceDir);
 
   // Settings: build mode + the provider/model + its key (plaintext; safeStorage
   // is unavailable headless). readSettings merges this over DEFAULT_SETTINGS.
@@ -255,8 +258,29 @@ export async function runHeadlessAgent(
     let completed = true;
     try {
       await Promise.all([endPromise, approvePromise]);
-    } catch {
+    } catch (e) {
       completed = false; // timed out / hung — caller still captures partial work
+      // Say WHY. A bare completed=false left a run that ended in 100ms looking
+      // identical to one that hit the deadline.
+      const errors = sender.sends
+        .filter((s) => s.channel === "chat:response:error")
+        .map((s) => JSON.stringify(s.payload).slice(0, 500));
+      console.error(
+        `[atlarix-headless] run did not complete: ${e instanceof Error ? e.message : String(e)}` +
+          (errors.length ? `\n  chat:response:error ${errors.join("\n  ")}` : ""),
+      );
+    }
+
+    // A turn that ended on an error (no key, the provider refused, Core said
+    // sign in) still ends cleanly; it is not a completed run. Counting it as
+    // one made the cloud action report "no changes" for a run that never
+    // reached the model.
+    const turnErrors = sender.sends.filter((s) => s.channel === "chat:response:error");
+    if (completed && turnErrors.length) {
+      completed = false;
+      console.error(
+        `[atlarix-headless] the run ended on an error:\n  ${turnErrors.map((s) => JSON.stringify(s.payload).slice(0, 500)).join("\n  ")}`,
+      );
     }
 
     trajectory?.recordRunEnd(completed);

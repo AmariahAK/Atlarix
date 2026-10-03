@@ -20,7 +20,8 @@ import {
   signOut,
   onAuthStateChange,
   handleAuthCallback,
-  type OAuthProvider,
+  type SignInMethod,
+  startEmailSignIn,
 } from "./auth/supabase-client";
 import type { Session } from "@supabase/supabase-js";
 // Shared, guarded, and already covered by broadcast-all-windows.test.ts. Both
@@ -613,11 +614,12 @@ export class SubscriptionManager {
   }
 
   /**
-   * Start OAuth flow with Google or GitHub
+   * Start a sign-in: OAuth with a provider, or email + password on atlarix.dev.
    */
   static async signIn(
-    provider: OAuthProvider,
+    provider: SignInMethod,
   ): Promise<{ error: Error | null }> {
+    if (provider === "email") return startEmailSignIn();
     return signInWithOAuth(provider);
   }
 

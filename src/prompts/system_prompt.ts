@@ -68,6 +68,15 @@ function resolvePromptShell(): string {
 let AGENTS_MD = "";
 
 const loadAgentsFile = (filename: string): string => {
+  // The CLI and headless builds name their own copy (src/headless/bundled-assets.ts),
+  // and when they do it is the ONLY candidate. Every other candidate below can
+  // resolve into the user's repository: `cwd` directly, and `app.getAppPath()`
+  // too, because the headless electron stub answers it with `cwd`. There the
+  // repo's own AGENTS.md (the common agent-instructions file) replaced
+  // Atlarix's guidance wholesale — observed: a 21-byte file became the entire
+  // system prompt.
+  const shipped = process.env.ATLARIX_AGENTS_FILE;
+  if (shipped) return readAgentsFile(filename, [shipped]);
   const paths: string[] = [
     path.join(process.cwd(), filename),
     // Headless bundle ships AGENTS*.md beside the .mjs (build-headless.mjs);
@@ -94,6 +103,10 @@ const loadAgentsFile = (filename: string): string => {
     // not in Electron or app not ready
   }
 
+  return readAgentsFile(filename, paths);
+};
+
+function readAgentsFile(filename: string, paths: string[]): string {
   for (const p of paths) {
     try {
       if (fs.existsSync(p)) {
@@ -111,7 +124,7 @@ const loadAgentsFile = (filename: string): string => {
 
   logger.warn(`${filename} not found`);
   return "";
-};
+}
 
 // Load at startup
 AGENTS_MD = loadAgentsFile("AGENTS.md");

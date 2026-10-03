@@ -78,6 +78,8 @@ await build({
     electron: path.join(root, "src/headless/electron-stub.ts"),
     "@sentry/electron/main": path.join(root, "src/headless/sentry-stub.ts"),
     "@": path.join(root, "src"),
+    // The files shipped beside the bundle (copied below).
+    "atlarix:assets": path.join(root, "src/runtime/assets-node.ts"),
   },
   // ESM bundle needs require()/__dirname/__filename shimmed: deps and our own
   // code use CJS interop and `__dirname`-relative asset lookups (system prompt,

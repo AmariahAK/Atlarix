@@ -131,6 +131,8 @@ export default defineConfig({
             "src/__tests__/renderer/**",
             "tests/**",
             "packages/**",
+            // Run by `bun test` (they import bun:sqlite), never by vitest.
+            "tests-bun/**",
           ],
         },
       },

@@ -66,13 +66,19 @@ export function useAuth() {
   /** True after Sign in until `oauth-callback-success` or IPC error */
   const [oauthPending, setOauthPending] = useState(false);
   const [oauthProvider, setOauthProvider] = useState<
-    "google" | "github" | "discord" | null
+    "google" | "github" | "discord" | "email" | null
   >(null);
   const [oauthStatusLabel, setOauthStatusLabel] = useState("");
 
   useEffect(() => {
     if (!oauthPending || !oauthProvider) {
       setOauthStatusLabel("");
+      return;
+    }
+    // Email is finished by the user in their browser, at their own pace; the
+    // progress script below would claim work that is not happening.
+    if (oauthProvider === "email") {
+      setOauthStatusLabel("Finish signing in in your browser...");
       return;
     }
     const started = Date.now();
@@ -428,7 +434,7 @@ export function useAuth() {
    * user's browser; the callback is handled in main.
    */
   const startOAuth = useCallback(
-    async (provider: "google" | "github" | "discord") => {
+    async (provider: "google" | "github" | "discord" | "email") => {
       try {
         const ipcRenderer = window.electron?.ipcRenderer;
         if (!ipcRenderer?.invoke) {
@@ -467,6 +473,10 @@ export function useAuth() {
   );
   const signInWithDiscord = useCallback(
     () => startOAuth("discord"),
+    [startOAuth],
+  );
+  const signInWithEmail = useCallback(
+    () => startOAuth("email"),
     [startOAuth],
   );
 
@@ -573,6 +583,7 @@ export function useAuth() {
     signInWithGoogle,
     signInWithGitHub,
     signInWithDiscord,
+    signInWithEmail,
     signOut,
     refreshStatus: fetchPlanInfo,
     refreshPlan,

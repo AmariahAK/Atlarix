@@ -30,13 +30,15 @@ any repo size. The agent has a workspace. You have control.
 
 **Created by [NorahLabs](https://norahlabs.com)** (Nairobi, Kenya)  
 **Website:** [atlarix.dev](https://atlarix.dev)  
-**Current release:** **v14.50.0**
+**Current release:** **v15.0.0**
 
 **Downloads:** Installers for **macOS**, **Linux**, and **Windows** are on [atlarix.dev](https://atlarix.dev). _(Windows builds are currently unsigned; code signing is coming soon.)_
 
+**In your terminal:** `curl -fsSL https://atlarix.dev/install | sh` (macOS, Linux), `irm https://atlarix.dev/install.ps1 | iex` (Windows), `brew install amariahak/atlarix/atlarix`, or `npm i -g atlarix`.
+
 **Open ecosystem (source / installers / registries):** the **MCP marketplace index** is [AmariahAK/atlarix-mcps](https://github.com/AmariahAK/atlarix-mcps); official desktop builds are published from [AmariahAK/atlarix-releases](https://github.com/AmariahAK/atlarix-releases). The Atlarix app itself is proprietary.
 
-Release notes: **[docs/CHANGELOG.md](docs/CHANGELOG.md)** — the last ten releases in full. Everything older is one line per version in **[docs/CHANGELOG_PREVIOUS.md](docs/CHANGELOG_PREVIOUS.md)**; the prose is in git history.
+Release notes: **[docs/CHANGELOG.md](docs/CHANGELOG.md)** — the current major (15.x) in full. Everything older is one line per version in **[docs/CHANGELOG_PREVIOUS.md](docs/CHANGELOG_PREVIOUS.md)**; the prose is in git history.
 
 ---
 

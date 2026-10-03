@@ -25,15 +25,8 @@ export function commandSegments(command: string): string[] {
       .split(/&&|\|\||&(?!&)|[;\n|]/)
       .map((s) => s.trim())
       .filter(Boolean)
-      // strip benign leading wrappers (cd DIR, env VAR=…, time, nice) — NOT sudo
-      .map((s) =>
-        s
-          .replace(
-            /^(?:cd\s+[^\s;&]+\s*|env\s+\w+=\S+\s+|time\s+|nice\s+(?:-n\s+-?\d+\s+)?)+/i,
-            "",
-          )
-          .trim(),
-      )
+      // strip leading pass-through wrappers and assignments — NOT sudo
+      .map((s) => stripLeadingWrappers(s))
       .filter(Boolean)
   );
 }
@@ -46,9 +39,30 @@ export function commandSegments(command: string): string[] {
 const SAFE_REDIRECT_RE = /(?:&|\d*)>>?\s*\/dev\/null|\d*>&\d/g;
 /** Pipeline/chain separators (`&&`, `||`, `|`, `&`, `;`, newline). */
 const SEGMENT_SPLIT_RE = /&&|\|\||[|&;\n]/;
-/** Benign leading wrappers stripped off a segment (NOT `env`/`sudo`). */
-const LEADING_WRAPPER_RE =
-  /^(?:cd\s+[^\s;&|]+\s*|time\s+|nice\s+(?:-n\s+-?\d+\s+)?)+/i;
+/**
+ * What may stand in front of the command a segment really runs, and is stripped
+ * before it is classified: `cd DIR`, the shell's per-command environment
+ * (`NAME=value`, quoted or not), and wrappers that just run their argument
+ * (`env`, `command`, `builtin`, `exec`, `nohup`, `time`, `nice`). NOT `sudo`,
+ * which changes what the command may do and is classified as itself.
+ *
+ * ONE definition for both segmenters. Before it, the permission gate stripped
+ * none of `NAME=value`, `env`, `command`, `exec`, `nohup`, so the first word of
+ * `X=1 rm a.txt` was "x=1": not a risky command, not an installer, so it ran
+ * without asking. `X=1 curl …` and `FOO=bar ssh host` went through the same way.
+ */
+const ASSIGNMENT = String.raw`[A-Za-z_][A-Za-z0-9_]*=(?:'[^']*'|"(?:[^"\\]|\\.)*"|[^\s;&|'"]*)\s+`;
+const LEADING_PREFIX_RE = new RegExp(
+  String.raw`^(?:cd\s+[^\s;&|]+\s*|time\s+(?:-p\s+)?|nice\s+(?:-n\s*-?\d+\s+|-\d+\s+)?|nohup\s+|command\s+(?:-p\s+)?|builtin\s+|exec\s+|env\s+(?:-i\s+|-u\s+\S+\s+)*|` +
+    ASSIGNMENT +
+    ")+",
+  "i",
+);
+
+/** A segment without its leading wrappers and assignments (see LEADING_PREFIX_RE). */
+export function stripLeadingWrappers(segment: string): string {
+  return segment.trim().replace(LEADING_PREFIX_RE, "").trim();
+}
 
 /**
  * Blank balanced quoted spans so the remainder is unquoted shell syntax. Single
@@ -116,6 +130,6 @@ export function quoteAwareSegments(command: string): string[] | null {
   segments.push(trimmed.slice(last));
 
   return segments
-    .map((s) => s.trim().replace(LEADING_WRAPPER_RE, "").trim())
+    .map((s) => stripLeadingWrappers(s))
     .filter(Boolean);
 }

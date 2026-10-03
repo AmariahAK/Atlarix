@@ -4,6 +4,8 @@ import { createLoggedHandler } from "./safe_handle";
 import {
   getPlanArtifact,
   listPlanArtifactsForSession,
+  listPlanArtifactsForWorkspace,
+  copyPlanArtifactToSession,
   setPlanArtifactStatus,
   updatePlanArtifactContent,
   withPlanArtifactLock,
@@ -69,6 +71,37 @@ export function registerPlanArtifactHandlers(): void {
       if (!sessionId?.trim()) return [];
       const rows = await listPlanArtifactsForSession(sessionId);
       return rows.map(toPayload);
+    },
+  );
+
+  // Plans from this folder's OTHER sessions ("Earlier sessions" in the panel's
+  // switcher): a plan outlives the session it was written in.
+  handle(
+    "plans:list-by-workspace",
+    async (
+      _event,
+      params: { workspaceId: number; excludeSessionId?: string },
+    ): Promise<Array<PlanArtifactPayload & { sessionTitle: string | null }>> => {
+      if (!params?.workspaceId) return [];
+      const rows = await listPlanArtifactsForWorkspace(params.workspaceId, {
+        excludeSessionId: params.excludeSessionId,
+      });
+      return rows.map((r) => ({ ...toPayload(r), sessionTitle: r.sessionTitle }));
+    },
+  );
+
+  // "Use in this session": copy an earlier session's plan here to build it.
+  handle(
+    "plans:copy-to-session",
+    async (
+      _event,
+      params: { planId: string; sessionId: string },
+    ): Promise<PlanArtifactPayload> => {
+      const row = await copyPlanArtifactToSession(params.planId, params.sessionId);
+      if (!row) throw new Error("Plan artifact not found");
+      const payload = toPayload(row);
+      broadcastPlanEvent("plan:artifact-updated", payload);
+      return payload;
     },
   );
 

@@ -54,7 +54,10 @@ export function registerAuthHandlers() {
   // Sign in with OAuth provider
   ipcMain.handle(
     "auth:sign-in",
-    async (_, { provider }: { provider: "google" | "github" | "discord" }) => {
+    async (
+      _,
+      { provider }: { provider: "google" | "github" | "discord" | "email" },
+    ) => {
       logger.log(`[AuthHandlers] Sign in requested with ${provider}`);
 
       try {

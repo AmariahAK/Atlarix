@@ -24,6 +24,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { CLI_TARGETS } from "./cli-targets.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const src = path.join(root, "dist-headless");
@@ -79,7 +80,11 @@ const rootVersion = JSON.parse(
 const pkgPath = path.join(pkgDir, "package.json");
 const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
 pkg.version = rootVersion;
+// The compiled CLI per platform (release.yml publish-cli-npm). Pinned to this
+// exact version; npm installs only the one whose os/cpu/libc match.
+pkg.optionalDependencies = Object.fromEntries(CLI_TARGETS.map((t) => [`atlarix-${t.name}`, rootVersion]));
 fs.writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
+fs.chmodSync(path.join(pkgDir, "bin", "atlarix.js"), 0o755);
 
 // `bin` targets are executed directly by the shell via the symlink npm creates.
 fs.chmodSync(path.join(dest, "atlarix-headless.mjs"), 0o755);

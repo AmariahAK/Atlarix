@@ -48,8 +48,11 @@ vi.mock("../page/inject", () => ({
 }));
 vi.mock("../tabs/group", () => ({
   adoptTab: vi.fn(async () => {}),
+  noteAgentClosingTab: vi.fn(),
   isAgentTab: (...a: unknown[]) => isAgentTabMock(...a),
   setGroupTitle: (...a: unknown[]) => setGroupTitleMock(...a),
+  groupTitle: (client = "app", working = false) =>
+    `${client === "cli" ? "Atlarix CLI" : "Atlarix"}${working ? " · working" : ""}`,
 }));
 vi.mock("../page/cdp-capture", () => ({
   beginCapture: (...a: unknown[]) => beginCaptureMock(...a),
@@ -439,7 +442,7 @@ describe("every page op says so on the page", () => {
   it("retitles the group while it works", async () => {
     runInPage.mockResolvedValue({ ok: true, text: "t", clipped: false });
     await call("read_page", {});
-    expect(setGroupTitleMock).toHaveBeenCalledWith(expect.any(Number), "Atlarix · working");
+    expect(setGroupTitleMock).toHaveBeenCalledWith(expect.any(Number), "Atlarix · working", "app");
   });
 
   it("does not fail the action when the page refuses decoration", async () => {
@@ -577,5 +580,34 @@ describe("visual, design and network_body", () => {
     const reply = await call("network_body", { tab_id: 7, request_id: "r1" });
     expect(reply.ok).toBe(true);
     expect(readNetworkBodyMock).toHaveBeenCalledWith(7, "r1");
+  });
+});
+
+describe("the CLI's requests", () => {
+  it("work in the CLI's own tab group", async () => {
+    runInPage.mockResolvedValue({ ok: true, text: "t", clipped: false });
+    await call("read_page", { client: "cli" });
+    expect(setGroupTitleMock).toHaveBeenCalledWith(expect.any(Number), "Atlarix CLI · working", "cli");
+  });
+});
+
+describe("search, for an Atlarix with no browser of its own", () => {
+  it("reads Brave's results in a background tab of the caller's group", async () => {
+    runInPage.mockImplementation(async (_tab: number, req: { op: string }) =>
+      req.op === "search-results" ? { results: [{ title: "T", url: "https://t.dev", snippet: "s" }] } : { ok: true },
+    );
+    const reply = await call("search", { query: "bun compile", client: "cli" });
+    expect(reply).toMatchObject({ ok: true, result: { engine: "brave", challenged: false, results: [{ title: "T" }] } });
+    expect(tabsCreate).toHaveBeenCalledWith({ url: "about:blank", active: false });
+    expect(tabsUpdate).toHaveBeenCalledWith(9, { url: "https://search.brave.com/search?q=bun%20compile" });
+  });
+
+  it("falls back to DuckDuckGo, and says when both engines refused", async () => {
+    runInPage.mockImplementation(async (_tab: number, req: { op: string }) =>
+      req.op === "search-results" ? { results: [] } : { ok: true },
+    );
+    const reply = await call("search", { query: "x" });
+    expect(reply).toMatchObject({ ok: true, result: { engine: null, results: [], challenged: true } });
+    expect(tabsUpdate).toHaveBeenCalledWith(9, { url: "https://duckduckgo.com/?q=x" });
   });
 });

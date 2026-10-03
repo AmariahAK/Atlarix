@@ -28,6 +28,17 @@
  * replies to requests by arrival order would silently swap two results, and the
  * model would reason about the wrong page with no error anywhere. So every
  * request carries an id and every reply is looked up by it.
+ *
+ * ══ ONE BROWSER, SEVERAL ATLARIX PROCESSES ══
+ *
+ * The desktop app and the `atlarix` CLI can run at once, and both may want the
+ * browser. Only one can own the socket the relay dials, so the first to start
+ * HOSTS (this class) and also listens on a second, peers-only socket
+ * (`peersSocketPath`). A later process finds the main socket live and connects
+ * there as a peer (peer.ts): its requests are forwarded through the host's own
+ * `request()`, so they share its correlation and timeouts, and each reply goes
+ * back to the peer that asked. When the host exits, a peer takes over the main
+ * socket and the extension's reconnect finds it there.
  */
 
 import net from "node:net";
@@ -92,6 +103,15 @@ export interface BridgeServerOptions {
   onLog?: (message: string) => void;
   /** Override `HELLO_DEADLINE_MS` — tests only. */
   helloDeadlineMs?: number;
+  /** Also serve other Atlarix processes here (see the docblock). */
+  peersSocketPath?: string;
+}
+
+/** What a host tells its peers about the browser. */
+export interface PeerStatus {
+  type: "status";
+  connected: boolean;
+  hellos: BridgeHello[];
 }
 
 export class BridgeServer {
@@ -99,6 +119,8 @@ export class BridgeServer {
   private peers = new Set<Peer>();
   private pending = new Map<string, Pending>();
   private nextId = 1;
+  private peersServer: net.Server | null = null;
+  private peerClients = new Set<net.Socket>();
 
   constructor(private readonly opts: BridgeServerOptions) {}
 
@@ -157,6 +179,69 @@ export class BridgeServer {
       await fs.chmod(this.opts.socketPath, 0o600).catch(() => {});
     }
     this.log(`listening on ${this.opts.socketPath}`);
+    if (this.opts.peersSocketPath) await this.listenForPeers(this.opts.peersSocketPath);
+  }
+
+  /** The socket other Atlarix processes use the browser through. */
+  private async listenForPeers(socketPath: string): Promise<void> {
+    if (!socketPath.startsWith("\\\\")) await fs.rm(socketPath, { force: true }).catch(() => {});
+    const server = net.createServer((socket) => this.acceptPeerClient(socket));
+    server.on("error", (err) => this.log(`peers socket error: ${err.message}`));
+    try {
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(socketPath, () => {
+          server.off("error", reject);
+          resolve();
+        });
+      });
+    } catch (err) {
+      // The browser still works for this process; others just can't share it.
+      this.log(`could not open the peers socket: ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
+    this.peersServer = server;
+    if (!socketPath.startsWith("\\\\")) await fs.chmod(socketPath, 0o600).catch(() => {});
+  }
+
+  private acceptPeerClient(socket: net.Socket): void {
+    this.peerClients.add(socket);
+    const reader = new FrameReader();
+    socket.write(encodeFrame(this.status()));
+    socket.on("data", (chunk: Buffer) => {
+      let messages: unknown[];
+      try {
+        messages = reader.push(chunk);
+      } catch {
+        socket.destroy();
+        return;
+      }
+      for (const m of messages) {
+        const body = (m ?? {}) as { type?: string; id?: string; op?: string; args?: Record<string, unknown>; timeoutMs?: number };
+        if (body.type !== "request" || typeof body.id !== "string" || typeof body.op !== "string") continue;
+        const id = body.id;
+        this.request(body.op, body.args ?? {}, body.timeoutMs ?? REQUEST_TIMEOUT_MS).then(
+          (result) => !socket.destroyed && socket.write(encodeFrame({ type: "reply", id, ok: true, result })),
+          (err: unknown) =>
+            !socket.destroyed &&
+            socket.write(encodeFrame({ type: "reply", id, ok: false, error: err instanceof Error ? err.message : String(err) })),
+        );
+      }
+    });
+    const gone = () => this.peerClients.delete(socket);
+    socket.on("close", gone);
+    socket.on("error", gone);
+  }
+
+  private status(): PeerStatus {
+    return { type: "status", connected: this.connected, hellos: this.peerInfo };
+  }
+
+  /** Tell every peer process the browser came or went. */
+  private broadcastStatus(): void {
+    if (this.peerClients.size === 0) return;
+    const frame = encodeFrame(this.status());
+    for (const c of this.peerClients) if (!c.destroyed) c.write(frame);
   }
 
   private accept(socket: net.Socket): void {
@@ -189,6 +274,7 @@ export class BridgeServer {
     const done = () => {
       clearTimeout(deadline);
       this.peers.delete(peer);
+      this.broadcastStatus();
       // Anything still waiting on THIS peer will never be answered. Failing it
       // now turns a permanent hang into an error the caller can report.
       if (this.peers.size === 0) {
@@ -215,6 +301,7 @@ export class BridgeServer {
           `build ${String(body.buildId ?? "?")}`,
       );
       this.opts.onHello?.(peer.hello);
+      this.broadcastStatus();
       return;
     }
 
@@ -286,7 +373,9 @@ export class BridgeServer {
     }
 
     const id = `d${this.nextId++}`;
-    const frame = encodeFrame({ id, op, args } satisfies BridgeRequest);
+    // Which Atlarix is asking, so the extension keeps the app's and the CLI's
+    // tabs in separate groups. A peer's request already carries its own.
+    const frame = encodeFrame({ id, op, args: { client: thisClient(), ...args } } satisfies BridgeRequest);
 
     // Chrome silently DROPS a message over 1 MB on the way to an extension.
     // Silently: no error, no callback, the request simply never arrives and the
@@ -321,6 +410,15 @@ export class BridgeServer {
     this.pending.clear();
     for (const peer of this.peers) peer.socket.destroy();
     this.peers.clear();
+    // Peers see their socket close and one of them takes over (peer.ts).
+    for (const c of this.peerClients) c.destroy();
+    this.peerClients.clear();
+    const peersServer = this.peersServer;
+    this.peersServer = null;
+    if (peersServer) await new Promise<void>((resolve) => peersServer.close(() => resolve()));
+    if (this.opts.peersSocketPath && !this.opts.peersSocketPath.startsWith("\\\\")) {
+      await fs.rm(this.opts.peersSocketPath, { force: true }).catch(() => {});
+    }
 
     const server = this.server;
     this.server = null;
@@ -338,8 +436,13 @@ export class BridgeServer {
   }
 }
 
+/** This process as the extension knows it: the `atlarix` CLI, or the app. */
+export function thisClient(): "cli" | "app" {
+  return process.env.ATLARIX_SURFACE === "cli" ? "cli" : "app";
+}
+
 /** Is something actually accepting connections on this path right now? */
-function isSocketLive(socketPath: string): Promise<boolean> {
+export function isSocketLive(socketPath: string): Promise<boolean> {
   return new Promise((resolve) => {
     const probe = net.connect(socketPath);
     const done = (live: boolean) => {

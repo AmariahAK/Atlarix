@@ -682,8 +682,9 @@ export async function onReady() {
     }
 
     try {
-      if (choice === 0) {
+      if (choice === 0 && advice.kind !== "in-use") {
         // The homepage: installers live there, and there is no /download route.
+        // Not for "in-use": that one is fixed by closing the other program.
         void shell.openExternal("https://atlarix.dev");
       } else if (choice === 1) {
         // Reveals the file rather than opening it, so the folder (and the rotated
@@ -2122,6 +2123,12 @@ app.on("before-quit", (e) => {
           "./lib/agent/background-commands"
         );
         killAllBackgroundJobs();
+        // Foreground commands too: they run in their own process group and
+        // would otherwise outlive the app.
+        const { killAllShellProcesses } = await import(
+          "./ipc/utils/runShellCommand"
+        );
+        killAllShellProcesses();
       } catch (bgErr) {
         logger.warn("killAllBackgroundJobs on quit:", bgErr);
       }

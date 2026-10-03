@@ -34,6 +34,11 @@ import TurndownService from "turndown";
 const WEB_SEARCH_SETUP_HINT =
   "\n\n**If this keeps coming up empty:** search already runs through Atlarix's own browser, so there is nothing to install — try rephrasing as keywords rather than a question. If one site or domain is consistently thin, the user can connect a **search/web MCP** in Settings → Tools & MCP.";
 
+const CLI_WEB_SEARCH_UNAVAILABLE = (query: string) =>
+  `**No web results for "${query}". In the Atlarix CLI, web search runs through the Atlarix Chrome extension** ` +
+  "(install it and open its side panel once). Without it, add a search MCP server (any search API works that way). " +
+  "Tell the user so. `read_url` still works for a page whose address you know.";
+
 /** Default read budget per page (v13.1: raised from 5K — modern docs need more). */
 const READ_URL_DEFAULT_MAX = 20_000;
 const READ_URL_MAX_CAP = 50_000;
@@ -1072,6 +1077,10 @@ class WebSearchAggregator {
     results: SearchResult[],
   ): string {
     if (results.length === 0) {
+      // The `atlarix` CLI has no built-in browser, so the one search tier that
+      // passes engines' bot checks is missing there, and an empty answer would
+      // read as "nothing exists". Say what is actually going on.
+      if (process.env.ATLARIX_SURFACE === "cli") return CLI_WEB_SEARCH_UNAVAILABLE(originalQuery);
       return `**No results found for: "${originalQuery}"**\n\n💡 **Suggestions:**\n- Try different keywords\n- Be more specific\n- Check spelling${WEB_SEARCH_SETUP_HINT}`;
     }
 

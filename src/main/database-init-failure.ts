@@ -19,7 +19,11 @@
  * unit-testable, and this is where the decisions are.
  */
 
-import { UnknownDrizzleMigrationHashError } from "../db/migrate_atlarix";
+import {
+  DatabaseInUseForUpgradeError,
+  DatabaseNewerThanClientError,
+  UnknownDrizzleMigrationHashError,
+} from "../db/migrate_atlarix";
 
 export type DatabaseFailureKind =
   /** The native sqlite binding will not load — ABI mismatch, quarantined, missing. */
@@ -28,6 +32,11 @@ export type DatabaseFailureKind =
   | "downgrade"
   /** Disk full, or the app-data directory is not writable. */
   | "storage"
+  /**
+   * A data update that older builds cannot read is waiting for the other Atlarix
+   * program (app or CLI, which share the data) to close. Nothing is wrong.
+   */
+  | "in-use"
   /** Anything unrecognized. */
   | "unknown";
 
@@ -67,15 +76,31 @@ export function describeDatabaseInitFailure(
   // whose advice is the opposite of the others, and its message happens to mention
   // corruption ("re-applying SQL would corrupt DB"), which a text-first classifier
   // would happily read as a reason to wipe.
-  if (error instanceof UnknownDrizzleMigrationHashError) {
+  // DatabaseNewerThanClientError is the same situation arrived at through the
+  // CLI: the desktop app and the CLI share one database and update separately.
+  if (
+    error instanceof UnknownDrizzleMigrationHashError ||
+    error instanceof DatabaseNewerThanClientError
+  ) {
     return {
       kind: "downgrade",
       title: "Atlarix can't start",
       headline:
         "Your data was created by a newer version of Atlarix than this one. Installing that newer version again will open it. Nothing is damaged, and nothing needs deleting.",
       likelyCause:
-        "Usually a downgrade — an older installer run over a newer one, or a rollback.",
+        "Usually a downgrade — an older installer run over a newer one, or a rollback — or the Atlarix CLI, which shares this data, being updated before the app.",
       primaryActionLabel: "Get the newer version",
+    };
+  }
+
+  if (error instanceof DatabaseInUseForUpgradeError) {
+    return {
+      kind: "in-use",
+      title: "Atlarix is finishing an update",
+      headline: error.message,
+      likelyCause:
+        "The Atlarix app and the Atlarix CLI share your chats, and this update changes how they are stored.",
+      primaryActionLabel: "OK",
     };
   }
 

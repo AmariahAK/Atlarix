@@ -95,6 +95,7 @@ import { systemReminder } from "@/lib/streaming/system-reminder";
 import { buildStepMessages } from "@/lib/streaming/step-messages";
 import {
   AI_STREAMING_ERROR_MESSAGE_PREFIX,
+  byokLimitUserMessage,
   modelFailureUserMessage,
 } from "@/shared/texts";
 import type { StreamTurnContext } from "@/ipc/handlers/chat_stream/turn-context";
@@ -995,11 +996,22 @@ export async function simpleStreamText(
         // instead of the scary provider dump.
         message = imageUnsupportedUserMessage();
       } else if (modelClient.builtinProviderId === "compass") {
+        // A turn the proxy had to start before the model answered (its
+        // `commitEarly`) cannot fail with an HTTP status any more. It arrives as
+        // an in-stream error event instead, carrying the original status as
+        // `code` and the original body as `message`.
+        const late =
+          (error as any)?.error?.type === "atlarix_late_error"
+            ? (error as any).error
+            : null;
         const statusCode =
-          (error as any)?.statusCode ?? (error as any)?.error?.statusCode;
+          (error as any)?.statusCode ??
+          (error as any)?.error?.statusCode ??
+          (typeof late?.code === "number" ? late.code : undefined);
         const rawBody =
           (error as any)?.responseBody ??
           (error as any)?.error?.responseBody ??
+          late?.message ??
           "";
         const bodyStr =
           typeof rawBody === "string" ? rawBody : JSON.stringify(rawBody ?? "");
@@ -1049,7 +1061,9 @@ export async function simpleStreamText(
           }
         }
       } else {
-        message = modelFailureUserMessage(message);
+        message =
+          byokLimitUserMessage(message, modelClient.builtinProviderId) ??
+          modelFailureUserMessage(message);
       }
       logger.error(
         `AI stream text error for request: errorMessage=${errorMessage} error=`,
@@ -1082,6 +1096,12 @@ export async function simpleStreamText(
     logger.warn.bind(logger),
     "chat_stream",
   );
+  // Read here, eagerly, so it exists before anything awaits it — and a turn
+  // that ENDS by abort (ask_user, a stop, the ledger) never awaits it at all,
+  // which left its rejection unhandled on every such turn. Observing it once
+  // here costs nothing; callers that await it still see the rejection.
+  const responseMessages = streamResult.responseMessages;
+  void Promise.resolve(responseMessages).catch(() => {});
   return {
     // `fullStream` is the deprecated spelling of `stream` in ai@7 (same
     // type). Our own bundle key stays `fullStream` so consumers are
@@ -1099,7 +1119,7 @@ export async function simpleStreamText(
      * turn-1's native tool exchange whenever the final step was plain
      * text, and broke native-history folding (B1/B2) across turns.
      */
-    responseMessages: streamResult.responseMessages,
+    responseMessages,
     /** Completed-step native messages captured for stall-resume.
      * Snapshot (not live) so a later read can't see post-abort mutation. */
     getResumeMessages: (): ModelMessage[] => completedStepMessages.slice(),

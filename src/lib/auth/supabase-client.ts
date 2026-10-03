@@ -16,6 +16,7 @@ import {
   SupportedStorage,
 } from "@supabase/supabase-js";
 import log from "electron-log";
+import { randomBytes } from "node:crypto";
 import { clipboard, dialog, shell } from "electron";
 import {
   createSecureSupabaseStorage,
@@ -193,7 +194,126 @@ export function cancelPendingOAuthTimeout(): void {
   }
 }
 
+/**
+ * Open a sign-in URL in the user's browser and arm the deep-link watchdog.
+ *
+ * Shared by OAuth and email sign-in: both finish on the same
+ * `atlarix://auth/callback`, so both need the C4 flow marker, the 60s
+ * "Sign-in not completing?" fallback and the Linux copy-the-link dialog.
+ */
+async function openSignInUrl(
+  url: string,
+  fallbackAfterMs = 60_000,
+): Promise<void> {
+  // A second click replaces the first flow; its watchdog must not fire later.
+  cancelPendingOAuthTimeout();
+  // C4: record that THIS app started a sign-in flow, so an unsolicited
+  // auth callback (no flow pending) is rejected in handleAuthCallback.
+  markAuthFlowStarted();
+  // Open the OAuth URL in the user's default browser
+  logger.log(`[Supabase] Opening OAuth URL in browser`);
+  let browserOpened = false;
+  try {
+    await shell.openExternal(url);
+    browserOpened = true;
+    logger.log("[Supabase] shell.openExternal succeeded");
+  } catch (openErr) {
+    logger.error("[Supabase] shell.openExternal failed:", openErr);
+  }
+
+  // Inbound deep-link timeout: if atlarix://auth/callback is not received within
+  // 60 seconds (e.g. deep link handler not registered on Linux / VM environments),
+  // show a fallback dialog so the user can copy the OAuth URL manually.
+  if (browserOpened) {
+    const oauthUrlForFallback = url;
+    _oauthTimeoutHandle = setTimeout(async () => {
+      _oauthTimeoutHandle = null;
+      logger.warn(
+        `[Supabase] Sign-in inbound timeout — deep link not received after ${fallbackAfterMs / 1000}s`,
+      );
+      const linuxCommands =
+        process.platform === "linux"
+          ? "\n\nTo register the deep link handler on Linux, run in Terminal:\n  xdg-mime default atlarix.desktop x-scheme-handler/atlarix\n  update-desktop-database ~/.local/share/applications\n\nThen try signing in again."
+          : "";
+      const { response } = await dialog.showMessageBox({
+        type: "info",
+        title: "Sign-in not completing?",
+        message:
+          `Atlarix has been waiting ${fallbackAfterMs / 1000} seconds for the sign-in to come back.\n\nThe deep link handler may not be registered on your system.`,
+        detail: `Sign-in URL (open this in your browser if the redirect didn't work):\n${oauthUrlForFallback}${linuxCommands}`,
+        buttons: ["Copy Link", "Dismiss"],
+        defaultId: 0,
+        cancelId: 1,
+      });
+      if (response === 0) {
+        clipboard.writeText(oauthUrlForFallback);
+        logger.log(
+          "[Supabase] OAuth URL copied via 60s inbound timeout fallback",
+        );
+      }
+    }, 60_000);
+  }
+
+  // Linux/AppImage fallback: allow the user to copy the URL manually if browser launch fails.
+  if (!browserOpened && process.platform === "linux") {
+    logger.warn(
+      "[Supabase] Browser open failed on Linux — showing fallback dialog",
+    );
+    const { response } = await dialog.showMessageBox({
+      type: "info",
+      title: "Open this link to sign in",
+      message:
+        "Atlarix could not open your browser automatically.\n\nCopy the link below and paste it into your browser:",
+      detail: url,
+      buttons: ["Copy Link", "Cancel"],
+      defaultId: 0,
+      cancelId: 1,
+    });
+    if (response === 0) {
+      clipboard.writeText(url);
+      logger.log(
+        "[Supabase] OAuth URL copied to clipboard via fallback dialog",
+      );
+    }
+  }
+}
+
 export type OAuthProvider = "google" | "github" | "discord";
+
+/** Every way into an account: an OAuth provider, or email + password on atlarix.dev. */
+export type SignInMethod = OAuthProvider | "email";
+
+/**
+ * Email + password happens on atlarix.dev, not here: Turnstile only renders on
+ * a hostname registered to its site key, and Supabase refuses a password
+ * sign-in without its token. The site signs in with a client that stores
+ * nothing and redirects to `atlarix://auth/callback` with the tokens AND the
+ * `state` we sent, which `handleAuthCallback` checks.
+ */
+const EMAIL_SIGN_IN_URL = "https://atlarix.dev/auth/app";
+
+/**
+ * The state nonce of the email sign-in in flight, or null. Unlike OAuth, this
+ * flow round-trips a nonce: the site controls the redirect, so no Supabase
+ * allowlist stands in the way.
+ */
+let _pendingAuthState: string | null = null;
+
+export async function startEmailSignIn(): Promise<{ error: Error | null }> {
+  const state = randomBytes(24).toString("base64url");
+  _pendingAuthState = state;
+  const url = `${EMAIL_SIGN_IN_URL}?client=desktop&state=${state}`;
+  logger.log("[Supabase] Starting email sign-in via atlarix.dev");
+  try {
+    // Longer than OAuth's 60s: the user types an email and a password and
+    // solves a check before anything comes back.
+    await openSignInUrl(url, 180_000);
+    return { error: null };
+  } catch (err) {
+    _pendingAuthState = null;
+    return { error: err instanceof Error ? err : new Error("Unknown error") };
+  }
+}
 
 /**
  * Start OAuth flow - opens browser for authentication
@@ -239,75 +359,11 @@ export async function signInWithOAuth(
     }
 
     if (data?.url) {
-      // C4: record that THIS app started a sign-in flow, so an unsolicited
-      // auth callback (no flow pending) is rejected in handleAuthCallback.
-      markAuthFlowStarted();
-      // Open the OAuth URL in the user's default browser
-      logger.log(`[Supabase] Opening OAuth URL in browser`);
-      let browserOpened = false;
-      try {
-        await shell.openExternal(data.url);
-        browserOpened = true;
-        logger.log("[Supabase] shell.openExternal succeeded");
-      } catch (openErr) {
-        logger.error("[Supabase] shell.openExternal failed:", openErr);
-      }
-
-      // Inbound deep-link timeout: if atlarix://auth/callback is not received within
-      // 60 seconds (e.g. deep link handler not registered on Linux / VM environments),
-      // show a fallback dialog so the user can copy the OAuth URL manually.
-      if (browserOpened) {
-        const oauthUrlForFallback = data.url;
-        _oauthTimeoutHandle = setTimeout(async () => {
-          _oauthTimeoutHandle = null;
-          logger.warn(
-            "[Supabase] OAuth inbound timeout — deep link not received after 60s",
-          );
-          const linuxCommands =
-            process.platform === "linux"
-              ? "\n\nTo register the deep link handler on Linux, run in Terminal:\n  xdg-mime default atlarix.desktop x-scheme-handler/atlarix\n  update-desktop-database ~/.local/share/applications\n\nThen try signing in again."
-              : "";
-          const { response } = await dialog.showMessageBox({
-            type: "info",
-            title: "Sign-in not completing?",
-            message:
-              "Atlarix has been waiting 60 seconds for the OAuth callback.\n\nThe deep link handler may not be registered on your system.",
-            detail: `OAuth URL (open this in your browser if the redirect didn't work):\n${oauthUrlForFallback}${linuxCommands}`,
-            buttons: ["Copy Link", "Dismiss"],
-            defaultId: 0,
-            cancelId: 1,
-          });
-          if (response === 0) {
-            clipboard.writeText(oauthUrlForFallback);
-            logger.log(
-              "[Supabase] OAuth URL copied via 60s inbound timeout fallback",
-            );
-          }
-        }, 60_000);
-      }
-
-      // Linux/AppImage fallback: allow the user to copy the URL manually if browser launch fails.
-      if (!browserOpened && process.platform === "linux") {
-        logger.warn(
-          "[Supabase] Browser open failed on Linux — showing fallback dialog",
-        );
-        const { response } = await dialog.showMessageBox({
-          type: "info",
-          title: "Open this link to sign in",
-          message:
-            "Atlarix could not open your browser automatically.\n\nCopy the link below and paste it into your browser:",
-          detail: data.url,
-          buttons: ["Copy Link", "Cancel"],
-          defaultId: 0,
-          cancelId: 1,
-        });
-        if (response === 0) {
-          clipboard.writeText(data.url);
-          logger.log(
-            "[Supabase] OAuth URL copied to clipboard via fallback dialog",
-          );
-        }
-      }
+      // OAuth callbacks carry no state (the reverted PKCE/state attempt is in
+      // the TODO); clear any left over from an abandoned email sign-in so its
+      // check does not apply to this flow.
+      _pendingAuthState = null;
+      await openSignInUrl(data.url);
     }
 
     return { error: null };
@@ -349,6 +405,21 @@ export async function handleAuthCallback(url: string): Promise<{
     // Parse the URL to extract tokens
     const urlObj = new URL(url);
     const hashParams = new URLSearchParams(urlObj.hash.substring(1));
+
+    // An email sign-in sent a nonce; its callback must return it. Single-use,
+    // like the flow marker above.
+    const expectedState = _pendingAuthState;
+    _pendingAuthState = null;
+    if (expectedState !== null && hashParams.get("state") !== expectedState) {
+      logger.warn("[Supabase] Rejected auth callback — state mismatch.");
+      return {
+        session: null,
+        user: null,
+        error: new Error(
+          "That sign-in link doesn't match the sign-in this app started. Start signing in again.",
+        ),
+      };
+    }
     const accessToken = hashParams.get("access_token");
     const refreshToken = hashParams.get("refresh_token");
 
@@ -392,7 +463,8 @@ export async function handleAuthCallback(url: string): Promise<{
         "[Supabase] Provider returned no email — refusing the session.",
       );
       try {
-        await supabase.auth.signOut();
+        // Local: only this just-created half-session, never the account's others.
+        await supabase.auth.signOut({ scope: "local" });
       } catch {
         /* best-effort: don't leave a half-session behind */
       }
@@ -461,7 +533,12 @@ export async function getUser(): Promise<User | null> {
 export async function signOut(): Promise<void> {
   try {
     const supabase = getSupabaseClient();
-    await supabase.auth.signOut();
+    // LOCAL, not supabase-js's default "global". Global revokes every session
+    // the account has, so signing out of the app also signed the person out of
+    // the Chrome extension, and would sign them out of the CLI. Each surface
+    // holds its own session and ends only its own (the extension already works
+    // this way: its sign-out just clears what it stored).
+    await supabase.auth.signOut({ scope: "local" });
     await clearSupabaseSecureStorage();
     logger.log("[Supabase] Signed out");
   } catch (err) {

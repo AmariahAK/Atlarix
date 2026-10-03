@@ -8,7 +8,222 @@ reasoning. What shipped is in [`docs/CHANGELOG.md`](./CHANGELOG.md); how Core is
 
 Nothing unscheduled here is a commitment. An entry graduates to TODO when it becomes active work.
 
-**Last updated:** 2026-09-23
+**Last updated:** 2026-09-28
+
+---
+
+## Relics, CLI distribution, search — 2026-10-02
+
+**Relics: where they live, and why they can't hurt anyone.** Hosted only on paid Core
+(`src/lib/relics/hosting-tier.ts`; the `relics` edge function re-checks); own keys and free Auto
+write `.atlarix/relics/<slug>/` instead. Bytes go to Cloudflare R2, never Supabase (its org is over
+quota); Supabase keeps only `relics` / `relic_versions`, service-role only. The edge function decides
+who may view (owner, or anyone once shared by link) and mints a 15-minute HMAC token
+(`supabase/functions/_shared/relic-token.ts`, copied byte for byte into the Worker). The
+`relics.atlarix.dev` Worker only checks tokens and serves files with a strict CSP (`connect-src
+'none'`, framed only by atlarix.dev). The viewer frames it with `sandbox="allow-scripts"` and no
+`allow-same-origin`: an opaque origin on another site, with no cookies, so a relic's scripts can draw
+and nothing else. Live updates poll the Worker's `/s/<token>` (a tiny JSON from R2), not Supabase. In
+the desktop app a hosted relic's card opens the link (the app's renderer is `file://`, which the
+Worker's `frame-ancestors` can't name); a local relic previews inline via `srcdoc` in the same
+sandbox, read through `relics:read-local`, which only reads an `index.html` under a workspace's
+`.atlarix/relics/`.
+
+**The CLI ships as one binary per platform** (`scripts/cli-targets.mjs`): Bun-compiled, with
+ripgrep, the bridge relay and opentui's native renderer for that target embedded (fetched per target
+by `scripts/ci/fetch-platform-packages.sh`, never `npm install`). Each release leg builds on a native
+runner and runs `scripts/cli-smoke.ts`. npm keeps the single `atlarix` package the cloud agent runs:
+it is now a small launcher that executes the matching `atlarix-<platform>` optional dependency, and
+falls back to the bundled Node build where there is none, so `atlarix run` works everywhere and the
+two workflows can publish in any order.
+
+**Web search has no paid or hardcoded API** (owner, 2026-10-02). The app keeps its hidden browser;
+the CLI searches through the user's Chrome (bridge op `search`, in the CLI's own tab group);
+otherwise a search MCP. Each Atlarix process has its own tab group: the bridge stamps
+`client: "app" | "cli"` on every request and the extension keys groups by it, keeping the app's old
+storage keys so nothing migrates.
+
+## Automations and the browser run in whichever Atlarix is open — 2026-10-02
+
+The desktop app and the `atlarix` CLI share one database, and both now run automations and want the
+user's browser. Each needs exactly one owner per occurrence.
+
+**Automations: a lease per occurrence** (drizzle 0077, `src/lib/automations/runner.ts`). Both
+processes arm their own timers. Before running, a process inserts `(automation_id, slot_key)` into
+`automation_leases`; the primary key lets one insert through and the loser skips. A schedule's slot
+is its fire minute, an MCP poll's is its interval bucket, run-now takes none (it happens where it was
+asked). Runs carry `owner` + `heartbeat_at` (beaten every 30 s); startup recovery fails only runs with
+no owner or a heartbeat older than 2 minutes, never the other process's live run. Each runner re-arms
+what the OTHER process created or changed every 60 s, comparing `enabled|trigger` — not `updated_at`,
+which a poll's cursor write bumps (re-arming on it would re-poll forever).
+
+Like Claude Code `/loop` and desktop scheduled tasks, and Codex automations: they run only while an
+Atlarix is open, and a missed occurrence is not caught up. "While the machine is off" is the cloud
+agent's job, not a background service's.
+
+Known gap: a desktop app from BEFORE 0077 ignores leases, so with a new CLI the same schedule can fire
+in both until the app updates. Both ship from one tag; not worth a `min_reader` bump.
+
+**The browser: host and peers** (`src/lib/bridge/server.ts`, `peer.ts`, `src/main/bridge-lifecycle.ts`).
+Only one process can own the socket the relay dials. The first to start hosts it and also serves
+`<socket>-peers`; a later one finds the main socket live and joins as a peer. A peer's requests go
+through the host's own `request()` (same correlation and timeouts) and the reply goes back to the
+peer. When the host quits, peers see the socket close and one takes the main socket over (jittered
+retry; the loser finds it live and becomes a peer); the extension's reconnect then finds the new host.
+The extension is unchanged — it never knows there are two Atlarix processes, so both share its one
+tab group for now. The CLI embeds the relay but installs the native host only where none is
+installed (`installHost: "if-missing"`): the desktop's install already points the browser at the same
+socket and its relay is the one to keep.
+
+## Device-code sign-in for the CLI — 2026-10-01
+
+`atlarix login --device` (default over SSH or with no display) is RFC 8628's flow with one
+addition: the CLI makes an ECDH P-256 key pair per sign-in and sends the public half with
+`start`; `approve` seals the session to it (HKDF → AES-GCM, `_shared/device-seal.ts`, one file
+run by both Deno and Bun). The table stores the device code only as SHA-256 and the session only
+sealed, so a database read gives neither a pollable code nor a session.
+
+The weakness of every device flow is phishing ("enter this code for me"). Answers: no
+`verification_uri_complete` — the code is always typed, never carried by a link; the approve
+page shows when the sign-in started and what it says it is, and says to decline a code someone
+sent you. The label is the CLI's own claim and is shown as such. A guessed code (20^8, 10
+minutes) would sign the victim's terminal into the GUESSER's account, which the CLI prints by
+email at once. `start` is capped per address (HMAC of the IP, never the IP); polling faster than
+the interval earns `slow_down`; a collected session deletes its row in the same statement.
+
+The approving session is fresh — signed in on the page with the memory-only client, as
+/auth/app — so signing the CLI out later ends only the CLI.
+
+## The CLI shares the desktop's data, not its sign-in — 2026-10-01
+
+The interactive `atlarix` CLI opens the desktop app's own folder
+(`~/Library/Application Support/Atlarix` and the Windows and Linux equivalents,
+`src/cli/desktop-data.ts`). So the chats, sessions and settings are one set, and
+`/resume` picks up a desktop chat. That choice has consequences the code now enforces.
+
+**Two programs, one database, updated separately.** An older build will meet a
+database a newer one has migrated.
+- *Additive migrations* are fine. Older builds ignore what they don't know.
+- *A migration that would break older readers* raises `__atlarix_schema_meta.min_reader`
+  in the same migration. Bump `READER_VERSION` in `migrate_atlarix.ts` to match.
+- *Refusing to open.* An older build refuses a database whose `min_reader` is above its
+  own and says "install the newer version". It never wipes: before this, the
+  equality check on the migration count sent an older build down the retry path, which
+  deleted `sqlite.db`.
+- *Live readers.* A reader-breaking migration also refuses to run while another program
+  has the file open (`__atlarix_clients`, a 30s heartbeat; rows older than 90s are
+  ignored). An older reader that is already open would otherwise keep reading a schema
+  that changed under it.
+- *Backups.* Every migration run is preceded by a copy in `backups/before-update/`
+  (newest three kept).
+- *The CLI never deletes.* It sets `ATLARIX_DB_SHARED=1`, and `atlarix run` refuses to
+  start with it set, because batch runs rewrite settings and add a workspace per run.
+- *Concurrency.* WAL mode, plus a 10s busy timeout.
+
+**Keys are shared; the sign-in session is not.**
+- *Keys.* Provider keys are encrypted with Electron safeStorage, which is Chromium's
+  OSCrypt. `src/runtime/oscrypt.ts` reimplements it with the same OS key: the macOS
+  keychain item "Atlarix Safe Storage", DPAPI via `Local State` on Windows, and the
+  Secret Service on Linux, best-effort. A key saved in either program opens in the
+  other. On macOS the first read from the CLI asks the user once.
+- *Sign-in.* The session is deliberately separate: the CLI signs in on its own.
+  Supabase refresh tokens ROTATE, and two processes refreshing one token race. The
+  loser's token is already spent, and that looks to the person like a random sign-out.
+  Separate sessions never collide.
+- *Sign-out.* Each surface's sign-out now ends only its own session. The desktop used
+  supabase-js's default "global" sign-out, which also signed the person out of the
+  extension. It now uses `scope: "local"`, as the extension already effectively did.
+- *Attribution.* The CLI sends `X-Atlarix-Surface: cli` (`ATLARIX_SURFACE` follows the
+  environment the CLI sets before anything is imported). The proxy already accepts
+  `cli`, so ledger rows are attributed correctly.
+
+**Web search in the CLI: an automated browser is not a search engine.** Measured
+2026-10-01 against Brave Search from this Mac's home connection:
+- *Headless browser:* a captcha from the third query.
+- *Normal browser window off-screen:* results at first, then Brave's "Verifying you're
+  not a bot" check (which keeps the plain "Brave Search" title) for every query, after
+  about 50 automated queries in half an hour.
+
+So the CLI's search order is:
+1. the user's own Chrome through the extension bridge, where a person can answer a
+   check themselves;
+2. an off-screen system browser, only where a display exists, best-effort;
+3. otherwise a plain message saying what to connect.
+
+Nothing in Atlarix answers a bot check. A paid search API behind the proxy is the
+reliable answer for machines with no browser; it is an owner decision (budget, deploy).
+The desktop's hidden-window tier will meet the same check under heavy use.
+
+## The cloud agent and email sign-in — BUILT 2026-09-28
+
+_Why the cloud agent runs in the user's GitHub Actions, and why every credential at that boundary
+is shaped the way it is. Read this before widening any of them._
+
+**The product.** Someone asks from Slack or atlarix.dev ("owner/repo: fix X"), Atlarix works on
+the repository while their machine is off, and a pull request comes back with Approve & merge.
+Approving merges; their existing pipeline deploys. We never hold deploy credentials.
+
+**Why the user's runner, not ours.** GitHub's coding agent and claude-code-action both run in the
+customer's Actions. It costs us no compute (public repos are free for them; private repos use
+their minutes), and their code never lands on a machine we operate. A managed sandbox (Cloudflare
+Sandbox, E2B, Daytona) is the upgrade for GitLab/Bitbucket and faster starts, once revenue
+justifies it. Priced 2026-09: E2B/Daytona ~$0.05/vCPU-hr, Cloudflare $0.072/vCPU-hr of ACTIVE CPU.
+
+**Four credentials, each as small as it can be.**
+
+- **Runner → us: GitHub OIDC.** No secret in the user's repo. The claim requires `repository` =
+  the job's repo, `workflow_ref` = `.github/workflows/atlarix.yml@refs/heads/*`, and
+  `event_name` = `repository_dispatch`. Without the workflow check, any workflow in the repo,
+  including one a contributor adds in a PR, could claim a job and get its run token.
+- **Runner → Core: a run token.** HS256, shared between atlarix-reviewer (mints) and atlarix-proxy
+  (verifies), naming one user and one job, 60 minutes. The proxy re-checks that the job is
+  `running` (15s cache), and `debit_wallet_cloud` refuses a non-running job, so finishing a job
+  kills its token before `exp`. It is not a Supabase session, which would be the whole account.
+  The CLI reads it from a file and deletes it; it is never in the agent's environment.
+- **Runner → GitHub: a push token**, fetched only AFTER the agent exits, scoped to one repo
+  (`contents` + `pull_requests`), with no fallback to an installation-wide token. Pushing with it
+  (not `GITHUB_TOKEN`) is what makes the user's CI run on the PR.
+- **The Agent App is separate from the Reviewer's.** The Reviewer is read-only and "never
+  merges", and adding write permissions to it would re-prompt every install. `github_installs.app`
+  tells them apart, and the proxy's reviewer service path counts only `app = 'reviewer'`.
+
+**Who may do what.** Slack identity is never proof of an Atlarix account. A link is made on
+atlarix.dev by the signed-in holder, from a 30-minute signed token the bot sent. Approve
+re-resolves the CLICKER's link, so a teammate in the same channel can neither start work on
+someone else's wallet nor merge someone else's PR. Model-written summaries are escaped before
+they reach Slack, so a summary cannot contain `<!channel>`.
+
+**Which model a run uses (owner decision 2026-10-03).** Paid Atlarix Auto by default, any paid
+Core tier, or the user's own API key (`byok`). The job carries the choice (`cloud_jobs.tier`), set
+when the run is started (the model picker on atlarix.dev, `[core-2]` / `[byok]` in Slack) and
+validated against the live Core lineup. The workflow file cannot change it.
+
+**Never free Auto.** Free Auto shares prompts with OpenAI, and a private repository's code is not the
+installer's to share. Long unattended runs are also exactly what free tokens get farmed for. The
+proxy's `freeOffered` excludes the `cloud` caller by construction, and a cloud run asking for Auto
+while paid Auto is off gets 503 `cloud_requires_paid_auto`, never the free chain. Any other model
+takes the normal paid Core path, billed through `debit_wallet_cloud`.
+
+**Own-key runs are free, and the key never reaches the agent.** A `byok` claim gets no Core run
+token, so it cannot spend the wallet even by mistake. It is also exempt from the balance check: it
+costs Atlarix nothing, and paid models are where we earn. The key comes from the repository's
+`ATLARIX_PROVIDER_KEY` secret and is handled like the Core token:
+1. `run.mjs` deletes it from its own environment at start;
+2. it writes the key to a 0600 file;
+3. the CLI reads the file with `--api-key-file`, deletes it, and keeps the key in memory
+   (`pinned-provider-key.ts`).
+
+The key is never in `process.env` and never in `user-settings.json`, unlike `--api-key`, which
+stores it there. The agent's child environment also drops every `INPUT_*` and the runner's OIDC
+request credentials (`lib.mjs` `childEnv`).
+
+**Email sign-in lives on atlarix.dev.** Turnstile only renders on a hostname registered to its
+site key, so neither the Electron renderer nor an extension page can show it. The app and the
+extension open `/auth/app?client=…&state=…`. The site signs in with a client that stores nothing,
+so two holders never share a rotating refresh token, and redirects to a FIXED target per client
+with the tokens and `state` in the hash. The desktop checks `state` (OAuth stays stateless, see
+the TODO); the extension checks it and immediately refreshes, which spends the refresh token that
+travelled in a URL.
 
 ---
 

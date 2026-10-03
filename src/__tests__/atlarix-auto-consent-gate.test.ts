@@ -27,6 +27,7 @@ vi.mock("@/ipc/shared/language_model_helpers", () => ({
 vi.mock("@/ipc/shared/core_proxy", () => ({
   ATLARIX_SURFACE: "app",
   getCoreProxyBaseUrl: () => "https://proxy.test/v1",
+  getPinnedCoreToken: () => null,
 }));
 vi.mock("@/ipc/shared/provider_api_keys", () => ({
   getProviderApiKey: async () => undefined,

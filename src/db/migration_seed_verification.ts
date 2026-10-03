@@ -272,6 +272,12 @@ export function isJournalMigrationApplied(
     // migration never ran, which is the failure this file is for.
     case "0076_drop_installed_skills":
       return !tableExists(sqlite, "installed_skills");
+    case "0077_automation_leases":
+      return (
+        tableExists(sqlite, "automation_leases") &&
+        columnExists(sqlite, "automation_runs", "owner") &&
+        columnExists(sqlite, "automation_runs", "heartbeat_at")
+      );
     default:
       return false;
   }

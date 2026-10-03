@@ -26,6 +26,7 @@ export async function getOnboardingCompleted(): Promise<boolean> {
 export async function setOnboardingCompleted(_value: boolean): Promise<void> {}
 
 export type OAuthProvider = "google" | "github";
+export type SignInMethod = OAuthProvider | "email";
 
 export type UserPlanDb = "free" | "pro";
 
@@ -51,6 +52,12 @@ export async function getEffectiveTier(
 export async function signInWithOAuth(
   _provider: OAuthProvider,
 ): Promise<{ error: Error | null }> {
+  return {
+    error: new Error("Supabase client is only available in the main process"),
+  };
+}
+
+export async function startEmailSignIn(): Promise<{ error: Error | null }> {
   return {
     error: new Error("Supabase client is only available in the main process"),
   };

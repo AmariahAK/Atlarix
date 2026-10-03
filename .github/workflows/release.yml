@@ -1120,6 +1120,206 @@ jobs:
       no_publish: false
     secrets: inherit
 
+  # ───────────────────────────────────────────────────────────────────────────
+  # The `atlarix` CLI: one self-contained Bun-compiled binary per platform.
+  # Each leg runs on a native runner so it can build (and embed) its own
+  # Chrome-bridge relay and run the binary before shipping it (scripts/cli-smoke.ts).
+  # Archives + .deb/.rpm go to the release draft; the binaries go to an artifact
+  # for npm / Homebrew / winget (cli-assets and the publish jobs below).
+  # Targets: scripts/cli-targets.mjs.
+  # ───────────────────────────────────────────────────────────────────────────
+  build-cli:
+    needs: [quality, create-draft]
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: darwin-arm64, runner: macos-latest, rust: aarch64-apple-darwin }
+          - { target: darwin-x64, runner: macos-latest, rust: x86_64-apple-darwin }
+          - { target: linux-x64, runner: ubuntu-latest, rust: x86_64-unknown-linux-gnu, nfpm: amd64 }
+          - { target: linux-arm64, runner: ubuntu-24.04-arm, rust: aarch64-unknown-linux-gnu, nfpm: arm64 }
+          - { target: linux-x64-musl, runner: ubuntu-latest, rust: x86_64-unknown-linux-musl, musl: true }
+          - { target: linux-arm64-musl, runner: ubuntu-24.04-arm, rust: aarch64-unknown-linux-musl, musl: true }
+          - { target: windows-x64, runner: windows-latest, rust: x86_64-pc-windows-msvc }
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      EXE: ${{ startsWith(matrix.target, 'windows') && 'atlarix.exe' || 'atlarix' }}
+      RELAY: ${{ startsWith(matrix.target, 'windows') && 'atlarix-bridge.exe' || 'atlarix-bridge' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "25"
+          cache: "npm"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          targets: ${{ matrix.rust }}
+
+      - name: musl toolchain
+        if: matrix.musl
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: npm ci
+        run: |
+          for attempt in 1 2 3; do
+            npm ci && exit 0
+            echo "::warning::npm ci failed (attempt $attempt); retrying..."
+            rm -rf node_modules; sleep $((attempt * 20))
+          done
+          exit 1
+
+      - name: Build the bridge relay for ${{ matrix.target }}
+        run: |
+          cargo build --release --target ${{ matrix.rust }} --manifest-path native/atlarix-bridge/Cargo.toml
+          RELAY_PATH="native/atlarix-bridge/target/${{ matrix.rust }}/release/$RELAY"
+          test -f "$RELAY_PATH"
+          echo "ATLARIX_RELAY_PATH=$PWD/$RELAY_PATH" >> "$GITHUB_ENV"
+
+      - name: Build the CLI
+        run: |
+          eval "$(scripts/ci/fetch-platform-packages.sh ${{ matrix.target }} "$RUNNER_TEMP/cli-packages")"
+          mkdir -p out/cli
+          bun scripts/build-bun.ts --target bun-${{ matrix.target }} --outfile "out/cli/$EXE"
+
+      - name: Smoke test
+        if: ${{ !matrix.musl }}
+        run: bun scripts/cli-smoke.ts "out/cli/$EXE"
+
+      - name: Smoke test (musl, in Alpine)
+        if: matrix.musl
+        run: docker run --rm -v "$PWD/out/cli:/cli" alpine:3 /cli/atlarix --version
+
+      - name: Sign and notarize (macOS)
+        if: startsWith(matrix.target, 'darwin')
+        env:
+          APPLE_CERT_BASE64: ${{ secrets.APPLE_CERT_BASE64 }}
+          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          KC="$RUNNER_TEMP/cli-signing.keychain-db"
+          echo "$APPLE_CERT_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p ci "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p ci "$KC"
+          security import "$RUNNER_TEMP/cert.p12" -P "$APPLE_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KC"
+          security set-key-partition-list -S apple-tool:,apple: -s -k ci "$KC" >/dev/null
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          IDENTITY=$(security find-identity -v -p codesigning "$KC" | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+          codesign --force --timestamp --options runtime \
+            --entitlements packaging/macos/cli-entitlements.plist \
+            --sign "$IDENTITY" "out/cli/$EXE"
+          codesign --verify --strict --verbose=2 "out/cli/$EXE"
+          ditto -c -k "out/cli/$EXE" "$RUNNER_TEMP/notarize.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
+            --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID" \
+            --wait --timeout 60m
+          # A bare binary can't be stapled; Gatekeeper checks the ticket online.
+          security delete-keychain "$KC" || true
+
+      - name: Sign (Windows, when a certificate is configured)
+        if: startsWith(matrix.target, 'windows')
+        shell: pwsh
+        env:
+          SM_CODE_SIGNING_CERT_SHA1_HASH: ${{ secrets.SM_CODE_SIGNING_CERT_SHA1_HASH }}
+        run: |
+          if ($env:SM_CODE_SIGNING_CERT_SHA1_HASH) {
+            & signtool sign /sha1 $env:SM_CODE_SIGNING_CERT_SHA1_HASH /tr http://timestamp.digicert.com /td SHA256 /fd SHA256 out/cli/atlarix.exe
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } else {
+            Write-Host "No code-signing certificate configured: atlarix.exe ships unsigned (SmartScreen warns on first run)."
+          }
+
+      - name: Package
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          mkdir -p out/assets
+          if [[ "${{ matrix.target }}" == windows* ]]; then
+            (cd out/cli && 7z a -tzip "../assets/atlarix-cli-${{ matrix.target }}.zip" atlarix.exe >/dev/null)
+          else
+            tar -czf "out/assets/atlarix-cli-${{ matrix.target }}.tar.gz" -C out/cli atlarix
+          fi
+          if [ -n "${{ matrix.nfpm }}" ]; then
+            go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.43.0
+            export VERSION NFPM_ARCH="${{ matrix.nfpm }}" CLI_BINARY="$PWD/out/cli/atlarix"
+            "$(go env GOPATH)/bin/nfpm" package --config packaging/nfpm.yaml --packager deb --target out/assets/
+            "$(go env GOPATH)/bin/nfpm" package --config packaging/nfpm.yaml --packager rpm --target out/assets/
+            for f in out/assets/*.deb out/assets/*.rpm; do mv "$f" "out/assets/atlarix-cli-${{ matrix.target }}.${f##*.}"; done
+          fi
+          ls -la out/assets
+
+      - name: Upload to the release draft
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          UPLOAD_URL="${{ needs.create-draft.outputs.upload_url }}"
+          UPLOAD_URL="${UPLOAD_URL%\{*}"
+          for f in out/assets/*; do
+            echo "Uploading $(basename "$f")..."
+            curl -fsS --retry 3 -X POST \
+              -H "Authorization: token $RELEASES_TOKEN" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@$f" \
+              "$UPLOAD_URL?name=$(basename "$f")" >/dev/null
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: atlarix-cli-${{ matrix.target }}
+          path: |
+            out/cli/${{ env.EXE }}
+            out/assets/*
+          if-no-files-found: error
+
+  # Checksums for every CLI download (the installers verify against this file),
+  # and the Homebrew formula rendered from them.
+  cli-assets:
+    needs: [create-draft, build-cli]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: atlarix-cli-*
+          path: cli
+      - name: SHA256SUMS-cli.txt
+        run: |
+          mkdir -p sums
+          find cli -path '*/out/assets/*' -type f -exec cp {} sums/ \;
+          (cd sums && sha256sum atlarix-cli-* > ../SHA256SUMS-cli.txt)
+          cat SHA256SUMS-cli.txt
+      - name: Upload checksums to the release draft
+        env:
+          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          UPLOAD_URL="${{ needs.create-draft.outputs.upload_url }}"
+          UPLOAD_URL="${UPLOAD_URL%\{*}"
+          curl -fsS --retry 3 -X POST -H "Authorization: token $RELEASES_TOKEN" \
+            -H "Content-Type: text/plain" --data-binary @SHA256SUMS-cli.txt \
+            "$UPLOAD_URL?name=SHA256SUMS-cli.txt" >/dev/null
+      - name: Render the Homebrew formula
+        run: node scripts/ci/render-homebrew-formula.mjs "$GITHUB_REF_NAME" SHA256SUMS-cli.txt > atlarix.rb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli-release-meta
+          path: |
+            SHA256SUMS-cli.txt
+            atlarix.rb
+
   publish-release:
     # build-msix IS REQUIRED. Owner's rule, 2026-08-28: the MSIX ships on EVERY
     # release, and it is never described as optional.
@@ -1144,6 +1344,8 @@ jobs:
         build-windows,
         build-msix,
         build-extension,
+        build-cli,
+        cli-assets,
       ]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
@@ -1219,6 +1421,101 @@ jobs:
             echo "::error::Release ${RELEASE_ID} is published but /releases/latest still resolves to ${latest_id:-<unknown>} — the launchpad and the auto-updater will keep serving the OLD version. Fix by hand: gh api -X PATCH repos/AmariahAK/atlarix-releases/releases/${RELEASE_ID} -f make_latest=true"
             exit 1
           fi
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # After the release is public: the CLI's npm platform packages, the Homebrew
+  # tap and winget. Each is independent and none can block the desktop release.
+  # ───────────────────────────────────────────────────────────────────────────
+  publish-cli-npm:
+    needs: [publish-release, cli-assets]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm trusted publishing (OIDC), as headless.yml
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "25"
+          registry-url: "https://registry.npmjs.org"
+      - run: npm install -g npm@latest
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: atlarix-cli-*
+          path: cli
+      - name: Stage atlarix-<platform> packages
+        run: |
+          mkdir -p bins
+          for d in cli/atlarix-cli-*; do
+            t="${d#cli/}"; mkdir -p "bins/$t"
+            cp "$d"/out/cli/atlarix* "bins/$t/"
+          done
+          node scripts/build-cli-npm.mjs bins npm-cli
+      - name: Publish
+        # Trusted publishing (OIDC): no token. npm only lets a package trust this
+        # workflow once the package exists, and its first publish needs the
+        # owner's 2FA (bypass-2FA tokens are no longer issued). So a package not
+        # on npm yet is skipped here with a warning, and published once by hand:
+        #   scripts/publish-cli-npm.sh v<version>
+        # after which it is added as a trusted publisher and CI takes over.
+        run: |
+          for p in npm-cli/*/; do
+            name=$(node -p "require('./$p/package.json').name")
+            version=$(node -p "require('./$p/package.json').version")
+            if ! npm view "$name" name >/dev/null 2>&1; then
+              echo "::warning::$name is not on npm yet: publish it once with scripts/publish-cli-npm.sh v$version (2FA), then add this workflow as its trusted publisher."
+              continue
+            fi
+            if npm view "$name@$version" version >/dev/null 2>&1; then
+              echo "$name@$version is already published"; continue
+            fi
+            (cd "$p" && npm publish --access public)
+          done
+
+  update-homebrew:
+    needs: [publish-release, cli-assets]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: cli-release-meta
+      - name: Push Formula/atlarix.rb to AmariahAK/homebrew-atlarix
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -z "$HOMEBREW_TAP_TOKEN" ]; then
+            echo "::warning::HOMEBREW_TAP_TOKEN is not set: the Homebrew tap was not updated."
+            exit 0
+          fi
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/AmariahAK/homebrew-atlarix.git" tap
+          mkdir -p tap/Formula && cp atlarix.rb tap/Formula/atlarix.rb
+          cd tap
+          git config user.name "atlarix-release"
+          git config user.email "amariah.abish@gmail.com"
+          git add Formula/atlarix.rb
+          git commit -m "atlarix ${GITHUB_REF_NAME#v}" || { echo "formula unchanged"; exit 0; }
+          git push
+
+  update-winget:
+    needs: [publish-release, cli-assets]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    steps:
+      - name: Submit the new version to winget-pkgs (komac)
+        shell: pwsh
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          if (-not $env:WINGET_TOKEN) {
+            Write-Host "::warning::WINGET_TOKEN is not set: no winget submission."
+            exit 0
+          }
+          $version = "$env:GITHUB_REF_NAME".TrimStart("v")
+          $url = "https://github.com/AmariahAK/atlarix-releases/releases/download/v$version/atlarix-cli-windows-x64.zip"
+          winget install --id RussellBanks.Komac --exact --silent --accept-source-agreements --accept-package-agreements
+          komac update AmariahAK.AtlarixCLI --version $version --urls $url --submit --token $env:WINGET_TOKEN
 
   announce-release:
     needs:

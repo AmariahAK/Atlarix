@@ -174,6 +174,8 @@ function rawPiecesToAssistantParts(
   const toolNameCounts: Record<string, number> = {};
   /** tool id -> index in `out` for in-place status updates */
   const openToolIndex = new Map<string, number>();
+  /** Call id (the tags' `call` attribute) → its open tool's key. */
+  const openToolByCall = new Map<string, string>();
   let thoughtBuffer: string[] = [];
 
   const flushThoughts = () => {
@@ -232,6 +234,7 @@ function rawPiecesToAssistantParts(
         if (!openToolIndex.has(mapKey)) {
           toolNameCounts[toolName] = seqNum + 1;
         }
+        if (attrs.call) openToolByCall.set(attrs.call, mapKey);
         const toolPart: AssistantMessagePart = {
           type: "tool",
           id: mapKey,
@@ -249,9 +252,15 @@ function rawPiecesToAssistantParts(
         continue;
       }
 
-      // tool result — find matching open call
-      for (let i = seqNum; i >= 0; i--) {
-        const checkKey = `${toolName}_${i}`;
+      // tool result — find ITS call: by call id when the tags carry one;
+      // otherwise the OLDEST still-open call of that name. (Newest-first put
+      // the first of three parallel results on the third call.)
+      const byCall = attrs.call ? openToolByCall.get(attrs.call) : undefined;
+      const candidates =
+        byCall && openToolIndex.has(byCall)
+          ? [byCall]
+          : Array.from({ length: seqNum + 1 }, (_, i) => `${toolName}_${i}`);
+      for (const checkKey of candidates) {
         const idx = openToolIndex.get(checkKey);
         if (idx != null) {
           mapKey = checkKey;
@@ -529,4 +538,22 @@ function mergeAdjacentMarkdown(
     merged.push(p);
   }
   return merged;
+}
+
+/**
+ * What the agent said at the end, as plain markdown: the prose after its last
+ * tool call (all of its prose when that is empty). For places that show the
+ * answer alone, like the cloud agent's pull request description, which got
+ * the raw tool-call envelopes when it was given the stored message.
+ */
+export function finalAnswerText(raw: string): string {
+  const parts = parseAssistantMessageParts(raw, false);
+  const prose = (ps: AssistantMessagePart[]) =>
+    ps
+      .filter((p): p is Extract<AssistantMessagePart, { type: "markdown" }> => p.type === "markdown")
+      .map((p) => p.content.trim())
+      .filter(Boolean)
+      .join("\n\n");
+  const lastTool = parts.map((p) => p.type).lastIndexOf("tool");
+  return prose(parts.slice(lastTool + 1)) || prose(parts);
 }

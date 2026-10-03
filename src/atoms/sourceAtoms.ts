@@ -33,7 +33,8 @@ export type PanelTab =
   | "search"
   | "chat"
   | "plan"
-  | "automations";
+  | "automations"
+  | "relics";
 
 export interface PanelContext {
   type: PanelType;

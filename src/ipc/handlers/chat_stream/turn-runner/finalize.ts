@@ -120,7 +120,10 @@ export async function finalizeTurn(
     userPrompt,
     abortController,
   } = deps;
-  if (!ctx.fullResponse.trim()) {
+  // A turn that ENDS on ask_user often says nothing before asking: the question
+  // card is the reply. The empty-response fallback ("Something went wrong")
+  // was saved above the card on every such turn.
+  if (!ctx.fullResponse.trim() && !ctx.askUserEndedTurn) {
     ctx.fullResponse = AI_STREAM_EMPTY_RESPONSE_FALLBACK;
   }
   let responseToStore = stripQuestionsBlockFromResponse(ctx.fullResponse);

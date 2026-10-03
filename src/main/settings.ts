@@ -84,6 +84,16 @@ export function __injectAppReadyForTests(ready: boolean | null): void {
   appReadyTestOverride = ready;
 }
 
+/**
+ * The CLI's stand-in for Electron safeStorage (src/runtime/oscrypt.ts), so it
+ * reads and writes the same encrypted secrets as the desktop app. It cannot
+ * come through `requireElectron`: that is a runtime require, which the compiled
+ * CLI cannot redirect to its electron stub.
+ */
+export function useSafeStorageProvider(api: SafeStorageApi): void {
+  safeStorageCache = api;
+}
+
 /** Lazy-load Electron safeStorage so headless CI (tsx benchmarks) can import readSettings. */
 function getSafeStorage(): SafeStorageApi | null {
   if (safeStorageTestOverride !== undefined) return safeStorageTestOverride;
@@ -155,7 +165,24 @@ function tryDecryptSecret(
   }
 }
 
+/**
+ * Settings THIS PROCESS sees differently, never written to disk. The CLI shares
+ * the desktop's settings file; its own choices (deep thinking on or off) must
+ * not flip the desktop app's. Merged on read only; writeSettings works from the
+ * file itself, so an override can never leak into it.
+ */
+let runtimeOverride: Partial<UserSettings> = {};
+
+export function setRuntimeSettingsOverride(patch: Partial<UserSettings>): void {
+  runtimeOverride = { ...runtimeOverride, ...patch };
+}
+
 export function readSettings(): UserSettings {
+  const fromFile = readSettingsFromFile();
+  return Object.keys(runtimeOverride).length ? { ...fromFile, ...runtimeOverride } : fromFile;
+}
+
+function readSettingsFromFile(): UserSettings {
   let decryptFailureLogged = false;
   const onDecryptFailure = (err: unknown) => {
     if (decryptFailureLogged) return;
@@ -326,7 +353,7 @@ function readRawSettingsFile(): Record<string, unknown> | null {
 export function writeSettings(settings: Partial<UserSettings>): void {
   try {
     const filePath = getSettingsFilePath();
-    const currentSettings = readSettings();
+    const currentSettings = readSettingsFromFile();
     const newSettings = { ...currentSettings, ...settings };
 
     // A SECRET THE CALLER DID NOT TOUCH IS NEVER REWRITTEN FROM MEMORY.

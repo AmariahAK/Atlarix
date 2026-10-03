@@ -102,7 +102,7 @@ openai_api_key = "env(OPENAI_API_KEY)"
 
 # Email testing server. Emails sent with the local dev setup are not actually sent - rather, they
 # are monitored, and you can view the emails that would have been sent from the web interface.
-[inbucket]
+[local_smtp]
 enabled = true
 # Port to use for the email testing server web interface.
 port = 54324
@@ -442,3 +442,16 @@ verify_jwt = true
 
 [functions.send-email]
 verify_jwt = true
+
+# `atlarix login --device`: `start` and `poll` come from a CLI that has NO account
+# yet — that is the point of the flow — so the gateway cannot require a JWT. The
+# function checks the user's JWT itself on describe/approve/deny, and start/poll
+# are guarded by the device code (stored hashed) and per-address limits.
+[functions.cli-device]
+verify_jwt = false
+
+# Relics: viewing a relic shared by link is anonymous, so the gateway cannot
+# require a JWT. The function checks the user's JWT itself for every other
+# action (publish, list, share, delete) and for viewing a private relic.
+[functions.relics]
+verify_jwt = false

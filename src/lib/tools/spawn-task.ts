@@ -116,6 +116,8 @@ function subagentOutputTail(rec: TaskRecord, maxLen: number): string {
 export function listRunningSubagentTasks(chatId: number | undefined): Array<{
   taskId: string;
   description: string;
+  /** The prompt it was given: how the CLI pairs a job with its delegation. */
+  prompt?: string;
   elapsedMs: number;
   lastOutput: string;
   stalled: boolean;
@@ -124,6 +126,7 @@ export function listRunningSubagentTasks(chatId: number | undefined): Array<{
   const out: Array<{
     taskId: string;
     description: string;
+    prompt?: string;
     elapsedMs: number;
     lastOutput: string;
     stalled: boolean;
@@ -134,6 +137,7 @@ export function listRunningSubagentTasks(chatId: number | undefined): Array<{
     out.push({
       taskId: rec.id,
       description: rec.description ?? rec.subagentType ?? "(task)",
+      prompt: rec.prompt,
       elapsedMs: now - rec.startedAt,
       lastOutput: subagentOutputTail(rec, 160).replace(/\s+/g, " ").trim(),
       stalled:

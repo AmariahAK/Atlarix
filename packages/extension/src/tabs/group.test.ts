@@ -319,3 +319,39 @@ describe("releaseTab and setGroupTitle", () => {
     await expect(setGroupTitle(99, "x")).resolves.toBeUndefined();
   });
 });
+
+describe("the app and the CLI each have their own group", () => {
+  it("keeps separate groups per Atlarix process in the same window, titled apart", async () => {
+    fake.tabs.set(1, { id: 1, windowId: 7, groupId: NONE });
+    fake.tabs.set(2, { id: 2, windowId: 7, groupId: NONE });
+    const appGroup = await adoptTab(1, 7);
+    const cliGroup = await adoptTab(2, 7, undefined, "cli");
+    expect(cliGroup).not.toBe(appGroup);
+    expect(fake.groups.get(appGroup)?.title).toBe("Atlarix");
+    expect(fake.groups.get(cliGroup)?.title).toBe("Atlarix CLI");
+    // The app's key is unchanged from before (bare window id): nothing to migrate.
+    expect(fake.store.get("atlarix.tabGroups.v1")).toEqual({ "7": appGroup, "cli:7": cliGroup });
+  });
+
+  it("each sees only its own tabs as its own; containment accepts either", async () => {
+    fake.tabs.set(1, { id: 1, windowId: 7, groupId: NONE });
+    fake.tabs.set(2, { id: 2, windowId: 7, groupId: NONE });
+    await adoptTab(1, 7);
+    await adoptTab(2, 7, undefined, "cli");
+    expect(await isAgentTab(1)).toBe(true);
+    expect(await isAgentTab(2)).toBe(false);
+    expect(await isAgentTab(2, "cli")).toBe(true);
+    expect(await isAgentTab(1, "cli")).toBe(false);
+    expect(await isAgentTab(2, "any")).toBe(true);
+  });
+
+  it("says which process's group was closed", async () => {
+    fake.tabs.set(2, { id: 2, windowId: 7, groupId: NONE });
+    const cliGroup = await adoptTab(2, 7, undefined, "cli");
+    const closed: Array<[number, string]> = [];
+    onGroupClosed((windowId, client) => closed.push([windowId, client]));
+    fake.fireRemoved(cliGroup);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(closed).toEqual([[7, "cli"]]);
+  });
+});

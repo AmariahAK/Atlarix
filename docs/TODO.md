@@ -1,8 +1,8 @@
 # Atlarix TODO
 
-**Current version:** 14.52.1, staged 2026-09-25 (desktop + extension in one `v*` tag): the Windows
-Chrome bridge deadlock fix, and free-Auto consent continuing the turn. 14.52.0 (released
-2026-09-24) moved the agent to the user's Chrome. Narrative in [`docs/CHANGELOG.md`](./CHANGELOG.md).
+**Current version:** 15.0.0, released 2026-10-03 (desktop + extension + CLI in one `v*` tag):
+Atlarix in the terminal (curl/PowerShell, Homebrew, npm, winget), the cloud agent, email
+sign-in, Relics. Narrative in [`docs/CHANGELOG.md`](./CHANGELOG.md).
 
 **This header has been wrong before.** Update it in the same commit as the version bump, or do
 not trust it.
@@ -16,9 +16,32 @@ not trust it.
 | Designed, not scheduled             | [`docs/DESIGN_NOTES.md`](./DESIGN_NOTES.md) |
 | Open work                           | here, and nowhere else                      |
 
-**Last updated:** 2026-09-25
+**Last updated:** 2026-10-03
 
 ---
+
+## Next up — finishing 15.0.0
+
+Deployed 2026-10-03, before the tag: Relics (worker, R2, function), device sign-in, every
+migration, the proxy (cloud runs), the reviewer on cloud.atlarix.dev with the "Atlarix Cloud
+Agent" GitHub App (`atlarix-cloud-agent`, id 5176493), `AmariahAK/atlarix-agent-action` (v1),
+and the Slack app (A0C6B1SKTJ7, home workspace Norah Labs, public distribution on).
+
+1. **npm, first publish (owner, 2FA):** `scripts/publish-cli-npm.sh v15.0.0`, then set each
+   `atlarix-<platform>` package's trusted publisher to this repo's `release.yml`. The action
+   runs `npx atlarix@latest`, so the cloud agent needs this.
+2. **winget, first submission (owner):** `komac new AmariahAK.AtlarixCLI` with the release's
+   Windows zip; CI updates it after that (`WINGET_TOKEN` is set).
+3. **End to end on a test repository:** install the App → setup PR → merge → start from
+   /cloud → PR opens → Approve merges. Three runs: paid Auto, `core-2` (check `spent_cents`
+   and the wallet debit), own key (no debit, no Core token). Then the same from a Slack DM.
+4. **Check every install path prints 15.0.0:** curl, PowerShell, brew, npm, winget, and the
+   desktop auto-update from 14.52.4.
+5. **PostHog:** an insight "Weekly active users by billing" from `model_turn`, once events arrive.
+6. **Windows code signing:** buy an Authenticode certificate; the job signs as soon as
+   `SM_CODE_SIGNING_CERT_SHA1_HASH` exists.
+7. **Both Atlarix processes' Chrome tab groups** need the new extension (CWS review of this
+   release); until then they share one group.
 
 ## Next up — after v14.52.3
 
@@ -181,14 +204,14 @@ The reasoning lives in [`docs/DESIGN_NOTES.md`](./DESIGN_NOTES.md); these are th
 
 - **The CLI.** TUI + loopback-PKCE auth + billing over the headless binary that already ships.
   The ledger already accepts a `cli` source.
-- **Core under concurrency.** Mostly solved — `balance-cache.ts` keys on `userId` and holds a
+- **Core under concurrency.** (The reviewer cost-attribution residual below is FIXED: the proxy
+  returns `X-Atlarix-Cost-Cents` and `createCostMeter` sums it.) Mostly solved — `balance-cache.ts` keys on `userId` and holds a
   per-call reservation, Postgres stays the sole authority, and `spend_from_wallet` takes
   `FOR UPDATE`. **Two residuals:** multi-replica overspend is bounded at roughly one reserve per
   replica per user and is not worth fixing until a second replica exists; but **the reviewer's
   cost attribution BREAKS on a second replica** — `ReviewQueue.spendSince` reconstructs cost from
   a ledger window that is exact only because one replica is strictly sequential. The fix is for
   the proxy to return the debited amount on the response. **Do this BEFORE scaling the reviewer.**
-- **Launchpad Turnstile — deferred with the reason measured**, not merely postponed.
 
 **Anything here becoming real needs a MEASUREMENT first.** 704 Supabase requests/hour once looked
 like website traffic and was a 5-second poll of our own.
@@ -204,7 +227,9 @@ like website traffic and was a 5-second poll of our own.
   (`GithubTriggerEventSchema`, `pollers/github.ts`) was retired in v14.41.0 in favour of
   host-agnostic MCP and schedule triggers (see the note in `src/lib/automations/types.ts`), so
   this needs a design that fits those rather than a new vendor-specific poller.
-- **Collaborative agent (the "team + @atlarix" direction).** NOT a Slack/Discord clone — real-time
+- **Collaborative agent (the "team + @atlarix" direction).** _Its first piece — `@atlarix` in
+  Slack, as the front door to the cloud agent — is built (see Next up and DESIGN_NOTES). What
+  follows is the rest._ NOT a Slack/Discord clone — real-time
   chat is a money pit and teams already have it. Two pieces instead: (a) **`@atlarix` bots inside
   the tools teams already use** — Slack, Discord, GitHub issues — the shape Atlarix Reviewer
   already takes (its spec is `docs/atlarix-pr-bot-spec.md` in the `atlarix-reviewer` repo); and

@@ -1,3 +1,5 @@
+import { RelicCard } from "./RelicCard";
+import { parseRelicResult } from "@/lib/relics/relic-result";
 import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -33,6 +35,7 @@ export function StreamToolCallCard({
   status,
   toolName: _toolName,
   elapsedMs,
+  resultText,
 }: {
   summary: string;
   status: InlineTimelineToolStatus;
@@ -42,6 +45,37 @@ export function StreamToolCallCard({
   toolName?: string;
   defaultCollapsed?: boolean;
   /** Wall-clock duration once the tool finished (v10 cost visibility). */
+  elapsedMs?: number;
+  /** The tool's raw result; a finished `relic` call renders as its card. */
+  resultText?: string;
+}) {
+  const relic = _toolName === "relic" && status === "done" ? parseRelicResult(resultText) : null;
+  if (relic) return <RelicCard relic={relic} />;
+  return (
+    <ToolCallCardBody
+      summary={summary}
+      expand={expand}
+      detail={detail}
+      status={status}
+      toolName={_toolName}
+      elapsedMs={elapsedMs}
+    />
+  );
+}
+
+function ToolCallCardBody({
+  summary,
+  expand,
+  detail,
+  status,
+  toolName: _toolName,
+  elapsedMs,
+}: {
+  summary: string;
+  status: InlineTimelineToolStatus;
+  expand?: ToolExpandView;
+  detail?: string;
+  toolName?: string;
   elapsedMs?: number;
 }) {
   const isRunning = status === "running";

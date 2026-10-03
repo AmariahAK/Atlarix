@@ -132,6 +132,8 @@ assets/model2vec/
 
 # Headless agent CLI bundle
 dist-headless/
+# The compiled CLI (bun scripts/build-bun.ts); CI builds the release binaries.
+dist-bun/
 # Headless agent CLI tarball (build artifact)
 dist-headless-tarball/
 packages/headless/dist-headless/

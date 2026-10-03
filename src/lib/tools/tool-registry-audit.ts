@@ -36,6 +36,9 @@ export const BUILD_ONLY_TOOLS = [
   // cancelling them — IS every-mode: Plan delegates read-only recon and must be
   // able to manage it.)
   "proposals",
+  // A relic is written to the workspace (or published) — a write, so not on the
+  // read-only Plan/Explore/Review surfaces.
+  "relic",
 ] as const satisfies readonly string[];
 
 const BUILD_ONLY_SET = new Set<string>(BUILD_ONLY_TOOLS);

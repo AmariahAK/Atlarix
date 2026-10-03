@@ -3,6 +3,7 @@ import {
   type UserSettings,
   AppSearchResultsSchema,
 } from "../lib/schemas";
+import type { RelicSummary } from "@/lib/relics/relic-store";
 import type {
   AppOutput,
   AutonomousSessionCompletePayload,
@@ -1297,6 +1298,24 @@ export class IpcClient {
     return this.ipcRenderer.invoke("plans:list-by-session", sessionId);
   }
 
+  /** Plans from this folder's other sessions — the switcher's "Earlier sessions". */
+  public async listPlanArtifactsForWorkspace(
+    workspaceId: number,
+    excludeSessionId?: string,
+  ): Promise<
+    Array<import("./utils/emit_plan_artifact").PlanArtifactPayload & { sessionTitle: string | null }>
+  > {
+    return this.ipcRenderer.invoke("plans:list-by-workspace", { workspaceId, excludeSessionId });
+  }
+
+  /** "Use in this session": copy an earlier plan into the session to build it. */
+  public async copyPlanArtifactToSession(
+    planId: string,
+    sessionId: string,
+  ): Promise<import("./utils/emit_plan_artifact").PlanArtifactPayload> {
+    return this.ipcRenderer.invoke("plans:copy-to-session", { planId, sessionId });
+  }
+
   public onPlanFileUpdated(
     handler: (payload: { workspacePath: string; mtime: number | null }) => void,
   ): () => void {
@@ -2101,6 +2120,24 @@ export class IpcClient {
   }
 
   // Open an external URL using the default browser
+  /** A local relic's index.html, for the chat's inline preview (RelicCard). */
+  public async readLocalRelic(file: string): Promise<{ html: string } | { error: string }> {
+    return this.ipcRenderer.invoke("relics:read-local", file);
+  }
+
+  /** Your hosted relics and this workspace's local ones, newest first (the Relics tab). */
+  public async listRelics(workspacePath: string): Promise<RelicSummary[]> {
+    return this.ipcRenderer.invoke("relics:list", workspacePath);
+  }
+
+  public async deleteRelic(relic: Pick<RelicSummary, "id" | "hosted" | "path">): Promise<void> {
+    return this.ipcRenderer.invoke("relics:delete", relic);
+  }
+
+  public async setRelicVisibility(id: string, visibility: "private" | "link"): Promise<void> {
+    return this.ipcRenderer.invoke("relics:set-visibility", id, visibility);
+  }
+
   public async openExternalUrl(url: string): Promise<void> {
     await this.ipcRenderer.invoke("open-external-url", url);
   }

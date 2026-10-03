@@ -138,6 +138,9 @@ const GOLDEN = {
     "read_attachment",
     "read_file",
     "read_url",
+    // Relics (2026-10-02): pages the agent makes to share. Build/Debug only:
+    // Plan's surface is read-only and has no prompt budget to spare.
+    "relic",
     "run_command",
     "schedule_wakeup",
     "session_search",

@@ -160,8 +160,9 @@ describe("prepareMessageWithAttachments — PDF parts", () => {
       pdfAttachments: [pdf("report.pdf")],
     });
     const parts = partsOf(out.content);
-    expect(parts.filter((p) => p.type === "image")).toHaveLength(1);
-    expect(parts.filter((p) => p.type === "file")).toHaveLength(1);
+    // Both are `file` parts (AI SDK 7 deprecated the `image` part), told apart by media type.
+    const files = parts.filter((p) => p.type === "file") as Array<{ mediaType?: string }>;
+    expect(files.map((f) => f.mediaType)).toEqual(["image/png", "application/pdf"]);
     const text = String(parts.find((p) => p.type === "text")?.text ?? "");
     expect(text).toContain("shot.png");
     expect(text).toContain("report.pdf");

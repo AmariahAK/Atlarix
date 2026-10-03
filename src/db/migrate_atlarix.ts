@@ -3,6 +3,7 @@
  * Ledger: __atlarix_migrations. Bridge from legacy __drizzle_migrations via DRIZZLE_HASH_TO_NAME.
  */
 import type Database from "better-sqlite3";
+import os from "node:os";
 import log from "electron-log";
 import * as Sentry from "@sentry/electron/main";
 import {
@@ -168,19 +169,45 @@ function isMigrationApplied(sqlite: Database.Database, name: string): boolean {
   return !!row;
 }
 
+/** Bundled migrations not yet applied to this database, in order. */
+export function pendingBundledMigrations(
+  sqlite: Database.Database,
+  migrations: ReadonlyArray<{ name: string }> = BUNDLED_MIGRATIONS,
+): string[] {
+  ensureAtlarixMigrationsTable(sqlite);
+  return migrations
+    .filter((m) => !isMigrationApplied(sqlite, m.name))
+    .map((m) => m.name);
+}
+
 /**
  * Apply any bundled migration not yet in __atlarix_migrations.
+ *
+ * A migration that raises `min_reader` (see the note on READER_VERSION) breaks
+ * older readers, so it must not run while another Atlarix — the desktop app or
+ * the CLI, which share this file — has the database open: that program would go
+ * on reading a schema it no longer understands. It waits for them to close.
  */
-export function runPendingAtlarixMigrations(sqlite: Database.Database): void {
+export function runPendingAtlarixMigrations(
+  sqlite: Database.Database,
+  migrations: ReadonlyArray<{ name: string; sql: string }> = BUNDLED_MIGRATIONS,
+): void {
   ensureAtlarixMigrationsTable(sqlite);
 
   const insert = sqlite.prepare(
     `INSERT INTO ${ATLARIX_MIGRATIONS_TABLE} (name, applied_at) VALUES (?, ?)`,
   );
 
-  for (const m of BUNDLED_MIGRATIONS) {
+  for (const m of migrations) {
     if (isMigrationApplied(sqlite, m.name)) {
       continue;
+    }
+
+    if (/\bmin_reader\b/.test(m.sql)) {
+      const others = liveOtherClients(sqlite);
+      if (others.length > 0) {
+        throw new DatabaseInUseForUpgradeError(m.name, others);
+      }
     }
 
     const chunks = splitMigrationStatements(m.sql);
@@ -226,4 +253,191 @@ export function countAtlarixMigrations(sqlite: Database.Database): number {
 
 export function expectedBundledMigrationCount(): number {
   return BUNDLED_MIGRATIONS.length;
+}
+
+// ─── Two programs, one database ──────────────────────────────────────────────
+//
+// The desktop app and the CLI open the SAME sqlite.db, and they are updated
+// independently, so either can meet a database that a NEWER build of the other
+// has already migrated. That is normal and, for additive migrations, harmless:
+// an older build simply never touches the new columns and tables.
+//
+// A migration that WOULD break an older reader (a rename, a drop, a meaning
+// change) must also raise `min_reader`, in the same migration:
+//   INSERT OR REPLACE INTO __atlarix_schema_meta (key, value) VALUES ('min_reader', '<n>');
+// and bump READER_VERSION here to the same <n>. An older build then refuses to
+// open the database and says to update, instead of misreading it.
+
+/** The reader generation this build implements. See the note above. */
+export const READER_VERSION = 1;
+
+export const SCHEMA_META_TABLE = "__atlarix_schema_meta";
+
+/** The database was migrated by a newer Atlarix that older builds cannot read. Never wipe-retry. */
+export class DatabaseNewerThanClientError extends Error {
+  constructor(
+    readonly minReader: number,
+    readonly unknownMigrations: string[],
+  ) {
+    super(
+      `This Atlarix database was upgraded by a newer version of Atlarix (needs reader ${minReader}, this build is ${READER_VERSION}). ` +
+        `Update Atlarix — the desktop app and the CLI share it. Nothing was changed.`,
+    );
+    this.name = "DatabaseNewerThanClientError";
+  }
+}
+
+/** Migrations recorded in the database that this build does not ship. */
+export function unknownAppliedMigrations(sqlite: Database.Database): string[] {
+  const hasTable = sqlite
+    .prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`)
+    .get(ATLARIX_MIGRATIONS_TABLE);
+  if (!hasTable) return [];
+  const known = new Set(BUNDLED_MIGRATIONS.map((m) => m.name));
+  const rows = sqlite
+    .prepare(`SELECT name FROM ${ATLARIX_MIGRATIONS_TABLE}`)
+    .all() as Array<{ name: string }>;
+  return rows.map((r) => r.name).filter((n) => !known.has(n));
+}
+
+export function storedMinReader(sqlite: Database.Database): number {
+  const hasTable = sqlite
+    .prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`)
+    .get(SCHEMA_META_TABLE);
+  if (!hasTable) return 1;
+  const row = sqlite
+    .prepare(`SELECT value FROM ${SCHEMA_META_TABLE} WHERE key = 'min_reader'`)
+    .get() as { value?: string } | undefined;
+  const n = Number(row?.value);
+  return Number.isFinite(n) && n > 0 ? n : 1;
+}
+
+/**
+ * Throws DatabaseNewerThanClientError when a newer build has migrated this
+ * database past what this build can read. Run BEFORE applying migrations, so
+ * an older build never writes into a schema it does not understand.
+ */
+export function assertReadableByThisBuild(sqlite: Database.Database): void {
+  const minReader = storedMinReader(sqlite);
+  if (minReader > READER_VERSION) {
+    throw new DatabaseNewerThanClientError(
+      minReader,
+      unknownAppliedMigrations(sqlite),
+    );
+  }
+}
+
+
+// ─── Who else has the database open ──────────────────────────────────────────
+
+export const CLIENTS_TABLE = "__atlarix_clients";
+/** A client that has not refreshed its row for this long is gone (crashed or closed). */
+export const CLIENT_STALE_MS = 90_000;
+export const CLIENT_HEARTBEAT_MS = 30_000;
+
+export interface LiveClient {
+  pid: number;
+  program: string;
+  last_seen: number;
+}
+
+export function ensureClientsTable(sqlite: Database.Database): void {
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS ${CLIENTS_TABLE} (
+      pid INTEGER NOT NULL,
+      host TEXT NOT NULL,
+      program TEXT NOT NULL,
+      reader INTEGER NOT NULL,
+      last_seen INTEGER NOT NULL,
+      PRIMARY KEY (pid, host)
+    )
+  `);
+}
+
+export function liveOtherClients(
+  sqlite: Database.Database,
+  now = Date.now(),
+  self = { pid: process.pid, host: os.hostname() },
+): LiveClient[] {
+  ensureClientsTable(sqlite);
+  const rows = sqlite
+    .prepare(
+      `SELECT pid, host, program, last_seen FROM ${CLIENTS_TABLE}
+       WHERE last_seen > ? AND NOT (pid = ? AND host = ?)`,
+    )
+    .all(now - CLIENT_STALE_MS, self.pid, self.host) as Array<LiveClient & { host: string }>;
+  const live: LiveClient[] = [];
+  for (const row of rows) {
+    // A process on THIS machine can be checked directly: a crashed one would
+    // otherwise hold up a reader-breaking migration for the full stale window.
+    // Another host (a synced or network folder) only has the heartbeat to go on.
+    if (row.host === self.host && !processAlive(row.pid)) {
+      sqlite
+        .prepare(`DELETE FROM ${CLIENTS_TABLE} WHERE pid = ? AND host = ?`)
+        .run(row.pid, row.host);
+      continue;
+    }
+    live.push({ pid: row.pid, program: row.program, last_seen: row.last_seen });
+  }
+  return live;
+}
+
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    // EPERM: it exists, it just isn't ours to signal.
+    return (e as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/** Record this process as open on the database; returns a stop function. */
+export function registerDatabaseClient(
+  sqlite: Database.Database,
+  program: string,
+): () => void {
+  ensureClientsTable(sqlite);
+  const host = os.hostname();
+  const beat = () => {
+    try {
+      sqlite
+        .prepare(
+          `INSERT INTO ${CLIENTS_TABLE} (pid, host, program, reader, last_seen)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT (pid, host) DO UPDATE SET last_seen = excluded.last_seen`,
+        )
+        .run(process.pid, host, program, READER_VERSION, Date.now());
+    } catch {
+      /* the database is closing; the row goes stale on its own */
+    }
+  };
+  beat();
+  const timer = setInterval(beat, CLIENT_HEARTBEAT_MS);
+  (timer as { unref?: () => void }).unref?.();
+  return () => {
+    clearInterval(timer);
+    try {
+      sqlite
+        .prepare(`DELETE FROM ${CLIENTS_TABLE} WHERE pid = ? AND host = ?`)
+        .run(process.pid, host);
+    } catch {
+      /* already closed */
+    }
+  };
+}
+
+/** A reader-breaking migration is waiting for other Atlarix programs to close. Never wipe-retry. */
+export class DatabaseInUseForUpgradeError extends Error {
+  constructor(
+    readonly migration: string,
+    readonly others: LiveClient[],
+  ) {
+    const names = [...new Set(others.map((o) => o.program))].join(" and ");
+    super(
+      `Atlarix needs to finish updating its data, and the ${names} still has it open. ` +
+        `Close the ${names}, then start this again. Nothing was changed.`,
+    );
+    this.name = "DatabaseInUseForUpgradeError";
+  }
 }

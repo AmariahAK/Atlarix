@@ -38,7 +38,7 @@ import {
   refreshSession,
   authorizeUrl,
 } from "./gotrue";
-import { challengeFromVerifier, randomVerifier } from "./pkce";
+import { base64UrlEncode, challengeFromVerifier, randomVerifier } from "./pkce";
 import { OAUTH_REDIRECT_URL, assertRedirectPinned } from "./redirect";
 import {
   clearSession,
@@ -57,8 +57,9 @@ export type SignInResult =
  * Run the PKCE flow. **Side panel only** — see the docblock above.
  */
 export async function signIn(
-  provider: "google" | "github" = "google",
+  provider: "google" | "github" | "email" = "google",
 ): Promise<SignInResult> {
+  if (provider === "email") return signInWithEmail();
   // Before anything else, and before the browser opens a consent screen. Once
   // the flow has run against a redirect GoTrue does not recognise, the user has
   // already been bounced to the website and there is no error left to catch.
@@ -113,6 +114,64 @@ export async function signIn(
       authCode: parsed.code,
       codeVerifier: verifier,
     });
+    await writeSession(session);
+    return { kind: "session", session };
+  } catch (err) {
+    return { kind: "error", message: messageOf(err) };
+  }
+}
+
+/**
+ * Email + password happens on atlarix.dev: Supabase refuses a password sign-in
+ * without a Turnstile token, and Turnstile will not render on an extension
+ * page. The site signs in with a client that keeps nothing and redirects to our
+ * chromiumapp.org URL with the tokens and the `state` we sent.
+ */
+export const EMAIL_SIGN_IN_URL = "https://atlarix.dev/auth/app";
+
+async function signInWithEmail(): Promise<SignInResult> {
+  assertRedirectPinned();
+
+  // A nonce the site must echo. It is what stops a crafted chromiumapp.org URL
+  // carrying someone else's tokens from being taken as this flow's answer.
+  const state = base64UrlEncode(crypto.getRandomValues(new Uint8Array(24)));
+
+  let redirectUrl: string | undefined;
+  try {
+    redirectUrl = await api().identity.launchWebAuthFlow({
+      url: `${EMAIL_SIGN_IN_URL}?client=extension&state=${state}`,
+      interactive: true,
+    });
+  } catch (err) {
+    const message = messageOf(err);
+    if (!/closed|cancell?ed|did not approve/i.test(message)) {
+      console.error("[atlarix] launchWebAuthFlow failed:", message);
+      return { kind: "error", message };
+    }
+    return { kind: "cancelled" };
+  }
+  if (!redirectUrl) return { kind: "cancelled" };
+
+  let fragment: URLSearchParams;
+  try {
+    fragment = new URLSearchParams(new URL(redirectUrl).hash.replace(/^#/, ""));
+  } catch {
+    return { kind: "error", message: "Sign-in returned an unreadable address." };
+  }
+  if (fragment.get("state") !== state) {
+    return { kind: "error", message: "Sign-in answer did not match this request. Try again." };
+  }
+  const refresh = fragment.get("refresh_token");
+  if (!refresh) {
+    return { kind: "error", message: fragment.get("error_description") ?? "No session came back." };
+  }
+
+  try {
+    // Refresh straight away rather than storing what arrived. It yields the
+    // same StoredSession shape the PKCE path produces, and it ROTATES the
+    // refresh token — so the one that travelled through a URL is spent before
+    // anything else could use it.
+    const session = await refreshSession(GOTRUE, refresh);
     await writeSession(session);
     return { kind: "session", session };
   } catch (err) {

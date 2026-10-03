@@ -980,6 +980,24 @@ export const automations = sqliteTable("automations", {
     .default(sql`(unixepoch())`),
 });
 
+/**
+ * One row per automation occurrence that some Atlarix process claimed (0077).
+ * The desktop app and the CLI share this database and both run automations;
+ * the primary key lets exactly one of them take each occurrence.
+ */
+export const automationLeases = sqliteTable(
+  "automation_leases",
+  {
+    automationId: text("automation_id").notNull(),
+    slotKey: text("slot_key").notNull(),
+    owner: text("owner").notNull(),
+    claimedAt: integer("claimed_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (t) => [primaryKey({ columns: [t.automationId, t.slotKey] })],
+);
+
 export const automationRuns = sqliteTable("automation_runs", {
   id: text("id").primaryKey(),
   automationId: text("automation_id")
@@ -1007,6 +1025,10 @@ export const automationRuns = sqliteTable("automation_runs", {
   proposalDiff: text("proposal_diff"),
   proposalFiles: text("proposal_files"),
   proposalAppliedAt: integer("proposal_applied_at", { mode: "timestamp" }),
+  /** The process running it (runner.ts PROCESS_OWNER); null on rows from before 0077. */
+  owner: text("owner"),
+  /** Refreshed while the owner is alive; a stale beat means the run was interrupted. */
+  heartbeatAt: integer("heartbeat_at", { mode: "timestamp" }),
   startedAt: integer("started_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),

@@ -14,14 +14,20 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { getDefaultStore } from "jotai";
 import { workspacePlanPanelAtom } from "@/atoms/sourceAtoms";
+import { selectedAppIdAtom } from "@/atoms/appAtoms";
+import { activeWorkspaceSessionIdAtom } from "@/atoms/sessionAtoms";
 
 const listPlanArtifactsForSession = vi.fn();
+const listPlanArtifactsForWorkspace = vi.fn(async () => [] as unknown[]);
+const copyPlanArtifactToSession = vi.fn();
 const getPlanArtifact = vi.fn();
 
 vi.mock("@/ipc/ipc_client", () => ({
   IpcClient: {
     getInstance: () => ({
       listPlanArtifactsForSession,
+      listPlanArtifactsForWorkspace,
+      copyPlanArtifactToSession,
       getPlanArtifact,
       updatePlanArtifactContent: vi.fn(),
       setPlanArtifactStatus: vi.fn(),
@@ -144,5 +150,38 @@ describe("Plan panel switcher", () => {
         getDefaultStore().get(workspacePlanPanelAtom).pinnedPlanId,
       ).toBeNull(),
     );
+  });
+
+  it("lists plans from this folder's earlier sessions, and copies one in to build it here", async () => {
+    getDefaultStore().set(selectedAppIdAtom, 7);
+    getDefaultStore().set(activeWorkspaceSessionIdAtom, "sess-1");
+    listPlanArtifactsForSession.mockResolvedValue([plan("p-new", "Ship the release")]);
+    listPlanArtifactsForWorkspace.mockResolvedValue([
+      { ...plan("p-earlier", "Add billing"), sessionId: "sess-0", sessionTitle: "Billing work" },
+    ]);
+    getPlanArtifact.mockImplementation(async (id: string) =>
+      id === "p-earlier" ? { ...plan("p-earlier", "Add billing"), sessionId: "sess-0" } : null,
+    );
+    copyPlanArtifactToSession.mockResolvedValue({ ...plan("p-copy", "Add billing"), sessionId: "sess-1" });
+    seedPanel();
+
+    render(<PlanExecutionPanel />);
+    await waitFor(() => expect(listPlanArtifactsForWorkspace).toHaveBeenCalledWith(7, "sess-1"));
+    const select = await screen.findByTestId("plan-switcher");
+    expect(screen.getByRole("option", { name: /Add billing — Billing work/ })).toBeTruthy();
+
+    fireEvent.change(select, { target: { value: "p-earlier" } });
+    // Another session's plan: not built from here as-is.
+    const useHere = await screen.findByTestId("plan-use-here");
+    expect(screen.queryByRole("button", { name: /^Build$/ })).toBeNull();
+    fireEvent.click(useHere);
+    await waitFor(() => {
+      expect(copyPlanArtifactToSession).toHaveBeenCalledWith("p-earlier", "sess-1");
+      const state = getDefaultStore().get(workspacePlanPanelAtom);
+      expect(state.planId).toBe("p-copy");
+      expect(state.sessionId).toBe("sess-1");
+    });
+    getDefaultStore().set(selectedAppIdAtom, null);
+    getDefaultStore().set(activeWorkspaceSessionIdAtom, null);
   });
 });

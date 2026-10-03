@@ -1,0 +1,21 @@
+# The `atlarix` CLI as .deb and .rpm (release.yml build-cli, linux glibc legs).
+# nfpm expands ${VAR} from the environment: VERSION, NFPM_ARCH (amd64|arm64),
+# CLI_BINARY (path to the built binary).
+name: atlarix
+arch: ${NFPM_ARCH}
+platform: linux
+version: ${VERSION}
+section: devel
+priority: optional
+maintainer: Atlarix <hello@atlarix.dev>
+description: |
+  Atlarix in your terminal: an AI coding agent that works with any model,
+  in any folder, with the same sessions and settings as the Atlarix app.
+vendor: NorahLabs
+homepage: https://atlarix.dev
+license: Proprietary
+contents:
+  - src: ${CLI_BINARY}
+    dst: /usr/bin/atlarix
+    file_info:
+      mode: 0755

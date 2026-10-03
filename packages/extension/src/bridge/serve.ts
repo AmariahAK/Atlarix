@@ -63,6 +63,7 @@ import {
   MAX_ELEMENTS,
   MAX_ELEMENTS_ALL,
   MAX_FIND_MATCHES,
+  MAX_SEARCH_RESULTS,
   PAGE_TEXT_MAX_CHARS,
   type A11yFindResult,
   type A11ySnapshot,
@@ -84,7 +85,23 @@ import {
   type VisualLintRaw,
 } from "@/lib/browser/page-scripts/visual";
 import { VISUAL_LINT_ARGS } from "@/lib/browser/visual-report";
-import { adoptTab, isAgentTab, setGroupTitle } from "../tabs/group";
+import {
+  adoptTab,
+  groupTitle,
+  isAgentTab,
+  noteAgentClosingTab,
+  setGroupTitle,
+  type GroupClient,
+} from "../tabs/group";
+
+/**
+ * Which Atlarix sent the request: the desktop app, or the `atlarix` CLI
+ * (`args.client`, added by the desktop's browser-target.ts). Each drives its own
+ * tab group. A request without it comes from an app older than the CLI.
+ */
+function clientOf(args: Record<string, unknown>): GroupClient {
+  return args.client === "cli" ? "cli" : "app";
+}
 import {
   armNetwork,
   beginCapture,
@@ -152,7 +169,7 @@ async function targetTab(args: Record<string, unknown>): Promise<number> {
   const mine: { id: number; lastAccessed: number }[] = [];
   for (const t of all) {
     if (t.id === undefined) continue;
-    if (await isAgentTab(t.id)) {
+    if (await isAgentTab(t.id, clientOf(args))) {
       mine.push({
         id: t.id,
         lastAccessed:
@@ -223,7 +240,7 @@ const clearTimers = new Map<number, ReturnType<typeof setTimeout>>();
  */
 const OVERLAY_LINGER_MS = 8_000;
 
-async function markDriven(tabId: number): Promise<void> {
+async function markDriven(tabId: number, client: GroupClient = "app"): Promise<void> {
   try {
     await runInPage(tabId, { op: "overlay", state: "on" });
   } catch {
@@ -232,7 +249,7 @@ async function markDriven(tabId: number): Promise<void> {
   try {
     const tab = await api().tabs.get(tabId);
     if (tab?.windowId !== undefined) {
-      await setGroupTitle(tab.windowId, "Atlarix · working");
+      await setGroupTitle(tab.windowId, groupTitle(client, true), client);
     }
   } catch {
     /* no group yet, or the tab went away */
@@ -244,12 +261,12 @@ async function markDriven(tabId: number): Promise<void> {
     tabId,
     setTimeout(() => {
       clearTimers.delete(tabId);
-      void releaseTab(tabId);
+      void releaseTab(tabId, client);
     }, OVERLAY_LINGER_MS),
   );
 }
 
-async function releaseTab(tabId: number): Promise<void> {
+async function releaseTab(tabId: number, client: GroupClient = "app"): Promise<void> {
   try {
     await runInPage(tabId, { op: "overlay", state: "off" });
   } catch {
@@ -257,7 +274,7 @@ async function releaseTab(tabId: number): Promise<void> {
   }
   try {
     const tab = await api().tabs.get(tabId);
-    if (tab?.windowId !== undefined) await setGroupTitle(tab.windowId, "Atlarix");
+    if (tab?.windowId !== undefined) await setGroupTitle(tab.windowId, groupTitle(client), client);
   } catch {
     /* gone */
   }
@@ -272,8 +289,8 @@ async function releaseTab(tabId: number): Promise<void> {
  * banner the user sees is honest rather than alarming. The refusal names the
  * two ways forward instead of merely declining.
  */
-async function requireOwnTabForInput(tabId: number, what: string): Promise<void> {
-  if (await isAgentTab(tabId)) return;
+async function requireOwnTabForInput(tabId: number, what: string, client: GroupClient = "app"): Promise<void> {
+  if (await isAgentTab(tabId, client)) return;
   throw new Error(
     `${what} needs a real keystroke or pointer move, which means attaching a ` +
       `debugger to the tab — that shows a banner and takes DevTools away from ` +
@@ -347,11 +364,11 @@ async function loadInAgentTab(tabId: number, url: string) {
  * A fresh background tab in the agent's group, at about:blank, so capture can
  * attach before the real page loads (see `loadInAgentTab`).
  */
-async function createAgentTab(): Promise<number> {
+async function createAgentTab(client: GroupClient = "app"): Promise<number> {
   const tab = await api().tabs.create({ url: "about:blank", active: false });
   if (tab?.id === undefined) throw new Error("the browser did not open a tab");
   if (tab.windowId !== undefined) {
-    await adoptTab(tab.id, tab.windowId).catch(() => {});
+    await adoptTab(tab.id, tab.windowId, undefined, client).catch(() => {});
   }
   return tab.id;
 }
@@ -382,6 +399,7 @@ export async function serveBridgeRequest(
 }
 
 async function run(op: string, args: Record<string, unknown>): Promise<unknown> {
+  const client = clientOf(args);
   switch (op) {
     // The handshake probe. Touches nothing, so a desktop that can round-trip
     // this knows the whole chain works before any permission is involved.
@@ -396,7 +414,7 @@ async function run(op: string, args: Record<string, unknown>): Promise<unknown> 
           title: t.title ?? "",
           url: t.url ?? "",
           active: Boolean(t.active),
-          agent: t.id !== undefined && (await isAgentTab(t.id)),
+          agent: t.id !== undefined && (await isAgentTab(t.id, client)),
         })),
       );
     }
@@ -410,7 +428,7 @@ async function run(op: string, args: Record<string, unknown>): Promise<unknown> 
     case "read_page": {
       const tabId = await targetTab(args);
       const url = await tabUrl(tabId);
-      await markDriven(tabId);
+      await markDriven(tabId, client);
       const all = str(args.filter) === "all";
       const snapshot = await runInPage<A11ySnapshot>(tabId, {
         op: "snapshot",
@@ -426,7 +444,7 @@ async function run(op: string, args: Record<string, unknown>): Promise<unknown> 
     case "text": {
       const tabId = await targetTab(args);
       const url = await tabUrl(tabId);
-      await markDriven(tabId);
+      await markDriven(tabId, client);
       const res = await runInPage<PageTextResult>(tabId, {
         op: "text",
         selector: str(args.selector) || undefined,
@@ -450,7 +468,7 @@ async function run(op: string, args: Record<string, unknown>): Promise<unknown> 
       const tabId = await targetTab(args);
       const tab = await api().tabs.get(tabId);
       const url = tab?.url ?? "";
-      if (await isAgentTab(tabId)) {
+      if (await isAgentTab(tabId, client)) {
         const shot = await captureScreenshot(tabId);
         return {
           tabId,
@@ -485,7 +503,7 @@ async function run(op: string, args: Record<string, unknown>): Promise<unknown> 
     case "find_on_page": {
       const tabId = await targetTab(args);
       const url = await tabUrl(tabId);
-      await markDriven(tabId);
+      await markDriven(tabId, client);
       const found = await runInPage<A11yFindResult>(tabId, {
         op: "find",
         query: str(args.query),
@@ -506,7 +524,7 @@ async function run(op: string, args: Record<string, unknown>): Promise<unknown> 
      */
     case "click": {
       const tabId = await targetTab(args);
-      await markDriven(tabId);
+      await markDriven(tabId, client);
       const ref = str(args.ref) || undefined;
       const selector = str(args.selector) || undefined;
       await runInPage<PageActionResult>(tabId, {
@@ -521,7 +539,7 @@ async function run(op: string, args: Record<string, unknown>): Promise<unknown> 
     /** Same as `click`: resolve draws the pointer and scrolls into view. */
     case "fill": {
       const tabId = await targetTab(args);
-      await markDriven(tabId);
+      await markDriven(tabId, client);
       const ref = str(args.ref) || undefined;
       const selector = str(args.selector) || undefined;
       await runInPage<PageActionResult>(tabId, {
@@ -553,7 +571,7 @@ async function run(op: string, args: Record<string, unknown>): Promise<unknown> 
       const tabId = await targetTab(args);
       const ref = str(args.ref);
       if (ref) {
-        await markDriven(tabId);
+        await markDriven(tabId, client);
         return runInPage<PageActionResult>(tabId, { op: "resolve", ref });
       }
       const direction = str(args.direction);
@@ -575,7 +593,7 @@ async function run(op: string, args: Record<string, unknown>): Promise<unknown> 
             `"${direction}"`,
         );
       }
-      await markDriven(tabId);
+      await markDriven(tabId, client);
       return runInPage<PageActionResult>(tabId, {
         op: "scroll",
         direction,
@@ -601,8 +619,8 @@ async function run(op: string, args: Record<string, unknown>): Promise<unknown> 
         );
       }
       const tabId = await targetTab(args);
-      await requireOwnTabForInput(tabId, `Pressing ${name}`);
-      await markDriven(tabId);
+      await requireOwnTabForInput(tabId, `Pressing ${name}`, client);
+      await markDriven(tabId, client);
       await attach(tabId);
       await pressKey(tabId, name);
       return {
@@ -618,8 +636,8 @@ async function run(op: string, args: Record<string, unknown>): Promise<unknown> 
     /** Opens :hover menus and tooltips. Same debugger gate as `key`. */
     case "hover": {
       const tabId = await targetTab(args);
-      await requireOwnTabForInput(tabId, "Hovering");
-      await markDriven(tabId);
+      await requireOwnTabForInput(tabId, "Hovering", client);
+      await markDriven(tabId, client);
       // Resolve FIRST: a pointer event takes coordinates, not a node, and the
       // rect is only meaningful once the element has been scrolled into view.
       const resolved = await runInPage<PageActionResult>(tabId, {
@@ -687,7 +705,7 @@ async function run(op: string, args: Record<string, unknown>): Promise<unknown> 
       }
       const explicit = num(args.tab_id);
       if (explicit !== null) {
-        if (!(await isAgentTab(explicit))) {
+        if (!(await isAgentTab(explicit, client))) {
           throw new Error(
             `tab ${explicit} is not one Atlarix opened, so it will not be ` +
               `navigated away from what the user is doing. Use open_tab to get ` +
@@ -698,11 +716,11 @@ async function run(op: string, args: Record<string, unknown>): Promise<unknown> 
       }
       const all = await api().tabs.query({});
       for (const t of all) {
-        if (t.id !== undefined && (await isAgentTab(t.id))) {
+        if (t.id !== undefined && (await isAgentTab(t.id, client))) {
           return { ...(await loadInAgentTab(t.id, url)), reused: true };
         }
       }
-      const tabId = await createAgentTab();
+      const tabId = await createAgentTab(client);
       return { ...(await loadInAgentTab(tabId, url)), reused: false };
     }
 
@@ -718,13 +736,13 @@ async function run(op: string, args: Record<string, unknown>): Promise<unknown> 
       // tab and no group ever appeared. The blank tab is already in the group,
       // so the user sees it the moment the agent asks for it.
       if (!url) {
-        const tabId = await createAgentTab();
+        const tabId = await createAgentTab(client);
         return { tabId, url: "about:blank", title: "", loaded: true, blank: true };
       }
       if (!/^https?:\/\//i.test(url)) {
         throw new Error(`open_tab needs an http(s) URL, got "${url}"`);
       }
-      const tabId = await createAgentTab();
+      const tabId = await createAgentTab(client);
       return loadInAgentTab(tabId, url);
     }
 
@@ -766,13 +784,48 @@ async function run(op: string, args: Record<string, unknown>): Promise<unknown> 
       return { tabId, ...(await readNetworkBody(tabId, str(args.request_id))) };
     }
 
+    /**
+     * A web search for an Atlarix that has no browser of its own (the CLI):
+     * the engine's results page in a background tab of the caller's group,
+     * read with the same page op the panel's search uses, then closed. Brave
+     * first; DuckDuckGo when Brave gives nothing readable (usually its bot
+     * check). `challenged` says the engines refused rather than found nothing.
+     */
+    case "search": {
+      const query = str(args.query).trim();
+      if (!query) throw new Error("search needs a query");
+      const max = Math.min(Number(args.max) || MAX_SEARCH_RESULTS, MAX_SEARCH_RESULTS);
+      const engines = [
+        ["brave", `https://search.brave.com/search?q=${encodeURIComponent(query)}`],
+        ["duckduckgo", `https://duckduckgo.com/?q=${encodeURIComponent(query)}`],
+      ] as const;
+      const tabId = await createAgentTab(client);
+      try {
+        for (const [engine, url] of engines) {
+          await loadInAgentTab(tabId, url);
+          const payload = await runInPage<{ results?: unknown[] }>(tabId, {
+            op: "search-results",
+            max,
+          }).catch(() => ({ results: [] }));
+          const results = payload.results ?? [];
+          if (results.length > 0) return { engine, results, challenged: false };
+        }
+        return { engine: null, results: [], challenged: true };
+      } finally {
+        // The agent emptying its own group is not the user's stop gesture.
+        noteAgentClosingTab();
+        await endCapture(tabId).catch(() => {});
+        await api().tabs.remove(tabId).catch(() => {});
+      }
+    }
+
     case "close_tab": {
       const tabId = num(args.tab_id);
       if (tabId === null) throw new Error("close_tab needs tab_id");
       // ONLY TABS ATLARIX OPENED. The panel enforces the same rule and it is
       // not negotiable across surfaces: the user's own tabs are not ours to
       // close, and a desktop request is not a reason to change that.
-      if (!(await isAgentTab(tabId))) {
+      if (!(await isAgentTab(tabId, client))) {
         throw new Error(
           `tab ${tabId} was not opened by Atlarix, so it will not be closed`,
         );

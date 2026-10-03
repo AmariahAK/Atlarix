@@ -868,6 +868,7 @@ export function registerChatStreamHandlers() {
             persistWorkspaceSessionUserMessage,
             titleSessionFromFirstMessage,
           } = await import("./workspace_session_handlers");
+          const { titleSourceText } = await import("@/lib/session-title/title-text");
           const persistOnce = () =>
             persistWorkspaceSessionUserMessage(
               req.workspaceSessionId!,
@@ -899,7 +900,7 @@ export function registerChatStreamHandlers() {
             // background, parallel to the turn, never awaited by it.
             void titleSessionFromFirstMessage(
               req.workspaceSessionId,
-              userDisplayContent,
+              titleSourceText(userDisplayContent, userPrompt),
               { chatId: req.chatId },
             );
           } catch (err) {
@@ -1111,6 +1112,22 @@ export function registerChatStreamHandlers() {
             () => getModelClient(effectiveModel, settings, mainOptions),
           );
           let modelClient = initialModelClientBundle.modelClient;
+          // Usage by who pays for it (Core, own key, local), for people who
+          // opted in to analytics: own-key turns never reach Core's numbers.
+          {
+            const { trackModelTurn } = await import("@/main/lib/analytics");
+            const { getLanguageModelProviders } = await import("@/ipc/shared/language_model_helpers");
+            const providerType = (await getLanguageModelProviders().catch(() => [])).find(
+              (p) => p.id === effectiveModel.provider,
+            )?.type;
+            trackModelTurn({
+              provider: initialModelClientBundle.fellBackToCore ? "compass" : effectiveModel.provider,
+              providerType,
+              model: effectiveModel.name,
+              mode: mainOptions.workMode,
+              fellBackToCore: initialModelClientBundle.fellBackToCore,
+            });
+          }
           // Surface the no-key → Atlarix Core fallback so the user knows their
           // selected model isn't what answered (and how to switch back).
           if (initialModelClientBundle.fellBackToCore) {

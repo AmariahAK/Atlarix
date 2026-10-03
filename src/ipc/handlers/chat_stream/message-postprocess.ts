@@ -162,9 +162,13 @@ export async function prepareMessageWithAttachments({
         type: "text",
         text: `${injected}\n\n${notes.join("\n\n")}`,
       },
+      // A `file` part with an image media type: AI SDK 7 deprecated the
+      // `image` part (it printed "Deprecated: '"image" content part'" on every
+      // turn with a screenshot). Same bytes, same providers, as the PDFs below.
       ...embeddable.map((a) => ({
-        type: "image" as const,
-        image: a.data,
+        type: "file" as const,
+        data: a.data,
+        filename: a.filename,
         mediaType: a.mimeType,
       })),
       ...embeddablePdfs.map((a) => ({

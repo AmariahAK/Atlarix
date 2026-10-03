@@ -18,6 +18,13 @@
  * ONE GROUP PER WINDOW. A group cannot span windows, and the agent may be asked
  * about a tab in any of them, so the mapping is windowId → groupId.
  *
+ * AND ONE PER ATLARIX PROCESS. The desktop app and the `atlarix` CLI can drive
+ * the browser at once (the bridge carries `client` on each request). Each gets
+ * its own group — "Atlarix" and "Atlarix CLI" — so neither takes over, reads
+ * or closes the other's tabs. The app's groups keep the original key (the bare
+ * windowId), so nothing stored before this needs migrating; the CLI's are
+ * `cli:<windowId>`.
+ *
  * THE GROUP ID IS NOT A DURABLE HANDLE. The user can close the group, drag the
  * last tab out (which destroys it), or restart the browser. Every read goes
  * through `tabGroups.get`, which throws for a group that no longer exists —
@@ -39,6 +46,25 @@ const GROUP_COLOR = "green" as const;
 
 const DEFAULT_TITLE = "Atlarix";
 
+/** Which Atlarix a group belongs to: the desktop app (and this panel) or the CLI. */
+export type GroupClient = "app" | "cli";
+
+/** The group's name in the tab strip, and while it is working. */
+export function groupTitle(client: GroupClient = "app", working = false): string {
+  const base = client === "cli" ? "Atlarix CLI" : DEFAULT_TITLE;
+  return working ? `${base} · working` : base;
+}
+
+function keyFor(windowId: number, client: GroupClient): string {
+  return client === "app" ? String(windowId) : `${client}:${windowId}`;
+}
+
+/** The client and window a stored key names. */
+function parseKey(key: string): { client: GroupClient; windowId: number } {
+  const [a, b] = key.split(":");
+  return b === undefined ? { client: "app", windowId: Number(a) } : { client: a === "cli" ? "cli" : "app", windowId: Number(b) };
+}
+
 type GroupMap = Record<string, number>;
 
 async function readMap(): Promise<GroupMap> {
@@ -58,15 +84,19 @@ async function writeMap(map: GroupMap): Promise<void> {
  * user closed leaves its id behind, and `tabs.group({groupId})` with a dead id
  * is an error at best and someone else's group at worst.
  */
-export async function existingGroup(windowId: number): Promise<number | null> {
+export async function existingGroup(
+  windowId: number,
+  client: GroupClient = "app",
+): Promise<number | null> {
   const map = await readMap();
-  const groupId = map[String(windowId)];
+  const key = keyFor(windowId, client);
+  const groupId = map[key];
   if (typeof groupId !== "number") return null;
   try {
     await api().tabGroups.get(groupId);
     return groupId;
   } catch {
-    delete map[String(windowId)];
+    delete map[key];
     await writeMap(map);
     return null;
   }
@@ -81,9 +111,11 @@ export async function existingGroup(windowId: number): Promise<number | null> {
 export async function adoptTab(
   tabId: number,
   windowId: number,
-  title: string = DEFAULT_TITLE,
+  title?: string,
+  client: GroupClient = "app",
 ): Promise<number> {
-  const existing = await existingGroup(windowId);
+  title ??= groupTitle(client);
+  const existing = await existingGroup(windowId, client);
 
   const groupId = await api().tabs.group(
     existing !== null
@@ -93,7 +125,7 @@ export async function adoptTab(
 
   if (existing === null) {
     const map = await readMap();
-    map[String(windowId)] = groupId;
+    map[keyFor(windowId, client)] = groupId;
     await writeMap(map);
   }
 
@@ -110,7 +142,10 @@ export async function adoptTab(
  * The gate for anything intrusive — `chrome.debugger` above all, since
  * attaching shows a banner and takes DevTools away from whoever was using it.
  */
-export async function isAgentTab(tabId: number): Promise<boolean> {
+export async function isAgentTab(
+  tabId: number,
+  client: GroupClient | "any" = "app",
+): Promise<boolean> {
   let tab;
   try {
     tab = await api().tabs.get(tabId);
@@ -119,15 +154,20 @@ export async function isAgentTab(tabId: number): Promise<boolean> {
   }
   if (tab.groupId === undefined || tab.windowId === undefined) return false;
   if (tab.groupId === api().tabGroups.TAB_GROUP_ID_NONE) return false;
-  return tab.groupId === (await existingGroup(tab.windowId));
+  const clients: GroupClient[] = client === "any" ? ["app", "cli"] : [client];
+  for (const c of clients) {
+    if (tab.groupId === (await existingGroup(tab.windowId, c))) return true;
+  }
+  return false;
 }
 
 /** Show what the agent is doing where the user is already looking. */
 export async function setGroupTitle(
   windowId: number,
   title: string,
+  client: GroupClient = "app",
 ): Promise<void> {
-  const groupId = await existingGroup(windowId);
+  const groupId = await existingGroup(windowId, client);
   if (groupId === null) return;
   await api().tabGroups.update(groupId, { title });
 }
@@ -179,14 +219,16 @@ export function clearAgentClosing(): void {
  * agent emptied the group itself: the stored id is dead regardless, and leaving
  * it behind is the stale-id hazard this module exists to avoid.
  */
-export function onGroupClosed(handler: (windowId: number) => void): void {
+export function onGroupClosed(
+  handler: (windowId: number, client: GroupClient) => void,
+): void {
   api().tabGroups.onRemoved.addListener((group) => {
     void (async () => {
       const selfInflicted = Date.now() < agentClosingUntil;
       const map = await readMap();
-      for (const [windowId, groupId] of Object.entries(map)) {
+      for (const [key, groupId] of Object.entries(map)) {
         if (groupId !== group.id) continue;
-        delete map[windowId];
+        delete map[key];
         await writeMap(map);
         if (selfInflicted) {
           // The expected removal arrived, so stop suppressing immediately
@@ -194,7 +236,8 @@ export function onGroupClosed(handler: (windowId: number) => void): void {
           agentClosingUntil = 0;
           return;
         }
-        handler(Number(windowId));
+        const { windowId, client } = parseKey(key);
+        handler(windowId, client);
       }
     })();
   });

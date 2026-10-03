@@ -1,4 +1,5 @@
 import { createOpenAI } from "@ai-sdk/openai";
+import { getPinnedProviderKey, isOwnKeyRun } from "@/ipc/shared/pinned-provider-key";
 import { createGoogleGenerativeAI as createGoogle } from "@ai-sdk/google";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createXai } from "@ai-sdk/xai";
@@ -50,7 +51,11 @@ import {
   isCoreAutoTier,
   resolveConfiguredCoreTier,
 } from "../shared/compass_constants";
-import { ATLARIX_SURFACE, getCoreProxyBaseUrl } from "../shared/core_proxy";
+import {
+  ATLARIX_SURFACE,
+  getCoreProxyBaseUrl,
+  getPinnedCoreToken,
+} from "../shared/core_proxy";
 import { broadcastAutoStatus } from "@/main/auto-status";
 import { getSession } from "../../lib/auth/supabase-client";
 import { LM_STUDIO_BASE_URL } from "./lm_studio_utils";
@@ -119,6 +124,10 @@ export async function hasUsableProviderKey(
   // We require a non-empty (trimmed) value so an undecryptable→dropped key, or an
   // empty/whitespace value, correctly reads as "no key" and the Core fallback can
   // engage.
+  // An own-key cloud run's key (in memory only). Missing here, the gate below
+  // called the run keyless and fell back to Core though getRegularModelClient
+  // would have used it (found by running the action's agent step for real).
+  if (getPinnedProviderKey(provider)) return true;
   const settingsKey = settings.providerSettings?.[provider]?.apiKey?.value;
   if (typeof settingsKey === "string" && settingsKey.trim()) return true;
   // DB path: deserializeApiKeyFromDb already returns undefined on decrypt failure.
@@ -179,6 +188,13 @@ export async function getModelClient(
     isCompassBuildConfigured() &&
     !(await hasUsableProviderKey(model.provider, settings, providerConfig))
   ) {
+    // An own-key run uses the user's key or nothing: falling back to Core
+    // would spend their Atlarix balance on a run they chose not to pay for.
+    if (isOwnKeyRun()) {
+      throw new Error(
+        `This run uses your own API key, but there is none for ${model.provider}. Check the provider and model set for the run (ATLARIX_PROVIDER / ATLARIX_MODEL).`,
+      );
+    }
     // Ask for the first CONFIGURED tier rather than assuming core-1 exists. The
     // lineup size is config-driven, so hardcoding core-1 meant that dropping the
     // tier-1 model turned this rescue path into a hard failure.
@@ -214,8 +230,11 @@ async function getRegularModelClient(
   backupModelClients: ModelClient[];
 }> {
   // Get API key for the specific provider
-  // Priority: settings -> database -> env (so UI/database key wins over .env)
-  let apiKey = settings.providerSettings?.[model.provider]?.apiKey?.value;
+  // Priority: pinned (an own-key cloud run, in memory only) -> settings ->
+  // database -> env (so UI/database key wins over .env)
+  let apiKey =
+    getPinnedProviderKey(model.provider) ??
+    settings.providerSettings?.[model.provider]?.apiKey?.value;
 
   if (!apiKey) {
     const dbApiKey = await getProviderApiKey(model.provider);
@@ -351,8 +370,11 @@ async function getRegularModelClient(
       // forwards on the provider key (held server-side only).
       const proxyBaseUrl = getCoreProxyBaseUrl();
       if (proxyBaseUrl) {
-        const session = await getSession();
-        const accessToken = session?.access_token;
+        // A headless cloud run carries its own job-scoped token and has no
+        // session at all; everything else authenticates as the signed-in user.
+        const pinnedToken = getPinnedCoreToken();
+        const accessToken =
+          pinnedToken ?? (await getSession())?.access_token;
         if (!accessToken) {
           throw new Error(
             "Sign in to use Atlarix Core. (Core requests are authorized with your Atlarix account.)",
@@ -384,7 +406,7 @@ async function getRegularModelClient(
           fetch: async (input, init) => {
             let bearer = accessToken;
             try {
-              const fresh = (await getSession())?.access_token;
+              const fresh = pinnedToken ?? (await getSession())?.access_token;
               if (fresh) bearer = fresh;
             } catch {
               /* keep the construction-time token — a refused request is better

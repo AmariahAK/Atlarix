@@ -31,8 +31,24 @@ import { getAuthedUser, json, corsHeaders } from "../_shared/auth.ts";
  * exchange. Neither is taken from the request body.
  */
 
-const GITHUB_CLIENT_ID = Deno.env.get("GITHUB_CLIENT_ID");
-const GITHUB_CLIENT_SECRET = Deno.env.get("GITHUB_CLIENT_SECRET");
+/**
+ * TWO Apps bind through here: the Reviewer (read-only) and Atlarix Agent (the
+ * cloud agent, which writes). Each has its own OAuth client, and a code is only
+ * redeemable by the App that issued it — so the body names the App and we
+ * redeem with that App's credentials. Naming the wrong App fails the exchange;
+ * it cannot bind anything.
+ */
+const APP_CREDENTIALS = {
+  reviewer: {
+    clientId: Deno.env.get("GITHUB_CLIENT_ID"),
+    clientSecret: Deno.env.get("GITHUB_CLIENT_SECRET"),
+  },
+  agent: {
+    clientId: Deno.env.get("AGENT_GITHUB_CLIENT_ID"),
+    clientSecret: Deno.env.get("AGENT_GITHUB_CLIENT_SECRET"),
+  },
+} as const;
+type AppName = keyof typeof APP_CREDENTIALS;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_KEY =
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ??
@@ -49,10 +65,6 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
-  if (!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET) {
-    console.error("[bind] GitHub OAuth is not configured");
-    return json({ error: "bind_not_configured" }, 500);
-  }
   if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
     console.error("[bind] Supabase service credentials missing");
     return json({ error: "server_misconfigured" }, 500);
@@ -64,12 +76,27 @@ Deno.serve(async (req) => {
 
   let code = "";
   let installationId = 0;
+  let app: AppName = "reviewer";
   try {
     const body = await req.json();
     code = typeof body?.code === "string" ? body.code.trim() : "";
     installationId = Number(body?.installation_id);
+    // Absent means the Reviewer, which is what every caller before the cloud
+    // agent sent.
+    if (body?.app !== undefined) {
+      if (body.app !== "reviewer" && body.app !== "agent") {
+        return json({ error: "invalid_app" }, 400);
+      }
+      app = body.app;
+    }
   } catch {
     return json({ error: "invalid_body" }, 400);
+  }
+  const { clientId: GITHUB_CLIENT_ID, clientSecret: GITHUB_CLIENT_SECRET } =
+    APP_CREDENTIALS[app];
+  if (!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET) {
+    console.error(`[bind] GitHub OAuth is not configured for ${app}`);
+    return json({ error: "bind_not_configured" }, 500);
   }
   if (!code) return json({ error: "missing_code" }, 400);
   if (!Number.isSafeInteger(installationId) || installationId <= 0) {
@@ -156,6 +183,7 @@ Deno.serve(async (req) => {
     p_installation_id: installationId,
     p_account_login: installation.account?.login ?? null,
     p_repository_selection: installation.repository_selection ?? null,
+    p_app: app,
   });
 
   const row = data as {
@@ -173,7 +201,7 @@ Deno.serve(async (req) => {
     return json({ error: "bind_failed" }, 500);
   }
 
-  console.log(`[bind] installation ${installationId} -> ${user.id}`);
+  console.log(`[bind] ${app} installation ${installationId} -> ${user.id}`);
   return json({
     ok: true,
     installation_id: installationId,

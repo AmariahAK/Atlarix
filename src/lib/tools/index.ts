@@ -19,6 +19,7 @@ import "./edit";
 import "./shell";
 import "./background-jobs"; // v14 list/output/cancel for background commands
 import "./schedule-wakeup"; // R1 model-scheduled self-wake
+import "./relic"; // pages the agent makes to share (hosted on paid Core, local otherwise)
 import "./web";
 import "./spawn-task";
 import "./proposals"; // v14.21 review writer sub-agent edit proposals

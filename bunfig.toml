@@ -1,0 +1,5 @@
+# Only `bun test` reads this: tests-bun/ runs under the CLI's own resolution
+# rules (scripts/bun-cli-plugin.ts). vitest never sees tests-bun/.
+[test]
+root = "./tests-bun"
+preload = ["./tests-bun/preload.ts"]

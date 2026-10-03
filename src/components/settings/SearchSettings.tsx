@@ -123,7 +123,9 @@ export function SearchSettings() {
         <Info className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />
         <p className="text-sm text-muted-foreground">
           Web search works out of the box — Atlarix searches using its own
-          built-in browser, so there is nothing to install or configure.
+          built-in browser, so there is nothing to install or configure. The{" "}
+          <span className="font-mono">atlarix</span> CLI searches through your
+          Chrome with the Atlarix extension.
         </p>
       </div>
 

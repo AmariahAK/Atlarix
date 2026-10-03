@@ -1,7 +1,7 @@
 {
   "name": "atlarix",
-  "version": "14.42.0",
-  "description": "Headless Atlarix coding agent — the Electron-free agent loop as a CLI, for benchmarks, CI and unattended runs.",
+  "version": "14.52.4",
+  "description": "Atlarix in your terminal — the interactive coding agent with any model, and the batch agent (`atlarix run`) for CI and benchmarks.",
   "license": "PROPRIETARY",
   "author": {
     "name": "NorahLabs",
@@ -27,9 +27,10 @@
   ],
   "type": "module",
   "bin": {
-    "atlarix": "dist-headless/atlarix-headless.mjs"
+    "atlarix": "bin/atlarix.js"
   },
   "files": [
+    "bin",
     "dist-headless"
   ],
   "engines": {
@@ -45,5 +46,14 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "optionalDependencies": {
+    "atlarix-darwin-arm64": "14.52.4",
+    "atlarix-darwin-x64": "14.52.4",
+    "atlarix-linux-x64": "14.52.4",
+    "atlarix-linux-arm64": "14.52.4",
+    "atlarix-linux-x64-musl": "14.52.4",
+    "atlarix-linux-arm64-musl": "14.52.4",
+    "atlarix-windows-x64": "14.52.4"
   }
 }

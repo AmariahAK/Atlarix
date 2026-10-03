@@ -45,6 +45,17 @@ const logger = log.scope("stream-chunk-tags");
  * `onAbort` callback) now backs this up: even if a >600s stall does fire, the
  * round resumes from its completed steps rather than restarting from scratch.
  */
+
+/**
+ * ` call="<toolCallId>"`: pairs a result with ITS call. Without it, parallel
+ * calls of one tool (three `read_file`s) were matched by name and position,
+ * and results landed on the wrong call ("Read a.md └ File: b.md").
+ */
+function callAttr(part: { toolCallId?: unknown }): string {
+  const id = part.toolCallId;
+  return typeof id === "string" && /^[\w.:-]{1,128}$/.test(id) ? ` call="${id}"` : "";
+}
+
 export const STREAM_STALL_TIMEOUT_MS = 600_000;
 /**
  * First-byte timeout: before the model emits ANYTHING (slow TTFB, or a reasoning
@@ -540,7 +551,7 @@ export async function processStreamChunks({
         const { serverName, toolName } = parseMcpToolKey(toolKey);
         const content = escapeAtlarixTags(JSON.stringify(part.input));
         if (!serverName || serverName === toolName) {
-          chunk = `<atlarix-tool-call tool="${toolName}" status="running">\n${content}\n</atlarix-tool-call>\n`;
+          chunk = `<atlarix-tool-call tool="${toolName}"${callAttr(part)} status="running">\n${content}\n</atlarix-tool-call>\n`;
         } else {
           chunk = `<atlarix-mcp-tool-call server="${serverName}" tool="${toolName}">\n${content}\n</atlarix-mcp-tool-call>\n`;
         }
@@ -563,7 +574,7 @@ export async function processStreamChunks({
           const status = isFailedToolResult(parseToolOutput(part.output))
             ? "error"
             : "complete";
-          chunk = `<atlarix-tool-result tool="${toolName}" status="${status}">\n${content}\n</atlarix-tool-result>\n`;
+          chunk = `<atlarix-tool-result tool="${toolName}"${callAttr(part)} status="${status}">\n${content}\n</atlarix-tool-result>\n`;
         } else {
           chunk = `<atlarix-mcp-tool-result server="${serverName}" tool="${toolName}">\n${content}\n</atlarix-mcp-tool-result>\n`;
         }

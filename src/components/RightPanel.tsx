@@ -18,6 +18,7 @@ import {
   automationsUnreadCountAtom,
 } from "@/atoms/automationAtoms";
 import { AutomationsTab } from "./automations/AutomationsTab";
+import { RelicsTab } from "./relics/RelicsTab";
 import { IpcClient } from "@/ipc/ipc_client";
 import { useSearch } from "@tanstack/react-router";
 import {
@@ -44,6 +45,7 @@ import {
   MessageSquare,
   ListTree,
   AlarmClock,
+  Sparkles,
 } from "lucide-react";
 import { TerminalPanel } from "./panels/TerminalPanel";
 import { ToolCallCard, ToolStatus } from "./ToolCallCard";
@@ -64,6 +66,7 @@ const TAB_ICONS: Record<PanelTab, { icon: React.ElementType; label: string }> =
     preview: { icon: Eye, label: "Preview" },
     terminal: { icon: Terminal, label: "Terminal" },
     automations: { icon: AlarmClock, label: "Automations" },
+    relics: { icon: Sparkles, label: "Relics" },
     permissions: { icon: Shield, label: "Permissions" },
     search: { icon: Globe, label: "Search" },
     sources: { icon: Globe, label: "Sources" },
@@ -337,6 +340,9 @@ function PanelContent({
     case "code-preview":
       if (context.activeTab === "terminal") {
         return <TerminalPanel />;
+      }
+      if (context.activeTab === "relics") {
+        return <RelicsTab />;
       }
       if (context.activeTab === "automations") {
         return (

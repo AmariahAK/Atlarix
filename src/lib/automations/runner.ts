@@ -10,6 +10,15 @@
  * enabled automation. Definitions are re-armed via `refreshAutomationSchedule`
  * after any CRUD. Cron fires do NOT catch up missed windows (Codex behavior —
  * automations run while Atlarix is open); pollers poll once at boot.
+ *
+ * MORE THAN ONE PROCESS. The desktop app and the `atlarix` CLI share one
+ * database and both run this runner, so each occurrence is CLAIMED first
+ * (`claimSlot`, the automation_leases table): a cron occurrence by its minute,
+ * an MCP poll by its interval bucket. Whoever inserts the lease runs it; the
+ * other skips. Runs carry their process as `owner` and a heartbeat, so a
+ * process starting up recovers only runs whose owner is gone — not the other
+ * process's live one. And because an automation can be created or edited in
+ * the other process, `syncDefinitions` re-arms whatever changed there.
  */
 
 import log from "electron-log";
@@ -18,9 +27,14 @@ import {
   validate as validateCron,
   type ScheduledTask,
 } from "node-cron";
-import { and, eq } from "drizzle-orm";
+import { and, eq, gte, isNull, lt, or } from "drizzle-orm";
 import { db } from "@/db";
-import { automationRuns, automations, chatSessions } from "@/db/schema";
+import {
+  automationLeases,
+  automationRuns,
+  automations,
+  chatSessions,
+} from "@/db/schema";
 import {
   AutomationTriggerSchema,
   MIN_POLL_INTERVAL_MINUTES,
@@ -28,8 +42,57 @@ import {
   type McpCursor,
 } from "./types";
 import type { ExecuteRunDeps } from "./execute-run";
+import { PROCESS_OWNER } from "./process-owner";
 
 const logger = log.scope("automations");
+
+
+/** How often a live process refreshes its running runs' heartbeat. */
+const HEARTBEAT_MS = 30_000;
+/** A running run whose heartbeat is older than this lost its process. */
+export const STALE_HEARTBEAT_MS = 2 * 60_000;
+/** How often definitions changed by ANOTHER process are picked up. */
+const SYNC_MS = 60_000;
+const LEASE_TTL_MS = 7 * 24 * 60 * 60_000;
+
+/**
+ * Take one occurrence of an automation for this process. True: run it. False:
+ * another process (the desktop app, or the CLI) already took it.
+ */
+export async function claimSlot(
+  automationId: string,
+  slotKey: string,
+): Promise<boolean> {
+  const rows = await db
+    .insert(automationLeases)
+    .values({ automationId, slotKey, owner: PROCESS_OWNER })
+    .onConflictDoNothing()
+    .returning({ slotKey: automationLeases.slotKey });
+  return rows.length === 1;
+}
+
+/** The cron occurrence a fire belongs to: its minute (both processes' clocks are this machine's). */
+export function scheduleSlot(at: Date = new Date()): string {
+  return `schedule:${at.toISOString().slice(0, 16)}`;
+}
+
+/** The poll bucket: one poll per interval across every process. */
+export function pollSlot(intervalMinutes: number, at = Date.now()): string {
+  return `poll:${Math.floor(at / (intervalMinutes * 60_000))}`;
+}
+
+/** Is another process running this automation right now (a live heartbeat)? */
+async function runningElsewhere(automationId: string): Promise<boolean> {
+  const fresh = new Date(Date.now() - STALE_HEARTBEAT_MS);
+  const row = await db.query.automationRuns.findFirst({
+    where: and(
+      eq(automationRuns.automationId, automationId),
+      eq(automationRuns.status, "running"),
+      gte(automationRuns.heartbeatAt, fresh),
+    ),
+  });
+  return Boolean(row && row.owner !== PROCESS_OWNER);
+}
 
 export interface RunnerDeps {
   executeRun: (
@@ -84,6 +147,12 @@ async function drainQueue(): Promise<void> {
     while (queue.length > 0) {
       const item = queue.shift()!;
       try {
+        if (item.reason !== "manual" && (await runningElsewhere(item.automationId))) {
+          logger.info(
+            `automation ${item.automationId} is running in another Atlarix — skipping ${item.reason} fire`,
+          );
+          continue;
+        }
         const deps = runnerDeps ?? (runnerDeps = await defaultDeps());
         await deps.executeRun(item.automationId, item.context);
       } catch (e) {
@@ -231,11 +300,18 @@ function disarm(automationId: string): void {
   pollTimers.delete(automationId);
 }
 
+/** What arming depends on, per automation: a change here (from any process) means re-arm. */
+const armedSignature = new Map<string, string>();
+const signatureOf = (a: { enabled: boolean; trigger: string }) =>
+  `${a.enabled}|${a.trigger}`;
+
 async function arm(automationId: string): Promise<void> {
   disarm(automationId);
   const automation = await db.query.automations.findFirst({
     where: eq(automations.id, automationId),
   });
+  if (automation) armedSignature.set(automationId, signatureOf(automation));
+  else armedSignature.delete(automationId);
   if (!automation?.enabled) return;
   const trigger = parseTrigger(automation.trigger);
   if (!trigger) {
@@ -253,7 +329,12 @@ async function arm(automationId: string): Promise<void> {
       return;
     }
     const task = schedule(trigger.cron, () => {
-      enqueueRun(automationId, null, "schedule");
+      void claimSlot(automationId, scheduleSlot()).then(
+        (mine) => {
+          if (mine) enqueueRun(automationId, null, "schedule");
+        },
+        (e) => logger.warn(`automation ${automationId}: could not claim its run:`, e),
+      );
     });
     cronTasks.set(automationId, task);
   } else {
@@ -261,16 +342,18 @@ async function arm(automationId: string): Promise<void> {
       trigger.intervalMinutes,
       MIN_POLL_INTERVAL_MINUTES,
     );
-    const timer = setInterval(
-      () => {
-        void pollOnce(automationId);
-      },
-      minutes * 60 * 1000,
-    );
+    // One poll per interval bucket across processes: two pollers reading the
+    // same old cursor would both see the change and both fire.
+    const claimedPoll = () =>
+      void claimSlot(automationId, pollSlot(minutes)).then(
+        (mine) => (mine ? pollOnce(automationId) : undefined),
+        (e) => logger.warn(`automation ${automationId}: could not claim its poll:`, e),
+      );
+    const timer = setInterval(claimedPoll, minutes * 60 * 1000);
     timer.unref?.();
     pollTimers.set(automationId, timer);
     // Boot/creation poll — seeds the cursor (never fires on backlog).
-    void pollOnce(automationId);
+    claimedPoll();
   }
   logger.info(`armed automation "${automation.name}" (${trigger.kind})`);
 }
@@ -286,12 +369,77 @@ export function disarmAutomation(automationId: string): void {
   disarm(automationId);
 }
 
-/** Boot recovery: anything still "running" was interrupted by a quit. */
-async function recoverInterruptedRuns(): Promise<void> {
+/**
+ * Pick up what another process changed: an automation created, edited, turned
+ * on or off, or deleted in the desktop app while the CLI is open (or the
+ * reverse). Compares what arming depends on, NOT updatedAt — a poll's cursor
+ * write bumps updatedAt, and re-arming on it would re-poll at once, forever.
+ */
+async function syncDefinitions(): Promise<void> {
+  const rows = await db
+    .select({
+      id: automations.id,
+      enabled: automations.enabled,
+      trigger: automations.trigger,
+    })
+    .from(automations);
+  const seen = new Set<string>();
+  for (const row of rows) {
+    seen.add(row.id);
+    const known = armedSignature.get(row.id);
+    if (known === signatureOf(row)) continue;
+    if (known === undefined && !row.enabled) {
+      armedSignature.set(row.id, signatureOf(row));
+      continue;
+    }
+    await arm(row.id);
+  }
+  for (const id of Array.from(armedSignature.keys())) {
+    if (!seen.has(id)) {
+      disarm(id);
+      armedSignature.delete(id);
+    }
+  }
+}
+
+async function beat(): Promise<void> {
+  await db
+    .update(automationRuns)
+    .set({ heartbeatAt: new Date() })
+    .where(
+      and(
+        eq(automationRuns.owner, PROCESS_OWNER),
+        eq(automationRuns.status, "running"),
+      ),
+    );
+}
+
+async function pruneLeases(): Promise<void> {
+  await db
+    .delete(automationLeases)
+    .where(lt(automationLeases.claimedAt, new Date(Date.now() - LEASE_TTL_MS)));
+}
+
+/**
+ * Startup recovery: a run still "running" whose process is gone was interrupted
+ * by a quit. Gone means no owner recorded (a run from before 0077) or a
+ * heartbeat older than STALE_HEARTBEAT_MS — never another process's live run.
+ */
+export async function recoverInterruptedRuns(): Promise<void> {
+  const cutoff = new Date(Date.now() - STALE_HEARTBEAT_MS);
   const stale = await db
     .select()
     .from(automationRuns)
-    .where(eq(automationRuns.status, "running"));
+    .where(
+      and(
+        eq(automationRuns.status, "running"),
+        or(
+          isNull(automationRuns.owner),
+          isNull(automationRuns.heartbeatAt),
+          lt(automationRuns.heartbeatAt, cutoff),
+        ),
+      ),
+    );
   for (const run of stale) {
     await db
       .update(automationRuns)
@@ -315,11 +463,26 @@ async function recoverInterruptedRuns(): Promise<void> {
   }
 }
 
+const lifecycleTimers: Array<ReturnType<typeof setInterval>> = [];
+
 export function startAutomationRunner(deps?: RunnerDeps): void {
   if (deps) runnerDeps = deps;
+  if (lifecycleTimers.length === 0) {
+    const every = (ms: number, fn: () => Promise<void>, what: string) => {
+      const t = setInterval(() => {
+        void fn().catch((e) => logger.warn(`automation ${what} failed:`, e));
+      }, ms);
+      t.unref?.();
+      lifecycleTimers.push(t);
+    };
+    every(HEARTBEAT_MS, beat, "heartbeat");
+    every(SYNC_MS, syncDefinitions, "sync");
+    every(60 * 60_000, pruneLeases, "lease prune");
+  }
   void (async () => {
     try {
       await recoverInterruptedRuns();
+      await pruneLeases().catch(() => {});
       const all = await db
         .select()
         .from(automations)
@@ -344,4 +507,10 @@ export function resetAutomationRunnerForTests(): void {
   queuedOrRunning.clear();
   draining = false;
   runnerDeps = null;
+  for (const t of lifecycleTimers.splice(0)) clearInterval(t);
+  armedSignature.clear();
 }
+
+/** Test-only: run one definition sync / heartbeat now instead of on the timer. */
+export const syncDefinitionsForTests = syncDefinitions;
+export const beatForTests = beat;

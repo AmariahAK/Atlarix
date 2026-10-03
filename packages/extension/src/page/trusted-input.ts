@@ -74,7 +74,9 @@ export function watchDetach(
 export async function attach(tabId: number): Promise<void> {
   if (attached.has(tabId)) return;
 
-  if (!(await isAgentTab(tabId))) {
+  // Any Atlarix group (the app's or the CLI's): the caller's own-group check
+  // already ran (bridge/serve.ts requireOwnTabForInput); this is containment.
+  if (!(await isAgentTab(tabId, "any"))) {
     throw new TrustedInputError(
       `Refusing to attach a debugger to tab ${tabId}: it is not in Atlarix's tab group. ` +
         `Trusted input is only available in tabs Atlarix opened — attaching elsewhere ` +

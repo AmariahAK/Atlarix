@@ -11,8 +11,14 @@ import { getAtlarixAppPath, getUserDataPath } from "../paths/paths";
 import log from "electron-log";
 import {
   applyEmbeddedSqlMigrations,
+  assertReadableByThisBuild,
   countAtlarixMigrations,
+  DatabaseInUseForUpgradeError,
+  DatabaseNewerThanClientError,
+  pendingBundledMigrations,
+  registerDatabaseClient,
   expectedBundledMigrationCount,
+  unknownAppliedMigrations,
   UnknownDrizzleMigrationHashError,
 } from "./migrate_atlarix";
 import { columnExists, tableExists } from "./migration_seed_verification";
@@ -49,13 +55,27 @@ function isMigrationStateConsistent(sqlite: Database.Database): boolean {
   if (!hasTable) {
     return false;
   }
-  const n = countAtlarixMigrations(sqlite);
+  // Every migration THIS build ships must be applied. Extra rows are fine:
+  // they are a newer build's (the desktop app and the CLI share this file and
+  // update independently), and `assertReadableByThisBuild` has already decided
+  // whether this build may read past them. Counting for EQUALITY here used to
+  // fail an older build on a newer database, and the failure path below then
+  // deleted the database — every chat, for a version skew.
+  const unknown = unknownAppliedMigrations(sqlite).length;
+  const n = countAtlarixMigrations(sqlite) - unknown;
   const expected = expectedBundledMigrationCount();
   if (n !== expected) {
     logger.warn(
-      `[DB] __atlarix_migrations count ${n} !== expected ${expected} (embedded bundle).`,
+      `[DB] __atlarix_migrations has ${n} of this build's ${expected} embedded migrations applied` +
+        (unknown ? ` (plus ${unknown} from a newer build)` : "") +
+        ".",
     );
     return false;
+  }
+  if (unknown) {
+    logger.info(
+      `[DB] Database carries ${unknown} migration(s) from a newer Atlarix build; readable by this one.`,
+    );
   }
   return true;
 }
@@ -84,6 +104,36 @@ function deleteSqliteDbFiles(dbPath: string): void {
 
 // Database connection factory
 let _db: ReturnType<typeof drizzle> | null = null;
+/** Drops this process's row in __atlarix_clients (see registerDatabaseClient). */
+let stopClientHeartbeat: (() => void) | null = null;
+
+const PRE_MIGRATION_BACKUPS_KEPT = 3;
+
+/**
+ * A full copy of the database, taken before migrations run. Kept outside the
+ * database folder's normal files, newest three only. Never fatal: a failed copy
+ * is logged loudly, and the migration it would have protected still runs.
+ */
+function backupBeforeMigrating(sqlite: Database.Database, pending: number): void {
+  const dir = path.join(getUserDataPath(), "backups", "before-update");
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const dest = path.join(
+      dir,
+      `sqlite-${new Date().toISOString().replace(/[:.]/g, "-")}.db`,
+    );
+    sqlite.prepare("VACUUM INTO ?").run(dest);
+    logger.log(`[DB] Copied the database to ${dest} before ${pending} migration(s).`);
+    const old = fs
+      .readdirSync(dir)
+      .filter((f) => f.startsWith("sqlite-") && f.endsWith(".db"))
+      .sort()
+      .slice(0, -PRE_MIGRATION_BACKUPS_KEPT);
+    for (const f of old) fs.rmSync(path.join(dir, f), { force: true });
+  } catch (e) {
+    logger.error("[DB] Could not copy the database before migrating (continuing):", e);
+  }
+}
 
 /**
  * Get the database path based on the current environment
@@ -140,6 +190,20 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
 
       sqlite = new Database(dbPath, { timeout: 10000 });
       sqlite.pragma("foreign_keys = ON");
+      // WAL lets the desktop app and the CLI read and write the same file at
+      // once (readers never block the writer). Persistent once set; a no-op if
+      // another connection holds the database in a mode it cannot leave yet.
+      sqlite.pragma("journal_mode = WAL");
+      // Before migrating: an older build must not write into a schema a newer
+      // build has declared it cannot read.
+      assertReadableByThisBuild(sqlite);
+      // And keep a copy of the data from before any migration runs. The file may
+      // be shared with the other Atlarix program (app or CLI), so a migration
+      // that goes wrong would take BOTH programs' history with it.
+      const pending = pendingBundledMigrations(sqlite);
+      if (pending.length > 0 && isCoreSchemaComplete(sqlite)) {
+        backupBeforeMigrating(sqlite, pending.length);
+      }
 
       const drizzleDb = drizzle(sqlite, { schema });
 
@@ -268,6 +332,11 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
       }
 
       _db = drizzleDb;
+      stopClientHeartbeat?.();
+      stopClientHeartbeat = registerDatabaseClient(
+        sqlite,
+        process.env.ATLARIX_CLIENT_PROGRAM ?? "Atlarix app",
+      );
       sqlite = null;
       return _db as any;
     } catch (error) {
@@ -278,7 +347,14 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
       }
 
       const unknownHash = error instanceof UnknownDrizzleMigrationHashError;
-      const canRetry = attempt < maxAttempts - 1 && !unknownHash;
+      const tooNew =
+        error instanceof DatabaseNewerThanClientError ||
+        error instanceof DatabaseInUseForUpgradeError;
+      // The CLI opens the DESKTOP's database. It must never be the program that
+      // deletes someone's chat history, whatever went wrong.
+      const shared = process.env.ATLARIX_DB_SHARED === "1";
+      const canRetry =
+        attempt < maxAttempts - 1 && !unknownHash && !tooNew && !shared;
 
       if (canRetry) {
         logger.warn(
@@ -862,6 +938,8 @@ let _dbClosing = false;
 /** Mark the DB as shutting down. After this, `db` access throws
  * DatabaseClosingError so a late async query short-circuits cleanly. */
 export function beginDatabaseClosing(): void {
+  stopClientHeartbeat?.();
+  stopClientHeartbeat = null;
   _dbClosing = true;
 }
 

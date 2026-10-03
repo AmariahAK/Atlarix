@@ -197,6 +197,12 @@ const validInvokeChannels = [
   "plans:update",
   "plans:get",
   "plans:list-by-session",
+  "plans:list-by-workspace",
+  "plans:copy-to-session",
+  "relics:read-local",
+  "relics:list",
+  "relics:delete",
+  "relics:set-visibility",
   "plans:set-status",
   // Dialog
   "dialog:openDirectory",

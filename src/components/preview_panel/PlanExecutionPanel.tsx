@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAtom, useAtomValue } from "jotai";
 import { activeChatIdAtom } from "@/atoms/chatAtoms";
+import { selectedAppIdAtom } from "@/atoms/appAtoms";
+import { activeWorkspaceSessionIdAtom } from "@/atoms/sessionAtoms";
 import { useStreamChat } from "@/hooks/useStreamChat";
 import { useSettings } from "@/hooks/useSettings";
-import { settingsPatchForWorkMode } from "@/lib/work-mode";
+import { BUILD_FROM_PLAN_PROMPT, settingsPatchForWorkMode } from "@/lib/work-mode";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ClipboardList, Hammer, CircleCheck, Loader2 } from "lucide-react";
@@ -39,7 +41,12 @@ export function PlanExecutionPanel() {
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [sessionPlans, setSessionPlans] = useState<PlanArtifactPayload[]>([]);
+  const [earlierPlans, setEarlierPlans] = useState<
+    Array<PlanArtifactPayload & { sessionTitle: string | null }>
+  >([]);
   const activeChatId = useAtomValue(activeChatIdAtom);
+  const workspaceId = useAtomValue(selectedAppIdAtom);
+  const activeSessionId = useAtomValue(activeWorkspaceSessionIdAtom);
   const { streamMessage, isStreaming } = useStreamChat();
   const { updateSettings } = useSettings();
 
@@ -72,6 +79,35 @@ export function PlanExecutionPanel() {
     // the list without polling.
   }, [panel.sessionId, panel.planId, panel.planStatus]);
 
+  // Plans from this folder's OTHER sessions: a plan outlives the session it was
+  // written in (closed, or written in the CLI). Reachable from the switcher and
+  // built here through "Use in this session".
+  useEffect(() => {
+    if (workspaceId == null) {
+      setEarlierPlans([]);
+      return;
+    }
+    let cancelled = false;
+    void IpcClient.getInstance()
+      .listPlanArtifactsForWorkspace(workspaceId, activeSessionId ?? undefined)
+      .then((rows) => {
+        if (!cancelled) setEarlierPlans(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setEarlierPlans([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId, activeSessionId, panel.planId]);
+
+  /** Showing a plan from an earlier session (it can't be built from here as-is). */
+  const fromEarlierSession =
+    panel.planId != null &&
+    activeSessionId != null &&
+    panel.sessionId != null &&
+    panel.sessionId !== activeSessionId;
+
   const selectPlan = useCallback(
     async (planId: string) => {
       // "" is the Latest option: unpin and let activation drive the panel again.
@@ -95,6 +131,23 @@ export function PlanExecutionPanel() {
     },
     [setPanel],
   );
+
+  const adoptPlanHere = useCallback(async () => {
+    if (!panel.planId || !activeSessionId) return;
+    const copy = await IpcClient.getInstance().copyPlanArtifactToSession(
+      panel.planId,
+      activeSessionId,
+    );
+    setPanel((prev) => ({
+      ...prev,
+      planId: copy.planId,
+      content: copy.content,
+      planStatus: copy.planStatus,
+      sessionId: copy.sessionId,
+      title: copy.title,
+      pinnedPlanId: copy.planId,
+    }));
+  }, [panel.planId, activeSessionId, setPanel]);
 
   const saveDraft = useCallback(async () => {
     if (!panel.planId || !draft.trim()) return;
@@ -144,8 +197,7 @@ export function PlanExecutionPanel() {
     await setStatus("building");
     if (activeChatId != null && !isStreaming) {
       void streamMessage({
-        prompt:
-          "Implement the plan in the Plan panel step by step. Follow the phases and items in order.",
+        prompt: BUILD_FROM_PLAN_PROMPT,
         chatId: activeChatId,
         workModeOverride: "build",
       });
@@ -189,7 +241,7 @@ export function PlanExecutionPanel() {
                 </span>
               ) : null}
             </div>
-            {sessionPlans.length > 1 ? (
+            {sessionPlans.length > 1 || earlierPlans.length > 0 ? (
               <div className="px-3 py-2 border-b border-border flex items-center gap-2">
                 <label
                   htmlFor="plan-switcher"
@@ -212,6 +264,17 @@ export function PlanExecutionPanel() {
                         ` — ${statusLabel(p.planStatus)}`}
                     </option>
                   ))}
+                  {earlierPlans.length > 0 ? (
+                    <optgroup label="Earlier sessions">
+                      {earlierPlans.map((p) => (
+                        <option key={p.planId} value={p.planId}>
+                          {(p.title?.trim() ||
+                            planArtifactTitleFromContent(p.content ?? "")) +
+                            ` — ${p.sessionTitle?.trim() || "untitled session"}`}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : null}
                 </select>
               </div>
             ) : null}
@@ -244,7 +307,20 @@ export function PlanExecutionPanel() {
                     >
                       {saving ? "Saving…" : "Save"}
                     </Button>
-                    {panel.planStatus === "plan" ? (
+                    {fromEarlierSession ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="default"
+                        className="gap-1"
+                        data-testid="plan-use-here"
+                        onClick={() => void adoptPlanHere()}
+                      >
+                        <ClipboardList className="h-3.5 w-3.5" aria-hidden />
+                        Use in this session
+                      </Button>
+                    ) : null}
+                    {panel.planStatus === "plan" && !fromEarlierSession ? (
                       <Button
                         type="button"
                         size="sm"

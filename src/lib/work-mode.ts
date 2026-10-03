@@ -137,3 +137,10 @@ export function labelForWorkMode(mode: WorkMode): string {
       return "Review";
   }
 }
+
+/**
+ * The message that starts building an approved plan — the desktop's Build
+ * button and the CLI's "Build it" send the same words.
+ */
+export const BUILD_FROM_PLAN_PROMPT =
+  "Implement the plan in the Plan panel step by step. Follow the phases and items in order.";

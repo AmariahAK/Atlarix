@@ -1,0 +1,15 @@
+/**
+ * Files the headless/CLI build carries with it. Provided by the build:
+ * scripts/build-bun.ts generates it (embedded files), scripts/build-headless.mjs
+ * aliases it to src/runtime/assets-node.ts (files shipped beside the bundle).
+ */
+declare module "atlarix:assets" {
+  export const assets: {
+    agentsMd?: string;
+    modelsSnapshot?: string;
+    tiktokenWasm?: string;
+    rg?: string;
+    /** The Chrome bridge relay, when built for this target. */
+    relay?: string;
+  };
+}

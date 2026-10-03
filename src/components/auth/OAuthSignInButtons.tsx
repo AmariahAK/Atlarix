@@ -1,5 +1,5 @@
 /**
- * OAuthSignInButtons — Google + GitHub + Discord sign-in (Supabase-backed).
+ * OAuthSignInButtons — Google + GitHub + Discord + email sign-in (Supabase-backed).
  *
  * Restores the proven logged-out UI from the deleted `AuthButton.tsx` (v9.0.0,
  * commit 3277e7a): two "Continue with …" buttons. Driven by `useAuth()`, whose
@@ -9,7 +9,7 @@
  * GitHub is actually offered).
  */
 import { Button } from "@/components/ui/button";
-import { Github, Loader2 } from "lucide-react";
+import { Github, Loader2, Mail } from "lucide-react";
 import { useAuth } from "@/lib/auth/useAuth";
 
 /** Discord brand mark (lucide has no Discord icon), same approach as GoogleIcon. */
@@ -60,6 +60,7 @@ export function OAuthSignInButtons({
     signInWithGoogle,
     signInWithGitHub,
     signInWithDiscord,
+    signInWithEmail,
     oauthPending,
     oauthProvider,
     oauthStatusLabel,
@@ -67,12 +68,13 @@ export function OAuthSignInButtons({
 
   const buttonSize = size === "sm" ? "sm" : "default";
 
-  const start = (provider: "google" | "github" | "discord") => {
+  const start = (provider: "google" | "github" | "discord" | "email") => {
     if (oauthPending) return;
     void {
       google: signInWithGoogle,
       github: signInWithGitHub,
       discord: signInWithDiscord,
+      email: signInWithEmail,
     }[provider]();
     onAfterClick?.();
   };
@@ -120,6 +122,21 @@ export function OAuthSignInButtons({
           <DiscordIcon />
         )}
         Continue with Discord
+      </Button>
+      {/* Opens atlarix.dev: the password form and its Turnstile check live there. */}
+      <Button
+        variant="outline"
+        size={buttonSize}
+        onClick={() => start("email")}
+        disabled={oauthPending}
+        className="w-full justify-start gap-2"
+      >
+        {oauthPending && oauthProvider === "email" ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <Mail className="h-4 w-4" />
+        )}
+        Continue with email
       </Button>
       {oauthPending && oauthStatusLabel ? (
         <p

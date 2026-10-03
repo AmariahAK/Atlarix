@@ -20,7 +20,13 @@ export async function requireAuthSession(): Promise<Session> {
   // Headless benchmark/automation runs (the Electron-free agent CLI) have no
   // interactive Supabase login. They use BYOK/custom providers (no Core
   // metering), so a synthetic local session satisfies the gate without network.
-  if (process.env.ATLARIX_HEADLESS === "1") {
+  // Also the CLI's local-endpoint test mode (`atlarix --provider-url …`), which
+  // runs against a scratch data folder and a local model: nothing it does
+  // reaches Atlarix's servers, so there is no account to require.
+  if (
+    process.env.ATLARIX_HEADLESS === "1" ||
+    process.env.ATLARIX_CLI_DEV_PROVIDER === "1"
+  ) {
     return {
       access_token: "atlarix-headless",
       token_type: "bearer",
