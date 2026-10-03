@@ -49,6 +49,33 @@ const version = JSON.parse(
 ).version as string;
 
 const files = assetFiles(target);
+
+/**
+ * The libc a Linux target is built for (`bun-linux-x64-musl` → musl), or null.
+ * opentui imports BOTH Linux renderers (it chooses at run time from
+ * OPENTUI_LIBC), so a Linux build had to resolve the variant it never uses,
+ * and CI fetches only the one it needs. Release 15.0.0's first build failed on
+ * exactly that: `Could not resolve "@opentui/core-linux-x64-musl"`.
+ */
+const libc = target?.includes("linux") ? (target.includes("musl") ? "musl" : "glibc") : null;
+
+/** The other libc's opentui package resolves to a stub that says so, if it is ever reached. */
+function otherLibcStub(want: "musl" | "glibc"): Bun.BunPlugin {
+  return {
+    name: "opentui-other-libc",
+    setup(b) {
+      b.onResolve({ filter: /^@opentui\/core-linux-(x64|arm64)(-musl)?$/ }, (a) => {
+        const isMusl = a.path.endsWith("-musl");
+        if (isMusl === (want === "musl")) return undefined;
+        return { path: a.path, namespace: "opentui-other-libc" };
+      });
+      b.onLoad({ filter: /.*/, namespace: "opentui-other-libc" }, (a) => ({
+        contents: `throw new Error(${JSON.stringify(`This Atlarix build is for ${want}; ${a.path} is not included.`)});`,
+        loader: "js",
+      }));
+    },
+  };
+}
 for (const [key, file] of Object.entries(files)) {
   if (!fs.existsSync(file)) {
     console.error(`[build-bun] FATAL: ${key} missing at ${file}`);
@@ -101,12 +128,16 @@ const result = await Bun.build({
           ...(target ? { target: target as Bun.Build.Target } : {}),
         },
       }),
-  plugins: [cliPlugin(files)],
+  plugins: [cliPlugin(files), ...(libc ? [otherLibcStub(libc)] : [])],
   define: {
     // A shipped binary is a production build, like the packaged desktop app:
     // React (opentui's renderer) otherwise runs its development build, with its
     // extra checks on every render.
     "process.env.NODE_ENV": JSON.stringify("production"),
+    // A Linux binary is built for one libc. opentui picks its native renderer
+    // from this at run time; fixing it here makes a musl binary (Alpine) load
+    // the musl renderer instead of the glibc one, which would fail to load.
+    ...(libc ? { "process.env.OPENTUI_LIBC": JSON.stringify(libc) } : {}),
     __ATLARIX_HEADLESS_VERSION__: JSON.stringify(version),
     __ATLARIX_BUILD_ENV__: JSON.stringify(buildEnv),
     ...(outdir ? {} : { OTUI_TREE_SITTER_WORKER_PATH: JSON.stringify(bunfsRoot + TREE_SITTER_WORKER) }),

@@ -23,7 +23,10 @@ unpack() { # <package> <dest>
   [ -n "$version" ] || { echo "no pinned version for $pkg" >&2; exit 1; }
   tarball=$(cd "$work" && npm pack --silent "${pkg}@${version}" | tail -1)
   rm -rf "$dest"; mkdir -p "$dest"
-  tar -xzf "$work/$tarball" -C "$dest" --strip-components=1
+  # Extract from inside $work by bare file name: on Windows $work is "D:\…",
+  # and Git Bash's GNU tar reads "D:" as a remote host ("Cannot connect to D").
+  local abs_dest; abs_dest="$(cd "$dest" && pwd)"
+  (cd "$work" && tar -xzf "$tarball" -C "$abs_dest" --strip-components=1)
 }
 
 unpack "@opentui/core-${npm_os}-${arch}${libc}" "node_modules/@opentui/core-${npm_os}-${arch}${libc}"
