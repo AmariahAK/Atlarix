@@ -9,7 +9,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   cbcDecrypt,
   cbcEncrypt,
@@ -61,10 +61,15 @@ describe("AES-256-GCM (Windows v10)", () => {
 });
 
 describe.runIf(process.platform === "darwin")("macOS keychain source", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "oscrypt-kc-"));
+  // In beforeAll, not the describe body: vitest runs a skipped describe's body
+  // to collect it, so setup here ran `security` on Linux CI (ENOENT).
+  const dir = path.join(os.tmpdir(), `oscrypt-kc-${process.pid}-${Date.now()}`);
   const keychain = path.join(dir, "test.keychain-db");
-  execFileSync("security", ["create-keychain", "-p", "test", keychain]);
-  execFileSync("security", ["unlock-keychain", "-p", "test", keychain]);
+  beforeAll(() => {
+    fs.mkdirSync(dir, { recursive: true });
+    execFileSync("security", ["create-keychain", "-p", "test", keychain]);
+    execFileSync("security", ["unlock-keychain", "-p", "test", keychain]);
+  });
   afterAll(() => {
     try {
       execFileSync("security", ["delete-keychain", keychain]);
