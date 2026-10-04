@@ -24,7 +24,7 @@ have=$(node -p "require('$ROOT/package.json').version")
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT INT TERM
-echo "Downloading the CLI archives of $TAG…"
+echo "Downloading the CLI archives of ${TAG}…"
 gh release download "$TAG" --repo "$REPO" --dir "$tmp/dl" --pattern 'atlarix-cli-*' --pattern 'SHA256SUMS-cli.txt'
 
 cd "$tmp/dl"
