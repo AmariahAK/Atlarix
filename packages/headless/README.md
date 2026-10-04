@@ -35,6 +35,26 @@ or winget. The CLI updates itself.
 `atlarix` opens your browser to sign in; `atlarix login --device` signs in from a machine
 without one. Your own API key or a local model works without an Atlarix account.
 
+## FAQ
+
+**What is the Atlarix CLI?** An AI coding agent in your terminal. Run `atlarix` in a project
+folder and it plans, builds, reviews and tests code with you; `atlarix run` does one task
+unattended, for CI and scripts. It is the same agent as the Atlarix desktop app.
+
+**Which models does it work with?** Any: Atlarix Auto (picks the model for each kind of step),
+an Atlarix Core model, your own API key (Anthropic, OpenAI, DeepSeek, OpenRouter and many
+more), or a local model through Ollama or LM Studio.
+
+**Is it free?** Yes. You pay only for Atlarix-hosted models; your own key and local models cost
+nothing on Atlarix's side.
+
+**Does it share anything with the desktop app?** Its sessions, models, API keys, MCP servers and
+automations, so you can start in one and continue in the other.
+
+**Can it work while my computer is off?** That is the [Atlarix cloud agent](https://atlarix.dev/cloud-agent):
+ask from Slack or the web, and it runs in your repository's own GitHub Actions and opens a
+pull request.
+
 ## Links
 
 - Product page: https://atlarix.dev/cli

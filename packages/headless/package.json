@@ -1,7 +1,7 @@
 {
   "name": "atlarix",
   "version": "14.52.4",
-  "description": "Atlarix in your terminal \u2014 the interactive coding agent with any model, and the batch agent (`atlarix run`) for CI and benchmarks.",
+  "description": "Atlarix CLI: an AI coding agent in your terminal. Works with any model (Atlarix Auto, your own API key, or a local model) and runs unattended with `atlarix run` for CI.",
   "license": "PROPRIETARY",
   "author": {
     "name": "NorahLabs",
@@ -34,7 +34,14 @@
     "code-review",
     "pair-programming",
     "developer-tools",
-    "atlarix"
+    "atlarix",
+    "local-llm",
+    "openrouter",
+    "anthropic",
+    "openai",
+    "agentic",
+    "ci",
+    "lm-studio"
   ],
   "type": "module",
   "bin": {

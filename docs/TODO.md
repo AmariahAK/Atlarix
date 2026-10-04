@@ -29,7 +29,9 @@ and the Slack app (A0C6B1SKTJ7, home workspace Norah Labs, public distribution o
 
 1. **npm:** done. All 8 packages publish from CI by OIDC (`atlarix` via headless.yml, the 7
    platform packages via release.yml, trusted 2026-10-04).
-2. **winget:** first submission is microsoft/winget-pkgs#446527 (CLA signed), waiting on moderation. CI
+2. **winget:** first submission is microsoft/winget-pkgs#446527 (CLA signed; tags fixed and a long
+   description added 2026-10-04), waiting on moderation. **When it merges:** put winget back on the
+   site (launchpad `src/components/CliInstall.tsx`, `src/pages/Cli.tsx` row + FAQ + meta, `public/llms.txt`). CI
    runs `komac update` from the next release on.
 3. **End to end on a test repository:** own key DONE 2026-10-04 on AmariahAK/atlarix-cloud-test
    (DeepSeek: install → setup PR → /cloud → PR #2 → Approve merged; `byok_provider/model`

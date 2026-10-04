@@ -35,8 +35,11 @@ for (const t of CLI_TARGETS) {
     version,
     description: `The Atlarix CLI for ${t.name}. Installed by the \`atlarix\` package; not meant to be installed directly.`,
     license: "PROPRIETARY",
-    homepage: "https://atlarix.dev",
-    repository: { type: "git", url: "git+https://github.com/AmariahAK/Atlarix.git" },
+    homepage: "https://atlarix.dev/cli",
+    // The PUBLIC releases repository, as the `atlarix` package does: the app
+    // repository is private, so pointing here gave npm a dead repository link.
+    repository: { type: "git", url: "git+https://github.com/AmariahAK/atlarix-releases.git" },
+    bugs: { url: "https://github.com/AmariahAK/atlarix-releases/issues" },
     os: [t.npm.os],
     cpu: [t.npm.cpu],
     ...(t.npm.libc ? { libc: [t.npm.libc] } : {}),
