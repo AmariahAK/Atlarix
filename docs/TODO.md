@@ -31,9 +31,10 @@ and the Slack app (A0C6B1SKTJ7, home workspace Norah Labs, public distribution o
    platform packages via release.yml, trusted 2026-10-04).
 2. **winget:** first submission is microsoft/winget-pkgs#446527 (CLA signed), waiting on moderation. CI
    runs `komac update` from the next release on.
-3. **End to end on a test repository:** install the App → setup PR → merge → start from
-   /cloud → PR opens → Approve merges. Three runs: paid Auto, `core-2` (check `spent_cents`
-   and the wallet debit), own key (no debit, no Core token). Then the same from a Slack DM.
+3. **End to end on a test repository:** own key DONE 2026-10-04 on AmariahAK/atlarix-cloud-test
+   (DeepSeek: install → setup PR → /cloud → PR #2 → Approve merged; `byok_provider/model`
+   recorded, 0 spend, PostHog `cloud_job_finished` billing=byok). Still to run: paid Auto and
+   `core-2` (check `spent_cents` and the wallet debit), then the same from a Slack DM.
 4. **Install paths:** curl, brew, npm checked at 15.0.0 (2026-10-04); PowerShell and winget
    on Windows still to check.
 5. **PostHog:** an insight "Weekly active users by billing" from `model_turn`, once events arrive.
@@ -224,10 +225,18 @@ The reasoning lives in [`docs/DESIGN_NOTES.md`](./DESIGN_NOTES.md); these are th
   3. **An off-the-shelf decision model** (mini-Jev, NotDiamond): works on day one, trained on
      someone else's tasks.
   4. **Luna as the router:** a full model call on every step; slower, usually not worth it.
+  5. **A personal learner in Atlarix** (owner's preferred direction): a contextual bandit of a
+     few KB in the app/CLI's shared DB, learning per person and per project which lane and effort
+     work. It looks at mode, project traits, step size, tool failures and past outcomes, and is
+     rewarded by the outcome signals minus cost. A "cheaper ↔ smarter" dial sets the cost weight.
+     It stays on-device, sends Auto a hint, and the proxy still enforces billing and the allowed
+     lanes. It starts from the global table, or 1, as its prior. It never explores downward on
+     plan/review steps, and says why it picked a lane. The cloud agent uses stats synced to the
+     account.
 
   Whatever ships runs in `shadow` first (`core-models.json` `auto.paid.mode`): log its pick next
-  to the table's, compare cost and outcomes, then let it decide. Start with 2 plus outcome
-  logging, which builds the data for 1.
+  to the table's, compare cost and outcomes, then let it decide. Order: outcome logging (every
+  option needs it) → 2 → 5 in shadow → 5 deciding; 1 as the global prior once data exists.
 
 **Anything here becoming real needs a MEASUREMENT first.** 704 Supabase requests/hour once looked
 like website traffic and was a 5-second poll of our own.
