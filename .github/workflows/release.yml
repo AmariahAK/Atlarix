@@ -1308,7 +1308,9 @@ jobs:
       - name: SHA256SUMS-cli.txt
         run: |
           mkdir -p sums
-          find cli -path '*/out/assets/*' -type f -exec cp {} sums/ \;
+          # upload-artifact stores several paths relative to their common
+          # parent (out/), so an artifact holds assets/… and cli/…, not out/….
+          find cli -path '*/assets/*' -type f -exec cp {} sums/ \;
           (cd sums && sha256sum atlarix-cli-* > ../SHA256SUMS-cli.txt)
           cat SHA256SUMS-cli.txt
       - name: Upload checksums to the release draft
@@ -1458,7 +1460,7 @@ jobs:
           mkdir -p bins
           for d in cli/atlarix-cli-*; do
             t="${d#cli/}"; mkdir -p "bins/$t"
-            cp "$d"/out/cli/atlarix* "bins/$t/"
+            cp "$d"/cli/atlarix* "bins/$t/"   # artifact layout: cli/…, assets/… (no out/)
           done
           node scripts/build-cli-npm.mjs bins npm-cli
       - name: Publish
@@ -1524,7 +1526,13 @@ jobs:
           $version = "$env:GITHUB_REF_NAME".TrimStart("v")
           $url = "https://github.com/AmariahAK/atlarix-releases/releases/download/v$version/atlarix-cli-windows-x64.zip"
           winget install --id RussellBanks.Komac --exact --silent --accept-source-agreements --accept-package-agreements
+          # `update` needs the package in winget-pkgs already; its FIRST version
+          # is submitted by hand (komac new). Until then this is a warning.
           komac update AmariahAK.AtlarixCLI --version $version --urls $url --submit --token $env:WINGET_TOKEN
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::warning::komac update failed. If AmariahAK.AtlarixCLI is not in winget yet, submit it once by hand: komac new AmariahAK.AtlarixCLI --version $version --urls $url"
+            exit 0
+          }
 
   announce-release:
     needs:
