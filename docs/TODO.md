@@ -33,11 +33,18 @@ and the Slack app (A0C6B1SKTJ7, home workspace Norah Labs, public distribution o
    description added 2026-10-04), waiting on moderation. **When it merges:** put winget back on the
    site (launchpad `src/components/CliInstall.tsx`, `src/pages/Cli.tsx` row + FAQ + meta, `public/llms.txt`). CI
    runs `komac update` from the next release on.
+0. **GitHub Actions is blocked by billing (2026-10-04, ~14:17 UTC):** every job on the account
+   fails with "recent account payments have failed or your spending limit needs to be increased"
+   — Atlarix CI (90d0ee64 never ran) and the cloud-agent test repo alike. Owner: GitHub → Settings
+   → Billing and plans. Then re-run CI for 90d0ee64 and the `core-2` cloud run (job created
+   2026-10-04, refused before claim; it is swept to failed).
 3. **End to end on a test repository:** own key DONE 2026-10-04 on AmariahAK/atlarix-cloud-test
    (DeepSeek: install → setup PR → /cloud → PR #2 → Approve merged; `byok_provider/model`
    recorded, 0 spend, PostHog `cloud_job_finished` billing=byok). Paid Auto DONE the same day
    (PR #3: 7¢ in 5 ledger rows = `spent_cents`, taken from the Pro allowance first, PostHog
-   billing=core). Still to run: `core-2`, then the same from a Slack DM.
+   billing=core). Still to run: `core-2` (blocked by Actions billing, item 0), then Slack: the app is not installed
+   in any workspace yet (`slack_installs` empty) — Add to Slack from atlarix.dev/cloud (owner's
+   OAuth consent), DM the bot, link the account, send `[byok] owner/repo: task`.
 4. **Install paths:** curl, brew, npm checked at 15.0.0 (2026-10-04); PowerShell and winget
    on Windows still to check.
 5. **PostHog:** an insight "Weekly active users by billing" from `model_turn`, once events arrive.
@@ -221,10 +228,12 @@ The reasoning lives in [`docs/DESIGN_NOTES.md`](./DESIGN_NOTES.md); these are th
   Sol high; plan/review Sol high → Astra high; sub-agents Luna high → GLM high; titles Luna none,
   compaction/summary Luna low; images climb from GLM to Sol automatically. The router options
   below are LATER, and only with outcome data.
-- **Voice on Auto is broken: Luna rejects audio** (probed 2026-10-04: `Audio input is not
-  available.`). The `transcribe` lane routes to Luna, and no Auto level takes audio. Fix: route
-  `purpose: transcribe` to a speech model (OpenAI transcriptions endpoint) in the proxy, or hide
-  the mic on Auto. Check what the app does today first.
+- **Voice on Auto: not offered (feature, not a bug).** Checked 2026-10-04: Auto doesn't declare
+  audio input (`detectAudioCapability` is false for `compass:atlarix/auto`), so the mic is hidden
+  on Auto unless a BYOK speech provider is set; the `transcribe` lane in core-models.json is
+  unused, and Luna would reject audio anyway (`Audio input is not available.`). To offer it: route
+  `purpose: transcribe` in the proxy to OpenAI's transcription endpoint, meter it, then declare
+  audio for Auto.
 - **Paid Auto: a router that picks the lane WITHIN a mode** (owner, 2026-10-04). Today the lane
   table picks by mode/purpose/image/escalation; the saving is "this build step is easy → GLM/Luna,
   this one is hard → Sol/Astra". Options, best fit first:
