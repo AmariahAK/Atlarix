@@ -33,8 +33,9 @@ and the Slack app (A0C6B1SKTJ7, home workspace Norah Labs, public distribution o
    runs `komac update` from the next release on.
 3. **End to end on a test repository:** own key DONE 2026-10-04 on AmariahAK/atlarix-cloud-test
    (DeepSeek: install → setup PR → /cloud → PR #2 → Approve merged; `byok_provider/model`
-   recorded, 0 spend, PostHog `cloud_job_finished` billing=byok). Still to run: paid Auto and
-   `core-2` (check `spent_cents` and the wallet debit), then the same from a Slack DM.
+   recorded, 0 spend, PostHog `cloud_job_finished` billing=byok). Paid Auto DONE the same day
+   (PR #3: 7¢ in 5 ledger rows = `spent_cents`, taken from the Pro allowance first, PostHog
+   billing=core). Still to run: `core-2`, then the same from a Slack DM.
 4. **Install paths:** curl, brew, npm checked at 15.0.0 (2026-10-04); PowerShell and winget
    on Windows still to check.
 5. **PostHog:** an insight "Weekly active users by billing" from `model_turn`, once events arrive.
