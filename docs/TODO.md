@@ -213,6 +213,16 @@ The reasoning lives in [`docs/DESIGN_NOTES.md`](./DESIGN_NOTES.md); these are th
   cost attribution BREAKS on a second replica** — `ReviewQueue.spendSince` reconstructs cost from
   a ledger window that is exact only because one replica is strictly sequential. The fix is for
   the proxy to return the debited amount on the response. **Do this BEFORE scaling the reviewer.**
+- **DECIDED 2026-10-04: paid Auto picks the model by MODE, not by a learned router**, and there is
+  NO automatic escalation; a retry ("Try with a stronger model") stays the user's choice. Live in
+  core-models.json (atlarix-releases 43cd1cb), thinking off → on: explore/build/debug GLM high →
+  Sol high; plan/review Sol high → Astra high; sub-agents Luna high → GLM high; titles Luna none,
+  compaction/summary Luna low; images climb from GLM to Sol automatically. The router options
+  below are LATER, and only with outcome data.
+- **Voice on Auto is broken: Luna rejects audio** (probed 2026-10-04: `Audio input is not
+  available.`). The `transcribe` lane routes to Luna, and no Auto level takes audio. Fix: route
+  `purpose: transcribe` to a speech model (OpenAI transcriptions endpoint) in the proxy, or hide
+  the mic on Auto. Check what the app does today first.
 - **Paid Auto: a router that picks the lane WITHIN a mode** (owner, 2026-10-04). Today the lane
   table picks by mode/purpose/image/escalation; the saving is "this build step is easy → GLM/Luna,
   this one is hard → Sol/Astra". Options, best fit first:
