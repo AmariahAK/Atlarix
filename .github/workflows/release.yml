@@ -1411,7 +1411,11 @@ jobs:
           final=$(curl -sS --fail-with-body \
             -H "Authorization: token $RELEASES_TOKEN" \
             -H "Accept: application/vnd.github+json" "$API" || true)
-          if printf '%s' "$final" | grep -q '"draft"[[:space:]]*:[[:space:]]*false'; then
+          # A here-string, not `printf | grep -q`: grep -q exits on the first
+          # match, and once the body outgrows the pipe buffer (v15.0.0, 25 assets)
+          # printf dies of SIGPIPE and pipefail turns a published release into
+          # "STILL A DRAFT".
+          if grep -q '"draft"[[:space:]]*:[[:space:]]*false' <<<"$final"; then
             echo "Confirmed: release ${RELEASE_ID} is published."
           else
             echo "::error::Release ${RELEASE_ID} is STILL A DRAFT after 5 attempts — the assets are attached but nobody can see it. Publish by hand: gh api -X PATCH repos/AmariahAK/atlarix-releases/releases/${RELEASE_ID} -f draft=false"
