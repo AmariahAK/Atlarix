@@ -27,10 +27,9 @@ migration, the proxy (cloud runs), the reviewer on cloud.atlarix.dev with the "A
 Agent" GitHub App (`atlarix-cloud-agent`, id 5176493), `AmariahAK/atlarix-agent-action` (v1),
 and the Slack app (A0C6B1SKTJ7, home workspace Norah Labs, public distribution on).
 
-1. **npm trusted publishers (owner, 2FA):** all 8 packages are on npm at 15.0.0. Each
-   `atlarix-<platform>` package still needs `npm trust github atlarix-<platform> --repo
-   AmariahAK/Atlarix --file release.yml --allow-publish --allow-stage-publish` so CI can publish 15.0.1+.
-2. **winget:** first submission is microsoft/winget-pkgs#446527, waiting on moderation. CI
+1. **npm:** done. All 8 packages publish from CI by OIDC (`atlarix` via headless.yml, the 7
+   platform packages via release.yml, trusted 2026-10-04).
+2. **winget:** first submission is microsoft/winget-pkgs#446527 (CLA signed), waiting on moderation. CI
    runs `komac update` from the next release on.
 3. **End to end on a test repository:** install the App → setup PR → merge → start from
    /cloud → PR opens → Approve merges. Three runs: paid Auto, `core-2` (check `spent_cents`
