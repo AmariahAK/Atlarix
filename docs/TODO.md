@@ -27,16 +27,16 @@ migration, the proxy (cloud runs), the reviewer on cloud.atlarix.dev with the "A
 Agent" GitHub App (`atlarix-cloud-agent`, id 5176493), `AmariahAK/atlarix-agent-action` (v1),
 and the Slack app (A0C6B1SKTJ7, home workspace Norah Labs, public distribution on).
 
-1. **npm, first publish (owner, 2FA):** `scripts/publish-cli-npm.sh v15.0.0`, then set each
-   `atlarix-<platform>` package's trusted publisher to this repo's `release.yml`. The action
-   runs `npx atlarix@latest`, so the cloud agent needs this.
-2. **winget, first submission (owner):** `komac new AmariahAK.AtlarixCLI` with the release's
-   Windows zip; CI updates it after that (`WINGET_TOKEN` is set).
+1. **npm trusted publishers (owner, 2FA):** all 8 packages are on npm at 15.0.0. Each
+   `atlarix-<platform>` package still needs `npm trust github atlarix-<platform> --repo
+   AmariahAK/Atlarix --file release.yml --allow-publish --allow-stage-publish` so CI can publish 15.0.1+.
+2. **winget:** first submission is microsoft/winget-pkgs#446527, waiting on moderation. CI
+   runs `komac update` from the next release on.
 3. **End to end on a test repository:** install the App → setup PR → merge → start from
    /cloud → PR opens → Approve merges. Three runs: paid Auto, `core-2` (check `spent_cents`
    and the wallet debit), own key (no debit, no Core token). Then the same from a Slack DM.
-4. **Check every install path prints 15.0.0:** curl, PowerShell, brew, npm, winget, and the
-   desktop auto-update from 14.52.4.
+4. **Install paths:** curl, brew, npm checked at 15.0.0 (2026-10-04); PowerShell and winget
+   on Windows still to check.
 5. **PostHog:** an insight "Weekly active users by billing" from `model_turn`, once events arrive.
 6. **Windows code signing:** buy an Authenticode certificate; the job signs as soon as
    `SM_CODE_SIGNING_CERT_SHA1_HASH` exists.
