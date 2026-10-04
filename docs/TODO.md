@@ -211,6 +211,23 @@ The reasoning lives in [`docs/DESIGN_NOTES.md`](./DESIGN_NOTES.md); these are th
   cost attribution BREAKS on a second replica** — `ReviewQueue.spendSince` reconstructs cost from
   a ledger window that is exact only because one replica is strictly sequential. The fix is for
   the proxy to return the debited amount on the response. **Do this BEFORE scaling the reviewer.**
+- **Paid Auto: a router that picks the lane WITHIN a mode** (owner, 2026-10-04). Today the lane
+  table picks by mode/purpose/image/escalation; the saving is "this build step is easy → GLM/Luna,
+  this one is hard → Sol/Astra". Options, best fit first:
+  1. **A router trained on our own traffic** (RouteLLM, LMSYS): a tiny classifier learns "will the
+     cheap model do this well enough?" from real outcomes. The proxy already logs every paid Auto
+     call; add whether each succeeded (user kept going, no retry, no model switch, tools didn't
+     fail) and that is training data no outside model has.
+  2. **Rules on signals we already have:** tool failures in the turn, retries/escalation, diff or
+     context size, files involved, the last cheap step failing ("GLM until two failures, then
+     Sol"). Much of the benefit, zero risk; `escalate` already does a little of this.
+  3. **An off-the-shelf decision model** (mini-Jev, NotDiamond): works on day one, trained on
+     someone else's tasks.
+  4. **Luna as the router:** a full model call on every step; slower, usually not worth it.
+
+  Whatever ships runs in `shadow` first (`core-models.json` `auto.paid.mode`): log its pick next
+  to the table's, compare cost and outcomes, then let it decide. Start with 2 plus outcome
+  logging, which builds the data for 1.
 
 **Anything here becoming real needs a MEASUREMENT first.** 704 Supabase requests/hour once looked
 like website traffic and was a 5-second poll of our own.
