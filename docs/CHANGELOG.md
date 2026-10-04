@@ -3,6 +3,30 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [Unreleased]
+
+**The terminal draws replies without flicker or cut-off lines.** Markdown in the CLI is now drawn
+directly instead of through a renderer that revealed `##`, `**` and backticks only after a
+background step, so a streaming reply no longer flips between formatted text and raw `###` /
+`---`, and a wrapped line is never drawn over by the next one. A line that filled the width lost
+its last character under the scrollbar; the transcript now keeps clear of it. A half-written
+marker line or table row waits for the rest, and a graph still arriving shows as "drawing the
+graph…" instead of raw JSON. Tables fit the terminal, wrapping their cells.
+
+**No more garbage after "starting…" in Terminal.app.** The terminal capability checks run on the
+CLI's own screen now, so Terminal.app no longer prints them as text on yours.
+
+**The tab shows when Atlarix is working.** The terminal tab's title pulses a diamond while a turn
+runs, says "needs you" when Atlarix is waiting for an OK or an answer, and goes back to the
+terminal's own title when you quit.
+
+**Atlarix stops assuming every project has a `package.json`.** The agent is told which build
+files are actually at the project root (`Cargo.toml`, `pyproject.toml`, `go.mod`…, or that there
+are none), and Build and Debug no longer lead with `package.json` as the place to find commands.
+
+**`npm i -g atlarix` installs two packages instead of forty.** The npm package no longer carries a
+native database module that only its rare Node fallback needs.
+
 ## [15.0.0] (2026-10-03) — Atlarix in your terminal, the cloud agent, and email sign-in
 
 **Atlarix runs in your terminal.** The same agent as the app, with the same sessions, keys,

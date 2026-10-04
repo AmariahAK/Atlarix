@@ -20,6 +20,7 @@
  * open it owns the keyboard, and esc closes it.
  */
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
+import { TAB_FRAME_MS, tabTitle, titleSequence } from "./tab-title";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentSession, LiveTask, SessionState, WorkMode } from "../agent/session";
 import { Approval, approvalChoices, approvalKey } from "./Approval";
@@ -575,6 +576,24 @@ export function App({
   useEffect(() => {
     if (state.question) notify("Atlarix has a question for you");
   }, [state.question?.questionId]);
+
+  // The tab title pulses while Atlarix works (tab-title.ts).
+  const waiting = state.approvals.length > 0 || state.question != null;
+  useEffect(() => {
+    if (!process.stdout.isTTY) return;
+    const write = (frame: number) => {
+      try {
+        process.stdout.write(titleSequence(tabTitle({ busy: state.busy, waiting, title: state.title }, frame)));
+      } catch {
+        /* a title is never worth an error */
+      }
+    };
+    write(0);
+    if (!state.busy || waiting) return;
+    let frame = 0;
+    const t = setInterval(() => write(++frame), TAB_FRAME_MS);
+    return () => clearInterval(t);
+  }, [state.busy, waiting, state.title]);
 
   // The background update: a toast while it installs, then a notice that
   // stays above the prompt box ("Update installed · restart to use v14.53.0").

@@ -55,4 +55,18 @@ if (!batch) {
   );
   process.exit(1);
 }
+// The Node build needs better-sqlite3, which is NOT a dependency of this
+// package: every platform with a prebuilt CLI (all seven we publish) never
+// reaches this line, and carrying it cost everyone 40 packages and a native
+// download on `npm install -g atlarix` (2026-10-04). The rare platform without
+// one installs it beside atlarix, where Node's lookup finds it.
+try {
+  require.resolve("better-sqlite3");
+} catch {
+  console.error(
+    `atlarix: no prebuilt CLI for ${os}-${process.arch}, and the Node fallback needs better-sqlite3.\n` +
+      "Install it beside atlarix: npm install -g better-sqlite3",
+  );
+  process.exit(1);
+}
 await import(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "dist-headless", "atlarix-headless.mjs"));

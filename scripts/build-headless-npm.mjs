@@ -14,10 +14,10 @@
  * embeds the original TypeScript source (`build-headless-tarball.sh` drops it for
  * the same reason before uploading to the public releases host).
  *
- * `better-sqlite3` stays a real dependency rather than being vendored: it is
- * native, and npm resolves the right prebuild for whatever platform installs it.
- * The tarball had to pin linux/amd64 and build it inside a container; the package
- * does not.
+ * `better-sqlite3` is NOT a dependency (2026-10-04): only the Node fallback
+ * needs it, which runs only on a platform with no prebuilt CLI package, and
+ * carrying it cost every install 40 packages and a native download. The launcher
+ * (bin/atlarix.js) tells that rare platform to install it beside atlarix.
  *
  * Usage: node scripts/build-headless-npm.mjs   (run after `npm run build:headless`)
  */

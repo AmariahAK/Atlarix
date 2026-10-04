@@ -15,8 +15,8 @@
 import { RGBA, type ScrollBoxRenderable } from "@opentui/core";
 import { useEffect, useRef } from "react";
 import type { DialogView, Hint, Line, ListItem, Tone } from "./dialogs";
-import { prepareMarkdown } from "./markdown-prep";
-import { color, syntax } from "./theme";
+import { Prose } from "./Prose";
+import { color } from "./theme";
 
 const toneColor = (t: Tone | undefined): string =>
   t === "accent"
@@ -63,18 +63,14 @@ function Header({ title, asking }: { title: string; asking?: boolean }) {
  * headings, bold, code and lists, not raw `**` and backticks.
  * `plain` for the headless tests (opentui's markdown worker crashes bun test).
  */
-function MarkdownBody({ content, scroll, height, plain }: { content: string; scroll: number; height: number; plain?: boolean }) {
+function MarkdownBody({ content, scroll, height, width, plain }: { content: string; scroll: number; height: number; width: number; plain?: boolean }) {
   const box = useRef<ScrollBoxRenderable | null>(null);
   useEffect(() => {
     if (box.current) box.current.scrollTop = scroll;
   }, [scroll]);
   return (
     <scrollbox ref={box} height={height}>
-      {plain ? (
-        <text fg={color.text}>{prepareMarkdown(content)}</text>
-      ) : (
-        <markdown content={prepareMarkdown(content)} syntaxStyle={syntax} fg={color.text} conceal tableOptions={{ style: "grid" }} />
-      )}
+      <Prose text={content} width={Math.max(20, width - 2)} plain={plain} />
     </scrollbox>
   );
 }
@@ -149,7 +145,7 @@ export function DialogOverlay({ view, width, height, plain }: { view: DialogView
         <Header title={view.title} asking={view.kind === "list" && view.asking} />
         <box flexDirection="column" marginTop={1}>
           {view.kind === "text" && view.markdown != null ? (
-            <MarkdownBody content={view.markdown} scroll={view.scroll} height={Math.max(8, height - 9)} plain={plain} />
+            <MarkdownBody content={view.markdown} scroll={view.scroll} height={Math.max(8, height - 9)} width={panelWidth - 4} plain={plain} />
           ) : (
             <Body view={view} visible={visible} />
           )}

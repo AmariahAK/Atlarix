@@ -111,3 +111,29 @@ export function prepareMarkdown(text: string): string {
   });
   return closeTables(separatorsNotHeadings(replaced));
 }
+
+/**
+ * A reply still streaming, made safe to render: what arrives next can't change
+ * the meaning of what is already on screen.
+ *
+ * Re-parsing a half-written reply on every chunk is what made the transcript
+ * flicker between formatted text and raw `###` / `---` (owner, 2026-10-04): a
+ * line holding only `-` is a list item, then `---` a rule; `##` is literal text
+ * until its heading text arrives; `| a | b` is prose until its row closes. So:
+ *
+ *  - the unfinished last line is held back while it is only block markers (or
+ *    an unclosed table row) — prose lines still stream word by word;
+ *  - an unclosed ```chart / ```graph / ```markmap block (drawn as a list or bars
+ *    only once complete) shows as one "drawing…" line instead of raw JSON.
+ */
+export function settleStreaming(text: string): string {
+  let out = text;
+  const custom = /```(chart|graph|markmap)[^\n]*\n(?![\s\S]*?```)/.exec(out);
+  if (custom) out = `${out.slice(0, custom.index)}_drawing the ${custom[1]}…_`;
+  const nl = out.lastIndexOf("\n");
+  const last = out.slice(nl + 1);
+  const markerOnly = /^\s{0,3}(#{1,6}|[-*+_=]{1,}|\d{1,9}[.)]?|>|`{1,3}[\w-]*|~{1,3})\s*$/;
+  const openRow = /^\s*\|/.test(last);
+  if (last !== "" && (markerOnly.test(last) || openRow)) out = out.slice(0, nl + 1);
+  return out;
+}

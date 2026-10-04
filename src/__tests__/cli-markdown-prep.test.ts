@@ -3,7 +3,7 @@
  * the app's visual fences become text, and a table is closed before prose.
  */
 import { describe, expect, it } from "vitest";
-import { prepareMarkdown } from "@/cli/tui/markdown-prep";
+import { prepareMarkdown, settleStreaming } from "@/cli/tui/markdown-prep";
 import { oneLine } from "@/cli/tui/format";
 
 describe("markdown for the terminal", () => {
@@ -56,5 +56,34 @@ describe("separators", () => {
     expect(prepareMarkdown("Already apart.\n\n---")).toBe("Already apart.\n\n---");
     expect(prepareMarkdown("```\ncode\n---\n```")).toBe("```\ncode\n---\n```");
     expect(prepareMarkdown("| a | b |\n|---|---|")).toBe("| a | b |\n|---|---|");
+  });
+});
+
+describe("a reply still streaming", () => {
+  it("holds back a last line that is only block markers, so it can't flip meaning", () => {
+    expect(settleStreaming("Intro\n-")).toBe("Intro\n");
+    expect(settleStreaming("Intro\n--")).toBe("Intro\n");
+    expect(settleStreaming("Intro\n##")).toBe("Intro\n");
+    expect(settleStreaming("Intro\n```ts")).toBe("Intro\n");
+    expect(settleStreaming("Intro\n3.")).toBe("Intro\n");
+  });
+
+  it("holds back an unclosed table row", () => {
+    expect(settleStreaming("| a | b |\n|---|---|\n| 1 | 2")).toBe("| a | b |\n|---|---|\n");
+  });
+
+  it("streams prose word by word", () => {
+    expect(settleStreaming("Intro\nThe agent read 14 fi")).toBe("Intro\nThe agent read 14 fi");
+    expect(settleStreaming("## Head")).toBe("## Head");
+    expect(settleStreaming("- an item in progr")).toBe("- an item in progr");
+  });
+
+  it("shows an unfinished graph as one line, not raw JSON", () => {
+    expect(settleStreaming('Here:\n\n```graph\n{"nodes":[{"id":"a"')).toBe("Here:\n\n_drawing the graph…_");
+  });
+
+  it("leaves a finished graph alone", () => {
+    const done = 'Here:\n\n```graph\n{"nodes":[]}\n```\nAfter';
+    expect(settleStreaming(done)).toBe(done);
   });
 });

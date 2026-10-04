@@ -87,7 +87,8 @@ export function restoreTerminal(): void {
   try {
     // Leave the alternate screen, show the cursor, stop mouse reporting,
     // bracketed paste and the kitty keyboard protocol, reset colours.
-    process.stdout.write("\x1b[?1049l\x1b[?25h\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l\x1b[<u\x1b[0m");
+    // The pulsing tab title (tab-title.ts) goes too: an empty title gives the tab back to the terminal.
+    process.stdout.write("\x1b]0;\x07\x1b[?1049l\x1b[?25h\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l\x1b[<u\x1b[0m");
     if (process.stdin.isTTY) process.stdin.setRawMode(false);
   } catch {
     /* stdout already closed */
@@ -113,17 +114,32 @@ export function fatal(err: unknown): never {
 export async function runTui(opts: RunTuiOptions): Promise<void> {
   installProcessGuards();
   onShutdownRestore(restoreTerminal);
-  const renderer = await createCliRenderer({
-    exitOnCtrlC: false,
-    // Signals are ours (src/cli/shutdown.ts): the renderer's own handling
-    // restored the screen and then left the process running.
-    exitSignals: [],
-    // Our own handler reports errors (after restoring the terminal); opentui's
-    // console overlay would bury them inside a screen that is about to close.
-    openConsoleOnError: false,
-    useMouse: true,
-    backgroundColor: "#0a0a0a",
-  });
+  // Into the alternate screen BEFORE the renderer starts. Its native setup sends
+  // terminal capability queries (kitty graphics, XTGETTCAP, DECRQM) on whatever
+  // screen is current, and Terminal.app, which parses none of them, printed them
+  // as text after "starting…" on the user's own screen (owner, 2026-10-04:
+  // `+q4d73pppppp…Gi=31337,s=1,v=1,a=q,t=d,f=24;AAAA`). There they land on a
+  // screen the first frame clears; the renderer's own switch is then a no-op.
+  if (process.stdout.isTTY) process.stdout.write("\x1b[?1049h\x1b[2J\x1b[H");
+  let renderer: CliRenderer;
+  try {
+    renderer = await createCliRenderer({
+      exitOnCtrlC: false,
+      // Signals are ours (src/cli/shutdown.ts): the renderer's own handling
+      // restored the screen and then left the process running.
+      exitSignals: [],
+      // Our own handler reports errors (after restoring the terminal); opentui's
+      // console overlay would bury them inside a screen that is about to close.
+      openConsoleOnError: false,
+      useMouse: true,
+      backgroundColor: "#0a0a0a",
+    });
+  } catch (err) {
+    // No renderer means restoreTerminal has nothing to tear down: leave the
+    // alternate screen entered above ourselves, or the shell comes back blank.
+    if (process.stdout.isTTY) process.stdout.write("\x1b[?1049l");
+    throw err;
+  }
   active = renderer;
   quietStderr();
   await new Promise<void>(() => {

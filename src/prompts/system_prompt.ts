@@ -34,6 +34,7 @@ import { getAcceptableShell } from "../lib/shell/resolve-shell";
 import { readSettings } from "../main/settings";
 import { LOCALE_ENGLISH_NAMES } from "@/lib/i18n/locales";
 import { buildProjectDocsPromptHint } from "../lib/project-memory";
+import { projectManifestsHint } from "../lib/project-manifests";
 import { applySharedPromptFragments } from "../lib/prompts/shared-fragments";
 
 /** Modes whose write tools may create/update the .atlarix doc files. */
@@ -478,6 +479,7 @@ Your context window this session is **${contextSize.toLocaleString("en-US")} tok
     outputStyleRule,
     modeBundle,
     deviceInfo,
+    projectManifestsHint(workspaceRoot),
     contextBudgetInfo,
     responseLanguage,
   ]

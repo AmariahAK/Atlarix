@@ -31,8 +31,9 @@ anything the user added mid-turn, and `append_step` to add one. The base guidanc
 
 ## Verify with the project's own tooling
 
-Discover the real commands rather than inventing names — `package.json` scripts, a `Makefile`,
-`pyproject.toml` — and prefer the project's own typecheck/lint/test/build. Failing that, run the
+Discover the real commands rather than inventing names: look for the manifest this project
+actually has (`Cargo.toml`, `pyproject.toml`, `go.mod`, `package.json`, a `Makefile`…) before
+assuming any, and prefer the project's own typecheck/lint/test/build. Failing that, run the
 tools directly (`tsc --noEmit`, `eslint`, `ruff`/`mypy`/`pytest`, `cargo check`, `go build`) and fix
 from the output. When there is no linter at all, the floor is a syntax check: `node --check`,
 `python3 -m py_compile`.

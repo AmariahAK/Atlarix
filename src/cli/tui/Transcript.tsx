@@ -27,8 +27,8 @@ import {
 } from "../agent/transcript";
 import { COMMANDS } from "./commands";
 import { oneLine } from "./format";
-import { prepareMarkdown } from "./markdown-prep";
-import { color, glyph, syntax } from "./theme";
+import { Prose } from "./Prose";
+import { color, glyph } from "./theme";
 
 const STATUS_ICON: Record<ToolLine["status"], { icon: string; fg: string }> = {
   running: { icon: glyph.tool.running, fg: color.warn },
@@ -529,18 +529,8 @@ function CellViewInner({
             {`${glyph.reply} `}
           </text>
           <box flexGrow={1}>
-            {plain ? (
-              <text fg={color.text}>{prepareMarkdown(cell.text)}</text>
-            ) : (
-              <markdown
-                content={prepareMarkdown(cell.text)}
-                syntaxStyle={syntax}
-                fg={color.text}
-                conceal
-                streaming={live}
-                tableOptions={{ style: "grid" }}
-              />
-            )}
+            {/* Two columns for the mark, one for the transcript's scrollbar. */}
+            <Prose text={cell.text} streaming={live} width={Math.max(20, width - 3)} plain={plain} />
           </box>
         </box>
       );
@@ -589,7 +579,11 @@ export function Transcript({
   const { width } = useTerminalDimensions();
   return (
     <scrollbox flexGrow={1} stickyScroll stickyStart="bottom">
-      <box flexDirection="column" gap={0}>
+      {/* paddingRight: the scrollbar is drawn OVER the last column, so text that
+          wrapped exactly to the edge lost its last character under it — the
+          "cut off" ends of lines (owner, 2026-10-04: "…the Atlarix agent" with
+          its "." gone, a closing ")" missing). */}
+      <box flexDirection="column" gap={0} paddingRight={2}>
         {cells.map((c, i) => (
           <CellView
             key={c.id}
