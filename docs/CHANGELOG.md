@@ -45,7 +45,8 @@ full the context is as a share and as tokens of the window (`context 23% · 47k/
 session's running total, which passed the window and read as a contradiction, is in `/status`.
 A long session name ends in "…", and the hints fit the width.
 
-**Smaller things.** A message sent while a turn runs is drawn where the agent read it, between
+**Smaller things.** The approval dialog's diff is syntax coloured like the transcript's, and
+"Build it" no longer wraps on a narrow terminal. A message sent while a turn runs is drawn where the agent read it, between
 the steps before it and the answer that took it in; it used to land below the whole reply, under
 a footer that made the turn look finished. `/compact` and other conversation commands typed while a turn runs wait for
 it to end, and messages typed after them still go in first (ctrl+s runs the command now).

@@ -1474,6 +1474,10 @@ jobs:
         # workflow once it exists, so its first version is published by hand
         # (`npm publish --auth-type=web` in its staged folder) and trusted with
         # `npm trust github <name> --repo AmariahAK/Atlarix --file release.yml`.
+        # No provenance (see headless.yml's Publish step): trusted publishing adds
+        # it on its own while the repo is public, and it rejects our repository.url.
+        env:
+          NPM_CONFIG_PROVENANCE: "false"
         run: |
           for p in npm-cli/*/; do
             name=$(node -p "require('./$p/package.json').name")

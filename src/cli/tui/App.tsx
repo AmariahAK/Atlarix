@@ -21,6 +21,19 @@
  */
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import { TAB_FRAME_MS, tabTitle, titleSequence } from "./tab-title";
+
+/**
+ * Escape sequences the renderer does not draw itself (the tab title, the
+ * desktop notification) go out through ITS writer. Written to process.stdout
+ * they landed between the renderer thread's writes, inside a colour code:
+ * `\x1b[38;2;196;181` + the title + `;253m`, and every terminal then printed
+ * `;253m` over the transcript (found recording the launch video, 2026-10-05).
+ */
+export function termWrite(renderer: unknown, data: string): void {
+  const out = (renderer as { writeOut?: (chunk: string) => unknown } | null)?.writeOut;
+  if (typeof out === "function") out.call(renderer, data);
+  else process.stdout.write(data);
+}
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentSession, LiveTask, SessionState, WorkMode } from "../agent/session";
 import { Approval, approvalChoices, approvalKey } from "./Approval";
@@ -615,7 +628,7 @@ export function App({
   const notify = (message: string) => {
     if (terminalFocused.current || live.current.cliState.notifications === false) return;
     try {
-      process.stdout.write(`\x1b]9;${message.replace(/[\x00-\x1f\x7f]/g, " ").slice(0, 200)}\x07\x07`);
+      termWrite(renderer, `\x1b]9;${message.replace(/[\x00-\x1f\x7f]/g, " ").slice(0, 200)}\x07\x07`);
     } catch {
       /* a notification is never worth an error */
     }
@@ -685,7 +698,7 @@ export function App({
     if (!process.stdout.isTTY) return;
     const write = (frame: number) => {
       try {
-        process.stdout.write(titleSequence(tabTitle({ busy: state.busy, waiting, title: state.title }, frame)));
+        termWrite(renderer, titleSequence(tabTitle({ busy: state.busy, waiting, title: state.title }, frame)));
       } catch {
         /* a title is never worth an error */
       }
@@ -695,7 +708,7 @@ export function App({
     let frame = 0;
     const t = setInterval(() => write(++frame), TAB_FRAME_MS);
     return () => clearInterval(t);
-  }, [state.busy, waiting, state.title]);
+  }, [state.busy, waiting, state.title, renderer]);
 
   // The background update: a toast while it installs, then a notice that
   // stays above the prompt box ("Update installed · restart to use v14.53.0").

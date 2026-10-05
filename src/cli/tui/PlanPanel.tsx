@@ -18,6 +18,17 @@ export interface PinnedPlan {
   content: string;
 }
 
+/**
+ * The hint beside "Build it", as much of it as fits: at ~72 columns the whole
+ * line pushed the button onto two lines ("Build / it").
+ */
+export function planHint(width: number): string {
+  const room = width - 6 - 10; // the panel's border and padding, then the button
+  const full = "  /build · type below to change it · pgup/pgdn scroll · esc hide";
+  const short = "  /build · pgup/pgdn scroll · esc hide";
+  return full.length <= room ? full : short.length <= room ? short : room >= 12 ? "  esc hide" : "";
+}
+
 /** Scroll the pinned plan from the keyboard (PgUp/PgDn); null when none is shown. */
 export type PlanScroll = (rows: number) => void;
 
@@ -69,6 +80,7 @@ export function PlanPanel({
       </scrollbox>
       <box flexDirection="row" marginTop={1}>
         <box
+          flexShrink={0}
           backgroundColor={hover ? color.accentSoft : color.accent}
           paddingLeft={1}
           paddingRight={1}
@@ -83,7 +95,7 @@ export function PlanPanel({
             <b>Build it</b>
           </text>
         </box>
-        <text fg={color.faint}>{"  /build · type below to change it · pgup/pgdn scroll · esc hide"}</text>
+        <text fg={color.faint}>{planHint(width)}</text>
       </box>
     </box>
   );
