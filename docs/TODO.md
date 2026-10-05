@@ -29,10 +29,14 @@ not trust it.
   after the platform packages, which needs npm's trusted publisher for `atlarix` moved from
   `headless.yml` to `release.yml` (owner, on npmjs.com), or make the headless publish wait for
   them.
-- **Slack Marketplace submission.** Listing, scopes and security answers are filled in. Still
-  needed: a test account for Slack's reviewers (Slack is paid, so it needs credit) and the
-  demo video link, then Submit. Review is about 10 days preliminary plus about 10 weeks
-  functional.
+- **Slack Marketplace submission.** Listing (six live screenshots), scope reasons, security and
+  compliance, and testing instructions are filled in. Still needed before Submit: a reviewer
+  test account with credit (Slack is paid; the owner creates it) and a demo video link
+  showing install → connect → task → PR → Approve & merge. Review is about 10 days
+  preliminary plus about 10 weeks functional.
+- **Slack polish seen in the live run:** after Approve/Close the old message keeps its
+  buttons (update it with chat.update); "the agent stopped before finishing" was shown for a
+  CLI install failure (say what failed).
 
 ## Next up — finishing 15.0.0
 
