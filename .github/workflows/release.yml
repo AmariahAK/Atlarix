@@ -21,6 +21,10 @@ on:
       version:
         description: "Version tag (e.g., v1.0.0)"
         required: false
+      npm_only:
+        description: "Only publish the atlarix-<platform> npm packages from the published release's CLI archives (no build)"
+        type: boolean
+        default: false
 
 # Retagging the same version cancels in-progress runs by default; that often aborts
 # build-windows during setup-node npm cache restore (no error line, step shows failure).
@@ -176,7 +180,7 @@ jobs:
 
   create-draft:
     needs: quality
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    if: (github.event_name == 'workflow_dispatch' && !inputs.npm_only) || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     outputs:
       release_id: ${{ steps.create_release.outputs.id }}
@@ -252,7 +256,7 @@ jobs:
 
   build-macos:
     needs: [quality, create-draft]
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    if: (github.event_name == 'workflow_dispatch' && !inputs.npm_only) || startsWith(github.ref, 'refs/tags/v')
     runs-on: macos-latest
     timeout-minutes: 180
     strategy:
@@ -515,7 +519,7 @@ jobs:
 
   build-linux:
     needs: [quality, create-draft]
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    if: (github.event_name == 'workflow_dispatch' && !inputs.npm_only) || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
@@ -695,7 +699,7 @@ jobs:
 
   build-windows:
     needs: [quality, create-draft, build-linux]
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    if: (github.event_name == 'workflow_dispatch' && !inputs.npm_only) || startsWith(github.ref, 'refs/tags/v')
     # `windows-latest` (= windows-2025-vs2026) since 2026-09-10. It was pinned to
     # windows-2022 because @electron/node-gyp@10.2.0-electron.1 knew Visual Studio up
     # to 2022 only: it found the VS 2026 instance, logged "unsupported version: 18",
@@ -1132,7 +1136,7 @@ jobs:
   # ───────────────────────────────────────────────────────────────────────────
   build-cli:
     needs: [quality, create-draft]
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    if: (github.event_name == 'workflow_dispatch' && !inputs.npm_only) || startsWith(github.ref, 'refs/tags/v')
     timeout-minutes: 90
     strategy:
       fail-fast: false
@@ -1450,11 +1454,13 @@ jobs:
       id-token: write # npm trusted publishing (OIDC), as headless.yml
     steps:
       - uses: actions/checkout@v4
+      # Node 24 ships an npm that does trusted publishing (>= 11.5.1). This
+      # used to be Node 25 plus `npm install -g npm@latest`, which broke the
+      # day npm 12 dropped Node 25 (EBADENGINE, 15.0.1).
       - uses: actions/setup-node@v4
         with:
-          node-version: "25"
+          node-version: "24"
           registry-url: "https://registry.npmjs.org"
-      - run: npm install -g npm@latest
       - uses: actions/download-artifact@v4
         with:
           pattern: atlarix-cli-*
@@ -1476,6 +1482,51 @@ jobs:
         # `npm trust github <name> --repo AmariahAK/Atlarix --file release.yml`.
         # No provenance (see headless.yml's Publish step): trusted publishing adds
         # it on its own while the repo is public, and it rejects our repository.url.
+        env:
+          NPM_CONFIG_PROVENANCE: "false"
+        run: |
+          for p in npm-cli/*/; do
+            name=$(node -p "require('./$p/package.json').name")
+            version=$(node -p "require('./$p/package.json').version")
+            if npm view "$name@$version" version >/dev/null 2>&1; then
+              echo "$name@$version is already published"; continue
+            fi
+            (cd "$p" && npm publish --access public)
+          done
+
+  # Re-publish the npm platform packages of an ALREADY published release, from
+  # its own CLI archives: `gh workflow run release.yml -f version=vX.Y.Z -f npm_only=true`.
+  # For when publish-cli-npm failed after the release went out (15.0.1). It
+  # lives in this file because each atlarix-<platform> package trusts
+  # release.yml, and npm checks the workflow file, not the ref.
+  republish-cli-npm:
+    if: github.event_name == 'workflow_dispatch' && inputs.npm_only
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+      - name: The CLI binaries from the published release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN || github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [ -n "$VERSION" ] || { echo "::error::version is required (e.g. v15.0.1)"; exit 1; }
+          want="${VERSION#v}"
+          have="$(node -p "require('./package.json').version")"
+          [ "$want" = "$have" ] || { echo "::error::package.json is $have, not $want: run this from the release's commit"; exit 1; }
+          mkdir -p dl bins
+          gh release download "$VERSION" -R AmariahAK/atlarix-releases -D dl -p 'atlarix-cli-*.tar.gz' -p 'atlarix-cli-windows-*.zip'
+          for f in dl/atlarix-cli-*.tar.gz; do t="$(basename "$f" .tar.gz)"; mkdir -p "bins/$t"; tar xzf "$f" -C "bins/$t"; done
+          for f in dl/atlarix-cli-windows-*.zip; do t="$(basename "$f" .zip)"; mkdir -p "bins/$t"; unzip -q "$f" -d "bins/$t"; done
+          node scripts/build-cli-npm.mjs bins npm-cli
+      - name: Publish
         env:
           NPM_CONFIG_PROVENANCE: "false"
         run: |
