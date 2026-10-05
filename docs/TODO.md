@@ -41,6 +41,22 @@ not trust it.
   agreement, Submit. The /slack page, guide, privacy section and listing are already live.
   atlarix-cloud-test is private again: make it public only while recording (its Actions are
   billing-blocked when private).
+- **Sessions that talk to each other (owner, 2026-10-06), in the CLI and the desktop app.** Like
+  Claude Code's cross-session messaging: one Atlarix session can list the other sessions running
+  on this machine (CLI or app, any workspace) and send one a message or a handoff with context,
+  for example "here's the brief, do the video" or "found 3 bugs, here's the repro". The receiver
+  gets it in its own conversation as a message from that session, not as the user's words.
+  - **List:** running sessions, with a name, workspace, surface (CLI/app) and whether each is busy.
+  - **Send:** text plus optional attached context (files, a summary of this session). It is
+    delivered at the receiver's next step, the way a steer is.
+  - **Reply:** the receiver can answer back to the sender's address.
+  - **Rules:**
+    - A peer's message is a teammate's request, never the user's approval: it can't approve a
+      pending permission or change settings, and the UI says who sent it.
+    - Local only: a socket in the user data directory, nothing over the network.
+  - **Where it plugs in:** the existing mid-turn steer queue (`chat:interject`) is the delivery
+    path. The CLI and the app already share sessions and the DB; what's missing is a registry of
+    live sessions and an address per session.
 - **CLI: "AI SDK Warning … temperature is not supported" toast.** Atlarix Auto sends a
   temperature to OpenAI reasoning models (seen with gpt-6-luna); the SDK drops it and warns,
   and the CLI's warning toast shows it. Don't send temperature to reasoning models (or drop
