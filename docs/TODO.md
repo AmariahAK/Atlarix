@@ -1,7 +1,7 @@
 # Atlarix TODO
 
-**Current version:** 15.0.0, released 2026-10-03 (desktop + extension + CLI in one `v*` tag):
-Atlarix in the terminal (curl/PowerShell, Homebrew, npm, winget), the cloud agent, email
+**Current version:** 15.0.1, released 2026-10-05: sub-agents in the terminal, coloured code, a
+readable plan. Before it, 15.0.0 (2026-10-03): Atlarix in the terminal, the cloud agent, email
 sign-in, Relics. Narrative in [`docs/CHANGELOG.md`](./CHANGELOG.md).
 
 **This header has been wrong before.** Update it in the same commit as the version bump, or do
@@ -16,9 +16,23 @@ not trust it.
 | Designed, not scheduled             | [`docs/DESIGN_NOTES.md`](./DESIGN_NOTES.md) |
 | Open work                           | here, and nowhere else                      |
 
-**Last updated:** 2026-10-03
+**Last updated:** 2026-10-05
 
 ---
+
+## Next up — after 15.0.1
+
+- **npm publish order.** `headless.yml` publishes `atlarix` the moment a `v*` tag is pushed, but
+  its `atlarix-<platform>` packages come from `release.yml` about 40 minutes later. In between,
+  `npm i -g atlarix` (and every cloud run, which installs `latest`) finds no binary: a Slack
+  task failed exactly that way during the 15.0.1 release. Publish `atlarix` from `release.yml`
+  after the platform packages, which needs npm's trusted publisher for `atlarix` moved from
+  `headless.yml` to `release.yml` (owner, on npmjs.com), or make the headless publish wait for
+  them.
+- **Slack Marketplace submission.** Listing, scopes and security answers are filled in. Still
+  needed: a test account for Slack's reviewers (Slack is paid, so it needs credit) and the
+  demo video link, then Submit. Review is about 10 days preliminary plus about 10 weeks
+  functional.
 
 ## Next up — finishing 15.0.0
 
