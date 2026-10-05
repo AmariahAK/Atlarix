@@ -3,7 +3,7 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
-## [Unreleased]
+## [15.0.1] (2026-10-05) — the terminal draws cleanly
 
 **The terminal draws replies without flicker or cut-off lines.** Markdown in the CLI is now drawn
 directly instead of through a renderer that revealed `##`, `**` and backticks only after a
