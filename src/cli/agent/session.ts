@@ -791,6 +791,7 @@ export class AgentSession extends EventEmitter {
       lastError: null,
     });
     this.steerTexts = [];
+    this.steerTakenAt.clear();
     this.staleBelow = this.highestStreamId + 1;
     void this.refreshContextWindow();
     try {
@@ -864,13 +865,16 @@ export class AgentSession extends EventEmitter {
 
   private withFooters(cells: Cell[]): Cell[] {
     if (!this.turnFooters.size) return cells;
+    // After the reply's LAST line only. A message sent mid-turn sits inside the
+    // reply, and a footer after each part made the turn look finished above it.
+    const last = new Map<string, number>();
+    cells.forEach((c, i) => last.set(c.id.split(":")[0]!, i));
     const out: Cell[] = [];
     cells.forEach((c, i) => {
       out.push(c);
       const owner = c.id.split(":")[0]!;
       const footer = this.turnFooters.get(owner);
-      const next = cells[i + 1];
-      if (footer && (!next || next.id.split(":")[0] !== owner)) {
+      if (footer && last.get(owner) === i) {
         out.push({ kind: "footer", id: `${owner}:footer`, text: footer.text, interrupted: footer.interrupted });
       }
     });
@@ -1028,6 +1032,28 @@ export class AgentSession extends EventEmitter {
     return out;
   }
 
+  /**
+   * Where in the answer each steer was TAKEN, by its text. Main takes it from
+   * the queue (this event) before the step that reads it streams; the message
+   * itself reaches the list later, after a database write, by which time the
+   * answer had often grown past it, so it was drawn below the reply that read it
+   * (owner, 2026-10-05: "it goes to the bottom").
+   */
+  private readonly steerTakenAt = new Map<string, { assistantId: string; offset: number }>();
+
+  private noteDelivered(pending: Array<{ id: string; text: string }>): void {
+    const still = new Set(pending.map((x) => x.id));
+    const answer = [...this.messages].reverse().find((m) => m.role === "assistant");
+    if (!answer) return;
+    for (const st of this.steers) {
+      if (still.has(st.id)) continue;
+      const key = st.text.trim();
+      if (!this.steerTakenAt.has(key)) {
+        this.steerTakenAt.set(key, { assistantId: String(answer.id), offset: answer.content.length });
+      }
+    }
+  }
+
   /** A steer's message appearing in the list: remember where in the answer it arrived. */
   private anchorSteers(): void {
     let lastAssistant = -1;
@@ -1042,7 +1068,10 @@ export class AgentSession extends EventEmitter {
       if (k < 0 || lastAssistant < i) return;
       this.steerTexts.splice(k, 1);
       const answer = this.messages[lastAssistant]!;
-      this.anchors.set(id, { messageId: id, assistantId: String(answer.id), offset: answer.content.length });
+      const taken = this.steerTakenAt.get(m.content.trim());
+      this.steerTakenAt.delete(m.content.trim());
+      const at = taken && taken.assistantId === String(answer.id) ? taken.offset : answer.content.length;
+      this.anchors.set(id, { messageId: id, assistantId: String(answer.id), offset: Math.min(at, answer.content.length) });
     });
   }
 
@@ -1086,7 +1115,10 @@ export class AgentSession extends EventEmitter {
       }
       case "chat:interjections":
         // Main's queue of steers changed: one was delivered, or added elsewhere.
-        if (Array.isArray(p.pending)) this.syncPending(p.pending as Array<{ id: string; text: string }>);
+        if (Array.isArray(p.pending)) {
+          this.noteDelivered(p.pending as Array<{ id: string; text: string }>);
+          this.syncPending(p.pending as Array<{ id: string; text: string }>);
+        }
         return;
       case "chat:stream:phase":
         this.update({ phase: typeof p.label === "string" ? p.label : null });

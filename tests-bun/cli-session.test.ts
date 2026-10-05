@@ -134,6 +134,44 @@ describe("AgentSession", () => {
     const second = JSON.stringify(llm.requests.filter((r: any) => r.tools?.length)[1]?.messages ?? []);
     expect(second).toContain("also check the README");
     expect(s.state.pending).toEqual([]);
+    // It is drawn where it reached the agent: before the answer that read it,
+    // never after the whole reply (owner, 2026-10-05: "it goes to the bottom").
+    const texts = s.state.cells.map((c: any) => (c.kind === "user" ? `U:${c.text}` : c.kind === "markdown" ? `A:${c.text}` : c.kind));
+    const steerAt = texts.findIndex((t: string) => t === "U:also check the README");
+    const answerAt = texts.findIndex((t: string) => t.includes("Checked, including the README."));
+    expect(steerAt).toBeGreaterThan(-1);
+    expect(answerAt).toBeGreaterThan(-1);
+    expect(steerAt).toBeLessThan(answerAt);
+    // One footer, after the whole turn: not one before the message as well.
+    expect(texts.filter((t: string) => t === "footer").length).toBe(1);
+    expect(texts.at(-1)).toBe("footer");
+  }, 60_000);
+
+  it("a steer is drawn where the agent TOOK it, even when its row reaches the list after more of the answer", async () => {
+    // Main takes the steer (chat:interjections) before the step streams, but the
+    // row itself arrives after a database write: by then the answer had grown,
+    // and the message was drawn under the reply that read it.
+    const { AgentSession } = await import("../src/cli/agent/session");
+    const s = new AgentSession({ workspaceDir: ws }) as any;
+    s.state.busy = true;
+    s.steerTexts = ["also check the README"];
+    s.steers = [{ id: "s1", text: "also check the README", kind: "steer" }];
+    const ask = { id: 1, role: "user", content: "find the TODOs" };
+    const before = "Looking.";
+    s.messages = [ask, { id: 2, role: "assistant", content: before }];
+    s.onSend("chat:interjections", { pending: [] });
+    s.onSend("chat:response:chunk", {
+      messages: [ask, { id: 3, role: "user", content: "also check the README" }, { id: 2, role: "assistant", content: `${before}\n\nChecked the README too.` }],
+    });
+    expect(s.anchors.get("3")?.offset).toBe(before.length);
+    // The reply drawn around it keeps ONE footer, after its last line.
+    s.turnFooters.set("2", { text: "Build · 3s", interrupted: false });
+    const cells = s.withFooters([
+      { kind: "tool", id: "2:t0" },
+      { kind: "user", id: "3:u", text: "also check the README" },
+      { kind: "markdown", id: "2:m1", text: "Checked the README too." },
+    ]);
+    expect(cells.map((c: any) => c.kind)).toEqual(["tool", "user", "markdown", "footer"]);
   }, 60_000);
 
   it("a command that needs approval raises a prompt through the REAL permission path, and approving runs it", async () => {
