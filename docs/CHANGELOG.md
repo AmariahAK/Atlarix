@@ -11,6 +11,13 @@ now, on the session's own model: a sub-agent used to take the app's saved model 
 instead of the one the CLI session was using. A sub-agent that fails to start is marked as
 finished.
 
+**The CLI carries its own prompts.** The mode prompts (Build, Plan, Ask, Debug, Review), the
+sub-agent prompts and the guides were read from `src/skills` in the folder you ran it in, which
+only exists inside Atlarix's own repository. Everywhere else every turn went without its mode
+prompt, silently, and every sub-agent failed on `src/skills/subagents/subagent.md`. They are
+inside the binary now (unpacked once to `~/.atlarix/skills`), and the headless build ships them
+beside its bundle.
+
 **Sub-agents and background work sit under the prompt box.** "main" and what it is doing, then
 one row per sub-agent with what it is doing now, how long it has run and its tokens; finished
 ones drop off and background commands share one row. ↓ picks a row and enter opens that

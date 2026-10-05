@@ -19,6 +19,10 @@ beforeAll(() => {
   process.env.ATLARIX_SURFACE = "cli";
   ws = fs.mkdtempSync(path.join(os.tmpdir(), "cli-cmds-ws-"));
   fs.writeFileSync(path.join(ws, "a.ts"), "export const a = 1;\n");
+  // Run where a user runs it: in THEIR repository, not this one. Bundled files
+  // read from `<cwd>/src/…` only ever worked from here (owner, 2026-10-05: every
+  // sub-agent in ruff failed on src/skills/subagents/subagent.md).
+  process.chdir(ws);
   // As the CLI does (shutdown.ts installProcessGuards): the AI SDK rejects
   // stream promises nobody awaits when a turn is stopped on purpose (ask_user
   // ends its turn by aborting it). The desktop drops those too (sentry-before-send).
@@ -31,6 +35,7 @@ beforeAll(() => {
 async function sessionWith(script: Reply[]) {
   const llm = startFakeLlm(script);
   llms.push(llm);
+  await import("../src/headless/bundled-assets"); // as src/cli/entry.mts does, first
   const { AgentSession, seedDevProvider } = await import("../src/cli/agent/session");
   const model = await seedDevProvider({ baseUrl: llm.url, model: "fake-model", apiKey: "dev" });
   const s = new AgentSession({ workspaceDir: ws, model });
@@ -279,6 +284,9 @@ describe("the session's commands", () => {
     const task = s.state.cells.find((c: any) => c.kind === "tool" && c.tool.verb === "Agent") as any;
     expect(task).toBeTruthy();
     expect(JSON.stringify(task.tool)).not.toContain("fromWebContents");
+    expect(JSON.stringify(task.tool)).not.toContain("ENOENT");
+    // The turn carried its mode prompt, which was silently dropped outside this repo.
+    expect(JSON.stringify(llm.requests[0])).toContain("[Active Skill: modes/");
     // It ran on THIS session's model (the CLI's own choice), not the app's
     // saved one: its request reached the same fake model.
     expect(JSON.stringify(task.tool)).not.toContain("isn't offered");

@@ -13,7 +13,19 @@ const shipped = (name: string) => {
   return fs.existsSync(p) ? p : undefined;
 };
 
+/** The shipped `skills/` folder (build-headless.mjs copies src/skills), as path → file. */
+function shippedSkills(): Record<string, string> | undefined {
+  const dir = path.join(here, "skills");
+  if (!fs.existsSync(dir)) return undefined;
+  const out: Record<string, string> = {};
+  for (const rel of fs.readdirSync(dir, { recursive: true }) as string[]) {
+    if (rel.endsWith(".md")) out[rel.split(path.sep).join("/")] = path.join(dir, rel);
+  }
+  return out;
+}
+
 export const assets = {
   agentsMd: shipped("AGENTS.md"),
+  skills: shippedSkills(),
   modelsSnapshot: shipped("models-snapshot.json.gz"),
 };

@@ -50,7 +50,36 @@ export function assetFiles(target?: string): Record<string, string> {
     // (`npm pack @vscode/ripgrep-<os>-<arch>`) and point here.
     rg: process.env.ATLARIX_RG_PATH || ripgrepFor(target),
     ...relayFor(target),
+    ...skillFiles(),
   };
+}
+
+/** Keys of the bundled skill files: `skill:` + their path under src/skills. */
+export const SKILL_KEY = "skill:";
+
+/**
+ * The bundled skills (src/skills: the mode prompts, the sub-agent prompts, the
+ * guides). The CLI read them from `<cwd>/src/skills`, so outside this repository
+ * every mode prompt was silently missing and every sub-agent failed with ENOENT
+ * on `src/skills/subagents/subagent.md` (owner, 2026-10-05, in ruff).
+ */
+export function skillFiles(dir = path.join(root, "src", "skills")): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const rel of fs.readdirSync(dir, { recursive: true }) as string[]) {
+    if (rel.endsWith(".md")) out[SKILL_KEY + rel.split(path.sep).join("/")] = path.join(dir, rel);
+  }
+  return out;
+}
+
+/** The assets object's source: plain keys as they are, `skill:` keys gathered into `skills`. */
+function assetsObject(files: Record<string, string>, value: (key: string, file: string, i: number) => string): string {
+  const plain: string[] = [];
+  const skills: string[] = [];
+  Object.entries(files).forEach(([k, f], i) => {
+    if (k.startsWith(SKILL_KEY)) skills.push(`${JSON.stringify(k.slice(SKILL_KEY.length))}: ${value(k, f, i)}`);
+    else plain.push(`${JSON.stringify(k)}: ${value(k, f, i)}`);
+  });
+  return `{ ${[...plain, `"skills": { ${skills.join(", ")} }`].join(", ")} }`;
 }
 
 /**
@@ -85,11 +114,11 @@ function relayFor(target?: string): { relay?: string } {
 export function assetsModuleSource(files: Record<string, string>, runtime = false): string {
   // Under plain `bun` (tests, probes) the files are on disk already, and a
   // virtual module's `type: "file"` import is not honoured there anyway.
-  if (runtime) return `export const assets = ${JSON.stringify(files)};\n`;
+  if (runtime) return `export const assets = ${assetsObject(files, (_k, f) => JSON.stringify(f))};\n`;
   return (
-    Object.entries(files)
-      .map(([k, f]) => `import ${k} from ${JSON.stringify(f)} with { type: "file" };`)
-      .join("\n") + `\nexport const assets = { ${Object.keys(files).join(", ")} };\n`
+    Object.values(files)
+      .map((f, i) => `import a${i} from ${JSON.stringify(f)} with { type: "file" };`)
+      .join("\n") + `\nexport const assets = ${assetsObject(files, (_k, _f, i) => `a${i}`)};\n`
   );
 }
 

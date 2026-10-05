@@ -136,6 +136,12 @@ const assets = [
     dest: "models-snapshot.json.gz",
   },
 ];
+// The mode prompts, sub-agent prompts and guides. Headless read them from
+// `<cwd>/src/skills`, which in a benchmark container is the TASK directory, so
+// every run went without its mode prompt and every sub-agent failed (ENOENT).
+fs.cpSync(path.join(root, "src", "skills"), path.join(outDir, "skills"), { recursive: true });
+console.log("[build-headless] copied skills/ next to bundle");
+
 // AGENTS.md is load-bearing: without it headless runs on the FALLBACK_AGENTS
 // stub (silent capability cliff). Fail the build loudly rather than ship a
 // degraded tarball. The wasm is a soft degrade, so it stays a warning.

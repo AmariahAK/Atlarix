@@ -37,6 +37,9 @@ import { applySharedPromptFragments } from "@/lib/prompts/shared-fragments";
 const skillCache = new Map<string, string>();
 
 export function resolveBuiltinSkillsRoot(): string {
+  // The CLI and headless builds carry their own copy (src/headless/bundled-assets.ts):
+  // their `cwd` is the user's repository, where `src/skills` is not Atlarix's.
+  if (process.env.ATLARIX_SKILLS_DIR) return process.env.ATLARIX_SKILLS_DIR;
   try {
     if (app.isPackaged) {
       // packagerConfig.extraResource copies `src/skills` → resources/skills (basename)
