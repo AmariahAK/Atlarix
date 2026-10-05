@@ -215,6 +215,13 @@ jobs:
       # collide. Without the flag the publish succeeds but the registry records no
       # attestation either (checked on 14.39.2 and 14.39.3), so provenance simply
       # is not available on this path today. A shipping release beats a badge.
+      #
+      # Trusted publishing ALSO generates provenance by itself when this repo is
+      # public, which it is while a release runs (the Actions-budget flip), and
+      # that provenance demands repository.url name this repo, not
+      # atlarix-releases: E422 on 15.0.1's first cut. packages/headless sets
+      # publishConfig.provenance=false, and so do the platform packages
+      # (scripts/build-cli-npm.mjs).
       - name: Publish
         run: npm publish
         working-directory: packages/headless

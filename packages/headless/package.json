@@ -61,7 +61,8 @@
     "win32"
   ],
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": false
   },
   "optionalDependencies": {
     "atlarix-darwin-arm64": "14.52.4",

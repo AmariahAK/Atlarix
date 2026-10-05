@@ -44,7 +44,12 @@ for (const t of CLI_TARGETS) {
     cpu: [t.npm.cpu],
     ...(t.npm.libc ? { libc: [t.npm.libc] } : {}),
     files: ["bin"],
-    publishConfig: { access: "public" },
+    // No provenance: trusted publishing adds it on its own when the Atlarix repo
+    // is public (it is, for the length of a release), and provenance requires
+    // `repository.url` to name THAT repo, not the releases one above. 15.0.1's
+    // first cut was refused with E422 for exactly this; 15.0.0 shipped while
+    // the repo was private, where npm generates none.
+    publishConfig: { access: "public", provenance: false },
   };
   fs.writeFileSync(path.join(dir, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`);
   console.log(`[build-cli-npm] staged ${pkg.name}@${version}`);
