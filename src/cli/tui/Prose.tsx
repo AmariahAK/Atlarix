@@ -18,8 +18,16 @@
  */
 import { lexer, type Token, type Tokens } from "marked";
 import type { ReactNode } from "react";
+import { useGrammar } from "./grammars";
 import { prepareMarkdown, settleStreaming } from "./markdown-prep";
+import { infoStringToFiletype } from "@opentui/core";
 import { color, syntax } from "./theme";
+
+/** ```ts, ```py, ```shell…: the short tags people write, as the grammar names. */
+export function fenceFiletype(lang: string | undefined): string | undefined {
+  const tag = lang?.trim().split(/\s/)[0];
+  return tag ? (infoStringToFiletype(tag) ?? tag) : undefined;
+}
 
 const ENTITIES: Record<string, string> = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#39;": "'" };
 const unescape = (s: string) => s.replace(/&(amp|lt|gt|quot|#39);/g, (m) => ENTITIES[m] ?? m);
@@ -36,10 +44,18 @@ export function proseTokens(text: string, streaming: boolean): Token[] {
   return lexer(md, { gfm: true }).filter((t) => t.type !== "space");
 }
 
+/**
+ * marked puts a task item's `[x]` in its own `checkbox` token. The list draws
+ * the box itself (☑/☐), so the token is dropped: drawn, it read "☑ [x]" with the
+ * item's text on the next line (owner's plan card, 2026-10-05).
+ */
+const notCheckbox = (t: Token) => t.type !== "checkbox";
+
 /** Inline markdown as plain text (table cells measure and wrap this). */
 export function inlineText(tokens: Token[] | undefined, fallback = ""): string {
   if (!tokens) return unescape(fallback);
   return tokens
+    .filter(notCheckbox)
     .map((t) => {
       const tok = t as Token & { tokens?: Token[]; text?: string };
       if (tok.type === "br") return " ";
@@ -52,7 +68,7 @@ export function inlineText(tokens: Token[] | undefined, fallback = ""): string {
 
 function Inline({ tokens, fallback = "" }: { tokens?: Token[]; fallback?: string }): ReactNode {
   if (!tokens) return unescape(fallback);
-  return tokens.map((t, i) => {
+  return tokens.filter(notCheckbox).map((t, i) => {
     switch (t.type) {
       case "strong":
         return (
@@ -76,7 +92,7 @@ function Inline({ tokens, fallback = "" }: { tokens?: Token[]; fallback?: string
         );
       case "codespan":
         return (
-          <span key={i} fg={color.text} bg={color.promptBg}>
+          <span key={i} fg={color.code}>
             {unescape((t as Tokens.Codespan).text)}
           </span>
         );
@@ -200,18 +216,8 @@ function Block({ token, width, plain, first }: { token: Token; width: number; pl
           <Blocks tokens={(token as Tokens.Blockquote).tokens} width={Math.max(10, width - 2)} plain={plain} />
         </box>
       );
-    case "code": {
-      const c = token as Tokens.Code;
-      return (
-        <box marginTop={marginTop} backgroundColor={color.panel} paddingLeft={1} paddingRight={1}>
-          {plain ? (
-            <text fg={color.text}>{c.text}</text>
-          ) : (
-            <code content={c.text} filetype={c.lang?.split(/\s/)[0] || undefined} syntaxStyle={syntax} fg={color.text} />
-          )}
-        </box>
-      );
-    }
+    case "code":
+      return <CodeBlock token={token as Tokens.Code} marginTop={marginTop} plain={plain} />;
     case "hr":
       return <text marginTop={marginTop} fg={color.faint}>{"─".repeat(Math.max(3, Math.min(width, 80)))}</text>;
     case "table": {
@@ -235,6 +241,20 @@ function Block({ token, width, plain, first }: { token: Token; width: number; pl
   }
 }
 
+/** Fenced code: highlighted once its language's grammar is ready (grammars.ts), plain text until then. */
+function CodeBlock({ token, marginTop, plain }: { token: Tokens.Code; marginTop: number; plain: boolean }) {
+  const filetype = useGrammar(plain ? undefined : fenceFiletype(token.lang));
+  return (
+    <box marginTop={marginTop} backgroundColor={color.panel} paddingLeft={1} paddingRight={1}>
+      {plain ? (
+        <text fg={color.text}>{token.text}</text>
+      ) : (
+        <code content={token.text} filetype={filetype} syntaxStyle={syntax} fg={color.text} />
+      )}
+    </box>
+  );
+}
+
 function List({ list, width, plain }: { list: Tokens.List; width: number; plain: boolean }) {
   const start = typeof list.start === "number" ? list.start : 1;
   const markers = list.items.map((it, i) =>
@@ -247,7 +267,7 @@ function List({ list, width, plain }: { list: Tokens.List; width: number; plain:
         <box key={i} flexDirection="row" marginTop={!list.loose || i === 0 ? 0 : 1}>
           <text fg={color.muted} flexShrink={0}>{`${pad(markers[i]!, markerWidth)} `}</text>
           <box flexGrow={1} flexDirection="column">
-            <Blocks tokens={item.tokens.filter((t) => t.type !== "space")} width={Math.max(10, width - markerWidth - 1)} plain={plain} tight />
+            <Blocks tokens={item.tokens.filter((t) => t.type !== "space" && notCheckbox(t))} width={Math.max(10, width - markerWidth - 1)} plain={plain} tight />
           </box>
         </box>
       ))}

@@ -41,7 +41,7 @@ export async function relicHostingForChat(chatId: number | undefined): Promise<R
   const model =
     (req as { modelOverride?: { provider: string; name: string } } | undefined)?.modelOverride ??
     (readSettings() as { selectedModel?: { provider: string; name: string } }).selectedModel;
-  const { getSession, getSupabaseClient } = await import("@/lib/auth/supabase-client");
+  const { getSession } = await import("@/lib/auth/supabase-client");
   const session = await getSession().catch(() => null);
   let isPro = false;
   let balanceCents: number | null = null;
@@ -49,9 +49,8 @@ export async function relicHostingForChat(chatId: number | undefined): Promise<R
     const { SubscriptionManager } = await import("@/lib/SubscriptionManager");
     isPro = SubscriptionManager.isPro();
     if (!isPro) {
-      const { data } = await getSupabaseClient().rpc("get_credit_balance");
-      const cents = (data as { balance_cents?: number } | null)?.balance_cents;
-      balanceCents = typeof cents === "number" ? cents : null;
+      const { creditBalanceCents } = await import("@/lib/billing/credit-balance");
+      balanceCents = await creditBalanceCents();
     }
   }
   return decideRelicHosting({ model, signedIn: Boolean(session), isPro, balanceCents });

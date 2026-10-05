@@ -24,7 +24,43 @@ export const color = {
   error: "#f28b82",
   errorBg: "#2a1517",
   white: "#ffffff",
+  /** Inline code: lavender text, no chip. The dim grey chip got lost in long answers (owner, 2026-10-05). */
+  code: "#c4b5fd",
+  /** The prompt box: a step above the page, so it reads as the place to type. */
+  raised: "#15171a",
 } as const;
+
+/** Code colours, around the emerald: strings green, keywords lavender, numbers amber. */
+const code = {
+  fn: "#7dd3fc",
+  type: "#fde68a",
+  tag: "#f9a8d4",
+  member: "#d4d4d4",
+} as const;
+
+type Rule = { scope: string[]; style: { foreground?: string; background?: string; bold?: boolean; italic?: boolean; underline?: boolean } };
+
+/** Code token colours: fenced code (via opentui) and diff lines (via `codeColor`) share them. */
+const codeRules: Rule[] = [
+  { scope: ["comment"], style: { foreground: color.muted, italic: true } },
+  { scope: ["string"], style: { foreground: color.accentSoft } },
+  { scope: ["keyword"], style: { foreground: color.code } },
+  { scope: ["number", "boolean", "constant", "character"], style: { foreground: color.warn } },
+  { scope: ["function", "constructor"], style: { foreground: code.fn } },
+  { scope: ["type", "module", "label"], style: { foreground: code.type } },
+  { scope: ["tag", "attribute"], style: { foreground: code.tag } },
+  { scope: ["property", "variable.member", "variable.parameter"], style: { foreground: code.member } },
+  { scope: ["variable.builtin", "constant.builtin"], style: { foreground: color.warn, italic: true } },
+  { scope: ["operator", "punctuation"], style: { foreground: color.muted } },
+  { scope: ["string.escape", "string.regexp", "string.special"], style: { foreground: color.accent } },
+];
+
+/** A tree-sitter capture's colour: the exact name, else its first segment ("function.method" → "function"). */
+export function codeColor(group: string): { fg?: string; italic?: boolean } | undefined {
+  const find = (name: string) => codeRules.find((r) => r.scope.includes(name))?.style;
+  const st = find(group) ?? (group.includes(".") ? find(group.split(".")[0]!) : undefined);
+  return st ? { fg: st.foreground, italic: st.italic } : undefined;
+}
 
 export const syntax = SyntaxStyle.fromTheme([
   { scope: ["default"], style: { foreground: color.text } },
@@ -43,16 +79,12 @@ export const syntax = SyntaxStyle.fromTheme([
   { scope: ["markup.italic"], style: { italic: true } },
   { scope: ["markup.list"], style: { foreground: color.muted } },
   { scope: ["markup.quote"], style: { foreground: color.textDim, italic: true } },
-  // Inline code: the text colour on a panel background, like a code chip.
-  { scope: ["markup.raw", "markup.raw.inline"], style: { foreground: color.text, background: color.promptBg } },
+  { scope: ["markup.raw", "markup.raw.inline"], style: { foreground: color.code } },
   // Fenced code reads as a block: its own background, like the other CLIs.
   { scope: ["markup.raw.block"], style: { foreground: color.text, background: color.panel } },
   { scope: ["markup.link", "markup.link.label"], style: { foreground: color.accent, underline: true } },
   { scope: ["markup.link.url"], style: { foreground: color.muted } },
-  { scope: ["comment"], style: { foreground: color.muted, italic: true } },
-  { scope: ["string"], style: { foreground: color.accentSoft } },
-  { scope: ["keyword"], style: { foreground: color.warn } },
-  { scope: ["number", "boolean"], style: { foreground: color.warn } },
+  ...codeRules,
 ]);
 
 

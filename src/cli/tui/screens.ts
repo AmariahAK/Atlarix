@@ -11,6 +11,7 @@ import path from "node:path";
 import type { AgentSession, PendingQuestion } from "../agent/session";
 import type { AutomationDraft, AutomationSummary, CliServices, SavedPermission } from "../agent/services";
 import { clockFromCron, formatClock } from "@/lib/automations/cron-time";
+import { formatTokens } from "./format";
 import { glyph } from "./glyphs";
 import { InputDialog, ListDialog, TextDialog, type Dialog, type DialogHost, type Line, type ListItem, type Tone } from "./dialogs";
 import {
@@ -219,12 +220,17 @@ function planLines(content: string): Line[] {
   });
 }
 
-/** Share a plan as a relic (hosted on paid Core, a local page otherwise); returns the notice. */
+/**
+ * Save a plan as a page (a relic): a link on paid Core, a local file otherwise.
+ * It said "share" and showed nothing while it worked, so it read as doing
+ * nothing (owner, 2026-10-05); it now says what it made and where.
+ */
 async function sharePlan(ctx: ScreenContext, planId: string): Promise<string> {
   const res = await ctx.session.sharePlan(planId);
-  const target = res.url ?? res.path ?? "";
-  if (target && (await ctx.copy?.(target))) return `Shared: ${target} (copied)`;
-  return `Shared: ${target}`;
+  const copied = async (t: string) => ((await ctx.copy?.(t)) ? " (copied)" : "");
+  if (res.url) return `Published: ${res.url}${await copied(res.url)}`;
+  if (res.path) return `Saved as a page: ${res.path}${await copied(res.path)}`;
+  return res.note ?? "Couldn't save the plan as a page.";
 }
 
 function showPlan(ctx: ScreenContext, plan: { id: string; title: string; status: string; content: string }): void {
@@ -235,7 +241,7 @@ function showPlan(ctx: ScreenContext, plan: { id: string; title: string; status:
       markdown: plan.content,
       hints: [
         ...(plan.status === "plan" ? [{ title: "build it", key: "b" }] : []),
-        { title: "share", key: "s" },
+        { title: "save as page", key: "s" },
         { title: "scroll", key: "↑↓" },
       ],
       actions: {
@@ -257,7 +263,7 @@ export async function openPlan(ctx: ScreenContext, rest = ""): Promise<void> {
   if (rest.trim() === "share") {
     const [latest] = await ctx.session.plans();
     if (!latest) return ctx.flash("No plan in this session to share.");
-    ctx.flash("Sharing the plan…");
+    ctx.flash("Saving the plan as a page…");
     return ctx.flash(await sharePlan(ctx, latest.id).catch((e) => (e instanceof Error ? e.message : String(e))));
   }
   const [plans, earlier] = await Promise.all([ctx.session.plans(), ctx.session.earlierPlans().catch(() => [])]);
@@ -316,36 +322,6 @@ export async function openPlan(ctx: ScreenContext, rest = ""): Promise<void> {
   );
 }
 
-/** The prompt when a Plan-mode turn ends with a plan: Plan mode's way out. */
-export function openPlanReady(ctx: ScreenContext): void {
-  const ready = ctx.session.state.planReady;
-  if (!ready) return;
-  ctx.host.push(
-    new ListDialog({
-      title: "Plan ready",
-      intro: [{ text: ready.title, tone: "accent", bold: true }, { text: "Build it now, or keep shaping it." , tone: "muted" }],
-      footer: "↑↓ move · enter choose · esc later (/plan shows it)",
-      items: [
-        { id: "build", label: "Build it", detail: "switch to Build and implement the plan" },
-        { id: "keep", label: "Keep planning", detail: "tell Atlarix what to change" },
-        { id: "view", label: "View the plan" },
-      ],
-      onChoose: async (item) => {
-        if (item.id === "build") {
-          ctx.host.closeAll();
-          await ctx.session.buildPlan(ready.planId);
-        } else if (item.id === "keep") {
-          ctx.host.closeAll();
-          ctx.session.dismissPlanReady();
-          ctx.focusComposer();
-        } else {
-          const plan = (await ctx.session.plans()).find((p) => p.id === ready.planId);
-          if (plan) showPlan(ctx, plan);
-        }
-      },
-    }),
-  );
-}
 
 // ─── ask_user ────────────────────────────────────────────────────────────────
 
@@ -848,10 +824,65 @@ async function stopTaskById(ctx: ScreenContext, id: string): Promise<string> {
   return t ? ctx.session.stopTask(t) : "It already finished.";
 }
 
+/**
+ * One sub-agent's own transcript, live: what it was asked, each tool call and
+ * what came back, then what it has written so far. ← → step to the other
+ * sub-agents, esc backs out to the prompt box (Claude Code's agent view).
+ */
+export function openAgentView(ctx: ScreenContext, id: string): void {
+  let current = id;
+  const draw = async (top = false) => {
+    const agents = (await ctx.session.liveTasks()).filter((t) => t.kind === "agent");
+    const at = agents.findIndex((t) => t.id === current);
+    const t = agents[at];
+    if (!t) return view.setMarkdown("_Finished — its result is in the conversation._", "Sub-agent · finished", top);
+    const head = [
+      `Sub-agent ${at + 1}/${agents.length}`,
+      t.label.split("\n")[0],
+      `${t.stalled ? "quiet " : ""}${age(t.elapsedMs)}`,
+      t.tokens ? `↓ ${formatTokens(t.tokens)} tokens` : null,
+    ].filter(Boolean).join(" · ");
+    const calls = t.tools.map((c) => {
+      const icon = glyph.tool[c.status as keyof typeof glyph.tool] ?? glyph.tool.running;
+      const target = c.target.split("\n")[0];
+      return `- ${icon} **${c.verb}** ${target ? `\`${target.replace(/`/g, "'")}\`` : ""}${c.summary ? ` — ${c.summary.split("\n")[0]}` : ""}`;
+    });
+    const md = [
+      calls.length ? calls.join("\n") : "_No tool calls yet._",
+      t.text ? `---\n\n${t.text}` : t.progress ? `---\n\n_${t.progress}_` : "",
+    ].filter(Boolean).join("\n\n");
+    view.setMarkdown(md, head, top);
+  };
+  const view: TextDialog = new TextDialog({
+    title: "Sub-agent",
+    lines: [],
+    markdown: "_Loading…_",
+    hints: [
+      { title: "agents", key: "←→" },
+      { title: "stop", key: "x" },
+      { title: "scroll", key: "↑↓" },
+    ],
+    actions: { x: () => stopTaskById(ctx, current) },
+    step: (dir) => {
+      void ctx.session.liveTasks().then((tasks) => {
+        const agents = tasks.filter((t) => t.kind === "agent");
+        const at = agents.findIndex((t) => t.id === current);
+        if (agents.length < 2 || at < 0) return;
+        current = agents[(at + dir + agents.length) % agents.length]!.id;
+        void draw(true);
+      });
+    },
+  });
+  ctx.host.push(view);
+  void draw(true);
+  whileOpen(ctx, view, () => draw());
+}
+
 /** A background command's or sub-agent's details, live while open; x stops it. */
 export function openTaskDetails(ctx: ScreenContext, id: string): void {
+  if (id.startsWith("agent:") || id.startsWith("job:")) return openAgentView(ctx, id);
   const view: TextDialog = new TextDialog({
-    title: id.startsWith("agent:") ? "Sub-agent details" : "Command details",
+    title: "Command details",
     lines: () => taskLines(ctx, id),
     hints: [
       { title: "stop", key: "x" },

@@ -114,6 +114,9 @@ vi.mock("electron", () => {
       // Null is the honest answer with no windows open; the caller null-checks
       // and falls back to getAllWindows().
       getFocusedWindow: vi.fn(() => null),
+      // Same class: the sub-agent `task` tool asks which window spawned it.
+      fromWebContents: vi.fn(() => null),
+      fromId: vi.fn(() => null),
     },
     ipcMain,
     safeStorage: {

@@ -61,6 +61,9 @@ export interface SessionState {
   tokensThisTurn: number | null;
   /** How full the model's context is, from the provider's own count of the last step. */
   contextPercent: number | null;
+  /** The same as tokens: what the last step sent, of how many the model holds. */
+  contextUsed: number | null;
+  contextLimit: number | null;
   /** Tokens used this session, summed per finished turn (only ever goes up). */
   sessionTokens: number;
   /** Of those, read from the provider's prompt cache. */
@@ -72,6 +75,8 @@ export interface SessionState {
   question: PendingQuestion | null;
   /** A Plan-mode turn ended with a plan ready to build. */
   planReady: { planId: string; title: string } | null;
+  /** Bumped each time this session's plan is written or changed: the pinned plan redraws live. */
+  planRevision: number;
   /** The session's title, once it has one (the first message names it). */
   title: string | null;
   /** Automation runs that finished while you were here and that you have not opened. */
@@ -120,6 +125,10 @@ export interface LiveTask {
   /** A sub-agent's tool calls so far. */
   tools: ToolLine[];
   progress?: string;
+  /** A sub-agent's tokens so far. */
+  tokens?: number;
+  /** What a sub-agent has written so far. */
+  text?: string;
 }
 
 export interface BackgroundCommand {
@@ -230,12 +239,15 @@ export class AgentSession extends EventEmitter {
       mode: opts.mode ?? "build",
       tokensThisTurn: null,
       contextPercent: null,
+      contextUsed: null,
+      contextLimit: null,
       sessionTokens: 0,
       cachedTokens: 0,
       costUsd: 0,
       lastError: null,
       question: null,
       planReady: null,
+      planRevision: 0,
       title: null,
       automationUnread: 0,
       mcpConsent: null,
@@ -284,11 +296,14 @@ export class AgentSession extends EventEmitter {
       busy: false,
       phase: null,
       contextPercent: null,
+      contextUsed: null,
+      contextLimit: null,
       sessionTokens: 0,
       cachedTokens: 0,
       costUsd: 0,
       question: null,
       planReady: null,
+      planRevision: 0,
       title: null,
     });
   }
@@ -442,7 +457,7 @@ export class AgentSession extends EventEmitter {
         message: `Compacted · ~${tokens(before)} → ~${tokens(after)} tokens. Earlier messages stay on screen; Atlarix now works from the summary.`,
       };
     } finally {
-      this.update({ busy: false, phase: null, turnStartedAt: null, contextPercent: null });
+      this.update({ busy: false, phase: null, turnStartedAt: null, contextPercent: null, contextUsed: null, contextLimit: null });
     }
   }
 
@@ -620,6 +635,8 @@ export class AgentSession extends EventEmitter {
         jobId: job?.taskId,
         tools: d.children,
         progress: d.progress,
+        tokens: d.tokens,
+        text: d.text ? [...d.text.values()].join("\n\n") : undefined,
       });
     }
     // Background sub-agents this session didn't see start (a resumed session).
@@ -928,7 +945,10 @@ export class AgentSession extends EventEmitter {
     }
     if (!d) return false;
     if (p.type === "subagent_progress" && typeof p.preview === "string") d.progress = p.preview.split("\n")[0]!.slice(0, 120);
-    else if (p.type === "tool_use") {
+    else if (p.type === "subagent_tokens" && typeof p.tokens === "number") d.tokens = p.tokens;
+    else if (p.type === "subagent_thought" && p.channel === "text" && typeof p.id === "string" && typeof p.preview === "string") {
+      (d.text ??= new Map()).set(p.id, p.preview);
+    } else if (p.type === "tool_use") {
       const line = activityToolLine(p);
       const at = d.children.findIndex((c) => c.id === line.id);
       if (at >= 0) d.children[at] = line;
@@ -1080,6 +1100,8 @@ export class AgentSession extends EventEmitter {
         if (input != null) this.lastStepTokens = input + output;
         if (input != null && this.contextWindow) {
           patch.contextPercent = Math.min(100, Math.round(((input + output) / this.contextWindow) * 100));
+          patch.contextUsed = input + output;
+          patch.contextLimit = this.contextWindow;
         }
         this.update(patch);
         return;
@@ -1108,6 +1130,7 @@ export class AgentSession extends EventEmitter {
       case "plan:artifact-updated":
         if (typeof p.planId === "string" && (!p.sessionId || p.sessionId === this.sessionId)) {
           this.planTouched = { planId: p.planId, title: typeof p.title === "string" && p.title ? p.title : "Plan" };
+          this.update({ planRevision: this.state.planRevision + 1 });
         }
         return;
       case "automation:run-update":

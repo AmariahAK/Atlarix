@@ -74,6 +74,10 @@ export interface Delegation {
   label?: string;
   task?: string;
   startedAt?: number;
+  /** Tokens it has used so far (its `subagent_tokens` events). */
+  tokens?: number;
+  /** What it has written so far, by segment: its own transcript, for the agent view. */
+  text?: Map<string, string>;
 }
 
 /** A sub-agent's tool call, from its `tool_use` activity event. */
@@ -194,6 +198,20 @@ export function toolTarget(toolName: string, args: unknown): string {
       return [str(a.action), str(a.url)].filter(Boolean).join(" ");
     case "mcp_call":
       return [str(a.server), str(a.tool)].filter(Boolean).join(" · ");
+    case "plan": {
+      // "◇ Plan  step 3 done", not a bare "◇ Plan" (owner, 2026-10-05).
+      const op = str(a.operation);
+      if (op === "write") return ["write", str(a.title)].filter(Boolean).join(" · ");
+      if (op === "set_status") return `status → ${str(a.plan_status) || str(a.status)}`;
+      if (op === "update_step") {
+        const which = a.step_index != null ? `step ${String(a.step_index)}` : a.step_text ? `"${str(a.step_text)}"` : "step";
+        return [which, str(a.state) || str(a.status)].filter(Boolean).join(" → ");
+      }
+      if (op === "append_step") return ["add step", str(a.step_text)].filter(Boolean).join(" · ");
+      return op;
+    }
+    case "background_jobs":
+      return [str(a.operation), str(a.job_id) || str(a.command)].filter(Boolean).join(" ");
     default:
       return "";
   }
@@ -216,6 +234,13 @@ export function toolResultText(toolName: string, raw: string | undefined): { tex
   try {
     v = JSON.parse(raw);
   } catch {
+    // A stored result can be cut short, which breaks its JSON. Never show that
+    // envelope (`{"success":true,"result":{…`) as the result line: take its
+    // message if one survived, else nothing.
+    if (/^\s*[{[]/.test(raw)) {
+      const m = raw.match(/"(?:message|progress|note|error|result)"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+      return { text: m ? unfence(m[1]!.replace(/\\n/g, "\n").replace(/\\"/g, '"')).trim() : "" };
+    }
     return { text: unfence(raw).trim() };
   }
   const o = (v && typeof v === "object" ? v : {}) as Record<string, unknown>;
@@ -228,9 +253,17 @@ export function toolResultText(toolName: string, raw: string | undefined): { tex
     if (typeof r.url === "string") return { text: `Published ${r.url}`, failed };
     if (typeof r.path === "string") return { text: `Saved ${r.path}`, failed };
   }
+  if (toolName === "background_jobs" && typeof inner.count === "number") {
+    return { text: inner.count ? `${inner.count} running` : "none running", failed };
+  }
   const pick = [
     toolName === "run_command" ? o.output : undefined,
     inner.result,
+    inner.message,
+    inner.progress,
+    inner.note,
+    typeof inner.output === "string" ? inner.output : undefined,
+    inner.error,
     typeof o.result === "string" ? o.result : undefined,
     o.output,
     o.content,

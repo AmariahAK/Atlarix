@@ -30,6 +30,8 @@ class FakeSession extends EventEmitter {
     mode: "build",
     tokensThisTurn: null,
     contextPercent: null,
+    contextUsed: null,
+    contextLimit: null,
     sessionTokens: 0,
     lastError: null,
   };
@@ -154,6 +156,23 @@ describe("the prompt box", () => {
     await settle(setup);
     const opts = session.calls[0]![2] as { images: Array<{ path: string }> };
     expect(opts.images.map((i) => i.path)).toEqual([img]);
+  });
+
+  it("pasting the same text again opens the chip into the full text, to edit", async () => {
+    const { setup, session } = await mount();
+    await setup.mockInput.typeText("see ");
+    await setup.mockInput.pasteBracketedText("line one\nline two\nline three");
+    await settle(setup);
+    expect(setup.captureCharFrame()).toContain("[Pasted text #1");
+    await setup.mockInput.pasteBracketedText("line one\nline two\nline three");
+    await settle(setup);
+    const f = setup.captureCharFrame();
+    expect(f).not.toContain("[Pasted text");
+    expect(f).toContain("line two");
+    setup.mockInput.pressEnter();
+    await settle(setup);
+    const [, prompt] = session.calls[0]!;
+    expect(prompt).toBe("see line one\nline two\nline three");
   });
 
   it("backspace removes a placeholder whole", async () => {
@@ -545,20 +564,22 @@ describe("parity details", () => {
     expect(frame).toContain("╰ nothing to commit");
   });
 
-  it("the working line names the activity and shows context and session tokens", async () => {
+  it("the working line names the activity; the border shows how full the context is, not the session total", async () => {
     const { setup, session } = await mount();
     session.set({
       busy: true,
       turnStartedAt: Date.now(),
       contextPercent: 23,
-      sessionTokens: 12_400,
+      contextUsed: 47_000,
+      contextLimit: 205_000,
+      sessionTokens: 4_747_000,
       cells: [{ kind: "tool", id: "1", tool: { id: "t", verb: "Run", target: "npm test", status: "running" } }],
     });
     await settle(setup);
     const frame = setup.captureCharFrame();
     expect(frame).toContain("Running npm test…");
-    expect(frame).toContain("context 23%");
-    expect(frame).toContain("12k tokens");
+    expect(frame).toContain("context 23% · 47k/205k");
+    expect(frame).not.toContain("4.7M");
   });
 });
 

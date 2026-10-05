@@ -80,8 +80,11 @@ export function Composer({
   const placeholders = useRef<Placeholder[]>([]);
   const counters = useRef(freshCounters());
   const typeId = useRef(0);
+  /** Each placeholder's extmark, by label: re-pasting the same text expands it. */
+  const marks = useRef(new Map<string, number>());
 
   const reset = () => {
+    marks.current.clear();
     ta.current?.extmarks.clear();
     ta.current?.setText("");
     placeholders.current = [];
@@ -118,6 +121,22 @@ export function Composer({
     const input = ta.current;
     if (!input) return;
     const text = decodePasteBytes(event.bytes).replace(/\r\n?/g, "\n");
+    // Pasting the same text again opens its "[Pasted text #N]" chip into the
+    // full text, to edit in place (as Claude Code does; owner, 2026-10-05).
+    const same = placeholders.current.find((p) => p.attachment.kind === "paste" && p.attachment.text === text);
+    const markId = same ? marks.current.get(same.label) : undefined;
+    const mark = markId != null ? input.extmarks.get(markId) : null;
+    if (same && mark) {
+      event.preventDefault();
+      input.extmarks.delete(mark.id);
+      marks.current.delete(same.label);
+      placeholders.current = placeholders.current.filter((p) => p !== same);
+      input.cursorOffset = mark.end;
+      for (let i = mark.start; i < mark.end; i++) input.deleteCharBackward();
+      input.insertText(text);
+      onChange?.(input.plainText);
+      return;
+    }
     const attachment = classifyPaste(text, counters.current);
     if (!attachment) return; // plain text: the textarea inserts it itself
     event.preventDefault();
@@ -130,13 +149,14 @@ export function Composer({
       syntax.getStyleId(
         attachment.kind === "paste" ? "extmark.paste" : attachment.kind === "image" ? "extmark.image" : "extmark.file",
       ) ?? undefined;
-    input.extmarks.create({
+    const id = input.extmarks.create({
       start,
       end: start + label.length,
       virtual: true,
       styleId: style,
       typeId: typeId.current,
     });
+    marks.current.set(label, id);
     onChange?.(input.plainText);
   };
 
@@ -154,6 +174,9 @@ export function Composer({
       paddingRight={1}
       flexDirection="row"
       flexShrink={0}
+      // One step up from the page: the box reads as where you type, not as
+      // another line of output (owner, 2026-10-05: "a small elevation").
+      backgroundColor={color.raised}
     >
       <text fg={shell ? color.warn : color.accent}>› </text>
       <textarea
@@ -166,8 +189,8 @@ export function Composer({
         placeholderColor={color.faint}
         textColor={color.text}
         focusedTextColor={color.text}
-        backgroundColor={color.bg}
-        focusedBackgroundColor={color.bg}
+        backgroundColor={color.raised}
+        focusedBackgroundColor={color.raised}
         cursorColor={color.text}
         syntaxStyle={syntax}
         wrapMode="word"

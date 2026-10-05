@@ -26,6 +26,7 @@ import {
   type ToolLine,
 } from "../agent/transcript";
 import { COMMANDS } from "./commands";
+import { useDiffSegments } from "./diff-highlight";
 import { oneLine } from "./format";
 import { Prose } from "./Prose";
 import { color, glyph } from "./theme";
@@ -83,16 +84,21 @@ function DiffView({
   diff,
   expanded,
   width,
+  path,
 }: {
   diff: EditDiff;
   expanded: boolean;
   width: number;
+  /** The edited file: its language colours the lines (grammars.ts). */
+  path?: string;
 }) {
   const lines = expanded
     ? diff.lines.slice(0, 160)
     : diff.lines.slice(0, DIFF_LINES);
   const more = diff.lines.length - lines.length;
   const numWidth = Math.max(3, ...lines.map((l) => lineNo(diff, l).length));
+  const shown = lines.map((l) => (l.kind === "gap" ? "" : oneLine(l.text.replace(/\t/g, "    "), width - numWidth - 8)));
+  const segs = useDiffSegments(path, shown);
   return (
     <box flexDirection="column" paddingLeft={2}>
       {lines.map((l, i) =>
@@ -123,9 +129,16 @@ function DiffView({
             >
               {l.kind === "add" ? "+" : l.kind === "remove" ? "−" : " "}
             </span>
-            <span
-              fg={l.kind === "context" ? color.muted : color.text}
-            >{` ${oneLine(l.text.replace(/\t/g, "    "), width - numWidth - 8) || " "}`}</span>
+            <span fg={l.kind === "context" ? color.muted : color.text}>{" "}</span>
+            {segs?.[i]?.length ? (
+              segs[i]!.map((g, k) => (
+                <span key={k} fg={g.fg ?? (l.kind === "context" ? color.muted : color.text)}>
+                  {g.italic ? <i>{g.text}</i> : g.text}
+                </span>
+              ))
+            ) : (
+              <span fg={l.kind === "context" ? color.muted : color.text}>{shown[i] || " "}</span>
+            )}
           </text>
         ),
       )}
@@ -230,7 +243,7 @@ function ToolCell({
         </text>
       ) : null}
       {tool.diff ? (
-        <DiffView diff={tool.diff} expanded={expanded} width={width} />
+        <DiffView diff={tool.diff} expanded={expanded} width={width} path={tool.target} />
       ) : null}
       {/* A command shows the start of its output, not just its first line. */}
       {showRun ? (

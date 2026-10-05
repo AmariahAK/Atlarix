@@ -48,6 +48,7 @@ export function activityLabel(state: Pick<SessionState, "cells" | "approvals" | 
 }
 
 export function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 ? 1 : 0)}M`;
   return n >= 1000 ? `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k` : String(n);
 }
 

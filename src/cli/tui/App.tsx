@@ -50,7 +50,6 @@ import {
   openMcpConsent,
   openPermissions,
   openPlan,
-  openPlanReady,
   openRelics,
   openQuestions,
   openResume,
@@ -78,6 +77,8 @@ import { copyText } from "./clipboard";
 import { color, glyph } from "./theme";
 import { errorNotice, type ErrorNotice } from "./limits";
 import { Logo } from "./Logo";
+import { RATING_CHANCE, RATINGS, shouldAskRating } from "./session-rating";
+import { PlanPanel, type PinnedPlan, type PlanScroll } from "./PlanPanel";
 import { Transcript } from "./Transcript";
 
 /** shift+tab order. The same five modes as the app, named the way the app names them. */
@@ -120,6 +121,8 @@ export interface AppProps {
   autoUpdate?: (notify: (e: UpdateEvent) => void) => void;
   /** Opens a link in the browser. Tests pass a recorder: a test must never open the user's browser. */
   openUrl?: (url: string) => void;
+  /** How likely this session is to ask for a rating (session-rating.ts); tests pass 1. */
+  ratingChance?: number;
 }
 
 export interface ModelSource {
@@ -204,36 +207,68 @@ function age(ms: number): string {
   return sec >= 60 ? `${Math.floor(sec / 60)}m ${String(sec % 60).padStart(2, "0")}s` : `${sec}s`;
 }
 
+/** A row under the prompt box: one per sub-agent; every background command shares one. */
+export type StripRow = { kind: "agent"; task: LiveTask } | { kind: "commands"; tasks: LiveTask[] };
+
+export function stripRows(tasks: LiveTask[]): StripRow[] {
+  const rows: StripRow[] = tasks.filter((t) => t.kind === "agent").map((task) => ({ kind: "agent", task }));
+  const commands = tasks.filter((t) => t.kind === "command");
+  if (commands.length) rows.push({ kind: "commands", tasks: commands });
+  return rows;
+}
+
+/** Agent rows shown before the rest fold into "… N more". */
+const AGENT_ROWS = 6;
+
 /**
- * What is running in the background, in plain sight above the prompt box
- * (Codex's "1 background terminal running · /ps to view", Claude Code's task
- * line): each command and sub-agent, how long it has run, and for a sub-agent
- * what it is doing now. It stays after the turn ends, as the work does.
+ * What is running, UNDER the prompt box (Claude Code's agent list; owner,
+ * 2026-10-05: "raise the text box above the ground"): "main" and what it is
+ * doing, then each sub-agent on its own row with what it is doing now, how
+ * long it has run and its tokens; finished ones drop off. Background commands
+ * share one row. ↓ from the box picks a row, enter opens it.
  */
-function BackgroundStrip({ tasks, width, selected }: { tasks: LiveTask[]; width: number; selected: number | null }) {
-  // Keep the picked row in view when more run than fit.
-  const start = selected != null && selected >= 3 ? selected - 2 : 0;
-  const shown = tasks.slice(start, start + 3);
+function AgentRows({ rows, width, selected, main }: { rows: StripRow[]; width: number; selected: number | null; main: string | null }) {
+  const start = selected != null && selected >= AGENT_ROWS ? selected - AGENT_ROWS + 1 : 0;
+  const shown = rows.slice(start, start + AGENT_ROWS);
+  const hidden = rows.length - shown.length;
+  const line = (key: string, picked: boolean, mark: string, markColor: string, name: string, doing: string, right: string) => (
+    <box key={key} flexDirection="row" backgroundColor={picked ? color.promptBg : undefined}>
+      <text flexShrink={1}>
+        <span fg={markColor}>{`${mark} `}</span>
+        <span fg={picked ? color.white : color.text}>{name}</span>
+        {doing ? <span fg={color.muted}>{`  ${oneLine(doing, Math.max(16, width - name.length - right.length - 10))}`}</span> : null}
+      </text>
+      <box flexGrow={1} />
+      <text fg={color.faint} flexShrink={0}>{right}</text>
+    </box>
+  );
   return (
-    <box flexDirection="column" flexShrink={0} marginTop={1}>
-      {shown.map((t, i) => {
+    <box flexDirection="column" flexShrink={0} paddingLeft={1} paddingRight={1}>
+      {line("main", false, "●", color.accent, "main", main ?? "idle", "")}
+      {shown.map((r, i) => {
         const picked = selected === start + i;
+        if (r.kind === "commands") {
+          const n = r.tasks.length;
+          const longest = Math.max(...r.tasks.map((t) => t.elapsedMs));
+          return line(
+            "commands",
+            picked,
+            glyph.tool.running,
+            color.warn,
+            `${n} command${n === 1 ? "" : "s"}`,
+            r.tasks.map((t) => t.label.split("\n")[0]).join(", "),
+            age(longest),
+          );
+        }
+        const t = r.task;
         const last = t.tools.at(-1);
-        const doing = t.kind === "agent" ? (last ? `${last.verb} ${last.target.split("\n")[0]}` : t.progress) : undefined;
-        return (
-          <text key={t.id} bg={picked ? color.promptBg : undefined}>
-            <span fg={picked ? color.accent : color.faint}>{picked ? "› " : "  "}</span>
-            <span fg={color.warn}>{`${glyph.tool.running} `}</span>
-            <span fg={color.textDim}>{t.kind === "agent" ? "Agent " : "Running "}</span>
-            <span fg={color.text}>{oneLine(t.label.split("\n")[0] ?? "", Math.max(20, Math.floor(width / 2)))}</span>
-            <span fg={color.faint}>{` · ${t.stalled ? "quiet " : ""}${age(t.elapsedMs)}`}</span>
-            {doing ? <span fg={color.muted}>{` · ${oneLine(doing, Math.max(16, Math.floor(width / 3)))}`}</span> : null}
-          </text>
-        );
+        const doing = last ? `${last.verb} ${last.target.split("\n")[0]}` : (t.progress ?? "starting");
+        const right = [`${t.stalled ? "quiet " : ""}${age(t.elapsedMs)}`, t.tokens ? `↓ ${formatTokens(t.tokens)} tokens` : null].filter(Boolean).join(" · ");
+        return line(t.id, picked, "○", picked ? color.accent : color.textDim, oneLine(t.label.split("\n")[0] ?? "Sub-agent", 28), doing, right);
       })}
       <text fg={color.faint}>
-        {tasks.length > 3 ? `  … ${tasks.length - 3} more · ` : "  "}
-        {selected != null ? "enter details · x stop · esc back" : "↓ to select"}
+        {hidden > 0 ? `  … ${hidden} more · ` : "  "}
+        {selected != null ? "enter open · x stop · esc back" : "↓ to select"}
       </text>
     </box>
   );
@@ -248,6 +283,16 @@ function TipLine({ tip }: { tip: Tip }) {
       <span fg={color.muted}>{tip.text}</span>
     </text>
   );
+}
+
+/** Commands that change the conversation: typed mid-turn, they wait for it to end. */
+const AFTER_TURN = new Set(["/compact", "/new", "/resume", "/undo", "/import"]);
+
+/** "context 23% · 47k/205k", or null before the first step reports. */
+export function contextLabel(s: Pick<SessionState, "contextPercent" | "contextUsed" | "contextLimit">): string | null {
+  if (s.contextPercent == null) return null;
+  const of = s.contextUsed != null && s.contextLimit ? ` · ${formatTokens(s.contextUsed)}/${formatTokens(s.contextLimit)}` : "";
+  return `context ${s.contextPercent}%${of}`;
 }
 
 /** "2 agents · 1 command" running in the background, or null. */
@@ -274,17 +319,28 @@ export function borderHints(o: {
   mcp?: number;
   /** The session's name, once it has one. */
   title?: string | null;
+  /** Columns the border has for it: the least useful hints go first, a long name ends in "…". */
+  max?: number;
 }): string {
   const tasks = o.running ? "↓ tasks" : null;
+  const fit = (parts: Array<string | null>, dropOrder: string[]) => {
+    let kept = parts.filter((p): p is string => !!p);
+    const len = () => kept.join(" · ").length;
+    for (const d of dropOrder) {
+      if (o.max == null || len() <= o.max) break;
+      kept = kept.filter((p) => p !== d);
+    }
+    return kept.join(" · ");
+  };
   if (o.busy) {
-    const keys = ["esc stop", "enter steer", "tab queue", o.queued ? "alt+↑ edit queued" : null, tasks];
-    return keys.filter(Boolean).join(" · ");
+    const queued = o.queued ? "alt+↑ edit queued" : null;
+    return fit(["esc stop", "enter steer", "tab queue", queued, tasks], ["tab queue", "enter steer"]);
   }
-  const title = o.title ? oneLine(o.title, 32) : null;
+  const title = o.title ? oneLine(o.title, o.max != null && o.max < 90 ? 20 : 32) : null;
   if (o.narrow) return [title ?? o.place, tasks].filter(Boolean).join(" · ");
   const mcp = o.mcp ? `⊙ ${o.mcp} MCP` : null;
   // ctrl+o isn't here: each collapsed item says "(ctrl+o)" where it has more.
-  return [title, o.place, mcp, "/commands", "shift+tab mode", tasks].filter(Boolean).join(" · ");
+  return fit([title, o.place, mcp, "/commands", "shift+tab mode", tasks], [mcp ?? "", "shift+tab mode", "/commands", o.place]);
 }
 
 /** The palette's visible rows: at most 8, kept around the highlighted one. */
@@ -329,6 +385,7 @@ export function App({
   startWith,
   autoUpdate,
   openUrl,
+  ratingChance = RATING_CHANCE,
 }: AppProps) {
   const [state, setState] = useState<SessionState>(session.state);
   const [expanded, setExpanded] = useState(false);
@@ -384,7 +441,7 @@ export function App({
   const [, setDialogVersion] = useState(0);
   // Which prompt the session raised by itself is on the stack, so closing it
   // with esc can tell the session (a question left unanswered, a plan for later).
-  const autoPrompt = useRef<null | "question" | "plan" | "consent" | "mcp">(null);
+  const autoPrompt = useRef<null | "question" | "consent" | "mcp">(null);
   useEffect(() => {
     const on = () => {
       setDialogVersion((n) => n + 1);
@@ -392,7 +449,6 @@ export function App({
         const which = autoPrompt.current;
         autoPrompt.current = null;
         if (which === "question" && session.state.question) session.dismissQuestion();
-        if (which === "plan" && session.state.planReady) session.dismissPlanReady();
         // Closed without choosing: the tool call is refused, as the app's toast does on dismiss.
         if (which === "mcp" && session.state.mcpConsent) void session.answerMcpConsent("decline");
       }
@@ -472,16 +528,17 @@ export function App({
   const [liveTasks, setLiveTasks] = useState<LiveTask[]>([]);
   // The strip row picked with ↓ (null: the prompt box has the keys).
   const [stripSel, setStripSel] = useState<number | null>(null);
-  const stripRef = useRef<{ sel: number | null; tasks: LiveTask[] }>({ sel: null, tasks: [] });
-  stripRef.current.tasks = liveTasks;
+  const rows = useMemo(() => stripRows(liveTasks), [liveTasks]);
+  const stripRef = useRef<{ sel: number | null; rows: StripRow[] }>({ sel: null, rows: [] });
+  stripRef.current.rows = rows;
   // Set at once, not on the next render: two quick ↓ must move two rows.
   const pickStrip = (n: number | null) => {
     stripRef.current.sel = n;
     setStripSel(n);
   };
   useEffect(() => {
-    if (stripSel != null && stripSel >= liveTasks.length) pickStrip(liveTasks.length ? liveTasks.length - 1 : null);
-  }, [liveTasks.length, stripSel]);
+    if (stripSel != null && stripSel >= rows.length) pickStrip(rows.length ? rows.length - 1 : null);
+  }, [rows.length, stripSel]);
   useEffect(() => {
     let stopped = false;
     const poll = async () => {
@@ -563,8 +620,53 @@ export function App({
       /* a notification is never worth an error */
     }
   };
+  // Commands typed while a turn runs that change the conversation itself wait
+  // for the turn to end; messages typed after them still go in first
+  // (Claude Code's queue; owner, 2026-10-05). ctrl+s stops the turn to run them now.
+  const runCommandRef = useRef<((name: string, rest: string) => void) | null>(null);
+  const [deferred, setDeferred] = useState<Array<{ id: number; name: string; rest: string }>>([]);
+  const deferredRef = useRef(deferred);
+  deferredRef.current = deferred;
+  useEffect(() => {
+    if (state.busy || !deferred.length) return;
+    const [next, ...rest] = deferred;
+    setDeferred(rest);
+    runCommandRef.current?.(next!.name, next!.rest);
+  }, [state.busy, deferred]);
+  // The optional session rating (session-rating.ts): asked once, rarely.
+  const [turnsDone, setTurnsDone] = useState(0);
+  const [consent, setConsent] = useState<"opted_in" | "opted_out" | "unset" | null>(null);
+  const ratingSampled = useRef(Math.random() < ratingChance);
+  const [ratingDone, setRatingDone] = useState(false);
+  useEffect(() => {
+    if (!services) return; // the real settings load lazily; a fake decides in tests
+    void services.analytics.consent().then(setConsent, () => {});
+  }, [services]);
+  const askRating =
+    !ratingDone &&
+    !state.busy &&
+    !host.open &&
+    !draft &&
+    shouldAskRating({ consent, turns: turnsDone, ratedAt: cliState.ratedAt, now: Date.now(), sampled: ratingSampled.current });
+  const answerRating = (key: "0" | "1" | "2" | "3") => {
+    setRatingDone(true);
+    const next = { ...live.current.cliState, ratedAt: Date.now() };
+    live.current.cliState = next;
+    setCliState(next);
+    models?.save({ ...next, deepThinking: live.current.deep });
+    if (key === "0") return;
+    svc().analytics.track("cli_session_rating", {
+      rating: RATINGS[key],
+      mode: state.mode,
+      model: modelLabel,
+      turns: turnsDone,
+      version,
+    });
+    flash("Thanks. That helps us make Atlarix better.");
+  };
   const wasBusy = useRef(false);
   useEffect(() => {
+    if (wasBusy.current && !state.busy && !state.lastError) setTurnsDone((n) => n + 1);
     if (wasBusy.current && !state.busy) {
       notify(state.lastError ? "Atlarix stopped: something went wrong" : `Atlarix finished${state.title ? `: ${state.title}` : ""}`);
     }
@@ -772,11 +874,33 @@ export function App({
     autoPrompt.current = "question";
     openQuestions(screen(), state.question);
   }, [state.question?.questionId]);
+  // A plan waiting to be built is pinned above the box (PlanPanel), redrawn
+  // whenever Atlarix writes to it; esc hides it until it changes or /plan.
+  const [pinnedPlan, setPinnedPlan] = useState<PinnedPlan | null>(null);
+  const [planHidden, setPlanHidden] = useState(false);
+  const planScroll = useRef<PlanScroll | null>(null);
   useEffect(() => {
-    if (!state.planReady || state.busy || host.open) return;
-    autoPrompt.current = "plan";
-    openPlanReady(screen());
-  }, [state.planReady?.planId, state.busy]);
+    const ready = state.planReady;
+    if (!ready) return setPinnedPlan(null);
+    let live = true;
+    setPlanHidden(false);
+    void session
+      .plans()
+      .then((plans) => {
+        const p = plans.find((x) => x.id === ready.planId);
+        if (live) setPinnedPlan(p && p.status === "plan" ? { id: p.id, title: p.title || ready.title, status: p.status, content: p.content } : null);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [state.planReady?.planId, state.planRevision]);
+  const planShown = pinnedPlan != null && !planHidden;
+  const buildPinned = () => {
+    if (!pinnedPlan) return;
+    setPinnedPlan(null);
+    void session.buildPlan(pinnedPlan.id);
+  };
   useEffect(() => {
     if (!state.mcpConsent) return;
     // The agent is blocked on it: it goes over any open screen.
@@ -793,7 +917,13 @@ export function App({
     if (startWith) runCommand(startWith);
   }, []);
 
-  const runCommand = (name: string, rest = "") => {
+  runCommandRef.current = (name, rest) => runCommand(name, rest, true);
+  const runCommand = (name: string, rest = "", afterTurn = false) => {
+    if (!afterTurn && state.busy && AFTER_TURN.has(name)) {
+      composer.current?.clear();
+      setDeferred((d) => [...d, { id: Date.now(), name, rest }]);
+      return;
+    }
     // The command's name only, never what followed it.
     svc().analytics.track("cli_command", { command: name });
     composer.current?.clear();
@@ -806,7 +936,12 @@ export function App({
       case "/undo":
         return openRewind(ctx);
       case "/plan":
+        if (!rest.trim() && pinnedPlan && planHidden) return setPlanHidden(false);
         return guard(openPlan(ctx, rest));
+      case "/build":
+        if (pinnedPlan) return buildPinned();
+        if (state.planReady) return void session.buildPlan(state.planReady.planId);
+        return flash("No plan is waiting to be built. /plan lists this session's plans.");
       case "/export":
         try {
           return flash(runExport(ctx, rest), 8000);
@@ -1015,16 +1150,22 @@ export function App({
     const strip = stripRef.current;
     if (strip.sel != null) {
       key.preventDefault();
-      const t = strip.tasks[strip.sel];
+      const r = strip.rows[strip.sel];
       if (key.name === "escape" || (key.name === "up" && strip.sel === 0)) return pickStrip(null);
       if (key.name === "up") return pickStrip(strip.sel - 1);
-      if (key.name === "down") return pickStrip(Math.min(strip.tasks.length - 1, strip.sel + 1));
-      if (key.name === "return" && t) {
+      if (key.name === "down") return pickStrip(Math.min(strip.rows.length - 1, strip.sel + 1));
+      if (key.name === "return" && r) {
         pickStrip(null);
-        return openTaskDetails(screen(), t.id);
+        if (r.kind === "agent") return openTaskDetails(screen(), r.task.id);
+        return r.tasks.length === 1 ? openTaskDetails(screen(), r.tasks[0]!.id) : openTasks(screen());
       }
-      if (key.name === "x" && t) {
-        void session.stopTask(t).then((said) => flash(said));
+      if (key.name === "x" && r) {
+        if (r.kind === "agent") void session.stopTask(r.task).then((said) => flash(said));
+        else if (r.tasks.length === 1) void session.stopTask(r.tasks[0]!).then((said) => flash(said));
+        else {
+          pickStrip(null);
+          openTasks(screen());
+        }
         return;
       }
       if (key.name === "c" && key.ctrl) return pickStrip(null);
@@ -1032,7 +1173,7 @@ export function App({
     }
 
     // ↓ in an empty box (not browsing history) picks the first running task.
-    if (key.name === "down" && !key.meta && !key.option && !key.shift && !key.ctrl && strip.tasks.length > 0) {
+    if (key.name === "down" && !key.meta && !key.option && !key.shift && !key.ctrl && strip.rows.length > 0) {
       const current = composer.current?.text() ?? "";
       if (current === "" && historyIndex.current == null) {
         key.preventDefault();
@@ -1078,6 +1219,23 @@ export function App({
       setQuitArmed(true);
       setTimeout(() => setQuitArmed(false), 2000);
       return;
+    }
+    if (askRating && !key.ctrl && !key.meta && ["0", "1", "2", "3"].includes(key.name ?? "")) {
+      key.preventDefault();
+      return answerRating(key.name as "0" | "1" | "2" | "3");
+    }
+    if (planShown && !host.open && (key.name === "pageup" || key.name === "pagedown")) {
+      key.preventDefault();
+      return planScroll.current?.(key.name === "pageup" ? -5 : 5);
+    }
+    if (planShown && key.name === "escape" && !state.busy && !host.open && !composer.current?.text()) {
+      key.preventDefault();
+      return setPlanHidden(true);
+    }
+    if (key.ctrl && key.name === "s" && deferredRef.current.length && state.busy) {
+      key.preventDefault();
+      // Stop the turn; the waiting command runs as it ends.
+      return void session.interrupt();
     }
     if (key.name === "escape") {
       key.preventDefault();
@@ -1177,10 +1335,12 @@ export function App({
   const statusLeft = [
     MODE_LABEL[state.mode],
     deep ? `${modelLabel} · deep` : modelLabel,
-    state.contextPercent != null ? `context ${state.contextPercent}%` : null,
-    state.sessionTokens > 0 ? `${formatTokens(state.sessionTokens)} tokens` : null,
+    // How full the context is, as a share AND as tokens of the window. The
+    // session's running total sat here too and read as a contradiction ("23%"
+    // next to "4747k tokens": each turn re-sends the context, so the total
+    // passes the window). That total is in /status (owner, 2026-10-05).
+    contextLabel(state),
     state.automationUnread > 0 ? `${state.automationUnread} automation result${state.automationUnread === 1 ? "" : "s"}` : null,
-    runningLabel(running),
   ]
     .filter(Boolean)
     .join(" · ");
@@ -1229,6 +1389,22 @@ export function App({
 
       {state.lastError ? <ErrorBlock notice={errorNotice(state.lastError)} /> : null}
 
+      {planShown ? (
+        <PlanPanel plan={pinnedPlan!} width={width} maxHeight={Math.max(6, Math.floor(height * 0.4))} plain={plainMarkdown} onBuild={buildPinned} scrollRef={planScroll} />
+      ) : null}
+
+      {deferred.length > 0 ? (
+        <box flexDirection="column" flexShrink={0}>
+          {deferred.map((d) => (
+            <text key={d.id}>
+              <span fg={color.muted}>{"↳ "}</span>
+              <span fg={color.accentSoft}>{[d.name, d.rest].filter(Boolean).join(" ")}</span>
+              <span fg={color.faint}>{" · runs after this turn · ctrl+s run now"}</span>
+            </text>
+          ))}
+        </box>
+      ) : null}
+
       {state.pending.length > 0 ? (
         <box flexDirection="column" flexShrink={0}>
           {state.pending.map((p) => (
@@ -1241,7 +1417,6 @@ export function App({
         </box>
       ) : null}
 
-      {liveTasks.length ? <BackgroundStrip tasks={liveTasks} width={width} selected={stripSel} /> : null}
 
       {working ? (
         <box flexDirection="column" flexShrink={0}>
@@ -1325,6 +1500,29 @@ export function App({
         </text>
       ) : null}
 
+      {askRating ? (
+        <box flexDirection="column" flexShrink={0} marginBottom={1}>
+          <text>
+            <span fg={color.accent}>{"● "}</span>
+            <span fg={color.white}>
+              <b>How is Atlarix doing this session?</b>
+            </span>
+            <span fg={color.faint}>{" (optional)"}</span>
+          </text>
+          <text>
+            {"  "}
+            <span fg={color.accentSoft}>1</span>
+            <span fg={color.textDim}>{": Bad    "}</span>
+            <span fg={color.accentSoft}>2</span>
+            <span fg={color.textDim}>{": Fine    "}</span>
+            <span fg={color.accentSoft}>3</span>
+            <span fg={color.textDim}>{": Good    "}</span>
+            <span fg={color.accentSoft}>0</span>
+            <span fg={color.textDim}>{": Dismiss"}</span>
+          </text>
+        </box>
+      ) : null}
+
       <Composer
         apiRef={composer}
         focused={!approval && !host.open && stripSel == null}
@@ -1344,6 +1542,7 @@ export function App({
                   place: abbreviatePath(session.workspaceDir, 40),
                   mcp: mcpOn,
                   title: state.title,
+                  max: width - 8,
                 })} `
         }
         placeholder={state.busy ? "enter steers this turn · tab queues for after it" : "Ask Atlarix to build, fix or explain something…"}
@@ -1354,6 +1553,8 @@ export function App({
         }}
         onSubmit={onSubmit}
       />
+
+      {rows.length ? <AgentRows rows={rows} width={width} selected={stripSel} main={activity} /> : null}
 
       {topView && !approval && !(topView.kind === "list" && topView.asking) ? (
         <DialogOverlay view={topView} width={width} height={height} plain={plainMarkdown} />

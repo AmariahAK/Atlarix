@@ -278,7 +278,13 @@ export async function runSubagent(
   const execChatMode = isImplement ? "build" : delegationChatMode;
 
   try {
-    const effectiveModel = getEffectiveModel(settings);
+    // The model of the turn that spawned it, as that turn resolved it
+    // (chat_stream_handlers: `req.modelOverride` over the saved selection). The
+    // CLI keeps its own model choice and sends it per turn, so the saved
+    // selection is the APP's: a CLI session on its own key started every
+    // sub-agent on the app's model, or on Auto ("isn't offered right now").
+    const { lastStreamRequest } = await import("@/ipc/handlers/chat_stream/stream-state");
+    const effectiveModel = (args.chatId != null ? lastStreamRequest.get(args.chatId)?.modelOverride : undefined) ?? getEffectiveModel(settings);
     const { modelClient } = await getModelClient(effectiveModel, settings, {
       delegationRole: "subagent" as const,
       delegationDepth: 1,

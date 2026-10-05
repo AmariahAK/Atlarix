@@ -389,6 +389,8 @@ export class TextDialog implements Dialog {
   private scroll = 0;
   private lines: Line[];
   private notice: Line | null = null;
+  private markdown: string | undefined;
+  private title: string;
 
   constructor(
     private readonly opts: {
@@ -400,8 +402,12 @@ export class TextDialog implements Dialog {
       wide?: boolean;
       /** Markdown to render (a plan): a full-size view that scrolls. */
       markdown?: string;
+      /** ← / → (the agent view steps between sub-agents). */
+      step?: (dir: -1 | 1) => void;
     },
   ) {
+    this.markdown = opts.markdown;
+    this.title = opts.title;
     if (typeof opts.lines === "function") {
       this.lines = [{ text: "Loading…", tone: "muted" }];
       void opts.lines().then(
@@ -418,37 +424,46 @@ export class TextDialog implements Dialog {
     this.onChange?.();
   }
 
+  /** A live markdown view (a sub-agent's work) redrawn in place; `top` resets the scroll (another agent). */
+  setMarkdown(markdown: string, title?: string, top = false): void {
+    this.markdown = markdown;
+    if (title) this.title = title;
+    if (top) this.scroll = 0;
+    this.onChange?.();
+  }
+
   view(): DialogView {
     return {
       kind: "text",
-      title: this.opts.title,
+      title: this.title,
       lines: this.lines,
       scroll: this.scroll,
       footer: this.opts.footer ?? "↑↓ scroll · esc close",
       hints: this.opts.hints,
       wide: this.opts.wide,
-      markdown: this.opts.markdown,
+      markdown: this.markdown,
       notice: this.notice,
     };
   }
 
   key(k: KeyLike): boolean {
     // Markdown wraps to more rows than it has lines; the view clamps the rest.
-    const max = Math.max(0, (this.opts.markdown != null ? this.opts.markdown.split("\n").length * 3 : this.lines.length) - 1);
-    if (k.name === "up") this.scroll = Math.max(0, this.scroll - 1);
+    const max = Math.max(0, (this.markdown != null ? this.markdown.split("\n").length * 3 : this.lines.length) - 1);
+    if ((k.name === "left" || k.name === "right") && this.opts.step) this.opts.step(k.name === "left" ? -1 : 1);
+    else if (k.name === "up") this.scroll = Math.max(0, this.scroll - 1);
     else if (k.name === "down") this.scroll = Math.min(max, this.scroll + 1);
     else if (k.name === "pageup") this.scroll = Math.max(0, this.scroll - 10);
     else if (k.name === "pagedown" || k.name === "space") this.scroll = Math.min(max, this.scroll + 10);
     else if (printable(k) && this.opts.actions?.[printable(k)]) {
       const fn = this.opts.actions[printable(k)]!;
+      // Something visible at once: a slow action (saving a page) looked like nothing happened.
+      this.notice = { text: "Working…", tone: "muted" };
       void Promise.resolve()
         .then(fn)
         .then(
           (said) => {
-            if (typeof said === "string") {
-              this.notice = { text: said, tone: "muted" };
-              this.onChange?.();
-            }
+            this.notice = typeof said === "string" ? { text: said, tone: "muted" } : null;
+            this.onChange?.();
           },
           (e) => {
             this.notice = { text: e instanceof Error ? e.message : String(e), tone: "error" };

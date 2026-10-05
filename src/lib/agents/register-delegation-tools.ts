@@ -30,6 +30,15 @@ import { cancelAllSubagentTasksForChat } from "@/lib/tools/spawn-task";
 import type { WorkMode } from "@/lib/schemas";
 import type { SubagentActivityEmit } from "@/lib/agents/run-subagent";
 
+/** The window that spawned this call; null for a synthetic sender (the CLI, background agents). */
+function ownerWindowOf(sender: WebContents): number | undefined {
+  try {
+    return BrowserWindow.fromWebContents(sender)?.id;
+  } catch {
+    return undefined;
+  }
+}
+
 export type DelegationStreamContext = {
   sender: WebContents;
   chatId: number;
@@ -307,7 +316,7 @@ export function attachDelegationToolsToSet(
           // whichever window the user happened to be looking at, and retarget
           // mid-task if they switched. That is worse than an error, because
           // nothing reports it.
-          ownerWindowId: BrowserWindow.fromWebContents(ctx.sender)?.id,
+          ownerWindowId: ownerWindowOf(ctx.sender),
           emitSubagentActivity,
           // Settles the card for a BACKGROUNDED run, which returns long before
           // its sub-agent finishes. This closure outlives the tool call — the
@@ -375,6 +384,25 @@ export function attachDelegationToolsToSet(
         }
 
         return resultStr;
+      } catch (err) {
+        // `subagent_start` already went out, so the spawn must be settled too:
+        // without this a sub-agent that failed to start showed as running
+        // until the session ended.
+        ctx.safeSend(
+          ctx.sender,
+          "chat:activity",
+          buildSubagentCompletePayload({
+            id,
+            chatId: ctx.chatId,
+            agentId,
+            summary: (err instanceof Error ? err.message : String(err)).slice(0, 4_000),
+            duration: Date.now() - startTime,
+            isError: true,
+            scope: undefined,
+            roundId: ctx.turnId,
+          }),
+        );
+        throw err;
       } finally {
         // ORDER IS LOAD-BEARING. `releaseDelegationSlot` drains the queue, so a
         // parked sibling would be granted a slot and open its own 402-bound call

@@ -1,4 +1,18 @@
-import { countTokens } from "@anthropic-ai/tokenizer";
+import { getTokenizer } from "@anthropic-ai/tokenizer";
+
+/**
+ * ONE tokenizer for the process. The package's `countTokens` builds a new
+ * Tiktoken (parsing the whole BPE table) on every call and frees it: the first
+ * turn's tool-surface measure made 56 such calls, 1.4s of synchronous work that
+ * froze the CLI right after Enter, before it could even draw the message
+ * (owner, 2026-10-05: "it kind of hangs for a second before it sends"). Built
+ * once and kept, the same 56 counts take ~18ms. Same encoding as countTokens.
+ */
+let tokenizer: ReturnType<typeof getTokenizer> | null = null;
+function countTokens(text: string): number {
+  tokenizer ??= getTokenizer();
+  return tokenizer.encode(text.normalize("NFKC"), "all").length;
+}
 
 /**
  * S18 (v14.8.11, data-backed): memoize per-text token counts. The W10 gap

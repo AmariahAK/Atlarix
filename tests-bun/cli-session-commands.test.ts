@@ -266,6 +266,28 @@ describe("the session's commands", () => {
     );
   }, 60_000);
 
+  it("a sub-agent actually runs in the CLI, and its row clears when it ends", async () => {
+    // The CLI's electron stub had no BrowserWindow.fromWebContents, so `task`
+    // threw before spawning, and the strip showed "Sub-agent: Scout" running
+    // forever (owner, 2026-10-05).
+    const { s, llm } = await sessionWith([
+      { tool: "task", args: { subagent_type: "explore", description: "find the export", prompt: "Find where a is exported." } },
+      { text: "a is exported from a.ts." },
+      { text: "The sub-agent found it." },
+    ]);
+    await idleAfter(s, () => s.submit("where is a exported?"));
+    const task = s.state.cells.find((c: any) => c.kind === "tool" && c.tool.verb === "Agent") as any;
+    expect(task).toBeTruthy();
+    expect(JSON.stringify(task.tool)).not.toContain("fromWebContents");
+    // It ran on THIS session's model (the CLI's own choice), not the app's
+    // saved one: its request reached the same fake model.
+    expect(JSON.stringify(task.tool)).not.toContain("isn't offered");
+    expect(llm.requests.some((r: any) => JSON.stringify(r.messages).includes("Find where a is exported."))).toBe(true);
+    await waitFor(s, () => [...(s as any).delegations.values()].every((d: any) => d.status !== "running"), 30_000);
+    const live = await s.liveTasks();
+    expect(live.filter((t: any) => t.kind === "agent")).toEqual([]);
+  }, 60_000);
+
   it("a relic on your own key is saved in the workspace, and the transcript says where", async () => {
     const { s } = await sessionWith([
       { tool: "relic", args: { title: "Login flow", html: "<!doctype html><title>Login flow</title><h1>Login</h1>" } },

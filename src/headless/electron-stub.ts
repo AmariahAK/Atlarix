@@ -55,9 +55,15 @@ export const app = {
 // (main/workspace-window-manager.ts) calls it on the chat-stream path, and a
 // missing function throws rather than degrading — which is how it reached the
 // model as "This model failed (...)" instead of a window warning.
+// `fromWebContents` / `fromId` likewise: the sub-agent `task` tool asks which
+// window spawned it, and without them every sub-agent threw
+// "BrowserWindow.fromWebContents is not a function" (owner, 2026-10-05). The CLI
+// has no real window to name, and every caller already handles null.
 export const BrowserWindow = {
   getAllWindows: () => (cliWindow ? [cliWindow] : []) as unknown[],
   getFocusedWindow: () => null,
+  fromWebContents: () => null,
+  fromId: () => null,
 };
 
 /**

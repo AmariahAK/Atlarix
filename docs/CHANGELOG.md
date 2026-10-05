@@ -3,29 +3,59 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
-## [15.0.1] (2026-10-05) — the terminal draws cleanly
+## [15.0.1] (2026-10-05) — sub-agents in the terminal, coloured code, and a readable plan
 
-**The terminal draws replies without flicker or cut-off lines.** Markdown in the CLI is now drawn
-directly instead of through a renderer that revealed `##`, `**` and backticks only after a
-background step, so a streaming reply no longer flips between formatted text and raw `###` /
-`---`, and a wrapped line is never drawn over by the next one. A line that filled the width lost
-its last character under the scrollbar; the transcript now keeps clear of it. A half-written
-marker line or table row waits for the rest, and a graph still arriving shows as "drawing the
-graph…" instead of raw JSON. Tables fit the terminal, wrapping their cells.
+**Sub-agents work in the terminal.** Every sub-agent the CLI started failed with
+"BrowserWindow.fromWebContents is not a function" and then showed as running forever. They run
+now, on the session's own model: a sub-agent used to take the app's saved model (or Auto)
+instead of the one the CLI session was using. A sub-agent that fails to start is marked as
+finished.
 
-**No more garbage after "starting…" in Terminal.app.** The terminal capability checks run on the
-CLI's own screen now, so Terminal.app no longer prints them as text on yours.
+**Sub-agents and background work sit under the prompt box.** "main" and what it is doing, then
+one row per sub-agent with what it is doing now, how long it has run and its tokens; finished
+ones drop off and background commands share one row. ↓ picks a row and enter opens that
+sub-agent's own view, live: its tool calls and what it has written. ← → step between
+sub-agents, esc backs out.
 
-**The tab shows when Atlarix is working.** The terminal tab's title pulses a diamond while a turn
-runs, says "needs you" when Atlarix is waiting for an OK or an answer, and goes back to the
-terminal's own title when you quit.
+**The plan is pinned above the box while it waits to be built.** You read it while you decide,
+type what to change below it, and it redraws as Atlarix revises it. "Build it" (or `/build`)
+builds it; esc hides it and `/plan` brings it back. This replaces a "Plan ready" popup that
+covered the conversation with the plan out of sight. The plan's "share" is now "save as page",
+and says what it saved and where.
 
-**Atlarix stops assuming every project has a `package.json`.** The agent is told which build
-files are actually at the project root (`Cargo.toml`, `pyproject.toml`, `go.mod`…, or that there
-are none), and Build and Debug no longer lead with `package.json` as the place to find commands.
+**Code is coloured.** Fenced code and edit diffs are syntax highlighted, and ```` ```ts ````,
+```` ```py ```` and other short tags are recognised. A language's grammar is found by its name
+the first time it shows up, preferring one already on your machine (shared with other terminal
+apps built on the same toolkit), and only the languages you read are downloaded; offline, code
+stays plain. Inline code is lavender instead of a dim grey chip.
 
-**`npm i -g atlarix` installs two packages instead of forty.** The npm package no longer carries a
-native database module that only its rare Node fallback needs.
+**Sending is instant.** The first message of a session froze the terminal for about a second
+before it appeared: token counting rebuilt its tokenizer on every call (56 times per first
+turn). It is built once now, which also speeds up the app.
+
+**The prompt box and its borders.** The box sits a step above the page. Its top border shows how
+full the context is as a share and as tokens of the window (`context 23% · 47k/205k`); the
+session's running total, which passed the window and read as a contradiction, is in `/status`.
+A long session name ends in "…", and the hints fit the width.
+
+**Smaller things.** `/compact` and other conversation commands typed while a turn runs wait for
+it to end, and messages typed after them still go in first (ctrl+s runs the command now).
+Pasting the same text again opens a `[Pasted text]` chip into the full text, to edit. Checklists
+read "☑ step" on one line. Plan and background-job tool lines say what they did instead of a bare
+"◇ Plan", and a cut-off result never shows as raw JSON. Nothing is printed on your screen
+before the CLI starts, so quitting leaves your shell clean. Several parallel calls that read
+your balance share one request.
+
+**An optional rating.** With usage analytics on, a long session may ask once "How is Atlarix
+doing this session?" (1–3, or 0 to dismiss), at most once a week. It sends only the rating, the
+mode, the model and the session length — never your prompts or code, and it is not used for
+training.
+
+**Also in this release:** markdown in the CLI is drawn directly (no flicker between formatted
+text and raw `###`, no line drawn over the next, tables that fit); no stray characters when the
+CLI starts in Terminal.app; the tab pulses while Atlarix works and says "needs you" when it waits
+for you; Atlarix checks which build files your project has instead of assuming `package.json`;
+and `npm i -g atlarix` installs two packages instead of forty.
 
 ## [15.0.0] (2026-10-03) — Atlarix in your terminal, the cloud agent, and email sign-in
 

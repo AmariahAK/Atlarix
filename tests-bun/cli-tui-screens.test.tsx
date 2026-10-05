@@ -34,12 +34,15 @@ class FakeSession extends EventEmitter {
     mode: "build",
     tokensThisTurn: null,
     contextPercent: null,
+    contextUsed: null,
+    contextLimit: null,
     sessionTokens: 1234,
     cachedTokens: 1000,
     costUsd: 0,
     lastError: null,
     question: null,
     planReady: null,
+    planRevision: 0,
     title: null,
     automationUnread: 0,
     mcpConsent: null,
@@ -217,13 +220,13 @@ afterEach(async () => {
 /** Links the app tried to open: recorded, never sent to a real browser. */
 const opened: string[] = [];
 
-async function mount(adjust?: (services: CliServices) => void, models?: import("../src/cli/tui/App").ModelSource) {
+async function mount(adjust?: (services: CliServices) => void, models?: import("../src/cli/tui/App").ModelSource, ratingChance = 0) {
   const session = new FakeSession();
   const serviceCalls: Call[] = [];
   const services = fakeServices(serviceCalls);
   adjust?.(services);
   const setup = await testRender(
-    <App session={session as never} modelLabel="Atlarix Auto" version="15.0.0" onQuit={() => {}} plainMarkdown services={services} models={models} chromeStatus={() => "connected"} openUrl={(u) => opened.push(u)} />,
+    <App session={session as never} modelLabel="Atlarix Auto" version="15.0.0" onQuit={() => {}} plainMarkdown services={services} models={models} chromeStatus={() => "connected"} openUrl={(u) => opened.push(u)} ratingChance={ratingChance} />,
     { width: 120, height: 40, exitOnCtrlC: false },
   );
   current = setup;
@@ -401,31 +404,35 @@ describe("command screens", () => {
       },
       { id: "cmd:j1", kind: "command", label: "npm run dev", elapsedMs: 5_000, stalled: false, jobId: "j1", tools: [] },
     ];
-    let frame = await frameContaining(setup, "1 agent · 1 command");
+    // UNDER the prompt box (owner, 2026-10-05): "main", then one row per
+    // sub-agent with what it is doing and for how long; commands share a row.
+    let frame = await frameContaining(setup, "Find the export");
     expect(frame).toContain("↓ tasks");
-    // In plain sight above the box, not only behind ↓: what runs, for how
-    // long, and what the sub-agent is doing now.
-    frame = await frameContaining(setup, "Agent Find the export");
-    expect(frame).toContain("Running npm run dev");
-    expect(frame).toContain("Search \"export const a\"");
+    expect(frame).toContain("● main");
+    expect(frame).toContain('Search "export const a"');
+    expect(frame).toContain("1m 05s");
+    expect(frame).toContain("1 command");
+    expect(frame).toContain("npm run dev");
     expect(frame).toContain("↓ to select");
-    // ↓ picks a row in the strip; enter opens its details (live), x stops it.
+    const lines = frame.split("\n");
+    const boxBottom = lines.findIndex((l) => l.includes("↓ tasks"));
+    expect(lines.findIndex((l) => l.includes("Find the export"))).toBeGreaterThan(boxBottom);
+    // ↓ picks a row; enter opens that sub-agent's own view (live), esc backs out.
     setup.mockInput.pressArrow("down");
-    frame = await frameContaining(setup, "enter details · x stop");
-    expect(frame).toContain("› ");
+    frame = await frameContaining(setup, "enter open · x stop");
     setup.mockInput.pressEnter();
-    frame = await frameContaining(setup, "Sub-agent details");
-    expect(frame).toContain("Status    running");
-    expect(frame).toContain("Runtime   1m 05s");
-    expect(frame).toContain("Task      Find the export");
-    expect(frame).toContain('◇ Search "export const a"');
-    expect(frame).toContain("╰ 1 match");
+    frame = await frameContaining(setup, "Sub-agent 1/1");
+    expect(frame).toContain("Find the export");
+    expect(frame).toContain("Search");
+    expect(frame).toContain("export const a");
+    expect(frame).toContain("1 match");
+    expect(frame).toContain("←→");
     setup.mockInput.pressEscape();
-    expect(await until(() => !setup.captureCharFrame().includes("Sub-agent details"))).toBe(true);
+    expect(await until(() => !setup.captureCharFrame().includes("Sub-agent 1/1"))).toBe(true);
     // The command: its output, like Claude Code's Shell details.
     setup.mockInput.pressArrow("down");
     setup.mockInput.pressArrow("down");
-    await frameContaining(setup, "enter details · x stop");
+    await frameContaining(setup, "enter open · x stop");
     setup.mockInput.pressEnter();
     frame = await frameContaining(setup, "Command details");
     expect(frame).toContain("Command   npm run dev");
@@ -473,13 +480,27 @@ describe("command screens", () => {
     expect(await until(() => session.calls.some((c) => c[0] === "dismissQuestion"))).toBe(true);
   });
 
-  it("a finished plan offers Build it, which builds that plan", async () => {
+  it("a finished plan is pinned above the box, readable, and /build builds it", async () => {
     const { setup, session } = await mount();
-    session.set({ planReady: { planId: "p1", title: "Add a health endpoint" } });
-    const frame = await frameContaining(setup, "Plan ready");
-    expect(frame).toContain("Add a health endpoint");
-    expect(frame).toContain("Keep planning");
-    setup.mockInput.pressEnter();
+    session.set({ planReady: { planId: "p1", title: "Add a health endpoint" }, planRevision: 1 });
+    // The plan itself, not a chooser over the conversation (owner, 2026-10-05).
+    const frame = await frameContaining(setup, "Add GET /health");
+    expect(frame).toContain("Plan · Add a health endpoint · ready to build");
+    expect(frame).toContain("Build it");
+    expect(frame).not.toContain("Keep planning");
+    const lines = frame.split("\n");
+    expect(lines.findIndex((l) => l.includes("Add GET /health"))).toBeLessThan(lines.findLastIndex((l) => l.includes("shift+tab mode")));
+    // You can type in the box while it shows.
+    await setup.mockInput.typeText("make step 1 more specific");
+    expect(await frameContaining(setup, "make step 1 more specific")).toContain("Add GET /health");
+    for (let i = 0; i < 30; i++) setup.mockInput.pressBackspace();
+    // esc hides it; /plan brings it back; /build builds it.
+    await frameContaining(setup, "Ask Atlarix");
+    setup.mockInput.pressEscape();
+    expect(await until(() => !setup.captureCharFrame().includes("Add GET /health"))).toBe(true);
+    await command(setup, "/plan");
+    await frameContaining(setup, "Add GET /health");
+    await command(setup, "/build");
     expect(await until(() => session.calls.some((c) => c[0] === "buildPlan"))).toBe(true);
     expect(session.calls.find((c) => c[0] === "buildPlan")).toEqual(["buildPlan", "p1"]);
   });
@@ -680,6 +701,40 @@ describe("command screens", () => {
     expect(frame).toContain("/model switch (Atlarix Auto is free)");
   });
 
+  it("the session rating: only with analytics on, after a real session, and it sends only the rating", async () => {
+    const { setup, session, serviceCalls } = await mount((s) => void (s.analytics.consent = async () => "opted_in"), undefined, 1);
+    for (let i = 0; i < 8; i++) {
+      session.set({ busy: true, turnStartedAt: Date.now() });
+      await settle(setup);
+      session.set({ busy: false, turnStartedAt: null });
+      await settle(setup);
+      if (i < 7) expect(setup.captureCharFrame()).not.toContain("How is Atlarix doing");
+    }
+    const frame = await frameContaining(setup, "How is Atlarix doing this session?");
+    expect(frame).toContain("1: Bad");
+    expect(frame).toContain("0: Dismiss");
+    setup.mockInput.pressKey("3");
+    expect(await until(() => serviceCalls.some((c) => c[0] === "analytics.track" && c[1] === "cli_session_rating"))).toBe(true);
+    const [, , props] = serviceCalls.find((c) => c[1] === "cli_session_rating")!;
+    expect(props).toEqual({ rating: "good", mode: "build", model: "Atlarix Auto", turns: 8, version: "15.0.0" });
+    expect(await until(() => !setup.captureCharFrame().includes("How is Atlarix doing"))).toBe(true);
+    // The 3 was the answer, not typed into the box.
+    expect(setup.captureCharFrame()).not.toMatch(/› 3/);
+  });
+
+  it("the session rating never appears with analytics off", async () => {
+    const { setup, session } = await mount(undefined, undefined, 1);
+    for (let i = 0; i < 9; i++) {
+      session.set({ busy: true, turnStartedAt: Date.now() });
+      await settle(setup);
+      session.set({ busy: false, turnStartedAt: null });
+      await settle(setup);
+    }
+    await Bun.sleep(100);
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).not.toContain("How is Atlarix doing");
+  });
+
   it("usage analytics: asked once on a first run, the answer saved; /analytics changes it later", async () => {
     const { setup, serviceCalls } = await mount((s) => (s.analytics as unknown as { __unset: () => void }).__unset());
     let frame = await frameContaining(setup, "Help improve Atlarix");
@@ -740,6 +795,17 @@ describe("command screens", () => {
     const { setup } = await mount();
     await command(setup, "/compact");
     expect(await frameContaining(setup, "Compacted")).toContain("~3k tokens");
+  });
+
+  it("/compact typed mid-turn waits for the turn; messages sent after it still go in first", async () => {
+    const { setup, session } = await mount();
+    session.set({ busy: true, turnStartedAt: Date.now(), phase: "Thinking…" });
+    await command(setup, "/compact");
+    expect(await frameContaining(setup, "runs after this turn")).toContain("ctrl+s run now");
+    expect(session.calls.some((c) => c[0] === "compact")).toBe(false);
+    session.set({ busy: false, turnStartedAt: null, phase: null });
+    expect(await until(() => session.calls.some((c) => c[0] === "compact"))).toBe(true);
+    expect(await until(() => !setup.captureCharFrame().includes("runs after this turn"))).toBe(true);
   });
 
   it("/undo: restore the files, edit the message in the box, and send replaces it", async () => {

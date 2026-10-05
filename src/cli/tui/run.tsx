@@ -117,7 +117,7 @@ export async function runTui(opts: RunTuiOptions): Promise<void> {
   // Into the alternate screen BEFORE the renderer starts. Its native setup sends
   // terminal capability queries (kitty graphics, XTGETTCAP, DECRQM) on whatever
   // screen is current, and Terminal.app, which parses none of them, printed them
-  // as text after "starting…" on the user's own screen (owner, 2026-10-04:
+  // as text on the user's own screen (owner, 2026-10-04:
   // `+q4d73pppppp…Gi=31337,s=1,v=1,a=q,t=d,f=24;AAAA`). There they land on a
   // screen the first frame clears; the renderer's own switch is then a no-op.
   if (process.stdout.isTTY) process.stdout.write("\x1b[?1049h\x1b[2J\x1b[H");

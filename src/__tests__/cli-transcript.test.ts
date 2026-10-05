@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { previewLines, toCells, toolTarget } from "@/cli/agent/transcript";
+import { previewLines, toCells, toolResultText, toolTarget } from "@/cli/agent/transcript";
 
 /** The exact shape the agent streamed in a real run (captured 2026-10-01). */
 const assistant = [
@@ -211,5 +211,21 @@ describe("a sent paste", () => {
     // A message with no paste keeps no copy.
     const [plain] = toCells([{ id: 10, role: "user", content: "just text", modelContent: null }]);
     expect((plain as { full?: string }).full).toBeUndefined();
+  });
+});
+
+describe("plan and background job lines say what happened", () => {
+  it("names the plan operation and the job operation", () => {
+    expect(toolTarget("plan", { operation: "update_step", step_index: 3, state: "done" })).toBe("step 3 → done");
+    expect(toolTarget("plan", { operation: "write", title: "CLI smoke test" })).toBe("write · CLI smoke test");
+    expect(toolTarget("background_jobs", { operation: "list" })).toBe("list");
+  });
+
+  it("reads the result inside the envelope, and never shows a cut-off envelope", () => {
+    expect(toolResultText("plan", '{"success":true,"result":{"success":true,"progress":"2/4 steps done"}}').text).toBe("2/4 steps done");
+    expect(toolResultText("background_jobs", '{"success":true,"result":{"count":0,"jobs":[]}}').text).toBe("none running");
+    const cut = '{"success":true,"result":{"success":true,"planId":"deb8","planStatus":"plan","contentPreview":"This plan exists';
+    expect(toolResultText("plan", cut).text).toBe("");
+    expect(toolResultText("plan", '{"success":true,"result":{"message":"Plan saved.","x":"cut').text).toBe("Plan saved.");
   });
 });

@@ -95,9 +95,6 @@ async function interactive(): Promise<void> {
     }
   }
 
-  // From here to the first frame takes a moment (the database, the agent's handlers).
-  process.stdout.write("\x1b[2K\r\x1b[38;2;16;185;129m◆ atlarix\x1b[0m starting…");
-
   const { AgentSession, seedDevProvider } = await import("./agent/session");
   const model = devUrl
     ? await seedDevProvider({ baseUrl: devUrl, model: flag("--model") ?? "fake-model", apiKey: flag("--api-key") })
@@ -112,7 +109,9 @@ async function interactive(): Promise<void> {
   const session = new AgentSession({ workspaceDir: process.cwd(), model: model ?? cliState?.model });
   await session.start();
   if (argv.includes("-c") || argv.includes("--continue")) {
-    if (!(await session.resumeLatest())) process.stdout.write("\x1b[2K\rNo earlier session in this folder: starting a new one.\n");
+    // Nothing is written to the user's own screen before the TUI: it stayed
+    // there after quitting (owner, 2026-10-05). A new session says so itself.
+    await session.resumeLatest();
   }
   if (!devUrl) {
     // Automations run in whichever Atlarix is open (runner.ts leases each run,

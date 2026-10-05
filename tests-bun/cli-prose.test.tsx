@@ -7,7 +7,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
 import { lexer, type Tokens } from "marked";
-import { Prose, tableLines } from "../src/cli/tui/Prose";
+import { fenceFiletype, Prose, tableLines } from "../src/cli/tui/Prose";
 
 let destroy: (() => void) | null = null;
 afterEach(() => {
@@ -63,5 +63,21 @@ describe("prose in the terminal", () => {
     const { lines } = tableLines(t, 50);
     for (const l of lines) expect(Bun.stringWidth(l)).toBeLessThanOrEqual(50);
     expect(lines.join(" ")).toContain("commits");
+  });
+
+  it("a checklist item is one line: the box, then its text, no raw [x]", async () => {
+    const f = await frame(<Prose text={"- [x] Write a random plan\n- [ ] Leave the last step open"} width={60} plain />);
+    expect(f).toContain("☑ Write a random plan");
+    expect(f).toContain("☐ Leave the last step open");
+    expect(f).not.toContain("[x]");
+    expect(f).not.toContain("[ ]");
+  });
+
+  it("short fence tags resolve to their grammar", () => {
+    expect(fenceFiletype("ts")).toBe("typescript");
+    expect(fenceFiletype("js")).toBe("javascript");
+    expect(fenceFiletype("py")).toBe("python");
+    expect(fenceFiletype("rust title=main.rs")).toBe("rust");
+    expect(fenceFiletype(undefined)).toBeUndefined();
   });
 });

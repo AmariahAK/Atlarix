@@ -309,12 +309,9 @@ export const realServices: CliServices = {
       return checkoutUrl(kind === "pro" ? "subscription" : "credit", amountCents);
     },
     async balanceCents() {
-      const { getSupabaseClient, getSession } = await import("@/lib/auth/supabase-client");
-      if (!(await getSession())) return null;
-      const { data, error } = await getSupabaseClient().rpc("get_credit_balance");
-      if (error) return null;
-      const cents = (data as { balance_cents?: number } | null)?.balance_cents;
-      return typeof cents === "number" ? cents : null;
+      // Shared with the relic tool's check: one request for a burst of askers.
+      const { creditBalanceCents } = await import("@/lib/billing/credit-balance");
+      return creditBalanceCents(5_000);
     },
     async signOut() {
       const { signOutCli } = await import("../auth/account");

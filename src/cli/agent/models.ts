@@ -117,6 +117,8 @@ export interface CliState {
   deepThinking?: boolean;
   /** Terminal notifications when a turn ends or needs you (on unless turned off). */
   notifications?: boolean;
+  /** When the session rating was last answered or dismissed (session-rating.ts). */
+  ratedAt?: number;
 }
 
 function statePath(): string {
@@ -126,7 +128,7 @@ function statePath(): string {
 export function readCliState(file = statePath()): CliState {
   try {
     const s = JSON.parse(fs.readFileSync(file, "utf8")) as Partial<CliState>;
-    return { recent: s.recent ?? [], favorites: s.favorites ?? [], model: s.model, deepThinking: s.deepThinking, notifications: s.notifications };
+    return { recent: s.recent ?? [], favorites: s.favorites ?? [], model: s.model, deepThinking: s.deepThinking, notifications: s.notifications, ratedAt: typeof s.ratedAt === "number" ? s.ratedAt : undefined };
   } catch {
     return { recent: [], favorites: [] };
   }
