@@ -34,6 +34,17 @@ not trust it.
   test account with credit (Slack is paid; the owner creates it) and a demo video link
   showing install → connect → task → PR → Approve & merge. Review is about 10 days
   preliminary plus about 10 weeks functional.
+- **Slack launch (owner: "another day").** To submit: (1) a reviewer test account with credit,
+  created by the owner; its details go in step 4 "Test Account Details"; (2) a demo video link
+  (install → Connect Atlarix → task → PR → Approve & merge), recorded live; host it unlisted
+  on YouTube or on atlarix.dev; (3) step 5 automated checks, accept the Marketplace
+  agreement, Submit. The /slack page, guide, privacy section and listing are already live.
+  atlarix-cloud-test is private again: make it public only while recording (its Actions are
+  billing-blocked when private).
+- **CLI: "AI SDK Warning … temperature is not supported" toast.** Atlarix Auto sends a
+  temperature to OpenAI reasoning models (seen with gpt-6-luna); the SDK drops it and warns,
+  and the CLI's warning toast shows it. Don't send temperature to reasoning models (or drop
+  the SDK's "unsupported" warnings from the toast; they also land in ~/.atlarix/logs/cli.log).
 - **Slack polish seen in the live run:** after Approve/Close the old message keeps its
   buttons (update it with chat.update); "the agent stopped before finishing" was shown for a
   CLI install failure (say what failed).
