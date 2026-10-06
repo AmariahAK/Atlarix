@@ -76,6 +76,9 @@ export const EVERY_MODE_TOOLS = [
   // ("what does this screenshot show" is a question, not a build step).
   "view_image",
   "transcribe_audio",
+  // Talking to the user's other sessions changes nothing here; every mode.
+  "list_sessions",
+  "send_message",
 ] as const;
 
 /**

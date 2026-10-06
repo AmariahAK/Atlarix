@@ -261,7 +261,8 @@ export interface UpdateStatusPayload {
  */
 export interface BackgroundJobUpdatePayload {
   chatId: number;
-  source: "command" | "subagent" | "scheduled";
+  /** "peer": another Atlarix session messaged this chat (lib/peers). */
+  source: "command" | "subagent" | "scheduled" | "peer";
   operationId?: string;
   taskId?: string;
   status:
@@ -270,8 +271,9 @@ export interface BackgroundJobUpdatePayload {
     | "cancelled"
     | "stalled"
     | "scheduled"
-    | "condition_met";
-  running: number;
+    | "condition_met"
+    | "peer_message";
+  running?: number;
 }
 
 /**

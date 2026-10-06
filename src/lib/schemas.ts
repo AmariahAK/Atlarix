@@ -421,6 +421,8 @@ export const UserSettingsSchema = z.object({
    * model from the live catalog, so a new provider needs no schema change.
    */
   voiceTranscriptionProvider: z.string().optional(),
+  /** Messages from the user's other Atlarix sessions: delivered, or refused. Unset = accept. */
+  peerMessages: z.enum(["accept", "refuse"]).optional(),
   // `voiceInputMode` REMOVED. Its "live" value streamed a re-transcription of a
   // growing buffer every 1.5s, which was only viable against the local WebGPU
   // pipeline; against a metered API it would bill every 1.5s for the same audio.

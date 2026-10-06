@@ -29,7 +29,10 @@ import {
 } from "./transcript";
 
 import { handler } from "./ipc";
-import { applyLiveTextPatch, type LiveTextPatch } from "@/lib/chat/live-text-patch";
+import {
+  applyLiveTextPatch,
+  type LiveTextPatch,
+} from "@/lib/chat/live-text-patch";
 
 /** The desktop's five work modes (WorkModeSchema); "ask" is shown as Explore. */
 export type WorkMode = "build" | "ask" | "plan" | "debug" | "review";
@@ -110,9 +113,16 @@ export interface SessionSummary {
 const SKIP_ANSWER = "(skipped)";
 
 /** One message for the model when several questions were asked, as the desktop sends it. */
-export function combineAnswers(items: PendingQuestion["items"], answers: string[]): string {
+export function combineAnswers(
+  items: PendingQuestion["items"],
+  answers: string[],
+): string {
   if (items.length === 1) return answers[0] ?? "";
-  return items.map((it, i) => `Q: ${it.question}\nA: ${answers[i]?.trim() || SKIP_ANSWER}`).join("\n\n");
+  return items
+    .map(
+      (it, i) => `Q: ${it.question}\nA: ${answers[i]?.trim() || SKIP_ANSWER}`,
+    )
+    .join("\n\n");
 }
 
 export interface LiveTask {
@@ -156,18 +166,20 @@ let handlersRegistered = false;
 async function registerHandlers(): Promise<void> {
   if (handlersRegistered) return;
   handlersRegistered = true;
-  const { registerChatStreamHandlers } = await import("@/ipc/handlers/chat_stream_handlers");
+  const { registerChatStreamHandlers } = await import(
+    "@/ipc/handlers/chat_stream_handlers"
+  );
   registerChatStreamHandlers();
   const { registerWorkspaceSessionHandlers } = await import(
     "@/ipc/handlers/workspace_session_handlers"
   );
   registerWorkspaceSessionHandlers();
   await import("@/ipc/handlers/permissions/handlers");
-  const { registerBackgroundHandlers } = await import("@/ipc/handlers/background_handlers");
+  const { registerBackgroundHandlers } = await import(
+    "@/ipc/handlers/background_handlers"
+  );
   registerBackgroundHandlers();
 }
-
-
 
 let interjectionSeq = 0;
 
@@ -222,7 +234,8 @@ export class AgentSession extends EventEmitter {
     sender: {
       isDestroyed: () => false,
       isCrashed: () => false,
-      send: (channel: string, payload: unknown) => this.onSend(channel, payload),
+      send: (channel: string, payload: unknown) =>
+        this.onSend(channel, payload),
     },
   };
 
@@ -260,11 +273,21 @@ export class AgentSession extends EventEmitter {
     const { initializeDatabase } = await import("@/db");
     initializeDatabase();
     const electron = (await import("electron")) as unknown as {
-      attachCliWindow?: (send: (channel: string, payload: unknown) => void) => void;
+      attachCliWindow?: (
+        send: (channel: string, payload: unknown) => void,
+      ) => void;
     };
-    electron.attachCliWindow?.((channel, payload) => this.onSend(channel, payload));
+    electron.attachCliWindow?.((channel, payload) =>
+      this.onSend(channel, payload),
+    );
     await registerHandlers();
-    const { workspaceAppIdForPath } = await import("@/lib/workspace-app-by-path");
+    // Other Atlarix sessions (CLI or app) can message this one (lib/peers).
+    void import("@/lib/peers/main-host").then((m) =>
+      m.startPeerMessaging("cli"),
+    );
+    const { workspaceAppIdForPath } = await import(
+      "@/lib/workspace-app-by-path"
+    );
     this.appId = await workspaceAppIdForPath(this.workspaceDir);
     await this.newSession();
   }
@@ -324,7 +347,9 @@ export class AgentSession extends EventEmitter {
 
   /** This folder's sessions, newest first: the CLI's and the desktop app's. */
   async listSessions(): Promise<SessionSummary[]> {
-    const rows = (await (await handler("sessions:list"))({}, this.appId)) as SessionSummary[];
+    const rows = (await (
+      await handler("sessions:list")
+    )({}, this.appId)) as SessionSummary[];
     return rows;
   }
 
@@ -334,34 +359,68 @@ export class AgentSession extends EventEmitter {
    * (allocate-transport → get → hydrate-transport).
    */
   async resume(sessionId: string): Promise<void> {
-    if (this.state.busy) throw new Error("Wait for this turn to finish (or esc to stop it), then resume.");
-    const { chatId } = (await (await handler("sessions:allocate-transport"))({}, sessionId)) as { chatId: number };
-    const got = (await (await handler("sessions:get"))({}, sessionId)) as {
+    if (this.state.busy)
+      throw new Error(
+        "Wait for this turn to finish (or esc to stop it), then resume.",
+      );
+    const { chatId } = (await (
+      await handler("sessions:allocate-transport")
+    )({}, sessionId)) as { chatId: number };
+    const got = (await (
+      await handler("sessions:get")
+    )({}, sessionId)) as {
       session: SessionSummary;
-      messages: Array<{ id: string; role: string; content: string; modelContent?: string | null; snapshotTurnId?: string | null }>;
+      messages: Array<{
+        id: string;
+        role: string;
+        content: string;
+        modelContent?: string | null;
+        snapshotTurnId?: string | null;
+      }>;
     };
-    const rows = got.messages.map((m, i) => ({ id: i + 1, sessionRowId: m.id }));
-    await (await handler("sessions:hydrate-transport"))({}, { chatId, sessionId, rows });
+    const rows = got.messages.map((m, i) => ({
+      id: i + 1,
+      sessionRowId: m.id,
+    }));
+    await (
+      await handler("sessions:hydrate-transport")
+    )({}, { chatId, sessionId, rows });
     await this.newSession();
     this.sessionId = sessionId;
     this.chatId = chatId;
     // modelContent: what the model was sent, when it differs from what you
     // typed (pastes expanded); the transcript shows the paste from it.
-    this.messages = got.messages.map((m, i) => ({ id: i + 1, role: m.role, content: m.content, modelContent: m.modelContent ?? null }));
+    this.messages = got.messages.map((m, i) => ({
+      id: i + 1,
+      role: m.role,
+      content: m.content,
+      modelContent: m.modelContent ?? null,
+    }));
     for (const m of this.messages) {
       if (m.role === "user") this.seenUserIds.add(String(m.id));
       else this.persisted.add(String(m.id));
     }
     got.messages.forEach((m, i) => {
-      if (m.snapshotTurnId) this.turnSnapshots.set(String(i + 1), m.snapshotTurnId);
+      if (m.snapshotTurnId)
+        this.turnSnapshots.set(String(i + 1), m.snapshotTurnId);
     });
     const mode = got.session.workMode;
-    const { getLatestPlanArtifact } = await import("@/lib/plans/plan-artifacts");
-    const plan = await getLatestPlanArtifact(sessionId, "plan").catch(() => null);
+    const { getLatestPlanArtifact } = await import(
+      "@/lib/plans/plan-artifacts"
+    );
+    const plan = await getLatestPlanArtifact(sessionId, "plan").catch(
+      () => null,
+    );
     this.update({
       cells: this.cellsFor(false),
       title: got.session.title,
-      ...(mode === "build" || mode === "ask" || mode === "plan" || mode === "debug" || mode === "review" ? { mode } : {}),
+      ...(mode === "build" ||
+      mode === "ask" ||
+      mode === "plan" ||
+      mode === "debug" ||
+      mode === "review"
+        ? { mode }
+        : {}),
       planReady: plan ? { planId: plan.id, title: plan.title ?? "Plan" } : null,
     });
   }
@@ -379,26 +438,47 @@ export class AgentSession extends EventEmitter {
   /** Your messages in this session, newest first (what /undo and esc esc can go back to). */
   myMessages(): Array<{ id: number; text: string }> {
     return this.messages
-      .filter((m) => m.role === "user" && m.content.trim() && !/^\*\*\*Q:\*\*\*/.test(m.content))
+      .filter(
+        (m) =>
+          m.role === "user" &&
+          m.content.trim() &&
+          !/^\*\*\*Q:\*\*\*/.test(m.content),
+      )
       .map((m) => ({ id: Number(m.id), text: m.content.trim() }))
       .reverse();
   }
 
   /** What going back to this message would discard: the replies' file snapshots and the files they touched. */
-  async undoPreview(messageId: number): Promise<{ turnIds: string[]; filesChanged: string[]; createdFiles: string[] }> {
-    const { discardedTurnSnapshotIds } = await import("@/lib/chat/discarded-turn-snapshots");
-    const snapshotById = new Map([...this.turnSnapshots].map(([k, v]) => [Number(k), v]));
+  async undoPreview(
+    messageId: number,
+  ): Promise<{
+    turnIds: string[];
+    filesChanged: string[];
+    createdFiles: string[];
+  }> {
+    const { discardedTurnSnapshotIds } = await import(
+      "@/lib/chat/discarded-turn-snapshots"
+    );
+    const snapshotById = new Map(
+      [...this.turnSnapshots].map(([k, v]) => [Number(k), v]),
+    );
     const turnIds = discardedTurnSnapshotIds(
       this.messages.map((m) => ({ id: Number(m.id), role: m.role })),
       messageId,
       snapshotById,
     );
     if (!turnIds.length) return { turnIds, filesChanged: [], createdFiles: [] };
-    const files = (await (await handler("snapshot:files-range"))({}, { chatId: this.chatId, turnIds }).catch(() => null)) as {
+    const files = (await (
+      await handler("snapshot:files-range")
+    )({}, { chatId: this.chatId, turnIds }).catch(() => null)) as {
       filesChanged: string[];
       createdFiles: string[];
     } | null;
-    return { turnIds, filesChanged: files?.filesChanged ?? [], createdFiles: files?.createdFiles ?? [] };
+    return {
+      turnIds,
+      filesChanged: files?.filesChanged ?? [],
+      createdFiles: files?.createdFiles ?? [],
+    };
   }
 
   /**
@@ -406,26 +486,56 @@ export class AgentSession extends EventEmitter {
    * (SimpleInlineChat.performEdit): everything after it leaves the conversation,
    * and with `restoreTurnIds` the files those turns changed go back first.
    */
-  async resendEdited(messageId: number, text: string, restoreTurnIds: string[] | null): Promise<{ restoredFiles: number }> {
-    if (this.state.busy) throw new Error("Wait for this turn to finish (or esc to stop it).");
+  async resendEdited(
+    messageId: number,
+    text: string,
+    restoreTurnIds: string[] | null,
+  ): Promise<{ restoredFiles: number }> {
+    if (this.state.busy)
+      throw new Error("Wait for this turn to finish (or esc to stop it).");
     let restoredFiles = 0;
     if (restoreTurnIds?.length) {
-      const res = (await (await handler("revert:snapshot-range"))({}, { chatId: this.chatId, turnIds: restoreTurnIds })) as {
+      const res = (await (
+        await handler("revert:snapshot-range")
+      )({}, { chatId: this.chatId, turnIds: restoreTurnIds })) as {
         success: boolean;
         restoredFiles?: number;
         error?: string;
       };
-      if (!res.success) throw new Error(res.error ?? "Restoring the files failed; nothing was changed.");
+      if (!res.success)
+        throw new Error(
+          res.error ?? "Restoring the files failed; nothing was changed.",
+        );
       restoredFiles = res.restoredFiles ?? 0;
     }
-    await (await handler("chat:edit-message"))(this.event, { chatId: this.chatId, userMessageId: messageId, newContent: text });
+    await (
+      await handler("chat:edit-message")
+    )(this.event, {
+      chatId: this.chatId,
+      userMessageId: messageId,
+      newContent: text,
+    });
     const { getStreamTransport } = await import("@/lib/chat/stream-transport");
-    const kept = (getStreamTransport(this.chatId)?.messages ?? []) as ChatMessageLike[];
-    this.messages = kept.map((m) => ({ id: m.id, role: m.role, content: m.content, modelContent: m.modelContent ?? null }));
+    const kept = (getStreamTransport(this.chatId)?.messages ??
+      []) as ChatMessageLike[];
+    this.messages = kept.map((m) => ({
+      id: m.id,
+      role: m.role,
+      content: m.content,
+      modelContent: m.modelContent ?? null,
+    }));
     const ids = new Set(this.messages.map((m) => String(m.id)));
-    for (const id of [...this.turnSnapshots.keys()]) if (!ids.has(id)) this.turnSnapshots.delete(id);
-    this.shellRuns = this.shellRuns.filter((r) => !r.afterMessageId || ids.has(r.afterMessageId));
-    this.update({ cells: this.cellsFor(false), lastError: null, planReady: null, question: null });
+    for (const id of [...this.turnSnapshots.keys()])
+      if (!ids.has(id)) this.turnSnapshots.delete(id);
+    this.shellRuns = this.shellRuns.filter(
+      (r) => !r.afterMessageId || ids.has(r.afterMessageId),
+    );
+    this.update({
+      cells: this.cellsFor(false),
+      lastError: null,
+      planReady: null,
+      question: null,
+    });
     await this.startTurn("", { continueAfterQuestions: true });
     return { restoredFiles };
   }
@@ -434,22 +544,40 @@ export class AgentSession extends EventEmitter {
 
   /** Summarise the conversation so far, as the agent does when the context fills. */
   async compact(): Promise<{ ok: boolean; message: string }> {
-    if (this.state.busy) return { ok: false, message: "Compacting waits for the turn to finish (esc stops it)." };
+    if (this.state.busy)
+      return {
+        ok: false,
+        message: "Compacting waits for the turn to finish (esc stops it).",
+      };
     if (!this.chatId || this.messages.length < 4) {
-      return { ok: false, message: "Nothing to compact yet: the conversation is still short." };
+      return {
+        ok: false,
+        message: "Nothing to compact yet: the conversation is still short.",
+      };
     }
     const { forceCompactEphemeralChat } = await import("@/lib/tools/workspace");
     const { getStreamTransport } = await import("@/lib/chat/stream-transport");
     const count = (t: unknown) =>
-      ((t as { messages?: Array<{ content?: string }> } | undefined)?.messages ?? []).reduce(
-        (n, m) => n + (m.content?.length ?? 0),
-        0,
-      );
+      (
+        (t as { messages?: Array<{ content?: string }> } | undefined)
+          ?.messages ?? []
+      ).reduce((n, m) => n + (m.content?.length ?? 0), 0);
     const before = count(getStreamTransport(this.chatId));
-    this.update({ busy: true, phase: "Compacting…", turnStartedAt: Date.now() });
+    this.update({
+      busy: true,
+      phase: "Compacting…",
+      turnStartedAt: Date.now(),
+    });
     try {
-      const done = await forceCompactEphemeralChat(this.chatId, this.model?.provider);
-      if (!done) return { ok: false, message: "Nothing to compact yet: the conversation is still short." };
+      const done = await forceCompactEphemeralChat(
+        this.chatId,
+        this.model?.provider,
+      );
+      if (!done)
+        return {
+          ok: false,
+          message: "Nothing to compact yet: the conversation is still short.",
+        };
       const after = count(getStreamTransport(this.chatId));
       // ~4 characters a token: an estimate, said as one.
       const tokens = (chars: number) => formatTokenCount(Math.round(chars / 4));
@@ -458,20 +586,42 @@ export class AgentSession extends EventEmitter {
         message: `Compacted · ~${tokens(before)} → ~${tokens(after)} tokens. Earlier messages stay on screen; Atlarix now works from the summary.`,
       };
     } finally {
-      this.update({ busy: false, phase: null, turnStartedAt: null, contextPercent: null, contextUsed: null, contextLimit: null });
+      this.update({
+        busy: false,
+        phase: null,
+        turnStartedAt: null,
+        contextPercent: null,
+        contextUsed: null,
+        contextLimit: null,
+      });
     }
   }
 
   // ─── plans (/plan) ─────────────────────────────────────────────────────────
 
-  async plans(): Promise<Array<{ id: string; title: string; status: string; content: string; createdAt: Date }>> {
+  async plans(): Promise<
+    Array<{
+      id: string;
+      title: string;
+      status: string;
+      content: string;
+      createdAt: Date;
+    }>
+  > {
     if (!this.sessionId) return [];
-    const { listPlanArtifactsForSession } = await import("@/lib/plans/plan-artifacts");
+    const { listPlanArtifactsForSession } = await import(
+      "@/lib/plans/plan-artifacts"
+    );
     const rows = await listPlanArtifactsForSession(this.sessionId);
     return rows.map((r) => ({
       id: r.id,
       // Rows from before the title column: the first line, as the desktop's card does.
-      title: r.title ?? ((r.content.split("\n").find((l) => l.trim()) ?? "").replace(/^#+\s*/, "").trim() || "Plan"),
+      title:
+        r.title ??
+        ((r.content.split("\n").find((l) => l.trim()) ?? "")
+          .replace(/^#+\s*/, "")
+          .trim() ||
+          "Plan"),
       status: r.planStatus,
       content: r.content,
       createdAt: r.createdAt,
@@ -479,12 +629,30 @@ export class AgentSession extends EventEmitter {
   }
 
   /** Plans from this folder's earlier sessions (here or in the app), newest first. */
-  async earlierPlans(): Promise<Array<{ id: string; title: string; status: string; content: string; createdAt: Date; sessionTitle: string | null }>> {
-    const { listPlanArtifactsForWorkspace } = await import("@/lib/plans/plan-artifacts");
-    const rows = await listPlanArtifactsForWorkspace(this.appId, { excludeSessionId: this.sessionId || undefined });
+  async earlierPlans(): Promise<
+    Array<{
+      id: string;
+      title: string;
+      status: string;
+      content: string;
+      createdAt: Date;
+      sessionTitle: string | null;
+    }>
+  > {
+    const { listPlanArtifactsForWorkspace } = await import(
+      "@/lib/plans/plan-artifacts"
+    );
+    const rows = await listPlanArtifactsForWorkspace(this.appId, {
+      excludeSessionId: this.sessionId || undefined,
+    });
     return rows.map((r) => ({
       id: r.id,
-      title: r.title ?? ((r.content.split("\n").find((l) => l.trim()) ?? "").replace(/^#+\s*/, "").trim() || "Plan"),
+      title:
+        r.title ??
+        ((r.content.split("\n").find((l) => l.trim()) ?? "")
+          .replace(/^#+\s*/, "")
+          .trim() ||
+          "Plan"),
       status: r.planStatus,
       content: r.content,
       createdAt: r.createdAt,
@@ -494,20 +662,32 @@ export class AgentSession extends EventEmitter {
 
   /** An earlier session's plan, copied into this one and built here (the original keeps its history). */
   async buildEarlierPlan(planId: string): Promise<void> {
-    if (this.state.busy) throw new Error("Wait for this turn to finish (or esc to stop it), then build.");
+    if (this.state.busy)
+      throw new Error(
+        "Wait for this turn to finish (or esc to stop it), then build.",
+      );
     await this.ensureSession();
-    const { copyPlanArtifactToSession } = await import("@/lib/plans/plan-artifacts");
+    const { copyPlanArtifactToSession } = await import(
+      "@/lib/plans/plan-artifacts"
+    );
     const copy = await copyPlanArtifactToSession(planId, this.sessionId);
     if (!copy) throw new Error("That plan no longer exists.");
     await this.buildPlan(copy.id);
   }
 
   /** Share a plan as a relic: a hosted link on paid Core, a local page otherwise. */
-  async sharePlan(planId: string): Promise<{ url?: string; path?: string; note?: string }> {
+  async sharePlan(
+    planId: string,
+  ): Promise<{ url?: string; path?: string; note?: string }> {
     const { getPlanArtifact } = await import("@/lib/plans/plan-artifacts");
     const plan = await getPlanArtifact(planId);
     if (!plan) throw new Error("That plan no longer exists.");
-    const title = plan.title ?? ((plan.content.split("\n").find((l) => l.trim()) ?? "").replace(/^#+\s*/, "").trim() || "Plan");
+    const title =
+      plan.title ??
+      ((plan.content.split("\n").find((l) => l.trim()) ?? "")
+        .replace(/^#+\s*/, "")
+        .trim() ||
+        "Plan");
     const { planPageHtml } = await import("@/lib/relics/plan-page");
     const { runRelic } = await import("@/lib/tools/relic");
     const res = await runRelic({
@@ -522,7 +702,9 @@ export class AgentSession extends EventEmitter {
 
   /** "Build it": the plan moves to building and a Build turn starts on it (PlanExecutionPanel.handleBuild). */
   async buildPlan(planId: string): Promise<void> {
-    const { setPlanArtifactStatus } = await import("@/lib/plans/plan-artifacts");
+    const { setPlanArtifactStatus } = await import(
+      "@/lib/plans/plan-artifacts"
+    );
     const { BUILD_FROM_PLAN_PROMPT } = await import("@/lib/work-mode");
     await setPlanArtifactStatus(planId, "building");
     this.update({ planReady: null });
@@ -541,13 +723,19 @@ export class AgentSession extends EventEmitter {
     const q = this.state.question;
     if (!q) return;
     this.update({ question: null });
-    const res = (await (await handler("chat:submit-user-question-answer"))(this.event, {
+    const res = (await (
+      await handler("chat:submit-user-question-answer")
+    )(this.event, {
       chatId: this.chatId,
       questionId: q.questionId,
       answer: combineAnswers(q.items, answers),
-      questionText: q.items.length === 1 ? q.items[0]!.question : `${q.items.length} questions`,
+      questionText:
+        q.items.length === 1
+          ? q.items[0]!.question
+          : `${q.items.length} questions`,
     })) as { success: boolean; restream?: boolean };
-    if (res?.restream) await this.startTurn("", { continueAfterQuestions: true });
+    if (res?.restream)
+      await this.startTurn("", { continueAfterQuestions: true });
   }
 
   /** Esc on the questions: they stay unanswered; whatever you type next is the reply. */
@@ -556,7 +744,9 @@ export class AgentSession extends EventEmitter {
   }
 
   /** Your answer to an MCP tool call (the desktop's consent toast). */
-  async answerMcpConsent(decision: "accept-once" | "accept-always" | "decline"): Promise<void> {
+  async answerMcpConsent(
+    decision: "accept-once" | "accept-always" | "decline",
+  ): Promise<void> {
     const req = this.state.mcpConsent;
     if (!req) return;
     this.update({ mcpConsent: null });
@@ -588,7 +778,9 @@ export class AgentSession extends EventEmitter {
   /** Commands the agent started in the background (run_command background:true), still running. */
   async backgroundCommands(): Promise<BackgroundCommand[]> {
     if (!this.chatId) return [];
-    const { listBackgroundJobs } = await import("@/lib/agent/background-commands");
+    const { listBackgroundJobs } = await import(
+      "@/lib/agent/background-commands"
+    );
     return listBackgroundJobs(this.chatId).map((j) => ({
       id: j.operationId,
       command: j.command,
@@ -599,13 +791,17 @@ export class AgentSession extends EventEmitter {
 
   async backgroundOutput(id: string): Promise<string> {
     if (!this.chatId) return "";
-    const { readBackgroundOutputTail } = await import("@/lib/agent/background-commands");
+    const { readBackgroundOutputTail } = await import(
+      "@/lib/agent/background-commands"
+    );
     return readBackgroundOutputTail(this.chatId, id).tail;
   }
 
   async stopBackgroundCommand(id: string): Promise<boolean> {
     if (!this.chatId) return false;
-    const { killBackgroundJob } = await import("@/lib/agent/background-commands");
+    const { killBackgroundJob } = await import(
+      "@/lib/agent/background-commands"
+    );
     return killBackgroundJob(this.chatId, id);
   }
 
@@ -625,7 +821,9 @@ export class AgentSession extends EventEmitter {
     const out: LiveTask[] = [];
     for (const d of this.delegations.values()) {
       if (d.status !== "running") continue;
-      const job = jobs.find((j) => !used.has(j.taskId) && j.prompt != null && j.prompt === d.task);
+      const job = jobs.find(
+        (j) => !used.has(j.taskId) && j.prompt != null && j.prompt === d.task,
+      );
       if (job) used.add(job.taskId);
       out.push({
         id: `agent:${d.id}`,
@@ -643,10 +841,26 @@ export class AgentSession extends EventEmitter {
     // Background sub-agents this session didn't see start (a resumed session).
     for (const j of jobs) {
       if (used.has(j.taskId)) continue;
-      out.push({ id: `job:${j.taskId}`, kind: "agent", label: j.description, elapsedMs: j.elapsedMs, stalled: j.stalled, jobId: j.taskId, tools: [] });
+      out.push({
+        id: `job:${j.taskId}`,
+        kind: "agent",
+        label: j.description,
+        elapsedMs: j.elapsedMs,
+        stalled: j.stalled,
+        jobId: j.taskId,
+        tools: [],
+      });
     }
     for (const c of commands) {
-      out.push({ id: `cmd:${c.id}`, kind: "command", label: c.command, elapsedMs: c.elapsedMs, stalled: c.stalled, jobId: c.id, tools: [] });
+      out.push({
+        id: `cmd:${c.id}`,
+        kind: "command",
+        label: c.command,
+        elapsedMs: c.elapsedMs,
+        stalled: c.stalled,
+        jobId: c.id,
+        tools: [],
+      });
     }
     return out;
   }
@@ -654,7 +868,9 @@ export class AgentSession extends EventEmitter {
   /** The latest output of a task from liveTasks(). */
   async taskOutput(t: LiveTask): Promise<string> {
     if (!t.jobId) return "";
-    return t.kind === "command" ? this.backgroundOutput(t.jobId) : this.subagentOutput(t.jobId);
+    return t.kind === "command"
+      ? this.backgroundOutput(t.jobId)
+      : this.subagentOutput(t.jobId);
   }
 
   /** Stop a task from liveTasks(). A sub-agent working inside the current turn stops with the turn (esc). */
@@ -672,32 +888,55 @@ export class AgentSession extends EventEmitter {
 
   async subagentJobs(): Promise<SubagentJob[]> {
     if (!this.chatId) return [];
-    return ((await (await handler("chat:subagent-jobs-list"))({}, this.chatId)) ?? []) as SubagentJob[];
+    return ((await (
+      await handler("chat:subagent-jobs-list")
+    )({}, this.chatId)) ?? []) as SubagentJob[];
   }
 
   async subagentOutput(taskId: string): Promise<string> {
-    const res = (await (await handler("chat:subagent-job-output"))({}, { chatId: this.chatId, taskId })) as unknown;
+    const res = (await (
+      await handler("chat:subagent-job-output")
+    )({}, { chatId: this.chatId, taskId })) as unknown;
     return (res as { text?: string } | null)?.text ?? "";
   }
 
   async cancelSubagent(taskId: string): Promise<void> {
-    await (await handler("chat:subagent-job-cancel"))({}, { chatId: this.chatId, taskId });
+    await (
+      await handler("chat:subagent-job-cancel")
+    )({}, { chatId: this.chatId, taskId });
   }
 
   // ─── export / import ───────────────────────────────────────────────────────
 
   /** What /export writes: this session's messages as the agent has them. */
-  exportable(): { title: string | null; sessionId: string; messages: ChatMessageLike[]; model: ModelChoice | undefined } {
-    return { title: this.state.title, sessionId: this.sessionId, messages: this.messages, model: this.model };
+  exportable(): {
+    title: string | null;
+    sessionId: string;
+    messages: ChatMessageLike[];
+    model: ModelChoice | undefined;
+  } {
+    return {
+      title: this.state.title,
+      sessionId: this.sessionId,
+      messages: this.messages,
+      model: this.model,
+    };
   }
 
   /** A new session in this folder holding these messages, then opened. */
-  async importMessages(title: string, messages: Array<{ role: "user" | "assistant"; content: string }>): Promise<void> {
-    const created = (await (await handler("sessions:create"))({}, this.appId)) as { id?: string; sessionId?: string };
+  async importMessages(
+    title: string,
+    messages: Array<{ role: "user" | "assistant"; content: string }>,
+  ): Promise<void> {
+    const created = (await (
+      await handler("sessions:create")
+    )({}, this.appId)) as { id?: string; sessionId?: string };
     const sessionId = created.id ?? created.sessionId!;
     const add = await handler("messages:add");
     for (const m of messages) await add({}, sessionId, m.role, m.content);
-    await (await handler("sessions:rename"))({}, sessionId, title);
+    await (
+      await handler("sessions:rename")
+    )({}, sessionId, title);
     await this.resume(sessionId);
   }
 
@@ -711,7 +950,10 @@ export class AgentSession extends EventEmitter {
    */
   async submit(
     text: string,
-    opts: { display?: string; images?: Array<{ path: string; mime: string; label: string }> } = {},
+    opts: {
+      display?: string;
+      images?: Array<{ path: string; mime: string; label: string }>;
+    } = {},
   ): Promise<void> {
     if (this.state.busy) {
       await this.steer(text);
@@ -740,11 +982,16 @@ export class AgentSession extends EventEmitter {
   private async steer(text: string): Promise<void> {
     const id = `s${++interjectionSeq}`;
     this.steerTexts.push(text.trim());
-    const res = (await (await handler("chat:interject"))({}, {
-      chatId: this.chatId,
-      id,
-      text,
-    })) as { ok: boolean; pending: Array<{ id: string; text: string }> };
+    const res = (await (
+      await handler("chat:interject")
+    )(
+      {},
+      {
+        chatId: this.chatId,
+        id,
+        text,
+      },
+    )) as { ok: boolean; pending: Array<{ id: string; text: string }> };
     if (!res.ok) {
       // Could not be attached to the running turn: it opens the next one instead.
       this.queue.push({ id, text, kind: "queued" });
@@ -755,13 +1002,20 @@ export class AgentSession extends EventEmitter {
   private steers: QueuedMessage[] = [];
 
   private syncPending(steers?: Array<{ id: string; text: string }>): void {
-    if (steers) this.steers = steers.map((s) => ({ id: s.id, text: s.text, kind: "steer" as const }));
+    if (steers)
+      this.steers = steers.map((s) => ({
+        id: s.id,
+        text: s.text,
+        kind: "steer" as const,
+      }));
     this.update({ pending: [...this.steers, ...this.queue] });
   }
 
   private async ensureSession(): Promise<void> {
     if (this.sessionId) return;
-    const started = (await (await handler("sessions:start"))({}, this.appId)) as {
+    const started = (await (
+      await handler("sessions:start")
+    )({}, this.appId)) as {
       sessionId: string;
       chatId: number;
     };
@@ -796,26 +1050,39 @@ export class AgentSession extends EventEmitter {
     this.staleBelow = this.highestStreamId + 1;
     void this.refreshContextWindow();
     try {
-      await (await handler("chat:stream"))(this.event, {
+      await (
+        await handler("chat:stream")
+      )(this.event, {
         chatId: this.chatId,
         appId: this.appId,
         workspaceSessionId: this.sessionId,
         prompt: text,
-        ...(opts.display && opts.display !== text ? { displayPrompt: opts.display } : {}),
+        ...(opts.display && opts.display !== text
+          ? { displayPrompt: opts.display }
+          : {}),
         ...(attachments.length ? { attachments } : {}),
         ...(this.model ? { modelOverride: this.model } : {}),
-        ...(opts.continueAfterQuestions ? { continueAfterQuestions: true } : {}),
+        ...(opts.continueAfterQuestions
+          ? { continueAfterQuestions: true }
+          : {}),
         workModeOverride: this.state.mode,
       });
     } catch (e) {
-      this.update({ busy: false, phase: null, lastError: e instanceof Error ? e.message : String(e) });
+      this.update({
+        busy: false,
+        phase: null,
+        lastError: e instanceof Error ? e.message : String(e),
+      });
     }
   }
 
   private async refreshContextWindow(): Promise<void> {
     try {
       const { getContextWindow } = await import("@/ipc/utils/token_utils");
-      this.contextWindow = await getContextWindow(this.model as never, this.chatId);
+      this.contextWindow = await getContextWindow(
+        this.model as never,
+        this.chatId,
+      );
     } catch {
       this.contextWindow = null;
     }
@@ -829,7 +1096,9 @@ export class AgentSession extends EventEmitter {
     this.queue = [];
     this.syncPending();
     try {
-      await (await handler("chat:cancel"))({}, this.chatId);
+      await (
+        await handler("chat:cancel")
+      )({}, this.chatId);
     } catch {
       /* the turn ends through its own error path either way */
     }
@@ -840,7 +1109,10 @@ export class AgentSession extends EventEmitter {
    * thought ends when anything comes after it, or the turn does. Thoughts read
    * back from an earlier session have no time.
    */
-  private readonly thoughtTimes = new Map<string, { start: number; end?: number }>();
+  private readonly thoughtTimes = new Map<
+    string,
+    { start: number; end?: number }
+  >();
 
   private timeThoughts(cells: Cell[], streaming: boolean): Cell[] {
     const now = Date.now();
@@ -858,11 +1130,18 @@ export class AgentSession extends EventEmitter {
   }
 
   private cellsFor(streaming: boolean): Cell[] {
-    return this.withFooters(this.numberEdits(this.timeThoughts(this.untimedCells(streaming), streaming)));
+    return this.withFooters(
+      this.numberEdits(
+        this.timeThoughts(this.untimedCells(streaming), streaming),
+      ),
+    );
   }
 
   /** Each turn this session ran, by its reply's id: "Build · deepseek-flash · 12s". */
-  private readonly turnFooters = new Map<string, { text: string; interrupted: boolean }>();
+  private readonly turnFooters = new Map<
+    string,
+    { text: string; interrupted: boolean }
+  >();
 
   private withFooters(cells: Cell[]): Cell[] {
     if (!this.turnFooters.size) return cells;
@@ -876,14 +1155,22 @@ export class AgentSession extends EventEmitter {
       const owner = c.id.split(":")[0]!;
       const footer = this.turnFooters.get(owner);
       if (footer && last.get(owner) === i) {
-        out.push({ kind: "footer", id: `${owner}:footer`, text: footer.text, interrupted: footer.interrupted });
+        out.push({
+          kind: "footer",
+          id: `${owner}:footer`,
+          text: footer.text,
+          interrupted: footer.interrupted,
+        });
       }
     });
     return out;
   }
 
   /** Files read for edit line numbers, by path, with the mtime they were read at. */
-  private readonly editFiles = new Map<string, { mtimeMs: number; text: string }>();
+  private readonly editFiles = new Map<
+    string,
+    { mtimeMs: number; text: string }
+  >();
 
   /** An edit's diff with the file's own line numbers (found by its new text in the file). */
   private numberEdits(cells: Cell[]): Cell[] {
@@ -903,7 +1190,13 @@ export class AgentSession extends EventEmitter {
       } catch {
         return c;
       }
-      return { ...c, tool: { ...c.tool, diff: { ...c.tool.diff, starts: locateBlocks(c.tool.diff, text) } } };
+      return {
+        ...c,
+        tool: {
+          ...c.tool,
+          diff: { ...c.tool.diff, starts: locateBlocks(c.tool.diff, text) },
+        },
+      };
     });
   }
 
@@ -911,7 +1204,10 @@ export class AgentSession extends EventEmitter {
     const messages = collapseCancelled(this.messages, this.interrupted);
     return withDelegations(
       placeShellRuns(
-        markInterrupted(placeSteers(messages, this.anchors, { streaming }), this.interrupted),
+        markInterrupted(
+          placeSteers(messages, this.anchors, { streaming }),
+          this.interrupted,
+        ),
         this.shellRuns,
       ),
       this.delegations.values(),
@@ -925,12 +1221,15 @@ export class AgentSession extends EventEmitter {
 
   /** A sub-agent's `chat:activity` event: started, said something, ran a tool, finished. */
   private onSubagentActivity(p: Record<string, unknown>): boolean {
-    const did = typeof p.parentDelegationId === "string" ? p.parentDelegationId : null;
+    const did =
+      typeof p.parentDelegationId === "string" ? p.parentDelegationId : null;
     if (!did) return false;
     let d = this.delegations.get(did);
     if (p.type === "subagent_start" && !d) {
       // The reply being written now is the one whose `task` call started it.
-      const last = [...this.messages].reverse().find((m) => m.role === "assistant");
+      const last = [...this.messages]
+        .reverse()
+        .find((m) => m.role === "assistant");
       if (!last) return false;
       const assistantId = String(last.id);
       const index = this.delegationCount.get(assistantId) ?? 0;
@@ -949,9 +1248,16 @@ export class AgentSession extends EventEmitter {
       return true;
     }
     if (!d) return false;
-    if (p.type === "subagent_progress" && typeof p.preview === "string") d.progress = p.preview.split("\n")[0]!.slice(0, 120);
-    else if (p.type === "subagent_tokens" && typeof p.tokens === "number") d.tokens = p.tokens;
-    else if (p.type === "subagent_thought" && p.channel === "text" && typeof p.id === "string" && typeof p.preview === "string") {
+    if (p.type === "subagent_progress" && typeof p.preview === "string")
+      d.progress = p.preview.split("\n")[0]!.slice(0, 120);
+    else if (p.type === "subagent_tokens" && typeof p.tokens === "number")
+      d.tokens = p.tokens;
+    else if (
+      p.type === "subagent_thought" &&
+      p.channel === "text" &&
+      typeof p.id === "string" &&
+      typeof p.preview === "string"
+    ) {
       (d.text ??= new Map()).set(p.id, p.preview);
     } else if (p.type === "tool_use") {
       const line = activityToolLine(p);
@@ -980,18 +1286,23 @@ export class AgentSession extends EventEmitter {
       this.update({ lastError: "A command is already running. Esc stops it." });
       return;
     }
-    const { runShellCommandStreaming, killShellProcess } = await import("@/ipc/utils/runShellCommand");
+    const { runShellCommandStreaming, killShellProcess } = await import(
+      "@/ipc/utils/runShellCommand"
+    );
     const run: ShellRun = {
       id: `${Date.now().toString(36)}${++interjectionSeq}`,
       command,
       output: "",
       exitCode: null,
       status: "running",
-      afterMessageId: this.messages.length ? String(this.messages.at(-1)!.id) : "",
+      afterMessageId: this.messages.length
+        ? String(this.messages.at(-1)!.id)
+        : "",
       delivered: false,
     };
     this.shellRuns.push(run);
-    const redraw = () => this.update({ cells: this.cellsFor(this.state.busy), lastError: null });
+    const redraw = () =>
+      this.update({ cells: this.cellsFor(this.state.busy), lastError: null });
     redraw();
     let stopped = false;
     this.stopShell = () => {
@@ -999,18 +1310,26 @@ export class AgentSession extends EventEmitter {
       killShellProcess(this.shellProc);
     };
     try {
-      const result = await runShellCommandStreaming(command, this.workspaceDir, {
-        workspaceRoot: this.workspaceDir,
-        onSpawn: (proc) => {
-          this.shellProc = proc;
-          redraw();
+      const result = await runShellCommandStreaming(
+        command,
+        this.workspaceDir,
+        {
+          workspaceRoot: this.workspaceDir,
+          onSpawn: (proc) => {
+            this.shellProc = proc;
+            redraw();
+          },
+          onOutput: (o) => {
+            run.output = [o.stdout, o.stderr]
+              .filter(Boolean)
+              .join(o.stdout && o.stderr ? "\n" : "");
+            redraw();
+          },
         },
-        onOutput: (o) => {
-          run.output = [o.stdout, o.stderr].filter(Boolean).join(o.stdout && o.stderr ? "\n" : "");
-          redraw();
-        },
-      });
-      run.output = [result.stdout, result.stderr].filter((x) => x?.trim()).join("\n");
+      );
+      run.output = [result.stdout, result.stderr]
+        .filter((x) => x?.trim())
+        .join("\n");
       run.exitCode = result.exitCode;
       run.status = stopped ? "interrupted" : "success";
     } catch (e) {
@@ -1029,7 +1348,8 @@ export class AgentSession extends EventEmitter {
   /** The prompt with any `!command` runs since the last message, which are then marked given. */
   private takeShellContext(text: string): string {
     const out = withShellContext(text, this.shellRuns);
-    for (const r of this.shellRuns) if (r.status !== "running") r.delivered = true;
+    for (const r of this.shellRuns)
+      if (r.status !== "running") r.delivered = true;
     return out;
   }
 
@@ -1040,17 +1360,25 @@ export class AgentSession extends EventEmitter {
    * answer had often grown past it, so it was drawn below the reply that read it
    * (owner, 2026-10-05: "it goes to the bottom").
    */
-  private readonly steerTakenAt = new Map<string, { assistantId: string; offset: number }>();
+  private readonly steerTakenAt = new Map<
+    string,
+    { assistantId: string; offset: number }
+  >();
 
   private noteDelivered(pending: Array<{ id: string; text: string }>): void {
     const still = new Set(pending.map((x) => x.id));
-    const answer = [...this.messages].reverse().find((m) => m.role === "assistant");
+    const answer = [...this.messages]
+      .reverse()
+      .find((m) => m.role === "assistant");
     if (!answer) return;
     for (const st of this.steers) {
       if (still.has(st.id)) continue;
       const key = st.text.trim();
       if (!this.steerTakenAt.has(key)) {
-        this.steerTakenAt.set(key, { assistantId: String(answer.id), offset: answer.content.length });
+        this.steerTakenAt.set(key, {
+          assistantId: String(answer.id),
+          offset: answer.content.length,
+        });
       }
     }
   }
@@ -1071,22 +1399,43 @@ export class AgentSession extends EventEmitter {
       const answer = this.messages[lastAssistant]!;
       const taken = this.steerTakenAt.get(m.content.trim());
       this.steerTakenAt.delete(m.content.trim());
-      const at = taken && taken.assistantId === String(answer.id) ? taken.offset : answer.content.length;
-      this.anchors.set(id, { messageId: id, assistantId: String(answer.id), offset: Math.min(at, answer.content.length) });
+      const at =
+        taken && taken.assistantId === String(answer.id)
+          ? taken.offset
+          : answer.content.length;
+      this.anchors.set(id, {
+        messageId: id,
+        assistantId: String(answer.id),
+        offset: Math.min(at, answer.content.length),
+      });
     });
   }
 
   async answerApproval(
     operationId: string,
-    approvalMode: "once" | "deny" | "always_allow" | "always_allow_file" | "always_allow_directory",
+    approvalMode:
+      | "once"
+      | "deny"
+      | "always_allow"
+      | "always_allow_file"
+      | "always_allow_directory",
   ): Promise<void> {
-    this.update({ approvals: this.state.approvals.filter((a) => a.operationId !== operationId) });
-    await (await handler("execute-permission"))({}, {
-      chatId: this.chatId,
-      operationId,
-      approvalMode,
-      appId: this.appId,
+    this.update({
+      approvals: this.state.approvals.filter(
+        (a) => a.operationId !== operationId,
+      ),
     });
+    await (
+      await handler("execute-permission")
+    )(
+      {},
+      {
+        chatId: this.chatId,
+        operationId,
+        approvalMode,
+        appId: this.appId,
+      },
+    );
   }
 
   // ─── events from the agent ─────────────────────────────────────────────────
@@ -1094,7 +1443,8 @@ export class AgentSession extends EventEmitter {
   private onSend(channel: string, payload: unknown): void {
     const p = (payload ?? {}) as Record<string, unknown>;
     if (typeof p.chatId === "number" && p.chatId !== this.chatId) return;
-    if (typeof p.streamId === "number") this.highestStreamId = Math.max(this.highestStreamId, p.streamId);
+    if (typeof p.streamId === "number")
+      this.highestStreamId = Math.max(this.highestStreamId, p.streamId);
     switch (channel) {
       // The desktop's permission handler sends requests to every WINDOW on their
       // own channel (reaching the CLI through attachCliWindow); some paths also
@@ -1119,8 +1469,12 @@ export class AgentSession extends EventEmitter {
         if (patch) {
           const idx = this.messages.findIndex((m) => m.id === patch.messageId);
           if (idx < 0) return;
-          const content = applyLiveTextPatch(this.messages[idx]!.content, patch);
-          if (content === null || content === this.messages[idx]!.content) return;
+          const content = applyLiveTextPatch(
+            this.messages[idx]!.content,
+            patch,
+          );
+          if (content === null || content === this.messages[idx]!.content)
+            return;
           const next = this.messages.slice();
           next[idx] = { ...this.messages[idx]!, content };
           this.messages = next;
@@ -1128,6 +1482,13 @@ export class AgentSession extends EventEmitter {
         }
         return;
       }
+      case "chat:background-job-update":
+        // Another Atlarix session sent this one a message while it was idle:
+        // open a turn with it (lib/peers). While busy, the running turn reads it
+        // at its next step instead, so nothing is needed here.
+        if (p.status === "peer_message" && !this.state.busy)
+          void this.startPeerTurn();
+        return;
       case "chat:interjections":
         // Main's queue of steers changed: one was delivered, or added elsewhere.
         if (Array.isArray(p.pending)) {
@@ -1146,7 +1507,10 @@ export class AgentSession extends EventEmitter {
         const patch: Partial<SessionState> = { tokensThisTurn: output };
         if (input != null) this.lastStepTokens = input + output;
         if (input != null && this.contextWindow) {
-          patch.contextPercent = Math.min(100, Math.round(((input + output) / this.contextWindow) * 100));
+          patch.contextPercent = Math.min(
+            100,
+            Math.round(((input + output) / this.contextWindow) * 100),
+          );
           patch.contextUsed = input + output;
           patch.contextLimit = this.contextWindow;
         }
@@ -1154,13 +1518,22 @@ export class AgentSession extends EventEmitter {
         return;
       }
       case "chat:activity":
-        if (this.onSubagentActivity(p)) this.update({ cells: this.cellsFor(this.state.busy) });
+        if (this.onSubagentActivity(p))
+          this.update({ cells: this.cellsFor(this.state.busy) });
         return;
       case "user-question-request": {
-        const items = Array.isArray(p.questions) && p.questions.length
-          ? (p.questions as PendingQuestion["items"])
-          : [{ question: String(p.question ?? ""), options: p.options as string[] | undefined }];
-        this.update({ question: { questionId: String(p.questionId ?? ""), items } });
+        const items =
+          Array.isArray(p.questions) && p.questions.length
+            ? (p.questions as PendingQuestion["items"])
+            : [
+                {
+                  question: String(p.question ?? ""),
+                  options: p.options as string[] | undefined,
+                },
+              ];
+        this.update({
+          question: { questionId: String(p.questionId ?? ""), items },
+        });
         return;
       }
       case "mcp:tool-consent-request":
@@ -1169,14 +1542,24 @@ export class AgentSession extends EventEmitter {
             requestId: String(p.requestId ?? ""),
             serverName: String(p.serverName ?? "MCP server"),
             toolName: String(p.toolName ?? "tool"),
-            toolDescription: typeof p.toolDescription === "string" ? p.toolDescription : undefined,
-            inputPreview: typeof p.inputPreview === "string" ? p.inputPreview : undefined,
+            toolDescription:
+              typeof p.toolDescription === "string"
+                ? p.toolDescription
+                : undefined,
+            inputPreview:
+              typeof p.inputPreview === "string" ? p.inputPreview : undefined,
           },
         });
         return;
       case "plan:artifact-updated":
-        if (typeof p.planId === "string" && (!p.sessionId || p.sessionId === this.sessionId)) {
-          this.planTouched = { planId: p.planId, title: typeof p.title === "string" && p.title ? p.title : "Plan" };
+        if (
+          typeof p.planId === "string" &&
+          (!p.sessionId || p.sessionId === this.sessionId)
+        ) {
+          this.planTouched = {
+            planId: p.planId,
+            title: typeof p.title === "string" && p.title ? p.title : "Plan",
+          };
           this.update({ planRevision: this.state.planRevision + 1 });
         }
         return;
@@ -1190,21 +1573,33 @@ export class AgentSession extends EventEmitter {
       case "chat:response:error":
         // A cancel reports itself as an error; it is not one.
         if (this.interruptRequested) return;
-        this.update({ lastError: String(p.error ?? p.message ?? "The turn failed.") });
+        this.update({
+          lastError: String(p.error ?? p.message ?? "The turn failed."),
+        });
         return;
       case "chat:response:end":
-        if (typeof p.streamId === "number" && p.streamId < this.staleBelow) return;
+        if (typeof p.streamId === "number" && p.streamId < this.staleBelow)
+          return;
         // Main sends a turn's end TWICE (same stream). Ending it twice ran
         // onTurnEnd twice, and the second, finishing later, marked the session
         // idle while the NEXT turn (sent or queued in between) was running:
         // the box then started a parallel turn instead of steering.
-        if (typeof p.streamId === "number" && p.streamId === this.endedStreamId) return;
+        if (typeof p.streamId === "number" && p.streamId === this.endedStreamId)
+          return;
         if (typeof p.streamId === "number") this.endedStreamId = p.streamId;
         this.lastEnd = p;
         this.update({
-          sessionTokens: this.state.sessionTokens + (typeof p.turnTokens === "number" ? p.turnTokens : 0),
-          cachedTokens: this.state.cachedTokens + (typeof p.turnCachedInputTokens === "number" ? p.turnCachedInputTokens : 0),
-          costUsd: this.state.costUsd + (typeof p.turnCostUsd === "number" ? p.turnCostUsd : 0),
+          sessionTokens:
+            this.state.sessionTokens +
+            (typeof p.turnTokens === "number" ? p.turnTokens : 0),
+          cachedTokens:
+            this.state.cachedTokens +
+            (typeof p.turnCachedInputTokens === "number"
+              ? p.turnCachedInputTokens
+              : 0),
+          costUsd:
+            this.state.costUsd +
+            (typeof p.turnCostUsd === "number" ? p.turnCostUsd : 0),
         });
         void this.onTurnEnd();
         return;
@@ -1219,7 +1614,10 @@ export class AgentSession extends EventEmitter {
     this.update({
       approvals: [
         ...this.state.approvals,
-        { operationId: op, request: (p.request ?? {}) as PendingApproval["request"] },
+        {
+          operationId: op,
+          request: (p.request ?? {}) as PendingApproval["request"],
+        },
       ],
     });
   }
@@ -1235,8 +1633,11 @@ export class AgentSession extends EventEmitter {
   async rename(title: string): Promise<void> {
     const name = title.trim();
     if (!name) throw new Error("Give the session a name: /rename <name>");
-    if (!this.sessionId) throw new Error("Send a message first; then the session can be named.");
-    await (await handler("sessions:rename"))({}, this.sessionId, name);
+    if (!this.sessionId)
+      throw new Error("Send a message first; then the session can be named.");
+    await (
+      await handler("sessions:rename")
+    )({}, this.sessionId, name);
     this.update({ title: name });
   }
 
@@ -1251,8 +1652,11 @@ export class AgentSession extends EventEmitter {
       const { db } = await import("@/db");
       const { chatSessions } = await import("@/db/schema");
       const { eq } = await import("drizzle-orm");
-      const row = await db.query.chatSessions.findFirst({ where: eq(chatSessions.id, this.sessionId) });
-      if (row?.title && row.title !== this.state.title) this.update({ title: row.title });
+      const row = await db.query.chatSessions.findFirst({
+        where: eq(chatSessions.id, this.sessionId),
+      });
+      if (row?.title && row.title !== this.state.title)
+        this.update({ title: row.title });
     } catch {
       /* the title is a nicety */
     }
@@ -1285,13 +1689,29 @@ export class AgentSession extends EventEmitter {
     if (!content || this.persisted.has(id)) return;
     this.persisted.add(id);
     const end = this.lastEnd;
-    if (typeof end.snapshotTurnId === "string") this.turnSnapshots.set(id, end.snapshotTurnId);
-    const extras: { modelContent?: string; snapshotTurnId?: string; maxTokensUsed?: number } = {};
-    if (typeof end.assistantModelContent === "string") extras.modelContent = end.assistantModelContent;
-    if (typeof end.snapshotTurnId === "string") extras.snapshotTurnId = end.snapshotTurnId;
+    if (typeof end.snapshotTurnId === "string")
+      this.turnSnapshots.set(id, end.snapshotTurnId);
+    const extras: {
+      modelContent?: string;
+      snapshotTurnId?: string;
+      maxTokensUsed?: number;
+    } = {};
+    if (typeof end.assistantModelContent === "string")
+      extras.modelContent = end.assistantModelContent;
+    if (typeof end.snapshotTurnId === "string")
+      extras.snapshotTurnId = end.snapshotTurnId;
     if (this.lastStepTokens > 0) extras.maxTokensUsed = this.lastStepTokens;
     try {
-      await (await handler("messages:add"))({}, this.sessionId, "assistant", content, undefined, Object.keys(extras).length ? extras : undefined);
+      await (
+        await handler("messages:add")
+      )(
+        {},
+        this.sessionId,
+        "assistant",
+        content,
+        undefined,
+        Object.keys(extras).length ? extras : undefined,
+      );
     } catch {
       this.persisted.delete(id);
     }
@@ -1313,12 +1733,26 @@ export class AgentSession extends EventEmitter {
     this.steers = [];
     const wasInterrupted = this.interruptRequested;
     this.interruptRequested = false;
-    const lastReply = [...this.messages].reverse().find((m) => m.role === "assistant");
+    const lastReply = [...this.messages]
+      .reverse()
+      .find((m) => m.role === "assistant");
     if (wasInterrupted && lastReply) this.interrupted.add(String(lastReply.id));
     if (lastReply && this.state.turnStartedAt) {
-      const secs = Math.max(1, Math.round((Date.now() - this.state.turnStartedAt) / 1000));
-      const took = secs >= 60 ? `${Math.floor(secs / 60)}m ${String(secs % 60).padStart(2, "0")}s` : `${secs}s`;
-      const mode = { build: "Build", ask: "Explore", plan: "Plan", debug: "Debug", review: "Review" }[this.state.mode];
+      const secs = Math.max(
+        1,
+        Math.round((Date.now() - this.state.turnStartedAt) / 1000),
+      );
+      const took =
+        secs >= 60
+          ? `${Math.floor(secs / 60)}m ${String(secs % 60).padStart(2, "0")}s`
+          : `${secs}s`;
+      const mode = {
+        build: "Build",
+        ask: "Explore",
+        plan: "Plan",
+        debug: "Debug",
+        review: "Review",
+      }[this.state.mode];
       this.turnFooters.set(String(lastReply.id), {
         text: [mode, this.model?.name, took].filter(Boolean).join(" · "),
         interrupted: wasInterrupted,
@@ -1332,26 +1766,47 @@ export class AgentSession extends EventEmitter {
       cells: this.cellsFor(false),
       lastError: wasInterrupted ? null : this.state.lastError,
     });
-    if (touched && !wasInterrupted && this.state.mode === "plan" && !this.state.question) {
+    if (
+      touched &&
+      !wasInterrupted &&
+      this.state.mode === "plan" &&
+      !this.state.question
+    ) {
       const { getPlanArtifact } = await import("@/lib/plans/plan-artifacts");
       const plan = await getPlanArtifact(touched.planId).catch(() => null);
       if (plan?.planStatus === "plan") this.update({ planReady: touched });
     }
     if (wasInterrupted) {
       // A stopped turn opens nothing: steers typed during it are dropped with it.
-      await Promise.resolve((await handler("chat:interject-flush"))({}, this.chatId)).catch(() => {});
+      await Promise.resolve(
+        (await handler("chat:interject-flush"))({}, this.chatId),
+      ).catch(() => {});
       this.syncPending();
       return;
     }
     // A steer that never reached a step (the model stopped first) opens the next
     // turn, ahead of anything queued: it was said first. Take-once in main.
-    const flushed = (await (await handler("chat:interject-flush"))({}, this.chatId)) as {
+    const flushed = (await (
+      await handler("chat:interject-flush")
+    )({}, this.chatId)) as {
       text?: string | null;
     };
     this.steers = [];
-    const next = flushed?.text?.trim() ? flushed.text : this.queue.shift()?.text;
+    const next = flushed?.text?.trim()
+      ? flushed.text
+      : this.queue.shift()?.text;
     this.syncPending();
     if (next) await this.startTurn(next);
+  }
+
+  /** Open a turn with a message another session queued while this one was idle. */
+  private async startPeerTurn(): Promise<void> {
+    const flushed = (await Promise.resolve(
+      (await handler("chat:interject-flush"))({}, this.chatId),
+    ).catch(() => null)) as { text?: string | null } | null;
+    const text = flushed?.text?.trim();
+    this.syncPending();
+    if (text && !this.state.busy) await this.startTurn(text);
   }
 
   private update(patch: Partial<SessionState>): void {
@@ -1375,14 +1830,22 @@ export async function seedDevProvider(opts: {
   const schema = await import("@/db/schema");
   const id = "atlarix-cli-dev";
   db.insert(schema.language_model_providers)
-    .values({ id, name: "Local endpoint (CLI dev)", api_base_url: opts.baseUrl })
+    .values({
+      id,
+      name: "Local endpoint (CLI dev)",
+      api_base_url: opts.baseUrl,
+    })
     .onConflictDoUpdate({
       target: schema.language_model_providers.id,
       set: { api_base_url: opts.baseUrl },
     })
     .run();
   db.insert(schema.language_models)
-    .values({ displayName: opts.model, apiName: opts.model, customProviderId: id })
+    .values({
+      displayName: opts.model,
+      apiName: opts.model,
+      customProviderId: id,
+    })
     .onConflictDoNothing()
     .run();
   const { writeSettings } = await import("@/main/settings");

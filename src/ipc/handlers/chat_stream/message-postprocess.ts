@@ -195,8 +195,10 @@ export function removeProblemReportTags(text: string): string {
 
 export function removeAtlarixTags(text: string): string {
   // Keep user paste/terminal attachments — ask mode needs these bodies for the model.
+  // And a message from another session: it IS the turn's content, and dropping
+  // it from history would leave the model answering a message it can no longer see.
   const atlarixBlock =
-    /<atlarix-(?!text-attachment|terminal-attachment)[^>]*>[\s\S]*?<\/atlarix-[^>]*>/g;
+    /<atlarix-(?!text-attachment|terminal-attachment|peer-message)[^>]*>[\s\S]*?<\/atlarix-[^>]*>/g;
   return text.replace(atlarixBlock, "").trim();
 }
 

@@ -32,6 +32,7 @@ import "./mobile"; // v14.41 emulator/simulator read + act (Build/Debug only)
 import "./tool-help"; // v14.34 full usage for tools bound with a one-line summary
 import "./sessions"; // v14.39 read behind the compaction boundary
 import "./media"; // look at image files (and video frames extracted with ffmpeg)
+import "./peers"; // list and message the user's other Atlarix sessions
 
 // Re-export registry for convenience
 import { ToolRegistry } from "./registry";

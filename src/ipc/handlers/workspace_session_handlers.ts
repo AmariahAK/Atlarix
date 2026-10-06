@@ -32,6 +32,8 @@ import {
   sessionLoadDiagEnabled,
 } from "@/lib/diag/session-load-diag";
 import { requireAuthSession } from "@/lib/auth/require_auth_session";
+import { noteSessionOpen } from "@/lib/peers/main-host";
+import { forgetLiveSession } from "@/lib/peers/peers";
 import { WorkModeSchema, type WorkMode } from "@/lib/schemas";
 import {
   createStreamTransport,
@@ -804,6 +806,7 @@ async function deleteSessionAndTransport(
   streamChatId: number | null,
 ): Promise<number | null> {
   await db.delete(chatSessions).where(eq(chatSessions.id, sessionId));
+  forgetLiveSession(sessionId);
   if (streamChatId != null && isStreamTransportId(streamChatId)) {
     deleteStreamTransport(streamChatId);
     const { clearChatStreamStateForChat } = await import(
@@ -903,7 +906,9 @@ export async function titleSessionFromFirstMessage(
 
     const placeholder = deterministicTitle(text);
     if (placeholder && placeholder !== current) {
-      if (await setAutoTitleIfUnchanged(sessionId, placeholder, session.title)) {
+      if (
+        await setAutoTitleIfUnchanged(sessionId, placeholder, session.title)
+      ) {
         current = placeholder;
       } else {
         return; // renamed or deleted under us
@@ -995,6 +1000,7 @@ export function registerWorkspaceSessionHandlers(): void {
     logger.info(
       `sessions:start workspace=${workspaceId} session=${started.sessionId} transport=${started.chatId}`,
     );
+    void noteSessionOpen(started.sessionId, started.chatId);
     return started;
   });
 
@@ -1010,11 +1016,13 @@ export function registerWorkspaceSessionHandlers(): void {
       isStreamTransportId(stored) &&
       getStreamTransport(stored)?.appId === session.workspaceId
     ) {
+      void noteSessionOpen(sessionId, stored);
       return { chatId: stored };
     }
 
     const chatId = createStreamTransport(session.workspaceId);
     await persistSessionStreamChatId(sessionId, chatId);
+    void noteSessionOpen(sessionId, chatId);
     return { chatId };
   });
 
@@ -1037,6 +1045,9 @@ export function registerWorkspaceSessionHandlers(): void {
         .where(eq(chatSessions.id, sessionId))
         .returning();
       if (!row) throw new Error("Session not found");
+      // Other sessions address this one by name: keep the registry's current.
+      if (row.streamChatId != null)
+        void noteSessionOpen(sessionId, row.streamChatId);
       return mapSession(row);
     },
   );

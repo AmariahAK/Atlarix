@@ -644,6 +644,8 @@ export async function onReady() {
 
   try {
     initializeDatabase();
+    // Other Atlarix sessions (CLI or app) can message this one (lib/peers).
+    void import("./lib/peers/main-host").then((m) => m.startPeerMessaging("app"));
   } catch (e) {
     logger.error("Database initialization failed:", e);
     const msg = e instanceof Error ? e.message : String(e);

@@ -157,6 +157,9 @@ export function resolveToolsetForSession(
     "read_url",
     "read_attachment",
     "list_attachments",
+    // No other sessions run beside a headless container.
+    "list_sessions",
+    "send_message",
   ]);
   /**
    * DRIVES A UI SURFACE THE RUN DOES NOT HAVE — dropped headless AND unattended.

@@ -582,6 +582,26 @@ export function useStreamChat({
     const ipc = IpcClient.getInstance();
     const unsub = ipc.onBackgroundJobUpdate(
       ({ chatId: evChatId, status, source }) => {
+        // Another Atlarix session messaged this chat while it was idle (lib/peers):
+        // open a turn with what it queued. Take-once in main, so with several
+        // windows open only one of them gets the text. A busy chat reads it at
+        // its next step and needs nothing from here.
+        if (status === "peer_message") {
+          const busy =
+            getDefaultStore().get(isStreamingByIdAtom).get(evChatId) === true;
+          if (busy || bgWakeInFlightRef.current.has(evChatId)) return;
+          bgWakeInFlightRef.current.add(evChatId);
+          void ipc
+            .flushUserInterjections(evChatId)
+            .then(({ text }) =>
+              text?.trim()
+                ? streamMessageRef.current?.({ prompt: text, chatId: evChatId })
+                : undefined,
+            )
+            .catch(() => {})
+            .finally(() => bgWakeInFlightRef.current.delete(evChatId));
+          return;
+        }
         // Indicator refresh is source-specific: the background-jobs list is for
         // COMMANDS, and sub-agents have their own list (v14.21 — before that,
         // sub-agent events refreshed nothing, so a running sub-agent was

@@ -25,6 +25,8 @@ export const GLOBAL_CHAT_TOOLS = new Set([
   "list_attachments",
   "view_image",
   "transcribe_audio",
+  "list_sessions",
+  "send_message",
 ]);
 
 /**
