@@ -26,6 +26,9 @@
  *   ATLARIX_CORE_PROXY_URL=… node dist-headless/atlarix-headless.mjs --workspace . \
  *     --prompt-file task.md --provider-id compass --model core-2 --core-token-file tok
  *
+ * `--attach <path>` (repeatable) sends a file with the task, as an attachment
+ * would be in the app; images reach a vision model as images.
+ *
  * `--trajectory-file <path>` streams a JSONL trace of the run (see
  * trajectory-writer.ts). Prefer it over parsing this process's console output.
  *
@@ -37,6 +40,7 @@
 import "./log-setup";
 import "./bundled-assets";
 import fs from "node:fs";
+import path from "node:path";
 import { runHeadlessAgent } from "./headless-runner";
 import { isNetworkStreamError } from "@/ipc/handlers/chat_stream/network-retry";
 import { setPinnedCoreToken } from "@/ipc/shared/core_proxy";
@@ -136,6 +140,22 @@ async function main() {
     arg("output-file") ?? process.env.ATLARIX_HEADLESS_OUTPUT_FILE;
   const trajectoryFile =
     arg("trajectory-file") ?? process.env.ATLARIX_HEADLESS_TRAJECTORY_FILE;
+  const attachments = process.argv.flatMap((a, i) => {
+    if (a !== "--attach") return [];
+    const file = process.argv[i + 1];
+    if (!file) return [];
+    if (!fs.existsSync(file)) {
+      console.error(`atlarix-headless: --attach ${file}: no such file`);
+      process.exit(2);
+    }
+    return [
+      {
+        name: path.basename(file),
+        type: ATTACH_MIME[path.extname(file).toLowerCase()] ?? "application/octet-stream",
+        data: fs.readFileSync(file).toString("base64"),
+      },
+    ];
+  });
 
   // Atlarix Core with a job-scoped token (the cloud agent). Read once, then the
   // file is deleted and the token lives only in this process's memory — never
@@ -194,6 +214,7 @@ async function main() {
     timeoutMs,
     deepThinking,
     trajectoryFile,
+    attachments,
   });
 
   if (outputFile) {
@@ -236,6 +257,21 @@ process.on("unhandledRejection", (reason) => {
   console.error(formatFatal(reason));
   process.exit(1);
 });
+
+/** What an attached file is, by its extension: enough for images to go as images. */
+const ATTACH_MIME: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".pdf": "application/pdf",
+  ".txt": "text/plain",
+  ".md": "text/markdown",
+  ".csv": "text/csv",
+  ".json": "application/json",
+  ".log": "text/plain",
+};
 
 main().catch((err) => {
   console.error(formatFatal(err));

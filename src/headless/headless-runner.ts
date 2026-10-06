@@ -50,6 +50,12 @@ export interface RunHeadlessOptions {
    * is the reason it exists.
    */
   trajectoryFile?: string;
+  /**
+   * Files that come WITH the task, as if the user had attached them in the
+   * app: images reach a vision model as images. The cloud agent passes the
+   * files attached to a Slack request (`--attach`).
+   */
+  attachments?: { name: string; type: string; data: string }[];
   /** Resolve a registered IPC handler. Default reads the headless electron stub;
    *  the vitest test injects its own (electron is mocked there). */
   resolveHandler?: (channel: string) => Promise<HandlerFn>;
@@ -241,7 +247,13 @@ export async function runHeadlessAgent(
 
     // Handler returns immediately (void runStream); the terminal signal is
     // chat:response:end. Auto-approve runs concurrently.
-    await chatStream(sender.event, { chatId, prompt: opts.prompt });
+    await chatStream(sender.event, {
+      chatId,
+      prompt: opts.prompt,
+      ...(opts.attachments?.length
+        ? { attachments: opts.attachments.map((a) => ({ ...a, attachmentType: "chat-context" as const })) }
+        : {}),
+    });
 
     const endPromise = sender.waitFor(
       "chat:response:end",
