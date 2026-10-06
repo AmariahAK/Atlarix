@@ -13,6 +13,8 @@ const LABELS: Record<string, string> = {
   schedule_wakeup: "Setting a timer…",
   relic: "Making a relic…",
   read_attachment: "Reading attachment…",
+  view_image: "Looking at image…",
+  transcribe_audio: "Transcribing audio…",
   // v13 surface (legacy names below are kept for persisted sessions)
   glob: "Finding files…",
   grep: "Searching code…",
@@ -370,6 +372,8 @@ const DONE_LABELS: Record<string, string> = {
   session_search: "Searched session history",
   list_attachments: "Listed attachments",
   read_attachment: "Read attachment",
+  view_image: "Viewed image",
+  transcribe_audio: "Transcribed audio",
   schedule_wakeup: "Timer set",
   relic: "Relic ready",
   // v13 surface (legacy names below are kept for persisted sessions)

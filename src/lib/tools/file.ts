@@ -40,6 +40,25 @@ import {
 } from "./file-read-errors";
 import { suggestClosestPath } from "./workspace-file-hints";
 import { overlayContent } from "@/lib/agents/subagent-proposals";
+import { detectImageMime } from "@/lib/file-content-type";
+
+/** The first `n` bytes of a file, or null when it can't be opened. */
+async function readHeadBytes(
+  file: string,
+  n: number,
+): Promise<Uint8Array | null> {
+  let handle: fs.promises.FileHandle | undefined;
+  try {
+    handle = await fs.promises.open(file, "r");
+    const buf = Buffer.alloc(n);
+    const { bytesRead } = await handle.read(buf, 0, n, 0);
+    return buf.subarray(0, bytesRead);
+  } catch {
+    return null;
+  } finally {
+    await handle?.close().catch(() => {});
+  }
+}
 
 const READ_FILE_DEFAULT_MAX_LINES = 2000;
 const READ_FILE_MAX_LINES_CAP = 10_000;
@@ -396,6 +415,20 @@ ToolRegistry.register({
             logReadFileError(structured);
             return structured;
           }
+        }
+      }
+
+      // An image read as UTF-8 is pages of mojibake the model can do nothing
+      // with. Say where the image reader is instead.
+      if (proposedBody === null) {
+        const head = await readHeadBytes(fullPath, 64);
+        const mime = head ? detectImageMime(head) : null;
+        // BMP's signature is just "BM", which a text file can start with.
+        if (mime && mime !== "image/bmp") {
+          return {
+            success: false,
+            error: `"${displayPath}" is an image, not text. Use view_image to look at it.`,
+          };
         }
       }
 

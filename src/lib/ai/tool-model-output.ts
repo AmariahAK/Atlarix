@@ -38,6 +38,8 @@ interface ImageMedia {
   title?: string;
   note?: string;
   filename?: string;
+  /** "file": an image file the agent opened itself (view_image), not a user attachment. */
+  origin?: "file";
 }
 
 /**
@@ -70,10 +72,14 @@ export function extractImageMedia(output: unknown): ImageMedia | null {
     note: typeof candidate.note === "string" ? candidate.note : undefined,
     filename:
       typeof candidate.filename === "string" ? candidate.filename : undefined,
+    origin: candidate.origin === "file" ? "file" : undefined,
   };
 }
 
 function imageCaption(media: ImageMedia): string {
+  if (media.origin === "file") {
+    return `Image file ${media.filename ?? "(unnamed)"}.${media.note ? ` ${media.note}` : ""}`;
+  }
   const where = media.filename
     ? `attached file ${media.filename}`
     : media.url
@@ -115,6 +121,15 @@ export function buildToolModelOutput(
           data: { type: "data", data: media.data },
         },
       ],
+    };
+  }
+
+  // An image file the agent opened itself: no user to re-attach it, so the
+  // only honest answer is that it was not seen.
+  if (media.origin === "file") {
+    return {
+      type: "text",
+      value: `[image file ${media.filename ?? ""} — this model/provider cannot view images in tool results, so the image was not sent and you have NOT seen it. Do not guess its contents; say you could not view it (a vision-capable model, or Atlarix Auto, can).]`,
     };
   }
 

@@ -165,6 +165,8 @@ const VERBS: Record<string, string> = {
   automations: "Automation",
   relic: "Relic",
   read_attachment: "Read attachment",
+  view_image: "View image",
+  transcribe_audio: "Transcribe",
   list_attachments: "Attachments",
   tool_help: "Tool help",
 };

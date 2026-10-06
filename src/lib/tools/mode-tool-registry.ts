@@ -72,6 +72,10 @@ export const EVERY_MODE_TOOLS = [
   // description — which is why their first sentences carry the cheap default.
   "mobile_inspect",
   "mobile",
+  // Looking at an image file is a read: every mode, Plan and Explore included
+  // ("what does this screenshot show" is a question, not a build step).
+  "view_image",
+  "transcribe_audio",
 ] as const;
 
 /**

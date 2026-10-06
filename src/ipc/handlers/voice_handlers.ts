@@ -29,7 +29,7 @@ const logger = log.scope("voice");
  */
 type CloudProvider = string;
 
-interface TranscribeParams {
+export interface TranscribeParams {
   provider: CloudProvider;
   mimeType: string;
   dataBase64: string;
@@ -85,7 +85,7 @@ async function resolveTranscriptionBaseUrl(
   return undefined;
 }
 
-type TranscribeResult =
+export type TranscribeResult =
   | { ok: true; text: string }
   | { ok: false; error: string };
 
@@ -183,6 +183,48 @@ async function transcribeGemini(
 
 export type TranscriptionProviderOption = { id: string; label: string };
 
+/** Transcription through the Atlarix proxy (paid Core), not a key of your own. */
+export const ATLARIX_TRANSCRIPTION: TranscriptionProviderOption = {
+  id: "atlarix",
+  label: "Atlarix",
+};
+
+async function transcribeWithAtlarix(
+  params: TranscribeParams,
+): Promise<TranscribeResult> {
+  try {
+    const { coreProxyPost } = await import("@/lib/core/paid-core");
+    const form = new FormData();
+    const bytes = new Uint8Array(Buffer.from(params.dataBase64, "base64"));
+    const mimeType = params.mimeType || "audio/webm";
+    form.append(
+      "file",
+      new Blob([bytes], { type: mimeType }),
+      audioFilename(mimeType),
+    );
+    if (params.language) form.append("language", params.language);
+    const res = await coreProxyPost("/audio/transcriptions", { form });
+    if (!res)
+      return { ok: false, error: "Sign in to Atlarix to transcribe with it." };
+    const json = (await res.json().catch(() => ({}))) as {
+      text?: string;
+      error?: string;
+    };
+    if (!res.ok) {
+      return {
+        ok: false,
+        error:
+          res.status === 402
+            ? "Your Atlarix balance can't cover this. Top up at atlarix.dev."
+            : (json.error ?? `Transcription failed (${res.status}).`),
+      };
+    }
+    return { ok: true, text: (json.text ?? "").trim() };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 /**
  * Build the composer's transcription list: providers the user has a key for
  * AND that expose an audio-input model, labelled from the cloud catalog.
@@ -226,6 +268,72 @@ export async function buildTranscriptionProviderOptions(deps: {
   return out;
 }
 
+/**
+ * Transcribe with the user's own key for `provider` (OpenAI-compatible
+ * `/audio/transcriptions`, or Gemini). Shared by the composer's mic and the
+ * agent's `transcribe_audio` tool.
+ */
+export async function transcribeWithOwnKey(
+  params: TranscribeParams,
+): Promise<TranscribeResult> {
+  if (params.provider === ATLARIX_TRANSCRIPTION.id) {
+    return transcribeWithAtlarix(params);
+  }
+  try {
+    const { provider, mimeType, dataBase64, language } = params;
+    const isGoogle = GOOGLE_PROVIDER_IDS.has(provider);
+    const providerKeyId = isGoogle ? "google" : provider;
+    const apiKey =
+      (await getProviderApiKey(providerKeyId)) ??
+      (isGoogle ? await getProviderApiKey("gemini") : undefined);
+    if (!apiKey) {
+      return {
+        ok: false,
+        error: `No API key set for ${provider}. Add one in Settings → Providers, or pick a model that accepts audio.`,
+      };
+    }
+
+    const model = await resolveTranscriptionModel(provider, params.model);
+    if (!model) {
+      return {
+        ok: false,
+        error: `No speech-to-text model found for ${provider}. Pick another transcription provider, or a model that accepts audio.`,
+      };
+    }
+
+    if (isGoogle) {
+      const text = await transcribeGemini(
+        apiKey,
+        { mimeType, dataBase64 },
+        model,
+      );
+      return { ok: true, text };
+    }
+
+    const baseUrl = await resolveTranscriptionBaseUrl(provider);
+    if (!baseUrl) {
+      return {
+        ok: false,
+        error: `No API endpoint known for ${provider}. Pick another transcription provider, or a model that accepts audio.`,
+      };
+    }
+    const bytes = Buffer.from(dataBase64, "base64");
+    const audio = new Blob([bytes], { type: mimeType || "audio/webm" });
+    const text = await transcribeOpenAiCompatible(
+      baseUrl,
+      apiKey,
+      model,
+      audio,
+      language,
+    );
+    return { ok: true, text };
+  } catch (e) {
+    const error = e instanceof Error ? e.message : String(e);
+    logger.warn(`cloud transcription failed: ${error}`);
+    return { ok: false, error };
+  }
+}
+
 export function registerVoiceHandlers() {
   ipcMain.handle(
     "voice:list-transcription-providers",
@@ -235,10 +343,17 @@ export function registerVoiceHandlers() {
           "../shared/provider_api_keys"
         );
         const { getAudioInputModelIds } = await import("@/lib/models_dev");
-        return await buildTranscriptionProviderOptions({
+        const own = await buildTranscriptionProviderOptions({
           configuredProviders: getConfiguredProviders,
           audioModelIds: getAudioInputModelIds,
         });
+        // Paid Atlarix (Auto or a Core model, with Pro or credit): transcribe
+        // through our proxy, billed to the account. Offered first, because it
+        // needs no key — and it is what makes the mic work on Atlarix Auto,
+        // whose models are not sent audio directly.
+        const { paidCoreForChat } = await import("@/lib/core/paid-core");
+        const paid = await paidCoreForChat(undefined).catch(() => false);
+        return paid ? [ATLARIX_TRANSCRIPTION, ...own] : own;
       } catch (e) {
         logger.warn("failed to list transcription providers", e);
         // Empty, not a guess. A catalog failure must not advertise a provider
@@ -251,61 +366,8 @@ export function registerVoiceHandlers() {
 
   ipcMain.handle(
     "voice:transcribe-cloud",
-    async (_e, params: TranscribeParams): Promise<TranscribeResult> => {
-      try {
-        const { provider, mimeType, dataBase64, language } = params;
-        const isGoogle = GOOGLE_PROVIDER_IDS.has(provider);
-        const providerKeyId = isGoogle ? "google" : provider;
-        const apiKey =
-          (await getProviderApiKey(providerKeyId)) ??
-          (isGoogle ? await getProviderApiKey("gemini") : undefined);
-        if (!apiKey) {
-          return {
-            ok: false,
-            error: `No API key set for ${provider}. Add one in Settings → Providers, or pick a model that accepts audio.`,
-          };
-        }
-
-        const model = await resolveTranscriptionModel(provider, params.model);
-        if (!model) {
-          return {
-            ok: false,
-            error: `No speech-to-text model found for ${provider}. Pick another transcription provider, or a model that accepts audio.`,
-          };
-        }
-
-        if (isGoogle) {
-          const text = await transcribeGemini(
-            apiKey,
-            { mimeType, dataBase64 },
-            model,
-          );
-          return { ok: true, text };
-        }
-
-        const baseUrl = await resolveTranscriptionBaseUrl(provider);
-        if (!baseUrl) {
-          return {
-            ok: false,
-            error: `No API endpoint known for ${provider}. Pick another transcription provider, or a model that accepts audio.`,
-          };
-        }
-        const bytes = Buffer.from(dataBase64, "base64");
-        const audio = new Blob([bytes], { type: mimeType || "audio/webm" });
-        const text = await transcribeOpenAiCompatible(
-          baseUrl,
-          apiKey,
-          model,
-          audio,
-          language,
-        );
-        return { ok: true, text };
-      } catch (e) {
-        const error = e instanceof Error ? e.message : String(e);
-        logger.warn(`cloud transcription failed: ${error}`);
-        return { ok: false, error };
-      }
-    },
+    (_e, params: TranscribeParams): Promise<TranscribeResult> =>
+      transcribeWithOwnKey(params),
   );
 
   /**
@@ -417,7 +479,11 @@ export function registerVoiceHandlers() {
         const { recordAuxUsage } = await import(
           "@/lib/usage/turn-usage-aggregator"
         );
-        recordAuxUsage(params.chatId ?? null, await result.usage, "transcription");
+        recordAuxUsage(
+          params.chatId ?? null,
+          await result.usage,
+          "transcription",
+        );
 
         return { ok: true, text: (await result.text).trim() };
       } catch (e) {

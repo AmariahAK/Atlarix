@@ -23,6 +23,8 @@ export const GLOBAL_CHAT_TOOLS = new Set([
   "read_url",
   "read_attachment",
   "list_attachments",
+  "view_image",
+  "transcribe_audio",
 ]);
 
 /**
