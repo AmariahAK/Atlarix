@@ -15,9 +15,15 @@
  * verify_jwt is false (config.toml): `view` of a shared relic is anonymous.
  * Every other action checks the JWT itself (getAuthedUser).
  *
+ * - A cloud run's pages: the run has no user JWT, so the cloud service (the
+ *   reviewer) publishes FOR the job's owner with RELICS_SERVICE_SECRET and
+ *   `on_behalf_of`. That caller may only `publish` a NEW relic, shared by link
+ *   (the Slack card links it); the paid rule still applies to the owner.
+ *
  * Secrets: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, R2_ACCOUNT_ID,
  * R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET (default atlarix-relics),
- * RELICS_VIEW_SECRET (shared with the Worker).
+ * RELICS_VIEW_SECRET (shared with the Worker), RELICS_SERVICE_SECRET (shared
+ * with the reviewer; unset = no service publishing).
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { AwsClient } from "https://esm.sh/aws4fetch@1.0.20";
@@ -28,6 +34,7 @@ import { signRelicToken } from "../_shared/relic-token.ts";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const VIEW_SECRET = Deno.env.get("RELICS_VIEW_SECRET") ?? "";
+const SERVICE_SECRET = Deno.env.get("RELICS_SERVICE_SECRET") ?? "";
 const BUCKET = Deno.env.get("R2_BUCKET") ?? "atlarix-relics";
 const R2_ENDPOINT = `https://${Deno.env.get("R2_ACCOUNT_ID")}.r2.cloudflarestorage.com/${BUCKET}`;
 const VIEWER = "https://atlarix.dev/r/";
@@ -71,7 +78,29 @@ async function isPaid(userId: string): Promise<boolean> {
   return cents > 0;
 }
 
+/** Constant-time string compare. */
+function sameSecret(a: string, b: string): boolean {
+  const x = new TextEncoder().encode(a);
+  const y = new TextEncoder().encode(b);
+  if (x.length !== y.length) return false;
+  let diff = 0;
+  for (let i = 0; i < x.length; i++) diff |= x[i]! ^ y[i]!;
+  return diff === 0;
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The cloud service publishing a NEW relic for a job's owner; null for everyone else. */
+function serviceCaller(req: Request, body: Body): { id: string; email: null } | null {
+  if (SERVICE_SECRET.length < 32 || body.action !== "publish" || body.id) return null;
+  const bearer = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
+  if (!bearer || !sameSecret(bearer, SERVICE_SECRET)) return null;
+  const owner = String(body.on_behalf_of ?? "");
+  return UUID_RE.test(owner) ? { id: owner, email: null } : null;
+}
+
 type Body = {
+  on_behalf_of?: string;
   action?: string;
   id?: string;
   title?: string;
@@ -89,7 +118,8 @@ Deno.serve(async (req) => {
   } catch {
     return json({ error: "Bad request" }, 400);
   }
-  const user = await getAuthedUser(req);
+  const service = serviceCaller(req, body);
+  const user = service ?? (await getAuthedUser(req));
 
   try {
     if (body.action === "view") {
@@ -212,6 +242,8 @@ Deno.serve(async (req) => {
           kind,
           current_version: 1,
           bytes: prepared.bytes,
+          // A cloud run's page is linked from Slack: shared by its unguessable link.
+          ...(service ? { visibility: "link" } : {}),
         });
         if (error) throw new Error(error.message);
       } else {
