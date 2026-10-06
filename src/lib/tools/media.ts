@@ -11,9 +11,11 @@
  * the image part for the model — and, on Atlarix Auto, the proxy lifting it out
  * of the tool message and climbing to a model that can see it.
  *
- * Video is not a separate tool on purpose: the model extracts frames with the
- * shell (`ffmpeg -i in.mp4 -vf fps=1 frame_%03d.png`) and views those. Audio
- * goes through `transcribe_audio`.
+ * The tool texts state WHAT each tool takes and its limits — never HOW to get
+ * there. Video, conversions and resizing are the model's call (owner,
+ * 2026-10-06): a user may have their own skill or tool for it, and a recipe
+ * hardcoded here would steer every model the same way. A live Auto run worked
+ * out frames-from-video on its own.
  *
  * Paths follow read_file: workspace-relative, or absolute (reads are allowed
  * anywhere; the workspace is the default scope, not a wall), with the same
@@ -89,7 +91,7 @@ async function downscale(
 ToolRegistry.register({
   name: "view_image",
   description:
-    "Look at an image file (PNG, JPEG, GIF, WebP, BMP). For a video, extract frames first (for example `ffmpeg -i clip.mp4 -vf fps=1 frames/f_%03d.png`) and view the ones you need.",
+    "Look at an image file (PNG, JPEG, GIF, WebP, BMP).",
   requiresWorkspace: false,
   isCore: true,
   isReadOnly: true,
@@ -141,7 +143,7 @@ ToolRegistry.register({
     if (!mime || (mime === "image/bmp" && !isRealBmp(buffer))) {
       return {
         success: false,
-        error: `"${shown}" is not a PNG, JPEG, GIF, WebP or BMP image. For an SVG, read its source with read_file; for a video, extract frames with ffmpeg and view those.`,
+        error: `"${shown}" is not a PNG, JPEG, GIF, WebP or BMP image.`,
       };
     }
 
@@ -150,8 +152,8 @@ ToolRegistry.register({
       return {
         success: false,
         error:
-          `"${shown}" is ${Math.round(scaled.data.length / 1024)} KB, too large to send. ` +
-          `Make a smaller copy first, for example \`ffmpeg -y -i "${shown}" -vf scale=${VIEW_IMAGE_MAX_WIDTH}:-1 /tmp/view.jpg\`, and view that.`,
+          `"${shown}" is ${Math.round(scaled.data.length / 1024)} KB; the limit is ` +
+          `${Math.round(VIEW_IMAGE_MAX_BYTES / 1024)} KB (${VIEW_IMAGE_MAX_WIDTH} px wide is plenty).`,
       };
     }
 
@@ -188,7 +190,7 @@ const OWN_KEY_PREFERENCE = ["openai", "groq", "gemini"];
 ToolRegistry.register({
   name: "transcribe_audio",
   description:
-    "Transcribe an audio file (mp3, m4a, wav, ogg, webm, flac) to text. For a video's soundtrack, extract it first (for example `ffmpeg -i clip.mp4 -vn -ac 1 -b:a 64k audio.m4a`).",
+    "Transcribe an audio file (mp3, m4a, wav, ogg, webm, flac) to text.",
   requiresWorkspace: false,
   isCore: true,
   isReadOnly: true,
@@ -221,7 +223,7 @@ ToolRegistry.register({
     if (!mimeType) {
       return {
         success: false,
-        error: `"${shown}" is not an audio file this can read (mp3, m4a, wav, ogg, webm, flac). Convert it with ffmpeg first.`,
+        error: `"${shown}" is not an audio file this can read (mp3, m4a, wav, ogg, webm, flac).`,
       };
     }
     let bytes: Buffer;
@@ -240,7 +242,7 @@ ToolRegistry.register({
     if (bytes.length > TRANSCRIBE_MAX_BYTES) {
       return {
         success: false,
-        error: `"${shown}" is ${Math.round(bytes.length / 1048576)} MB; the limit is 25 MB. Re-encode it smaller (for example \`ffmpeg -i "${shown}" -ac 1 -b:a 32k small.m4a\`) or split it, and transcribe the parts.`,
+        error: `"${shown}" is ${Math.round(bytes.length / 1048576)} MB; the limit is 25 MB.`,
       };
     }
     const lang =
