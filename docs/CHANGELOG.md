@@ -3,6 +3,37 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [Unreleased] — staged, not tagged: the agent sees images, sessions talk to each other
+
+**The agent can look at images, video and audio.** `view_image` shows the model an image file
+it made or found (a screenshot, a chart, frames it pulled out of a video), and `transcribe_audio`
+turns an audio file into text. Both work in the app and the CLI, on your own key and on
+Atlarix Auto, which moves to a model that can see when an image arrives. The tools say what
+they take and nothing about how to get there: a live Auto run worked out frames-from-video on
+its own. `read_file` on an image now points at `view_image` instead of returning bytes.
+
+**Sessions message each other.** `list_sessions` and `send_message` let a CLI session and an app
+session (or two of either) hand work back and forth on the same machine. A message shows as
+"Message from <session>": a card on the agent's side in the app, a tool line in the CLI. It
+never looks like something you typed. An idle session wakes to answer. `/handoff` continues a CLI
+session in the app, and "Continue in terminal" opens an app session in the CLI
+(`atlarix --resume <id>`). Settings → Notifications → "Messages from other sessions" turns it off.
+
+**Paid web search.** On paid Atlarix Auto or Core, `web_search` asks Atlarix's own search first
+(billed per search, plus tokens) and falls back to the free tiers; cloud runs keep the web tools.
+The Chrome extension does the same.
+
+**The desktop app holds its memory on long turns.** A stream used to resend the whole
+conversation on every token: 46.5 MB over IPC for one long Build turn, 1.9 MB now. Command
+output is bounded, older tool cards collapse, and the right panel no longer covers the chat.
+
+**Smaller fixes.** No temperature is sent to OpenAI reasoning models, and the SDK's "not
+supported" notices go to the log instead of a CLI toast. A command may write the agent's own
+scratch folder without asking. A model on your own machine (Ollama, LM Studio, any loopback
+URL) needs no API key: `atlarix --provider-url http://localhost:11434/v1` used to fall back to
+Atlarix Core. `atlarix --attach <file>` sends files with a scripted task. `atlarix` is published
+to npm only after its seven platform packages, so a fresh install never finds no binary.
+
 ## [15.0.1] (2026-10-05) — sub-agents in the terminal, coloured code, and a readable plan
 
 **Sub-agents work in the terminal.** Every sub-agent the CLI started failed with

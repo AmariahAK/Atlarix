@@ -174,8 +174,8 @@ export function BrowserSettings() {
       <h2 className="text-lg font-medium text-foreground mb-4">Browser</h2>
       <div className="space-y-3">
         <p className="text-sm text-muted-foreground">
-          The agent opens and tests pages — including your localhost dev
-          server — in your own Chrome, Edge or Brave, through the free Atlarix
+          The agent opens and tests pages — including your localhost dev server
+          — in your own Chrome, Edge or Brave, through the free Atlarix
           extension. It works in its own tab group and never touches your tabs.
         </p>
         <div className="flex items-center gap-2 text-sm">
@@ -189,8 +189,7 @@ export function BrowserSettings() {
             <span className="text-muted-foreground">Checking…</span>
           ) : !status.available ? (
             <span className="text-foreground">
-              This build has no browser bridge. Reinstall Atlarix to restore
-              it.
+              This build has no browser bridge. Reinstall Atlarix to restore it.
             </span>
           ) : status.connected ? (
             <span className="text-foreground">
@@ -718,6 +717,26 @@ export function NotificationsSettings() {
             }
           />
         </div>
+      </div>
+
+      <div className="mt-6 space-y-2 border-t border-border pt-6">
+        <div className="flex items-center justify-between max-w-md gap-4">
+          <Label htmlFor="peer-messages" className="text-sm">
+            Messages from other sessions
+          </Label>
+          <Switch
+            id="peer-messages"
+            checked={settings?.peerMessages !== "refuse"}
+            onCheckedChange={(checked) =>
+              updateSettings({ peerMessages: checked ? "accept" : "refuse" })
+            }
+          />
+        </div>
+        <p className="text-xs text-muted-foreground max-w-md">
+          Lets another Atlarix session on this computer (the app or the CLI)
+          send this one a message, which it answers. Nothing leaves your
+          computer. Off: they are refused.
+        </p>
       </div>
     </div>
   );
