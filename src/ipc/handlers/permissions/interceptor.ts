@@ -2009,6 +2009,9 @@ export class PermissionInterceptor extends EventEmitter {
     return runShellCommandStreaming(command, workingDir, {
       sandbox,
       workspaceRoot: this.workspacePath,
+      scratchDir: this.workspacePath
+        ? path.resolve(agentScratchDirFor(this.workspacePath))
+        : undefined,
       // Only the new lines mid-run: every consumer appends `delta`, and sending
       // the whole output so far on each flushed line made a long command's IPC
       // traffic grow with the square of its output. The final result still
@@ -2434,6 +2437,9 @@ export class PermissionInterceptor extends EventEmitter {
     runShellCommandStreaming(commandToRun, workingDir, {
       sandbox: sandboxOpts,
       workspaceRoot: this.workspacePath,
+      scratchDir: this.workspacePath
+        ? path.resolve(agentScratchDirFor(this.workspacePath))
+        : undefined,
       onSpawn: (p) => {
         proc = p;
         if (promoted && chatIdForBg != null) {

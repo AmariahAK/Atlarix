@@ -149,6 +149,37 @@ interface RunShellProcessOptions {
   sandbox?: SandboxRunOptions;
   /** The workspace root, so an unusable `cwd` is reported with the right one. */
   workspaceRoot?: string;
+  /** The agent's scratch directory: the command's temp directory (agentTempEnv). */
+  scratchDir?: string;
+}
+
+/**
+ * The environment that makes the agent's scratch directory the command's temp
+ * directory, with nothing said in any prompt.
+ *
+ * Every tool already honours the platform's temp variables (`mktemp`, Python's
+ * tempfile, ffmpeg, compilers), so pointing them here puts the agent's temp
+ * files in its own swept, sandbox-writable folder by default. `ATLARIX_SCRATCH`
+ * names it for a command that wants it explicitly: models twice reached for an
+ * unset `$SCRATCH`/`$ATLARIX_SCRATCH` (2026-10-06) and one command failed on it.
+ *
+ * Created here, before the spawn: Linux's sandbox binds a writable path only
+ * if it exists (`--bind-try`), and a command's first `mktemp` must not fail.
+ * Null when it cannot be created — the command then keeps the system temp.
+ */
+export function agentTempEnv(
+  scratchDir: string | undefined,
+  platform: NodeJS.Platform = process.platform,
+): Record<string, string> | null {
+  if (!scratchDir) return null;
+  try {
+    fs.mkdirSync(scratchDir, { recursive: true });
+  } catch {
+    return null;
+  }
+  return platform === "win32"
+    ? { ATLARIX_SCRATCH: scratchDir, TEMP: scratchDir, TMP: scratchDir }
+    : { ATLARIX_SCRATCH: scratchDir, TMPDIR: scratchDir };
 }
 
 /**
@@ -159,7 +190,11 @@ function runShellProcess(
 ): Promise<CommandResult> {
   const { command, cwd, onOutput, onSpawn, sandbox } = options;
   const shell = getShell();
-  const env = { ...process.env, CI: "true" };
+  const env = {
+    ...process.env,
+    CI: "true",
+    ...agentTempEnv(options.scratchDir),
+  };
 
   // Resolve how to spawn: sandboxed (explicit file+args, no shell option) or plain.
   let spawnFile = command;
@@ -432,6 +467,8 @@ export interface RunShellCommandStreamingOptions {
   sandbox?: SandboxRunOptions;
   /** The workspace root, so an unusable `cwd` is reported with the right one. */
   workspaceRoot?: string;
+  /** The agent's commands only (never the user's terminal): its scratch is their temp dir. */
+  scratchDir?: string;
 }
 
 /**
@@ -458,6 +495,7 @@ export function runShellCommandStreaming(
     onOutput: options?.onOutput,
     onSpawn: options?.onSpawn,
     sandbox: options?.sandbox,
+    scratchDir: options?.scratchDir,
   });
 }
 
