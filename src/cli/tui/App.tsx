@@ -591,8 +591,16 @@ export function App({
   // A warning from Node or a library is shown, not swallowed: as a toast, so
   // it is readable and doesn't print over the screen (stderr goes to the log
   // while the screen is up; see run.tsx).
+  // The exception: the AI SDK's "this setting is not supported, so it was left
+  // out" notices. The request went through as intended, so they go to the log only.
   useEffect(() => {
-    const onWarning = (w: Error) => flash(`${w.name}: ${w.message}`.slice(0, 300), 10_000, "warn");
+    const onWarning = (w: Error) => {
+      if (/AI SDK Warning/.test(w.message) && /not supported/i.test(w.message)) {
+        console.error(`${w.name}: ${w.message}`);
+        return;
+      }
+      flash(`${w.name}: ${w.message}`.slice(0, 300), 10_000, "warn");
+    };
     process.on("warning", onWarning);
     return () => void process.off("warning", onWarning);
   }, []);

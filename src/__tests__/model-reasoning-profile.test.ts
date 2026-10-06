@@ -301,6 +301,17 @@ describe("temperature gate", () => {
     expect(supportsTemperatureParam("minimax", "MiniMax-M3")).toBe(true);
   });
 
+  it("refuses it for OpenAI reasoning models, as the OpenAI SDK does", () => {
+    expect(supportsTemperatureParam("openai", "gpt-6-luna")).toBe(false);
+    expect(supportsTemperatureParam("openai", "gpt-5.4-mini")).toBe(false);
+    expect(supportsTemperatureParam("openai", "o4-mini")).toBe(false);
+    expect(supportsTemperatureParam("azure", "gpt-6.1-sol")).toBe(false);
+    expect(supportsTemperatureParam("openai", "gpt-5-chat-latest")).toBe(true);
+    expect(supportsTemperatureParam("openai", "gpt-4.1")).toBe(true);
+    // Another provider serving the same name keeps today's behaviour.
+    expect(supportsTemperatureParam("openrouter", "gpt-6-luna")).toBe(true);
+  });
+
   it("defaults to ALLOWED for an unknown model", () => {
     // Permissive on a catalog miss, matching the convention used elsewhere.
     expect(supportsTemperatureParam("deepseek", "brand-new")).toBe(true);

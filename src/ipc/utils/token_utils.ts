@@ -9,7 +9,10 @@ import {
   isCoreAutoTier,
 } from "@/ipc/shared/compass_constants";
 import { getModelsDevLimits } from "@/lib/models_dev";
-import { supportsTemperatureParam } from "@/lib/routing/model-reasoning-profile";
+import {
+  catalogAllowsTemperature,
+  supportsTemperatureParam,
+} from "@/lib/routing/model-reasoning-profile";
 
 /**
  * Token count using exact tokenizer.
@@ -265,7 +268,11 @@ export async function getTemperature(
     model.provider === "compass"
       ? (getCoreModelsDevTargetForTier(model.name)?.modelId ?? model.name)
       : model.name;
-  if (!supportsTemperatureParam(providerId, modelId ?? "")) return undefined;
+  const allowed =
+    model.provider === "compass"
+      ? catalogAllowsTemperature(providerId, modelId ?? "")
+      : supportsTemperatureParam(providerId, modelId ?? "");
+  if (!allowed) return undefined;
   const modelOption = await findLanguageModel(model);
   return modelOption?.temperature ?? 0;
 }

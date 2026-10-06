@@ -103,7 +103,40 @@ export function supportsTemperatureParam(
   providerId: string | undefined,
   modelId: string,
 ): boolean {
+  if (openAiDropsTemperature(providerId, modelId)) return false;
+  return catalogAllowsTemperature(providerId, modelId);
+}
+
+/**
+ * The catalog's word alone. Atlarix Core uses this: its requests go to our proxy,
+ * which drops `temperature` for OpenAI Responses itself and passes it to Z.ai, so
+ * the OpenAI SDK rule above does not apply to it.
+ */
+export function catalogAllowsTemperature(
+  providerId: string | undefined,
+  modelId: string,
+): boolean {
   return lookup(temperatureById, providerId, modelId) ?? true;
+}
+
+/**
+ * The OpenAI SDK's own rule (`getOpenAILanguageModelCapabilities` in
+ * @ai-sdk/openai): o-series and gpt-5+ models other than the dated `-chat`
+ * variants are reasoning models, and it strips `temperature` from them with an
+ * "unsupported" warning that the CLI used to show as a toast. Not sending it is
+ * the same request without the warning.
+ */
+function openAiDropsTemperature(
+  providerId: string | undefined,
+  modelId: string,
+): boolean {
+  if (providerId !== "openai" && providerId !== "azure") return false;
+  const id = modelId.toLowerCase().replace(/^openai\//, "");
+  if (/^o\d+(?:-|$)/.test(id)) return true;
+  const gpt = /^gpt-(\d+)(?:\.(\d+))?(?:-(.+))?$/.exec(id);
+  if (!gpt) return false;
+  const isChat = gpt[2] == null && (gpt[3] ?? "").startsWith("chat");
+  return Number(gpt[1]) >= 5 && !isChat;
 }
 
 // ── Effort resolution ────────────────────────────────────────────────────────
