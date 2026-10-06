@@ -6,6 +6,7 @@ import { ToolRegistry, createParameters, stringParam } from "./registry";
 import {
   listPeerSessions,
   localSession,
+  refreshLocalNames,
   peerInboxRunning,
   peerSurface,
   resolvePeer,
@@ -34,7 +35,7 @@ ToolRegistry.register({
     }
     const lines = rows.map(
       (r) =>
-        `- ${r.name} (id ${r.sessionId.slice(0, 8)}, ${r.surface === "cli" ? "CLI" : "app"}, ${r.busy ? "busy" : "idle"}) — ${r.workspace || "no workspace"}`,
+        `- ${r.name} (id ${r.sessionId.startsWith("pending-") ? r.sessionId : r.sessionId.slice(0, 8)}, ${r.surface === "cli" ? "CLI" : "app"}, ${r.busy ? "busy" : "idle"}) — ${r.workspace || "no workspace"}`,
     );
     return { success: true, text: `Other sessions:\n${lines.join("\n")}` };
   },
@@ -73,6 +74,7 @@ ToolRegistry.register({
     if (own && target.row.session_id === own) {
       return { success: false, error: "That is this session." };
     }
+    refreshLocalNames();
     const me = localSession(own);
     const result = await sendPeerMessage(
       target.row,

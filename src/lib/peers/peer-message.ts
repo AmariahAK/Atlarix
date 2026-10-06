@@ -29,9 +29,7 @@ export function wrapPeerMessage(from: PeerFrom, text: string): string {
 }
 
 /** The parts of a wrapped message, for the UI chip / the CLI notice. Null when it isn't one. */
-export function parsePeerMessage(
-  content: string,
-): {
+export function parsePeerMessage(content: string): {
   from: string;
   replyTo: string;
   surface: string;

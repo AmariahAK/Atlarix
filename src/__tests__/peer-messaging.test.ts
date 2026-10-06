@@ -150,3 +150,31 @@ describe("the wrapped message", () => {
     expect(splitPeerMessages("just the user")).toBeNull();
   });
 });
+
+describe("a CLI that has not had its first message yet", () => {
+  it("is reachable under its placeholder; delivery makes the session, and the old name still works", async () => {
+    let made = 0;
+    noteLiveSession({
+      sessionId: "pending-cli-1",
+      chatId: 0,
+      name: "New CLI session (wsC)",
+      workspace: "/w/c",
+      materialize: async () => {
+        made += 1;
+        noteLiveSession({ sessionId: "sess-real-0003", chatId: -9, name: "New CLI session (wsC)", workspace: "/w/c" });
+        return { sessionId: "sess-real-0003", chatId: -9 };
+      },
+    });
+    const first = resolvePeer("New CLI session (wsC)", "sess-sender-0001");
+    if ("error" in first) throw new Error(first.error);
+    expect(first.row.session_id).toBe("pending-cli-1");
+    expect((await sendPeerMessage(first.row, from, "hello C")).ok).toBe(true);
+    expect(made).toBe(1);
+    expect(queued.at(-1)!.chatId).toBe(-9);
+
+    // The placeholder is gone; its id and name are aliases of the real session.
+    const again = resolvePeer("pending-cli-1", "sess-sender-0001");
+    if ("error" in again) throw new Error(again.error);
+    expect(again.row.session_id).toBe("sess-real-0003");
+  });
+});

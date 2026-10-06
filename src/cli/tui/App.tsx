@@ -20,6 +20,7 @@
  * open it owns the keyboard, and esc closes it.
  */
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
+import { splitPeerMessages } from "@/lib/peers/peer-message";
 import { TAB_FRAME_MS, tabTitle, titleSequence } from "./tab-title";
 
 /**
@@ -1428,13 +1429,18 @@ export function App({
 
       {state.pending.length > 0 ? (
         <box flexDirection="column" flexShrink={0}>
-          {state.pending.map((p) => (
+          {state.pending.map((p) => {
+            // A message from another session waits here too: say who sent it.
+            const peer = splitPeerMessages(p.text)?.find((seg) => seg.kind === "peer");
+            const shown = peer && peer.kind === "peer" ? `from ${peer.from || "another session"}: ${peer.text.trim()}` : p.text;
+            return (
             <text key={p.id}>
-              <span fg={p.kind === "steer" ? color.accent : color.muted}>{p.kind === "steer" ? "↳ steer " : "↳ queued"}</span>{" "}
-              <span fg={color.text}>{p.text}</span>{" "}
+              <span fg={p.kind === "steer" ? color.accent : color.muted}>{peer ? "↳ message" : p.kind === "steer" ? "↳ steer " : "↳ queued"}</span>{" "}
+              <span fg={color.text}>{shown}</span>{" "}
               <span fg={color.faint}>{p.kind === "steer" ? "· goes in after this step" : "· sent when this turn ends"}</span>
             </text>
-          ))}
+            );
+          })}
         </box>
       ) : null}
 

@@ -54,6 +54,8 @@ export interface LocalSession {
    * the real session first, and the message goes there.
    */
   materialize?: () => Promise<{ sessionId: string; chatId: number }>;
+  /** Earlier names and ids it answered to (a placeholder's, a title before an auto-title). */
+  aliases?: string[];
 }
 
 export interface PeerSessionRow {
@@ -143,6 +145,47 @@ function ensureTable(db: Sqlite): void {
       PRIMARY KEY (session_id, pid, host)
     )
   `);
+  try {
+    db.exec(
+      `ALTER TABLE ${LIVE_SESSIONS_TABLE} ADD COLUMN aliases TEXT NOT NULL DEFAULT '[]'`,
+    );
+  } catch {
+    /* already there */
+  }
+}
+
+/**
+ * Names follow the session's title, which is generated after its first message
+ * and can be renamed; the name it had before stays an alias so a sender holding
+ * the old one still reaches it.
+ */
+function refreshNames(d: Sqlite): void {
+  const ids = [...local.values()]
+    .filter((x) => !x.materialize)
+    .map((x) => x.sessionId);
+  if (ids.length === 0) return;
+  try {
+    const rows = d
+      .prepare(
+        `SELECT id, title FROM chat_sessions WHERE id IN (${ids.map(() => "?").join(",")})`,
+      )
+      .all(...ids) as Array<{ id: string; title: string | null }>;
+    for (const r of rows) {
+      const cur = local.get(r.id);
+      const title = r.title?.trim();
+      if (!cur || !title || title === cur.name) continue;
+      cur.aliases = [...new Set([...(cur.aliases ?? []), cur.name])];
+      cur.name = title;
+    }
+  } catch {
+    /* no chat_sessions here (tests) */
+  }
+}
+
+/** Bring this process's session names up to date now (before a send, say). */
+export function refreshLocalNames(): void {
+  const d = db();
+  if (d) refreshNames(d);
 }
 
 function db(): Sqlite | null {
@@ -158,6 +201,7 @@ function publish(): void {
   if (!d || !server) return;
   try {
     ensureTable(d);
+    refreshNames(d);
     const host = os.hostname();
     const now = Date.now();
     d.prepare(
@@ -165,8 +209,8 @@ function publish(): void {
     ).run(process.pid, host);
     const insert = d.prepare(
       `INSERT INTO ${LIVE_SESSIONS_TABLE}
-       (session_id, pid, host, socket, token, name, workspace, surface, busy, last_seen)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (session_id, pid, host, socket, token, name, workspace, surface, busy, last_seen, aliases)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     for (const s of local.values()) {
       insert.run(
@@ -180,6 +224,7 @@ function publish(): void {
         surface,
         hostImpl?.isBusy(s.chatId) ? 1 : 0,
         now,
+        JSON.stringify(s.aliases ?? []),
       );
     }
   } catch (e) {
@@ -248,6 +293,11 @@ export function stopPeerInbox(): void {
 /** A session this process runs (the CLI's one; the app's open ones). */
 export function noteLiveSession(s: LocalSession): void {
   const prev = local.get(s.sessionId);
+  if (prev) {
+    const aliases = new Set([...(prev.aliases ?? []), ...(s.aliases ?? [])]);
+    if (prev.name !== s.name) aliases.add(prev.name);
+    s = { ...s, aliases: [...aliases] };
+  }
   local.set(s.sessionId, s);
   if (!prev || prev.name !== s.name || prev.chatId !== s.chatId) publish();
 }
@@ -297,7 +347,9 @@ function accept(socket: net.Socket): void {
 }
 
 /** Exported for tests. */
-export async function receive(f: PeerFrame): Promise<{ ok: boolean; error?: string }> {
+export async function receive(
+  f: PeerFrame,
+): Promise<{ ok: boolean; error?: string }> {
   if (!f || f.type !== "peer-message")
     return { ok: false, error: "unknown frame" };
   if (!token || f.token !== token)
@@ -336,6 +388,37 @@ export async function receive(f: PeerFrame): Promise<{ ok: boolean; error?: stri
   for (const [k, t] of recentTexts)
     if (t < now - DUPLICATE_WINDOW_MS) recentTexts.delete(k);
 
+  if (target.materialize) {
+    // A CLI with no session row yet: make the session, and deliver there.
+    try {
+      const placeholder = target;
+      const real = await placeholder.materialize!();
+      local.delete(placeholder.sessionId);
+      const made: LocalSession = local.get(real.sessionId) ?? {
+        ...placeholder,
+        ...real,
+        materialize: undefined,
+      };
+      made.materialize = undefined;
+      // A sender that found it as the placeholder must still reach it.
+      made.aliases = [
+        ...new Set([
+          ...(made.aliases ?? []),
+          placeholder.sessionId,
+          placeholder.name,
+        ]),
+      ];
+      target = made;
+      local.set(target.sessionId, target);
+      publish();
+    } catch (e) {
+      return {
+        ok: false,
+        error: `that session could not start: ${(e as Error).message}`,
+      };
+    }
+  }
+
   hostImpl.enqueue(
     target.chatId,
     f.id || randomUUID(),
@@ -348,6 +431,7 @@ export async function receive(f: PeerFrame): Promise<{ ok: boolean; error?: stri
 // ─── other sessions: list + send ─────────────────────────────────────────────
 
 interface Row {
+  aliases?: string;
   session_id: string;
   pid: number;
   host: string;
@@ -422,10 +506,18 @@ export function resolvePeer(
       r.session_id === want ||
       (want.length >= 8 && r.session_id.startsWith(want)),
   );
-  const byName = rows.filter(
-    (r) => r.name.toLowerCase() === want.toLowerCase(),
-  );
-  const matches = byId.length ? byId : byName;
+  const lower = want.toLowerCase();
+  const byName = rows.filter((r) => r.name.toLowerCase() === lower);
+  const byAlias = rows.filter((r) => {
+    try {
+      return (JSON.parse(r.aliases ?? "[]") as string[]).some(
+        (a) => a.toLowerCase() === lower,
+      );
+    } catch {
+      return false;
+    }
+  });
+  const matches = byId.length ? byId : byName.length ? byName : byAlias;
   const distinct = [...new Map(matches.map((r) => [r.session_id, r])).values()];
   if (distinct.length === 0)
     return {
@@ -472,7 +564,8 @@ export function sendPeerMessage(
       socket.destroy();
       resolve(r);
     };
-    socket.setTimeout(10_000, () =>
+    // Delivering to a CLI's placeholder first creates its session (seconds).
+    socket.setTimeout(30_000, () =>
       finish({ ok: false, error: "that session did not answer" }),
     );
     socket.once("connect", () => socket.write(encodeFrame(frame)));

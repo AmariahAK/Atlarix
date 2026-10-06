@@ -35,7 +35,9 @@ export async function noteSessionOpen(
     noteLiveSession({
       sessionId,
       chatId,
-      name: session.title?.trim() || "Untitled session",
+      name:
+        session.title?.trim() ||
+        `New ${process.env.ATLARIX_SURFACE === "cli" ? "CLI " : ""}session (${(app?.path ?? "").split(/[\\/]/).pop() || "no folder"})`,
       workspace: app?.path ?? "",
     });
   } catch (e) {
