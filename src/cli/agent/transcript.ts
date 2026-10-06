@@ -428,9 +428,24 @@ function messageCells(m: ChatMessageLike, live: boolean): Cell[] {
   if (peerSegments) {
     peerSegments.forEach((seg, i) => {
       if (seg.kind === "peer") {
+        // Drawn like a tool step: "Message from X (app)", its first line under
+        // it, the whole text on ctrl+o. Never the user's band, never the
+        // assistant's ◆, both of which read as someone else's words.
         const where = seg.surface === "cli" ? "CLI" : "app";
-        cells.push({ kind: "notice", id: `${base}:p${i}`, level: "info", text: `› Message from ${seg.from || "another session"} (${where})` });
-        if (seg.text.trim()) cells.push({ kind: "markdown", id: `${base}:pm${i}`, text: seg.text.trim() });
+        const text = seg.text.trim();
+        const first = text.split("\n")[0] ?? "";
+        cells.push({
+          kind: "tool",
+          id: `${base}:p${i}`,
+          tool: {
+            id: `${base}:p${i}`,
+            verb: "Message",
+            target: `from ${seg.from || "another session"} (${where})`,
+            status: "success",
+            summary: first.length > 160 ? `${first.slice(0, 159)}…` : first,
+            output: text,
+          },
+        });
       } else if (seg.text.trim()) {
         cells.push({ kind: "user", id: `${base}:pu${i}`, text: seg.text.trim() });
       }

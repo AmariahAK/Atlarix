@@ -7,6 +7,7 @@
 
 import type { Message } from "@/ipc/ipc_types";
 import { splitPeerMessages } from "@/lib/peers/peer-message";
+import { PeerMessageCard } from "./chat/PeerMessageCard";
 import {
   resolvePasteAttachmentsForMessage,
   lookupTextPasteContent,
@@ -29,15 +30,7 @@ import { extractMentions } from "@/lib/chat/mention-attachment";
 import { AssistantMessageBody } from "./chat/AssistantMessageBody";
 import { InlineStreamStatus } from "./chat/InlineStreamStatus";
 import { RevertTurnAction } from "./chat/RevertTurnAction";
-import {
-  Copy,
-  Check,
-  Bot,
-  Edit2,
-  RotateCw,
-  AlertTriangle,
-  MessagesSquare,
-} from "lucide-react";
+import { Copy, Check, Bot, Edit2, RotateCw, AlertTriangle } from "lucide-react";
 import { memo, useState } from "react";
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard";
 import { showSuccess } from "@/lib/toast";
@@ -170,6 +163,11 @@ function SimpleMessageImpl({
     return null;
   }
 
+  // A message from another Atlarix session: a tool-like card on the agent's
+  // side, not the user's bubble (lib/peers).
+  const peerSegments = isUser ? splitPeerMessages(message.content ?? "") : null;
+  if (peerSegments) return <PeerMessageCard segments={peerSegments} />;
+
   const getModelDisplayName = () =>
     resolveModelDisplayLabel(settings?.selectedModel, {
       catalog: coreCatalog,
@@ -299,43 +297,6 @@ function SimpleMessageImpl({
                 // them out for DISPLAY only; message.content keeps its
                 // tokens, so editing and re-dispatch are unaffected.
                 (() => {
-                  // A message from another Atlarix session: say who sent it,
-                  // so it never reads as the user's own words (lib/peers).
-                  const peerSegments = splitPeerMessages(message.content ?? "");
-                  if (peerSegments) {
-                    return (
-                      <div className="flex flex-col gap-2">
-                        {peerSegments.map((seg, si) =>
-                          seg.kind === "peer" ? (
-                            <div
-                              key={`peer-${si}`}
-                              className="flex flex-col gap-1"
-                            >
-                              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                                <MessagesSquare
-                                  className="h-3.5 w-3.5 shrink-0"
-                                  aria-hidden
-                                />
-                                <span>
-                                  From {seg.surface === "cli" ? "CLI" : "app"}{" "}
-                                  session{" "}
-                                  <span className="font-medium text-foreground/90">
-                                    {seg.from || "another session"}
-                                  </span>
-                                </span>
-                              </div>
-                              <UserMessageMarkdownParser content={seg.text} />
-                            </div>
-                          ) : (
-                            <UserMessageMarkdownParser
-                              key={`peer-text-${si}`}
-                              content={seg.text}
-                            />
-                          ),
-                        )}
-                      </div>
-                    );
-                  }
                   const { text, mentions } = extractMentions(
                     message.content ?? "",
                   );
