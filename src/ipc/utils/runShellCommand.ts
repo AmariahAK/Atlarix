@@ -131,6 +131,14 @@ export interface StreamedOutput {
  */
 const PARTIAL_LINE_HOLD_MS = 120;
 
+/**
+ * What one command's stdout/stderr keeps in memory: the first HEAD characters and
+ * a rolling TAIL. The model sees far less than this (registry.ts bounds a tool
+ * result to a few thousand tokens), so nothing it could read is lost.
+ */
+export const OUTPUT_HEAD_CHARS = 64_000;
+export const OUTPUT_TAIL_CHARS = 4_000_000;
+
 interface RunShellProcessOptions {
   command: string;
   cwd?: string;
@@ -204,8 +212,14 @@ function runShellProcess(
       // otherwise never be delivered to a delta consumer.
       emitFinal();
       resolve({
-        stdout: result.stdout.trim(),
-        stderr: result.stderr.trim(),
+        stdout: (result.stdout === stdout
+          ? whole(stdoutHead, stdout, droppedOut)
+          : result.stdout
+        ).trim(),
+        stderr: (result.stderr === stderr
+          ? whole(stderrHead, stderr, droppedErr)
+          : result.stderr
+        ).trim(),
         exitCode: result.exitCode,
         success: result.success,
       });
@@ -306,15 +320,61 @@ function runShellProcess(
     proc.once("error", forget);
     onSpawn?.(proc);
 
+    // Bounded buffers. A dev server or watcher run through here can print for
+    // hours, and the whole of it used to stay in memory (and be re-sent with
+    // every flushed line). Keep the first OUTPUT_HEAD_CHARS, which hold the
+    // command's own startup lines, and a rolling tail; the dropped middle is
+    // marked in the final result. emittedOut/Err index into the rolling part, so
+    // they move back by what was cut from its front.
+    let stdoutHead: string | null = null;
+    let stderrHead: string | null = null;
+    let droppedOut = 0;
+    let droppedErr = 0;
+
     proc.stdout?.on("data", (data) => {
       stdout += data.toString();
+      // Deliver first, then trim: what is cut has already reached the consumer.
       emit();
+      if (
+        stdoutHead === null &&
+        stdout.length > OUTPUT_HEAD_CHARS + OUTPUT_TAIL_CHARS
+      ) {
+        stdoutHead = stdout.slice(0, OUTPUT_HEAD_CHARS);
+        stdout = stdout.slice(OUTPUT_HEAD_CHARS);
+        emittedOut = Math.max(0, emittedOut - OUTPUT_HEAD_CHARS);
+      }
+      if (stdoutHead !== null && stdout.length > OUTPUT_TAIL_CHARS) {
+        const cut = stdout.length - OUTPUT_TAIL_CHARS;
+        droppedOut += cut;
+        stdout = stdout.slice(cut);
+        emittedOut = Math.max(0, emittedOut - cut);
+      }
     });
 
     proc.stderr?.on("data", (data) => {
       stderr += data.toString();
+      // Deliver first, then trim: what is cut has already reached the consumer.
       emit();
+      if (
+        stderrHead === null &&
+        stderr.length > OUTPUT_HEAD_CHARS + OUTPUT_TAIL_CHARS
+      ) {
+        stderrHead = stderr.slice(0, OUTPUT_HEAD_CHARS);
+        stderr = stderr.slice(OUTPUT_HEAD_CHARS);
+        emittedErr = Math.max(0, emittedErr - OUTPUT_HEAD_CHARS);
+      }
+      if (stderrHead !== null && stderr.length > OUTPUT_TAIL_CHARS) {
+        const cut = stderr.length - OUTPUT_TAIL_CHARS;
+        droppedErr += cut;
+        stderr = stderr.slice(cut);
+        emittedErr = Math.max(0, emittedErr - cut);
+      }
     });
+
+    const whole = (head: string | null, tail: string, dropped: number) =>
+      head === null
+        ? tail
+        : `${head}\n…[${dropped} characters of output omitted]…\n${tail}`;
 
     proc.on("error", (error) => {
       logger.error(`Error executing command "${command}":`, error.message);

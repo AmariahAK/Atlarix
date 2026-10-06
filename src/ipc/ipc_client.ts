@@ -3,6 +3,10 @@ import {
   type UserSettings,
   AppSearchResultsSchema,
 } from "../lib/schemas";
+import {
+  applyLiveTextPatch,
+  type LiveTextPatch,
+} from "@/lib/chat/live-text-patch";
 import type { RelicSummary } from "@/lib/relics/relic-store";
 import type {
   AppOutput,
@@ -286,6 +290,13 @@ export class IpcClient {
   private static instance: IpcClient;
   private ipcRenderer: PreloadIpcRenderer;
   private chatStreams: Map<number, ChatStreamCallbacks>;
+  /**
+   * The last full message list main sent for each streaming chat. During a turn
+   * main sends the list once and then `patch` chunks carrying only the live
+   * row's text; each patch makes a new list from this one in which only that row
+   * is a new object, so every other row keeps its identity (and its memo).
+   */
+  private streamMessages = new Map<number, Message[]>();
   // v14.8.10 Fix S: stream-leg identity. The backend stamps every
   // chat:response:* event with the leg's monotonic streamId and returns that id
   // from the chat:stream invoke. A superseded (older) leg's late error/end must
@@ -478,9 +489,26 @@ export class IpcClient {
           return;
         }
 
+        // The live row's text only (see streamMessages).
+        if ("patch" in data) {
+          const { patch } = data as { patch?: LiveTextPatch };
+          const base = this.streamMessages.get(chatId);
+          if (!base || !patch) return;
+          const idx = base.findIndex((m) => m.id === patch.messageId);
+          if (idx < 0) return;
+          const content = applyLiveTextPatch(base[idx]!.content ?? "", patch);
+          if (content === null || content === base[idx]!.content) return;
+          const next = base.slice();
+          next[idx] = { ...base[idx]!, content };
+          this.streamMessages.set(chatId, next);
+          this.chatStreams.get(chatId)?.onUpdate(next);
+          return;
+        }
+
         // Handle normal message updates
         if ("messages" in data) {
           const { messages } = data as { chatId: number; messages: Message[] };
+          this.streamMessages.set(chatId, messages);
           const callbacks = this.chatStreams.get(chatId);
           if (callbacks) {
             callbacks.onUpdate(messages);
@@ -523,6 +551,7 @@ export class IpcClient {
       // callbacks/state (observed: frozen inline chat after an error +
       // model-switch continue crossed in flight).
       if (this.shouldDropStreamEvent(chatId, streamId)) return;
+      this.streamMessages.delete(chatId);
       this.streamPhaseHandlers.forEach((h) =>
         h({ chatId, phase: "done", label: "" }),
       );
@@ -688,6 +717,7 @@ export class IpcClient {
         };
         // Fix S: ignore a superseded leg's late error (see chat:response:end).
         if (this.shouldDropStreamEvent(chatId, streamId)) return;
+        this.streamMessages.delete(chatId);
         this.streamPhaseHandlers.forEach((h) =>
           h({ chatId, phase: "done", label: "" }),
         );
@@ -1303,9 +1333,16 @@ export class IpcClient {
     workspaceId: number,
     excludeSessionId?: string,
   ): Promise<
-    Array<import("./utils/emit_plan_artifact").PlanArtifactPayload & { sessionTitle: string | null }>
+    Array<
+      import("./utils/emit_plan_artifact").PlanArtifactPayload & {
+        sessionTitle: string | null;
+      }
+    >
   > {
-    return this.ipcRenderer.invoke("plans:list-by-workspace", { workspaceId, excludeSessionId });
+    return this.ipcRenderer.invoke("plans:list-by-workspace", {
+      workspaceId,
+      excludeSessionId,
+    });
   }
 
   /** "Use in this session": copy an earlier plan into the session to build it. */
@@ -1313,7 +1350,10 @@ export class IpcClient {
     planId: string,
     sessionId: string,
   ): Promise<import("./utils/emit_plan_artifact").PlanArtifactPayload> {
-    return this.ipcRenderer.invoke("plans:copy-to-session", { planId, sessionId });
+    return this.ipcRenderer.invoke("plans:copy-to-session", {
+      planId,
+      sessionId,
+    });
   }
 
   public onPlanFileUpdated(
@@ -2121,7 +2161,9 @@ export class IpcClient {
 
   // Open an external URL using the default browser
   /** A local relic's index.html, for the chat's inline preview (RelicCard). */
-  public async readLocalRelic(file: string): Promise<{ html: string } | { error: string }> {
+  public async readLocalRelic(
+    file: string,
+  ): Promise<{ html: string } | { error: string }> {
     return this.ipcRenderer.invoke("relics:read-local", file);
   }
 
@@ -2130,11 +2172,16 @@ export class IpcClient {
     return this.ipcRenderer.invoke("relics:list", workspacePath);
   }
 
-  public async deleteRelic(relic: Pick<RelicSummary, "id" | "hosted" | "path">): Promise<void> {
+  public async deleteRelic(
+    relic: Pick<RelicSummary, "id" | "hosted" | "path">,
+  ): Promise<void> {
     return this.ipcRenderer.invoke("relics:delete", relic);
   }
 
-  public async setRelicVisibility(id: string, visibility: "private" | "link"): Promise<void> {
+  public async setRelicVisibility(
+    id: string,
+    visibility: "private" | "link",
+  ): Promise<void> {
     return this.ipcRenderer.invoke("relics:set-visibility", id, visibility);
   }
 

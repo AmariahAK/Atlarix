@@ -162,11 +162,13 @@ export async function flushInterruptedDraft(
   content: string,
   opts?: { force?: boolean },
 ): Promise<void> {
-  const text = stripThinkBlocks(content).trim();
-  if (!text) return;
+  // Throttle BEFORE stripping: this runs on every streamed token, and the strip
+  // is a regex over the whole turn so far.
   const now = Date.now();
   const last = partialDraftLastFlushAtByChatId.get(chatId) ?? 0;
   if (!opts?.force && now - last < PARTIAL_DRAFT_FLUSH_INTERVAL_MS) return;
+  const text = stripThinkBlocks(content).trim();
+  if (!text) return;
   partialDraftLastFlushAtByChatId.set(chatId, now);
   try {
     const { upsertInterruptedAssistantDraft } = await import(

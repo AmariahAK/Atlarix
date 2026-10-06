@@ -29,6 +29,7 @@ import {
 } from "./transcript";
 
 import { handler } from "./ipc";
+import { applyLiveTextPatch, type LiveTextPatch } from "@/lib/chat/live-text-patch";
 
 /** The desktop's five work modes (WorkModeSchema); "ask" is shown as Explore. */
 export type WorkMode = "build" | "ask" | "plan" | "debug" | "review";
@@ -1109,6 +1110,20 @@ export class AgentSession extends EventEmitter {
         if (Array.isArray(p.messages)) {
           this.messages = p.messages as ChatMessageLike[];
           this.anchorSteers();
+          this.update({ cells: this.cellsFor(this.state.busy) });
+          return;
+        }
+        // Mid-turn, main sends only the live row's text (a `patch`) after the
+        // first full list of the stream.
+        const patch = p.patch as LiveTextPatch | undefined;
+        if (patch) {
+          const idx = this.messages.findIndex((m) => m.id === patch.messageId);
+          if (idx < 0) return;
+          const content = applyLiveTextPatch(this.messages[idx]!.content, patch);
+          if (content === null || content === this.messages[idx]!.content) return;
+          const next = this.messages.slice();
+          next[idx] = { ...this.messages[idx]!, content };
+          this.messages = next;
           this.update({ cells: this.cellsFor(this.state.busy) });
         }
         return;

@@ -19,10 +19,10 @@ import {
 import { openWorkspaceFromDialog } from "@/lib/open-workspace";
 import { toast } from "sonner";
 import {
-  chatMessagesByIdAtom,
+  hasUserMessageForChatAtom,
+  isStreamingForChatAtom,
   selectedChatIdAtom,
   liveTurnUsageByChatIdAtom,
-  isStreamingByIdAtom,
   turnWorkModeByChatIdAtom,
 } from "@/atoms/chatAtoms";
 import { activeSessionWorkModeAtom } from "@/atoms/sessionAtoms";
@@ -49,18 +49,21 @@ function formatTokens(n: number): string {
   return String(n);
 }
 
+/** Key for the per-chat atoms when there is no chat; no chat has id 0. */
+const NO_CHAT_ID = 0;
+
 export function ChatInputControls({ chatId }: { chatId?: number }) {
   const appId = useAtomValue(selectedAppIdAtom);
   const pendingWorkspaceAppId = useAtomValue(pendingWorkspaceAppIdAtom);
   const selectedWorkspaceInfo = useAtomValue(selectedWorkspaceInfoAtom);
   const { apps, refreshApps } = useLoadApps();
   const selectedChatId = useAtomValue(selectedChatIdAtom);
-  const messagesByChatId = useAtomValue(chatMessagesByIdAtom);
   const threadChatId = chatId ?? selectedChatId;
-  const threadMessages =
-    threadChatId != null ? messagesByChatId.get(threadChatId) : undefined;
-  const hasUserMessageInThread =
-    threadMessages?.some((m) => m.role === "user") ?? false;
+  // One chat's slice, as a boolean: reading the whole messages map re-rendered
+  // the composer controls on every streamed flush of every chat.
+  const hasUserMessageInThread = useAtomValue(
+    hasUserMessageForChatAtom(threadChatId ?? NO_CHAT_ID),
+  );
   const { settings } = useSettings();
   // PASS8 E3: Shared context-only token count (dedup'd via React Query key).
   const { result: tokenResult } = useContextTokenCount(chatId ?? null);
@@ -99,10 +102,11 @@ export function ChatInputControls({ chatId }: { chatId?: number }) {
   // fixed at dispatch and cannot be retargeted mid-flight. The picker goes on showing
   // the selected mode (tagged "next turn" when they differ), so both statements on
   // screen are true at the same time instead of contradicting each other.
-  const isStreamingById = useAtomValue(isStreamingByIdAtom);
+  const isStreamingInThread = useAtomValue(
+    isStreamingForChatAtom(threadChatId ?? NO_CHAT_ID),
+  );
   const turnWorkModeByChatId = useAtomValue(turnWorkModeByChatIdAtom);
-  const isStreamingHere =
-    threadChatId != null && isStreamingById.get(threadChatId) === true;
+  const isStreamingHere = threadChatId != null && isStreamingInThread === true;
   const runningWorkMode =
     isStreamingHere && threadChatId != null
       ? turnWorkModeByChatId.get(threadChatId)

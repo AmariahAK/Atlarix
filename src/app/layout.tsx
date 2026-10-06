@@ -496,28 +496,36 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                 id="layout-main-content-container"
                 className="relative flex h-screenish w-full overflow-hidden mt-12 mb-4 mr-4 border-t border-l border-border rounded-lg bg-background"
               >
-                {/* Top-right panel toggle: always on chat page so panel works for web-only chats too */}
-                {isOnChatPage && showWorkspaceChrome && (
-                  <button
-                    type="button"
-                    onClick={toggleRightPanel}
-                    className="absolute top-3 right-3 z-20 flex items-center justify-center w-9 h-9 rounded-lg border border-border/60 bg-background/80 text-muted-foreground hover:text-foreground hover:bg-accent hover:border-border transition-colors shadow-sm"
-                    title={rightPanelVisible ? "Hide panel" : "Show panel"}
-                    aria-label={
-                      rightPanelVisible
-                        ? "Hide right panel"
-                        : "Show right panel"
-                    }
-                  >
-                    {rightPanelVisible ? (
-                      <ChevronRight className="w-4 h-4 shrink-0" aria-hidden />
-                    ) : (
-                      <ChevronLeft className="w-4 h-4 shrink-0" aria-hidden />
-                    )}
-                  </button>
-                )}
-                {/* Main content: chat when active, else route content */}
-                <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
+                {/* Main content: chat when active, else route content.
+                    RELATIVE is load-bearing: the chat overlay below is
+                    `absolute inset-0`, and without a positioned parent here it
+                    sized itself to the whole row and ran under the right panel,
+                    so the panel covered the chat's right edge (tool cards,
+                    composer). */}
+                <div className="relative flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
+                  {/* Top-right panel toggle, at the chat column's corner (not over the panel) */}
+                  {isOnChatPage && showWorkspaceChrome && (
+                    <button
+                      type="button"
+                      onClick={toggleRightPanel}
+                      className="absolute top-3 right-3 z-20 flex items-center justify-center w-9 h-9 rounded-lg border border-border/60 bg-background/80 text-muted-foreground hover:text-foreground hover:bg-accent hover:border-border transition-colors shadow-sm"
+                      title={rightPanelVisible ? "Hide panel" : "Show panel"}
+                      aria-label={
+                        rightPanelVisible
+                          ? "Hide right panel"
+                          : "Show right panel"
+                      }
+                    >
+                      {rightPanelVisible ? (
+                        <ChevronRight
+                          className="w-4 h-4 shrink-0"
+                          aria-hidden
+                        />
+                      ) : (
+                        <ChevronLeft className="w-4 h-4 shrink-0" aria-hidden />
+                      )}
+                    </button>
+                  )}
                   {/* Auto-update: download progress + ready-to-install banner */}
                   <UpdateBanner />
                   {/* Workspace folder missing (deleted outside app) */}

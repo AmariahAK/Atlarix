@@ -30,6 +30,7 @@
  * text/reasoning split can only be done once the turn has stopped growing.
  */
 import fs from "node:fs";
+import { applyLiveTextPatch, type LiveTextPatch } from "@/lib/chat/live-text-patch";
 import { removeThinkingTags } from "@/ipc/utils/thinking_tags";
 import { redactSecretsInText } from "@/lib/security/redact-secrets";
 import type { RecordedSend } from "./fake-sender";
@@ -187,6 +188,14 @@ export function createTrajectoryWriter(
           const last = messages?.[messages.length - 1];
           if (last?.role === "assistant" && typeof last.content === "string") {
             lastAssistantRaw = last.content;
+          }
+          // After the first full list, chunks carry only the live row's text.
+          if (!messages) {
+            const next = applyLiveTextPatch(
+              lastAssistantRaw ?? "",
+              p.patch as LiveTextPatch | undefined,
+            );
+            if (next !== null) lastAssistantRaw = next;
           }
           return;
         }

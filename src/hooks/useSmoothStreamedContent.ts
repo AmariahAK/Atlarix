@@ -62,6 +62,9 @@ const TICK_MS = 40;
 /** Long answers re-render expensively, so pace them on a cheaper tick. */
 const LONG_ANSWER_CHARS = 20_000;
 const LONG_ANSWER_TICK_MS = 80;
+/** A long Build turn (every tool call and result in one message) re-parses at this pace. */
+const HUGE_ANSWER_CHARS = 250_000;
+const HUGE_ANSWER_TICK_MS = 250;
 
 /** Characters/second to reveal given how far behind we are. */
 export function revealRateCps(backlog: number, isStreaming: boolean): number {
@@ -154,7 +157,11 @@ export function useSmoothStreamedContent(
   streamingRef.current = isStreaming;
 
   const tickMs =
-    content.length > LONG_ANSWER_CHARS ? LONG_ANSWER_TICK_MS : TICK_MS;
+    content.length > HUGE_ANSWER_CHARS
+      ? HUGE_ANSWER_TICK_MS
+      : content.length > LONG_ANSWER_CHARS
+        ? LONG_ANSWER_TICK_MS
+        : TICK_MS;
 
   useEffect(() => {
     if (reduceMotion) return;

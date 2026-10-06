@@ -971,6 +971,9 @@ function WovenEntryList({
   );
 }
 
+/** How many of a message's last tool steps start open (diffs, command output). */
+const OPEN_RECENT_TOOL_STEPS = 3;
+
 function PaginatedPartList({
   parts,
   ...props
@@ -978,6 +981,12 @@ function PaginatedPartList({
   const groups = groupPaginatableRuns(parts, (p) =>
     p.type === "tool" ? p.toolName : null,
   );
+  const olderToolIds = useMemo(() => {
+    const ids = parts.flatMap((p) => (p.type === "tool" ? [p.id] : []));
+    return new Set(
+      ids.slice(0, Math.max(0, ids.length - OPEN_RECENT_TOOL_STEPS)),
+    );
+  }, [parts]);
   return (
     <>
       {groups.map((g, gi) =>
@@ -985,6 +994,7 @@ function PaginatedPartList({
           <AssistantMessagePartView
             key={partKey(g.item, gi)}
             part={g.item}
+            olderStep={g.item.type === "tool" && olderToolIds.has(g.item.id)}
             {...props}
           />
         ) : (
@@ -995,6 +1005,7 @@ function PaginatedPartList({
               <AssistantMessagePartView
                 key={partKey(p, pi)}
                 part={p}
+                olderStep={p.type === "tool" && olderToolIds.has(p.id)}
                 {...props}
               />
             ))}
@@ -1057,6 +1068,7 @@ function AssistantMessagePartView({
   suppressDelegateTools,
   onPlanArtifactBuild,
   planArtifactBuildDisabled,
+  olderStep,
 }: {
   part: AssistantMessagePart;
   isStreaming: boolean;
@@ -1065,6 +1077,7 @@ function AssistantMessagePartView({
   suppressDelegateTools?: boolean;
   onPlanArtifactBuild?: (planId: string) => void;
   planArtifactBuildDisabled?: boolean;
+  olderStep?: boolean;
 }) {
   switch (part.type) {
     case "thought":
@@ -1077,6 +1090,7 @@ function AssistantMessagePartView({
           part={part}
           defaultCollapsed
           suppressDelegateTools={suppressDelegateTools}
+          olderStep={olderStep}
         />
       );
     case "plan_artifact":

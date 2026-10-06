@@ -168,6 +168,18 @@ export class PermissionInterceptor extends EventEmitter {
    */
   private fileOpResults: Map<string, FileOpExecutionResult> = new Map();
 
+  /**
+   * Drop the write results once this interceptor's turn is over. Each holds
+   * the file's old AND new content, kept so a result asked for after execution
+   * still answers; nothing asks once the next turn has its own interceptor, and
+   * a long Build turn's worth of whole-file copies otherwise stays in memory for
+   * as long as the chat is open. Commands are left alone: a background command
+   * started in this turn can still finish and report through it.
+   */
+  releaseSettledWrites(): void {
+    this.fileOpResults.clear();
+  }
+
   /** Monotonic id suffix for mid-run sandbox-escalation approval requests. */
   private sandboxEscalationSeq = 0;
 
@@ -1992,11 +2004,15 @@ export class PermissionInterceptor extends EventEmitter {
     return runShellCommandStreaming(command, workingDir, {
       sandbox,
       workspaceRoot: this.workspacePath,
-      onOutput: ({ stdout, stderr, deltaStdout, deltaStderr }) => {
+      // Only the new lines mid-run: every consumer appends `delta`, and sending
+      // the whole output so far on each flushed line made a long command's IPC
+      // traffic grow with the square of its output. The final result still
+      // carries all of it.
+      onOutput: ({ deltaStdout, deltaStderr }) => {
         this.emitTerminalOutput({
           operationId,
           command,
-          output: stdout + (stderr ? `\n${stderr}` : ""),
+          output: "",
           delta: deltaStdout + deltaStderr,
           status: "running" as const,
           background: false,

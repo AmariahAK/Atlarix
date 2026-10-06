@@ -280,6 +280,13 @@ export const messagesForChatAtom = atomFamily((chatId: number) =>
   selectAtom(chatMessagesByIdAtom, (m) => m.get(chatId) ?? EMPTY_MESSAGES),
 );
 
+/** Whether a chat has any user message — a boolean, so streaming text doesn't re-render readers. */
+export const hasUserMessageForChatAtom = atomFamily((chatId: number) =>
+  selectAtom(chatMessagesByIdAtom, (m) =>
+    (m.get(chatId) ?? EMPTY_MESSAGES).some((msg) => msg.role === "user"),
+  ),
+);
+
 export const isStreamingForChatAtom = atomFamily((chatId: number) =>
   selectAtom(isStreamingByIdAtom, (m) => m.get(chatId) ?? false),
 );
@@ -489,5 +496,8 @@ export const summarizationProgressAtom = atom<{
  * re-render the whole composer at that rate.
  */
 export const voiceDictationByChatAtom = atom<
-  Map<number, import("@/components/chat/VoiceDictationStatus").VoiceDictationState>
+  Map<
+    number,
+    import("@/components/chat/VoiceDictationStatus").VoiceDictationState
+  >
 >(new Map());

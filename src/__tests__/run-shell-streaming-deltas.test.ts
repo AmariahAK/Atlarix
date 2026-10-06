@@ -237,3 +237,25 @@ describe("the amplification this exists to remove", () => {
     expect(cumulativeBytes).toBeGreaterThan(deltaBytes);
   });
 });
+
+describe("bounded output", () => {
+  it("keeps the head and a rolling tail of a very long output, marking the gap", async () => {
+    const { OUTPUT_HEAD_CHARS, OUTPUT_TAIL_CHARS } = await import("@/ipc/utils/runShellCommand");
+    // ~5.5 MB of numbered lines, written in many chunks.
+    const lines = 400_000;
+    const script = `for (let i = 0; i < ${lines}; i++) process.stdout.write("line " + String(i).padStart(8, "0") + "\\n")`;
+    let deltaChars = 0;
+    const result = await runShellCommandStreaming(
+      `node -e '${script}'`,
+      undefined,
+      { onOutput: (o: StreamedOutput) => (deltaChars += o.deltaStdout.length) },
+    );
+    expect(result.success).toBe(true);
+    expect(result.stdout.startsWith("line 00000000")).toBe(true);
+    expect(result.stdout.endsWith(`line ${String(lines - 1).padStart(8, "0")}`)).toBe(true);
+    expect(result.stdout).toMatch(/…\[\d+ characters of output omitted\]…/);
+    expect(result.stdout.length).toBeLessThan(OUTPUT_HEAD_CHARS + OUTPUT_TAIL_CHARS + 200);
+    // Every line was still streamed to the consumer once.
+    expect(deltaChars).toBeGreaterThan(lines * 14 - 1);
+  }, 60_000);
+});

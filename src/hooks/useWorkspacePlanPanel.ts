@@ -7,7 +7,7 @@ import {
   previewTabAtom,
   planUnreadAtom,
 } from "@/atoms/sourceAtoms";
-import { chatMessagesByIdAtom } from "@/atoms/chatAtoms";
+import { messagesForChatAtom } from "@/atoms/chatAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
 import type { PlanArtifactPayload } from "@/ipc/utils/emit_plan_artifact";
 import {
@@ -79,7 +79,6 @@ function applyPayloadToPanel(
 export function useWorkspacePlanPanel(): void {
   const [, setPanel] = useAtom(workspacePlanPanelAtom);
   const proposals = useAtomValue(pendingProposalsAtom);
-  const messagesByChatId = useAtomValue(chatMessagesByIdAtom);
 
   let chatId: number | undefined;
   try {
@@ -95,10 +94,11 @@ export function useWorkspacePlanPanel(): void {
   // Derive from the raw per-chat array reference (stable between renders unless
   // messages actually change) and memoize, so `messages` has a stable identity.
   // Without this the fresh `.map()` made the effects below re-run every render.
-  const rawMessages =
-    chatId != null && !Number.isNaN(chatId)
-      ? messagesByChatId.get(chatId)
-      : undefined;
+  // One chat's slice (not the whole map, which changes on every streamed flush
+  // of every chat). 0 is no chat's id, so it reads as empty.
+  const rawMessages = useAtomValue(
+    messagesForChatAtom(chatId != null && !Number.isNaN(chatId) ? chatId : 0),
+  );
   const messages = useMemo(
     () =>
       (rawMessages ?? []).map((m) => ({

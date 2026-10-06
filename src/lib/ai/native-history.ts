@@ -225,6 +225,22 @@ export function bucketNativeTokensByTool(
   return buckets;
 }
 
+/**
+ * An image (or other media) inside a tool result's content. AI SDK 7 tool
+ * outputs carry it as `{type:"file", mediaType, data}`, which buildToolModelOutput
+ * now emits; `media` is the older shape still found in saved sessions. Checking
+ * only `media` left new screenshots unplaceholdered on a provider that cannot
+ * take them, and counted them as zero tokens.
+ */
+function isMediaPart(part: AnyPart | undefined): boolean {
+  return (
+    part?.type === "media" ||
+    part?.type === "file" ||
+    part?.type === "image-data" ||
+    part?.type === "file-data"
+  );
+}
+
 function estimateOutputTokens(output: unknown): number {
   if (output == null) return 0;
   if (typeof output === "string") return estimateTokens(output);
@@ -232,7 +248,7 @@ function estimateOutputTokens(output: unknown): number {
   if (o.type === "content" && Array.isArray(o.value)) {
     let total = 0;
     for (const part of o.value as AnyPart[]) {
-      if (part?.type === "media") total += MEDIA_PART_TOKEN_ESTIMATE;
+      if (isMediaPart(part)) total += MEDIA_PART_TOKEN_ESTIMATE;
       else
         total += estimateTokens(String((part as { text?: string }).text ?? ""));
     }
@@ -464,9 +480,7 @@ function clipToolResultOutput(output: unknown): {
     // elsewhere, and clipping a data URI mid-string produces something invalid.
     const text = (o.value as AnyPart[])
       .map((part) =>
-        part?.type === "media"
-          ? ""
-          : String((part as { text?: string }).text ?? ""),
+        isMediaPart(part) ? "" : String((part as { text?: string }).text ?? ""),
       )
       .filter(Boolean)
       .join("\n");
@@ -498,9 +512,7 @@ export function regateNativeMediaForProvider(
       const output = (p as { output?: { type?: string; value?: unknown } })
         .output;
       if (output?.type !== "content" || !Array.isArray(output.value)) return p;
-      const hasMedia = (output.value as AnyPart[]).some(
-        (v) => v?.type === "media",
-      );
+      const hasMedia = (output.value as AnyPart[]).some((v) => isMediaPart(v));
       if (!hasMedia) return p;
       changed = true;
       return {
@@ -508,7 +520,7 @@ export function regateNativeMediaForProvider(
         output: {
           type: "content",
           value: (output.value as AnyPart[]).map((v) =>
-            v?.type === "media"
+            isMediaPart(v)
               ? {
                   type: "text",
                   text: "[image omitted — this provider cannot view images in tool results]",

@@ -151,6 +151,8 @@ export function registerInterceptor(
   chatId: number,
   interceptor: PermissionInterceptor,
 ): void {
+  const previous = activeInterceptors.get(chatId);
+  if (previous && previous !== interceptor) previous.releaseSettledWrites();
   activeInterceptors.set(chatId, interceptor);
   logger.log(`Registered permission interceptor for chat ${chatId}`);
 

@@ -36,6 +36,7 @@ export function StreamToolCallCard({
   toolName: _toolName,
   elapsedMs,
   resultText,
+  olderStep,
 }: {
   summary: string;
   status: InlineTimelineToolStatus;
@@ -48,8 +49,18 @@ export function StreamToolCallCard({
   elapsedMs?: number;
   /** The tool's raw result; a finished `relic` call renders as its card. */
   resultText?: string;
+  /**
+   * Not one of the turn's last few steps: starts closed even when it is a diff
+   * or a command. A long Build turn mounted every one of its diffs open (about
+   * five DOM nodes a row, up to 200 rows each), which is memory the user never
+   * looks at again. Errors still open.
+   */
+  olderStep?: boolean;
 }) {
-  const relic = _toolName === "relic" && status === "done" ? parseRelicResult(resultText) : null;
+  const relic =
+    _toolName === "relic" && status === "done"
+      ? parseRelicResult(resultText)
+      : null;
   if (relic) return <RelicCard relic={relic} />;
   return (
     <ToolCallCardBody
@@ -59,6 +70,7 @@ export function StreamToolCallCard({
       status={status}
       toolName={_toolName}
       elapsedMs={elapsedMs}
+      olderStep={olderStep}
     />
   );
 }
@@ -68,6 +80,7 @@ function ToolCallCardBody({
   expand,
   detail,
   status,
+  olderStep,
   toolName: _toolName,
   elapsedMs,
 }: {
@@ -77,6 +90,7 @@ function ToolCallCardBody({
   detail?: string;
   toolName?: string;
   elapsedMs?: number;
+  olderStep?: boolean;
 }) {
   const isRunning = status === "running";
   const isError = status === "error";
@@ -92,10 +106,12 @@ function ToolCallCardBody({
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
   const open =
     userOpen ??
-    defaultOpenFor(
-      resolvedExpand,
-      isRunning ? "running" : isError ? "error" : "done",
-    );
+    (olderStep && !isError
+      ? false
+      : defaultOpenFor(
+          resolvedExpand,
+          isRunning ? "running" : isError ? "error" : "done",
+        ));
   // Mutating tools render a fixed-height skeleton row while running so the
   // card doesn't jump when the expand content mounts on completion.
   const showRunningSkeleton =

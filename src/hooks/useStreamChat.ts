@@ -155,6 +155,19 @@ const MAX_RENDERER_MESSAGES = 100;
  */
 const ADAPTIVE_FLUSH_LEN_THRESHOLD = 20_000;
 
+/**
+ * Flush on every Nth 50 ms tick for a streamed answer this long. A long Build
+ * turn holds every tool call and result in one message, so it reaches hundreds
+ * of KB to MB; each flush re-parses all of it, and at 10–20 Hz that was the
+ * renderer's CPU and garbage on exactly the turns that also ran out of memory.
+ */
+export function flushEveryNthTick(len: number): number {
+  if (len > 1_000_000) return 10; // 500 ms
+  if (len > 250_000) return 5; // 250 ms
+  if (len > ADAPTIVE_FLUSH_LEN_THRESHOLD) return 2; // 100 ms
+  return 1;
+}
+
 function trimRendererMessages(msgs: Message[]): Message[] {
   if (msgs.length <= MAX_RENDERER_MESSAGES) return msgs;
   return msgs.slice(-MAX_RENDERER_MESSAGES);
@@ -1786,10 +1799,7 @@ export function useStreamChat({
                   const len = th.lastAssistantRawByChatId.get(cid)?.length ?? 0;
                   if (len > maxLen) maxLen = len;
                 }
-                if (
-                  maxLen > ADAPTIVE_FLUSH_LEN_THRESHOLD &&
-                  th.tick % 2 !== 0
-                ) {
+                if (th.tick % flushEveryNthTick(maxLen) !== 0) {
                   return; // skip this tick; pending is retained for the next one
                 }
                 const snapshot = new Map(th.pending);
@@ -1808,6 +1818,11 @@ export function useStreamChat({
             // Bug A: drop a superseded leg's late end so it can't clear
             // isStreaming or flush the queued message for the live turn.
             if (latestDispatchByChatRef.current.get(chatId) !== dispatchId) {
+              // A superseded leg still owns its subscriptions (activity,
+              // terminal, permission, tool input, write preview…). Returning
+              // without releasing them left them alive, each closure writing a
+              // duplicate of every later update for as long as the app ran.
+              cleanupStreamListeners?.();
               return;
             }
             const liveMap = getDefaultStore().get(
@@ -2418,6 +2433,11 @@ export function useStreamChat({
           onError: (errorMessage: string) => {
             // Bug A: ignore a superseded leg's late error.
             if (latestDispatchByChatRef.current.get(chatId) !== dispatchId) {
+              // A superseded leg still owns its subscriptions (activity,
+              // terminal, permission, tool input, write preview…). Returning
+              // without releasing them left them alive, each closure writing a
+              // duplicate of every later update for as long as the app ran.
+              cleanupStreamListeners?.();
               return;
             }
             const liveMapErr = getDefaultStore().get(
