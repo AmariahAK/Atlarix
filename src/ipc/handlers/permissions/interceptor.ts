@@ -1925,9 +1925,14 @@ export class PermissionInterceptor extends EventEmitter {
       this.workspaceId != null
         ? listSandboxWritablePaths(this.workspaceId)
         : [];
+    // This workspace's scratch directory, as for the file tools (constructor):
+    // the prompt names it as THE place for temp files, so a command writing
+    // there (ffmpeg extracting frames to view_image) must not raise a
+    // "write outside the sandbox?" card for the agent's own scratch.
     const extraWritablePaths = [
       ...(cfg?.extraWritablePaths ?? []),
       ...workspaceGranted,
+      path.resolve(agentScratchDirFor(this.workspacePath)),
     ];
     const readOnly = isReadOnlyWorkMode(workMode);
     return {

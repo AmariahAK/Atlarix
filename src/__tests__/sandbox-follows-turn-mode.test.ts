@@ -193,3 +193,27 @@ describe("sandbox enforcement", () => {
     expect(sandbox?.enforce).toBe(false);
   });
 });
+
+describe("the agent's own scratch directory", () => {
+  it("is writable to commands, as it is to the file tools", async () => {
+    const { agentScratchDirFor } = await import("@/lib/agent-scratch");
+    globalSettings = {};
+    const ws = makeWorkspace();
+    const i = new PermissionInterceptor(
+      ws,
+      APP_ID,
+      undefined,
+      1,
+      "build",
+    ) as unknown as {
+      buildRunCommandSandbox: () =>
+        | { extraWritablePaths?: string[] }
+        | undefined;
+    };
+    // Observed: ffmpeg extracting video frames into the scratch dir the prompt
+    // names raised "Allow writing outside the sandbox?" for that very dir.
+    expect(i.buildRunCommandSandbox()?.extraWritablePaths).toContain(
+      path.resolve(agentScratchDirFor(ws)),
+    );
+  });
+});
