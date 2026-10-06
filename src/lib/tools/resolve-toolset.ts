@@ -21,6 +21,7 @@
  */
 
 import { ToolRegistry, type ToolMetadata } from "./registry";
+import { getPinnedCoreToken } from "@/ipc/shared/core_proxy";
 import {
   includeToolForSession,
   type ModeRegistryKey,
@@ -185,10 +186,22 @@ export function resolveToolsetForSession(
   // prompt-injected unattended runs, with little unattended value (web_search
   // routes through the configured aggregator and keeps triage utility).
   const UNATTENDED_DROP = new Set(["ask_user", "read_url"]);
+  // A cloud run (headless with a job-scoped Core token) DOES have search: the
+  // paid search on the Atlarix proxy (lib/search/paid-search.ts), billed to the
+  // job. Benchmark and other headless runs without one still drop the web tools.
+  const headlessHasPaidSearch = getPinnedCoreToken() != null;
   const afterHeadless =
     process.env.ATLARIX_HEADLESS === "1"
       ? preTrim.filter(
-          (t) => !DRIVES_A_VIEW(t.name) && !HEADLESS_DROP.has(t.name),
+          (t) =>
+            !DRIVES_A_VIEW(t.name) &&
+            !(
+              HEADLESS_DROP.has(t.name) &&
+              !(
+                headlessHasPaidSearch &&
+                (t.name === "web_search" || t.name === "read_url")
+              )
+            ),
         )
       : preTrim;
   const tools = input.unattended

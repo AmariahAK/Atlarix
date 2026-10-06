@@ -417,10 +417,7 @@ function normalizeWebSearchUserQuery(raw: string): string {
     .trim();
 }
 
-function canonicalWebSearchCacheKey(
-  query: string,
-  numResults: number,
-): string {
+function canonicalWebSearchCacheKey(query: string, numResults: number): string {
   const q = normalizeWebSearchUserQuery(query);
   return `${q}:${numResults}`;
 }
@@ -724,6 +721,7 @@ ToolRegistry.register({
     query?: string;
     input?: { query?: string };
     num_results?: number;
+    _chatSessionId?: number;
   }) => {
     const nestedQ =
       args?.input && typeof args.input === "object"
@@ -784,6 +782,32 @@ ToolRegistry.register({
               favicon: faviconFor(siteRoot),
             },
           ],
+        };
+      }
+
+      // Paid Atlarix Core: hosted search through our proxy, billed to the
+      // account. Any failure falls through to the free tiers below.
+      const { paidWebSearch } = await import("@/lib/search/paid-search");
+      const paid = await paidWebSearch(query, maxResults, args._chatSessionId);
+      if (paid && paid.results.length > 0) {
+        const lines = [`**Search results for: "${query}"**\n`];
+        if (paid.summary) lines.push(`${paid.summary}\n`);
+        paid.results.forEach((r, idx) => {
+          lines.push(`### ${idx + 1}. ${r.title}`);
+          lines.push(r.url);
+          if (r.snippet) lines.push(`\n> ${r.snippet}\n`);
+          lines.push("");
+        });
+        return {
+          text: wrapUntrustedData("web_search", lines.join("\n")),
+          sources: paid.results.map((r) => ({
+            title: r.title,
+            url: r.url,
+            content: r.snippet,
+            source: r.source,
+            score: r.score,
+            favicon: faviconFor(r.url),
+          })),
         };
       }
 
@@ -1080,13 +1104,12 @@ class WebSearchAggregator {
       // The `atlarix` CLI has no built-in browser, so the one search tier that
       // passes engines' bot checks is missing there, and an empty answer would
       // read as "nothing exists". Say what is actually going on.
-      if (process.env.ATLARIX_SURFACE === "cli") return CLI_WEB_SEARCH_UNAVAILABLE(originalQuery);
+      if (process.env.ATLARIX_SURFACE === "cli")
+        return CLI_WEB_SEARCH_UNAVAILABLE(originalQuery);
       return `**No results found for: "${originalQuery}"**\n\n💡 **Suggestions:**\n- Try different keywords\n- Be more specific\n- Check spelling${WEB_SEARCH_SETUP_HINT}`;
     }
 
-    const lines: string[] = [
-      `**Search results for: "${originalQuery}"**\n`,
-    ];
+    const lines: string[] = [`**Search results for: "${originalQuery}"**\n`];
     results.forEach((result, idx) => {
       lines.push(`### ${idx + 1}. ${result.title}`);
       lines.push(result.url);
