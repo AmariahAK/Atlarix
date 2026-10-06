@@ -22,13 +22,6 @@ not trust it.
 
 ## Next up — after 15.0.1
 
-- **npm publish order.** `headless.yml` publishes `atlarix` the moment a `v*` tag is pushed, but
-  its `atlarix-<platform>` packages come from `release.yml` about 40 minutes later. In between,
-  `npm i -g atlarix` (and every cloud run, which installs `latest`) finds no binary: a Slack
-  task failed exactly that way during the 15.0.1 release. Publish `atlarix` from `release.yml`
-  after the platform packages, which needs npm's trusted publisher for `atlarix` moved from
-  `headless.yml` to `release.yml` (owner, on npmjs.com), or make the headless publish wait for
-  them.
 - **Slack Marketplace submission.** Listing (six live screenshots), scope reasons, security and
   compliance, and testing instructions are filled in. Still needed before Submit: a reviewer
   test account with credit (Slack is paid; the owner creates it) and a demo video link

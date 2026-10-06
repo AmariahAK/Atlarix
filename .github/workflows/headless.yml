@@ -144,7 +144,8 @@ jobs:
   publish-npm:
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Most of this is waiting for release.yml's platform packages (below).
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 
@@ -222,6 +223,33 @@ jobs:
       # atlarix-releases: E422 on 15.0.1's first cut. packages/headless sets
       # publishConfig.provenance=false, and so do the platform packages
       # (scripts/build-cli-npm.mjs).
+      # `atlarix` only after every `atlarix-<platform>` it points at exists.
+      #
+      # This workflow runs at tag push; release.yml publishes the platform
+      # packages ~40 minutes later. Published in that order (15.0.0, 15.0.1),
+      # `npm i -g atlarix` and every cloud run (`npx atlarix@latest`) found no
+      # binary for the whole gap. Waiting here keeps the trusted publisher on
+      # this file, so nothing changes on npmjs.com.
+      - name: Wait for the platform packages
+        working-directory: packages/headless
+        run: |
+          set -euo pipefail
+          VER="$(node -p "require('./package.json').version")"
+          PKGS="$(node -p "Object.keys(require('./package.json').optionalDependencies || {}).join(' ')")"
+          [ -n "$PKGS" ] || { echo "::error::no platform packages in optionalDependencies"; exit 1; }
+          deadline=$(( $(date +%s) + 105 * 60 ))
+          for p in $PKGS; do
+            until [ "$(npm view "${p}@${VER}" version 2>/dev/null || true)" = "$VER" ]; do
+              if [ "$(date +%s)" -ge "$deadline" ]; then
+                echo "::error::${p}@${VER} never appeared on npm; atlarix@${VER} not published"
+                exit 1
+              fi
+              echo "waiting for ${p}@${VER}…"
+              sleep 60
+            done
+            echo "${p}@${VER} is on npm"
+          done
+
       - name: Publish
         run: npm publish
         working-directory: packages/headless
