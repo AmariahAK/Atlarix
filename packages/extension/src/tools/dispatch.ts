@@ -294,7 +294,9 @@ async function describeTab(tabId: number): Promise<string> {
 let lastAgentTab: number | null = null;
 
 /** Read a tab, or null if it has gone or has no address yet. */
-async function liveTab(id: number): Promise<{ id: number; url: string } | null> {
+async function liveTab(
+  id: number,
+): Promise<{ id: number; url: string } | null> {
   try {
     const tab = await api().tabs.get(id);
     if (tab.id === undefined || !tab.url) return null;
@@ -1220,12 +1222,50 @@ const SEARCH_URL = (query: string) =>
  * difference is real: a page the agent OPENED to show you stays, and scaffolding
  * it opened to read does not.
  */
+async function paidSearch(query: string): Promise<ToolOutcome | null> {
+  try {
+    const { coreProxyFetch } = await import("../core/client");
+    const r = await coreProxyFetch<{
+      results?: Array<{ title?: string; url?: string; snippet?: string }>;
+      summary?: string;
+    }>("/search", { query, num_results: MAX_SEARCH_RESULTS });
+    const rows = (r.results ?? []).filter(
+      (x) => typeof x.url === "string" && x.url,
+    );
+    if (rows.length === 0) return null;
+    const body = rows
+      .map(
+        (x, i) =>
+          `${i + 1}. ${x.title || x.url}\n   ${x.url}${x.snippet ? `\n   ${x.snippet}` : ""}`,
+      )
+      .join("\n\n");
+    return {
+      label: `Searched for "${query}"`,
+      content: wrapUntrustedData(
+        "web:atlarix-search",
+        `Search results for "${query}"\n\n${r.summary ? `${r.summary}\n\n` : ""}${body}\n\n` +
+          `These are titles and snippets, not the pages themselves. Open the ones ` +
+          `that look right with open_tab and read them before answering.`,
+      ),
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function webSearch(
   args: Record<string, unknown>,
   ctx: ToolContext,
 ): Promise<ToolOutcome> {
   const query = typeof args.query === "string" ? args.query.trim() : "";
   if (!query) return { content: "web_search needs a non-empty `query`." };
+
+  // The extension is paid-only, so its searches go to Atlarix's paid search
+  // first (OpenAI's hosted search on the proxy, billed to the account): no tab
+  // to open, no engine challenge page, and the same results the app and CLI
+  // get. The Brave read below stays as the fallback.
+  const paid = await paidSearch(query);
+  if (paid) return paid;
 
   const url = SEARCH_URL(query);
   const denied = await requireAccess(url);
@@ -1240,7 +1280,9 @@ async function webSearch(
     windowId: ctx.windowId,
   });
   if (tab.id === undefined) {
-    return { content: "Chrome opened a tab but gave it no id — nothing to read." };
+    return {
+      content: "Chrome opened a tab but gave it no id — nothing to read.",
+    };
   }
 
   try {
@@ -1308,4 +1350,3 @@ async function webSearch(
     }
   }
 }
-
