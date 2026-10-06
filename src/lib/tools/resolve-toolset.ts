@@ -21,7 +21,7 @@
  */
 
 import { ToolRegistry, type ToolMetadata } from "./registry";
-import { getPinnedCoreToken } from "@/ipc/shared/core_proxy";
+import { getPinnedCoreToken } from "@/lib/core/pinned-token";
 import {
   includeToolForSession,
   type ModeRegistryKey,

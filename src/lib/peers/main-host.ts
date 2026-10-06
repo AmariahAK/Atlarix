@@ -9,7 +9,12 @@ import { eq } from "drizzle-orm";
 import log from "electron-log";
 import { db, getDb } from "@/db";
 import { apps, chatSessions } from "@/db/schema";
-import { noteLiveSession, startPeerInbox, type Surface } from "./peers";
+import {
+  isPlaceholderTitle,
+  noteLiveSession,
+  startPeerInbox,
+  type Surface,
+} from "./peers";
 import { isChatStreamLive } from "@/ipc/handlers/chat_stream/stream-state";
 import { recordUserInterjection } from "@/lib/agent/user-interjections";
 import { broadcastToAllWindows } from "@/ipc/utils/broadcast_all_windows";
@@ -36,7 +41,9 @@ export async function noteSessionOpen(
       sessionId,
       chatId,
       name:
-        session.title?.trim() ||
+        (session.title?.trim() && !isPlaceholderTitle(session.title)
+          ? session.title.trim()
+          : "") ||
         `New ${process.env.ATLARIX_SURFACE === "cli" ? "CLI " : ""}session (${(app?.path ?? "").split(/[\\/]/).pop() || "no folder"})`,
       workspace: app?.path ?? "",
     });

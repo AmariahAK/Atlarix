@@ -31,7 +31,12 @@
 export const ATLARIX_SURFACE: "app" | "cli" =
   // Set by the interactive CLI before anything is imported (src/cli/desktop-data.ts).
   // Anything else, the desktop included, is `app`.
-  process.env.ATLARIX_SURFACE === "cli" ? "cli" : "app";
+  // `typeof` guard: the renderer imports this module (via compass_constants)
+  // and has no `process`; in dev, where nothing is tree-shaken, reading it at
+  // load threw and left a blank window.
+  typeof process !== "undefined" && process.env?.ATLARIX_SURFACE === "cli"
+    ? "cli"
+    : "app";
 
 export function getCoreProxyBaseUrl(): string | undefined {
   const raw =
@@ -55,12 +60,4 @@ export function getCoreProxyBaseUrl(): string | undefined {
  * `--core-token-file`. It lives in memory only, never in `process.env`, so the
  * agent's own shell commands cannot inherit it.
  */
-let pinnedCoreToken: string | null = null;
-
-export function setPinnedCoreToken(token: string | null): void {
-  pinnedCoreToken = token && token.trim() ? token.trim() : null;
-}
-
-export function getPinnedCoreToken(): string | null {
-  return pinnedCoreToken;
-}
+export { setPinnedCoreToken, getPinnedCoreToken } from "@/lib/core/pinned-token";

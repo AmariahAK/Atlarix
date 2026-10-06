@@ -173,13 +173,19 @@ function refreshNames(d: Sqlite): void {
     for (const r of rows) {
       const cur = local.get(r.id);
       const title = r.title?.trim();
-      if (!cur || !title || title === cur.name) continue;
+      if (!cur || !title || isPlaceholderTitle(title) || title === cur.name)
+        continue;
       cur.aliases = [...new Set([...(cur.aliases ?? []), cur.name])];
       cur.name = title;
     }
   } catch {
     /* no chat_sessions here (tests) */
   }
+}
+
+/** A title the app gives a session before it has a real one. */
+export function isPlaceholderTitle(title: string): boolean {
+  return /^(untitled|new chat|new conversation)( session)?$/i.test(title.trim());
 }
 
 /** Bring this process's session names up to date now (before a send, say). */
