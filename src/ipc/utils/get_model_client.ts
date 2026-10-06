@@ -1,5 +1,8 @@
 import { createOpenAI } from "@ai-sdk/openai";
-import { getPinnedProviderKey, isOwnKeyRun } from "@/ipc/shared/pinned-provider-key";
+import {
+  getPinnedProviderKey,
+  isOwnKeyRun,
+} from "@/ipc/shared/pinned-provider-key";
 import { createGoogleGenerativeAI as createGoogle } from "@ai-sdk/google";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createXai } from "@ai-sdk/xai";
@@ -82,7 +85,13 @@ export interface GetModelClientOptions {
    * Auto can pick a model per request. Hints only: the proxy bills the model
    * that answered. Ignored off Core.
    */
-  purpose?: "main" | "subagent" | "title" | "compaction" | "summary" | "transcribe";
+  purpose?:
+    | "main"
+    | "subagent"
+    | "title"
+    | "compaction"
+    | "summary"
+    | "transcribe";
   /** The turn's work mode (`X-Atlarix-Mode`): build | debug | ask | plan. */
   workMode?: string;
   /** "Try with a stronger model": one level up for this turn (`X-Atlarix-Escalate`). */
@@ -112,6 +121,22 @@ export function autoRequestHeaders(
 }
 
 /** True if a provider has a usable API key (settings → DB → env). */
+/** http(s)://localhost, 127.x.x.x or [::1], any port. */
+export function isLoopbackUrl(url: string | undefined): boolean {
+  if (!url) return false;
+  try {
+    const host = new URL(url).hostname.replace(/^\[|\]$/g, "");
+    return (
+      host === "localhost" ||
+      host.endsWith(".localhost") ||
+      host === "::1" ||
+      /^127(?:\.\d{1,3}){3}$/.test(host)
+    );
+  } catch {
+    return false;
+  }
+}
+
 export async function hasUsableProviderKey(
   provider: string,
   settings: UserSettings,
@@ -128,6 +153,15 @@ export async function hasUsableProviderKey(
   // called the run keyless and fell back to Core though getRegularModelClient
   // would have used it (found by running the action's agent step for real).
   if (getPinnedProviderKey(provider)) return true;
+  // A model on the user's own machine (Ollama, LM Studio, or a custom provider
+  // at a loopback address) needs no key: there is nobody to authenticate to.
+  // Treated as keyless, `atlarix --provider-url http://localhost:11434/v1`
+  // fell back to Atlarix Core and failed "Sign in to use Atlarix Core".
+  if (
+    providerConfig.type === "local" ||
+    isLoopbackUrl(providerConfig.apiBaseUrl)
+  )
+    return true;
   const settingsKey = settings.providerSettings?.[provider]?.apiKey?.value;
   if (typeof settingsKey === "string" && settingsKey.trim()) return true;
   // DB path: deserializeApiKeyFromDb already returns undefined on decrypt failure.
@@ -373,8 +407,7 @@ async function getRegularModelClient(
         // A headless cloud run carries its own job-scoped token and has no
         // session at all; everything else authenticates as the signed-in user.
         const pinnedToken = getPinnedCoreToken();
-        const accessToken =
-          pinnedToken ?? (await getSession())?.access_token;
+        const accessToken = pinnedToken ?? (await getSession())?.access_token;
         if (!accessToken) {
           throw new Error(
             "Sign in to use Atlarix Core. (Core requests are authorized with your Atlarix account.)",
@@ -429,7 +462,8 @@ async function getRegularModelClient(
             // page and need every historical row backfilled.
             headers.set("X-Atlarix-Surface", ATLARIX_SURFACE);
             if (isAutoTier) {
-              for (const [k, v] of Object.entries(autoHeaders)) headers.set(k, v);
+              for (const [k, v] of Object.entries(autoHeaders))
+                headers.set(k, v);
             }
             const res = await fetch(input as RequestInfo, { ...init, headers });
             // Atlarix Auto says which model answered and how much free share is
