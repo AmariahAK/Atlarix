@@ -145,23 +145,15 @@ Linux is proven: the `quality` job runs `npm run check:ts` on `ubuntu-latest`. O
 `npm ci` installs cleanly on `windows-latest`, but no Windows job runs `tsc`, so the win32
 binary has never actually been executed there.
 
-### 4. Launchpad — the three doors are two-thirds built (different repo)
+### 4. Launchpad — one door left (different repo)
 
 `atlarix-launchpad`, not this one. One entity behind three doors on one domain — desktop app,
-Chrome extension, PR reviewer — because LLMs and listicles answer by CATEGORY. Routes `/`,
-`/reviewer` and `/extension` exist and are statically generated; `structured-data.ts` has
-`desktopApplication()`, `browserExtension()` (with `isPartOf` to the app), `faqPage()` and
-`graph()`.
+Chrome extension, PR reviewer — because LLMs and listicles answer by CATEGORY. `/`, `/reviewer`
+and `/extension` exist with their JSON-LD (`reviewerApplication()`, `faqPage()` on /reviewer and
+/pricing, and on blog posts that set `faq`).
 
 Still missing:
 
-- **`/reviewer` emits no JSON-LD.** `Reviewer.tsx` passes no `jsonLd` while `Index.tsx` and
-  `Extension.tsx` do. Needs a `reviewerApplication()` following `browserExtension()`'s
-  `isPartOf` pattern (schema.org has no "code review" category, so it is
-  `DeveloperApplication` again).
-- **`faqPage()` has no caller.** `PricingPage.tsx` hand-rolls its own FAQ JSON-LD and injects it
-  with raw `dangerouslySetInnerHTML`, bypassing `graph()`. Route it through `faqPage()` +
-  `usePageMeta`, then add FAQ blocks to `/reviewer` and `/extension`.
 - **A "better together" page**: the workstation hands context to the Reviewer, which judges it
   independently. A new route takes `{ path, element, entry }`; add it to the sitemap's `PAGES`
   map for `lastmod` and to `RULES` for priority.
