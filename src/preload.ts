@@ -59,6 +59,7 @@ const validInvokeChannels = [
   "automations:archive",
   "sessions:start",
   "sessions:allocate-transport",
+  "sessions:continue-in-terminal",
   "sessions:resolve-for-transport",
   "sessions:create",
   "sessions:rename",
@@ -344,6 +345,7 @@ const validReceiveChannels = [
   "terminal-instances:updated",
   "terminal-instances:cleared",
   "workspace:opened-from-cli",
+  "session:handoff-open", // the CLI handed a session to the app (/handoff app)
   "operation-status", // Permission queue status updates
   "auto-recovery-needed", // AI self-healing on failures
   // AI-controlled right panel (Hybrid Intent System)

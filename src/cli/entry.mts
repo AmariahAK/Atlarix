@@ -108,6 +108,12 @@ async function interactive(): Promise<void> {
 
   const session = new AgentSession({ workspaceDir: process.cwd(), model: model ?? cliState?.model });
   await session.start();
+  // `atlarix --resume <session id>`: open that session (the app's "Continue in
+  // terminal" runs this). Bare `--resume` still opens the picker.
+  const resumeAt = argv.indexOf("--resume");
+  const resumeId = resumeAt >= 0 ? argv[resumeAt + 1] : undefined;
+  const resumeById = resumeId != null && !resumeId.startsWith("-");
+  if (resumeById) await session.resume(resumeId);
   if (argv.includes("-c") || argv.includes("--continue")) {
     // Nothing is written to the user's own screen before the TUI: it stayed
     // there after quitting (owner, 2026-10-05). A new session says so itself.
@@ -135,7 +141,7 @@ async function interactive(): Promise<void> {
     session,
     version: VERSION,
     modelLabel,
-    openResume: argv.includes("--resume"),
+    openResume: argv.includes("--resume") && !resumeById,
     signIn: signInInTui,
     chromeStatus,
     autoUpdate: devUrl ? undefined : (notify) => void import("./update").then((m) => m.startAutoUpdate(VERSION, notify)),

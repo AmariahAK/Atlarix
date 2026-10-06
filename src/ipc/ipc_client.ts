@@ -2926,6 +2926,29 @@ export class IpcClient {
     return this.ipcRenderer.invoke("cli:check-installed");
   }
 
+  /** The CLI handed a session to the app (`/handoff app`): open it here. */
+  public onSessionHandoff(
+    handler: (payload: { sessionId: string; workspaceId: number }) => void,
+  ): () => void {
+    const listener = (...args: unknown[]) => {
+      const payload = args.find(
+        (a) => a && typeof a === "object" && "sessionId" in (a as object),
+      ) as { sessionId: string; workspaceId: number } | undefined;
+      if (payload) handler(payload);
+    };
+    this.ipcRenderer.on("session:handoff-open", listener);
+    return () => {
+      this.ipcRenderer.removeListener("session:handoff-open", listener);
+    };
+  }
+
+  /** Open this session in the user's terminal with the CLI (`atlarix --resume <id>`). */
+  public async continueSessionInTerminal(
+    sessionId: string,
+  ): Promise<{ ok: boolean; error?: string }> {
+    return this.ipcRenderer.invoke("sessions:continue-in-terminal", sessionId);
+  }
+
   public onWorkspaceOpenedFromCli(
     handler: (payload: {
       appId: number;

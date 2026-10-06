@@ -16,6 +16,7 @@ import {
   backgroundStreamingSessionIdsAtom,
   workspaceSessionLoadingAtom,
   workspaceSessionLoadingLabelAtom,
+  pendingSessionHandoffAtom,
 } from "@/atoms/sessionAtoms";
 import { SESSION_LOAD_OVERLAY_DELAY_MS } from "@/constants/session_constants";
 import {
@@ -43,7 +44,7 @@ import {
   updateOpenChatTabTitleForSession,
 } from "@/lib/open-workspace-session";
 import type { WorkMode } from "@/lib/schemas";
-import { showInfo } from "@/lib/toast";
+import { showError, showInfo } from "@/lib/toast";
 import {
   diagStopwatch,
   sessionLoadDiagEnabled,
@@ -113,6 +114,8 @@ export function WorkspaceSessionList({
   const sessionsRefreshKey = useAtomValue(workspaceSessionsRefreshAtom);
   const titleGeneratingIds = useAtomValue(workspaceSessionTitleGeneratingAtom);
   const appsList = useAtomValue(appsListAtom);
+  const pendingHandoff = useAtomValue(pendingSessionHandoffAtom);
+  const setPendingHandoff = useSetAtom(pendingSessionHandoffAtom);
 
   const loadSessions = useCallback(async () => {
     setListLoading(true);
@@ -413,6 +416,16 @@ export function WorkspaceSessionList({
       : sessions;
   }, [sessions, activeSessionId]);
 
+  // A session handed over from the CLI: open it as if it had been clicked.
+  useEffect(() => {
+    if (!pendingHandoff || pendingHandoff.workspaceId !== workspaceId) return;
+    setPendingHandoff(null);
+    void handleSelectSession(pendingHandoff.sessionId).then(() =>
+      showInfo("Continued from the terminal"),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingHandoff, workspaceId]);
+
   if (listLoading) {
     return (
       <div className="text-[10px] text-muted-foreground py-1 px-2">
@@ -442,8 +455,7 @@ export function WorkspaceSessionList({
               // text on top at ~1.6:1. The rail next door was already using the
               // sidebar pair, which is why it read calm and this did not.
               "group relative flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer hover:bg-sidebar-accent",
-              activeSessionId === session.id &&
-                "bg-sidebar-accent font-medium",
+              activeSessionId === session.id && "bg-sidebar-accent font-medium",
               sessionSwitchBusy && "opacity-50 pointer-events-none",
             )}
             onClick={() => {
@@ -547,7 +559,7 @@ export function WorkspaceSessionList({
                     <MoreHorizontal className="h-3.5 w-3.5" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-36">
+                <DropdownMenuContent align="end" className="w-44">
                   <DropdownMenuItem
                     onClick={(e) => {
                       e.stopPropagation();
@@ -556,6 +568,25 @@ export function WorkspaceSessionList({
                     }}
                   >
                     Rename
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      // App → CLI handoff: the same session, in a terminal.
+                      void IpcClient.getInstance()
+                        .continueSessionInTerminal(session.id)
+                        .then((r) =>
+                          r.ok
+                            ? showInfo("Opened in your terminal")
+                            : showError(
+                                new Error(
+                                  r.error ?? "Couldn't open a terminal",
+                                ),
+                              ),
+                        );
+                    }}
+                  >
+                    Continue in terminal
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     className="text-destructive focus:text-destructive"

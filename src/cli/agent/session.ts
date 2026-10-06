@@ -265,9 +265,7 @@ export class AgentSession extends EventEmitter {
     electron.attachCliWindow?.((channel, payload) => this.onSend(channel, payload));
     await registerHandlers();
     // Other Atlarix sessions (CLI or app) can message this one (lib/peers).
-    void import("@/lib/peers/main-host")
-      .then((m) => m.startPeerMessaging("cli"))
-      .then(() => this.registerPendingPeer());
+    void import("@/lib/peers/main-host").then((m) => m.startPeerMessaging("cli"));
     const { workspaceAppIdForPath } = await import("@/lib/workspace-app-by-path");
     this.appId = await workspaceAppIdForPath(this.workspaceDir);
     await this.newSession();
@@ -311,6 +309,8 @@ export class AgentSession extends EventEmitter {
       planRevision: 0,
       title: null,
     });
+    // A fresh session (startup, /new) is reachable before its first message.
+    if (this.appId) void this.registerPendingPeer();
   }
 
   setMode(mode: WorkMode): void {
@@ -349,6 +349,8 @@ export class AgentSession extends EventEmitter {
     await this.newSession();
     this.sessionId = sessionId;
     this.chatId = chatId;
+    // Reachable by its real id now (allocate-transport registered it).
+    void import("@/lib/peers/peers").then((m) => m.forgetLiveSession(this.pendingPeerId()));
     // modelContent: what the model was sent, when it differs from what you
     // typed (pastes expanded); the transcript shows the paste from it.
     this.messages = got.messages.map((m, i) => ({ id: i + 1, role: m.role, content: m.content, modelContent: m.modelContent ?? null }));
@@ -1264,6 +1266,29 @@ export class AgentSession extends EventEmitter {
   }
 
   /** Your own name for this session; never replaced by a generated one. */
+  /**
+   * CLI → app handoff: the running Atlarix app opens this session in a window
+   * and carries on there (lib/peers). Same database, so nothing is copied.
+   * On a Mac with the app closed, it is opened first.
+   */
+  async handoffToApp(): Promise<void> {
+    if (this.state.busy) throw new Error("Wait for this turn to finish (or press esc), then hand it over.");
+    if (!this.sessionId) throw new Error("Send a message first: there is no session to hand over yet.");
+    const peers = await import("@/lib/peers/peers");
+    let app = peers.liveAppProcess();
+    if (!app && process.platform === "darwin") {
+      const { spawn } = await import("node:child_process");
+      spawn("open", ["-a", "Atlarix"], { detached: true, stdio: "ignore" }).unref();
+      for (let i = 0; i < 30 && !app; i++) {
+        await new Promise((r) => setTimeout(r, 1000));
+        app = peers.liveAppProcess();
+      }
+    }
+    if (!app) throw new Error("Open the Atlarix app first, then /handoff again.");
+    const r = await peers.requestOpenInApp(app, this.sessionId);
+    if (!r.ok) throw new Error(`The app couldn't open it: ${r.error ?? "unknown error"}`);
+  }
+
   async rename(title: string): Promise<void> {
     const name = title.trim();
     if (!name) throw new Error("Give the session a name: /rename <name>");

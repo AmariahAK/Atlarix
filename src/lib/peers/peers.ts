@@ -68,7 +68,7 @@ export interface PeerSessionRow {
 }
 
 interface PeerFrame {
-  type: "peer-message";
+  type: "peer-message" | "open-session";
   token: string;
   to: string;
   id: string;
@@ -90,7 +90,15 @@ export interface PeerHost {
   wake(chatId: number): void;
   /** "accept" (default) or "refuse". */
   inbound(): "accept" | "refuse";
+  /**
+   * Show this session here and carry on in it (a handoff from another surface).
+   * Only the app implements it: a CLI cannot open a terminal for itself.
+   */
+  openSession?(sessionId: string): Promise<{ ok: boolean; error?: string }>;
 }
+
+/** The row every process publishes for itself, so a handoff can find "the app" even with no session open. */
+export const PROCESS_ROW_PREFIX = "__process__:";
 
 // ─── socket paths ────────────────────────────────────────────────────────────
 
@@ -185,7 +193,9 @@ function refreshNames(d: Sqlite): void {
 
 /** A title the app gives a session before it has a real one. */
 export function isPlaceholderTitle(title: string): boolean {
-  return /^(untitled|new chat|new conversation)( session)?$/i.test(title.trim());
+  return /^(untitled|new chat|new conversation)( session)?$/i.test(
+    title.trim(),
+  );
 }
 
 /** Bring this process's session names up to date now (before a send, say). */
@@ -217,6 +227,20 @@ function publish(): void {
       `INSERT INTO ${LIVE_SESSIONS_TABLE}
        (session_id, pid, host, socket, token, name, workspace, surface, busy, last_seen, aliases)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    // This process itself: how a handoff reaches "the app" with nothing open.
+    insert.run(
+      `${PROCESS_ROW_PREFIX}${process.pid}`,
+      process.pid,
+      host,
+      peerSocketPath(),
+      token,
+      surface === "app" ? "Atlarix app" : "Atlarix CLI",
+      "",
+      surface,
+      0,
+      now,
+      "[]",
     );
     for (const s of local.values()) {
       insert.run(
@@ -356,10 +380,16 @@ function accept(socket: net.Socket): void {
 export async function receive(
   f: PeerFrame,
 ): Promise<{ ok: boolean; error?: string }> {
-  if (!f || f.type !== "peer-message")
+  if (!f || (f.type !== "peer-message" && f.type !== "open-session"))
     return { ok: false, error: "unknown frame" };
   if (!token || f.token !== token)
     return { ok: false, error: "not authorised" };
+  if (f.type === "open-session") {
+    if (!hostImpl?.openSession) {
+      return { ok: false, error: "this Atlarix cannot open sessions" };
+    }
+    return hostImpl.openSession(String(f.to ?? ""));
+  }
   let target = local.get(f.to);
   if (!target || !hostImpl) return { ok: false, error: "no such session here" };
   if (hostImpl.inbound() === "refuse")
@@ -481,6 +511,7 @@ export function listPeerSessions(exclude?: string): PeerSessionRow[] {
   const seen = new Set<string>();
   const out: PeerSessionRow[] = [];
   for (const r of liveRows().sort((a, b) => b.last_seen - a.last_seen)) {
+    if (r.session_id.startsWith(PROCESS_ROW_PREFIX)) continue;
     if (r.session_id === exclude || seen.has(r.session_id)) continue;
     seen.add(r.session_id);
     out.push({
@@ -506,7 +537,10 @@ export function resolvePeer(
   const want = to.trim();
   if (!want)
     return { error: "Say which session (its name or id, from list_sessions)." };
-  const rows = liveRows().filter((r) => r.session_id !== exclude);
+  const rows = liveRows().filter(
+    (r) =>
+      r.session_id !== exclude && !r.session_id.startsWith(PROCESS_ROW_PREFIX),
+  );
   const byId = rows.filter(
     (r) =>
       r.session_id === want ||
@@ -604,4 +638,63 @@ export function __resetPeersForTests(): void {
   hostImpl = null;
   dbFn = null;
   token = "";
+}
+
+// ─── handoff: continue a session in the app ──────────────────────────────────
+
+/** The most recently seen running Atlarix app on this machine, if any. */
+export function liveAppProcess(): {
+  socket: string;
+  token: string;
+  session_id: string;
+} | null {
+  const row = liveRows()
+    .filter(
+      (r) => r.session_id.startsWith(PROCESS_ROW_PREFIX) && r.surface === "app",
+    )
+    .sort((a, b) => b.last_seen - a.last_seen)[0];
+  return row
+    ? { socket: row.socket, token: row.token, session_id: row.session_id }
+    : null;
+}
+
+/** Ask the running app to open `sessionId` in a window and carry on there. */
+export function requestOpenInApp(
+  app: { socket: string; token: string },
+  sessionId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const frame = {
+    type: "open-session",
+    token: app.token,
+    to: sessionId,
+    id: randomUUID(),
+    text: "",
+    from: { sessionId, name: "", surface, workspace: "" },
+  };
+  return new Promise((resolve) => {
+    const socket = net.connect(app.socket);
+    const reader = new FrameReader();
+    const finish = (r: { ok: boolean; error?: string }) => {
+      socket.destroy();
+      resolve(r);
+    };
+    socket.setTimeout(30_000, () =>
+      finish({ ok: false, error: "the app did not answer" }),
+    );
+    socket.once("connect", () => socket.write(encodeFrame(frame)));
+    socket.on("data", (chunk) => {
+      try {
+        const [reply] = reader.push(chunk) as Array<{
+          ok: boolean;
+          error?: string;
+        }>;
+        if (reply) finish(reply);
+      } catch {
+        finish({ ok: false, error: "garbled reply" });
+      }
+    });
+    socket.once("error", (e) =>
+      finish({ ok: false, error: `could not reach the app (${e.message})` }),
+    );
+  });
 }

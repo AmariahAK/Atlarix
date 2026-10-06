@@ -54,6 +54,44 @@ export async function noteSessionOpen(
   }
 }
 
+/**
+ * A handoff from the CLI: show `sessionId` in the app and carry on there. The
+ * window already showing its workspace if there is one, else the front window;
+ * the renderer selects the workspace and opens the session (layout.tsx).
+ */
+async function openSessionInApp(
+  sessionId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const session = await db.query.chatSessions.findFirst({
+    where: eq(chatSessions.id, sessionId),
+  });
+  if (!session) return { ok: false, error: "no such session" };
+  const app = session.workspaceId
+    ? await db.query.apps.findFirst({ where: eq(apps.id, session.workspaceId) })
+    : undefined;
+  const { getPrimaryWindow, sendToWorkspaceWindow } = await import(
+    "@/main/workspace-window-manager"
+  );
+  const payload = { sessionId, workspaceId: session.workspaceId };
+  if (
+    app?.path &&
+    sendToWorkspaceWindow(app.path, "session:handoff-open", payload)
+  ) {
+    return { ok: true };
+  }
+  const win = getPrimaryWindow();
+  if (!win) return { ok: false, error: "the app has no window open" };
+  const { deliverToWindow } = await import("@/main/create-app-browser-window");
+  deliverToWindow(win, "session:handoff-open", payload);
+  try {
+    const { app: electronApp } = await import("electron");
+    electronApp.focus?.({ steal: true });
+  } catch {
+    /* focusing is a nicety */
+  }
+  return { ok: true };
+}
+
 /** Start the inbox for this process. Never throws. */
 export async function startPeerMessaging(surface: Surface): Promise<void> {
   try {
@@ -86,6 +124,7 @@ export async function startPeerMessaging(surface: Surface): Promise<void> {
             status: "peer_message",
           });
         },
+        ...(surface === "app" ? { openSession: openSessionInApp } : {}),
         inbound: () => {
           try {
             const v = (readSettings() as { peerMessages?: string })

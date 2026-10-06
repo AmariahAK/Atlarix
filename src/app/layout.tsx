@@ -15,6 +15,7 @@ import {
   currentAppAtom,
   userSettingsAtom,
 } from "@/atoms/appAtoms";
+import { pendingSessionHandoffAtom } from "@/atoms/sessionAtoms";
 import { useSettings } from "@/hooks/useSettings";
 import { useAppLocale } from "@/hooks/useAppLocale";
 import type { ZoomLevel } from "@/lib/schemas";
@@ -344,7 +345,20 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     void ipc.consumePendingCliWorkspace().then((pending) => {
       if (pending) applyCliWorkspace(pending);
     });
-    return unsub;
+    // The CLI handed a session over (`/handoff app`): show its workspace; its
+    // session list opens the session once it mounts (pendingSessionHandoffAtom).
+    const unsubHandoff = ipc.onSessionHandoff(({ sessionId, workspaceId }) => {
+      setSelectedAppId(workspaceId);
+      getDefaultStore().set(pendingSessionHandoffAtom, {
+        sessionId,
+        workspaceId,
+      });
+      navigate({ to: "/" });
+    });
+    return () => {
+      unsub();
+      unsubHandoff();
+    };
   }, [navigate, setSelectedAppId, setSelectedChatId, setActiveChatId]);
 
   // Re-check workspace path when loading a chat: sync selectedAppId from chat so useLoadApp refetches and banner shows if path missing

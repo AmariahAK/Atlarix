@@ -19,6 +19,7 @@ export const COMMANDS: SlashCommand[] = [
   { name: "/new", description: "Start a fresh session in this folder", group: "session" },
   { name: "/rename", description: "Name this session (it's named from your first message until you do)", group: "session" },
   { name: "/resume", description: "Open an earlier session from this folder (the app's too)", group: "session" },
+  { name: "/handoff", description: "Continue this session in the Atlarix app (from the app: Continue in terminal)", group: "session" },
   { name: "/undo", description: "Go back to one of your messages: edit and resend it, restoring files (esc esc too)", group: "session" },
   { name: "/compact", description: "Summarise the conversation so far to free up context", group: "session" },
   { name: "/plan", description: "This session's plan: show it, or /plan share to save it as a page", group: "session" },

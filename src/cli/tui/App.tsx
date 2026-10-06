@@ -979,6 +979,12 @@ export function App({
         return openAside(ctx, rest);
       case "/rename":
         return openRename(ctx, rest);
+      case "/handoff":
+        flash("Handing this session to the Atlarix app…", 4000);
+        return void session
+          .handoffToApp()
+          .then(() => flash("Continued in the Atlarix app. It's the same session: you can keep going here too.", 8000))
+          .catch((e: Error) => flash(e.message, 8000, "error"));
       case "/relics":
         return openRelics(ctx);
       case "/automations":

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import log from "electron-log";
 import { db } from "../../db";
 import {
+  apps,
   chatSessions,
   sessionMessages,
   type SessionMessageKind,
@@ -1024,6 +1025,19 @@ export function registerWorkspaceSessionHandlers(): void {
     await persistSessionStreamChatId(sessionId, chatId);
     void noteSessionOpen(sessionId, chatId);
     return { chatId };
+  });
+
+  /** App → CLI handoff: open the user's terminal on this session (lib/peers). */
+  handle("sessions:continue-in-terminal", async (_event, sessionId: string) => {
+    const session = await db.query.chatSessions.findFirst({
+      where: eq(chatSessions.id, sessionId),
+    });
+    if (!session) return { ok: false, error: "Session not found" };
+    const workspace = session.workspaceId
+      ? await db.query.apps.findFirst({ where: eq(apps.id, session.workspaceId) })
+      : undefined;
+    const { continueInTerminal } = await import("@/lib/peers/continue-in-terminal");
+    return continueInTerminal(sessionId, workspace?.path ?? "");
   });
 
   handle("sessions:create", async (_event, workspaceId: number) => {

@@ -4,6 +4,15 @@ import { isStreamingByIdAtom } from "@/atoms/chatAtoms";
 export const activeWorkspaceSessionIdAtom = atom<string | null>(null);
 
 /**
+ * A session handed over from the CLI (`/handoff app`), waiting for its
+ * workspace's session list to mount and open it (lib/peers).
+ */
+export const pendingSessionHandoffAtom = atom<{
+  sessionId: string;
+  workspaceId: number;
+} | null>(null);
+
+/**
  * The active session's stored work mode, or `null` when it has none.
  *
  * Hydrated when a session is activated and written when the user picks a mode in
