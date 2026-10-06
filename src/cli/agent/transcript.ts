@@ -54,12 +54,7 @@ export interface EditDiff {
    * show. `no` is the line's number within its block (`block`); `starts` turns
    * it into the file's line number once the block is found in the file.
    */
-  lines: Array<{
-    kind: "add" | "remove" | "context" | "gap";
-    text: string;
-    no?: number;
-    block?: number;
-  }>;
+  lines: Array<{ kind: "add" | "remove" | "context" | "gap"; text: string; no?: number; block?: number }>;
   /** Each block's new text, to find it in the file. */
   blocks: string[];
   /** Where each block starts in the file (1-based), when found. */
@@ -96,22 +91,13 @@ export function activityToolLine(p: {
   detail?: unknown;
 }): ToolLine {
   const name = typeof p.toolName === "string" ? p.toolName : "tool";
-  const st =
-    p.status === "running"
-      ? "running"
-      : p.status === "error" || p.status === "failed"
-        ? "error"
-        : "success";
+  const st = p.status === "running" ? "running" : p.status === "error" || p.status === "failed" ? "error" : "success";
   const raw = typeof p.resultText === "string" ? p.resultText : undefined;
   const r = toolResultText(name, raw);
   return {
     id: String(p.id ?? `${name}-${Math.random()}`),
     verb: VERBS[name] ?? name.replace(/_/g, " "),
-    target:
-      toolTarget(name, p.toolArgs) ||
-      (typeof p.detail === "string"
-        ? p.detail.split("\n")[0]!.slice(0, 80)
-        : ""),
+    target: toolTarget(name, p.toolArgs) || (typeof p.detail === "string" ? p.detail.split("\n")[0]!.slice(0, 80) : ""),
     status: st,
     result: raw,
     output: r.text || undefined,
@@ -124,13 +110,9 @@ export function activityToolLine(p: {
  * delegation of a reply belongs to that reply's Nth `task` call (cells key them
  * `<message>:t:task_<N>`, in call order — the order delegations start in).
  */
-export function withDelegations(
-  cells: Cell[],
-  delegations: Iterable<Delegation>,
-): Cell[] {
+export function withDelegations(cells: Cell[], delegations: Iterable<Delegation>): Cell[] {
   const byCell = new Map<string, Delegation>();
-  for (const d of delegations)
-    byCell.set(`${d.assistantId}:t:task_${d.index}`, d);
+  for (const d of delegations) byCell.set(`${d.assistantId}:t:task_${d.index}`, d);
   if (!byCell.size) return cells;
   return cells.map((c) => {
     if (c.kind !== "tool") return c;
@@ -142,13 +124,7 @@ export function withDelegations(
         ...c.tool,
         children: d.children,
         progress: d.status === "running" ? d.progress : undefined,
-        summary:
-          d.status !== "running" && d.summary
-            ? d.summary
-                .split("\n")
-                .find((l) => l.trim())
-                ?.slice(0, 160)
-            : c.tool.summary,
+        summary: d.status !== "running" && d.summary ? d.summary.split("\n").find((l) => l.trim())?.slice(0, 160) : c.tool.summary,
       },
     };
   });
@@ -159,11 +135,7 @@ export type Cell =
   /** `full`: the message with its pastes expanded, when it had any. */
   | { kind: "user"; id: string; text: string; chips?: string[]; full?: string }
   /** Your answers to the agent's questions (sent as `***Q:*** … → ***A:*** …` lines). */
-  | {
-      kind: "answers";
-      id: string;
-      pairs: Array<{ question: string; answer: string }>;
-    }
+  | { kind: "answers"; id: string; pairs: Array<{ question: string; answer: string }> }
   /** `ms`: how long it took, when this session watched it being written. */
   | { kind: "thought"; id: string; text: string; ms?: number }
   | { kind: "markdown"; id: string; text: string }
@@ -208,18 +180,13 @@ function str(v: unknown): string {
 
 /** The one thing worth naming about a call, from its arguments. */
 export function toolTarget(toolName: string, args: unknown): string {
-  const a = (args && typeof args === "object" ? args : {}) as Record<
-    string,
-    unknown
-  >;
+  const a = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
   switch (toolName) {
     case "read_file":
     case "edit_file":
       return str(a.path) || str(a.file_path) || str(a.target_file);
     case "grep":
-      return a.pattern
-        ? `"${str(a.pattern)}"` + (a.path ? ` in ${str(a.path)}` : "")
-        : "";
+      return a.pattern ? `"${str(a.pattern)}"` + (a.path ? ` in ${str(a.path)}` : "") : "";
     case "glob":
       return str(a.pattern) || str(a.glob);
     case "run_command":
@@ -239,29 +206,17 @@ export function toolTarget(toolName: string, args: unknown): string {
     case "plan": {
       // "◇ Plan  step 3 done", not a bare "◇ Plan" (owner, 2026-10-05).
       const op = str(a.operation);
-      if (op === "write")
-        return ["write", str(a.title)].filter(Boolean).join(" · ");
-      if (op === "set_status")
-        return `status → ${str(a.plan_status) || str(a.status)}`;
+      if (op === "write") return ["write", str(a.title)].filter(Boolean).join(" · ");
+      if (op === "set_status") return `status → ${str(a.plan_status) || str(a.status)}`;
       if (op === "update_step") {
-        const which =
-          a.step_index != null
-            ? `step ${String(a.step_index)}`
-            : a.step_text
-              ? `"${str(a.step_text)}"`
-              : "step";
-        return [which, str(a.state) || str(a.status)]
-          .filter(Boolean)
-          .join(" → ");
+        const which = a.step_index != null ? `step ${String(a.step_index)}` : a.step_text ? `"${str(a.step_text)}"` : "step";
+        return [which, str(a.state) || str(a.status)].filter(Boolean).join(" → ");
       }
-      if (op === "append_step")
-        return ["add step", str(a.step_text)].filter(Boolean).join(" · ");
+      if (op === "append_step") return ["add step", str(a.step_text)].filter(Boolean).join(" · ");
       return op;
     }
     case "background_jobs":
-      return [str(a.operation), str(a.job_id) || str(a.command)]
-        .filter(Boolean)
-        .join(" ");
+      return [str(a.operation), str(a.job_id) || str(a.command)].filter(Boolean).join(" ");
     default:
       return "";
   }
@@ -269,9 +224,7 @@ export function toolTarget(toolName: string, args: unknown): string {
 
 /** Drop the <untrusted-data …> fence the agent wraps command and page output in. */
 function unfence(text: string): string {
-  return text
-    .replace(/<untrusted-data[^>]*>\n?/g, "")
-    .replace(/\n?<\/untrusted-data>/g, "");
+  return text.replace(/<untrusted-data[^>]*>\n?/g, "").replace(/\n?<\/untrusted-data>/g, "");
 }
 
 /**
@@ -280,10 +233,7 @@ function unfence(text: string): string {
  * command, `{"output":"<untrusted-data …>…","exitCode":0}`); a person wants the
  * text inside, not the envelope.
  */
-export function toolResultText(
-  toolName: string,
-  raw: string | undefined,
-): { text: string; exitCode?: number; failed?: boolean } {
+export function toolResultText(toolName: string, raw: string | undefined): { text: string; exitCode?: number; failed?: boolean } {
   if (!raw) return { text: "" };
   let v: unknown;
   try {
@@ -293,39 +243,23 @@ export function toolResultText(
     // envelope (`{"success":true,"result":{…`) as the result line: take its
     // message if one survived, else nothing.
     if (/^\s*[{[]/.test(raw)) {
-      const m = raw.match(
-        /"(?:message|progress|note|error|result)"\s*:\s*"((?:[^"\\]|\\.)*)"/,
-      );
-      return {
-        text: m
-          ? unfence(m[1]!.replace(/\\n/g, "\n").replace(/\\"/g, '"')).trim()
-          : "",
-      };
+      const m = raw.match(/"(?:message|progress|note|error|result)"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+      return { text: m ? unfence(m[1]!.replace(/\\n/g, "\n").replace(/\\"/g, '"')).trim() : "" };
     }
     return { text: unfence(raw).trim() };
   }
   const o = (v && typeof v === "object" ? v : {}) as Record<string, unknown>;
-  const inner = (
-    o.result && typeof o.result === "object" ? o.result : {}
-  ) as Record<string, unknown>;
+  const inner = (o.result && typeof o.result === "object" ? o.result : {}) as Record<string, unknown>;
   const exitCode = typeof o.exitCode === "number" ? o.exitCode : undefined;
   const failed = o.success === false;
   if (toolName === "relic") {
     // "└ Published https://atlarix.dev/r/…" or "└ Saved .atlarix/relics/…".
-    const r = (
-      typeof inner.url === "string" || typeof inner.path === "string"
-        ? inner
-        : o
-    ) as Record<string, unknown>;
-    if (typeof r.url === "string")
-      return { text: `Published ${r.url}`, failed };
+    const r = (typeof inner.url === "string" || typeof inner.path === "string" ? inner : o) as Record<string, unknown>;
+    if (typeof r.url === "string") return { text: `Published ${r.url}`, failed };
     if (typeof r.path === "string") return { text: `Saved ${r.path}`, failed };
   }
   if (toolName === "background_jobs" && typeof inner.count === "number") {
-    return {
-      text: inner.count ? `${inner.count} running` : "none running",
-      failed,
-    };
+    return { text: inner.count ? `${inner.count} running` : "none running", failed };
   }
   const pick = [
     toolName === "run_command" ? o.output : undefined,
@@ -344,28 +278,13 @@ export function toolResultText(
   return { text: unfence(pick ?? "").trim(), exitCode, failed };
 }
 
-function summarize(
-  toolName: string,
-  r: { text: string; exitCode?: number; failed?: boolean },
-): string | undefined {
-  const first = r.text
-    .split("\n")
-    .find((l) => l.trim())
-    ?.trim();
+function summarize(toolName: string, r: { text: string; exitCode?: number; failed?: boolean }): string | undefined {
+  const first = r.text.split("\n").find((l) => l.trim())?.trim();
   if (toolName === "run_command") {
-    const exit =
-      r.exitCode != null && r.exitCode !== 0 ? `exit ${r.exitCode}` : "";
-    return (
-      [first ?? (r.exitCode === 0 ? "(no output)" : ""), exit]
-        .filter(Boolean)
-        .join(" · ") || undefined
-    );
+    const exit = r.exitCode != null && r.exitCode !== 0 ? `exit ${r.exitCode}` : "";
+    return [first ?? (r.exitCode === 0 ? "(no output)" : ""), exit].filter(Boolean).join(" · ") || undefined;
   }
-  if (toolName === "grep" && first)
-    return first
-      .replace(/:$/, "")
-      .replace(/match\(es\)/, "matches")
-      .replace(/file\(s\)/, "files");
+  if (toolName === "grep" && first) return first.replace(/:$/, "").replace(/match\(es\)/, "matches").replace(/file\(s\)/, "files");
   // A read echoes "File: /abs/path" then numbered lines: say how many it read.
   if (toolName === "read_file" && first?.startsWith("File: ")) {
     const n = r.text.split("\n").filter((l) => /^\s*\d+[\t│|]/.test(l)).length;
@@ -380,32 +299,16 @@ function summarize(
  * new. Line numbers are the snippet's, not the file's, so none are shown.
  */
 export function editDiff(args: unknown): EditDiff | undefined {
-  const a = (args && typeof args === "object" ? args : {}) as Record<
-    string,
-    unknown
-  >;
+  const a = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
   const pairs: Array<[string, string]> = [];
-  if (
-    typeof a.content === "string" &&
-    (a.operation === "write" || a.old_content == null)
-  )
-    pairs.push(["", a.content]);
+  if (typeof a.content === "string" && (a.operation === "write" || a.old_content == null)) pairs.push(["", a.content]);
   if (Array.isArray(a.edits)) {
-    for (const e of a.edits as Array<Record<string, unknown>>)
-      pairs.push([str(e?.old_content), str(e?.new_content)]);
-  } else if (
-    typeof a.old_content === "string" ||
-    typeof a.new_content === "string"
-  ) {
+    for (const e of a.edits as Array<Record<string, unknown>>) pairs.push([str(e?.old_content), str(e?.new_content)]);
+  } else if (typeof a.old_content === "string" || typeof a.new_content === "string") {
     pairs.push([str(a.old_content), str(a.new_content)]);
   }
   if (!pairs.length) return undefined;
-  const out: EditDiff = {
-    added: 0,
-    removed: 0,
-    lines: [],
-    blocks: pairs.map(([, to]) => to),
-  };
+  const out: EditDiff = { added: 0, removed: 0, lines: [], blocks: pairs.map(([, to]) => to) };
   pairs.forEach(([from, to], i) => {
     if (i > 0) out.lines.push({ kind: "gap", text: "⋯" });
     // Both ends on a newline: "intro" last vs "intro\n" mid-text is the same line.
@@ -414,12 +317,7 @@ export function editDiff(args: unknown): EditDiff | undefined {
     hunks.forEach((h, k) => {
       if (k > 0) out.lines.push({ kind: "gap", text: "⋯" });
       for (const l of h.lines) {
-        out.lines.push({
-          kind: l.type,
-          text: l.content,
-          no: l.type === "remove" ? l.oldLineNum : l.newLineNum,
-          block: i,
-        });
+        out.lines.push({ kind: l.type, text: l.content, no: l.type === "remove" ? l.oldLineNum : l.newLineNum, block: i });
       }
       out.added += h.addedCount;
       out.removed += h.removedCount;
@@ -432,10 +330,7 @@ export function editDiff(args: unknown): EditDiff | undefined {
  * Where each block of an edit starts in `file` (1-based), or null when its text
  * isn't there (edited again since): line numbers then stay the block's own.
  */
-export function locateBlocks(
-  diff: EditDiff,
-  file: string,
-): Array<number | null> {
+export function locateBlocks(diff: EditDiff, file: string): Array<number | null> {
   return diff.blocks.map((text) => {
     const probe = text.split("\n").find((l) => l.trim()) ?? "";
     if (!probe) return null;
@@ -451,19 +346,15 @@ export function locateBlocks(
 
 /** "Added 13 lines" / "+12 −2" for a finished edit, in place of "Successfully wrote …". */
 function editSummary(d: EditDiff): string {
-  if (d.removed === 0)
-    return `Added ${d.added} line${d.added === 1 ? "" : "s"}`;
-  if (d.added === 0)
-    return `Removed ${d.removed} line${d.removed === 1 ? "" : "s"}`;
+  if (d.removed === 0) return `Added ${d.added} line${d.added === 1 ? "" : "s"}`;
+  if (d.added === 0) return `Removed ${d.removed} line${d.removed === 1 ? "" : "s"}`;
   return `+${d.added} −${d.removed}`;
 }
 
 /** The CLI composer's placeholders: `[Image #1]`, `[Pasted text #2 +40 lines]`, `[File a.ts]`. */
-const PLACEHOLDER =
-  /\[(?:Image #\d+|Pasted text #\d+[^\]]*|File [^\]]+|Folder [^\]]+)\]/g;
+const PLACEHOLDER = /\[(?:Image #\d+|Pasted text #\d+[^\]]*|File [^\]]+|Folder [^\]]+)\]/g;
 /** The app's stubs for the same things: `<atlarix-text-attachment filename="a.ts" />`. */
-const STUB =
-  /<atlarix-([a-z]+)-attachment\b([^>]*?)(?:\/>|>[\s\S]*?<\/atlarix-\1-attachment>)/g;
+const STUB = /<atlarix-([a-z]+)-attachment\b([^>]*?)(?:\/>|>[\s\S]*?<\/atlarix-\1-attachment>)/g;
 
 /** A message's attachments and pastes as chips; the app's stub tags leave the text. */
 export function userChips(text: string): { text: string; chips: string[] } {
@@ -480,9 +371,7 @@ export function userChips(text: string): { text: string; chips: string[] } {
 const QA_LINE = /^\*\*\*Q:\*\*\* ([\s\S]*?) → \*\*\*A:\*\*\* ([\s\S]*)$/;
 
 /** The question/answer pairs in a user message that is nothing but answers, or null. */
-export function answerPairs(
-  text: string,
-): Array<{ question: string; answer: string }> | null {
+export function answerPairs(text: string): Array<{ question: string; answer: string }> | null {
   const lines = text.split("\n").filter((l) => l.trim());
   if (!lines.length) return null;
   const pairs = lines.map((l) => QA_LINE.exec(l.trim()));
@@ -490,14 +379,9 @@ export function answerPairs(
   return pairs.map((m) => ({ question: m![1]!.trim(), answer: m![2]!.trim() }));
 }
 
-export function toolLine(
-  part: Extract<AssistantMessagePart, { type: "tool" }>,
-): ToolLine {
+export function toolLine(part: Extract<AssistantMessagePart, { type: "tool" }>): ToolLine {
   const r = toolResultText(part.toolName, part.error ?? part.resultText);
-  const diff =
-    part.toolName === "edit_file" && part.status === "success"
-      ? editDiff(part.args)
-      : undefined;
+  const diff = part.toolName === "edit_file" && part.status === "success" ? editDiff(part.args) : undefined;
   return {
     diff,
     id: part.id,
@@ -507,12 +391,7 @@ export function toolLine(
     result: part.resultText,
     error: part.error,
     output: r.text || undefined,
-    summary:
-      part.status === "running"
-        ? undefined
-        : diff
-          ? editSummary(diff)
-          : summarize(part.toolName, r),
+    summary: part.status === "running" ? undefined : diff ? editSummary(diff) : summarize(part.toolName, r),
   };
 }
 
@@ -532,22 +411,14 @@ export function toolLine(
  * replaces the content, so it misses). Reused cells are the same objects, so
  * the renderer can skip them too.
  */
-const cellCache = new Map<
-  string,
-  { content: string; model: string | null; cells: Cell[] }
->();
+const cellCache = new Map<string, { content: string; model: string | null; cells: Cell[] }>();
 const CELL_CACHE_MAX = 2_000;
 
 function messageCells(m: ChatMessageLike, live: boolean): Cell[] {
   const key = `${m.role}:${m.id}`;
   if (!live) {
     const hit = cellCache.get(key);
-    if (
-      hit &&
-      hit.content === m.content &&
-      hit.model === (m.modelContent ?? null)
-    )
-      return hit.cells;
+    if (hit && hit.content === m.content && hit.model === (m.modelContent ?? null)) return hit.cells;
   }
   const cells: Cell[] = [];
   const base = String(m.id);
@@ -558,24 +429,10 @@ function messageCells(m: ChatMessageLike, live: boolean): Cell[] {
     peerSegments.forEach((seg, i) => {
       if (seg.kind === "peer") {
         const where = seg.surface === "cli" ? "CLI" : "app";
-        cells.push({
-          kind: "notice",
-          id: `${base}:p${i}`,
-          level: "info",
-          text: `› Message from ${seg.from || "another session"} (${where})`,
-        });
-        if (seg.text.trim())
-          cells.push({
-            kind: "markdown",
-            id: `${base}:pm${i}`,
-            text: seg.text.trim(),
-          });
+        cells.push({ kind: "notice", id: `${base}:p${i}`, level: "info", text: `› Message from ${seg.from || "another session"} (${where})` });
+        if (seg.text.trim()) cells.push({ kind: "markdown", id: `${base}:pm${i}`, text: seg.text.trim() });
       } else if (seg.text.trim()) {
-        cells.push({
-          kind: "user",
-          id: `${base}:pu${i}`,
-          text: seg.text.trim(),
-        });
+        cells.push({ kind: "user", id: `${base}:pu${i}`, text: seg.text.trim() });
       }
     });
   } else if (m.role === "user") {
@@ -584,19 +441,8 @@ function messageCells(m: ChatMessageLike, live: boolean): Cell[] {
     else if (m.content.trim()) {
       const { text, chips } = userChips(m.content);
       // A paste: show what was pasted (the placeholder alone said nothing).
-      const full =
-        /\[Pasted text #\d+/.test(m.content) &&
-        m.modelContent &&
-        m.modelContent !== m.content
-          ? m.modelContent.trim()
-          : undefined;
-      cells.push({
-        kind: "user",
-        id: `${base}:u`,
-        text: text || chips.join(" "),
-        ...(chips.length ? { chips } : {}),
-        ...(full ? { full } : {}),
-      });
+      const full = /\[Pasted text #\d+/.test(m.content) && m.modelContent && m.modelContent !== m.content ? m.modelContent.trim() : undefined;
+      cells.push({ kind: "user", id: `${base}:u`, text: text || chips.join(" "), ...(chips.length ? { chips } : {}), ...(full ? { full } : {}) });
     }
   } else if (m.role === "assistant") {
     // The pending-questions marker is for the desktop's card; the CLI asks them in a dialog.
@@ -604,28 +450,17 @@ function messageCells(m: ChatMessageLike, live: boolean): Cell[] {
     parseAssistantMessageParts(content, live).forEach((p, i) => {
       const id = `${base}:${i}`;
       if (p.type === "markdown") {
-        if (p.content.trim())
-          cells.push({ kind: "markdown", id, text: p.content.trim() });
+        if (p.content.trim()) cells.push({ kind: "markdown", id, text: p.content.trim() });
       } else if (p.type === "thought") {
-        if (p.content.trim())
-          cells.push({ kind: "thought", id, text: p.content.trim() });
+        if (p.content.trim()) cells.push({ kind: "thought", id, text: p.content.trim() });
       } else if (p.type === "tool") {
-        cells.push({
-          kind: "tool",
-          id: `${base}:t:${p.id}`,
-          tool: toolLine(p),
-        });
+        cells.push({ kind: "tool", id: `${base}:t:${p.id}`, tool: toolLine(p) });
       }
     });
   }
   if (!live) {
-    if (cellCache.size >= CELL_CACHE_MAX)
-      cellCache.delete(cellCache.keys().next().value!);
-    cellCache.set(key, {
-      content: m.content,
-      model: m.modelContent ?? null,
-      cells,
-    });
+    if (cellCache.size >= CELL_CACHE_MAX) cellCache.delete(cellCache.keys().next().value!);
+    cellCache.set(key, { content: m.content, model: m.modelContent ?? null, cells });
   }
   return cells;
 }
@@ -646,10 +481,7 @@ export function toCells(
 }
 
 /** The first `n` lines of a tool result, for the collapsed preview. */
-export function previewLines(
-  text: string | undefined,
-  n: number,
-): { lines: string[]; more: number } {
+export function previewLines(text: string | undefined, n: number): { lines: string[]; more: number } {
   const all = (text ?? "").replace(/\s+$/, "").split("\n");
   return { lines: all.slice(0, n), more: Math.max(0, all.length - n) };
 }
@@ -658,10 +490,7 @@ export function previewLines(
  * After an interrupt (Esc): calls in those messages that never finished read as
  * "interrupted", not "failed", and a note marks where the turn stopped.
  */
-export function markInterrupted(
-  cells: Cell[],
-  interruptedMessageIds: ReadonlySet<string>,
-): Cell[] {
+export function markInterrupted(cells: Cell[], interruptedMessageIds: ReadonlySet<string>): Cell[] {
   if (interruptedMessageIds.size === 0) return cells;
   const out: Cell[] = [];
   cells.forEach((c, i) => {
@@ -676,12 +505,7 @@ export function markInterrupted(
     }
     const next = cells[i + 1];
     if (hit && (!next || next.id.split(":")[0] !== msg)) {
-      out.push({
-        kind: "notice",
-        id: `${msg}:interrupted`,
-        level: "info",
-        text: "Interrupted. Tell Atlarix what to do instead.",
-      });
+      out.push({ kind: "notice", id: `${msg}:interrupted`, level: "info", text: "Interrupted. Tell Atlarix what to do instead." });
     }
   });
   return out;
@@ -712,22 +536,13 @@ export function placeSteers(
     const a = anchors.get(String(m.id));
     if (!a) continue;
     const answer = messages.find((x) => String(x.id) === a.assistantId);
-    const firstIdx = cells.findIndex((c) =>
-      c.id.startsWith(`${a.assistantId}:`),
-    );
-    const cell: Cell = {
-      kind: "user",
-      id: `${String(m.id)}:u`,
-      text: m.content.trim(),
-    };
+    const firstIdx = cells.findIndex((c) => c.id.startsWith(`${a.assistantId}:`));
+    const cell: Cell = { kind: "user", id: `${String(m.id)}:u`, text: m.content.trim() };
     if (!answer || firstIdx < 0) {
       cells.push(cell);
       continue;
     }
-    const before = toCells(
-      [{ ...answer, content: answer.content.slice(0, a.offset) }],
-      { streaming: true },
-    ).length;
+    const before = toCells([{ ...answer, content: answer.content.slice(0, a.offset) }], { streaming: true }).length;
     cells.splice(firstIdx + before, 0, cell);
   }
   return cells;
@@ -750,9 +565,7 @@ export function collapseCancelled(
   const out: ChatMessageLike[] = [];
   for (const m of messages) {
     const prev = out.at(-1);
-    const body = m.content.includes(CANCEL_MARK)
-      ? m.content.replace(CANCEL_MARK, "").trimEnd()
-      : m.content;
+    const body = m.content.includes(CANCEL_MARK) ? m.content.replace(CANCEL_MARK, "").trimEnd() : m.content;
     if (
       m.role === "assistant" &&
       prev?.role === "assistant" &&

@@ -48,6 +48,12 @@ export interface LocalSession {
   chatId: number;
   name: string;
   workspace: string;
+  /**
+   * A CLI session that has no session row yet (one is made on its first
+   * message): reachable anyway, under a placeholder id. Delivering to it makes
+   * the real session first, and the message goes there.
+   */
+  materialize?: () => Promise<{ sessionId: string; chatId: number }>;
 }
 
 export interface PeerSessionRow {
@@ -280,19 +286,23 @@ function accept(socket: net.Socket): void {
       socket.destroy();
       return;
     }
-    for (const f of frames) socket.write(encodeFrame(receive(f as PeerFrame)));
+    for (const f of frames) {
+      void receive(f as PeerFrame).then((reply) => {
+        if (!socket.destroyed) socket.write(encodeFrame(reply));
+      });
+    }
   });
   socket.on("error", () => socket.destroy());
   socket.setTimeout(30_000, () => socket.destroy());
 }
 
 /** Exported for tests. */
-export function receive(f: PeerFrame): { ok: boolean; error?: string } {
+export async function receive(f: PeerFrame): Promise<{ ok: boolean; error?: string }> {
   if (!f || f.type !== "peer-message")
     return { ok: false, error: "unknown frame" };
   if (!token || f.token !== token)
     return { ok: false, error: "not authorised" };
-  const target = local.get(f.to);
+  let target = local.get(f.to);
   if (!target || !hostImpl) return { ok: false, error: "no such session here" };
   if (hostImpl.inbound() === "refuse")
     return {
