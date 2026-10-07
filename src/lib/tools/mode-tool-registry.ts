@@ -101,6 +101,11 @@ export const MODE_EXCLUDED_TOOLS: Partial<
   Record<ModeRegistryKey, readonly string[]>
 > = {
   plan: ["mobile", "mobile_inspect"],
+  // Review reads and verifies code; transcribing audio is not part of that, and
+  // its schema pushed Review over its prompt-budget ceiling (2026-10-07). It
+  // stays in every other mode. `view_image` and the session pair stay here: a
+  // review can look at a screenshot and hand its findings to a Build session.
+  review: ["transcribe_audio"],
 };
 
 function withEveryModeTools(
@@ -201,7 +206,10 @@ const REVIEW_TOOLS = [
 /** Full per-mode allowlists (mode-specific tools ∪ every-mode tools). */
 const ASK_ALLOWLIST = withEveryModeTools(ASK_TOOLS);
 const PLAN_ALLOWLIST = withEveryModeTools(PLAN_TOOLS, MODE_EXCLUDED_TOOLS.plan);
-const REVIEW_ALLOWLIST = withEveryModeTools(REVIEW_TOOLS);
+const REVIEW_ALLOWLIST = withEveryModeTools(
+  REVIEW_TOOLS,
+  MODE_EXCLUDED_TOOLS.review,
+);
 
 /** Backward-compatible export for system_prompt and tests. */
 export const MODE_SYSTEM_TOOL_LISTS = {

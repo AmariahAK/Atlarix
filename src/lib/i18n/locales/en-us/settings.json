@@ -3,5 +3,9 @@
     "label": "Language",
     "description": "The language Atlarix replies in. Code, file paths and commands stay as they are. Follows your system language unless you choose one.",
     "systemDefault": "System default"
+  },
+  "peerMessages": {
+    "label": "Messages from other sessions",
+    "description": "Lets another Atlarix session on this computer (the app or the CLI) send this one a message, which it answers. Nothing leaves your computer. Off: they are refused."
   }
 }

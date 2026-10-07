@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ChevronDown, ChevronRight, MessagesSquare } from "lucide-react";
 import type { PeerSegment } from "@/lib/peers/peer-message";
 import { UserMessageMarkdownParser } from "./AtlarixMarkdownParser";
@@ -31,6 +32,7 @@ const FOLD_CHARS = 600;
 function PeerOne({ seg }: { seg: Extract<PeerSegment, { kind: "peer" }> }) {
   const long = seg.text.length > FOLD_CHARS;
   const [open, setOpen] = useState(!long);
+  const { t } = useTranslation("chat");
   const where = seg.surface === "cli" ? "CLI" : "app";
   return (
     <div className="rounded-md border border-border/70 bg-muted/40 text-sm">
@@ -47,9 +49,9 @@ function PeerOne({ seg }: { seg: Extract<PeerSegment, { kind: "peer" }> }) {
         )}
         <MessagesSquare className="h-3.5 w-3.5 shrink-0" aria-hidden />
         <span>
-          Message from {where} session{" "}
+          {t("peerMessage.from", { where })}{" "}
           <span className="font-medium text-foreground/90">
-            {seg.from || "another session"}
+            {seg.from || t("peerMessage.anotherSession")}
           </span>
         </span>
       </button>

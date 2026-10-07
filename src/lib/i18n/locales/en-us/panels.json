@@ -1,1 +1,5 @@
-{}
+{
+  "sessions": {
+    "continueInTerminal": "Continue in terminal"
+  }
+}

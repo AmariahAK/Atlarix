@@ -3,6 +3,7 @@ import { formatDistanceToNow } from "date-fns";
 import { Loader2, MessageSquare, MoreHorizontal } from "lucide-react";
 import { getDefaultStore, useAtomValue, useSetAtom } from "jotai";
 import { useNavigate } from "@tanstack/react-router";
+import { useTranslation } from "react-i18next";
 import { IpcClient } from "@/ipc/ipc_client";
 import type { WorkspaceChatSession } from "@/ipc/ipc_types";
 import {
@@ -84,6 +85,7 @@ export function WorkspaceSessionList({
   activeSessionId: string | null;
   onSessionsChange?: () => void;
 }) {
+  const { t } = useTranslation("panels");
   const navigate = useNavigate();
   const [sessions, setSessions] = useState<WorkspaceChatSession[]>([]);
   const [listLoading, setListLoading] = useState(true);
@@ -586,7 +588,7 @@ export function WorkspaceSessionList({
                         );
                     }}
                   >
-                    Continue in terminal
+                    {t("sessions.continueInTerminal")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     className="text-destructive focus:text-destructive"

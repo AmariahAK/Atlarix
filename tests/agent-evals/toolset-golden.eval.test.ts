@@ -73,6 +73,7 @@ const GOLDEN = {
     "grep",
     "list_attachments",
     "list_available_mcps",
+    "list_sessions",
     "manage_mcp_server",
     "mcp_call",
     "mobile",
@@ -82,10 +83,13 @@ const GOLDEN = {
     "read_url",
     "run_command",
     "schedule_wakeup",
+    "send_message",
     "session_search",
     "subagents",
     "task",
     "tool_help",
+    "transcribe_audio",
+    "view_image",
     "web_search",
   ],
   // Plan gained `run_command` + `background_jobs`; it lost `automations`,
@@ -104,6 +108,7 @@ const GOLDEN = {
     "grep",
     "list_attachments",
     "list_available_mcps",
+    "list_sessions",
     "mcp_call",
     "plan",
     "read_attachment",
@@ -111,10 +116,44 @@ const GOLDEN = {
     "read_url",
     "run_command",
     "schedule_wakeup",
+    "send_message",
     "session_search",
     "subagents",
     "task",
     "tool_help",
+    "transcribe_audio",
+    "view_image",
+    "web_search",
+  ],
+  // Review mirrors Explore minus `transcribe_audio` (MODE_EXCLUDED_TOOLS: it
+  // pushed Review over its prompt budget, and audio is not part of a review).
+  review: [
+    "ask_user",
+    "automations",
+    "background_jobs",
+    "browser",
+    "browser_inspect",
+    "compress_context",
+    "glob",
+    "grep",
+    "list_attachments",
+    "list_available_mcps",
+    "list_sessions",
+    "manage_mcp_server",
+    "mcp_call",
+    "mobile",
+    "mobile_inspect",
+    "read_attachment",
+    "read_file",
+    "read_url",
+    "run_command",
+    "schedule_wakeup",
+    "send_message",
+    "session_search",
+    "subagents",
+    "task",
+    "tool_help",
+    "view_image",
     "web_search",
   ],
   build: [
@@ -129,6 +168,7 @@ const GOLDEN = {
     "grep",
     "list_attachments",
     "list_available_mcps",
+    "list_sessions",
     "manage_mcp_server",
     "mcp_call",
     "mobile",
@@ -143,20 +183,21 @@ const GOLDEN = {
     "relic",
     "run_command",
     "schedule_wakeup",
+    "send_message",
     "session_search",
     "subagents",
     "task",
     "tool_help",
+    "transcribe_audio",
+    "view_image",
     "web_search",
   ],
 } as const;
 
-// review and debug were never pinned. They are byte-identical to ask and build
-// respectively (mode-tool-registry: REVIEW_TOOLS mirrors ASK_TOOLS; debug shares
-// build's "*" marker and differs by prompt discipline only) — so pinning them
-// costs nothing and turns "they happen to match" into a contract.
+// debug is byte-identical to build (it shares build's "*" marker and differs by
+// prompt discipline only) — pinning it costs nothing and turns "they happen to
+// match" into a contract. review is pinned on its own above since 2026-10-07.
 const GOLDEN_ALIASES = {
-  review: "ask",
   debug: "build",
 } as const;
 

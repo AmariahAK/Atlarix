@@ -90,17 +90,14 @@ async function downscale(
 
 ToolRegistry.register({
   name: "view_image",
-  description:
-    "Look at an image file (PNG, JPEG, GIF, WebP, BMP).",
+  description: "Look at an image file (PNG, JPEG, GIF, WebP, BMP).",
   requiresWorkspace: false,
   isCore: true,
   isReadOnly: true,
   allowInAskMode: true,
   parameters: createParameters(
     {
-      path: stringParam(
-        "Path to the image — workspace-relative, or an ABSOLUTE path for anything outside the workspace.",
-      ),
+      path: stringParam("Workspace-relative or absolute path."),
     },
     ["path"],
   ),
@@ -197,16 +194,11 @@ ToolRegistry.register({
   allowInAskMode: true,
   parameters: createParameters(
     {
-      path: stringParam(
-        "Path to the audio file — workspace-relative, or an ABSOLUTE path for anything outside the workspace.",
-      ),
-      language: stringParam(
-        "Optional ISO-639-1 language of the speech (e.g. en, sw), when known.",
-      ),
+      path: stringParam("Workspace-relative or absolute path."),
     },
     ["path"],
   ),
-  handler: async ({ path: rawPath, language, workspace, _chatSessionId }) => {
+  handler: async ({ path: rawPath, workspace, _chatSessionId }) => {
     const shown = String(rawPath ?? "").trim();
     if (!shown) return { success: false, error: "Give the audio file's path." };
 
@@ -245,11 +237,6 @@ ToolRegistry.register({
         error: `"${shown}" is ${Math.round(bytes.length / 1048576)} MB; the limit is 25 MB.`,
       };
     }
-    const lang =
-      typeof language === "string" && language.trim()
-        ? language.trim()
-        : undefined;
-
     // Paid Atlarix Core: our proxy, billed to the account.
     const { paidCoreForChat, coreProxyPost } = await import(
       "@/lib/core/paid-core"
@@ -261,7 +248,6 @@ ToolRegistry.register({
         new Blob([new Uint8Array(bytes)], { type: mimeType }),
         path.basename(fullPath),
       );
-      if (lang) form.append("language", lang);
       const res = await coreProxyPost("/audio/transcriptions", { form }).catch(
         () => null,
       );
@@ -307,7 +293,6 @@ ToolRegistry.register({
       provider,
       mimeType,
       dataBase64: bytes.toString("base64"),
-      language: lang,
     });
     return r.ok
       ? { success: true, text: r.text, source: provider }

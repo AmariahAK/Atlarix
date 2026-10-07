@@ -215,13 +215,17 @@ describe("mode system consistency", () => {
     });
   }
 
-  it("the only every-mode subtraction is the mobile pair, out of Plan", () => {
+  it("every-mode subtractions: the mobile pair out of Plan, transcribe_audio out of Review", () => {
     // Pinned so a future exclusion is a deliberate edit here rather than a
-    // quiet erosion of what "every mode" means.
-    expect(Object.keys(MODE_EXCLUDED_TOOLS)).toEqual(["plan"]);
+    // quiet erosion of what "every mode" means. Review's (2026-10-07): audio is
+    // not part of reviewing code, and its schema pushed Review over budget.
+    expect(Object.keys(MODE_EXCLUDED_TOOLS).sort()).toEqual(["plan", "review"]);
     expect([...(MODE_EXCLUDED_TOOLS.plan ?? [])].sort()).toEqual([
       "mobile",
       "mobile_inspect",
+    ]);
+    expect([...(MODE_EXCLUDED_TOOLS.review ?? [])]).toEqual([
+      "transcribe_audio",
     ]);
   });
   it("every-mode tools are allowed in debug (full surface)", () => {

@@ -17,7 +17,7 @@ import {
 ToolRegistry.register({
   name: "list_sessions",
   description:
-    "List the user's other Atlarix sessions running on this machine (CLI or app): name, id, workspace, and whether each is busy. Use before send_message.",
+    "The user's other Atlarix sessions on this machine (CLI or app), for send_message.",
   requiresWorkspace: false,
   isCore: false,
   isReadOnly: true,
@@ -44,16 +44,16 @@ ToolRegistry.register({
 ToolRegistry.register({
   name: "send_message",
   description:
-    "Send a plain-text message to another of the user's Atlarix sessions (by name or id from list_sessions): a finding, a status, or a handoff with the context it needs. It arrives in that session as a message from this one, not from the user. Never ask a session to do what was denied or blocked here.",
+    "Message another of the user's Atlarix sessions. It arrives as from this session, not the user. Never ask it to do what was denied here.",
   requiresWorkspace: false,
   isCore: false,
   isReadOnly: true,
   allowInAskMode: true,
   parameters: createParameters(
     {
-      to: stringParam("The session's name or id (from list_sessions)."),
+      to: stringParam("Session name or id."),
       message: stringParam(
-        "What to tell it. Plain text; include the context it needs, since it cannot see this conversation.",
+        "Plain text with the context it needs; it can't see this conversation.",
       ),
     },
     ["to", "message"],

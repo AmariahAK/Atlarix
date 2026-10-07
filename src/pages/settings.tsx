@@ -642,6 +642,7 @@ export function VoiceSettings() {
 
 export function NotificationsSettings() {
   const { settings, updateSettings } = useSettings();
+  const { t } = useTranslation("settings");
   return (
     <div
       id="notifications"
@@ -722,7 +723,7 @@ export function NotificationsSettings() {
       <div className="mt-6 space-y-2 border-t border-border pt-6">
         <div className="flex items-center justify-between max-w-md gap-4">
           <Label htmlFor="peer-messages" className="text-sm">
-            Messages from other sessions
+            {t("peerMessages.label")}
           </Label>
           <Switch
             id="peer-messages"
@@ -733,9 +734,7 @@ export function NotificationsSettings() {
           />
         </div>
         <p className="text-xs text-muted-foreground max-w-md">
-          Lets another Atlarix session on this computer (the app or the CLI)
-          send this one a message, which it answers. Nothing leaves your
-          computer. Off: they are refused.
+          {t("peerMessages.description")}
         </p>
       </div>
     </div>

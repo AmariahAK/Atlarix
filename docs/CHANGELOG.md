@@ -3,7 +3,7 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
-## [Unreleased] — staged, not tagged: the agent sees images, sessions talk to each other
+## [15.1.0] (2026-10-07) — the agent sees images, sessions talk to each other
 
 **The agent can look at images, video and audio.** `view_image` shows the model an image file
 it made or found (a screenshot, a chart, frames it pulled out of a video), and `transcribe_audio`
