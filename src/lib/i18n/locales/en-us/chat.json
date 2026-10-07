@@ -13,6 +13,8 @@
     "statusCredits": "Auto · Credits",
     "statusTitle": "Atlarix Auto picks the model for each step.",
     "lowShare": "running low",
+    "statusFloor": "Auto · Free, slower model",
+    "floorTitle": "Today's full-speed free share is used, so Auto is on a slower free model until the daily reset. Add credit or use your own key for full speed.",
     "strongerModel": "Try with a stronger model",
     "strongerModelTitle": "Run this turn again with Auto one level up. Costs more.",
     "deepThinkingHint": "On: Auto uses stronger models for this chat — costs more.",

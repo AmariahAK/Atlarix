@@ -31,8 +31,8 @@ import {
   AUTO_CONSENT_MARKER,
   CORE_EXHAUSTED_MARKER,
   FREE_LIMIT_MARKER,
-  UPGRADE_LINE,
   freeUsageLimitUserMessage,
+  FREE_LIMIT_WAYS,
 } from "@/shared/billing_copy";
 import { autoRequestHeaders } from "@/ipc/utils/get_model_client";
 
@@ -93,7 +93,10 @@ describe("Auto's limit is a limit", () => {
     const c = classifyCompassFailure(429, body);
     expect(c.message).toContain(FREE_LIMIT_MARKER);
     expect(c.message).toMatch(/resets at \d{1,2}:\d{2}/);
-    expect(c.message).toContain(UPGRADE_LINE);
+    // Credit and your own key lead; Pro is named last.
+    expect(c.message).toContain(FREE_LIMIT_WAYS);
+    expect(c.message.indexOf("add credit")).toBeLessThan(c.message.indexOf("Pro"));
+    expect(c.message).toContain("own API key");
     expect(c.isCompassInfraError).toBe(false);
   });
 
@@ -149,7 +152,15 @@ describe("the live readout", () => {
           "x-atlarix-free-remaining": "62",
         }),
       ),
-    ).toEqual({ servedModel: "gpt-5.4-mini", freeRemaining: 62, billing: null, costCents: null });
+    ).toEqual({ servedModel: "gpt-5.4-mini", freeRemaining: 62, billing: null, costCents: null, onFloor: null });
+    expect(
+      autoStatusFromHeaders(
+        new Headers({ "x-atlarix-billing": "free", "x-atlarix-free-remaining": "0", "x-atlarix-free-floor": "1" }),
+      ),
+    ).toMatchObject({ onFloor: true, freeRemaining: 0 });
+    expect(
+      autoStatusFromHeaders(new Headers({ "x-atlarix-billing": "free", "x-atlarix-free-floor": "0" })),
+    ).toMatchObject({ onFloor: false });
     expect(
       autoStatusFromHeaders(new Headers({ "x-atlarix-billing": "paid", "x-atlarix-cost-cents": "3" })),
     ).toMatchObject({ billing: "paid", costCents: 3 });

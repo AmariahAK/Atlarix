@@ -303,7 +303,7 @@ export function localResetTime(
  * Atlarix Auto: today's free share is used (proxy 429 `free_usage_limit`).
  *
  * Says WHEN it comes back on the user's clock — the free tokens reset at 00:00
- * UTC, which is a different hour everywhere — then the upgrade line. Not an
+ * UTC, which is a different hour everywhere — then the ways to keep going. Not an
  * error the user caused, and not our outage either, so it is never reported to
  * Sentry. Starts with FREE_LIMIT_MARKER so ChatErrorBox can offer the buttons.
  */
@@ -316,8 +316,17 @@ export function freeUsageLimitUserMessage(
     typeof retryAfterSeconds === "number" && retryAfterSeconds > 0
       ? ` · resets at ${localResetTime(retryAfterSeconds, now, timeZone)}`
       : " · resets at midnight UTC";
-  return `Today's free share is used up${when}. ${UPGRADE_LINE}`;
+  return `Today's free share is used up${when}. ${FREE_LIMIT_WAYS}`;
 }
+
+/**
+ * The ways past free Auto's daily limit, cheapest commitment first. Credit and
+ * your own key lead because most people who hit the wall do so in their first
+ * days and will not start a subscription then; Pro is still named, last.
+ */
+export const FREE_LIMIT_WAYS =
+  "To keep going now, add credit and pay only for what you use (from $10), or switch to your own API key or a local model, which have no Atlarix limits. Atlarix Pro ($19/month) covers Auto too.";
+export const USE_OWN_KEY_LABEL = "Use your own key";
 
 /**
  * Atlarix Auto with no credit and no consent yet (proxy 402 `consent_required`).
