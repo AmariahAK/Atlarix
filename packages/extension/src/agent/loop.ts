@@ -207,6 +207,13 @@ function declineMessage(request: Approval): string {
       `needed it for.`
     );
   }
+  if (request.category === "message") {
+    return (
+      `The user did not approve sending that message, so nothing was sent. This is ` +
+      `their decision — do not send it another way. Carry on here, or ask them what ` +
+      `they would rather do.`
+    );
+  }
   return (
     `The user declined this action, so nothing was done. It was stopped because it ` +
     `looked like it involved ${request.category.replace(/_/g, " ")}, and no site ` +
@@ -423,7 +430,11 @@ export async function runTurn(args: TurnArgs): Promise<TurnOutcome> {
             // approval, something is wrong that asking again will not fix — and
             // a second prompt for something just approved reads as the
             // extension not listening.
-            await dispatch(call, { ...args.tools, recentToolResults: turnResults })
+            await dispatch(call, {
+              ...args.tools,
+              recentToolResults: turnResults,
+              approvedRetry: true,
+            })
           : { content: declineMessage(request) };
         if (outcome.needsApproval) {
           outcome = {

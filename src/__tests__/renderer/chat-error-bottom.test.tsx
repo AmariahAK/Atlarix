@@ -12,6 +12,7 @@ import {
   COMPASS_REACHABILITY_ERROR,
   autoConsentRequiredUserMessage,
   coreExhaustedUserMessage,
+  freeUsageLimitUserMessage,
 } from "@/shared/billing_copy";
 import { makeFakeIpc, renderWithProviders } from "./helpers";
 
@@ -129,6 +130,20 @@ describe("chat error banner placement (v11.1)", () => {
     ).toBeNull();
     // And the figure the proxy sent reaches the user.
     expect(screen.getByText(/\$9\.24/)).toBeTruthy();
+  });
+
+  it("free Auto's limit leads with credit and your own key; Pro comes last", () => {
+    const { store } = renderWithProviders(
+      <SimpleInlineChat chatId={CHAT_ID} onSendMessage={() => {}} />,
+    );
+    act(() => {
+      store.set(chatErrorByIdAtom, new Map([[CHAT_ID, freeUsageLimitUserMessage(3600)]]));
+    });
+
+    const actions = screen.getByTestId("free-limit-actions");
+    const labels = Array.from(actions.children).map((el) => el.textContent?.trim());
+    expect(labels).toEqual(["Add credit", "Use your own key", "Upgrade to Pro"]);
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
   });
 
   it("KEEPS Retry when Core was merely unreachable — that one is transient", () => {

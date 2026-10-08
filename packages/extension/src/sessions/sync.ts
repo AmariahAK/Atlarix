@@ -72,6 +72,7 @@
  * which nobody asked for.
  */
 
+import { peerSurfaceLabel, splitPeerMessages } from "@/lib/peers/peer-message";
 import { GOTRUE } from "../auth/config";
 import { getAccessToken } from "../auth/sign-in";
 import { getSession } from "../auth/sign-in";
@@ -128,6 +129,17 @@ export function syncableRows(
       // synced up to the 40,000-character cap. A stated rule enforced by the
       // wrong function reads exactly like a rule that holds.
       const text = saidText(m.content);
+      // A TASK ANOTHER SESSION HANDED OVER syncs as who sent it, never as its
+      // text: it was written on the user's machine, from their workspace, and
+      // may quote code or files that were never meant to leave it.
+      const peer = splitPeerMessages(text);
+      if (peer) {
+        const heads = peer
+          .filter((s) => s.kind === "peer")
+          .map((s) => `Message from ${s.from || "another session"} (${peerSurfaceLabel(s.surface)})`);
+        out.push({ role: "user", content: heads.join("\n").slice(0, MAX_SAID_CHARS), seq });
+        return;
+      }
       if (text.trim()) {
         out.push({ role: "user", content: text.slice(0, MAX_SAID_CHARS), seq });
       }

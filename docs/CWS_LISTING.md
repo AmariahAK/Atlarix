@@ -57,7 +57,7 @@ Checked against the code on 2026-09-23. Anything the listing claims should be on
 - **Models: Atlarix Auto is the default** (`chooseModel`, `packages/extension/src/panel/model-choice.ts`).
   The extension is PAID-ONLY: Auto here is always the paid, private version (Pro allowance or
   credit), and the proxy never serves the extension from the free pool — free Auto is
-  desktop-only. A no-credit account gets the upgrade line. The extension is
+  desktop-only. A no-credit account gets the credit-first line (`CREDIT_FIRST_LINE`: add credit from $10, or Pro). The extension is
   Core-only: there is no BYOK path in it. See [`CORE_BILLING.md`](./CORE_BILLING.md).
 
 ---
@@ -65,7 +65,7 @@ Checked against the code on 2026-09-23. Anything the listing claims should be on
 ## Short description (132 characters max)
 
 > An AI agent in a side panel that reads and acts on the pages you are already signed into.
-> Runs on Atlarix Pro or credit.
+> Pay as you go from $10, or Atlarix Pro.
 
 ---
 
@@ -110,7 +110,7 @@ Checked against the code on 2026-09-23. Anything the listing claims should be on
 > it has touched.
 >
 > WHAT IT COSTS
-> Atlarix requires an account with Atlarix Pro or credit. It runs on Atlarix Auto, which picks the right model for each step. Atlarix Pro — $19/month — includes Core usage across the desktop app, this extension and Reviewer; or pay as you go with credit topped up at atlarix.dev. You always see what a conversation is using in the panel, and Atlarix will not start a turn it cannot pay for.
+> The side-panel agent runs on your Atlarix balance: add credit from $10 at atlarix.dev and pay only for what you use, with no subscription. Or get Atlarix Pro ($19/month), which includes Core usage across the desktop app, this extension and Reviewer. It runs on Atlarix Auto, which picks the right model for each step. You always see what a conversation is using in the panel, and Atlarix will not start a turn it cannot pay for.
 >
 > Read how we handle data at https://atlarix.dev/privacy and https://atlarix.dev/data-use
 

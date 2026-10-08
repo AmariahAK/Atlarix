@@ -311,5 +311,8 @@ declare namespace chrome {
     const onClicked: {
       addListener(cb: (tab: { id?: number; windowId?: number }) => void): void;
     };
+    /** The toolbar badge; peers/inbox.ts shows how many tasks wait. */
+    function setBadgeText(details: { text: string; tabId?: number }): Promise<void>;
+    function setBadgeBackgroundColor(details: { color: string; tabId?: number }): Promise<void>;
   }
 }

@@ -3,6 +3,38 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [15.2.0] (2026-10-08) — the browser joins the conversation, and free limits that let people stay
+
+**The Chrome extension is a session too.** `list_sessions` in the app and the CLI now shows the
+Atlarix extension's agent ("Chrome", "Brave" or "Edge"), and `send_message` hands it a browser
+task: "list this release on a launch site", "draft these emails". The toolbar icon shows a badge;
+clicking it opens the side panel on the task, where you can steer it ("shorter, less salesy")
+while your coding session keeps going. Its result comes back to the sender as "Message from
+Chrome (browser)". It works the other way too: the extension's agent can list your CLI and app
+sessions and send one work ("send this to my CLI"); a message to a session that did not ask
+waits for your OK in the panel, every time, so a web page cannot steer it into messaging your
+terminal. Under it: bridge protocol 2 (`lib/bridge/server.ts`: the extension may start one kind
+of request, `ext-request`, only after a protocol-2 hello carrying a profile id),
+`lib/peers/chrome-peer.ts` (the process hosting the browser registers it as a session and writes
+the `from` on everything it sends), and in the extension an inbox (`peers/inbox.ts`), a narrow
+service-worker router, and `list_sessions` / `send_message` tools. A message from another session
+is never your approval; the extension still stops before any final submit. A handed-off task
+syncs to your account only as its header line.
+
+**Free Atlarix Auto lets new people keep going.** A turn averages about 180K tokens, so the free
+day's 2M hard stop was about eleven messages, and the people who hit it did so on their first or
+second day. New accounts now get double on that stop for their first week (the fallback model
+it covers costs Atlarix nothing). When the free share is spent and the slower fallback model
+answers, the composer now says "Auto · Free, slower model" instead of "0%".
+
+**Pay-as-you-go comes first.** At the free limit the card offers Add credit, Use your own key,
+then Upgrade to Pro, and the message names credit from $10 and your own key before the $19
+plan. The extension's out-of-credit message and links lead with credit too ("Add credit at
+atlarix.dev/account · Pro at atlarix.dev/pricing"); it used to read as "subscribe to use".
+
+**Smaller fixes.** A message from another session over 20,000 characters lost its closing tag in
+the queue and stopped reading as a peer's message.
+
 ## [15.1.0] (2026-10-07) — the agent sees images, sessions talk to each other
 
 **The agent can look at images, video and audio.** `view_image` shows the model an image file

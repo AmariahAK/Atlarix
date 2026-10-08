@@ -71,6 +71,7 @@ import {
   type PageTextResult,
 } from "@/lib/browser/page-scripts";
 import { formatFind, formatSnapshot } from "@/lib/browser/a11y-format";
+import { addToInbox, taskFromArgs } from "../peers/inbox";
 import { api } from "../shared/browser-api";
 import {
   activeTab,
@@ -836,6 +837,20 @@ async function run(op: string, args: Record<string, unknown>): Promise<unknown> 
       await endCapture(tabId);
       await api().tabs.remove(tabId);
       return { closed: tabId };
+    }
+
+    // Another Atlarix session handed this browser a task (desktop
+    // lib/peers/chrome-peer.ts). FILED, never run: the panel starts it when the
+    // user clicks the Atlarix icon (peers/inbox.ts).
+    case "peer_deliver": {
+      const task = taskFromArgs(args);
+      if (!task) throw new Error("not a task: needs an id, a sender and some text");
+      const pending = await addToInbox(task);
+      // An open panel offers it at once; with none open this has no listener.
+      void Promise.resolve(
+        api().runtime.sendMessage?.({ type: "atlarix:peer-inbox" }),
+      ).catch(() => {});
+      return { queued: true, pending };
     }
 
     default:

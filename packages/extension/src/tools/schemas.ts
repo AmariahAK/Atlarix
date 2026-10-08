@@ -57,6 +57,8 @@ export const TOOL_NAMES = [
   "read_attachment",
   "create_relic",
   "run_code",
+  "list_sessions",
+  "send_message",
 ] as const;
 
 export type ToolName = (typeof TOOL_NAMES)[number];
@@ -765,6 +767,45 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
           },
         },
         required: ["code"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_sessions",
+      description:
+        "The user's Atlarix sessions running on this computer (CLI or desktop " +
+        "app) that send_message can reach.",
+      parameters: { type: "object", properties: {}, additionalProperties: false },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "send_message",
+      description:
+        "Message one of the user's Atlarix sessions (CLI or desktop app): your " +
+        "result for a session that handed you a task, or work to hand to one " +
+        "when the user asks (\"send this to my CLI\"). A reply to a session that " +
+        "asked goes straight through; anything else waits for the user to " +
+        "approve it. It cannot see this conversation, so include what it needs.",
+      parameters: {
+        type: "object",
+        properties: {
+          message: {
+            type: "string",
+            description: "The result or question, written for that session.",
+          },
+          to: {
+            type: "string",
+            description:
+              "Which session, by name or id (list_sessions). Leave it out to " +
+              "reply to the one that sent you a task.",
+          },
+        },
+        required: ["message"],
         additionalProperties: false,
       },
     },

@@ -32,6 +32,8 @@ describe("the terminal's notice", () => {
     const n = errorNotice(freeUsageLimitUserMessage(3600, Date.UTC(2026, 9, 3, 10), "UTC"));
     expect(n.title).toBe("Today's free share is used up · resets at 11:00 AM");
     expect(n.actions).toContain("/billing");
+    // Credit first: the wall comes in a user's first days, before any subscription.
+    expect(n.actions!.indexOf("add credit")).toBeLessThan(n.actions!.indexOf("Pro"));
     expect(n.tone).toBe("warn");
   });
 

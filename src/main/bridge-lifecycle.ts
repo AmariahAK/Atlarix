@@ -27,6 +27,7 @@ import log from "electron-log";
 
 import { BridgeServer, isSocketLive } from "@/lib/bridge/server";
 import { BridgePeer, peersSocketPath } from "@/lib/bridge/peer";
+import { chromePeer } from "@/lib/peers/chrome-peer";
 import {
   bridgeSocketPath,
   hostEnvPath,
@@ -138,15 +139,24 @@ export async function startBridge(opts: StartBridgeOptions = {}): Promise<void> 
 
   const socketPath = bridgeSocketPath();
   try {
+    // The browser as a session other sessions can message (peers/chrome-peer).
+    // Only the host speaks for it: it holds the one connection to the browser.
+    let hosted: BridgeServer | null = null;
+    const browserSession = chromePeer(() => hosted);
     const next = new BridgeServer({
       socketPath,
       peersSocketPath: peersSocketPath(socketPath),
       onLog: (message) => logger.info(message),
-      onHello: (hello) =>
+      onHello: (hello, connection) => {
         logger.info(
           `browser attached: ${hello.browser ?? "chromium"} extension ${hello.extensionVersion ?? "?"} build ${hello.buildId ?? "?"}`,
-        ),
+        );
+        browserSession.onHello(hello, connection);
+      },
+      onPeerGone: (hello, connection) => browserSession.onPeerGone(hello, connection),
+      onExtRequest: (hello, op, args) => browserSession.onExtRequest(hello, op, args),
     });
+    hosted = next;
     await next.listen();
     endpoint = next;
     role = "host";

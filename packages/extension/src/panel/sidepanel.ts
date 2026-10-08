@@ -156,6 +156,14 @@ import {
 } from "../context/compact";
 import { summariserFor } from "../context/summarise";
 import { contextBarView } from "./context-bar";
+import {
+  peerSurfaceLabel,
+  splitPeerMessages,
+  wrapPeerMessage,
+  type PeerSegment,
+} from "@/lib/peers/peer-message";
+import { listInbox, takeFromInbox, type PeerTask } from "../peers/inbox";
+import { peerSendersOf } from "../peers/senders";
 
 const MODEL_KEY = "atlarix.model.v1";
 
@@ -867,6 +875,11 @@ function userBubble(
   content: string | ContentPart[],
   index: number,
 ): HTMLElement {
+  // A TASK FROM ANOTHER SESSION IS NOT THE USER'S MESSAGE, and drawing it in
+  // their bubble would say they typed it. It gets its own card, with who sent it.
+  const peer = typeof content === "string" ? splitPeerMessages(content) : null;
+  if (peer) return peerTaskCard(peer);
+
   const wrap = document.createElement("div");
   wrap.className = "msg msg--user";
 
@@ -911,6 +924,105 @@ function userBubble(
 
   wrap.append(body, edit);
   return wrap;
+}
+
+/** "Message from release notes (CLI)" — the card a peer message renders as. */
+function peerTaskCard(segments: PeerSegment[]): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "msg msg--peer";
+  for (const seg of segments) {
+    if (seg.kind !== "peer") {
+      const extra = document.createElement("div");
+      extra.className = "msg__prose";
+      extra.textContent = seg.text;
+      wrap.append(extra);
+      continue;
+    }
+    const card = document.createElement("details");
+    card.className = "peer-task";
+    card.open = true;
+    const head = document.createElement("summary");
+    head.className = "peer-task__head";
+    head.textContent = `Message from ${seg.from || "another session"} (${peerSurfaceLabel(seg.surface)})`;
+    const body = document.createElement("div");
+    body.className = "peer-task__body";
+    body.textContent = seg.text;
+    card.append(head, body);
+    wrap.append(card);
+  }
+  return wrap;
+}
+
+/**
+ * Tasks waiting in the inbox (peers/inbox.ts). `autoStart` is the panel
+ * having just been opened — by the user's click on the icon, the consent — on
+ * an empty conversation: the oldest task starts. Otherwise the panel offers it
+ * with Start and Dismiss and runs nothing on its own.
+ */
+async function handleWaitingTasks(autoStart: boolean): Promise<void> {
+  const waiting = await listInbox();
+  if (waiting.length === 0) return;
+  if (autoStart && !running && messages.length === 0 && modelSelect?.value) {
+    const task = await takeFromInbox();
+    if (task) await startPeerTask(task);
+    return;
+  }
+  showPeerOffer(waiting[0]!, waiting.length);
+}
+
+async function startPeerTask(task: PeerTask): Promise<void> {
+  if (messages.length > 0) startNewChat();
+  await send(wrapPeerMessage(task.from, task.text));
+}
+
+/** The card for a task that arrived while the panel was open. */
+function showPeerOffer(task: PeerTask, count: number): void {
+  if (transcript?.querySelector(".peer-offer")) return;
+  const card = document.createElement("div");
+  card.className = "peer-offer";
+  const line = document.createElement("div");
+  line.className = "peer-offer__line";
+  const firstLine = task.text.split("\n")[0] ?? "";
+  line.textContent =
+    `${task.from.name} (${peerSurfaceLabel(task.from.surface)}) sent a task` +
+    (count > 1 ? ` (${count} waiting)` : "") +
+    `: ${firstLine.length > 140 ? `${firstLine.slice(0, 140)}…` : firstLine}`;
+  const start = document.createElement("button");
+  start.type = "button";
+  start.className = "button";
+  start.textContent = "Start";
+  start.addEventListener("click", () => {
+    if (running) {
+      setStatus("Finish or stop this turn first, then start the task.");
+      return;
+    }
+    card.remove();
+    void takeFromInbox().then((t) => (t ? startPeerTask(t) : undefined));
+  });
+  const dismiss = document.createElement("button");
+  dismiss.type = "button";
+  dismiss.className = "button button--quiet";
+  dismiss.textContent = "Dismiss";
+  dismiss.addEventListener("click", () => {
+    card.remove();
+    void takeFromInbox().then((t) => {
+      if (!t) return;
+      // Written here, not by the model: the sender should know, and nothing
+      // about the page or the task reaches this note.
+      void Promise.resolve(
+        api().runtime.sendMessage({
+          type: "atlarix:peer-send",
+          to: t.from.sessionId,
+          text: "The user dismissed this task in the browser.",
+        }),
+      ).catch(() => {});
+    });
+  });
+  const actions = document.createElement("div");
+  actions.className = "peer-offer__actions";
+  actions.append(start, dismiss);
+  card.append(line, actions);
+  append(card);
 }
 
 /**
@@ -1178,6 +1290,10 @@ function describeCall(call: ToolCall): string {
       return `Closing tab ${String(args.tab_id ?? "")}`;
     case "remember":
       return "Remembering something";
+    case "send_message":
+      return "Messaging an Atlarix session";
+    case "list_sessions":
+      return "Listing your Atlarix sessions";
     default:
       return call.function.name;
   }
@@ -1252,7 +1368,9 @@ function approvalCard(request: Approval): Promise<boolean> {
       request.kind === "host"
         ? "Chrome will ask you to confirm. Atlarix can read this site until you " +
           "remove it, and nothing else."
-        : `${request.reason} Allowing a site never covers this — Atlarix asks every time.`;
+        : request.category === "message"
+          ? `${request.reason} Atlarix asks every time.`
+          : `${request.reason} Allowing a site never covers this — Atlarix asks every time.`;
 
     const actions = document.createElement("div");
     actions.className = "grant__actions";
@@ -1260,7 +1378,8 @@ function approvalCard(request: Approval): Promise<boolean> {
     const allow = document.createElement("button");
     allow.type = "button";
     allow.className = "button grant__allow";
-    allow.textContent = request.kind === "host" ? "Allow" : "Go ahead";
+    allow.textContent =
+      request.kind === "host" ? "Allow" : request.category === "message" ? "Send" : "Go ahead";
 
     const deny = document.createElement("button");
     deny.type = "button";
@@ -1573,11 +1692,14 @@ function setRunning(isRunning: boolean): void {
   if (attachButton) attachButton.disabled = isRunning;
 }
 
-async function send(): Promise<void> {
-  const text = input?.value.trim() ?? "";
+async function send(peerTask?: string): Promise<void> {
+  // A handed-off task (startPeerTask) arrives already wrapped, and leaves
+  // whatever the user had typed or attached in the composer alone.
+  const fromPeer = peerTask !== undefined;
+  const text = fromPeer ? peerTask.trim() : (input?.value.trim() ?? "");
   // An attachment on its own is a real message — "what is in this?" is implied
   // by the act of attaching, and refusing to send it would be pedantry.
-  if ((!text && staged.length === 0) || running) return;
+  if ((!text && (fromPeer || staged.length === 0)) || running) return;
 
   const model = modelSelect?.value;
   if (!model) {
@@ -1591,7 +1713,7 @@ async function send(): Promise<void> {
   // Atlarix Auto here is always the paid, private version; an account with no
   // credit gets the 402 and the upgrade line. Free Auto is desktop-only.
 
-  if (input) {
+  if (input && !fromPeer) {
     input.value = "";
     input.style.height = "auto";
   }
@@ -1624,11 +1746,9 @@ async function send(): Promise<void> {
   // GATED BEFORE THE ROUND IS SPENT, and the refusal names a tier that works.
   // Core 1 is GLM and is text-only, so an image there has to be turned away —
   // but "Core 3 can read it" is the same sentence with the work done.
-  const { accepted, rejected, refusals } = gateAttachments(
-    staged,
-    lineup.find((m) => m.id === model),
-    lineup,
-  );
+  const { accepted, rejected, refusals } = fromPeer
+    ? { accepted: [] as typeof staged, rejected: staged, refusals: [] as string[] }
+    : gateAttachments(staged, lineup.find((m) => m.id === model), lineup);
   // REFUSED ATTACHMENTS STAY STAGED. The refusal says "switch tier and send
   // again", and clearing them made that advice impossible to follow — the file
   // was gone and the user had to go and find it. Accepted ones go, because they
@@ -1741,10 +1861,12 @@ async function send(): Promise<void> {
     // matter: a group of tabs that says nothing about why it is there is the
     // thing people close in confusion.
     void setGroupTitle(windowId, "Atlarix · working");
+    const senders = peerSendersOf(messages);
     const system = buildSystemPrompt({
       notes,
       skills,
       connectors: connectorNames,
+      peerSenders: senders.length ? senders.map((s) => s.name) : null,
       activeTab: tab
         ? {
             title: (await tabTitle(tab.id)) ?? "",
@@ -1815,6 +1937,7 @@ async function send(): Promise<void> {
         windowId,
         sessionId,
         sessionTitle: currentTitle,
+        peerSenders: senders,
         subjectTabId: tab?.id ?? null,
         canSeeImages: (() => {
           const cap = capabilityOf(lineup.find((m) => m.id === model));
@@ -2032,6 +2155,8 @@ async function send(): Promise<void> {
     // an index that was already built. Unawaited, like `pushConversation`: an
     // offline laptop must not put an error in front of someone mid-sentence.
     void syncNotesAndReport();
+    // A task that arrived mid-turn waited; offer it now.
+    void handleWaitingTasks(false);
   }
 }
 
@@ -2119,7 +2244,7 @@ function describeError(error: CoreError): string {
     error.code === "insufficient_credit" ||
     error.code === "free_usage_limit"
   ) {
-    return `${error.message} Upgrade at atlarix.dev/pricing · add credit at atlarix.dev/account.`;
+    return `${error.message} Add credit at atlarix.dev/account · Pro at atlarix.dev/pricing.`;
   }
   if (error.code === "not_signed_in" || error.status === 401) {
     return `${error.message} Open the menu and sign in again.`;
@@ -2527,6 +2652,7 @@ async function render(): Promise<void> {
     //
     // ONCE PER PANEL LIFETIME. render() also runs on sign-in, auth loss and
     // sign-out; a conversation already under way must survive those.
+    const firstOpen = !conversationStarted;
     if (!conversationStarted) {
       conversationStarted = true;
       startNewChat();
@@ -2536,6 +2662,8 @@ async function render(): Promise<void> {
     calibration = await loadCalibration();
     renderConversation(messages);
     await loadModels();
+    // Opened by a click on the icon while a task waits: that click starts it.
+    await handleWaitingTasks(firstOpen);
   } else {
     if (accountChip) accountChip.hidden = true;
     reportCapabilities();
@@ -2681,6 +2809,19 @@ accountChip?.addEventListener("click", () => {
  * to the last completed one. That is said out loud in the empty state rather
  * than discovered.
  */
+// A task handed over while this panel is open (bridge/serve.ts `peer_deliver`):
+// offered with Start and Dismiss, never run on its own.
+try {
+  api().runtime.onMessage.addListener((message: unknown) => {
+    if ((message as { type?: string } | null)?.type === "atlarix:peer-inbox") {
+      void handleWaitingTasks(false);
+    }
+    return undefined;
+  });
+} catch {
+  /* no runtime messaging (tests) */
+}
+
 function endTurnOnClose(): void {
   running?.abort();
   // The frame and the debugger banner outlive this document otherwise: the tab

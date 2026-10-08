@@ -1,6 +1,6 @@
 {
   "name": "@atlarix/extension",
-  "version": "15.1.0",
+  "version": "15.2.0",
   "private": true,
   "description": "Atlarix browser extension (Chrome MV3)",
   "scripts": {

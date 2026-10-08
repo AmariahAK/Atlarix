@@ -13,11 +13,12 @@ import {
   sendPeerMessage,
   PEER_TEXT_CAP,
 } from "@/lib/peers/peers";
+import { peerSurfaceLabel } from "@/lib/peers/peer-message";
 
 ToolRegistry.register({
   name: "list_sessions",
   description:
-    "The user's other Atlarix sessions on this machine (CLI or app), for send_message.",
+    "The user's other Atlarix sessions on this machine (CLI, app or browser), for send_message.",
   requiresWorkspace: false,
   isCore: false,
   isReadOnly: true,
@@ -33,9 +34,10 @@ ToolRegistry.register({
         text: "No other Atlarix sessions are running on this machine.",
       };
     }
-    const lines = rows.map(
-      (r) =>
-        `- ${r.name} (id ${r.sessionId.startsWith("pending-") ? r.sessionId : r.sessionId.slice(0, 8)}, ${r.surface === "cli" ? "CLI" : "app"}, ${r.busy ? "busy" : "idle"}) — ${r.workspace || "no workspace"}`,
+    const lines = rows.map((r) =>
+      r.surface === "chrome"
+        ? `- ${r.name} (id ${r.sessionId}, browser: the Atlarix extension's agent; it starts on a task when the user clicks the Atlarix icon)`
+        : `- ${r.name} (id ${r.sessionId.startsWith("pending-") ? r.sessionId : r.sessionId.slice(0, 8)}, ${peerSurfaceLabel(r.surface)}, ${r.busy ? "busy" : "idle"}) — ${r.workspace || "no workspace"}`,
     );
     return { success: true, text: `Other sessions:\n${lines.join("\n")}` };
   },
@@ -94,9 +96,15 @@ ToolRegistry.register({
     const replyNote = peerInboxRunning()
       ? ""
       : " (This session has no inbox, so it cannot be replied to.)";
+    if (target.row.surface === "chrome") {
+      return {
+        success: true,
+        text: `Delivered to ${target.row.name}. It starts when the user clicks the Atlarix icon in ${target.row.name} (the badge shows it waiting); its result comes back here as a message.${replyNote}`,
+      };
+    }
     return {
       success: true,
-      text: `Sent to ${target.row.name} (${target.row.surface === "cli" ? "CLI" : "app"}, ${target.row.busy ? "busy: it reads it at its next step" : "idle: it starts a turn with it"}).${replyNote}`,
+      text: `Sent to ${target.row.name} (${peerSurfaceLabel(target.row.surface)}, ${target.row.busy ? "busy: it reads it at its next step" : "idle: it starts a turn with it"}).${replyNote}`,
     };
   },
 });

@@ -22,7 +22,8 @@
  */
 
 import { api } from "../shared/browser-api";
-import { connectBridge, installBridgeAlarm } from "../bridge/native-port";
+import { connectBridge, installBridgeAlarm, sendExtRequest } from "../bridge/native-port";
+import { redrawBadge } from "../peers/inbox";
 
 // ---------------------------------------------------------------------------
 // The desktop bridge — FIRST, and the order is the bug fix
@@ -138,3 +139,43 @@ function wirePanelOpening(): void {
 }
 
 wirePanelOpening();
+
+// ---------------------------------------------------------------------------
+// Replies to other Atlarix sessions
+// ---------------------------------------------------------------------------
+
+/**
+ * The panel's one way to the desktop. The native port lives HERE, in the
+ * worker, so when the side-panel agent lists or messages the user's Atlarix
+ * sessions (tools/dispatch.ts `list_sessions`, `send_message`), it asks
+ * through this router.
+ *
+ * Narrow on purpose: two message types, from this extension's own pages only
+ * (`sender.id`), carrying only `to` and `text`. Who it is from is written by
+ * the desktop, not here (desktop lib/peers/chrome-peer.ts).
+ */
+try {
+  api().runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
+    const m = (message ?? {}) as { type?: string; to?: unknown; text?: unknown };
+    if (m.type !== "atlarix:peer-send" && m.type !== "atlarix:peer-list") return undefined;
+    if (sender?.id && sender.id !== api().runtime.id) return undefined;
+    const request =
+      m.type === "atlarix:peer-list"
+        ? sendExtRequest("peer_list", {})
+        : sendExtRequest("peer_send", {
+            to: typeof m.to === "string" ? m.to : "",
+            text: typeof m.text === "string" ? m.text : "",
+          });
+    request.then(
+      (result) => sendResponse({ ok: true, result }),
+      (err: unknown) =>
+        sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) }),
+    );
+    return true; // answered asynchronously
+  });
+} catch (err) {
+  console.error("[atlarix] message router failed", err);
+}
+
+// The badge does not survive a browser restart on its own; the inbox does.
+void redrawBadge();

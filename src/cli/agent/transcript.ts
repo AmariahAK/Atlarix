@@ -7,7 +7,7 @@
  * Pure: the TUI renders cells; src/__tests__/cli-transcript.test.ts pins the rules.
  */
 import { computeDiffHunks } from "@/lib/diff/compose-hunks";
-import { splitPeerMessages } from "@/lib/peers/peer-message";
+import { peerSurfaceLabel, splitPeerMessages } from "@/lib/peers/peer-message";
 import {
   parseAssistantMessageParts,
   type AssistantMessagePart,
@@ -431,7 +431,7 @@ function messageCells(m: ChatMessageLike, live: boolean): Cell[] {
         // Drawn like a tool step: "Message from X (app)", its first line under
         // it, the whole text on ctrl+o. Never the user's band, never the
         // assistant's ◆, both of which read as someone else's words.
-        const where = seg.surface === "cli" ? "CLI" : "app";
+        const where = peerSurfaceLabel(seg.surface);
         const text = seg.text.trim();
         const first = text.split("\n")[0] ?? "";
         cells.push({
