@@ -188,6 +188,19 @@ describe("the browser as a session", () => {
     expect(byId.e3).toMatchObject({ ok: false });
   });
 
+  it("lists the user's CLI and app sessions for the browser, folder names only", async () => {
+    const { ext } = await hostWithChrome();
+    ext.hello({ protocol: 2, profileId: PROFILE });
+    await settle();
+    ext.extRequest("e6", "peer_list", {});
+    await settle(120);
+    const reply = ext.extReplies.find((r) => r.id === "e6") as { ok: boolean; result: { sessions: Array<Record<string, unknown>> } };
+    expect(reply.ok).toBe(true);
+    expect(reply.result.sessions).toEqual([
+      expect.objectContaining({ sessionId: CLI.sessionId, name: CLI.name, surface: "cli", workspace: "atlarix" }),
+    ]);
+  });
+
   it("drops ext-requests before hello and from protocol 1", async () => {
     const { ext } = await hostWithChrome();
     ext.extRequest("e4", "peer_send", { to: CLI.sessionId, text: "too early" });

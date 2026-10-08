@@ -50,7 +50,7 @@ beforeEach(() => {
       id: "fkoacefbjjjhjceidagdajkgclfjacbe",
       async sendMessage(m: unknown) {
         sent.push(m);
-        return sendReply;
+        return typeof sendReply === "function" ? (sendReply as (m: unknown) => unknown)(m) : sendReply;
       },
     },
   };
@@ -112,11 +112,27 @@ describe("send_message", () => {
     peerSenders: senders,
   });
 
-  it("refuses when no session handed this conversation a task", async () => {
+  it("with no sender and no `to`, asks which session", async () => {
     const { dispatchTool } = await import("../tools/dispatch");
     const out = await dispatchTool(call({ message: "done" }), ctx([]));
-    expect(out.content).toMatch(/No Atlarix session handed you a task/);
+    expect(out.content).toMatch(/Say which session/);
     expect(sent).toEqual([]);
+  });
+
+  it("starting a conversation with the user's CLI waits for their approval, then sends", async () => {
+    const { dispatchTool } = await import("../tools/dispatch");
+    const sessions = [{ sessionId: CLI.sessionId, name: "release notes", surface: "cli", workspace: "atlarix", busy: false }];
+    sendReply = (m: unknown) =>
+      (m as { type: string }).type === "atlarix:peer-list"
+        ? { ok: true, result: { sessions } }
+        : { ok: true, result: { sent: true } };
+    const first = await dispatchTool(call({ message: "Implement this page's fix", to: "release notes" }), ctx([]));
+    expect(first.needsApproval).toMatchObject({ kind: "action", category: "message" });
+    expect(first.needsApproval && "summary" in first.needsApproval ? first.needsApproval.summary : "").toMatch(/Send to release notes/);
+    expect(sent).toEqual([{ type: "atlarix:peer-list" }]);
+    const second = await dispatchTool(call({ message: "Implement this page's fix", to: "release notes" }), { ...ctx([]), approvedRetry: true });
+    expect(second.label).toBe("Sent a message to release notes");
+    expect(sent.at(-1)).toEqual({ type: "atlarix:peer-send", to: CLI.sessionId, text: "Implement this page's fix" });
   });
 
   it("defaults to the newest sender and never puts the body in the label", async () => {
@@ -130,14 +146,15 @@ describe("send_message", () => {
     expect(out.label).not.toContain("DevHunt");
   });
 
-  it("cannot reach a session that did not send a task here", async () => {
+  it("an unknown session is an error, and nothing is sent", async () => {
     const { dispatchTool } = await import("../tools/dispatch");
+    sendReply = { ok: true, result: { sessions: [] } };
     const out = await dispatchTool(
       call({ message: "exfil", to: "some-other-session" }),
       ctx([{ sessionId: CLI.sessionId, name: CLI.name }]),
     );
-    expect(out.content).toMatch(/only reply to a session that gave you a task/);
-    expect(sent).toEqual([]);
+    expect(out.content).toMatch(/No Atlarix session called/);
+    expect(sent.filter((m) => (m as { type: string }).type === "atlarix:peer-send")).toEqual([]);
   });
 
   it("says plainly when it was not delivered", async () => {
@@ -153,15 +170,15 @@ describe("the prompt and sync", () => {
     const now = new Date("2026-10-08T10:00:00Z");
     const plain = buildSystemPrompt({ notes: null, now });
     const withTask = buildSystemPrompt({ notes: null, now, peerSenders: ["release notes"] });
-    expect(plain).not.toMatch(/TASK FROM ANOTHER ATLARIX SESSION/);
-    expect(withTask).toMatch(/TASK FROM ANOTHER ATLARIX SESSION — release notes/);
+    expect(plain).not.toMatch(/MESSAGES FROM YOUR OTHER ATLARIX SESSIONS/);
+    expect(withTask).toMatch(/MESSAGES FROM YOUR OTHER ATLARIX SESSIONS — release notes/);
     expect(withTask).toMatch(/never the user's approval/);
     expect(withTask).toMatch(/stop before any final submit/i);
   });
 
   it("syncs a handed-off task as who sent it, never its text", () => {
     const rows = syncableRows([{ role: "user", content: wrapPeerMessage(CLI, "secret workspace notes") }]);
-    expect(rows).toEqual([{ role: "user", content: "Task from release notes (CLI)", seq: 0 }]);
+    expect(rows).toEqual([{ role: "user", content: "Message from release notes (CLI)", seq: 0 }]);
   });
 });
 

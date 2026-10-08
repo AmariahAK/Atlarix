@@ -926,7 +926,7 @@ function userBubble(
   return wrap;
 }
 
-/** "Task from release notes (CLI)" — the card a handed-off task renders as. */
+/** "Message from release notes (CLI)" — the card a peer message renders as. */
 function peerTaskCard(segments: PeerSegment[]): HTMLElement {
   const wrap = document.createElement("div");
   wrap.className = "msg msg--peer";
@@ -943,7 +943,7 @@ function peerTaskCard(segments: PeerSegment[]): HTMLElement {
     card.open = true;
     const head = document.createElement("summary");
     head.className = "peer-task__head";
-    head.textContent = `Task from ${seg.from || "another session"} (${peerSurfaceLabel(seg.surface)})`;
+    head.textContent = `Message from ${seg.from || "another session"} (${peerSurfaceLabel(seg.surface)})`;
     const body = document.createElement("div");
     body.className = "peer-task__body";
     body.textContent = seg.text;
@@ -1291,7 +1291,9 @@ function describeCall(call: ToolCall): string {
     case "remember":
       return "Remembering something";
     case "send_message":
-      return "Sending the result back";
+      return "Messaging an Atlarix session";
+    case "list_sessions":
+      return "Listing your Atlarix sessions";
     default:
       return call.function.name;
   }
@@ -1366,7 +1368,9 @@ function approvalCard(request: Approval): Promise<boolean> {
       request.kind === "host"
         ? "Chrome will ask you to confirm. Atlarix can read this site until you " +
           "remove it, and nothing else."
-        : `${request.reason} Allowing a site never covers this — Atlarix asks every time.`;
+        : request.category === "message"
+          ? `${request.reason} Atlarix asks every time.`
+          : `${request.reason} Allowing a site never covers this — Atlarix asks every time.`;
 
     const actions = document.createElement("div");
     actions.className = "grant__actions";
@@ -1374,7 +1378,8 @@ function approvalCard(request: Approval): Promise<boolean> {
     const allow = document.createElement("button");
     allow.type = "button";
     allow.className = "button grant__allow";
-    allow.textContent = request.kind === "host" ? "Allow" : "Go ahead";
+    allow.textContent =
+      request.kind === "host" ? "Allow" : request.category === "message" ? "Send" : "Go ahead";
 
     const deny = document.createElement("button");
     deny.type = "button";

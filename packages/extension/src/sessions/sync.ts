@@ -136,7 +136,7 @@ export function syncableRows(
       if (peer) {
         const heads = peer
           .filter((s) => s.kind === "peer")
-          .map((s) => `Task from ${s.from || "another session"} (${peerSurfaceLabel(s.surface)})`);
+          .map((s) => `Message from ${s.from || "another session"} (${peerSurfaceLabel(s.surface)})`);
         out.push({ role: "user", content: heads.join("\n").slice(0, MAX_SAID_CHARS), seq });
         return;
       }

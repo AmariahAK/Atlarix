@@ -243,6 +243,13 @@ export interface ToolContext {
    * finds no session it can reach.
    */
   peerSenders?: readonly { sessionId: string; name: string }[];
+  /**
+   * Set by the loop on the one re-dispatch after the user approved this call's
+   * `needsApproval`. Read only where the approval itself is the permission
+   * (send_message to a session that did not ask); nothing else may treat it as
+   * a blanket yes.
+   */
+  approvedRetry?: boolean;
 }
 
 function argsOf(call: ToolCall): Record<string, unknown> {
@@ -504,6 +511,8 @@ export async function dispatchTool(
         return await recallFromHistory(args, ctx);
       case "send_message":
         return await sendToPeer(args, ctx);
+      case "list_sessions":
+        return await listPeerSessionsTool();
       case "web_search":
         return await webSearch(args, ctx);
       // The only SYNCHRONOUS case, and the only one that ends the turn. It
@@ -1362,23 +1371,49 @@ async function webSearch(
   }
 }
 
+type PeerRow = { sessionId: string; name: string; surface: string; workspace: string; busy: boolean };
+
+/** The user's CLI and app sessions, from the desktop that hosts this browser. */
+async function fetchPeerSessions(): Promise<PeerRow[] | string> {
+  const reply = (await api().runtime.sendMessage({ type: "atlarix:peer-list" })) as
+    | { ok?: boolean; result?: { sessions?: PeerRow[] }; error?: string }
+    | undefined;
+  if (!reply?.ok) return reply?.error ?? "no answer from the extension";
+  return reply.result?.sessions ?? [];
+}
+
+async function listPeerSessionsTool(): Promise<ToolOutcome> {
+  const rows = await fetchPeerSessions();
+  if (typeof rows === "string") return { content: `Could not list sessions: ${rows}.` };
+  if (rows.length === 0) {
+    return { content: "No Atlarix CLI or desktop-app session is running on this computer." };
+  }
+  return {
+    content:
+      "The user's Atlarix sessions (send_message reaches them):\n" +
+      rows
+        .map((r) => `- ${r.name} (${r.surface === "cli" ? "CLI" : "app"}, ${r.busy ? "busy" : "idle"}${r.workspace ? `, ${r.workspace}` : ""})`)
+        .join("\n"),
+    label: `Listed ${rows.length} Atlarix session${rows.length === 1 ? "" : "s"}`,
+  };
+}
+
 /**
- * The side-panel agent's reply to a session that handed it a task. Through the
- * service worker, which holds the native port; the desktop stamps who it is
- * from (desktop lib/peers/chrome-peer.ts).
+ * A message to one of the user's CLI or app sessions, through the service
+ * worker, which holds the native port; the desktop stamps who it is from
+ * (desktop lib/peers/chrome-peer.ts).
+ *
+ * TWO CASES, ON PURPOSE. A reply to a session that handed this conversation a
+ * task goes straight through: that session asked for it. Anything else — the
+ * browser starting a conversation with the user's CLI — waits for the user to
+ * approve it in the panel, every time. A page the agent read can talk the model
+ * into wanting to message the CLI; it cannot press the button.
  */
 async function sendToPeer(
   args: Record<string, unknown>,
   ctx: ToolContext,
 ): Promise<ToolOutcome> {
   const senders = ctx.peerSenders ?? [];
-  if (senders.length === 0) {
-    return {
-      content:
-        "No Atlarix session handed you a task in this conversation, so there is " +
-        "no one to send to. Answer the user here.",
-    };
-  }
   const text = typeof args.message === "string" ? args.message.trim() : "";
   if (!text) return { content: "The message is empty." };
   if (text.length > PEER_TEXT_CAP) {
@@ -1387,18 +1422,54 @@ async function sendToPeer(
     };
   }
   const want = typeof args.to === "string" ? args.to.trim().toLowerCase() : "";
-  const target = want
+  const sender = want
     ? senders.find(
         (s) => s.sessionId.toLowerCase() === want || s.name.toLowerCase() === want,
       )
     : senders[senders.length - 1];
+
+  let target: { sessionId: string; name: string } | undefined = sender;
   if (!target) {
-    return {
-      content:
-        `You can only reply to a session that gave you a task here: ` +
-        senders.map((s) => s.name).join(", ") + ".",
-    };
+    if (!want) {
+      return {
+        content:
+          "Say which session with `to` (list_sessions shows them). No session " +
+          "handed you a task in this conversation.",
+      };
+    }
+    const rows = await fetchPeerSessions();
+    if (typeof rows === "string") return { content: `Not sent: ${rows}.` };
+    const matches = rows.filter(
+      (r) =>
+        r.sessionId.toLowerCase() === want ||
+        (want.length >= 8 && r.sessionId.toLowerCase().startsWith(want)) ||
+        r.name.toLowerCase() === want,
+    );
+    if (matches.length === 0) {
+      return {
+        content: `No Atlarix session called "${args.to}". list_sessions shows the ones running.`,
+      };
+    }
+    if (matches.length > 1) {
+      return {
+        content: `Several sessions match "${args.to}": ${matches.map((m) => m.name).join(", ")}. Use the exact name.`,
+      };
+    }
+    target = matches[0]!;
+    if (!ctx.approvedRetry) {
+      const preview = text.length > 160 ? `${text.slice(0, 160)}…` : text;
+      return {
+        content: `Waiting for the user to approve sending this to ${target.name}.`,
+        needsApproval: {
+          kind: "action",
+          reason: "Atlarix wants to message another of your Atlarix sessions.",
+          category: "message",
+          summary: `Send to ${target.name}: "${preview}"`,
+        },
+      };
+    }
   }
+
   const reply = (await api().runtime.sendMessage({
     type: "atlarix:peer-send",
     to: target.sessionId,
@@ -1408,14 +1479,14 @@ async function sendToPeer(
     return {
       content:
         `Not delivered: ${reply?.error ?? "no answer from the extension"}. ` +
-        "Your result is still here in the conversation; tell the user.",
+        "Your message is still here in the conversation; tell the user.",
       label: `Could not send to ${target.name}`,
     };
   }
   return {
-    content: `Sent to ${target.name}.`,
+    content: `Sent to ${target.name}. A reply, if it sends one, arrives here as a new message.`,
     // The label never carries the body: it shows in the transcript, and the
     // body may hold page content the user did not mean to put on screen twice.
-    label: `Sent result to ${target.name}`,
+    label: sender ? `Sent result to ${target.name}` : `Sent a message to ${target.name}`,
   };
 }

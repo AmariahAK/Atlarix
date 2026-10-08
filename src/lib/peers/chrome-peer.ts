@@ -29,6 +29,7 @@ import type { PeerFrom } from "./peer-message";
 import {
   PEER_TEXT_CAP,
   forgetLiveSession,
+  listPeerSessions,
   noteLiveSession,
   resolvePeer,
   sendPeerMessage,
@@ -114,6 +115,23 @@ export function chromePeer(server: () => Pick<BridgeServer, "request"> | null) {
       args: Record<string, unknown>,
     ): Promise<unknown> {
       if (!speaksPeers(hello)) throw new Error("this browser has not identified itself");
+      const me0 = fromOf(hello);
+      if (op === "peer_list") {
+        // The user's CLI and app sessions: what the browser's agent can message.
+        // A workspace goes as its folder name only — the model needs to tell two
+        // sessions apart, not where the user keeps their code.
+        return {
+          sessions: listPeerSessions(me0.sessionId)
+            .filter((r) => r.surface !== "chrome")
+            .map((r) => ({
+              sessionId: r.sessionId,
+              name: r.name,
+              surface: r.surface,
+              workspace: r.workspace.split(/[\\/]/).filter(Boolean).pop() ?? "",
+              busy: r.busy,
+            })),
+        };
+      }
       if (op !== "peer_send") throw new Error(`the desktop does not serve "${op}"`);
       const to = typeof args.to === "string" ? args.to.trim() : "";
       const text = typeof args.text === "string" ? args.text.trim() : "";
