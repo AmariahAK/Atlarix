@@ -1,9 +1,10 @@
 # Atlarix TODO
 
-**Current version:** 15.1.0, released 2026-10-07: the agent sees images, video and audio;
-sessions message each other (and hand off between the CLI and the app); paid web search; the
-desktop app holds its memory on long turns. Before it, 15.0.1 (2026-10-05): sub-agents in the
-terminal, coloured code, a readable plan. Narrative in [`docs/CHANGELOG.md`](./CHANGELOG.md).
+**Current version:** 15.2.0, released 2026-10-08: the Chrome extension is a session the CLI and
+app can message (and it can message them); free Auto doubles its hard stop for new accounts and
+says when the slower model answers; pay-as-you-go credit leads every paywall. Before it, 15.1.0
+(2026-10-07): the agent sees images, sessions message each other, paid web search. Narrative in
+[`docs/CHANGELOG.md`](./CHANGELOG.md).
 
 **This header has been wrong before.** Update it in the same commit as the version bump, or do
 not trust it.
@@ -17,7 +18,7 @@ not trust it.
 | Designed, not scheduled             | [`docs/DESIGN_NOTES.md`](./DESIGN_NOTES.md) |
 | Open work                           | here, and nowhere else                      |
 
-**Last updated:** 2026-10-05
+**Last updated:** 2026-10-08
 
 ---
 
