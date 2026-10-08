@@ -67,6 +67,16 @@ let port: Port | null = null;
 let attempt = 0;
 let shortTimer: ReturnType<typeof setTimeout> | undefined;
 
+/** Requests THIS side started (protocol 2), waiting on the desktop's ext-reply. */
+const extPending = new Map<
+  string,
+  { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }
+>();
+let extNext = 1;
+
+/** The key this browser profile's peer id is kept under. */
+export const PROFILE_ID_KEY = "atlarix.profileId.v1";
+
 function native(): NativeApi {
   return api() as unknown as NativeApi;
 }
@@ -108,6 +118,7 @@ export function connectBridge(): void {
 
   opened.onDisconnect.addListener(() => {
     port = null;
+    failExtPending("the Atlarix desktop app or CLI went away before it answered");
     // `lastError` must be READ here or Chrome logs "Unchecked runtime.lastError"
     // on every disconnect — noise in the user's console that looks like our bug.
     void native().runtime.lastError?.message;
@@ -132,7 +143,7 @@ export function connectBridge(): void {
     buildId: __ATLARIX_BUILD_ID__,
     browser: browserName(),
   });
-  refineBrowserName(opened);
+  void sayFullHello(opened);
 }
 
 async function handle(message: unknown): Promise<void> {
@@ -145,6 +156,17 @@ async function handle(message: unknown): Promise<void> {
     port?.disconnect();
     port = null;
     scheduleReconnect();
+    return;
+  }
+
+  // The desktop answering a request this side started (sendExtRequest).
+  if (body.type === "ext-reply" && typeof body.id === "string") {
+    const waiting = extPending.get(body.id);
+    if (!waiting) return;
+    extPending.delete(body.id);
+    clearTimeout(waiting.timer);
+    if (body.ok === true) waiting.resolve(body.result);
+    else waiting.reject(new Error(typeof body.error === "string" ? body.error : "the desktop refused it"));
     return;
   }
 
@@ -208,27 +230,104 @@ function browserName(): string {
 }
 
 /**
- * Ask Brave whether it is Brave, and correct the record if so.
+ * The second hello: protocol 2, this profile's peer id, and the real browser
+ * name. A second hello on a connection replaces the first on the desktop.
  *
- * Deliberately AFTER the hello rather than before it. The handshake is what the
- * desktop waits on to know a browser is attached, and blocking it on a promise
- * for a cosmetic label would trade a real property for a nicety. A second
- * hello simply overwrites the first.
+ * Deliberately AFTER the first rather than instead of it. The first is what the
+ * desktop waits on to know a browser is attached, and both pieces here are
+ * promises (storage, and Brave's `navigator.brave.isBrave()` — Brave ships
+ * Chrome's exact UA, so it is not detectable any other way).
  */
-function refineBrowserName(port: Port): void {
-  const brave = (navigator as unknown as { brave?: { isBrave?: () => Promise<boolean> } }).brave;
-  if (typeof brave?.isBrave !== "function") return;
-  void brave
-    .isBrave()
-    .then((yes) => {
-      if (yes) port.postMessage({ type: "hello", protocol: 1, browser: "brave",
-        extensionVersion: native().runtime.getManifest?.()?.version ?? "unknown" });
-    })
-    .catch(() => {});
+async function sayFullHello(opened: Port): Promise<void> {
+  let browser = browserName();
+  try {
+    const brave = (navigator as unknown as { brave?: { isBrave?: () => Promise<boolean> } }).brave;
+    if (typeof brave?.isBrave === "function" && (await brave.isBrave())) browser = "brave";
+  } catch {
+    /* keep the UA's answer */
+  }
+  const profileId = await peerProfileId();
+  if (port !== opened) return; // reconnected meanwhile; that connection says its own
+  try {
+    opened.postMessage({
+      type: "hello",
+      protocol: 2,
+      extensionVersion: native().runtime.getManifest?.()?.version ?? "unknown",
+      buildId: __ATLARIX_BUILD_ID__,
+      browser,
+      ...(profileId ? { profileId } : {}),
+    });
+  } catch {
+    /* the port died; the reconnect says hello again */
+  }
+}
+
+/**
+ * A random id for this browser profile, made once. The desktop addresses this
+ * browser by it, and two profiles (or Chrome and Brave) stay two sessions.
+ */
+export async function peerProfileId(): Promise<string | null> {
+  try {
+    const local = api().storage.local;
+    const got = await local.get(PROFILE_ID_KEY);
+    const have = got[PROFILE_ID_KEY];
+    if (typeof have === "string" && have.length >= 8) return have;
+    const made = crypto.randomUUID();
+    await local.set({ [PROFILE_ID_KEY]: made });
+    return made;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Ask the desktop for something (protocol 2): the one op today is `peer_send`,
+ * the side-panel agent's reply to a session that handed it a task.
+ */
+export function sendExtRequest(
+  op: string,
+  args: Record<string, unknown>,
+  timeoutMs = 30_000,
+): Promise<unknown> {
+  const p = port;
+  if (!p) {
+    return Promise.reject(
+      new Error("not connected to the Atlarix desktop app or CLI — open one and try again"),
+    );
+  }
+  const id = `e${extNext++}`;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      extPending.delete(id);
+      reject(
+        new Error(
+          "the Atlarix desktop app or CLI did not answer (it may be older than this extension)",
+        ),
+      );
+    }, timeoutMs);
+    extPending.set(id, { resolve, reject, timer });
+    try {
+      p.postMessage({ type: "ext-request", id, op, args });
+    } catch (err) {
+      clearTimeout(timer);
+      extPending.delete(id);
+      reject(err instanceof Error ? err : new Error(String(err)));
+    }
+  });
+}
+
+function failExtPending(reason: string): void {
+  for (const [id, w] of extPending) {
+    clearTimeout(w.timer);
+    w.reject(new Error(reason));
+    extPending.delete(id);
+  }
 }
 
 /** Tests only: forget the module's connection state. */
 export function resetBridgeForTest(): void {
+  failExtPending("reset");
+  extNext = 1;
   if (shortTimer !== undefined) clearTimeout(shortTimer);
   shortTimer = undefined;
   port = null;

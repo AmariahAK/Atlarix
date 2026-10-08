@@ -113,7 +113,11 @@ export async function startPeerMessaging(surface: Surface): Promise<void> {
           }
         },
         enqueue: (chatId, id, text) => {
-          recordUserInterjection(chatId, { id: `peer-${id}`, text });
+          recordUserInterjection(
+            chatId,
+            { id: `peer-${id}`, text },
+            { cap: null },
+          );
         },
         wake: (chatId) => {
           // The same signal a finished background job uses; the app and the CLI

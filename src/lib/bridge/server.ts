@@ -64,10 +64,25 @@ export interface BridgeHello {
   buildId?: string;
   browser?: string;
   protocol?: number;
+  /**
+   * A random id the extension keeps for this browser profile (protocol 2+), so
+   * the desktop can tell two profiles — or two browsers — apart and address one.
+   */
+  profileId?: string;
 }
 
-/** The protocol version this build speaks. Bumped only on a breaking change. */
-export const BRIDGE_PROTOCOL = 1;
+/**
+ * The protocol version this build speaks.
+ *
+ * 2 adds ONE thing the extension may start: `{type:"ext-request", id, op, args}`,
+ * answered with `{type:"ext-reply", id, ok, result | error}`. It is how the
+ * extension's agent replies to a session that handed it a task (lib/peers/
+ * chrome-peer.ts). Accepted only from a connection whose hello said protocol 2,
+ * and only for the ops `onExtRequest` serves. A protocol-1 extension never
+ * sends one, and a protocol-1 desktop drops it — the extension's call then
+ * times out with a clear message rather than misbehaving.
+ */
+export const BRIDGE_PROTOCOL = 2;
 
 /** How long a request waits before the caller is told the browser went quiet. */
 export const REQUEST_TIMEOUT_MS = 30_000;
@@ -98,13 +113,28 @@ interface Peer {
 
 export interface BridgeServerOptions {
   socketPath: string;
-  /** Called when a browser connects and identifies itself. */
-  onHello?: (hello: BridgeHello) => void;
+  /**
+   * Called when a browser connects and identifies itself — again if it sends a
+   * second hello on the same connection. `connection` is the same object for
+   * every call about one connection (onPeerGone included).
+   */
+  onHello?: (hello: BridgeHello, connection: object) => void;
   onLog?: (message: string) => void;
   /** Override `HELLO_DEADLINE_MS` — tests only. */
   helloDeadlineMs?: number;
   /** Also serve other Atlarix processes here (see the docblock). */
   peersSocketPath?: string;
+  /** A browser that had said hello disconnected. */
+  onPeerGone?: (hello: BridgeHello, connection: object) => void;
+  /**
+   * Serve a request the extension started (protocol 2+). Whatever it returns is
+   * the reply's result; a throw is the reply's error.
+   */
+  onExtRequest?: (
+    hello: BridgeHello,
+    op: string,
+    args: Record<string, unknown>,
+  ) => Promise<unknown>;
 }
 
 /** What a host tells its peers about the browser. */
@@ -273,7 +303,9 @@ export class BridgeServer {
 
     const done = () => {
       clearTimeout(deadline);
+      if (!this.peers.has(peer)) return; // "error" and "close" both fire
       this.peers.delete(peer);
+      if (peer.hello) this.opts.onPeerGone?.(peer.hello, peer);
       this.broadcastStatus();
       // Anything still waiting on THIS peer will never be answered. Failing it
       // now turns a permanent hang into an error the caller can report.
@@ -300,8 +332,13 @@ export class BridgeServer {
           `extension ${String(body.extensionVersion ?? "?")} ` +
           `build ${String(body.buildId ?? "?")}`,
       );
-      this.opts.onHello?.(peer.hello);
+      this.opts.onHello?.(peer.hello, peer);
       this.broadcastStatus();
+      return;
+    }
+
+    if (body.type === "ext-request") {
+      this.serveExtRequest(peer, body);
       return;
     }
 
@@ -320,6 +357,33 @@ export class BridgeServer {
         new Error(typeof body.error === "string" ? body.error : "the extension reported a failure"),
       );
     }
+  }
+
+  /**
+   * A request the extension started. Dropped, not answered, from a connection
+   * that has not said hello with protocol 2 — an answer would tell an unknown
+   * peer what this side serves.
+   */
+  private serveExtRequest(peer: Peer, body: Record<string, unknown>): void {
+    const hello = peer.hello;
+    const handler = this.opts.onExtRequest;
+    if (!hello || (hello.protocol ?? 1) < 2 || !handler) return;
+    const id = typeof body.id === "string" ? body.id : null;
+    const op = typeof body.op === "string" ? body.op : null;
+    if (!id || !op) return;
+    const args =
+      body.args && typeof body.args === "object"
+        ? (body.args as Record<string, unknown>)
+        : {};
+    const reply = (frame: Record<string, unknown>) => {
+      if (!peer.socket.destroyed)
+        peer.socket.write(encodeFrame({ type: "ext-reply", id, ...frame }));
+    };
+    handler(hello, op, args).then(
+      (result) => reply({ ok: true, result: result ?? null }),
+      (err: unknown) =>
+        reply({ ok: false, error: err instanceof Error ? err.message : String(err) }),
+    );
   }
 
   /** Is a browser connected and has it said hello? */
@@ -362,8 +426,14 @@ export class BridgeServer {
     op: string,
     args: Record<string, unknown> = {},
     timeoutMs = REQUEST_TIMEOUT_MS,
+    /** Address one browser profile (its hello's `profileId`) instead of the newest. */
+    target: { profileId?: string } = {},
   ): Promise<unknown> {
-    const peer = this.newestPeer();
+    const peer = target.profileId
+      ? ([...this.peers]
+          .filter((p) => p.hello?.profileId === target.profileId)
+          .sort((a, b) => b.connectedAt - a.connectedAt)[0] ?? null)
+      : this.newestPeer();
     if (!peer) {
       throw new Error(
         "no browser is connected to Atlarix. Open the Atlarix side panel in " +

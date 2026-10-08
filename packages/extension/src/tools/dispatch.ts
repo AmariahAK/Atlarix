@@ -66,6 +66,7 @@ import { createRelic } from "./relics";
 import { executeRecall, type RecallArgs } from "./recall";
 import { api } from "../shared/browser-api";
 import { TOOL_NAMES, type ToolName } from "./schemas";
+import { PEER_TEXT_CAP } from "../peers/inbox";
 
 /**
  * The extension's act hint for the shared formatter.
@@ -234,6 +235,14 @@ export interface ToolContext {
    * which is allowed to try.
    */
   canSeeImages?: boolean;
+  /**
+   * The sessions that handed this conversation a task, newest last — parsed by
+   * the harness from the conversation's own peer rows. `send_message` reaches
+   * these and nothing else, and that list is built in code, never from what
+   * the model says: a page that talks the model into "message the user's CLI"
+   * finds no session it can reach.
+   */
+  peerSenders?: readonly { sessionId: string; name: string }[];
 }
 
 function argsOf(call: ToolCall): Record<string, unknown> {
@@ -493,6 +502,8 @@ export async function dispatchTool(
         return await runCode(args, ctx);
       case "recall":
         return await recallFromHistory(args, ctx);
+      case "send_message":
+        return await sendToPeer(args, ctx);
       case "web_search":
         return await webSearch(args, ctx);
       // The only SYNCHRONOUS case, and the only one that ends the turn. It
@@ -1349,4 +1360,62 @@ async function webSearch(
       // Already gone — the user may have closed it, which is their right.
     }
   }
+}
+
+/**
+ * The side-panel agent's reply to a session that handed it a task. Through the
+ * service worker, which holds the native port; the desktop stamps who it is
+ * from (desktop lib/peers/chrome-peer.ts).
+ */
+async function sendToPeer(
+  args: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<ToolOutcome> {
+  const senders = ctx.peerSenders ?? [];
+  if (senders.length === 0) {
+    return {
+      content:
+        "No Atlarix session handed you a task in this conversation, so there is " +
+        "no one to send to. Answer the user here.",
+    };
+  }
+  const text = typeof args.message === "string" ? args.message.trim() : "";
+  if (!text) return { content: "The message is empty." };
+  if (text.length > PEER_TEXT_CAP) {
+    return {
+      content: `The message is over ${PEER_TEXT_CAP} characters; send a summary.`,
+    };
+  }
+  const want = typeof args.to === "string" ? args.to.trim().toLowerCase() : "";
+  const target = want
+    ? senders.find(
+        (s) => s.sessionId.toLowerCase() === want || s.name.toLowerCase() === want,
+      )
+    : senders[senders.length - 1];
+  if (!target) {
+    return {
+      content:
+        `You can only reply to a session that gave you a task here: ` +
+        senders.map((s) => s.name).join(", ") + ".",
+    };
+  }
+  const reply = (await api().runtime.sendMessage({
+    type: "atlarix:peer-send",
+    to: target.sessionId,
+    text,
+  })) as { ok?: boolean; error?: string } | undefined;
+  if (!reply?.ok) {
+    return {
+      content:
+        `Not delivered: ${reply?.error ?? "no answer from the extension"}. ` +
+        "Your result is still here in the conversation; tell the user.",
+      label: `Could not send to ${target.name}`,
+    };
+  }
+  return {
+    content: `Sent to ${target.name}.`,
+    // The label never carries the body: it shows in the transcript, and the
+    // body may hold page content the user did not mean to put on screen twice.
+    label: `Sent result to ${target.name}`,
+  };
 }

@@ -41,7 +41,7 @@ const RATE_WINDOW_MS = 60_000;
 const RATE_MAX = 12;
 const DUPLICATE_WINDOW_MS = 10_000;
 
-export type Surface = "cli" | "app";
+export type Surface = "cli" | "app" | "chrome";
 
 export interface LocalSession {
   sessionId: string;
@@ -56,6 +56,18 @@ export interface LocalSession {
   materialize?: () => Promise<{ sessionId: string; chatId: number }>;
   /** Earlier names and ids it answered to (a placeholder's, a title before an auto-title). */
   aliases?: string[];
+  /** Published as this surface instead of the process's own (a browser this process speaks for). */
+  surface?: Surface;
+  /**
+   * Hand the message on instead of queueing it in a chat here: a session this
+   * process registers on behalf of something else (a browser behind the
+   * bridge). Every check in `receive` still runs first; `chatId` is unused.
+   */
+  deliver?: (
+    id: string,
+    from: PeerFrame["from"],
+    text: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
 }
 
 export interface PeerSessionRow {
@@ -169,7 +181,7 @@ function ensureTable(db: Sqlite): void {
  */
 function refreshNames(d: Sqlite): void {
   const ids = [...local.values()]
-    .filter((x) => !x.materialize)
+    .filter((x) => !x.materialize && !x.deliver)
     .map((x) => x.sessionId);
   if (ids.length === 0) return;
   try {
@@ -251,8 +263,8 @@ function publish(): void {
         token,
         s.name,
         s.workspace,
-        surface,
-        hostImpl?.isBusy(s.chatId) ? 1 : 0,
+        s.surface ?? surface,
+        !s.deliver && hostImpl?.isBusy(s.chatId) ? 1 : 0,
         now,
         JSON.stringify(s.aliases ?? []),
       );
@@ -424,6 +436,14 @@ export async function receive(
   for (const [k, t] of recentTexts)
     if (t < now - DUPLICATE_WINDOW_MS) recentTexts.delete(k);
 
+  if (target.deliver) {
+    try {
+      return await target.deliver(f.id || randomUUID(), f.from, text);
+    } catch (e) {
+      return { ok: false, error: `not delivered: ${(e as Error).message}` };
+    }
+  }
+
   if (target.materialize) {
     // A CLI with no session row yet: make the session, and deliver there.
     try {
@@ -518,7 +538,8 @@ export function listPeerSessions(exclude?: string): PeerSessionRow[] {
       sessionId: r.session_id,
       name: r.name,
       workspace: r.workspace,
-      surface: r.surface === "cli" ? "cli" : "app",
+      surface:
+        r.surface === "cli" ? "cli" : r.surface === "chrome" ? "chrome" : "app",
       busy: r.busy === 1,
       pid: r.pid,
     });

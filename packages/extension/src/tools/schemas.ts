@@ -57,6 +57,7 @@ export const TOOL_NAMES = [
   "read_attachment",
   "create_relic",
   "run_code",
+  "send_message",
 ] as const;
 
 export type ToolName = (typeof TOOL_NAMES)[number];
@@ -765,6 +766,34 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
           },
         },
         required: ["code"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "send_message",
+      description:
+        "Send your result — or a question — back to the Atlarix session (CLI " +
+        "or desktop app) that handed you this task. It reaches only a session " +
+        "that sent a task into this conversation. Say what you did and what is " +
+        "left for the user; it cannot see this conversation.",
+      parameters: {
+        type: "object",
+        properties: {
+          message: {
+            type: "string",
+            description: "The result or question, written for that session.",
+          },
+          to: {
+            type: "string",
+            description:
+              "Which session, by name or id. Leave it out for the one that " +
+              "sent the task.",
+          },
+        },
+        required: ["message"],
         additionalProperties: false,
       },
     },

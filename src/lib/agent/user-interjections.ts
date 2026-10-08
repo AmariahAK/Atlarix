@@ -65,16 +65,23 @@ function notify(chatId: number): void {
 export function recordUserInterjection(
   chatId: number,
   msg: { id: string; text: string; ts?: number },
+  /**
+   * Per-message cap; `null` keeps the whole text. A message from another
+   * session is already capped by peers.ts (100K), and cutting it here would cut
+   * its closing tag, after which it no longer reads as a peer's message.
+   */
+  opts: { cap?: number | null } = {},
 ): UserInterjection | null {
   const text = msg.text.trim();
   if (!text) return null;
+  const cap = opts.cap === undefined ? TEXT_CAP : opts.cap;
   const list = byChat.get(chatId) ?? [];
   // Idempotent on id: a renderer retry (or a second window replaying the same
   // send) must not deliver the message twice.
   if (list.some((m) => m.id === msg.id)) return null;
   const entry: UserInterjection = {
     id: msg.id,
-    text: text.length > TEXT_CAP ? `${text.slice(0, TEXT_CAP)}…` : text,
+    text: cap != null && text.length > cap ? `${text.slice(0, cap)}…` : text,
     ts: msg.ts ?? Date.now(),
   };
   list.push(entry);

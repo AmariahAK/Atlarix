@@ -1677,3 +1677,38 @@ button.file__chip:hover {
 .md-table-wrap tbody tr:last-child td {
   border-bottom: 0;
 }
+
+/* A task another Atlarix session handed over (peers): never the user's bubble. */
+.msg--peer {
+  align-self: stretch;
+}
+.peer-task {
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.35));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent, #10b981) 8%, transparent);
+  font-size: 13px;
+}
+.peer-task__head {
+  cursor: pointer;
+  padding: 6px 10px;
+  color: var(--muted, #8a8a8a);
+  font-size: 12px;
+}
+.peer-task__body {
+  padding: 6px 10px 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.peer-offer {
+  border: 1px dashed var(--accent, #10b981);
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+.peer-offer__actions {
+  display: flex;
+  gap: 8px;
+}
