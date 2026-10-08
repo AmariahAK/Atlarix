@@ -2119,7 +2119,7 @@ function describeError(error: CoreError): string {
     error.code === "insufficient_credit" ||
     error.code === "free_usage_limit"
   ) {
-    return `${error.message} Upgrade at atlarix.dev/pricing · add credit at atlarix.dev/account.`;
+    return `${error.message} Add credit at atlarix.dev/account · Pro at atlarix.dev/pricing.`;
   }
   if (error.code === "not_signed_in" || error.status === 401) {
     return `${error.message} Open the menu and sign in again.`;

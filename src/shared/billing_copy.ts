@@ -284,6 +284,16 @@ export const CORE_BADGE = {
 export const ADD_CREDIT_LABEL = "Add credit";
 
 /**
+ * The paid surfaces' version of the upgrade line, for an account with no
+ * balance: credit first, because most people meet it before they would start a
+ * subscription, and it is what actually unblocks them today. Copied verbatim by
+ * the Chrome extension (`packages/extension/src/core/upgrade-line.ts`), whose
+ * side-panel agent is paid-only, so it never mentions a free route.
+ */
+export const CREDIT_FIRST_LINE =
+  "Add credit from $10 and pay only for what you use, or get Atlarix Pro ($19/month), which includes Core usage across the app, the Chrome extension and Reviewer.";
+
+/**
  * A reset moment as the user's own clock shows it — "3:00 AM" — rather than a
  * countdown or a UTC time. Exported for tests, which pin the zone.
  */

@@ -18,7 +18,7 @@
  */
 
 import { getAccessToken } from "../auth/sign-in";
-import { UPGRADE_LINE } from "./upgrade-line";
+import { CREDIT_FIRST_LINE } from "./upgrade-line";
 
 /** Which surface is spending. See `core_proxy.ts` in the desktop for the rule. */
 const SURFACE = "extension";
@@ -219,8 +219,8 @@ function coreErrorFrom(
   const message =
     code === "insufficient_credit"
       ? required !== undefined
-        ? `Not enough credit to start a turn — you need at least ${formatCents(required)}. ${UPGRADE_LINE}`
-        : `Not enough credit to start a turn. ${UPGRADE_LINE}`
+        ? `Not enough credit to start a turn — you need at least ${formatCents(required)}. ${CREDIT_FIRST_LINE}`
+        : `Not enough credit to start a turn. ${CREDIT_FIRST_LINE}`
       : code === "account_banned"
         ? "This account cannot use Atlarix Core. Contact support if that is unexpected."
         : code === "model_not_permitted"
@@ -241,7 +241,8 @@ function coreErrorFrom(
 /**
  * Atlarix Auto's daily limit, with when it comes back ON THE USER'S CLOCK —
  * the free tokens reset at 00:00 UTC, a different hour everywhere — and the
- * upgrade line. Same words as the desktop's `freeUsageLimitUserMessage`.
+ * credit-first line. The desktop's `freeUsageLimitUserMessage` also offers your
+ * own key; the extension has no key path, so it does not.
  */
 export function freeLimitMessage(
   body: Record<string, unknown>,
@@ -258,7 +259,7 @@ export function freeLimitMessage(
           ...(timeZone ? { timeZone } : {}),
         })}`
       : " · resets at midnight UTC";
-  return `Today's free share is used up${when}. ${UPGRADE_LINE}`;
+  return `Today's free share is used up${when}. ${CREDIT_FIRST_LINE}`;
 }
 
 function formatCents(cents: number): string {
