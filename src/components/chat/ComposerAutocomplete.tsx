@@ -41,6 +41,12 @@ export function detectTrigger(value: string, caret: number): Trigger | null {
   return { query, start, end: caret };
 }
 
+export function sameTrigger(a: Trigger | null, b: Trigger | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.query === b.query && a.start === b.start && a.end === b.end;
+}
+
 export function useComposerAutocomplete(opts: {
   value: string;
   setValue: (v: string) => void;
@@ -87,13 +93,23 @@ export function useComposerAutocomplete(opts: {
   });
 
   // Recompute the active trigger from the live caret whenever the value changes.
+  //
+  // ONLY SET WHAT CHANGED. Plain typing has no trigger, and calling
+  // `setTrigger(null)` anyway is not free: right after a keystroke's commit the
+  // fiber's alternate still holds that keystroke's lane, so React cannot bail out
+  // eagerly and queues a render. That leftover update is pending after every
+  // keystroke, React 19 counts each as a nested update, and ~50 fast keys threw
+  // "Maximum update depth exceeded" (Sentry 874b7908) out of the textarea's
+  // onChange.
   useEffect(() => {
     if (dismissedForValue.current === value) return;
     dismissedForValue.current = null;
     const caret = textareaRef.current?.selectionStart ?? value.length;
-    setTrigger(detectTrigger(value, caret));
+    const next = detectTrigger(value, caret);
+    if (sameTrigger(next, trigger)) return;
+    setTrigger(next);
     setIndex(0);
-  }, [value, textareaRef]);
+  }, [value, textareaRef, trigger]);
 
   const items: Item[] = useMemo(() => {
     if (!trigger || !paths) return [];
