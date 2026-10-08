@@ -5,7 +5,8 @@
  * while Auto is selected; before the first reply it follows the account.
  *
  * The nudge appears once a free share runs low — the one moment an upgrade
- * prompt is useful rather than an ad.
+ * prompt is useful rather than an ad. Once it is spent and the slower free
+ * model answers, the label says that instead of "0%".
  */
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -27,23 +28,35 @@ export function AtlarixAutoStatus() {
     status?.billing === "paid" ||
     (status?.billing == null && (account === "pro" || account === "payg"));
   const freeRemaining = paid ? null : (status?.freeRemaining ?? null);
-  const low = freeRemaining != null && freeRemaining < AUTO_LOW_SHARE_PERCENT;
+  // The share is spent and the slower $0 model is answering: say so, rather
+  // than "0%" while replies quietly get worse.
+  const onFloor = !paid && status?.onFloor === true;
+  const low =
+    !onFloor && freeRemaining != null && freeRemaining < AUTO_LOW_SHARE_PERCENT;
   if (!status && account === "unknown") return null;
 
   const label = paid
     ? account === "pro"
       ? t("atlarixAuto.statusIncluded")
       : t("atlarixAuto.statusCredits")
-    : freeRemaining != null
+    : onFloor
+      ? t("atlarixAuto.statusFloor")
+      : freeRemaining != null
       ? t("atlarixAuto.statusFree", { percent: freeRemaining })
       : t("atlarixAuto.statusFreePlain");
 
   return (
     <span
       data-testid="atlarix-auto-status"
-      className="shrink-0 text-[10px] tabular-nums text-muted-foreground/90"
+      className={
+        onFloor
+          ? "shrink-0 text-[10px] tabular-nums text-amber-600 dark:text-amber-400"
+          : "shrink-0 text-[10px] tabular-nums text-muted-foreground/90"
+      }
       title={
-        low
+        onFloor
+          ? t("atlarixAuto.floorTitle")
+          : low
           ? UPGRADE_LINE
           : paid
             ? `${t("atlarixAuto.statusTitle")} ${t("atlarixAuto.privateTitle")}`

@@ -20,6 +20,11 @@ export type AutoStatus = {
   billing: "free" | "paid" | null;
   /** What a paid reply cost, in cents — non-streaming replies only. */
   costCents: number | null;
+  /**
+   * True when today's free share is spent and the slower $0 fallback model
+   * answered; null from a proxy that does not say.
+   */
+  onFloor: boolean | null;
 };
 
 export function autoStatusFromHeaders(headers: Headers): AutoStatus | null {
@@ -30,10 +35,12 @@ export function autoStatusFromHeaders(headers: Headers): AutoStatus | null {
   const billing = billingRaw === "free" || billingRaw === "paid" ? billingRaw : null;
   const costRaw = headers.get("x-atlarix-cost-cents");
   const cost = costRaw != null && costRaw !== "" ? Number(costRaw) : null;
+  const floorRaw = headers.get("x-atlarix-free-floor");
   if (!servedModel && freeRemaining == null && !billing) return null;
   return {
     servedModel: servedModel || null,
     billing,
+    onFloor: floorRaw === "1" ? true : floorRaw === "0" ? false : null,
     costCents: cost != null && Number.isFinite(cost) ? cost : null,
     freeRemaining:
       freeRemaining != null && Number.isFinite(freeRemaining)

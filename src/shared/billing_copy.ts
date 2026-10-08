@@ -284,6 +284,16 @@ export const CORE_BADGE = {
 export const ADD_CREDIT_LABEL = "Add credit";
 
 /**
+ * The paid surfaces' version of the upgrade line, for an account with no
+ * balance: credit first, because most people meet it before they would start a
+ * subscription, and it is what actually unblocks them today. Copied verbatim by
+ * the Chrome extension (`packages/extension/src/core/upgrade-line.ts`), whose
+ * side-panel agent is paid-only, so it never mentions a free route.
+ */
+export const CREDIT_FIRST_LINE =
+  "Add credit from $10 and pay only for what you use, or get Atlarix Pro ($19/month), which includes Core usage across the app, the Chrome extension and Reviewer.";
+
+/**
  * A reset moment as the user's own clock shows it — "3:00 AM" — rather than a
  * countdown or a UTC time. Exported for tests, which pin the zone.
  */
@@ -303,7 +313,7 @@ export function localResetTime(
  * Atlarix Auto: today's free share is used (proxy 429 `free_usage_limit`).
  *
  * Says WHEN it comes back on the user's clock — the free tokens reset at 00:00
- * UTC, which is a different hour everywhere — then the upgrade line. Not an
+ * UTC, which is a different hour everywhere — then the ways to keep going. Not an
  * error the user caused, and not our outage either, so it is never reported to
  * Sentry. Starts with FREE_LIMIT_MARKER so ChatErrorBox can offer the buttons.
  */
@@ -316,8 +326,17 @@ export function freeUsageLimitUserMessage(
     typeof retryAfterSeconds === "number" && retryAfterSeconds > 0
       ? ` · resets at ${localResetTime(retryAfterSeconds, now, timeZone)}`
       : " · resets at midnight UTC";
-  return `Today's free share is used up${when}. ${UPGRADE_LINE}`;
+  return `Today's free share is used up${when}. ${FREE_LIMIT_WAYS}`;
 }
+
+/**
+ * The ways past free Auto's daily limit, cheapest commitment first. Credit and
+ * your own key lead because most people who hit the wall do so in their first
+ * days and will not start a subscription then; Pro is still named, last.
+ */
+export const FREE_LIMIT_WAYS =
+  "To keep going now, add credit and pay only for what you use (from $10), or switch to your own API key or a local model, which have no Atlarix limits. Atlarix Pro ($19/month) covers Auto too.";
+export const USE_OWN_KEY_LABEL = "Use your own key";
 
 /**
  * Atlarix Auto with no credit and no consent yet (proxy 402 `consent_required`).

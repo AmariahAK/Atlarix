@@ -14,8 +14,12 @@ import {
   CORE_EXHAUSTED_MARKER,
   CORE_REACHABILITY_MARKER,
   FREE_LIMIT_MARKER,
+  ADD_CREDIT_LABEL,
+  USE_OWN_KEY_LABEL,
   UPGRADE_LINE,
+  UPGRADE_PRO_LABEL,
 } from "@/shared/billing_copy";
+import { triggerUpgrade } from "@/hooks/useUpgrade";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSettings } from "@/hooks/useSettings";
@@ -77,12 +81,17 @@ export function ChatErrorBox({
   }
 
   // Atlarix Auto's free share is used for today — the reset time is in the
-  // message; the two ways to keep going are the buttons.
+  // message. Credit and your own key come first: people hit this in their
+  // first days, before anyone starts a subscription. Pro stays, last.
   if (error.includes(FREE_LIMIT_MARKER)) {
     return (
       <ChatInfoContainer onDismiss={onDismiss}>
         <span>{error.replace(AI_STREAMING_ERROR_MESSAGE_PREFIX, "")}</span>
-        <UpgradeButtons className="mt-2" />
+        <div className="mt-2 flex flex-wrap gap-2" data-testid="free-limit-actions">
+          <TopUpButton>{ADD_CREDIT_LABEL}</TopUpButton>
+          <SwitchProviderButton>{USE_OWN_KEY_LABEL}</SwitchProviderButton>
+          <ProButton>{UPGRADE_PRO_LABEL}</ProButton>
+        </div>
       </ChatInfoContainer>
     );
   }
@@ -290,6 +299,20 @@ function TopUpButton({ children }: { children: React.ReactNode }) {
       <span>{children}</span>
       <CircleArrowUp size={14} />
     </a>
+  );
+}
+
+/** Starts the Pro upgrade; quiet, for walls where Pro is the last of the ways out. */
+function ProButton({ children }: { children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      data-testid="upgrade-to-pro"
+      className="cursor-pointer inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring/50"
+      onClick={() => void triggerUpgrade()}
+    >
+      {children}
+    </button>
   );
 }
 

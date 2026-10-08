@@ -24,7 +24,7 @@ import {
   streamTurn,
   type CoreEvent,
 } from "./client";
-import { UPGRADE_LINE } from "./upgrade-line";
+import { CREDIT_FIRST_LINE } from "./upgrade-line";
 
 /** A signed-in session, so `getAccessToken` returns a token. */
 function installFakeChrome() {
@@ -320,7 +320,7 @@ describe("errors say what to do about them", () => {
       ),
     ).catch((e: CoreError) => e);
     expect((error as CoreError).message).toMatch(/free share is used up · resets at \d{1,2}:\d{2}/);
-    expect((error as CoreError).message).toContain(UPGRADE_LINE);
+    expect((error as CoreError).message).toContain(CREDIT_FIRST_LINE);
     expect((error as CoreError).retryable).toBe(false);
   });
 
@@ -352,6 +352,14 @@ describe("errors say what to do about them", () => {
       required_cents: 250,
     });
     await expect(collect(streamTurn(TURN, f))).rejects.toThrow(/\$2\.50/);
+  });
+
+  it("out of credit offers credit first, then Pro", async () => {
+    const f = failing(402, { error: "insufficient_credit" });
+    const error = await collect(streamTurn(TURN, f)).catch((e: CoreError) => e);
+    const message = (error as CoreError).message;
+    expect(message).toContain(CREDIT_FIRST_LINE);
+    expect(message.indexOf("Add credit from $10")).toBeLessThan(message.indexOf("Atlarix Pro"));
   });
 
   it("does not tell a banned account to top up", async () => {

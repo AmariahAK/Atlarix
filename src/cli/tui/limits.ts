@@ -36,7 +36,7 @@ export function errorNotice(raw: string): ErrorNotice {
   const [first, rest] = split(text);
   const said = /\(It said: "(.*)"\)/.exec(text)?.[1];
   if (text.includes(FREE_LIMIT_MARKER)) {
-    return { tone: "warn", title: first, actions: "/billing get Pro or add credit · /model switch to your own key" };
+    return { tone: "warn", title: first, actions: "/billing add credit (from $10) or get Pro · /model your own key or a local model" };
   }
   if (text.includes(CORE_EXHAUSTED_MARKER)) {
     const needs = /This turn needs at least .+? available\./.exec(text)?.[0];
