@@ -1,9 +1,9 @@
 # Atlarix TODO
 
-**Current version:** 15.2.0, released 2026-10-08: the Chrome extension is a session the CLI and
-app can message (and it can message them); free Auto doubles its hard stop for new accounts and
-says when the slower model answers; pay-as-you-go credit leads every paywall. Before it, 15.1.0
-(2026-10-07): the agent sees images, sessions message each other, paid web search. Narrative in
+**Current version:** 15.3.0, released 2026-10-09: Atlarix runs inside Zed, JetBrains IDEs and
+VS Code over the Agent Client Protocol (`atlarix acp`), and the composer's fast-typing crash is
+fixed. Before it, 15.2.0 (2026-10-08): the Chrome extension is a session the CLI and app can
+message; free Auto doubles its hard stop for new accounts; credit leads every paywall. Narrative in
 [`docs/CHANGELOG.md`](./CHANGELOG.md).
 
 **This header has been wrong before.** Update it in the same commit as the version bump, or do

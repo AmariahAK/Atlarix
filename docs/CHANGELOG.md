@@ -3,6 +3,28 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [15.3.0] (2026-10-09) — Atlarix in your editor
+
+**Atlarix runs inside Zed, JetBrains IDEs and VS Code.** The CLI is now also an
+[Agent Client Protocol](https://agentclientprotocol.com) agent: `atlarix acp`. The editor draws
+the chat, the diffs and the Allow/Deny prompts in its own UI, and Atlarix does the work with your
+account, models, settings and chats, the same as the app and the terminal. Zed: add
+`"agent_servers": { "Atlarix": { "type": "custom", "command": "atlarix", "args": ["acp"] } }`;
+JetBrains: AI Assistant → Agents → Add Custom Agent with the same command; VS Code: through the
+ACP Client extension. In the editor you get Build, Explore, Plan, Debug and Review as modes, every
+model the picker offers, earlier sessions to reopen, cancel, and Atlarix's questions answered in
+the chat. Every edit and command still waits for your OK, shown inside the tool call it belongs
+to; a prompt outside a tool call offers Yes once or No only, never a standing rule. An editor's
+session joins the others as "(editor)", so it can hand a browser task to Chrome and get the result
+back. Under it: `src/cli/acp/` on `@agentclientprotocol/sdk`, a stdout that carries nothing but
+the protocol, and the CLI's stand-in window now reaching every open session.
+
+**Fixes.** Typing fast in the app's composer could throw "Maximum update depth exceeded": the
+`@`-mention autocomplete set state on every key, and React 19 counted the leftover renders as
+nested updates. A plain keystroke now renders the composer once. Starting a session no longer
+reuses or prunes an empty session that another Atlarix window or editor thread has open (two
+threads opened back to back used to share one session).
+
 ## [15.2.0] (2026-10-08) — the browser joins the conversation, and free limits that let people stay
 
 **The Chrome extension is a session too.** `list_sessions` in the app and the CLI now shows the
