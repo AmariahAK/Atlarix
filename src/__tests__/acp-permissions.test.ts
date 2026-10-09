@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import {
   approvalMode,
   approvalOptions,
+  approvalOwner,
   approvalToolCall,
   mcpConsentDecision,
 } from "@/cli/acp/permissions";
@@ -64,6 +65,26 @@ describe("approval → request_permission", () => {
     expect(approvalMode(edit, { outcome: "cancelled" })).toBe("deny");
     expect(mcpConsentDecision({ outcome: "selected", optionId: "accept-once" })).toBe("accept-once");
     expect(mcpConsentDecision({ outcome: "cancelled" })).toBe("decline");
+  });
+});
+
+describe("approval → the tool call it belongs to", () => {
+  const running = (id: string, target: string, status: "running" | "success" = "running") =>
+    ({ kind: "tool", id, tool: { id, verb: "Edit", target, status } }) as const;
+
+  it("attaches to the newest running call of that tool on that file", () => {
+    const cells = [running("m:t:edit_file_1", "README.md", "success"), running("m:t:edit_file_2", "README.md")];
+    expect(approvalOwner(edit, cells)).toBe("m:t:edit_file_2");
+    const call = approvalToolCall(edit, "m:t:edit_file_2");
+    expect(call).toMatchObject({ toolCallId: "m:t:edit_file_2", status: "pending" });
+    expect(call).not.toHaveProperty("title");
+    expect(call.content?.[0]).toMatchObject({ type: "diff", path: "README.md" });
+  });
+
+  it("no match (another file, or nothing running) keeps a card of its own", () => {
+    expect(approvalOwner(edit, [running("m:t:edit_file_1", "src/a.ts")])).toBeNull();
+    expect(approvalOwner(command, [running("m:t:edit_file_1", "README.md")])).toBeNull();
+    expect(approvalToolCall(edit).toolCallId).toBe("approval:op1");
   });
 });
 

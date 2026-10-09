@@ -75,6 +75,11 @@ describe("the inbox", () => {
     expect(taskFromArgs({ id: "t", from: CLI, text: "x".repeat(100_001) })).toBeNull();
   });
 
+  it("keeps an editor sender (an IDE thread over ACP) as an editor; unknown surfaces read as the app", () => {
+    expect(taskFromArgs({ id: "e", from: { ...CLI, surface: "editor" }, text: "hi" })?.from.surface).toBe("editor");
+    expect(taskFromArgs({ id: "u", from: { ...CLI, surface: "toaster" }, text: "hi" })?.from.surface).toBe("app");
+  });
+
   it("is idempotent on id, keeps the newest INBOX_MAX, and lets old ones expire", async () => {
     const t = taskFromArgs({ id: "same", from: CLI, text: "once" })!;
     await addToInbox(t);

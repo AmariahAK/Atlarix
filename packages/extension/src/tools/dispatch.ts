@@ -67,6 +67,7 @@ import { executeRecall, type RecallArgs } from "./recall";
 import { api } from "../shared/browser-api";
 import { TOOL_NAMES, type ToolName } from "./schemas";
 import { PEER_TEXT_CAP } from "../peers/inbox";
+import { peerSurfaceLabel } from "@/lib/peers/peer-message";
 
 /**
  * The extension's act hint for the shared formatter.
@@ -1386,13 +1387,13 @@ async function listPeerSessionsTool(): Promise<ToolOutcome> {
   const rows = await fetchPeerSessions();
   if (typeof rows === "string") return { content: `Could not list sessions: ${rows}.` };
   if (rows.length === 0) {
-    return { content: "No Atlarix CLI or desktop-app session is running on this computer." };
+    return { content: "No other Atlarix session (app, CLI or editor) is running on this computer." };
   }
   return {
     content:
       "The user's Atlarix sessions (send_message reaches them):\n" +
       rows
-        .map((r) => `- ${r.name} (${r.surface === "cli" ? "CLI" : "app"}, ${r.busy ? "busy" : "idle"}${r.workspace ? `, ${r.workspace}` : ""})`)
+        .map((r) => `- ${r.name} (${peerSurfaceLabel(r.surface)}, ${r.busy ? "busy" : "idle"}${r.workspace ? `, ${r.workspace}` : ""})`)
         .join("\n"),
     label: `Listed ${rows.length} Atlarix session${rows.length === 1 ? "" : "s"}`,
   };

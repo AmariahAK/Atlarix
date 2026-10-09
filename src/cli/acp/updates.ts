@@ -10,8 +10,16 @@
 import type { SessionUpdate, ToolCallContent, ToolKind, ToolCallStatus } from "@agentclientprotocol/sdk";
 import type { Cell, EditDiff, ToolLine } from "../agent/transcript";
 
-/** What each cell id looked like when last sent. */
+/**
+ * What each cell looked like when last sent, keyed by kind AND id: one id can
+ * change kind. While a model thinks, the live text parses as a thought at part
+ * 0; the finished message, without its thinking, is markdown at that same part.
+ * Keyed by id alone, the answer read as a rewrite of the thought and was never
+ * sent (seen live in Zed on GLM 5.3: only "Thinking", no reply).
+ */
 export type Emitted = Map<string, string>;
+
+const key = (c: Cell): string => `${c.kind}:${c.id}`;
 
 /** `<message>:t:<tool>_<n>` → `<tool>`; empty for cells that are not tool calls. */
 export function toolNameFromId(id: string): string {
@@ -82,11 +90,12 @@ export function toolTitle(t: ToolLine): string {
 export function diffUpdates(cells: readonly Cell[], emitted: Emitted, opts: { replay?: boolean } = {}): SessionUpdate[] {
   const out: SessionUpdate[] = [];
   for (const c of cells) {
-    const before = emitted.get(c.id);
+    const k = key(c);
+    const before = emitted.get(k);
     if (c.kind === "markdown" || c.kind === "thought") {
       const prev = before ?? "";
       if (c.text === prev) continue;
-      emitted.set(c.id, c.text);
+      emitted.set(k, c.text);
       // A rewrite rather than a growth (a cancel collapsing the tail) cannot be
       // taken back from an editor that already drew it: send nothing for it.
       if (!c.text.startsWith(prev)) continue;
@@ -101,7 +110,7 @@ export function diffUpdates(cells: readonly Cell[], emitted: Emitted, opts: { re
       const name = toolNameFromId(c.id);
       const sig = `${t.status}|${t.output?.length ?? 0}|${t.error ?? ""}|${t.diff ? t.diff.added + t.diff.removed : 0}`;
       if (before === sig) continue;
-      emitted.set(c.id, sig);
+      emitted.set(k, sig);
       const content = toolContent(t, name);
       if (before === undefined) {
         out.push({
@@ -123,17 +132,17 @@ export function diffUpdates(cells: readonly Cell[], emitted: Emitted, opts: { re
       }
     } else if (c.kind === "notice") {
       if (before !== undefined) continue;
-      emitted.set(c.id, c.text);
+      emitted.set(k, c.text);
       if (c.level === "error") {
         out.push({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `\n\n${c.text}` } });
       }
     } else if (c.kind === "user" || c.kind === "answers") {
       if (before !== undefined) continue;
       const t = c.kind === "user" ? c.text : c.pairs.map((p) => `${p.question} → ${p.answer}`).join("\n");
-      emitted.set(c.id, t);
+      emitted.set(k, t);
       if (opts.replay) out.push({ sessionUpdate: "user_message_chunk", content: { type: "text", text: t } });
     } else {
-      emitted.set(c.id, "");
+      emitted.set(k, "");
     }
   }
   return out;

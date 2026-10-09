@@ -31,6 +31,14 @@ describe("diffUpdates", () => {
     ]);
   });
 
+  it("an answer that replaces the live thought at the same id is still sent", () => {
+    const e: Emitted = new Map();
+    diffUpdates([{ kind: "thought", id: "m:0", text: "Quick" }], e);
+    expect(diffUpdates([md("m:0", "It exports check().")], e)).toEqual([
+      { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "It exports check()." } },
+    ]);
+  });
+
   it("thoughts go out as thought chunks", () => {
     const e: Emitted = new Map();
     const [u] = diffUpdates([{ kind: "thought", id: "m:0", text: "hmm" }], e);

@@ -17,6 +17,8 @@ import type {
 } from "@agentclientprotocol/sdk";
 import { approvalChoices, approvalTitle, firstPreview, type ApprovalChoice } from "../agent/approval-choices";
 import type { McpConsentRequest, PendingApproval } from "../agent/session";
+import type { Cell } from "../agent/transcript";
+import { toolNameFromId } from "./updates";
 
 const KIND: Record<ApprovalChoice["mode"], PermissionOptionKind> = {
   once: "allow_once",
@@ -35,7 +37,35 @@ function approvalKind(a: PendingApproval): ToolKind {
   return "other";
 }
 
-export function approvalToolCall(a: PendingApproval): ToolCallUpdate {
+/** The tool whose call raised each kind of operation (to attach the prompt to that call). */
+const OPERATION_TOOL: Record<string, string> = {
+  edit_file: "edit_file",
+  delete_file: "edit_file",
+  rename_file: "edit_file",
+  run_command: "run_command",
+};
+
+/**
+ * The tool call this approval belongs to: the newest running call of that tool
+ * on that file (or of that command), so the editor shows Allow/Deny INSIDE the
+ * call's card rather than as a second one. Null when none matches (an
+ * escalation raised mid-command, an automation): the prompt gets its own card.
+ */
+export function approvalOwner(a: PendingApproval, cells: readonly Cell[]): string | null {
+  const tool = OPERATION_TOOL[a.request.operation ?? ""];
+  if (!tool) return null;
+  const p = firstPreview(a);
+  for (let i = cells.length - 1; i >= 0; i--) {
+    const c = cells[i]!;
+    if (c.kind !== "tool" || c.tool.status !== "running" || toolNameFromId(c.id) !== tool) continue;
+    if (p.path && c.tool.target && !c.tool.target.endsWith(p.path) && !p.path.endsWith(c.tool.target)) continue;
+    return c.id;
+  }
+  return null;
+}
+
+export function approvalToolCall(a: PendingApproval, owner?: string): ToolCallUpdate {
+  const toolCallId = owner ?? `approval:${a.operationId}`;
   const p = firstPreview(a);
   const content: ToolCallContent[] = [];
   if (p.path && (typeof p.content === "string" || typeof p.oldContent === "string") && p.type !== "delete") {
@@ -51,9 +81,11 @@ export function approvalToolCall(a: PendingApproval): ToolCallUpdate {
     .filter(Boolean)
     .join("\n");
   if (note) content.push({ type: "content", content: { type: "text", text: note } });
+  // Inside the call's own card: keep its title; add what it is asking to do.
+  if (owner) return { toolCallId, status: "pending", ...(content.length ? { content } : {}) };
   const title = p.command ? `Run ${p.command}` : p.path ? `${approvalTitle(a).replace(/\?$/, "")}: ${p.path}` : approvalTitle(a);
   return {
-    toolCallId: `approval:${a.operationId}`,
+    toolCallId,
     title,
     kind: approvalKind(a),
     status: "pending",

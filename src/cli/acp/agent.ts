@@ -26,6 +26,7 @@ import { promptInput } from "./content";
 import {
   approvalMode,
   approvalOptions,
+  approvalOwner,
   approvalToolCall,
   MCP_CONSENT_OPTIONS,
   mcpConsentDecision,
@@ -91,15 +92,27 @@ class Thread {
     for (const a of s.approvals) {
       if (this.asked.has(a.operationId)) continue;
       this.asked.add(a.operationId);
+      const owner = approvalOwner(a, s.cells);
       void this.flush().then(async () => {
+        const toolCall = approvalToolCall(a, owner ?? undefined);
         const r = await this.client()
           .request("session/request_permission", {
             sessionId: this.id,
-            toolCall: approvalToolCall(a),
+            toolCall,
             options: approvalOptions(a),
           })
           .catch(() => ({ outcome: { outcome: "cancelled" as const } }));
-        await this.session.answerApproval(a.operationId, approvalMode(a, r.outcome));
+        const mode = approvalMode(a, r.outcome);
+        await this.session.answerApproval(a.operationId, mode);
+        // A prompt with its own card: close it. One inside a tool call is
+        // finished by that call's own updates.
+        if (!owner) {
+          void this.send({
+            sessionUpdate: "tool_call_update",
+            toolCallId: toolCall.toolCallId,
+            status: mode === "deny" ? "failed" : "completed",
+          });
+        }
       });
     }
     const c = s.mcpConsent;

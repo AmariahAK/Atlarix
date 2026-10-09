@@ -96,7 +96,11 @@ describe("atlarix acp", () => {
     expect(fs.readFileSync(file, "utf8")).toContain("v = 2");
     expect(e.asked).toHaveLength(1);
     expect(e.asked[0]!.sessionId).toBe(sessionId);
-    expect(e.asked[0]!.toolCall.kind).toBe("edit");
+    // The prompt lives inside the edit's own tool call (one card in the editor).
+    const owner = e.updates.find(
+      (u) => u.update.sessionUpdate === "tool_call" && u.update.toolCallId === e.asked[0]!.toolCall.toolCallId,
+    );
+    expect(owner?.update).toMatchObject({ kind: "edit" });
     expect(e.asked[0]!.toolCall.content?.[0]).toMatchObject({ type: "diff", newText: expect.stringContaining("v = 2") });
     expect(e.asked[0]!.options.map((o) => o.kind)).toContain("reject_once");
     const kinds = e.updates.filter((u) => u.sessionId === sessionId).map((u) => u.update.sessionUpdate);
@@ -118,7 +122,10 @@ describe("atlarix acp", () => {
     const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
     const r = await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "delete doomed.txt" }] });
     expect(r.stopReason).toBe("end_turn");
-    expect(e.asked[0]!.toolCall.kind).toBe("execute");
+    const owner = e.updates.find(
+      (u) => u.update.sessionUpdate === "tool_call" && u.update.toolCallId === e.asked[0]!.toolCall.toolCallId,
+    );
+    expect(owner?.update).toMatchObject({ kind: "execute" });
     expect(fs.existsSync(doomed)).toBe(true);
   }, 60_000);
 
