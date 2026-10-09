@@ -44,7 +44,7 @@ export async function noteSessionOpen(
         (session.title?.trim() && !isPlaceholderTitle(session.title)
           ? session.title.trim()
           : "") ||
-        `New ${process.env.ATLARIX_SURFACE === "cli" ? "CLI " : ""}session (${(app?.path ?? "").split(/[\\/]/).pop() || "no folder"})`,
+        `New ${process.env.ATLARIX_PEER_SURFACE === "editor" ? "editor " : process.env.ATLARIX_SURFACE === "cli" ? "CLI " : ""}session (${(app?.path ?? "").split(/[\\/]/).pop() || "no folder"})`,
       workspace: app?.path ?? "",
     });
   } catch (e) {

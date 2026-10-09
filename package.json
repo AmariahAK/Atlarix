@@ -142,6 +142,7 @@
     "vitest": "4.1.11"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "^1.7.0",
     "@ai-sdk/amazon-bedrock": "^5.0.58",
     "@ai-sdk/anthropic": "^4.0.39",
     "@ai-sdk/azure": "^4.0.44",

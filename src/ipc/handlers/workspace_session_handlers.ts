@@ -34,7 +34,7 @@ import {
 } from "@/lib/diag/session-load-diag";
 import { requireAuthSession } from "@/lib/auth/require_auth_session";
 import { noteSessionOpen } from "@/lib/peers/main-host";
-import { forgetLiveSession } from "@/lib/peers/peers";
+import { forgetLiveSession, sessionsHeldElsewhere } from "@/lib/peers/peers";
 import { WorkModeSchema, type WorkMode } from "@/lib/schemas";
 import {
   createStreamTransport,
@@ -666,7 +666,13 @@ async function verifyTrulyEmptySession(
   return { row, empty: true, reason: "empty" };
 }
 
-export async function startWorkspaceSession(workspaceId: number): Promise<{
+/** Sessions this process's editor threads (ACP) hold; never reused or pruned. */
+const claimedSessions = new Set<string>();
+
+export async function startWorkspaceSession(
+  workspaceId: number,
+  opts: { claim?: boolean } = {},
+): Promise<{
   sessionId: string;
   chatId: number;
   session: ChatSessionRow;
@@ -690,7 +696,13 @@ export async function startWorkspaceSession(workspaceId: number): Promise<{
   // decision actually saw.
   let session: ChatSessionRow | null = null;
   try {
-    const rows = await listSessionsWithMessageCounts(workspaceId);
+    // An empty session someone has OPEN is not stale: an editor thread holds
+    // its session before the first message, and reusing it would put two
+    // threads on one session, pruning it would delete it under them.
+    const held = sessionsHeldElsewhere();
+    const rows = (await listSessionsWithMessageCounts(workspaceId)).filter(
+      (r) => !held.has(r.id) && !claimedSessions.has(r.id),
+    );
     const { reuseId, pruneIds } = pickSessionReuse(rows);
     if (rows.length > 0) {
       // The decision's inputs, so a recurrence explains itself instead of needing
@@ -750,6 +762,7 @@ export async function startWorkspaceSession(workspaceId: number): Promise<{
   if (!session) {
     session = await insertWorkspaceSession(workspaceId);
   }
+  if (opts.claim) claimedSessions.add(session.id);
   const chatId = createStreamTransport(workspaceId);
   await persistSessionStreamChatId(session.id, chatId);
   return { sessionId: session.id, chatId, session };
@@ -993,11 +1006,11 @@ export function registerWorkspaceSessionHandlers(): void {
     },
   );
 
-  handle("sessions:start", async (_event, workspaceId: number) => {
+  handle("sessions:start", async (_event, workspaceId: number, opts?: { claim?: boolean }) => {
     // Defense-in-depth: a workspace session may only be started by a signed-in
     // user (the UI gates selection too, but never trust the renderer).
     await requireAuthSession();
-    const started = await startWorkspaceSession(workspaceId);
+    const started = await startWorkspaceSession(workspaceId, { claim: opts?.claim === true });
     logger.info(
       `sessions:start workspace=${workspaceId} session=${started.sessionId} transport=${started.chatId}`,
     );

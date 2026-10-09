@@ -149,6 +149,14 @@ export interface SessionOptions {
   /** Per-turn model override; the desktop's selected model when absent. */
   model?: ModelChoice;
   mode?: WorkMode;
+  /** How other sessions see this one: the TUI is "cli", `atlarix acp` is "editor". */
+  surface?: "cli" | "editor";
+  /**
+   * A message from another session while idle. The TUI opens a turn with it;
+   * an editor (ACP) starts turns itself, so it HOLDS: main keeps the message
+   * queued and the next turn reads it at its first step. "peer-message" fires.
+   */
+  idlePeerMessages?: "start-turn" | "hold";
 }
 
 let handlersRegistered = false;
@@ -168,6 +176,16 @@ async function registerHandlers(): Promise<void> {
 }
 
 
+
+/** A folder's stored sessions, newest first, without opening one (ACP's session/list). */
+export async function listFolderSessions(workspaceDir: string): Promise<SessionSummary[]> {
+  const { initializeDatabase } = await import("@/db");
+  initializeDatabase();
+  await registerHandlers();
+  const { workspaceAppIdForPath } = await import("@/lib/workspace-app-by-path");
+  const appId = await workspaceAppIdForPath(workspaceDir);
+  return (await (await handler("sessions:list"))({}, appId)) as SessionSummary[];
+}
 
 let interjectionSeq = 0;
 
@@ -216,6 +234,9 @@ export class AgentSession extends EventEmitter {
   private readonly anchors = new Map<string, SteerAnchor>();
   private readonly seenUserIds = new Set<string>();
   private contextWindow: number | null = null;
+  private readonly surface: "cli" | "editor";
+  private readonly idlePeerMessages: "start-turn" | "hold";
+  private detachWindow: (() => void) | null = null;
   state: SessionState;
 
   private readonly event = {
@@ -230,6 +251,8 @@ export class AgentSession extends EventEmitter {
     super();
     this.workspaceDir = opts.workspaceDir;
     this.model = opts.model;
+    this.surface = opts.surface ?? "cli";
+    this.idlePeerMessages = opts.idlePeerMessages ?? "start-turn";
     this.state = {
       cells: [],
       busy: false,
@@ -260,12 +283,13 @@ export class AgentSession extends EventEmitter {
     const { initializeDatabase } = await import("@/db");
     initializeDatabase();
     const electron = (await import("electron")) as unknown as {
-      attachCliWindow?: (send: (channel: string, payload: unknown) => void) => void;
+      attachCliWindow?: (send: (channel: string, payload: unknown) => void) => (() => void) | void;
     };
-    electron.attachCliWindow?.((channel, payload) => this.onSend(channel, payload));
+    this.detachWindow =
+      electron.attachCliWindow?.((channel, payload) => this.onSend(channel, payload)) || null;
     await registerHandlers();
     // Other Atlarix sessions (CLI or app) can message this one (lib/peers).
-    void import("@/lib/peers/main-host").then((m) => m.startPeerMessaging("cli"));
+    void import("@/lib/peers/main-host").then((m) => m.startPeerMessaging(this.surface));
     const { workspaceAppIdForPath } = await import("@/lib/workspace-app-by-path");
     this.appId = await workspaceAppIdForPath(this.workspaceDir);
     await this.newSession();
@@ -765,9 +789,35 @@ export class AgentSession extends EventEmitter {
     this.update({ pending: [...this.steers, ...this.queue] });
   }
 
+  /**
+   * Create the stored session now rather than at the first message. An editor
+   * (ACP) needs the id up front; it throws when the user isn't signed in.
+   */
+  async open(): Promise<{ sessionId: string; chatId: number }> {
+    await this.ensureSession();
+    return { sessionId: this.sessionId, chatId: this.chatId };
+  }
+
+  /** Stop hearing this process's broadcasts and leave the session list. */
+  async close(): Promise<void> {
+    await this.interrupt();
+    this.detachWindow?.();
+    this.detachWindow = null;
+    const peers = await import("@/lib/peers/peers");
+    peers.forgetLiveSession(this.pendingPeerId());
+    if (this.sessionId) peers.forgetLiveSession(this.sessionId);
+    this.removeAllListeners();
+  }
+
   private async ensureSession(): Promise<void> {
     if (this.sessionId) return;
-    const started = (await (await handler("sessions:start"))({}, this.appId)) as {
+    // An editor thread claims its session: opened before any message, it must
+    // not be handed to (or pruned by) the next session started in this folder.
+    const started = (await (await handler("sessions:start"))(
+      {},
+      this.appId,
+      this.surface === "editor" ? { claim: true } : undefined,
+    )) as {
       sessionId: string;
       chatId: number;
     };
@@ -779,7 +829,7 @@ export class AgentSession extends EventEmitter {
 
   /** The id other sessions can reach this one under before its first message. */
   private pendingPeerId(): string {
-    return `pending-cli-${process.pid}`;
+    return `pending-${this.surface}-${process.pid}`;
   }
 
   /** Reachable from other sessions before the first message (lib/peers). */
@@ -788,7 +838,7 @@ export class AgentSession extends EventEmitter {
     noteLiveSession({
       sessionId: this.pendingPeerId(),
       chatId: 0,
-      name: `New CLI session (${path.basename(this.workspaceDir)})`,
+      name: `New ${this.surface === "editor" ? "editor" : "CLI"} session (${path.basename(this.workspaceDir)})`,
       workspace: this.workspaceDir,
       materialize: async () => {
         await this.ensureSession();
@@ -1160,7 +1210,10 @@ export class AgentSession extends EventEmitter {
         // Another Atlarix session sent this one a message while it was idle:
         // open a turn with it (lib/peers). While busy, the running turn reads it
         // at its next step instead, so nothing is needed here.
-        if (p.status === "peer_message" && !this.state.busy) void this.startPeerTurn();
+        if (p.status === "peer_message" && !this.state.busy) {
+          if (this.idlePeerMessages === "hold") this.emit("peer-message");
+          else void this.startPeerTurn();
+        }
         return;
       case "chat:interjections":
         // Main's queue of steers changed: one was delivered, or added elsewhere.

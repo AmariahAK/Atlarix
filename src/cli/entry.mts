@@ -7,6 +7,8 @@
  *   atlarix --resume        …choosing which earlier session to open
  *   atlarix run …           batch (benchmarks, the cloud agent): the unchanged
  *   atlarix --prompt …      headless runner, in its own throwaway data folder
+ *   atlarix acp             an editor's agent (Zed, JetBrains) over the Agent
+ *                           Client Protocol on stdio: src/cli/acp/server.ts
  *
  * Nothing that reads the data location may be imported before the mode is
  * chosen: the electron stub, the database and the settings reader all decide
@@ -16,6 +18,7 @@
  *   atlarix --provider-url http://127.0.0.1:18787/v1 --model fake-model
  * uses a scratch data folder (~/.atlarix/dev-data), never the desktop's.
  */
+import "./acp/stdio-guard";
 import "./tty-early";
 import "./build-env";
 import "../headless/log-setup";
@@ -58,31 +61,7 @@ async function interactive(): Promise<void> {
   const { default: log } = await import("electron-log");
   log.transports.console.level = false;
   const devUrl = flag("--provider-url");
-  if (devUrl) {
-    process.env.ATLARIX_USER_DATA_DIR ??= path.join(os.homedir(), ".atlarix", "dev-data");
-    process.env.ATLARIX_CLI_DEV_PROVIDER = "1";
-    process.env.ATLARIX_CLIENT_PROGRAM = "Atlarix CLI";
-    process.env.ATLARIX_SURFACE ??= "cli";
-  } else {
-    const { enterDesktopDataMode } = await import("./desktop-data");
-    const dir = enterDesktopDataMode();
-    // The desktop's secrets are encrypted with the OS key; use the same key for
-    // every store (the electron stub's safeStorage, and settings' own lookup).
-    const { desktopSafeStorage } = await import("../runtime/oscrypt");
-    const storage = desktopSafeStorage("Atlarix", dir);
-    const electron = (await import("electron")) as unknown as {
-      setSafeStorageImpl?: (impl: typeof storage) => void;
-    };
-    electron.setSafeStorageImpl?.(storage);
-    const { useSafeStorageProvider } = await import("../main/settings");
-    useSafeStorageProvider(storage);
-    // Atlarix Auto and the Core lineup come from the hosted core-models.json, as
-    // in the desktop (main.ts): the last good copy now, a fresh one in the
-    // background. Without it /model had no Auto row and Core fell back to the
-    // build's env models.
-    const { warmCoreModelOverrides } = await import("../lib/routing/core-model-overrides");
-    warmCoreModelOverrides();
-  }
+  await prepareCliData(devUrl);
 
   // Signed in first, like every Atlarix surface (the dev endpoint needs none).
   if (!devUrl) {
@@ -156,6 +135,39 @@ async function interactive(): Promise<void> {
         },
   });
   process.exit(0);
+}
+
+/**
+ * Where this run's data lives, and the keys to read it: the desktop app's data
+ * (chats, settings, keys, sign-in) or, with `--provider-url`, a scratch folder
+ * for testing against a local model. Shared by the TUI and `atlarix acp`.
+ */
+async function prepareCliData(devUrl: string | undefined): Promise<void> {
+  if (devUrl) {
+    process.env.ATLARIX_USER_DATA_DIR ??= path.join(os.homedir(), ".atlarix", "dev-data");
+    process.env.ATLARIX_CLI_DEV_PROVIDER = "1";
+    process.env.ATLARIX_CLIENT_PROGRAM = "Atlarix CLI";
+    process.env.ATLARIX_SURFACE ??= "cli";
+  } else {
+    const { enterDesktopDataMode } = await import("./desktop-data");
+    const dir = enterDesktopDataMode();
+    // The desktop's secrets are encrypted with the OS key; use the same key for
+    // every store (the electron stub's safeStorage, and settings' own lookup).
+    const { desktopSafeStorage } = await import("../runtime/oscrypt");
+    const storage = desktopSafeStorage("Atlarix", dir);
+    const electron = (await import("electron")) as unknown as {
+      setSafeStorageImpl?: (impl: typeof storage) => void;
+    };
+    electron.setSafeStorageImpl?.(storage);
+    const { useSafeStorageProvider } = await import("../main/settings");
+    useSafeStorageProvider(storage);
+    // Atlarix Auto and the Core lineup come from the hosted core-models.json, as
+    // in the desktop (main.ts): the last good copy now, a fresh one in the
+    // background. Without it /model had no Auto row and Core fell back to the
+    // build's env models.
+    const { warmCoreModelOverrides } = await import("../lib/routing/core-model-overrides");
+    warmCoreModelOverrides();
+  }
 }
 
 /** The desktop's selected model, named the way the app names it. Auto never names the model behind it. */
@@ -257,6 +269,21 @@ async function loginInTerminal(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  if (argv[0] === "acp") {
+    // Before the batch/interactive split: an editor runs this over pipes, and
+    // the interactive path refuses anything that isn't a terminal.
+    const devUrl = flag("--provider-url");
+    await prepareCliData(devUrl);
+    const { runAcp } = await import("./acp/server");
+    await runAcp({
+      version: VERSION,
+      devUrl,
+      devModel: flag("--model"),
+      apiKey: flag("--api-key"),
+      startBridge: () => void startCliBridge(),
+    });
+    process.exit(0);
+  }
   if (argv[0] === "login" || argv[0] === "logout") {
     const { enterDesktopDataMode } = await import("./desktop-data");
     const dir = enterDesktopDataMode();

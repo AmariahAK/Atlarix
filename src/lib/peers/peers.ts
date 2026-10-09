@@ -41,7 +41,8 @@ const RATE_WINDOW_MS = 60_000;
 const RATE_MAX = 12;
 const DUPLICATE_WINDOW_MS = 10_000;
 
-export type Surface = "cli" | "app" | "chrome";
+/** "editor": a session an IDE hosts over ACP (`atlarix acp`, src/cli/acp). */
+export type Surface = "cli" | "app" | "chrome" | "editor";
 
 export interface LocalSession {
   sessionId: string;
@@ -247,7 +248,7 @@ function publish(): void {
       host,
       peerSocketPath(),
       token,
-      surface === "app" ? "Atlarix app" : "Atlarix CLI",
+      surface === "app" ? "Atlarix app" : surface === "editor" ? "Atlarix in an editor" : "Atlarix CLI",
       "",
       surface,
       0,
@@ -342,6 +343,19 @@ export function noteLiveSession(s: LocalSession): void {
   }
   local.set(s.sessionId, s);
   if (!prev || prev.name !== s.name || prev.chatId !== s.chatId) publish();
+}
+
+/**
+ * Sessions another running Atlarix process has open. Starting a session must
+ * not reuse or prune one of these: an editor thread (ACP) holds its session
+ * from the first moment, before it has any messages.
+ */
+export function sessionsHeldElsewhere(): Set<string> {
+  return new Set(
+    liveRows()
+      .filter((r) => r.pid !== process.pid && !r.session_id.startsWith(PROCESS_ROW_PREFIX))
+      .map((r) => r.session_id),
+  );
 }
 
 export function forgetLiveSession(sessionId: string): void {
@@ -539,7 +553,9 @@ export function listPeerSessions(exclude?: string): PeerSessionRow[] {
       name: r.name,
       workspace: r.workspace,
       surface:
-        r.surface === "cli" ? "cli" : r.surface === "chrome" ? "chrome" : "app",
+        r.surface === "cli" || r.surface === "chrome" || r.surface === "editor"
+          ? r.surface
+          : "app",
       busy: r.busy === 1,
       pid: r.pid,
     });
