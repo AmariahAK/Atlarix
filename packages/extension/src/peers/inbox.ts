@@ -19,7 +19,8 @@ import { api } from "../shared/browser-api";
 export interface PeerFrom {
   sessionId: string;
   name: string;
-  surface: "cli" | "app" | "chrome";
+  /** "editor": an IDE's Atlarix thread (Zed, JetBrains) over ACP. */
+  surface: "cli" | "app" | "chrome" | "editor";
   workspace: string;
 }
 
@@ -46,7 +47,7 @@ export function taskFromArgs(args: Record<string, unknown>, now = Date.now()): P
   const from: PeerFrom = {
     sessionId: str(f.sessionId).trim(),
     name: str(f.name).trim() || "another session",
-    surface: f.surface === "cli" || f.surface === "chrome" ? f.surface : "app",
+    surface: f.surface === "cli" || f.surface === "chrome" || f.surface === "editor" ? f.surface : "app",
     workspace: str(f.workspace),
   };
   if (!id || !text || !from.sessionId || text.length > PEER_TEXT_CAP) return null;

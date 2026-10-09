@@ -30,11 +30,16 @@ any repo size. The agent has a workspace. You have control.
 
 **Created by [NorahLabs](https://norahlabs.com)** (Nairobi, Kenya)  
 **Website:** [atlarix.dev](https://atlarix.dev)  
-**Current release:** **v15.2.0**
+**Current release:** **v15.3.0**
 
 **Downloads:** Installers for **macOS**, **Linux**, and **Windows** are on [atlarix.dev](https://atlarix.dev). _(Windows builds are currently unsigned; code signing is coming soon.)_
 
 **In your terminal:** `curl -fsSL https://atlarix.dev/install | sh` (macOS, Linux), `irm https://atlarix.dev/install.ps1 | iex` (Windows), `brew install amariahak/atlarix/atlarix`, or `npm i -g atlarix`.
+
+**In your editor (Zed, JetBrains IDEs):** the CLI is also an [Agent Client Protocol](https://agentclientprotocol.com) agent: `atlarix acp`. The editor draws the chat, the diffs and the Allow/Deny prompts, and Atlarix does the work with your account, models and settings. Sign in once with `atlarix login`.
+
+- **Zed** (`~/.config/zed/settings.json`): `"agent_servers": { "Atlarix": { "type": "custom", "command": "atlarix", "args": ["acp"] } }`
+- **JetBrains** (AI Assistant → Agents → Add Custom Agent, or `~/.jetbrains/acp.json`): `"agent_servers": { "Atlarix": { "command": "/full/path/to/atlarix", "args": ["acp"] } }`
 
 **Open ecosystem (source / installers / registries):** the **MCP marketplace index** is [AmariahAK/atlarix-mcps](https://github.com/AmariahAK/atlarix-mcps); official desktop builds are published from [AmariahAK/atlarix-releases](https://github.com/AmariahAK/atlarix-releases). The Atlarix app itself is proprietary.
 

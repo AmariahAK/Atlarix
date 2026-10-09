@@ -74,12 +74,28 @@ export const BrowserWindow = {
  */
 let cliWindow: unknown = null;
 
-export function attachCliWindow(send: (channel: string, payload: unknown) => void): void {
+/**
+ * Every attached session hears every broadcast. The TUI attaches one; `atlarix
+ * acp` attaches one per editor thread, and with a single slot the newest
+ * session took every `permission-request` broadcast. Each session already drops
+ * other chats' events by chatId. Returns the detach.
+ */
+const cliSenders = new Set<(channel: string, payload: unknown) => void>();
+
+export function attachCliWindow(send: (channel: string, payload: unknown) => void): () => void {
+  cliSenders.add(send);
+  const detach = () => {
+    cliSenders.delete(send);
+    if (cliSenders.size === 0) cliWindow = null;
+  };
+  if (cliWindow) return detach;
   const webContents = {
     id: 1,
     isDestroyed: () => false,
     isCrashed: () => false,
-    send,
+    send: (channel: string, payload: unknown) => {
+      for (const s of [...cliSenders]) s(channel, payload);
+    },
   };
   cliWindow = {
     id: 1,
@@ -91,6 +107,7 @@ export function attachCliWindow(send: (channel: string, payload: unknown) => voi
     focus: noop,
     show: noop,
   };
+  return detach;
 }
 
 interface SafeStorageImpl {

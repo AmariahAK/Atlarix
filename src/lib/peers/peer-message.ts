@@ -7,13 +7,19 @@
 export interface PeerFrom {
   sessionId: string;
   name: string;
-  surface: "cli" | "app" | "chrome";
+  surface: "cli" | "app" | "chrome" | "editor";
   workspace: string;
 }
 
-/** How a surface reads in "Message from X session": CLI, app or browser. */
+/** How a surface reads in "Message from X session": CLI, app, browser or editor. */
 export function peerSurfaceLabel(surface: string): string {
-  return surface === "cli" ? "CLI" : surface === "chrome" ? "browser" : "app";
+  return surface === "cli"
+    ? "CLI"
+    : surface === "chrome"
+      ? "browser"
+      : surface === "editor"
+        ? "editor"
+        : "app";
 }
 
 function attr(value: string): string {
