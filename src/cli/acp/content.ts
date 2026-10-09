@@ -11,6 +11,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { ContentBlock } from "@agentclientprotocol/sdk";
 
 export interface PromptInput {
@@ -18,12 +19,17 @@ export interface PromptInput {
   images: Array<{ path: string; mime: string; label: string }>;
 }
 
+/** A file URI as a path on this OS: `file:///C:/x` is `C:\\x` on Windows, not `/C:/x`. */
 function filePath(uri: string): string {
   if (!uri.startsWith("file://")) return uri;
   try {
-    return decodeURIComponent(new URL(uri).pathname);
+    return fileURLToPath(uri);
   } catch {
-    return uri.slice("file://".length);
+    try {
+      return decodeURIComponent(new URL(uri).pathname);
+    } catch {
+      return uri.slice("file://".length);
+    }
   }
 }
 
@@ -32,7 +38,8 @@ const EXT: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "
 /** `@file:` takes a path relative to the workspace (parseContextMentions). */
 function mention(p: string, cwd: string): string {
   const rel = path.relative(cwd, p);
-  return `@file:${rel && !rel.startsWith("..") && !path.isAbsolute(rel) ? rel : p}`;
+  // Mentions are written with forward slashes on every OS.
+  return `@file:${rel && !rel.startsWith("..") && !path.isAbsolute(rel) ? rel.split(path.sep).join("/") : p}`;
 }
 
 export function promptInput(

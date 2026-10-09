@@ -5,6 +5,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   approvalMode,
@@ -97,20 +98,22 @@ describe("approval → the tool call it belongs to", () => {
 describe("prompt blocks → CLI prompt", () => {
   it("text, an attached file inline, a linked file as a workspace mention, an image saved", () => {
     const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "acp-content-"));
+    // Real paths for this OS: on Windows a file URI carries a drive letter.
+    const ws = path.resolve(os.tmpdir(), "acp-ws");
+    const a = path.join(ws, "src", "a.ts");
+    const elsewhere = path.resolve(os.tmpdir(), "elsewhere", "c.ts");
     const r = promptInput(
       [
         { type: "text", text: "Explain this" },
-        { type: "resource", resource: { uri: "file:///ws/src/a.ts", text: "export const a = 1;" } },
-        { type: "resource_link", uri: "file:///ws/src/b.ts", name: "b.ts" },
-        { type: "resource_link", uri: "file:///elsewhere/c.ts", name: "c.ts" },
+        { type: "resource", resource: { uri: pathToFileURL(a).href, text: "export const a = 1;" } },
+        { type: "resource_link", uri: pathToFileURL(path.join(ws, "src", "b.ts")).href, name: "b.ts" },
+        { type: "resource_link", uri: pathToFileURL(elsewhere).href, name: "c.ts" },
         { type: "image", data: Buffer.from("png").toString("base64"), mimeType: "image/png" },
       ],
-      "/ws",
+      ws,
       scratch,
     );
-    expect(r.text).toBe(
-      "Explain this\n\n[/ws/src/a.ts]\nexport const a = 1;\n\n@file:src/b.ts\n\n@file:/elsewhere/c.ts",
-    );
+    expect(r.text).toBe(`Explain this\n\n[${a}]\nexport const a = 1;\n\n@file:src/b.ts\n\n@file:${elsewhere}`);
     expect(r.images).toHaveLength(1);
     expect(fs.readFileSync(r.images[0]!.path, "utf8")).toBe("png");
     expect(r.images[0]!.mime).toBe("image/png");
