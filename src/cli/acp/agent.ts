@@ -99,7 +99,7 @@ class Thread {
           .request("session/request_permission", {
             sessionId: this.id,
             toolCall,
-            options: approvalOptions(a),
+            options: approvalOptions(a, owner != null),
           })
           .catch(() => ({ outcome: { outcome: "cancelled" as const } }));
         const mode = approvalMode(a, r.outcome);

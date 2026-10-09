@@ -94,8 +94,16 @@ export function approvalToolCall(a: PendingApproval, owner?: string): ToolCallUp
   };
 }
 
-export function approvalOptions(a: PendingApproval): PermissionOption[] {
-  return approvalChoices(a).map((c) => ({
+/**
+ * The choices offered. `attached`: the prompt sits inside the tool call that
+ * raised it. A prompt with a card of its own offers only Yes (once) / No: in
+ * testing, Zed answered one such prompt "always allow this file" with nobody
+ * at the keyboard (2026-10-09, cause unknown), and a standing rule is the one
+ * answer that must never come from anything but a person's click.
+ */
+export function approvalOptions(a: PendingApproval, attached = true): PermissionOption[] {
+  const choices = approvalChoices(a).filter((c) => attached || c.mode === "once" || c.mode === "deny");
+  return choices.map((c) => ({
     optionId: c.mode,
     // The TUI's "No — tell Atlarix what to do instead" reads oddly as a button.
     name: c.mode === "deny" ? "No" : c.label,
@@ -124,13 +132,13 @@ export function mcpConsentToolCall(r: McpConsentRequest): ToolCallUpdate {
   };
 }
 
+/** A card of its own, so no "always" (see approvalOptions); the app and TUI still offer it. */
 export const MCP_CONSENT_OPTIONS: PermissionOption[] = [
   { optionId: "accept-once", name: "Allow once", kind: "allow_once" },
-  { optionId: "accept-always", name: "Always allow this tool", kind: "allow_always" },
   { optionId: "decline", name: "No", kind: "reject_once" },
 ];
 
 export function mcpConsentDecision(outcome: RequestPermissionOutcome): "accept-once" | "accept-always" | "decline" {
   if (outcome.outcome !== "selected") return "decline";
-  return outcome.optionId === "accept-once" || outcome.optionId === "accept-always" ? outcome.optionId : "decline";
+  return outcome.optionId === "accept-once" ? "accept-once" : "decline";
 }

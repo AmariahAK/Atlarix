@@ -64,6 +64,7 @@ describe("approval → request_permission", () => {
     expect(approvalMode(edit, { outcome: "selected", optionId: "always_allow" })).toBe("deny");
     expect(approvalMode(edit, { outcome: "cancelled" })).toBe("deny");
     expect(mcpConsentDecision({ outcome: "selected", optionId: "accept-once" })).toBe("accept-once");
+    expect(mcpConsentDecision({ outcome: "selected", optionId: "accept-always" })).toBe("decline");
     expect(mcpConsentDecision({ outcome: "cancelled" })).toBe("decline");
   });
 });
@@ -79,6 +80,11 @@ describe("approval → the tool call it belongs to", () => {
     expect(call).toMatchObject({ toolCallId: "m:t:edit_file_2", status: "pending" });
     expect(call).not.toHaveProperty("title");
     expect(call.content?.[0]).toMatchObject({ type: "diff", path: "README.md" });
+  });
+
+  it("a prompt with a card of its own never offers a standing rule", () => {
+    expect(approvalOptions(edit, false).map((o) => o.optionId)).toEqual(["once", "deny"]);
+    expect(approvalOptions(edit, true).map((o) => o.optionId)).toContain("always_allow_file");
   });
 
   it("no match (another file, or nothing running) keeps a card of its own", () => {
