@@ -8,9 +8,14 @@
   "license": "SEE LICENSE IN LICENSE.md",
   "icon": "media/icon.png",
   "homepage": "https://www.atlarix.dev/docs/guides/editors",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AmariahAK/atlarix-releases"
+  },
   "bugs": {
     "url": "https://github.com/AmariahAK/atlarix-releases/issues"
   },
+  "pricing": "Free",
   "galleryBanner": {
     "color": "#0a0a0a",
     "theme": "dark"
