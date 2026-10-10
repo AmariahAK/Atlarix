@@ -174,6 +174,26 @@ describe("AgentSession", () => {
     expect(cells.map((c: any) => c.kind)).toEqual(["tool", "user", "markdown", "footer"]);
   }, 60_000);
 
+  it("thinking and the answer reach the screen as they stream, though main keeps writing the row it sent", async () => {
+    // Main runs in this process: the row in its first full list is the object it
+    // goes on writing. Shared, each patch found its text already there and was
+    // dropped as "no change", so nothing showed until the turn ended.
+    const { AgentSession } = await import("../src/cli/agent/session");
+    const s = new AgentSession({ workspaceDir: ws }) as any;
+    s.state.busy = true;
+    const live = { id: 2, role: "assistant", content: "<think>The" };
+    s.onSend("chat:response:chunk", { messages: [{ id: 1, role: "user", content: "17*23?" }, live] });
+    const patch = (text: string) => {
+      const start = live.content.length;
+      live.content += text;
+      s.onSend("chat:response:chunk", { patch: { messageId: 2, start, text, length: live.content.length } });
+    };
+    patch(" user asks for a product.");
+    expect(s.state.cells.at(-1)).toMatchObject({ kind: "thought", text: "The user asks for a product." });
+    patch("</think>391");
+    expect(s.state.cells.at(-1)).toMatchObject({ kind: "markdown", text: "391" });
+  }, 60_000);
+
   it("a command that needs approval raises a prompt through the REAL permission path, and approving runs it", async () => {
     llm.stop();
     fs.writeFileSync(path.join(ws, "doomed.txt"), "bye");

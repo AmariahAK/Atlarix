@@ -1205,7 +1205,11 @@ export class AgentSession extends EventEmitter {
           return;
         }
         if (Array.isArray(p.messages)) {
-          this.messages = p.messages as ChatMessageLike[];
+          // Copies: main runs in this process and keeps writing the live row it
+          // sent. Shared, the row already held each patch's text when the patch
+          // came, so the patch read as "no change": thinking and the answer
+          // reached the screen and the editor only when the turn ended.
+          this.messages = (p.messages as ChatMessageLike[]).map((m) => ({ ...m }));
           this.anchorSteers();
           this.update({ cells: this.cellsFor(this.state.busy) });
           return;
