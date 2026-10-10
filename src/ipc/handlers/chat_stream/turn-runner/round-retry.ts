@@ -16,6 +16,7 @@ import { processStreamChunks } from "@/ipc/utils/stream_chunk_tags";
 import { safeSend } from "@/ipc/utils/safe_sender";
 import {
   EmptyModelOutputAfterRetryError,
+  ProviderRefusedRequestError,
   isNoUsableModelOutputError,
 } from "@/ipc/utils/no_usable_model_output";
 import {
@@ -290,6 +291,13 @@ export async function runStreamRoundWithEmptyOutputRetry(
         logger.warn(
           "[stream] The SDK reported 'no output generated' for a transport failure — retrying as a network error instead",
         );
+      }
+
+      // The provider refused the request itself (bad key, no access): the same
+      // request is refused again, and onError already said why.
+      const refusal = bundle?.getRecordedRefusal?.();
+      if (refusal != null && isEmptyOutputStreamError(err)) {
+        throw new ProviderRefusedRequestError(refusal);
       }
 
       // The provider refused the forced tool_choice (the wake turn's

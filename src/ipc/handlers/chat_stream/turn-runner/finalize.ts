@@ -36,6 +36,7 @@ import { FileUploadsState } from "@/ipc/utils/file_uploads_state";
 import { getEffectiveModel } from "@/ipc/utils/get_model_client";
 import {
   EmptyModelOutputAfterRetryError,
+  ProviderRefusedRequestError,
   isNoUsableModelOutputError,
   MODEL_EMPTY_RESPONSE_USER_MESSAGE,
 } from "@/ipc/utils/no_usable_model_output";
@@ -583,6 +584,19 @@ export async function handleTurnError(
     if (activeStreamId.get(req.chatId) === streamId)
       activeStreams.delete(req.chatId);
     ctx.streamTerminated = true;
+    FileUploadsState.getInstance().clear(req.chatId);
+    return;
+  }
+  if (error instanceof ProviderRefusedRequestError) {
+    // onError already sent the reason (e.g. "OpenAI rejected the API key").
+    safeSend(event.sender, "chat:response:end", {
+      chatId: req.chatId,
+      streamId,
+      updatedFiles: false,
+      hadToolCallsOrPermissions: false,
+    } satisfies ChatResponseEnd);
+    if (activeStreamId.get(req.chatId) === streamId)
+      activeStreams.delete(req.chatId);
     FileUploadsState.getInstance().clear(req.chatId);
     return;
   }
