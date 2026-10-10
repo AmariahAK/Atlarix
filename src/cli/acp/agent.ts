@@ -214,6 +214,11 @@ class Thread {
 
   /** Replay what is already in the session (session/load). */
   async replay(): Promise<void> {
+    // The editor shows the loaded chat's name, not "New chat".
+    if (this.session.state.title) {
+      this.lastTitle = this.session.state.title;
+      void this.send({ sessionUpdate: "session_info_update", title: this.session.state.title });
+    }
     for (const u of diffUpdates(this.session.state.cells, this.emitted, { replay: true })) void this.send(u);
     await this.flush();
   }
