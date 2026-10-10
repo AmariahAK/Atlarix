@@ -43,6 +43,8 @@ class FakeSession extends EventEmitter {
   queueNext(...a: unknown[]) { this.calls.push(["queueNext", ...a]); }
   popLastQueued() { this.calls.push(["popLastQueued"]); return "queued text back"; }
   async liveTasks() { return []; }
+  async recap(...a: unknown[]) { this.calls.push(["recap", ...a]); return "Fixing the login test; the fix is in, a run is next."; }
+  showRecap(text: string) { this.set({ cells: [...this.state.cells, { kind: "recap", id: "recap", text }] as never }); }
   setMode(m: string) { this.calls.push(["setMode", m]); this.set({ mode: m as SessionState["mode"] }); }
   async newSession() { this.calls.push(["newSession"]); }
   async interrupt() { this.calls.push(["interrupt"]); }
@@ -433,13 +435,25 @@ describe("the permission prompt", () => {
 });
 
 describe("parity details", () => {
-  it("an empty session shows a welcome with the folder and model", async () => {
+  it("an empty session shows the header: Rix, version, model and mode, folder", async () => {
     const { setup } = await mount();
-    const frame = setup.captureCharFrame();
-    expect(frame).toContain("Working in /work/acme with Atlarix Auto");
+    const frame = await frameContaining(setup, "Atlarix v15.0.0");
+    const lines = frame.split("\n");
+    // Left-aligned, at the top — not a centred splash.
+    expect(lines[0]).toMatch(/^\s{0,3}\S/);
+    expect(lines[0]).toContain("Atlarix v15.0.0");
+    expect(frame).toContain("Atlarix Auto · Build");
+    expect(frame).toContain("/work/acme");
     expect(frame).toContain("/commands");
-    expect(frame).toContain("▀█▀"); // the block-letter mark
-    expect(frame).toContain("v15.0.0");
+    expect(frame).toMatch(/[▀▄█]/); // Rix
+  });
+
+  it("the header stays as the first line once the conversation starts", async () => {
+    const { setup, session } = await mount();
+    session.set({ cells: [{ id: "u1", kind: "user", text: "hello there" }] as never });
+    const frame = await frameContaining(setup, "hello there");
+    expect(frame.split("\n")[0]).toContain("Atlarix v15.0.0");
+    expect(frame).not.toContain("Ask anything");
   });
 
   it("/help opens a key list, any key closes it", async () => {
@@ -747,5 +761,14 @@ describe("the prompt box colours what it will do", () => {
       paintCommand(t as never);
       expect(added[0] ? { start: added[0].start, end: added[0].end } : null).toEqual(range);
     }
+  });
+
+  it("/recap writes one line on where the session stands, shown under the conversation", async () => {
+    const { setup, session } = await mount();
+    await setup.mockInput.typeText("/recap");
+    setup.mockInput.pressEnter();
+    const frame = await frameContaining(setup, "While you were away");
+    expect(frame).toContain("Fixing the login test");
+    expect(session.calls.some((c) => c[0] === "recap")).toBe(true);
   });
 });

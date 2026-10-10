@@ -61,7 +61,9 @@ export function ensurePostHogInitialized(): ReturnType<
     before_send: (event) => {
       // Second layer, kept: consent can be withdrawn while the client runs.
       if (!isTelemetryOptedIn()) return null;
-      if (event?.properties?.["$ip"]) event.properties["$ip"] = null;
+      // No longer blanking `$ip`: that is what PostHog resolves the country and
+      // city from (the consent text says so). The project discards the address
+      // itself after the lookup.
       return event;
     },
   });

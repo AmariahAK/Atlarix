@@ -1,0 +1,229 @@
+/**
+ * One `atlarix acp` process for this window, shared by every chat in it.
+ *
+ * The process is the whole agent: Atlarix's sessions, tools, approvals, the
+ * Chrome bridge, messages between sessions. This file only starts it, speaks
+ * ACP to it, and routes what comes back to the chat that owns each session.
+ */
+import { spawn, type ChildProcess } from "node:child_process";
+import { Readable, Writable } from "node:stream";
+import * as acp from "@agentclientprotocol/sdk";
+import type {
+  ContentBlock,
+  InitializeResponse,
+  ListSessionsResponse,
+  LoadSessionResponse,
+  NewSessionResponse,
+  PromptResponse,
+  RequestPermissionRequest,
+  RequestPermissionResponse,
+  SessionConfigOption,
+  SessionNotification,
+} from "@agentclientprotocol/sdk";
+
+export interface AccountInfo {
+  email: string | null;
+  kind: "signed-out" | "free" | "pro" | "payg" | null;
+  balanceCents: number | null;
+  usage: { tokens: number; cachedTokens: number; costUsd: number; contextPercent: number | null } | null;
+  manageUrl: string;
+  pricingUrl: string;
+}
+export interface ProviderInfo {
+  id: string;
+  name: string;
+  hasKey: boolean;
+  keyUrl?: string;
+}
+export interface McpServer {
+  id: number;
+  name: string;
+  transport: string;
+  enabled: boolean;
+}
+export interface McpResult {
+  servers?: McpServer[];
+  result?: { ok: boolean; error?: string; needsOAuth?: boolean };
+}
+
+export interface SessionListener {
+  update(n: SessionNotification): void;
+  permission(req: RequestPermissionRequest): Promise<RequestPermissionResponse>;
+  peerWaiting(): void;
+}
+
+export interface ConnectionOptions {
+  binary: string;
+  cwd: string;
+  version: string;
+  log: (line: string) => void;
+  /** A sign-in page to open (the CLI prints it on stderr). */
+  openUrl: (url: string) => void;
+  onExit: (code: number | null) => void;
+}
+
+/** ACP's "sign in first" (RequestError.authRequired). */
+export function isAuthRequired(e: unknown): boolean {
+  const err = e as { code?: number; message?: string };
+  return err?.code === -32000 || /sign in|auth.?required/i.test(err?.message ?? "");
+}
+
+export class AtlarixConnection {
+  private child: ChildProcess | null = null;
+  private conn: acp.ClientConnection | null = null;
+  private readonly listeners = new Map<string, SessionListener>();
+  init: InitializeResponse | null = null;
+
+  constructor(private readonly opts: ConnectionOptions) {}
+
+  get alive(): boolean {
+    return this.conn != null;
+  }
+
+  async start(): Promise<InitializeResponse> {
+    const child = spawn(this.opts.binary, ["acp"], {
+      cwd: this.opts.cwd,
+      env: { ...process.env, ATLARIX_ACP_CLIENT: "vscode" },
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
+    });
+    this.child = child;
+    let stderr = "";
+    child.stderr?.setEncoding("utf8");
+    child.stderr?.on("data", (chunk: string) => {
+      stderr += chunk;
+      let nl: number;
+      while ((nl = stderr.indexOf("\n")) >= 0) {
+        const line = stderr.slice(0, nl);
+        stderr = stderr.slice(nl + 1);
+        this.opts.log(line);
+        const url = /Atlarix sign-in:\s*(\S+)/.exec(line)?.[1];
+        if (url) this.opts.openUrl(url);
+      }
+    });
+    child.on("exit", (code) => {
+      this.conn = null;
+      this.child = null;
+      this.opts.onExit(code);
+    });
+
+    const client = acp
+      .client({ name: "atlarix-vscode" })
+      .onRequest("session/request_permission", (ctx) => {
+        const l = this.listeners.get(ctx.params.sessionId);
+        if (!l) return { outcome: { outcome: "cancelled" } };
+        return l.permission(ctx.params);
+      })
+      .onNotification("session/update", (ctx) => {
+        this.listeners.get(ctx.params.sessionId)?.update(ctx.params);
+      })
+      .onNotification(
+        "_atlarix/peer_waiting",
+        (p) => p as { sessionId: string },
+        (ctx) => {
+          this.listeners.get(ctx.params.sessionId)?.peerWaiting();
+        },
+      );
+
+    const stream = acp.ndJsonStream(
+      Writable.toWeb(child.stdin!) as WritableStream<Uint8Array>,
+      Readable.toWeb(child.stdout!) as unknown as ReadableStream<Uint8Array>,
+    );
+    this.conn = client.connect(stream);
+    this.init = await this.conn.agent.request("initialize", {
+      protocolVersion: acp.PROTOCOL_VERSION,
+      clientCapabilities: { _meta: { atlarix: { version: 1 } } },
+      clientInfo: { name: "atlarix-vscode", version: this.opts.version },
+    });
+    return this.init;
+  }
+
+  private get agent(): acp.ClientContext {
+    if (!this.conn) throw new Error("Atlarix is not running.");
+    return this.conn.agent;
+  }
+
+  listen(sessionId: string, l: SessionListener): void {
+    this.listeners.set(sessionId, l);
+  }
+
+  forget(sessionId: string): void {
+    this.listeners.delete(sessionId);
+  }
+
+  newSession(cwd: string): Promise<NewSessionResponse> {
+    return this.agent.request("session/new", { cwd, mcpServers: [] });
+  }
+
+  loadSession(cwd: string, sessionId: string): Promise<LoadSessionResponse> {
+    return this.agent.request("session/load", { cwd, sessionId, mcpServers: [] }) as Promise<LoadSessionResponse>;
+  }
+
+  listSessions(cwd: string): Promise<ListSessionsResponse> {
+    return this.agent.request("session/list", { cwd });
+  }
+
+  prompt(sessionId: string, prompt: ContentBlock[], meta?: Record<string, unknown>): Promise<PromptResponse> {
+    return this.agent.request("session/prompt", { sessionId, prompt, ...(meta ? { _meta: { atlarix: meta } } : {}) });
+  }
+
+  cancel(sessionId: string): void {
+    void this.agent.notify("session/cancel", { sessionId }).catch(() => {});
+  }
+
+  async setOption(sessionId: string, configId: string, value: string): Promise<SessionConfigOption[]> {
+    const r = await this.agent.request("session/set_config_option", { sessionId, configId, value });
+    return r.configOptions;
+  }
+
+  authenticate(): Promise<unknown> {
+    return this.agent.request("authenticate", { methodId: "atlarix-browser" });
+  }
+
+  status(): Promise<{ chrome?: string; recap?: boolean }> {
+    return this.agent.request<{ chrome?: string; recap?: boolean }>("_atlarix/status", {});
+  }
+
+  recap(sessionId: string): Promise<{ text: string | null }> {
+    return this.agent.request<{ text: string | null }>("_atlarix/recap", { sessionId });
+  }
+
+  setRecap(on: boolean): Promise<unknown> {
+    return this.agent.request("_atlarix/recap_setting", { on });
+  }
+
+  handoff(sessionId: string): Promise<unknown> {
+    return this.agent.request("_atlarix/handoff", { sessionId });
+  }
+
+  account(sessionId: string | null): Promise<AccountInfo> {
+    return this.agent.request<AccountInfo>("_atlarix/account", sessionId ? { sessionId } : {});
+  }
+
+  checkout(kind: "pro" | "credit", amountCents?: number): Promise<{ url: string }> {
+    return this.agent.request<{ url: string }>("_atlarix/checkout", { kind, ...(amountCents ? { amountCents } : {}) });
+  }
+
+  signOut(): Promise<unknown> {
+    return this.agent.request("_atlarix/sign_out", {});
+  }
+
+  providers(): Promise<{ providers: ProviderInfo[] }> {
+    return this.agent.request<{ providers: ProviderInfo[] }>("_atlarix/providers", {});
+  }
+
+  saveKey(providerId: string, key: string): Promise<unknown> {
+    return this.agent.request("_atlarix/provider_key", { providerId, key });
+  }
+
+  mcp(sessionId: string, action: "list" | "set" | "add" | "remove" | "test", args: Record<string, unknown> = {}): Promise<McpResult> {
+    return this.agent.request<McpResult>("_atlarix/mcp", { sessionId, action, ...args });
+  }
+
+  dispose(): void {
+    this.conn?.close();
+    this.child?.kill();
+    this.conn = null;
+    this.child = null;
+  }
+}

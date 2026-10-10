@@ -60,6 +60,7 @@ const validInvokeChannels = [
   "sessions:start",
   "sessions:allocate-transport",
   "sessions:continue-in-terminal",
+  "sessions:open-in-editor",
   "sessions:resolve-for-transport",
   "sessions:create",
   "sessions:rename",
@@ -186,6 +187,7 @@ const validInvokeChannels = [
   "compass:get-slot-change-notice",
   "compass:ack-slot-change",
   "edit-stats:summary",
+  "recap:generate",
   // Models.dev (dynamic model catalog)
   "models-dev:refresh",
   // Codebase search

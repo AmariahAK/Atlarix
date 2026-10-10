@@ -120,6 +120,8 @@ export interface CliServices {
     email(): Promise<string | null>;
     /** Spendable balance in cents; null when signed out or unknown. */
     balanceCents(): Promise<number | null>;
+    /** The header's plan label. Optional so test fakes need not answer it. */
+    kind?(): Promise<"signed-out" | "free" | "pro" | "payg">;
     signOut(): Promise<void>;
     /** A Lemon Squeezy checkout link: Pro, or Core credit (cents, $10 minimum). */
     checkout(kind: "pro" | "credit", amountCents?: number): Promise<string | null>;
@@ -312,6 +314,12 @@ export const realServices: CliServices = {
       // Shared with the relic tool's check: one request for a burst of askers.
       const { creditBalanceCents } = await import("@/lib/billing/credit-balance");
       return creditBalanceCents(5_000);
+    },
+    async kind() {
+      if (!(await this.email())) return "signed-out";
+      const { SubscriptionManager } = await import("@/lib/SubscriptionManager");
+      if (SubscriptionManager.isPro()) return "pro";
+      return ((await this.balanceCents()) ?? 0) > 0 ? "payg" : "free";
     },
     async signOut() {
       const { signOutCli } = await import("../auth/account");

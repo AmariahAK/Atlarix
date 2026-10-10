@@ -145,6 +145,14 @@ describe("isOnlyToolDebris", () => {
     expect(isOnlyToolDebris("Here is the answer.")).toBe(false);
   });
 
+  it("keeps an answer that is only a number, a date or a time", () => {
+    for (const answer of ["18", "3.14", "2026-10-10", "1:30", "-7"]) expect(isOnlyToolDebris(answer)).toBe(false);
+  });
+
+  it("still drops leftover JSON punctuation", () => {
+    for (const debris of ['"}]', '", 12}', "]}"]) expect(isOnlyToolDebris(debris)).toBe(true);
+  });
+
   it("returns true for a leading comma-prefixed message fragment (Fix L)", () => {
     expect(isOnlyToolDebris('","message":"Plan created."}')).toBe(true);
   });

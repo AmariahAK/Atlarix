@@ -1,10 +1,10 @@
 # Atlarix TODO
 
-**Current version:** 15.3.0, released 2026-10-09: Atlarix runs inside Zed, JetBrains IDEs and
-VS Code over the Agent Client Protocol (`atlarix acp`), and the composer's fast-typing crash is
-fixed. Before it, 15.2.0 (2026-10-08): the Chrome extension is a session the CLI and app can
-message; free Auto doubles its hard stop for new accounts; credit leads every paywall. Narrative in
-[`docs/CHANGELOG.md`](./CHANGELOG.md).
+**Current version:** 15.4.0, staged 2026-10-10 on the local `v15.4` branch (not released): Atlarix
+for VS Code, Cursor and Kiro (`packages/vscode`), Rix the mascot, the CLI's left-aligned header,
+the session recap on every surface, opted-in analytics with an approximate location, and more of
+Atlarix in Zed and JetBrains over ACP. Before it, 15.3.0 (2026-10-09): `atlarix acp` for Zed,
+JetBrains IDEs and VS Code. Narrative in [`docs/CHANGELOG.md`](./CHANGELOG.md).
 
 **This header has been wrong before.** Update it in the same commit as the version bump, or do
 not trust it.
@@ -21,6 +21,21 @@ not trust it.
 **Last updated:** 2026-10-08
 
 ---
+
+## Next up — releasing 15.4.0
+
+- **Owner's go-ahead** to push `v15.4` (Atlarix and atlarix-launchpad) and tag v15.4.0.
+- **VS Code Marketplace: upload by hand.** After the release, upload each `atlarix-<platform>-15.4.0.vsix`
+  from the release at marketplace.visualstudio.com/manage/publishers/atlarix (no Azure DevOps token;
+  move to `vsce publish --oidc` once Microsoft enables trusted publishing — the email is sent).
+- **Open VSX:** `gh variable set VSCODE_AUTO_SUBMIT --body true` before tagging, or `npx ovsx publish`
+  each VSIX by hand. `OVSX_PAT` is set.
+- **ACP registry PR** (agentclientprotocol/registry): `atlarix/agent.json` (npx `atlarix@15.4.0`,
+  args `["acp"]`) + `icon.svg` = `assets/rix/rix-glyph.svg`; run `verify_agents.py --auth-check`.
+  Public, so the owner's go-ahead first.
+- **Windows full turn in the VM:** the VM's desktop app is 14.52, so the CLI (correctly) refuses its
+  database. Update the app there, then run a turn in VS Code on Windows ARM.
+- The launchpad changelog for 15.4.0 is its own rewrite (never a copy of this one).
 
 ## Next up — after 15.0.1
 

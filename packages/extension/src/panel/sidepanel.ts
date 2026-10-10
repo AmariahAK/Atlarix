@@ -86,6 +86,8 @@ import {
   saveSession,
 } from "../sessions/store";
 import { generateTitle } from "../sessions/title";
+import { generateRecapLine } from "../sessions/recap";
+import { recapDecision, type RecapClock } from "@/lib/recap/rules";
 import {
   appendArchive,
   deleteArchive,
@@ -926,7 +928,12 @@ function userBubble(
   return wrap;
 }
 
-/** "Message from release notes (CLI)" — the card a peer message renders as. */
+/**
+ * "Message from release notes (CLI)" — a message from another session, drawn
+ * as a step on the agent's side (the tool row's own shape: a dot, a summary, the
+ * text folded under it). Never the user's bubble, and no longer a green card
+ * across the width, which still read as an exchange.
+ */
 function peerTaskCard(segments: PeerSegment[]): HTMLElement {
   const wrap = document.createElement("div");
   wrap.className = "msg msg--peer";
@@ -938,17 +945,21 @@ function peerTaskCard(segments: PeerSegment[]): HTMLElement {
       wrap.append(extra);
       continue;
     }
-    const card = document.createElement("details");
-    card.className = "peer-task";
-    card.open = true;
-    const head = document.createElement("summary");
-    head.className = "peer-task__head";
-    head.textContent = `Message from ${seg.from || "another session"} (${peerSurfaceLabel(seg.surface)})`;
-    const body = document.createElement("div");
-    body.className = "peer-task__body";
+    const details = document.createElement("details");
+    details.className = "tool tool--peer";
+    details.open = seg.text.length <= 400;
+    const summary = document.createElement("summary");
+    const dot = document.createElement("span");
+    dot.className = "tool__dot";
+    summary.append(
+      dot,
+      document.createTextNode(`Message from ${seg.from || "another session"} (${peerSurfaceLabel(seg.surface)})`),
+    );
+    const body = document.createElement("pre");
+    body.className = "tool__body";
     body.textContent = seg.text;
-    card.append(head, body);
-    wrap.append(card);
+    details.append(summary, body);
+    wrap.append(details);
   }
   return wrap;
 }
@@ -1509,6 +1520,12 @@ function renderConversation(history: CoreMessage[]): void {
   if (history.length === 0) {
     const empty = document.createElement("div");
     empty.className = "empty";
+    // Rix, as an image: the SVG animates on its own and no markup is parsed here.
+    const rix = document.createElement("img");
+    rix.className = "empty__rix";
+    rix.src = "icons/rix.svg";
+    rix.alt = "";
+    empty.append(rix);
     const lede = document.createElement("strong");
     lede.textContent = "Ask about the page you are on.";
     empty.append(
@@ -2145,6 +2162,7 @@ async function send(peerTask?: string): Promise<void> {
     void detachAll();
     void setGroupTitle(windowId, "Atlarix");
     void nameConversation(model);
+    noteTurnEnded();
     void refreshDrawer();
     // BETWEEN turns, which is the only moment a placeholder may change without
     // reading as a glitch. `mayRotate` holds it back if the user has already
@@ -2988,5 +3006,112 @@ signOutButton?.addEventListener("click", () => {
     .then(() => setStatus(""))
     .catch((err: unknown) => setStatus(String(err)));
 });
+
+// ---------------------------------------------------------------------------
+// Session recap (src/lib/recap/rules.ts — the same rule as the app, the CLI
+// and the editors): come back to the panel after a few minutes away and one
+// line says where the conversation stands. Written while you're away, shown,
+// never saved. On by default; the drawer turns it off (this browser only).
+// ---------------------------------------------------------------------------
+
+const RECAP_KEY = "atlarix.sessionRecap";
+let recapOn = true;
+let recapFor = sessionId;
+const recapClock: RecapClock = { completedTurns: 0, lastTurnEndedAt: null, recappedAfterTurn: -1 };
+let recapTimer: ReturnType<typeof setTimeout> | null = null;
+let recapReady: string | null = null;
+const panelPresent = () => document.visibilityState === "visible" && document.hasFocus();
+
+void api()
+  .storage.local.get<Record<string, unknown>>(RECAP_KEY)
+  .then((bag) => {
+    recapOn = bag?.[RECAP_KEY] !== false;
+    if (recapToggle) recapToggle.checked = recapOn;
+  })
+  .catch(() => {});
+
+const recapToggle = el<HTMLInputElement>("recap-toggle");
+recapToggle?.addEventListener("change", () => {
+  recapOn = recapToggle.checked;
+  void api().storage.local.set({ [RECAP_KEY]: recapOn }).catch(() => {});
+});
+
+function resetRecapIfNewConversation(): void {
+  if (recapFor === sessionId) return;
+  recapFor = sessionId;
+  recapClock.completedTurns = messages.filter((m) => m.role === "assistant").length;
+  recapClock.lastTurnEndedAt = null;
+  recapClock.recappedAfterTurn = -1;
+  recapReady = null;
+}
+
+function noteTurnEnded(): void {
+  resetRecapIfNewConversation();
+  recapClock.completedTurns++;
+  recapClock.lastTurnEndedAt = Date.now();
+  recapReady = null;
+  transcript?.querySelector(".recap")?.remove();
+  if (!panelPresent()) armRecap();
+}
+
+function armRecap(): void {
+  if (recapTimer) clearTimeout(recapTimer);
+  recapTimer = null;
+  resetRecapIfNewConversation();
+  const d = recapDecision({ ...recapClock, enabled: recapOn, present: panelPresent(), busy: running != null, now: Date.now() });
+  if (d.kind === "wait") recapTimer = setTimeout(armRecap, d.ms);
+  else if (d.kind === "now") void writeRecap();
+}
+
+async function writeRecap(): Promise<void> {
+  const model = modelSelect?.value;
+  if (!model) return;
+  const forSession = sessionId;
+  recapClock.recappedAfterTurn = recapClock.completedTurns;
+  const line = await generateRecapLine(model, messages);
+  if (!line || forSession !== sessionId) return;
+  if (panelPresent()) showRecap(line);
+  else recapReady = line;
+}
+
+function showRecap(line: string): void {
+  if (!transcript) return;
+  transcript.querySelector(".recap")?.remove();
+  const row = document.createElement("div");
+  row.className = "recap";
+  row.setAttribute("role", "status");
+  const mark = document.createElement("span");
+  mark.className = "recap__mark";
+  mark.textContent = "◷";
+  const label = document.createElement("span");
+  label.className = "recap__label";
+  label.textContent = "While you were away";
+  const text = document.createElement("span");
+  text.className = "recap__text";
+  text.textContent = line;
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "recap__close";
+  close.textContent = "×";
+  close.setAttribute("aria-label", "Dismiss");
+  close.addEventListener("click", () => row.remove());
+  row.append(mark, label, text, close);
+  transcript.append(row);
+  transcript.scrollTop = transcript.scrollHeight;
+}
+
+function onPanelPresence(): void {
+  if (panelPresent()) {
+    if (recapTimer) clearTimeout(recapTimer);
+    recapTimer = null;
+    if (recapReady) {
+      showRecap(recapReady);
+      recapReady = null;
+    }
+  } else armRecap();
+}
+document.addEventListener("visibilitychange", onPanelPresence);
+window.addEventListener("focus", onPanelPresence);
+window.addEventListener("blur", onPanelPresence);
 
 void render();

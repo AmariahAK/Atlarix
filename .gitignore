@@ -148,3 +148,4 @@ benchmarks/results-smoke-daytona/
 
 # Security audit report — details live exploit steps; keep local, do not commit
 docs/SUPABASE_SECURITY_AUDIT.md
+dist-vscode/

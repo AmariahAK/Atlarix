@@ -18,7 +18,7 @@
  * bottom while new output arrives, until the user scrolls up.
  */
 import { useTerminalDimensions } from "@opentui/react";
-import { memo } from "react";
+import { memo, type ReactNode } from "react";
 import {
   previewLines,
   type Cell,
@@ -529,6 +529,14 @@ function CellViewInner({
         </box>
       );
     }
+    case "recap":
+      return (
+        <text marginTop={1}>
+          <span fg={color.accent}>{`${glyph.recap} `}</span>
+          <span fg={color.textDim}>{"While you were away · "}</span>
+          <span fg={color.text}>{cell.text}</span>
+        </text>
+      );
     case "footer":
       return (
         <text fg={color.faint} marginTop={1}>
@@ -581,9 +589,12 @@ export function Transcript({
   plain = false,
   busy = false,
   workspace,
+  header,
 }: {
   /** Paths under it are shown relative. */
   workspace?: string;
+  /** Drawn first inside the scroll, so it stays at the top and scrolls away with history. */
+  header?: ReactNode;
   cells: Cell[];
   expanded: boolean;
   plain?: boolean;
@@ -597,6 +608,7 @@ export function Transcript({
           "cut off" ends of lines (owner, 2026-10-04: "…the Atlarix agent" with
           its "." gone, a closing ")" missing). */}
       <box flexDirection="column" gap={0} paddingRight={2}>
+        {header}
         {cells.map((c, i) => (
           <CellView
             key={c.id}

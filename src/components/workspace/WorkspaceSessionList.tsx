@@ -30,6 +30,9 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -590,6 +593,38 @@ export function WorkspaceSessionList({
                   >
                     {t("sessions.continueInTerminal")}
                   </DropdownMenuItem>
+                  {/* App → editor handoff: Atlarix's extension opens the same session (lib/peers/open-in-editor). */}
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger onClick={(e) => e.stopPropagation()}>
+                      {t("sessions.openInEditor")}
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      {(
+                        [
+                          ["vscode", "VS Code"],
+                          ["cursor", "Cursor"],
+                          ["kiro", "Kiro"],
+                          ["windsurf", "Windsurf"],
+                        ] as const
+                      ).map(([id, name]) => (
+                        <DropdownMenuItem
+                          key={id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void IpcClient.getInstance()
+                              .openSessionInEditor(session.id, id)
+                              .then((r) =>
+                                r.ok
+                                  ? showInfo(`Opening in ${name}. The Atlarix extension picks it up.`)
+                                  : showError(new Error(r.error ?? `Couldn't open ${name}`)),
+                              );
+                          }}
+                        >
+                          {name}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
                   <DropdownMenuItem
                     className="text-destructive focus:text-destructive"
                     onClick={(e) => {

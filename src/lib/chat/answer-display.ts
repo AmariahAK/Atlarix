@@ -358,7 +358,10 @@ export function isOnlyToolDebris(content: string): boolean {
     stripToolJsonLinesFromMarkdown(stripOrphanToolTagFragments(content)),
   ).trim();
   if (!stripped) return true;
-  if (/^[\s\]},":\d._-]+$/.test(stripped)) return true;
+  // Leftover JSON punctuation (`"}]`, `", 12}`): at least one bracket, brace or
+  // quote. Without that, a reply that is only a number ("18", "3.14",
+  // "2026-10-10") counted as debris and the whole answer vanished.
+  if (/^[\s\]},":\d._-]+$/.test(stripped) && /[\]}"]/.test(stripped)) return true;
   if (/^"?,?\s*"message"\s*:/.test(stripped)) return true;
   if (/^\{\s*"success"\s*:/.test(stripped)) return true;
   const lines = stripped.split("\n").filter((l) => l.trim());

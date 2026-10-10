@@ -16,6 +16,8 @@ export const glyph = {
   result: "╰",
   /** A sub-agent's own calls, under its task. */
   child: "├",
+  /** The recap when you come back to a session. */
+  recap: "◷",
   tool: {
     running: "◌",
     success: "◇",

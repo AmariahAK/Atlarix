@@ -113,12 +113,17 @@ export function diffUpdates(cells: readonly Cell[], emitted: Emitted, opts: { re
       emitted.set(k, sig);
       const content = toolContent(t, name);
       if (before === undefined) {
+        // A message from another Atlarix session (transcript.ts draws it as a
+        // "Message from X (app)" step): marked so Atlarix's extension shows it
+        // as a message card; other editors show the step as is.
+        const peer = t.verb === "Message" && /:p\d+$/.test(c.id) ? { _meta: { atlarix: { peer: { from: t.target?.replace(/^from /, "") ?? "" } } } } : {};
         out.push({
           sessionUpdate: "tool_call",
           toolCallId: c.id,
           title: toolTitle(t),
           kind: toolKind(name),
           status: status(t.status),
+          ...peer,
           ...(t.target && /[/\\.]/.test(t.target) && toolKind(name) !== "execute" ? { locations: [{ path: t.target }] } : {}),
           ...(content.length ? { content } : {}),
         });

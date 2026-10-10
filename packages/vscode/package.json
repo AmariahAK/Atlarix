@@ -1,0 +1,189 @@
+{
+  "name": "atlarix",
+  "displayName": "Atlarix — AI Coding Agent (Any Model, Your Own Key)",
+  "description": "AI coding agent for VS Code, Cursor, Kiro and Windsurf. Use Claude, GPT, Gemini, GLM, DeepSeek or local models with your own API key, or Atlarix Auto. Plan, Build, Debug and Review modes; every edit waits for your approval.",
+  "version": "15.4.0",
+  "publisher": "atlarix",
+  "private": true,
+  "license": "SEE LICENSE IN LICENSE.md",
+  "icon": "media/icon.png",
+  "homepage": "https://www.atlarix.dev/docs/guides/editors",
+  "bugs": {
+    "url": "https://github.com/AmariahAK/atlarix-releases/issues"
+  },
+  "galleryBanner": {
+    "color": "#0a0a0a",
+    "theme": "dark"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "AI",
+    "Chat",
+    "Programming Languages",
+    "Debuggers"
+  ],
+  "keywords": [
+    "ai coding agent",
+    "ai agent",
+    "coding assistant",
+    "ai pair programmer",
+    "autonomous agent",
+    "byok",
+    "bring your own key",
+    "openai",
+    "gpt",
+    "claude",
+    "anthropic",
+    "gemini",
+    "deepseek",
+    "glm",
+    "openrouter",
+    "ollama",
+    "local llm",
+    "code review",
+    "debugging",
+    "refactor",
+    "plan mode",
+    "agent mode",
+    "chat",
+    "mcp",
+    "browser automation",
+    "chrome",
+    "cursor",
+    "kiro",
+    "acp",
+    "atlarix"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "atlarix",
+          "title": "Atlarix",
+          "icon": "media/rix-glyph.svg"
+        }
+      ]
+    },
+    "views": {
+      "atlarix": [
+        {
+          "type": "webview",
+          "id": "atlarix.chat",
+          "name": "Chat"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "atlarix.newChat",
+        "title": "New chat",
+        "category": "Atlarix",
+        "icon": "$(add)"
+      },
+      {
+        "command": "atlarix.openInTab",
+        "title": "Open chat in an editor tab",
+        "category": "Atlarix",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "atlarix.history",
+        "title": "Past chats",
+        "category": "Atlarix",
+        "icon": "$(history)"
+      },
+      {
+        "command": "atlarix.addSelection",
+        "title": "Add selection to chat",
+        "category": "Atlarix"
+      },
+      {
+        "command": "atlarix.addFile",
+        "title": "Add file to chat",
+        "category": "Atlarix"
+      },
+      {
+        "command": "atlarix.focus",
+        "title": "Focus chat",
+        "category": "Atlarix"
+      },
+      {
+        "command": "atlarix.signIn",
+        "title": "Sign in",
+        "category": "Atlarix"
+      },
+      {
+        "command": "atlarix.showLog",
+        "title": "Show log",
+        "category": "Atlarix"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "atlarix.newChat",
+          "when": "view == atlarix.chat",
+          "group": "navigation@1"
+        },
+        {
+          "command": "atlarix.history",
+          "when": "view == atlarix.chat",
+          "group": "navigation@2"
+        },
+        {
+          "command": "atlarix.openInTab",
+          "when": "view == atlarix.chat",
+          "group": "navigation@3"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "atlarix.addSelection",
+          "when": "editorHasSelection",
+          "group": "atlarix@1"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "atlarix.addFile",
+          "when": "!explorerResourceIsFolder",
+          "group": "atlarix@1"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "atlarix.focus",
+        "key": "ctrl+alt+a",
+        "mac": "cmd+alt+a"
+      },
+      {
+        "command": "atlarix.addSelection",
+        "key": "ctrl+alt+l",
+        "mac": "cmd+alt+l",
+        "when": "editorHasSelection"
+      }
+    ],
+    "configuration": {
+      "title": "Atlarix",
+      "properties": {
+        "atlarix.cliPath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Path to an `atlarix` program to use instead of the one inside this extension."
+        }
+      }
+    }
+  },
+  "devDependencies": {
+    "@types/vscode": "1.90.0"
+  },
+  "qna": "https://github.com/AmariahAK/atlarix-releases/discussions",
+  "activationEvents": [
+    "onUri",
+    "onStartupFinished"
+  ]
+}

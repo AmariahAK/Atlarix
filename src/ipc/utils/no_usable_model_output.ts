@@ -17,6 +17,17 @@ export class EmptyModelOutputAfterRetryError extends Error {
   }
 }
 
+/**
+ * The provider refused the request (a revoked key, no access to the model) and
+ * the user was already told why. The turn ends without a second, vaguer error.
+ */
+export class ProviderRefusedRequestError extends Error {
+  constructor(readonly refusal: unknown) {
+    super("ProviderRefusedRequest");
+    this.name = "ProviderRefusedRequestError";
+  }
+}
+
 function unwrapNestedError(err: unknown): unknown[] {
   if (err == null || typeof err !== "object") return [err];
   const o = err as Record<string, unknown>;

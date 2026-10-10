@@ -2942,6 +2942,14 @@ export class IpcClient {
     };
   }
 
+  /** Open this session in VS Code, Cursor, Kiro… through Atlarix's extension. */
+  public async openSessionInEditor(
+    sessionId: string,
+    editor: string,
+  ): Promise<{ ok: boolean; error?: string }> {
+    return this.ipcRenderer.invoke("sessions:open-in-editor", sessionId, editor);
+  }
+
   /** Open this session in the user's terminal with the CLI (`atlarix --resume <id>`). */
   public async continueSessionInTerminal(
     sessionId: string,
@@ -3863,6 +3871,11 @@ export class IpcClient {
     import("@/ipc/ipc_types").EditStatsSummary
   > {
     return this.ipcRenderer.invoke("edit-stats:summary");
+  }
+
+  /** One line on where a chat stands, for someone coming back to it (lib/recap). */
+  public async generateRecap(chatId: number, conversation: string, force = false): Promise<{ text: string | null }> {
+    return this.ipcRenderer.invoke("recap:generate", chatId, conversation, force);
   }
 
   /** Is the user's browser connected through the Atlarix extension? */

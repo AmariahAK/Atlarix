@@ -142,7 +142,9 @@ export type Cell =
   | { kind: "tool"; id: string; tool: ToolLine }
   | { kind: "notice"; id: string; level: "info" | "error"; text: string }
   /** After a finished turn: its mode, model and how long it took. */
-  | { kind: "footer"; id: string; text: string; interrupted?: boolean };
+  | { kind: "footer"; id: string; text: string; interrupted?: boolean }
+  /** Coming back after a while away: one line on where things stand (lib/recap). Never sent to the model. */
+  | { kind: "recap"; id: string; text: string };
 
 const VERBS: Record<string, string> = {
   read_file: "Read",

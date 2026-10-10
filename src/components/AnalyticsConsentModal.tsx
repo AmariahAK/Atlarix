@@ -58,7 +58,9 @@ export function AnalyticsConsentModal() {
           Never your code, prompts, file names, or file contents. Anonymous when
           signed out. When signed in, it&apos;s linked to your account and
           includes your email and name, so your usage counts once across your
-          devices. You can change this anytime in Settings.
+          devices. Includes your approximate location (country and city), worked
+          out from your connection; the address itself isn&apos;t kept. You can
+          change this anytime in Settings.
         </p>
         <p className="mt-3 text-sm text-muted-foreground">
           Crash and error reports are sent separately and are not covered by

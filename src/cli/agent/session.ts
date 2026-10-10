@@ -28,6 +28,7 @@ import {
   type ToolLine,
 } from "./transcript";
 
+import { conversationText } from "./btw";
 import { handler } from "./ipc";
 import { applyLiveTextPatch, type LiveTextPatch } from "@/lib/chat/live-text-patch";
 
@@ -610,6 +611,21 @@ export class AgentSession extends EventEmitter {
   // ─── sub-agents (/agents) ──────────────────────────────────────────────────
 
   /** /btw: a side question about this conversation; nothing is saved (btw.ts). */
+  private recapLine: string | null = null;
+
+  /** Show a recap under the conversation until the next turn starts. */
+  showRecap(text: string | null): void {
+    this.recapLine = text;
+    this.update({ cells: this.cellsFor(this.state.busy) });
+  }
+
+  /** The one-line recap for someone coming back (lib/recap); null when none is due or allowed. */
+  async recap(opts: { force?: boolean } = {}): Promise<string | null> {
+    const { generateRecap } = await import("@/lib/recap/recap");
+    const cells = this.state.cells.filter((c) => c.kind !== "recap");
+    return generateRecap(conversationText(cells), { chatId: this.chatId, model: this.model, force: opts.force });
+  }
+
   async aside(question: string): Promise<string> {
     const { answerAside } = await import("./btw");
     return answerAside(question, this.state.cells, this.chatId, this.model);
@@ -848,6 +864,7 @@ export class AgentSession extends EventEmitter {
   }
 
   private async startTurn(text: string, opts: TurnOptions = {}): Promise<void> {
+    this.recapLine = null;
     await this.ensureSession();
     if (!opts.continueAfterQuestions) {
       const display = opts.display ?? text;
@@ -936,7 +953,9 @@ export class AgentSession extends EventEmitter {
   }
 
   private cellsFor(streaming: boolean): Cell[] {
-    return this.withFooters(this.numberEdits(this.timeThoughts(this.untimedCells(streaming), streaming)));
+    const cells = this.withFooters(this.numberEdits(this.timeThoughts(this.untimedCells(streaming), streaming)));
+    // The recap is shown, never stored: it sits after everything and goes with the next turn.
+    return this.recapLine ? [...cells, { kind: "recap", id: "recap", text: this.recapLine }] : cells;
   }
 
   /** Each turn this session ran, by its reply's id: "Build · deepseek-flash · 12s". */
@@ -1186,7 +1205,11 @@ export class AgentSession extends EventEmitter {
           return;
         }
         if (Array.isArray(p.messages)) {
-          this.messages = p.messages as ChatMessageLike[];
+          // Copies: main runs in this process and keeps writing the live row it
+          // sent. Shared, the row already held each patch's text when the patch
+          // came, so the patch read as "no change": thinking and the answer
+          // reached the screen and the editor only when the turn ended.
+          this.messages = (p.messages as ChatMessageLike[]).map((m) => ({ ...m }));
           this.anchorSteers();
           this.update({ cells: this.cellsFor(this.state.busy) });
           return;
@@ -1465,6 +1488,14 @@ export class AgentSession extends EventEmitter {
   }
 
   /** Open a turn with a message another session queued while this one was idle. */
+  /**
+   * Read the messages another session left while this one was idle and held
+   * them (`idlePeerMessages: "hold"`): the editor extension's "read it now".
+   */
+  async takeHeldPeerMessages(): Promise<void> {
+    if (!this.state.busy) await this.startPeerTurn();
+  }
+
   private async startPeerTurn(): Promise<void> {
     const flushed = (await Promise.resolve((await handler("chat:interject-flush"))({}, this.chatId)).catch(
       () => null,

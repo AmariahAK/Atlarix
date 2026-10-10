@@ -403,7 +403,9 @@ export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
               prompts, file names, or file contents. Anonymous when signed out.
               When signed in, it's linked to your account and includes your
               email and name, so your usage counts once across your devices.
-              Crash and error reports are sent separately and are not covered by
+              Includes your approximate location (country and city), worked out
+              from your connection; the address itself isn't kept. Crash and
+              error reports are sent separately and are not covered by
               this choice — they carry stack traces and device info, never your
               code or prompts.
             </p>
@@ -735,6 +737,22 @@ export function NotificationsSettings() {
         </div>
         <p className="text-xs text-muted-foreground max-w-md">
           {t("peerMessages.description")}
+        </p>
+      </div>
+
+      <div className="mt-6 space-y-2 border-t border-border pt-6">
+        <div className="flex items-center justify-between max-w-md gap-4">
+          <Label htmlFor="session-recap" className="text-sm">
+            {t("sessionRecap.label")}
+          </Label>
+          <Switch
+            id="session-recap"
+            checked={settings?.sessionRecap !== false}
+            onCheckedChange={(checked) => updateSettings({ sessionRecap: checked })}
+          />
+        </div>
+        <p className="text-xs text-muted-foreground max-w-md">
+          {t("sessionRecap.description")}
         </p>
       </div>
     </div>

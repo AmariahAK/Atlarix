@@ -183,3 +183,51 @@ describe("PostHog writes nothing to the device before consent", () => {
     expect(initSpy).not.toHaveBeenCalled();
   });
 });
+
+describe("location for opted-in usage data", () => {
+  /**
+   * posthog-node turns GeoIP OFF by default and the renderer used to blank
+   * `$ip`, so no event ever had a country. The consent text now says location
+   * is included (and the address isn't kept); these hold the code to it.
+   */
+  afterEach(() => {
+    vi.doUnmock("posthog-node");
+    vi.doUnmock("posthog-js");
+    vi.doUnmock("@/hooks/useSettings");
+  });
+
+  it("the desktop and CLI client asks PostHog for the location", async () => {
+    vi.resetModules();
+    const ctor = vi.fn();
+    vi.doMock("posthog-node", () => ({
+      PostHog: class {
+        constructor(...a: unknown[]) {
+          ctor(...a);
+        }
+      },
+    }));
+    const prev = process.env.POSTHOG_API_KEY;
+    process.env.POSTHOG_API_KEY = "phc_test";
+    try {
+      const m = await import("@/main/lib/analytics");
+      m.getPostHog();
+      expect(ctor).toHaveBeenCalledWith("phc_test", expect.objectContaining({ disableGeoip: false }));
+    } finally {
+      if (prev === undefined) delete process.env.POSTHOG_API_KEY;
+      else process.env.POSTHOG_API_KEY = prev;
+    }
+  });
+
+  it("the app's client no longer blanks the address PostHog locates from", async () => {
+    vi.resetModules();
+    const init = vi.fn(() => ({ __client: true }));
+    vi.doMock("posthog-js", () => ({ default: { init, identify: vi.fn() } }));
+    vi.doMock("@/hooks/useSettings", () => ({ isTelemetryOptedIn: () => true }));
+    const m = await import("@/lib/analytics/posthog-client");
+    m.setPostHogConfig("phc_key", "anon-1");
+    m.ensurePostHogInitialized();
+    const opts = (init.mock.calls[0] as unknown as Array<{ before_send: (e: unknown) => unknown }>)[1];
+    const event = { properties: { $ip: "203.0.113.7" } };
+    expect(opts.before_send(event)).toMatchObject({ properties: { $ip: "203.0.113.7" } });
+  });
+});

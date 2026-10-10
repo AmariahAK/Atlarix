@@ -1,0 +1,21 @@
+{
+  // The extension host: Node and the `vscode` API. The webview has its own
+  // (webview/tsconfig.json) with the DOM and no Node, so a browser bundle can't
+  // reach for `fs` and a host file can't reach for `document`.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["node", "vscode"],
+    "typeRoots": ["./node_modules/@types", "../../node_modules/@types"],
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "strict": true,
+    "noFallthroughCasesInSwitch": true,
+    "esModuleInterop": true,
+    "paths": { "@/*": ["../../src/*"] }
+  },
+  "include": ["src"]
+}

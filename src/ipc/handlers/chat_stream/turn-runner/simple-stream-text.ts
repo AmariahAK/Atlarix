@@ -494,6 +494,13 @@ export async function simpleStreamText(
    * closure, so a recovered attempt cannot inherit the previous one's verdict.
    */
   let recordedNetworkError: unknown = null;
+  /**
+   * The provider refused the request itself (a revoked key, no access to the
+   * model): `onError` has already told the user why. Round-retry reads this so
+   * the SDK's substitute "no output" error neither retries a request that will
+   * be refused again nor replaces that reason with "Something went wrong".
+   */
+  let recordedRefusal: unknown = null;
   /** Running per-tool token attribution for THIS turn's live meter. */
   const turnBuckets = {
     filesRead: 0,
@@ -1065,6 +1072,7 @@ export async function simpleStreamText(
           byokLimitUserMessage(message, modelClient.builtinProviderId) ??
           modelFailureUserMessage(message);
       }
+      if (isProviderRefusal(error)) recordedRefusal = error;
       logger.error(
         `AI stream text error for request: errorMessage=${errorMessage} error=`,
         error,
@@ -1129,7 +1137,21 @@ export async function simpleStreamText(
      * `recordedNetworkError` above for why the substitution happens at all.
      */
     getRecordedNetworkError: (): unknown => recordedNetworkError,
+    /** A refusal `onError` already reported; see `recordedRefusal`. */
+    getRecordedRefusal: (): unknown => recordedRefusal,
   };
+}
+
+/**
+ * A 4xx the same request would get again: bad key, no access, bad request.
+ * Not 408 (timeout), 409 or 429 (rate limit): those can pass on a retry.
+ */
+export function isProviderRefusal(error: unknown): boolean {
+  const e = error as { statusCode?: unknown; status?: unknown; error?: { statusCode?: unknown; status?: unknown } } | null;
+  const status = [e?.statusCode, e?.status, e?.error?.statusCode, e?.error?.status].find((x) => typeof x === "number") as
+    | number
+    | undefined;
+  return status != null && status >= 400 && status < 500 && status !== 408 && status !== 409 && status !== 429;
 }
 
 export type SimpleStreamTextBundle = Awaited<
