@@ -1,0 +1,17 @@
+{
+  "id": "atlarix",
+  "name": "Atlarix",
+  "version": "15.4.0",
+  "description": "AI coding agent with any model: Atlarix Auto, Atlarix Core, or your own key for OpenAI, Anthropic, Google, DeepSeek, OpenRouter and more. Build, Explore, Plan, Debug and Review modes; every edit and command waits for your approval.",
+  "repository": "https://github.com/AmariahAK/atlarix-releases",
+  "website": "https://www.atlarix.dev/docs/guides/editors",
+  "authors": ["Norah Labs"],
+  "license_url": "https://www.atlarix.dev/terms",
+  "icon": "./icon.svg",
+  "distribution": {
+    "npx": {
+      "package": "atlarix@15.4.0",
+      "args": ["acp"]
+    }
+  }
+}
