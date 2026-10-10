@@ -35,6 +35,7 @@ import { Button } from "@/components/ui/button";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { chatIdToSessionIdAtom } from "@/atoms/sessionAtoms";
 import { SessionRecap } from "./chat/SessionRecap";
+import { Rix } from "./atlarix/Rix";
 import { LoadedSessionBanner } from "@/components/chat/LoadedSessionBanner";
 import { CoreSlotChangeBanner } from "@/components/chat/CoreSlotChangeBanner";
 import { InlineStreamStatus } from "@/components/chat/InlineStreamStatus";
@@ -475,7 +476,8 @@ export function SimpleInlineChat({
             <div ref={messagesContentRef} className="px-4 py-4 space-y-4">
               {visibleMessages.length === 0 && !isStreaming ? (
                 <div className="flex flex-col items-center justify-center min-h-[8rem] text-center text-muted-foreground text-sm px-4 gap-2">
-                  <span>What are we building?</span>
+                  <Rix size={112} className="mb-1" />
+                  <span className="text-foreground text-base font-medium">What are we building?</span>
                   <span className="text-xs max-w-sm">
                     Workspace conversations save as sessions in the sidebar —
                     resume anytime.

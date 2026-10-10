@@ -1520,6 +1520,12 @@ function renderConversation(history: CoreMessage[]): void {
   if (history.length === 0) {
     const empty = document.createElement("div");
     empty.className = "empty";
+    // Rix, as an image: the SVG animates on its own and no markup is parsed here.
+    const rix = document.createElement("img");
+    rix.className = "empty__rix";
+    rix.src = "icons/rix.svg";
+    rix.alt = "";
+    empty.append(rix);
     const lede = document.createElement("strong");
     lede.textContent = "Ask about the page you are on.";
     empty.append(

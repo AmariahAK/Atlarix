@@ -1731,3 +1731,10 @@ button.file__chip:hover {
   display: flex;
   gap: 8px;
 }
+
+.empty__rix {
+  width: 96px;
+  height: auto;
+  margin: 0 auto 6px;
+  display: block;
+}
