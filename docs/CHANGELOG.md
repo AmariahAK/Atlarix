@@ -19,9 +19,20 @@ MCP servers on or off. Running out of free share or credit offers Add credit, Pr
 on the message itself. One VSIX per platform ships with every release (Windows on ARM runs the
 x64 agent); Open VSX publishing is in CI, the Marketplace is uploaded by hand for now.
 
+**Move a chat between surfaces.** `/editor` in the CLI (or `/editor cursor`, `/editor kiro`…) and
+the app's session menu → Open in your editor carry a chat into the extension
+(`vscode://atlarix.atlarix/open`, `lib/peers/open-in-editor.ts`); a chat from another folder opens
+that folder in a new window, which loads it. From the editor, ⋯ → Continue in the Atlarix app or
+in the terminal (`atlarix --resume` in the editor's terminal). Tips on every surface teach them.
+
+**Plans tick off while they're built.** The plan stays on screen through Build in the extension
+and in Zed's plan list (it used to vanish the moment Build started): ☐ ◐ ☑ per step, "Building…"
+then "Built"; the panel folds, and "Whole plan" appears only when it says more than the steps.
+
 **Zed and JetBrains get more from ACP too.** Building a plan switches the editor's mode picker to
-Build (it stayed on Plan), plans arrive as the editor's own plan list, and `/status`,
-`/billing`, `/mcp` and `/logout` answer in the chat. A session that cannot start says why — an
+Build (it stayed on Plan), plans arrive as the editor's own plan list, `/status`, `/billing`,
+`/mcp` and `/logout` answer in the chat, and `/handoff` continues in the app. A reopened chat
+shows its title. A session that cannot start says why — an
 older Atlarix desktop app guarding the database, say — instead of "Internal error", and reopening
 a chat the same editor already had open replays it in full.
 
