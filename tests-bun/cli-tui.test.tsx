@@ -43,6 +43,8 @@ class FakeSession extends EventEmitter {
   queueNext(...a: unknown[]) { this.calls.push(["queueNext", ...a]); }
   popLastQueued() { this.calls.push(["popLastQueued"]); return "queued text back"; }
   async liveTasks() { return []; }
+  async recap(...a: unknown[]) { this.calls.push(["recap", ...a]); return "Fixing the login test; the fix is in, a run is next."; }
+  showRecap(text: string) { this.set({ cells: [...this.state.cells, { kind: "recap", id: "recap", text }] as never }); }
   setMode(m: string) { this.calls.push(["setMode", m]); this.set({ mode: m as SessionState["mode"] }); }
   async newSession() { this.calls.push(["newSession"]); }
   async interrupt() { this.calls.push(["interrupt"]); }
@@ -759,5 +761,14 @@ describe("the prompt box colours what it will do", () => {
       paintCommand(t as never);
       expect(added[0] ? { start: added[0].start, end: added[0].end } : null).toEqual(range);
     }
+  });
+
+  it("/recap writes one line on where the session stands, shown under the conversation", async () => {
+    const { setup, session } = await mount();
+    await setup.mockInput.typeText("/recap");
+    setup.mockInput.pressEnter();
+    const frame = await frameContaining(setup, "While you were away");
+    expect(frame).toContain("Fixing the login test");
+    expect(session.calls.some((c) => c[0] === "recap")).toBe(true);
   });
 });

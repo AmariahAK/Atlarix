@@ -20,6 +20,7 @@ import { SimpleMessage } from "./SimpleMessage";
 import { InlineStreamStatus } from "./chat/InlineStreamStatus";
 import { InlineUserQuestions } from "./chat/InlineUserQuestions";
 import { BackgroundJobsIndicator } from "./chat/BackgroundJobsIndicator";
+import { SessionRecap } from "./chat/SessionRecap";
 
 interface FooterContext {
   chatId: number;
@@ -42,6 +43,7 @@ function ListFooter({ context }: { context?: FooterContext }) {
       )}
       <InlineUserQuestions chatId={chatId} />
       <BackgroundJobsIndicator chatId={chatId} />
+      <SessionRecap chatId={chatId} />
     </div>
   );
 }

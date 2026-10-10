@@ -529,6 +529,14 @@ function CellViewInner({
         </box>
       );
     }
+    case "recap":
+      return (
+        <text marginTop={1}>
+          <span fg={color.accent}>{`${glyph.recap} `}</span>
+          <span fg={color.textDim}>{"While you were away · "}</span>
+          <span fg={color.text}>{cell.text}</span>
+        </text>
+      );
     case "footer":
       return (
         <text fg={color.faint} marginTop={1}>

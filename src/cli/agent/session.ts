@@ -611,10 +611,19 @@ export class AgentSession extends EventEmitter {
   // ─── sub-agents (/agents) ──────────────────────────────────────────────────
 
   /** /btw: a side question about this conversation; nothing is saved (btw.ts). */
+  private recapLine: string | null = null;
+
+  /** Show a recap under the conversation until the next turn starts. */
+  showRecap(text: string | null): void {
+    this.recapLine = text;
+    this.update({ cells: this.cellsFor(this.state.busy) });
+  }
+
   /** The one-line recap for someone coming back (lib/recap); null when none is due or allowed. */
-  async recap(): Promise<string | null> {
+  async recap(opts: { force?: boolean } = {}): Promise<string | null> {
     const { generateRecap } = await import("@/lib/recap/recap");
-    return generateRecap(conversationText(this.state.cells), { chatId: this.chatId, model: this.model });
+    const cells = this.state.cells.filter((c) => c.kind !== "recap");
+    return generateRecap(conversationText(cells), { chatId: this.chatId, model: this.model, force: opts.force });
   }
 
   async aside(question: string): Promise<string> {
@@ -855,6 +864,7 @@ export class AgentSession extends EventEmitter {
   }
 
   private async startTurn(text: string, opts: TurnOptions = {}): Promise<void> {
+    this.recapLine = null;
     await this.ensureSession();
     if (!opts.continueAfterQuestions) {
       const display = opts.display ?? text;
@@ -943,7 +953,9 @@ export class AgentSession extends EventEmitter {
   }
 
   private cellsFor(streaming: boolean): Cell[] {
-    return this.withFooters(this.numberEdits(this.timeThoughts(this.untimedCells(streaming), streaming)));
+    const cells = this.withFooters(this.numberEdits(this.timeThoughts(this.untimedCells(streaming), streaming)));
+    // The recap is shown, never stored: it sits after everything and goes with the next turn.
+    return this.recapLine ? [...cells, { kind: "recap", id: "recap", text: this.recapLine }] : cells;
   }
 
   /** Each turn this session ran, by its reply's id: "Build · deepseek-flash · 12s". */

@@ -30,6 +30,7 @@ export const COMMANDS: SlashCommand[] = [
   { name: "/tasks", description: "Sub-agents and background commands, live (↓ in an empty box)", group: "work" },
   { name: "/agents", description: "Same as /tasks", group: "work", alias: true },
   { name: "/btw", description: "Ask a side question without interrupting (not saved)", group: "work" },
+  { name: "/recap", description: "One line on where this session stands; /recap on|off for the automatic one", group: "work" },
   { name: "/automations", description: "Scheduled and triggered tasks for this folder", group: "work" },
   { name: "/mcp", description: "MCP servers for this folder: turn on/off, add, test", group: "tools" },
   { name: "/chrome", description: "The Chrome extension: connected, or how to connect it", group: "tools" },

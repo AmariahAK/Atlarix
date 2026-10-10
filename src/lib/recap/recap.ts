@@ -34,13 +34,15 @@ export async function setRecapEnabled(on: boolean): Promise<void> {
  */
 export async function generateRecap(
   conversation: string,
-  opts: { chatId: number | null; model?: { provider: string; name: string } },
+  /** `force`: asked for (/recap), so the automatic-recap setting does not apply. */
+  opts: { chatId: number | null; model?: { provider: string; name: string }; force?: boolean },
 ): Promise<string | null> {
-  if (!conversation.trim() || !(await recapEnabled())) return null;
+  if (!conversation.trim()) return null;
+  if (!opts.force && !(await recapEnabled())) return null;
   const { readSettings } = await import("@/main/settings");
   const settings = readSettings();
   const chosen = opts.model ?? settings.selectedModel;
-  if (chosen?.provider === "compass") {
+  if (chosen?.provider === "compass" && !opts.force) {
     const { latestAutoStatus } = await import("@/main/auto-status");
     if (nearFreeLimit(latestAutoStatus())) return null;
   }

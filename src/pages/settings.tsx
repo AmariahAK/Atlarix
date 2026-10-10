@@ -737,6 +737,22 @@ export function NotificationsSettings() {
           {t("peerMessages.description")}
         </p>
       </div>
+
+      <div className="mt-6 space-y-2 border-t border-border pt-6">
+        <div className="flex items-center justify-between max-w-md gap-4">
+          <Label htmlFor="session-recap" className="text-sm">
+            {t("sessionRecap.label")}
+          </Label>
+          <Switch
+            id="session-recap"
+            checked={settings?.sessionRecap !== false}
+            onCheckedChange={(checked) => updateSettings({ sessionRecap: checked })}
+          />
+        </div>
+        <p className="text-xs text-muted-foreground max-w-md">
+          {t("sessionRecap.description")}
+        </p>
+      </div>
     </div>
   );
 }

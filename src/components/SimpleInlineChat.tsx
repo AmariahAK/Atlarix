@@ -34,6 +34,7 @@ import { ChatErrorBox } from "@/components/chat/ChatErrorBox";
 import { Button } from "@/components/ui/button";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { chatIdToSessionIdAtom } from "@/atoms/sessionAtoms";
+import { SessionRecap } from "./chat/SessionRecap";
 import { LoadedSessionBanner } from "@/components/chat/LoadedSessionBanner";
 import { CoreSlotChangeBanner } from "@/components/chat/CoreSlotChangeBanner";
 import { InlineStreamStatus } from "@/components/chat/InlineStreamStatus";
@@ -531,6 +532,8 @@ export function SimpleInlineChat({
 
               {/* v14: background commands running in the background (cancellable). */}
               <BackgroundJobsIndicator chatId={chatId} />
+
+              <SessionRecap chatId={chatId} />
 
               <div ref={messagesEndRef} className="[overflow-anchor:none]" />
             </div>

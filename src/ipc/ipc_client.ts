@@ -3865,6 +3865,11 @@ export class IpcClient {
     return this.ipcRenderer.invoke("edit-stats:summary");
   }
 
+  /** One line on where a chat stands, for someone coming back to it (lib/recap). */
+  public async generateRecap(chatId: number, conversation: string, force = false): Promise<{ text: string | null }> {
+    return this.ipcRenderer.invoke("recap:generate", chatId, conversation, force);
+  }
+
   /** Is the user's browser connected through the Atlarix extension? */
   public async getBridgeStatus(): Promise<
     import("@/ipc/handlers/bridge_handlers").BridgeStatus
