@@ -217,6 +217,8 @@ function flushRender() {
 }
 
 function appendText(kind: "reply" | "thought", text: string) {
+  // Whitespace between steps is not a reply: no empty ◆ until there are words.
+  if ((!current || current.kind !== kind) && !text.trim()) return;
   clearEmpty();
   if (!current || current.kind !== kind) {
     if (kind === "reply") {
