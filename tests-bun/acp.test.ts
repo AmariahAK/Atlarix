@@ -203,6 +203,9 @@ describe("atlarix acp", () => {
       | { configOptions: Array<{ id: string; currentValue: unknown }> }
       | undefined;
     expect(cfg?.configOptions.find((o) => o.id === "mode")?.currentValue).toBe("build");
+    // The plan stays on screen through the build (it used to be cleared the moment Build started).
+    const after = mine.filter((u) => u.sessionUpdate === "plan").at(-1) as { entries: unknown[] } | undefined;
+    expect(after?.entries.length).toBe(2);
   }, 60_000);
 
   it("Atlarix's own extension also gets the plan document and whether it can be built", async () => {

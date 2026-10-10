@@ -356,12 +356,26 @@ function onUpdate(u: SessionUpdate) {
 // --- Plan --------------------------------------------------------------------
 
 let planBuildable = false;
+let planFolded = false;
 function refreshPlanButton() {
   planBox.querySelector<HTMLButtonElement>(".plan__build")?.toggleAttribute("disabled", busy || !planBuildable);
 }
 
+/** Whether the plan document says more than its own checklist (else "Whole plan" just repeats it). */
+function addsToSteps(content: string): boolean {
+  const rest = content
+    .split("\n")
+    .filter((l) => !/^\s*(#|[-*+]\s+\[|\d+[.)]\s|[-*+]\s|$)/.test(l))
+    .join(" ")
+    .trim();
+  return rest.length > 80;
+}
+
+const STEP_MARK: Record<string, string> = { pending: "☐", in_progress: "◐", completed: "☑" };
+
 function showPlan(p: { entries: Array<{ content: string; status: string }>; _meta?: unknown }) {
-  const doc = (p._meta as { atlarix?: { plan?: { title?: string; content?: string; buildable?: boolean } } } | undefined)?.atlarix?.plan;
+  const doc = (p._meta as { atlarix?: { plan?: { title?: string; content?: string; buildable?: boolean; status?: string } } } | undefined)?.atlarix
+    ?.plan;
   planBox.textContent = "";
   if (!p.entries.length && !doc) {
     planBox.classList.add("hidden");
@@ -369,18 +383,44 @@ function showPlan(p: { entries: Array<{ content: string; status: string }>; _met
   }
   planBox.classList.remove("hidden");
   planBuildable = !!doc?.buildable;
+  const done = p.entries.filter((e) => e.status === "completed").length;
   const head = el("div", "plan__head");
-  head.append(el("span", "plan__title", doc?.title ?? "Plan"));
-  if (doc?.buildable) head.append(button("Build it", "plan__build primary", () => post({ type: "build" }), "Build this plan"));
+  // The title folds the steps away, so a long plan never hides the conversation.
+  const title = button(`${planFolded ? "▸" : "▾"} ${doc?.title ?? "Plan"}`, "plan__title", () => {
+    planFolded = !planFolded;
+    showPlan(p);
+  }, planFolded ? "Show the steps" : "Hide the steps");
+  head.append(title);
+  if (doc?.buildable) head.append(button("Build it", "plan__build primary", () => {
+      if (busy) return;
+      // A turn starts now: Stop, Rix working, the plan's progress.
+      current = null;
+      setBusy(true);
+      post({ type: "build" });
+    }, "Build this plan"));
+  else if (p.entries.length) {
+    // Being built (or built): progress instead of a button.
+    // A count only once a step is ticked; before that "Building…" while it runs.
+    const all = done === p.entries.length || doc?.status === "built";
+    const label = all ? "Built" : done > 0 ? `${done} of ${p.entries.length}` : busy ? "Building…" : "";
+    if (label) head.append(el("span", `plan__progress${all ? " done" : ""}`, label));
+  }
   planBox.append(head);
+  if (planFolded) {
+    refreshPlanButton();
+    return;
+  }
   const list = el("ol", "plan__steps");
   for (const e of p.entries) {
     const li = el("li", `step ${e.status}`);
-    renderMarkdown(li, e.content);
+    li.append(el("span", "step__mark", STEP_MARK[e.status] ?? "☐"));
+    const text = el("span", "step__text");
+    renderMarkdown(text, e.content);
+    li.append(text);
     list.append(li);
   }
   planBox.append(list);
-  if (doc?.content) {
+  if (doc?.content && addsToSteps(doc.content)) {
     const more = el("details", "plan__doc");
     more.append(el("summary", "", "Whole plan"));
     const body = el("div", "body");

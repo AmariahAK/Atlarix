@@ -377,8 +377,9 @@ button.icon.small {
 .plan {
   border-top: 1px solid var(--border);
   padding: 8px 12px;
-  max-height: 40vh;
+  max-height: 32vh;
   overflow-y: auto;
+  flex: none;
 }
 .plan__head {
   display: flex;
@@ -742,4 +743,49 @@ button.icon.small {
 }
 .error .card__options {
   margin-top: 8px;
+}
+
+/* Plan steps tick off while it is built. */
+.plan__steps {
+  list-style: none;
+  padding-left: 0;
+}
+.plan__steps .step {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin: 3px 0;
+}
+.step__mark {
+  flex: none;
+  width: 1em;
+  color: var(--fg-faint);
+}
+.step.in_progress .step__mark {
+  color: var(--primary);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+.step.completed .step__mark {
+  color: var(--primary);
+}
+.step__text p {
+  display: inline;
+  margin: 0;
+}
+.plan__progress {
+  color: var(--fg-muted);
+  font-size: 0.9em;
+}
+.plan__progress.done {
+  color: var(--primary);
+}
+
+.plan__title {
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  font-weight: 600;
+  flex: 1;
+  color: var(--fg);
 }

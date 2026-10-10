@@ -183,8 +183,10 @@ class Thread {
    * own extension the whole document too, so it can show it and offer Build.
    */
   private async sendPlan(s: SessionState): Promise<void> {
-    const ready = s.planReady;
-    if (!ready) {
+    // The plan stays up while it is being built, its steps ticking off: the
+    // ready plan is cleared the moment Build starts, so follow the one we built.
+    const id = s.planReady?.planId ?? this.activePlanId;
+    if (!id) {
       if (this.lastPlanEntries) {
         this.lastPlanEntries = false;
         void this.send({ sessionUpdate: "plan", entries: [] });
@@ -192,8 +194,9 @@ class Thread {
       return;
     }
     const plans = await this.session.plans().catch(() => []);
-    const p = plans.find((x) => x.id === ready.planId);
+    const p = plans.find((x) => x.id === id);
     if (!p) return;
+    this.activePlanId = p.id;
     this.lastPlanEntries = true;
     void this.send({
       sessionUpdate: "plan",
@@ -202,7 +205,14 @@ class Thread {
         ? {
             _meta: {
               atlarix: {
-                plan: { id: p.id, title: p.title || ready.title, content: p.content, revision: s.planRevision, buildable: p.status === "plan" },
+                plan: {
+                  id: p.id,
+                  title: p.title || s.planReady?.title || "Plan",
+                  content: p.content,
+                  revision: s.planRevision,
+                  status: p.status,
+                  buildable: p.status === "plan",
+                },
               },
             },
           }
@@ -210,6 +220,8 @@ class Thread {
     });
   }
 
+  /** The plan on screen: the ready one, then the one being built. */
+  private activePlanId: string | null = null;
   private lastPlanEntries = false;
 
   /** Replay what is already in the session (session/load). */
@@ -250,11 +262,21 @@ class Thread {
       await this.send({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: r.message } });
       return { stopReason: "end_turn" };
     }
+    // A finished build's plan stays up until the next request, then goes.
+    if (this.activePlanId && !this.session.state.planReady && slash?.[1] !== "build") {
+      const done = (await this.session.plans().catch(() => [])).find((x) => x.id === this.activePlanId);
+      if (!done || done.status === "built") {
+        this.activePlanId = null;
+        this.lastPlanEntries = false;
+        void this.send({ sessionUpdate: "plan", entries: [] });
+      }
+    }
     const turn = { done: () => {}, cancelled: false };
     const finished = new Promise<void>((resolve) => (turn.done = resolve));
     this.turn = turn;
     try {
       if (slash?.[1] === "build" && this.session.state.planReady) {
+        this.activePlanId = this.session.state.planReady.planId;
         await this.session.buildPlan(this.session.state.planReady.planId);
       } else if (meta?.peerTurn) {
         // Atlarix's extension, told a message from another session is waiting: read it now.
@@ -311,6 +333,7 @@ class Thread {
         ...(this.extras() ? { _meta: { atlarix: { question: { items: s.question.items } } } } : {}),
       });
     }
+    if (this.activePlanId) await this.sendPlan(s);
     const plan = s.planReady?.planId ?? null;
     if (plan !== this.lastPlan) {
       this.lastPlan = plan;
