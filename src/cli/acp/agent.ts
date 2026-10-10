@@ -436,6 +436,9 @@ export class AcpAgent {
   async loadSession(cwd: string, sessionId: string): Promise<{ configOptions: SessionConfigOption[]; modes: SessionModeState }> {
     const existing = this.threads.get(sessionId);
     const t = existing ?? (await this.open(cwd, sessionId));
+    // A thread this process already has open remembers what it sent; the
+    // editor that asks to load it again has nothing on screen, so start over.
+    if (existing) existing.emitted.clear();
     await t.replay();
     return { configOptions: await this.configOptions(t), modes: this.modes(t) };
   }

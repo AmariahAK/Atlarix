@@ -32,7 +32,8 @@ interface Pending {
   diff: { path: string; oldText: string | null; newText: string } | null;
 }
 
-const AWAY_MS = 3 * 60_000;
+/** Three minutes; shorter only for the end-to-end test (ATLARIX_RECAP_AWAY_MS). */
+const AWAY_MS = Number(process.env.ATLARIX_RECAP_AWAY_MS) > 0 ? Number(process.env.ATLARIX_RECAP_AWAY_MS) : 3 * 60_000;
 
 export class Chat {
   sessionId: string | null = null;
@@ -50,6 +51,7 @@ export class Chat {
     private readonly webview: vscode.Webview,
     private readonly host: ChatHost,
     private readonly startWith: string | null = null,
+    private readonly where: "sidebar" | "tab" = "sidebar",
   ) {
     webview.onDidReceiveMessage((m: ViewMessage) => void this.onMessage(m));
   }
@@ -62,7 +64,7 @@ export class Chat {
     try {
       switch (m.type) {
         case "ready":
-          this.post({ type: "host-info", appName: vscode.env.appName, version: vscode.version });
+          this.post({ type: "host-info", appName: vscode.env.appName, version: vscode.version, where: this.where });
           await this.open(this.startWith);
           return;
         case "send":
@@ -95,6 +97,8 @@ export class Chat {
           return this.open(m.sessionId);
         case "pick-file":
           return this.pickFile();
+        case "pick-image":
+          return this.pickImage();
         case "open-file": {
           const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(m.path));
           const line = Math.max(0, (m.line ?? 1) - 1);
@@ -174,7 +178,9 @@ export class Chat {
     if (text.trim()) out.push({ type: "text", text });
     for (const item of context) {
       const uri = pathToFileURL(item.path).href;
-      if (item.text != null) {
+      if (item.image) {
+        out.push({ type: "image", data: item.image.data, mimeType: item.image.mimeType, uri });
+      } else if (item.text != null) {
         const lines = item.startLine ? `Lines ${item.startLine}–${item.endLine ?? item.startLine}:\n` : "";
         out.push({ type: "resource", resource: { uri, text: `${lines}${item.text}`, mimeType: "text/plain" } });
       } else {
@@ -263,6 +269,23 @@ export class Chat {
       { placeHolder: "Add a file to the chat", matchOnDescription: true },
     );
     if (picked) this.post({ type: "add-context", item: { path: picked.uri.fsPath, label: picked.label } });
+  }
+
+  private async pickImage(): Promise<void> {
+    const picked = await vscode.window.showOpenDialog({
+      canSelectMany: true,
+      openLabel: "Attach",
+      filters: { Images: ["png", "jpg", "jpeg", "gif", "webp"] },
+    });
+    for (const uri of picked ?? []) {
+      const bytes = await vscode.workspace.fs.readFile(uri);
+      const ext = path.extname(uri.fsPath).slice(1).toLowerCase();
+      const mimeType = ext === "jpg" || ext === "jpeg" ? "image/jpeg" : `image/${ext}`;
+      this.post({
+        type: "add-context",
+        item: { path: uri.fsPath, label: path.basename(uri.fsPath), image: { data: Buffer.from(bytes).toString("base64"), mimeType } },
+      });
+    }
   }
 
   addContext(item: ContextItem): void {

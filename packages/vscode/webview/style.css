@@ -39,10 +39,12 @@ body {
   overflow: hidden;
 }
 
+/* 100%, not 100vh: in the side bar the viewport can be taller than the view,
+   which pushed the line under the message box out of sight. */
 #app {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100%;
   position: relative;
 }
 
@@ -174,11 +176,16 @@ button.icon.small {
   color: var(--fg-muted);
   font-size: 0.92em;
 }
+/* Your message: a lighter band with an emerald edge, so it never reads as
+   Atlarix's (the CLI's prompt band is the same #26282c). */
 .msg.user {
   align-self: stretch;
-  background: var(--raised);
+  background: #26282c;
+  border: 1px solid #34373d;
+  border-left: 3px solid var(--primary);
   border-radius: var(--radius);
   padding: 8px 12px;
+  color: #ffffff;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -198,6 +205,7 @@ button.icon.small {
   line-height: 1.6;
 }
 .msg.agent .body {
+  color: var(--fg);
   flex: 1;
   min-width: 0;
   word-break: break-word;
@@ -228,7 +236,7 @@ button.icon.small {
 .thought,
 .tool {
   color: var(--fg-muted);
-  font-size: 0.95em;
+  font-size: 0.92em;
 }
 .thought summary,
 .tool summary {
@@ -259,8 +267,9 @@ button.icon.small {
 .tool[data-status="failed"] .tool__mark {
   color: var(--danger);
 }
+/* Steps stay quiet so the answer stands out. */
 .tool__title {
-  color: var(--fg);
+  color: var(--fg-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -399,17 +408,33 @@ button.icon.small {
 
 /* Composer */
 .composer {
-  border-top: 1px solid var(--border);
   padding: 8px 10px 10px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--bg);
+  position: relative;
+}
+.box {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  background: var(--bg);
+  background: var(--raised);
+  border: 1px solid #34373d;
+  border-radius: 12px;
+  padding: 8px 8px 6px;
+}
+.box:focus-within {
+  border-color: var(--primary);
 }
 .chips {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
+}
+.chips:empty {
+  display: none;
 }
 .chip {
   display: inline-flex;
@@ -429,58 +454,122 @@ button.icon.small {
 }
 .input {
   font: inherit;
-  color: inherit;
-  background: var(--raised);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 8px 10px;
-  resize: vertical;
-  min-height: 44px;
+  color: var(--fg);
+  background: transparent;
+  border: none;
+  padding: 2px 4px;
+  resize: none;
+  min-height: 40px;
   max-height: 40vh;
+  field-sizing: content;
 }
 .input:focus {
   outline: none;
-  border-color: var(--primary);
 }
-.row {
+.input::placeholder {
+  color: var(--fg-faint);
+}
+.bar {
   display: flex;
   align-items: center;
   gap: 6px;
-  flex-wrap: wrap;
+  min-width: 0;
 }
-.select {
-  font: inherit;
+.pill {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  border: 1px solid #3a3d44;
+  background: #1c1e22;
+  color: var(--fg);
+  border-radius: 999px;
+  padding: 0 10px;
+  font-size: 0.92em;
+  min-width: 0;
+}
+.pill:hover,
+.pill:focus-within {
+  border-color: var(--primary);
+}
+.icon-pill {
+  width: 26px;
+  justify-content: center;
+  padding: 0;
+  font-size: 16px;
+  line-height: 1;
+}
+.select-pill {
+  position: relative;
+  gap: 4px;
+  cursor: pointer;
+}
+.select-pill .select {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: none;
   color: inherit;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 2px 4px;
-  max-width: 160px;
+  font: inherit;
+  padding: 0;
+  cursor: pointer;
+  max-width: 120px;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.select-pill .select:focus {
+  outline: none;
+}
+.select-pill .select option {
+  background: var(--raised);
+  color: var(--fg);
+}
+.chev {
+  color: var(--fg-muted);
+  font-size: 0.8em;
+  pointer-events: none;
 }
 .spacer {
   flex: 1;
 }
-.status {
-  color: var(--fg-faint);
-  font-size: 0.88em;
-}
-.chrome {
-  color: var(--fg-faint);
-  font-size: 0.88em;
-}
-.chrome.on {
-  color: var(--primary);
-}
 .send {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  padding: 0;
   background: var(--primary);
   border-color: var(--primary);
   color: #04120c;
-  font-weight: 600;
+  font-weight: 700;
+  font-size: 15px;
+  flex: none;
 }
 .send.stop {
   background: var(--card);
   color: var(--danger);
   border-color: var(--danger);
+  font-size: 11px;
+}
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px;
+  min-height: 16px;
+}
+.status,
+.chrome {
+  color: var(--fg-faint);
+  font-size: 0.85em;
+}
+.chrome.on {
+  color: var(--primary);
+}
+.attach-menu {
+  position: absolute;
+  bottom: 100%;
+  left: 12px;
+  top: auto;
+  right: auto;
 }
 
 /* History */
@@ -513,4 +602,93 @@ button.icon.small {
 .history__empty {
   color: var(--fg-faint);
   font-size: 0.88em;
+}
+.plan__steps li p {
+  display: inline;
+  margin: 0;
+}
+
+/* Steps vs the answer. The reply is full-size, bright, with the green ◆;
+   steps are a grey, smaller, monospaced block with a guide line, their marks
+   grey unless a step failed. */
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-left: 1px solid var(--border);
+  padding: 2px 0 2px 10px;
+  margin-left: 4px;
+}
+.steps .tool {
+  font-family: var(--vscode-editor-font-family, ui-monospace, monospace);
+  font-size: 0.85em;
+}
+.steps .tool__title {
+  color: var(--fg-faint);
+}
+.steps .tool[open] .tool__title,
+.steps .tool:hover .tool__title {
+  color: var(--fg-muted);
+}
+.steps .tool__mark {
+  color: var(--fg-faint);
+}
+.steps .tool[data-status="in_progress"] .tool__mark,
+.steps .tool[data-status="pending"] .tool__mark {
+  color: var(--primary);
+}
+.steps .tool[data-status="failed"] .tool__mark,
+.steps .tool[data-status="failed"] .tool__title {
+  color: var(--danger);
+}
+.steps .tool__body pre {
+  font-size: 0.95em;
+  max-height: 240px;
+  overflow: auto;
+}
+.msg.agent {
+  margin-top: 2px;
+}
+.msg.agent .body {
+  font-size: 1.02em;
+  line-height: 1.6;
+}
+.thought summary {
+  color: var(--fg-faint);
+  font-style: italic;
+}
+
+/* The mode never shrinks; a long model name gives way instead. */
+.mode-pill {
+  flex: none;
+}
+.mode-pill .select {
+  max-width: none;
+}
+.model-pill .select {
+  max-width: 140px;
+}
+.model-pill {
+  flex: 0 1 auto;
+}
+.icon-pill {
+  flex: none;
+}
+
+/* The model sits on the quiet line under the box: plain text with a chevron. */
+.status-row .model-pill {
+  height: 22px;
+  border-color: transparent;
+  background: none;
+  padding: 0 4px;
+  color: var(--fg-muted);
+  font-size: 0.88em;
+}
+.status-row .model-pill:hover,
+.status-row .model-pill:focus-within {
+  border-color: var(--border);
+  color: var(--fg);
+}
+.status-row .model-pill .select {
+  max-width: 180px;
 }

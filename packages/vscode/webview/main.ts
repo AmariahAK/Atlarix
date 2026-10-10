@@ -42,7 +42,10 @@ const rixHost = el("div", "rix-host");
 rixHost.innerHTML = rixSvg({ state: "rest", size: "34px", detail: "mid", label: "" });
 const titleEl = el("div", "title", "New chat");
 const menuBtn = button("⋯", "icon", () => toggleMenu(), "More");
-top.append(rixHost, titleEl, button("↺", "icon", () => post({ type: "history" }), "Past chats"), button("+", "icon", () => post({ type: "new-chat" }), "New chat"), menuBtn);
+// In the side bar VS Code draws New chat and Past chats in the view's title; in a tab they are here.
+const tabButtons = [button("↺", "icon", () => post({ type: "history" }), "Past chats"), button("+", "icon", () => post({ type: "new-chat" }), "New chat")];
+for (const b of tabButtons) b.classList.add("hidden");
+top.append(rixHost, titleEl, ...tabButtons, menuBtn);
 
 const menu = el("div", "menu hidden");
 const recapItem = button("Session recap: on", "menu__item", () => {
@@ -61,21 +64,50 @@ const notice = el("div", "notice hidden");
 const log = el("main", "log");
 log.setAttribute("aria-live", "polite");
 const planBox = el("section", "plan hidden");
+// The composer: one rounded box — attachments, the text, then a bar with
+// attach, mode and model on the left and send on the right. Status (context,
+// cost, Chrome) sits on a quiet line under it.
 const composer = el("footer", "composer");
+const box = el("div", "box");
 const chips = el("div", "chips");
 const input = el("textarea", "input");
 input.rows = 2;
-input.placeholder = "Ask Atlarix to build, fix or explain something…  (@ for files)";
-const row = el("div", "row");
+input.placeholder = "Ask Atlarix to build, fix or explain…";
+const bar = el("div", "bar");
+const attachBtn = button("+", "pill icon-pill", () => attachMenu.classList.toggle("hidden"), "Attach a file or image");
+const attachMenu = el("div", "menu attach-menu hidden");
+attachMenu.append(
+  button("File…   @", "menu__item", () => {
+    attachMenu.classList.add("hidden");
+    post({ type: "pick-file" });
+  }),
+  button("Image…", "menu__item", () => {
+    attachMenu.classList.add("hidden");
+    post({ type: "pick-image" });
+  }),
+);
+const pill = (sel: HTMLSelectElement, label: string) => {
+  const wrap = el("label", "pill select-pill");
+  wrap.title = label;
+  sel.setAttribute("aria-label", label);
+  wrap.append(sel, el("span", "chev", "▾"));
+  return wrap;
+};
 const modeSel = el("select", "select");
-modeSel.title = "Mode";
 const modelSel = el("select", "select model");
-modelSel.title = "Model";
+const sendBtn = button("↑", "send", () => submit(), "Send (Enter)");
+sendBtn.dataset.state = "idle";
+const modePill = pill(modeSel, "Mode");
+modePill.classList.add("mode-pill");
+const modelPill = pill(modelSel, "Model");
+modelPill.classList.add("model-pill");
+bar.append(attachBtn, modePill, el("span", "spacer"), sendBtn);
+box.append(chips, input, bar);
+const statusRow = el("div", "status-row");
 const status = el("span", "status");
 const chromeDot = el("span", "chrome", "● Chrome");
-const sendBtn = button("Send", "send", () => submit(), "Send (Enter)");
-row.append(modeSel, modelSel, button("@", "icon small", () => post({ type: "pick-file" }), "Add a file"), el("span", "spacer"), status, chromeDot, sendBtn);
-composer.append(chips, input, row);
+statusRow.append(modelPill, status, el("span", "spacer"), chromeDot);
+composer.append(attachMenu, box, statusRow);
 const history = el("div", "history hidden");
 app.append(top, menu, notice, log, planBox, composer, history);
 
@@ -83,6 +115,7 @@ app.append(top, menu, notice, log, planBox, composer, history);
 
 let busy = false;
 let shownSession: string | null = null;
+let pendingTitle: string | null = null;
 let mode = "build";
 let recapOn = true;
 let context: ContextItem[] = [];
@@ -100,7 +133,10 @@ function setRix(s: RixState) {
 
 function setBusy(b: boolean) {
   busy = b;
-  sendBtn.textContent = b ? "Stop" : "Send";
+  sendBtn.textContent = b ? "■" : "↑";
+  sendBtn.title = b ? "Stop (Esc)" : "Send (Enter)";
+  sendBtn.setAttribute("aria-label", sendBtn.title);
+  sendBtn.dataset.state = b ? "busy" : "idle";
   sendBtn.classList.toggle("stop", b);
   if (foundTimer) clearTimeout(foundTimer);
   if (b) setRix("working");
@@ -239,8 +275,22 @@ function addTool(t: ToolCallUpdate & { _meta?: unknown }) {
   d.append(s, el("div", "tool__body"));
   tools.set(t.toolCallId, d);
   fillTool(d, t);
-  log.append(d);
+  if (peer) log.append(d);
+  else stepsGroup().append(d);
   scrollDown();
+}
+
+/**
+ * Consecutive tool steps share one quiet block (grey, smaller, a guide line on
+ * the left), so Atlarix's own reply is the only full-strength text and a step
+ * is never mistaken for an answer.
+ */
+function stepsGroup(): HTMLElement {
+  const last = log.lastElementChild;
+  if (last?.classList.contains("steps")) return last as HTMLElement;
+  const g = el("div", "steps");
+  log.append(g);
+  return g;
 }
 
 function onUpdate(u: SessionUpdate) {
@@ -272,6 +322,7 @@ function onUpdate(u: SessionUpdate) {
     case "current_mode_update":
       mode = u.currentModeId;
       modeSel.value = mode;
+      fitSelect(modeSel);
       refreshPlanButton();
       return;
     case "config_option_update":
@@ -308,11 +359,12 @@ function showPlan(p: { entries: Array<{ content: string; status: string }>; _met
   planBuildable = !!doc?.buildable;
   const head = el("div", "plan__head");
   head.append(el("span", "plan__title", doc?.title ?? "Plan"));
-  if (doc?.buildable) head.append(button("Build it", "plan__build", () => post({ type: "build" }), "Build this plan"));
+  if (doc?.buildable) head.append(button("Build it", "plan__build primary", () => post({ type: "build" }), "Build this plan"));
   planBox.append(head);
   const list = el("ol", "plan__steps");
   for (const e of p.entries) {
-    const li = el("li", `step ${e.status}`, e.content);
+    const li = el("li", `step ${e.status}`);
+    renderMarkdown(li, e.content);
     list.append(li);
   }
   planBox.append(list);
@@ -404,12 +456,30 @@ function setOptions(opts: SessionConfigOption[]) {
       sel.append(op);
     }
     sel.value = String(o.currentValue);
+    fitSelect(sel);
     if (o.id === "mode") mode = String(o.currentValue);
   }
 }
 
-modeSel.addEventListener("change", () => post({ type: "set-mode", mode: modeSel.value }));
-modelSel.addEventListener("change", () => post({ type: "set-model", value: modelSel.value }));
+/** A select is as wide as its LONGEST option; size it to the one shown, so both pills fit a narrow side bar. */
+const measure = document.createElement("canvas").getContext("2d");
+function fitSelect(sel: HTMLSelectElement) {
+  const text = sel.selectedOptions[0]?.textContent ?? "";
+  if (!measure) {
+    sel.style.width = `${Math.max(3, text.length) + 0.5}ch`;
+    return;
+  }
+  measure.font = getComputedStyle(sel).font;
+  sel.style.width = `${Math.ceil(measure.measureText(text).width) + 4}px`;
+}
+modeSel.addEventListener("change", () => {
+  fitSelect(modeSel);
+  post({ type: "set-mode", mode: modeSel.value });
+});
+modelSel.addEventListener("change", () => {
+  fitSelect(modelSel);
+  post({ type: "set-model", value: modelSel.value });
+});
 
 function renderChips() {
   chips.textContent = "";
@@ -474,6 +544,7 @@ function showHistory(sessions: PastSession[]) {
     const b = button("", "history__item", () => {
       history.classList.add("hidden");
       post({ type: "load-session", sessionId: s.sessionId });
+      pendingTitle = s.title || "Untitled";
     });
     b.append(el("span", "history__title", s.title || "Untitled"), el("span", "history__when", when));
     history.append(b);
@@ -485,6 +556,7 @@ function toggleMenu() {
 }
 document.addEventListener("click", (e) => {
   if (!menu.contains(e.target as Node) && e.target !== menuBtn) menu.classList.add("hidden");
+  if (!attachMenu.contains(e.target as Node) && e.target !== attachBtn) attachMenu.classList.add("hidden");
 });
 
 function showRecap(text: string) {
@@ -522,7 +594,8 @@ window.addEventListener("message", (e: MessageEvent<HostMessage | { type: "open-
         current = null;
         planBox.classList.add("hidden");
         showEmpty();
-        titleEl.textContent = m.title ?? "New chat";
+        titleEl.textContent = m.title ?? (m.replay ? pendingTitle : null) ?? "New chat";
+        pendingTitle = null;
         status.textContent = "";
       }
       if (m.modes) {
@@ -535,6 +608,7 @@ window.addEventListener("message", (e: MessageEvent<HostMessage | { type: "open-
             modeSel.append(op);
           }
           modeSel.value = mode;
+          fitSelect(modeSel);
         }
       }
       if (m.configOptions.length) setOptions(m.configOptions);
@@ -583,6 +657,7 @@ window.addEventListener("message", (e: MessageEvent<HostMessage | { type: "open-
       recapItem.textContent = `Session recap: ${recapOn ? "on" : "off"}`;
       return;
     case "host-info":
+      for (const b of tabButtons) b.classList.toggle("hidden", m.where !== "tab");
       return;
   }
 });

@@ -227,4 +227,16 @@ describe("atlarix acp", () => {
     const status = await e.conn.agent.request<{ chrome: string }>("_atlarix/status", {});
     expect(typeof status.chrome).toBe("string");
   }, 60_000);
+
+  it("loading a session this process already has open replays it in full", async () => {
+    const e = await editor([{ text: "The codeword is heron." }]);
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "codeword?" }] });
+    await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    const before = e.updates.length;
+    await e.conn.agent.request("session/load", { sessionId, cwd: ws, mcpServers: [] });
+    const replayed = e.updates.slice(before).filter((u) => u.sessionId === sessionId);
+    expect(replayed.some((u) => u.update.sessionUpdate === "user_message_chunk")).toBe(true);
+    expect(JSON.stringify(replayed)).toContain("heron");
+  }, 60_000);
 });

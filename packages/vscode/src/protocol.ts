@@ -25,6 +25,8 @@ export interface ContextItem {
   endLine?: number;
   /** The selected text, for a selection. */
   text?: string;
+  /** An image, base64, sent as an image block. */
+  image?: { data: string; mimeType: string };
 }
 
 export interface PastSession {
@@ -54,7 +56,7 @@ export type HostMessage =
   | { type: "chrome"; status: string }
   | { type: "recap"; text: string }
   | { type: "recap-setting"; on: boolean }
-  | { type: "host-info"; appName: string; version: string };
+  | { type: "host-info"; appName: string; version: string; where: "sidebar" | "tab" };
 
 export type ViewMessage =
   | { type: "ready" }
@@ -69,6 +71,7 @@ export type ViewMessage =
   | { type: "history" }
   | { type: "load-session"; sessionId: string }
   | { type: "pick-file" }
+  | { type: "pick-image" }
   | { type: "open-file"; path: string; line?: number }
   | { type: "sign-in" }
   | { type: "open-in-tab" }

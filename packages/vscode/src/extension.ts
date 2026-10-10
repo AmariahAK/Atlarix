@@ -101,7 +101,7 @@ export function activate(context: vscode.ExtensionContext): void {
     });
     panel.iconPath = vscode.Uri.joinPath(context.extensionUri, "media", "rix-glyph.svg");
     panel.webview.html = chatHtml(panel.webview, context.extensionUri);
-    const chat = new Chat(panel.webview, host, sessionId);
+    const chat = new Chat(panel.webview, host, sessionId, "tab");
     track(chat, panel);
     panel.onDidDispose(() => {
       chat.dispose();
