@@ -187,7 +187,9 @@ export class Chat {
       }
     } catch (e) {
       if (isAuthRequired(e)) return this.post({ type: "status", status: "signed-out" });
-      this.post({ type: "status", status: "error", detail: (e as Error).message ?? String(e) });
+      // The agent's own reason, without the protocol's "Internal error:" label in front.
+      const detail = ((e as Error).message ?? String(e)).replace(/^Internal error:\s*/i, "");
+      this.post({ type: "status", status: "error", detail });
     }
   }
 
