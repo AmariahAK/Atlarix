@@ -169,13 +169,8 @@ function showEmpty() {
   const empty = el("div", "empty");
   const big = el("div", "empty__rix");
   big.innerHTML = rixSvg({ state: "rest", size: "120px", label: "Rix, the Atlarix ant" });
-  empty.append(
-    big,
-    el("div", "empty__title", "What are we building?"),
-    el("div", "empty__hint", "Atlarix edits, runs and researches in this folder. Every change and command waits for your yes in Build mode."),
-    el("div", "empty__hint", "Select code and press ⌘⌥L (Ctrl+Alt+L) to add it here."),
-    el("div", "empty__hint", "In the terminal, /editor brings a CLI chat here; ⋯ takes this one to the app or the terminal."),
-  );
+  // Rix and one line. How-tos belong in the docs and the store page, not here.
+  empty.append(big, el("div", "empty__title", "What are we building?"));
   log.append(empty);
 }
 
