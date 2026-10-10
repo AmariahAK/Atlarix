@@ -26,6 +26,8 @@ export interface ChatHost {
   openInTab(sessionId: string | null): void;
   showLog(): void;
   signIn(): Promise<void>;
+  /** A turn finished normally (counts toward the one-time rating request). */
+  turnFinished(): void;
 }
 
 interface Pending {
@@ -231,6 +233,7 @@ export class Chat {
     try {
       const r = await c.prompt(sessionId, this.blocks(text, context), answers?.length ? { answers, ...meta } : meta);
       this.post({ type: "turn-end", stopReason: r.stopReason });
+      if (r.stopReason === "end_turn") this.host.turnFinished();
     } catch (e) {
       if (isAuthRequired(e)) this.post({ type: "status", status: "signed-out" });
       this.post({ type: "turn-end", stopReason: null, error: (e as Error).message ?? String(e) });

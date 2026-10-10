@@ -6,6 +6,7 @@
  * editor's own diff, and the editor's selection and files as context.
  */
 import path from "node:path";
+import { noteTurn, ratingUrl, type RatingState } from "./rating";
 import * as vscode from "vscode";
 import { findAtlarix } from "./binary";
 import { Chat, type ChatHost } from "./chat";
@@ -78,6 +79,15 @@ export function activate(context: vscode.ExtensionContext): void {
   };
 
   const binaryPath = () => findAtlarix(context.extensionPath, vscode.workspace.getConfiguration("atlarix").get<string>("cliPath"));
+  const RATING_KEY = "atlarix.rating";
+  const turnFinished = () => {
+    const { state, ask } = noteTurn(context.globalState.get<RatingState>(RATING_KEY) ?? { turns: 0, asked: false });
+    void context.globalState.update(RATING_KEY, state);
+    if (!ask) return;
+    void vscode.window
+      .showInformationMessage("Enjoying Atlarix? A rating helps other developers find it.", "Rate Atlarix", "Not now")
+      .then((pick) => pick === "Rate Atlarix" && vscode.env.openExternal(vscode.Uri.parse(ratingUrl(vscode.env.appName))));
+  };
   const host: ChatHost = {
     binaryPath,
     connection: connect,
@@ -85,6 +95,7 @@ export function activate(context: vscode.ExtensionContext): void {
     diffs,
     openInTab: (sessionId) => openTab(sessionId),
     showLog: () => log.show(),
+    turnFinished,
     signIn: async () => {
       // One sign-in at a time: another click shows its page again. Each click
       // used to start its own, and an earlier page then led nowhere.
