@@ -1297,6 +1297,115 @@ jobs:
             out/assets/*
           if-no-files-found: error
 
+  # ───────────────────────────────────────────────────────────────────────────
+  # The VS Code extension (packages/vscode), for VS Code, Cursor, Kiro and
+  # Windsurf: one VSIX per platform, each carrying THAT platform's CLI from
+  # build-cli, so installing it is the whole setup. In publish-release's needs,
+  # like the Chrome zip: it ships with every release.
+  # ───────────────────────────────────────────────────────────────────────────
+  build-vscode:
+    needs: [quality, create-draft, build-cli]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+      # @types/vscode lives in the package, not the root lockfile.
+      - run: npm ci --prefix packages/vscode
+
+      - name: Type check (VS Code extension)
+        run: npm run ts:vscode
+
+      - name: Version matches the app
+        run: npm run check:extension-version
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: atlarix-cli-*
+          path: cli
+
+      - name: Pack one VSIX per platform
+        run: |
+          set -euo pipefail
+          # CLI target -> VS Code's platform name. The musl builds are Alpine's.
+          declare -A VSIX=(
+            [darwin-arm64]=darwin-arm64 [darwin-x64]=darwin-x64
+            [linux-x64]=linux-x64 [linux-arm64]=linux-arm64
+            [linux-x64-musl]=alpine-x64 [linux-arm64-musl]=alpine-arm64
+            [windows-x64]=win32-x64
+          )
+          for t in "${!VSIX[@]}"; do
+            exe=atlarix; [[ "$t" == windows-* ]] && exe=atlarix.exe
+            # upload-artifact keeps paths relative to their common parent (out/).
+            node scripts/build-vscode.mjs --target "${VSIX[$t]}" --cli "cli/atlarix-cli-$t/cli/$exe"
+          done
+          # Windows on ARM runs the x64 CLI under emulation: there is no
+          # windows-arm64 CLI build yet, and without this VSIX an ARM Windows
+          # machine would be offered nothing.
+          node scripts/build-vscode.mjs --target win32-arm64 --cli cli/atlarix-cli-windows-x64/cli/atlarix.exe
+          ls -la dist-vscode
+
+      - name: Upload the VSIXs to the release draft
+        env:
+          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          set -euo pipefail
+          UPLOAD_URL="${{ needs.create-draft.outputs.upload_url }}"
+          UPLOAD_URL="${UPLOAD_URL%\{*}"
+          for f in dist-vscode/*.vsix; do
+            echo "Uploading $(basename "$f")..."
+            curl -fsS --retry 3 -X POST \
+              -H "Authorization: token $RELEASES_TOKEN" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@$f" \
+              "$UPLOAD_URL?name=$(basename "$f")" >/dev/null
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: atlarix-vsix
+          path: dist-vscode/*.vsix
+          if-no-files-found: error
+
+  submit-vscode:
+    # Open VSX (Cursor, Kiro, Windsurf, VSCodium). NOT in publish-release's
+    # needs: a registry outage must never block a release, and the VSIXs are
+    # already attached to it by then.
+    #
+    # The VS Code Marketplace is uploaded BY HAND for now
+    # (marketplace.visualstudio.com/manage/publishers/atlarix): a Marketplace
+    # token needs an Azure DevOps organisation, which needs an Azure
+    # subscription. Move to `vsce publish --oidc` once Microsoft enables
+    # trusted publishing for the publisher.
+    #
+    # Off until switched on: gh variable set VSCODE_AUTO_SUBMIT --body true
+    needs: [build-vscode]
+    if: startsWith(github.ref, 'refs/tags/v') && vars.VSCODE_AUTO_SUBMIT == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          name: atlarix-vsix
+          path: vsix
+      - name: Publish to Open VSX
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: |
+          set -euo pipefail
+          for f in vsix/*.vsix; do
+            echo "Publishing $(basename "$f")..."
+            npx --yes ovsx@1.2.0 publish "$f" -p "$OVSX_PAT"
+          done
+
   # Checksums for every CLI download (the installers verify against this file),
   # and the Homebrew formula rendered from them.
   cli-assets:
@@ -1361,6 +1470,7 @@ jobs:
         build-extension,
         build-cli,
         cli-assets,
+        build-vscode,
       ]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')

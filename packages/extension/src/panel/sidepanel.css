@@ -1682,22 +1682,41 @@ button.file__chip:hover {
 .msg--peer {
   align-self: stretch;
 }
-.peer-task {
-  border: 1px solid var(--border, rgba(127, 127, 127, 0.35));
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--accent, #10b981) 8%, transparent);
+/* A message from another session: a tool row (sidepanel.ts peerTaskCard). */
+.tool--peer .tool__dot {
+  background: var(--fg-muted);
+}
+.recap {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  border-left: 2px solid var(--primary);
+  padding: 4px 8px;
+  color: var(--fg-muted);
   font-size: 13px;
 }
-.peer-task__head {
-  cursor: pointer;
-  padding: 6px 10px;
-  color: var(--muted, #8a8a8a);
-  font-size: 12px;
+.recap__mark {
+  color: var(--primary);
 }
-.peer-task__body {
-  padding: 6px 10px 10px;
-  white-space: pre-wrap;
-  word-break: break-word;
+.recap__label {
+  color: var(--fg);
+  white-space: nowrap;
+}
+.recap__text {
+  flex: 1;
+}
+.recap__close {
+  background: none;
+  border: none;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+.drawer__toggle {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  color: var(--fg-muted);
+  font-size: 13px;
 }
 .peer-offer {
   border: 1px dashed var(--accent, #10b981);
@@ -1711,4 +1730,11 @@ button.file__chip:hover {
 .peer-offer__actions {
   display: flex;
   gap: 8px;
+}
+
+.empty__rix {
+  width: 96px;
+  height: auto;
+  margin: 0 auto 6px;
+  display: block;
 }

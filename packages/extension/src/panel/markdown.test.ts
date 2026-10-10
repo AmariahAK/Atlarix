@@ -327,3 +327,12 @@ describe("tables", () => {
     expect(el.querySelector("td code")?.textContent).toBe("code");
   });
 });
+
+describe("checklists", () => {
+  it("draws [ ] and [x] items as boxes", () => {
+    const el = document.createElement("div");
+    renderMarkdown(el, "- [ ] Add it\n- [x] Agree the name");
+    const items = [...el.querySelectorAll("li")].map((li) => li.textContent);
+    expect(items).toEqual(["☐ Add it", "☑ Agree the name"]);
+  });
+});

@@ -64,7 +64,11 @@ export function getPostHog(): PostHog | null {
   if (client) return client;
   const apiKey = process.env.POSTHOG_API_KEY;
   if (!apiKey) return null;
-  client = new PostHog(apiKey, { host: POSTHOG_HOST });
+  // `disableGeoip: false`: posthog-node turns GeoIP OFF by default, which left
+  // every desktop and CLI event without a country. The request comes from the
+  // user's own machine, so the location is theirs; the project discards the IP
+  // itself after the lookup (the consent text says both).
+  client = new PostHog(apiKey, { host: POSTHOG_HOST, disableGeoip: false });
   return client;
 }
 

@@ -90,10 +90,11 @@ import { abbreviatePath, activityLabel, formatTokens, oneLine } from "./format";
 import { copyText } from "./clipboard";
 import { color, glyph } from "./theme";
 import { errorNotice, type ErrorNotice } from "./limits";
-import { Logo } from "./Logo";
+import { SessionHeader, type AccountKind } from "./Header";
 import { RATING_CHANCE, RATINGS, shouldAskRating } from "./session-rating";
 import { PlanPanel, type PinnedPlan, type PlanScroll } from "./PlanPanel";
 import { Transcript } from "./Transcript";
+import { recapDecision, type RecapClock } from "@/lib/recap/rules";
 
 /** shift+tab order. The same five modes as the app, named the way the app names them. */
 const MODES: WorkMode[] = ["build", "ask", "plan", "debug", "review"];
@@ -410,6 +411,7 @@ export function App({
   const [toast, setToast] = useState<ToastState | null>(null);
   const [showHelp, setShowHelp] = useState(false);
   const [modelLabel, setModelLabel] = useState(initialModelLabel);
+  const [accountKind, setAccountKind] = useState<AccountKind | null>(null);
   // `@` completion: the query after the @, the matches, the highlighted one.
   // Through a ref: keys can arrive faster than React renders (fast typing, a
   // paste), and none may be built on a stale query.
@@ -624,9 +626,50 @@ export function App({
   // system notification in iTerm2, Ghostty, WezTerm, kitty and Windows
   // Terminal; the bell after it makes other terminals flash or bounce.
   const terminalFocused = useRef(true);
+  // The session recap (lib/recap/rules.ts): written while you're away, shown when you're back.
+  const recapClock = useRef<RecapClock>({ completedTurns: 0, lastTurnEndedAt: null, recappedAfterTurn: -1 });
+  const recapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recapReady = useRef<string | null>(null);
+  const recapOn = useRef(true);
   useEffect(() => {
-    const onFocus = () => void (terminalFocused.current = true);
-    const onBlur = () => void (terminalFocused.current = false);
+    if (!services) return; // the real settings load lazily; tests decide without them
+    void import("@/lib/recap/recap").then((m) => m.recapEnabled()).then((on) => void (recapOn.current = on), () => {});
+  }, [services]);
+  const makeRecap = async () => {
+    recapClock.current.recappedAfterTurn = recapClock.current.completedTurns;
+    const text = await session.recap().catch(() => null);
+    if (!text) return;
+    if (terminalFocused.current) session.showRecap(text);
+    else recapReady.current = text;
+  };
+  const armRecap = () => {
+    if (recapTimer.current) clearTimeout(recapTimer.current);
+    recapTimer.current = null;
+    const d = recapDecision({
+      ...recapClock.current,
+      enabled: recapOn.current,
+      present: terminalFocused.current,
+      busy: session.state.busy,
+      now: Date.now(),
+    });
+    if (d.kind === "wait") recapTimer.current = setTimeout(armRecap, d.ms);
+    else if (d.kind === "now") void makeRecap();
+  };
+  useEffect(() => () => void (recapTimer.current && clearTimeout(recapTimer.current)), []);
+  useEffect(() => {
+    const onFocus = () => {
+      terminalFocused.current = true;
+      if (recapTimer.current) clearTimeout(recapTimer.current);
+      recapTimer.current = null;
+      if (recapReady.current) {
+        session.showRecap(recapReady.current);
+        recapReady.current = null;
+      }
+    };
+    const onBlur = () => {
+      terminalFocused.current = false;
+      armRecap();
+    };
     renderer.on("focus", onFocus);
     renderer.on("blur", onBlur);
     return () => {
@@ -664,6 +707,11 @@ export function App({
     if (!services) return; // the real settings load lazily; a fake decides in tests
     void services.analytics.consent().then(setConsent, () => {});
   }, [services]);
+  // The header's plan label. Network-backed, so it fills in after the first paint.
+  useEffect(() => {
+    if (!services?.account.kind) return;
+    void services.account.kind().then(setAccountKind, () => {});
+  }, [services]);
   const askRating =
     !ratingDone &&
     !state.busy &&
@@ -691,6 +739,10 @@ export function App({
     if (wasBusy.current && !state.busy && !state.lastError) setTurnsDone((n) => n + 1);
     if (wasBusy.current && !state.busy) {
       notify(state.lastError ? "Atlarix stopped: something went wrong" : `Atlarix finished${state.title ? `: ${state.title}` : ""}`);
+      recapClock.current.completedTurns++;
+      recapClock.current.lastTurnEndedAt = Date.now();
+      recapReady.current = null;
+      if (!terminalFocused.current) armRecap();
     }
     wasBusy.current = state.busy;
   }, [state.busy]);
@@ -977,6 +1029,31 @@ export function App({
         return openTasks(ctx);
       case "/btw":
         return openAside(ctx, rest);
+      case "/editor": {
+        if (!session.sessionId) return flash("Send a message first: there's no chat to open yet.", 3500);
+        void import("@/lib/peers/open-in-editor").then(({ openInEditor }) =>
+          openInEditor(session.sessionId, session.workspaceDir, rest.trim() || undefined).then((r) =>
+            r.ok
+              ? flash(`Opening in ${r.editor}. The Atlarix extension picks up this chat (install it from the Extensions view if it doesn't).`, 6000)
+              : flash(r.error ?? `Couldn't open ${r.editor}.`, 6000, "error"),
+          ),
+        );
+        return;
+      }
+      case "/recap": {
+        const arg = rest.toLowerCase();
+        if (arg === "on" || arg === "off") {
+          recapOn.current = arg === "on";
+          void import("@/lib/recap/recap").then((m) => m.setRecapEnabled(arg === "on"));
+          return flash(arg === "on" ? "Session recap on: a line on where things stand when you come back." : "Session recap off. /recap still writes one when you ask.", 4000);
+        }
+        if (state.busy) return flash("A turn is running; ask for a recap when it's done.", 3000);
+        flash("Writing a recap…", 2000);
+        return void session.recap({ force: true }).then(
+          (text) => (text ? session.showRecap(text) : flash("Nothing to recap yet.", 3000)),
+          () => flash("The recap didn't come back.", 3000, "error"),
+        );
+      }
       case "/rename":
         return openRename(ctx, rest);
       case "/handoff":
@@ -1396,24 +1473,33 @@ export function App({
 
   return (
     <box flexDirection="column" height="100%" backgroundColor={color.bg} paddingLeft={1} paddingRight={1} onMouseUp={refocusPrompt}>
-      {state.cells.length === 0 && !state.busy ? (
-        <box flexDirection="column" flexGrow={1} justifyContent="center" alignItems="center" gap={1}>
-          <Logo />
-          <text fg={color.faint}>v{version}</text>
-          <text fg={color.textDim}>
-            Working in{" "}
-            {/* The path gives way to the model's name: a name split over two lines reads as two things. */}
-            <span fg={color.text}>{abbreviatePath(session.workspaceDir, Math.max(12, width - modelLabel.length - 24))}</span> with{" "}
-            <span fg={color.text}>{modelLabel}</span>
-          </text>
-          <text fg={color.muted}>Ask anything, e.g. “fix the failing test” · /commands · @ for files</text>
-          <TipLine tip={tip} />
-        </box>
-      ) : (
-        <box flexGrow={1} marginBottom={1}>
-          <Transcript cells={state.cells} expanded={false} plain={plainMarkdown} busy={state.busy} workspace={session.workspaceDir} />
-        </box>
-      )}
+      <box flexGrow={1} marginBottom={1}>
+        <Transcript
+          cells={state.cells}
+          expanded={false}
+          plain={plainMarkdown}
+          busy={state.busy}
+          workspace={session.workspaceDir}
+          header={
+            <SessionHeader
+              version={version}
+              model={deep ? `${modelLabel} · deep` : modelLabel}
+              mode={MODE_LABEL[state.mode]}
+              account={session.model && session.model.provider !== "compass" ? "own-key" : accountKind}
+              workspace={abbreviatePath(session.workspaceDir, Math.max(12, width - 24))}
+              mood={state.busy ? "working" : "rest"}
+              hint={
+                state.cells.length === 0 && !state.busy ? (
+                  <>
+                    <text fg={color.muted}>Ask anything, e.g. “fix the failing test” · /commands · @ for files</text>
+                    <TipLine tip={tip} />
+                  </>
+                ) : undefined
+              }
+            />
+          }
+        />
+      </box>
 
       {state.lastError ? <ErrorBlock notice={errorNotice(state.lastError)} /> : null}
 

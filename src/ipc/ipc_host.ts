@@ -1,3 +1,4 @@
+import { registerRecapHandlers } from "./handlers/recap_handlers";
 import { registerAppHandlers } from "./handlers/app_handlers";
 import { registerChatHandlers } from "./handlers/chat_handlers";
 import { registerChatStreamHandlers } from "./handlers/chat_stream_handlers";
@@ -53,6 +54,7 @@ import { registerRemoteSshHandlers } from "../main/remote-ssh/remote_ssh_handler
 import "./handlers/dev_server_handlers"; // Auto-registers on import (Lovable-style live preview)
 
 export function registerIpcHandlers() {
+  registerRecapHandlers();
   // Register all IPC handlers by category
   registerAppHandlers();
   registerChatHandlers();

@@ -1,5 +1,6 @@
 {
   "sessions": {
-    "continueInTerminal": "Continue in terminal"
+    "continueInTerminal": "Continue in terminal",
+    "openInEditor": "Open in your editor"
   }
 }

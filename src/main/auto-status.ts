@@ -49,9 +49,20 @@ export function autoStatusFromHeaders(headers: Headers): AutoStatus | null {
   };
 }
 
+let latest: AutoStatus | null = null;
+
+/**
+ * The last Auto reply's facts in this process. The app's windows also get them
+ * by IPC; the CLI and the editor agent have no window, so recaps read this.
+ */
+export function latestAutoStatus(): AutoStatus | null {
+  return latest;
+}
+
 export function broadcastAutoStatus(headers: Headers): void {
   const status = autoStatusFromHeaders(headers);
   if (!status) return;
+  latest = status;
   // Paid vs free decides Auto's context window (auto-context-window.ts).
   void noteAutoBilling(status.billing);
   // The one place the answering model is recorded on this machine.

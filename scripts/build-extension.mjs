@@ -300,6 +300,8 @@ const ASSETS = [
   { src: iconset("icon_16x16.png"), dest: "icons/16.png", px: 16 },
   { src: iconset("icon_32x32.png"), dest: "icons/32.png", px: 32 },
   { src: iconset("icon_128x128.png"), dest: "icons/128.png", px: 128 },
+  // Rix in the empty panel (scripts/export-rix.ts writes it from src/lib/rix).
+  { src: path.join(root, "assets/rix/rix.svg"), dest: "icons/rix.svg" },
 ];
 
 // Every asset is required. A missing icon is not a soft degrade — Chrome

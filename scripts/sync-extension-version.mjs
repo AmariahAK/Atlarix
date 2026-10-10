@@ -27,6 +27,8 @@ const version = read(path.join(root, "package.json")).version;
 const targets = [
   path.join(root, "packages/extension/manifest.json"),
   path.join(root, "packages/extension/package.json"),
+  // The VS Code extension ships with every release too (release.yml build-vscode).
+  path.join(root, "packages/vscode/package.json"),
 ];
 
 let drifted = false;

@@ -40,6 +40,7 @@ export const TIPS: readonly string[] = [
   "Ask me to remember something and I'll still know it next week",
   "I can search the web and read the results, not just list them",
   "Close my tab group at any time to stop me",
+  "Your editor or terminal can hand me browser work",
 ];
 
 /** The tip a freshly-opened panel shows. */

@@ -26,5 +26,9 @@
   "peerMessage": {
     "from": "Message from {{where}} session",
     "anotherSession": "another session"
+  },
+  "recap": {
+    "label": "While you were away",
+    "dismiss": "Dismiss"
   }
 }

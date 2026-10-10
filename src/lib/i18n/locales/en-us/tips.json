@@ -1,7 +1,7 @@
 {
   "label": "TIP",
-  "shortcut": "{{keys}} \u2014 {{action}}",
-  "shortcutScoped": "{{keys}} \u2014 {{action}} (in {{scope}})",
+  "shortcut": "{{keys}} — {{action}}",
+  "shortcutScoped": "{{keys}} — {{action}} (in {{scope}})",
   "shortcuts": {
     "toggle-right-panel": "show or hide the right panel",
     "cycle-work-mode": "cycle work mode",
@@ -15,14 +15,16 @@
   },
   "feature": {
     "memory": "Doing a lot of work? Ask Atlarix to remember the key things, so the next session picks up where you left off.",
-    "sessionRecall": "Ask about something from earlier in this chat \u2014 it can search the transcript, even after compacting.",
+    "sessionRecall": "Ask about something from earlier in this chat — it can search the transcript, even after compacting.",
     "previousSession": "Ask Atlarix to read a previous session by name when you want accurate context on earlier work.",
     "autocomplete": "Type / for commands, or @ to point at a file.",
-    "mcp": "Connect MCP servers in Settings \u2192 Integrations to give Atlarix your own tools.",
-    "skills": "Drop a markdown file in .atlarix/skills/ to teach Atlarix a repeatable job \u2014 or ask it to write one.",
-    "voice": "Dictate instead of typing \u2014 it works with any model that accepts audio, or with your own speech-to-text key.",
+    "mcp": "Connect MCP servers in Settings → Integrations to give Atlarix your own tools.",
+    "skills": "Drop a markdown file in .atlarix/skills/ to teach Atlarix a repeatable job — or ask it to write one.",
+    "voice": "Dictate instead of typing — it works with any model that accepts audio, or with your own speech-to-text key.",
     "automations": "Put recurring work on a schedule with automations.",
-    "subagents": "Hand independent work to sub-agents and let them run in parallel."
+    "subagents": "Hand independent work to sub-agents and let them run in parallel.",
+    "editor": "Working in VS Code, Cursor or Kiro? A session's ⋯ menu → Open in your editor carries it there, with the Atlarix extension.",
+    "terminal": "Prefer the terminal? A session's ⋯ menu → Continue in terminal opens it in the Atlarix CLI."
   },
   "help": {
     "title": "Keyboard shortcuts",

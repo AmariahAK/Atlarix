@@ -423,6 +423,8 @@ export const UserSettingsSchema = z.object({
   voiceTranscriptionProvider: z.string().optional(),
   /** Messages from the user's other Atlarix sessions: delivered, or refused. Unset = accept. */
   peerMessages: z.enum(["accept", "refuse"]).optional(),
+  /** A one-line recap when the user comes back to a session after a few minutes away. Unset = on. */
+  sessionRecap: z.boolean().optional(),
   // `voiceInputMode` REMOVED. Its "live" value streamed a re-transcription of a
   // growing buffer every 1.5s, which was only viable against the local WebGPU
   // pipeline; against a metered API it would bill every 1.5s for the same audio.

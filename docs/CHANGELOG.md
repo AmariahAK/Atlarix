@@ -3,6 +3,72 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [15.4.0] (2026-10-10) — Atlarix for VS Code, Cursor and Kiro; meet Rix
+
+**Atlarix has its own extension for VS Code and the editors built on it** — Cursor, Kiro,
+Windsurf, VSCodium. It runs the CLI's own agent (`atlarix acp`, bundled in the extension, so there
+is nothing else to install) and draws the chat in Atlarix's colours: Build, Explore, Plan, Debug
+and Review in the message box; every model the picker offers, Auto, Core and your own keys alike;
+edits opened in the editor's own side-by-side diff before they are written, with Yes and No in the
+chat; command approvals; questions answered from a card; Plan mode's plan in a panel with **Build
+it**; messages from your other Atlarix sessions as cards, read without waiting for a prompt; your
+Chrome through the extension; the selection (⌘⌥L) and files (@) and images as context; past
+chats for the folder; and an Account panel — plan, credit, this chat's usage, Get Pro, Add
+credit, manage or cancel your subscription, sign out, connect a provider key, and this folder's
+MCP servers on or off. Running out of free share or credit offers Add credit, Pro or your own key
+on the message itself. One VSIX per platform ships with every release (Windows on ARM runs the
+x64 agent); Open VSX publishing is in CI, the Marketplace is uploaded by hand for now.
+
+**Move a chat between surfaces.** `/editor` in the CLI (or `/editor cursor`, `/editor kiro`…) and
+the app's session menu → Open in your editor carry a chat into the extension
+(`vscode://atlarix.atlarix/open`, `lib/peers/open-in-editor.ts`); a chat from another folder opens
+that folder in a new window, which loads it. From the editor, ⋯ → Continue in the Atlarix app or
+in the terminal (`atlarix --resume` in the editor's terminal). Tips on every surface teach them.
+
+**Plans tick off while they're built.** The plan stays on screen through Build in the extension
+and in Zed's plan list (it used to vanish the moment Build started): ☐ ◐ ☑ per step, "Building…"
+then "Built"; the panel folds, and "Whole plan" appears only when it says more than the steps.
+
+**Zed and JetBrains get more from ACP too.** Building a plan switches the editor's mode picker to
+Build (it stayed on Plan), plans arrive as the editor's own plan list, `/status`, `/billing`,
+`/mcp` and `/logout` answer in the chat, and `/handoff` continues in the app. A reopened chat
+shows its title. A session that cannot start says why — an
+older Atlarix desktop app guarding the database, say — instead of "Internal error", and reopening
+a chat the same editor already had open replays it in full.
+
+**Rix, the Atlarix ant.** A weaver ant whose body is a turning globe and whose antenna is a
+compass needle. He heads the CLI — a left-aligned header (version, model, mode, plan, folder)
+that scrolls away with the conversation instead of a centred splash — and appears in the app's
+and the extensions' empty chats, the site's hero and 404, and the videos. One source
+(`src/lib/rix/rix-svg.ts`, exported to `assets/rix/` by `scripts/export-rix.ts`), with rest,
+working, found, loading and scout states.
+
+**Session recap.** Come back to a session after a few minutes away and one line says where it
+stands — in the CLI (`◷ While you were away`, `/recap` any time, `/recap on|off`), the app (a card
+under the conversation; Settings → Notifications), the Chrome panel and the editors. It is written
+while you're away, on the session's own model and route, never saved and never sent back to the
+model, and skipped on free Auto when the day's share is nearly gone (`lib/recap`).
+
+**Usage analytics include an approximate location** for people who opted in: country and city,
+worked out by PostHog from the connection; the IP address itself is discarded. posthog-node had
+GeoIP off by default and the app blanked the address, so no event ever had a country. The consent
+text in the first-run dialog, Settings, the CLI and the privacy policy says so.
+
+**Smaller.** In the Chrome panel a message from another session is a step on the agent's side,
+not a full-width card that read as an exchange. Checklists in the Chrome and VS Code chats draw as
+☐ and ☑.
+
+**Fixes.** Thinking and replies stream into editors and the CLI as they're written; before, they
+arrived only when the turn ended, because main runs in the CLI's process and the session held
+main's own live message, so every patch read as "no change" (`src/cli/agent/session.ts`). The
+extension shows a thought open while the model thinks and folds it when the answer starts. An
+answer that is only a number, date or time ("18", "3.14") no longer vanishes as tool debris
+(`src/lib/chat/answer-display.ts`). A provider that refuses the request outright — a revoked API
+key, no access to the model — is no longer retried twice and then reported as "Something went
+wrong": the turn ends on the real reason (`turn-runner/round-retry.ts`, `simple-stream-text.ts`,
+`finalize.ts`). Clicking Sign in again in the extension reopens the sign-in already under way
+instead of starting another.
+
 ## [15.3.0] (2026-10-09) — Atlarix in your editor
 
 **Atlarix runs inside Zed, JetBrains IDEs and VS Code.** The CLI is now also an

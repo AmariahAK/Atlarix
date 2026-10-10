@@ -68,6 +68,16 @@ function splitRow(line: string): string[] {
     .map((c) => c.trim());
 }
 
+/**
+ * A checklist item (`[ ]`, `[x]`, `[~]` in progress) reads as a box, not as
+ * bracket characters: plans are written this way and showed "[ ] Add …".
+ */
+function taskBox(text: string): string {
+  return text.replace(/^\[( |x|X|~)\]\s+/, (_m, mark: string) =>
+    mark === " " ? "☐ " : mark === "~" ? "◐ " : "☑ ",
+  );
+}
+
 /** Render `markdown` into `container`, replacing whatever was there. */
 export function renderMarkdown(container: HTMLElement, markdown: string): void {
   container.textContent = "";
@@ -178,7 +188,7 @@ function parseBlocks(markdown: string): Node[] {
       if (first !== 1) ol.start = first;
       while (i < lines.length && ORDERED.test(lines[i])) {
         const li = document.createElement("li");
-        appendInline(li, lines[i].replace(ORDERED, ""));
+        appendInline(li, taskBox(lines[i].replace(ORDERED, "")));
         ol.append(li);
         i += 1;
       }
@@ -191,7 +201,7 @@ function parseBlocks(markdown: string): Node[] {
       const ul = document.createElement("ul");
       while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
         const li = document.createElement("li");
-        appendInline(li, lines[i].replace(/^\s*[-*]\s+/, ""));
+        appendInline(li, taskBox(lines[i].replace(/^\s*[-*]\s+/, "")));
         ul.append(li);
         i += 1;
       }

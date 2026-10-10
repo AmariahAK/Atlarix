@@ -7,5 +7,9 @@
   "peerMessages": {
     "label": "Messages from other sessions",
     "description": "Lets another Atlarix session on this computer (the app or the CLI) send this one a message, which it answers. Nothing leaves your computer. Off: they are refused."
+  },
+  "sessionRecap": {
+    "label": "Session recap",
+    "description": "When you come back to a chat after a few minutes away, a one-line recap of where it stands. Written by the chat's own model; never saved or sent back to it. Shared with the CLI and editors."
   }
 }
