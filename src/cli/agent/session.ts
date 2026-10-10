@@ -28,6 +28,7 @@ import {
   type ToolLine,
 } from "./transcript";
 
+import { conversationText } from "./btw";
 import { handler } from "./ipc";
 import { applyLiveTextPatch, type LiveTextPatch } from "@/lib/chat/live-text-patch";
 
@@ -610,6 +611,12 @@ export class AgentSession extends EventEmitter {
   // ─── sub-agents (/agents) ──────────────────────────────────────────────────
 
   /** /btw: a side question about this conversation; nothing is saved (btw.ts). */
+  /** The one-line recap for someone coming back (lib/recap); null when none is due or allowed. */
+  async recap(): Promise<string | null> {
+    const { generateRecap } = await import("@/lib/recap/recap");
+    return generateRecap(conversationText(this.state.cells), { chatId: this.chatId, model: this.model });
+  }
+
   async aside(question: string): Promise<string> {
     const { answerAside } = await import("./btw");
     return answerAside(question, this.state.cells, this.chatId, this.model);

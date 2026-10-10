@@ -113,9 +113,16 @@ export function buildAgentApp(
       return {};
     })
     // Atlarix's own editor extension: what the status bar shows.
-    .onRequest("_atlarix/status", (p) => p as Record<string, unknown>, () => ({
-      chrome: extras.chromeStatus?.() ?? "unavailable",
-    }));
+    .onRequest("_atlarix/status", (p) => p as Record<string, unknown>, async () => {
+      const { recapEnabled } = await import("@/lib/recap/recap");
+      return { chrome: extras.chromeStatus?.() ?? "unavailable", recap: await recapEnabled() };
+    })
+    .onRequest("_atlarix/recap", (p) => p as { sessionId: string }, (ctx) => agent.recap(ctx.params.sessionId))
+    .onRequest("_atlarix/recap_setting", (p) => p as { on: boolean }, async (ctx) => {
+      const { setRecapEnabled } = await import("@/lib/recap/recap");
+      await setRecapEnabled(ctx.params.on === true);
+      return {};
+    });
 }
 
 export async function runAcp(opts: AcpRunOptions): Promise<void> {

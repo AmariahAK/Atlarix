@@ -75,7 +75,9 @@
     "check:readme-catalog": "node scripts/gen-readme-catalog.mjs --check",
     "sync:extension-version": "node scripts/sync-extension-version.mjs",
     "check:extension-version": "node scripts/sync-extension-version.mjs --check",
-    "extension:changed": "node scripts/extension-changed.mjs"
+    "extension:changed": "node scripts/extension-changed.mjs",
+    "ts:vscode": "node node_modules/typescript/lib/tsc.js -p packages/vscode/tsconfig.json && node node_modules/typescript/lib/tsc.js -p packages/vscode/webview/tsconfig.json",
+    "build:vscode": "node scripts/build-vscode.mjs"
   },
   "keywords": [
     "ai",

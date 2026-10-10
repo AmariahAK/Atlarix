@@ -453,6 +453,13 @@ export class AcpAgent {
     };
   }
 
+  /** Atlarix's extension, back after a while away: one line on where this session stands. */
+  async recap(sessionId: string): Promise<{ text: string | null }> {
+    const t = this.thread(sessionId);
+    if (t.session.state.busy) return { text: null };
+    return { text: await t.session.recap() };
+  }
+
   prompt(sessionId: string, blocks: readonly ContentBlock[], meta?: unknown): Promise<PromptResponse> {
     return this.thread(sessionId).prompt(blocks, promptMeta(meta));
   }
