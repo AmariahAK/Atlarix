@@ -90,7 +90,7 @@ import { abbreviatePath, activityLabel, formatTokens, oneLine } from "./format";
 import { copyText } from "./clipboard";
 import { color, glyph } from "./theme";
 import { errorNotice, type ErrorNotice } from "./limits";
-import { Logo } from "./Logo";
+import { SessionHeader, type AccountKind } from "./Header";
 import { RATING_CHANCE, RATINGS, shouldAskRating } from "./session-rating";
 import { PlanPanel, type PinnedPlan, type PlanScroll } from "./PlanPanel";
 import { Transcript } from "./Transcript";
@@ -410,6 +410,7 @@ export function App({
   const [toast, setToast] = useState<ToastState | null>(null);
   const [showHelp, setShowHelp] = useState(false);
   const [modelLabel, setModelLabel] = useState(initialModelLabel);
+  const [accountKind, setAccountKind] = useState<AccountKind | null>(null);
   // `@` completion: the query after the @, the matches, the highlighted one.
   // Through a ref: keys can arrive faster than React renders (fast typing, a
   // paste), and none may be built on a stale query.
@@ -663,6 +664,11 @@ export function App({
   useEffect(() => {
     if (!services) return; // the real settings load lazily; a fake decides in tests
     void services.analytics.consent().then(setConsent, () => {});
+  }, [services]);
+  // The header's plan label. Network-backed, so it fills in after the first paint.
+  useEffect(() => {
+    if (!services?.account.kind) return;
+    void services.account.kind().then(setAccountKind, () => {});
   }, [services]);
   const askRating =
     !ratingDone &&
@@ -1396,24 +1402,33 @@ export function App({
 
   return (
     <box flexDirection="column" height="100%" backgroundColor={color.bg} paddingLeft={1} paddingRight={1} onMouseUp={refocusPrompt}>
-      {state.cells.length === 0 && !state.busy ? (
-        <box flexDirection="column" flexGrow={1} justifyContent="center" alignItems="center" gap={1}>
-          <Logo />
-          <text fg={color.faint}>v{version}</text>
-          <text fg={color.textDim}>
-            Working in{" "}
-            {/* The path gives way to the model's name: a name split over two lines reads as two things. */}
-            <span fg={color.text}>{abbreviatePath(session.workspaceDir, Math.max(12, width - modelLabel.length - 24))}</span> with{" "}
-            <span fg={color.text}>{modelLabel}</span>
-          </text>
-          <text fg={color.muted}>Ask anything, e.g. “fix the failing test” · /commands · @ for files</text>
-          <TipLine tip={tip} />
-        </box>
-      ) : (
-        <box flexGrow={1} marginBottom={1}>
-          <Transcript cells={state.cells} expanded={false} plain={plainMarkdown} busy={state.busy} workspace={session.workspaceDir} />
-        </box>
-      )}
+      <box flexGrow={1} marginBottom={1}>
+        <Transcript
+          cells={state.cells}
+          expanded={false}
+          plain={plainMarkdown}
+          busy={state.busy}
+          workspace={session.workspaceDir}
+          header={
+            <SessionHeader
+              version={version}
+              model={deep ? `${modelLabel} · deep` : modelLabel}
+              mode={MODE_LABEL[state.mode]}
+              account={session.model && session.model.provider !== "compass" ? "own-key" : accountKind}
+              workspace={abbreviatePath(session.workspaceDir, Math.max(12, width - 24))}
+              mood={state.busy ? "working" : "rest"}
+              hint={
+                state.cells.length === 0 && !state.busy ? (
+                  <>
+                    <text fg={color.muted}>Ask anything, e.g. “fix the failing test” · /commands · @ for files</text>
+                    <TipLine tip={tip} />
+                  </>
+                ) : undefined
+              }
+            />
+          }
+        />
+      </box>
 
       {state.lastError ? <ErrorBlock notice={errorNotice(state.lastError)} /> : null}
 
