@@ -76,6 +76,7 @@ export class Chat {
         case "set-model": {
           const c = await this.host.connection();
           if (!c || !this.sessionId) return;
+          if (m.type === "set-mode") this.currentMode = m.mode;
           const configOptions = await c.setOption(this.sessionId, m.type === "set-mode" ? "mode" : "model", m.type === "set-mode" ? m.mode : m.value);
           this.post({ type: "update", update: { sessionUpdate: "config_option_update", configOptions } });
           return;
@@ -121,6 +122,27 @@ export class Chat {
         case "show-log":
           this.host.showLog();
           return;
+        case "account":
+          return this.showAccount();
+        case "checkout":
+          return this.checkout(m.kind);
+        case "manage-subscription":
+          await vscode.env.openExternal(vscode.Uri.parse("https://www.atlarix.dev/account"));
+          return;
+        case "sign-out": {
+          const ok = await vscode.window.showWarningMessage("Sign out of Atlarix? The app and CLI on this computer share this sign-in.", { modal: true }, "Sign out");
+          if (ok !== "Sign out") return;
+          await (await this.host.connection())?.signOut();
+          this.post({ type: "status", status: "signed-out" });
+          return;
+        }
+        case "connect-key":
+          return this.connectKey();
+        case "mcp-set":
+        case "mcp-remove":
+        case "mcp-test":
+        case "mcp-add":
+          return this.mcpAction(m);
       }
     } catch (e) {
       this.post({ type: "turn-end", stopReason: null, error: (e as Error).message ?? String(e) });
@@ -170,6 +192,7 @@ export class Chat {
   }
 
   private onUpdate(n: SessionNotification): void {
+    if (n.update.sessionUpdate === "current_mode_update") this.currentMode = n.update.currentModeId;
     this.post({ type: "update", update: n.update });
   }
 
@@ -290,6 +313,122 @@ export class Chat {
 
   addContext(item: ContextItem): void {
     this.post({ type: "add-context", item });
+  }
+
+  // --- Account, billing, keys, MCP (the CLI's /status, /billing, /connect, /mcp) ---
+
+  private async showAccount(): Promise<void> {
+    const c = await this.host.connection();
+    if (!c) return;
+    const [a, p, m] = await Promise.all([
+      c.account(this.sessionId),
+      c.providers().catch(() => ({ providers: [] })),
+      this.sessionId ? c.mcp(this.sessionId, "list").catch(() => ({ servers: [] })) : Promise.resolve({ servers: [] }),
+    ]);
+    this.post({
+      type: "account",
+      email: a.email,
+      kind: a.kind,
+      balanceCents: a.balanceCents,
+      usage: a.usage,
+      providers: p.providers.map((x) => ({ id: x.id, name: x.name, hasKey: x.hasKey })),
+      mcp: m.servers ?? [],
+    });
+  }
+
+  private toast(text: string, tone: "info" | "error" = "info"): void {
+    this.post({ type: "toast", text, tone });
+  }
+
+  private async checkout(kind: "pro" | "credit"): Promise<void> {
+    const c = await this.host.connection();
+    if (!c) return;
+    let amountCents: number | undefined;
+    if (kind === "credit") {
+      const v = await vscode.window.showInputBox({
+        title: "Add Atlarix credit",
+        prompt: "Amount in US dollars (at least $10). Credit pays for Atlarix Auto and Core as you go.",
+        value: "10",
+        validateInput: (s) => (Number(s) >= 10 ? null : "At least $10"),
+      });
+      if (!v) return;
+      amountCents = Math.round(Number(v) * 100);
+    }
+    try {
+      const { url } = await c.checkout(kind, amountCents);
+      await vscode.env.openExternal(vscode.Uri.parse(url));
+      this.toast("Checkout opened in your browser. Your balance updates here when it's done.");
+    } catch (e) {
+      this.toast((e as Error).message ?? String(e), "error");
+    }
+  }
+
+  private async connectKey(): Promise<void> {
+    const c = await this.host.connection();
+    if (!c) return;
+    const { providers } = await c.providers();
+    const pick = await vscode.window.showQuickPick(
+      providers.map((p) => ({ label: p.name, description: p.hasKey ? "key saved" : "", id: p.id, keyUrl: p.keyUrl })),
+      { title: "Connect a provider with your own API key", placeHolder: "Choose a provider" },
+    );
+    if (!pick) return;
+    const key = await vscode.window.showInputBox({
+      title: `${pick.label} API key`,
+      prompt: pick.keyUrl ? `Get a key at ${pick.keyUrl}. It's stored by Atlarix on this computer, shared with the app and CLI.` : "Stored by Atlarix on this computer, shared with the app and CLI.",
+      password: true,
+      ignoreFocusOut: true,
+    });
+    if (!key) return;
+    try {
+      await c.saveKey(pick.id, key);
+      // The model list is read on each config call: refreshOptions asks again so the new models appear.
+      this.toast(`${pick.label} key saved. Its models are in the model picker.`);
+      await this.refreshOptions();
+      await this.showAccount();
+    } catch (e) {
+      this.toast((e as Error).message ?? String(e), "error");
+    }
+  }
+
+  private currentMode = "build";
+
+  private async refreshOptions(): Promise<void> {
+    const c = await this.host.connection();
+    if (!c || !this.sessionId) return;
+    const configOptions = await c.setOption(this.sessionId, "mode", this.currentMode).catch(() => null);
+    if (configOptions) this.post({ type: "update", update: { sessionUpdate: "config_option_update", configOptions } });
+  }
+
+  private async mcpAction(m: Extract<ViewMessage, { type: "mcp-set" | "mcp-remove" | "mcp-test" | "mcp-add" }>): Promise<void> {
+    const c = await this.host.connection();
+    if (!c || !this.sessionId) return;
+    try {
+      if (m.type === "mcp-set") await c.mcp(this.sessionId, "set", { id: m.id, enabled: m.enabled });
+      else if (m.type === "mcp-remove") {
+        const ok = await vscode.window.showWarningMessage("Remove this MCP server from this folder?", { modal: true }, "Remove");
+        if (ok !== "Remove") return;
+        await c.mcp(this.sessionId, "remove", { id: m.id });
+      } else if (m.type === "mcp-test") {
+        const r = (await c.mcp(this.sessionId, "test", { id: m.id })).result;
+        this.toast(r?.ok ? "Connected: its tools are available." : `Couldn't connect: ${r?.needsOAuth ? "it needs you to sign in (open it in the Atlarix app once)" : (r?.error ?? "unknown error")}`, r?.ok ? "info" : "error");
+        return;
+      } else {
+        const name = await vscode.window.showInputBox({ title: "Add an MCP server", prompt: "A name for it", placeHolder: "github" });
+        if (!name) return;
+        const target = await vscode.window.showInputBox({
+          title: `How to reach ${name}`,
+          prompt: "A command that starts it (npx -y @modelcontextprotocol/server-github) or its URL (https://…)",
+          ignoreFocusOut: true,
+        });
+        if (!target) return;
+        const isUrl = /^https?:\/\//i.test(target.trim());
+        await c.mcp(this.sessionId, "add", { name, ...(isUrl ? { url: target.trim() } : { command: target.trim() }) });
+        this.toast(`${name} added for this folder.`);
+      }
+      await this.showAccount();
+    } catch (e) {
+      this.toast((e as Error).message ?? String(e), "error");
+    }
   }
 
   // --- Recap -----------------------------------------------------------------

@@ -692,3 +692,54 @@ button.icon.small {
 .status-row .model-pill .select {
   max-width: 180px;
 }
+
+/* Account panel */
+.acct {
+  border-top: 1px solid var(--border);
+  padding: 10px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.acct__title {
+  margin: 0;
+  font-size: 0.95em;
+  color: var(--fg);
+}
+.acct__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+.acct__k {
+  color: var(--fg-muted);
+}
+.acct__v {
+  color: var(--fg);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.acct__note {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 0.92em;
+}
+.toast {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 120px;
+  z-index: 6;
+  background: var(--raised);
+  border: 1px solid var(--primary);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+}
+.toast.error {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.error .card__options {
+  margin-top: 8px;
+}

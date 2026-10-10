@@ -239,4 +239,15 @@ describe("atlarix acp", () => {
     expect(replayed.some((u) => u.update.sessionUpdate === "user_message_chunk")).toBe(true);
     expect(JSON.stringify(replayed)).toContain("heron");
   }, 60_000);
+
+  it("/mcp and /status answer as a message in editors with no Atlarix panel", async () => {
+    const e = await editor([]);
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    const r = await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "/mcp" }] });
+    expect(r.stopReason).toBe("end_turn");
+    expect(e.text(sessionId)).toContain("MCP servers");
+    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "/status" }] });
+    // The test data folder has no sign-in: the answer says how to sign in.
+    expect(e.text(sessionId)).toMatch(/atlarix login|Atlarix status/);
+  }, 60_000);
 });

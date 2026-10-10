@@ -224,6 +224,14 @@ class Thread {
     diffUpdates(this.session.state.cells, this.emitted);
     const errorBefore = this.session.state.lastError;
     const slash = /^\/(\w+)\s*$/.exec(text);
+    // Account commands for editors with no Atlarix panel (Zed, JetBrains): the
+    // CLI's /status, /billing and /mcp, answered as a message.
+    if (slash && (slash[1] === "status" || slash[1] === "billing" || slash[1] === "mcp")) {
+      const { accountCommandText } = await import("./account-commands");
+      const reply = await accountCommandText(slash[1], this.session).catch((e: Error) => `Couldn't read that: ${e.message}`);
+      await this.send({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: reply } });
+      return { stopReason: "end_turn" };
+    }
     if (slash?.[1] === "compact") {
       const r = await this.session.compact();
       await this.send({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: r.message } });
@@ -308,6 +316,9 @@ function commandsUpdate(planReady: boolean): SessionUpdate {
     sessionUpdate: "available_commands_update",
     availableCommands: [
       { name: "compact", description: "Summarize the conversation so far to free up context." },
+      { name: "status", description: "Your Atlarix account, plan, credit and this chat's usage." },
+      { name: "billing", description: "Get Pro, add credit, or manage or cancel your subscription." },
+      { name: "mcp", description: "MCP servers in this folder." },
       ...(planReady ? [{ name: "build", description: "Build the plan that is ready for review." }] : []),
     ],
   };
@@ -413,7 +424,9 @@ export class AcpAgent {
       await session.close().catch(() => {});
       const msg = (e as Error).message ?? String(e);
       if (isAuthError(msg)) throw RequestError.authRequired(undefined, "Sign in to Atlarix first (`atlarix login`).");
-      throw e;
+      // A plain throw reaches the editor as "Internal error"; the reason (an
+      // older desktop app guarding the database, say) is what the user needs.
+      throw RequestError.internalError(undefined, msg);
     }
     const t: Thread = new Thread(
       session.sessionId,
@@ -453,6 +466,18 @@ export class AcpAgent {
         title: r.title,
         updatedAt: new Date(r.updatedAt).toISOString(),
       })),
+    };
+  }
+
+  /** The workspace's app id and this session's usage, for the extension's Account panel. */
+  sessionInfo(sessionId: string): { appId: number; tokens: number; cachedTokens: number; costUsd: number; contextPercent: number | null } {
+    const s = this.thread(sessionId).session;
+    return {
+      appId: s.appId,
+      tokens: s.state.sessionTokens ?? 0,
+      cachedTokens: s.state.cachedTokens ?? 0,
+      costUsd: s.state.costUsd ?? 0,
+      contextPercent: s.state.contextPercent ?? null,
     };
   }
 

@@ -56,7 +56,17 @@ export type HostMessage =
   | { type: "chrome"; status: string }
   | { type: "recap"; text: string }
   | { type: "recap-setting"; on: boolean }
-  | { type: "host-info"; appName: string; version: string; where: "sidebar" | "tab" };
+  | { type: "host-info"; appName: string; version: string; where: "sidebar" | "tab" }
+  | {
+      type: "account";
+      email: string | null;
+      kind: "signed-out" | "free" | "pro" | "payg" | null;
+      balanceCents: number | null;
+      usage: { tokens: number; cachedTokens: number; costUsd: number; contextPercent: number | null } | null;
+      providers: Array<{ id: string; name: string; hasKey: boolean }>;
+      mcp: Array<{ id: number; name: string; transport: string; enabled: boolean }>;
+    }
+  | { type: "toast"; text: string; tone?: "info" | "error" };
 
 export type ViewMessage =
   | { type: "ready" }
@@ -77,4 +87,13 @@ export type ViewMessage =
   | { type: "open-in-tab" }
   | { type: "visible"; visible: boolean; focused: boolean }
   | { type: "recap-setting"; on: boolean }
-  | { type: "show-log" };
+  | { type: "show-log" }
+  | { type: "account" }
+  | { type: "checkout"; kind: "pro" | "credit" }
+  | { type: "manage-subscription" }
+  | { type: "sign-out" }
+  | { type: "connect-key" }
+  | { type: "mcp-set"; id: number; enabled: boolean }
+  | { type: "mcp-add" }
+  | { type: "mcp-remove"; id: number }
+  | { type: "mcp-test"; id: number };

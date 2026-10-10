@@ -118,6 +118,63 @@ export function buildAgentApp(
       return { chrome: extras.chromeStatus?.() ?? "unavailable", recap: await recapEnabled() };
     })
     .onRequest("_atlarix/recap", (p) => p as { sessionId: string }, (ctx) => agent.recap(ctx.params.sessionId))
+    // ── Account, billing, keys and MCP for Atlarix's own extension: the CLI's
+    // own services (/status, /billing, /connect, /mcp, /logout), nothing new.
+    .onRequest("_atlarix/account", (p) => p as { sessionId?: string }, async (ctx) => {
+      const { realServices } = await import("../agent/services");
+      const a = realServices.account;
+      const email = await a.email().catch(() => null);
+      const [kind, balanceCents] = email
+        ? await Promise.all([a.kind?.().catch(() => null) ?? null, a.balanceCents().catch(() => null)])
+        : ["signed-out", null];
+      const usage = ctx.params.sessionId ? agent.sessionInfo(ctx.params.sessionId) : null;
+      return { email, kind, balanceCents, usage, manageUrl: "https://www.atlarix.dev/account", pricingUrl: "https://www.atlarix.dev/pricing" };
+    })
+    .onRequest("_atlarix/checkout", (p) => p as { kind: "pro" | "credit"; amountCents?: number }, async (ctx) => {
+      const { realServices } = await import("../agent/services");
+      if (!(await realServices.account.email())) throw acp.RequestError.authRequired(undefined, "Sign in to Atlarix first.");
+      const url = await realServices.account.checkout(ctx.params.kind, ctx.params.amountCents);
+      if (!url) throw acp.RequestError.invalidParams(undefined, ctx.params.kind === "credit" ? "Credit starts at $10." : "Checkout isn't available right now.");
+      return { url };
+    })
+    .onRequest("_atlarix/sign_out", (p) => p as Record<string, unknown>, async () => {
+      const { realServices } = await import("../agent/services");
+      await realServices.account.signOut();
+      return {};
+    })
+    .onRequest("_atlarix/providers", (p) => p as Record<string, unknown>, async () => {
+      const { realServices } = await import("../agent/services");
+      return { providers: await realServices.providers.list() };
+    })
+    .onRequest("_atlarix/provider_key", (p) => p as { providerId: string; key: string }, async (ctx) => {
+      const { realServices } = await import("../agent/services");
+      if (!ctx.params.providerId || !ctx.params.key?.trim()) throw acp.RequestError.invalidParams(undefined, "A provider and a key are needed.");
+      await realServices.providers.saveKey(ctx.params.providerId, ctx.params.key.trim());
+      return {};
+    })
+    .onRequest("_atlarix/mcp", (p) => p as { sessionId: string; action: string; id?: number; enabled?: boolean; name?: string; command?: string; url?: string }, async (ctx) => {
+      const { realServices } = await import("../agent/services");
+      const mcp = realServices.mcp;
+      const { appId } = agent.sessionInfo(ctx.params.sessionId);
+      const id = Number(ctx.params.id);
+      switch (ctx.params.action) {
+        case "list":
+          return { servers: await mcp.list(appId) };
+        case "set":
+          await mcp.setEnabled(id, ctx.params.enabled === true);
+          return { servers: await mcp.list(appId) };
+        case "add":
+          await mcp.add(appId, { name: String(ctx.params.name ?? ""), command: ctx.params.command, url: ctx.params.url });
+          return { servers: await mcp.list(appId) };
+        case "remove":
+          await mcp.remove(id);
+          return { servers: await mcp.list(appId) };
+        case "test":
+          return { result: await mcp.test(id) };
+        default:
+          throw acp.RequestError.invalidParams(undefined, `unknown action ${ctx.params.action}`);
+      }
+    })
     .onRequest("_atlarix/recap_setting", (p) => p as { on: boolean }, async (ctx) => {
       const { setRecapEnabled } = await import("@/lib/recap/recap");
       await setRecapEnabled(ctx.params.on === true);

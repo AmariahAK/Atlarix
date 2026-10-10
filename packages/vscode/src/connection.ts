@@ -21,6 +21,31 @@ import type {
   SessionNotification,
 } from "@agentclientprotocol/sdk";
 
+export interface AccountInfo {
+  email: string | null;
+  kind: "signed-out" | "free" | "pro" | "payg" | null;
+  balanceCents: number | null;
+  usage: { tokens: number; cachedTokens: number; costUsd: number; contextPercent: number | null } | null;
+  manageUrl: string;
+  pricingUrl: string;
+}
+export interface ProviderInfo {
+  id: string;
+  name: string;
+  hasKey: boolean;
+  keyUrl?: string;
+}
+export interface McpServer {
+  id: number;
+  name: string;
+  transport: string;
+  enabled: boolean;
+}
+export interface McpResult {
+  servers?: McpServer[];
+  result?: { ok: boolean; error?: string; needsOAuth?: boolean };
+}
+
 export interface SessionListener {
   update(n: SessionNotification): void;
   permission(req: RequestPermissionRequest): Promise<RequestPermissionResponse>;
@@ -165,6 +190,30 @@ export class AtlarixConnection {
 
   setRecap(on: boolean): Promise<unknown> {
     return this.agent.request("_atlarix/recap_setting", { on });
+  }
+
+  account(sessionId: string | null): Promise<AccountInfo> {
+    return this.agent.request<AccountInfo>("_atlarix/account", sessionId ? { sessionId } : {});
+  }
+
+  checkout(kind: "pro" | "credit", amountCents?: number): Promise<{ url: string }> {
+    return this.agent.request<{ url: string }>("_atlarix/checkout", { kind, ...(amountCents ? { amountCents } : {}) });
+  }
+
+  signOut(): Promise<unknown> {
+    return this.agent.request("_atlarix/sign_out", {});
+  }
+
+  providers(): Promise<{ providers: ProviderInfo[] }> {
+    return this.agent.request<{ providers: ProviderInfo[] }>("_atlarix/providers", {});
+  }
+
+  saveKey(providerId: string, key: string): Promise<unknown> {
+    return this.agent.request("_atlarix/provider_key", { providerId, key });
+  }
+
+  mcp(sessionId: string, action: "list" | "set" | "add" | "remove" | "test", args: Record<string, unknown> = {}): Promise<McpResult> {
+    return this.agent.request<McpResult>("_atlarix/mcp", { sessionId, action, ...args });
   }
 
   dispose(): void {

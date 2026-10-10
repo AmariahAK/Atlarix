@@ -54,6 +54,10 @@ const recapItem = button("Session recap: on", "menu__item", () => {
   post({ type: "recap-setting", on: recapOn });
 });
 menu.append(
+  button("Account, usage and billing", "menu__item", () => {
+    menu.classList.add("hidden");
+    post({ type: "account" });
+  }),
   button("Open in an editor tab", "menu__item", () => post({ type: "open-in-tab" })),
   recapItem,
   button("Sign in", "menu__item", () => post({ type: "sign-in" })),
@@ -553,6 +557,82 @@ function showHistory(sessions: PastSession[]) {
   }
 }
 
+const PLAN: Record<string, string> = { "signed-out": "Not signed in", free: "Free", pro: "Pro", payg: "Pay as you go" };
+const money = (c: number | null) =>
+  c == null ? "—" : (c / 100).toLocaleString(undefined, { style: "currency", currency: "USD" });
+
+/** Account, usage, billing, your keys and this folder's MCP servers — the CLI's /status, /billing, /connect and /mcp. */
+function showAccount(a: Extract<HostMessage, { type: "account" }>) {
+  history.textContent = "";
+  history.classList.remove("hidden");
+  const head = el("div", "history__head");
+  head.append(el("span", "", "Account"), button("×", "icon", () => history.classList.add("hidden"), "Close"));
+  history.append(head);
+
+  const section = (title: string) => {
+    const s = el("section", "acct");
+    s.append(el("h3", "acct__title", title));
+    history.append(s);
+    return s;
+  };
+  const row = (parent: HTMLElement, k: string, v: string) => {
+    const r = el("div", "acct__row");
+    r.append(el("span", "acct__k", k), el("span", "acct__v", v));
+    parent.append(r);
+  };
+
+  const who = section("You");
+  row(who, "Account", a.email ?? "Not signed in");
+  row(who, "Plan", PLAN[a.kind ?? "signed-out"] ?? "—");
+  if (a.email) row(who, "Credit", money(a.balanceCents));
+  const acts = el("div", "card__options");
+  if (!a.email) acts.append(button("Sign in", "primary", () => post({ type: "sign-in" })));
+  else {
+    if (a.kind !== "pro") acts.append(button("Get Pro", "primary", () => post({ type: "checkout", kind: "pro" })));
+    acts.append(button("Add credit", "", () => post({ type: "checkout", kind: "credit" })));
+    acts.append(button("Manage or cancel subscription", "link", () => post({ type: "manage-subscription" })));
+    acts.append(button("Sign out", "link", () => post({ type: "sign-out" })));
+  }
+  who.append(acts);
+
+  if (a.usage) {
+    const use = section("This chat");
+    row(use, "Tokens", a.usage.tokens ? `${a.usage.tokens.toLocaleString()}${a.usage.cachedTokens ? ` (${a.usage.cachedTokens.toLocaleString()} from cache)` : ""}` : "nothing yet");
+    if (a.usage.costUsd > 0) row(use, "Cost", `$${a.usage.costUsd.toFixed(4)} on your own keys`);
+    if (a.usage.contextPercent != null) row(use, "Context", `${a.usage.contextPercent}% full`);
+  }
+
+  const keys = section("Your own keys");
+  const have = a.providers.filter((p) => p.hasKey);
+  keys.append(el("p", "acct__note", have.length ? `Connected: ${have.map((p) => p.name).join(", ")}` : "None yet. Your own key's models appear in the model picker."));
+  keys.append(button("Connect a provider…", "", () => post({ type: "connect-key" })));
+
+  const mcp = section("MCP servers in this folder");
+  if (!a.mcp.length) mcp.append(el("p", "acct__note", "None. Add one to give Atlarix more tools."));
+  for (const m of a.mcp) {
+    const r = el("div", "acct__row");
+    const toggle = el("input");
+    toggle.type = "checkbox";
+    toggle.checked = m.enabled;
+    toggle.title = m.enabled ? "On" : "Off";
+    toggle.addEventListener("change", () => post({ type: "mcp-set", id: m.id, enabled: toggle.checked }));
+    const label = el("label", "acct__k");
+    label.append(toggle, document.createTextNode(` ${m.name}`));
+    const side = el("span", "acct__v");
+    side.append(button("Test", "link", () => post({ type: "mcp-test", id: m.id })), button("Remove", "link", () => post({ type: "mcp-remove", id: m.id })));
+    r.append(label, side);
+    mcp.append(r);
+  }
+  mcp.append(button("Add a server…", "", () => post({ type: "mcp-add" })));
+}
+
+function showToast(text: string, tone: "info" | "error" = "info") {
+  document.querySelector(".toast")?.remove();
+  const t = el("div", `toast ${tone}`, text);
+  app.append(t);
+  setTimeout(() => t.remove(), 6000);
+}
+
 function toggleMenu() {
   menu.classList.toggle("hidden");
 }
@@ -635,6 +715,16 @@ window.addEventListener("message", (e: MessageEvent<HostMessage | { type: "open-
       setBusy(false);
       if (m.error) {
         const err = el("div", "error", m.error);
+        // Out of free share or credit: the way on is right here, not in another app.
+        if (/free share|insufficient.credit|add credit|out of credit|balance/i.test(m.error)) {
+          const acts = el("div", "card__options");
+          acts.append(
+            button("Add credit", "primary", () => post({ type: "checkout", kind: "credit" })),
+            button("Get Pro", "", () => post({ type: "checkout", kind: "pro" })),
+            button("Use your own key", "link", () => post({ type: "connect-key" })),
+          );
+          err.append(acts);
+        }
         log.append(err);
         scrollDown();
       }
@@ -658,6 +748,10 @@ window.addEventListener("message", (e: MessageEvent<HostMessage | { type: "open-
       recapOn = m.on;
       recapItem.textContent = `Session recap: ${recapOn ? "on" : "off"}`;
       return;
+    case "account":
+      return showAccount(m);
+    case "toast":
+      return showToast(m.text, m.tone);
     case "host-info":
       for (const b of tabButtons) b.classList.toggle("hidden", m.where !== "tab");
       return;
