@@ -3,6 +3,16 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [15.4.2] (2026-10-10) — the editor extension asks for a rating, once
+
+After the fifth turn that finishes normally, the extension asks once — "Enjoying Atlarix? A rating
+helps other developers find it." — with Rate Atlarix and Not now, and never again whichever is
+picked (`packages/vscode/src/rating.ts`, counted in the extension's global state). Rate opens the
+Marketplace review form in VS Code and the Open VSX page in Cursor, Kiro, Windsurf and VSCodium.
+The Marketplace and Open VSX rank extensions by installs and ratings, so a new one with neither sorts
+last whatever its listing says. The listing's categories are AI, Chat, Programming Languages and
+Machine Learning; Debuggers is gone, since people browse it for debug adapters.
+
 ## [15.4.1] (2026-10-10) — the editor extension's listings
 
 The extension's `package.json` (`packages/vscode/package.json`) names its repository
