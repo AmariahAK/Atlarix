@@ -513,9 +513,17 @@ function setOptions(opts: SessionConfigOption[]) {
   }
 }
 
+/** A picker with nothing to pick (signed out, still starting) would be an empty pill: hide it. */
+function syncPills() {
+  modePill.classList.toggle("hidden", modeSel.options.length === 0);
+  modelPill.classList.toggle("hidden", modelSel.options.length === 0);
+}
+syncPills();
+
 /** A select is as wide as its LONGEST option; size it to the one shown, so both pills fit a narrow side bar. */
 const measure = document.createElement("canvas").getContext("2d");
 function fitSelect(sel: HTMLSelectElement) {
+  syncPills();
   const text = sel.selectedOptions[0]?.textContent ?? "";
   if (!measure) {
     sel.style.width = `${Math.max(3, text.length) + 0.5}ch`;
