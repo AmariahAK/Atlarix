@@ -24,6 +24,9 @@ export function activate(context: vscode.ExtensionContext): void {
   let sidebar: Chat | null = null;
   let sidebarView: vscode.WebviewView | null = null;
   let lastActive: Chat | null = null;
+  /** The sign-in under way, and the page the CLI opened for it. */
+  let signingIn: Promise<void> | null = null;
+  let signInUrl: string | null = null;
   const version = String(context.extension.packageJSON.version ?? "0.0.0");
 
   const workspace = (): string | null => {
@@ -49,7 +52,10 @@ export function activate(context: vscode.ExtensionContext): void {
         cwd: workspace() ?? path.dirname(binary),
         version,
         log: (l) => log.appendLine(l),
-        openUrl: (u) => void vscode.env.openExternal(vscode.Uri.parse(u)),
+        openUrl: (u) => {
+          signInUrl = u;
+          void vscode.env.openExternal(vscode.Uri.parse(u));
+        },
         onExit: (code) => {
           log.appendLine(`Atlarix exited (${code})`);
           if (connection === c) connection = null;
@@ -80,12 +86,26 @@ export function activate(context: vscode.ExtensionContext): void {
     openInTab: (sessionId) => openTab(sessionId),
     showLog: () => log.show(),
     signIn: async () => {
+      // One sign-in at a time: another click shows its page again. Each click
+      // used to start its own, and an earlier page then led nowhere.
+      if (signingIn) {
+        if (signInUrl) void vscode.env.openExternal(vscode.Uri.parse(signInUrl));
+        return signingIn;
+      }
       const c = await connect();
       if (!c) return;
-      await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: "Signing in to Atlarix — finish in your browser…", cancellable: false },
-        () => c.authenticate(),
-      );
+      signingIn = Promise.resolve(
+        vscode.window.withProgress(
+          { location: vscode.ProgressLocation.Notification, title: "Signing in to Atlarix — finish in your browser…", cancellable: false },
+          () => c.authenticate(),
+        ),
+      ).then(() => undefined);
+      try {
+        await signingIn;
+      } finally {
+        signingIn = null;
+        signInUrl = null;
+      }
     },
   };
 

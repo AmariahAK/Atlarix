@@ -16,7 +16,7 @@ export async function accountCommandText(cmd: "status" | "billing" | "mcp" | "lo
   if (cmd === "logout") {
     if (!email) return "You're already signed out. To sign in again, choose Atlarix's sign-in when the editor asks, or run `atlarix login` in a terminal.";
     await a.signOut();
-    return `Signed out of ${email}. The Atlarix app and CLI on this computer share this sign-in, so they're signed out too. To sign in again, start a new chat (the editor will ask), or run \`atlarix login\`.`;
+    return `Signed out of ${email}. The CLI on this computer shares this sign-in, so it's signed out too; the Atlarix app keeps its own. To sign in again, start a new chat (the editor will ask), or run \`atlarix login\`.`;
   }
   if (cmd === "mcp") {
     const servers = await realServices.mcp.list(session.appId).catch(() => []);

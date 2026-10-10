@@ -136,7 +136,7 @@ export class Chat {
           await vscode.env.openExternal(vscode.Uri.parse("https://www.atlarix.dev/account"));
           return;
         case "sign-out": {
-          const ok = await vscode.window.showWarningMessage("Sign out of Atlarix? The app and CLI on this computer share this sign-in.", { modal: true }, "Sign out");
+          const ok = await vscode.window.showWarningMessage("Sign out of Atlarix? The CLI on this computer shares this sign-in.", { modal: true }, "Sign out");
           if (ok !== "Sign out") return;
           await (await this.host.connection())?.signOut();
           this.post({ type: "status", status: "signed-out" });
