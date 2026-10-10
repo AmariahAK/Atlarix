@@ -1349,7 +1349,7 @@ export function openAnalytics(ctx: ScreenContext, firstRun = false): void {
         intro: [
           { text: "Share usage data — which features get used, and whether things work — to help us understand what matters most." },
           {
-            text: "Never your code, prompts, file names, or file contents. Anonymous when signed out. When signed in, it's linked to your account and includes your email and name, so your usage counts once across your devices.",
+            text: "Never your code, prompts, file names, or file contents. Anonymous when signed out. When signed in, it's linked to your account and includes your email and name, so your usage counts once across your devices. Includes your approximate location (country and city), worked out from your connection; the address itself isn't kept.",
           },
           {
             text: "Crash and error reports are sent separately and are not covered by this choice — they carry stack traces and device info, never your code or prompts.",
