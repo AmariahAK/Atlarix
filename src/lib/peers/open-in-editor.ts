@@ -16,7 +16,6 @@ export const EDITORS: Record<string, { scheme: string; name: string }> = {
   kiro: { scheme: "kiro", name: "Kiro" },
   windsurf: { scheme: "windsurf", name: "Windsurf" },
   vscodium: { scheme: "vscodium", name: "VSCodium" },
-  antigravity: { scheme: "antigravity", name: "Antigravity" },
 };
 
 /** The extension's id: publisher.name. */
@@ -33,7 +32,8 @@ export function editorLink(scheme: string, sessionId: string, folder: string): s
  */
 export function guessEditor(env: NodeJS.ProcessEnv = process.env): string {
   const hint = `${env.VSCODE_GIT_ASKPASS_NODE ?? ""} ${env.__CFBundleIdentifier ?? ""} ${env.TERM_PROGRAM ?? ""}`.toLowerCase();
-  for (const key of ["cursor", "kiro", "windsurf", "antigravity", "vscodium", "insiders"]) {
+  // Antigravity is not here: from 2.x it is no longer a VS Code fork and has no extension host.
+  for (const key of ["cursor", "kiro", "windsurf", "vscodium", "insiders"]) {
     if (hint.includes(key)) return key;
   }
   return "vscode";
