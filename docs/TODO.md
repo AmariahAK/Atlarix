@@ -1,10 +1,11 @@
 # Atlarix TODO
 
-**Current version:** 15.4.0, staged 2026-10-10 on the local `v15.4` branch (not released): Atlarix
-for VS Code, Cursor and Kiro (`packages/vscode`), Rix the mascot, the CLI's left-aligned header,
-the session recap on every surface, opted-in analytics with an approximate location, and more of
-Atlarix in Zed and JetBrains over ACP. Before it, 15.3.0 (2026-10-09): `atlarix acp` for Zed,
-JetBrains IDEs and VS Code. Narrative in [`docs/CHANGELOG.md`](./CHANGELOG.md).
+**Current version:** 15.4.1 (2026-10-10): the editor extension's listings name their repository
+and show "Free". 15.4.0 (2026-10-10) shipped Atlarix for VS Code, Cursor, Kiro and Windsurf
+(`packages/vscode`; VS Code Marketplace by hand, Open VSX from CI), Rix the mascot, the CLI's
+left-aligned header, the session recap on every surface, opted-in analytics with an approximate
+location, and more of Atlarix in Zed and JetBrains over ACP. Narrative in
+[`docs/CHANGELOG.md`](./CHANGELOG.md).
 
 **This header has been wrong before.** Update it in the same commit as the version bump, or do
 not trust it.
