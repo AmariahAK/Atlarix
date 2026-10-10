@@ -1,13 +1,13 @@
 {
   "name": "atlarix",
-  "displayName": "Atlarix",
-  "description": "Atlarix in your editor: Atlarix Auto, Core or your own key; Build, Explore, Plan, Debug and Review; your Chrome and your other Atlarix sessions.",
+  "displayName": "Atlarix — AI Coding Agent (Any Model, Your Own Key)",
+  "description": "AI coding agent for VS Code, Cursor, Kiro and Windsurf. Use Claude, GPT, Gemini, GLM, DeepSeek or local models with your own API key, or Atlarix Auto. Plan, Build, Debug and Review modes; every edit waits for your approval.",
   "version": "15.3.0",
   "publisher": "atlarix",
   "private": true,
   "license": "SEE LICENSE IN LICENSE.md",
   "icon": "media/icon.png",
-  "homepage": "https://atlarix.dev/docs/guides/editors",
+  "homepage": "https://www.atlarix.dev/docs/guides/editors",
   "bugs": {
     "url": "https://github.com/AmariahAK/atlarix-releases/issues"
   },
@@ -20,16 +20,41 @@
   },
   "categories": [
     "AI",
-    "Chat"
+    "Chat",
+    "Programming Languages",
+    "Debuggers"
   ],
   "keywords": [
-    "ai",
-    "agent",
-    "coding agent",
+    "ai coding agent",
+    "ai agent",
+    "coding assistant",
+    "ai pair programmer",
+    "autonomous agent",
     "byok",
-    "atlarix",
+    "bring your own key",
+    "openai",
+    "gpt",
+    "claude",
+    "anthropic",
+    "gemini",
+    "deepseek",
+    "glm",
+    "openrouter",
+    "ollama",
+    "local llm",
+    "code review",
+    "debugging",
+    "refactor",
+    "plan mode",
+    "agent mode",
     "chat",
-    "acp"
+    "mcp",
+    "browser automation",
+    "chrome",
+    "cursor",
+    "kiro",
+    "acp",
+    "atlarix"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -155,5 +180,6 @@
   },
   "devDependencies": {
     "@types/vscode": "1.90.0"
-  }
+  },
+  "qna": "https://github.com/AmariahAK/atlarix-releases/discussions"
 }

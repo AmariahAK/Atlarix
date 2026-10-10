@@ -248,6 +248,8 @@ function fillTool(d: HTMLDetailsElement, t: ToolCallUpdate) {
   const markEl = d.querySelector(".tool__mark")!;
   markEl.textContent = st === "completed" ? MARK.done : st === "failed" ? MARK.failed : MARK.running;
   if (t.title) d.querySelector(".tool__title")!.textContent = t.title;
+  // A step with nothing to name (an internal bookkeeping call) would be a bare mark.
+  if (!d.classList.contains("peer")) d.classList.toggle("hidden", !d.querySelector(".tool__title")!.textContent?.trim());
   if (t.content?.length) {
     const body = d.querySelector(".tool__body")!;
     body.textContent = "";
