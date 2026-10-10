@@ -232,6 +232,14 @@ class Thread {
       await this.send({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: reply } });
       return { stopReason: "end_turn" };
     }
+    if (slash?.[1] === "handoff") {
+      const reply = await this.session.handoffToApp().then(
+        () => "Continued in the Atlarix app. It's the same chat: you can keep going here too.",
+        (e: Error) => e.message,
+      );
+      await this.send({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: reply } });
+      return { stopReason: "end_turn" };
+    }
     if (slash?.[1] === "compact") {
       const r = await this.session.compact();
       await this.send({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: r.message } });
@@ -319,6 +327,7 @@ function commandsUpdate(planReady: boolean): SessionUpdate {
       { name: "status", description: "Your Atlarix account, plan, credit and this chat's usage." },
       { name: "billing", description: "Get Pro, add credit, or manage or cancel your subscription." },
       { name: "mcp", description: "MCP servers in this folder." },
+      { name: "handoff", description: "Continue this chat in the Atlarix app." },
       { name: "logout", description: "Sign out of Atlarix on this computer (the app and CLI share the sign-in)." },
       ...(planReady ? [{ name: "build", description: "Build the plan that is ready for review." }] : []),
     ],
@@ -482,6 +491,11 @@ export class AcpAgent {
       costUsd: s.state.costUsd ?? 0,
       contextPercent: s.state.contextPercent ?? null,
     };
+  }
+
+  /** Continue this session in the Atlarix app (the CLI's /handoff). */
+  async handoff(sessionId: string): Promise<void> {
+    await this.thread(sessionId).session.handoffToApp();
   }
 
   /** Atlarix's extension, back after a while away: one line on where this session stands. */

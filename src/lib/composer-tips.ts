@@ -87,6 +87,8 @@ export const FEATURE_TIP_IDS = [
   "voice",
   "automations",
   "subagents",
+  "editor",
+  "terminal",
 ] as const;
 
 /**

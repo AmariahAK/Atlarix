@@ -18,6 +18,8 @@ import type { DiffDocuments } from "./diff";
 import type { ContextItem, HostMessage, ViewMessage } from "./protocol";
 
 export interface ChatHost {
+  /** The `atlarix` program this extension runs (for "Continue in the terminal"). */
+  binaryPath(): string | null;
   connection(): Promise<AtlarixConnection | null>;
   workspace(): string | null;
   diffs: DiffDocuments;
@@ -124,6 +126,10 @@ export class Chat {
           return;
         case "account":
           return this.showAccount();
+        case "continue-in-app":
+          return this.continueInApp();
+        case "continue-in-terminal":
+          return this.continueInTerminal();
         case "checkout":
           return this.checkout(m.kind);
         case "manage-subscription":
@@ -315,6 +321,28 @@ export class Chat {
 
   addContext(item: ContextItem): void {
     this.post({ type: "add-context", item });
+  }
+
+  // --- Handoffs: the same session in the app or a terminal -------------------
+
+  private async continueInApp(): Promise<void> {
+    const c = await this.host.connection();
+    if (!c || !this.sessionId) return;
+    try {
+      await c.handoff(this.sessionId);
+      this.toast("Continued in the Atlarix app. It's the same chat: you can keep going here too.");
+    } catch (e) {
+      this.toast(((e as Error).message ?? String(e)).replace(/^Internal error:\s*/i, ""), "error");
+    }
+  }
+
+  private continueInTerminal(): void {
+    const bin = this.host.binaryPath();
+    if (!bin || !this.sessionId) return;
+    const t = vscode.window.createTerminal({ name: "Atlarix", cwd: this.host.workspace() ?? undefined, iconPath: new vscode.ThemeIcon("comment-discussion") });
+    t.show();
+    const quoted = process.platform === "win32" ? `& "${bin}"` : `"${bin}"`;
+    t.sendText(`${quoted} --resume ${this.sessionId}`);
   }
 
   // --- Account, billing, keys, MCP (the CLI's /status, /billing, /connect, /mcp) ---

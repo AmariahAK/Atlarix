@@ -118,6 +118,14 @@ export function buildAgentApp(
       return { chrome: extras.chromeStatus?.() ?? "unavailable", recap: await recapEnabled() };
     })
     .onRequest("_atlarix/recap", (p) => p as { sessionId: string }, (ctx) => agent.recap(ctx.params.sessionId))
+    .onRequest("_atlarix/handoff", (p) => p as { sessionId: string }, async (ctx) => {
+      try {
+        await agent.handoff(ctx.params.sessionId);
+      } catch (e) {
+        throw acp.RequestError.internalError(undefined, (e as Error).message);
+      }
+      return {};
+    })
     // ── Account, billing, keys and MCP for Atlarix's own extension: the CLI's
     // own services (/status, /billing, /connect, /mcp, /logout), nothing new.
     .onRequest("_atlarix/account", (p) => p as { sessionId?: string }, async (ctx) => {

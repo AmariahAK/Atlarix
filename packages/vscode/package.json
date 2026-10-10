@@ -181,5 +181,9 @@
   "devDependencies": {
     "@types/vscode": "1.90.0"
   },
-  "qna": "https://github.com/AmariahAK/atlarix-releases/discussions"
+  "qna": "https://github.com/AmariahAK/atlarix-releases/discussions",
+  "activationEvents": [
+    "onUri",
+    "onStartupFinished"
+  ]
 }

@@ -71,7 +71,9 @@ export function activate(context: vscode.ExtensionContext): void {
     return starting;
   };
 
+  const binaryPath = () => findAtlarix(context.extensionPath, vscode.workspace.getConfiguration("atlarix").get<string>("cliPath"));
   const host: ChatHost = {
+    binaryPath,
     connection: connect,
     workspace,
     diffs,
@@ -116,7 +118,39 @@ export function activate(context: vscode.ExtensionContext): void {
     return sidebar;
   };
 
+  /**
+   * `vscode://atlarix.atlarix/open?session=…&folder=…` — the CLI's /editor and
+   * the app's "Open in your editor" (src/lib/peers/open-in-editor.ts). A
+   * session from another folder opens that folder in a new window, which picks
+   * the session up from here when it starts.
+   */
+  const PENDING = "atlarix.pendingSession";
+  const openSessionHere = (sessionId: string) => {
+    if (sidebar && !sidebar.sessionId) void vscode.commands.executeCommand("atlarix.chat.focus").then(() => sidebar?.open(sessionId));
+    else openTab(sessionId);
+  };
+  const samePath = (a: string, b: string) =>
+    process.platform === "win32" || process.platform === "darwin" ? a.toLowerCase() === b.toLowerCase() : a === b;
+  const handleOpen = async (sessionId: string, folder: string) => {
+    const here = vscode.workspace.workspaceFolders?.some((f) => samePath(f.uri.fsPath, folder));
+    if (!folder || here) return openSessionHere(sessionId);
+    await context.globalState.update(PENDING, { sessionId, folder, at: Date.now() });
+    await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(folder), { forceNewWindow: true });
+  };
+  const pending = context.globalState.get<{ sessionId: string; folder: string; at: number }>(PENDING);
+  if (pending && Date.now() - pending.at < 120_000 && vscode.workspace.workspaceFolders?.some((f) => samePath(f.uri.fsPath, pending.folder))) {
+    void context.globalState.update(PENDING, undefined);
+    setTimeout(() => openSessionHere(pending.sessionId), 500);
+  }
+
   context.subscriptions.push(
+    vscode.window.registerUriHandler({
+      handleUri(uri) {
+        const q = new URLSearchParams(uri.query);
+        const sessionId = q.get("session") ?? "";
+        if (uri.path === "/open" && /^[\w-]+$/.test(sessionId)) void handleOpen(sessionId, q.get("folder") ?? "");
+      },
+    }),
     log,
     vscode.workspace.registerTextDocumentContentProvider(DIFF_SCHEME, diffs),
     vscode.window.registerWebviewViewProvider(

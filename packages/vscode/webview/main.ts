@@ -59,6 +59,14 @@ menu.append(
     post({ type: "account" });
   }),
   button("Open in an editor tab", "menu__item", () => post({ type: "open-in-tab" })),
+  button("Continue in the Atlarix app", "menu__item", () => {
+    menu.classList.add("hidden");
+    post({ type: "continue-in-app" });
+  }),
+  button("Continue in the terminal", "menu__item", () => {
+    menu.classList.add("hidden");
+    post({ type: "continue-in-terminal" });
+  }),
   recapItem,
   button("Sign in", "menu__item", () => post({ type: "sign-in" })),
   button("Show log", "menu__item", () => post({ type: "show-log" })),
@@ -166,6 +174,7 @@ function showEmpty() {
     el("div", "empty__title", "What are we building?"),
     el("div", "empty__hint", "Atlarix edits, runs and researches in this folder. Every change and command waits for your yes in Build mode."),
     el("div", "empty__hint", "Select code and press ⌘⌥L (Ctrl+Alt+L) to add it here."),
+    el("div", "empty__hint", "In the terminal, /editor brings a CLI chat here; ⋯ takes this one to the app or the terminal."),
   );
   log.append(empty);
 }

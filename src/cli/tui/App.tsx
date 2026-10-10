@@ -1029,6 +1029,17 @@ export function App({
         return openTasks(ctx);
       case "/btw":
         return openAside(ctx, rest);
+      case "/editor": {
+        if (!session.sessionId) return flash("Send a message first: there's no chat to open yet.", 3500);
+        void import("@/lib/peers/open-in-editor").then(({ openInEditor }) =>
+          openInEditor(session.sessionId, session.workspaceDir, rest.trim() || undefined).then((r) =>
+            r.ok
+              ? flash(`Opening in ${r.editor}. The Atlarix extension picks up this chat (install it from the Extensions view if it doesn't).`, 6000)
+              : flash(r.error ?? `Couldn't open ${r.editor}.`, 6000, "error"),
+          ),
+        );
+        return;
+      }
       case "/recap": {
         const arg = rest.toLowerCase();
         if (arg === "on" || arg === "off") {

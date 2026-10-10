@@ -1053,6 +1053,19 @@ export function registerWorkspaceSessionHandlers(): void {
     return continueInTerminal(sessionId, workspace?.path ?? "");
   });
 
+  /** App → editor handoff: the same session in Atlarix's extension (lib/peers/open-in-editor). */
+  handle("sessions:open-in-editor", async (_event, sessionId: string, editor: string) => {
+    const session = await db.query.chatSessions.findFirst({
+      where: eq(chatSessions.id, sessionId),
+    });
+    if (!session) return { ok: false, error: "Session not found" };
+    const workspace = session.workspaceId
+      ? await db.query.apps.findFirst({ where: eq(apps.id, session.workspaceId) })
+      : undefined;
+    const { openInEditor } = await import("@/lib/peers/open-in-editor");
+    return openInEditor(sessionId, workspace?.path ?? "", editor);
+  });
+
   handle("sessions:create", async (_event, workspaceId: number) => {
     await requireAuthSession();
     return insertWorkspaceSession(workspaceId);

@@ -89,6 +89,8 @@ export type ViewMessage =
   | { type: "recap-setting"; on: boolean }
   | { type: "show-log" }
   | { type: "account" }
+  | { type: "continue-in-app" }
+  | { type: "continue-in-terminal" }
   | { type: "checkout"; kind: "pro" | "credit" }
   | { type: "manage-subscription" }
   | { type: "sign-out" }

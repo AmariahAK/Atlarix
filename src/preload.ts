@@ -60,6 +60,7 @@ const validInvokeChannels = [
   "sessions:start",
   "sessions:allocate-transport",
   "sessions:continue-in-terminal",
+  "sessions:open-in-editor",
   "sessions:resolve-for-transport",
   "sessions:create",
   "sessions:rename",

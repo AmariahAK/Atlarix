@@ -192,6 +192,10 @@ export class AtlarixConnection {
     return this.agent.request("_atlarix/recap_setting", { on });
   }
 
+  handoff(sessionId: string): Promise<unknown> {
+    return this.agent.request("_atlarix/handoff", { sessionId });
+  }
+
   account(sessionId: string | null): Promise<AccountInfo> {
     return this.agent.request<AccountInfo>("_atlarix/account", sessionId ? { sessionId } : {});
   }
