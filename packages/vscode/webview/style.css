@@ -254,6 +254,9 @@ button.icon.small {
   white-space: pre-wrap;
   padding: 4px 0 0 14px;
   color: var(--fg-faint);
+  /* A long think scrolls in place instead of pushing the chat away. */
+  max-height: 12em;
+  overflow-y: auto;
 }
 .tool__mark {
   color: var(--primary);

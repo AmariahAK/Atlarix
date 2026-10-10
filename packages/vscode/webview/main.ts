@@ -123,6 +123,19 @@ composer.append(attachMenu, box, statusRow);
 const history = el("div", "history hidden");
 app.append(top, menu, notice, log, planBox, composer, history);
 
+/** The thought being written, shown open; folded when anything comes after it or the turn ends. */
+let liveThought: HTMLDetailsElement | null = null;
+function foldThought() {
+  if (!liveThought) return;
+  if (!liveThought.dataset.user) liveThought.open = false;
+  const label = liveThought.querySelector("summary");
+  if (label) label.textContent = `${MARK.thought} Thought`;
+  liveThought = null;
+}
+new MutationObserver((records) => {
+  if (records.some((r) => [...r.addedNodes].some((n) => n !== liveThought))) foldThought();
+}).observe(log, { childList: true });
+
 // --- State -------------------------------------------------------------------
 
 let busy = false;
@@ -149,6 +162,7 @@ function setBusy(b: boolean) {
   sendBtn.title = b ? "Stop (Esc)" : "Send (Enter)";
   sendBtn.setAttribute("aria-label", sendBtn.title);
   sendBtn.dataset.state = b ? "busy" : "idle";
+  if (!b) foldThought();
   sendBtn.classList.toggle("stop", b);
   if (foundTimer) clearTimeout(foundTimer);
   if (b) setRix("working");
@@ -207,7 +221,10 @@ function flushRender() {
   if (!current) return;
   const body = current.el.querySelector<HTMLElement>(".body")!;
   if (current.kind === "reply") renderMarkdown(body, current.text);
-  else body.textContent = current.text;
+  else {
+    body.textContent = current.text;
+    body.scrollTop = body.scrollHeight;
+  }
   scrollDown();
 }
 
@@ -224,8 +241,13 @@ function appendText(kind: "reply" | "thought", text: string) {
     } else {
       const d = el("details", "thought");
       const s = el("summary", "", `${MARK.thought} Thinking`);
+      // Open while the model thinks; folded once anything follows it (below).
+      // A click of the user's own leaves it as they set it.
+      d.open = true;
+      s.addEventListener("click", () => (d.dataset.user = "1"));
       d.append(s, el("div", "body"));
       log.append(d);
+      liveThought = d;
       current = { el: d, text: "", kind };
     }
   }
