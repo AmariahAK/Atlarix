@@ -226,7 +226,7 @@ class Thread {
     const slash = /^\/(\w+)\s*$/.exec(text);
     // Account commands for editors with no Atlarix panel (Zed, JetBrains): the
     // CLI's /status, /billing and /mcp, answered as a message.
-    if (slash && (slash[1] === "status" || slash[1] === "billing" || slash[1] === "mcp")) {
+    if (slash && (slash[1] === "status" || slash[1] === "billing" || slash[1] === "mcp" || slash[1] === "logout")) {
       const { accountCommandText } = await import("./account-commands");
       const reply = await accountCommandText(slash[1], this.session).catch((e: Error) => `Couldn't read that: ${e.message}`);
       await this.send({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: reply } });
@@ -319,6 +319,7 @@ function commandsUpdate(planReady: boolean): SessionUpdate {
       { name: "status", description: "Your Atlarix account, plan, credit and this chat's usage." },
       { name: "billing", description: "Get Pro, add credit, or manage or cancel your subscription." },
       { name: "mcp", description: "MCP servers in this folder." },
+      { name: "logout", description: "Sign out of Atlarix on this computer (the app and CLI share the sign-in)." },
       ...(planReady ? [{ name: "build", description: "Build the plan that is ready for review." }] : []),
     ],
   };
@@ -416,18 +417,20 @@ export class AcpAgent {
 
   private async open(cwd: string, sessionId?: string): Promise<Thread> {
     if (!path.isAbsolute(cwd)) throw RequestError.invalidParams(undefined, "cwd must be an absolute path");
-    const session = await this.deps.createSession(cwd);
+    let session: AgentSession | null = null;
     try {
+      session = await this.deps.createSession(cwd);
       if (sessionId) await session.resume(sessionId);
       else await session.open();
     } catch (e) {
-      await session.close().catch(() => {});
+      await session?.close().catch(() => {});
       const msg = (e as Error).message ?? String(e);
       if (isAuthError(msg)) throw RequestError.authRequired(undefined, "Sign in to Atlarix first (`atlarix login`).");
       // A plain throw reaches the editor as "Internal error"; the reason (an
       // older desktop app guarding the database, say) is what the user needs.
       throw RequestError.internalError(undefined, msg);
     }
+    if (!session) throw RequestError.internalError(undefined, "Atlarix couldn't start a session.");
     const t: Thread = new Thread(
       session.sessionId,
       cwd,

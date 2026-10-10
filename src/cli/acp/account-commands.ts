@@ -1,5 +1,5 @@
 /**
- * /status, /billing and /mcp for editors that have no Atlarix panel (Zed and
+ * /status, /billing, /mcp and /logout for editors that have no Atlarix panel (Zed and
  * JetBrains speak plain ACP): the CLI's own answers, as markdown. Atlarix's VS
  * Code extension has an Account panel instead (_atlarix/account in server.ts).
  */
@@ -9,10 +9,15 @@ const money = (cents: number | null) => (cents == null ? "unknown" : `$${(cents 
 const PLAN: Record<string, string> = { "signed-out": "not signed in", free: "Free", pro: "Pro", payg: "Pay as you go" };
 const MANAGE = "https://www.atlarix.dev/account";
 
-export async function accountCommandText(cmd: "status" | "billing" | "mcp" | string, session: AgentSession): Promise<string> {
+export async function accountCommandText(cmd: "status" | "billing" | "mcp" | "logout" | string, session: AgentSession): Promise<string> {
   const { realServices } = await import("../agent/services");
   const a = realServices.account;
   const email = await a.email().catch(() => null);
+  if (cmd === "logout") {
+    if (!email) return "You're already signed out. To sign in again, choose Atlarix's sign-in when the editor asks, or run `atlarix login` in a terminal.";
+    await a.signOut();
+    return `Signed out of ${email}. The Atlarix app and CLI on this computer share this sign-in, so they're signed out too. To sign in again, start a new chat (the editor will ask), or run \`atlarix login\`.`;
+  }
   if (cmd === "mcp") {
     const servers = await realServices.mcp.list(session.appId).catch(() => []);
     if (!servers.length) return "No MCP servers in this folder. Add them in the Atlarix app, the CLI (`/mcp`), or Atlarix's VS Code extension.";

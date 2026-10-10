@@ -250,4 +250,21 @@ describe("atlarix acp", () => {
     // The test data folder has no sign-in: the answer says how to sign in.
     expect(e.text(sessionId)).toMatch(/atlarix login|Atlarix status/);
   }, 60_000);
+
+  it("a session that cannot start says why, not just \"Internal error\"", async () => {
+    const { AcpAgent } = await import("../src/cli/acp/agent");
+    const { buildAgentApp } = await import("../src/cli/acp/server");
+    const agent = new AcpAgent({
+      createSession: async () => {
+        throw new Error("The Atlarix desktop app on this computer is older than this CLI");
+      },
+      models: async () => ({ options: [] }),
+      rememberModel: () => {},
+      listSessions: async () => [],
+    });
+    const conn = acp.client({ name: "t" }).connect(buildAgentApp(agent, "test"));
+    await conn.agent.request("initialize", { protocolVersion: acp.PROTOCOL_VERSION, clientCapabilities: {} });
+    const err = await conn.agent.request("session/new", { cwd: ws, mcpServers: [] }).then(() => null, (e: Error) => e);
+    expect(String((err as { message?: string })?.message)).toContain("older than this CLI");
+  }, 60_000);
 });
