@@ -3,6 +3,14 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [15.4.1] (2026-10-10) — the editor extension's listings
+
+The extension's `package.json` (`packages/vscode/package.json`) names its repository
+(github.com/AmariahAK/atlarix-releases) and declares `"pricing": "Free"`, so the VS Code
+Marketplace and Open VSX listings show a Repository link and a Free badge. The repository link is
+also what Open VSX needs to verify the `atlarix` namespace. No change to the app, the CLI or the
+extension's behaviour.
+
 ## [15.4.0] (2026-10-10) — Atlarix for VS Code, Cursor and Kiro; meet Rix
 
 **Atlarix has its own extension for VS Code and the editors built on it** — Cursor, Kiro,
