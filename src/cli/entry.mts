@@ -281,6 +281,7 @@ async function main(): Promise<void> {
       devModel: flag("--model"),
       apiKey: flag("--api-key"),
       startBridge: () => void startCliBridge(),
+      chromeStatus,
     });
     process.exit(0);
   }

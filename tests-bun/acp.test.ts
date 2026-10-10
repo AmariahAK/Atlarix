@@ -29,7 +29,11 @@ beforeAll(() => {
 
 type Decide = (req: RequestPermissionRequest) => acp.RequestPermissionOutcome;
 
-async function editor(script: Reply[], decide: Decide = () => ({ outcome: "selected", optionId: "once" })) {
+async function editor(
+  script: Reply[],
+  decide: Decide = () => ({ outcome: "selected", optionId: "once" }),
+  clientCapabilities: acp.ClientCapabilities = {},
+) {
   const llm = startFakeLlm(script);
   const { AgentSession, seedDevProvider, listFolderSessions } = await import("../src/cli/agent/session");
   const { AcpAgent } = await import("../src/cli/acp/agent");
@@ -57,7 +61,7 @@ async function editor(script: Reply[], decide: Decide = () => ({ outcome: "selec
       updates.push(ctx.params);
     });
   const conn = client.connect(buildAgentApp(agent, "test"));
-  const init = await conn.agent.request("initialize", { protocolVersion: acp.PROTOCOL_VERSION, clientCapabilities: {} });
+  const init = await conn.agent.request("initialize", { protocolVersion: acp.PROTOCOL_VERSION, clientCapabilities });
   const text = (sessionId: string) =>
     updates
       .filter((u) => u.sessionId === sessionId && u.update.sessionUpdate === "agent_message_chunk")
@@ -171,5 +175,56 @@ describe("atlarix acp", () => {
     expect(r.stopReason).toBe("end_turn");
     expect(e.asked.map((a) => a.sessionId)).toEqual([older.sessionId]);
     expect(fs.existsSync(path.join(ws, "older.txt"))).toBe(false);
+  }, 60_000);
+
+  it("Plan → Build: the plan goes out as a plan list, and the mode picker follows the switch to Build", async () => {
+    const e = await editor([
+      { tool: "plan", args: { operation: "write", title: "Add a health endpoint", content: "# Add a health endpoint\n\n- [ ] Add GET /health\n- [ ] Test it" } },
+      { text: "The plan is ready." },
+      { text: "Building it now." },
+    ]);
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    await e.conn.agent.request("session/set_config_option", { sessionId, configId: "mode", value: "plan" });
+    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "plan a /health endpoint" }] });
+    await Bun.sleep(300);
+    const plan = e.updates.filter((u) => u.sessionId === sessionId && u.update.sessionUpdate === "plan").at(-1)?.update as
+      | { entries: Array<{ content: string; status: string }>; _meta?: unknown }
+      | undefined;
+    expect(plan?.entries.map((x) => x.content)).toEqual(["Add GET /health", "Test it"]);
+    expect(plan?.entries.every((x) => x.status === "pending")).toBe(true);
+    // A plain editor gets the list, not Atlarix's extras.
+    expect(plan?._meta).toBeUndefined();
+
+    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "/build" }] });
+    await Bun.sleep(200);
+    const mine = e.updates.filter((u) => u.sessionId === sessionId).map((u) => u.update);
+    expect(mine).toContainEqual(expect.objectContaining({ sessionUpdate: "current_mode_update", currentModeId: "build" }));
+    const cfg = mine.filter((u) => u.sessionUpdate === "config_option_update").at(-1) as
+      | { configOptions: Array<{ id: string; currentValue: unknown }> }
+      | undefined;
+    expect(cfg?.configOptions.find((o) => o.id === "mode")?.currentValue).toBe("build");
+  }, 60_000);
+
+  it("Atlarix's own extension also gets the plan document and whether it can be built", async () => {
+    const e = await editor(
+      [
+        { tool: "plan", args: { operation: "write", title: "Rename a flag", content: "# Rename a flag\n\n- [ ] Rename it\n- [x] Agree the name" } },
+        { text: "Ready." },
+      ],
+      undefined,
+      { _meta: { atlarix: { version: 1 } } },
+    );
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    await e.conn.agent.request("session/set_config_option", { sessionId, configId: "mode", value: "plan" });
+    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "plan a rename" }] });
+    await Bun.sleep(300);
+    const plan = e.updates.filter((u) => u.sessionId === sessionId && u.update.sessionUpdate === "plan").at(-1)?.update as
+      | { entries: Array<{ content: string; status: string }>; _meta?: { atlarix?: { plan?: Record<string, unknown> } } }
+      | undefined;
+    expect(plan?.entries.map((x) => x.status)).toEqual(["pending", "completed"]);
+    expect(plan?._meta?.atlarix?.plan).toMatchObject({ title: "Rename a flag", buildable: true });
+    expect(String(plan?._meta?.atlarix?.plan?.content)).toContain("Rename it");
+    const status = await e.conn.agent.request<{ chrome: string }>("_atlarix/status", {});
+    expect(typeof status.chrome).toBe("string");
   }, 60_000);
 });

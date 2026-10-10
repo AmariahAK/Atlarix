@@ -1465,6 +1465,14 @@ export class AgentSession extends EventEmitter {
   }
 
   /** Open a turn with a message another session queued while this one was idle. */
+  /**
+   * Read the messages another session left while this one was idle and held
+   * them (`idlePeerMessages: "hold"`): the editor extension's "read it now".
+   */
+  async takeHeldPeerMessages(): Promise<void> {
+    if (!this.state.busy) await this.startPeerTurn();
+  }
+
   private async startPeerTurn(): Promise<void> {
     const flushed = (await Promise.resolve((await handler("chat:interject-flush"))({}, this.chatId)).catch(
       () => null,

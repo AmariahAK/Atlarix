@@ -16,11 +16,13 @@ import {
   type ContentBlock,
   type ListSessionsResponse,
   type NewSessionResponse,
+  type PlanEntry,
   type PromptResponse,
   type SessionConfigOption,
   type SessionModeState,
   type SessionUpdate,
 } from "@agentclientprotocol/sdk";
+import { parsePlanChecklist, type PlanChecklistStep } from "@/lib/tasks/plan-checklist";
 import type { AgentSession, ModelChoice, SessionState, WorkMode } from "../agent/session";
 import { promptInput } from "./content";
 import {
@@ -64,13 +66,19 @@ class Thread {
   private turn: { done: () => void; cancelled: boolean } | null = null;
   private lastTitle: string | null = null;
   private lastPlan: string | null = null;
+  private lastMode: WorkMode;
+  private planSent = "";
 
   constructor(
     readonly id: string,
     readonly cwd: string,
     readonly session: AgentSession,
     private readonly client: () => AgentContext,
+    /** The editor said it is Atlarix's own (clientCapabilities._meta.atlarix). */
+    private readonly extras: () => boolean,
+    private readonly options: () => Promise<SessionConfigOption[]>,
   ) {
+    this.lastMode = session.state.mode;
     session.on("change", (s: SessionState) => this.onChange(s));
     session.on("peer-message", () => this.onPeerMessage());
   }
@@ -89,6 +97,18 @@ class Thread {
 
   private onChange(s: SessionState): void {
     for (const u of diffUpdates(s.cells, this.emitted)) void this.send(u);
+    if (s.mode !== this.lastMode) {
+      // The session changed its own mode (building a plan switches to Build):
+      // without this the editor's picker kept showing the old one.
+      this.lastMode = s.mode;
+      void this.send({ sessionUpdate: "current_mode_update", currentModeId: s.mode });
+      void this.options().then((configOptions) => this.send({ sessionUpdate: "config_option_update", configOptions }));
+    }
+    const planKey = `${s.planReady?.planId ?? ""}:${s.planRevision}`;
+    if (planKey !== this.planSent) {
+      this.planSent = planKey;
+      void this.sendPlan(s);
+    }
     for (const a of s.approvals) {
       if (this.asked.has(a.operationId)) continue;
       this.asked.add(a.operationId);
@@ -144,6 +164,11 @@ class Thread {
    * Say so, so it isn't a surprise.
    */
   private onPeerMessage(): void {
+    // Atlarix's own editor extension opens the turn itself, as the app does.
+    if (this.extras()) {
+      void this.flush().then(() => this.client().notify("_atlarix/peer_waiting", { sessionId: this.id }).catch(() => {}));
+      return;
+    }
     void this.send({
       sessionUpdate: "agent_message_chunk",
       content: {
@@ -153,13 +178,47 @@ class Thread {
     });
   }
 
+  /**
+   * The plan as ACP's plan list (any editor draws its steps), and for Atlarix's
+   * own extension the whole document too, so it can show it and offer Build.
+   */
+  private async sendPlan(s: SessionState): Promise<void> {
+    const ready = s.planReady;
+    if (!ready) {
+      if (this.lastPlanEntries) {
+        this.lastPlanEntries = false;
+        void this.send({ sessionUpdate: "plan", entries: [] });
+      }
+      return;
+    }
+    const plans = await this.session.plans().catch(() => []);
+    const p = plans.find((x) => x.id === ready.planId);
+    if (!p) return;
+    this.lastPlanEntries = true;
+    void this.send({
+      sessionUpdate: "plan",
+      entries: planEntries(parsePlanChecklist(p.content)),
+      ...(this.extras()
+        ? {
+            _meta: {
+              atlarix: {
+                plan: { id: p.id, title: p.title || ready.title, content: p.content, revision: s.planRevision, buildable: p.status === "plan" },
+              },
+            },
+          }
+        : {}),
+    });
+  }
+
+  private lastPlanEntries = false;
+
   /** Replay what is already in the session (session/load). */
   async replay(): Promise<void> {
     for (const u of diffUpdates(this.session.state.cells, this.emitted, { replay: true })) void this.send(u);
     await this.flush();
   }
 
-  async prompt(blocks: readonly ContentBlock[]): Promise<PromptResponse> {
+  async prompt(blocks: readonly ContentBlock[], meta?: AtlarixPromptMeta): Promise<PromptResponse> {
     const { text, images } = promptInput(blocks, this.cwd);
     // Cells already on screen (the user's own message among them) are not news.
     diffUpdates(this.session.state.cells, this.emitted);
@@ -176,6 +235,11 @@ class Thread {
     try {
       if (slash?.[1] === "build" && this.session.state.planReady) {
         await this.session.buildPlan(this.session.state.planReady.planId);
+      } else if (meta?.peerTurn) {
+        // Atlarix's extension, told a message from another session is waiting: read it now.
+        await this.session.takeHeldPeerMessages();
+      } else if (this.session.state.question && meta?.answers?.length) {
+        await this.session.answerQuestion(meta.answers);
       } else if (this.session.state.question) {
         // The last turn ended on a question (ask_user): this prompt is the answer.
         await this.session.answerQuestion([text]);
@@ -221,6 +285,9 @@ class Thread {
       void this.send({
         sessionUpdate: "agent_message_chunk",
         content: { type: "text", text: `\n\n${lines.join("\n\n")}\n\n(Reply with your answer.)` },
+        // Atlarix's extension draws this as a question card and answers with
+        // `_meta.atlarix.answers` on the next prompt; other editors read the text.
+        ...(this.extras() ? { _meta: { atlarix: { question: { items: s.question.items } } } } : {}),
       });
     }
     const plan = s.planReady?.planId ?? null;
@@ -246,9 +313,43 @@ function commandsUpdate(planReady: boolean): SessionUpdate {
   };
 }
 
+/** What Atlarix's own extension adds to a prompt (`_meta.atlarix`). */
+export interface AtlarixPromptMeta {
+  /** Answers to the pending question, one per item. */
+  answers?: string[];
+  /** Read the message another session left while this one was idle. */
+  peerTurn?: boolean;
+}
+
+export function promptMeta(meta: unknown): AtlarixPromptMeta | undefined {
+  const a = (meta as { atlarix?: unknown } | null | undefined)?.atlarix as Record<string, unknown> | undefined;
+  if (!a || typeof a !== "object") return undefined;
+  return {
+    answers: Array.isArray(a.answers) ? a.answers.map(String) : undefined,
+    peerTurn: a.peerTurn === true,
+  };
+}
+
+/** Plan steps as ACP plan entries. Blocked or external steps are still to do. */
+export function planEntries(steps: readonly PlanChecklistStep[]): PlanEntry[] {
+  return steps.map((st) => ({
+    content: st.text,
+    priority: "medium",
+    status: st.state === "done" ? "completed" : st.state === "in_progress" ? "in_progress" : "pending",
+  }));
+}
+
 export class AcpAgent {
   private readonly threads = new Map<string, Thread>();
   private client: AgentContext | null = null;
+  /** The editor is Atlarix's own extension: send the `_meta.atlarix` extras. */
+  private atlarixClient = false;
+
+  /** From `initialize`: `clientCapabilities._meta.atlarix`. */
+  setClientCapabilities(caps: unknown): void {
+    const meta = (caps as { _meta?: { atlarix?: unknown } } | null | undefined)?._meta;
+    this.atlarixClient = !!meta?.atlarix;
+  }
 
   constructor(private readonly deps: AcpDeps) {}
 
@@ -314,7 +415,14 @@ export class AcpAgent {
       if (isAuthError(msg)) throw RequestError.authRequired(undefined, "Sign in to Atlarix first (`atlarix login`).");
       throw e;
     }
-    const t = new Thread(session.sessionId, cwd, session, this.ctx);
+    const t: Thread = new Thread(
+      session.sessionId,
+      cwd,
+      session,
+      this.ctx,
+      () => this.atlarixClient,
+      () => this.configOptions(t),
+    );
     this.threads.set(t.id, t);
     return t;
   }
@@ -345,8 +453,8 @@ export class AcpAgent {
     };
   }
 
-  prompt(sessionId: string, blocks: readonly ContentBlock[]): Promise<PromptResponse> {
-    return this.thread(sessionId).prompt(blocks);
+  prompt(sessionId: string, blocks: readonly ContentBlock[], meta?: unknown): Promise<PromptResponse> {
+    return this.thread(sessionId).prompt(blocks, promptMeta(meta));
   }
 
   async cancel(sessionId: string): Promise<void> {

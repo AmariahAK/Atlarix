@@ -24,6 +24,8 @@ export interface AcpRunOptions {
   apiKey?: string;
   /** The user's Chrome through the extension (entry.mts startCliBridge). */
   startBridge?: () => void;
+  /** One line on the Chrome connection, as the TUI's /chrome shows it. */
+  chromeStatus?: () => string;
 }
 
 /** stdout as a web stream, through the writer the stdio guard kept back. */
@@ -78,11 +80,18 @@ export function initializeResponse(version: string): InitializeResponse {
 }
 
 /** The ACP method table for `agent`; the stdio server and the tests connect it. */
-export function buildAgentApp(agent: AcpAgent, version: string): ReturnType<typeof acp.agent> {
+export function buildAgentApp(
+  agent: AcpAgent,
+  version: string,
+  extras: { chromeStatus?: () => string } = {},
+): ReturnType<typeof acp.agent> {
   return acp
     .agent({ name: "atlarix" })
     .onConnect((connection) => agent.attach(connection.client))
-    .onRequest("initialize", () => initializeResponse(version))
+    .onRequest("initialize", (ctx) => {
+      agent.setClientCapabilities(ctx.params.clientCapabilities);
+      return initializeResponse(version);
+    })
     .onRequest("authenticate", async (ctx) => {
       if (ctx.params.methodId !== "atlarix-browser") {
         throw acp.RequestError.invalidParams(undefined, `unknown sign-in method ${ctx.params.methodId}`);
@@ -94,7 +103,7 @@ export function buildAgentApp(agent: AcpAgent, version: string): ReturnType<type
     .onRequest("session/new", (ctx) => agent.newSession(ctx.params.cwd))
     .onRequest("session/load", (ctx) => agent.loadSession(ctx.params.cwd, ctx.params.sessionId))
     .onRequest("session/list", (ctx) => agent.listSessions(ctx.params.cwd ?? undefined))
-    .onRequest("session/prompt", (ctx) => agent.prompt(ctx.params.sessionId, ctx.params.prompt))
+    .onRequest("session/prompt", (ctx) => agent.prompt(ctx.params.sessionId, ctx.params.prompt, ctx.params._meta))
     .onNotification("session/cancel", (ctx) => agent.cancel(ctx.params.sessionId))
     .onRequest("session/set_config_option", async (ctx) => ({
       configOptions: await agent.setConfigOption(ctx.params.sessionId, ctx.params.configId, ctx.params.value),
@@ -102,7 +111,11 @@ export function buildAgentApp(agent: AcpAgent, version: string): ReturnType<type
     .onRequest("session/set_mode", (ctx) => {
       agent.setSessionMode(ctx.params.sessionId, ctx.params.modeId);
       return {};
-    });
+    })
+    // Atlarix's own editor extension: what the status bar shows.
+    .onRequest("_atlarix/status", (p) => p as Record<string, unknown>, () => ({
+      chrome: extras.chromeStatus?.() ?? "unavailable",
+    }));
 }
 
 export async function runAcp(opts: AcpRunOptions): Promise<void> {
@@ -147,7 +160,7 @@ export async function runAcp(opts: AcpRunOptions): Promise<void> {
 
   if (!opts.devUrl) opts.startBridge?.();
 
-  const connection = buildAgentApp(agent, opts.version).connect(acp.ndJsonStream(stdoutStream(), stdinStream()));
+  const connection = buildAgentApp(agent, opts.version, { chromeStatus: opts.chromeStatus }).connect(acp.ndJsonStream(stdoutStream(), stdinStream()));
 
   await connection.closed;
   await agent.closeAll();
