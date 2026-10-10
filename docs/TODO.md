@@ -1,7 +1,7 @@
 # Atlarix TODO
 
-**Current version:** 15.4.1 (2026-10-10): the editor extension's listings name their repository
-and show "Free". 15.4.0 (2026-10-10) shipped Atlarix for VS Code, Cursor, Kiro and Windsurf
+**Current version:** 15.4.2 (2026-10-10): the editor extension asks for a rating once, and its
+listings drop the Debuggers category. 15.4.1 named the repository and "Free" on the listings. 15.4.0 (2026-10-10) shipped Atlarix for VS Code, Cursor, Kiro and Windsurf
 (`packages/vscode`; VS Code Marketplace by hand, Open VSX from CI), Rix the mascot, the CLI's
 left-aligned header, the session recap on every surface, opted-in analytics with an approximate
 location, and more of Atlarix in Zed and JetBrains over ACP. Narrative in
