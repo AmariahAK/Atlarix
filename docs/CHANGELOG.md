@@ -58,6 +58,17 @@ text in the first-run dialog, Settings, the CLI and the privacy policy says so.
 not a full-width card that read as an exchange. Checklists in the Chrome and VS Code chats draw as
 ☐ and ☑.
 
+**Fixes.** Thinking and replies stream into editors and the CLI as they're written; before, they
+arrived only when the turn ended, because main runs in the CLI's process and the session held
+main's own live message, so every patch read as "no change" (`src/cli/agent/session.ts`). The
+extension shows a thought open while the model thinks and folds it when the answer starts. An
+answer that is only a number, date or time ("18", "3.14") no longer vanishes as tool debris
+(`src/lib/chat/answer-display.ts`). A provider that refuses the request outright — a revoked API
+key, no access to the model — is no longer retried twice and then reported as "Something went
+wrong": the turn ends on the real reason (`turn-runner/round-retry.ts`, `simple-stream-text.ts`,
+`finalize.ts`). Clicking Sign in again in the extension reopens the sign-in already under way
+instead of starting another.
+
 ## [15.3.0] (2026-10-09) — Atlarix in your editor
 
 **Atlarix runs inside Zed, JetBrains IDEs and VS Code.** The CLI is now also an
