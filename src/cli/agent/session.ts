@@ -188,6 +188,15 @@ export async function listFolderSessions(workspaceDir: string): Promise<SessionS
   return (await (await handler("sessions:list"))({}, appId)) as SessionSummary[];
 }
 
+/** Rename or delete a stored session without opening it (the editor's Past chats). */
+export async function changeFolderSession(sessionId: string, change: { rename: string } | { delete: true }): Promise<void> {
+  const { initializeDatabase } = await import("@/db");
+  initializeDatabase();
+  await registerHandlers();
+  if ("rename" in change) await (await handler("sessions:rename"))({}, sessionId, change.rename);
+  else await (await handler("sessions:delete"))({}, sessionId);
+}
+
 let interjectionSeq = 0;
 
 export interface TurnOptions {

@@ -35,6 +35,7 @@ import {
   mcpConsentToolCall,
 } from "./permissions";
 import { diffUpdates, type Emitted } from "./updates";
+import { groupOptions, type ModelOption } from "../agent/models";
 
 const MODES: Array<{ id: WorkMode; name: string; description: string }> = [
   { id: "build", name: "Build", description: "Make changes; every edit and command waits for your yes." },
@@ -48,11 +49,22 @@ export interface AcpDeps {
   /** A new, started session in `cwd` (the TUI's own construction). */
   createSession(cwd: string): Promise<AgentSession>;
   /** The models the CLI offers, and the one it would pick (cli-state.json). */
-  models(): Promise<{ options: Array<{ provider: string; name: string; label: string }>; current?: ModelChoice }>;
+  models(): Promise<{
+    options: Array<Pick<ModelOption, "provider" | "name" | "label"> & Partial<ModelOption>>;
+    current?: ModelChoice;
+    /** The TUI's favourites and recents, so the editor's picker leads with them too. */
+    picks?: { favorites: ModelChoice[]; recent: ModelChoice[] };
+    /** Deep thinking (ctrl+t in the terminal), shared with the TUI. */
+    deepThinking?: boolean;
+  }>;
   /** Remember a model the user picked, as the TUI's /model does. */
   rememberModel(ref: ModelChoice): void;
+  /** Deep thinking on or off, as the TUI's ctrl+t. */
+  setDeepThinking?(on: boolean): void;
   /** This folder's stored sessions, newest first (the TUI's /resume list). */
   listSessions(cwd: string): Promise<Array<{ id: string; title: string | null; updatedAt: Date | string }>>;
+  /** Rename or delete a stored session (the editor's Past chats). */
+  changeSession?(sessionId: string, change: { rename: string } | { delete: true }): Promise<void>;
 }
 
 function isAuthError(msg: string | null | undefined): boolean {
@@ -68,6 +80,8 @@ class Thread {
   private lastPlan: string | null = null;
   private lastMode: WorkMode;
   private planSent = "";
+  /** Going back to an earlier message: the editor cleared its view, so send the whole transcript again. */
+  private replayAll = false;
 
   constructor(
     readonly id: string,
@@ -96,7 +110,12 @@ class Thread {
   }
 
   private onChange(s: SessionState): void {
-    for (const u of diffUpdates(s.cells, this.emitted)) void this.send(u);
+    for (const u of diffUpdates(s.cells, this.emitted, { replay: this.replayAll, ids: this.extras() })) void this.send(u);
+    if (s.title && s.title !== this.lastTitle && !s.busy) {
+      // Renamed from the editor's Past chats while open.
+      this.lastTitle = s.title;
+      void this.send({ sessionUpdate: "session_info_update", title: s.title });
+    }
     if (s.mode !== this.lastMode) {
       // The session changed its own mode (building a plan switches to Build):
       // without this the editor's picker kept showing the old one.
@@ -231,8 +250,47 @@ class Thread {
       this.lastTitle = this.session.state.title;
       void this.send({ sessionUpdate: "session_info_update", title: this.session.state.title });
     }
-    for (const u of diffUpdates(this.session.state.cells, this.emitted, { replay: true })) void this.send(u);
+    for (const u of diffUpdates(this.session.state.cells, this.emitted, { replay: true, ids: this.extras() })) void this.send(u);
     await this.flush();
+  }
+
+  /** The model list changed (a key saved or removed): tell the editor. */
+  sendOptions(): void {
+    void this.options().then((configOptions) => this.send({ sessionUpdate: "config_option_update", configOptions }));
+  }
+
+  /**
+   * Go back to one of your messages and send it again, edited: the TUI's /undo
+   * (session.resendEdited). Everything after it leaves the conversation, and
+   * with `restore` the files those turns changed come back first. Atlarix's
+   * extension clears its view first; the transcript is sent again from the top.
+   */
+  async resend(messageId: number, text: string, restore: boolean): Promise<PromptResponse> {
+    if (this.session.state.busy) throw RequestError.invalidParams(undefined, "Wait for this turn to finish (or stop it), then go back.");
+    const preview = restore ? await this.session.undoPreview(messageId) : null;
+    const turn = { done: () => {}, cancelled: false };
+    const finished = new Promise<void>((resolve) => (turn.done = resolve));
+    this.turn = turn;
+    this.emitted.clear();
+    this.replayAll = true;
+    const errorBefore = this.session.state.lastError;
+    try {
+      await this.session.resendEdited(messageId, text, preview?.turnIds.length ? preview.turnIds : null);
+      if (!this.session.state.busy) turn.done();
+      await finished;
+    } catch (e) {
+      throw RequestError.internalError(undefined, (e as Error).message ?? String(e));
+    } finally {
+      this.turn = null;
+      this.replayAll = false;
+    }
+    for (const u of diffUpdates(this.session.state.cells, this.emitted, { ids: this.extras() })) void this.send(u);
+    await this.afterTurn();
+    await this.flush();
+    if (turn.cancelled) return { stopReason: "cancelled" };
+    const err = this.session.state.lastError;
+    if (err && err !== errorBefore) throw RequestError.internalError(undefined, err);
+    return { stopReason: "end_turn" };
   }
 
   async prompt(blocks: readonly ContentBlock[], meta?: AtlarixPromptMeta): Promise<PromptResponse> {
@@ -352,6 +410,7 @@ function commandsUpdate(planReady: boolean): SessionUpdate {
     sessionUpdate: "available_commands_update",
     availableCommands: [
       { name: "compact", description: "Summarize the conversation so far to free up context." },
+      { name: "undo", description: "Go back to one of your messages, edit it and send it again." },
       { name: "status", description: "Your Atlarix account, plan, credit and this chat's usage." },
       { name: "billing", description: "Get Pro, add credit, or manage or cancel your subscription." },
       { name: "mcp", description: "MCP servers in this folder." },
@@ -388,6 +447,31 @@ export function planEntries(steps: readonly PlanChecklistStep[]): PlanEntry[] {
   }));
 }
 
+/**
+ * The model list as ACP groups (favourites, recent, then one per provider, the
+ * TUI's order), so every editor's picker can show where a model comes from.
+ */
+export function modelGroups(
+  options: Array<Pick<ModelOption, "provider" | "name" | "label"> & Partial<ModelOption>>,
+  picks?: { favorites: ModelChoice[]; recent: ModelChoice[] },
+) {
+  const full: ModelOption[] = options.map((o) => ({
+    providerName: o.provider,
+    detail: "",
+    deepThinking: false,
+    ...o,
+  }));
+  return groupOptions(full, picks ?? { favorites: [], recent: [] }).map((g) => ({
+    group: g.id,
+    name: g.title,
+    options: g.options.map((o) => ({
+      value: `${o.provider}/${o.name}`,
+      name: o.label,
+      ...(o.detail || o.free ? { description: [o.free ? "Free" : "", o.detail].filter(Boolean).join(" · ") } : {}),
+    })),
+  }));
+}
+
 export class AcpAgent {
   private readonly threads = new Map<string, Thread>();
   private client: AgentContext | null = null;
@@ -419,8 +503,12 @@ export class AcpAgent {
   }
 
   private async configOptions(t: Thread): Promise<SessionConfigOption[]> {
-    const { options, current } = await this.deps.models().catch(() => ({ options: [], current: undefined }));
-    const chosen = t.session.model ?? current;
+    const { options, current, picks, deepThinking } = await this.deps.models().catch(() => ({
+      options: [],
+      current: undefined,
+      picks: undefined,
+      deepThinking: undefined,
+    }));
     const out: SessionConfigOption[] = [
       {
         id: "mode",
@@ -431,15 +519,31 @@ export class AcpAgent {
         options: MODES.map((m) => ({ value: m.id, name: m.name, description: m.description })),
       },
     ];
-    if (options.length) {
-      const key = (m: { provider: string; name: string }) => `${m.provider}/${m.name}`;
+    if (!options.length) return out;
+    const key = (m: { provider: string; name: string }) => `${m.provider}/${m.name}`;
+    const want = t.session.model ?? current;
+    // A model whose provider's key was just removed is no longer offered: the
+    // picker shows the first one instead of a value it doesn't have.
+    const chosen = want && options.some((o) => key(o) === key(want)) ? want : options[0]!;
+    out.push({
+      id: "model",
+      name: "Model",
+      category: "model",
+      type: "select",
+      currentValue: key(chosen),
+      options: modelGroups(options, picks),
+    });
+    if (options.find((o) => key(o) === key(chosen))?.deepThinking && this.deps.setDeepThinking) {
       out.push({
-        id: "model",
-        name: "Model",
-        category: "model",
+        id: "thinking",
+        name: "Thinking",
+        category: "thought_level",
         type: "select",
-        currentValue: chosen ? key(chosen) : key(options[0]!),
-        options: options.map((o) => ({ value: key(o), name: o.label })),
+        currentValue: deepThinking ? "deep" : "normal",
+        options: [
+          { value: "normal", name: "Normal", description: "The model's usual thinking." },
+          { value: "deep", name: "Deep", description: "Thinks at the model's ceiling: slower, and more tokens." },
+        ],
       });
     }
     return out;
@@ -533,6 +637,54 @@ export class AcpAgent {
     return { text: await t.session.recap() };
   }
 
+  /** Your messages in this session, newest first, and what going back to one would undo. */
+  undoList(sessionId: string): Array<{ id: number; text: string }> {
+    return this.thread(sessionId).session.myMessages();
+  }
+
+  async undoPreview(sessionId: string, messageId: number): Promise<{ filesChanged: string[]; createdFiles: string[] }> {
+    const p = await this.thread(sessionId).session.undoPreview(messageId);
+    return { filesChanged: p.filesChanged, createdFiles: p.createdFiles };
+  }
+
+  undoResend(sessionId: string, messageId: number, text: string, restore: boolean): Promise<PromptResponse> {
+    return this.thread(sessionId).resend(messageId, text, restore);
+  }
+
+  /**
+   * A provider's key was saved or removed. Chats on a removed provider's model
+   * move to the first model offered (Atlarix Auto), as does the remembered
+   * choice, and every editor gets the new list.
+   */
+  async modelsChanged(removedProvider?: string): Promise<void> {
+    if (removedProvider) {
+      const { options, current } = await this.deps.models().catch(() => ({ options: [], current: undefined }));
+      const first = options.find((o) => o.provider !== removedProvider);
+      if (first) {
+        const ref = { provider: first.provider, name: first.name };
+        for (const t of this.threads.values()) if (t.session.model?.provider === removedProvider) t.session.setModel(ref);
+        if (current?.provider === removedProvider) this.deps.rememberModel(ref);
+      }
+    }
+    for (const t of this.threads.values()) t.sendOptions();
+  }
+
+  /** Rename or delete a stored chat. One open here is renamed live, or closed before it is deleted. */
+  async changeSession(sessionId: string, change: { rename: string } | { delete: true }): Promise<void> {
+    const open = this.threads.get(sessionId);
+    if ("rename" in change && open) {
+      await open.session.rename(change.rename);
+      return;
+    }
+    if ("delete" in change && open) {
+      await open.cancel().catch(() => {});
+      await open.session.close().catch(() => {});
+      this.threads.delete(sessionId);
+    }
+    if (!this.deps.changeSession) throw RequestError.methodNotFound("_atlarix/session");
+    await this.deps.changeSession(sessionId, change);
+  }
+
   prompt(sessionId: string, blocks: readonly ContentBlock[], meta?: unknown): Promise<PromptResponse> {
     return this.thread(sessionId).prompt(blocks, promptMeta(meta));
   }
@@ -549,6 +701,8 @@ export class AcpAgent {
       const ref = { provider: provider!, name: rest.join("/") };
       t.session.setModel(ref);
       this.deps.rememberModel(ref);
+    } else if (configId === "thinking" && this.deps.setDeepThinking) {
+      this.deps.setDeepThinking(String(value) === "deep");
     } else throw RequestError.invalidParams(undefined, `unknown option ${configId}`);
     return this.configOptions(t);
   }

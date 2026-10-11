@@ -142,3 +142,26 @@ describe("tool names and kinds", () => {
     expect(toolKind("send_message")).toBe("other");
   });
 });
+
+describe("your messages carry their stored ids (Atlarix's own extension)", () => {
+  const user = (id: string, text: string): Cell => ({ kind: "user", id, text });
+
+  it("live, a saved message comes as an echo that names its id; one not saved yet sends nothing", () => {
+    const e: Emitted = new Map();
+    expect(diffUpdates([user("tmp:u", "hi")], e, { ids: true })).toEqual([]);
+    expect(diffUpdates([user("42:u", "hi")], e, { ids: true })).toEqual([
+      { sessionUpdate: "user_message_chunk", content: { type: "text", text: "hi" }, _meta: { atlarix: { messageId: 42, echo: true } } },
+    ]);
+  });
+
+  it("replayed, each message is drawn with its id; other editors get no ids", () => {
+    expect(diffUpdates([user("7:u", "first")], new Map(), { replay: true, ids: true })).toEqual([
+      { sessionUpdate: "user_message_chunk", content: { type: "text", text: "first" }, _meta: { atlarix: { messageId: 7 } } },
+    ]);
+    expect(diffUpdates([user("7:u", "first")], new Map(), { replay: true })).toEqual([
+      { sessionUpdate: "user_message_chunk", content: { type: "text", text: "first" } },
+    ]);
+    // A message from another session's text segment is not yours to go back to.
+    expect(diffUpdates([user("7:pu0", "theirs")], new Map(), { ids: true })).toEqual([]);
+  });
+});

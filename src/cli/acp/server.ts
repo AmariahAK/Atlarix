@@ -93,6 +93,13 @@ export function buildAgentApp(
       return initializeResponse(version);
     })
     .onRequest("authenticate", async (ctx) => {
+      if (ctx.params.methodId === "atlarix-login") {
+        // The editor ran `atlarix login` in its own terminal: the sign-in is
+        // already on disk, shared with this process. Only say whether it took.
+        const { realServices } = await import("../agent/services");
+        if (await realServices.account.email().catch(() => null)) return {};
+        throw acp.RequestError.authRequired(undefined, "Not signed in yet: finish `atlarix login`, then try again.");
+      }
       if (ctx.params.methodId !== "atlarix-browser") {
         throw acp.RequestError.invalidParams(undefined, `unknown sign-in method ${ctx.params.methodId}`);
       }
@@ -154,10 +161,61 @@ export function buildAgentApp(
       const { realServices } = await import("../agent/services");
       return { providers: await realServices.providers.list() };
     })
-    .onRequest("_atlarix/provider_key", (p) => p as { providerId: string; key: string }, async (ctx) => {
+    // A null key removes it. Either way every open chat gets the new model list.
+    .onRequest("_atlarix/provider_key", (p) => p as { providerId: string; key: string | null }, async (ctx) => {
       const { realServices } = await import("../agent/services");
-      if (!ctx.params.providerId || !ctx.params.key?.trim()) throw acp.RequestError.invalidParams(undefined, "A provider and a key are needed.");
-      await realServices.providers.saveKey(ctx.params.providerId, ctx.params.key.trim());
+      const { providerId, key } = ctx.params;
+      if (!providerId) throw acp.RequestError.invalidParams(undefined, "Which provider?");
+      if (key === null) {
+        await realServices.providers.removeKey(providerId);
+        await agent.modelsChanged(providerId);
+        return {};
+      }
+      if (!key?.trim()) throw acp.RequestError.invalidParams(undefined, "A provider and a key are needed.");
+      await realServices.providers.saveKey(providerId, key.trim());
+      await agent.modelsChanged();
+      return {};
+    })
+    .onRequest("_atlarix/provider_test", (p) => p as { providerId: string }, async (ctx) => {
+      const { realServices } = await import("../agent/services");
+      return realServices.providers.test(ctx.params.providerId);
+    })
+    .onRequest("_atlarix/provider_custom", (p) => p as { name: string; baseUrl: string; key: string; models?: string[] }, async (ctx) => {
+      const { realServices, NoModelsListedError } = await import("../agent/services");
+      const { name, baseUrl, key, models } = ctx.params;
+      if (!name?.trim() || !baseUrl?.trim() || !key?.trim()) throw acp.RequestError.invalidParams(undefined, "A name, a base URL and a key are needed.");
+      try {
+        const r = await realServices.providers.addCustom({ name, baseUrl, key, models });
+        await agent.modelsChanged();
+        return r;
+      } catch (e) {
+        // `needsModel` tells the extension to ask for a model id and try again.
+        if (e instanceof NoModelsListedError) throw acp.RequestError.invalidParams({ needsModel: true }, e.message);
+        throw acp.RequestError.invalidParams(undefined, (e as Error).message);
+      }
+    })
+    // Go back to one of your messages (the TUI's /undo): list, what it would undo, and resend.
+    .onRequest(
+      "_atlarix/undo",
+      (p) => p as { sessionId: string; action: "list" | "preview" | "resend"; messageId?: number; text?: string; restore?: boolean },
+      async (ctx) => {
+        const { sessionId, action, messageId, text, restore } = ctx.params;
+        if (action === "list") return { messages: agent.undoList(sessionId) };
+        if (messageId == null) throw acp.RequestError.invalidParams(undefined, "Which message?");
+        if (action === "preview") return agent.undoPreview(sessionId, Number(messageId));
+        if (action === "resend") return agent.undoResend(sessionId, Number(messageId), String(text ?? ""), restore === true);
+        throw acp.RequestError.invalidParams(undefined, `unknown action ${action}`);
+      },
+    )
+    .onRequest("_atlarix/session", (p) => p as { sessionId: string; action: "rename" | "delete"; title?: string }, async (ctx) => {
+      const { sessionId, action, title } = ctx.params;
+      try {
+        if (action === "rename") await agent.changeSession(sessionId, { rename: String(title ?? "") });
+        else if (action === "delete") await agent.changeSession(sessionId, { delete: true });
+        else throw new Error(`unknown action ${action}`);
+      } catch (e) {
+        throw acp.RequestError.invalidParams(undefined, (e as Error).message);
+      }
       return {};
     })
     .onRequest("_atlarix/mcp", (p) => p as { sessionId: string; action: string; id?: number; enabled?: boolean; name?: string; command?: string; url?: string }, async (ctx) => {
@@ -198,16 +256,14 @@ export async function runAcp(opts: AcpRunOptions): Promise<void> {
   const { installProcessGuards } = await import("../shutdown");
   installProcessGuards();
 
-  const { AgentSession, seedDevProvider, listFolderSessions } = await import("../agent/session");
+  const { AgentSession, seedDevProvider, listFolderSessions, changeFolderSession } = await import("../agent/session");
   const devModel = opts.devUrl
     ? await seedDevProvider({ baseUrl: opts.devUrl, model: opts.devModel ?? "fake-model", apiKey: opts.apiKey })
     : undefined;
   const models = await import("../agent/models");
   const cliState = opts.devUrl ? null : models.readCliState();
-  if (cliState?.deepThinking != null) {
-    const { setRuntimeSettingsOverride } = await import("../../main/settings");
-    setRuntimeSettingsOverride({ deepThinking: cliState.deepThinking });
-  }
+  const { setRuntimeSettingsOverride } = await import("../../main/settings");
+  if (cliState?.deepThinking != null) setRuntimeSettingsOverride({ deepThinking: cliState.deepThinking });
 
   const agent = new AcpAgent({
     createSession: async (cwd) => {
@@ -220,14 +276,25 @@ export async function runAcp(opts: AcpRunOptions): Promise<void> {
       await s.start();
       return s;
     },
-    models: async () =>
-      devModel
-        ? { options: [{ ...devModel, label: devModel.name }], current: devModel }
-        : { options: await models.loadModelOptions(), current: models.readCliState().model },
+    models: async () => {
+      if (devModel) return { options: [{ ...devModel, label: devModel.name }], current: devModel };
+      const state = models.readCliState();
+      return {
+        options: await models.loadModelOptions(),
+        current: state.model,
+        picks: { favorites: state.favorites, recent: state.recent },
+        deepThinking: state.deepThinking ?? false,
+      };
+    },
     rememberModel: (ref) => {
       if (!opts.devUrl) models.writeCliState(models.rememberChoice(models.readCliState(), ref));
     },
+    setDeepThinking: (on) => {
+      setRuntimeSettingsOverride({ deepThinking: on });
+      if (!opts.devUrl) models.writeCliState({ ...models.readCliState(), deepThinking: on });
+    },
     listSessions: (cwd) => listFolderSessions(cwd),
+    changeSession: (sessionId, change) => changeFolderSession(sessionId, change),
   });
 
   if (!opts.devUrl) opts.startBridge?.();

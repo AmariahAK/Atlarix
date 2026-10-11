@@ -82,12 +82,22 @@ export function toolTitle(t: ToolLine): string {
   return t.target ? `${t.verb} ${t.target}` : t.verb;
 }
 
+/** The stored message behind your own message's cell (`<id>:u`), or null for one not saved yet. */
+function userMessageId(cellId: string): number | null {
+  const m = /^(\d+):u$/.exec(cellId);
+  return m ? Number(m[1]) : null;
+}
+
 /**
  * The updates that bring the editor from what it was sent (`emitted`) to
  * `cells`, and `emitted` updated to match. `replay` (session/load) also sends
  * the user's own messages, which a live editor already shows.
+ *
+ * `ids` (Atlarix's own extension): your messages carry their stored id, so the
+ * extension can offer going back to one. Live, where the editor already drew
+ * the message, it comes as an `echo` that names the id and draws nothing.
  */
-export function diffUpdates(cells: readonly Cell[], emitted: Emitted, opts: { replay?: boolean } = {}): SessionUpdate[] {
+export function diffUpdates(cells: readonly Cell[], emitted: Emitted, opts: { replay?: boolean; ids?: boolean } = {}): SessionUpdate[] {
   const out: SessionUpdate[] = [];
   for (const c of cells) {
     const k = key(c);
@@ -145,7 +155,9 @@ export function diffUpdates(cells: readonly Cell[], emitted: Emitted, opts: { re
       if (before !== undefined) continue;
       const t = c.kind === "user" ? c.text : c.pairs.map((p) => `${p.question} → ${p.answer}`).join("\n");
       emitted.set(k, t);
-      if (opts.replay) out.push({ sessionUpdate: "user_message_chunk", content: { type: "text", text: t } });
+      const messageId = opts.ids && c.kind === "user" ? userMessageId(c.id) : null;
+      const meta = messageId != null ? { _meta: { atlarix: { messageId, ...(opts.replay ? {} : { echo: true }) } } } : {};
+      if (opts.replay || messageId != null) out.push({ sessionUpdate: "user_message_chunk", content: { type: "text", text: t }, ...meta });
     } else {
       emitted.set(k, "");
     }

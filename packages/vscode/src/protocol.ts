@@ -14,9 +14,9 @@ import type {
   ToolCallUpdate,
 } from "@agentclientprotocol/sdk";
 
-/** Something attached to the next message: a file, or lines of one. */
+/** Something attached to the next message: a file, lines of one, an image, or text from the editor. */
 export interface ContextItem {
-  /** Absolute path. */
+  /** Absolute path; empty for what isn't a file (a pasted image, the Problems list, terminal output). */
   path: string;
   /** Shown on the chip: the path relative to the workspace. */
   label: string;
@@ -28,6 +28,19 @@ export interface ContextItem {
   /** An image, base64, sent as an image block. */
   image?: { data: string; mimeType: string };
 }
+
+/** A provider on the Models & keys screen. */
+export interface ProviderRow {
+  id: string;
+  name: string;
+  hasKey: boolean;
+  /** "sk-…a91f" */
+  keyHint?: string;
+  keyUrl?: string;
+  custom?: boolean;
+}
+
+export type KeyStatus = "works" | "rejected" | "unchecked" | "unreachable";
 
 export interface PastSession {
   sessionId: string;
@@ -66,14 +79,26 @@ export type HostMessage =
       providers: Array<{ id: string; name: string; hasKey: boolean }>;
       mcp: Array<{ id: number; name: string; transport: string; enabled: boolean }>;
     }
-  | { type: "toast"; text: string; tone?: "info" | "error" };
+  | { type: "toast"; text: string; tone?: "info" | "error" }
+  /** The Models & keys screen: every provider, saved keys first. */
+  | { type: "keys"; providers: ProviderRow[] }
+  | { type: "key-status"; providerId: string; status: KeyStatus | "checking"; detail: string }
+  /** Open a screen or picker from outside the view (a command, the status bar). */
+  | { type: "open"; what: "keys" | "model-picker" | "history" }
+  /** Files matching what follows an @ in the box. */
+  | { type: "files"; query: string; files: Array<{ path: string; label: string }> }
+  /** The file open in the editor, offered as context unless removed. */
+  | { type: "active-file"; item: ContextItem | null }
+  | { type: "undo-list"; messages: Array<{ id: number; text: string }> }
+  | { type: "undo-preview"; messageId: number; files: string[] };
 
 export type ViewMessage =
   | { type: "ready" }
   | { type: "send"; text: string; context: ContextItem[]; answers?: string[] }
   | { type: "cancel" }
   | { type: "set-mode"; mode: string }
-  | { type: "set-model"; value: string }
+  /** The model, or another of the agent's options (thinking). */
+  | { type: "set-model"; value: string; configId?: string }
   | { type: "permission"; requestId: string; optionId: string | null }
   | { type: "open-diff"; requestId: string }
   | { type: "build" }
@@ -98,4 +123,18 @@ export type ViewMessage =
   | { type: "mcp-set"; id: number; enabled: boolean }
   | { type: "mcp-add" }
   | { type: "mcp-remove"; id: number }
-  | { type: "mcp-test"; id: number };
+  | { type: "mcp-test"; id: number }
+  | { type: "keys" }
+  | { type: "key-test"; providerId: string }
+  | { type: "key-remove"; providerId: string }
+  /** Add or replace: the host asks for the key in a masked input box. */
+  | { type: "key-set"; providerId: string; name: string; keyUrl?: string }
+  | { type: "key-custom" }
+  | { type: "find-files"; query: string }
+  | { type: "add-problems" }
+  | { type: "copy"; text: string }
+  | { type: "undo-list" }
+  | { type: "undo-preview"; messageId: number }
+  | { type: "undo-resend"; messageId: number; text: string; restore: boolean }
+  | { type: "session-rename"; sessionId: string; title: string }
+  | { type: "session-delete"; sessionId: string };

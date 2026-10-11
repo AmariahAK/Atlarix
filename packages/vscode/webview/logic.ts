@@ -1,0 +1,131 @@
+/**
+ * The chat's decisions that don't need a page: grouping and searching the
+ * model list, the / and @ menus, the diff an edit shows. Pure, so they are
+ * tested without a browser (src/__tests__/vscode-webview-logic.test.ts).
+ */
+import { diffLines } from "diff";
+
+export interface Opt {
+  value: string;
+  name: string;
+  description?: string | null;
+}
+export interface Group {
+  group: string;
+  name: string;
+  options: Opt[];
+}
+
+/** A select option's choices as groups, whether the agent sent them grouped or flat. */
+export function toGroups(options: ReadonlyArray<Opt | Group>): Group[] {
+  const out: Group[] = [];
+  let loose: Group | null = null;
+  for (const o of options) {
+    if ("options" in o) out.push(o);
+    else {
+      if (!loose) out.push((loose = { group: "", name: "", options: [] }));
+      loose.options.push(o);
+    }
+  }
+  return out;
+}
+
+export function flatOptions(groups: readonly Group[]): Opt[] {
+  const seen = new Set<string>();
+  const out: Opt[] = [];
+  for (const g of groups) for (const o of g.options) if (!seen.has(o.value)) out.push(o), seen.add(o.value);
+  return out;
+}
+
+/** What the picker shows for a search: every word must match the model's name, its id, or its group. */
+export function filterGroups(groups: readonly Group[], query: string): Group[] {
+  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  return groups
+    .map((g) => ({
+      ...g,
+      options: g.options.filter((o) => {
+        const hay = `${o.name} ${o.value} ${o.description ?? ""} ${g.name}`.toLowerCase();
+        return words.every((w) => hay.includes(w));
+      }),
+    }))
+    .filter((g) => g.options.length);
+}
+
+/** How many models a provider brings to the picker. */
+export function providerModelCount(groups: readonly Group[], providerId: string): number {
+  return flatOptions(groups).filter((o) => o.value.startsWith(`${providerId}/`)).length;
+}
+
+export interface Command {
+  name: string;
+  description?: string;
+}
+
+/** The / menu: commands that start with what's typed, then ones that contain it. */
+export function filterCommands(commands: readonly Command[], typed: string): Command[] {
+  const q = typed.replace(/^\//, "").toLowerCase();
+  return [...commands.filter((c) => c.name.startsWith(q)), ...commands.filter((c) => !c.name.startsWith(q) && c.name.includes(q))];
+}
+
+/** The / being typed: the whole box is "/word" (no space yet). */
+export function slashQuery(value: string): string | null {
+  return /^\/[\w-]*$/.test(value) ? value : null;
+}
+
+/** An @ being typed at the caret, at the start of the box or after a space: where it starts and what follows it. */
+export function mentionAt(value: string, caret: number): { start: number; query: string } | null {
+  const before = value.slice(0, caret);
+  const m = /(^|\s)@([^\s@]*)$/.exec(before);
+  if (!m) return null;
+  return { start: before.length - m[2]!.length - 1, query: m[2]! };
+}
+
+export interface ProviderLike {
+  id: string;
+  name: string;
+  hasKey: boolean;
+}
+
+/** "Add a provider": ones without a key that match what's typed, names that start with it first. */
+export function matchProviders<T extends ProviderLike>(providers: readonly T[], query: string, limit = 30): T[] {
+  const q = query.trim().toLowerCase();
+  const open = providers.filter((p) => !p.hasKey);
+  if (!q) return [];
+  const hit = (p: T) => p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q);
+  const starts = (p: T) => p.name.toLowerCase().startsWith(q) || p.id.toLowerCase().startsWith(q);
+  return [...open.filter((p) => starts(p)), ...open.filter((p) => !starts(p) && hit(p))].slice(0, limit);
+}
+
+/** The usual first providers, offered before anything is typed (those that exist and have no key yet). */
+export const SUGGESTED_PROVIDERS = ["anthropic", "openai", "google", "openrouter", "deepseek", "xai", "groq", "mistral"];
+
+export type DiffRow = { kind: "add" | "del" | "ctx" | "gap"; text: string };
+
+/**
+ * An edit as a diff in order: what was removed and added, with `context` lines
+ * around each change and a gap where unchanged lines are skipped.
+ */
+export function diffRows(oldText: string, newText: string, context = 2): DiffRow[] {
+  const rows: DiffRow[] = [];
+  for (const part of diffLines(oldText, newText)) {
+    const lines = part.value.replace(/\n$/, "").split("\n");
+    const kind: DiffRow["kind"] = part.added ? "add" : part.removed ? "del" : "ctx";
+    for (const text of lines) rows.push({ kind, text });
+  }
+  // Keep only the context near a change.
+  const near = rows.map(() => false);
+  rows.forEach((r, i) => {
+    if (r.kind === "ctx") return;
+    for (let j = Math.max(0, i - context); j <= Math.min(rows.length - 1, i + context); j++) near[j] = true;
+  });
+  const out: DiffRow[] = [];
+  let skipped = false;
+  rows.forEach((r, i) => {
+    if (near[i]) {
+      if (skipped && out.length) out.push({ kind: "gap", text: "⋯" });
+      skipped = false;
+      out.push(r);
+    } else skipped = true;
+  });
+  return out;
+}

@@ -34,6 +34,8 @@ export interface ProviderInfo {
   name: string;
   hasKey: boolean;
   keyUrl?: string;
+  keyHint?: string;
+  custom?: boolean;
 }
 export interface McpServer {
   id: number;
@@ -147,8 +149,14 @@ export class AtlarixConnection {
     this.listeners.set(sessionId, l);
   }
 
-  forget(sessionId: string): void {
-    this.listeners.delete(sessionId);
+  /** Stop listening, unless another chat has taken this session over since. */
+  forget(sessionId: string, l?: SessionListener): void {
+    if (!l || this.listeners.get(sessionId) === l) this.listeners.delete(sessionId);
+  }
+
+  /** The chat now showing this session, if any. */
+  listening(sessionId: string): boolean {
+    return this.listeners.has(sessionId);
   }
 
   newSession(cwd: string): Promise<NewSessionResponse> {
@@ -214,6 +222,30 @@ export class AtlarixConnection {
 
   saveKey(providerId: string, key: string): Promise<unknown> {
     return this.agent.request("_atlarix/provider_key", { providerId, key });
+  }
+
+  removeKey(providerId: string): Promise<unknown> {
+    return this.agent.request("_atlarix/provider_key", { providerId, key: null });
+  }
+
+  testKey(providerId: string): Promise<{ status: "works" | "rejected" | "unchecked" | "unreachable"; detail: string }> {
+    return this.agent.request("_atlarix/provider_test", { providerId });
+  }
+
+  addCustomProvider(p: { name: string; baseUrl: string; key: string; models?: string[] }): Promise<{ id: string; models: number }> {
+    return this.agent.request("_atlarix/provider_custom", p);
+  }
+
+  undo(
+    sessionId: string,
+    action: "list" | "preview" | "resend",
+    args: { messageId?: number; text?: string; restore?: boolean } = {},
+  ): Promise<{ messages?: Array<{ id: number; text: string }>; filesChanged?: string[]; createdFiles?: string[]; stopReason?: string }> {
+    return this.agent.request("_atlarix/undo", { sessionId, action, ...args });
+  }
+
+  changeSession(sessionId: string, action: "rename" | "delete", title?: string): Promise<unknown> {
+    return this.agent.request("_atlarix/session", { sessionId, action, ...(title != null ? { title } : {}) });
   }
 
   mcp(sessionId: string, action: "list" | "set" | "add" | "remove" | "test", args: Record<string, unknown> = {}): Promise<McpResult> {
