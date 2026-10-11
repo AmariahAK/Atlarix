@@ -666,7 +666,8 @@ function showAccount(a: Extract<HostMessage, { type: "account" }>) {
   else {
     if (a.kind !== "pro") acts.append(button("Get Pro", "primary", () => post({ type: "checkout", kind: "pro" })));
     acts.append(button("Add credit", "", () => post({ type: "checkout", kind: "credit" })));
-    acts.append(button("Manage or cancel subscription", "link", () => post({ type: "manage-subscription" })));
+    // Only a subscriber has one to manage; pay-as-you-go and free accounts don't.
+    if (a.kind === "pro") acts.append(button("Manage or cancel subscription", "link", () => post({ type: "manage-subscription" })));
     acts.append(button("Sign out", "link", () => post({ type: "sign-out" })));
   }
   who.append(acts);
