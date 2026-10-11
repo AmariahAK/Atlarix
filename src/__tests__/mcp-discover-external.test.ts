@@ -24,7 +24,10 @@ write(
   }),
 );
 write(".cursor/mcp.json", JSON.stringify({ mcpServers: { linear: { url: "https://mcp.linear.app/sse", headers: { Authorization: "Bearer lin_secret_token" } } } }));
-const vscodeDir = process.platform === "darwin" ? "Library/Application Support/Code/User" : ".config/Code/User";
+// Where each OS keeps VS Code's and Zed's settings, under the test's home.
+const appData = process.platform === "win32" ? "AppData/Roaming" : process.platform === "darwin" ? "Library/Application Support" : ".config";
+const vscodeDir = `${appData}/Code/User`;
+const zedDir = process.platform === "win32" ? `${appData}/zed` : ".config/zed";
 write(`${vscodeDir}/mcp.json`, `{
   // VS Code's own file: comments and trailing commas
   "servers": {
@@ -32,7 +35,7 @@ write(`${vscodeDir}/mcp.json`, `{
     "prompted": { "command": "x", "env": { "TOKEN": "\${input:token}" } },
   },
 }`);
-write(".config/zed/settings.json", `{ "context_servers": { "postgres": { "command": { "path": "pg-mcp", "args": ["--db", "shop"], "env": { "PGPASS": "zed-secret" } } } } }`);
+write(`${zedDir}/settings.json`, `{ "context_servers": { "postgres": { "command": { "path": "pg-mcp", "args": ["--db", "shop"], "env": { "PGPASS": "zed-secret" } } } } }`);
 afterAll(() => fs.rmSync(home, { recursive: true, force: true }));
 
 describe("MCP servers found on this computer", () => {
