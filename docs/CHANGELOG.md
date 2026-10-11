@@ -3,6 +3,55 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [15.5.0] (2026-10-11) — the editor extension, redesigned; your keys and MCP servers everywhere
+
+**Atlarix in VS Code, Cursor, Kiro and Windsurf is rebuilt around how you work in it.** A bar across the top for a new chat, past chats, MCP servers,
+your account and settings. A task card over the conversation with the chat's tokens, how many came
+from cache, what it cost on your own keys, how full the context is, and the plan ticking off as it
+is built. Edits arrive as cards with their diff in order (the old view compared line sets and lost
+order and repeated lines); commands show their output; a turn that changed files ends in a
+checkpoint with **Compare** (each file then against now, in the editor's diff, read from the turn's
+snapshot) and **Restore** (back to before it). An approval waits above the message box with what it
+will run or change and why it is risky, and the bar says "Needs you". `@` offers Problems, a
+terminal selection, git changes, a commit, a folder, a URL or files; `/` lists commands and this
+folder's skills; images paste and drop in; the open file is offered as context. Hover one of your
+messages to go back to it and send it again (its files restored if you choose). Past chats has
+search, every folder's chats, starring, rename and delete.
+
+**Models & keys.** The model picker is grouped (favourites, recent, Atlarix, then one group per
+provider), searchable, with ★ favourites shared with the terminal and a Normal/Deep thinking switch.
+Settings › Models & keys lists every provider with its masked key and whether the key works, checked
+with the provider itself (`src/lib/provider-key-check.ts`; the model fetchers fall back to the
+catalog, so a revoked key used to look fine). A rejected key says so and offers Replace; its models
+are hidden in the picker until it works. Each provider has a page with its models' prices, context
+and what each can do; a key is checked before it is saved, and a rejected one is not saved. Switch a
+provider off without losing its key. Add any OpenAI-compatible endpoint (its models are read from
+it). **A different model for Plan**: plan with a stronger model, build with the chosen one (off by
+default; shared with the terminal through `cli-state.json`). Saving or removing one provider's key
+no longer drops the other providers' settings (`writeProviderKey`, `src/main/settings.ts`).
+
+**MCP servers you already set up elsewhere are found.** Servers configured in Claude Code, Cursor,
+VS Code, Kiro, Windsurf, Zed or Claude Desktop appear under "Found on this computer" in the app's MCP
+page, the extension, and the terminal's `/mcp`, each with Add; in Zed and JetBrains, `/mcp` lists
+them and `/mcp add <name>` adds one. Nothing is added without that step, and no value from their
+environment or headers is shown (`src/lib/mcp/discover-external.ts`). Added servers join the folder's
+list that the app, the CLI and every editor share. MCP sign-in pages now open from the editor.
+
+**Zed and JetBrains.** `/keys` shows your own keys and whether each works; adding or replacing one
+happens in a terminal with the new `atlarix keys add <provider>` (a hidden prompt, checked before it
+is saved), so a key never passes through a chat. This folder's skills are `/` commands. The model
+option is grouped by provider, with a Thinking option where the model has one. "Sign in from a
+terminal" now completes after `atlarix login`.
+
+**Auto-approve.** "Edit files in this folder without asking" (Settings › Auto-approve): a rule for
+the whole folder; a narrower rule, a deny included, still wins, and deletes, renames and anything
+outside the folder still ask. The rules remembered in a folder are listed in plain words with
+Forget.
+
+**Fixes.** "Open in an editor tab" moves the chat instead of leaving the side bar unable to follow
+it. The sign-in menu item only shows while signed out. The subscription link in Account shows only
+for Pro.
+
 ## [15.4.2] (2026-10-10) — the editor extension asks for a rating, once
 
 After the fifth turn that finishes normally, the extension asks once — "Enjoying Atlarix? A rating

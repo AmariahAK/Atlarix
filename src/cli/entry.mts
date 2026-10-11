@@ -9,6 +9,9 @@
  *   atlarix --prompt …      headless runner, in its own throwaway data folder
  *   atlarix acp             an editor's agent (Zed, JetBrains) over the Agent
  *                           Client Protocol on stdio: src/cli/acp/server.ts
+ *   atlarix keys [add|remove <provider>]
+ *                           your own API keys, each checked; a key is typed
+ *                           here, hidden, never in a chat: src/cli/keys-command.ts
  *
  * Nothing that reads the data location may be imported before the mode is
  * chosen: the electron stub, the database and the settings reader all decide
