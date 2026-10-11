@@ -78,6 +78,8 @@ class Thread {
   private turn: { done: () => void; cancelled: boolean } | null = null;
   private lastTitle: string | null = null;
   private lastPlan: string | null = null;
+  /** This folder's skills and the account's, offered as / commands. */
+  private skills: Array<{ name: string; description: string; readPath: string }> = [];
   private lastMode: WorkMode;
   private planSent = "";
   /** Going back to an earlier message: the editor cleared its view, so send the whole transcript again. */
@@ -299,6 +301,23 @@ class Thread {
     diffUpdates(this.session.state.cells, this.emitted);
     const errorBefore = this.session.state.lastError;
     const slash = /^\/(\w+)\s*$/.exec(text);
+    const skill = this.skillFor(text);
+    if (slash?.[1] === "keys" || /^\/keys\s/.test(text)) {
+      const { keysCommandText } = await import("./account-commands");
+      const reply = await keysCommandText(text).catch((e: Error) => `Couldn't read your keys: ${e.message}`);
+      await this.send({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: reply } });
+      return { stopReason: "end_turn" };
+    }
+    if (slash?.[1] === "undo" && !this.extras()) {
+      await this.send({
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: `Going back to an earlier message happens in Atlarix's own panels. In a terminal: \`atlarix --resume ${this.id}\`, then /undo.`,
+        },
+      });
+      return { stopReason: "end_turn" };
+    }
     // Account commands for editors with no Atlarix panel (Zed, JetBrains): the
     // CLI's /status, /billing and /mcp, answered as a message.
     if (slash && (slash[1] === "status" || slash[1] === "billing" || slash[1] === "mcp" || slash[1] === "logout")) {
@@ -345,7 +364,7 @@ class Thread {
         // The last turn ended on a question (ask_user): this prompt is the answer.
         await this.session.answerQuestion([text]);
       } else {
-        await this.session.submit(text || "(attachment)", images.length ? { images } : undefined);
+        await this.session.submit(skill ?? (text || "(attachment)"), images.length ? { images } : undefined);
       }
       if (!this.session.state.busy) turn.done();
       await finished;
@@ -372,6 +391,8 @@ class Thread {
         used: s.contextUsed,
         size: s.contextLimit,
         ...(s.costUsd > 0 ? { cost: { amount: s.costUsd, currency: "USD" } } : {}),
+        // The task header in Atlarix's extension: this chat's tokens, and how many came from cache.
+        ...(this.extras() ? { _meta: { atlarix: { tokens: s.sessionTokens, cachedTokens: s.cachedTokens } } } : {}),
       });
     }
     if (s.title && s.title !== this.lastTitle) {
@@ -395,8 +416,32 @@ class Thread {
     const plan = s.planReady?.planId ?? null;
     if (plan !== this.lastPlan) {
       this.lastPlan = plan;
-      void this.send(commandsUpdate(!!plan));
+      void this.send(commandsUpdate(!!plan, this.skills));
     }
+  }
+
+  /** Load the skills, then send the command list (the editor's / menu). */
+  async refreshCommands(): Promise<void> {
+    try {
+      const { buildSkillIndex } = await import("@/lib/skills/skill-index");
+      const all = await buildSkillIndex(this.cwd, this.session.state.mode);
+      const builtin = new Set(BUILTIN_COMMANDS);
+      this.skills = all
+        .filter((s) => s.source !== "guide" && /^[\w-]+$/.test(s.name) && !builtin.has(s.name))
+        .map((s) => ({ name: s.name, description: s.description, readPath: s.readPath }));
+    } catch {
+      this.skills = [];
+    }
+    await this.send(commandsUpdate(!!this.session.state.planReady, this.skills));
+  }
+
+  /** "/deploy fix the staging url" → ask for the deploy skill, with the rest as the task. */
+  private skillFor(text: string): string | null {
+    const m = /^\/([\w-]+)(?:\s+([\s\S]*))?$/.exec(text);
+    const s = m && this.skills.find((x) => x.name === m[1]);
+    if (!s) return null;
+    const rest = m![2]?.trim();
+    return `Use the "${s.name}" skill: read ${s.readPath} first.${rest ? `\n\n${rest}` : ""}`;
   }
 
   async cancel(): Promise<void> {
@@ -405,18 +450,22 @@ class Thread {
   }
 }
 
-function commandsUpdate(planReady: boolean): SessionUpdate {
+const BUILTIN_COMMANDS = ["compact", "undo", "keys", "status", "billing", "mcp", "handoff", "logout", "build"];
+
+function commandsUpdate(planReady: boolean, skills: Array<{ name: string; description: string }> = []): SessionUpdate {
   return {
     sessionUpdate: "available_commands_update",
     availableCommands: [
       { name: "compact", description: "Summarize the conversation so far to free up context." },
       { name: "undo", description: "Go back to one of your messages, edit it and send it again." },
+      { name: "keys", description: "Your own API keys, and whether each one works." },
       { name: "status", description: "Your Atlarix account, plan, credit and this chat's usage." },
       { name: "billing", description: "Get Pro, add credit, or manage or cancel your subscription." },
       { name: "mcp", description: "MCP servers in this folder." },
       { name: "handoff", description: "Continue this chat in the Atlarix app." },
       { name: "logout", description: "Sign out of Atlarix on this computer (the app and CLI share the sign-in)." },
       ...(planReady ? [{ name: "build", description: "Build the plan that is ready for review." }] : []),
+      ...skills.map((s) => ({ name: s.name, description: `Skill: ${s.description || s.name}`, input: { hint: "what to do (optional)" } })),
     ],
   };
 }
@@ -586,7 +635,8 @@ export class AcpAgent {
 
   async newSession(cwd: string): Promise<NewSessionResponse> {
     const t = await this.open(cwd);
-    setTimeout(() => void this.ctx().notify("session/update", { sessionId: t.id, update: commandsUpdate(false) }).catch(() => {}), 0);
+    // After the response, so the editor knows the session the list belongs to.
+    setTimeout(() => void t.refreshCommands(), 0);
     return { sessionId: t.id, configOptions: await this.configOptions(t), modes: this.modes(t) };
   }
 
@@ -597,6 +647,7 @@ export class AcpAgent {
     // editor that asks to load it again has nothing on screen, so start over.
     if (existing) existing.emitted.clear();
     await t.replay();
+    setTimeout(() => void t.refreshCommands(), 0);
     return { configOptions: await this.configOptions(t), modes: this.modes(t) };
   }
 
@@ -645,6 +696,15 @@ export class AcpAgent {
   async undoPreview(sessionId: string, messageId: number): Promise<{ filesChanged: string[]; createdFiles: string[] }> {
     const p = await this.thread(sessionId).session.undoPreview(messageId);
     return { filesChanged: p.filesChanged, createdFiles: p.createdFiles };
+  }
+
+  /** Compare at a checkpoint: what changed since a message, and each file's version from then. */
+  checkpointFiles(sessionId: string, messageId: number) {
+    return this.thread(sessionId).session.checkpointFiles(messageId);
+  }
+
+  checkpointBefore(sessionId: string, turnId: string, relativePath: string) {
+    return this.thread(sessionId).session.checkpointBefore(turnId, relativePath);
   }
 
   undoResend(sessionId: string, messageId: number, text: string, restore: boolean): Promise<PromptResponse> {

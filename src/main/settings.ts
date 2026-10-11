@@ -383,6 +383,36 @@ export function writeProviderKey(providerId: string, key: string | null): void {
   }
 }
 
+/**
+ * Change one provider's plain (non-secret) settings, e.g. `{ enabled: false }`,
+ * leaving its key and every other provider as they are on disk.
+ */
+export function writeProviderSetting(providerId: string, patch: Record<string, string | number | boolean | null>): void {
+  if ("apiKey" in patch || "serviceAccountKey" in patch) throw new Error("Keys go through writeProviderKey.");
+  const raw = readRawSettingsFile();
+  if (!raw) {
+    writeSettings({ providerSettings: { [providerId]: patch } } as Partial<UserSettings>);
+    return;
+  }
+  const providers = { ...((raw.providerSettings ?? {}) as Record<string, Record<string, unknown>>) };
+  const entry: Record<string, unknown> = { ...(providers[providerId] ?? {}) };
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === null) delete entry[k];
+    else entry[k] = v;
+  }
+  providers[providerId] = entry;
+  const validated = UserSettingsSchema.parse({ ...DEFAULT_SETTINGS, ...raw, providerSettings: providers });
+  const filePath = getSettingsFilePath();
+  fs.writeFileSync(filePath, JSON.stringify(validated, null, 2));
+  if (process.platform !== "win32") {
+    try {
+      fs.chmodSync(filePath, 0o600);
+    } catch {
+      /* best-effort hardening, as writeSettings */
+    }
+  }
+}
+
 export function writeSettings(settings: Partial<UserSettings>): void {
   try {
     const filePath = getSettingsFilePath();

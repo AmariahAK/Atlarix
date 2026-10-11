@@ -30,6 +30,7 @@ import {
 
 import { conversationText } from "./btw";
 import { handler } from "./ipc";
+import { readCliState, turnModelFor } from "./models";
 import { applyLiveTextPatch, type LiveTextPatch } from "@/lib/chat/live-text-patch";
 
 /** The desktop's five work modes (WorkModeSchema); "ask" is shown as Explore. */
@@ -186,6 +187,14 @@ export async function listFolderSessions(workspaceDir: string): Promise<SessionS
   const { workspaceAppIdForPath } = await import("@/lib/workspace-app-by-path");
   const appId = await workspaceAppIdForPath(workspaceDir);
   return (await (await handler("sessions:list"))({}, appId)) as SessionSummary[];
+}
+
+/** Every folder's chats, newest first, with each one's folder (an editor's Past chats → All folders). */
+export async function listAllSessions(): Promise<Array<SessionSummary & { folder: string; folderName: string }>> {
+  const { initializeDatabase } = await import("@/db");
+  initializeDatabase();
+  await registerHandlers();
+  return (await (await handler("sessions:list-all"))({}, 200)) as Array<SessionSummary & { folder: string; folderName: string }>;
 }
 
 /** Rename or delete a stored session without opening it (the editor's Past chats). */
@@ -439,6 +448,30 @@ export class AgentSession extends EventEmitter {
       createdFiles: string[];
     } | null;
     return { turnIds, filesChanged: files?.filesChanged ?? [], createdFiles: files?.createdFiles ?? [] };
+  }
+
+  /**
+   * The editor's Compare at a checkpoint: the files changed since one of your
+   * messages, each with the turn whose snapshot holds its version from before
+   * (the first turn after the message that wrote it).
+   */
+  async checkpointFiles(messageId: number): Promise<Array<{ path: string; turnId: string; created: boolean }>> {
+    const { turnIds } = await this.undoPreview(messageId);
+    const { listSnapshotFiles } = await import("@/lib/snapshot/snapshot-manager");
+    const out = new Map<string, { path: string; turnId: string; created: boolean }>();
+    for (const turnId of turnIds) {
+      const files = await listSnapshotFiles(this.workspaceDir, turnId).catch(() => null);
+      for (const f of files?.filesChanged ?? []) {
+        if (!out.has(f)) out.set(f, { path: f, turnId, created: files!.createdFiles.includes(f) });
+      }
+    }
+    return [...out.values()];
+  }
+
+  /** One file as it was before `turnId` wrote it (see checkpointFiles). */
+  async checkpointBefore(turnId: string, relativePath: string): Promise<{ existed: boolean; content: string } | null> {
+    const { readSnapshotFile } = await import("@/lib/snapshot/snapshot-manager");
+    return readSnapshotFile({ workspacePath: this.workspaceDir, turnId, relativePath });
   }
 
   /**
@@ -761,6 +794,23 @@ export class AgentSession extends EventEmitter {
   }
 
   /**
+   * The model a turn runs on: the Plan model while planning, when one is set
+   * (cli-state `planModel`, shared by the terminal and the editors), else the
+   * chosen one. "Build it" switches to Build, so the plan is built on the
+   * chosen model.
+   */
+  turnModel(): ModelChoice | undefined {
+    if (process.env.ATLARIX_CLI_DEV_PROVIDER === "1") return this.model;
+    let plan: ModelChoice | undefined;
+    try {
+      plan = readCliState().planModel;
+    } catch {
+      /* no state file: the chosen model */
+    }
+    return turnModelFor(this.state.mode, this.model, plan) as ModelChoice | undefined;
+  }
+
+  /**
    * Enter: a new turn when idle; while a turn runs, a STEER that the agent reads
    * at its next step (Codex's Enter). Tab: `queue()` instead.
    */
@@ -907,7 +957,7 @@ export class AgentSession extends EventEmitter {
         prompt: text,
         ...(opts.display && opts.display !== text ? { displayPrompt: opts.display } : {}),
         ...(attachments.length ? { attachments } : {}),
-        ...(this.model ? { modelOverride: this.model } : {}),
+        ...(this.turnModel() ? { modelOverride: this.turnModel() } : {}),
         ...(opts.continueAfterQuestions ? { continueAfterQuestions: true } : {}),
         workModeOverride: this.state.mode,
       });
@@ -919,7 +969,7 @@ export class AgentSession extends EventEmitter {
   private async refreshContextWindow(): Promise<void> {
     try {
       const { getContextWindow } = await import("@/ipc/utils/token_utils");
-      this.contextWindow = await getContextWindow(this.model as never, this.chatId);
+      this.contextWindow = await getContextWindow(this.turnModel() as never, this.chatId);
     } catch {
       this.contextWindow = null;
     }

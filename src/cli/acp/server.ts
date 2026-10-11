@@ -143,7 +143,11 @@ export function buildAgentApp(
         ? await Promise.all([a.kind?.().catch(() => null) ?? null, a.balanceCents().catch(() => null)])
         : ["signed-out", null];
       const usage = ctx.params.sessionId ? agent.sessionInfo(ctx.params.sessionId) : null;
-      return { email, kind, balanceCents, usage, manageUrl: "https://www.atlarix.dev/account", pricingUrl: "https://www.atlarix.dev/pricing" };
+      // Free Auto's share left today, as the proxy last reported it (a percentage;
+      // known only after an Auto request in this process).
+      const { latestAutoStatus } = await import("@/main/auto-status");
+      const freeAutoLeft = latestAutoStatus()?.freeRemaining ?? null;
+      return { email, kind, balanceCents, usage, freeAutoLeft, manageUrl: "https://www.atlarix.dev/account", pricingUrl: "https://www.atlarix.dev/pricing" };
     })
     .onRequest("_atlarix/checkout", (p) => p as { kind: "pro" | "credit"; amountCents?: number }, async (ctx) => {
       const { realServices } = await import("../agent/services");
@@ -176,9 +180,44 @@ export function buildAgentApp(
       await agent.modelsChanged();
       return {};
     })
-    .onRequest("_atlarix/provider_test", (p) => p as { providerId: string }, async (ctx) => {
+    // With `key`: check a key before it is saved (Add a provider's Connect).
+    .onRequest("_atlarix/provider_test", (p) => p as { providerId: string; key?: string }, async (ctx) => {
       const { realServices } = await import("../agent/services");
-      return realServices.providers.test(ctx.params.providerId);
+      return realServices.providers.test(ctx.params.providerId, ctx.params.key);
+    })
+    .onRequest("_atlarix/provider_enabled", (p) => p as { providerId: string; on: boolean }, async (ctx) => {
+      const { realServices } = await import("../agent/services");
+      await realServices.providers.setEnabled(ctx.params.providerId, ctx.params.on === true);
+      // Off works like a removed key for the chats on it: they move to Auto.
+      await agent.modelsChanged(ctx.params.on === true ? undefined : ctx.params.providerId);
+      return {};
+    })
+    .onRequest("_atlarix/local_providers", (p) => p as Record<string, unknown>, async () => {
+      const { realServices } = await import("../agent/services");
+      return { local: await realServices.providers.local() };
+    })
+    // One provider's models in full, for its page: price, context and what each can do.
+    .onRequest("_atlarix/models", (p) => p as { providerId: string }, async (ctx) => {
+      const id = ctx.params.providerId;
+      const { getLanguageModels, stampDeepThinkingSupport } = await import("@/ipc/shared/language_model_helpers");
+      const { detectVisionCapability } = await import("@/lib/routing/model-capability-profile");
+      const raw = await getLanguageModels({ providerId: id }).catch(() => []);
+      const models = stampDeepThinkingSupport({ [id]: raw })[id] ?? [];
+      return {
+        models: models.map((m) => {
+          const cost = (m as { cost?: { input?: number; output?: number } }).cost;
+          return {
+            value: `${id}/${m.apiName}`,
+            name: m.displayName || m.apiName,
+            id: m.apiName,
+            context: m.contextWindow ?? null,
+            price: cost && typeof cost.input === "number" && typeof cost.output === "number" ? { input: cost.input, output: cost.output } : null,
+            tools: (m as { supportsToolChoice?: boolean }).supportsToolChoice !== false,
+            thinking: !!m.supportsDeepThinking,
+            images: detectVisionCapability(id, m.apiName),
+          };
+        }),
+      };
     })
     .onRequest("_atlarix/provider_custom", (p) => p as { name: string; baseUrl: string; key: string; models?: string[] }, async (ctx) => {
       const { realServices, NoModelsListedError } = await import("../agent/services");
@@ -207,6 +246,96 @@ export function buildAgentApp(
         throw acp.RequestError.invalidParams(undefined, `unknown action ${action}`);
       },
     )
+    .onRequest(
+      "_atlarix/checkpoint",
+      (p) => p as { sessionId: string; action: "files" | "before"; messageId?: number; turnId?: string; path?: string },
+      async (ctx) => {
+        const { sessionId, action, messageId, turnId, path } = ctx.params;
+        if (action === "files" && messageId != null) return { files: await agent.checkpointFiles(sessionId, Number(messageId)) };
+        if (action === "before" && turnId && path) return { file: await agent.checkpointBefore(sessionId, turnId, path) };
+        throw acp.RequestError.invalidParams(undefined, "Which message, or which turn and file?");
+      },
+    )
+    // "A different model for Plan" and starred chats: the terminal's own state (cli-state.json), shared.
+    .onRequest("_atlarix/plan_model", (p) => p as { model?: string | null }, async (ctx) => {
+      const models = await import("../agent/models");
+      const state = models.readCliState();
+      if (ctx.params.model !== undefined) {
+        const [provider, ...rest] = String(ctx.params.model ?? "").split("/");
+        const planModel = ctx.params.model && provider && rest.length ? { provider, name: rest.join("/") } : undefined;
+        models.writeCliState({ ...state, planModel });
+        return { model: planModel ? `${planModel.provider}/${planModel.name}` : null };
+      }
+      return { model: state.planModel ? `${state.planModel.provider}/${state.planModel.name}` : null };
+    })
+    .onRequest("_atlarix/favorite", (p) => p as { model: string; on: boolean }, async (ctx) => {
+      const models = await import("../agent/models");
+      const [provider, ...rest] = String(ctx.params.model).split("/");
+      if (!provider || !rest.length) throw acp.RequestError.invalidParams(undefined, "Which model?");
+      const ref = { provider, name: rest.join("/") };
+      const state = models.readCliState();
+      const has = state.favorites.some((f) => f.provider === ref.provider && f.name === ref.name);
+      if (has !== (ctx.params.on === true)) models.writeCliState(models.toggleFavorite(state, ref));
+      await agent.modelsChanged();
+      return {};
+    })
+    .onRequest("_atlarix/star", (p) => p as { sessionId?: string; on?: boolean }, async (ctx) => {
+      const models = await import("../agent/models");
+      const state = models.readCliState();
+      let starred = state.starredSessions ?? [];
+      const id = ctx.params.sessionId;
+      if (id && ctx.params.on !== undefined) {
+        starred = ctx.params.on ? [id, ...starred.filter((x) => x !== id)] : starred.filter((x) => x !== id);
+        models.writeCliState({ ...state, starredSessions: starred });
+      }
+      return { starred };
+    })
+    // Auto-approve in Atlarix's extension: the rules remembered for this folder, and the whole-folder edit switch.
+    .onRequest(
+      "_atlarix/permissions",
+      (p) => p as { sessionId: string; action: "list" | "revoke" | "edits"; index?: number; on?: boolean },
+      async (ctx) => {
+        const { realServices } = await import("../agent/services");
+        const { readablePermission } = await import("./permission-labels");
+        const { appId } = agent.sessionInfo(ctx.params.sessionId);
+        const list = async () => {
+          const rows = await realServices.permissions.list(appId);
+          const folderEdits = rows.some((r) => r.kind === "file" && "scopeValue" in r.revoke && r.revoke.scopeType === "directory" && r.revoke.scopeValue === "." && r.decision === "always_allow");
+          return {
+            folderEdits,
+            rules: rows
+              .filter((r) => !(r.kind === "file" && "scopeValue" in r.revoke && r.revoke.scopeValue === "."))
+              .map((r) => readablePermission(r)),
+          };
+        };
+        if (ctx.params.action === "edits") {
+          await realServices.permissions.setFolderEdits(appId, ctx.params.on === true);
+        } else if (ctx.params.action === "revoke") {
+          const rows = (await realServices.permissions.list(appId)).filter((r) => !(r.kind === "file" && "scopeValue" in r.revoke && r.revoke.scopeValue === "."));
+          const row = rows[Number(ctx.params.index)];
+          if (!row) throw acp.RequestError.invalidParams(undefined, "That rule is gone already.");
+          await realServices.permissions.revoke(appId, row);
+        }
+        return list();
+      },
+    )
+    // Past chats in Atlarix's extension: this folder's or every folder's, with mode and star.
+    .onRequest("_atlarix/sessions", (p) => p as { cwd?: string; all?: boolean }, async (ctx) => {
+      const { listFolderSessions, listAllSessions } = await import("../agent/session");
+      const models = await import("../agent/models");
+      const starred = new Set(models.readCliState().starredSessions ?? []);
+      const rows = ctx.params.all ? await listAllSessions() : ctx.params.cwd ? await listFolderSessions(ctx.params.cwd) : [];
+      return {
+        sessions: rows.map((r) => ({
+          sessionId: r.id,
+          title: r.title,
+          updatedAt: new Date(r.updatedAt).toISOString(),
+          mode: (r as { workMode?: string | null }).workMode ?? null,
+          starred: starred.has(r.id),
+          ...("folder" in r ? { folder: (r as unknown as { folder: string }).folder, folderName: (r as unknown as { folderName: string }).folderName } : {}),
+        })),
+      };
+    })
     .onRequest("_atlarix/session", (p) => p as { sessionId: string; action: "rename" | "delete"; title?: string }, async (ctx) => {
       const { sessionId, action, title } = ctx.params;
       try {
@@ -237,6 +366,11 @@ export function buildAgentApp(
           return { servers: await mcp.list(appId) };
         case "test":
           return { result: await mcp.test(id) };
+        case "tools":
+          return { tools: await mcp.tools(id).catch(() => []) };
+        case "oauth":
+          // Opens the server's sign-in page (via the editor) and resolves once it's done or refused.
+          return { result: await mcp.signIn(id) };
         default:
           throw acp.RequestError.invalidParams(undefined, `unknown action ${ctx.params.action}`);
       }
@@ -253,6 +387,8 @@ export async function runAcp(opts: AcpRunOptions): Promise<void> {
   log.transports.console.level = false;
   // How other Atlarix sessions see these: "Fix login bug (editor)".
   process.env.ATLARIX_PEER_SURFACE = "editor";
+  // Links main would open in a browser (an MCP server's sign-in) go to the editor to open.
+  process.env.ATLARIX_OPEN_URLS_VIA_STDERR = "1";
   const { installProcessGuards } = await import("../shutdown");
   installProcessGuards();
 

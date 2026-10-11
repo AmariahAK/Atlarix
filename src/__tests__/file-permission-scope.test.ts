@@ -152,3 +152,30 @@ describe("path helpers", () => {
     expect(getParentDirectory("top.ts")).toBe("");
   });
 });
+
+describe("the whole-folder rule (an editor's \"Edit files in this folder without asking\")", () => {
+  const whole: ListedFilePermission = { scopeType: "directory", scopeValue: ".", decision: "always_allow" };
+
+  it("allows an edit anywhere in the folder", () => {
+    expect(gate("src/a.ts", [whole]).action).toBe("auto_allow");
+    expect(gate("README.md", [whole]).action).toBe("auto_allow");
+  });
+
+  it("never reaches outside the folder, and deletes and renames still ask", () => {
+    expect(gate("../other/a.ts", [whole]).action).toBe("prompt");
+    expect(resolveFilePermissionGate("src/a.ts", "delete_file", [whole]).action).toBe("prompt");
+  });
+
+  it("a narrower deny still wins", () => {
+    const deny: ListedFilePermission = { scopeType: "directory", scopeValue: "secrets", decision: "always_deny" };
+    expect(gate("secrets/key.pem", [whole, deny]).action).toBe("auto_deny");
+    expect(gate("src/a.ts", [whole, deny]).action).toBe("auto_allow");
+  });
+
+  it("is stored as itself, and an empty path still matches nothing", async () => {
+    const { normalizeScopeValue } = await import("@/lib/file-permission-scope");
+    expect(normalizeScopeValue("directory", ".")).toBe(".");
+    expect(normalizeScopeValue("directory", "./")).toBe("");
+    expect(gate("src/a.ts", [{ scopeType: "directory", scopeValue: "", decision: "always_allow" }]).action).toBe("prompt");
+  });
+});

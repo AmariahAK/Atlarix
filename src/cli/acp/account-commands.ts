@@ -49,3 +49,34 @@ export async function accountCommandText(cmd: "status" | "billing" | "mcp" | "lo
     "`/billing` for Pro, credit or your subscription · `/mcp` for MCP servers.",
   ].join("\n");
 }
+
+const STATUS: Record<string, string> = { works: "works", rejected: "rejected", unchecked: "saved (can't be checked from here)", unreachable: "couldn't reach the provider" };
+
+/**
+ * /keys: your own API keys, each checked with its provider. Adding or replacing
+ * one happens in a terminal (`atlarix keys add <provider>`, a masked prompt),
+ * so a key never passes through the chat, where the editor keeps a copy.
+ */
+export async function keysCommandText(text: string): Promise<string> {
+  const add = /^\/keys\s+(add|replace|remove)\s+(\S+)/i.exec(text.trim());
+  if (add) {
+    const verb = add[1]!.toLowerCase() === "remove" ? "remove" : "add";
+    return `Run this in a terminal (it asks for the key without showing it, so it never passes through the chat):\n\n\`atlarix keys ${verb} ${add[2]}\`\n\nThen \`/keys\` here to check it.`;
+  }
+  const { realServices } = await import("../agent/services");
+  const mine = (await realServices.providers.list()).filter((p) => p.hasKey);
+  if (!mine.length) return "No API keys of your own yet. Add one in a terminal with `atlarix keys add <provider>` (for example `atlarix keys add openai`), or in Atlarix's VS Code extension under Models & keys.";
+  const checks = await Promise.all(mine.map((p) => realServices.providers.test(p.id).catch(() => ({ status: "unreachable", detail: "" }))));
+  return [
+    "**Your keys**",
+    "",
+    ...mine.map((p, i) => {
+      const c = checks[i]!;
+      const mark = c.status === "works" ? "●" : c.status === "rejected" ? "✕" : "○";
+      const why = c.status === "rejected" && c.detail ? `: ${c.detail}` : "";
+      return `- ${mark} ${p.name}${p.keyHint ? ` \`${p.keyHint}\`` : ""}: ${STATUS[c.status] ?? c.status}${why}`;
+    }),
+    "",
+    "Add or replace one in a terminal: `atlarix keys add <provider>`. Remove one: `atlarix keys remove <provider>`.",
+  ].join("\n");
+}

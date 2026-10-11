@@ -633,6 +633,33 @@ export async function revertSnapshotFiles(params: {
   return { success: true, restoredFiles: restored };
 }
 
+/**
+ * A file as it was just before a turn first wrote it, read from that turn's
+ * snapshot without touching the work tree (the editor's "Compare" at a
+ * checkpoint). `existed: false` when the turn created it. Null when the turn
+ * captured nothing for this file.
+ */
+export async function readSnapshotFile(params: {
+  workspacePath: string;
+  turnId: string;
+  /** Workspace-relative (`../sibling/x` for a granted root), as listSnapshotFiles shows it. */
+  relativePath: string;
+}): Promise<{ existed: boolean; content: string } | null> {
+  const { workspacePath, turnId, relativePath } = params;
+  const seg = sanitizeLedgerDirSegment(turnId);
+  const roots = await turnRoots(workspacePath, turnId);
+  const [group] = groupPathsByRoot({ workspacePath, paths: [relativePath], grantedRoots: roots });
+  const rel = group?.relativePaths[0];
+  if (!group || !rel) return null;
+  const gitDir = shadowGitDir(group.root);
+  const manifest = await readManifest(gitDir, seg);
+  if (!manifest) return null;
+  if (manifest.createdFiles.includes(rel)) return { existed: false, content: "" };
+  if (!manifest.filesChanged.includes(rel)) return null;
+  const out = await git(["show", `${turnRef(seg)}:${rel}`], group.root, gitEnv(gitDir, group.root));
+  return out.exitCode === 0 ? { existed: true, content: out.stdout } : { existed: false, content: "" };
+}
+
 /** True when a snapshot exists for this turn (shadow-git store). */
 export async function snapshotExists(
   workspacePath: string,

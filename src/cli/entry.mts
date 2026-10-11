@@ -285,6 +285,19 @@ async function main(): Promise<void> {
     });
     process.exit(0);
   }
+  if (argv[0] === "keys") {
+    await prepareCliData(undefined);
+    const { runKeysCommand, readHidden } = await import("./keys-command");
+    const { realServices } = await import("./agent/services");
+    const code = await runKeysCommand(argv.slice(1), realServices, {
+      out: (s) => process.stdout.write(s),
+      readKey: (prompt) => readHidden(prompt),
+    }).catch((e: Error) => {
+      process.stderr.write(`${e.message}\n`);
+      return 1;
+    });
+    process.exit(code);
+  }
   if (argv[0] === "login" || argv[0] === "logout") {
     const { enterDesktopDataMode } = await import("./desktop-data");
     const dir = enterDesktopDataMode();

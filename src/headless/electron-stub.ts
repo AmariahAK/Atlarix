@@ -146,7 +146,13 @@ export const dialog = {
 };
 
 export const shell = {
-  openExternal: async () => {},
+  // Under `atlarix acp` the editor opens it (an MCP server's sign-in page, say):
+  // its extension watches stderr for this line, as it does for Atlarix's sign-in.
+  openExternal: async (url?: string) => {
+    if (process.env.ATLARIX_OPEN_URLS_VIA_STDERR === "1" && typeof url === "string" && /^https?:\/\//i.test(url)) {
+      process.stderr.write(`Atlarix open: ${url}\n`);
+    }
+  },
   openPath: async () => "",
   showItemInFolder: noop,
   trashItem: async () => {},
