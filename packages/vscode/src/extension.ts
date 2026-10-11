@@ -24,7 +24,6 @@ export function activate(context: vscode.ExtensionContext): void {
   const diffs = new DiffDocuments();
   const chats = new Set<Chat>();
   let sidebar: Chat | null = null;
-  let sidebarView: vscode.WebviewView | null = null;
   let lastActive: Chat | null = null;
   /** The sign-in under way, and the page the CLI opened for it. */
   let signingIn: Promise<void> | null = null;
@@ -271,7 +270,6 @@ export function activate(context: vscode.ExtensionContext): void {
       "atlarix.chat",
       {
         resolveWebviewView(view) {
-          sidebarView = view;
           view.webview.options = {
             enableScripts: true,
             localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, "dist"), vscode.Uri.joinPath(context.extensionUri, "media")],
@@ -287,7 +285,6 @@ export function activate(context: vscode.ExtensionContext): void {
             sidebar?.dispose();
             if (sidebar) chats.delete(sidebar);
             sidebar = null;
-            sidebarView = null;
           });
         },
       },
