@@ -2476,6 +2476,17 @@ export class IpcClient {
     return this.ipcRenderer.invoke("mcp:create-server", params);
   }
 
+  /** MCP servers set up in other tools on this computer, not yet in this folder (no env values). */
+  public async discoverExternalMcpServers(appId: number): Promise<
+    Array<{ key: string; source: string; name: string; transport: "stdio" | "http"; summary: string; envNames: string[]; scope: "folder" | "everywhere" }>
+  > {
+    return this.ipcRenderer.invoke("mcp:discover-external", { appId });
+  }
+
+  public async importExternalMcpServer(appId: number, key: string) {
+    return this.ipcRenderer.invoke("mcp:import-external", { appId, key });
+  }
+
   public async updateMcpServer(params: McpServerUpdate) {
     return this.ipcRenderer.invoke("mcp:update-server", params);
   }

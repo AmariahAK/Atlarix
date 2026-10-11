@@ -11,6 +11,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ToolsMcpSettings } from "./ToolsMcpSettings";
 import { McpMarketplaceTab } from "./McpMarketplaceTab";
 import { OrphanedMcpSection } from "./OrphanedMcpSection";
+import { FoundMcpSection } from "./FoundMcpSection";
 import { selectedAppIdAtom, selectedWorkspaceInfoAtom } from "@/atoms/appAtoms";
 
 const MAX_WORKSPACE_MCP = 10;
@@ -78,6 +79,7 @@ export function McpSettingsPage() {
                 maxServers={MAX_WORKSPACE_MCP}
               />
             </div>
+            <FoundMcpSection appId={selectedAppId} />
             <OrphanedMcpSection workspaceAppId={selectedAppId} />
           </TabsContent>
 

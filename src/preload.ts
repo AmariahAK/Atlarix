@@ -146,6 +146,8 @@ const validInvokeChannels = [
   "mcp:list-servers",
   "mcp:list-orphaned-servers",
   "mcp:create-server",
+  "mcp:discover-external",
+  "mcp:import-external",
   "mcp:update-server",
   "mcp:delete-server",
   "mcp:list-tools",

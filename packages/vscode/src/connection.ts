@@ -59,8 +59,8 @@ export interface ConnectionOptions {
   cwd: string;
   version: string;
   log: (line: string) => void;
-  /** A sign-in page to open (the CLI prints it on stderr). */
-  openUrl: (url: string) => void;
+  /** A page to open: Atlarix's sign-in, or an MCP server's (the CLI prints them on stderr). */
+  openUrl: (url: string, kind: "sign-in" | "open") => void;
   onExit: (code: number | null) => void;
 }
 
@@ -99,8 +99,8 @@ export class AtlarixConnection {
         const line = stderr.slice(0, nl);
         stderr = stderr.slice(nl + 1);
         this.opts.log(line);
-        const url = /Atlarix sign-in:\s*(\S+)/.exec(line)?.[1];
-        if (url) this.opts.openUrl(url);
+        const m = /Atlarix (sign-in|open):\s*(https?:\/\/\S+)/.exec(line);
+        if (m) this.opts.openUrl(m[2]!, m[1] === "sign-in" ? "sign-in" : "open");
       }
     });
     child.on("exit", (code) => {
@@ -246,6 +246,11 @@ export class AtlarixConnection {
 
   changeSession(sessionId: string, action: "rename" | "delete", title?: string): Promise<unknown> {
     return this.agent.request("_atlarix/session", { sessionId, action, ...(title != null ? { title } : {}) });
+  }
+
+  /** An Atlarix method the chat screens call directly (allow-listed in protocol.ts). */
+  request<T = unknown>(method: string, params: Record<string, unknown>): Promise<T> {
+    return this.agent.request<T>(method, params);
   }
 
   mcp(sessionId: string, action: "list" | "set" | "add" | "remove" | "test", args: Record<string, unknown> = {}): Promise<McpResult> {

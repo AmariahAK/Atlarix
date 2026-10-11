@@ -129,3 +129,15 @@ export function diffRows(oldText: string, newText: string, context = 2): DiffRow
   });
   return out;
 }
+
+/** Past chats' groups: Today, Yesterday, This week, then the month ("September 2026"). */
+export function dayGroup(iso: string | number | Date, now: Date = new Date()): string {
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return "Earlier";
+  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((day(now) - day(d)) / 86_400_000);
+  if (diff <= 0) return "Today";
+  if (diff === 1) return "Yesterday";
+  if (diff < 7) return "This week";
+  return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+}

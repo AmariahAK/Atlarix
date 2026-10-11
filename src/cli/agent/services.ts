@@ -111,6 +111,10 @@ export interface CliServices {
     remove(id: number): Promise<void>;
     /** A server that needs a browser sign-in (OAuth): start it. */
     signIn(id: number): Promise<{ ok: boolean; error?: string }>;
+    /** Servers set up in other tools on this computer, not yet in this folder (names, never env values). */
+    found(appId: number): Promise<Array<{ key: string; source: string; name: string; transport: string; summary: string; envNames: string[]; scope: string }>>;
+    /** Add one of those to this folder. */
+    importFound(appId: number, key: string): Promise<void>;
   };
   permissions: {
     list(appId: number): Promise<SavedPermission[]>;
@@ -258,6 +262,10 @@ export const realServices: CliServices = {
       }));
     },
     test: (id) => call("mcp:test-connection", id),
+    found: (appId) => call("mcp:discover-external", { appId }),
+    async importFound(appId, key) {
+      await call("mcp:import-external", { appId, key });
+    },
     async signIn(id) {
       try {
         const r = await call<{ status?: string }>("mcp:start-oauth", { serverId: id });

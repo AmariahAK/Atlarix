@@ -368,6 +368,11 @@ export function buildAgentApp(
           return { result: await mcp.test(id) };
         case "tools":
           return { tools: await mcp.tools(id).catch(() => []) };
+        case "found":
+          return { found: await mcp.found(appId).catch(() => []) };
+        case "import":
+          await mcp.importFound(appId, String((ctx.params as { key?: string }).key ?? ""));
+          return { servers: await mcp.list(appId) };
         case "oauth":
           // Opens the server's sign-in page (via the editor) and resolves once it's done or refused.
           return { result: await mcp.signIn(id) };

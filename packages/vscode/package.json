@@ -124,6 +124,48 @@
         "command": "atlarix.showLog",
         "title": "Show log",
         "category": "Atlarix"
+      },
+      {
+        "command": "atlarix.manageKeys",
+        "title": "Models & keys",
+        "category": "Atlarix",
+        "icon": "$(key)"
+      },
+      {
+        "command": "atlarix.pickModel",
+        "title": "Pick a model",
+        "category": "Atlarix"
+      },
+      {
+        "command": "atlarix.insertReference",
+        "title": "Add this file (and selection) to chat",
+        "category": "Atlarix"
+      },
+      {
+        "command": "atlarix.addProblems",
+        "title": "Add problems to chat",
+        "category": "Atlarix"
+      },
+      {
+        "command": "atlarix.addTerminalSelection",
+        "title": "Add to Atlarix chat",
+        "category": "Atlarix"
+      },
+      {
+        "command": "atlarix.settings",
+        "title": "Settings",
+        "category": "Atlarix",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "atlarix.account",
+        "title": "Account, usage and billing",
+        "category": "Atlarix"
+      },
+      {
+        "command": "atlarix.mcp",
+        "title": "MCP servers",
+        "category": "Atlarix"
       }
     ],
     "menus": {
@@ -157,6 +199,18 @@
           "when": "!explorerResourceIsFolder",
           "group": "atlarix@1"
         }
+      ],
+      "terminal/context": [
+        {
+          "command": "atlarix.addTerminalSelection",
+          "group": "atlarix@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "atlarix.addTerminalSelection",
+          "when": "terminalFocus"
+        }
       ]
     },
     "keybindings": [
@@ -170,6 +224,12 @@
         "key": "ctrl+alt+l",
         "mac": "cmd+alt+l",
         "when": "editorHasSelection"
+      },
+      {
+        "command": "atlarix.insertReference",
+        "key": "alt+k",
+        "mac": "alt+k",
+        "when": "editorTextFocus"
       }
     ],
     "configuration": {
@@ -179,6 +239,11 @@
           "type": "string",
           "default": "",
           "markdownDescription": "Path to an `atlarix` program to use instead of the one inside this extension."
+        },
+        "atlarix.attachOpenFile": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Offer the file open in the editor as context for each message (shown in the message box; remove it there to leave it out)."
         }
       }
     }

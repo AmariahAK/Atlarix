@@ -20,8 +20,23 @@ export async function accountCommandText(cmd: "status" | "billing" | "mcp" | "lo
   }
   if (cmd === "mcp") {
     const servers = await realServices.mcp.list(session.appId).catch(() => []);
-    if (!servers.length) return "No MCP servers in this folder. Add them in the Atlarix app, the CLI (`/mcp`), or Atlarix's VS Code extension.";
-    return ["**MCP servers in this folder**", "", ...servers.map((s) => `- ${s.enabled ? "●" : "○"} ${s.name} (${s.transport})${s.enabled ? "" : " — off"}`), "", "Turn them on or off in the Atlarix app or the CLI's `/mcp`."].join("\n");
+    const found = await realServices.mcp.found(session.appId).catch(() => []);
+    const lines = servers.length
+      ? ["**MCP servers in this folder**", "", ...servers.map((s) => `- ${s.enabled ? "●" : "○"} ${s.name} (${s.transport})${s.enabled ? "" : " — off"}`)]
+      : ["No MCP servers in this folder yet."];
+    if (found.length) {
+      lines.push("", "**Found on this computer**", "", ...found.map((f) => `- ${f.name} · ${f.source}: \`/mcp add ${f.name}\``));
+    }
+    lines.push("", "Shared with the Atlarix app, the CLI and your editors. Turn them on or off in the app, the CLI's `/mcp`, or Atlarix's VS Code extension.");
+    return lines.join("\n");
+  }
+  if (cmd.startsWith("mcp add ")) {
+    const name = cmd.slice("mcp add ".length).trim().toLowerCase();
+    const found = await realServices.mcp.found(session.appId).catch(() => []);
+    const hit = found.find((f) => f.name.toLowerCase() === name);
+    if (!hit) return `No server called "${name}" found on this computer. \`/mcp\` lists what was found.`;
+    await realServices.mcp.importFound(session.appId, hit.key);
+    return `Added ${hit.name} (from ${hit.source}) to this folder: the Atlarix app, the CLI and your editors share it. It's ready from your next message.`;
   }
   if (!email) return "You're not signed in to Atlarix. Run `atlarix login` in a terminal, then try again.";
   const [kind, balance] = await Promise.all([a.kind?.().catch(() => null) ?? null, a.balanceCents().catch(() => null)]);

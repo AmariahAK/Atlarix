@@ -302,6 +302,13 @@ class Thread {
     const errorBefore = this.session.state.lastError;
     const slash = /^\/(\w+)\s*$/.exec(text);
     const skill = this.skillFor(text);
+    const mcpAdd = /^\/mcp\s+add\s+(\S+)\s*$/i.exec(text);
+    if (mcpAdd) {
+      const { accountCommandText } = await import("./account-commands");
+      const reply = await accountCommandText(`mcp add ${mcpAdd[1]}`, this.session).catch((e: Error) => `Couldn't add it: ${e.message}`);
+      await this.send({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: reply } });
+      return { stopReason: "end_turn" };
+    }
     if (slash?.[1] === "keys" || /^\/keys\s/.test(text)) {
       const { keysCommandText } = await import("./account-commands");
       const reply = await keysCommandText(text).catch((e: Error) => `Couldn't read your keys: ${e.message}`);
