@@ -114,7 +114,14 @@ function fromMap(source: string, map: unknown, scope: "folder" | "everywhere", o
 
 /** Where each tool keeps them, on this OS. */
 function places(home: string, folder: string | null): Array<{ source: string; file: string; scope: "folder" | "everywhere"; key: string; claudeProject?: boolean }> {
-  const appData = process.platform === "win32" ? (process.env.APPDATA ?? path.join(home, "AppData", "Roaming")) : process.platform === "darwin" ? path.join(home, "Library", "Application Support") : (process.env.XDG_CONFIG_HOME ?? path.join(home, ".config"));
+  // The environment's folders describe the REAL home; a different one (a test's) uses the defaults.
+  const real = path.resolve(home) === path.resolve(os.homedir());
+  const appData =
+    process.platform === "win32"
+      ? (real && process.env.APPDATA) || path.join(home, "AppData", "Roaming")
+      : process.platform === "darwin"
+        ? path.join(home, "Library", "Application Support")
+        : (real && process.env.XDG_CONFIG_HOME) || path.join(home, ".config");
   const list: ReturnType<typeof places> = [
     { source: "Claude Code", file: path.join(home, ".claude.json"), scope: "everywhere", key: "mcpServers" },
     { source: "Claude Code", file: path.join(home, ".claude.json"), scope: "folder", key: "mcpServers", claudeProject: true },
