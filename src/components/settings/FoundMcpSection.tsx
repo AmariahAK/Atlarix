@@ -6,6 +6,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { IpcClient } from "@/ipc/ipc_client";
 import { showError, showSuccess } from "@/lib/toast";
@@ -14,6 +15,7 @@ type Found = Awaited<ReturnType<IpcClient["discoverExternalMcpServers"]>>[number
 
 export function FoundMcpSection({ appId }: { appId: number }) {
   const queryClient = useQueryClient();
+  const { t } = useTranslation("settings");
   const [found, setFound] = useState<Found[]>([]);
   const [adding, setAdding] = useState<string | null>(null);
 
@@ -35,7 +37,7 @@ export function FoundMcpSection({ appId }: { appId: number }) {
     setAdding(s.key);
     try {
       await IpcClient.getInstance().importExternalMcpServer(appId, s.key);
-      showSuccess(`${s.name} added for this folder.`);
+      showSuccess(t("foundMcp.added", { name: s.name }));
       await queryClient.invalidateQueries({ queryKey: ["mcp"] });
       await load();
     } catch (e) {
@@ -48,15 +50,15 @@ export function FoundMcpSection({ appId }: { appId: number }) {
   return (
     <div className="bg-card rounded-xl shadow-sm p-6 border border-border space-y-3">
       <div>
-        <h3 className="text-sm font-semibold text-foreground">Found on this computer</h3>
-        <p className="text-xs text-muted-foreground mt-1">Servers you set up in other tools. Add one to use it here, in the CLI and in your editor.</p>
+        <h3 className="text-sm font-semibold text-foreground">{t("foundMcp.title")}</h3>
+        <p className="text-xs text-muted-foreground mt-1">{t("foundMcp.detail")}</p>
       </div>
       <ul className="divide-y divide-border">
         {found.map((s) => (
           <li key={s.key} className="flex items-center gap-3 py-2">
             <div className="min-w-0 flex-1">
               <div className="text-sm font-medium text-foreground">
-                {s.name} <span className="text-xs font-normal text-muted-foreground">· {s.source}{s.scope === "folder" ? ", this folder" : ""}</span>
+                {s.name} <span className="text-xs font-normal text-muted-foreground">· {s.source}{s.scope === "folder" ? t("foundMcp.thisFolder") : ""}</span>
               </div>
               <div className="truncate font-mono text-xs text-muted-foreground" title={s.summary}>
                 {s.summary}
@@ -64,7 +66,7 @@ export function FoundMcpSection({ appId }: { appId: number }) {
               </div>
             </div>
             <Button size="sm" variant="outline" disabled={adding === s.key} onClick={() => void add(s)}>
-              {adding === s.key ? "Adding…" : "Add"}
+              {adding === s.key ? t("foundMcp.adding") : t("foundMcp.add")}
             </Button>
           </li>
         ))}
