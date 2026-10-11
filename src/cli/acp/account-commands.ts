@@ -20,8 +20,23 @@ export async function accountCommandText(cmd: "status" | "billing" | "mcp" | "lo
   }
   if (cmd === "mcp") {
     const servers = await realServices.mcp.list(session.appId).catch(() => []);
-    if (!servers.length) return "No MCP servers in this folder. Add them in the Atlarix app, the CLI (`/mcp`), or Atlarix's VS Code extension.";
-    return ["**MCP servers in this folder**", "", ...servers.map((s) => `- ${s.enabled ? "●" : "○"} ${s.name} (${s.transport})${s.enabled ? "" : " — off"}`), "", "Turn them on or off in the Atlarix app or the CLI's `/mcp`."].join("\n");
+    const found = await realServices.mcp.found(session.appId).catch(() => []);
+    const lines = servers.length
+      ? ["**MCP servers in this folder**", "", ...servers.map((s) => `- ${s.enabled ? "●" : "○"} ${s.name} (${s.transport})${s.enabled ? "" : " — off"}`)]
+      : ["No MCP servers in this folder yet."];
+    if (found.length) {
+      lines.push("", "**Found on this computer**", "", ...found.map((f) => `- ${f.name} · ${f.source}: \`/mcp add ${f.name}\``));
+    }
+    lines.push("", "Shared with the Atlarix app, the CLI and your editors. Turn them on or off in the app, the CLI's `/mcp`, or Atlarix's VS Code extension.");
+    return lines.join("\n");
+  }
+  if (cmd.startsWith("mcp add ")) {
+    const name = cmd.slice("mcp add ".length).trim().toLowerCase();
+    const found = await realServices.mcp.found(session.appId).catch(() => []);
+    const hit = found.find((f) => f.name.toLowerCase() === name);
+    if (!hit) return `No server called "${name}" found on this computer. \`/mcp\` lists what was found.`;
+    await realServices.mcp.importFound(session.appId, hit.key);
+    return `Added ${hit.name} (from ${hit.source}) to this folder: the Atlarix app, the CLI and your editors share it. It's ready from your next message.`;
   }
   if (!email) return "You're not signed in to Atlarix. Run `atlarix login` in a terminal, then try again.";
   const [kind, balance] = await Promise.all([a.kind?.().catch(() => null) ?? null, a.balanceCents().catch(() => null)]);
@@ -47,5 +62,36 @@ export async function accountCommandText(cmd: "status" | "billing" | "mcp" | "lo
     ...(s.contextPercent != null ? [`- Context: ${s.contextPercent}% full`] : []),
     "",
     "`/billing` for Pro, credit or your subscription · `/mcp` for MCP servers.",
+  ].join("\n");
+}
+
+const STATUS: Record<string, string> = { works: "works", rejected: "rejected", unchecked: "saved (can't be checked from here)", unreachable: "couldn't reach the provider" };
+
+/**
+ * /keys: your own API keys, each checked with its provider. Adding or replacing
+ * one happens in a terminal (`atlarix keys add <provider>`, a masked prompt),
+ * so a key never passes through the chat, where the editor keeps a copy.
+ */
+export async function keysCommandText(text: string): Promise<string> {
+  const add = /^\/keys\s+(add|replace|remove)\s+(\S+)/i.exec(text.trim());
+  if (add) {
+    const verb = add[1]!.toLowerCase() === "remove" ? "remove" : "add";
+    return `Run this in a terminal (it asks for the key without showing it, so it never passes through the chat):\n\n\`atlarix keys ${verb} ${add[2]}\`\n\nThen \`/keys\` here to check it.`;
+  }
+  const { realServices } = await import("../agent/services");
+  const mine = (await realServices.providers.list()).filter((p) => p.hasKey);
+  if (!mine.length) return "No API keys of your own yet. Add one in a terminal with `atlarix keys add <provider>` (for example `atlarix keys add openai`), or in Atlarix's VS Code extension under Models & keys.";
+  const checks = await Promise.all(mine.map((p) => realServices.providers.test(p.id).catch(() => ({ status: "unreachable", detail: "" }))));
+  return [
+    "**Your keys**",
+    "",
+    ...mine.map((p, i) => {
+      const c = checks[i]!;
+      const mark = c.status === "works" ? "●" : c.status === "rejected" ? "✕" : "○";
+      const why = c.status === "rejected" && c.detail ? `: ${c.detail}` : "";
+      return `- ${mark} ${p.name}${p.keyHint ? ` \`${p.keyHint}\`` : ""}: ${STATUS[c.status] ?? c.status}${why}`;
+    }),
+    "",
+    "Add or replace one in a terminal: `atlarix keys add <provider>`. Remove one: `atlarix keys remove <provider>`.",
   ].join("\n");
 }

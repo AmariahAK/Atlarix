@@ -13,6 +13,7 @@ import { exec as gitExec } from "@/ipc/utils/system_git_exec";
 import {
   captureSnapshot,
   listSnapshotFiles,
+  readSnapshotFile,
   revertSnapshot,
   revertSnapshotFiles,
   snapshotExists,
@@ -253,5 +254,20 @@ describeWithGit("legacy .bak store (removed in v10.1)", () => {
     });
     expect(result.success).toBe(false);
     expect(await read("legacy.txt")).toBe("current");
+  });
+
+  it("reads a file as it was before a turn, without touching the work tree (Compare at a checkpoint)", async () => {
+    await write("src/a.ts", "before");
+    await captureSnapshot({ workspacePath: workspace, turnId: "turn:cmp", relativePaths: ["src/a.ts", "src/new.ts"] });
+    await write("src/a.ts", "after");
+    await write("src/new.ts", "created by the turn");
+
+    expect(await readSnapshotFile({ workspacePath: workspace, turnId: "turn:cmp", relativePath: "src/a.ts" })).toEqual({ existed: true, content: "before" });
+    expect(await readSnapshotFile({ workspacePath: workspace, turnId: "turn:cmp", relativePath: "src/new.ts" })).toEqual({ existed: false, content: "" });
+    // Not part of the turn, or no such turn: nothing to compare.
+    expect(await readSnapshotFile({ workspacePath: workspace, turnId: "turn:cmp", relativePath: "src/other.ts" })).toBeNull();
+    expect(await readSnapshotFile({ workspacePath: workspace, turnId: "turn:none", relativePath: "src/a.ts" })).toBeNull();
+    // The work tree is left as it is.
+    expect(await read("src/a.ts")).toBe("after");
   });
 });

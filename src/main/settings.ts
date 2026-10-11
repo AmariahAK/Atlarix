@@ -350,6 +350,69 @@ function readRawSettingsFile(): Record<string, unknown> | null {
   }
 }
 
+/**
+ * Save (or, with null, remove) ONE provider's key, leaving everything else in
+ * the file exactly as it is on disk: other providers' keys and settings, and
+ * this provider's own non-key settings.
+ *
+ * `writeSettings` replaces `providerSettings` wholesale, so the CLI's
+ * `{ providerSettings: { [id]: { apiKey } } }` kept only the providers that had
+ * a key and dropped every other provider's settings.
+ */
+export function writeProviderKey(providerId: string, key: string | null): void {
+  const raw = readRawSettingsFile();
+  const value = key?.trim();
+  if (!raw) {
+    if (value) writeSettings({ providerSettings: { [providerId]: { apiKey: { value } } } } as Partial<UserSettings>);
+    return;
+  }
+  const providers = { ...((raw.providerSettings ?? {}) as Record<string, Record<string, unknown>>) };
+  const entry = { ...(providers[providerId] ?? {}) };
+  if (value) entry.apiKey = encrypt(value);
+  else delete entry.apiKey;
+  providers[providerId] = entry;
+  const validated = UserSettingsSchema.parse({ ...DEFAULT_SETTINGS, ...raw, providerSettings: providers });
+  const filePath = getSettingsFilePath();
+  fs.writeFileSync(filePath, JSON.stringify(validated, null, 2));
+  if (process.platform !== "win32") {
+    try {
+      fs.chmodSync(filePath, 0o600);
+    } catch {
+      /* best-effort hardening, as writeSettings */
+    }
+  }
+}
+
+/**
+ * Change one provider's plain (non-secret) settings, e.g. `{ enabled: false }`,
+ * leaving its key and every other provider as they are on disk.
+ */
+export function writeProviderSetting(providerId: string, patch: Record<string, string | number | boolean | null>): void {
+  if ("apiKey" in patch || "serviceAccountKey" in patch) throw new Error("Keys go through writeProviderKey.");
+  const raw = readRawSettingsFile();
+  if (!raw) {
+    writeSettings({ providerSettings: { [providerId]: patch } } as Partial<UserSettings>);
+    return;
+  }
+  const providers = { ...((raw.providerSettings ?? {}) as Record<string, Record<string, unknown>>) };
+  const entry: Record<string, unknown> = { ...(providers[providerId] ?? {}) };
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === null) delete entry[k];
+    else entry[k] = v;
+  }
+  providers[providerId] = entry;
+  const validated = UserSettingsSchema.parse({ ...DEFAULT_SETTINGS, ...raw, providerSettings: providers });
+  const filePath = getSettingsFilePath();
+  fs.writeFileSync(filePath, JSON.stringify(validated, null, 2));
+  if (process.platform !== "win32") {
+    try {
+      fs.chmodSync(filePath, 0o600);
+    } catch {
+      /* best-effort hardening, as writeSettings */
+    }
+  }
+}
+
 export function writeSettings(settings: Partial<UserSettings>): void {
   try {
     const filePath = getSettingsFilePath();

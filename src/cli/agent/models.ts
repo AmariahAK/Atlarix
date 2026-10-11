@@ -46,7 +46,10 @@ export async function loadModelOptions(): Promise<ModelOption[]> {
   ]);
   const names = new Map(providers.map((p) => [p.id, p.name]));
   const { isCoreAutoTier } = await import("@/ipc/shared/compass_constants");
-  const entries = Object.entries(byProvider).filter(([, models]) => (models?.length ?? 0) > 0);
+  // A provider switched off in an editor's Models & keys keeps its key but
+  // offers no models here (the terminal and the editors).
+  const off = await disabledProviders();
+  const entries = Object.entries(byProvider).filter(([id, models]) => (models?.length ?? 0) > 0 && !off.has(id));
   entries.sort(([a], [b]) => (a === COMPASS ? -1 : b === COMPASS ? 1 : 0));
   const out: ModelOption[] = [];
   for (const [provider, models] of entries) {
@@ -66,6 +69,25 @@ export async function loadModelOptions(): Promise<ModelOption[]> {
     }
   }
   return out;
+}
+
+/**
+ * The model a turn runs on: the Plan model while planning, when one is set,
+ * else the chosen one (undefined: the desktop's selected model).
+ */
+export function turnModelFor<T extends ModelRef>(mode: string, chosen: T | undefined, planModel: ModelRef | undefined): T | ModelRef | undefined {
+  return mode === "plan" && planModel ? planModel : chosen;
+}
+
+/** Providers switched off (`providerSettings[id].enabled === false`). */
+export async function disabledProviders(): Promise<Set<string>> {
+  try {
+    const { readSettings } = await import("@/main/settings");
+    const ps = (readSettings() as { providerSettings?: Record<string, { enabled?: boolean }> }).providerSettings ?? {};
+    return new Set(Object.entries(ps).filter(([, v]) => v?.enabled === false).map(([id]) => id));
+  } catch {
+    return new Set();
+  }
 }
 
 const same = (a: ModelRef, b: ModelRef) => a.provider === b.provider && a.name === b.name;
@@ -119,6 +141,10 @@ export interface CliState {
   notifications?: boolean;
   /** When the session rating was last answered or dismissed (session-rating.ts). */
   ratedAt?: number;
+  /** A different model while planning (Plan mode); the chosen model builds. Off when unset. */
+  planModel?: ModelRef;
+  /** Chats starred in an editor's Past chats, newest first. */
+  starredSessions?: string[];
 }
 
 function statePath(): string {
@@ -128,7 +154,16 @@ function statePath(): string {
 export function readCliState(file = statePath()): CliState {
   try {
     const s = JSON.parse(fs.readFileSync(file, "utf8")) as Partial<CliState>;
-    return { recent: s.recent ?? [], favorites: s.favorites ?? [], model: s.model, deepThinking: s.deepThinking, notifications: s.notifications, ratedAt: typeof s.ratedAt === "number" ? s.ratedAt : undefined };
+    return {
+      recent: s.recent ?? [],
+      favorites: s.favorites ?? [],
+      model: s.model,
+      deepThinking: s.deepThinking,
+      notifications: s.notifications,
+      ratedAt: typeof s.ratedAt === "number" ? s.ratedAt : undefined,
+      planModel: s.planModel && typeof s.planModel.provider === "string" && typeof s.planModel.name === "string" ? s.planModel : undefined,
+      starredSessions: Array.isArray(s.starredSessions) ? s.starredSessions.filter((x): x is string => typeof x === "string") : undefined,
+    };
   } catch {
     return { recent: [], favorites: [] };
   }

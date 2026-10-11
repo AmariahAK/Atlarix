@@ -955,6 +955,21 @@ export function registerWorkspaceSessionHandlers(): void {
     return rows.map((r) => mapSession(r));
   });
 
+  /**
+   * Every folder's chats, newest first, each with its folder (an editor's Past
+   * chats → All folders). Capped: the list is for finding a recent chat.
+   */
+  handle("sessions:list-all", async (_event, limit = 200) => {
+    const rows = await db
+      .select({ session: chatSessions, folder: apps.path, folderName: apps.name })
+      .from(chatSessions)
+      .innerJoin(apps, eq(apps.id, chatSessions.workspaceId))
+      .where(eq(chatSessions.kind, "normal"))
+      .orderBy(desc(chatSessions.updatedAt))
+      .limit(Math.min(Math.max(1, Number(limit) || 200), 500));
+    return rows.map((r) => ({ ...mapSession(r.session), folder: r.folder, folderName: r.folderName }));
+  });
+
   handle(
     "sessions:resolve-for-transport",
     async (_event, payload: { chatId: number; workspaceId?: number }) => {

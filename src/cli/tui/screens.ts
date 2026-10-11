@@ -1035,15 +1035,38 @@ export function openMcp(ctx: ScreenContext): void {
       { title: "Tools", key: "enter" },
     ],
     footer: "",
-    items: async () =>
-      (await ctx.services.mcp.list(ctx.session.appId)).map((s) => ({
+    items: async () => {
+      const mine = (await ctx.services.mcp.list(ctx.session.appId)).map((s) => ({
         id: String(s.id),
         label: s.name,
         detail: s.transport,
         right: s.enabled ? { text: "✓ on", tone: "accent" as const } : { text: "○ off", tone: "muted" as const },
         keywords: s.enabled ? "on" : "off",
-      })),
-    onChoose: (item) =>
+      }));
+      // Servers set up in other tools on this computer: enter adds one.
+      let found: Awaited<ReturnType<typeof ctx.services.mcp.found>> = [];
+      try {
+        found = await ctx.services.mcp.found(ctx.session.appId);
+      } catch {
+        found = [];
+      }
+      return [
+        ...mine,
+        ...found.map((f) => ({
+          id: `found:${f.key}`,
+          label: f.name,
+          detail: `found in ${f.source}`,
+          right: { text: "enter adds", tone: "muted" as const },
+          keywords: "found",
+        })),
+      ];
+    },
+    onChoose: async (item) => {
+      if (item.id.startsWith("found:")) {
+        await ctx.services.mcp.importFound(ctx.session.appId, item.id.slice("found:".length));
+        await dialog.reload();
+        return void dialog.say(`${item.label} added for this folder (shared with the app and your editors).`);
+      }
       ctx.host.push(
         new TextDialog({
           title: `${item.label} · tools`,
@@ -1056,15 +1079,18 @@ export function openMcp(ctx: ScreenContext): void {
             ]);
           },
         }),
-      ),
+      );
+    },
     actions: {
       " ": async (item) => {
+        if (item.keywords === "found") return "Enter adds it first.";
         const on = item.keywords !== "on";
         await ctx.services.mcp.setEnabled(Number(item.id), on);
         await dialog.reload();
         return `${item.label} is ${on ? "on" : "off"}.`;
       },
       t: async (item) => {
+        if (item.keywords === "found") return "Enter adds it first.";
         dialog.say(`Testing ${item.label}…`);
         const r = await ctx.services.mcp.test(Number(item.id));
         if (r.ok) return `${item.label} is working.`;
@@ -1072,6 +1098,7 @@ export function openMcp(ctx: ScreenContext): void {
         return `${item.label} failed: ${r.error ?? "unknown error"}`;
       },
       d: async (item) => {
+        if (item.keywords === "found") return "Enter adds it first.";
         if (armed !== item.id) {
           armed = item.id;
           return `d again deletes ${item.label} (here and in the app).`;

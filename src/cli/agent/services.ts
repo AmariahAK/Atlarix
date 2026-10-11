@@ -66,7 +66,26 @@ export interface ProviderSummary {
   hasKey: boolean;
   /** Where to get a key, when known. */
   keyUrl?: string;
+  /** The saved key, masked ("sk-…a91f"), to tell keys apart. */
+  keyHint?: string;
+  /** One the user added: an OpenAI-compatible endpoint of their own. */
+  custom?: boolean;
+  /** Switched off in an editor's Models & keys: the key stays, its models are hidden. */
+  off?: boolean;
+  /** Where its API lives (shown on the provider's page). */
+  baseUrl?: string;
 }
+
+/** A local model server (Ollama, LM Studio): whether it answers, and how many models it has. */
+export interface LocalProviderStatus {
+  id: string;
+  name: string;
+  running: boolean;
+  models: number;
+}
+
+export type { KeyCheck } from "@/lib/provider-key-check";
+import type { KeyCheck } from "@/lib/provider-key-check";
 
 export type { RelicSummary } from "@/lib/relics/relic-store";
 import type { RelicSummary } from "@/lib/relics/relic-store";
@@ -90,14 +109,32 @@ export interface CliServices {
     add(appId: number, server: { name: string; command?: string; url?: string }): Promise<void>;
     setEnabled(id: number, enabled: boolean): Promise<void>;
     remove(id: number): Promise<void>;
+    /** A server that needs a browser sign-in (OAuth): start it. */
+    signIn(id: number): Promise<{ ok: boolean; error?: string }>;
+    /** Servers set up in other tools on this computer, not yet in this folder (names, never env values). */
+    found(appId: number): Promise<Array<{ key: string; source: string; name: string; transport: string; summary: string; envNames: string[]; scope: string }>>;
+    /** Add one of those to this folder. */
+    importFound(appId: number, key: string): Promise<void>;
   };
   permissions: {
     list(appId: number): Promise<SavedPermission[]>;
     revoke(appId: number, p: SavedPermission): Promise<void>;
+    /** "Edit files in this folder without asking": a directory rule for the whole folder. */
+    setFolderEdits(appId: number, on: boolean): Promise<void>;
   };
   providers: {
     list(): Promise<ProviderSummary[]>;
     saveKey(providerId: string, key: string): Promise<void>;
+    /** Forget the saved key (a provider the user added goes too). */
+    removeKey(providerId: string): Promise<void>;
+    /** Ask the provider whether the saved key works, or `key` before it is saved. */
+    test(providerId: string, key?: string): Promise<KeyCheck>;
+    /** Add an OpenAI-compatible endpoint with its key; returns its id and how many models it lists. */
+    addCustom(p: { name: string; baseUrl: string; key: string; models?: string[] }): Promise<{ id: string; models: number }>;
+    /** Switch a provider off (its key kept, its models hidden in the terminal and editors) or back on. */
+    setEnabled(providerId: string, on: boolean): Promise<void>;
+    /** Ollama and LM Studio on this computer. */
+    local(): Promise<LocalProviderStatus[]>;
   };
   relics: {
     /** Hosted relics (when signed in) and this folder's local ones, newest first. */
@@ -134,17 +171,45 @@ let registered = false;
 async function ensureHandlers(): Promise<void> {
   if (registered) return;
   registered = true;
-  const [{ registerAutomationHandlers }, { registerMcpHandlers }, { registerCommandPermissionHandlers }, { registerFilePermissionHandlers }] =
+  const [{ registerAutomationHandlers }, { registerMcpHandlers }, { registerCommandPermissionHandlers }, { registerFilePermissionHandlers }, { registerMcpOAuthHandlers }] =
     await Promise.all([
       import("@/ipc/handlers/automation_handlers"),
       import("@/ipc/handlers/mcp_handlers"),
       import("@/ipc/handlers/command_permission_handlers"),
       import("@/ipc/handlers/file_permission_handlers"),
+      import("@/ipc/handlers/mcp_oauth_handlers"),
     ]);
   registerAutomationHandlers();
   registerMcpHandlers();
+  registerMcpOAuthHandlers();
   registerCommandPermissionHandlers();
   registerFilePermissionHandlers();
+}
+
+let languageModelHandlers = false;
+async function ensureLanguageModelHandlers(register: () => void): Promise<void> {
+  if (languageModelHandlers) return;
+  languageModelHandlers = true;
+  register();
+}
+
+/** The endpoint listed no models: the caller asks for a model id instead. */
+export class NoModelsListedError extends Error {
+  constructor() {
+    super("That endpoint didn't list any models. Type the id of the model to use.");
+    this.name = "NoModelsListedError";
+  }
+}
+
+/** Model ids from an OpenAI-compatible `/models` (the probe that just worked). */
+async function listOpenAICompatibleModels(probe: { url: string; headers: Record<string, string> }): Promise<string[]> {
+  try {
+    const res = await fetch(probe.url, { headers: probe.headers, signal: AbortSignal.timeout(15_000) });
+    const j = (await res.json()) as { data?: Array<{ id?: string }> };
+    return (j.data ?? []).map((m) => String(m.id ?? "")).filter(Boolean).slice(0, 200);
+  } catch {
+    return [];
+  }
 }
 
 async function call<T>(channel: string, ...args: unknown[]): Promise<T> {
@@ -197,6 +262,18 @@ export const realServices: CliServices = {
       }));
     },
     test: (id) => call("mcp:test-connection", id),
+    found: (appId) => call("mcp:discover-external", { appId }),
+    async importFound(appId, key) {
+      await call("mcp:import-external", { appId, key });
+    },
+    async signIn(id) {
+      try {
+        const r = await call<{ status?: string }>("mcp:start-oauth", { serverId: id });
+        return { ok: r?.status === "authorized" || r?.status === "redirect" };
+      } catch (e) {
+        return { ok: false, error: (e as Error).message };
+      }
+    },
     async add(appId, server) {
       // The app's form, in one line: a command is split into the program and
       // its arguments (stdio); a URL is a remote server (http).
@@ -247,30 +324,123 @@ export const realServices: CliServices = {
       if (p.kind === "command") await call("command-permissions:revoke", { appId, ...p.revoke });
       else await call("file-permissions:revoke", { appId, ...p.revoke });
     },
+    async setFolderEdits(appId, on) {
+      const { WHOLE_FOLDER } = await import("@/lib/file-permission-scope");
+      const rule = { appId, scopeType: "directory", scopeValue: WHOLE_FOLDER };
+      const r = on
+        ? await call<{ success: boolean; error?: string }>("file-permissions:upsert", { ...rule, decision: "always_allow" })
+        : await call<{ success: boolean; error?: string }>("file-permissions:revoke", rule);
+      if (r && r.success === false) throw new Error(r.error ?? "Couldn't save that.");
+    },
   },
   providers: {
     async list() {
       const { getLanguageModelProviders } = await import("@/ipc/shared/language_model_helpers");
       const { readSettings } = await import("@/main/settings");
-      const settings = readSettings() as { providerSettings?: Record<string, { apiKey?: { value?: string } }> };
+      const { keyHint } = await import("@/lib/provider-key-check");
+      const settings = readSettings() as { providerSettings?: Record<string, { apiKey?: { value?: string }; enabled?: boolean }> };
       const providers = await getLanguageModelProviders();
       return [
         ...providers
         .filter((p) => p.id !== "compass" && (p as { type?: string }).type !== "local")
-        .map((p) => ({
-          id: p.id,
-          name: p.name,
-          hasKey: Boolean(settings.providerSettings?.[p.id]?.apiKey?.value),
-          keyUrl: (p as { websiteUrl?: string }).websiteUrl,
-        }))
+        .map((p) => {
+          const key = settings.providerSettings?.[p.id]?.apiKey?.value;
+          return {
+            id: p.id,
+            name: p.name,
+            hasKey: Boolean(key),
+            keyUrl: (p as { websiteUrl?: string }).websiteUrl,
+            ...(key ? { keyHint: keyHint(key) } : {}),
+            ...((p as { type?: string }).type === "custom" ? { custom: true } : {}),
+            ...(settings.providerSettings?.[p.id]?.enabled === false ? { off: true } : {}),
+            ...(p.apiBaseUrl ? { baseUrl: p.apiBaseUrl } : {}),
+          };
+        })
         .sort((a, b) => Number(b.hasKey) - Number(a.hasKey) || a.name.localeCompare(b.name)),
       ];
     },
     async saveKey(providerId, key) {
-      const { writeSettings } = await import("@/main/settings");
-      // writeSettings encrypts it with the desktop's OS key (entry.mts
-      // installs that key), so the desktop app reads the same key.
-      writeSettings({ providerSettings: { [providerId]: { apiKey: { value: key.trim() } } } } as never);
+      const { writeProviderKey } = await import("@/main/settings");
+      // Encrypted with the desktop's OS key (entry.mts installs that key), so
+      // the desktop app reads the same key. Only this provider's key changes.
+      writeProviderKey(providerId, key.trim());
+      const { invalidateProviderModelCache } = await import("@/lib/provider_model_fetchers");
+      invalidateProviderModelCache(providerId);
+    },
+    async removeKey(providerId) {
+      const { writeProviderKey } = await import("@/main/settings");
+      writeProviderKey(providerId, null);
+      const { invalidateProviderModelCache } = await import("@/lib/provider_model_fetchers");
+      invalidateProviderModelCache(providerId);
+      const { CUSTOM_PROVIDER_PREFIX } = await import("@/ipc/shared/language_model_helpers");
+      if (providerId.startsWith(CUSTOM_PROVIDER_PREFIX)) {
+        const { registerLanguageModelHandlers } = await import("@/ipc/handlers/language_model_handlers");
+        await ensureLanguageModelHandlers(registerLanguageModelHandlers);
+        await invoke("delete-custom-language-model-provider", { providerId });
+      }
+    },
+    async test(providerId, candidate) {
+      const { readSettings } = await import("@/main/settings");
+      const { getLanguageModelProviders } = await import("@/ipc/shared/language_model_helpers");
+      const { keyProbe, checkProviderKey } = await import("@/lib/provider-key-check");
+      const settings = readSettings() as { providerSettings?: Record<string, { apiKey?: { value?: string } }> };
+      const key = candidate?.trim() || settings.providerSettings?.[providerId]?.apiKey?.value?.trim();
+      if (!key) return { status: "unchecked", detail: "No key saved." };
+      const provider = (await getLanguageModelProviders()).find((p) => p.id === providerId);
+      return checkProviderKey(keyProbe(providerId, key, provider?.apiBaseUrl), key);
+    },
+    async setEnabled(providerId, on) {
+      const { writeProviderSetting } = await import("@/main/settings");
+      writeProviderSetting(providerId, { enabled: on ? null : false });
+    },
+    async local() {
+      // A server that isn't running can hang a connect; the screen shouldn't wait on it.
+      const within = <T,>(p: Promise<T>, fallback: T) =>
+        Promise.race([p.catch(() => fallback), new Promise<T>((r) => setTimeout(() => r(fallback), 1500))]);
+      const [{ fetchOllamaModels }, { fetchLMStudioModels }] = await Promise.all([
+        import("@/ipc/handlers/local_model_ollama_handler"),
+        import("@/ipc/handlers/local_model_lmstudio_handler"),
+      ]);
+      const none = { models: [] as unknown[], error: "not running" };
+      const [ollama, lmstudio] = await Promise.all([
+        within(fetchOllamaModels() as Promise<{ models: unknown[]; error?: string }>, none),
+        within(fetchLMStudioModels() as Promise<{ models: unknown[]; error?: string }>, none),
+      ]);
+      return [
+        { id: "ollama", name: "Ollama", running: !ollama.error, models: ollama.models.length },
+        { id: "lmstudio", name: "LM Studio", running: !lmstudio.error, models: lmstudio.models.length },
+      ];
+    },
+    async addCustom({ name, baseUrl, key, models }) {
+      const { CUSTOM_PROVIDER_PREFIX } = await import("@/ipc/shared/language_model_helpers");
+      const { keyProbe, checkProviderKey } = await import("@/lib/provider-key-check");
+      const base = baseUrl.trim().replace(/\/+$/, "");
+      if (!/^https?:\/\//i.test(base)) throw new Error("The base URL starts with https:// (or http:// for one on this computer).");
+      const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "custom";
+      const { getLanguageModelProviders } = await import("@/ipc/shared/language_model_helpers");
+      if ((await getLanguageModelProviders()).some((p) => p.id === CUSTOM_PROVIDER_PREFIX + slug)) {
+        throw new Error(`You already have a provider called ${name.trim()}. Remove it first, or use another name.`);
+      }
+      let ids = (models ?? []).map((m) => m.trim()).filter(Boolean);
+      if (!ids.length) {
+        // The endpoint's own list. Asked before anything is saved, so a wrong
+        // URL or key leaves nothing behind.
+        const probe = keyProbe(slug, key.trim(), base)!;
+        const check = await checkProviderKey(probe, key.trim());
+        if (check.status === "rejected") throw new Error(`The key was rejected: ${check.detail}`);
+        if (check.status === "works") ids = await listOpenAICompatibleModels(probe);
+        if (!ids.length) throw new NoModelsListedError();
+      }
+      const { registerLanguageModelHandlers } = await import("@/ipc/handlers/language_model_handlers");
+      await ensureLanguageModelHandlers(registerLanguageModelHandlers);
+      await invoke("create-custom-language-model-provider", { id: slug, name: name.trim(), apiBaseUrl: base });
+      const id = CUSTOM_PROVIDER_PREFIX + slug;
+      for (const apiName of ids) {
+        await invoke("create-custom-language-model", { apiName, displayName: apiName, providerId: id });
+      }
+      const { writeProviderKey } = await import("@/main/settings");
+      writeProviderKey(id, key.trim());
+      return { id, models: ids.length };
     },
   },
   relics: {

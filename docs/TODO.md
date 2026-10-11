@@ -1,6 +1,9 @@
 # Atlarix TODO
 
-**Current version:** 15.4.2 (2026-10-10): the editor extension asks for a rating once, and its
+**Current version:** 15.5.0 (2026-10-11): the editor extension redesigned (task card, checkpoints
+with Compare, approval bar, @ and / menus, past chats), Models & keys (keys checked, provider pages,
+own endpoints, a different model for Plan), MCP servers found in other tools, `/keys` and
+`atlarix keys` for Zed and JetBrains. 15.4.2 (2026-10-10): the editor extension asks for a rating once, and its
 listings drop the Debuggers category. 15.4.1 named the repository and "Free" on the listings. 15.4.0 (2026-10-10) shipped Atlarix for VS Code, Cursor, Kiro and Windsurf
 (`packages/vscode`; VS Code Marketplace by hand, Open VSX from CI), Rix the mascot, the CLI's
 left-aligned header, the session recap on every surface, opted-in analytics with an approximate

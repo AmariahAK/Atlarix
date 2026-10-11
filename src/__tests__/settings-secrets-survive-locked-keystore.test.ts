@@ -169,3 +169,43 @@ describe("provider secrets vs. a locked keystore", () => {
     );
   });
 });
+
+describe("one provider's key from the editor and the CLI (writeProviderKey)", () => {
+  it("saves and removes only that key: other providers' keys and settings, and its own settings, stay", async () => {
+    const { writeSettings, writeProviderKey, readSettings } = await freshModule();
+    writeSettings({
+      providerSettings: {
+        openai: { apiKey: { value: "openai-key", encryptionType: "plaintext" } },
+        // A provider with settings but no key: writeSettings' wholesale replace dropped these.
+        ollama: { baseUrl: "http://gpu-box:11434" } as never,
+        deepseek: { apiKey: { value: "old", encryptionType: "plaintext" }, region: "cn" } as never,
+      },
+    });
+    const openaiBefore = readFileJson().providerSettings.openai.apiKey;
+
+    writeProviderKey("deepseek", "sk-new-deepseek");
+    const after = readFileJson().providerSettings;
+    expect(after.openai.apiKey).toEqual(openaiBefore);
+    expect(after.ollama).toEqual({ baseUrl: "http://gpu-box:11434" });
+    expect(after.deepseek.region).toBe("cn");
+    expect(after.deepseek.apiKey.value).not.toContain("sk-new-deepseek");
+    expect(readSettings().providerSettings.deepseek?.apiKey?.value).toBe("sk-new-deepseek");
+
+    writeProviderKey("deepseek", null);
+    const removed = readFileJson().providerSettings;
+    expect(removed.deepseek.apiKey).toBeUndefined();
+    expect(removed.deepseek.region).toBe("cn");
+    expect(removed.openai.apiKey).toEqual(openaiBefore);
+  });
+
+  it("keeps a key it can't read right now while another is saved", async () => {
+    const { writeSettings } = await freshModule();
+    writeSettings({ providerSettings: { anthropic: { apiKey: { value: "anthropic-key", encryptionType: "plaintext" } } } });
+    const before = readFileJson().providerSettings.anthropic.apiKey;
+    keystoreReadable = false;
+    const locked = await freshModule();
+    locked.writeProviderKey("groq", "gsk-new");
+    expect(readFileJson().providerSettings.anthropic.apiKey).toEqual(before);
+    expect(readFileJson().providerSettings.groq.apiKey.encryptionType).toBe("electron-safe-storage");
+  });
+});

@@ -9,6 +9,9 @@
  *   atlarix --prompt …      headless runner, in its own throwaway data folder
  *   atlarix acp             an editor's agent (Zed, JetBrains) over the Agent
  *                           Client Protocol on stdio: src/cli/acp/server.ts
+ *   atlarix keys [add|remove <provider>]
+ *                           your own API keys, each checked; a key is typed
+ *                           here, hidden, never in a chat: src/cli/keys-command.ts
  *
  * Nothing that reads the data location may be imported before the mode is
  * chosen: the electron stub, the database and the settings reader all decide
@@ -284,6 +287,19 @@ async function main(): Promise<void> {
       chromeStatus,
     });
     process.exit(0);
+  }
+  if (argv[0] === "keys") {
+    await prepareCliData(undefined);
+    const { runKeysCommand, readHidden } = await import("./keys-command");
+    const { realServices } = await import("./agent/services");
+    const code = await runKeysCommand(argv.slice(1), realServices, {
+      out: (s) => process.stdout.write(s),
+      readKey: (prompt) => readHidden(prompt),
+    }).catch((e: Error) => {
+      process.stderr.write(`${e.message}\n`);
+      return 1;
+    });
+    process.exit(code);
   }
   if (argv[0] === "login" || argv[0] === "logout") {
     const { enterDesktopDataMode } = await import("./desktop-data");

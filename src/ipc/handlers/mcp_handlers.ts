@@ -134,9 +134,7 @@ export function registerMcpHandlers() {
     return sanitizeMcpServersForIpc(rows);
   });
 
-  handle(
-    "mcp:create-server",
-    async (_event: IpcMainInvokeEvent, params: CreateMcpServer) => {
+  const createServer = async (params: CreateMcpServer) => {
       // Defense-in-depth behind the origin gate: reject a malformed payload
       // rather than trusting the compile-time type at runtime. (Kept lenient —
       // the transport config is a union; over-strict validation would break
@@ -195,8 +193,43 @@ export function registerMcpHandlers() {
         })
         .returning();
       return sanitizeMcpServerForIpc(result[0]);
-    },
-  );
+  };
+
+  handle("mcp:create-server", async (_event: IpcMainInvokeEvent, params: CreateMcpServer) => createServer(params));
+
+  /**
+   * MCP servers set up in other tools on this computer (Claude Code, Cursor,
+   * VS Code, Kiro, Windsurf, Zed, Claude Desktop), minus ones this folder
+   * already has: offered with an Add button, never added on their own. No
+   * environment or header values in the answer, only their names.
+   */
+  handle("mcp:discover-external", async (_event: IpcMainInvokeEvent, { appId }: { appId: number }) => {
+    const { discoverExternalMcpServers } = await import("@/lib/mcp/discover-external");
+    const app = appId ? await db.query.apps.findFirst({ where: eq(apps.id, appId) }) : null;
+    const have = appId
+      ? new Set((await db.select({ name: mcpServers.name }).from(mcpServers).where(and(eq(mcpServers.scope, "workspace"), eq(mcpServers.appId, appId)))).map((r) => r.name.toLowerCase()))
+      : new Set<string>();
+    return discoverExternalMcpServers(app?.path ?? null).filter((s) => !have.has(s.name.toLowerCase()));
+  });
+
+  /** Add one found server to this folder, its values read again from its file now. */
+  handle("mcp:import-external", async (_event: IpcMainInvokeEvent, { appId, key }: { appId: number; key: string }) => {
+    const { findExternalMcpServers } = await import("@/lib/mcp/discover-external");
+    const app = appId ? await db.query.apps.findFirst({ where: eq(apps.id, appId) }) : null;
+    const s = findExternalMcpServers(app?.path ?? null).find((x) => x.key === key);
+    if (!s) throw new Error("That server isn't in its tool's settings any more.");
+    return createServer({
+      appId,
+      name: s.name,
+      transport: s.transport,
+      command: s.command ?? null,
+      args: s.args ?? null,
+      envJson: s.env && Object.keys(s.env).length ? s.env : null,
+      url: s.url ?? null,
+      apiKey: s.bearer ?? null,
+      enabled: true,
+    } as CreateMcpServer);
+  });
 
   handle(
     "mcp:test-connection",

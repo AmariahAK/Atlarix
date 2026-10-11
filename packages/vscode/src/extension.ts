@@ -13,7 +13,8 @@ import { Chat, type ChatHost } from "./chat";
 import { AtlarixConnection } from "./connection";
 import { DIFF_SCHEME, DiffDocuments } from "./diff";
 import { chatHtml } from "./html";
-import type { ContextItem } from "./protocol";
+import type { ContextItem, HostSettings } from "./protocol";
+import { problemsText } from "./problems";
 
 let connection: AtlarixConnection | null = null;
 let starting: Promise<AtlarixConnection | null> | null = null;
@@ -53,8 +54,8 @@ export function activate(context: vscode.ExtensionContext): void {
         cwd: workspace() ?? path.dirname(binary),
         version,
         log: (l) => log.appendLine(l),
-        openUrl: (u) => {
-          signInUrl = u;
+        openUrl: (u, kind) => {
+          if (kind === "sign-in") signInUrl = u;
           void vscode.env.openExternal(vscode.Uri.parse(u));
         },
         onExit: (code) => {
@@ -88,8 +89,83 @@ export function activate(context: vscode.ExtensionContext): void {
       .showInformationMessage("Enjoying Atlarix? A rating helps other developers find it.", "Rate Atlarix", "Not now")
       .then((pick) => pick === "Rate Atlarix" && vscode.env.openExternal(vscode.Uri.parse(ratingUrl(vscode.env.appName))));
   };
+  // The status bar: Rix, the model of the chat in use, and a dot while it works.
+  const statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+  statusItem.command = "atlarix.pickModel";
+  const showStatus = () => {
+    const chat = lastActive ?? sidebar;
+    if (!vscode.workspace.workspaceFolders?.length || !chat?.model) return statusItem.hide();
+    statusItem.text = `${chat.busy ? "$(loading~spin)" : "◆"} ${chat.model}`;
+    statusItem.tooltip = chat.busy ? "Atlarix is working. Click to pick a model." : "Atlarix model. Click to pick another.";
+    statusItem.show();
+  };
+
+  /** The file open in the editor, offered to each chat as context (atlarix.attachOpenFile). */
+  const activeFileItem = (): ContextItem | null => {
+    if (!vscode.workspace.getConfiguration("atlarix").get<boolean>("attachOpenFile", true)) return null;
+    const doc = vscode.window.activeTextEditor?.document;
+    if (!doc || doc.uri.scheme !== "file" || !vscode.workspace.getWorkspaceFolder(doc.uri)) return null;
+    const root = workspace();
+    return { path: doc.uri.fsPath, label: root ? path.relative(root, doc.uri.fsPath) : path.basename(doc.uri.fsPath) };
+  };
+  const shareActiveFile = () => {
+    const item = activeFileItem();
+    for (const c of chats) c.setActiveFile(item);
+  };
+
+  /** The active terminal's selection. `Terminal.selection` is newer than the oldest editors this supports; without it, copy the selection and put the clipboard back. */
+  const terminalSelection = async (): Promise<ContextItem | null> => {
+    const term = vscode.window.activeTerminal;
+    if (!term) return null;
+    let text = (term as { selection?: string }).selection;
+    if (text === undefined) {
+      const saved = await vscode.env.clipboard.readText();
+      await vscode.commands.executeCommand("workbench.action.terminal.copySelection");
+      text = await vscode.env.clipboard.readText();
+      await vscode.env.clipboard.writeText(saved);
+      if (text === saved) text = "";
+    }
+    return text?.trim() ? { path: "", label: `Terminal (${term.name})`, text: text.trim() } : null;
+  };
+
+  const SETTINGS_KEY = "atlarix.hostSettings";
+  const settings = (): HostSettings => {
+    const kept = context.globalState.get<Partial<HostSettings>>(SETTINGS_KEY) ?? {};
+    return {
+      attachOpenFile: vscode.workspace.getConfiguration("atlarix").get<boolean>("attachOpenFile", true),
+      ctrlEnterSends: kept.ctrlEnterSends ?? false,
+      notifyWhenNeeded: kept.notifyWhenNeeded ?? true,
+    };
+  };
+
   const host: ChatHost = {
     binaryPath,
+    changed: () => showStatus(),
+    terminalSelection,
+    settings,
+    setSetting: async (key, value) => {
+      if (key === "attachOpenFile") {
+        await vscode.workspace.getConfiguration("atlarix").update("attachOpenFile", value, vscode.ConfigurationTarget.Global);
+        shareActiveFile();
+        return;
+      }
+      await context.globalState.update(SETTINGS_KEY, { ...(context.globalState.get<Partial<HostSettings>>(SETTINGS_KEY) ?? {}), [key]: value });
+    },
+    openElsewhere: (sessionId, folder) => handleOpen(sessionId, folder),
+    problems: () => {
+      const root = workspace();
+      const active = vscode.window.activeTextEditor?.document.uri;
+      const all = vscode.languages.getDiagnostics();
+      const text = problemsText(
+        all.map(([uri, list]) => ({
+          file: root ? path.relative(root, uri.fsPath) : uri.fsPath,
+          active: active?.toString() === uri.toString(),
+          items: list.map((d) => ({ line: d.range.start.line + 1, column: d.range.start.character + 1, severity: d.severity, message: d.message, source: d.source })),
+        })),
+        50,
+      );
+      return text ? { path: "", label: text.label, text: text.body } : null;
+    },
     connection: connect,
     workspace,
     diffs,
@@ -123,7 +199,13 @@ export function activate(context: vscode.ExtensionContext): void {
   const track = (chat: Chat, panel: { onDidChangeViewState: vscode.Event<unknown> } | null) => {
     chats.add(chat);
     lastActive = chat;
-    if (panel) panel.onDidChangeViewState(() => (lastActive = chat));
+    if (panel)
+      panel.onDidChangeViewState(() => {
+        lastActive = chat;
+        showStatus();
+      });
+    // Once its webview is up (setActiveFile before then would be lost).
+    setTimeout(() => chat.setActiveFile(activeFileItem()), 800);
   };
 
   const openTab = (sessionId: string | null) => {
@@ -134,12 +216,13 @@ export function activate(context: vscode.ExtensionContext): void {
     });
     panel.iconPath = vscode.Uri.joinPath(context.extensionUri, "media", "rix-glyph.svg");
     panel.webview.html = chatHtml(panel.webview, context.extensionUri);
-    const chat = new Chat(panel.webview, host, sessionId, "tab");
+    const chat = new Chat(panel.webview, host, sessionId, "tab", () => panel.reveal());
     track(chat, panel);
     panel.onDidDispose(() => {
       chat.dispose();
       chats.delete(chat);
       if (lastActive === chat) lastActive = sidebar;
+      showStatus();
     });
   };
 
@@ -194,9 +277,12 @@ export function activate(context: vscode.ExtensionContext): void {
             localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, "dist"), vscode.Uri.joinPath(context.extensionUri, "media")],
           };
           view.webview.html = chatHtml(view.webview, context.extensionUri);
-          sidebar = new Chat(view.webview, host);
+          sidebar = new Chat(view.webview, host, null, "sidebar", () => void vscode.commands.executeCommand("atlarix.chat.focus"));
           track(sidebar, null);
-          view.onDidChangeVisibility(() => view.visible && (lastActive = sidebar));
+          view.onDidChangeVisibility(() => {
+            if (view.visible) lastActive = sidebar;
+            showStatus();
+          });
           view.onDidDispose(() => {
             sidebar?.dispose();
             if (sidebar) chats.delete(sidebar);
@@ -212,10 +298,56 @@ export function activate(context: vscode.ExtensionContext): void {
       await vscode.commands.executeCommand("atlarix.chat.focus");
       await sidebar?.open(null);
     }),
-    vscode.commands.registerCommand("atlarix.openInTab", () => openTab(lastActive?.sessionId ?? null)),
+    vscode.commands.registerCommand("atlarix.openInTab", async () => {
+      // Moves the chat: the view it came from starts a new one (no two views on one session).
+      const from = lastActive;
+      if (from?.busy) return void vscode.window.showInformationMessage("Wait for this turn to finish (or stop it), then move the chat.");
+      openTab(from?.sessionId ?? null);
+      if (from?.sessionId) await from.open(null);
+    }),
+    vscode.commands.registerCommand("atlarix.manageKeys", async () => (await target())?.show("keys")),
+    vscode.commands.registerCommand("atlarix.settings", async () => (await target())?.show("settings")),
+    vscode.commands.registerCommand("atlarix.account", async () => (await target())?.show("account")),
+    vscode.commands.registerCommand("atlarix.mcp", async () => (await target())?.show("mcp")),
+    vscode.commands.registerCommand("atlarix.pickModel", async () => {
+      const chat = await target();
+      if (chat === sidebar) await vscode.commands.executeCommand("atlarix.chat.focus");
+      chat?.show("model-picker");
+    }),
+    vscode.commands.registerCommand("atlarix.insertReference", async () => {
+      const ed = vscode.window.activeTextEditor;
+      if (!ed || ed.document.uri.scheme !== "file") return;
+      const root = workspace();
+      const file = ed.document.uri.fsPath;
+      const rel = root ? path.relative(root, file) : path.basename(file);
+      const sel = ed.selection;
+      const item: ContextItem = sel.isEmpty
+        ? { path: file, label: rel }
+        : {
+            path: file,
+            label: `${rel}#L${sel.start.line + 1}${sel.end.line !== sel.start.line ? `-${sel.end.line + 1}` : ""}`,
+            startLine: sel.start.line + 1,
+            endLine: sel.end.line + 1,
+            text: ed.document.getText(sel),
+          };
+      (await target())?.addContext(item);
+    }),
+    vscode.commands.registerCommand("atlarix.addProblems", async () => {
+      const item = host.problems();
+      if (!item) return void vscode.window.showInformationMessage("No errors or warnings in the Problems panel.");
+      (await target())?.addContext(item);
+    }),
+    vscode.commands.registerCommand("atlarix.addTerminalSelection", async () => {
+      const item = await terminalSelection();
+      if (!item) return void vscode.window.showInformationMessage("Select some terminal output first.");
+      (await target())?.addContext(item);
+    }),
+    vscode.window.onDidChangeActiveTextEditor(() => shareActiveFile()),
+    vscode.workspace.onDidChangeConfiguration((e) => e.affectsConfiguration("atlarix.attachOpenFile") && shareActiveFile()),
+    statusItem,
     vscode.commands.registerCommand("atlarix.history", async () => {
       await vscode.commands.executeCommand("atlarix.chat.focus");
-      void sidebarView?.webview.postMessage({ type: "open-history" });
+      sidebar?.show("history");
     }),
     vscode.commands.registerCommand("atlarix.signIn", () => host.signIn()),
     vscode.commands.registerCommand("atlarix.showLog", () => log.show()),

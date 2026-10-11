@@ -99,7 +99,17 @@ export type ListedFilePermission = {
   decision: FilePermissionDecision;
 };
 
+/**
+ * A directory rule for the whole workspace: an editor's "Edit files in this
+ * folder without asking". Written only by that switch; an empty path still
+ * matches nothing. Sorted last among directory rules (shortest), so any rule
+ * for a subfolder or a file, a deny included, decides first; deletes, renames
+ * and paths outside the workspace still ask.
+ */
+export const WHOLE_FOLDER = ".";
+
 function pathUnderDirectory(filePath: string, dirScope: string): boolean {
+  if (dirScope === WHOLE_FOLDER) return !!normalizeRelativePath(filePath);
   const dir = normalizeRelativePath(dirScope);
   if (!dir) return false;
   const file = normalizeRelativePath(filePath);
@@ -245,6 +255,7 @@ export function normalizeScopeValue(
     return v.startsWith(".") ? v.toLowerCase() : `.${v.toLowerCase()}`;
   }
   if (scopeType === "directory") {
+    if (v === WHOLE_FOLDER) return WHOLE_FOLDER;
     return normalizeRelativePath(v.replace(/\/+$/, ""));
   }
   return normalizeRelativePath(v);

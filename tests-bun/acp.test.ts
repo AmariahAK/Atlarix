@@ -35,7 +35,7 @@ async function editor(
   clientCapabilities: acp.ClientCapabilities = {},
 ) {
   const llm = startFakeLlm(script);
-  const { AgentSession, seedDevProvider, listFolderSessions } = await import("../src/cli/agent/session");
+  const { AgentSession, seedDevProvider, listFolderSessions, changeFolderSession } = await import("../src/cli/agent/session");
   const { AcpAgent } = await import("../src/cli/acp/agent");
   const { buildAgentApp } = await import("../src/cli/acp/server");
   const model = await seedDevProvider({ baseUrl: llm.url, model: "fake-model", apiKey: "dev" });
@@ -48,6 +48,7 @@ async function editor(
     models: async () => ({ options: [{ ...model, label: "Fake" }], current: model }),
     rememberModel: () => {},
     listSessions: (cwd) => listFolderSessions(cwd),
+    changeSession: (id, change) => changeFolderSession(id, change),
   });
   const updates: SessionNotification[] = [];
   const asked: RequestPermissionRequest[] = [];
@@ -269,5 +270,161 @@ describe("atlarix acp", () => {
     await conn.agent.request("initialize", { protocolVersion: acp.PROTOCOL_VERSION, clientCapabilities: {} });
     const err = await conn.agent.request("session/new", { cwd: ws, mcpServers: [] }).then(() => null, (e: Error) => e);
     expect(String((err as { message?: string })?.message)).toContain("older than this CLI");
+  }, 60_000);
+  it("Atlarix's extension: going back to an earlier message puts the file back and carries on from there", async () => {
+    const file = path.join(ws, "undo.ts");
+    fs.writeFileSync(file, "export const u = 1;\n");
+    const e = await editor(
+      [
+        { tool: "edit_file", args: { path: "undo.ts", operation: "replace", old_content: "export const u = 1;", new_content: "export const u = 2;" } },
+        { text: "Set u to 2." },
+        { text: "Noted." },
+        { text: "Done differently." },
+      ],
+      undefined,
+      { _meta: { atlarix: { version: 1 } } },
+    );
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "set u to 2" }] });
+    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "thanks" }] });
+    expect(fs.readFileSync(file, "utf8")).toContain("u = 2");
+    await Bun.sleep(200);
+
+    // Each message the editor drew live is named by an echo carrying its stored id.
+    const echoes = e.updates
+      .filter((u) => u.sessionId === sessionId && u.update.sessionUpdate === "user_message_chunk")
+      .map((u) => (u.update as { _meta?: { atlarix?: { messageId?: number; echo?: boolean } } })._meta?.atlarix);
+    expect(echoes.length).toBe(2);
+    expect(echoes.every((m) => m?.echo === true && typeof m.messageId === "number")).toBe(true);
+
+    const { messages } = await e.conn.agent.request<{ messages: Array<{ id: number; text: string }> }>("_atlarix/undo", { sessionId, action: "list" });
+    expect(messages.map((m) => m.text)).toEqual(["thanks", "set u to 2"]);
+    const first = messages[1]!;
+    expect(first.id).toBe(echoes[0]!.messageId!);
+    const preview = await e.conn.agent.request<{ filesChanged: string[] }>("_atlarix/undo", { sessionId, action: "preview", messageId: first.id });
+    expect(preview.filesChanged.some((f) => f.endsWith("undo.ts"))).toBe(true);
+
+    const before = e.updates.length;
+    const r = await e.conn.agent.request<{ stopReason: string }>("_atlarix/undo", {
+      sessionId,
+      action: "resend",
+      messageId: first.id,
+      text: "leave u alone",
+      restore: true,
+    });
+    expect(r.stopReason).toBe("end_turn");
+    expect(fs.readFileSync(file, "utf8")).toContain("u = 1");
+    // The editor cleared its view: the transcript comes again from the top, the edited message with its id.
+    const again = e.updates.slice(before).filter((u) => u.sessionId === sessionId);
+    const users = again.filter((u) => u.update.sessionUpdate === "user_message_chunk").map((u) => (u.update as { content: { text: string } }).content.text);
+    expect(users).toEqual(["leave u alone"]);
+    const replied = again
+      .filter((u) => u.update.sessionUpdate === "agent_message_chunk")
+      .map((u) => (u.update as { content: { text: string } }).content.text)
+      .join("");
+    expect(replied).toContain("Done differently.");
+    const after = await e.conn.agent.request<{ messages: Array<{ text: string }> }>("_atlarix/undo", { sessionId, action: "list" });
+    expect(after.messages.map((m) => m.text)).toEqual(["leave u alone"]);
+  }, 90_000);
+
+  it("Past chats: rename and delete a stored chat, open or not", async () => {
+    const e = await editor([{ text: "One." }, { text: "Two." }]);
+    const a = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    await e.conn.agent.request("session/prompt", { sessionId: a.sessionId, prompt: [{ type: "text", text: "first chat" }] });
+    const b = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    await e.conn.agent.request("session/prompt", { sessionId: b.sessionId, prompt: [{ type: "text", text: "second chat" }] });
+
+    await e.conn.agent.request("_atlarix/session", { sessionId: a.sessionId, action: "rename", title: "Cache work" });
+    let list = await e.conn.agent.request("session/list", { cwd: ws });
+    expect(list.sessions.find((s) => s.sessionId === a.sessionId)?.title).toBe("Cache work");
+
+    await e.conn.agent.request("_atlarix/session", { sessionId: b.sessionId, action: "delete" });
+    list = await e.conn.agent.request("session/list", { cwd: ws });
+    expect(list.sessions.map((s) => s.sessionId)).not.toContain(b.sessionId);
+    expect(list.sessions.map((s) => s.sessionId)).toContain(a.sessionId);
+  }, 60_000);
+
+  it("the model picker comes grouped by provider", async () => {
+    const e = await editor([]);
+    const s = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    const model = s.configOptions?.find((o) => o.id === "model") as { options: Array<{ group?: string; options?: unknown[] }> } | undefined;
+    expect(model?.options[0]?.group).toBeTruthy();
+    expect(model?.options[0]?.options?.length).toBe(1);
+  }, 60_000);
+
+  it("/keys answers in the thread, and adding one points to the terminal", async () => {
+    const e = await editor([]);
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "/keys add openai" }] });
+    expect(e.text(sessionId)).toContain("atlarix keys add openai");
+    expect(e.llm.requests?.length ?? 0).toBe(0);
+  }, 60_000);
+
+  it("this folder's skills are / commands, and /skill asks for that skill", async () => {
+    const skills = path.join(ws, ".atlarix", "skills");
+    fs.mkdirSync(skills, { recursive: true });
+    fs.writeFileSync(path.join(skills, "deploy.md"), "---\nname: deploy\ndescription: Ship the app to staging.\n---\nRun the deploy script.\n");
+    const e = await editor([{ text: "Deploying." }]);
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    await Bun.sleep(400);
+    const lists = e.updates.filter((u) => u.sessionId === sessionId && u.update.sessionUpdate === "available_commands_update");
+    const names = (lists.at(-1)?.update as { availableCommands: Array<{ name: string }> }).availableCommands.map((c) => c.name);
+    expect(names).toContain("deploy");
+    expect(names).toContain("keys");
+    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "/deploy to staging" }] });
+    const sent = JSON.stringify(e.llm.requests?.at(-1) ?? "");
+    expect(sent).toContain(".atlarix/skills/deploy.md");
+    fs.rmSync(path.join(ws, ".atlarix", "skills"), { recursive: true, force: true });
+  }, 60_000);
+
+  it("Compare at a checkpoint: the files changed since a message, and each one's version from before", async () => {
+    const file = path.join(ws, "cmp.ts");
+    fs.writeFileSync(file, "export const c = 1;\n");
+    const e = await editor(
+      [
+        { tool: "edit_file", args: { path: "cmp.ts", operation: "replace", old_content: "export const c = 1;", new_content: "export const c = 2;" } },
+        { text: "Done." },
+      ],
+      undefined,
+      { _meta: { atlarix: { version: 1 } } },
+    );
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "set c to 2" }] });
+    const { messages } = await e.conn.agent.request<{ messages: Array<{ id: number }> }>("_atlarix/undo", { sessionId, action: "list" });
+    const { files } = await e.conn.agent.request<{ files: Array<{ path: string; turnId: string; created: boolean }> }>("_atlarix/checkpoint", {
+      sessionId,
+      action: "files",
+      messageId: messages[0]!.id,
+    });
+    const f = files.find((x) => x.path.endsWith("cmp.ts"))!;
+    expect(f.created).toBe(false);
+    const { file: before } = await e.conn.agent.request<{ file: { existed: boolean; content: string } }>("_atlarix/checkpoint", {
+      sessionId,
+      action: "before",
+      turnId: f.turnId,
+      path: f.path,
+    });
+    expect(before).toEqual({ existed: true, content: "export const c = 1;\n" });
+    expect(fs.readFileSync(file, "utf8")).toContain("c = 2");
+  }, 90_000);
+
+  it("Auto-approve: edits in this folder without asking, then back to asking", async () => {
+    const e = await editor([]);
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    const on = await e.conn.agent.request<{ folderEdits: boolean }>("_atlarix/permissions", { sessionId, action: "edits", on: true });
+    expect(on.folderEdits).toBe(true);
+    const off = await e.conn.agent.request<{ folderEdits: boolean; rules: unknown[] }>("_atlarix/permissions", { sessionId, action: "edits", on: false });
+    expect(off.folderEdits).toBe(false);
+    expect(Array.isArray(off.rules)).toBe(true);
+  }, 60_000);
+
+  it("Past chats: this folder's with mode and star, every folder's with its folder", async () => {
+    const e = await editor([{ text: "Hi." }]);
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "hello" }] });
+    const mine = await e.conn.agent.request<{ sessions: Array<{ sessionId: string; mode: string | null; starred: boolean }> }>("_atlarix/sessions", { cwd: ws });
+    expect(mine.sessions.find((s) => s.sessionId === sessionId)?.starred).toBe(false);
+    const all = await e.conn.agent.request<{ sessions: Array<{ sessionId: string; folder?: string }> }>("_atlarix/sessions", { all: true });
+    expect(all.sessions.find((s) => s.sessionId === sessionId)?.folder).toBeTruthy();
   }, 60_000);
 });

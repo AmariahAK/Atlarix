@@ -81,8 +81,21 @@ export function approvalToolCall(a: PendingApproval, owner?: string): ToolCallUp
     .filter(Boolean)
     .join("\n");
   if (note) content.push({ type: "content", content: { type: "text", text: note } });
+  // The same facts, structured, for Atlarix's own extension's approval bar
+  // (other editors ignore _meta and read the note above).
+  const _meta = {
+    atlarix: {
+      approval: {
+        command: p.command ?? null,
+        path: p.path ?? null,
+        risky: !!p.isDangerous,
+        risk: (p.isDangerous ? p.dangerExplanation : null) ?? (p.systemScope ? p.systemScopeExplanation : null) ?? null,
+        outside: p.deniedPath ? (p.grantPath ?? p.deniedPath) : null,
+      },
+    },
+  };
   // Inside the call's own card: keep its title; add what it is asking to do.
-  if (owner) return { toolCallId, status: "pending", ...(content.length ? { content } : {}) };
+  if (owner) return { toolCallId, status: "pending", ...(content.length ? { content } : {}), _meta };
   const title = p.command ? `Run ${p.command}` : p.path ? `${approvalTitle(a).replace(/\?$/, "")}: ${p.path}` : approvalTitle(a);
   return {
     toolCallId,
@@ -91,6 +104,7 @@ export function approvalToolCall(a: PendingApproval, owner?: string): ToolCallUp
     status: "pending",
     ...(p.path ? { locations: [{ path: p.path }] } : {}),
     ...(content.length ? { content } : {}),
+    _meta,
   };
 }
 
