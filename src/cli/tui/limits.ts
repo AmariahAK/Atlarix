@@ -35,9 +35,8 @@ export function errorNotice(raw: string): ErrorNotice {
   const text = raw.startsWith(AI_STREAMING_ERROR_MESSAGE_PREFIX) ? raw.slice(AI_STREAMING_ERROR_MESSAGE_PREFIX.length) : raw;
   const [first, rest] = split(text);
   const said = /\(It said: "(.*)"\)/.exec(text)?.[1];
-  if (text.includes(FREE_LIMIT_MARKER)) {
-    return { tone: "warn", title: first, actions: "/billing add credit (from $10) or get Pro · /model your own key or a local model" };
-  }
+  // Free usage over for today: that and when it resets, nothing more (owner).
+  if (text.includes(FREE_LIMIT_MARKER)) return { tone: "warn", title: text.trim() };
   if (text.includes(CORE_EXHAUSTED_MARKER)) {
     const needs = /This turn needs at least .+? available\./.exec(text)?.[0];
     return {

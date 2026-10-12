@@ -28,12 +28,10 @@ describe("your own key's limits", () => {
 });
 
 describe("the terminal's notice", () => {
-  it("a free share used up says when it comes back, and how to keep going", () => {
+  it("free usage over says come back tomorrow and when, and nothing more", () => {
     const n = errorNotice(freeUsageLimitUserMessage(3600, Date.UTC(2026, 9, 3, 10), "UTC"));
-    expect(n.title).toBe("Today's free share is used up · resets at 11:00 AM");
-    expect(n.actions).toContain("/billing");
-    // Credit first: the wall comes in a user's first days, before any subscription.
-    expect(n.actions!.indexOf("add credit")).toBeLessThan(n.actions!.indexOf("Pro"));
+    expect(n.title).toBe("Today's usage is over. Come back tomorrow (it resets at 11:00 AM).");
+    expect(n.actions).toBeUndefined();
     expect(n.tone).toBe("warn");
   });
 
