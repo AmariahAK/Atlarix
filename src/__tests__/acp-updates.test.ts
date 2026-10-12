@@ -177,6 +177,7 @@ describe("a sub-agent's task call", () => {
     kind: "tool",
     id: "7:t:task_0",
     tool: {
+      id: "task_0",
       verb: "Agent",
       target: "Callers of refreshSession",
       status: "running",
@@ -217,7 +218,8 @@ describe("a sub-agent's task call", () => {
     expect(u).toMatchObject({ sessionUpdate: "tool_call_update", status: "in_progress" });
     expect(body(u)).toContain("Read src/auth/session.ts");
     // Tokens re-send in steps of 1k, not on every token.
-    expect(diffUpdates([task({ ...more.tool, agent: { tokens: 1_900 } } as never)], e)).toEqual([]);
+    const moreTool = (more as Extract<Cell, { kind: "tool" }>).tool;
+    expect(diffUpdates([task({ ...moreTool, agent: { tokens: 1_900 } })], e)).toEqual([]);
   });
 
   it("ends with its report", () => {
@@ -227,5 +229,32 @@ describe("a sub-agent's task call", () => {
     expect(u).toMatchObject({ sessionUpdate: "tool_call_update", status: "completed" });
     expect(body(u)).toContain("The proxy has no clock leeway.");
     expect(body(u)).not.toContain("Reading the session code");
+  });
+});
+
+describe("a reply whose position in the message moves", () => {
+  it("is not sent again when the saved message lays its parts out differently", () => {
+    // Live: the reply is part 3 of message 70. Saved: a tool part is gone and it is part 2.
+    const e: Emitted = new Map();
+    diffUpdates([md("70:3", "Both sub-agents reported: two files.")], e);
+    expect(diffUpdates([md("70:2", "Both sub-agents reported: two files.")], e)).toEqual([]);
+    // It keeps streaming under its new key: only the new tail goes out.
+    expect(diffUpdates([md("70:2", "Both sub-agents reported: two files. Done.")], e)).toEqual([
+      { sessionUpdate: "agent_message_chunk", content: { type: "text", text: " Done." } },
+    ]);
+  });
+
+  it("still sends a different reply that took a vacated position", () => {
+    const e: Emitted = new Map();
+    diffUpdates([md("70:3", "First answer.")], e);
+    expect(diffUpdates([md("70:2", "Something else entirely.")], e)).toEqual([
+      { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Something else entirely." } },
+    ]);
+  });
+
+  it("never borrows from another message", () => {
+    const e: Emitted = new Map();
+    diffUpdates([md("70:3", "Same words.")], e);
+    expect(diffUpdates([md("71:0", "Same words.")], e)).toHaveLength(1);
   });
 });

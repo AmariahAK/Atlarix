@@ -187,7 +187,7 @@ function onUpdate(u: SessionUpdate): void {
         used: u.used,
         size: u.size,
       };
-      renderTask();
+      emit("usage");
       return;
     }
     case "session_info_update":
@@ -261,6 +261,7 @@ onHost((m: HostMessage) => {
       return;
     case "turn-start":
       C.setBusy(true);
+      T.beginTurn();
       return;
     case "tasks-changed":
       tasksChanged(m.count);

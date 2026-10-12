@@ -102,7 +102,9 @@ function subagentMeta(t: ToolLine): Record<string, unknown> {
     _meta: {
       atlarix: {
         subagent: {
-          label: t.agent?.label ?? t.target,
+          // The task's own description ("Read README first line"), not the
+          // generic agent name ("Sub-agent: Explore").
+          label: t.target || t.agent?.label || "Sub-agent",
           status: t.status,
           progress: t.status === "running" ? (t.progress ?? null) : null,
           tokens: t.agent?.tokens ?? null,
@@ -147,13 +149,39 @@ function userMessageId(cellId: string): number | null {
  * extension can offer going back to one. Live, where the editor already drew
  * the message, it comes as an `echo` that names the id and draws nothing.
  */
+/**
+ * A reply or thought already sent under a key this transcript no longer has.
+ *
+ * Text cells are keyed by their part's position in the message
+ * (`<message>:<n>`), and the saved message can lay its parts out differently
+ * from the live one (a tool part added or dropped at the end). The same text
+ * then shows up under a new key, and was sent again in full: the editor drew
+ * the reply twice. Taking over the old key's text, when the new text continues
+ * it, sends only what is actually new.
+ */
+function movedText(c: Cell & { kind: "markdown" | "thought" }, emitted: Emitted, present: ReadonlySet<string>): string | undefined {
+  const base = c.id.slice(0, c.id.lastIndexOf(":"));
+  const prefix = `${c.kind}:${base}:`;
+  let best: { k: string; text: string } | null = null;
+  for (const [k, text] of emitted) {
+    if (!k.startsWith(prefix) || present.has(k) || !text || !c.text.startsWith(text)) continue;
+    if (!best || text.length > best.text.length) best = { k, text };
+  }
+  if (!best) return undefined;
+  emitted.delete(best.k);
+  return best.text;
+}
+
 export function diffUpdates(cells: readonly Cell[], emitted: Emitted, opts: { replay?: boolean; ids?: boolean } = {}): SessionUpdate[] {
   const out: SessionUpdate[] = [];
+  const present = new Set(cells.map(key));
   for (const c of cells) {
     const k = key(c);
     const before = emitted.get(k);
     if (c.kind === "markdown" || c.kind === "thought") {
-      const prev = before ?? "";
+      const moved = before === undefined ? movedText(c, emitted, present) : undefined;
+      if (moved !== undefined) emitted.set(k, moved);
+      const prev = before ?? moved ?? "";
       if (c.text === prev) continue;
       emitted.set(k, c.text);
       // A rewrite rather than a growth (a cancel collapsing the tail) cannot be

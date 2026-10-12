@@ -934,11 +934,30 @@ export class AgentSession extends EventEmitter {
    */
   async wakeForBackground(): Promise<void> {
     if (this.state.busy || this.userStopped || this.wakeInFlight) return;
+    if (!(await this.backgroundToDeliver())) return;
     this.wakeInFlight = true;
     try {
       await this.startTurn("", { continueAfterQuestions: true, systemWake: true });
     } finally {
       this.wakeInFlight = false;
+    }
+  }
+
+  /**
+   * Whether a wake would have anything to deal with: a finished command or
+   * sub-agent's result, a stalled job's advisory, an automation, a scheduled
+   * wake. A sub-agent awaited inside the turn delivered its report there, and
+   * its "finished" arriving just after the turn must not wake the agent for
+   * nothing (observed: a whole turn spent saying "still nothing to do").
+   */
+  private async backgroundToDeliver(): Promise<boolean> {
+    if (!this.chatId) return false;
+    try {
+      const { computeWakePendingResults } = await import("@/lib/agent/collect-results");
+      const { hasPendingScheduledWakeupNudges } = await import("@/lib/agent/scheduled-wakeups");
+      return computeWakePendingResults(this.chatId, true) || hasPendingScheduledWakeupNudges(this.chatId);
+    } catch {
+      return false;
     }
   }
 
@@ -1334,8 +1353,11 @@ export class AgentSession extends EventEmitter {
         // An editor starts its own turns (`idlePeerMessages: "hold"`), so there
         // it is told instead, and Atlarix's extension opens the wake turn.
         if (WAKE_STATUSES.has(String(p.status)) && (p.chatId == null || p.chatId === this.chatId)) {
-          if (this.idlePeerMessages === "hold") this.emit("background-ready");
-          else void this.wakeForBackground();
+          void this.backgroundToDeliver().then((yes) => {
+            if (!yes) return;
+            if (this.idlePeerMessages === "hold") this.emit("background-ready");
+            else void this.wakeForBackground();
+          });
         }
         this.emit("tasks-changed");
         return;

@@ -47,9 +47,15 @@ export function clearQuestion(): void {
   pendingQuestion = null;
 }
 
+/**
+ * Follow the conversation while you are at its end. The element that scrolls
+ * is the chat around the log (the task card sits above it in the same scroller),
+ * not the log itself, which only grows.
+ */
 function scrollDown(force = false): void {
-  const near = log.scrollHeight - log.scrollTop - log.clientHeight < 140;
-  if (near || force) requestAnimationFrame(() => (log.scrollTop = log.scrollHeight));
+  const sc = log.parentElement ?? log;
+  const near = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 140;
+  if (near || force) requestAnimationFrame(() => (sc.scrollTop = sc.scrollHeight));
 }
 
 /** Empty everything (a new chat, a loaded one, or going back to a message). */
@@ -57,6 +63,8 @@ export function resetTranscript(): void {
   log.textContent = "";
   tools.clear();
   resetSubagents();
+  userOpen.clear();
+  turnCards = [];
   current = null;
   turn = { edits: false, messageId: null };
   pendingQuestion = null;
@@ -64,6 +72,13 @@ export function resetTranscript(): void {
 
 export function isEmpty(): boolean {
   return !log.querySelector(".msg, .steps, .card, .tool");
+}
+
+/** A new turn begins: its words start a reply of their own, never the end of the last one. */
+export function beginTurn(): void {
+  foldThought();
+  closeCurrent();
+  turnCards = [];
 }
 
 /** A turn is over: what it changed gets a checkpoint, and its thinking folds. */
@@ -228,6 +243,76 @@ function commandCard(title: string, output: string, status: string): HTMLElement
   return card;
 }
 
+// --- Folding edit and command cards, as the app does ------------------------------------
+
+/** Your own open/close of a card, by tool call: it wins over every default. */
+const userOpen = new Map<string, boolean>();
+/** This turn's edit and command cards, oldest first: only the last few stay open. */
+let turnCards: string[] = [];
+const OPEN_RECENT = 3;
+
+/**
+ * Whether a card shows its body (the app's rule, tool-expand-view.ts
+ * defaultOpenFor): your choice first; a failure stays open; a running call is
+ * closed; a finished edit or command is open while it is one of the turn's
+ * last few steps, then folds to its one line.
+ */
+function cardOpen(id: string, status: string): boolean {
+  const mine = userOpen.get(id);
+  if (mine != null) return mine;
+  if (status === "failed") return true;
+  if (status === "in_progress" || status === "pending") return false;
+  const i = turnCards.indexOf(id);
+  return i < 0 || i >= turnCards.length - OPEN_RECENT;
+}
+
+/** Give a card a header that opens and closes it, and draw it open or closed. */
+function foldable(node: HTMLElement, id: string, status: string): void {
+  const head = node.querySelector<HTMLElement>(".cmd-card__head, .edit-card__head");
+  const body = [...node.children].filter((c) => c !== head) as HTMLElement[];
+  if (!head || !body.length) return;
+  const chev = el("span", "fold__chev");
+  head.prepend(chev);
+  head.classList.add("fold__head");
+  head.tabIndex = 0;
+  head.setAttribute("role", "button");
+  const apply = () => {
+    const open = cardOpen(id, node.dataset.status ?? status);
+    for (const b of body) b.classList.toggle("hidden", !open);
+    chev.textContent = open ? "▾" : "▸";
+    head.setAttribute("aria-expanded", String(open));
+  };
+  const toggle = (e: Event) => {
+    // The header's own buttons (Open) do their own thing.
+    if ((e.target as HTMLElement).closest("button")) return;
+    userOpen.set(id, !cardOpen(id, node.dataset.status ?? status));
+    apply();
+  };
+  head.addEventListener("click", toggle);
+  head.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      toggle(e);
+    }
+  });
+  node.dataset.fold = "1";
+  apply();
+}
+
+/** A new card joined the turn: the ones it pushed out of the last few fold. */
+function foldOlder(): void {
+  for (const id of turnCards.slice(0, -OPEN_RECENT)) {
+    const n = tools.get(id);
+    if (!n?.dataset.fold || userOpen.has(id)) continue;
+    const open = cardOpen(id, n.dataset.status ?? "");
+    const head = n.querySelector<HTMLElement>(".fold__head");
+    for (const b of [...n.children].filter((c) => c !== head) as HTMLElement[]) b.classList.toggle("hidden", !open);
+    const chev = n.querySelector(".fold__chev");
+    if (chev) chev.textContent = open ? "▾" : "▸";
+    head?.setAttribute("aria-expanded", String(open));
+  }
+}
+
 function stepsGroup(): HTMLElement {
   const last = log.lastElementChild;
   if (last?.classList.contains("steps")) return last as HTMLElement;
@@ -295,10 +380,17 @@ export function toolCall(t: ToolCallUpdate & { _meta?: unknown; kind?: string | 
     node.classList.toggle("hidden", !title.trim());
   }
   Object.assign(node.dataset, { kind, status, title });
+  if (node.classList.contains("cmd-card") || node.classList.contains("edit-card")) {
+    if (!turnCards.includes(t.toolCallId)) turnCards.push(t.toolCallId);
+    // A card redrawn with the same body keeps its fold (and so does an edit
+    // card kept as it was, which already has its header).
+    if (!node.dataset.fold) foldable(node, t.toolCallId, status);
+  }
   if (existing) existing.replaceWith(node);
   else if (node.classList.contains("step")) stepsGroup().append(node);
   else log.append(node);
   tools.set(t.toolCallId, node);
+  foldOlder();
   scrollDown();
 }
 

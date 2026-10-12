@@ -9,7 +9,7 @@ import type { ContextItem } from "../../src/protocol";
 import { filterCommands, mentionAt, slashQuery } from "../logic";
 import { post, rpc } from "../rpc";
 import { modelName, on, state } from "../state";
-import { button, el, icon, iconButton, MODE_NAME } from "../ui";
+import { button, el, icon, iconButton, MODE_NAME, tokens } from "../ui";
 import { closePicker, openPicker, picker, pickerOpen } from "./picker";
 import * as T from "./transcript";
 
@@ -39,6 +39,8 @@ const approveLine = button("", "approve-line", () => hooks.open("approve"));
 const under = el("div", "under");
 const modelBtn = button("", "model-btn", () => togglePicker(), "Model");
 const chromeDot = el("span", "chrome");
+const ctxRing = el("span", "ctx-ring hidden");
+ctxRing.setAttribute("role", "img");
 
 let context: ContextItem[] = [];
 let activeFile: ContextItem | null = null;
@@ -60,7 +62,8 @@ export function initComposer(h: ComposerHooks): void {
     sendBtn,
   );
   box.append(chips, input, bar);
-  under.append(modelBtn, el("span", "grow"), chromeDot);
+  under.append(modelBtn, ctxRing, el("span", "grow"), chromeDot);
+  on("usage", renderContext);
   composer.append(approval, working, editBar, suggest, modeMenu, approveLine, box, under);
   setBusy(false);
   renderOptions();
@@ -175,6 +178,33 @@ export function setChrome(status: string): void {
 }
 
 /** The line above the box: whether edits ask first (Settings › Auto-approve). */
+/**
+ * How full the context is: a ring beside the model and its percentage, as the
+ * app draws it (TokenCircle: green, amber from 65%, red from 85%). The chat's
+ * tokens, cache and cost are in its tooltip.
+ */
+export function renderContext(): void {
+  const u = state.usage;
+  ctxRing.classList.toggle("hidden", !(u.size > 0));
+  if (!(u.size > 0)) return;
+  const pct = Math.min(1, Math.max(0, u.used / u.size));
+  const size = 14;
+  const r = (size - 3) / 2;
+  const c = 2 * Math.PI * r;
+  const tone = pct >= 0.85 ? "var(--danger)" : pct >= 0.65 ? "var(--warn)" : "var(--primary)";
+  ctxRing.innerHTML =
+    `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" aria-hidden="true">` +
+    `<circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="currentColor" stroke-opacity="0.18" stroke-width="2"/>` +
+    `<circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="${tone}" stroke-width="2" stroke-linecap="round" ` +
+    `stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${(c * (1 - pct)).toFixed(2)}" transform="rotate(-90 ${size / 2} ${size / 2})"/></svg>`;
+  ctxRing.append(el("span", "", `${Math.round(pct * 100)}%`));
+  const lines = [`Context ${tokens(u.used)} of ${tokens(u.size)}`];
+  if (u.tokens > 0) lines.push(`${tokens(u.tokens)} tokens this chat${u.cachedTokens > 0 ? `, ${tokens(u.cachedTokens)} from cache` : ""}`);
+  if (u.cost > 0) lines.push(`$${u.cost.toFixed(u.cost < 1 ? 3 : 2)} on your keys`);
+  ctxRing.title = lines.join("\n");
+  ctxRing.setAttribute("aria-label", `Context ${Math.round(pct * 100)}% full`);
+}
+
 export async function refreshApproveLine(): Promise<void> {
   if (!state.sessionId) return;
   const r = await rpc<{ folderEdits: boolean; rules: unknown[] }>("_atlarix/permissions", { sessionId: state.sessionId, action: "list" }).catch(() => null);

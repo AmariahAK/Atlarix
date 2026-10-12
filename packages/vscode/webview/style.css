@@ -2222,3 +2222,31 @@ body.needs-you .needs-badge {
   align-items: center;
   padding: 0 12px 10px;
 }
+
+/* Edit and command cards fold like the app's tool cards (chat/transcript.ts foldable). */
+.fold__head {
+  cursor: pointer;
+  user-select: none;
+}
+.fold__head:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--primary) 70%, transparent);
+  outline-offset: -2px;
+}
+.fold__chev {
+  color: var(--muted);
+  width: 12px;
+  flex: none;
+  font-size: 1em;
+  line-height: 1;
+}
+
+/* How full the context is: a ring and its percentage beside the model (composer.ts renderContext). */
+.ctx-ring {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--faint);
+  font-size: 0.9em;
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+}

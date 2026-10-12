@@ -370,6 +370,8 @@ describe("atlarix acp", () => {
     });
     expect(w.stopReason).toBe("end_turn");
     expect(e.text(sessionId)).toContain("The build finished.");
+    // The wake turn adds its reply; the one before it is not sent again.
+    expect(e.text(sessionId).split("Started the build.").length - 1).toBe(1);
   }, 90_000);
 
   it("another editor is never sent a turn it did not ask for", async () => {

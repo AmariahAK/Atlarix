@@ -1,12 +1,10 @@
 /**
- * The task card above the conversation: its title, this chat's tokens (and how
- * many came from cache), what it cost on your keys, how full the context is,
- * and the plan, ticking off as it is built, with "Build it" when it's ready.
+ * The plan card above the conversation, ticking off as it is built, with
+ * "Build it" when it's ready.
  */
 import { renderMarkdown } from "../../../extension/src/panel/markdown";
-import { post } from "../rpc";
 import { state } from "../state";
-import { button, el, icon, tokens } from "../ui";
+import { button, el } from "../ui";
 
 export const taskCard = el("section", "task hidden");
 taskCard.setAttribute("aria-label", "This task");
@@ -37,42 +35,14 @@ export function clearTask(): void {
   renderTask();
 }
 
+/**
+ * The plan, over the conversation, while there is one. How full the context is
+ * (and the chat's tokens and cost) is the ring beside the model under the box
+ * (composer.ts), as in the app: one quiet mark, not a bar across the top.
+ */
 export function renderTask(): void {
   taskCard.textContent = "";
-  const u = state.usage;
-  const started = u.tokens > 0 || !!plan || state.title !== "New chat";
-  taskCard.classList.toggle("hidden", !started);
-  if (!started) return;
-
-  const head = el("div", "task__head");
-  head.append(el("span", "task__title", state.title));
-  const copy = button("", "icon small", () => post({ type: "copy", text: state.title }), "Copy the task's title");
-  copy.innerHTML = icon("copy", 13);
-  const compact = button("", "icon small", () => window.dispatchEvent(new CustomEvent("atlarix-send", { detail: "/compact" })), "Compact: summarise to free up context");
-  compact.innerHTML = icon("compact", 13);
-  head.append(copy, compact);
-  taskCard.append(head);
-
-  if (u.tokens > 0 || u.cost > 0) {
-    const stats = el("div", "task__stats");
-    stats.append(el("span", "", `${tokens(u.tokens)} tokens`));
-    if (u.cachedTokens > 0) stats.append(el("span", "", `${tokens(u.cachedTokens)} from cache`));
-    if (u.cost > 0) stats.append(el("span", "task__cost", `$${u.cost.toFixed(u.cost < 1 ? 3 : 2)}`));
-    taskCard.append(stats);
-  }
-  if (u.size > 0) {
-    const pct = Math.min(100, Math.round((u.used / u.size) * 100));
-    const ctx = el("div", "task__ctx");
-    const bar = el("span", "bar");
-    const fill = el("span", `bar__fill${pct > 85 ? " hot" : ""}`);
-    fill.style.width = `${pct}%`;
-    bar.append(fill);
-    bar.setAttribute("role", "img");
-    bar.setAttribute("aria-label", `Context ${pct}% full`);
-    ctx.append(el("span", "", "Context"), bar, el("span", "mono", `${tokens(u.used)} / ${tokens(u.size)}`));
-    taskCard.append(ctx);
-  }
-
+  taskCard.classList.toggle("hidden", !plan);
   if (plan) taskCard.append(planSection(plan));
 }
 
