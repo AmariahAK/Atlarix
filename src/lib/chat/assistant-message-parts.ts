@@ -68,6 +68,9 @@ function parseAttributes(attributesStr: string): Record<string, string> {
   return attributes;
 }
 
+/** A whole tool call or result block, whatever it quotes inside. */
+const TOOL_BLOCK = /<(atlarix-(?:mcp-)?tool-(?:call|result))\b[^>]*>[\s\S]*?<\/\1>/g;
+
 /** Minimal preprocess: close unclosed tool/thought tags so the scanner can pair them. */
 function preprocessForParse(content: string): string {
   const tagNames = [
@@ -81,11 +84,17 @@ function preprocessForParse(content: string): string {
     "atlarix-mcp-tool-result",
   ];
   let out = normalizeThinkingTags(content);
+  // Thought tags are counted OUTSIDE tool calls and results only. A tool's
+  // output can quote a thought tag (a session search returning an earlier
+  // message), and counting that one appended a stray closer at the very end of
+  // the message, which then showed as text after the reply (QA, 2026-10-12).
+  const outsideTools = out.replace(TOOL_BLOCK, (m) => " ".repeat(m.length));
   for (const tagName of tagNames) {
+    const counted = tagName.startsWith("atlarix-") ? out : outsideTools;
     const openTagPattern = new RegExp(`<${tagName}(?:\\s[^>]*)?>`, "g");
     const closeTagPattern = new RegExp(`</${tagName}>`, "g");
-    const openCount = (out.match(openTagPattern) || []).length;
-    const closeCount = (out.match(closeTagPattern) || []).length;
+    const openCount = (counted.match(openTagPattern) || []).length;
+    const closeCount = (counted.match(closeTagPattern) || []).length;
     const missing = openCount - closeCount;
     if (missing > 0) {
       out += Array(missing).fill(`</${tagName}>`).join("");
