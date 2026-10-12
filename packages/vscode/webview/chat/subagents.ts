@@ -10,7 +10,11 @@
  * opened yourself stays open.
  */
 import { renderMarkdown } from "../../../extension/src/panel/markdown";
+import { state } from "../state";
 import { button, el, tokens } from "../ui";
+
+/** Paths under the workspace as the main rows show them: relative. */
+const rel = (s: string) => (state.workspace ? s.split(`${state.workspace}/`).join("") : s);
 
 export interface SubagentMeta {
   label?: string | null;
@@ -68,7 +72,7 @@ function phase(m: SubagentMeta): string {
   if (settled(m.status)) return `Done${m.tools?.length ? ` · ${m.tools.length} tool${m.tools.length === 1 ? "" : "s"}` : ""}`;
   const last = m.tools?.[m.tools.length - 1];
   const doing = m.progress?.trim() || "Working…";
-  return last ? `${doing} · ${last.verb} ${last.target}`.trim() : doing;
+  return rel(last ? `${doing} · ${last.verb} ${last.target}`.trim() : doing);
 }
 
 function drawAgent(a: Agent): void {
@@ -88,14 +92,14 @@ function drawAgent(a: Agent): void {
   if (m.startedAt && !settled(status)) time.dataset.started = String(m.startedAt);
   time.textContent = m.startedAt && !settled(status) ? clock(Date.now() - m.startedAt) : "";
   meta.append(time);
-  if (m.tokens) meta.append(el("span", "", `${time.textContent ? " · " : ""}${tokens(m.tokens)}`));
+  if (m.tokens) meta.append(el("span", "", `${time.textContent ? " · " : ""}${tokens(m.tokens)} tokens`));
   head.append(el("span", `agent__mark${settled(status) ? "" : " spin"}`, MARK[status] ?? MARK.running), title, meta);
   a.row.append(head);
   if (!a.open) return;
   const body = el("div", "agent__body");
   for (const t of m.tools ?? []) {
     const line = el("div", "agent__tool");
-    line.append(el("span", "agent__tool-mark", MARK[t.status] ?? MARK.success), el("span", "", t.target ? `${t.verb} ${t.target}` : t.verb));
+    line.append(el("span", "agent__tool-mark", MARK[t.status] ?? MARK.success), el("span", "", rel(t.target ? `${t.verb} ${t.target}` : t.verb)));
     body.append(line);
   }
   if (!m.tools?.length && !settled(status)) body.append(el("div", "muted", "Waiting for its first step…"));
@@ -115,7 +119,7 @@ function drawHead(r: Round): void {
   r.head.append(
     el("span", `agent__mark${running ? " spin" : ""}`, running ? MARK.running : MARK.success),
     el("span", "agents__summary", running ? `Sub-agents · ${running}/${all.length} running` : `Sub-agents · ${all.length} completed`),
-    el("span", "agents__tokens", used ? tokens(used) : ""),
+    el("span", "agents__tokens", used ? `${tokens(used)} tokens` : ""),
   );
   // Active first, then done, then failed: what is happening stays on top.
   const rank = (a: Agent) => (a.meta.status === "error" ? 2 : settled(a.meta.status) ? 1 : 0);

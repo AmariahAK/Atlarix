@@ -237,6 +237,8 @@ onHost((m: HostMessage) => {
         clearTask();
         resetTasks();
         emit("session");
+        // The new chat's ring starts empty, not the last chat's (QA).
+        emit("usage");
       }
       replaying = m.replay;
       if (m.configOptions.length) applyOptions(m.configOptions);

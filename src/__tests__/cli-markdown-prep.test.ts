@@ -104,3 +104,12 @@ describe("a mermaid flowchart in the terminal", () => {
     expect(prepareMarkdown(seq)).toContain("sequenceDiagram");
   });
 });
+
+describe("what a thought was about, in one line", () => {
+  it("reads past 'e.g.' and drops inline markdown", async () => {
+    const { thoughtSummary } = await import("@/cli/tui/format");
+    expect(thoughtSummary("Now a representative tool, e.g. the read tool. Then the rest.")).toBe("Now a representative tool, e.g. the read tool.");
+    expect(thoughtSummary("`ToolPart` — where is it defined?\nSearch for it.")).toBe("ToolPart — where is it defined?");
+    expect(thoughtSummary("**Mapping the routes**\nStart with index.")).toBe("Mapping the routes");
+  });
+});

@@ -67,8 +67,22 @@ export function oneLine(text: string, max: number): string {
  */
 export function thoughtSummary(text: string): string {
   const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  // Inline markdown out: "`ToolPart` — where…" reads as "ToolPart — where…".
+  const plain = (s: string) => s.replace(/\*\*|__|`/g, "");
   const title = /^\*\*(.+?)\*\*:?$/.exec(lines[0] ?? "")?.[1];
-  if (title) return title;
-  const first = (lines[0] ?? "").replace(/\*\*/g, "");
-  return /^(.+?[.!?])(\s|$)/.exec(first)?.[1] ?? first;
+  if (title) return plain(title);
+  return firstSentenceOf(plain(lines[0] ?? ""));
 }
+
+/** Where a line's first sentence ends, not at "e.g." / "i.e." / "etc." (QA saw "Now a representative tool, e.g."). */
+function firstSentenceOf(line: string): string {
+  const end = /[.!?](?=\s|$)/g;
+  let m: RegExpExecArray | null;
+  while ((m = end.exec(line)) !== null) {
+    const upTo = line.slice(0, m.index + 1);
+    if (/\b(?:e\.g|i\.e|etc|vs|cf|approx|incl)\.$/i.test(upTo) || /(?:^|\s)[A-Za-z]\.$/.test(upTo)) continue;
+    return upTo;
+  }
+  return line;
+}
+

@@ -54,6 +54,8 @@ function isOpen(): boolean {
 
 function drawChip(): void {
   tasksBar.classList.toggle("hidden", count === 0 && !isOpen());
+  // Never "0 running" (QA): the chip itself goes at zero, even with the list open.
+  chip.classList.toggle("hidden", count === 0);
   chip.textContent = "";
   chip.append(el("span", "tasks__dot spin", "◌"), el("span", "", `${count} running`));
   chip.title = "What is still running in this chat";

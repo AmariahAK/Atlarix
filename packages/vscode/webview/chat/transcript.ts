@@ -80,12 +80,48 @@ export function beginTurn(): void {
   foldThought();
   closeCurrent();
   turnCards = [];
+  turnFirst = log.lastElementChild;
+  turnStartedAt = Date.now();
+}
+
+/** Where this turn's content starts (the element before it), and when it began. */
+let turnFirst: Element | null = null;
+let turnStartedAt = 0;
+
+/**
+ * A finished turn folds what it did on the way (thinking, steps, notes to
+ * itself) under one line above its answer: "Worked for 1m 30s · 31 steps".
+ * Without it a long turn left forty rows between the question and the answer
+ * (QA). Open it to see every step; nothing is removed.
+ */
+function foldFinishedWork(): void {
+  if (!turnStartedAt) return;
+  const els: Element[] = [];
+  for (let n = turnFirst ? turnFirst.nextElementSibling : log.firstElementChild; n; n = n.nextElementSibling) els.push(n);
+  let final = -1;
+  els.forEach((e, i) => {
+    if (e.classList.contains("msg") && e.classList.contains("agent")) final = i;
+  });
+  const work = final > 0 ? els.slice(0, final).filter((e) => !e.classList.contains("user")) : [];
+  const steps = work.reduce((n, e) => n + (e.matches(".step, .cmd-card, .edit-card, .agents") ? 1 : 0) + e.querySelectorAll(".step, .agent").length, 0);
+  if (work.length < 3 || steps < 2) return;
+  const secs = Math.max(1, Math.round((Date.now() - turnStartedAt) / 1000));
+  const took = secs >= 60 ? `${Math.floor(secs / 60)}m ${secs % 60}s` : `${secs}s`;
+  const d = el("details", "worked");
+  const s = el("summary", "worked__head");
+  s.append(el("span", "worked__mark", MARK.done), el("span", "", `Worked for ${took} · ${steps} step${steps === 1 ? "" : "s"}`));
+  const body = el("div", "worked__body");
+  d.append(s, body);
+  els[final]!.before(d);
+  for (const e of work) body.append(e);
 }
 
 /** A turn is over: what it changed gets a checkpoint, and its thinking folds. */
 export function endTurn(): void {
   foldThought();
   closeCurrent();
+  foldFinishedWork();
+  turnStartedAt = 0;
   if (turn.edits && turn.messageId != null) log.append(checkpoint(turn.messageId));
   turn = { edits: false, messageId: turn.messageId };
   scrollDown();
@@ -167,12 +203,26 @@ let thoughtStarted = 0;
  */
 export function thoughtSummary(text: string): string {
   const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  // Inline markdown out: "`ToolPart` — where…" reads as "ToolPart — where…".
+  const plain = (s: string) => s.replace(/\*\*|__|`/g, "");
   const title = /^\*\*(.+?)\*\*:?$/.exec(lines[0] ?? "")?.[1];
-  if (title) return title;
-  const first = (lines[0] ?? "").replace(/\*\*/g, "");
-  const sentence = /^(.+?[.!?])(\s|$)/.exec(first)?.[1] ?? first;
+  if (title) return plain(title);
+  const sentence = firstSentenceOf(plain(lines[0] ?? ""));
   return sentence.length > 140 ? `${sentence.slice(0, 139)}…` : sentence;
 }
+
+/** Where a line's first sentence ends, not at "e.g." / "i.e." / "etc." (QA saw "Now a representative tool, e.g."). */
+function firstSentenceOf(line: string): string {
+  const end = /[.!?](?=\s|$)/g;
+  let m: RegExpExecArray | null;
+  while ((m = end.exec(line)) !== null) {
+    const upTo = line.slice(0, m.index + 1);
+    if (/\b(?:e\.g|i\.e|etc|vs|cf|approx|incl)\.$/i.test(upTo) || /(?:^|\s)[A-Za-z]\.$/.test(upTo)) continue;
+    return upTo;
+  }
+  return line;
+}
+
 
 /**
  * The thought is over: fold it to one line saying what it was about and how
