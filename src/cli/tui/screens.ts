@@ -546,7 +546,7 @@ export function openAutoConsent(ctx: ScreenContext): void {
     new ListDialog({
       title: "Use Atlarix Auto for free?",
       intro: [
-        { text: "Atlarix Auto costs nothing. It is free because the prompts and replies it handles are shared with OpenAI, which may use them to improve its models." },
+        { text: "Atlarix Auto costs nothing. It is free because the prompts and replies it handles are shared with the AI providers that serve it (OpenAI, and free models through OpenRouter and Requesty), which may use them to improve their models." },
         { text: "Don't use it for code or data you can't share. Every other model — Core tiers and your own API keys — is not shared, and neither is Auto once you have Pro or credit: then it is paid and private.", tone: "muted" },
         { text: "Everyone gets a fair daily share; when yours is used, Auto moves to a free fallback model, then pauses until the daily reset.", tone: "muted" },
       ],

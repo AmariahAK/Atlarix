@@ -334,12 +334,13 @@ export const USE_OWN_KEY_LABEL = "Use your own key";
 
 /**
  * Atlarix Auto with no credit and no consent yet (proxy 402 `consent_required`).
- * Free Auto shares prompts with OpenAI, so it needs a one-time OK; paying
+ * Free Auto shares prompts with the providers that serve it, so it needs a
+ * one-time OK; paying
  * needs none. Starts with AUTO_CONSENT_MARKER so ChatErrorBox can open the
  * notice.
  */
 export function autoConsentRequiredUserMessage(): string {
-  return `Atlarix Auto is free once you OK sharing its prompts with OpenAI to improve their models. Review and accept to keep going. ${UPGRADE_LINE}`;
+  return `Atlarix Auto is free once you OK sharing its prompts with the AI providers that serve it, to improve their models. Review and accept to keep going. ${UPGRADE_LINE}`;
 }
 
 /** Atlarix Auto's free models are all busy right now (proxy 503 `free_busy`). */

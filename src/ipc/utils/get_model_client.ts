@@ -48,6 +48,7 @@ import { getLanguageModelProviders } from "../shared/language_model_helpers";
 import { getProviderApiKey } from "../shared/provider_api_keys";
 import { LanguageModelProvider } from "../ipc_types";
 import {
+  autoConsentHeader,
   getCompassMasterApiKey,
   getCoreModelIdForCoreTier,
   getFirstConfiguredCoreTier,
@@ -102,10 +103,12 @@ const logger = log.scope("getModelClient");
 
 /**
  * The hints Atlarix Auto routes on. Paid Auto picks a model from them; free
- * Auto needs the consent header (the free path shares prompts with OpenAI).
+ * Auto needs the consent header (the free path shares prompts with the
+ * providers that serve it). Its value is the wording version the user accepted:
+ * the proxy offers the free gateways only on "2".
  */
 export function autoRequestHeaders(
-  settings: Pick<UserSettings, "deepThinking" | "atlarixAutoConsentAt">,
+  settings: Pick<UserSettings, "deepThinking" | "atlarixAutoConsentAt" | "atlarixAutoConsentVersion">,
   options?: GetModelClientOptions,
 ): Record<string, string> {
   const out: Record<string, string> = {
@@ -116,7 +119,8 @@ export function autoRequestHeaders(
   };
   if (options?.workMode) out["X-Atlarix-Mode"] = options.workMode;
   if (options?.escalate) out["X-Atlarix-Escalate"] = "1";
-  if (settings.atlarixAutoConsentAt) out["X-Atlarix-Free-Consent"] = "1";
+  const consent = autoConsentHeader(settings);
+  if (consent) out["X-Atlarix-Free-Consent"] = consent;
   return out;
 }
 

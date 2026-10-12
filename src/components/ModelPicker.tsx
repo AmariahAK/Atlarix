@@ -25,7 +25,7 @@
  * advantage, the price badge.
  */
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSettings } from "@/hooks/useSettings";
 import { useSelectModel } from "@/hooks/useSelectModel";
 import { useLanguageModelsByProviders } from "@/hooks/useLanguageModelsByProviders";
@@ -49,7 +49,11 @@ import type { LargeLanguageModel } from "@/lib/schemas";
 import type { LanguageModel } from "@/ipc/ipc_types";
 import { resolveModelDisplayLabel } from "@/lib/resolve-model-display-label";
 import { AtlarixAutoConsentDialog } from "@/components/AtlarixAutoConsentDialog";
-import { isCoreAutoTier } from "@/ipc/shared/compass_constants";
+import {
+  ATLARIX_AUTO_CONSENT_VERSION,
+  autoConsentAccepted,
+  isCoreAutoTier,
+} from "@/ipc/shared/compass_constants";
 import { fetchAccountKind, useAccountKind } from "@/hooks/useAccountKind";
 import { useTranslation } from "react-i18next";
 import { UpgradeActions } from "@/components/billing/UpgradeActions";
@@ -111,6 +115,26 @@ export function ModelPicker({
   const modelDisplayName = useModelDisplayName();
 
   const selectedModel = settings?.selectedModel;
+
+  // A yes given to the OLD wording ("shared with OpenAI") is asked again ONCE,
+  // when free Auto is in use: it now also runs on free models through other
+  // providers. Recorded as asked the moment it opens, so it never repeats; a
+  // "Not now" keeps the OpenAI-only Auto that yes covered.
+  const [reaskAuto, setReaskAuto] = useState(false);
+  useEffect(() => {
+    if (!settings || reaskAuto || account !== "free") return;
+    const onAuto =
+      selectedModel?.provider === COMPASS_ID &&
+      isCoreAutoTier(selectedModel.name);
+    const oldYes =
+      !!settings.atlarixAutoConsentAt &&
+      (settings.atlarixAutoConsentVersion ?? 1) < ATLARIX_AUTO_CONSENT_VERSION;
+    if (!onAuto || !oldYes || settings.atlarixAutoConsentV2AskedAt) return;
+    setReaskAuto(true);
+    void updateSettings({
+      atlarixAutoConsentV2AskedAt: new Date().toISOString(),
+    });
+  }, [settings, selectedModel, account, reaskAuto, updateSettings]);
 
   const getProviderName = useCallback(
     (providerId: string) =>
@@ -213,7 +237,11 @@ export function ModelPicker({
     setLockedPick(false);
     // Only FREE Auto shares prompts, so only an account with nothing to pay
     // with is asked. A paying account's Auto is billed and never shared.
-    if (isAuto && !settings?.atlarixAutoConsentAt) {
+    if (
+      isAuto &&
+      (!settings?.atlarixAutoConsentAt ||
+        (settings.atlarixAutoConsentVersion ?? 1) < ATLARIX_AUTO_CONSENT_VERSION)
+    ) {
       // Unknown here can be a balance still loading on a paying account: ask
       // main before asking the user (QA #42). Still unknown (signed out,
       // offline) asks, as before.
@@ -231,13 +259,13 @@ export function ModelPicker({
     const model = pendingAuto;
     setPendingAuto(null);
     if (!model) return;
-    await updateSettings({ atlarixAutoConsentAt: new Date().toISOString() });
+    await updateSettings(autoConsentAccepted());
     void selectModel(model);
   };
 
   // Atlarix Auto's row says, in plain words, what happens to the prompts:
   // paid Auto (Pro or credit) is private and never trains anything; free Auto
-  // is shared with OpenAI. Unknown account (signed out, loading): no claim.
+  // is shared with the providers that serve it. Unknown account: no claim.
   const autoPrivacyLine = (o: Option): string | null => {
     if (o.providerId !== COMPASS_ID || !isCoreAutoTier(o.model.apiName)) return null;
     if (account === "pro" || account === "payg") return t("atlarixAuto.rowPrivate");
@@ -296,9 +324,16 @@ export function ModelPicker({
   return (
     <>
       <AtlarixAutoConsentDialog
-        open={pendingAuto != null}
-        onAccept={() => void acceptAuto()}
-        onCancel={() => setPendingAuto(null)}
+        open={pendingAuto != null || reaskAuto}
+        onAccept={() => {
+          if (pendingAuto) return void acceptAuto();
+          setReaskAuto(false);
+          void updateSettings(autoConsentAccepted());
+        }}
+        onCancel={() => {
+          setPendingAuto(null);
+          setReaskAuto(false);
+        }}
       />
       <Popover
         open={open}

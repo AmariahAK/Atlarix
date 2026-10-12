@@ -314,13 +314,22 @@ export const UserSettingsSchema = z.object({
   /**
    * When the user accepted Atlarix Auto's terms (ISO time), or absent.
    *
-   * Auto is served from OpenAI's complimentary tokens, which exist only for
-   * traffic shared with OpenAI to improve its models — so a user must say yes
-   * to that ONCE, knowingly, before their first Auto turn. Checked in MAIN at
-   * dispatch (get_model_client), not only in the picker: a saved selection or a
-   * synced setting must never send a prompt the user did not agree to share.
+   * Auto is served from OpenAI's complimentary tokens and from free models on
+   * OpenRouter and Requesty, all of which exist only for traffic shared with
+   * the providers to improve their models — so a user must say yes to that
+   * ONCE, knowingly, before their first Auto turn. Checked in MAIN at dispatch
+   * (get_model_client), not only in the picker: a saved selection or a synced
+   * setting must never send a prompt the user did not agree to share.
    */
   atlarixAutoConsentAt: z.string().optional(),
+  /**
+   * Which wording that yes was given to. 1 (or absent) = "shared with OpenAI";
+   * 2 = "shared with the AI providers that serve it". The proxy offers the free
+   * gateways only on 2, so a v1 yes keeps the OpenAI-only Auto it agreed to.
+   */
+  atlarixAutoConsentVersion: z.number().int().optional(),
+  /** When a v1 user was shown the v2 wording once (accepted or not), so it is asked only once. */
+  atlarixAutoConsentV2AskedAt: z.string().optional(),
   hasRunBefore: z.boolean().optional(),
   // Activation-funnel markers (analytics): epoch ms of the first agent turn
   // started / completed, so first_task_* events each fire exactly once.

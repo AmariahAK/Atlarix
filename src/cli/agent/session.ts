@@ -782,7 +782,8 @@ export class AgentSession extends EventEmitter {
   /** Free Auto asked for the OK to share prompts; record it and send the refused message again. */
   async acceptAutoConsent(): Promise<void> {
     const { writeSettings } = await import("@/main/settings");
-    writeSettings({ atlarixAutoConsentAt: new Date().toISOString() } as never);
+    const { autoConsentAccepted } = await import("@/ipc/shared/compass_constants");
+    writeSettings(autoConsentAccepted() as never);
     this.update({ lastError: null });
     const last = this.lastTurn;
     if (last) await this.startTurn(last.text, { ...last.opts, retry: true });

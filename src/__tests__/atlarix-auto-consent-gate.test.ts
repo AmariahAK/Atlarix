@@ -62,3 +62,24 @@ describe("Atlarix Auto consent at dispatch", () => {
     expect(out.modelClient.builtinProviderId).toBe("compass");
   });
 });
+
+/**
+ * The header carries WHICH wording the user said yes to. The proxy offers the
+ * free gateways (OpenRouter, Requesty) only on "2"; a yes to the old
+ * "shared with OpenAI" wording keeps the OpenAI-only Auto it agreed to.
+ */
+describe("the consent header names the wording version", () => {
+  it("sends nothing without a yes, 1 for the old wording, 2 for the new", async () => {
+    const { autoRequestHeaders } = await import("@/ipc/utils/get_model_client");
+    const { autoConsentAccepted } = await import("@/ipc/shared/compass_constants");
+    expect(autoRequestHeaders({} as never)["X-Atlarix-Free-Consent"]).toBeUndefined();
+    expect(
+      autoRequestHeaders({ atlarixAutoConsentAt: "2026-09-23T10:00:00Z" } as never)["X-Atlarix-Free-Consent"],
+    ).toBe("1");
+    expect(autoRequestHeaders(autoConsentAccepted() as never)["X-Atlarix-Free-Consent"]).toBe("2");
+    // A version alone (no yes recorded) is not consent.
+    expect(
+      autoRequestHeaders({ atlarixAutoConsentVersion: 2 } as never)["X-Atlarix-Free-Consent"],
+    ).toBeUndefined();
+  });
+});

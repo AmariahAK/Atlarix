@@ -540,8 +540,8 @@ describe("command screens", () => {
 
   it("free Auto's consent: accepting it sends the message again", async () => {
     const { setup, session } = await mount();
-    session.set({ lastError: "Atlarix Auto is free once you OK sharing its prompts with OpenAI to improve their models." });
-    expect(await frameContaining(setup, "Use Atlarix Auto for free?")).toContain("shared with OpenAI");
+    session.set({ lastError: "Atlarix Auto is free once you OK sharing its prompts with the AI providers that serve it, to improve their models." });
+    expect(await frameContaining(setup, "Use Atlarix Auto for free?")).toContain("shared with the AI providers that serve it");
     setup.mockInput.pressEnter();
     expect(await until(() => session.calls.some((c) => c[0] === "acceptAutoConsent"))).toBe(true);
   });
