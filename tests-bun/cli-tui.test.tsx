@@ -275,6 +275,15 @@ describe("keys and commands", () => {
     expect(session.calls.filter((c) => c[0] === "setMode").map((c) => c[1])).toEqual(["ask", "plan", "debug", "review", "build"]);
   });
 
+  it("shift+tab switches the mode even with the / menu open", async () => {
+    const { setup, session } = await mount();
+    await setup.mockInput.typeText("/");
+    await settle(setup);
+    setup.mockInput.pressTab({ shift: true });
+    await settle(setup);
+    expect(session.calls.filter((c) => c[0] === "setMode").map((c) => c[1])).toEqual(["ask"]);
+  });
+
   it("/mode picks any of the five modes", async () => {
     const { setup, session } = await mount();
     await setup.mockInput.typeText("/mode");

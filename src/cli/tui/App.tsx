@@ -1171,7 +1171,9 @@ export function App({
         key.preventDefault();
         return;
       }
-      if (key.name === "tab" || key.name === "return") {
+      // Plain tab or enter takes the suggestion; shift+tab still switches the
+      // mode (it was swallowed here while a menu was open).
+      if ((key.name === "tab" && !key.shift) || key.name === "return") {
         chooseMention(mention.matches[mention.index]!);
         key.preventDefault();
         return;
@@ -1235,7 +1237,9 @@ export function App({
         key.preventDefault();
         return;
       }
-      if (key.name === "tab" || key.name === "return") {
+      // Plain tab or enter takes the suggestion; shift+tab still switches the
+      // mode (it was swallowed here while a menu was open).
+      if ((key.name === "tab" && !key.shift) || key.name === "return") {
         const typed = parseCommandLine(composer.current?.text() ?? "");
         const chosen = palette[Math.min(paletteIndex, palette.length - 1)]!.name;
         runCommand(chosen, typed?.name === chosen ? typed.rest : "");
