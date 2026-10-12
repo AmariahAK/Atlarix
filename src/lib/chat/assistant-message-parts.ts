@@ -165,17 +165,39 @@ function toolStatusFromAttrs(
   return "success";
 }
 
+/**
+ * Tool numbering and open calls for ONE message, shared by every batch of tags
+ * in it.
+ *
+ * Each batch (the tags between two stretches of prose or thinking) used to get
+ * its own counters, so a long turn named five different calls `run_command_0`.
+ * The CLI and the editors key their cells by that name: the copies overwrote
+ * each other and were re-sent on every streamed chunk, which tore replies into
+ * pieces and stacked up empty thought blocks. Open calls live here too, so a
+ * result that arrives after some prose still finds its call.
+ */
+type ToolNumbering = {
+  counts: Record<string, number>;
+  /** tool key → its part, for the in-place status update a result makes. */
+  open: Map<string, { out: AssistantMessagePart[]; index: number }>;
+  /** Call id (the tags' `call` attribute) → its open tool's key. */
+  byCall: Map<string, string>;
+};
+
+function newToolNumbering(): ToolNumbering {
+  return { counts: {}, open: new Map(), byCall: new Map() };
+}
+
 function rawPiecesToAssistantParts(
   raw: RawPiece[],
   isStreaming: boolean,
   hasPlanArtifactMarker: boolean,
+  numbering: ToolNumbering = newToolNumbering(),
 ): AssistantMessagePart[] {
+  const openTools = numbering.open;
   const out: AssistantMessagePart[] = [];
-  const toolNameCounts: Record<string, number> = {};
-  /** tool id -> index in `out` for in-place status updates */
-  const openToolIndex = new Map<string, number>();
-  /** Call id (the tags' `call` attribute) → its open tool's key. */
-  const openToolByCall = new Map<string, string>();
+  const toolNameCounts = numbering.counts;
+  const openToolByCall = numbering.byCall;
   let thoughtBuffer: string[] = [];
 
   const flushThoughts = () => {
@@ -231,7 +253,7 @@ function rawPiecesToAssistantParts(
       let mapKey = `${toolName}_${seqNum}`;
 
       if (TOOL_CALL_TAGS.has(tag)) {
-        if (!openToolIndex.has(mapKey)) {
+        if (!openTools.has(mapKey)) {
           toolNameCounts[toolName] = seqNum + 1;
         }
         if (attrs.call) openToolByCall.set(attrs.call, mapKey);
@@ -247,7 +269,7 @@ function rawPiecesToAssistantParts(
                 : "success",
           args: piece.content ? tryParseJson(piece.content) : undefined,
         };
-        openToolIndex.set(mapKey, out.length);
+        openTools.set(mapKey, { out, index: out.length });
         out.push(toolPart);
         continue;
       }
@@ -257,14 +279,14 @@ function rawPiecesToAssistantParts(
       // the first of three parallel results on the third call.)
       const byCall = attrs.call ? openToolByCall.get(attrs.call) : undefined;
       const candidates =
-        byCall && openToolIndex.has(byCall)
+        byCall && openTools.has(byCall)
           ? [byCall]
           : Array.from({ length: seqNum + 1 }, (_, i) => `${toolName}_${i}`);
       for (const checkKey of candidates) {
-        const idx = openToolIndex.get(checkKey);
-        if (idx != null) {
+        const slot = openTools.get(checkKey);
+        if (slot != null) {
           mapKey = checkKey;
-          const prev = out[idx];
+          const prev = slot.out[slot.index]!;
           if (prev.type === "tool") {
             let resultText = piece.content?.trim();
             if (toolName === "write_implementation_plan") {
@@ -280,11 +302,10 @@ function rawPiecesToAssistantParts(
             const handoff = isDelegateToolName(toolName)
               ? (delegateDisplayMetaFromToolPart(updatedTool) ?? undefined)
               : undefined;
-            out[idx] = {
-              ...updatedTool,
-              handoff,
-            };
-            if (status !== "running") openToolIndex.delete(checkKey);
+            // In place: a call from an earlier batch is already in the
+            // message's part list, which holds this same object.
+            Object.assign(prev, { ...updatedTool, handoff });
+            if (status !== "running") openTools.delete(checkKey);
           }
           break;
         }
@@ -366,6 +387,7 @@ function parseSegmentContent(
   segment: string,
   isStreaming: boolean,
   hasPlanArtifactMarker: boolean,
+  numbering: ToolNumbering = newToolNumbering(),
 ): AssistantMessagePart[] {
   const parts: AssistantMessagePart[] = [];
   const rawPieces = parseRawPieces(segment);
@@ -378,6 +400,7 @@ function parseSegmentContent(
         tagBatch,
         isStreaming,
         hasPlanArtifactMarker,
+        numbering,
       ),
     );
     tagBatch.length = 0;
@@ -413,6 +436,7 @@ function parseSegmentContent(
           [{ type: "markdown", content: chunk.text }],
           isStreaming,
           hasPlanArtifactMarker,
+          numbering,
         ),
       );
     }
@@ -441,10 +465,18 @@ function dedupeConsecutiveTools(
 }
 
 /** Ordered assistant message parts (OpenCode-style single stream). */
+/**
+ * While streaming, a chunk can end partway through a tag (`<thin`, `<atlarix-tool-c`).
+ * Parsed as is, that fragment is prose for a moment and goes out as reply text
+ * the editor cannot take back. Hold it until its `>` arrives.
+ */
+const TRAILING_PARTIAL_TAG = /<\/?(?:[A-Za-z][\w-]*(?:\s[^<>]*)?)?$/;
+
 export function parseAssistantMessageParts(
   raw: string,
   isStreaming: boolean,
 ): AssistantMessagePart[] {
+  if (isStreaming && raw) raw = raw.replace(TRAILING_PARTIAL_TAG, "");
   if (!raw) return [];
   // Fast path for pure prose. Every structural form parseSegmentContent looks
   // for starts with a sentinel char: tags/thoughts/plan-markers with `<`, tool
@@ -465,6 +497,8 @@ export function parseAssistantMessageParts(
   const segments = splitContentByPlanMarkers(raw);
   const parts: AssistantMessagePart[] = [];
   const seenPlanIds = new Set<string>();
+  // One numbering for the whole message: every tool call gets its own id.
+  const numbering = newToolNumbering();
 
   for (const seg of segments) {
     if (seg.type === "plan-artifact") {
@@ -474,7 +508,7 @@ export function parseAssistantMessageParts(
       }
       continue;
     }
-    parts.push(...parseSegmentContent(seg.content, isStreaming, hasMarker));
+    parts.push(...parseSegmentContent(seg.content, isStreaming, hasMarker, numbering));
   }
 
   return dedupeConsecutiveTools(mergeAdjacentMarkdown(parts));
