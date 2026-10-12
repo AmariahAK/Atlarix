@@ -91,9 +91,18 @@ function subagentText(t: ToolLine): string {
   const n = t.children?.length ?? 0;
   const used = [n ? `${n} tool${n === 1 ? "" : "s"}` : "", t.agent?.tokens ? `${compactTokens(t.agent.tokens)} tokens` : ""].filter(Boolean);
   if (used.length) lines.push(used.join(" · "));
-  const report = t.status === "running" ? "" : (t.error ?? t.output ?? t.agent?.report ?? "").trim();
+  const report = t.status === "running" ? "" : agentReport(t).trim();
   if (report) lines.push("", report);
   return lines.join("\n");
+}
+
+/**
+ * What the agent itself reported (its answer, or why it failed) before the call's
+ * own output: for a background agent that output is the START envelope
+ * ("Background sub-agent started…"), which hid a failed agent's reason (QA #50).
+ */
+function agentReport(t: ToolLine): string {
+  return t.agent?.report?.trim() || t.error || t.output || "";
 }
 
 /** What Atlarix's own extension draws a sub-agent from; other editors ignore `_meta`. */
@@ -110,7 +119,7 @@ function subagentMeta(t: ToolLine): Record<string, unknown> {
           tokens: t.agent?.tokens ?? null,
           startedAt: t.agent?.startedAt ?? null,
           tools: (t.children ?? []).map((c) => ({ verb: c.verb, target: c.target, status: c.status })),
-          report: t.status === "running" ? null : (t.error ?? t.output ?? t.agent?.report ?? null),
+          report: t.status === "running" ? null : agentReport(t) || null,
         },
       },
     },

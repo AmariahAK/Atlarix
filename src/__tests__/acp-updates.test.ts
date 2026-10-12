@@ -269,3 +269,25 @@ describe("what woke the agent", () => {
     expect(diffUpdates([note], e)).toEqual([]);
   });
 });
+
+describe("a background sub-agent's report", () => {
+  it("is what the agent said (or why it failed), not the call's start envelope", async () => {
+    const { diffUpdates } = await import("@/cli/acp/updates");
+    const cell = {
+      kind: "tool" as const,
+      id: "1:t:task_0",
+      tool: {
+        id: "task_0",
+        verb: "Agent",
+        target: "Largest files in src/mini",
+        status: "error" as const,
+        output: "Background sub-agent started. You'll receive its result automatically when it finishes.",
+        agent: { label: "explore", report: "The model provider returned no output (rate limited)." },
+      },
+    };
+    const updates = diffUpdates([cell as never], new Map());
+    const meta = JSON.stringify(updates);
+    expect(meta).toContain("The model provider returned no output (rate limited).");
+    expect(meta).not.toContain("Background sub-agent started");
+  });
+});

@@ -7,6 +7,7 @@
  * calls in one assistant round run in parallel), and dedupe.
  */
 
+import log from "electron-log";
 import { createHash } from "node:crypto";
 import type { ToolSet } from "ai";
 import { BrowserWindow } from "electron";
@@ -30,6 +31,8 @@ import { creditHaltReason } from "@/lib/agents/credit-halt";
 import { cancelAllSubagentTasksForChat } from "@/lib/tools/spawn-task";
 import type { WorkMode } from "@/lib/schemas";
 import type { SubagentActivityEmit } from "@/lib/agents/run-subagent";
+
+const logger = log.scope("delegation-tools");
 
 /** The window that spawned this call; null for a synthetic sender (the CLI, background agents). */
 function ownerWindowOf(sender: WebContents): number | undefined {
@@ -331,6 +334,9 @@ export function attachDelegationToolsToSet(
             isError: boolean;
             durationMs: number;
           }) => {
+            logger.info(
+              `[background-subagent] settled ${id} ${settled.isError ? "ERROR" : "ok"} after ${Math.round(settled.durationMs / 1000)}s: ${settled.summary.replace(/\s+/g, " ").slice(0, 200)}`,
+            );
             ctx.safeSend(
               ctx.sender,
               "chat:activity",
