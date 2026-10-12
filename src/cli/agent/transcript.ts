@@ -295,10 +295,20 @@ function summarize(toolName: string, r: { text: string; exitCode?: number; faile
     return [first ?? (r.exitCode === 0 ? "(no output)" : ""), exit].filter(Boolean).join(" · ") || undefined;
   }
   if (toolName === "grep" && first) return first.replace(/:$/, "").replace(/match\(es\)/, "matches").replace(/file\(s\)/, "files");
-  // A read echoes "File: /abs/path" then numbered lines: say how many it read.
+  // A read says which lines it read: "Lines: 1-240 of 3641" or "Lines: 1-80 (complete)".
   if (toolName === "read_file" && first?.startsWith("File: ")) {
+    const range = /^Lines: (\d+)-(\d+)(?: of (\d+)| \(complete\))?/m.exec(r.text);
+    if (range) {
+      const [, from, to, of] = range;
+      return of ? `lines ${from}–${to} of ${of}` : `${to} line${to === "1" ? "" : "s"}`;
+    }
     const n = r.text.split("\n").filter((l) => /^\s*\d+[\t│|]/.test(l)).length;
-    return n ? `${n} line${n === 1 ? "" : "s"}` : "read";
+    return n ? `${n} line${n === 1 ? "" : "s"}` : undefined;
+  }
+  // A find: "Found 500 file(s) (newest first):" → "500 files".
+  if (toolName === "glob" && first) {
+    const found = /^Found (\d+) file\(s\)/.exec(first);
+    if (found) return `${found[1]} file${found[1] === "1" ? "" : "s"}`;
   }
   return first;
 }

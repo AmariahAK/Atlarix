@@ -234,6 +234,18 @@ export function diffUpdates(cells: readonly Cell[], emitted: Emitted, opts: { re
     } else if (c.kind === "notice") {
       if (before !== undefined) continue;
       emitted.set(k, c.text);
+      // What woke the agent ("◇ Map src/mini finished · 72s"): a finished step,
+      // which every editor draws, so a turn it did not ask for has its reason.
+      if (c.id.startsWith("wake:")) {
+        out.push({
+          sessionUpdate: "tool_call",
+          toolCallId: c.id,
+          title: c.text.replace(/^◇\s*/, ""),
+          kind: "other",
+          status: "completed",
+        });
+        continue;
+      }
       if (c.level === "error") {
         out.push({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `\n\n${c.text}` } });
       }

@@ -258,3 +258,14 @@ describe("a reply whose position in the message moves", () => {
     expect(diffUpdates([md("71:0", "Same words.")], e)).toHaveLength(1);
   });
 });
+
+describe("what woke the agent", () => {
+  it("goes to the editor as a finished step, once", () => {
+    const e: Emitted = new Map();
+    const note: Cell = { kind: "notice", id: "wake:k1", level: "info", text: "◇ Map src/mini finished · 72s" };
+    expect(diffUpdates([note], e)).toEqual([
+      { sessionUpdate: "tool_call", toolCallId: "wake:k1", title: "Map src/mini finished · 72s", kind: "other", status: "completed" },
+    ]);
+    expect(diffUpdates([note], e)).toEqual([]);
+  });
+});

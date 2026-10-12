@@ -256,3 +256,22 @@ describe("a sub-agent's task call", () => {
     expect(t.summary).toBe("src/mini has 12 files; the entry is index.ts.");
   });
 });
+
+describe("what a step's result line says", () => {
+  const line = (tool: string, args: object, result: string) => {
+    const content =
+      `<atlarix-tool-call tool="${tool}" call="c1" status="running">\n${JSON.stringify(args)}\n</atlarix-tool-call>\n` +
+      `<atlarix-tool-result tool="${tool}" call="c1" status="complete">\n${result}\n</atlarix-tool-result>\n`;
+    const cell = toCells([{ id: 3, role: "assistant", content }]).find((c) => c.kind === "tool");
+    return (cell as Extract<ReturnType<typeof toCells>[number], { kind: "tool" }>).tool.summary;
+  };
+
+  it("a read says which lines it read", () => {
+    expect(line("read_file", { path: "a.ts" }, "File: a.ts\nLines: 1-240 of 3641\n\n1\tx")).toBe("lines 1–240 of 3641");
+    expect(line("read_file", { path: "b.ts" }, "File: b.ts\nLines: 1-80 (complete)\n\n1\tx")).toBe("80 lines");
+  });
+
+  it("a find says how many files, without the dangling colon", () => {
+    expect(line("glob", { pattern: "**/*.ts" }, "Found 500 file(s) (newest first):\nsrc/a.ts")).toBe("500 files");
+  });
+});

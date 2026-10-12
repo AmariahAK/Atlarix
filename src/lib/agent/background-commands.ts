@@ -574,6 +574,14 @@ export function killBackgroundJob(
   return true;
 }
 
+/** What finished, for a person ("npm run build · exit 0 · 32s"), without draining it. */
+export function describePendingBackgroundCommands(chatId: number): string[] {
+  return (resultsByChat.get(chatId) ?? []).map((r) => {
+    const how = r.cancelled ? "cancelled" : r.exitCode === 0 ? "finished" : `failed · exit ${r.exitCode}`;
+    return `${r.command.split("\n")[0]!.slice(0, 80)} ${how} · ${Math.max(1, Math.round(r.durationMs / 1000))}s`;
+  });
+}
+
 /**
  * Take-once drain of finished background command results, formatted as a
  * model-facing block. Returns null when nothing is pending.

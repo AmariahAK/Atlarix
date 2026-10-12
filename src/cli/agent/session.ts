@@ -330,6 +330,7 @@ export class AgentSession extends EventEmitter {
     this.chatId = 0;
     this.messages = [];
     this.shellRuns = [];
+    this.wakeNotes.length = 0;
     this.queue = [];
     this.anchors.clear();
     this.seenUserIds.clear();
@@ -935,6 +936,8 @@ export class AgentSession extends EventEmitter {
   async wakeForBackground(): Promise<void> {
     if (this.state.busy || this.userStopped || this.wakeInFlight) return;
     if (!(await this.backgroundToDeliver())) return;
+    // Read what finished BEFORE the wake turn drains it.
+    await this.noteWhatWoke();
     this.wakeInFlight = true;
     try {
       await this.startTurn("", { continueAfterQuestions: true, systemWake: true });
@@ -959,6 +962,23 @@ export class AgentSession extends EventEmitter {
     } catch {
       return false;
     }
+  }
+
+  /** One line per finished piece of background work, before the wake turn it starts. */
+  private async noteWhatWoke(): Promise<void> {
+    if (!this.chatId) return;
+    await (async () => {
+      const { describePendingSubagentResults } = await import("@/lib/agents/subagent-results");
+      const { describePendingBackgroundCommands } = await import("@/lib/agent/background-commands");
+      return [...describePendingSubagentResults(this.chatId!), ...describePendingBackgroundCommands(this.chatId!)];
+    })()
+      .then((lines) => {
+        if (!lines.length) return;
+        const after = this.messages.length ? String(this.messages.at(-1)!.id) : "";
+        for (const text of lines) this.wakeNotes.push({ id: `${Date.now().toString(36)}${++interjectionSeq}`, afterMessageId: after, text: `◇ ${text}` });
+        this.update({ cells: this.cellsFor(this.state.busy) });
+      })
+      .catch(() => {});
   }
 
   /** The user stopped the last turn (esc); cleared by their next message. */
@@ -1113,13 +1133,43 @@ export class AgentSession extends EventEmitter {
 
   private untimedCells(streaming: boolean): Cell[] {
     const messages = collapseCancelled(this.messages, this.interrupted);
-    return withDelegations(
-      placeShellRuns(
-        markInterrupted(placeSteers(messages, this.anchors, { streaming }), this.interrupted),
-        this.shellRuns,
+    return this.placeWakeNotes(
+      withDelegations(
+        placeShellRuns(
+          markInterrupted(placeSteers(messages, this.anchors, { streaming }), this.interrupted),
+          this.shellRuns,
+        ),
+        this.delegations.values(),
       ),
-      this.delegations.values(),
     );
+  }
+
+  /**
+   * Why the agent spoke again on its own: "◇ Map src/mini finished · 72s", one
+   * line per piece of background work that woke it, after the message it
+   * finished behind. Without them a wake turn began with a bare step and you
+   * could not tell what had happened (QA).
+   */
+  private readonly wakeNotes: Array<{ id: string; afterMessageId: string; text: string }> = [];
+
+  private placeWakeNotes(cells: Cell[]): Cell[] {
+    if (!this.wakeNotes.length) return cells;
+    const out = [...cells];
+    for (const n of this.wakeNotes) {
+      let at = out.length;
+      if (n.afterMessageId) {
+        const prefix = `${n.afterMessageId}:`;
+        for (let i = out.length - 1; i >= 0; i--) {
+          if (out[i]!.id.startsWith(prefix)) {
+            at = i + 1;
+            break;
+          }
+        }
+      }
+      while (at < out.length && out[at]!.id.startsWith("wake:")) at++;
+      out.splice(at, 0, { kind: "notice", id: `wake:${n.id}`, level: "info", text: n.text });
+    }
+    return out;
   }
 
   /** Sub-agents started in this session, by delegation id (their work nests under the `task` line). */

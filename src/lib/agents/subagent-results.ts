@@ -123,6 +123,14 @@ export function runningSubagentCount(chatId: number): number {
   return runningByChat.get(chatId)?.size ?? 0;
 }
 
+/** What finished, for a person ("Map src/mini finished · 72s"), without draining it. */
+export function describePendingSubagentResults(chatId: number): string[] {
+  return (resultsByChat.get(chatId) ?? []).map(
+    (r) =>
+      `${r.description} ${r.state === "completed" ? "finished" : "failed"} · ${Math.max(1, Math.round(r.durationMs / 1000))}s`,
+  );
+}
+
 /** Peek (without draining) whether finished results are queued for this chat. */
 export function hasPendingSubagentResults(chatId: number): boolean {
   return (resultsByChat.get(chatId)?.length ?? 0) > 0;
