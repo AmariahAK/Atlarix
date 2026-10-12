@@ -2056,7 +2056,7 @@ ${stopNote}`;
               req.chatId,
               req.workspaceSessionId,
               partialResponse,
-              { force: true },
+              { force: true, ...(modelContent ? { modelContent } : {}) },
             );
           }
           logger.log(

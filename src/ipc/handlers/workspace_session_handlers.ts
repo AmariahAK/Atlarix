@@ -303,12 +303,14 @@ export async function upsertInterruptedAssistantDraft(
   existingRowId: string | null,
   sessionId: string,
   content: string,
+  /** A stopped turn's finished steps, so a reopened chat still has them. */
+  modelContent?: string,
 ): Promise<string> {
   const now = new Date();
   if (existingRowId) {
     await db
       .update(sessionMessages)
-      .set({ content, status: "interrupted" })
+      .set({ content, status: "interrupted", ...(modelContent ? { modelContent } : {}) })
       .where(eq(sessionMessages.id, existingRowId));
     await db
       .update(chatSessions)
@@ -323,6 +325,7 @@ export async function upsertInterruptedAssistantDraft(
     role: "assistant",
     content,
     status: "interrupted",
+    ...(modelContent ? { modelContent } : {}),
     createdAt: now,
   });
   await db
