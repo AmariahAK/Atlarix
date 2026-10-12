@@ -533,27 +533,26 @@ export class AgentSession extends EventEmitter {
   /** Summarise the conversation so far, as the agent does when the context fills. */
   async compact(): Promise<{ ok: boolean; message: string }> {
     if (this.state.busy) return { ok: false, message: "Compacting waits for the turn to finish (esc stops it)." };
-    if (!this.chatId || this.messages.length < 4) {
+    if (!this.chatId || this.messages.length < 2) {
       return { ok: false, message: "Nothing to compact yet: the conversation is still short." };
     }
     const { forceCompactEphemeralChat } = await import("@/lib/tools/workspace");
-    const { getStreamTransport } = await import("@/lib/chat/stream-transport");
-    const count = (t: unknown) =>
-      ((t as { messages?: Array<{ content?: string }> } | undefined)?.messages ?? []).reduce(
-        (n, m) => n + (m.content?.length ?? 0),
-        0,
-      );
-    const before = count(getStreamTransport(this.chatId));
     this.update({ busy: true, phase: "Compacting…", turnStartedAt: Date.now() });
     try {
-      const done = await forceCompactEphemeralChat(this.chatId, this.model?.provider);
+      const done = await forceCompactEphemeralChat(this.chatId, this.model?.provider, {
+        workspaceSessionId: this.sessionId || null,
+        summarize: true,
+      });
       if (!done) return { ok: false, message: "Nothing to compact yet: the conversation is still short." };
-      const after = count(getStreamTransport(this.chatId));
-      // ~4 characters a token: an estimate, said as one.
-      const tokens = (chars: number) => formatTokenCount(Math.round(chars / 4));
+      // Said as what happened: a summary, or (when the summary could not be
+      // made) only older tool output dropped.
+      const what =
+        done.strategy === "summarized"
+          ? "Atlarix now works from a summary of it."
+          : "Older tool output was dropped; the conversation itself is kept.";
       return {
         ok: true,
-        message: `Compacted · ~${tokens(before)} → ~${tokens(after)} tokens. Earlier messages stay on screen; Atlarix now works from the summary.`,
+        message: `Compacted · ~${formatTokenCount(done.tokensBefore)} → ~${formatTokenCount(done.tokensAfter)} tokens. Earlier messages stay on screen; ${what}`,
       };
     } finally {
       this.update({ busy: false, phase: null, turnStartedAt: null, contextPercent: null, contextUsed: null, contextLimit: null });

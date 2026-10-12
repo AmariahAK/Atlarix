@@ -715,7 +715,8 @@ export async function handleTurnError(
         const compacted = await forceCompactEphemeralChat(
           req.chatId,
           readSettings().selectedModel?.provider,
-        ).catch(() => false);
+          { workspaceSessionId: req.workspaceSessionId },
+        ).catch(() => false as const);
         if (compacted) {
           logger.warn(
             `[stream:${req.chatId}] Context overflow — compacted and retrying dispatch once`,

@@ -704,6 +704,16 @@ export function countMessagesTokens(
 // MAIN COMPACTION FUNCTION (Steps 1-5)
 // ═══════════════════════════════════════════════════════════════
 
+/** What the summariser is shown of the history, at most (about 15k tokens). */
+const SUMMARY_INPUT_CHARS = 60_000;
+
+/** The first quarter and the last three quarters of `max`, when over it. */
+function headAndTail(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const head = Math.floor(max / 4);
+  return `${text.slice(0, head)} … ${text.slice(text.length - (max - head))}`;
+}
+
 export async function runSteppedCompaction(
   messages: MessageForCompaction[],
   tierLimit: number,
@@ -723,6 +733,13 @@ export async function runSteppedCompaction(
      * tiny history returns an honest no-op instead of a degenerate summary.
      */
     force?: boolean;
+    /**
+     * The user asked for it (/compact): always end in a summary, as Claude Code
+     * and codex do, even when pruning alone freed enough. A prune-only pass
+     * writes no marker, so the next resume brought the whole history back, and
+     * "/compact" read as doing nothing (QA, 2026-10-13). Implies `force`.
+     */
+    summarize?: boolean;
     /**
      * Tokens already spent outside the message list (system prompt + current
      * input). Added to the usage-ratio numerator so this gate sees the SAME
@@ -761,7 +778,8 @@ export async function runSteppedCompaction(
     };
   }
 
-  const force = opts?.force === true;
+  const summarizeAsked = opts?.summarize === true;
+  const force = opts?.force === true || summarizeAsked;
   const currentTokens = countMessagesTokens(messages);
   const alreadyUsed = opts?.alreadyUsedTokens ?? 0;
   // `usable` is what the caller passes: the window MINUS the reply reserve. Every
@@ -800,8 +818,10 @@ export async function runSteppedCompaction(
 
   // Step 1.5: Microcompact — DROP stale tool outputs entirely (no LLM call).
   // Cheapest reduction; often gets us back under budget before truncation or
-  // summarization is ever needed.
-  {
+  // summarization is ever needed. Skipped when the user asked for a summary:
+  // that is made from the conversation itself (the summariser bounds its own
+  // input), not from what pruning left of it.
+  if (!summarizeAsked) {
     const { messages: micro, tokensDropped } = microcompactStaleToolOutputs(
       modelContext,
       budgets.microcompactKeepTokens,
@@ -814,7 +834,7 @@ export async function runSteppedCompaction(
   }
 
   // Step 2: Prune tool outputs.
-  if (force || usageRatio > PRUNE_THRESHOLD) {
+  if (!summarizeAsked && (force || usageRatio > PRUNE_THRESHOLD)) {
     const { messages: pruned, tokensPruned } = pruneToolOutputs(
       modelContext,
       budgets.pruneProtectRecent,
@@ -835,7 +855,7 @@ export async function runSteppedCompaction(
   const tokensAfterPrune = countMessagesTokens(modelContext);
 
   // Step 3: Strip media if still over budget.
-  if (tokensAfterPrune + alreadyUsed > usable) {
+  if (!summarizeAsked && tokensAfterPrune + alreadyUsed > usable) {
     const stripped = stripMediaFromMessages(modelContext);
     const strippedTokens = countMessagesTokens(stripped);
     const freedByStrip = tokensAfterPrune - strippedTokens;
@@ -853,7 +873,8 @@ export async function runSteppedCompaction(
   // (model-initiated) call whose cheap steps freed little: the model asked
   // for space, so give it real space instead of a token-identical no-op.
   const forcedSummarize =
-    force && tokensFreed < Math.max(2_000, Math.floor(currentTokens * 0.1));
+    summarizeAsked ||
+    (force && tokensFreed < Math.max(2_000, Math.floor(currentTokens * 0.1)));
   if (tokensAfterStrip + alreadyUsed > usable || forcedSummarize) {
     const { head: headMessages, tail_start_id: tailStartId } =
       selectMessagesForCompaction(modelContext, usable);
@@ -1147,12 +1168,22 @@ export async function summarizeMessagesWithCompactionPrompt(params: {
     HEAD_TOOL_TOKENS,
   );
 
+  // Each message within a share of one budget, keeping its START and, mostly,
+  // its END: an assistant turn ends with its answer. The old flat 2,000-char
+  // head cut turned one long explore turn into "I'll start by reading…" and
+  // lost the answer entirely (QA, 2026-10-13: a 96k-token turn summarised to
+  // ~250 tokens).
+  const perMessage = Math.max(
+    2_000,
+    Math.floor(SUMMARY_INPUT_CHARS / Math.max(1, forSummary.length)),
+  );
   const formatted = forSummary
     .map(
       (m) =>
-        `${m.role === "user" ? "User" : "Assistant"}: ${(m.content || "")
-          .replace(/\n/g, " ")
-          .slice(0, 2000)}`,
+        `${m.role === "user" ? "User" : "Assistant"}: ${headAndTail(
+          (m.content || "").replace(/\n/g, " "),
+          perMessage,
+        )}`,
     )
     .join("\n\n");
 

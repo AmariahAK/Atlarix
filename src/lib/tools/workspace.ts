@@ -137,10 +137,19 @@ export type ExecuteCompressContextContext = {
 export async function forceCompactEphemeralChat(
   chatId: number,
   providerId?: string,
-): Promise<boolean> {
+  opts?: {
+    /** The bound session: a transport's chat id is negative and cannot find it, so the marker was never saved. */
+    workspaceSessionId?: string | null;
+    /** The user asked (/compact): end in a summary. */
+    summarize?: boolean;
+  },
+): Promise<false | { strategy: string; tokensBefore: number; tokensAfter: number }> {
   const { getStreamTransport } = await import("@/lib/chat/stream-transport");
   const chat = getStreamTransport(chatId);
-  if (!chat || chat.messages.length < 4) return false;
+  // Size decides, not count: one long explore turn is two messages and 100k
+  // tokens (QA: a resumed session said "still short"). The compactor's own
+  // token floor turns a genuinely small one down.
+  if (!chat || chat.messages.length < 2) return false;
 
   const msgList = chat.messages.map((m) => ({
     id: m.id,
@@ -157,6 +166,8 @@ export async function forceCompactEphemeralChat(
   // persist call that used to follow this line is gone with the helper.
   const stepped = await runSteppedCompaction(msgList, forcedLimit, providerId, {
     chatId,
+    workspaceSessionId: opts?.workspaceSessionId,
+    ...(opts?.summarize ? { summarize: true } : {}),
   });
   if (!stepped.compactionApplied) return false;
 
@@ -168,9 +179,13 @@ export async function forceCompactEphemeralChat(
     createdAt: new Date(),
   }));
   logger.info(
-    `[compaction] Forced overflow compaction freed ~${stepped.tokensFreed} tokens (chat ${chatId})`,
+    `[compaction] Forced compaction (${stepped.strategy}) freed ~${stepped.tokensFreed} tokens (chat ${chatId}, marker saved: ${stepped.summaryPersisted})`,
   );
-  return true;
+  return {
+    strategy: stepped.strategy,
+    tokensBefore: currentTokens,
+    tokensAfter: stepped.modelContext.reduce((acc, m) => acc + estimateTokens(m.content || ""), 0),
+  };
 }
 
 export async function executeCompressContext(
