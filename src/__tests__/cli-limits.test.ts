@@ -49,3 +49,16 @@ describe("the terminal's notice", () => {
     expect(errorNotice("Something odd.")).toEqual({ tone: "error", title: "Something odd." });
   });
 });
+
+describe("a provider's words, quoted", () => {
+  it("collapses a masked key and cuts at a sentence", async () => {
+    const { byokLimitUserMessage } = await import("@/shared/texts");
+    const reason = `{"error":{"message":"Incorrect API key provided: sk-proj-${"*".repeat(150)}UcIA. You can find your API key at https://platform.openai.com/account/api-keys. Please check that you are using the right key and that it has not been revoked by an administrator."}}`;
+    const m = byokLimitUserMessage(reason, "openai")!;
+    const said = /\(It said: "(.*)"\)/.exec(m)![1]!;
+    expect(said).toContain("sk-proj-…UcIA.");
+    expect(said).not.toContain("****");
+    expect(said).toMatch(/[.…]$/);
+    expect(said.length).toBeLessThanOrEqual(201);
+  });
+});

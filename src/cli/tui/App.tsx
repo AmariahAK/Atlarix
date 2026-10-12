@@ -408,6 +408,7 @@ export function App({
   const [draft, setDraft] = useState("");
   const [paletteIndex, setPaletteIndex] = useState(0);
   const [approvalIndex, setApprovalIndex] = useState(0);
+  const [approvalExpanded, setApprovalExpanded] = useState(false);
   const [quitArmed, setQuitArmed] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [showHelp, setShowHelp] = useState(false);
@@ -1226,6 +1227,8 @@ export function App({
       } else if (key.name === "escape") {
         void session.answerApproval(approval.operationId, "deny");
         setApprovalIndex(0);
+      } else if (key.ctrl && key.name === "o") {
+        setApprovalExpanded((x) => !x);
       }
       key.preventDefault();
       return;
@@ -1569,7 +1572,7 @@ export function App({
         </box>
       ) : null}
 
-      {approval ? <Approval approval={approval} selected={approvalIndex} /> : null}
+      {approval ? <Approval approval={approval} selected={approvalIndex} expanded={approvalExpanded} /> : null}
 
       {/* The agent's questions stay next to the conversation they're about. */}
       {topView && !approval && topView.kind === "list" && topView.asking ? <DialogPanel view={topView} height={height} /> : null}

@@ -467,18 +467,23 @@ class Thread {
     return { stopReason: "end_turn" };
   }
 
+  /** How full the context is, for the editor's ring (after a turn, and on load). */
+  sendUsage(): void {
+    const s = this.session.state;
+    if (s.contextUsed == null || !s.contextLimit) return;
+    void this.send({
+      sessionUpdate: "usage_update",
+      used: s.contextUsed,
+      size: s.contextLimit,
+      ...(s.costUsd > 0 ? { cost: { amount: s.costUsd, currency: "USD" } } : {}),
+      // The task header in Atlarix's extension: this chat's tokens, and how many came from cache.
+      ...(this.extras() ? { _meta: { atlarix: { tokens: s.sessionTokens, cachedTokens: s.cachedTokens } } } : {}),
+    });
+  }
+
   private async afterTurn(): Promise<void> {
     const s = this.session.state;
-    if (s.contextUsed != null && s.contextLimit) {
-      void this.send({
-        sessionUpdate: "usage_update",
-        used: s.contextUsed,
-        size: s.contextLimit,
-        ...(s.costUsd > 0 ? { cost: { amount: s.costUsd, currency: "USD" } } : {}),
-        // The task header in Atlarix's extension: this chat's tokens, and how many came from cache.
-        ...(this.extras() ? { _meta: { atlarix: { tokens: s.sessionTokens, cachedTokens: s.cachedTokens } } } : {}),
-      });
-    }
+    this.sendUsage();
     if (s.title && s.title !== this.lastTitle) {
       this.lastTitle = s.title;
       void this.send({ sessionUpdate: "session_info_update", title: s.title });
@@ -734,6 +739,7 @@ export class AcpAgent {
     // editor that asks to load it again has nothing on screen, so start over.
     if (existing) existing.emitted.clear();
     await t.replay();
+    t.sendUsage();
     setTimeout(() => void t.refreshCommands(), 0);
     return { configOptions: await this.configOptions(t), modes: this.modes(t) };
   }

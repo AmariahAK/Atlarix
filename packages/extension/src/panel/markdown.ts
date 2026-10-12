@@ -285,12 +285,14 @@ function appendInline(parent: HTMLElement, text: string): void {
       el.textContent = code.slice(1, -1);
       parent.append(el);
     } else if (bold) {
+      // Its inside is inline markdown too: "**Read `a.ts` — failed**" showed
+      // the backticks (QA).
       const el = document.createElement("strong");
-      el.textContent = bold.slice(2, -2);
+      appendInline(el, bold.slice(2, -2));
       parent.append(el);
     } else if (italic) {
       const el = document.createElement("em");
-      el.textContent = italic.slice(1, -1);
+      appendInline(el, italic.slice(1, -1));
       parent.append(el);
     } else if (url) {
       const el = document.createElement("a");

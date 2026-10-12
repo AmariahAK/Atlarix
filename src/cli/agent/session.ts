@@ -187,7 +187,23 @@ export async function listFolderSessions(workspaceDir: string): Promise<SessionS
   await registerHandlers();
   const { workspaceAppIdForPath } = await import("@/lib/workspace-app-by-path");
   const appId = await workspaceAppIdForPath(workspaceDir);
-  return (await (await handler("sessions:list"))({}, appId)) as SessionSummary[];
+  return withoutUnusedChats((await (await handler("sessions:list"))({}, appId)) as SessionSummary[]);
+}
+
+/**
+ * A chat opened and never used ("Untitled", no messages) is not a past chat;
+ * the editor listed it (QA #31). One with a title of its own stays.
+ */
+async function withoutUnusedChats<T extends { id: string; title: string | null }>(rows: T[]): Promise<T[]> {
+  const blank = rows.filter((r) => !r.title?.trim() || /^(Untitled|New chat|New session)$/.test(r.title.trim()));
+  if (!blank.length) return rows;
+  const { db } = await import("@/db");
+  const { sessionMessages } = await import("@/db/schema");
+  const { inArray } = await import("drizzle-orm");
+  const used = new Set(
+    (await db.selectDistinct({ id: sessionMessages.sessionId }).from(sessionMessages).where(inArray(sessionMessages.sessionId, blank.map((r) => r.id)))).map((r) => r.id),
+  );
+  return rows.filter((r) => !blank.includes(r) || used.has(r.id));
 }
 
 /** Every folder's chats, newest first, with each one's folder (an editor's Past chats → All folders). */
@@ -195,7 +211,7 @@ export async function listAllSessions(): Promise<Array<SessionSummary & { folder
   const { initializeDatabase } = await import("@/db");
   initializeDatabase();
   await registerHandlers();
-  return (await (await handler("sessions:list-all"))({}, 200)) as Array<SessionSummary & { folder: string; folderName: string }>;
+  return withoutUnusedChats((await (await handler("sessions:list-all"))({}, 200)) as Array<SessionSummary & { folder: string; folderName: string }>);
 }
 
 /** Rename or delete a stored session without opening it (the editor's Past chats). */
@@ -415,7 +431,7 @@ export class AgentSession extends EventEmitter {
     const { chatId } = (await (await handler("sessions:allocate-transport"))({}, sessionId)) as { chatId: number };
     const got = (await (await handler("sessions:get"))({}, sessionId)) as {
       session: SessionSummary;
-      messages: Array<{ id: string; role: string; content: string; modelContent?: string | null; snapshotTurnId?: string | null }>;
+      messages: Array<{ id: string; role: string; content: string; modelContent?: string | null; snapshotTurnId?: string | null; maxTokensUsed?: number | null }>;
     };
     const rows = got.messages.map((m, i) => ({ id: i + 1, sessionRowId: m.id }));
     await (await handler("sessions:hydrate-transport"))({}, { chatId, sessionId, rows });
@@ -443,6 +459,15 @@ export class AgentSession extends EventEmitter {
       ...(mode === "build" || mode === "ask" || mode === "plan" || mode === "debug" || mode === "review" ? { mode } : {}),
       planReady: plan ? { planId: plan.id, title: plan.title ?? "Plan" } : null,
     });
+    // How full the context is, from the last reply's real token total, so an
+    // opened chat shows its own figure before its first new turn (QA #30).
+    const last = [...got.messages].reverse().find((m) => m.role === "assistant" && (m.maxTokensUsed ?? 0) > 0)?.maxTokensUsed;
+    if (last) {
+      await this.refreshContextWindow();
+      if (this.contextWindow) {
+        this.update({ contextUsed: last, contextLimit: this.contextWindow, contextPercent: Math.min(100, Math.round((last / this.contextWindow) * 100)) });
+      }
+    }
   }
 
   /** `atlarix -c`: the newest session in this folder, if there is one. */

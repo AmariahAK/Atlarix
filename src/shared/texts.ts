@@ -33,7 +33,19 @@ const KEY_RE =
 /** What the provider said, without its JSON envelope. */
 function providerSaid(reason: string): string {
   const m = /"message"\s*:\s*"([^"]{1,300})"/.exec(reason);
-  return (m?.[1] ?? reason).replace(/\s+/g, " ").trim().slice(0, 200);
+  const text = (m?.[1] ?? reason)
+    .replace(/\s+/g, " ")
+    // A masked key ("sk-proj-****…****UcIA") is a wall of asterisks that overflows
+    // the card; its two ends say which key it was (QA #32).
+    .replace(/(\S{0,12}?)\*{4,}(\S{0,8})/g, (_m, head: string, tail: string) => `${head}…${tail}`)
+    .trim();
+  if (text.length <= 200) return text;
+  // Cut at a sentence, else a word, never mid-word ("…UcIA. You ca").
+  const cut = text.slice(0, 200);
+  const sentence = cut.lastIndexOf(". ");
+  if (sentence > 80) return cut.slice(0, sentence + 1);
+  const word = cut.lastIndexOf(" ");
+  return `${cut.slice(0, word > 80 ? word : 200)}…`;
 }
 
 /** A BYOK failure worded by what happened, or null when it is none of these. */

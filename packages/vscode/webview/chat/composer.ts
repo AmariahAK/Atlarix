@@ -246,8 +246,20 @@ function renderApproval(): void {
   renderWorking();
   approval.textContent = "";
   if (!a) return;
-  const meta = (a.toolCall._meta as { atlarix?: { approval?: { command?: string | null; path?: string | null; risky?: boolean; risk?: string | null; outside?: string | null } } } | undefined)
-    ?.atlarix?.approval;
+  const meta = (a.toolCall._meta as {
+    atlarix?: {
+      approval?: {
+        command?: string | null;
+        path?: string | null;
+        risky?: boolean;
+        risk?: string | null;
+        outside?: string | null;
+        intent?: string | null;
+        added?: number | null;
+        removed?: number | null;
+      };
+    };
+  } | undefined)?.atlarix?.approval;
   const isCommand = !!meta?.command;
   const isEdit = !isCommand && !!meta?.path;
   approval.classList.toggle("risky", !!meta?.risky);
@@ -258,7 +270,14 @@ function renderApproval(): void {
   if (approvals.length > 1) head.append(el("span", "muted small", `1 of ${approvals.length}`));
   approval.append(head);
   if (meta?.command) approval.append(el("pre", "approval__code", meta.command));
-  else if (meta?.path) approval.append(el("div", "approval__code", meta.path));
+  else if (meta?.path) {
+    const row = el("div", "approval__code", meta.path);
+    if (meta.added != null || meta.removed != null) {
+      row.append(" ", el("span", "approval__add", `+${meta.added ?? 0}`), " ", el("span", "approval__del", `−${meta.removed ?? 0}`));
+    }
+    approval.append(row);
+  }
+  if (meta?.intent) approval.append(el("div", "approval__intent", meta.intent));
   if (meta?.risk) approval.append(el("div", "approval__risk", meta.risk));
   if (meta?.outside) approval.append(el("div", "approval__risk", `Outside this folder: ${meta.outside}`));
   const acts = el("div", "approval__acts");

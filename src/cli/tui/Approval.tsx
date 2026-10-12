@@ -30,11 +30,12 @@ export function splitDiffLine(l: { kind: string; text: string }): { prefix: stri
   return m ? { prefix: m[0], code: l.text.slice(m[0].length) } : { prefix: "", code: l.text };
 }
 
-export function Approval({ approval, selected }: { approval: PendingApproval; selected: number }) {
+export function Approval({ approval, selected, expanded = false }: { approval: PendingApproval; selected: number; expanded?: boolean }) {
   const p = firstPreview(approval);
   const choices = approvalChoices(approval);
   const shown = p.command ?? p.path ?? p.deniedPath ?? "";
-  const diff = approvalDiff(p);
+  // ctrl+o shows the whole change (QA: "… 2 more lines" had no way to see them).
+  const diff = approvalDiff(p, expanded ? 400 : 14);
   // The file's language colours the code, as in the transcript's diffs; the
   // sign keeps the add/remove colour (it was all green before).
   const split = (diff?.lines ?? []).map(splitDiffLine);
@@ -83,7 +84,7 @@ export function Approval({ approval, selected }: { approval: PendingApproval; se
               </text>
             );
           })}
-          {diff.more > 0 ? <text fg={color.faint}>… {diff.more} more lines</text> : null}
+          {diff.more > 0 ? <text fg={color.faint}>{`… ${diff.more} more line${diff.more === 1 ? "" : "s"} (ctrl+o)`}</text> : null}
         </box>
       ) : null}
       <box flexDirection="column">
@@ -94,7 +95,8 @@ export function Approval({ approval, selected }: { approval: PendingApproval; se
           </text>
         ))}
       </box>
-      <text fg={color.muted}>↑↓ choose · enter confirm · y/a/n · esc no</text>
+      {/* The letters these choices actually have ("d" was missing from "y/a/n"). */}
+      <text fg={color.muted}>{`↑↓ choose · enter confirm · ${[...new Set(choices.map(approvalKey))].join("/")} · esc no`}</text>
     </box>
   );
 }

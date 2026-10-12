@@ -391,9 +391,16 @@ button.icon.small {
 }
 .nav__name {
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
+/* One line, never squeezing the logo out (QA #29). */
 .needs-badge {
   display: none;
+  white-space: nowrap;
+  flex: none;
   font-size: 11px;
   color: var(--warn);
   background: var(--warn-bg);
@@ -2396,4 +2403,16 @@ body.needs-you .needs-badge {
   padding: 8px 0 4px 10px;
   border-left: 1px solid var(--border);
   margin: 4px 0 0 4px;
+}
+
+/* An edit's approval: what it changes, and why (composer.ts renderApproval). */
+.approval__add {
+  color: var(--success, var(--primary));
+}
+.approval__del {
+  color: var(--danger);
+}
+.approval__intent {
+  color: var(--muted);
+  font-size: 0.92em;
 }

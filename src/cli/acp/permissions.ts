@@ -7,6 +7,7 @@
  * where the request says it can be remembered. A dismissed prompt is a No: the
  * agent never proceeds on silence.
  */
+import { approvalDiff } from "../agent/approval-diff";
 import type {
   PermissionOption,
   PermissionOptionKind,
@@ -83,9 +84,14 @@ export function approvalToolCall(a: PendingApproval, owner?: string): ToolCallUp
   if (note) content.push({ type: "content", content: { type: "text", text: note } });
   // The same facts, structured, for Atlarix's own extension's approval bar
   // (other editors ignore _meta and read the note above).
+  // What an edit changes and why, as the terminal's card says them (QA #35).
+  const d = p.path ? approvalDiff(p) : null;
   const _meta = {
     atlarix: {
       approval: {
+        intent: p.description?.trim() || null,
+        added: d ? d.added : null,
+        removed: d ? d.removed : null,
         command: p.command ?? null,
         path: p.path ?? null,
         risky: !!p.isDangerous,
