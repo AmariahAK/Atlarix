@@ -953,6 +953,8 @@ export function App({
   const [pinnedPlan, setPinnedPlan] = useState<PinnedPlan | null>(null);
   const [planHidden, setPlanHidden] = useState(false);
   const planScroll = useRef<PlanScroll | null>(null);
+  /** The conversation, scrolled from the keyboard (page up/down). */
+  const transcriptScroll = useRef<((rows: number) => void) | null>(null);
   useEffect(() => {
     const ready = state.planReady;
     if (!ready) return setPinnedPlan(null);
@@ -1337,6 +1339,14 @@ export function App({
       key.preventDefault();
       return planScroll.current?.(key.name === "pageup" ? -5 : 5);
     }
+    // Read back without a mouse: page up/down scroll the conversation (they
+    // only reached the plan panel, so Terminal.app with mouse reporting off
+    // could not scroll at all — QA).
+    if (!host.open && (key.name === "pageup" || key.name === "pagedown")) {
+      key.preventDefault();
+      const page = Math.max(3, height - 8);
+      return transcriptScroll.current?.(key.name === "pageup" ? -page : page);
+    }
     if (planShown && key.name === "escape" && !state.busy && !host.open && !composer.current?.text()) {
       key.preventDefault();
       return setPlanHidden(true);
@@ -1360,7 +1370,9 @@ export function App({
       }
       return;
     }
-    if (key.name === "tab" && key.shift) {
+    // ctrl+y does the same: VS Code's "Tab Moves Focus" mode (ctrl+shift+m)
+    // takes shift+tab before the terminal ever sees it.
+    if ((key.name === "tab" && key.shift) || (key.name === "y" && key.ctrl)) {
       session.setMode(MODES[(MODES.indexOf(state.mode) + 1) % MODES.length]!);
       key.preventDefault();
       return;
@@ -1479,6 +1491,7 @@ export function App({
     <box flexDirection="column" height="100%" backgroundColor={color.bg} paddingLeft={1} paddingRight={1} onMouseUp={refocusPrompt}>
       <box flexGrow={1} marginBottom={1}>
         <Transcript
+          scrollRef={transcriptScroll}
           cells={state.cells}
           expanded={false}
           plain={plainMarkdown}
@@ -1568,7 +1581,7 @@ export function App({
             ["shift+enter, option+enter, ctrl+j", "new line (ctrl+j works in every terminal)"],
             ["esc", "stop the turn · close a menu"],
             ["esc esc", "go back to an earlier message (edit and resend)"],
-            ["shift+tab", "Build → Explore → Plan → Debug → Review"],
+            ["shift+tab", "Build → Explore → Plan → Debug → Review (ctrl+y too)"],
             ["ctrl+t", "deep thinking on / off"],
             ["/model", "choose the model"],
             ["ctrl+o", "detail view: every thought, output and diff in full"],

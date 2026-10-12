@@ -18,7 +18,8 @@
  * bottom while new output arrives, until the user scrolls up.
  */
 import { useTerminalDimensions } from "@opentui/react";
-import { memo, type ReactNode } from "react";
+import type { ScrollBoxRenderable } from "@opentui/core";
+import { memo, useEffect, useRef, type MutableRefObject, type ReactNode } from "react";
 import {
   previewLines,
   type Cell,
@@ -589,7 +590,10 @@ export function Transcript({
   busy = false,
   workspace,
   header,
+  scrollRef,
 }: {
+  /** Scrolls the conversation by a number of rows (page up/down from the keyboard). */
+  scrollRef?: MutableRefObject<((rows: number) => void) | null>;
   /** Paths under it are shown relative. */
   workspace?: string;
   /** Drawn first inside the scroll, so it stays at the top and scrolls away with history. */
@@ -600,8 +604,18 @@ export function Transcript({
   busy?: boolean;
 }) {
   const { width } = useTerminalDimensions();
+  const box = useRef<ScrollBoxRenderable | null>(null);
+  useEffect(() => {
+    if (!scrollRef) return;
+    scrollRef.current = (rows) => {
+      if (box.current) box.current.scrollTop = Math.max(0, box.current.scrollTop + rows);
+    };
+    return () => {
+      scrollRef.current = null;
+    };
+  }, [scrollRef]);
   return (
-    <scrollbox flexGrow={1} stickyScroll stickyStart="bottom">
+    <scrollbox ref={box} flexGrow={1} stickyScroll stickyStart="bottom">
       {/* paddingRight: the scrollbar is drawn OVER the last column, so text that
           wrapped exactly to the edge lost its last character under it — the
           "cut off" ends of lines (owner, 2026-10-04: "…the Atlarix agent" with

@@ -18,6 +18,7 @@ export interface Tip {
 
 export const TIPS: Tip[] = [
   { keys: "shift+tab", text: "switches Build, Explore, Plan, Debug and Review" },
+  { keys: "ctrl+y", text: "switches the mode too, where the terminal takes shift+tab (VS Code's Tab Moves Focus)" },
   { keys: "ctrl+o", text: "opens up thinking, tool output and sub-agents' calls" },
   { keys: "enter", text: "while Atlarix works steers the turn; tab queues for after it" },
   { keys: "esc esc", text: "on an empty box goes back to an earlier message, and its file changes" },
