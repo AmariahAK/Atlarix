@@ -90,3 +90,30 @@ describe("a long turn", () => {
     expect(prose.split("This project has an unusually detailed engineering log.").length - 1).toBe(1);
   });
 });
+
+describe("a reply that quotes a tool's JSON", () => {
+  const QUOTED = [
+    "4. Read the missing file — failed, as expected. The tool returned a clean structured error:\n\n```json\n",
+    '{ "success": false, "error": "file_not_found", "message": "No file at src/x.ts", "path": "src/x.ts" }\n',
+    "```\n\n**5. Run `ls /nope` — failed, as expected.** The pattern worth noting: errors come back as data.\n",
+  ].join("");
+
+  it("stays one reply, with no step made from the quote", () => {
+    const parts = parseAssistantMessageParts(QUOTED, false);
+    expect(parts.filter((p) => p.type === "tool")).toEqual([]);
+    const md = parts.filter((p) => p.type === "markdown");
+    expect(md).toHaveLength(1);
+    expect((md[0] as { content: string }).content).toContain('"error": "file_not_found"');
+    expect((md[0] as { content: string }).content).toContain("**5. Run");
+  });
+
+  it("while streaming, too, and a bare result outside a fence keeps one id across chunks", () => {
+    for (let i = 5; i <= QUOTED.length; i += 5) {
+      expect(parseAssistantMessageParts(QUOTED.slice(0, i), true).filter((p) => p.type === "tool")).toEqual([]);
+    }
+    const bare = 'Done.\n{"success":true,"result":"Found 3 matches"}\nThen more text.';
+    const a = parseAssistantMessageParts(bare, false).filter((p) => p.type === "tool").map((p) => p.id);
+    const b = parseAssistantMessageParts(bare, false).filter((p) => p.type === "tool").map((p) => p.id);
+    expect(a).toEqual(b);
+  });
+});

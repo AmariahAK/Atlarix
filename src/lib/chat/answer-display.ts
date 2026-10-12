@@ -63,6 +63,30 @@ export function mapOutsideFences(
   return out.join("\n");
 }
 
+/**
+ * Character ranges [from, to) of fenced code blocks, delimiter lines included.
+ * An unclosed fence (still streaming) runs to the end. Same rules as
+ * `mapOutsideFences`.
+ */
+function fencedSpans(content: string): Array<[number, number]> {
+  const spans: Array<[number, number]> = [];
+  let open: { char: string; len: number; from: number } | null = null;
+  let pos = 0;
+  for (const line of content.split("\n")) {
+    const d = fenceDelimiter(line);
+    const next = pos + line.length + 1;
+    if (open === null) {
+      if (d) open = { char: d.char, len: d.len, from: pos };
+    } else if (d && d.info === "" && d.char === open.char && d.len >= open.len) {
+      spans.push([open.from, Math.min(next, content.length)]);
+      open = null;
+    }
+    pos = next;
+  }
+  if (open) spans.push([open.from, content.length]);
+  return spans;
+}
+
 /** Strip hallucinated Atlarix tool XML from a streaming text-delta (no trim). */
 export function stripHallucinatedAtlarixToolTagsFromDelta(
   text: string,
@@ -313,6 +337,33 @@ export function splitByToolResultEnvelopes(
   { kind: "markdown"; text: string } | { kind: "envelope"; raw: string }
 > {
   if (!content) return [];
+  // Code the model fenced is its own text, never a tool result: a reply that
+  // QUOTES a tool's JSON error in a ```json block was split into two messages
+  // with a fake "✕ unknown" step between them, and the second half rendered as
+  // raw code (QA, 2026-10-13). Fenced spans pass through as markdown whole.
+  const fenced = fencedSpans(content);
+  if (fenced.length) {
+    const out: ReturnType<typeof splitByToolResultEnvelopes> = [];
+    let at = 0;
+    const pushText = (text: string) => {
+      const last = out.at(-1);
+      if (last?.kind === "markdown") last.text += text;
+      else if (text) out.push({ kind: "markdown", text });
+    };
+    for (const [from, to] of fenced) {
+      for (const c of splitByToolResultEnvelopes(content.slice(at, from))) {
+        if (c.kind === "markdown") pushText(c.text);
+        else out.push(c);
+      }
+      pushText(content.slice(from, to));
+      at = to;
+    }
+    for (const c of splitByToolResultEnvelopes(content.slice(at))) {
+      if (c.kind === "markdown") pushText(c.text);
+      else out.push(c);
+    }
+    return out.filter((c) => c.kind === "envelope" || c.text.trim());
+  }
   const out: Array<
     { kind: "markdown"; text: string } | { kind: "envelope"; raw: string }
   > = [];

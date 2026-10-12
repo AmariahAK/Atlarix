@@ -356,12 +356,11 @@ function tryParseJson(str: string): unknown {
   }
 }
 
-let envelopeSeq = 0;
-
 function envelopeToToolPart(
   raw: string,
   isStreaming: boolean,
   hasPlanArtifactMarker: boolean,
+  numbering: ToolNumbering,
 ): AssistantMessagePart | null {
   const toolName = inferToolNameFromEnvelopeRaw(raw);
   if (
@@ -373,7 +372,13 @@ function envelopeToToolPart(
   }
   const parsed = parseToolResultEnvelope(raw);
   const success = parsed?.envelope.success !== false;
-  const id = `envelope_${toolName}_${envelopeSeq++}`;
+  // Numbered per message like every other tool, so the same envelope keeps its
+  // id when the message is parsed again (a module-wide counter gave it a new id
+  // on every streamed chunk, and the CLI/ACP re-sent it as a new step).
+  const key = `envelope_${toolName}`;
+  const n = numbering.counts[key] ?? 0;
+  numbering.counts[key] = n + 1;
+  const id = `${key}_${n}`;
   const part: Extract<AssistantMessagePart, { type: "tool" }> = {
     type: "tool",
     id,
@@ -435,6 +440,7 @@ function parseSegmentContent(
           chunk.raw,
           isStreaming,
           hasPlanArtifactMarker,
+          numbering,
         );
         if (tool) parts.push(tool);
         continue;
@@ -501,7 +507,6 @@ export function parseAssistantMessageParts(
     if (lines.length > 0 && lines.every((l) => isToolJsonLine(l))) return [];
     return [{ type: "markdown", content: sanitized }];
   }
-  envelopeSeq = 0;
   const hasMarker = contentHasPlanArtifactMarker(raw);
   const segments = splitContentByPlanMarkers(raw);
   const parts: AssistantMessagePart[] = [];
