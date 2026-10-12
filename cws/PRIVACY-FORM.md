@@ -167,7 +167,7 @@ TICK these four:
 TRAINING — the extension is PAID-ONLY (owner decision 2026-09-23). It runs on
 paid Atlarix Auto or a pinned Core model, never on free Auto, and the proxy
 enforces that by surface. Nothing the extension sends is shared with a model
-provider for training. (Free Atlarix Auto — shared with OpenAI — exists only in
+provider for training. (Free Atlarix Auto — shared with the AI providers that serve it — exists only in
 the desktop app.) So the Limited Use certification holds without qualification.
 
 LEAVE these unticked, and the reasoning if a reviewer asks:
