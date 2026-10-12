@@ -489,7 +489,7 @@ describe("command screens", () => {
     expect(frame).toContain("Build it");
     expect(frame).not.toContain("Keep planning");
     const lines = frame.split("\n");
-    expect(lines.findIndex((l) => l.includes("Add GET /health"))).toBeLessThan(lines.findLastIndex((l) => l.includes("shift+tab mode")));
+    expect(lines.findIndex((l) => l.includes("Add GET /health"))).toBeLessThan(lines.findLastIndex((l) => l.includes("ctrl+y mode")));
     // You can type in the box while it shows.
     await setup.mockInput.typeText("make step 1 more specific");
     expect(await frameContaining(setup, "make step 1 more specific")).toContain("Add GET /health");

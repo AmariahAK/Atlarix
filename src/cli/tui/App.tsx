@@ -355,7 +355,8 @@ export function borderHints(o: {
   if (o.narrow) return [title ?? o.place, tasks].filter(Boolean).join(" · ");
   const mcp = o.mcp ? `⊙ ${o.mcp} MCP` : null;
   // ctrl+o isn't here: each collapsed item says "(ctrl+o)" where it has more.
-  return fit([title, o.place, mcp, "/commands", "shift+tab mode", tasks], [mcp ?? "", "shift+tab mode", "/commands", o.place]);
+  // ctrl+y named beside shift+tab: VS Code's Tab Moves Focus takes shift+tab (QA).
+  return fit([title, o.place, mcp, "/commands", "shift+tab / ctrl+y mode", tasks], [mcp ?? "", "shift+tab / ctrl+y mode", "/commands", o.place]);
 }
 
 /** The palette's visible rows: at most 8, kept around the highlighted one. */

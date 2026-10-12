@@ -992,9 +992,11 @@ export class AgentSession extends EventEmitter {
       return [...describePendingSubagentResults(this.chatId!), ...describePendingBackgroundCommands(this.chatId!)];
     })()
       .then((lines) => {
-        if (!lines.length) return;
+        // Each finished piece once, however many reports mention it.
+        const fresh = lines.filter((l) => !this.wakeNotes.some((n) => n.text === `◇ ${l}`));
+        if (!fresh.length) return;
         const after = this.messages.length ? String(this.messages.at(-1)!.id) : "";
-        for (const text of lines) this.wakeNotes.push({ id: `${Date.now().toString(36)}${++interjectionSeq}`, afterMessageId: after, text: `◇ ${text}` });
+        for (const text of fresh) this.wakeNotes.push({ id: `${Date.now().toString(36)}${++interjectionSeq}`, afterMessageId: after, text: `◇ ${text}` });
         this.update({ cells: this.cellsFor(this.state.busy) });
       })
       .catch(() => {});
@@ -1436,6 +1438,10 @@ export class AgentSession extends EventEmitter {
         // An editor starts its own turns (`idlePeerMessages: "hold"`), so there
         // it is told instead, and Atlarix's extension opens the wake turn.
         if (WAKE_STATUSES.has(String(p.status)) && (p.chatId == null || p.chatId === this.chatId)) {
+          // Finished while a turn runs: the running turn takes the result at
+          // its next step, so the line saying so goes in now (QA: the second
+          // of two agents never got its "finished" line).
+          if (this.state.busy) void this.noteWhatWoke();
           void this.backgroundToDeliver().then((yes) => {
             if (!yes) return;
             if (this.idlePeerMessages === "hold") this.emit("background-ready");
