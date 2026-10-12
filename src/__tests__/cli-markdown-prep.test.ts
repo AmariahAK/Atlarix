@@ -87,3 +87,10 @@ describe("a reply still streaming", () => {
     expect(settleStreaming(done)).toBe(done);
   });
 });
+
+describe("a tip during a turn", () => {
+  it("can leave out tips that would be beside the point", async () => {
+    const { pickTip } = await import("@/cli/tui/tips");
+    for (let i = 0; i < 200; i++) expect(pickTip(`s:${i}`, ["ctrl+t"]).keys).not.toBe("ctrl+t");
+  });
+});

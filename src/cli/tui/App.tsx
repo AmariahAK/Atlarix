@@ -789,7 +789,9 @@ export function App({
   const turnCount = useRef(0);
   const [tip, setTip] = useState<Tip>(() => pickTip(`welcome:${Date.now()}`));
   useEffect(() => {
-    if (state.busy) setTip(pickTip(`${session.sessionId}:${++turnCount.current}:${Date.now()}`));
+    // Not "ctrl+t turns deep thinking on" during a turn: the model may be
+    // thinking right there on screen (QA).
+    if (state.busy) setTip(pickTip(`${session.sessionId}:${++turnCount.current}:${Date.now()}`, ["ctrl+t"]));
   }, [state.busy]);
 
   const approval = state.approvals[0] ?? null;
