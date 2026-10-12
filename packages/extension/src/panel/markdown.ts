@@ -78,13 +78,24 @@ function taskBox(text: string): string {
   );
 }
 
+/**
+ * Draws a fenced block itself instead of showing its code (a `graph` fence as a
+ * diagram). Return null to show the code as usual; `closed` is false while the
+ * stream has not finished the block.
+ */
+export type FenceRenderer = (lang: string, code: string, closed: boolean) => Node | null;
+
 /** Render `markdown` into `container`, replacing whatever was there. */
-export function renderMarkdown(container: HTMLElement, markdown: string): void {
+export function renderMarkdown(
+  container: HTMLElement,
+  markdown: string,
+  opts: { fence?: FenceRenderer } = {},
+): void {
   container.textContent = "";
-  for (const node of parseBlocks(markdown)) container.append(node);
+  for (const node of parseBlocks(markdown, opts.fence)) container.append(node);
 }
 
-function parseBlocks(markdown: string): Node[] {
+function parseBlocks(markdown: string, fenceRenderer?: FenceRenderer): Node[] {
   const out: Node[] = [];
   const lines = markdown.replace(/\r\n/g, "\n").split("\n");
   let i = 0;
@@ -104,7 +115,13 @@ function parseBlocks(markdown: string): Node[] {
       // A fence the stream has not closed yet still renders as code. Waiting
       // for the closing ``` makes a long block appear as raw text and then
       // snap into place, which reads as a glitch.
+      const closed = i < lines.length;
       i += 1;
+      const drawn = fence[1] && fenceRenderer ? fenceRenderer(fence[1], body.join("\n"), closed) : null;
+      if (drawn) {
+        out.push(drawn);
+        continue;
+      }
       const pre = document.createElement("pre");
       const code = document.createElement("code");
       if (fence[1]) code.dataset.lang = fence[1];

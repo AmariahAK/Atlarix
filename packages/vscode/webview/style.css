@@ -569,8 +569,38 @@ body.needs-you .needs-badge {
 .thought .body {
   white-space: pre-wrap;
   padding: 4px 0 0 14px;
-  max-height: 12em;
+  max-height: 24em;
   overflow-y: auto;
+  color: var(--muted);
+  font-style: italic;
+  line-height: 1.5;
+}
+/* While it is being written: "Thinking · 4s" and its latest lines only. */
+.thought.live .thought__label {
+  color: var(--warn);
+}
+.thought.live .body {
+  max-height: 4.6em;
+  overflow: hidden;
+}
+/* Done: one line saying what it was about, and how long it took. */
+.thought__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.thought:not(.live) .thought__label {
+  color: var(--muted);
+}
+.thought__time {
+  flex: none;
+  font-style: normal;
+  color: var(--faint);
+}
+/* A one-line thought says everything in its summary: nothing more to open. */
+.thought.plain:not(.live) .body {
+  display: none;
 }
 
 /* Steps stay quiet so the answer stands out. */
@@ -2249,4 +2279,61 @@ body.needs-you .needs-badge {
   font-size: 0.9em;
   font-variant-numeric: tabular-nums;
   cursor: default;
+}
+
+/* Diagrams the agent answers with (chat/diagrams.ts): graph, chart, outline. */
+.fig {
+  margin: 6px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--raised);
+  padding: 8px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fig__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--faint);
+  font-size: 0.88em;
+}
+.fig svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.fig__node {
+  fill: var(--sunk);
+  stroke: var(--border-strong);
+}
+.fig__node.root {
+  fill: var(--primary-bg);
+  stroke: var(--primary-line);
+}
+.fig__text,
+.fig__tick {
+  fill: var(--muted);
+  font: 9px var(--sans);
+  text-anchor: middle;
+}
+.fig__edge,
+.fig__axis {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+.fig__bar {
+  fill: var(--primary);
+}
+.fig__line {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 2;
+}
+.fig__dot {
+  fill: var(--primary-soft);
+}
+.fig__outline {
+  font-size: 0.95em;
 }

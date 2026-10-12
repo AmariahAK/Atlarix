@@ -12,6 +12,7 @@ import { diffRows } from "../logic";
 import { post, rpc } from "../rpc";
 import { state } from "../state";
 import { button, el, icon, rixGlyph } from "../ui";
+import { drawFence } from "./diagrams";
 import { resetSubagents, upsertSubagent, type SubagentMeta } from "./subagents";
 
 /** Atlarix's own marks (src/cli/tui/glyphs.ts). */
@@ -134,10 +135,13 @@ function flushRender(): void {
   renderQueued = false;
   if (!current) return;
   const body = current.el.querySelector<HTMLElement>(".body")!;
-  if (current.kind === "reply") renderMarkdown(body, current.text);
+  if (current.kind === "reply") renderMarkdown(body, current.text, { fence: drawFence });
   else {
-    body.textContent = current.text;
+    body.textContent = current.text.trim();
+    current.el.dataset.text = current.text;
     body.scrollTop = body.scrollHeight;
+    const time = current.el.querySelector(".thought__time");
+    if (time && current.el.classList.contains("live")) time.textContent = ` · ${Math.max(1, Math.round((Date.now() - current.started) / 1000))}s`;
   }
   scrollDown();
 }
@@ -156,13 +160,41 @@ function closeCurrent(): void {
 let liveThought: HTMLDetailsElement | null = null;
 let thoughtStarted = 0;
 
+/**
+ * What a finished thought was about, in one line: its bold title when it has
+ * one (models often open with `**Checking the routes**`), else its first
+ * sentence.
+ */
+export function thoughtSummary(text: string): string {
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  const title = /^\*\*(.+?)\*\*:?$/.exec(lines[0] ?? "")?.[1];
+  if (title) return title;
+  const first = (lines[0] ?? "").replace(/\*\*/g, "");
+  const sentence = /^(.+?[.!?])(\s|$)/.exec(first)?.[1] ?? first;
+  return sentence.length > 140 ? `${sentence.slice(0, 139)}…` : sentence;
+}
+
+/**
+ * The thought is over: fold it to one line saying what it was about and how
+ * long it took (the app's thought block). Open it for the whole text. A thought
+ * under a second and one line long is just that line.
+ */
 function foldThought(): void {
   if (!liveThought) return;
-  if (!liveThought.dataset.user) liveThought.open = false;
-  const secs = Math.max(1, Math.round((Date.now() - thoughtStarted) / 1000));
-  const label = liveThought.querySelector(".thought__label");
-  if (label) label.textContent = liveThought.dataset.replay ? "Thought" : `Thought for ${secs}s`;
+  const d = liveThought;
   liveThought = null;
+  if (current?.el === d) closeCurrent();
+  const text = d.dataset.text ?? d.querySelector(".body")?.textContent ?? "";
+  const ms = Date.now() - thoughtStarted;
+  const secs = Math.round(ms / 1000);
+  const oneLine = text.trim().split("\n").filter((l) => l.trim()).length <= 1;
+  d.classList.remove("live");
+  if (!d.dataset.user) d.open = false;
+  const label = d.querySelector(".thought__label");
+  const time = d.querySelector(".thought__time");
+  if (label) label.textContent = thoughtSummary(text) || "Thought";
+  if (time) time.textContent = d.dataset.replay || (secs < 1 && oneLine) ? "" : ` · ${Math.max(1, secs)}s`;
+  d.classList.toggle("plain", oneLine);
 }
 
 export function appendText(kind: "reply" | "thought", text: string, replay = false): void {
@@ -180,10 +212,11 @@ export function appendText(kind: "reply" | "thought", text: string, replay = fal
       log.append(m);
       current = cur;
     } else {
-      const d = el("details", "thought");
+      const d = el("details", replay ? "thought" : "thought live");
       const s = el("summary");
-      s.append(el("span", "thought__mark", MARK.thought), el("span", "thought__label", replay ? "Thought" : "Thinking"));
-      // Open while the model thinks; folded once anything follows it. A click of yours leaves it as you set it.
+      s.append(el("span", "thought__mark", MARK.thought), el("span", "thought__label", replay ? "Thought" : "Thinking"), el("span", "thought__time"));
+      // Open while the model thinks (its latest lines); folded to one line once
+      // anything follows it. A click of yours leaves it as you set it.
       d.open = !replay;
       if (replay) d.dataset.replay = "1";
       s.addEventListener("click", () => (d.dataset.user = "1"));
@@ -324,8 +357,14 @@ function stepsGroup(): HTMLElement {
 /** A tool call: a quiet step, or a card for an edit or a command. */
 export function toolCall(t: ToolCallUpdate & { _meta?: unknown; kind?: string | null }): void {
   log.querySelector(".home")?.remove();
-  foldThought();
-  closeCurrent();
+  // Only a NEW step ends the reply or thought in progress. An update to a call
+  // already on screen (its status, its output) changes that call and nothing
+  // else: treating it as a break split one reply into many and stacked up
+  // empty thought blocks.
+  if (!tools.has(t.toolCallId)) {
+    foldThought();
+    closeCurrent();
+  }
   const peer = (t._meta as { atlarix?: { peer?: { from?: string } } } | undefined)?.atlarix?.peer;
   const existing = tools.get(t.toolCallId);
   const kind = (t.kind ?? existing?.dataset.kind ?? "other") as string;
