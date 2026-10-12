@@ -65,7 +65,12 @@ import {
   resolveAskUserToolResult,
   flushInterruptedDraft,
 } from "@/ipc/handlers/chat_stream/stream-lifecycle";
-import { partialResponses } from "@/ipc/handlers/chat_stream/stream-state";
+import {
+  liveRoundStepsByChatId,
+  partialResponses,
+  streamTurnIdByChatId,
+} from "@/ipc/handlers/chat_stream/stream-state";
+import { serializeNativeHistory, stoppedTurnNative } from "@/lib/ai/native-history";
 import {
   runToolExecute,
   attachSearchRoutingActivity,
@@ -2006,13 +2011,44 @@ export async function runBuildBranch(
           const cancelledContent = `${partialResponse}
 
 ${stopNote}`;
-          const { appendTransportMessage } = await import(
+          const { appendTransportMessage, getStreamTransport } = await import(
             "@/lib/chat/stream-transport"
           );
-          appendTransportMessage(req.chatId, {
-            role: "assistant",
-            content: stripThinkBlocks(cancelledContent),
-          });
+          // What finished before the stop reaches the next turn as real tool
+          // calls and results, as Claude Code and codex keep them.
+          const live = liveRoundStepsByChatId.get(req.chatId);
+          liveRoundStepsByChatId.delete(req.chatId);
+          const native = stoppedTurnNative(
+            ctx.nativeTurnMessages,
+            live && live.turn === streamTurnIdByChatId.get(req.chatId)
+              ? live.steps()
+              : [],
+            `${stopNote} The steps above finished before the stop; anything after them did not run.`,
+          );
+          const modelContent = native
+            ? serializeNativeHistory(native, {
+                builtinProviderId: modelClient.builtinProviderId,
+              })
+            : undefined;
+          // Onto the turn's own message, not a second one beside it: the copy
+          // showed the stopped turn twice, once with and once without its
+          // thinking (QA #34).
+          const pid = Number(streamTurnIdByChatId.get(req.chatId));
+          const own = Number.isFinite(pid)
+            ? getStreamTransport(req.chatId)?.messages.find(
+                (m) => m.id === pid && m.role === "assistant",
+              )
+            : undefined;
+          if (own) {
+            own.content = stripThinkBlocks(cancelledContent);
+            if (modelContent) own.modelContent = modelContent;
+          } else {
+            appendTransportMessage(req.chatId, {
+              role: "assistant",
+              content: stripThinkBlocks(cancelledContent),
+              ...(modelContent ? { modelContent } : {}),
+            });
+          }
           // Issue 4: persist the partial to the session DB as an
           // interrupted row so it survives reload and offers Continue.
           if (req.workspaceSessionId) {

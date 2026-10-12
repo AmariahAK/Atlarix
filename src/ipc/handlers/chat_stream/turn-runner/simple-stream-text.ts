@@ -63,6 +63,8 @@ import { sentryCaptureExceptionSafe } from "@/ipc/handlers/chat_stream/sentry-sa
 import {
   activeStreams,
   activeStreamId,
+  liveRoundStepsByChatId,
+  streamTurnIdByChatId,
 } from "@/ipc/handlers/chat_stream/stream-state";
 import {
   takePendingBackgroundCommandResults,
@@ -478,6 +480,11 @@ export async function simpleStreamText(
   const recordStepMessages = (msgs: readonly ModelMessage[] | undefined) => {
     if (msgs && msgs.length) completedStepMessages.push(...msgs);
   };
+  // What a user's stop keeps of this round (build-branch's abort path).
+  liveRoundStepsByChatId.set(req.chatId, {
+    turn: streamTurnIdByChatId.get(req.chatId),
+    steps: () => completedStepMessages.slice(),
+  });
   /**
    * The transport failure `onError` classified, kept so round-retry can act on it.
    *

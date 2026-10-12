@@ -223,7 +223,12 @@ export function keepThoughts(prev: readonly ChatMessageLike[], next: readonly Ch
   return next.map((m) => {
     const old = before.get(String(m.id));
     if (m.role !== "assistant" || !old || old.content === m.content || !old.content.includes("think")) return { ...m };
-    return stripThinkBlocks(old.content).trim() === m.content.trim() ? { ...m, content: old.content } : { ...m };
+    const plain = stripThinkBlocks(old.content).trim();
+    const now = m.content.trim();
+    if (plain === now) return { ...m, content: old.content };
+    // A stopped turn: the same text without its thinking, plus the stop note.
+    if (plain && now.startsWith(plain)) return { ...m, content: `${old.content.trimEnd()}${now.slice(plain.length)}` };
+    return { ...m };
   });
 }
 

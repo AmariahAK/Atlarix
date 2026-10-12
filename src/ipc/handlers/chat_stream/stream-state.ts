@@ -230,6 +230,17 @@ export const streamSessionByChatId = new Map<number, string>();
  * report the id too.
  */
 export const streamTurnIdByChatId = new Map<number, string>();
+/**
+ * chatId → the running round's FINISHED steps (native tool call + result pairs).
+ * Earlier rounds are folded into the turn's native envelope as they end; the
+ * round a user stops is not, so without this a stopped turn kept only its text
+ * and the model believed it had done nothing (QA, 2026-10-13: "Zero. No
+ * read_file call had executed" after eight reads).
+ */
+export const liveRoundStepsByChatId = new Map<
+  number,
+  { turn: string | undefined; steps: () => import("ai").ModelMessage[] }
+>();
 /** #15: chatId → the work mode of that chat's PREVIOUS turn, to detect a switch
  * and fire a "mode changed" re-anchor. In-memory per chat (a restart just skips
  * the "changed" note on the first turn — the plain re-anchor still fires). */
