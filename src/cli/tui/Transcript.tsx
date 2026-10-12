@@ -27,7 +27,7 @@ import {
 } from "../agent/transcript";
 import { COMMANDS } from "./commands";
 import { useDiffSegments } from "./diff-highlight";
-import { oneLine } from "./format";
+import { oneLine, thoughtSummary } from "./format";
 import { Prose } from "./Prose";
 import { color, glyph } from "./theme";
 
@@ -494,17 +494,14 @@ function CellViewInner({
         </box>
       );
     case "thought": {
-      // Still being written: what it is thinking now. Done: its title (a bold
-      // first line) or first line, and how long it took. ctrl+o: all of it.
+      // Still being written: its latest line (the status line under the box
+      // already says "Thinking… 11s", so it is not said twice). Done: what it
+      // was about (its bold title, or its first sentence) and how long it
+      // took. ctrl+o: all of it.
       const lines = cell.text.split("\n").filter((l) => l.trim());
-      const title = /^\*\*(.+?)\*\*$/.exec(lines[0]?.trim() ?? "")?.[1];
       const took =
-        cell.ms != null && cell.ms >= 1000
-          ? ` · thought for ${Math.round(cell.ms / 1000)}s`
-          : "";
-      const head = live
-        ? `Thinking… ${(lines.at(-1) ?? "").replace(/\*\*/g, "")}`
-        : (title ?? (lines[0] ?? "").replace(/\*\*/g, ""));
+        cell.ms != null && cell.ms >= 1000 ? ` · ${Math.round(cell.ms / 1000)}s` : "";
+      const head = live ? (lines.at(-1) ?? "").replace(/\*\*/g, "") : thoughtSummary(cell.text);
       return (
         <box marginTop={spaced ? 1 : 0} flexDirection="row">
           <text fg={live ? color.warn : color.faint} flexShrink={0}>

@@ -59,3 +59,16 @@ export function oneLine(text: string, max: number): string {
   const more = cut !== first || text.trim().includes("\n");
   return more ? `${cut}…` : cut;
 }
+
+/**
+ * What a finished thought was about, in one line: its bold title when it has
+ * one (models often open with `**Checking the routes**`), else its first
+ * sentence. The editor panel draws the same summary (webview transcript.ts).
+ */
+export function thoughtSummary(text: string): string {
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  const title = /^\*\*(.+?)\*\*:?$/.exec(lines[0] ?? "")?.[1];
+  if (title) return title;
+  const first = (lines[0] ?? "").replace(/\*\*/g, "");
+  return /^(.+?[.!?])(\s|$)/.exec(first)?.[1] ?? first;
+}

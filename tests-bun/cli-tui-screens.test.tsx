@@ -655,13 +655,16 @@ describe("command screens", () => {
         { kind: "user", id: "1:u", text: "what's in [Image #1] and [Pasted text #1 +40 lines]", chips: ["[Image #1]", "[Pasted text #1 +40 lines]"] },
         { kind: "thought", id: "2:0", text: "**Reading the screenshot**\nIt shows a login form.", ms: 4200 },
         { kind: "markdown", id: "2:1", text: "A login form." },
+        { kind: "thought", id: "2:2", text: "Check the submit handler next. It may skip validation.", ms: 2100 },
         { kind: "footer", id: "2:footer", text: "Build · deepseek-flash · 12s" },
       ],
     } as never);
-    const frame = await frameContaining(setup, "thought for 4s");
+    const frame = await frameContaining(setup, "Reading the screenshot · 4s");
     expect(frame).toContain(" Image #1 ");
     expect(frame).toContain(" Pasted text #1 +40 lines ");
     expect(frame).toContain("∴ Reading the screenshot");
+    // No bold title: its first sentence says what it was about.
+    expect(frame).toContain("∴ Check the submit handler next. · 2s");
     expect(frame).not.toContain("**");
     expect(frame).toContain("◆ Build · deepseek-flash · 12s");
   });
