@@ -29,6 +29,7 @@ import {
 } from "./transcript";
 
 import { conversationText } from "./btw";
+import { inlinePlan } from "./inline-plan";
 import { handler } from "./ipc";
 import { readCliState, turnModelFor } from "./models";
 import { applyLiveTextPatch, type LiveTextPatch } from "@/lib/chat/live-text-patch";
@@ -1714,6 +1715,20 @@ export class AgentSession extends EventEmitter {
       const { getPlanArtifact } = await import("@/lib/plans/plan-artifacts");
       const plan = await getPlanArtifact(touched.planId).catch(() => null);
       if (plan?.planStatus === "plan") this.update({ planReady: touched });
+    } else if (!touched && !wasInterrupted && this.state.mode === "plan" && !this.state.question && this.sessionId && lastReply) {
+      // The plan was written in the reply, not saved with the plan tool: save
+      // it, so it gets its card and Build it like any other (QA #43b).
+      const { parseAssistantMessageParts } = await import("@/lib/chat/assistant-message-parts");
+      const prose = parseAssistantMessageParts(lastReply.content, false)
+        .filter((p) => p.type === "markdown")
+        .map((p) => (p as { content: string }).content)
+        .join("\n\n");
+      const found = inlinePlan(prose);
+      if (found) {
+        const { createPlanArtifact } = await import("@/lib/plans/plan-artifacts");
+        const row = await createPlanArtifact(this.sessionId, found.content, found.title).catch(() => null);
+        if (row) this.update({ planReady: { planId: row.id, title: found.title } });
+      }
     }
     if (wasInterrupted) {
       // A stopped turn opens nothing: steers typed during it are dropped with it.
@@ -1729,7 +1744,15 @@ export class AgentSession extends EventEmitter {
     this.steers = [];
     const next = flushed?.text?.trim() ? flushed.text : this.queue.shift()?.text;
     this.syncPending();
-    if (next) await this.startTurn(next);
+    if (next) return void (await this.startTurn(next));
+    // Background work that finished during this turn's LAST step was too late to
+    // go into it, and its "finished" event found the session busy, so nothing
+    // would ever wake for it: the report sat undelivered and the row looked dead
+    // (QA #50, reproduced: an agent done 0.3s before the turn ended).
+    if (await this.backgroundToDeliver()) {
+      if (this.idlePeerMessages === "hold") this.emit("background-ready");
+      else void this.wakeForBackground();
+    }
   }
 
   /** Open a turn with a message another session queued while this one was idle. */
