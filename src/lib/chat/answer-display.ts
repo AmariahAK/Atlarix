@@ -127,7 +127,11 @@ export function stripOrphanToolTagFragments(content: string): string {
     s = stripTruncatedToolResultTail(s);
     s = stripMultilineToolJsonEnvelopes(s);
     s = stripToolJsonLinesFromMarkdown(s);
-    s = s.replace(/\n{2,}/g, "\n");
+    // Close the gaps stripped debris leaves, but keep a paragraph break: "\n{2,}"
+    // → "\n" merged every paragraph, and a table glued to the line above it
+    // rendered as one flat line of pipes in the editor (QA #41).
+    // (At a fence the segment's own end and the join add one newline more.)
+    s = s.replace(/\n{3,}/g, "\n\n").replace(/^\n{2,}/, "\n").replace(/\n{2,}$/, "\n");
     return s;
   });
   return out.trim();

@@ -69,7 +69,7 @@ export interface Delegation {
   /** The reply it belongs to, and which of that reply's `task` calls it is (0, 1, …). */
   assistantId: string;
   index: number;
-  status: "running" | "success" | "error";
+  status: "running" | "success" | "error" | "interrupted";
   progress?: string;
   summary?: string;
   children: ToolLine[];
@@ -128,7 +128,7 @@ export function withDelegations(cells: Cell[], delegations: Iterable<Delegation>
         ...c.tool,
         // The call returns at once for a background agent; the row follows the
         // agent itself (QA saw ◌ stay after both had finished).
-        status: d.status === "running" ? c.tool.status : d.status === "error" ? "error" : "success",
+        status: d.status === "running" ? c.tool.status : d.status === "error" || d.status === "interrupted" ? d.status : "success",
         children: d.children,
         progress: d.status === "running" && !echo ? d.progress : undefined,
         agent: {
@@ -497,9 +497,27 @@ export function toolLine(part: Extract<AssistantMessagePart, { type: "tool" }>):
     status: part.status,
     result: part.resultText,
     error: part.error,
-    output: r.text || undefined,
+    output: shownOutput(part.toolName, r.text),
     summary: part.status === "running" ? undefined : diff ? editSummary(diff) : summarize(part.toolName, r),
   };
+}
+
+/**
+ * The output a row shows under a command (the TUI prints it, not the summary):
+ * without the "=== STDOUT ===" plumbing, and none for a command sent to the
+ * background, whose "output" is the note for the model (QA #13, #37a: fixed in
+ * the summary, still printed from here).
+ */
+function shownOutput(toolName: string, text: string): string | undefined {
+  if (!text) return undefined;
+  if (toolName !== "run_command") return text;
+  if (/^\s*(Background command started|Still running after \d+s — moved to the background)/.test(text)) return undefined;
+  const out = text
+    .split("\n")
+    .filter((l) => !/^=== (STDOUT|STDERR) ===$/.test(l.trim()))
+    .join("\n")
+    .trim();
+  return out || undefined;
 }
 
 /**

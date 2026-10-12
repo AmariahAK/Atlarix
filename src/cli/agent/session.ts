@@ -291,6 +291,8 @@ export class AgentSession extends EventEmitter {
   private staleBelow = 0;
   private shellProc: ChildProcess | null = null;
   private queue: QueuedMessage[] = [];
+  /** Sub-agents running when the user stopped the turn. */
+  private stoppedAgents = new WeakSet<Delegation>();
   private interruptRequested = false;
   private readonly interrupted = new Set<string>();
   /** Steers sent this turn whose message has not shown up in the transcript yet. */
@@ -1097,6 +1099,8 @@ export class AgentSession extends EventEmitter {
     this.interruptRequested = true;
     // A job reporting in later must not restart what the user just stopped.
     this.userStopped = true;
+    // Sub-agents this stop cuts off end as stopped, not failed (QA #44).
+    for (const d of this.delegations.values()) if (d.status === "running") this.stoppedAgents.add(d);
     // Anything queued for after this turn would otherwise start right away.
     this.queue = [];
     this.syncPending();
@@ -1277,7 +1281,7 @@ export class AgentSession extends EventEmitter {
       if (at >= 0) d.children[at] = line;
       else d.children.push(line);
     } else if (p.type === "subagent_complete") {
-      d.status = p.status === "error" ? "error" : "success";
+      d.status = p.status === "error" ? (this.stoppedAgents.has(d) ? "interrupted" : "error") : "success";
       if (typeof p.result === "string") d.summary = p.result;
     } else return false;
     return true;

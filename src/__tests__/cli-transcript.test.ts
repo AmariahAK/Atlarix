@@ -290,6 +290,8 @@ describe("rows a person reads", () => {
   it("a background command says it started there, not the note meant for the model", () => {
     const t = tool("run_command", { command: "python3 -m http.server 8765", background: true }, "Background command started (job_id: op_1): python3 -m http.server 8765\nYou'll receive its result automatically when it exits — do not poll.");
     expect(t.summary).toBe("started in the background");
+    // The row prints `output` under a command: the note must not be there either.
+    expect(t.output).toBeUndefined();
   });
 
   it("a read error as stored (code first, message after) shows the message, without the advice for the model", () => {
@@ -300,6 +302,7 @@ describe("rows a person reads", () => {
   it("command output without its section markers; a failure shows its error line", () => {
     const ok = tool("run_command", { command: "bun test" }, JSON.stringify({ success: true, exitCode: 0, output: "=== STDOUT ===\nbun test v1.4.2\n=== STDERR ===\n1 pass" }));
     expect(ok.summary).toBe("bun test v1.4.2");
+    expect(ok.output).toBe("bun test v1.4.2\n1 pass");
     const bad = tool("run_command", { command: "bun run typecheck" }, JSON.stringify({ success: false, exitCode: 127, output: "=== STDOUT ===\n$ tsgo -b\n=== STDERR ===\ntsgo: command not found\n" }));
     expect(bad.summary).toBe("tsgo: command not found · exit 127");
   });

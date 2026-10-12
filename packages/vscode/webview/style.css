@@ -2359,9 +2359,17 @@ body.needs-you .needs-badge {
   overflow-x: auto;
   max-width: 100%;
 }
+/* As wide as its content up to a readable column, then sideways scroll: a table
+   fitted to the panel squeezed each column into a tall, clipped strip (QA #48). */
+.md-table-wrap table {
+  width: max-content;
+  max-width: none;
+}
 .md-table-wrap td,
 .md-table-wrap th {
   min-width: 7ch;
+  max-width: 36ch;
+  vertical-align: top;
 }
 .md-table-wrap td code,
 .md-table-wrap th code {
@@ -2415,4 +2423,11 @@ body.needs-you .needs-badge {
 .approval__intent {
   color: var(--muted);
   font-size: 0.92em;
+}
+
+/* A stopped turn's marker (transcript.ts endTurn). */
+.turn-stopped {
+  color: var(--muted);
+  font-size: 0.9em;
+  padding-left: 2px;
 }

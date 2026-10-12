@@ -252,7 +252,8 @@ function ToolCell({
         <box flexDirection="column">
           {failed ? (
             <text fg={color.error}>
-              {`  ${glyph.result} ${oneLine(runLines.lines.find((l) => l.trim()) ?? "", width - 12 - (exit?.length ?? 0))}`}
+              {/* The error line the summary picked (the last stderr line), not the shell's echo. */}
+              {`  ${glyph.result} ${oneLine((exit ? tool.summary?.slice(0, -(` · ${exit}`).length) : tool.summary) || (runLines.lines.find((l) => l.trim()) ?? ""), width - 12 - (exit?.length ?? 0))}`}
               {exit ? <span fg={color.faint}>{` · ${exit}`}</span> : null}
             </text>
           ) : (

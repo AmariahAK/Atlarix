@@ -240,6 +240,8 @@ onHost((m: HostMessage) => {
         // The new chat's ring starts empty, not the last chat's (QA).
         emit("usage");
       }
+      // A replay just finished: fold its finished turns as a live turn folds.
+      if (replaying && !m.replay && m.sessionId === state.sessionId) T.foldReplayedTurns();
       replaying = m.replay;
       if (m.configOptions.length) applyOptions(m.configOptions);
       else if (m.modes) {
@@ -270,7 +272,7 @@ onHost((m: HostMessage) => {
       return;
     case "turn-end":
       C.setBusy(false);
-      T.endTurn();
+      T.endTurn(m.stopReason === "cancelled");
       if (m.error) turnError(m.error);
       renderTask();
       return;

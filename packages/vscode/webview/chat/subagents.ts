@@ -69,6 +69,7 @@ function setOpen(r: Round, open: boolean): void {
 
 function phase(m: SubagentMeta): string {
   if (m.status === "error") return "Failed";
+  if (m.status === "interrupted") return "Stopped";
   if (settled(m.status)) return `Done${m.tools?.length ? ` · ${m.tools.length} tool${m.tools.length === 1 ? "" : "s"}` : ""}`;
   const last = m.tools?.[m.tools.length - 1];
   const doing = m.progress?.trim() || "Working…";
@@ -111,6 +112,17 @@ function drawAgent(a: Agent): void {
   a.row.append(body);
 }
 
+/** "2 completed", "2 stopped", "1 completed · 1 failed": what actually happened (QA #44). */
+function settledSummary(all: Agent[]): string {
+  const n = (s: string) => all.filter((a) => (a.meta.status ?? "success") === s).length;
+  const parts = [
+    [n("success"), "completed"],
+    [n("interrupted"), "stopped"],
+    [n("error"), "failed"],
+  ].filter(([k]) => (k as number) > 0).map(([k, w]) => `${k} ${w}`);
+  return parts.join(" · ") || `${all.length} completed`;
+}
+
 function drawHead(r: Round): void {
   const all = [...r.agents.values()];
   const running = all.filter((a) => !settled(a.meta.status)).length;
@@ -118,7 +130,7 @@ function drawHead(r: Round): void {
   r.head.textContent = "";
   r.head.append(
     el("span", `agent__mark${running ? " spin" : ""}`, running ? MARK.running : MARK.success),
-    el("span", "agents__summary", running ? `Sub-agents · ${running}/${all.length} running` : `Sub-agents · ${all.length} completed`),
+    el("span", "agents__summary", running ? `Sub-agents · ${running}/${all.length} running` : `Sub-agents · ${settledSummary(all)}`),
     el("span", "agents__tokens", used ? `${tokens(used)} tokens` : ""),
   );
   // Active first, then done, then failed: what is happening stays on top.

@@ -92,7 +92,17 @@ export function renderMarkdown(
   opts: { fence?: FenceRenderer } = {},
 ): void {
   container.textContent = "";
-  for (const node of parseBlocks(markdown, opts.fence)) container.append(node);
+  for (const node of parseBlocks(withoutComments(markdown), opts.fence)) container.append(node);
+}
+
+/**
+ * HTML comments are not shown, as in any markdown view (a model's own
+ * `<!--plan:created-->` showed as text, QA #43). One still being written (no
+ * `-->` yet) is hidden too. Code the model fenced keeps them.
+ */
+function withoutComments(md: string): string {
+  if (!md.includes("<!--")) return md;
+  return md.replace(/(```[\s\S]*?(?:```|$))|<!--[\s\S]*?(?:-->|$)/g, (m, fence: string | undefined) => fence ?? "");
 }
 
 function parseBlocks(markdown: string, fenceRenderer?: FenceRenderer): Node[] {
@@ -240,7 +250,9 @@ function parseBlocks(markdown: string, fenceRenderer?: FenceRenderer): Node[] {
       !/^```/.test(lines[i]) &&
       !/^\s*[-*]\s+/.test(lines[i]) &&
       !/^#{1,6}\s+/.test(lines[i]) &&
-      !ORDERED.test(lines[i])
+      !ORDERED.test(lines[i]) &&
+      // A table may follow a line directly, as GFM allows (QA #41).
+      !(para.length > 0 && isTableStart(lines, i))
     ) {
       para.push(lines[i]);
       i += 1;

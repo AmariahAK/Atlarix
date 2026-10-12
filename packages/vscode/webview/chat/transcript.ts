@@ -98,18 +98,44 @@ function foldFinishedWork(): void {
   if (!turnStartedAt) return;
   const els: Element[] = [];
   for (let n = turnFirst ? turnFirst.nextElementSibling : log.firstElementChild; n; n = n.nextElementSibling) els.push(n);
+  const secs = Math.max(1, Math.round((Date.now() - turnStartedAt) / 1000));
+  foldWork(els, secs >= 60 ? `${Math.floor(secs / 60)}m ${secs % 60}s` : `${secs}s`);
+}
+
+/**
+ * A reopened chat folds its finished turns the same way (QA #46: 64 rows, no
+ * fold). Each turn runs from one of your messages to the next; the replay has
+ * no clock, so the line says only how many steps.
+ */
+export function foldReplayedTurns(): void {
+  let turnEls: Element[] = [];
+  const flush = () => {
+    foldWork(turnEls, null);
+    turnEls = [];
+  };
+  for (const n of [...log.children]) {
+    if (n.classList.contains("msg") && n.classList.contains("user")) {
+      flush();
+      continue;
+    }
+    if (!n.classList.contains("worked")) turnEls.push(n);
+  }
+  flush();
+}
+
+/** Fold a turn's work (everything before its last reply) under one line. */
+function foldWork(els: Element[], took: string | null): void {
   let final = -1;
   els.forEach((e, i) => {
     if (e.classList.contains("msg") && e.classList.contains("agent")) final = i;
   });
-  const work = final > 0 ? els.slice(0, final).filter((e) => !e.classList.contains("user")) : [];
+  const work = final > 0 ? els.slice(0, final).filter((e) => !e.classList.contains("user") && !e.classList.contains("wake-line")) : [];
   const steps = work.reduce((n, e) => n + (e.matches(".step, .cmd-card, .edit-card, .agents") ? 1 : 0) + e.querySelectorAll(".step, .agent").length, 0);
   if (work.length < 3 || steps < 2) return;
-  const secs = Math.max(1, Math.round((Date.now() - turnStartedAt) / 1000));
-  const took = secs >= 60 ? `${Math.floor(secs / 60)}m ${secs % 60}s` : `${secs}s`;
   const d = el("details", "worked");
   const s = el("summary", "worked__head");
-  s.append(el("span", "worked__mark", MARK.done), el("span", "", `Worked for ${took} · ${steps} step${steps === 1 ? "" : "s"}`));
+  const stepsText = `${steps} step${steps === 1 ? "" : "s"}`;
+  s.append(el("span", "worked__mark", MARK.done), el("span", "", took ? `Worked for ${took} · ${stepsText}` : `Worked · ${stepsText}`));
   const body = el("div", "worked__body");
   d.append(s, body);
   els[final]!.before(d);
@@ -117,10 +143,12 @@ function foldFinishedWork(): void {
 }
 
 /** A turn is over: what it changed gets a checkpoint, and its thinking folds. */
-export function endTurn(): void {
+export function endTurn(stopped = false): void {
   foldThought();
   closeCurrent();
   foldFinishedWork();
+  // Where the turn was cut off, as the terminal says it (QA #45).
+  if (stopped) log.append(el("div", "turn-stopped", "Interrupted. Tell Atlarix what to do instead."));
   turnStartedAt = 0;
   if (turn.edits && turn.messageId != null) log.append(checkpoint(turn.messageId));
   turn = { edits: false, messageId: turn.messageId };
@@ -476,7 +504,13 @@ export function toolCall(t: ToolCallUpdate & { _meta?: unknown; kind?: string | 
     if (!node.dataset.fold) foldable(node, t.toolCallId, status);
   }
   if (existing) existing.replaceWith(node);
-  else if (node.classList.contains("step")) stepsGroup().append(node);
+  else if (t.toolCallId.startsWith("wake:")) {
+    // Why the agent woke ("◇ Map src/routes finished") is its own line, kept
+    // outside the turn's fold (QA #47).
+    const line = el("div", "steps wake-line");
+    line.append(node);
+    log.append(line);
+  } else if (node.classList.contains("step")) stepsGroup().append(node);
   else log.append(node);
   tools.set(t.toolCallId, node);
   foldOlder();
