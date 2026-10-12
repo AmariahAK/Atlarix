@@ -491,7 +491,15 @@ export function parseAssistantMessageParts(
   raw: string,
   isStreaming: boolean,
 ): AssistantMessagePart[] {
-  if (isStreaming && raw) raw = raw.replace(TRAILING_PARTIAL_TAG, "");
+  if (isStreaming && raw) {
+    raw = raw.replace(TRAILING_PARTIAL_TAG, "");
+    // A hidden comment (the plan marker) still being written: hold it back too,
+    // or "<!-- atlarix-plan-artifact:0006e76b-24c6-4e3" reached the editor as text
+    // and stayed there (QA #38).
+    const open = raw.lastIndexOf("<!--");
+    if (open >= 0 && raw.indexOf("-->", open) < 0) raw = raw.slice(0, open);
+    else raw = raw.replace(/<!?-?$/, "");
+  }
   if (!raw) return [];
   // Fast path for pure prose. Every structural form parseSegmentContent looks
   // for starts with a sentinel char: tags/thoughts/plan-markers with `<`, tool

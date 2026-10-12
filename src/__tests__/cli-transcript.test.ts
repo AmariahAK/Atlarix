@@ -292,6 +292,23 @@ describe("rows a person reads", () => {
     expect(t.summary).toBe("started in the background");
   });
 
+  it("a read error as stored (code first, message after) shows the message, without the advice for the model", () => {
+    const t = tool("read_file", { path: "src/nope.ts" }, JSON.stringify({ success: false, error: "file_not_found", message: 'No file at path "src/nope.ts". Use list_files to find the correct path.' }), "file_not_found");
+    expect(t.summary).toBe('No file at path "src/nope.ts".');
+  });
+
+  it("command output without its section markers; a failure shows its error line", () => {
+    const ok = tool("run_command", { command: "bun test" }, JSON.stringify({ success: true, exitCode: 0, output: "=== STDOUT ===\nbun test v1.4.2\n=== STDERR ===\n1 pass" }));
+    expect(ok.summary).toBe("bun test v1.4.2");
+    const bad = tool("run_command", { command: "bun run typecheck" }, JSON.stringify({ success: false, exitCode: 127, output: "=== STDOUT ===\n$ tsgo -b\n=== STDERR ===\ntsgo: command not found\n" }));
+    expect(bad.summary).toBe("tsgo: command not found · exit 127");
+  });
+
+  it("a find with no matches says so, not the hint for the model", () => {
+    const t = tool("glob", { pattern: "**/*.zzz" }, JSON.stringify({ success: true, result: "No files found matching pattern: **/*.zzz. Often an extension or casing issue — try a broader glob." }));
+    expect(t.summary).toBe("no files");
+  });
+
   it("a failed read shows its message, not its error code", () => {
     const t = tool("read_file", { path: "src/nope.ts" }, 'No file at path "src/nope.ts".', "file_not_found");
     expect(t.summary).toBe('No file at path "src/nope.ts".');

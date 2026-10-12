@@ -325,7 +325,10 @@ const executePermissionHandler = async (
     appId != null &&
     request?.operation === "run_command"
   ) {
-    const preview = request.preview as { command?: string };
+    const preview = request.preview as {
+      command?: string;
+      commandCategory?: string;
+    };
     const command = preview?.command ?? "";
     // Dangerous commands persist under their fine-grained `danger:<id>`
     // key (so this allow can't be satisfied by a coarse first-token
@@ -333,9 +336,14 @@ const executePermissionHandler = async (
     // category. Dangerous commands are now always-allowable — the safety
     // guarantee lives in resolveRunCommandPermissionGate (never silently
     // auto-approved until such a rule exists).
-    const key = isDangerousCommand(command)
-      ? dangerLabelKey(command)
-      : getCommandCategory(command);
+    // The gate's key for the segment that asked, when it sent one: from the
+    // whole command, `cd x && ls …` saved a rule named "&&" that matches no
+    // segment, so "always" never took (QA #39).
+    const key =
+      preview?.commandCategory?.trim() ||
+      (isDangerousCommand(command)
+        ? dangerLabelKey(command)
+        : getCommandCategory(command));
     const boundAppId = appId;
     if (key) {
       persistPermissionPreferenceSafely("command permission", () =>

@@ -117,3 +117,20 @@ describe("a reply that quotes a tool's JSON", () => {
     expect(a).toEqual(b);
   });
 });
+
+describe("the plan marker", () => {
+  it("is never sent as text while it is still being written", () => {
+    const reply = "Plan ready.\n\n<!-- atlarix-plan-artifact:0006e76b-24c6-4e3a-9f00-1234567890ab -->\n\nSwitch to **Build** when you want it implemented.";
+    const e: Emitted = new Map();
+    let sent = "";
+    for (let i = 1; i <= reply.length; i++) {
+      const cells = toCells([{ id: 1, role: "assistant", content: reply.slice(0, i) }], { streaming: i < reply.length });
+      for (const u of diffUpdates(cells, e)) {
+        if (u.sessionUpdate === "agent_message_chunk") sent += (u as { content: { text: string } }).content.text;
+      }
+    }
+    expect(sent).not.toContain("<!");
+    expect(sent).not.toContain("atlarix-plan-artifact");
+    expect(sent).toContain("Switch to **Build** when you want it implemented.");
+  });
+});

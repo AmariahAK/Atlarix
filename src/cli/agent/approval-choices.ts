@@ -29,6 +29,8 @@ export interface Preview {
   canAlwaysAllowFile?: boolean;
   canAlwaysAllowDirectory?: boolean;
   fileParentDir?: string;
+  /** The gate's key for the segment that asked (`ls`, `danger:rm-rf`, `mutate:git-write`): what "always" saves. */
+  commandCategory?: string;
 }
 
 export function firstPreview(a: PendingApproval): Preview {
@@ -48,7 +50,15 @@ export function approvalChoices(a: PendingApproval): ApprovalChoice[] {
   const choices: ApprovalChoice[] = [{ label: "Yes", mode: "once" }];
   if (p.command) {
     if (p.canAlwaysAllow !== false) {
-      const what = p.isDangerous ? "this command" : `\`${getCommandCategory(p.command)}\` commands`;
+      // Named by what "always" saves: the gate's key for the part that asked.
+      // From the whole command, `cd x && ls …` came out as "`&&` commands" (QA).
+      const key = p.commandCategory || getCommandCategory(p.command);
+      const what =
+        p.isDangerous || key.startsWith("danger:")
+          ? "this command"
+          : key.startsWith("mutate:")
+            ? "changes like this"
+            : `\`${key}\` commands`;
       choices.push({ label: `Yes, and always allow ${what} in this folder`, mode: "always_allow" });
     }
   } else if (p.path) {

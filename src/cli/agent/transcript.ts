@@ -300,8 +300,9 @@ export function toolResultText(toolName: string, raw: string | undefined): { tex
     typeof o.result === "string" ? o.result : undefined,
     o.output,
     o.content,
-    o.error,
+    // The message says what happened ("No file at path …"); the error is its code.
     o.message,
+    o.error,
   ].find((x) => typeof x === "string" && x.trim()) as string | undefined;
   return { text: unfence(pick ?? "").trim(), exitCode, failed };
 }
@@ -322,15 +323,34 @@ export function firstSentence(md: string): string | undefined {
 }
 
 function summarize(toolName: string, r: { text: string; exitCode?: number; failed?: boolean }): string | undefined {
-  const first = r.text.split("\n").find((l) => l.trim())?.trim();
+  // Command output comes in "=== STDOUT ===" / "=== STDERR ===" sections; the
+  // markers are plumbing (QA #37a).
+  const SECTION = /^=== (STDOUT|STDERR) ===$/;
+  const lines = r.text.split("\n").map((l) => l.trim());
+  const first = lines.find((l) => l && !SECTION.test(l));
   // The note to the model ("Background command started (job_id: …) … do not
   // poll …") is not for the person reading (QA).
   if (toolName === "run_command" && first?.startsWith("Background command started")) return "started in the background";
   if (toolName === "background_jobs" && first?.startsWith("Cancellation requested")) return "stopping";
   if (toolName === "run_command") {
-    const exit = r.exitCode != null && r.exitCode !== 0 ? `exit ${r.exitCode}` : "";
-    return [first ?? (r.exitCode === 0 ? "(no output)" : ""), exit].filter(Boolean).join(" · ") || undefined;
+    const failedRun = r.exitCode != null && r.exitCode !== 0;
+    const exit = failedRun ? `exit ${r.exitCode}` : "";
+    // A failure says why: the last stderr line ("tsgo: command not found"), not
+    // the shell's echo of the command on the first (QA #37b).
+    let said = first;
+    if (failedRun) {
+      const err = lines.indexOf("=== STDERR ===");
+      const tail = (err >= 0 ? lines.slice(err + 1) : lines).filter((l) => l && !SECTION.test(l));
+      said = tail.at(-1) ?? first;
+    }
+    return [said ?? (r.exitCode === 0 ? "(no output)" : ""), exit].filter(Boolean).join(" · ") || undefined;
   }
+  // "No files found matching pattern: … Often an extension or casing issue —
+  // try …" is advice for the model; the person reads "no files" (QA #37c).
+  if (toolName === "glob" && first?.startsWith("No files found")) return "no files";
+  // A failure's first sentence says what went wrong; what follows ("Use
+  // list_files to find the correct path.") is meant for the model.
+  if (r.failed && first) return firstSentence(first) ?? first;
   if (toolName === "grep" && first) return first.replace(/:$/, "").replace(/match\(es\)/, "matches").replace(/file\(s\)/, "files");
   // A read says which lines it read: "Lines: 1-240 of 3641" or "Lines: 1-80 (complete)".
   if (toolName === "read_file" && first?.startsWith("File: ")) {

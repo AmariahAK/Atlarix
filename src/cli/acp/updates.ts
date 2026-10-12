@@ -124,6 +124,9 @@ function toolContent(t: ToolLine, name: string): ToolCallContent[] {
   }
   const out: ToolCallContent[] = [];
   if (t.diff && name === "edit_file" && t.target) out.push(snippetDiff(t.target, t.diff));
+  // A command sent to the background returns a note for the model (its job id,
+  // "do not poll"); the card says what happened instead (QA #28, CLI #13).
+  if (name === "run_command" && t.summary === "started in the background") return [text("Started in the background.")];
   const body = t.status === "error" || t.status === "interrupted" ? (t.error ?? t.output) : t.output;
   if (body?.trim()) out.push(text(body));
   return out;
