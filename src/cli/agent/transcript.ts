@@ -120,19 +120,28 @@ export function withDelegations(cells: Cell[], delegations: Iterable<Delegation>
     if (c.kind !== "tool") return c;
     const d = byCell.get(c.id);
     if (!d) return c;
+    // A sub-agent's first "progress" is often its own prompt read back: not progress.
+    const echo = !!d.progress && !!d.task && d.task.replace(/\s+/g, " ").startsWith(d.progress.replace(/\s+/g, " ").slice(0, 40));
     return {
       ...c,
       tool: {
         ...c.tool,
+        // The call returns at once for a background agent; the row follows the
+        // agent itself (QA saw ◌ stay after both had finished).
+        status: d.status === "running" ? c.tool.status : d.status === "error" ? "error" : "success",
         children: d.children,
-        progress: d.status === "running" ? d.progress : undefined,
+        progress: d.status === "running" && !echo ? d.progress : undefined,
         agent: {
           label: d.label,
           startedAt: d.startedAt,
           tokens: d.tokens,
           report: d.status !== "running" ? d.summary : undefined,
         },
-        summary: d.status !== "running" && d.summary ? d.summary.split("\n").find((l) => l.trim())?.slice(0, 160) : c.tool.summary,
+        summary:
+          d.status === "running"
+            ? c.tool.summary
+            : (firstSentence(d.summary ?? "")?.slice(0, 160) ??
+              (c.tool.summary === "running in the background" ? "finished" : c.tool.summary)),
       },
     };
   });
@@ -226,7 +235,16 @@ export function toolTarget(toolName: string, args: unknown): string {
       return op;
     }
     case "background_jobs":
-      return [str(a.operation), str(a.job_id) || str(a.command)].filter(Boolean).join(" ");
+      // Not the tool's own vocabulary ("Jobs cancel op_179…"): what it did.
+      if (a.operation === "cancel") return "stop a background job";
+      if (a.operation === "output") return "read a background job's output";
+      if (a.operation === "list") return "list background jobs";
+      return [str(a.operation), str(a.command)].filter(Boolean).join(" ");
+    case "subagents":
+      if (a.operation === "cancel") return "stop a sub-agent";
+      if (a.operation === "output") return "read a sub-agent's progress";
+      if (a.operation === "list") return "list running sub-agents";
+      return str(a.operation);
     default:
       return "";
   }
@@ -288,8 +306,27 @@ export function toolResultText(toolName: string, raw: string | undefined): { tex
   return { text: unfence(pick ?? "").trim(), exitCode, failed };
 }
 
+/**
+ * The first real sentence of a report: past headings and markdown marks
+ * ("## Direct answer" is not what the agent found).
+ */
+export function firstSentence(md: string): string | undefined {
+  for (const raw of md.split("\n")) {
+    const line = raw.trim();
+    if (!line || /^#{1,6}\s/.test(line) || /^(```|---|\|)/.test(line)) continue;
+    const plain = line.replace(/^[-*+]\s+|^\d+[.)]\s+/, "").replace(/\*\*|__|`/g, "").trim();
+    if (!plain) continue;
+    return /^(.+?[.!?])(\s|$)/.exec(plain)?.[1] ?? plain;
+  }
+  return undefined;
+}
+
 function summarize(toolName: string, r: { text: string; exitCode?: number; failed?: boolean }): string | undefined {
   const first = r.text.split("\n").find((l) => l.trim())?.trim();
+  // The note to the model ("Background command started (job_id: …) … do not
+  // poll …") is not for the person reading (QA).
+  if (toolName === "run_command" && first?.startsWith("Background command started")) return "started in the background";
+  if (toolName === "background_jobs" && first?.startsWith("Cancellation requested")) return "stopping";
   if (toolName === "run_command") {
     const exit = r.exitCode != null && r.exitCode !== 0 ? `exit ${r.exitCode}` : "";
     return [first ?? (r.exitCode === 0 ? "(no output)" : ""), exit].filter(Boolean).join(" · ") || undefined;
@@ -411,12 +448,15 @@ function taskEnvelope(text: string): { state: string; inner: string } | null {
 }
 
 export function toolLine(part: Extract<AssistantMessagePart, { type: "tool" }>): ToolLine {
-  const r = toolResultText(part.toolName, part.error ?? part.resultText);
+  // A bare error code ("file_not_found") says less than the result's own
+  // message ("No file at path …"): prefer the message when there is one.
+  const codeOnly = !!part.error && /^[a-z][a-z0-9_]*$/.test(part.error.trim()) && !!part.resultText?.trim();
+  const r = toolResultText(part.toolName, codeOnly ? part.resultText : (part.error ?? part.resultText));
   const diff = part.toolName === "edit_file" && part.status === "success" ? editDiff(part.args) : undefined;
   const env = part.toolName === "task" ? taskEnvelope(r.text) : null;
   if (env) {
     const background = env.state === "running" || env.state === "pending";
-    const first = env.inner.split("\n").find((l) => l.trim())?.trim();
+    const first = firstSentence(env.inner);
     return {
       id: part.id,
       verb: VERBS[part.toolName] ?? part.toolName.replace(/_/g, " "),

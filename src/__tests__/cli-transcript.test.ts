@@ -218,7 +218,9 @@ describe("plan and background job lines say what happened", () => {
   it("names the plan operation and the job operation", () => {
     expect(toolTarget("plan", { operation: "update_step", step_index: 3, state: "done" })).toBe("step 3 → done");
     expect(toolTarget("plan", { operation: "write", title: "CLI smoke test" })).toBe("write · CLI smoke test");
-    expect(toolTarget("background_jobs", { operation: "list" })).toBe("list");
+    expect(toolTarget("background_jobs", { operation: "list" })).toBe("list background jobs");
+    expect(toolTarget("background_jobs", { operation: "cancel", job_id: "op_1791" })).toBe("stop a background job");
+    expect(toolTarget("subagents", { operation: "output", task_id: "t1" })).toBe("read a sub-agent's progress");
   });
 
   it("reads the result inside the envelope, and never shows a cut-off envelope", () => {
@@ -273,5 +275,30 @@ describe("what a step's result line says", () => {
 
   it("a find says how many files, without the dangling colon", () => {
     expect(line("glob", { pattern: "**/*.ts" }, "Found 500 file(s) (newest first):\nsrc/a.ts")).toBe("500 files");
+  });
+});
+
+describe("rows a person reads", () => {
+  const tool = (name: string, args: object, result: string, error?: string) => {
+    const content =
+      `<atlarix-tool-call tool="${name}" call="c1" status="running">\n${JSON.stringify(args)}\n</atlarix-tool-call>\n` +
+      `<atlarix-tool-result tool="${name}" call="c1" status="${error ? "error" : "complete"}"${error ? ` error="${error}"` : ""}>\n${result}\n</atlarix-tool-result>\n`;
+    const cell = toCells([{ id: 4, role: "assistant", content }]).find((c) => c.kind === "tool");
+    return (cell as Extract<ReturnType<typeof toCells>[number], { kind: "tool" }>).tool;
+  };
+
+  it("a background command says it started there, not the note meant for the model", () => {
+    const t = tool("run_command", { command: "python3 -m http.server 8765", background: true }, "Background command started (job_id: op_1): python3 -m http.server 8765\nYou'll receive its result automatically when it exits — do not poll.");
+    expect(t.summary).toBe("started in the background");
+  });
+
+  it("a failed read shows its message, not its error code", () => {
+    const t = tool("read_file", { path: "src/nope.ts" }, 'No file at path "src/nope.ts".', "file_not_found");
+    expect(t.summary).toBe('No file at path "src/nope.ts".');
+  });
+
+  it("a finished sub-agent's line is its first real sentence, past headings", () => {
+    const t = tool("task", { description: "Map src/mini" }, '<task id="t" state="completed">\n## Direct answer\n\n**src/mini** has 12 files. The entry is index.ts.\n</task>');
+    expect(t.summary).toBe("src/mini has 12 files.");
   });
 });

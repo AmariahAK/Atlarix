@@ -1152,7 +1152,7 @@ export class AgentSession extends EventEmitter {
 
   private untimedCells(streaming: boolean): Cell[] {
     const messages = collapseCancelled(this.messages, this.interrupted);
-    return this.placeWakeNotes(
+    return this.placeWakeNotes(this.settleOldBackgroundAgents(
       withDelegations(
         placeShellRuns(
           markInterrupted(placeSteers(messages, this.anchors, { streaming }), this.interrupted),
@@ -1160,6 +1160,20 @@ export class AgentSession extends EventEmitter {
         ),
         this.delegations.values(),
       ),
+    ));
+  }
+
+  /**
+   * A background sub-agent this session never saw run (a resumed session, or
+   * one whose events were missed) has no live state to follow, and its call's
+   * envelope says "running" forever. It did run; say so.
+   */
+  private settleOldBackgroundAgents(cells: Cell[]): Cell[] {
+    const live = new Set([...this.delegations.values()].map((d) => `${d.assistantId}:t:task_${d.index}`));
+    return cells.map((c) =>
+      c.kind === "tool" && c.tool.status === "running" && c.tool.summary === "running in the background" && !live.has(c.id)
+        ? { ...c, tool: { ...c.tool, status: "success", summary: "ran in the background" } }
+        : c,
     );
   }
 

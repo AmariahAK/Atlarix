@@ -519,7 +519,8 @@ function CellViewInner({
             <text fg={color.muted} flexGrow={1}>
               <i>
                 {oneLine(
-                  `${head}${lines.length > 1 && !live ? "\n…" : ""}`,
+                  // A summary that already ends its sentence needs no "…" (QA saw ".…").
+                  `${head}${lines.length > 1 && !live && !/[.!?]$/.test(head) ? "\n…" : ""}`,
                   width - 8 - took.length,
                 )}
               </i>
