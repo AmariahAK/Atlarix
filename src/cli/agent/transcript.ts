@@ -42,6 +42,8 @@ export interface ToolLine {
   children?: ToolLine[];
   /** What a running sub-agent says it is doing. */
   progress?: string;
+  /** A sub-agent's name, when it started (epoch ms), tokens so far, and its report once done. */
+  agent?: { label?: string; startedAt?: number; tokens?: number; report?: string };
   /** An edit's changes, from its arguments: drawn as + / − lines under the call. */
   diff?: EditDiff;
 }
@@ -124,6 +126,12 @@ export function withDelegations(cells: Cell[], delegations: Iterable<Delegation>
         ...c.tool,
         children: d.children,
         progress: d.status === "running" ? d.progress : undefined,
+        agent: {
+          label: d.label,
+          startedAt: d.startedAt,
+          tokens: d.tokens,
+          report: d.status !== "running" ? d.summary : undefined,
+        },
         summary: d.status !== "running" && d.summary ? d.summary.split("\n").find((l) => l.trim())?.slice(0, 160) : c.tool.summary,
       },
     };

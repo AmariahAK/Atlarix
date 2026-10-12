@@ -208,6 +208,9 @@ export async function changeFolderSession(sessionId: string, change: { rename: s
 
 let interjectionSeq = 0;
 
+/** Job reports that wake an idle agent (the desktop's list, useStreamChat). */
+const WAKE_STATUSES = new Set(["finished", "stalled", "scheduled", "condition_met"]);
+
 export interface TurnOptions {
   display?: string;
   images?: Array<{ path: string; mime: string; label: string }>;
@@ -215,6 +218,8 @@ export interface TurnOptions {
   continueAfterQuestions?: boolean;
   /** Sending the same message again (after Auto's consent): its `!` output was already given. */
   retry?: boolean;
+  /** Machine-started: background work reported in. Main refuses one it should not run. */
+  systemWake?: boolean;
 }
 
 /** A running sub-agent (spawn-task.ts listRunningSubagentTasks). */
@@ -922,8 +927,29 @@ export class AgentSession extends EventEmitter {
     });
   }
 
+  /**
+   * Wake the agent for what background work reported. Not while busy (a running
+   * turn picks results up at its next step), not after the user stopped the
+   * turn, and one at a time.
+   */
+  async wakeForBackground(): Promise<void> {
+    if (this.state.busy || this.userStopped || this.wakeInFlight) return;
+    this.wakeInFlight = true;
+    try {
+      await this.startTurn("", { continueAfterQuestions: true, systemWake: true });
+    } finally {
+      this.wakeInFlight = false;
+    }
+  }
+
+  /** The user stopped the last turn (esc); cleared by their next message. */
+  private userStopped = false;
+  /** A wake turn is starting, so a second report does not start another. */
+  private wakeInFlight = false;
+
   private async startTurn(text: string, opts: TurnOptions = {}): Promise<void> {
     this.recapLine = null;
+    if (!opts.systemWake) this.userStopped = false;
     await this.ensureSession();
     if (!opts.continueAfterQuestions) {
       const display = opts.display ?? text;
@@ -959,6 +985,7 @@ export class AgentSession extends EventEmitter {
         ...(attachments.length ? { attachments } : {}),
         ...(this.turnModel() ? { modelOverride: this.turnModel() } : {}),
         ...(opts.continueAfterQuestions ? { continueAfterQuestions: true } : {}),
+        ...(opts.systemWake ? { systemWake: true } : {}),
         workModeOverride: this.state.mode,
       });
     } catch (e) {
@@ -979,6 +1006,8 @@ export class AgentSession extends EventEmitter {
   async interrupt(): Promise<void> {
     if (!this.state.busy) return;
     this.interruptRequested = true;
+    // A job reporting in later must not restart what the user just stopped.
+    this.userStopped = true;
     // Anything queued for after this turn would otherwise start right away.
     this.queue = [];
     this.syncPending();
@@ -1295,7 +1324,20 @@ export class AgentSession extends EventEmitter {
         if (p.status === "peer_message" && !this.state.busy) {
           if (this.idlePeerMessages === "hold") this.emit("peer-message");
           else void this.startPeerTurn();
+          return;
         }
+        // Background work reported in (a command or sub-agent finished, a quiet
+        // one looks stuck, a scheduled wake fired): wake the agent to deal with
+        // it, as the desktop does (useStreamChat). Only when idle, never after
+        // the user stopped the turn, one at a time. A running turn picks results
+        // up at its next step.
+        // An editor starts its own turns (`idlePeerMessages: "hold"`), so there
+        // it is told instead, and Atlarix's extension opens the wake turn.
+        if (WAKE_STATUSES.has(String(p.status)) && (p.chatId == null || p.chatId === this.chatId)) {
+          if (this.idlePeerMessages === "hold") this.emit("background-ready");
+          else void this.wakeForBackground();
+        }
+        this.emit("tasks-changed");
         return;
       case "chat:interjections":
         // Main's queue of steers changed: one was delivered, or added elsewhere.

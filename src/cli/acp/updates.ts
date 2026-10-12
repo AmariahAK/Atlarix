@@ -9,6 +9,7 @@
  */
 import type { SessionUpdate, ToolCallContent, ToolKind, ToolCallStatus } from "@agentclientprotocol/sdk";
 import type { Cell, EditDiff, ToolLine } from "../agent/transcript";
+import { glyph } from "../tui/glyphs";
 
 /**
  * What each cell looked like when last sent, keyed by kind AND id: one id can
@@ -69,7 +70,56 @@ function text(t: string): ToolCallContent {
   return { type: "content", content: { type: "text", text: t } };
 }
 
+/** Tokens as people read them: 950, 12.4k, 1.2M. */
+function compactTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
+
+/**
+ * A sub-agent as text any editor can draw: what it is doing, each of its own
+ * calls, what it has used, then its report. ACP has no notion of a sub-agent,
+ * so the `task` call's body is where its work becomes visible.
+ */
+function subagentText(t: ToolLine): string {
+  const lines: string[] = [];
+  if (t.status === "running" && t.progress?.trim()) lines.push(t.progress.trim());
+  for (const c of t.children ?? []) {
+    lines.push(`${glyph.tool[c.status] ?? glyph.tool.success} ${c.target ? `${c.verb} ${c.target}` : c.verb}`);
+  }
+  const n = t.children?.length ?? 0;
+  const used = [n ? `${n} tool${n === 1 ? "" : "s"}` : "", t.agent?.tokens ? `${compactTokens(t.agent.tokens)} tokens` : ""].filter(Boolean);
+  if (used.length) lines.push(used.join(" · "));
+  const report = t.status === "running" ? "" : (t.error ?? t.output ?? t.agent?.report ?? "").trim();
+  if (report) lines.push("", report);
+  return lines.join("\n");
+}
+
+/** What Atlarix's own extension draws a sub-agent from; other editors ignore `_meta`. */
+function subagentMeta(t: ToolLine): Record<string, unknown> {
+  return {
+    _meta: {
+      atlarix: {
+        subagent: {
+          label: t.agent?.label ?? t.target,
+          status: t.status,
+          progress: t.status === "running" ? (t.progress ?? null) : null,
+          tokens: t.agent?.tokens ?? null,
+          startedAt: t.agent?.startedAt ?? null,
+          tools: (t.children ?? []).map((c) => ({ verb: c.verb, target: c.target, status: c.status })),
+          report: t.status === "running" ? null : (t.error ?? t.output ?? t.agent?.report ?? null),
+        },
+      },
+    },
+  };
+}
+
 function toolContent(t: ToolLine, name: string): ToolCallContent[] {
+  if (name === "task") {
+    const body = subagentText(t);
+    return body ? [text(body)] : [];
+  }
   const out: ToolCallContent[] = [];
   if (t.diff && name === "edit_file" && t.target) out.push(snippetDiff(t.target, t.diff));
   const body = t.status === "error" || t.status === "interrupted" ? (t.error ?? t.output) : t.output;
@@ -118,7 +168,13 @@ export function diffUpdates(cells: readonly Cell[], emitted: Emitted, opts: { re
     } else if (c.kind === "tool") {
       const t = c.tool;
       const name = toolNameFromId(c.id);
-      const sig = `${t.status}|${t.output?.length ?? 0}|${t.error ?? ""}|${t.diff ? t.diff.added + t.diff.removed : 0}`;
+      // A sub-agent changes while its call stays "running": its own calls, what it
+      // says it is doing, and (in steps of 1k, not every token) what it has used.
+      const sub =
+        name === "task"
+          ? `|${(t.children ?? []).map((ch) => ch.status[0]).join("")}|${t.progress ?? ""}|${Math.floor((t.agent?.tokens ?? 0) / 1000)}`
+          : "";
+      const sig = `${t.status}|${t.output?.length ?? 0}|${t.error ?? ""}|${t.diff ? t.diff.added + t.diff.removed : 0}${sub}`;
       if (before === sig) continue;
       emitted.set(k, sig);
       const content = toolContent(t, name);
@@ -134,6 +190,7 @@ export function diffUpdates(cells: readonly Cell[], emitted: Emitted, opts: { re
           kind: toolKind(name),
           status: status(t.status),
           ...peer,
+          ...(name === "task" ? subagentMeta(t) : {}),
           ...(t.target && /[/\\.]/.test(t.target) && toolKind(name) !== "execute" ? { locations: [{ path: t.target }] } : {}),
           ...(content.length ? { content } : {}),
         });
@@ -142,6 +199,7 @@ export function diffUpdates(cells: readonly Cell[], emitted: Emitted, opts: { re
           sessionUpdate: "tool_call_update",
           toolCallId: c.id,
           status: status(t.status),
+          ...(name === "task" ? subagentMeta(t) : {}),
           ...(content.length ? { content } : {}),
         });
       }

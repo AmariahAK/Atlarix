@@ -97,6 +97,78 @@ class Thread {
     this.lastMode = session.state.mode;
     session.on("change", (s: SessionState) => this.onChange(s));
     session.on("peer-message", () => this.onPeerMessage());
+    session.on("background-ready", () => this.onBackgroundReady());
+    session.on("tasks-changed", () => this.checkTasks());
+  }
+
+  /**
+   * Background work finished while idle. Atlarix's extension opens the wake
+   * turn itself (as the desktop does); other editors only start turns from a
+   * prompt, so there the results wait for the next message, which reads them.
+   */
+  private onBackgroundReady(): void {
+    if (!this.extras()) return;
+    void this.flush().then(() => this.client().notify("_atlarix/background_ready", { sessionId: this.id }).catch(() => {}));
+  }
+
+  private tasksSent = "";
+  private tasksTimer: ReturnType<typeof setTimeout> | null = null;
+  private tasksPoll: ReturnType<typeof setInterval> | null = null;
+
+  /**
+   * Tell Atlarix's extension when what is running changes (a task starts, stalls
+   * or ends), so its chip and task list follow without polling. Coalesced: the
+   * session changes many times a second while a turn streams. While anything
+   * runs, re-checked every few seconds too, since a job ending between turns
+   * changes no transcript cell.
+   */
+  private checkTasks(): void {
+    if (!this.extras() || this.tasksTimer) return;
+    this.tasksTimer = setTimeout(() => {
+      this.tasksTimer = null;
+      void this.session
+        .liveTasks()
+        .then((tasks) => {
+          const sig = tasks.map((t) => `${t.id}:${t.stalled ? 1 : 0}`).join(",");
+          if (tasks.length && !this.tasksPoll) {
+            this.tasksPoll = setInterval(() => this.checkTasks(), 3_000);
+            (this.tasksPoll as { unref?: () => void }).unref?.();
+          } else if (!tasks.length && this.tasksPoll) {
+            clearInterval(this.tasksPoll);
+            this.tasksPoll = null;
+          }
+          if (sig === this.tasksSent) return;
+          this.tasksSent = sig;
+          return this.client().notify("_atlarix/tasks_changed", { sessionId: this.id, count: tasks.length });
+        })
+        .catch(() => {});
+    }, 400);
+  }
+
+  /** What is running in this session, for Atlarix's extension: list, read the output of, or stop one. */
+  async tasks(action: "list" | "output" | "stop", id?: string): Promise<Record<string, unknown>> {
+    const all = await this.session.liveTasks();
+    if (action === "list") {
+      return {
+        tasks: all.map((t) => ({
+          id: t.id,
+          kind: t.kind,
+          label: t.label,
+          elapsedMs: t.elapsedMs,
+          stalled: t.stalled,
+          tokens: t.tokens ?? null,
+          progress: t.progress ?? null,
+          tools: t.tools.length,
+          canStop: !!t.jobId,
+        })),
+      };
+    }
+    const t = all.find((x) => x.id === id);
+    if (!t) return { gone: true };
+    if (action === "output") return { text: await this.session.taskOutput(t) };
+    const message = await this.session.stopTask(t);
+    this.checkTasks();
+    return { message };
   }
 
   /** Updates go out in order: each waits for the one before it. */
@@ -113,6 +185,8 @@ class Thread {
 
   private onChange(s: SessionState): void {
     for (const u of diffUpdates(s.cells, this.emitted, { replay: this.replayAll, ids: this.extras() })) void this.send(u);
+    // A sub-agent starting or ending inside a turn changes what is running.
+    this.checkTasks();
     if (s.title && s.title !== this.lastTitle && !s.busy) {
       // Renamed from the editor's Past chats while open.
       this.lastTitle = s.title;
@@ -365,6 +439,9 @@ class Thread {
       } else if (meta?.peerTurn) {
         // Atlarix's extension, told a message from another session is waiting: read it now.
         await this.session.takeHeldPeerMessages();
+      } else if (meta?.wakeTurn) {
+        // Atlarix's extension, told background work finished: let the agent act on it.
+        await this.session.wakeForBackground();
       } else if (this.session.state.question && meta?.answers?.length) {
         await this.session.answerQuestion(meta.answers);
       } else if (this.session.state.question) {
@@ -483,6 +560,8 @@ export interface AtlarixPromptMeta {
   answers?: string[];
   /** Read the message another session left while this one was idle. */
   peerTurn?: boolean;
+  /** Background work finished while idle: let the agent deal with it now. */
+  wakeTurn?: boolean;
 }
 
 export function promptMeta(meta: unknown): AtlarixPromptMeta | undefined {
@@ -491,6 +570,7 @@ export function promptMeta(meta: unknown): AtlarixPromptMeta | undefined {
   return {
     answers: Array.isArray(a.answers) ? a.answers.map(String) : undefined,
     peerTurn: a.peerTurn === true,
+    wakeTurn: a.wakeTurn === true,
   };
 }
 
@@ -689,6 +769,10 @@ export class AcpAgent {
   }
 
   /** Atlarix's extension, back after a while away: one line on where this session stands. */
+  tasks(sessionId: string, action: "list" | "output" | "stop", id?: string): Promise<Record<string, unknown>> {
+    return this.thread(sessionId).tasks(action, id);
+  }
+
   async recap(sessionId: string): Promise<{ text: string | null }> {
     const t = this.thread(sessionId);
     if (t.session.state.busy) return { text: null };

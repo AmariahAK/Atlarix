@@ -52,6 +52,8 @@ async function editor(
   });
   const updates: SessionNotification[] = [];
   const asked: RequestPermissionRequest[] = [];
+  /** Atlarix's own notifications to its extension (`_atlarix/*`). */
+  const ext: Array<{ method: string; params: Record<string, unknown> }> = [];
   const client = acp
     .client({ name: "test-editor" })
     .onRequest("session/request_permission", (ctx) => {
@@ -60,6 +62,12 @@ async function editor(
     })
     .onNotification("session/update", (ctx) => {
       updates.push(ctx.params);
+    })
+    .onNotification("_atlarix/tasks_changed", (p) => p as Record<string, unknown>, (ctx) => {
+      ext.push({ method: "_atlarix/tasks_changed", params: ctx.params });
+    })
+    .onNotification("_atlarix/background_ready", (p) => p as Record<string, unknown>, (ctx) => {
+      ext.push({ method: "_atlarix/background_ready", params: ctx.params });
     });
   const conn = client.connect(buildAgentApp(agent, "test"));
   const init = await conn.agent.request("initialize", { protocolVersion: acp.PROTOCOL_VERSION, clientCapabilities });
@@ -68,7 +76,7 @@ async function editor(
       .filter((u) => u.sessionId === sessionId && u.update.sessionUpdate === "agent_message_chunk")
       .map((u) => ((u.update as { content: { text?: string } }).content.text ?? ""))
       .join("");
-  return { llm, agent, conn, init, updates, asked, text };
+  return { llm, agent, conn, init, updates, asked, text, ext };
 }
 
 describe("atlarix acp", () => {
@@ -326,6 +334,57 @@ describe("atlarix acp", () => {
     const after = await e.conn.agent.request<{ messages: Array<{ text: string }> }>("_atlarix/undo", { sessionId, action: "list" });
     expect(after.messages.map((m) => m.text)).toEqual(["leave u alone"]);
   }, 90_000);
+
+  it("Atlarix's extension: a background command is listed, and finishing it wakes the agent", async () => {
+    const e = await editor(
+      [
+        { tool: "run_command", args: { command: "sleep 1 && echo built-ok", description: "build in the background", background: true } },
+        { text: "Started the build." },
+        { text: "The build finished." },
+      ],
+      undefined,
+      { _meta: { atlarix: { version: 1 } } },
+    );
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    const r = await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "build it in the background" }] });
+    expect(r.stopReason).toBe("end_turn");
+
+    const { tasks } = await e.conn.agent.request<{ tasks: Array<{ id: string; kind: string; label: string; canStop: boolean }> }>(
+      "_atlarix/tasks",
+      { sessionId, action: "list" },
+    );
+    const job = tasks.find((t) => t.kind === "command" && t.label.includes("sleep 1"));
+    expect(job?.canStop).toBe(true);
+
+    // The job ends: the extension is told what is running changed, and that the agent can be woken.
+    const deadline = Date.now() + 15_000;
+    while (!e.ext.some((n) => n.method === "_atlarix/background_ready") && Date.now() < deadline) await Bun.sleep(100);
+    expect(e.ext.find((n) => n.method === "_atlarix/background_ready")?.params.sessionId).toBe(sessionId);
+    expect(e.ext.some((n) => n.method === "_atlarix/tasks_changed" && n.params.sessionId === sessionId)).toBe(true);
+
+    // The extension opens the wake turn; the agent deals with the result.
+    const w = await e.conn.agent.request("session/prompt", {
+      sessionId,
+      prompt: [],
+      _meta: { atlarix: { wakeTurn: true } },
+    });
+    expect(w.stopReason).toBe("end_turn");
+    expect(e.text(sessionId)).toContain("The build finished.");
+  }, 90_000);
+
+  it("another editor is never sent a turn it did not ask for", async () => {
+    const e = await editor([
+      { tool: "run_command", args: { command: "sleep 1 && echo done", description: "wait", background: true } },
+      { text: "Started." },
+    ]);
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "go" }] });
+    const sent = e.updates.length;
+    await Bun.sleep(3_000);
+    expect(e.ext).toEqual([]);
+    expect(e.text(sessionId)).not.toContain("The build finished.");
+    expect(e.updates.slice(sent).filter((u) => u.update.sessionUpdate === "agent_message_chunk")).toEqual([]);
+  }, 60_000);
 
   it("Past chats: rename and delete a stored chat, open or not", async () => {
     const e = await editor([{ text: "One." }, { text: "Two." }]);

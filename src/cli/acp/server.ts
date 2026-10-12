@@ -125,6 +125,18 @@ export function buildAgentApp(
       return { chrome: extras.chromeStatus?.() ?? "unavailable", recap: await recapEnabled() };
     })
     .onRequest("_atlarix/recap", (p) => p as { sessionId: string }, (ctx) => agent.recap(ctx.params.sessionId))
+    // What is running in a session (sub-agents, background commands): list, output, stop.
+    .onRequest(
+      "_atlarix/tasks",
+      (p) => p as { sessionId: string; action: "list" | "output" | "stop"; id?: string },
+      (ctx) => {
+        const { sessionId, action, id } = ctx.params;
+        if (action !== "list" && action !== "output" && action !== "stop") {
+          throw acp.RequestError.invalidParams(undefined, `Unknown action: ${String(action)}`);
+        }
+        return agent.tasks(sessionId, action, id);
+      },
+    )
     .onRequest("_atlarix/handoff", (p) => p as { sessionId: string }, async (ctx) => {
       try {
         await agent.handoff(ctx.params.sessionId);

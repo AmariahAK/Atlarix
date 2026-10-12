@@ -165,3 +165,67 @@ describe("your messages carry their stored ids (Atlarix's own extension)", () =>
     expect(diffUpdates([user("7:pu0", "theirs")], new Map(), { ids: true })).toEqual([]);
   });
 });
+
+/**
+ * A sub-agent is one `task` call that stays running while it works. ACP has no
+ * notion of a sub-agent, so its own calls, what it has used and its report go
+ * in that call's body (any editor draws it), and in `_meta.atlarix.subagent`
+ * for Atlarix's extension, which draws the app's panel from it.
+ */
+describe("a sub-agent's task call", () => {
+  const task = (over: Partial<Extract<Cell, { kind: "tool" }>["tool"]> = {}): Cell => ({
+    kind: "tool",
+    id: "7:t:task_0",
+    tool: {
+      verb: "Agent",
+      target: "Callers of refreshSession",
+      status: "running",
+      progress: "Reading the session code",
+      children: [{ id: "c1", verb: "Searched", target: "refreshSession", status: "success" }],
+      agent: { label: "Callers of refreshSession", startedAt: 1_000, tokens: 1_200 },
+      ...over,
+    },
+  });
+  const body = (u: unknown) =>
+    ((u as { content?: Array<{ content: { text: string } }> }).content ?? []).map((c) => c.content.text).join("\n");
+
+  it("streams what it is doing, each of its calls and what it has used", () => {
+    const [u] = diffUpdates([task()], new Map());
+    expect(u).toMatchObject({ sessionUpdate: "tool_call", kind: "think", status: "in_progress" });
+    expect(body(u)).toContain("Reading the session code");
+    expect(body(u)).toContain("Searched refreshSession");
+    expect(body(u)).toContain("1 tool · 1.2k tokens");
+    expect((u as { _meta?: { atlarix?: { subagent?: unknown } } })._meta?.atlarix?.subagent).toMatchObject({
+      label: "Callers of refreshSession",
+      status: "running",
+      startedAt: 1_000,
+      tools: [{ verb: "Searched", target: "refreshSession", status: "success" }],
+    });
+  });
+
+  it("re-sends while it stays running: a new call, a new step, more tokens", () => {
+    const e: Emitted = new Map();
+    diffUpdates([task()], e);
+    expect(diffUpdates([task()], e)).toEqual([]);
+    const more = task({
+      children: [
+        { id: "c1", verb: "Searched", target: "refreshSession", status: "success" },
+        { id: "c2", verb: "Read", target: "src/auth/session.ts", status: "running" },
+      ],
+    });
+    const [u] = diffUpdates([more], e);
+    expect(u).toMatchObject({ sessionUpdate: "tool_call_update", status: "in_progress" });
+    expect(body(u)).toContain("Read src/auth/session.ts");
+    // Tokens re-send in steps of 1k, not on every token.
+    expect(diffUpdates([task({ ...more.tool, agent: { tokens: 1_900 } } as never)], e)).toEqual([]);
+  });
+
+  it("ends with its report", () => {
+    const e: Emitted = new Map();
+    diffUpdates([task()], e);
+    const [u] = diffUpdates([task({ status: "success", progress: undefined, output: "The proxy has no clock leeway." })], e);
+    expect(u).toMatchObject({ sessionUpdate: "tool_call_update", status: "completed" });
+    expect(body(u)).toContain("The proxy has no clock leeway.");
+    expect(body(u)).not.toContain("Reading the session code");
+  });
+});
