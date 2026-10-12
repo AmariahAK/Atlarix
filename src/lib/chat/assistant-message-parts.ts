@@ -569,6 +569,18 @@ function mergeAdjacentMarkdown(
         continue;
       }
     }
+    // Thinking that arrives as several blocks with nothing between them is one
+    // stretch of thought: one block, not a stack of them.
+    if (p.type === "thought" && merged.length > 0) {
+      const last = merged[merged.length - 1];
+      if (last.type === "thought") {
+        merged[merged.length - 1] = {
+          type: "thought",
+          content: `${last.content}\n\n${p.content}`.trim(),
+        };
+        continue;
+      }
+    }
     merged.push(p);
   }
   return merged;
