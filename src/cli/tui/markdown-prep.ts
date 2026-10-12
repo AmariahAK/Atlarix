@@ -12,6 +12,8 @@
  *   separator the model meant.
  */
 
+import { mermaidFlowchart } from "@/lib/chat/mermaid-flow";
+
 const BAR_WIDTH = 24;
 
 function chartText(json: string): string | null {
@@ -66,7 +68,13 @@ function markmapText(body: string): string {
     .join("\n");
 }
 
-const FENCE = /```(chart|graph|markmap)[^\n]*\n([\s\S]*?)```/g;
+const FENCE = /```(chart|graph|markmap|mermaid)[^\n]*\n([\s\S]*?)```/g;
+
+/** A mermaid flowchart said as its edges, like a ```graph; any other mermaid stays code. */
+function mermaidText(body: string): string | null {
+  const g = mermaidFlowchart(body);
+  return g ? graphText(JSON.stringify({ nodes: g.nodes, edges: g.edges })) : null;
+}
 
 /** Close a table before prose that follows it without a blank line. */
 function closeTables(text: string): string {
@@ -106,7 +114,14 @@ function separatorsNotHeadings(text: string): string {
 
 export function prepareMarkdown(text: string): string {
   const replaced = text.replace(FENCE, (whole, kind: string, body: string) => {
-    const t = kind === "chart" ? chartText(body) : kind === "graph" ? graphText(body) : markmapText(body.trim());
+    const t =
+      kind === "chart"
+        ? chartText(body)
+        : kind === "graph"
+          ? graphText(body)
+          : kind === "mermaid"
+            ? mermaidText(body)
+            : markmapText(body.trim());
     return t ?? whole;
   });
   return closeTables(separatorsNotHeadings(replaced));

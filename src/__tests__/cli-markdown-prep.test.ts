@@ -94,3 +94,13 @@ describe("a tip during a turn", () => {
     for (let i = 0; i < 200; i++) expect(pickTip(`s:${i}`, ["ctrl+t"]).keys).not.toBe("ctrl+t");
   });
 });
+
+describe("a mermaid flowchart in the terminal", () => {
+  it("is said as its edges; other mermaid stays code", () => {
+    const out = prepareMarkdown("```mermaid\nflowchart LR\n  A[Web] --> B(API)\n```");
+    expect(out).toContain("- Web → API");
+    expect(out).not.toContain("flowchart");
+    const seq = "```mermaid\nsequenceDiagram\n  A->>B: hi\n```";
+    expect(prepareMarkdown(seq)).toContain("sequenceDiagram");
+  });
+});

@@ -12,6 +12,7 @@
  * usual: a half-drawn diagram would jump around and then snap into place.
  * Model text never goes through innerHTML: every label is a text node.
  */
+import { mermaidFlowchart } from "../../../../src/lib/chat/mermaid-flow";
 import { renderMarkdown, type FenceRenderer } from "../../../extension/src/panel/markdown";
 import { post } from "../rpc";
 import { button, el } from "../ui";
@@ -129,6 +130,12 @@ export const drawFence: FenceRenderer = (lang, code, closed) => {
     if (!c || !Array.isArray(c.labels) || !Array.isArray(c.values) || !c.values.every((v) => typeof v === "number")) return null;
     const drawing = drawChart({ type: c.type, labels: c.labels.map(String), values: c.values as number[] });
     return drawing ? card("chart", c.title?.trim() || "Chart", code, drawing) : null;
+  }
+  if (lang === "mermaid") {
+    // A flowchart is drawn like a graph; any other mermaid stays code.
+    const g = mermaidFlowchart(code);
+    const drawing = g && drawGraph(g);
+    return drawing ? card("graph", `Diagram · ${g.nodes.length} nodes`, code, drawing) : null;
   }
   if (lang === "markmap") {
     const body = el("div", "fig__outline");
