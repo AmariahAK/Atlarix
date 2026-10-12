@@ -119,8 +119,13 @@ export function autoRequestHeaders(
   };
   if (options?.workMode) out["X-Atlarix-Mode"] = options.workMode;
   if (options?.escalate) out["X-Atlarix-Escalate"] = "1";
+  // "1" whenever the user said yes, so a proxy that predates the v2 wording
+  // still serves them (OpenAI only); the version rides in its own header.
   const consent = autoConsentHeader(settings);
-  if (consent) out["X-Atlarix-Free-Consent"] = consent;
+  if (consent) {
+    out["X-Atlarix-Free-Consent"] = "1";
+    out["X-Atlarix-Free-Consent-Version"] = consent;
+  }
   return out;
 }
 

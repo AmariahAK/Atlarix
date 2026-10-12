@@ -69,17 +69,21 @@ describe("Atlarix Auto consent at dispatch", () => {
  * "shared with OpenAI" wording keeps the OpenAI-only Auto it agreed to.
  */
 describe("the consent header names the wording version", () => {
-  it("sends nothing without a yes, 1 for the old wording, 2 for the new", async () => {
+  it("sends nothing without a yes, and the wording version beside it", async () => {
     const { autoRequestHeaders } = await import("@/ipc/utils/get_model_client");
     const { autoConsentAccepted } = await import("@/ipc/shared/compass_constants");
-    expect(autoRequestHeaders({} as never)["X-Atlarix-Free-Consent"]).toBeUndefined();
-    expect(
-      autoRequestHeaders({ atlarixAutoConsentAt: "2026-09-23T10:00:00Z" } as never)["X-Atlarix-Free-Consent"],
-    ).toBe("1");
-    expect(autoRequestHeaders(autoConsentAccepted() as never)["X-Atlarix-Free-Consent"]).toBe("2");
+    const none = autoRequestHeaders({} as never);
+    expect(none["X-Atlarix-Free-Consent"]).toBeUndefined();
+    expect(none["X-Atlarix-Free-Consent-Version"]).toBeUndefined();
+    const v1 = autoRequestHeaders({ atlarixAutoConsentAt: "2026-09-23T10:00:00Z" } as never);
+    expect(v1["X-Atlarix-Free-Consent"]).toBe("1");
+    expect(v1["X-Atlarix-Free-Consent-Version"]).toBe("1");
+    // The consent header stays "1" on the new wording too: a proxy from before
+    // it only knows "1", and must keep serving a user who said yes.
+    const v2 = autoRequestHeaders(autoConsentAccepted() as never);
+    expect(v2["X-Atlarix-Free-Consent"]).toBe("1");
+    expect(v2["X-Atlarix-Free-Consent-Version"]).toBe("2");
     // A version alone (no yes recorded) is not consent.
-    expect(
-      autoRequestHeaders({ atlarixAutoConsentVersion: 2 } as never)["X-Atlarix-Free-Consent"],
-    ).toBeUndefined();
+    expect(autoRequestHeaders({ atlarixAutoConsentVersion: 2 } as never)["X-Atlarix-Free-Consent"]).toBeUndefined();
   });
 });

@@ -55,8 +55,8 @@ export function autoConsentAccepted(now = new Date()): {
 }
 
 /**
- * The `X-Atlarix-Free-Consent` value for these settings: the wording version
- * the user said yes to, or null when they have not.
+ * The wording version the user said yes to (`X-Atlarix-Free-Consent-Version`),
+ * or null when they have not. The consent header itself is always "1".
  */
 export function autoConsentHeader(settings: {
   atlarixAutoConsentAt?: string;
