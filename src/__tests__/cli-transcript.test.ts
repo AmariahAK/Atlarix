@@ -229,3 +229,30 @@ describe("plan and background job lines say what happened", () => {
     expect(toolResultText("plan", '{"success":true,"result":{"message":"Plan saved.","x":"cut').text).toBe("Plan saved.");
   });
 });
+
+describe("a sub-agent's task call", () => {
+  const msg = (result: string) => ({
+    id: 9,
+    role: "assistant",
+    content:
+      `<atlarix-tool-call tool="task" call="t1" status="running">\n{"description":"Map src/mini","prompt":"Read-only reconnaissance task."}\n</atlarix-tool-call>\n` +
+      `<atlarix-tool-result tool="task" call="t1" status="complete">\n${result}\n</atlarix-tool-result>\n`,
+  });
+  const taskTool = (result: string) => {
+    const cell = toCells([msg(result)]).find((c) => c.kind === "tool");
+    return (cell as Extract<ReturnType<typeof toCells>[number], { kind: "tool" }>).tool;
+  };
+
+  it("in the background reads as running, never as its raw envelope", () => {
+    const t = taskTool('<task id="205e9aef" state="running">\nStarted in the background.\n</task>');
+    expect(t.status).toBe("running");
+    expect(t.summary).toBe("running in the background");
+    expect(t.output ?? "").not.toContain("<task");
+  });
+
+  it("when done shows its report, not the tag", () => {
+    const t = taskTool('<task id="205e9aef" state="completed">\nsrc/mini has 12 files; the entry is index.ts.\n</task>');
+    expect(t.status).toBe("success");
+    expect(t.summary).toBe("src/mini has 12 files; the entry is index.ts.");
+  });
+});

@@ -216,6 +216,12 @@ function ToolCell({
       )}
       {tool.children?.length ? (
         <box flexDirection="column" paddingLeft={2}>
+          {/* The older calls go above the newest five, where they came. */}
+          {!expanded && tool.children.length > 5 ? (
+            <text
+              fg={color.faint}
+            >{`  … ${tool.children.length - 5} earlier (ctrl+o)`}</text>
+          ) : null}
           {(expanded ? tool.children : tool.children.slice(-5)).map((c, i) => {
             const cs = STATUS_ICON[c.status];
             return (
@@ -229,11 +235,6 @@ function ToolCell({
               </text>
             );
           })}
-          {!expanded && tool.children.length > 5 ? (
-            <text
-              fg={color.faint}
-            >{`  … ${tool.children.length - 5} earlier (ctrl+o)`}</text>
-          ) : null}
         </box>
       ) : null}
       {tool.progress ? (
@@ -270,7 +271,8 @@ function ToolCell({
           )}
         </box>
       ) : null}
-      {!tool.diff && !expanded && tool.summary && !showRun ? (
+      {/* A working sub-agent's progress line IS its result line: never two. */}
+      {!tool.diff && !expanded && tool.summary && !showRun && !(tool.progress && tool.status === "running") ? (
         <text fg={tool.status === "error" ? color.error : color.muted}>
           {`  ${glyph.result} `}
           {oneLine(relativeTo(workspace, tool.summary), width - 8)}

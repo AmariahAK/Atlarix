@@ -389,9 +389,36 @@ export function answerPairs(text: string): Array<{ question: string; answer: str
   return pairs.map((m) => ({ question: m![1]!.trim(), answer: m![2]!.trim() }));
 }
 
+/**
+ * A `task` call's result is an envelope: `<task id="…" state="running">…</task>`
+ * when the sub-agent went to the background, the report inside when it ended.
+ * Read it, so the row says what is true (QA saw the raw tag under the row, and
+ * the done mark on an agent still at work).
+ */
+function taskEnvelope(text: string): { state: string; inner: string } | null {
+  const m = /^\s*<task\b[^>]*\bstate="([a-z_]+)"[^>]*>\n?([\s\S]*?)\n?<\/task>\s*$/.exec(text);
+  return m ? { state: m[1]!, inner: m[2]!.trim() } : null;
+}
+
 export function toolLine(part: Extract<AssistantMessagePart, { type: "tool" }>): ToolLine {
   const r = toolResultText(part.toolName, part.error ?? part.resultText);
   const diff = part.toolName === "edit_file" && part.status === "success" ? editDiff(part.args) : undefined;
+  const env = part.toolName === "task" ? taskEnvelope(r.text) : null;
+  if (env) {
+    const background = env.state === "running" || env.state === "pending";
+    const first = env.inner.split("\n").find((l) => l.trim())?.trim();
+    return {
+      id: part.id,
+      verb: VERBS[part.toolName] ?? part.toolName.replace(/_/g, " "),
+      target: toolTarget(part.toolName, part.args),
+      // The call returned at once; the agent itself is still working.
+      status: background ? "running" : env.state === "error" || env.state === "failed" ? "error" : part.status,
+      result: part.resultText,
+      error: part.error,
+      output: env.inner || undefined,
+      summary: background ? "running in the background" : first,
+    };
+  }
   return {
     diff,
     id: part.id,
