@@ -69,6 +69,7 @@ import {
   takePendingStalledAdvisories,
 } from "@/lib/agent/background-commands";
 import { collectPendingBackgroundResultsBody } from "@/lib/agent/collect-results";
+import { rememberDeliveredResults } from "@/lib/agent/delivered-results";
 import { takePendingScheduledWakeupNudges } from "@/lib/agent/scheduled-wakeups";
 import { takePendingDroppedHistoryNotice } from "@/lib/context/dropped-history-notice";
 import { takePendingSubagentResults } from "@/lib/agents/subagent-results";
@@ -579,6 +580,10 @@ export async function simpleStreamText(
       const subagentResults = forceCollectOnWake
         ? null
         : takePendingSubagentResults(req.chatId);
+      // Injected results are step input only and never saved: keep them so
+      // the next turns still have them (delivered-results.ts).
+      rememberDeliveredResults(req.chatId, bgResults);
+      rememberDeliveredResults(req.chatId, subagentResults);
       // A4: stall advisories for still-running quiet jobs (decide:
       // keep waiting / read / cancel) — same step-input-only seam.
       const stalledAdvisories = forceCollectOnWake

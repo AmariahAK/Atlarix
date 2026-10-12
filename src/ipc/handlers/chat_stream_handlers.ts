@@ -89,6 +89,7 @@ import {
   runningSubagentCount,
 } from "@/lib/agents/subagent-results";
 import { computeWakePendingResults } from "@/lib/agent/collect-results";
+import { takeEarlierDeliveredResults } from "@/lib/agent/delivered-results";
 import { takePendingAutomationResults } from "@/lib/agent/automation-results";
 import {
   AI_STREAMING_ERROR_MESSAGE_PREFIX,
@@ -1599,6 +1600,14 @@ export function registerChatStreamHandlers() {
               };
             };
 
+            // Results an earlier turn was given by injection (never saved), so
+            // this turn still has them instead of redoing the work.
+            const turnStartedAt = Date.now();
+            const loadEarlierDeliveredResultsSection = (): ContextSection | null => {
+              const earlier = takeEarlierDeliveredResults(req.chatId, turnStartedAt);
+              return earlier ? { name: "taskProgress", priority: 1.6, content: earlier } : null;
+            };
+
             // Background sub-agent results that finished after the previous turn
             // ended — drain them into this turn's context the same way.
             const loadSubagentResultsSection = (): ContextSection | null => {
@@ -1680,6 +1689,7 @@ export function registerChatStreamHandlers() {
               loadBackgroundResultsSection(),
               loadSubagentResultsSection(),
               loadAutomationResultsSection(),
+              loadEarlierDeliveredResultsSection(),
             ];
             for (const section of loadedSections) {
               if (section) contextSections.push(section);
