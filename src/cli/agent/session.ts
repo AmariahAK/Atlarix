@@ -32,6 +32,7 @@ import { conversationText } from "./btw";
 import { handler } from "./ipc";
 import { readCliState, turnModelFor } from "./models";
 import { applyLiveTextPatch, type LiveTextPatch } from "@/lib/chat/live-text-patch";
+import { stripThinkBlocks } from "@/ipc/utils/thinking_tags";
 
 /** The desktop's five work modes (WorkModeSchema); "ask" is shown as Explore. */
 export type WorkMode = "build" | "ask" | "plan" | "debug" | "review";
@@ -207,6 +208,24 @@ export async function changeFolderSession(sessionId: string, change: { rename: s
 }
 
 let interjectionSeq = 0;
+
+/**
+ * Take main's message list, keeping the thinking of replies already seen.
+ *
+ * When a turn ends, main strips the thinking from its in-memory copy of the
+ * reply (to keep the model's next context lean); the saved copy keeps it. The
+ * next turn's list then replaced ours, and every earlier turn's thoughts went
+ * from the live transcript while a resumed session still had them (QA). A
+ * reply whose new text is its old text minus the thinking keeps the old text.
+ */
+export function keepThoughts(prev: readonly ChatMessageLike[], next: readonly ChatMessageLike[]): ChatMessageLike[] {
+  const before = new Map(prev.map((m) => [String(m.id), m]));
+  return next.map((m) => {
+    const old = before.get(String(m.id));
+    if (m.role !== "assistant" || !old || old.content === m.content || !old.content.includes("think")) return { ...m };
+    return stripThinkBlocks(old.content).trim() === m.content.trim() ? { ...m, content: old.content } : { ...m };
+  });
+}
 
 /** Job reports that wake an idle agent (the desktop's list, useStreamChat). */
 const WAKE_STATUSES = new Set(["finished", "stalled", "scheduled", "condition_met"]);
@@ -1366,7 +1385,7 @@ export class AgentSession extends EventEmitter {
           // sent. Shared, the row already held each patch's text when the patch
           // came, so the patch read as "no change": thinking and the answer
           // reached the screen and the editor only when the turn ended.
-          this.messages = (p.messages as ChatMessageLike[]).map((m) => ({ ...m }));
+          this.messages = keepThoughts(this.messages, p.messages as ChatMessageLike[]);
           this.anchorSteers();
           this.update({ cells: this.cellsFor(this.state.busy) });
           return;
