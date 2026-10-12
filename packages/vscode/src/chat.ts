@@ -80,6 +80,8 @@ export class Chat {
   private readonly pending = new Map<string, Pending>();
   private seq = 0;
   private peerWaiting = false;
+  /** Background work finished during a turn: wake the agent once this one ends. */
+  private wakeWaiting = false;
   private readonly recapClock: RecapClock = { completedTurns: 0, lastTurnEndedAt: null, recappedAfterTurn: -1 };
   private awaySince: number | null = null;
   private recapTimer: ReturnType<typeof setTimeout> | null = null;
@@ -258,6 +260,8 @@ export class Chat {
         update: (n: SessionNotification) => this.onUpdate(n),
         permission: (req: RequestPermissionRequest) => this.onPermission(req),
         peerWaiting: () => this.onPeerWaiting(),
+        tasksChanged: (count) => this.post({ type: "tasks-changed", count }),
+        backgroundReady: () => this.onBackgroundReady(),
       };
       this.listener = listener;
       if (sessionId) {
@@ -342,6 +346,7 @@ export class Chat {
     this.recapClock.completedTurns++;
     this.recapClock.lastTurnEndedAt = Date.now();
     if (this.peerWaiting) this.onPeerWaiting();
+    else if (this.wakeWaiting) this.onBackgroundReady();
     else if (this.awaySince != null) this.armRecap();
   }
 
@@ -376,6 +381,21 @@ export class Chat {
   }
 
   /** Another session messaged this one while it was idle: read it now, as the app does. */
+  /**
+   * A background command or sub-agent finished while the chat was idle: open a
+   * turn so the agent deals with it, as the desktop app does. The agent refuses
+   * one after you stopped the turn.
+   */
+  private onBackgroundReady(): void {
+    if (this.busy) {
+      this.wakeWaiting = true;
+      return;
+    }
+    this.wakeWaiting = false;
+    this.post({ type: "turn-start" });
+    void this.send("", [], undefined, { wakeTurn: true });
+  }
+
   private onPeerWaiting(): void {
     if (this.busy) {
       this.peerWaiting = true;

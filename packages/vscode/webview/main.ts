@@ -12,6 +12,7 @@ import type { HostMessage } from "../src/protocol";
 import * as C from "./chat/composer";
 import { closePicker, initPicker, picker, renderPicker } from "./chat/picker";
 import { clearTask, renderTask, setPlan, taskCard } from "./chat/task";
+import { resetTasks, tasksBar, tasksChanged } from "./chat/tasks";
 import * as T from "./chat/transcript";
 import { onHost, post, rpc } from "./rpc";
 import { applyOptions, emit, loadProviders, on, state } from "./state";
@@ -48,6 +49,8 @@ chat.append(taskCard, T.log);
 const page = el("div", "page hidden");
 const toastSlot = el("div", "toast-slot");
 app.append(nav, notice, chat, C.composer, page, picker, toastSlot);
+// What is still running sits just above the message box, where you are looking.
+C.composer.prepend(tasksBar);
 
 // --- Screens ---------------------------------------------------------------------
 
@@ -232,6 +235,7 @@ onHost((m: HostMessage) => {
         state.usage = { tokens: 0, cachedTokens: 0, cost: 0, used: 0, size: 0 };
         T.resetTranscript();
         clearTask();
+        resetTasks();
         emit("session");
       }
       replaying = m.replay;
@@ -257,6 +261,9 @@ onHost((m: HostMessage) => {
       return;
     case "turn-start":
       C.setBusy(true);
+      return;
+    case "tasks-changed":
+      tasksChanged(m.count);
       return;
     case "turn-end":
       C.setBusy(false);

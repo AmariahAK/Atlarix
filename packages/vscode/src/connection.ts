@@ -52,6 +52,10 @@ export interface SessionListener {
   update(n: SessionNotification): void;
   permission(req: RequestPermissionRequest): Promise<RequestPermissionResponse>;
   peerWaiting(): void;
+  /** What is running in the session changed. */
+  tasksChanged?(count: number): void;
+  /** Background work finished while the session was idle: the agent can deal with it now. */
+  backgroundReady?(): void;
 }
 
 export interface ConnectionOptions {
@@ -124,6 +128,20 @@ export class AtlarixConnection {
         (p) => p as { sessionId: string },
         (ctx) => {
           this.listeners.get(ctx.params.sessionId)?.peerWaiting();
+        },
+      )
+      .onNotification(
+        "_atlarix/tasks_changed",
+        (p) => p as { sessionId: string; count?: number },
+        (ctx) => {
+          this.listeners.get(ctx.params.sessionId)?.tasksChanged?.(Number(ctx.params.count ?? 0));
+        },
+      )
+      .onNotification(
+        "_atlarix/background_ready",
+        (p) => p as { sessionId: string },
+        (ctx) => {
+          this.listeners.get(ctx.params.sessionId)?.backgroundReady?.();
         },
       );
 

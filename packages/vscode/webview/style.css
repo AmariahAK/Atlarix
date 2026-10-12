@@ -2000,3 +2000,225 @@ body.needs-you .needs-badge {
   border-color: var(--danger-line);
   color: var(--danger-soft);
 }
+
+/* Sub-agents in the conversation: one panel per round, a row per agent (chat/subagents.ts). */
+.spin {
+  color: var(--primary);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+.agents {
+  border: 1px solid var(--border);
+  background: var(--raised);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.agents__head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: none;
+  border: none;
+  border-radius: 0;
+  color: var(--fg);
+  font-weight: 500;
+  text-align: left;
+}
+.agents__summary {
+  flex: 1;
+  min-width: 0;
+}
+.agents__tokens {
+  color: var(--faint);
+  font-weight: 400;
+  font-size: 0.9em;
+  font-variant-numeric: tabular-nums;
+}
+.agents__body {
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+}
+.agent + .agent {
+  border-top: 1px solid var(--border);
+}
+.agent__head {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 7px 10px;
+  background: none;
+  border: none;
+  border-radius: 0;
+  color: inherit;
+  text-align: left;
+}
+.agent__head:hover,
+.agents__head:hover {
+  background: var(--card);
+}
+.agent__mark {
+  color: var(--primary-soft);
+}
+.agent.error .agent__mark {
+  color: var(--danger-soft);
+}
+.agent__title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.agent__title strong {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent__phase {
+  color: var(--faint);
+  font-size: 0.9em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent__meta {
+  color: var(--faint);
+  font-size: 0.9em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.agent__body {
+  padding: 0 10px 9px 30px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--muted);
+  font-size: 0.92em;
+}
+.agent__tool {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.agent__tool span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent__tool-mark {
+  color: var(--faint);
+}
+.agent__report {
+  margin-top: 6px;
+  background: var(--sunk);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  color: var(--muted);
+}
+
+/* What is still running, above the message box (chat/tasks.ts). */
+.tasks {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.tasks__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--primary-bg);
+  border: 1px solid var(--primary-line);
+  color: var(--primary-soft);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 0.9em;
+  font-weight: 500;
+}
+.tasks__dot.warn {
+  color: var(--warn);
+}
+.tasks__panel {
+  width: 100%;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.tasks__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.tasks__empty {
+  padding: 10px 12px;
+}
+.tasks__group {
+  padding: 6px 12px 2px;
+  color: var(--faint);
+  font-size: 10.5px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.task-row + .task-row,
+.tasks__group + .task-row {
+  border-top: 1px solid var(--border);
+}
+.task-row__head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  background: none;
+  border: none;
+  border-radius: 0;
+  color: var(--fg);
+  text-align: left;
+}
+.task-row__head:hover {
+  background: var(--raised);
+}
+.task-row__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.task-row__tokens,
+.task-row__time {
+  color: var(--faint);
+  font-size: 0.9em;
+  font-variant-numeric: tabular-nums;
+}
+.badge.stalled {
+  color: var(--warn);
+  background: var(--warn-bg);
+}
+.task-row__tail {
+  margin: 0 12px 8px;
+  background: var(--sunk);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-family: var(--mono);
+  font-size: 0.85em;
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.task-row__actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 0 12px 10px;
+}

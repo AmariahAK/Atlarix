@@ -72,6 +72,7 @@ export const RPC_METHODS = [
   "_atlarix/mcp",
   "_atlarix/status",
   "_atlarix/recap_setting",
+  "_atlarix/tasks",
 ] as const;
 export type RpcMethod = (typeof RPC_METHODS)[number];
 
@@ -114,7 +115,9 @@ export type HostMessage =
   | { type: "files"; query: string; files: Array<{ path: string; label: string }> }
   /** The file open in the editor, offered as context unless removed. */
   | { type: "active-file"; item: ContextItem | null }
-  | { type: "host-settings"; settings: HostSettings };
+  | { type: "host-settings"; settings: HostSettings }
+  /** What is running in this chat changed (sub-agents, background commands): `count` of them. */
+  | { type: "tasks-changed"; count: number };
 
 export type ViewMessage =
   | { type: "ready" }

@@ -12,6 +12,7 @@ import { diffRows } from "../logic";
 import { post, rpc } from "../rpc";
 import { state } from "../state";
 import { button, el, icon, rixGlyph } from "../ui";
+import { resetSubagents, upsertSubagent, type SubagentMeta } from "./subagents";
 
 /** Atlarix's own marks (src/cli/tui/glyphs.ts). */
 const MARK = { reply: "◆", thought: "∴", running: "◌", done: "◇", failed: "✕", recap: "◷" };
@@ -55,6 +56,7 @@ function scrollDown(force = false): void {
 export function resetTranscript(): void {
   log.textContent = "";
   tools.clear();
+  resetSubagents();
   current = null;
   turn = { edits: false, messageId: null };
   pendingQuestion = null;
@@ -67,7 +69,7 @@ export function isEmpty(): boolean {
 /** A turn is over: what it changed gets a checkpoint, and its thinking folds. */
 export function endTurn(): void {
   foldThought();
-  current = null;
+  closeCurrent();
   if (turn.edits && turn.messageId != null) log.append(checkpoint(turn.messageId));
   turn = { edits: false, messageId: turn.messageId };
   scrollDown();
@@ -123,6 +125,17 @@ function flushRender(): void {
     body.scrollTop = body.scrollHeight;
   }
   scrollDown();
+}
+
+/**
+ * The live reply or thought is over: draw what is still waiting for its frame
+ * first. Text is drawn once per animation frame, and a tool call arriving in the
+ * same frame as the last chunk used to drop that chunk (the reply lost its last
+ * words before the step that followed it).
+ */
+function closeCurrent(): void {
+  if (renderQueued) flushRender();
+  current = null;
 }
 
 let liveThought: HTMLDetailsElement | null = null;
@@ -227,7 +240,7 @@ function stepsGroup(): HTMLElement {
 export function toolCall(t: ToolCallUpdate & { _meta?: unknown; kind?: string | null }): void {
   log.querySelector(".home")?.remove();
   foldThought();
-  current = null;
+  closeCurrent();
   const peer = (t._meta as { atlarix?: { peer?: { from?: string } } } | undefined)?.atlarix?.peer;
   const existing = tools.get(t.toolCallId);
   const kind = (t.kind ?? existing?.dataset.kind ?? "other") as string;
@@ -248,6 +261,21 @@ export function toolCall(t: ToolCallUpdate & { _meta?: unknown; kind?: string | 
     d.append(head, el("div", "peer__text", text ?? ""));
     tools.set(t.toolCallId, d);
     log.append(d);
+    return scrollDown();
+  }
+
+  // A sub-agent: drawn in its round's panel, the way the app does.
+  const sub = (t._meta as { atlarix?: { subagent?: SubagentMeta } } | undefined)?.atlarix?.subagent;
+  if (sub || existing?.dataset.card === "subagent") {
+    if (sub) {
+      const round = upsertSubagent(t.toolCallId, sub);
+      if (round) log.append(round);
+    }
+    if (!existing) {
+      const marker = el("span", "hidden");
+      marker.dataset.card = "subagent";
+      tools.set(t.toolCallId, marker);
+    }
     return scrollDown();
   }
 
@@ -317,7 +345,7 @@ function textOf(messageId: number): string {
 
 export function showQuestion(items: Array<{ question: string; options?: string[] }>): void {
   foldThought();
-  current = null;
+  closeCurrent();
   pendingQuestion = items;
   const card = el("div", "card question");
   const answers: string[] = items.map(() => "");
