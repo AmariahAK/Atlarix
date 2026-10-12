@@ -2375,6 +2375,36 @@ body.needs-you .needs-badge {
 .md-table-wrap th code {
   white-space: nowrap;
 }
+/* A table reads as one: a bordered box, a header band, a line between rows. */
+.md-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  font-size: 0.92em;
+  margin: 2px 0 8px;
+}
+.md-table th,
+.md-table td {
+  padding: 6px 12px;
+  text-align: left;
+}
+.md-table th {
+  background: var(--card);
+  color: var(--fg);
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+}
+.md-table tbody tr + tr td {
+  border-top: 1px solid var(--border);
+}
+.md-table td.num {
+  font-variant-numeric: tabular-nums;
+}
+.md-table td code {
+  padding: 0 4px;
+}
 /* A diagram keeps a readable size and scrolls, rather than shrinking its labels. */
 .fig {
   overflow-x: auto;

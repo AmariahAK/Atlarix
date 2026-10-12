@@ -154,18 +154,31 @@ function parseBlocks(markdown: string, fenceRenderer?: FenceRenderer): Node[] {
     // falls through to the branches below unchanged.
     if (isTableStart(lines, i)) {
       const head = splitRow(lines[i]);
+      // Alignment as written (`:---`, `:---:`, `---:`), else numbers to the right.
+      const written = splitRow(lines[i + 1] ?? "").map((c) => {
+        const t = c.trim();
+        return t.startsWith(":") && t.endsWith(":") ? "center" : t.endsWith(":") ? "right" : t.startsWith(":") ? "left" : "";
+      });
       const rows: string[][] = [];
       i += 2; // the header and its ---|--- separator
       while (i < lines.length && lines[i].includes("|") && lines[i].trim()) {
         rows.push(splitRow(lines[i]));
         i += 1;
       }
+      const NUMBER = /^[~≈<>]?\s*[-+]?[$€£]?\d[\d,._]*(?:\s*(?:%|[KMGT]?i?B|ms|s|x|k|M))?$/i;
+      const align = head.map((_, c) => {
+        if (written[c]) return written[c];
+        const cells = rows.map((r) => (r[c] ?? "").replace(/`/g, "").trim()).filter(Boolean);
+        return cells.length > 0 && cells.every((v) => NUMBER.test(v)) ? "right" : "";
+      });
       const t = document.createElement("table");
+      t.className = "md-table";
       const thead = document.createElement("thead");
       const hr = document.createElement("tr");
-      for (const cell of head) {
+      for (const [c, cell] of head.entries()) {
         const th = document.createElement("th");
         appendInline(th, cell);
+        if (align[c]) th.style.textAlign = align[c];
         hr.append(th);
       }
       thead.append(hr);
@@ -178,6 +191,8 @@ function parseBlocks(markdown: string, fenceRenderer?: FenceRenderer): Node[] {
         for (let c = 0; c < head.length; c += 1) {
           const td = document.createElement("td");
           appendInline(td, row[c] ?? "");
+          if (align[c]) td.style.textAlign = align[c];
+          if (align[c] === "right") td.classList.add("num");
           tr.append(td);
         }
         tbody.append(tr);
