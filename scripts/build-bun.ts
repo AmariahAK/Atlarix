@@ -127,7 +127,18 @@ const result = await Bun.build({
         compile: {
           outfile,
           ...(target ? { target: target as Bun.Build.Target } : {}),
-        },
+          // The binary runs in whatever folder the user opens, often a clone
+          // they have not read yet. Left on (Bun's default), it would run that
+          // folder's bunfig.toml `preload` (its code, with the user's keys and
+          // session at hand, before any prompt) and load its .env into the
+          // agent's own environment (HTTPS_PROXY, NODE_EXTRA_CA_CERTS,
+          // ATLARIX_*). A Bun project with a preload also could not open the CLI
+          // at all. Atlarix reads its own config; the workspace's is data.
+          autoloadBunfig: false,
+          autoloadDotenv: false,
+          autoloadTsconfig: false,
+          autoloadPackageJson: false,
+        } as Bun.CompileBuildOptions & Record<string, unknown>,
       }),
   plugins: [cliPlugin(files), ...(libc ? [otherLibcStub(libc)] : [])],
   define: {
