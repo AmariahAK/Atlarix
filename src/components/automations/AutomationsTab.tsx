@@ -75,11 +75,20 @@ function statusBadge(run: AutomationRunView) {
       </span>
     );
   }
+  // "ok" means the run finished WITH something to report: a green ✓ ok read as
+  // "all fine" beside "npm test failed" (QA #12). The row's summary says what.
   return (
-    <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-500">
-      <CheckCircle2 className="h-3 w-3" /> ok
+    <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium bg-muted text-foreground/80">
+      <CheckCircle2 className="h-3 w-3" /> done
     </span>
   );
+}
+
+/** A run's finding in one line, as the CLI and editor show it. */
+function runHeadline(run: AutomationRunView): string | null {
+  const text = run.error ? `Error: ${run.error}` : run.summary;
+  const first = text?.split("\n")[0]?.replace(/`/g, "").trim();
+  return first || null;
 }
 
 function relativeTime(ts: number): string {
@@ -409,6 +418,11 @@ export function AutomationsTab({ appId }: { appId: number | null }) {
                     )}
                     <span className="min-w-0 flex-1 truncate text-sm">
                       {run.automationName}
+                      {!isOpen && runHeadline(run) && (
+                        <span className="ml-2 text-xs text-muted-foreground">
+                          {runHeadline(run)}
+                        </span>
+                      )}
                     </span>
                     {statusBadge(run)}
                     <span className="shrink-0 text-[10px] text-muted-foreground">

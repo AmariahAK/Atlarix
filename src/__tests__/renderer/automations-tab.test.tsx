@@ -117,6 +117,15 @@ describe("AutomationsTab", () => {
     });
   });
 
+  // QA (app) #12: a run that found failing tests showed only a green "✓ ok",
+  // which reads as "tests fine"; what it found was hidden until expanded.
+  it("a run's row says what it found, without a green 'ok'", async () => {
+    renderWithProviders(<AutomationsTab appId={7} />);
+    await screen.findAllByText("Nightly audit");
+    expect(screen.getByText("3 flaky tests found")).toBeTruthy();
+    expect(screen.queryByText(/^\s*ok\s*$/)).toBeNull();
+  });
+
   it("shows archived runs when the filter is on", async () => {
     renderWithProviders(<AutomationsTab appId={7} />);
     await screen.findAllByText("Nightly audit");
