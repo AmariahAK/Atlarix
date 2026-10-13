@@ -14,6 +14,7 @@ import {
   formatToolResultPreview,
   getToolCompletedSummary,
   noopSummary,
+  backgroundStartedSummary,
   getToolFailedSummary,
   getToolRunningSummary,
   looksLikeToolArgsJson,
@@ -435,6 +436,7 @@ function finalizeToolItem(
             // "Successfully executed" next to a non-zero exit. Name the attempt.
             getToolFailedSummary(registryName, item.toolArgs)
           : (noopSummary(registryName, resultText) ??
+            backgroundStartedSummary(registryName, resultText) ??
             getToolCompletedSummary(registryName, item.toolArgs))),
     detail: rawDetail,
     resultText,
@@ -670,7 +672,10 @@ export function streamThreadItemFromActivity(
           rawDetail,
         );
     const noop =
-      status === "done" ? noopSummary(registryName, rawDetail) : null;
+      status === "done"
+        ? (noopSummary(registryName, rawDetail) ??
+          backgroundStartedSummary(registryName, rawDetail))
+        : null;
 
     const expand =
       !isRunning && rawDetail

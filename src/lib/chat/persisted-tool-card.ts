@@ -4,6 +4,7 @@ import {
   formatToolResultPreview,
   getToolCompletedSummary,
   noopSummary,
+  backgroundStartedSummary,
   getToolFailedSummary,
   getToolRunningSummary,
 } from "@/lib/chat/stream-tool-display";
@@ -59,6 +60,7 @@ export function getPersistedToolSummary(
   const hint = argsPathHint(part.args);
   const base =
     noopSummary(part.toolName, part.resultText) ??
+    backgroundStartedSummary(part.toolName, part.resultText) ??
     getToolCompletedSummary(part.toolName, toolArgs);
   if (hint) {
     const short = hint.length > 56 ? `${hint.slice(0, 55)}…` : hint;
