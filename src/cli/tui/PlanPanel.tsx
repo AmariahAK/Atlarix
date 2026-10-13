@@ -68,7 +68,7 @@ export function PlanPanel({
       borderStyle="rounded"
       borderColor={color.accent}
       backgroundColor={color.panel}
-      title={` ${glyph.reply} Plan · ${plan.title} · ready to build `}
+      title={` ${glyph.reply} Plan · ${plan.title} · ${plan.status === "building" ? "stopped part-way, /build continues" : "ready to build"} `}
       titleAlignment="left"
       titleColor={color.accentSoft}
       paddingLeft={1}

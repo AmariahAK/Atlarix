@@ -666,11 +666,11 @@ export function showError(text: string, actions: HTMLElement[] = []): void {
  * "switch to Build" not knowing the button exists (QA P4; Claude Code asks at
  * the end). One at a time; it goes once the plan is no longer waiting.
  */
-export function showPlanReady(title: string, onBuild: () => void): void {
+export function showPlanReady(title: string, resume: boolean, onBuild: () => void): void {
   clearPlanReady();
   const row = el("div", "plan-ready");
-  row.append(el("span", "plan-ready__label", `Plan ready · ${title}`));
-  row.append(button("Build it", "primary small", onBuild));
+  row.append(el("span", "plan-ready__label", `${resume ? "Stopped part-way" : "Plan ready"} · ${title}`));
+  row.append(button(resume ? "Continue building" : "Build it", "primary small", onBuild));
   log.append(row);
   scrollDown();
 }

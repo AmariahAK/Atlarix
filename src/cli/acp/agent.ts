@@ -22,7 +22,7 @@ import {
   type SessionModeState,
   type SessionUpdate,
 } from "@agentclientprotocol/sdk";
-import { parsePlanChecklist, plainStepText, type PlanChecklistStep } from "@/lib/tasks/plan-checklist";
+import { extractPlanChecklistTitle, parsePlanChecklist, plainStepText, type PlanChecklistStep } from "@/lib/tasks/plan-checklist";
 import type { AgentSession, ModelChoice, SessionState, WorkMode } from "../agent/session";
 import { promptInput } from "./content";
 import {
@@ -351,11 +351,12 @@ class Thread {
               atlarix: {
                 plan: {
                   id: p.id,
-                  title: p.title || s.planReady?.title || "Plan",
+                  title: extractPlanChecklistTitle(p.content) || p.title || s.planReady?.title || "Plan",
                   content: p.content,
                   revision: s.planRevision,
                   status: p.status,
-                  buildable: p.status === "plan",
+                  // A build that stopped with steps left can be picked up again (QA C4).
+                  buildable: p.status === "plan" || s.planReady?.planId === p.id,
                 },
               },
             },

@@ -82,7 +82,8 @@ export interface SessionState {
   /** ask_user: the turn ended on these questions; the answers open the next one. */
   question: PendingQuestion | null;
   /** A Plan-mode turn ended with a plan ready to build. */
-  planReady: { planId: string; title: string } | null;
+  /** A plan waiting for /build: a new one, or (`resume`) a build that stopped with steps left. */
+  planReady: { planId: string; title: string; resume?: boolean } | null;
   /** Bumped each time this session's plan is written or changed: the pinned plan redraws live. */
   planRevision: number;
   /** The session's title, once it has one (the first message names it). */
@@ -475,6 +476,7 @@ export class AgentSession extends EventEmitter {
       ...(mode === "build" || mode === "ask" || mode === "plan" || mode === "debug" || mode === "review" ? { mode } : {}),
       planReady: plan ? { planId: plan.id, title: plan.title ?? "Plan" } : null,
     });
+    if (!plan) await this.offerResumeBuild();
     // How full the context is, from the last reply's real token total, so an
     // opened chat shows its own figure before its first new turn (QA #30).
     const last = [...got.messages].reverse().find((m) => m.role === "assistant" && (m.maxTokensUsed ?? 0) > 0)?.maxTokensUsed;
@@ -696,6 +698,20 @@ export class AgentSession extends EventEmitter {
     this.update({ planReady: null });
     this.setMode("build");
     await this.submit(BUILD_FROM_PLAN_PROMPT);
+  }
+
+  /**
+   * A build that stopped (you pressed Esc, or it failed) with steps still to do:
+   * offered again, so /build and the card's button pick it up. Without it the
+   * plan sat "building" with no way on but typing "continue" (QA C4).
+   */
+  private async offerResumeBuild(): Promise<void> {
+    if (!this.sessionId || this.state.planReady) return;
+    const { getLatestPlanArtifact } = await import("@/lib/plans/plan-artifacts");
+    const { parsePlanChecklist } = await import("@/lib/tasks/plan-checklist");
+    const plan = await getLatestPlanArtifact(this.sessionId, "building").catch(() => null);
+    if (!plan || !parsePlanChecklist(plan.content).some((s) => s.state !== "done")) return;
+    this.update({ planReady: { planId: plan.id, title: plan.title ?? "Plan", resume: true } });
   }
 
   dismissPlanReady(): void {
@@ -1848,6 +1864,7 @@ export class AgentSession extends EventEmitter {
         if (row) this.update({ planReady: { planId: row.id, title: found.title } });
       }
     }
+    if (wasInterrupted || this.state.lastError) await this.offerResumeBuild();
     if (wasInterrupted) {
       // A stopped turn opens nothing. What you typed into it that the agent never
       // got (no step came: a stop during a retry) goes back to your input box,

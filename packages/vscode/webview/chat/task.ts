@@ -30,9 +30,9 @@ export function setPlan(p: { entries: Array<{ content: string; status: string }>
   renderTask();
 }
 
-/** The plan waiting for "Build it", if any: its title. */
-export function readyPlanTitle(): string | null {
-  return plan?.doc?.buildable ? (plan.doc.title ?? "Plan") : null;
+/** The plan waiting for "Build it", if any: its title, and whether it's a stopped build to continue. */
+export function readyPlanTitle(): { title: string; resume: boolean } | null {
+  return plan?.doc?.buildable ? { title: plan.doc.title ?? "Plan", resume: plan.doc.status === "building" } : null;
 }
 
 export function clearTask(): void {
@@ -64,7 +64,8 @@ function planSection(p: NonNullable<typeof plan>): HTMLElement {
   let build: HTMLElement | null = null;
   if (p.doc?.buildable) {
     build = el("div", "plan__build");
-    const b = button("Build it", "primary small", () => window.dispatchEvent(new CustomEvent("atlarix-build")));
+    // A build that stopped with steps left picks up where it was (QA C4).
+    const b = button(p.doc.status === "building" ? "Continue building" : "Build it", "primary small", () => window.dispatchEvent(new CustomEvent("atlarix-build")));
     b.toggleAttribute("disabled", state.busy);
     build.append(b);
   } else if (p.entries.length) {

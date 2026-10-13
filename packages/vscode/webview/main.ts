@@ -314,7 +314,7 @@ onHost((m: HostMessage) => {
       if (m.error) turnError(m.error);
       renderTask();
       const ready = m.stopReason === "cancelled" || m.error ? null : readyPlanTitle();
-      if (ready) T.showPlanReady(ready, () => window.dispatchEvent(new CustomEvent("atlarix-build")));
+      if (ready) T.showPlanReady(ready.title, ready.resume, () => window.dispatchEvent(new CustomEvent("atlarix-build")));
       else T.clearPlanReady();
       return;
     }

@@ -19,6 +19,7 @@
  * prompts …) is a dialog on one stack (dialogs.ts, screens.ts): while one is
  * open it owns the keyboard, and esc closes it.
  */
+import { extractPlanChecklistTitle } from "@/lib/tasks/plan-checklist";
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import { splitPeerMessages } from "@/lib/peers/peer-message";
 import { TAB_FRAME_MS, tabTitle, titleSequence } from "./tab-title";
@@ -979,7 +980,10 @@ export function App({
       .plans()
       .then((plans) => {
         const p = plans.find((x) => x.id === ready.planId);
-        if (live) setPinnedPlan(p && p.status === "plan" ? { id: p.id, title: p.title || ready.title, status: p.status, content: p.content } : null);
+        // The plan's own title as it reads now (a revision renames it; the
+        // stored one stayed the first: QA C3), and a stopped build too (C4).
+        const shown = p && (p.status === "plan" || (p.status === "building" && ready.resume));
+        if (live) setPinnedPlan(shown ? { id: p.id, title: extractPlanChecklistTitle(p.content) || p.title || ready.title, status: p.status, content: p.content } : null);
       })
       .catch(() => {});
     return () => {
