@@ -285,6 +285,8 @@ onHost((m: HostMessage) => {
     case "tasks-changed":
       tasksChanged(m.count);
       return;
+    case "pending":
+      return C.showPending(m.items);
     case "turn-end":
       C.setBusy(false);
       T.endTurn(m.stopReason === "cancelled");

@@ -322,6 +322,36 @@ describe("atlarix acp", () => {
     expect(page.automations.find((a) => a.name === "Nightly lint")).toMatchObject({ notifyAgent: true, trigger: { cron: "0 2 * * *" } });
   }, 60_000);
 
+  it("Atlarix's extension: a message sent while it works steers the turn (Enter) or waits for the next (Tab)", async () => {
+    const pending: unknown[] = [];
+    const e = await editor(
+      [
+        { tool: "run_command", args: { command: "sleep 1", description: "wait" }, delayMs: 50 },
+        { text: "Done. STEER-OK" },
+        { text: "Queued one answered." },
+      ],
+      undefined,
+      { _meta: { atlarix: { version: 1 } } },
+    );
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    const turn = e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "wait a second" }] });
+    await Bun.sleep(150);
+    const steer = await e.conn.agent.request<{ started: boolean }>("_atlarix/interject", { sessionId, text: "Also end with STEER-OK", kind: "steer" });
+    const queued = await e.conn.agent.request<{ started: boolean; pending: Array<{ kind: string }> }>("_atlarix/interject", { sessionId, text: "then say QUEUED-2", kind: "queue" });
+    expect(steer.started).toBe(true);
+    expect(queued.pending.map((p) => p.kind)).toContain("queued");
+    void pending;
+    await turn;
+    await Bun.sleep(1500);
+    // The steer reached the model inside the running turn; the queued one opened the next turn.
+    const asked = e.llm.requests.map((r) => JSON.stringify(r.messages));
+    expect(asked.some((m) => m.includes("Also end with STEER-OK"))).toBe(true);
+    expect(asked.some((m) => m.includes("then say QUEUED-2"))).toBe(true);
+    // Idle: nothing to steer, the editor sends a prompt instead.
+    const idle = await e.conn.agent.request<{ started: boolean }>("_atlarix/interject", { sessionId, text: "hello", kind: "steer" });
+    expect(idle.started).toBe(false);
+  }, 60_000);
+
   it("loading a session this process already has open replays it in full", async () => {
     const e = await editor([{ text: "The codeword is heron." }]);
     const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });

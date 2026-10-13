@@ -446,6 +446,11 @@ export function buildAgentApp(
         }
       },
     )
+    .onRequest(
+      "_atlarix/interject",
+      (p) => p as { sessionId: string; text: string; kind?: "steer" | "queue" },
+      (ctx) => agent.interject(ctx.params.sessionId, String(ctx.params.text ?? ""), ctx.params.kind === "queue" ? "queue" : "steer"),
+    )
     .onRequest("_atlarix/recap_setting", (p) => p as { on: boolean }, async (ctx) => {
       const { setRecapEnabled } = await import("@/lib/recap/recap");
       await setRecapEnabled(ctx.params.on === true);

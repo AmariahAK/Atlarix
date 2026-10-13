@@ -82,6 +82,7 @@ class Thread {
   private skills: Array<{ name: string; description: string; readPath: string }> = [];
   private lastMode: WorkMode;
   private planSent = "";
+  private pendingSent = "";
   /** Going back to an earlier message: the editor cleared its view, so send the whole transcript again. */
   private replayAll = false;
 
@@ -160,6 +161,21 @@ class Thread {
     }, 400);
   }
 
+  /**
+   * A message sent while a turn runs (Atlarix's extension): "steer" goes into
+   * the running turn at its next step, "queue" opens the next turn, as the
+   * CLI's Enter and Tab. Idle, either starts a turn like a prompt would not:
+   * the editor sends a prompt then, so this only answers while busy.
+   */
+  async interject(text: string, kind: "steer" | "queue"): Promise<{ pending: Array<{ id: string; text: string; kind: string }>; started: boolean }> {
+    const t = text.trim();
+    if (!t) return { pending: this.session.state.pending, started: false };
+    if (!this.session.state.busy) return { pending: this.session.state.pending, started: false };
+    if (kind === "queue") this.session.queueNext(t);
+    else await this.session.submit(t);
+    return { pending: this.session.state.pending, started: true };
+  }
+
   /** What is running in this session, for Atlarix's extension: list, read the output of, or stop one. */
   async tasks(action: "list" | "output" | "stop", id?: string): Promise<Record<string, unknown>> {
     const all = await this.session.liveTasks();
@@ -213,6 +229,14 @@ class Thread {
       this.lastMode = s.mode;
       void this.send({ sessionUpdate: "current_mode_update", currentModeId: s.mode });
       void this.options().then((configOptions) => this.send({ sessionUpdate: "config_option_update", configOptions }));
+    }
+    const pendingSig = s.pending.map((x) => `${x.kind}:${x.id}`).join(",");
+    if (pendingSig !== this.pendingSent && this.extras()) {
+      // What you sent while it worked, still waiting: the editor lists it above the box.
+      this.pendingSent = pendingSig;
+      void this.client()
+        .notify("_atlarix/pending", { sessionId: this.id, items: s.pending.map((x) => ({ id: x.id, text: x.text, kind: x.kind })) })
+        .catch(() => {});
     }
     const planKey = `${s.planReady?.planId ?? ""}:${s.planRevision}`;
     if (planKey !== this.planSent) {
@@ -807,7 +831,11 @@ export class AcpAgent {
   }
 
   /** Atlarix's extension, back after a while away: one line on where this session stands. */
-  tasks(sessionId: string, action: "list" | "output" | "stop", id?: string): Promise<Record<string, unknown>> {
+  interject(sessionId: string, text: string, kind: "steer" | "queue") {
+    return this.thread(sessionId).interject(text, kind);
+  }
+
+    tasks(sessionId: string, action: "list" | "output" | "stop", id?: string): Promise<Record<string, unknown>> {
     return this.thread(sessionId).tasks(action, id);
   }
 

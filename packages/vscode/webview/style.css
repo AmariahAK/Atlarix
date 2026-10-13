@@ -2569,3 +2569,31 @@ textarea.field {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Sent while it works (composer.ts showPending): above the box, quiet. */
+.pending {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 2px 6px;
+  font-size: 0.88em;
+}
+.pending__row {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+.pending__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg);
+}
+.pending__text::before {
+  content: "↳ ";
+  color: var(--muted);
+}
+.pending__when {
+  flex: none;
+  color: var(--muted);
+}

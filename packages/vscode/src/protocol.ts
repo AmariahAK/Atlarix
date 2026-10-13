@@ -74,6 +74,7 @@ export const RPC_METHODS = [
   "_atlarix/recap_setting",
   "_atlarix/tasks",
   "_atlarix/automations",
+  "_atlarix/interject",
 ] as const;
 export type RpcMethod = (typeof RPC_METHODS)[number];
 
@@ -119,6 +120,8 @@ export type HostMessage =
   | { type: "host-settings"; settings: HostSettings }
   /** What is running in this chat changed (sub-agents, background commands): `count` of them. */
   | { type: "tasks-changed"; count: number }
+  /** Messages sent while the turn runs, still waiting (steers, queued). */
+  | { type: "pending"; items: Array<{ id: string; text: string; kind: string }> }
   /** An automation finished a run (in this editor, the CLI or the app). */
   | { type: "automation-run"; name: string; status: string; summary: string | null };
 

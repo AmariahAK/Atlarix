@@ -284,6 +284,7 @@ export class Chat {
         peerWaiting: () => this.onPeerWaiting(),
         tasksChanged: (count) => this.post({ type: "tasks-changed", count }),
         automationRun: (run) => this.post({ type: "automation-run", ...run }),
+        pendingChanged: (items) => this.post({ type: "pending", items }),
         backgroundReady: () => this.onBackgroundReady(),
       };
       this.listener = listener;

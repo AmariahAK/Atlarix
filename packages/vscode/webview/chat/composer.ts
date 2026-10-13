@@ -34,7 +34,10 @@ input.placeholder = "Ask Atlarix to build, fix or explain…";
 input.setAttribute("aria-label", "Message");
 const bar = el("div", "box__bar");
 const modePill = button("", "pill mode-pill", () => modeMenu.classList.toggle("hidden"), "Mode");
-const sendBtn = button("", "send", () => submit(), "Send");
+// While it works the button stops it; Enter in the box steers instead.
+const sendBtn = button("", "send", () => (state.busy ? post({ type: "cancel" }) : submit()), "Send");
+/** What you sent while it worked, still waiting: steers and queued messages. */
+const pendingList = el("div", "pending hidden");
 const approveLine = button("", "approve-line", () => hooks.open("approve"));
 const under = el("div", "under");
 const modelBtn = button("", "model-btn", () => togglePicker(), "Model");
@@ -64,7 +67,7 @@ export function initComposer(h: ComposerHooks): void {
   box.append(chips, input, bar);
   under.append(modelBtn, ctxRing, el("span", "grow"), chromeDot);
   on("usage", renderContext);
-  composer.append(approval, working, editBar, suggest, modeMenu, approveLine, box, under);
+  composer.append(approval, working, editBar, suggest, modeMenu, approveLine, pendingList, box, under);
   setBusy(false);
   renderOptions();
   on("options", renderOptions);
@@ -102,7 +105,8 @@ export function setBusy(b: boolean): void {
   sendBtn.setAttribute("aria-label", sendBtn.title);
   sendBtn.classList.toggle("stop", b);
   sendBtn.dataset.state = b ? "busy" : "idle";
-  input.placeholder = b ? "Steer it while it works…" : editing ? "Edit your message…" : "Ask Atlarix to build, fix or explain…";
+  input.placeholder = b ? "Steer it while it works (Enter) · Tab queues for after" : editing ? "Edit your message…" : "Ask Atlarix to build, fix or explain…";
+  if (!b) showPending([]);
   if (b) {
     workingSince = Date.now();
     workingTitle = "Thinking";
@@ -433,8 +437,36 @@ export function sendText(text: string, items: ContextItem[], answers?: string[])
   post({ type: "send", text, context: items, ...(answers ? { answers } : {}) });
 }
 
+/**
+ * While a turn runs: Enter steers (the agent reads it at its next step), Tab
+ * queues it for after the turn, as the CLI and Codex do. Esc or the button stops.
+ */
+function interject(kind: "steer" | "queue"): void {
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = "";
+  refreshSuggest();
+  void rpc<{ started: boolean }>("_atlarix/interject", { sessionId: state.sessionId, text, kind })
+    .then((r) => {
+      // The turn ended just before it arrived: send it as the next message.
+      if (!r.started) sendText(text, []);
+    })
+    .catch(() => (input.value = text));
+}
+
+/** The list above the box: each waiting message and when it goes in. */
+export function showPending(items: Array<{ id: string; text: string; kind: string }>): void {
+  pendingList.textContent = "";
+  pendingList.classList.toggle("hidden", !items.length);
+  for (const p of items) {
+    const row = el("div", "pending__row");
+    row.append(el("span", "pending__text", p.text.split("\n")[0]!), el("span", "pending__when", p.kind === "steer" ? "goes in after this step" : "sent when this turn ends"));
+    pendingList.append(row);
+  }
+}
+
 function submit(): void {
-  if (state.busy) return post({ type: "cancel" });
+  if (state.busy) return interject("steer");
   const text = input.value.trim();
   if (editing) {
     if (!text) return;
@@ -634,7 +666,10 @@ input.addEventListener("keydown", (e) => {
     }
   }
   const sendKey = state.settings.ctrlEnterSends ? e.key === "Enter" && (e.metaKey || e.ctrlKey) : e.key === "Enter" && !e.shiftKey;
-  if (sendKey && !e.isComposing) {
+  if (e.key === "Tab" && !e.shiftKey && state.busy && input.value.trim()) {
+    e.preventDefault();
+    interject("queue");
+  } else if (sendKey && !e.isComposing) {
     e.preventDefault();
     submit();
   } else if (e.key === "Escape" && state.busy) post({ type: "cancel" });
