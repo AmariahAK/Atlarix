@@ -30,7 +30,8 @@ describe("your own key's limits", () => {
 describe("the terminal's notice", () => {
   it("free usage over says come back tomorrow and when, and nothing more", () => {
     const n = errorNotice(freeUsageLimitUserMessage(3600, Date.UTC(2026, 9, 3, 10), "UTC"));
-    expect(n.title).toBe("Today's usage is over. Come back tomorrow (it resets at 11:00 AM).");
+    // Written in this machine's locale ("11:00 AM", "11:00"): pin the time, not the format.
+    expect(n.title).toMatch(/^Today's usage is over\. Come back tomorrow \(it resets at 11:00(\s?AM|\s?am)?\)\.$/);
     expect(n.actions).toBeUndefined();
     expect(n.tone).toBe("warn");
   });

@@ -100,7 +100,9 @@ describe("Auto's limit is a limit", () => {
     const midnightUtc = Date.UTC(2026, 8, 24, 0, 0, 0);
     const fiveHoursBefore = midnightUtc - 5 * 3600 * 1000;
     const m = freeUsageLimitUserMessage(5 * 3600, fiveHoursBefore, "Africa/Nairobi");
-    expect(m).toMatch(/resets at 3:00\sAM/);
+    // The hour, in whatever form this machine's locale writes it ("3:00 AM",
+    // "03:00"): the time is the point, not the US format (it failed under en-GB).
+    expect(m).toMatch(/resets at 0?3:00(\s?AM|\s?am)?\b/);
   });
 
   it("a 402 that offers free Auto asks for consent instead of a top-up", () => {
