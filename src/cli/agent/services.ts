@@ -195,8 +195,8 @@ async function ensureLanguageModelHandlers(register: () => void): Promise<void> 
 
 /** The endpoint listed no models: the caller asks for a model id instead. */
 export class NoModelsListedError extends Error {
-  constructor() {
-    super("That endpoint didn't list any models. Type the id of the model to use.");
+  constructor(hint = "") {
+    super(`That endpoint didn't list any models.${hint} Type the id of the model to use.`);
     this.name = "NoModelsListedError";
   }
 }
@@ -431,8 +431,17 @@ export const realServices: CliServices = {
         const probe = keyProbe(slug, key.trim(), base)!;
         const check = await checkProviderKey(probe, key.trim());
         if (check.status === "rejected") throw new Error(`The key was rejected: ${check.detail}`);
+        // Nothing answered there (a wrong port, the server not running): say so,
+        // and save nothing. It used to be "didn't list any models", then saved.
+        if (check.status === "unreachable") {
+          const why = check.detail.replace(/^Couldn't reach the provider/, `Couldn't reach ${base}`).replace(/[.?!\s]+$/, "");
+          throw new Error(`${why}. Check the address, and that the server is running.`);
+        }
         if (check.status === "works") ids = await listOpenAICompatibleModels(probe);
-        if (!ids.length) throw new NoModelsListedError();
+        if (!ids.length) {
+          // Most of these APIs live under /v1 (http://localhost:11434 → …/v1).
+          throw new NoModelsListedError(/\/v\d+$/.test(base) ? "" : ` If its API is under ${base}/v1, use that address instead.`);
+        }
       }
       const { registerLanguageModelHandlers } = await import("@/ipc/handlers/language_model_handlers");
       await ensureLanguageModelHandlers(registerLanguageModelHandlers);
