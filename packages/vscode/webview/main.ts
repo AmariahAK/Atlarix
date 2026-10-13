@@ -172,8 +172,14 @@ function onUpdate(u: SessionUpdate): void {
       return;
     case "user_message_chunk": {
       const meta = (u as { _meta?: { atlarix?: { messageId?: number; echo?: boolean } } })._meta?.atlarix;
-      // An echo names the message already drawn and draws nothing.
-      if (meta?.echo && meta.messageId != null) return T.tagLastUser(meta.messageId);
+      // An echo names the message already drawn and draws nothing, unless that
+      // one is named already: then it is a message sent while the turn ran (a
+      // steer, or one queued for after), which has no bubble yet (QA F2).
+      if (meta?.echo && meta.messageId != null) {
+        if (T.lastUserAwaitsId()) return T.tagLastUser(meta.messageId);
+        if (u.content.type === "text") T.addUser(u.content.text, [], meta.messageId);
+        return;
+      }
       if (u.content.type === "text") T.addUser(u.content.text, [], meta?.messageId);
       return;
     }

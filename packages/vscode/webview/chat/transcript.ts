@@ -194,6 +194,13 @@ export function tagUser(m: HTMLElement, messageId: number): void {
   if (m === log.querySelectorAll(".msg.user")[log.querySelectorAll(".msg.user").length - 1]) turn.messageId = messageId;
 }
 
+/** Whether your last message on screen is still waiting for its saved id. */
+export function lastUserAwaitsId(): boolean {
+  const mine = log.querySelectorAll<HTMLElement>(".msg.user");
+  const last = mine[mine.length - 1];
+  return !!last && last.dataset.id == null;
+}
+
 /** The echo naming the message just drawn. */
 export function tagLastUser(messageId: number): void {
   const mine = log.querySelectorAll<HTMLElement>(".msg.user");
