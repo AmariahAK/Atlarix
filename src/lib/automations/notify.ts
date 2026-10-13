@@ -50,6 +50,15 @@ export async function broadcastAutomationRunUpdate(
   broadcastToAllWindows("automation:run-update", view);
 }
 
+type RunFinishedListener = (runId: string) => void;
+const runFinishedListeners = new Set<RunFinishedListener>();
+
+/** Hear when a run with something to report finishes in this process (the app's agent delivery). */
+export function onAutomationRunFinished(fn: RunFinishedListener): () => void {
+  runFinishedListeners.add(fn);
+  return () => runFinishedListeners.delete(fn);
+}
+
 export async function notifyRunFinished(runId: string): Promise<void> {
   const view = await getAutomationRunView(runId);
   if (
@@ -58,6 +67,13 @@ export async function notifyRunFinished(runId: string): Promise<void> {
     view.status === "running"
   ) {
     return;
+  }
+  for (const fn of runFinishedListeners) {
+    try {
+      fn(runId);
+    } catch (e) {
+      logger.warn("run-finished listener failed:", e);
+    }
   }
 
   // Focused app → the renderer's automation:run-update subscription shows a

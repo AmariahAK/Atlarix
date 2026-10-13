@@ -568,7 +568,7 @@ export function AutomationPermissionCard({
             <ul className="mt-2 space-y-1 text-[11px] text-amber-900/90 dark:text-amber-100/80">
               <li>
                 {notifies
-                  ? "Results go to you, and Atlarix reads them with your next message in this folder."
+                  ? "Results go to you, and Atlarix wakes up with them to act."
                   : "Tells you only — the AI is never woken, so this can't spend tokens."}
               </li>
               <li>

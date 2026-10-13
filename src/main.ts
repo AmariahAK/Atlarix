@@ -816,6 +816,12 @@ export async function onReady() {
   void import("./lib/automations/runner")
     .then((m) => m.startAutomationRunner())
     .catch((e) => logger.warn("Automation runner failed to start:", e));
+  // A finished notify-the-agent run wakes one of this app's chats in its
+  // folder (from any process: app, CLI, editor). App only: the CLI's
+  // AgentSession claims for itself.
+  void import("./lib/automations/app-delivery")
+    .then((m) => m.startAppAutomationDelivery())
+    .catch((e) => logger.warn("Automation delivery failed to start:", e));
 
   // Register workspace cleanup handlers
   registerCleanupHandlers();
