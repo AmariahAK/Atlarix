@@ -31,7 +31,9 @@ describe("glob sorted by size", () => {
     const out = await run({ sort: "size" });
     const lines = out.split("\n");
     expect(lines[0]).toBe("Found 3 file(s) (largest first):");
-    expect(lines.slice(1)).toEqual(["src/big.ts  4.9 KB (5000 bytes)", "src/mid.ts  900 B (900 bytes)", "src/small.ts  10 B (10 bytes)"]);
+    // Paths come back as ripgrep prints them: `src\\big.ts` on Windows.
+    const p = (name: string) => path.join("src", name);
+    expect(lines.slice(1)).toEqual([`${p("big.ts")}  4.9 KB (5000 bytes)`, `${p("mid.ts")}  900 B (900 bytes)`, `${p("small.ts")}  10 B (10 bytes)`]);
   });
 
   it("keeps newest-first, without sizes, by default", async () => {
