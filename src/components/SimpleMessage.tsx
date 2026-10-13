@@ -369,9 +369,11 @@ function SimpleMessageImpl({
           </div>
         )}
 
-        {/* Actions under messages — Copy / Revert turn */}
+        {/* Actions under messages — Copy / Revert turn. Shown on hover, but
+            always once the turn's files were reverted: that marker is the
+            transcript's record of it (QA #1). */}
         {isAssistant && message.content && !isStreaming && (
-          <div className="flex mt-1 justify-start gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="flex mt-1 justify-start gap-1 opacity-0 group-hover:opacity-100 has-[[data-reverted]]:opacity-100 transition-opacity">
             <button
               type="button"
               onClick={handleAssistantCopy}

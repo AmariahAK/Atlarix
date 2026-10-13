@@ -68,6 +68,7 @@ export function RevertTurnAction({
     const all = [...new Set([...files.filesChanged, ...files.createdFiles])];
     return (
       <span
+        data-reverted
         className="flex items-center gap-1 px-2 py-1 text-xs text-muted-foreground"
         title={t("revertTurn.revertedTitle", { files: all.join(", ") })}
       >

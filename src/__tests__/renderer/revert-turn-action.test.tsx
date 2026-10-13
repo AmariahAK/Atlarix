@@ -101,7 +101,10 @@ describe("RevertTurnAction", () => {
     renderWithProviders(
       <RevertTurnAction chatId={CHAT_ID} messageId={MSG_ID} />,
     );
-    expect(await screen.findByText("Files reverted")).toBeInTheDocument();
+    const marker = await screen.findByText("Files reverted");
+    expect(marker).toBeInTheDocument();
+    // The action row is hover-only; this attribute keeps it shown (SimpleMessage).
+    expect(marker.closest("[data-reverted]")).not.toBeNull();
     expect(screen.queryByTitle("Revert this turn's file changes")).toBeNull();
   });
 
