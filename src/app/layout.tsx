@@ -586,14 +586,26 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 /**
  * In a narrow window, opening the right panel folds the session sidebar: with
  * both open at 960px the chat column was ~240px, its placeholder wrapped and
- * the panel's tabs were clipped (QA #20). Only when the panel opens; the user
- * can reopen the sidebar.
+ * the panel's tabs were clipped (QA #20). Closing the panel unfolds it again.
  */
 const NARROW_WINDOW_PX = 1100;
-function NarrowWindowFolds({ rightPanelVisible }: { rightPanelVisible: boolean }) {
-  const { setOpen } = useSidebar();
+export function NarrowWindowFolds({ rightPanelVisible }: { rightPanelVisible: boolean }) {
+  const { open, setOpen } = useSidebar();
+  // Only what the panel folded comes back when it closes (QA #48); a sidebar
+  // the user closed stays closed.
+  const foldedByPanel = useRef(false);
   useEffect(() => {
-    if (rightPanelVisible && window.innerWidth < NARROW_WINDOW_PX) setOpen(false);
+    if (rightPanelVisible) {
+      if (open && window.innerWidth < NARROW_WINDOW_PX) {
+        foldedByPanel.current = true;
+        setOpen(false);
+      }
+    } else if (foldedByPanel.current) {
+      foldedByPanel.current = false;
+      setOpen(true);
+    }
+    // `open` read at the moment the panel changes, not tracked.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rightPanelVisible, setOpen]);
   return null;
 }
