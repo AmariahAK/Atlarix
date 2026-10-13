@@ -309,9 +309,10 @@ describe("rows a person reads", () => {
     const ps = tool("run_command", { command: "npx --no-install tsc" }, JSON.stringify({
       success: false,
       exitCode: 1,
-      output: "=== STDERR ===\nnpx : The term 'npx' is not recognized as the name of a cmdlet, function, script file, or operable program.\nAt line:1 char:1\n+ npx --no-install tsc\n+ ~~~\n    + CategoryInfo          : ObjectNotFound: (npx:String) [], CommandNotFoundException\n    + FullyQualifiedErrorId : CommandNotFoundException\n",
+      // As PowerShell prints it: the message wrapped over two lines, then its trailer.
+      output: "=== STDERR ===\nnpx : The term 'npx' is not recognized as the name of a cmdlet, function, script file, or operable program. Check the\nspelling of the name, or if a path was included, verify that the path is correct and try again.\nAt line:1 char:1\n+ npx --no-install tsc\n+ ~~~\n    + CategoryInfo          : ObjectNotFound: (npx:String) [], CommandNotFoundException\n    + FullyQualifiedErrorId : CommandNotFoundException\n",
     }));
-    expect(ps.summary).toBe("npx : The term 'npx' is not recognized as the name of a cmdlet, function, script file, or operable program. · exit 1");
+    expect(ps.summary).toBe("npx : The term 'npx' is not recognized as the name of a cmdlet, function, script file, or operable program. Check the spelling of the name, or if a path was included, verify that the path is correct and try again. · exit 1");
   });
 
   it("a find with no matches says so, not the hint for the model", () => {

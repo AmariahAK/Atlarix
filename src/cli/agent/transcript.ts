@@ -350,9 +350,13 @@ function summarize(toolName: string, r: { text: string; exitCode?: number; faile
       // PowerShell's error trailer ("+ CategoryInfo …", "+ FullyQualifiedErrorId
       // …", "At line:1 char:1", "~~~") is not the reason: its first line is
       // ("npx : The term 'npx' is not recognized…", QA, Windows).
+      // PowerShell also wraps that message over several lines, so it is the
+      // lines before its trailer, joined (QA, Windows VM recheck).
       const PS_NOISE = /^(\+ |At line:\d|At [A-Za-z]:\\|~+$)/;
-      const tail = (err >= 0 ? lines.slice(err + 1) : lines).filter((l) => l && !SECTION.test(l) && !PS_NOISE.test(l));
-      said = tail.at(-1) ?? first;
+      const out = (err >= 0 ? lines.slice(err + 1) : lines).filter((l) => l && !SECTION.test(l));
+      const trailer = out.findIndex((l) => PS_NOISE.test(l));
+      if (trailer > 0) said = out.slice(0, trailer).join(" ").replace(/\s+/g, " ");
+      else said = out.filter((l) => !PS_NOISE.test(l)).at(-1) ?? first;
     }
     return [said ?? (r.exitCode === 0 ? "(no output)" : ""), exit].filter(Boolean).join(" · ") || undefined;
   }
