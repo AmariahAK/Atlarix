@@ -124,7 +124,7 @@ function queueEntryFromPermission(
   };
 }
 
-function FilePermissionCard({
+export function FilePermissionCard({
   operation,
   appId,
   onOnce,
@@ -149,10 +149,17 @@ function FilePermissionCard({
   ) => void;
   hunkSelection?: HunkSelection;
 }) {
+  // The file is the title; "2 edits" said again what the diff shows, and its
+  // Summary box repeated it a third time (QA #7). A description with more to
+  // say (a fuzzy-match notice) still shows in the diff.
   const title =
-    operation.description?.trim() ||
     operation.path?.trim() ||
+    operation.description?.trim() ||
     operation.operation.replace(/_/g, " ");
+  const diffDescription =
+    operation.description && !/^\d+ edits?$/.test(operation.description.trim())
+      ? operation.description
+      : undefined;
 
   // `isProtectedFile` now only ever means "the path was empty/malformed" — the hardcoded
   // protected-path list was removed in v14.23.0 (it made `.github/workflows/*.yml` a dead
@@ -194,12 +201,12 @@ function FilePermissionCard({
             path={operation.path}
             oldContent={operation.oldContent ?? ""}
             newContent={operation.content}
-            description={operation.description}
+            description={diffDescription}
             // A create (no prior content) renders as all-added; an overwrite/edit
             // diffs against the prior content. Inferred so we needn't plumb the
             // preview's create/update type all the way here.
             operation={operation.oldContent ? "update" : "create"}
-            maxHeight="max-h-56"
+            maxHeight="max-h-72"
             selectable
             onHunkSelectionChange={
               onHunkSelectionChange
@@ -229,6 +236,17 @@ function FilePermissionCard({
             ? `Apply ${hunkSelection.selected.length}/${hunkSelection.total} hunks`
             : "Allow once"}
         </Button>
+        {/* Deny beside Allow once: after three Always buttons it wrapped below
+            the fold at 960x700 (QA #7). */}
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-7 text-xs"
+          onClick={() => onDeny(operation.id)}
+        >
+          Deny
+        </Button>
         {showScopedAlways &&
         operation.canAlwaysAllowFile !== false &&
         operation.path ? (
@@ -238,6 +256,7 @@ function FilePermissionCard({
             variant="secondary"
             className="h-7 text-xs"
             onClick={() => onAlwaysFile(operation.id)}
+            title="Saves a workspace rule: matching edits won't ask again."
           >
             Always allow this file
           </Button>
@@ -251,6 +270,7 @@ function FilePermissionCard({
             variant="secondary"
             className="h-7 text-xs"
             onClick={() => onAlwaysDirectory(operation.id)}
+            title="Saves a workspace rule: matching edits won't ask again."
           >
             Always allow {parentDir}/**
           </Button>
@@ -264,26 +284,12 @@ function FilePermissionCard({
             variant="secondary"
             className="h-7 text-xs"
             onClick={() => onAlwaysExtension(operation.id)}
+            title="Saves a workspace rule: matching edits won't ask again."
           >
             Always allow {extension}
           </Button>
         ) : null}
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="h-7 text-xs"
-          onClick={() => onDeny(operation.id)}
-        >
-          Deny
-        </Button>
       </div>
-      {showScopedAlways ? (
-        <p className="px-3 pb-2 text-[10px] text-muted-foreground/80">
-          “Always allow” saves a workspace rule and skips the approval pause for
-          matching edits from then on.
-        </p>
-      ) : null}
     </div>
   );
 }

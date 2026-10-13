@@ -331,12 +331,16 @@ export function SmartDiffView({
         </div>
       ) : (
         <div className="flex-1 overflow-auto font-mono text-xs">
-          <div className="flex bg-muted/50 border-b border-border">
-            <span className="w-5 shrink-0" />
-            <pre className="m-0 flex-1 whitespace-pre-wrap rounded-none bg-transparent px-2 py-0.5 font-mono text-[10px] italic text-muted-foreground">
-              {headerLabel}
-            </pre>
-          </div>
+          {/* An update's "--- a → +++ a" said nothing the header above
+              doesn't (QA #7); a create or delete says so. */}
+          {operation !== "update" ? (
+            <div className="flex bg-muted/50 border-b border-border">
+              <span className="w-5 shrink-0" />
+              <pre className="m-0 flex-1 whitespace-pre-wrap rounded-none bg-transparent px-2 py-0.5 font-mono text-[10px] italic text-muted-foreground">
+                {headerLabel}
+              </pre>
+            </div>
+          ) : null}
           {hunks.map((hunk) => {
             const isDeselected = hunkSelectable && deselected.has(hunk.index);
             return (
