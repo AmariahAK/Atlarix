@@ -19,5 +19,8 @@
     "adding": "Adding…",
     "thisFolder": ", this folder",
     "added": "{{name}} added for this folder."
+  },
+  "providers": {
+    "keyRejected": "Key rejected"
   }
 }

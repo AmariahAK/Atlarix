@@ -4,6 +4,9 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/card";
+import { useTranslation } from "react-i18next";
+import { useAtomValue } from "jotai";
+import { providerKeyCheckAtom } from "@/atoms/viewAtoms";
 import { useNavigate } from "@tanstack/react-router";
 import type { LanguageModelProvider } from "@/ipc/ipc_types";
 
@@ -142,6 +145,8 @@ export function ProviderSettingsGrid() {
   } = useLanguageModelProviders();
 
   const { deleteProvider, isDeleting } = useCustomLanguageModelProvider();
+  const keyChecks = useAtomValue(providerKeyCheckAtom);
+  const { t } = useTranslation("settings");
 
   const filtered = useMemo(
     () => filterProviders(providers ?? [], searchQuery),
@@ -339,7 +344,12 @@ export function ProviderSettingsGrid() {
                     )}
                     <CardTitle className="text-lg font-medium mb-2">
                       {provider.name}
-                      {isProviderSetup(provider.id) ? (
+                      {keyChecks[provider.id] === "rejected" ? (
+                        // Its page's check was refused: not "Ready" (QA #47).
+                        <span className="ml-3 text-sm font-medium text-red-600 bg-red-50 dark:bg-red-900/30 border border-red-500/50 px-2 py-1 rounded-full">
+                          {t("providers.keyRejected")}
+                        </span>
+                      ) : isProviderSetup(provider.id) ? (
                         <span className="ml-3 text-sm font-medium text-green-500 bg-green-50 dark:bg-green-900/30 border border-green-500/50 dark:border-green-500/50 px-2 py-1 rounded-full">
                           Ready
                         </span>

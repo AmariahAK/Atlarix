@@ -1,4 +1,6 @@
 import { useState, useEffect } from "react";
+import { useSetAtom } from "jotai";
+import { providerKeyCheckAtom } from "@/atoms/viewAtoms";
 import { useRouter } from "@tanstack/react-router";
 import { ArrowLeft, AlertTriangle } from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
@@ -159,6 +161,7 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
   // Check the saved key with the provider: on opening the page, and after a
   // save. Any saved key used to read "Setup Complete", unchecked (QA #24).
   const savedKey = settings?.providerSettings?.[provider]?.apiKey?.value;
+  const setKeyChecks = useSetAtom(providerKeyCheckAtom);
   const [keyCheck, setKeyCheck] = useState<{
     status: string;
     detail: string;
@@ -172,7 +175,11 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
     let live = true;
     void IpcClient.getInstance()
       .checkProviderKey(provider)
-      .then((r) => live && setKeyCheck(r))
+      .then((r) => {
+        if (!live) return;
+        setKeyCheck(r);
+        if (r) setKeyChecks((prev) => ({ ...prev, [provider]: r.status }));
+      })
       .catch(() => {});
     return () => {
       live = false;

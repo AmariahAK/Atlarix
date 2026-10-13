@@ -15,3 +15,10 @@ export const compassUsageBumpAtom = atom(0);
 
 /** Fix: Finding 5 — inline quota milestone message (dismiss clears; thresholds fire once per session). */
 export const compassMilestoneBannerAtom = atom<string | null>(null);
+
+/**
+ * The last key check per provider (providers:check-key), from its settings
+ * page. The provider list read "Ready" for any saved key, including one the
+ * provider had just refused (QA #47).
+ */
+export const providerKeyCheckAtom = atom<Record<string, string>>({});
