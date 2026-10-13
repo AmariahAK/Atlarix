@@ -49,7 +49,7 @@ friends) now always ask, like curl, wget and rm.
 app waits at startup until the CLI's prompt is answered.
 
 **Also:** the editor's sign-in page and Account view are redesigned, and Sign out signs you out;
-the editor follows the reply until you scroll up; the plan shows under its step to read and correct; `atlarix --help` lists the commands and quitting says how to resume; a failed background command says why; Windows
+the editor follows the reply until you scroll up; the plan shows under its step to read and correct; `atlarix --help` and `atlarix run --help` list the commands and quitting says how to resume; a sub-agent's progress shows its reply once, not repeated; a failed background command says why; Windows
 paths, approvals and PowerShell errors read correctly in the CLI; free usage that's over says when
 it resets.
 
