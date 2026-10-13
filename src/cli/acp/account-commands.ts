@@ -102,7 +102,8 @@ export async function keysCommandText(text: string): Promise<string> {
       const c = checks[i]!;
       const mark = c.status === "works" ? "●" : c.status === "rejected" ? "✕" : "○";
       const why = c.status === "rejected" && c.detail ? `: ${c.detail}` : "";
-      return `- ${mark} ${p.name}${p.keyHint ? ` \`${p.keyHint}\`` : ""}: ${STATUS[c.status] ?? c.status}${why}`;
+      const hint = p.keyHint === "none" ? " (no key needed)" : p.keyHint ? ` \`${p.keyHint}\`` : "";
+      return `- ${mark} ${p.name}${hint}: ${STATUS[c.status] ?? c.status}${why}`;
     }),
     "",
     "Add or replace one in a terminal: `atlarix keys add <provider>`. Remove one here: `/keys remove <provider>`.",

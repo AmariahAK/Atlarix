@@ -232,6 +232,18 @@ export function buildAgentApp(
         }),
       };
     })
+    .onRequest("_atlarix/provider_base_url", (p) => p as { providerId: string; baseUrl: string }, async (ctx) => {
+      // A custom provider's address, fixed in place (it was read-only: a typo
+      // could only be removed, QA).
+      const { realServices } = await import("../agent/services");
+      try {
+        await realServices.providers.setBaseUrl(ctx.params.providerId, String(ctx.params.baseUrl ?? ""));
+      } catch (e) {
+        throw acp.RequestError.invalidParams(undefined, (e as Error).message);
+      }
+      await agent.modelsChanged();
+      return {};
+    })
     .onRequest("_atlarix/provider_custom", (p) => p as { name: string; baseUrl: string; key: string; models?: string[] }, async (ctx) => {
       const { realServices, NoModelsListedError } = await import("../agent/services");
       const { name, baseUrl, key, models } = ctx.params;

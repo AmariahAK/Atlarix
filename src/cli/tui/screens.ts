@@ -1224,7 +1224,7 @@ export function openConnect(ctx: ScreenContext, onSaved: (providerId?: string) =
           ctx.host.push(
             new ListDialog({
               title: item.label,
-              intro: [{ text: `Your ${item.label} key is saved${p.keyHint ? ` (${p.keyHint})` : ""}.`, tone: "muted" }],
+              intro: [{ text: p.keyHint === "none" ? `${item.label} needs no key.` : `Your ${item.label} key is saved${p.keyHint ? ` (${p.keyHint})` : ""}.`, tone: "muted" }],
               footer: "↑↓ move · enter choose · esc back",
               items: [
                 { id: "replace", label: "Replace the key" },

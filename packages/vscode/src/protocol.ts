@@ -58,6 +58,7 @@ export const RPC_METHODS = [
   "_atlarix/provider_key",
   "_atlarix/provider_test",
   "_atlarix/provider_custom",
+  "_atlarix/provider_base_url",
   "_atlarix/provider_enabled",
   "_atlarix/local_providers",
   "_atlarix/models",

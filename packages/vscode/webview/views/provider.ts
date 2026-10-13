@@ -63,7 +63,7 @@ export async function renderProvider(page: HTMLElement, nav: Nav, id: string): P
     const row = el("div", "row gap");
     const masked = el("div", "key-field grow");
     masked.innerHTML = icon("lock", 13);
-    masked.append(el("span", "mono", p.keyHint ? p.keyHint.replace("…", "••••••••••••") : "••••"));
+    masked.append(el("span", "mono", p.keyHint === "none" ? "No key (this server needs none)" : p.keyHint ? p.keyHint.replace("…", "••••••••••••") : "••••"));
     row.append(masked, button("Replace", "small", () => {
       keySec.replaceChildren(keySec.firstChild!, keyForm(p, async () => renderProvider(page, nav, id), true));
     }));
@@ -71,16 +71,51 @@ export async function renderProvider(page: HTMLElement, nav: Nav, id: string): P
     const c = state.keyChecks.get(p.id);
     const st = el("div", "row gap small key-status");
     if (c) {
-      const label: Record<KeyStatus | "checking", string> = { works: "Works", rejected: "Key rejected", unchecked: "Saved", unreachable: "Couldn't check", checking: "Checking…" };
+      // "unchecked" is not a pass: the provider lists no models, so nothing was
+      // confirmed (a wrong address said "Saved", QA). Its reason shows below.
+      const label: Record<KeyStatus | "checking", string> = { works: "Works", rejected: "Key rejected", unchecked: "Not checked", unreachable: "Couldn't reach it", checking: "Checking…" };
       st.append(el("span", `status ${c.status === "works" ? "works" : c.status === "rejected" ? "bad" : "muted"}`, label[c.status]));
       if (c.status !== "checking") st.append(el("span", "muted", `checked ${relTime(c.at)}`));
     }
     st.append(el("span", "grow"), button("Test again", "link small", () => void checkKey(p.id)));
     keySec.append(st);
     if (c && (c.status === "rejected" || c.status === "unreachable") && c.detail) keySec.append(el("div", "bad small", c.detail));
+    if (c && c.status === "unchecked" && c.detail) {
+      keySec.append(el("div", "muted small", p.custom ? `${c.detail} If it should list them, check the base URL (most end in /v1).` : c.detail));
+    }
     if (p.baseUrl) {
       const d = el("details", "small");
-      d.append(el("summary", "muted", "Base URL"), el("div", "key-field mono", p.baseUrl));
+      d.open = !!p.custom && !!c && c.status !== "works" && c.status !== "checking";
+      d.append(el("summary", "muted", "Base URL"));
+      if (p.custom) {
+        // Yours to fix: checked before it replaces the old one.
+        const f = el("form", "row gap");
+        const input = el("input", "field mono grow");
+        input.value = p.baseUrl;
+        input.setAttribute("aria-label", "Base URL");
+        const save = el("button", "small", "Save");
+        save.type = "submit";
+        const msg = el("div", "small hidden");
+        f.append(input, save);
+        f.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          if (input.value.trim() === p.baseUrl) return;
+          save.disabled = true;
+          msg.className = "small muted";
+          msg.textContent = "Checking…";
+          try {
+            await rpc("_atlarix/provider_base_url", { providerId: p.id, baseUrl: input.value.trim() });
+            await loadProviders(true);
+            void checkKey(p.id);
+            void renderProvider(page, nav, id);
+          } catch (x) {
+            msg.className = "bad small";
+            msg.textContent = (x as Error).message;
+            save.disabled = false;
+          }
+        });
+        d.append(f, msg);
+      } else d.append(el("div", "key-field mono", p.baseUrl));
       keySec.append(d);
     }
   };

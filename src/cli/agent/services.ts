@@ -127,6 +127,8 @@ export interface CliServices {
     saveKey(providerId: string, key: string): Promise<void>;
     /** Forget the saved key (a provider the user added goes too). */
     removeKey(providerId: string): Promise<void>;
+    /** A custom provider's address, changed after checking something answers there. */
+    setBaseUrl(providerId: string, baseUrl: string): Promise<void>;
     /** Ask the provider whether the saved key works, or `key` before it is saved. */
     test(providerId: string, key?: string): Promise<KeyCheck>;
     /** Add an OpenAI-compatible endpoint with its key; returns its id and how many models it lists. */
@@ -350,7 +352,8 @@ export const realServices: CliServices = {
             name: p.name,
             hasKey: Boolean(key),
             keyUrl: (p as { websiteUrl?: string }).websiteUrl,
-            ...(key ? { keyHint: keyHint(key) } : {}),
+            // "none" is the stand-in for a server that needs no key (addCustom).
+            ...(key ? { keyHint: key === "none" ? "none" : keyHint(key) } : {}),
             ...((p as { type?: string }).type === "custom" ? { custom: true } : {}),
             ...(settings.providerSettings?.[p.id]?.enabled === false ? { off: true } : {}),
             ...(p.apiBaseUrl ? { baseUrl: p.apiBaseUrl } : {}),
@@ -378,6 +381,26 @@ export const realServices: CliServices = {
         await ensureLanguageModelHandlers(registerLanguageModelHandlers);
         await invoke("delete-custom-language-model-provider", { providerId });
       }
+    },
+    async setBaseUrl(providerId, baseUrl) {
+      const { CUSTOM_PROVIDER_PREFIX, getLanguageModelProviders } = await import("@/ipc/shared/language_model_helpers");
+      if (!providerId.startsWith(CUSTOM_PROVIDER_PREFIX)) throw new Error("Only a provider you added has an address to change.");
+      const base = baseUrl.trim().replace(/\/+$/, "");
+      if (!/^https?:\/\/\S+$/i.test(base)) throw new Error("The base URL starts with https:// (or http:// for one on this computer).");
+      const p = (await getLanguageModelProviders()).find((x) => x.id === providerId);
+      if (!p) throw new Error("That provider isn't there any more.");
+      // Something has to answer at the new address before it replaces the old.
+      const { keyProbe, checkProviderKey } = await import("@/lib/provider-key-check");
+      const { readSettings } = await import("@/main/settings");
+      const key = (readSettings() as { providerSettings?: Record<string, { apiKey?: { value?: string } }> }).providerSettings?.[providerId]?.apiKey?.value ?? "none";
+      const check = await checkProviderKey(keyProbe(providerId, key, base)!, key);
+      if (check.status === "unreachable") throw new Error(`${check.detail.replace(/^Couldn't reach the provider/, `Couldn't reach ${base}`).replace(/[.?!\s]+$/, "")}. Nothing was changed.`);
+      if (check.status === "rejected") throw new Error(`The key was rejected there: ${check.detail}. Nothing was changed.`);
+      const { registerLanguageModelHandlers } = await import("@/ipc/handlers/language_model_handlers");
+      await ensureLanguageModelHandlers(registerLanguageModelHandlers);
+      await invoke("edit-custom-language-model-provider", { id: providerId.slice(CUSTOM_PROVIDER_PREFIX.length), name: p.name, apiBaseUrl: base });
+      const { invalidateProviderModelCache } = await import("@/lib/provider_model_fetchers");
+      invalidateProviderModelCache(providerId);
     },
     async test(providerId, candidate) {
       const { readSettings } = await import("@/main/settings");
