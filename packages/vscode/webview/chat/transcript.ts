@@ -62,9 +62,41 @@ export function clearQuestion(): void {
  * not the log itself, which only grows.
  */
 function scrollDown(force = false): void {
+  const sc = watchScroller();
+  if (force) following = true;
+  if (following) requestAnimationFrame(() => (sc.scrollTop = sc.scrollHeight));
+}
+
+/**
+ * Whether to keep to the end: yes until YOU scroll away from it, and again once
+ * you scroll back. It used to be measured after new content landed, so one big
+ * piece (an expanded command's output, the plan card above) put the end out of
+ * reach and the panel stopped following for the rest of the turn (QA P3).
+ */
+let following = true;
+let lastUserInput = 0;
+let watched: HTMLElement | null = null;
+
+function watchScroller(): HTMLElement {
   const sc = log.parentElement ?? log;
-  const near = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 140;
-  if (near || force) requestAnimationFrame(() => (sc.scrollTop = sc.scrollHeight));
+  if (watched === sc) return sc;
+  watched = sc;
+  const intent = () => (lastUserInput = Date.now());
+  for (const ev of ["wheel", "touchmove", "keydown", "mousedown"]) sc.addEventListener(ev, intent, { passive: true });
+  sc.addEventListener(
+    "scroll",
+    () => {
+      // Only your own scrolling decides; content growing never does.
+      if (Date.now() - lastUserInput > 600) return;
+      following = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 140;
+    },
+    { passive: true },
+  );
+  // Content that grows by itself (an output expanding, a card filling in).
+  new ResizeObserver(() => {
+    if (following) sc.scrollTop = sc.scrollHeight;
+  }).observe(log);
+  return sc;
 }
 
 /** Empty everything (a new chat, a loaded one, or going back to a message). */
