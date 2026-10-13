@@ -471,7 +471,10 @@ function dedupeConsecutiveTools(
 
   for (const p of parts) {
     if (p.type === "tool") {
-      const key = `${p.toolName}\0${p.resultText ?? ""}\0${p.status}`;
+      // Which call it is, too: parallel calls of one tool (four sub-agents) are
+      // alike while running (same name, no result yet, "running"), and all but
+      // the first vanished until each finished (video session).
+      const key = `${p.toolName}\0${p.callId ?? JSON.stringify(p.args ?? null)}\0${p.resultText ?? ""}\0${p.status}`;
       if (key === lastKey) continue;
       lastKey = key;
     } else {
