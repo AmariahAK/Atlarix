@@ -115,7 +115,7 @@ async function interactive(): Promise<void> {
   if (cliState?.model) {
     const options = await modelsMod.loadModelOptions().catch(() => []);
     const hit = options.find((o) => o.provider === cliState.model!.provider && o.name === cliState.model!.name);
-    modelLabel = hit?.label ?? cliState.model.name;
+    modelLabel = hit ? modelsMod.headerModelLabel(hit) : cliState.model.name;
   }
 
   const { runTui } = await import("./tui/run");

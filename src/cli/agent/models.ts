@@ -189,3 +189,13 @@ export function toggleFavorite(state: CliState, ref: ModelRef): CliState {
   const has = state.favorites.some((f) => same(f, ref));
   return { ...state, favorites: has ? state.favorites.filter((f) => !same(f, ref)) : [...state.favorites, ref] };
 }
+
+/**
+ * The model as the header names it: a custom provider's with that provider's
+ * name, since the same model may come from several ("qwen2.5:3b · Your key"
+ * three times over, QA).
+ */
+export function headerModelLabel(o: { provider: string; label: string; providerName: string }): string {
+  return o.provider.startsWith("custom::") ? `${o.label} (${o.providerName})` : o.label;
+}
+

@@ -83,6 +83,7 @@ import {
   type CliState,
   type ModelOption,
   type ModelRef,
+  headerModelLabel,
 } from "../agent/models";
 import { filterEntries, listWorkspaceEntries, mentionAt, mentionInsert } from "../agent/file-index";
 import { parseShellInput } from "../agent/shell-mode";
@@ -892,7 +893,7 @@ export function App({
     setCliState(next);
     models.save({ ...next, deepThinking: live.current.deep });
     models.choose({ provider: o.provider, name: o.name });
-    setModelLabel(o.label);
+    setModelLabel(headerModelLabel(o));
     host.closeAll();
     flash(`Using ${o.label}.`, 2500, "success");
   };
