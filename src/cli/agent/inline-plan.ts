@@ -38,6 +38,8 @@ export function inlinePlan(reply: string): { title: string; content: string } | 
   let title = heading ? plain(heading[1]) : intro && start === intro[0] ? plain(intro[1]) : "";
   // "Here's a short plan to add a --version flag" → "Add a --version flag".
   title = title.replace(/^(?:here(?:['’]s| is)\s+)?(?:a|the|my)\s+(?:(?:short|quick|brief)\s+)?plan\s+(?:to|for)\s+/i, "");
+  // "Plan: Add a --version flag" / "Plan — …": the card already says it is a plan.
+  title = title.replace(/^plan\s*(?::|—|–|-)\s*/i, "");
   if (!title || generic(title)) title = plain(lines[first]!.replace(/^\s*(?:\d+[.)]|[-*]\s+\[[ xX]\])\s+/, "")).replace(/\.$/, "");
   title = title.charAt(0).toUpperCase() + title.slice(1);
 

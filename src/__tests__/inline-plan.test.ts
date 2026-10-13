@@ -41,4 +41,10 @@ describe("what an inline plan keeps (QA #53)", () => {
     const p = inlinePlan("Plan:\n1. Read the parser and its tests before changing anything.\n2. Number tool calls per message.\n3. Run the suite.")!;
     expect(p.title).toBe("Read the parser and its tests before changing anything");
   });
+
+  it("a 'Plan: …' or 'Plan — …' heading loses the word Plan", () => {
+    const steps = "\n\n1. Find where the CLI parses its flags.\n2. Print the version and exit 0.\n3. Add a test.";
+    expect(inlinePlan(`## Plan: Add a --version flag${steps}`)!.title).toBe("Add a --version flag");
+    expect(inlinePlan(`**Plan — add a --version flag**${steps}`)!.title).toBe("Add a --version flag");
+  });
 });
