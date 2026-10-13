@@ -14,3 +14,12 @@ describe("the tips catalog", () => {
     expect(missing).toEqual([]);
   });
 });
+
+// QA (app) #38: the tip promised "Type / for commands", and "/" opened no menu.
+describe("the composer tips", () => {
+  it("promise only what the desktop composer does", () => {
+    const feature = (tips as { feature: Record<string, string> }).feature;
+    expect(feature.autocomplete).not.toMatch(/\/ for commands/);
+    expect(feature.autocomplete).toMatch(/\/compact/);
+  });
+});
