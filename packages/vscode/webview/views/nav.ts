@@ -5,6 +5,7 @@ export type View =
   | { name: "undo" }
   | { name: "account" }
   | { name: "mcp" }
+  | { name: "automations" }
   | { name: "settings"; tab?: "keys" | "approve" | "browser" | "general" }
   | { name: "provider"; id: string }
   | { name: "add-provider"; focus?: string };

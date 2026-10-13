@@ -506,7 +506,7 @@ export function openAutomations(ctx: ScreenContext): void {
   let armedDelete: string | null = null;
   const dialog: ListDialog = new ListDialog({
     title: "Automations",
-    intro: [{ text: "They run while Atlarix (the app or this CLI) is open.", tone: "muted" }],
+    intro: [{ text: "They run while Atlarix (the app, this CLI or an editor) is open.", tone: "muted" }],
     empty: "No automations for this folder. Press n to make one, or ask Atlarix to set one up.",
     footer: "enter runs · n new · e edit · space on/off · r run now · d delete · a all folders · esc",
     items: load,

@@ -56,6 +56,8 @@ export interface SessionListener {
   tasksChanged?(count: number): void;
   /** Background work finished while the session was idle: the agent can deal with it now. */
   backgroundReady?(): void;
+  /** An automation finished a run. */
+  automationRun?(run: { name: string; status: string; summary: string | null }): void;
 }
 
 export interface ConnectionOptions {
@@ -135,6 +137,14 @@ export class AtlarixConnection {
         (p) => p as { sessionId: string; count?: number },
         (ctx) => {
           this.listeners.get(ctx.params.sessionId)?.tasksChanged?.(Number(ctx.params.count ?? 0));
+        },
+      )
+      .onNotification(
+        "_atlarix/automation_run",
+        (p) => p as { sessionId: string; name?: string; status?: string; summary?: string | null },
+        (ctx) => {
+          const p = ctx.params;
+          this.listeners.get(p.sessionId)?.automationRun?.({ name: p.name ?? "Automation", status: p.status ?? "ok", summary: p.summary ?? null });
         },
       )
       .onNotification(

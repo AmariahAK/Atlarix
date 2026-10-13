@@ -166,6 +166,11 @@
         "command": "atlarix.mcp",
         "title": "MCP servers",
         "category": "Atlarix"
+      },
+      {
+        "command": "atlarix.automations",
+        "title": "Automations",
+        "category": "Atlarix"
       }
     ],
     "menus": {

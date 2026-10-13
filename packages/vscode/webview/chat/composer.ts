@@ -14,7 +14,7 @@ import { closePicker, openPicker, picker, pickerOpen } from "./picker";
 import * as T from "./transcript";
 
 export interface ComposerHooks {
-  open(view: "mcp" | "approve" | "keys" | "undo"): void;
+  open(view: "mcp" | "approve" | "keys" | "undo" | "automations"): void;
 }
 let hooks: ComposerHooks;
 
@@ -450,6 +450,11 @@ function submit(): void {
   if (text === "/undo") {
     input.value = "";
     return hooks.open("undo");
+  }
+  // This panel has a page for them; other editors get the list as a message.
+  if (text === "/automations" || text === "/mcp") {
+    input.value = "";
+    return hooks.open(text === "/mcp" ? "mcp" : "automations");
   }
   if (!text && !context.length) return;
   const q = T.questionPending();

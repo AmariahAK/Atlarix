@@ -99,6 +99,21 @@ class Thread {
     session.on("peer-message", () => this.onPeerMessage());
     session.on("background-ready", () => this.onBackgroundReady());
     session.on("tasks-changed", () => this.checkTasks());
+    session.on("automation", (run: Record<string, unknown>) => this.onAutomationRun(run));
+  }
+
+  /** An automation finished a run: Atlarix's extension says so, as the CLI flashes a line. */
+  private onAutomationRun(run: Record<string, unknown>): void {
+    if (!this.extras()) return;
+    void this.client()
+      .notify("_atlarix/automation_run", {
+        sessionId: this.id,
+        automationId: typeof run.automationId === "string" ? run.automationId : null,
+        name: typeof run.automationName === "string" ? run.automationName : "Automation",
+        status: typeof run.status === "string" ? run.status : "ok",
+        summary: typeof run.summary === "string" ? run.summary : typeof run.error === "string" ? run.error : null,
+      })
+      .catch(() => {});
   }
 
   /**
@@ -413,9 +428,12 @@ class Thread {
     }
     // Account commands for editors with no Atlarix panel (Zed, JetBrains): the
     // CLI's /status, /billing and /mcp, answered as a message.
-    if (slash && (slash[1] === "status" || slash[1] === "billing" || slash[1] === "mcp" || slash[1] === "logout")) {
+    // `/automations`, `/automations run <name>`, `/automations on|off <name>`.
+    const automations = /^\/automations(?:\s+([\s\S]+))?$/i.exec(text.trim());
+    if (automations || (slash && (slash[1] === "status" || slash[1] === "billing" || slash[1] === "mcp" || slash[1] === "logout"))) {
       const { accountCommandText } = await import("./account-commands");
-      const reply = await accountCommandText(slash[1], this.session).catch((e: Error) => `Couldn't read that: ${e.message}`);
+      const cmd = automations ? `automations ${automations[1]?.trim() ?? ""}`.trim() : slash![1]!;
+      const reply = await accountCommandText(cmd, this.session).catch((e: Error) => `Couldn't read that: ${e.message}`);
       await this.send({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: reply } });
       return { stopReason: "end_turn" };
     }
@@ -551,7 +569,7 @@ class Thread {
   }
 }
 
-const BUILTIN_COMMANDS = ["compact", "undo", "keys", "status", "billing", "mcp", "handoff", "logout", "build"];
+const BUILTIN_COMMANDS = ["compact", "undo", "keys", "status", "billing", "mcp", "automations", "handoff", "logout", "build"];
 
 function commandsUpdate(planReady: boolean, skills: Array<{ name: string; description: string }> = []): SessionUpdate {
   return {
@@ -563,6 +581,7 @@ function commandsUpdate(planReady: boolean, skills: Array<{ name: string; descri
       { name: "status", description: "Your Atlarix account, plan, credit and this chat's usage." },
       { name: "billing", description: "Get Pro, add credit, or manage or cancel your subscription." },
       { name: "mcp", description: "MCP servers in this folder." },
+      { name: "automations", description: "Scheduled and triggered tasks in this folder; run one, or turn it on or off." },
       { name: "handoff", description: "Continue this chat in the Atlarix app." },
       { name: "logout", description: "Sign out of Atlarix on this computer (the app and CLI share the sign-in)." },
       ...(planReady ? [{ name: "build", description: "Build the plan that is ready for review." }] : []),

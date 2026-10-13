@@ -15,6 +15,7 @@ import * as acp from "@agentclientprotocol/sdk";
 import type { InitializeResponse } from "@agentclientprotocol/sdk";
 import { acpStdout } from "./stdio-guard";
 import { AcpAgent } from "./agent";
+import type { AutomationDraft } from "../agent/services";
 
 export interface AcpRunOptions {
   version: string;
@@ -392,6 +393,59 @@ export function buildAgentApp(
           throw acp.RequestError.invalidParams(undefined, `unknown action ${ctx.params.action}`);
       }
     })
+    .onRequest(
+      "_atlarix/automations",
+      (p) =>
+        p as {
+          sessionId: string;
+          action: "list" | "create" | "update" | "toggle" | "remove" | "run" | "read" | "servers" | "tools";
+          id?: string;
+          draft?: AutomationDraft;
+          enabled?: boolean;
+          all?: boolean;
+          runIds?: string[];
+          serverId?: number;
+        },
+      async (ctx) => {
+        // The editor's Automations page: the same services as the CLI's /automations.
+        const { realServices } = await import("../agent/services");
+        const a = realServices.automations;
+        const p = ctx.params;
+        const { appId } = agent.sessionInfo(p.sessionId);
+        const state = async () => ({
+          automations: await a.list(p.all ? null : appId),
+          runs: await a.runs(appId).catch(() => []),
+        });
+        switch (p.action) {
+          case "list":
+            return state();
+          case "create":
+            await a.create(appId, p.draft!);
+            return state();
+          case "update":
+            await a.update(String(p.id), p.draft!);
+            return state();
+          case "toggle":
+            await a.toggle(String(p.id), p.enabled === true);
+            return state();
+          case "remove":
+            await a.remove(String(p.id));
+            return state();
+          case "run":
+            await a.runNow(String(p.id));
+            return state();
+          case "read":
+            await a.markRead(p.runIds ?? []);
+            return {};
+          case "servers":
+            return { servers: await realServices.mcp.list(appId) };
+          case "tools":
+            return { tools: await realServices.mcp.tools(Number(p.serverId)).catch(() => []) };
+          default:
+            throw new Error(`Unknown automations action: ${String(p.action)}`);
+        }
+      },
+    )
     .onRequest("_atlarix/recap_setting", (p) => p as { on: boolean }, async (ctx) => {
       const { setRecapEnabled } = await import("@/lib/recap/recap");
       await setRecapEnabled(ctx.params.on === true);
@@ -450,7 +504,14 @@ export async function runAcp(opts: AcpRunOptions): Promise<void> {
     changeSession: (sessionId, change) => changeFolderSession(sessionId, change),
   });
 
-  if (!opts.devUrl) opts.startBridge?.();
+  if (!opts.devUrl) {
+    opts.startBridge?.();
+    // Automations run in whichever Atlarix is open, the editor included: with
+    // only VS Code open they never fired. runner.ts leases each run, so with
+    // the app, the CLI or another window open too, every run still happens once.
+    const { startAutomationRunner } = await import("../../lib/automations/runner");
+    startAutomationRunner();
+  }
 
   const connection = buildAgentApp(agent, opts.version, { chromeStatus: opts.chromeStatus }).connect(acp.ndJsonStream(stdoutStream(), stdinStream()));
 

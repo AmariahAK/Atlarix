@@ -73,6 +73,7 @@ export const RPC_METHODS = [
   "_atlarix/status",
   "_atlarix/recap_setting",
   "_atlarix/tasks",
+  "_atlarix/automations",
 ] as const;
 export type RpcMethod = (typeof RPC_METHODS)[number];
 
@@ -110,14 +111,16 @@ export type HostMessage =
   | { type: "toast"; text: string; tone?: "info" | "error" }
   | { type: "rpc-result"; id: number; result?: unknown; error?: string; data?: unknown }
   /** Open a screen or picker from outside the view (a command, the status bar). */
-  | { type: "open"; what: "keys" | "model-picker" | "history" | "settings" | "account" | "mcp" | "approve" }
+  | { type: "open"; what: "keys" | "model-picker" | "history" | "settings" | "account" | "mcp" | "approve" | "automations" }
   /** Files matching what follows an @ in the box. */
   | { type: "files"; query: string; files: Array<{ path: string; label: string }> }
   /** The file open in the editor, offered as context unless removed. */
   | { type: "active-file"; item: ContextItem | null }
   | { type: "host-settings"; settings: HostSettings }
   /** What is running in this chat changed (sub-agents, background commands): `count` of them. */
-  | { type: "tasks-changed"; count: number };
+  | { type: "tasks-changed"; count: number }
+  /** An automation finished a run (in this editor, the CLI or the app). */
+  | { type: "automation-run"; name: string; status: string; summary: string | null };
 
 export type ViewMessage =
   | { type: "ready" }

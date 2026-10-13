@@ -306,6 +306,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("atlarix.settings", async () => (await target())?.show("settings")),
     vscode.commands.registerCommand("atlarix.account", async () => (await target())?.show("account")),
     vscode.commands.registerCommand("atlarix.mcp", async () => (await target())?.show("mcp")),
+    vscode.commands.registerCommand("atlarix.automations", async () => (await target())?.show("automations")),
     vscode.commands.registerCommand("atlarix.pickModel", async () => {
       const chat = await target();
       if (chat === sidebar) await vscode.commands.executeCommand("atlarix.chat.focus");

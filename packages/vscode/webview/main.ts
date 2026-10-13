@@ -20,6 +20,7 @@ import { button, el, iconButton, MODE_NAME, relTime, rixGlyph } from "./ui";
 import { renderAccount } from "./views/account";
 import { renderAddProvider } from "./views/addProvider";
 import { renderHistory, renderUndo } from "./views/history";
+import { renderAutomations } from "./views/automations";
 import { renderMcp } from "./views/mcp";
 import type { Nav, View } from "./views/nav";
 import { renderProvider } from "./views/provider";
@@ -29,6 +30,16 @@ import { renderSettings } from "./views/settings";
 
 const app = document.getElementById("app")!;
 const nav = el("header", "nav");
+// Runs finished since you last opened Automations: a count on its button.
+let automationUnread = 0;
+const automationsButton = iconButton("bolt", "Automations", () => go({ name: "automations" }));
+const automationsBadge = el("span", "nav__count hidden");
+automationsButton.append(automationsBadge);
+function setAutomationUnread(n: number): void {
+  automationUnread = n;
+  automationsBadge.textContent = n > 9 ? "9+" : String(n);
+  automationsBadge.classList.toggle("hidden", n === 0);
+}
 const brand = el("div", "nav__brand");
 brand.innerHTML = rixGlyph(20);
 brand.append(el("span", "nav__name", "Atlarix"), el("span", "needs-badge", "Needs you"));
@@ -41,6 +52,7 @@ nav.append(
   }),
   iconButton("history", "Past chats", () => go({ name: "history" })),
   iconButton("server", "MCP servers", () => go({ name: "mcp" })),
+  automationsButton,
   iconButton("user", "Account", () => go({ name: "account" })),
   iconButton("gear", "Settings", () => go({ name: "settings" })),
 );
@@ -82,6 +94,7 @@ function go(v: View): void {
   else if (v.name === "undo") void renderUndo(page, navApi, (id, text) => void C.goBack(id, text, null));
   else if (v.name === "account") void renderAccount(page, navApi);
   else if (v.name === "mcp") void renderMcp(page, navApi);
+  else if (v.name === "automations") void renderAutomations(page, navApi, () => setAutomationUnread(0));
   else if (v.name === "settings") renderSettings(page, navApi, v.tab);
   else if (v.name === "provider") void renderProvider(page, navApi, v.id);
   else if (v.name === "add-provider") void renderAddProvider(page, navApi, v.focus);
@@ -302,6 +315,13 @@ onHost((m: HostMessage) => {
       return;
     case "toast":
       return toast(m.text, m.tone);
+    case "automation-run": {
+      const what = (m.summary ?? (m.status === "nothing-to-report" ? "nothing to report" : "done")).split("\n")[0];
+      // Open on the page already: draw it again with the new run.
+      if (stack.at(-1)?.name === "automations") void renderAutomations(page, navApi, () => setAutomationUnread(0));
+      else setAutomationUnread(automationUnread + 1);
+      return toast(`Automation “${m.name}” · ${what}`, m.status === "error" ? "error" : "info");
+    }
     case "open":
       if (m.what === "model-picker") {
         go({ name: "chat" });

@@ -1,5 +1,5 @@
 /**
- * /status, /billing, /mcp and /logout for editors that have no Atlarix panel (Zed and
+ * /status, /billing, /mcp, /automations and /logout for editors that have no Atlarix panel (Zed and
  * JetBrains speak plain ACP): the CLI's own answers, as markdown. Atlarix's VS
  * Code extension has an Account panel instead (_atlarix/account in server.ts).
  */
@@ -30,6 +30,7 @@ export async function accountCommandText(cmd: "status" | "billing" | "mcp" | "lo
     lines.push("", "Shared with the Atlarix app, the CLI and your editors. Turn them on or off in the app, the CLI's `/mcp`, or Atlarix's VS Code extension.");
     return lines.join("\n");
   }
+  if (cmd === "automations" || cmd.startsWith("automations ")) return automationsText(cmd.slice("automations".length).trim(), session);
   if (cmd.startsWith("mcp add ")) {
     const name = cmd.slice("mcp add ".length).trim().toLowerCase();
     const found = await realServices.mcp.found(session.appId).catch(() => []);
@@ -94,4 +95,41 @@ export async function keysCommandText(text: string): Promise<string> {
     "",
     "Add or replace one in a terminal: `atlarix keys add <provider>`. Remove one: `atlarix keys remove <provider>`.",
   ].join("\n");
+}
+
+/**
+ * /automations: this folder's automations and their last runs; `run`, `on` and
+ * `off` with a name act on one. Making one is a sentence to the agent ("run the
+ * tests every weekday at 9"): its automations tool asks you before it saves.
+ */
+async function automationsText(rest: string, session: AgentSession): Promise<string> {
+  const { realServices } = await import("../agent/services");
+  const a = realServices.automations;
+  const list = await a.list(session.appId);
+  const m = /^(run|on|off)\s+(.+)$/i.exec(rest);
+  if (m) {
+    const want = m[2]!.trim().toLowerCase();
+    const hit = list.find((x) => x.name.toLowerCase() === want) ?? list.find((x) => x.name.toLowerCase().includes(want));
+    if (!hit) return `No automation called "${m[2]!.trim()}" in this folder. \`/automations\` lists them.`;
+    const verb = m[1]!.toLowerCase();
+    if (verb === "run") {
+      await a.runNow(hit.id);
+      return `Running “${hit.name}” now. Its result arrives here when it finishes${hit.notifyAgent ? ", and Atlarix reads it on your next message" : ""}.`;
+    }
+    await a.toggle(hit.id, verb === "on");
+    return `“${hit.name}” is ${verb}.`;
+  }
+  if (!list.length) {
+    return "No automations in this folder yet. Ask Atlarix for one, e.g. “run the tests every weekday at 9 and tell me what fails”: it asks you before saving it.";
+  }
+  const runs = await a.runs(session.appId).catch(() => []);
+  const { describeTrigger } = await import("../tui/screens");
+  const lines = ["**Automations in this folder**", ""];
+  for (const x of list) {
+    const last = runs.find((r) => r.automationId === x.id);
+    const result = last ? ` · last: ${last.status === "error" ? "✗" : last.status === "ok" ? "✓" : "–"} ${(last.error ?? last.summary ?? last.status).split("\n")[0]}` : " · not run yet";
+    lines.push(`- ${x.enabled ? "●" : "○"} **${x.name}**: ${describeTrigger(x.trigger)}${x.enabled ? "" : " (off)"}${result}`);
+  }
+  lines.push("", "`/automations run <name>` runs one now · `/automations on|off <name>` · ask Atlarix to make or change one. They run while Atlarix (the app, the CLI or an editor) is open.");
+  return lines.join("\n");
 }

@@ -270,6 +270,58 @@ describe("atlarix acp", () => {
     expect(loaded?._meta?.atlarix?.plan).toMatchObject({ title: "Add a ping route", buildable: true });
   }, 60_000);
 
+  it("automations: the editor's page manages them, and /automations answers in any editor", async () => {
+    const e = await editor([{ text: "ok" }], undefined, { _meta: { atlarix: { version: 1 } } });
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    type Page = { automations: Array<{ id: string; name: string; enabled: boolean; runMode: string }> };
+    const draft = { name: "Tests every morning", enabled: true, trigger: { kind: "schedule", cron: "0 9 * * 1-5" }, prompt: "Run the tests and say what fails.", runMode: "read-only", notifyAgent: false, model: null };
+    const made = await e.conn.agent.request<Page>("_atlarix/automations", { sessionId, action: "create", draft });
+    const mine = made.automations.find((a) => a.name === "Tests every morning")!;
+    expect(mine).toMatchObject({ enabled: true, runMode: "read-only" });
+
+    const off = await e.conn.agent.request<Page>("_atlarix/automations", { sessionId, action: "toggle", id: mine.id, enabled: false });
+    expect(off.automations.find((a) => a.id === mine.id)?.enabled).toBe(false);
+
+    // Plain ACP editors: the list as a message, and on/off by name.
+    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "/automations" }] });
+    expect(e.text(sessionId)).toContain("Tests every morning");
+    expect(e.text(sessionId)).toContain("weekday mornings (off)");
+    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "/automations on tests every" }] });
+    expect(e.text(sessionId)).toContain("“Tests every morning” is on.");
+    await Bun.sleep(200);
+    const commands = e.updates.filter((u) => u.sessionId === sessionId && u.update.sessionUpdate === "available_commands_update").at(-1)?.update as { availableCommands: Array<{ name: string }> } | undefined;
+    expect(commands?.availableCommands.map((c) => c.name)).toContain("automations");
+
+    const gone = await e.conn.agent.request<Page>("_atlarix/automations", { sessionId, action: "remove", id: mine.id });
+    expect(gone.automations.some((a) => a.id === mine.id)).toBe(false);
+  }, 60_000);
+
+  it("automations: the agent makes one with its tool, after the editor's Allow", async () => {
+    const e = await editor([
+      {
+        tool: "automations",
+        args: {
+          operation: "create",
+          name: "Nightly lint",
+          trigger: { kind: "schedule", cron: "0 2 * * *" },
+          run_mode: "read-only",
+          prompt: "Run the linter and list new warnings.",
+          notify_agent: true,
+        },
+      },
+      { text: "Set up: Nightly lint runs at 2am and its results come to me." },
+    ]);
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    const r = await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "lint every night and tell me" }] });
+    expect(r.stopReason).toBe("end_turn");
+    // A standing job is the user's call: the editor was asked first.
+    const ask = e.asked.find((a) => a.sessionId === sessionId);
+    expect(ask?.toolCall.title).toBe("Create this automation?");
+    expect(JSON.stringify(ask?.toolCall.content)).toContain("Nightly lint");
+    const page = await e.conn.agent.request<{ automations: Array<{ name: string; notifyAgent: boolean; trigger: { cron?: string } }> }>("_atlarix/automations", { sessionId, action: "list" });
+    expect(page.automations.find((a) => a.name === "Nightly lint")).toMatchObject({ notifyAgent: true, trigger: { cron: "0 2 * * *" } });
+  }, 60_000);
+
   it("loading a session this process already has open replays it in full", async () => {
     const e = await editor([{ text: "The codeword is heron." }]);
     const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
