@@ -641,7 +641,7 @@ async function runReplace(
   }
 
   const notice = notices.length ? notices.join(" ") : undefined;
-  const label = edits.length > 1 ? `${edits.length} edits` : "Surgical replace";
+  const label = edits.length > 1 ? `${edits.length} edits` : "1 edit";
   return permissionPayload({
     normalizedPath,
     newContent: content,
