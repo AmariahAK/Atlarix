@@ -17,3 +17,13 @@ export function ownMessages(messages: ReadonlyArray<{ id: string | number; role:
     })
     .reverse();
 }
+
+/**
+ * Your edited words for a row, with any teammate's messages it held kept in
+ * front of them, as they were. Going back to your part of such a row must not
+ * drop what the teammate said.
+ */
+export function withTeammateMessages(original: string, edited: string): string {
+  const theirs = original.match(/<atlarix-peer-message[^>]*>[\s\S]*?<\/atlarix-peer-message>/g) ?? [];
+  return theirs.length ? `${theirs.join("\n\n")}\n\n${edited}` : edited;
+}

@@ -19,4 +19,14 @@ describe("what you can go back to (/undo, esc esc, the editor)", () => {
       { id: 1, text: "fix the login bug" },
     ]);
   });
+
+  it("editing your part of a mixed row keeps the teammate's message (owner)", async () => {
+    const { withTeammateMessages } = await import("@/cli/agent/own-messages");
+    const row = `${peer("Docs", "FYI the README moved")}\n\nand add a test`;
+    const edited = withTeammateMessages(row, "and add two tests");
+    expect(edited).toBe(`${peer("Docs", "FYI the README moved")}\n\nand add two tests`);
+    expect(ownMessages([{ id: 1, role: "user", content: edited }])).toEqual([{ id: 1, text: "and add two tests" }]);
+    expect(withTeammateMessages("plain", "changed")).toBe("changed");
+  });
 });
+

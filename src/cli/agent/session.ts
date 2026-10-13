@@ -9,7 +9,7 @@
  * `chat:response:error` at the end of a turn. This class turns them into one
  * state object and emits "change"; the TUI renders that state and nothing else.
  */
-import { ownMessages } from "./own-messages";
+import { ownMessages, withTeammateMessages } from "./own-messages";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import path from "node:path";
@@ -575,7 +575,11 @@ export class AgentSession extends EventEmitter {
       if (!res.success) throw new Error(res.error ?? "Restoring the files failed; nothing was changed.");
       restoredFiles = res.restoredFiles ?? 0;
     }
-    await (await handler("chat:edit-message"))(this.event, { chatId: this.chatId, userMessageId: messageId, newContent: text });
+    // A row holding a teammate's message and your words: editing yours keeps
+    // theirs (owner: undo never undoes a teammate's message).
+    const before = this.messages.find((m) => Number(m.id) === messageId)?.content ?? "";
+    const newContent = withTeammateMessages(before, text);
+    await (await handler("chat:edit-message"))(this.event, { chatId: this.chatId, userMessageId: messageId, newContent });
     const { getStreamTransport } = await import("@/lib/chat/stream-transport");
     const kept = (getStreamTransport(this.chatId)?.messages ?? []) as ChatMessageLike[];
     this.messages = kept.map((m) => ({ id: m.id, role: m.role, content: m.content, modelContent: m.modelContent ?? null }));
