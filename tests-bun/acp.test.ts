@@ -318,6 +318,12 @@ describe("atlarix acp", () => {
     const ask = e.asked.find((a) => a.sessionId === sessionId);
     expect(ask?.toolCall.title).toBe("Create this automation?");
     expect(JSON.stringify(ask?.toolCall.content)).toContain("Nightly lint");
+    // What you're approving, in plain lines, not a raw cron in backticks (QA).
+    const said = JSON.stringify(ask?.toolCall.content);
+    expect(said).toContain("When: on the schedule 0 2 * * * (2:00 AM, every day)");
+    expect(said).toContain("Each run: Atlarix runs a read-only task: “Run the linter and list new warnings.”");
+    expect(said).toContain("Results: to you, and into the agent's next turn");
+    expect(said).not.toContain("`");
     const page = await e.conn.agent.request<{ automations: Array<{ name: string; notifyAgent: boolean; trigger: { cron?: string } }> }>("_atlarix/automations", { sessionId, action: "list" });
     expect(page.automations.find((a) => a.name === "Nightly lint")).toMatchObject({ notifyAgent: true, trigger: { cron: "0 2 * * *" } });
   }, 60_000);

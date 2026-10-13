@@ -2661,3 +2661,10 @@ code {
   color: var(--code);
   font-size: 0.95em;
 }
+
+/* An automation's approval: when, what each run does, who hears (composer.ts). */
+.approval__detail {
+  font-size: 0.9em;
+  color: var(--fg);
+  padding: 1px 0;
+}

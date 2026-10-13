@@ -16,7 +16,7 @@ import type {
   ToolCallUpdate,
   ToolKind,
 } from "@agentclientprotocol/sdk";
-import { approvalChoices, approvalTitle, firstPreview, type ApprovalChoice } from "../agent/approval-choices";
+import { approvalChoices, approvalTitle, firstPreview, type ApprovalChoice, automationDetails } from "../agent/approval-choices";
 import type { McpConsentRequest, PendingApproval } from "../agent/session";
 import type { Cell } from "../agent/transcript";
 import { toolNameFromId } from "./updates";
@@ -75,7 +75,8 @@ export function approvalToolCall(a: PendingApproval, owner?: string): ToolCallUp
   const note = [
     p.command ? `$ ${p.command}` : "",
     p.deniedPath ? `Write outside the sandbox: ${p.grantPath ?? p.deniedPath}` : "",
-    p.description ?? "",
+    (p.description ?? "").replace(/`/g, ""),
+    ...automationDetails(a),
     p.isDangerous && p.dangerExplanation ? `Risky: ${p.dangerExplanation}` : "",
     p.systemScope && p.systemScopeExplanation ? p.systemScopeExplanation : "",
   ]
@@ -89,7 +90,8 @@ export function approvalToolCall(a: PendingApproval, owner?: string): ToolCallUp
   const _meta = {
     atlarix: {
       approval: {
-        intent: p.description?.trim() || null,
+        intent: p.description?.replace(/`/g, "").trim() || null,
+        details: automationDetails(a),
         added: d ? d.added : null,
         removed: d ? d.removed : null,
         command: p.command ?? null,

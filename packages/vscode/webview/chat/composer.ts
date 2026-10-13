@@ -259,6 +259,8 @@ function renderApproval(): void {
         risk?: string | null;
         outside?: string | null;
         intent?: string | null;
+        /** An automation's when / each run / results lines. */
+        details?: string[];
         added?: number | null;
         removed?: number | null;
       };
@@ -268,7 +270,8 @@ function renderApproval(): void {
   const isEdit = !isCommand && !!meta?.path;
   approval.classList.toggle("risky", !!meta?.risky);
   const head = el("div", "approval__head");
-  head.innerHTML = icon(meta?.risky ? "warn" : isCommand ? "terminal" : "file", 15);
+  const isAutomation = !!meta?.details?.length;
+  head.innerHTML = icon(meta?.risky ? "warn" : isCommand ? "terminal" : isAutomation ? "bolt" : isEdit ? "file" : "check", 15);
   const title = isCommand ? (meta?.risky ? "Run a risky command?" : "Run this command?") : isEdit ? "Apply this edit?" : (a.toolCall.title ?? "Atlarix wants to continue");
   head.append(el("span", "approval__title", title));
   if (approvals.length > 1) head.append(el("span", "muted small", `1 of ${approvals.length}`));
@@ -282,6 +285,7 @@ function renderApproval(): void {
     approval.append(row);
   }
   if (meta?.intent) approval.append(el("div", "approval__intent", meta.intent));
+  for (const line of meta?.details ?? []) approval.append(el("div", "approval__detail", line));
   if (meta?.risk) approval.append(el("div", "approval__risk", meta.risk));
   if (meta?.outside) approval.append(el("div", "approval__risk", `Outside this folder: ${meta.outside}`));
   const acts = el("div", "approval__acts");

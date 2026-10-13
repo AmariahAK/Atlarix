@@ -6,7 +6,7 @@
  */
 import { approvalDiff } from "../agent/approval-diff";
 import type { PendingApproval } from "../agent/session";
-import { approvalChoices, approvalTitle, firstPreview, type ApprovalChoice } from "../agent/approval-choices";
+import { approvalChoices, approvalTitle, firstPreview, type ApprovalChoice, automationDetails } from "../agent/approval-choices";
 export { approvalChoices, approvalTitle, type ApprovalChoice } from "../agent/approval-choices";
 import { useDiffSegments } from "./diff-highlight";
 import { color } from "./theme";
@@ -56,7 +56,12 @@ export function Approval({ approval, selected, expanded = false }: { approval: P
           <text fg={color.text}>{p.command ? `$ ${shown}` : shown}</text>
         </box>
       ) : null}
-      {p.description ? <text fg={color.textDim}>{p.description}</text> : null}
+      {p.description ? <text fg={color.textDim}>{p.description.replace(/`/g, "")}</text> : null}
+      {automationDetails(approval).map((l, i) => (
+        <text key={`ad${i}`} fg={color.text}>
+          {l}
+        </text>
+      ))}
       {p.command && p.isDangerous ? (
         // The desktop's own wording (InlinePermissionApprovals.tsx), never a guess
         // such as "can't be undone", which is false for most flagged commands.
