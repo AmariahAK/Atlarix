@@ -57,11 +57,16 @@ export function Approval({ approval, selected, expanded = false }: { approval: P
         </box>
       ) : null}
       {p.description ? <text fg={color.textDim}>{p.description.replace(/`/g, "")}</text> : null}
-      {automationDetails(approval).map((l, i) => (
-        <text key={`ad${i}`} fg={color.text}>
-          {l}
-        </text>
-      ))}
+      {automationDetails(approval).length ? (
+        // One block: the card's gap between every line made it read as a list of separate notes.
+        <box flexDirection="column">
+          {automationDetails(approval).map((l, i) => (
+            <text key={`ad${i}`} fg={color.text}>
+              {l}
+            </text>
+          ))}
+        </box>
+      ) : null}
       {p.command && p.isDangerous ? (
         // The desktop's own wording (InlinePermissionApprovals.tsx), never a guess
         // such as "can't be undone", which is false for most flagged commands.

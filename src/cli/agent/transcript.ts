@@ -235,6 +235,12 @@ export function toolTarget(toolName: string, args: unknown): string {
       if (op === "append_step") return ["add step", str(a.step_text).replace(/`/g, "")].filter(Boolean).join(" · ");
       return op;
     }
+    case "automations": {
+      // "◇ Automation  create · Weekday tests", not a bare "◇ Automation" (QA).
+      const op = str(a.operation);
+      const what = op === "set_notify" ? (a.notify_agent ? "tell the agent" : "stop telling the agent") : op;
+      return [what, str(a.name)].filter(Boolean).join(" · ");
+    }
     case "background_jobs":
       // Not the tool's own vocabulary ("Jobs cancel op_179…"): what it did.
       if (a.operation === "cancel") return "stop a background job";
@@ -349,6 +355,8 @@ function summarize(toolName: string, r: { text: string; exitCode?: number; faile
   // "No files found matching pattern: … Often an extension or casing issue —
   // try …" is advice for the model; the person reads "no files" (QA #37c).
   if (toolName === "glob" && first?.startsWith("No files found")) return "no files";
+  // The executor's generic "Successfully executed operation" says nothing.
+  if (toolName === "automations" && first?.startsWith("Successfully executed")) return "done";
   // A failure's first sentence says what went wrong; what follows ("Use
   // list_files to find the correct path.") is meant for the model.
   if (r.failed && first) return firstSentence(first) ?? first;
