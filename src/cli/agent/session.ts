@@ -9,6 +9,7 @@
  * `chat:response:error` at the end of a turn. This class turns them into one
  * state object and emits "change"; the TUI renders that state and nothing else.
  */
+import { ownMessages } from "./own-messages";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import path from "node:path";
@@ -489,10 +490,7 @@ export class AgentSession extends EventEmitter {
 
   /** Your messages in this session, newest first (what /undo and esc esc can go back to). */
   myMessages(): Array<{ id: number; text: string }> {
-    return this.messages
-      .filter((m) => m.role === "user" && m.content.trim() && !/^\*\*\*Q:\*\*\*/.test(m.content))
-      .map((m) => ({ id: Number(m.id), text: m.content.trim() }))
-      .reverse();
+    return ownMessages(this.messages);
   }
 
   /** What going back to this message would discard: the replies' file snapshots and the files they touched. */
