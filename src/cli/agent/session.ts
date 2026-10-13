@@ -389,6 +389,8 @@ export class AgentSession extends EventEmitter {
     this.delegationCount.clear();
     this.lastStepTokens = 0;
     this.interrupted.clear();
+    this.turnNotices.clear();
+    this.lastTurnOwner = null;
     this.update({
       cells: [],
       approvals: [],
@@ -1116,6 +1118,10 @@ export class AgentSession extends EventEmitter {
       attachmentType: "chat-context" as const,
     }));
     this.turnSeq++;
+    // The last turn's error stays under that turn, not gone with the banner
+    // (QA: "Couldn't reach…" vanished on the next send).
+    if (this.state.lastError && this.lastTurnOwner) this.addTurnNotice(this.lastTurnOwner, "error", this.state.lastError);
+    this.lastTurnOwner = null;
     this.update({
       busy: true,
       phase: "Thinking…",
@@ -1202,9 +1208,17 @@ export class AgentSession extends EventEmitter {
 
   /** Each turn this session ran, by its reply's id: "Build · deepseek-flash · 12s". */
   private readonly turnFooters = new Map<string, { text: string; interrupted: boolean }>();
+  /** Lines kept under a turn: its error once the next turn starts, or a stop with no reply. */
+  private readonly turnNotices = new Map<string, Array<{ level: "info" | "error"; text: string }>>();
+  /** The message the last turn's lines belong under: its reply, else your message. */
+  private lastTurnOwner: string | null = null;
+
+  private addTurnNotice(owner: string, level: "info" | "error", text: string): void {
+    this.turnNotices.set(owner, [...(this.turnNotices.get(owner) ?? []), { level, text }]);
+  }
 
   private withFooters(cells: Cell[]): Cell[] {
-    if (!this.turnFooters.size) return cells;
+    if (!this.turnFooters.size && !this.turnNotices.size) return cells;
     // After the reply's LAST line only. A message sent mid-turn sits inside the
     // reply, and a footer after each part made the turn look finished above it.
     const last = new Map<string, number>();
@@ -1213,8 +1227,10 @@ export class AgentSession extends EventEmitter {
     cells.forEach((c, i) => {
       out.push(c);
       const owner = c.id.split(":")[0]!;
+      if (last.get(owner) !== i) return;
+      (this.turnNotices.get(owner) ?? []).forEach((n, k) => out.push({ kind: "notice", id: `${owner}:turn-notice${k}`, level: n.level, text: n.text }));
       const footer = this.turnFooters.get(owner);
-      if (footer && last.get(owner) === i) {
+      if (footer) {
         out.push({ kind: "footer", id: `${owner}:footer`, text: footer.text, interrupted: footer.interrupted });
       }
     });
@@ -1764,8 +1780,20 @@ export class AgentSession extends EventEmitter {
     this.steers = [];
     const wasInterrupted = this.interruptRequested;
     this.interruptRequested = false;
-    const lastReply = [...this.messages].reverse().find((m) => m.role === "assistant");
+    // THIS turn's reply: after its message. The last assistant message in the
+    // chat could be an earlier turn's, and a stop before any reply then marked
+    // that one, or nothing at all (QA: no "Interrupted" line after a stop).
+    const lastUserIdx = this.messages.map((m) => m.role).lastIndexOf("user");
+    // …and one that shows something: a turn that failed or was stopped before
+    // any output leaves an empty reply, and lines kept under it never drew.
+    const shown = new Set(this.untimedCells(false).map((c) => c.id.split(":")[0]!));
+    const lastReply = [...this.messages.slice(lastUserIdx + 1)]
+      .reverse()
+      .find((m) => m.role === "assistant" && shown.has(String(m.id)));
+    const turnUser = !this.turnWasWake && lastUserIdx >= 0 ? String(this.messages[lastUserIdx]!.id) : null;
     if (wasInterrupted && lastReply) this.interrupted.add(String(lastReply.id));
+    else if (wasInterrupted && turnUser) this.addTurnNotice(turnUser, "info", "Interrupted. Tell Atlarix what to do instead.");
+    this.lastTurnOwner = lastReply ? String(lastReply.id) : turnUser;
     if (lastReply && this.state.turnStartedAt) {
       const secs = Math.max(1, Math.round((Date.now() - this.state.turnStartedAt) / 1000));
       const took = secs >= 60 ? `${Math.floor(secs / 60)}m ${String(secs % 60).padStart(2, "0")}s` : `${secs}s`;
