@@ -54,6 +54,10 @@ export function parsePlanChangesFromContent(
   }
 }
 
+/** Words that say a file mentioned in a plan is not going to change. */
+const NOT_CHANGING_RE =
+  /\b(no changes? (?:needed|required)|unchanged|not (?:be )?(?:changed|modified|touched)|stays? as[- ]is|leave .{0,80}? as[- ]is|doesn'?t need (?:a )?changes?)\b/i;
+
 const PATH_EXT =
   "ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|cs|rb|php|swift|md|json|yaml|yml|toml|sql|css|scss|html|vue|svelte";
 
@@ -75,7 +79,14 @@ export function deriveFilesFromPlanMarkdown(
     `^\\s*(?:[-*]|\\d+[.)])?\\s*(?:\\[[ xX]\\]\\s*)?(?:add|create|new)\\s+[\`'"]?([\\w@./-]+\\.(?:${PATH_EXT}))`,
     "i",
   );
-  for (const line of planMd.split("\n")) {
+  for (const rawLine of planMd.split("\n")) {
+    // "(README.md is a one-liner; no change needed.)" names a file that is NOT
+    // changing (QA #35): a parenthesis or sentence that says so is skipped.
+    const line = rawLine
+      .replace(/\([^)]*\)/g, (p) => (NOT_CHANGING_RE.test(p) ? " " : p))
+      .split(/(?<=[.;])\s+/)
+      .filter((sentence) => !NOT_CHANGING_RE.test(sentence))
+      .join(" ");
     const created = createRe.exec(line)?.[1]?.replace(/^\.?\//, "");
     let m: RegExpExecArray | null;
     pathRe.lastIndex = 0;

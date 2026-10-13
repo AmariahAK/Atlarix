@@ -96,3 +96,20 @@ describe("what a plan is changing (QA #15)", () => {
     expect(changes?.files).toEqual([{ path: "x.ts", action: "DELETE" }]);
   });
 });
+
+// QA (app) #35: "(README.md is a one-liner; no change needed.)" put README.md
+// under "What's changing".
+describe("a file the plan says won't change (QA #35)", () => {
+  it("is not listed", () => {
+    const md = `## Changes
+
+- [x] **\`src/tally.js\`** — add a \`minLength\` parameter.
+- [x] **\`docs/USAGE.md\`** — update the Usage block. (README.md is a one-liner; no change needed.)
+- [ ] Leave \`package.json\` as-is. Update \`bin/tally.js\` to pass it through.`;
+    expect(deriveFilesFromPlanMarkdown(md).map((f) => f.path)).toEqual([
+      "src/tally.js",
+      "docs/USAGE.md",
+      "bin/tally.js",
+    ]);
+  });
+});
