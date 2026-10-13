@@ -100,7 +100,7 @@ function DiffLineRow({
           {line.type === "remove" && "-"}
           {line.type === "context" && " "}
         </span>
-        <pre className="flex-1 whitespace-pre-wrap break-words px-2 py-0.5 text-xs overflow-x-auto">
+        <pre className="m-0 flex-1 overflow-x-auto whitespace-pre-wrap break-words rounded-none bg-transparent px-2 py-0.5 font-mono text-xs text-foreground">
           {line.content || " "}
         </pre>
       </div>
@@ -242,9 +242,12 @@ export function SmartDiffView({
         : `--- ${path}  →  +++ ${path}`;
 
   return (
+    // not-prose: inside a chat answer the markdown styles reach these <pre>
+    // lines (a code block's box, padding and colour). In the light theme that
+    // was near-white text on a near-white box; only +/- signs stayed readable.
     <div
       className={cn(
-        "flex flex-col rounded-lg border border-border overflow-hidden",
+        "not-prose flex flex-col rounded-lg border border-border overflow-hidden",
         maxHeight,
       )}
     >
@@ -328,12 +331,16 @@ export function SmartDiffView({
         </div>
       ) : (
         <div className="flex-1 overflow-auto font-mono text-xs">
-          <div className="flex bg-muted/50 border-b border-border">
-            <span className="w-5 shrink-0" />
-            <pre className="flex-1 whitespace-pre-wrap px-2 py-0.5 text-muted-foreground italic text-[10px]">
-              {headerLabel}
-            </pre>
-          </div>
+          {/* An update's "--- a → +++ a" said nothing the header above
+              doesn't (QA #7); a create or delete says so. */}
+          {operation !== "update" ? (
+            <div className="flex bg-muted/50 border-b border-border">
+              <span className="w-5 shrink-0" />
+              <pre className="m-0 flex-1 whitespace-pre-wrap rounded-none bg-transparent px-2 py-0.5 font-mono text-[10px] italic text-muted-foreground">
+                {headerLabel}
+              </pre>
+            </div>
+          ) : null}
           {hunks.map((hunk) => {
             const isDeselected = hunkSelectable && deselected.has(hunk.index);
             return (

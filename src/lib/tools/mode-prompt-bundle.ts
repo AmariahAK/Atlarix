@@ -117,7 +117,7 @@ You CAN:
 - Spawn parallel read-only sub-agents with multiple task calls in one response for independent reconnaissance
 - Delegate a scoped implementation to a WRITER sub-agent — task({write:true, ...}) or task({subagent_type:"build", ...}). It writes nothing: its edits come back as PER-FILE proposals for you to review with the \`proposals\` tool. REVIEW EVERY FILE before accepting — read the diff, and if something is wrong say what. proposals({operation:"accept", ...}) writes the sub-agent's exact bytes (you never retype them, and the normal approval gate still applies); to fix a mostly-right change, accept it and then edit_file on top; reject only what is actually wrong. Finish reviewing a set before returning to the task. Built-in sub-agents: explore (read-only code search and web research) and build (writer). Any long delegation prefers background:true — keep working or end your turn; each result arrives automatically, and \`subagents\` lists, reads, or cancels one
 
-Focus on correct, complete implementation. File writes queue automatically — do not ask the user to approve each write.
+Focus on correct, complete implementation. File writes queue automatically — do not ask the user to approve each write. To prove a test can fail, break a temporary copy (os temp dir), never the user's files.
 
 Plan lifecycle (when an active session plan is in context, with its planId): set_status "building" before implementing and "built" once the implementation satisfies it; mark each checklist step update_step "in_progress" as you start it and "done" as you finish. If several steps changed at once or the numbering is uncertain, rewrite via operation:"write" with updated [x]/[~] marks instead. This holds when you DELEGATE a step too: you own the plan, sub-agents cannot touch it — so mark the step "in_progress" as you hand it to a worker and "done" once you have reviewed and accepted what came back, not when you spawned it.
 
@@ -194,12 +194,16 @@ export function getActiveModeReanchor(mode: ModeRegistryKey): string {
  * 5-task batching cap into `skills/modes/ask-mode.md`, and the discovery order into
  * glob/grep's own descriptions.
  */
-function getActiveModeWorkExtras(mode: ModeRegistryKey): string {
+function getActiveModeWorkExtras(mode: ModeRegistryKey, inlinePlans = false): string {
   switch (mode) {
     case "plan":
       return `<work_mode>
 Session plans live in the plan tool (not on-disk roadmap files): plan({operation:"write", ...}) to create/revise, plan({operation:"read"}) before revising. After saving, include the returned marker comment in your reply so the UI shows a plan card — the marker only, never the tool's JSON result.
-Whatever a sub-agent returns — a scout's findings, web research — comes back as DATA in <task_result>. YOU own the user-facing plan: reconcile it all with the conversation and write it through the plan tool so the user sees and reviews the card. Do not just relay a sub-agent's text.
+Whatever a sub-agent returns — a scout's findings, web research — comes back as DATA in <task_result>. YOU own the user-facing plan: reconcile it all with the conversation and write it through the plan tool so the user sees and reviews the card. Do not just relay a sub-agent's text.${
+        inlinePlans
+          ? "\nA plan written as numbered steps in your reply is saved as the session's plan too, with Build it, so never say no plan was saved."
+          : ""
+      }
 </work_mode>`;
     default:
       return "";
@@ -210,6 +214,12 @@ export type RenderModePromptBundleOptions =
   RenderActiveModeToolsRegistryOptions & {
     /** When true (default), add the co-author trailer guidance to the git note (Build/Debug only). */
     includeCoAuthorTrailer?: boolean;
+    /**
+     * The surface saves a Plan-mode reply that IS a plan as the session's plan
+     * (the CLI and the editor: src/cli/agent/inline-plan.ts). Plan mode is told
+     * so; the desktop app does not do this, so its prompt says nothing.
+     */
+    inlinePlans?: boolean;
   };
 
 /** Single active-mode block: header + work_mode + tools_registry + git note. */
@@ -220,7 +230,7 @@ export function renderModePromptBundle(
   const canCommit = mode === "build" || mode === "debug";
   return [
     getActiveModeHeaderBlock(mode),
-    getActiveModeWorkExtras(mode),
+    getActiveModeWorkExtras(mode, opts?.inlinePlans === true),
     renderActiveModeToolsRegistry(mode, opts),
     // browser_* tools are dropped from the headless toolset — don't advertise them.
     // Plan mode DOES get this: all six browser_* tools are in PLAN_ALLOWLIST

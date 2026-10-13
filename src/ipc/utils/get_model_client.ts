@@ -694,6 +694,20 @@ async function getRegularModelClient(
       // Core (JWT refresh), Vertex (service account), Azure (resourceName), Bedrock
       // (region), Cohere/Elastic (non-OpenAI adapters), OpenRouter (routing +
       // plugins), and the local runtimes.
+      // A custom provider that is really Ollama (http://localhost:11434/v1) runs
+      // through Ollama's native API, at the model's window, not 4096 (QA).
+      if (providerConfig.type === "custom" && providerConfig.apiBaseUrl) {
+        const { isOllamaEndpoint, ollamaOrigin } = await import("./ollama_native_fetch");
+        if (await isOllamaEndpoint(providerConfig.apiBaseUrl)) {
+          return {
+            modelClient: {
+              model: createOllamaProvider({ baseURL: ollamaOrigin(providerConfig.apiBaseUrl) })(model.name),
+              builtinProviderId: providerConfig.id,
+            },
+            backupModelClients: [],
+          };
+        }
+      }
       if (
         providerConfig.apiBaseUrl ||
         hasProviderSdkFactory(providerConfig.npm)

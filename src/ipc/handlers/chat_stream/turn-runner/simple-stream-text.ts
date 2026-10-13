@@ -63,15 +63,20 @@ import { sentryCaptureExceptionSafe } from "@/ipc/handlers/chat_stream/sentry-sa
 import {
   activeStreams,
   activeStreamId,
+  liveRoundStepsByChatId,
+  streamTurnIdByChatId,
 } from "@/ipc/handlers/chat_stream/stream-state";
 import {
   takePendingBackgroundCommandResults,
   takePendingStalledAdvisories,
 } from "@/lib/agent/background-commands";
 import { collectPendingBackgroundResultsBody } from "@/lib/agent/collect-results";
+import { rememberDeliveredResults } from "@/lib/agent/delivered-results";
 import { takePendingScheduledWakeupNudges } from "@/lib/agent/scheduled-wakeups";
 import { takePendingDroppedHistoryNotice } from "@/lib/context/dropped-history-notice";
 import { takePendingSubagentResults } from "@/lib/agents/subagent-results";
+import { takePendingAutomationResults } from "@/lib/agent/automation-results";
+import { providerDisplayName } from "@/ipc/shared/language_model_helpers";
 import { takePendingUserInterjections } from "@/lib/agent/user-interjections";
 import { deliverInterjectionsToTranscript } from "@/ipc/handlers/chat_stream/interjection-delivery";
 import {
@@ -477,6 +482,11 @@ export async function simpleStreamText(
   const recordStepMessages = (msgs: readonly ModelMessage[] | undefined) => {
     if (msgs && msgs.length) completedStepMessages.push(...msgs);
   };
+  // What a user's stop keeps of this round (build-branch's abort path).
+  liveRoundStepsByChatId.set(req.chatId, {
+    turn: streamTurnIdByChatId.get(req.chatId),
+    steps: () => completedStepMessages.slice(),
+  });
   /**
    * The transport failure `onError` classified, kept so round-retry can act on it.
    *
@@ -579,6 +589,17 @@ export async function simpleStreamText(
       const subagentResults = forceCollectOnWake
         ? null
         : takePendingSubagentResults(req.chatId);
+      // A finished automation (one that notifies the agent) arrives the same
+      // way: on a wake turn this is its channel. In the context section a
+      // model read it as standing information and "stood by" (QA).
+      const automationResults = forceCollectOnWake
+        ? null
+        : takePendingAutomationResults(req.chatId);
+      // Injected results are step input only and never saved: keep them so
+      // the next turns still have them (delivered-results.ts).
+      rememberDeliveredResults(req.chatId, bgResults);
+      rememberDeliveredResults(req.chatId, subagentResults);
+      rememberDeliveredResults(req.chatId, automationResults);
       // A4: stall advisories for still-running quiet jobs (decide:
       // keep waiting / read / cancel) — same step-input-only seam.
       const stalledAdvisories = forceCollectOnWake
@@ -637,7 +658,15 @@ export async function simpleStreamText(
        * would be a category error — and suppressing it on a wake turn
        * would silently swallow the user's own words.
        */
-      const interjections = takePendingUserInterjections(req.chatId);
+      // Ones a failed attempt already took (and showed) come first, unsaved again.
+      const carriedInterjections = ctx.carriedInterjections;
+      ctx.carriedInterjections = null;
+      const freshInterjections = takePendingUserInterjections(req.chatId);
+      const interjections =
+        carriedInterjections || freshInterjections
+          ? [...(carriedInterjections ?? []), ...(freshInterjections ?? [])]
+          : null;
+      ctx.deliveredInterjections = interjections;
       if (correction) {
         logger.log(
           `[repetition] injecting mid-round correction (chat ${req.chatId})`,
@@ -653,6 +682,11 @@ export async function simpleStreamText(
           `[background-subagent] injecting finished result (chat ${req.chatId})`,
         );
       }
+      if (automationResults) {
+        logger.log(
+          `[automation] injecting finished result (chat ${req.chatId})`,
+        );
+      }
       if (interjections?.length) {
         logger.log(
           `[interjection] delivering ${interjections.length} mid-turn user message(s) (chat ${req.chatId}, step ${stepNumber})`,
@@ -663,6 +697,7 @@ export async function simpleStreamText(
         droppedHistory,
         bgResults,
         subagentResults,
+        automationResults,
         stalledAdvisories,
         scheduledNudge,
         correction,
@@ -707,7 +742,7 @@ export async function simpleStreamText(
         tag: systemReminder,
       });
       const stepMessages = assembled.messages as typeof messages;
-      if (interjections?.length) {
+      if (freshInterjections?.length) {
         // Transcript + durable persistence. Fire-and-forget: the words
         // are already in `stepMessages`, so a slow session write must
         // never delay the dispatch.
@@ -716,7 +751,7 @@ export async function simpleStreamText(
           streamId,
           event,
           placeholderMessageId: Number(placeholderAssistantMessage?.id),
-          interjections,
+          interjections: freshInterjections,
         });
       }
       // v13.3: per-step breakpoint advancement — without it, every
@@ -1069,7 +1104,7 @@ export async function simpleStreamText(
         }
       } else {
         message =
-          byokLimitUserMessage(message, modelClient.builtinProviderId) ??
+          byokLimitUserMessage(message, providerDisplayName(modelClient.builtinProviderId)) ??
           modelFailureUserMessage(message);
       }
       if (isProviderRefusal(error)) recordedRefusal = error;
@@ -1110,6 +1145,13 @@ export async function simpleStreamText(
   // here costs nothing; callers that await it still see the rejection.
   const responseMessages = streamResult.responseMessages;
   void Promise.resolve(responseMessages).catch(() => {});
+  // Same for `response`: in ai@7 the getter returns a NEW promise each read
+  // (finalStep.then(...)), so the catch the helper above attached was on
+  // another copy, and the one handed on here rejected unhandled whenever a
+  // round produced nothing and was retried (an unreachable provider). Under
+  // Bun that ended `atlarix run` with "No output generated" (QA).
+  const response = streamResult.response;
+  void Promise.resolve(response).catch(() => {});
   return {
     // `fullStream` is the deprecated spelling of `stream` in ai@7 (same
     // type). Our own bundle key stays `fullStream` so consumers are
@@ -1117,7 +1159,7 @@ export async function simpleStreamText(
     fullStream: streamResult.stream,
     usage: streamResult.usage,
     finishReason: streamResult.finishReason,
-    response: streamResult.response,
+    response,
     /**
      * ai@7: the ACCUMULATED assistant/tool messages for the whole call.
      *

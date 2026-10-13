@@ -29,6 +29,8 @@ export interface Preview {
   canAlwaysAllowFile?: boolean;
   canAlwaysAllowDirectory?: boolean;
   fileParentDir?: string;
+  /** The gate's key for the segment that asked (`ls`, `danger:rm-rf`, `mutate:git-write`): what "always" saves. */
+  commandCategory?: string;
 }
 
 export function firstPreview(a: PendingApproval): Preview {
@@ -48,7 +50,15 @@ export function approvalChoices(a: PendingApproval): ApprovalChoice[] {
   const choices: ApprovalChoice[] = [{ label: "Yes", mode: "once" }];
   if (p.command) {
     if (p.canAlwaysAllow !== false) {
-      const what = p.isDangerous ? "this command" : `\`${getCommandCategory(p.command)}\` commands`;
+      // Named by what "always" saves: the gate's key for the part that asked.
+      // From the whole command, `cd x && ls …` came out as "`&&` commands" (QA).
+      const key = p.commandCategory || getCommandCategory(p.command);
+      const what =
+        p.isDangerous || key.startsWith("danger:")
+          ? "this command"
+          : key.startsWith("mutate:")
+            ? "changes like this"
+            : `\`${key}\` commands`;
       choices.push({ label: `Yes, and always allow ${what} in this folder`, mode: "always_allow" });
     }
   } else if (p.path) {
@@ -56,7 +66,7 @@ export function approvalChoices(a: PendingApproval): ApprovalChoice[] {
       choices.push({ label: "Yes, and allow edits to this file from now on", mode: "always_allow_file" });
     }
     if (p.canAlwaysAllowDirectory !== false && p.fileParentDir) {
-      choices.push({ label: `Yes, and allow edits in ${p.fileParentDir}/ from now on`, mode: "always_allow_directory" });
+      choices.push({ label: `Yes, and allow edits in ${nativeDir(p.fileParentDir)} from now on`, mode: "always_allow_directory" });
     }
   }
   choices.push({ label: "No — tell Atlarix what to do instead", mode: "deny" });
@@ -70,5 +80,79 @@ export function approvalTitle(a: PendingApproval): string {
   if (p.type === "delete") return "Delete this file?";
   if (p.type === "create") return "Create this file?";
   if (p.path) return "Edit this file?";
+  // A standing job (the automations tool): say which way, its description has the rest.
+  if (a.request.operation === "automation_write") {
+    // The tool says which (QA: a set_notify change was titled "Create").
+    const action = (p as { action?: string }).action;
+    if (action === "delete") return "Delete this automation?";
+    if (action === "update") return "Change this automation?";
+    return "Create this automation?";
+  }
   return "Allow this?";
 }
+
+/**
+ * An automation's approval, in plain lines: when it runs, what each run does,
+ * who hears about it. The card said only 'Create "X" — runs on the schedule
+ * `0 9 * * 1-5`', so you approved blind (QA). The desktop's card shows the same.
+ */
+export function automationDetails(a: PendingApproval): string[] {
+  if (a.request.operation !== "automation_write") return [];
+  const p = firstPreview(a) as Preview & {
+    action?: string;
+    triggerSummary?: string;
+    runMode?: string;
+    notifyAgent?: boolean;
+    grantsMcpConsent?: string;
+    input?: { prompt?: string; trigger?: { kind?: string; cron?: string } };
+  };
+  if (p.action === "delete") return [];
+  const lines: string[] = [];
+  const cron = p.input?.trigger?.kind === "schedule" ? p.input.trigger.cron : undefined;
+  const clock = cron ? clockOf(cron) : null;
+  if (p.triggerSummary) lines.push(`When: ${p.triggerSummary.replace(/`/g, "")}${clock ? ` (${clock})` : ""}`);
+  if (p.runMode === "read-only") lines.push(`Each run: Atlarix runs a read-only task${p.input?.prompt ? `: “${p.input.prompt.trim()}”` : ""}`);
+  else if (p.runMode) lines.push("Each run: just tells you it fired (no model, no tokens)");
+  // A fresh result wakes a chat in this folder (agent-delivery.ts).
+  if (p.notifyAgent != null) lines.push(p.notifyAgent ? "Results: to you, and Atlarix wakes up with them to act" : "Results: to you only");
+  if (p.grantsMcpConsent) lines.push(`It calls ${p.grantsMcpConsent} on its own, without asking each time.`);
+  return lines;
+}
+
+/** "30 8 * * 1-5" → "8:30 AM, Mon–Fri"; null when it isn't a simple daily time. */
+function clockOf(cron: string): string | null {
+  const f = cron.trim().split(/\s+/);
+  if (f.length !== 5 || !/^\d+$/.test(f[0]!) || !/^\d+$/.test(f[1]!) || f[2] !== "*" || f[3] !== "*") return null;
+  const h = Number(f[1]), m = Number(f[0]);
+  const time = `${((h + 11) % 12) + 1}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
+  const days: Record<string, string> = { "*": "every day", "1-5": "Mon–Fri", "0,6": "weekends", "6,0": "weekends", "1": "Mondays", "0": "Sundays", "5": "Fridays" };
+  return `${time}, ${days[f[4]!] ?? `weekdays ${f[4]}`}`;
+}
+
+/** A folder as its own system writes it, with its separator at the end: "C:\Users\Public\", "src/" (QA, Windows). */
+export function nativeDir(dir: string): string {
+  const win = /^[A-Za-z]:[\\/]|^\\\\/.test(dir);
+  const d = win ? dir.replace(/\//g, "\\") : dir;
+  const sep = win ? "\\" : "/";
+  return d.endsWith(sep) ? d : d + sep;
+}
+
+/**
+ * Whether an edit's file is outside the open project: the card says so, in
+ * the warning colour (QA, Windows: a write to C:\Users\Public read as
+ * routine). Windows paths compare without case and either separator.
+ */
+export function outsideWorkspace(file: string | undefined, workspace: string | undefined): boolean {
+  if (!file || !workspace) return false;
+  const abs = /^([A-Za-z]:[\\/]|\\\\|\/)/.test(file);
+  if (!abs) return false;
+  const win = /^[A-Za-z]:/.test(file) || /^[A-Za-z]:/.test(workspace);
+  const norm = (x: string) => {
+    const n = x.replace(/\\/g, "/").replace(/\/+$/, "");
+    return win ? n.toLowerCase() : n;
+  };
+  const f = norm(file);
+  const w = norm(workspace);
+  return f !== w && !f.startsWith(w + "/");
+}
+

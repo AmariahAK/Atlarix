@@ -80,6 +80,8 @@ export class Chat {
   private readonly pending = new Map<string, Pending>();
   private seq = 0;
   private peerWaiting = false;
+  /** Background work finished during a turn: wake the agent once this one ends. */
+  private wakeWaiting = false;
   private readonly recapClock: RecapClock = { completedTurns: 0, lastTurnEndedAt: null, recappedAfterTurn: -1 };
   private awaySince: number | null = null;
   private recapTimer: ReturnType<typeof setTimeout> | null = null;
@@ -117,7 +119,12 @@ export class Chat {
             workspace: this.host.workspace(),
             settings: this.host.settings(),
           });
-          await this.open(this.startWith);
+          // The page loads again on a reload (or after sleep): reopen the chat
+          // this view is ON, not the one it was first opened with. A tab opened
+          // from Past chats then New chat used to reload the old chat, and the
+          // next message went there (QA #52).
+          await this.opening?.catch(() => {});
+          await this.open(this.sessionId ?? this.startWith);
           return;
         case "send":
           return this.send(m.text, m.context, m.answers);
@@ -243,8 +250,25 @@ export class Chat {
     }
   }
 
+  /**
+   * A New chat or a load still on its way. Until it lands, `sessionId` is the
+   * PREVIOUS chat's, so a message sent right after New chat went into the old
+   * chat while the panel showed the new one (QA #52). Sends wait for it.
+   */
+  private opening: Promise<void> | null = null;
+
   /** Start a chat, or load a past one into this view. */
   async open(sessionId: string | null): Promise<void> {
+    const run = this.openNow(sessionId);
+    this.opening = run;
+    try {
+      await run;
+    } finally {
+      if (this.opening === run) this.opening = null;
+    }
+  }
+
+  private async openNow(sessionId: string | null): Promise<void> {
     const cwd = this.host.workspace();
     if (!cwd) return this.post({ type: "status", status: "no-folder" });
     this.post({ type: "status", status: "starting" });
@@ -258,6 +282,12 @@ export class Chat {
         update: (n: SessionNotification) => this.onUpdate(n),
         permission: (req: RequestPermissionRequest) => this.onPermission(req),
         peerWaiting: () => this.onPeerWaiting(),
+        tasksChanged: (count) => this.post({ type: "tasks-changed", count }),
+        automationRun: (run) => this.post({ type: "automation-run", ...run }),
+        pendingChanged: (items) => this.post({ type: "pending", items }),
+        workingChanged: (title) => this.post({ type: "working", title }),
+        unsent: (text) => this.post({ type: "unsent", text }),
+        backgroundReady: () => this.onBackgroundReady(),
       };
       this.listener = listener;
       if (sessionId) {
@@ -342,10 +372,12 @@ export class Chat {
     this.recapClock.completedTurns++;
     this.recapClock.lastTurnEndedAt = Date.now();
     if (this.peerWaiting) this.onPeerWaiting();
+    else if (this.wakeWaiting) this.onBackgroundReady();
     else if (this.awaySince != null) this.armRecap();
   }
 
   private async send(text: string, context: ContextItem[], answers?: string[], meta?: Record<string, unknown>): Promise<void> {
+    await this.opening?.catch(() => {});
     const c = await this.host.connection();
     if (!c || !this.sessionId || !this.beginTurn()) return;
     const sessionId = this.sessionId;
@@ -363,6 +395,7 @@ export class Chat {
 
   /** Go back to an earlier message, edited: the agent sends the conversation again from the top. */
   private async resend(messageId: number, text: string, restore: boolean): Promise<void> {
+    await this.opening?.catch(() => {});
     const c = await this.host.connection();
     if (!c || !this.sessionId || !this.beginTurn()) return;
     try {
@@ -376,6 +409,21 @@ export class Chat {
   }
 
   /** Another session messaged this one while it was idle: read it now, as the app does. */
+  /**
+   * A background command or sub-agent finished while the chat was idle: open a
+   * turn so the agent deals with it, as the desktop app does. The agent refuses
+   * one after you stopped the turn.
+   */
+  private onBackgroundReady(): void {
+    if (this.busy) {
+      this.wakeWaiting = true;
+      return;
+    }
+    this.wakeWaiting = false;
+    this.post({ type: "turn-start" });
+    void this.send("", [], undefined, { wakeTurn: true });
+  }
+
   private onPeerWaiting(): void {
     if (this.busy) {
       this.peerWaiting = true;

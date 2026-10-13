@@ -497,6 +497,24 @@ export async function fetchModelsFromOpenRouter(
 //   3. otherwise empty (same graceful state as every other cloud provider)
 // ---------------------------------------------------------------------------
 
+/**
+ * A provider the user added (an OpenAI-compatible endpoint): its live model
+ * list. A keyless local server (Ollama's /v1, LM Studio) answers without a
+ * key, so none is needed; "none" is sent, as the CLI's add does. The app used
+ * to list only models typed in by hand (QA #25).
+ */
+export async function fetchCustomProviderModels(
+  providerId: string,
+  baseUrl: string,
+  apiKey?: string,
+): Promise<LanguageModel[]> {
+  return fetchOpenAICompatibleModels({
+    providerId,
+    url: `${baseUrl.replace(/\/+$/, "")}/models`,
+    apiKey: apiKey?.trim() || "none",
+  });
+}
+
 async function fetchOpenWeightModels(
   providerId: string,
   apiKey: string,

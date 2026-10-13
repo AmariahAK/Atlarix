@@ -52,6 +52,8 @@ async function editor(
   });
   const updates: SessionNotification[] = [];
   const asked: RequestPermissionRequest[] = [];
+  /** Atlarix's own notifications to its extension (`_atlarix/*`). */
+  const ext: Array<{ method: string; params: Record<string, unknown> }> = [];
   const client = acp
     .client({ name: "test-editor" })
     .onRequest("session/request_permission", (ctx) => {
@@ -60,6 +62,12 @@ async function editor(
     })
     .onNotification("session/update", (ctx) => {
       updates.push(ctx.params);
+    })
+    .onNotification("_atlarix/tasks_changed", (p) => p as Record<string, unknown>, (ctx) => {
+      ext.push({ method: "_atlarix/tasks_changed", params: ctx.params });
+    })
+    .onNotification("_atlarix/background_ready", (p) => p as Record<string, unknown>, (ctx) => {
+      ext.push({ method: "_atlarix/background_ready", params: ctx.params });
     });
   const conn = client.connect(buildAgentApp(agent, "test"));
   const init = await conn.agent.request("initialize", { protocolVersion: acp.PROTOCOL_VERSION, clientCapabilities });
@@ -68,7 +76,7 @@ async function editor(
       .filter((u) => u.sessionId === sessionId && u.update.sessionUpdate === "agent_message_chunk")
       .map((u) => ((u.update as { content: { text?: string } }).content.text ?? ""))
       .join("");
-  return { llm, agent, conn, init, updates, asked, text };
+  return { llm, agent, conn, init, updates, asked, text, ext };
 }
 
 describe("atlarix acp", () => {
@@ -232,6 +240,203 @@ describe("atlarix acp", () => {
     expect(typeof status.chrome).toBe("string");
   }, 60_000);
 
+  it("a reopened chat shows its ready plan again, buildable (QA #54)", async () => {
+    const extras = { _meta: { atlarix: { version: 1 } } };
+    const plan = { tool: "plan", args: { operation: "write", title: "Add a ping route", content: "# Add a ping route\n\n- [ ] Add GET /ping\n- [ ] Test it" } } as const;
+    const first = await editor([plan, { text: "Ready." }], undefined, extras);
+    const { sessionId } = await first.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    await first.conn.agent.request("session/set_config_option", { sessionId, configId: "mode", value: "plan" });
+    await first.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "plan a ping route" }] });
+    await Bun.sleep(300);
+
+    // The same process, the chat opened again (Past chats): its screen was cleared.
+    const before = first.updates.length;
+    await first.conn.agent.request("session/load", { sessionId, cwd: ws, mcpServers: [] });
+    await Bun.sleep(200);
+    const again = first.updates.slice(before).filter((u) => u.sessionId === sessionId && u.update.sessionUpdate === "plan").at(-1)?.update as
+      | { entries: Array<{ content: string }>; _meta?: { atlarix?: { plan?: Record<string, unknown> } } }
+      | undefined;
+    expect(again?.entries.map((x) => x.content)).toEqual(["Add GET /ping", "Test it"]);
+    expect(again?._meta?.atlarix?.plan).toMatchObject({ title: "Add a ping route", buildable: true });
+    await first.agent.closeAll();
+
+    // A new process (the editor restarted): the stored chat brings its plan back too.
+    const second = await editor([], undefined, extras);
+    await second.conn.agent.request("session/load", { sessionId, cwd: ws, mcpServers: [] });
+    await Bun.sleep(200);
+    const loaded = second.updates.filter((u) => u.sessionId === sessionId && u.update.sessionUpdate === "plan").at(-1)?.update as
+      | { _meta?: { atlarix?: { plan?: Record<string, unknown> } } }
+      | undefined;
+    expect(loaded?._meta?.atlarix?.plan).toMatchObject({ title: "Add a ping route", buildable: true });
+  }, 60_000);
+
+  it("automations: the editor's page manages them, and /automations answers in any editor", async () => {
+    const e = await editor([{ text: "ok" }], undefined, { _meta: { atlarix: { version: 1 } } });
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    type Page = { automations: Array<{ id: string; name: string; enabled: boolean; runMode: string }> };
+    const draft = { name: "Tests every morning", enabled: true, trigger: { kind: "schedule", cron: "0 9 * * 1-5" }, prompt: "Run the tests and say what fails.", runMode: "read-only", notifyAgent: false, model: null };
+    const made = await e.conn.agent.request<Page>("_atlarix/automations", { sessionId, action: "create", draft });
+    const mine = made.automations.find((a) => a.name === "Tests every morning")!;
+    expect(mine).toMatchObject({ enabled: true, runMode: "read-only" });
+
+    const off = await e.conn.agent.request<Page>("_atlarix/automations", { sessionId, action: "toggle", id: mine.id, enabled: false });
+    expect(off.automations.find((a) => a.id === mine.id)?.enabled).toBe(false);
+
+    // Plain ACP editors: the list as a message, and on/off by name.
+    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "/automations" }] });
+    expect(e.text(sessionId)).toContain("Tests every morning");
+    expect(e.text(sessionId)).toContain("weekday mornings (off)");
+    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "/automations on tests every" }] });
+    expect(e.text(sessionId)).toContain("“Tests every morning” is on.");
+    await Bun.sleep(200);
+    const commands = e.updates.filter((u) => u.sessionId === sessionId && u.update.sessionUpdate === "available_commands_update").at(-1)?.update as { availableCommands: Array<{ name: string }> } | undefined;
+    expect(commands?.availableCommands.map((c) => c.name)).toContain("automations");
+
+    const gone = await e.conn.agent.request<Page>("_atlarix/automations", { sessionId, action: "remove", id: mine.id });
+    expect(gone.automations.some((a) => a.id === mine.id)).toBe(false);
+  }, 60_000);
+
+  it("automations: the agent makes one with its tool, after the editor's Allow", async () => {
+    const e = await editor([
+      {
+        tool: "automations",
+        args: {
+          operation: "create",
+          name: "Nightly lint",
+          trigger: { kind: "schedule", cron: "0 2 * * *" },
+          run_mode: "read-only",
+          prompt: "Run the linter and list new warnings.",
+          notify_agent: true,
+        },
+      },
+      { text: "Set up: Nightly lint runs at 2am and its results come to me." },
+    ]);
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    const r = await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "lint every night and tell me" }] });
+    expect(r.stopReason).toBe("end_turn");
+    // A standing job is the user's call: the editor was asked first.
+    const ask = e.asked.find((a) => a.sessionId === sessionId);
+    expect(ask?.toolCall.title).toBe("Create this automation?");
+    expect(JSON.stringify(ask?.toolCall.content)).toContain("Nightly lint");
+    // What you're approving, in plain lines, not a raw cron in backticks (QA).
+    const said = JSON.stringify(ask?.toolCall.content);
+    expect(said).toContain("When: on the schedule 0 2 * * * (2:00 AM, every day)");
+    expect(said).toContain("Each run: Atlarix runs a read-only task: “Run the linter and list new warnings.”");
+    expect(said).toContain("Results: to you, and Atlarix wakes up with them to act");
+    expect(said).not.toContain("`");
+    const page = await e.conn.agent.request<{ automations: Array<{ name: string; notifyAgent: boolean; trigger: { cron?: string } }> }>("_atlarix/automations", { sessionId, action: "list" });
+    expect(page.automations.find((a) => a.name === "Nightly lint")).toMatchObject({ notifyAgent: true, trigger: { cron: "0 2 * * *" } });
+  }, 60_000);
+
+  it("Atlarix's extension: a message sent while it works steers the turn (Enter) or waits for the next (Tab)", async () => {
+    const pending: unknown[] = [];
+    const e = await editor(
+      [
+        { tool: "run_command", args: { command: "sleep 1", description: "wait" }, delayMs: 50 },
+        { text: "Done. STEER-OK" },
+        { text: "Queued one answered." },
+      ],
+      undefined,
+      { _meta: { atlarix: { version: 1 } } },
+    );
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    const turn = e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "wait a second" }] });
+    await Bun.sleep(150);
+    const steer = await e.conn.agent.request<{ started: boolean }>("_atlarix/interject", { sessionId, text: "Also end with STEER-OK", kind: "steer" });
+    const queued = await e.conn.agent.request<{ started: boolean; pending: Array<{ kind: string }> }>("_atlarix/interject", { sessionId, text: "then say QUEUED-2", kind: "queue" });
+    expect(steer.started).toBe(true);
+    expect(queued.pending.map((p) => p.kind)).toContain("queued");
+    void pending;
+    await turn;
+    await Bun.sleep(1500);
+    // The steer reached the model inside the running turn; the queued one opened the next turn.
+    const asked = e.llm.requests.map((r) => JSON.stringify(r.messages));
+    expect(asked.some((m) => m.includes("Also end with STEER-OK"))).toBe(true);
+    expect(asked.some((m) => m.includes("then say QUEUED-2"))).toBe(true);
+    // Idle: nothing to steer, the editor sends a prompt instead.
+    const idle = await e.conn.agent.request<{ started: boolean }>("_atlarix/interject", { sessionId, text: "hello", kind: "steer" });
+    expect(idle.started).toBe(false);
+  }, 60_000);
+
+  it("a finished automation wakes the chat once, from any Atlarix, and the agent gets its result (owner)", async () => {
+    const e = await editor([{ text: "Hello." }, { text: "Looking at the failing tests now." }], undefined, { _meta: { atlarix: { version: 1 } } });
+    // Its own folder: a chat in use in the shared test folder would claim the run first.
+    const own = fs.mkdtempSync(path.join(os.tmpdir(), "acp-wake-"));
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: own, mcpServers: [] });
+    // A chat in use (an empty one never claims a run).
+    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "hi" }] });
+    type Page = { automations: Array<{ id: string; name: string }> };
+    const made = await e.conn.agent.request<Page>("_atlarix/automations", {
+      sessionId,
+      action: "create",
+      draft: { name: "Wake tests", enabled: true, trigger: { kind: "schedule", cron: "0 9 * * 1-5" }, prompt: "Run the tests.", runMode: "read-only", notifyAgent: true, model: null },
+    });
+    const automationId = made.automations.find((a) => a.name === "Wake tests")!.id;
+    // Another process (the app, say) ran it and found failures: only the database knows.
+    const { getDb } = await import("../src/db");
+    const raw = getDb().$client as unknown as { prepare(sql: string): { run(...a: unknown[]): unknown } };
+    raw
+      .prepare("INSERT INTO automation_runs (id, automation_id, status, summary, started_at, finished_at, unread, archived) VALUES (?, ?, 'ok', ?, ?, ?, 1, 0)")
+      .run("run-wake-1", automationId, "3 failing tests in src/math.test.ts", Math.floor(Date.now() / 1000) - 5, Math.floor(Date.now() / 1000));
+    // The editor is told to open a wake turn (its chat claimed the run: polled every 15s).
+    const deadline = Date.now() + 20_000;
+    while (!e.ext.some((x) => x.method === "_atlarix/background_ready") && Date.now() < deadline) await Bun.sleep(200);
+    expect(e.ext.filter((x) => x.method === "_atlarix/background_ready")).toHaveLength(1);
+    // The extension opens the wake turn: the agent reads the result and acts.
+    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "" }], _meta: { atlarix: { wakeTurn: true } } });
+    const asked = JSON.stringify(e.llm.requests.at(-1) ?? {});
+    expect(asked).toContain("3 failing tests in src/math.test.ts");
+    // As fresh input in the conversation, not standing system context (a woken
+    // model read it there as nothing new and stood by, QA).
+    const conversation = JSON.stringify((e.llm.requests.at(-1)?.messages ?? []).filter((m) => m.role !== "system"));
+    expect(conversation).toContain("3 failing tests in src/math.test.ts");
+    expect(asked).toContain("Wake tests");
+    // Taken once: no second wake for the same run.
+    await Bun.sleep(16_000);
+    expect(e.ext.filter((x) => x.method === "_atlarix/background_ready")).toHaveLength(1);
+    await e.conn.agent.request("_atlarix/automations", { sessionId, action: "remove", id: automationId });
+  }, 90_000);
+
+  it("automations: set_notify after Allow is written, not reported as a refusal (QA F1)", async () => {
+    const e = await editor([{ text: "placeholder" }]);
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    type Page = { automations: Array<{ id: string; name: string; notifyAgent: boolean }> };
+    const made = await e.conn.agent.request<Page>("_atlarix/automations", {
+      sessionId,
+      action: "create",
+      draft: { name: "Notify flip", enabled: true, trigger: { kind: "schedule", cron: "0 9 * * 1-5" }, prompt: "Run the tests.", runMode: "read-only", notifyAgent: false, model: null },
+    });
+    const id = made.automations.find((a) => a.name === "Notify flip")!.id;
+    // The agent flips who hears, as QA asked it to.
+    e.llm.stop();
+    const f = await editor(
+      [{ tool: "automations", args: { operation: "set_notify", automation_id: id, notify_agent: true } }, { text: "Done." }],
+      undefined,
+      { _meta: { atlarix: { version: 1 } } },
+    );
+    const s2 = (await f.conn.agent.request("session/new", { cwd: ws, mcpServers: [] })).sessionId;
+    await f.conn.agent.request("session/prompt", { sessionId: s2, prompt: [{ type: "text", text: "tell yourself about its runs" }] });
+    const page = await f.conn.agent.request<Page>("_atlarix/automations", { sessionId: s2, action: "list" });
+    expect(page.automations.find((a) => a.id === id)?.notifyAgent).toBe(true);
+    const toolResults = JSON.stringify(f.llm.requests.at(-1)?.messages ?? []);
+    expect(toolResults).not.toContain("Permission denied by user");
+    expect(toolResults).not.toContain("payload missing");
+    await f.conn.agent.request("_atlarix/automations", { sessionId: s2, action: "remove", id });
+  }, 60_000);
+
+  it("every provider is listed with its model count, and a provider's models show before a key (owner)", async () => {
+    const e = await editor([{ text: "ok" }], undefined, { _meta: { atlarix: { version: 1 } } });
+    const r = await e.conn.agent.request<{ providers: Array<{ id: string; hasKey: boolean; catalogModels?: number }> }>("_atlarix/providers", {});
+    expect(r.providers.length).toBeGreaterThan(100);
+    const groq = r.providers.find((p) => p.id === "groq")!;
+    expect(groq.hasKey).toBe(false);
+    expect(groq.catalogModels).toBeGreaterThan(0);
+    const m = await e.conn.agent.request<{ catalog?: boolean; models: Array<{ id: string; name: string }> }>("_atlarix/models", { providerId: "groq" });
+    expect(m.catalog).toBe(true);
+    expect(m.models.length).toBe(groq.catalogModels);
+    expect(m.models.some((x) => /whisper/i.test(x.id))).toBe(false); // chat models only
+  }, 60_000);
+
   it("loading a session this process already has open replays it in full", async () => {
     const e = await editor([{ text: "The codeword is heron." }]);
     const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
@@ -271,6 +476,35 @@ describe("atlarix acp", () => {
     const err = await conn.agent.request("session/new", { cwd: ws, mcpServers: [] }).then(() => null, (e: Error) => e);
     expect(String((err as { message?: string })?.message)).toContain("older than this CLI");
   }, 60_000);
+  it("Atlarix's extension: Restore files only puts the file back, keeps the chat, and tells the agent next time (QA E3)", async () => {
+    const file = path.join(ws, "restore-only.ts");
+    fs.writeFileSync(file, "export const r = 1;\n");
+    const e = await editor(
+      [
+        { tool: "edit_file", args: { path: "restore-only.ts", operation: "replace", old_content: "export const r = 1;", new_content: "export const r = 2;" } },
+        { text: "Set r to 2." },
+        { text: "Understood." },
+      ],
+      undefined,
+      { _meta: { atlarix: { version: 1 } } },
+    );
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "set r to 2" }] });
+    expect(fs.readFileSync(file, "utf8")).toContain("r = 2");
+    const { messages } = await e.conn.agent.request<{ messages: Array<{ id: number; text: string }> }>("_atlarix/undo", { sessionId, action: "list" });
+    const r = await e.conn.agent.request<{ restoredFiles: number }>("_atlarix/undo", { sessionId, action: "restore_files", messageId: messages[0]!.id });
+    expect(r.restoredFiles).toBeGreaterThan(0);
+    expect(fs.readFileSync(file, "utf8")).toContain("r = 1");
+    // The conversation is untouched.
+    const after = await e.conn.agent.request<{ messages: Array<{ text: string }> }>("_atlarix/undo", { sessionId, action: "list" });
+    expect(after.messages.map((m) => m.text)).toEqual(["set r to 2"]);
+    // The next message tells the agent the edit is gone, once.
+    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "what is r now?" }] });
+    const last = JSON.stringify(e.llm.requests.at(-1)?.messages ?? []);
+    expect(last).toContain("restored these files");
+    expect(last).toContain("restore-only.ts");
+  }, 60_000);
+
   it("Atlarix's extension: going back to an earlier message puts the file back and carries on from there", async () => {
     const file = path.join(ws, "undo.ts");
     fs.writeFileSync(file, "export const u = 1;\n");
@@ -326,6 +560,59 @@ describe("atlarix acp", () => {
     const after = await e.conn.agent.request<{ messages: Array<{ text: string }> }>("_atlarix/undo", { sessionId, action: "list" });
     expect(after.messages.map((m) => m.text)).toEqual(["leave u alone"]);
   }, 90_000);
+
+  it("Atlarix's extension: a background command is listed, and finishing it wakes the agent", async () => {
+    const e = await editor(
+      [
+        { tool: "run_command", args: { command: "sleep 1 && echo built-ok", description: "build in the background", background: true } },
+        { text: "Started the build." },
+        { text: "The build finished." },
+      ],
+      undefined,
+      { _meta: { atlarix: { version: 1 } } },
+    );
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    const r = await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "build it in the background" }] });
+    expect(r.stopReason).toBe("end_turn");
+
+    const { tasks } = await e.conn.agent.request<{ tasks: Array<{ id: string; kind: string; label: string; canStop: boolean }> }>(
+      "_atlarix/tasks",
+      { sessionId, action: "list" },
+    );
+    const job = tasks.find((t) => t.kind === "command" && t.label.includes("sleep 1"));
+    expect(job?.canStop).toBe(true);
+
+    // The job ends: the extension is told what is running changed, and that the agent can be woken.
+    const deadline = Date.now() + 15_000;
+    while (!e.ext.some((n) => n.method === "_atlarix/background_ready") && Date.now() < deadline) await Bun.sleep(100);
+    expect(e.ext.find((n) => n.method === "_atlarix/background_ready")?.params.sessionId).toBe(sessionId);
+    expect(e.ext.some((n) => n.method === "_atlarix/tasks_changed" && n.params.sessionId === sessionId)).toBe(true);
+
+    // The extension opens the wake turn; the agent deals with the result.
+    const w = await e.conn.agent.request("session/prompt", {
+      sessionId,
+      prompt: [],
+      _meta: { atlarix: { wakeTurn: true } },
+    });
+    expect(w.stopReason).toBe("end_turn");
+    expect(e.text(sessionId)).toContain("The build finished.");
+    // The wake turn adds its reply; the one before it is not sent again.
+    expect(e.text(sessionId).split("Started the build.").length - 1).toBe(1);
+  }, 90_000);
+
+  it("another editor is never sent a turn it did not ask for", async () => {
+    const e = await editor([
+      { tool: "run_command", args: { command: "sleep 1 && echo done", description: "wait", background: true } },
+      { text: "Started." },
+    ]);
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "go" }] });
+    const sent = e.updates.length;
+    await Bun.sleep(3_000);
+    expect(e.ext).toEqual([]);
+    expect(e.text(sessionId)).not.toContain("The build finished.");
+    expect(e.updates.slice(sent).filter((u) => u.update.sessionUpdate === "agent_message_chunk")).toEqual([]);
+  }, 60_000);
 
   it("Past chats: rename and delete a stored chat, open or not", async () => {
     const e = await editor([{ text: "One." }, { text: "Two." }]);

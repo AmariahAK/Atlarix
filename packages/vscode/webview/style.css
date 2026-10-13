@@ -1,35 +1,43 @@
 /*
- * Atlarix's design system (the site, the app, the Chrome side panel): a
- * near-black ground, one step up for cards, hairline borders, and one accent,
- * emerald. Not the editor's theme. Inter when it's installed (the webview loads
- * nothing from the web), else the editor's own font; code in the editor's
- * monospace.
+ * Atlarix's design system for the editor, the same palette as the CLI (owner,
+ * 2026-10-13): a green-black base, one step up for cards, hairline borders,
+ * and one accent, green. Sand for headings, sky for code and paths, bright for
+ * bold and names; amber is for warnings only. Not the editor's theme. Inter
+ * when it's installed (the webview loads nothing from the web), else the
+ * editor's own font; code in the editor's monospace.
  */
 :root {
   color-scheme: dark;
-  --bg: #0a0a0a;
-  --card: #1a1a1a;
-  --raised: #141416;
-  --sunk: #111113;
-  --field: #161618;
-  --fg: #fafafa;
-  --muted: #a1a1aa;
-  --faint: #71717a;
-  --border: #27272a;
-  --border-strong: #3a3d44;
-  --primary: #10b77f;
-  --primary-soft: #34d399;
-  --primary-bg: #0f2a20;
-  --primary-line: #1f5c46;
+  --bg: #0a0e0d;
+  --card: #18201d;
+  --raised: #121916;
+  --sunk: #0e1412;
+  --field: #141b18;
+  --fg: #cfe8dd;
+  --bright: #e8f5ee;
+  --heading: #f2e8d5;
+  --muted: #7c948a;
+  --faint: #6b8077;
+  --border: #26302c;
+  --border-strong: #35413b;
+  --primary: #3ddc97;
+  --primary-soft: #7ee6b8;
+  --primary-bg: #12271e;
+  --primary-line: #1f5a42;
   --on-primary: #04120c;
-  --danger: #ef4343;
-  --danger-soft: #f28b82;
-  --danger-bg: #1a1112;
-  --danger-line: #5a2a2a;
-  --warn: #f5c451;
-  --warn-bg: #1a1712;
-  --warn-line: #5c4a1c;
-  --code: #c4b5fd;
+  --danger: #f07c7c;
+  --danger-soft: #f49a9a;
+  --danger-bg: #1d1213;
+  --danger-line: #5a2c2e;
+  --warn: #e3b65f;
+  --warn-bg: #1a170e;
+  --warn-line: #5a4a22;
+  --code: #7dbbe8;
+  --diff-add: #163024;
+  --diff-del: #2a1618;
+  /* Your messages and chips: plainly lighter than the page. */
+  --band: #1c2622;
+  --band-line: #33403a;
   --radius-sm: 8px;
   --radius-md: 10px;
   --radius-lg: 12px;
@@ -391,9 +399,16 @@ button.icon.small {
 }
 .nav__name {
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
+/* One line, never squeezing the logo out (QA #29). */
 .needs-badge {
   display: none;
+  white-space: nowrap;
+  flex: none;
   font-size: 11px;
   color: var(--warn);
   background: var(--warn-bg);
@@ -473,8 +488,8 @@ body.needs-you .needs-badge {
 /* Your message: a lighter band, never mistaken for Atlarix's. */
 .msg.user {
   position: relative;
-  background: #1c1e22;
-  border: 1px solid #2f3238;
+  background: var(--band);
+  border: 1px solid var(--band-line);
   border-radius: var(--radius-md);
   padding: 8px 34px 8px 12px;
   white-space: pre-wrap;
@@ -551,6 +566,16 @@ body.needs-you .needs-badge {
 .body a {
   color: var(--primary-soft);
 }
+.body h1,
+.body h2,
+.body h3,
+.body h4 {
+  color: var(--heading);
+}
+.body strong,
+.body b {
+  color: var(--bright);
+}
 .thought {
   color: var(--faint);
   font-size: 0.92em;
@@ -569,8 +594,38 @@ body.needs-you .needs-badge {
 .thought .body {
   white-space: pre-wrap;
   padding: 4px 0 0 14px;
-  max-height: 12em;
+  max-height: 24em;
   overflow-y: auto;
+  color: var(--muted);
+  font-style: italic;
+  line-height: 1.5;
+}
+/* While it is being written: "Thinking · 4s" and its latest lines only. */
+.thought.live .thought__label {
+  color: var(--code);
+}
+.thought.live .body {
+  max-height: 4.6em;
+  overflow: hidden;
+}
+/* Done: one line saying what it was about, and how long it took. */
+.thought__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.thought:not(.live) .thought__label {
+  color: var(--muted);
+}
+.thought__time {
+  flex: none;
+  font-style: normal;
+  color: var(--faint);
+}
+/* A one-line thought says everything in its summary: nothing more to open. */
+.thought.plain:not(.live) .body {
+  display: none;
 }
 
 /* Steps stay quiet so the answer stands out. */
@@ -602,6 +657,15 @@ body.needs-you .needs-badge {
 }
 .step.failed {
   color: var(--danger-soft);
+  flex-wrap: wrap;
+}
+.step__why {
+  flex-basis: 100%;
+  padding-left: 1.4em;
+  opacity: 0.85;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .edit-card,
 .cmd-card {
@@ -623,13 +687,13 @@ body.needs-you .needs-badge {
   flex: 1;
   min-width: 0;
   font-family: var(--mono);
+  color: var(--code);
   display: inline-flex;
   align-items: center;
   gap: 4px;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  color: var(--fg);
 }
 .plus,
 .minus {
@@ -656,12 +720,12 @@ body.needs-you .needs-badge {
   white-space: pre;
 }
 .edit-card__diff .add {
-  color: #6ee7b7;
-  background: var(--primary-bg);
+  color: var(--primary-soft);
+  background: var(--diff-add);
 }
 .edit-card__diff .del {
   color: var(--danger-soft);
-  background: #2a1517;
+  background: var(--diff-del);
 }
 .edit-card__diff .ctx,
 .edit-card__diff .gap {
@@ -725,6 +789,7 @@ body.needs-you .needs-badge {
 }
 .file-chip {
   font-family: var(--mono);
+  color: var(--code);
   font-size: 0.85em;
   padding: 1px 8px;
   border-radius: 999px;
@@ -790,9 +855,12 @@ body.needs-you .needs-badge {
 .error .card__options {
   margin-top: 8px;
 }
+/* Mark, label and close on one row; the recap itself below, full width (in a
+   narrow panel the label used to squeeze the text into a column and cut words). */
 .recap {
-  display: flex;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 2px 8px;
   align-items: baseline;
   color: var(--muted);
   background: var(--card);
@@ -807,7 +875,10 @@ body.needs-you .needs-badge {
   white-space: nowrap;
 }
 .recap__text {
-  flex: 1;
+  grid-column: 1 / -1;
+  grid-row: 2;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 /* ── The task card ──────────────────────────────────────────────────────── */
@@ -887,7 +958,7 @@ body.needs-you .needs-badge {
   padding: 0;
   text-align: left;
   font-weight: 600;
-  color: var(--fg);
+  color: var(--heading);
 }
 .plan__progress {
   color: var(--muted);
@@ -1033,6 +1104,9 @@ body.needs-you .needs-badge {
   display: flex;
   align-items: center;
   gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  max-width: 100%;
   background: none;
   border: none;
   padding: 0 4px;
@@ -1048,7 +1122,7 @@ body.needs-you .needs-badge {
   flex-direction: column;
   gap: 6px;
   background: var(--field);
-  border: 1px solid #34373d;
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
   padding: 8px;
 }
@@ -1124,7 +1198,7 @@ body.needs-you .needs-badge {
   align-items: center;
   gap: 4px;
   height: 26px;
-  background: #1c1e22;
+  background: var(--band);
   border: 1px solid var(--border-strong);
   border-radius: 999px;
   padding: 0 10px;
@@ -1201,7 +1275,7 @@ body.needs-you .needs-badge {
   bottom: calc(100% - 6px);
   z-index: 8;
   background: var(--raised);
-  border: 1px solid #2f3238;
+  border: 1px solid var(--band-line);
   border-radius: var(--radius-lg);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
 }
@@ -1240,8 +1314,8 @@ body.needs-you .needs-badge {
   padding: 5px 8px;
 }
 .suggest__item.active {
-  background: #1f2023;
-  border-color: #2f3238;
+  background: var(--band);
+  border-color: var(--band-line);
 }
 .suggest__label {
   white-space: nowrap;
@@ -1356,8 +1430,8 @@ body.needs-you .needs-badge {
   padding: 5px 8px;
 }
 .picker__item.active {
-  background: #1f2023;
-  border-color: #2f3238;
+  background: var(--band);
+  border-color: var(--band-line);
 }
 .picker__check {
   width: 14px;
@@ -1385,7 +1459,7 @@ body.needs-you .needs-badge {
   background: none;
   border: none;
   padding: 0 2px;
-  color: #52525b;
+  color: var(--faint);
   display: inline-flex;
 }
 .picker__item .star {
@@ -1396,7 +1470,7 @@ body.needs-you .needs-badge {
 }
 .star.on,
 .star:hover {
-  color: var(--warn);
+  color: var(--heading);
 }
 .picker__empty {
   color: var(--muted);
@@ -1484,10 +1558,11 @@ body.needs-you .needs-badge {
 }
 .tabs {
   display: flex;
+  /* Wrap in a narrow sidebar: scrolled, "General" was out of sight with no hint (QA). */
+  flex-wrap: wrap;
   gap: 2px;
   padding: 0 10px;
   border-bottom: 1px solid var(--border);
-  overflow-x: auto;
   flex: none;
 }
 .tab {
@@ -1675,7 +1750,7 @@ body.needs-you .needs-badge {
   flex-direction: column;
   gap: 10px;
   background: var(--raised);
-  border: 1px solid #2f3238;
+  border: 1px solid var(--band-line);
   border-radius: var(--radius-lg);
   padding: 12px;
 }
@@ -1750,7 +1825,14 @@ body.needs-you .needs-badge {
 .history__filters {
   display: flex;
   align-items: center;
+  /* Narrow sidebar: chips and the sort wrap whole, never cut ("Newes", QA). */
+  flex-wrap: wrap;
   gap: 6px;
+}
+.history__filters .filter,
+.history__filters .select-sm {
+  flex: none;
+  white-space: nowrap;
 }
 .filter {
   background: none;
@@ -1873,7 +1955,7 @@ body.needs-you .needs-badge {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  box-shadow: 0 0 40px rgba(16, 183, 127, 0.08);
+  box-shadow: 0 0 40px rgba(61, 220, 151, 0.08);
 }
 .credit-card__top {
   display: flex;
@@ -1999,4 +2081,827 @@ body.needs-you .needs-badge {
 .toast.error {
   border-color: var(--danger-line);
   color: var(--danger-soft);
+}
+
+/* Sub-agents in the conversation: one panel per round, a row per agent (chat/subagents.ts). */
+.spin {
+  color: var(--primary);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+.agents {
+  border: 1px solid var(--border);
+  background: var(--raised);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.agents__head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: none;
+  border: none;
+  border-radius: 0;
+  color: var(--fg);
+  font-weight: 500;
+  text-align: left;
+}
+.agents__summary {
+  flex: 1;
+  min-width: 0;
+}
+.agents__tokens {
+  color: var(--faint);
+  font-weight: 400;
+  font-size: 0.9em;
+  font-variant-numeric: tabular-nums;
+}
+.agents__body {
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+}
+.agent + .agent {
+  border-top: 1px solid var(--border);
+}
+.agent__head {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 7px 10px;
+  background: none;
+  border: none;
+  border-radius: 0;
+  color: inherit;
+  text-align: left;
+}
+.agent__head:hover,
+.agents__head:hover {
+  background: var(--card);
+}
+.agent__mark {
+  color: var(--primary-soft);
+}
+.agent.error .agent__mark {
+  color: var(--danger-soft);
+}
+.agent__title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.agent__title strong {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent__phase {
+  color: var(--faint);
+  font-size: 0.9em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent__meta {
+  color: var(--faint);
+  font-size: 0.9em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.agent__body {
+  padding: 0 10px 9px 30px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--muted);
+  font-size: 0.92em;
+}
+.agent__tool {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.agent__tool span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent__tool-mark {
+  color: var(--faint);
+}
+.agent__report {
+  margin-top: 6px;
+  background: var(--sunk);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  color: var(--muted);
+}
+
+/* What is still running, above the message box (chat/tasks.ts). */
+.tasks {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.tasks__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--primary-bg);
+  border: 1px solid var(--primary-line);
+  color: var(--primary-soft);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 0.9em;
+  font-weight: 500;
+}
+.tasks__dot.warn {
+  color: var(--warn);
+}
+.tasks__panel {
+  width: 100%;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.tasks__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.tasks__empty {
+  padding: 10px 12px;
+}
+.tasks__group {
+  padding: 6px 12px 2px;
+  color: var(--faint);
+  font-size: 10.5px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.task-row + .task-row,
+.tasks__group + .task-row {
+  border-top: 1px solid var(--border);
+}
+.task-row__head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  background: none;
+  border: none;
+  border-radius: 0;
+  color: var(--fg);
+  text-align: left;
+}
+.task-row__head:hover {
+  background: var(--raised);
+}
+.task-row__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.task-row__tokens,
+.task-row__time {
+  color: var(--faint);
+  font-size: 0.9em;
+  font-variant-numeric: tabular-nums;
+}
+.badge.stalled {
+  color: var(--warn);
+  background: var(--warn-bg);
+}
+.task-row__tail {
+  margin: 0 12px 8px;
+  background: var(--sunk);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-family: var(--mono);
+  font-size: 0.85em;
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.task-row__actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 0 12px 10px;
+}
+
+/* Edit and command cards fold like the app's tool cards (chat/transcript.ts foldable). */
+.fold__head {
+  cursor: pointer;
+  user-select: none;
+}
+.fold__head:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--primary) 70%, transparent);
+  outline-offset: -2px;
+}
+.fold__chev {
+  color: var(--muted);
+  width: 12px;
+  flex: none;
+  font-size: 1em;
+  line-height: 1;
+}
+
+/* How full the context is: a ring and its percentage beside the model (composer.ts renderContext). */
+.ctx-ring {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--faint);
+  font-size: 0.9em;
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+}
+
+/* Diagrams the agent answers with (chat/diagrams.ts): graph, chart, outline. */
+.fig {
+  margin: 6px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--raised);
+  padding: 8px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fig__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--faint);
+  font-size: 0.88em;
+}
+.fig svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.fig__node {
+  fill: var(--sunk);
+  stroke: var(--border-strong);
+}
+.fig__node.root {
+  fill: var(--primary-bg);
+  stroke: var(--primary-line);
+}
+.fig__text,
+.fig__tick {
+  fill: var(--muted);
+  font: 9px var(--sans);
+  text-anchor: middle;
+}
+.fig__edge,
+.fig__axis {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+.fig__edge {
+  stroke: var(--muted);
+}
+.fig__arrow {
+  fill: var(--muted);
+}
+.fig__bar {
+  fill: var(--primary);
+}
+.fig__line {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 2;
+}
+.fig__dot {
+  fill: var(--primary-soft);
+}
+.fig__outline {
+  font-size: 0.95em;
+}
+
+/* Wide tables scroll sideways instead of squeezing paths into 6-letter columns. */
+.md-table-wrap {
+  overflow-x: auto;
+  max-width: 100%;
+}
+/* As wide as its content up to a readable column, then sideways scroll: a table
+   fitted to the panel squeezed each column into a tall, clipped strip (QA #48). */
+.md-table-wrap table {
+  width: max-content;
+  max-width: none;
+}
+.md-table-wrap td,
+.md-table-wrap th {
+  min-width: 7ch;
+  max-width: 36ch;
+  vertical-align: top;
+}
+.md-table-wrap td code,
+.md-table-wrap th code {
+  white-space: nowrap;
+}
+/* A table reads as one: a bordered box, a header band, a line between rows. */
+.md-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  font-size: 0.92em;
+  margin: 2px 0 8px;
+}
+.md-table th,
+.md-table td {
+  padding: 6px 12px;
+  text-align: left;
+}
+.md-table th {
+  background: var(--card);
+  color: var(--bright);
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+}
+.md-table tbody tr + tr td {
+  border-top: 1px solid var(--border);
+}
+.md-table td.num {
+  color: var(--bright);
+  font-variant-numeric: tabular-nums;
+}
+.md-table td code {
+  padding: 0;
+}
+/* A diagram keeps a readable size and scrolls, rather than shrinking its labels. */
+.fig {
+  overflow-x: auto;
+}
+.fig svg {
+  min-width: 340px;
+}
+.fig__head button {
+  white-space: nowrap;
+}
+
+/* A finished turn's work, folded above its answer (transcript.ts foldFinishedWork). */
+.worked {
+  color: var(--faint);
+}
+.worked__head {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 0.9em;
+}
+.worked__head::-webkit-details-marker {
+  display: none;
+}
+.worked__mark {
+  color: var(--primary-soft);
+}
+.worked__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px 0 4px 10px;
+  border-left: 1px solid var(--border);
+  margin: 4px 0 0 4px;
+}
+
+/* An edit's approval: what it changes, and why (composer.ts renderApproval). */
+.approval__add {
+  color: var(--success, var(--primary));
+}
+.approval__del {
+  color: var(--danger);
+}
+.approval__intent {
+  color: var(--muted);
+  font-size: 0.92em;
+}
+
+/* A stopped turn's marker (transcript.ts endTurn). */
+.turn-stopped {
+  color: var(--muted);
+  font-size: 0.9em;
+  padding-left: 2px;
+}
+
+/* "Build it" under the plan (task.ts). */
+.plan__build {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 8px;
+}
+
+/* Automations (views/automations.ts): the MCP card, plus its runs. */
+button.icon {
+  position: relative;
+}
+.nav__count {
+  position: absolute;
+  top: 1px;
+  right: 0;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--on-primary);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+}
+.auto-card__new {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--primary-bg);
+  color: var(--primary-soft);
+  font-size: 0.8em;
+  font-weight: 600;
+}
+textarea.field {
+  resize: vertical;
+}
+.auto-runs {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 8px 0;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 0.85em;
+}
+.auto-run {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+.auto-run__mark {
+  flex: none;
+  width: 1em;
+}
+.auto-card--on .dot {
+  background: var(--primary);
+}
+.auto-run--ok .auto-run__mark {
+  color: var(--primary);
+}
+.auto-run--error .auto-run__mark,
+.auto-run--error .auto-run__text {
+  color: var(--danger-soft);
+}
+.auto-run--running .auto-run__mark {
+  color: var(--code);
+}
+.auto-run__when {
+  flex: none;
+}
+.auto-run__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Sent while it works (composer.ts showPending): above the box, quiet. */
+.waiting {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 2px 6px;
+  font-size: 0.88em;
+}
+.waiting__row {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+.waiting__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg);
+}
+.waiting__text::before {
+  content: "↳ ";
+  color: var(--muted);
+}
+.waiting__when {
+  flex: none;
+  color: var(--muted);
+}
+
+/* transcript.ts addNote: something that happened, e.g. a files-only restore. */
+.note-line {
+  color: var(--muted);
+  font-size: 0.88em;
+  text-align: center;
+  padding: 4px 0;
+}
+
+/* A narrow sidebar (VS Code allows ~170px): the header keeps Rix and every
+   button, the box its send button (QA E4, F3). */
+@media (max-width: 320px) {
+  .nav {
+    padding: 0 4px 0 8px;
+    gap: 0;
+  }
+  .nav__name {
+    display: none;
+  }
+  .nav button.icon {
+    width: 24px;
+  }
+  /* The box's own row: the send button stays in view. MCP is in the header too. */
+  .box__bar button.icon {
+    width: 24px;
+  }
+  .box__bar button.icon[aria-label="MCP servers"] {
+    display: none;
+  }
+  .box__bar .pill {
+    padding: 0 7px;
+    margin-right: 2px;
+  }
+  .composer {
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+  /* "Needs you" as a dot beside Rix. */
+  body.needs-you .needs-badge {
+    font-size: 0;
+    width: 8px;
+    height: 8px;
+    padding: 0;
+    background: var(--warn);
+  }
+}
+
+/* VS Code's webview gives `code` its own grey background (textPreformat):
+   ours is sky text on nothing, in messages and plan steps alike (QA E8). */
+code {
+  background: none;
+  border-radius: 0;
+  /* VS Code's own padding, without its grey, read as stray spaces (QA). */
+  padding: 0;
+}
+.pstep__text code,
+.plan__doc code {
+  font-family: var(--mono);
+  color: var(--code);
+  font-size: 0.95em;
+}
+
+/* An automation's approval: when, what each run does, who hears (composer.ts). */
+.approval__detail {
+  font-size: 0.9em;
+  color: var(--fg);
+  padding: 1px 0;
+}
+
+/* The very narrowest sidebar (~170px): smaller buttons, the image button in
+   the box goes (paste or drop an image still works), the mode pill shrinks. */
+@media (max-width: 200px) {
+  .nav button.icon,
+  .box__bar button.icon {
+    width: 21px;
+  }
+  .box__bar button.icon[aria-label="Add an image"] {
+    display: none;
+  }
+  .box__bar .pill {
+    padding: 0 5px;
+    font-size: 0.85em;
+  }
+  .send {
+    width: 26px;
+    height: 26px;
+  }
+  .composer {
+    padding-left: 4px;
+    padding-right: 4px;
+  }
+  .approve-line {
+    font-size: 0.85em;
+  }
+}
+
+/* Account (views/account.ts): who you are, then your credit. */
+.account {
+  gap: 14px;
+}
+.profile {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.profile__avatar {
+  flex: none;
+  width: 52px;
+  height: 52px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--primary-bg);
+  color: var(--primary-soft);
+  border: 2px solid var(--primary-line);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  font-weight: 700;
+}
+.profile__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.profile__id {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.profile__name {
+  color: var(--bright);
+  font-size: 1.08em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.profile__email {
+  color: var(--muted);
+  font-size: 0.9em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.profile__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.chip-tag {
+  font-size: 0.78em;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  color: var(--muted);
+}
+.chip-tag.plan {
+  color: var(--primary-soft);
+  border-color: var(--primary-line);
+  background: var(--primary-bg);
+}
+.chip-tag.plan.pro {
+  color: var(--heading);
+  border-color: var(--heading);
+  background: none;
+}
+.credit-card__label {
+  color: var(--muted);
+  font-size: 0.8em;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.credit-card__amount {
+  color: var(--bright);
+  font-variant-numeric: tabular-nums;
+}
+.credit-card__acts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
+}
+.account__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+.account__out .col {
+  gap: 1px;
+}
+.signin-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+  padding: 22px 16px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.signin-card__mark {
+  margin-bottom: 4px;
+}
+.signin-card .wide {
+  margin-top: 6px;
+  width: 100%;
+}
+
+/* Remove a provider's key from its row (settings.ts providerRow). */
+.prov__remove {
+  color: var(--faint);
+}
+.prov__remove:hover {
+  color: var(--danger-soft);
+}
+
+/* Every provider, a page at a time (views/addProvider.ts). */
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* "Plan ready · Build it" where a plan turn ends (transcript.ts showPlanReady). */
+.plan-ready {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--primary);
+  border-radius: 8px;
+  background: var(--card);
+}
+.plan-ready__label {
+  flex: 1;
+  min-width: 0;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A plan the agent wrote, under its step (transcript.ts planStep). */
+.plan-step {
+  margin: 6px 0 8px;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--primary);
+  border-radius: 8px;
+  background: var(--card);
+  overflow: hidden;
+}
+.plan-step .plan-step__head {
+  margin: 0;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.plan-step__body {
+  padding: 2px 12px 10px;
+  /* Read like a reply, not like the steps' monospace around it. */
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg);
+}
+.plan-step__body h1,
+.plan-step__body h2,
+.plan-step__body h3 {
+  font-family: var(--sans);
+  font-size: 14px;
+  margin: 6px 0 4px;
+  color: var(--heading, var(--fg));
+}
+.plan-step__body code {
+  font-family: var(--mono);
+}
+.plan-step.folded .plan-step__body {
+  display: none;
+}
+
+/* A checklist item's box is its marker (markdown.ts taskBox). Not "task":
+   that's the plan card's class, and the items took its card layout (QA). */
+li.md-task {
+  list-style: none;
 }

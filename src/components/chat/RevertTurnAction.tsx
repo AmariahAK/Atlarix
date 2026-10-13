@@ -8,7 +8,8 @@
  * (WorkspaceSessionList) and on any chat load (SimpleInlineChat fetchMessages →
  * sessions:snapshot-turn-ids).
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useAtomValue } from "jotai";
 import { Undo2, Loader2 } from "lucide-react";
 import { turnSnapshotTurnIdByMessageIdAtom } from "@/atoms/chatAtoms";
@@ -32,33 +33,52 @@ export function RevertTurnAction({
   chatId: number | undefined;
   messageId: number;
 }) {
+  const { t } = useTranslation("chat");
   const snapshotMap = useAtomValue(turnSnapshotTurnIdByMessageIdAtom);
   const turnId = snapshotMap.get(messageId);
   const [open, setOpen] = useState(false);
-  const [files, setFiles] = useState<{
-    filesChanged: string[];
-    createdFiles: string[];
-  } | null>(null);
+  // undefined while loading; null when the turn captured no snapshot.
+  const [files, setFiles] = useState<
+    | { filesChanged: string[]; createdFiles: string[]; revertedAt?: string }
+    | null
+    | undefined
+  >(undefined);
   const [loading, setLoading] = useState(false);
   const [reverted, setReverted] = useState(false);
 
-  if (chatId == null || !turnId || reverted) return null;
+  // What the turn changed, and whether it was already reverted (recorded with
+  // the snapshot, so a reopened chat shows it too instead of offering Revert
+  // again). A turn that changed no files offers nothing.
+  useEffect(() => {
+    if (chatId == null || !turnId) return;
+    let live = true;
+    IpcClient.getInstance()
+      .getSnapshotFiles({ chatId, turnId })
+      .then((f) => live && setFiles(f ?? null))
+      .catch(() => live && setFiles(null));
+    return () => {
+      live = false;
+    };
+  }, [chatId, turnId]);
 
-  const openDialog = async () => {
-    setLoading(true);
-    try {
-      const f = await IpcClient.getInstance().getSnapshotFiles({
-        chatId,
-        turnId,
-      });
-      setFiles(f);
-      setOpen(true);
-    } catch (err) {
-      showError(err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  if (chatId == null || !turnId || !files) return null;
+  if (files.filesChanged.length + files.createdFiles.length === 0) return null;
+
+  if (reverted || files.revertedAt) {
+    const all = [...new Set([...files.filesChanged, ...files.createdFiles])];
+    return (
+      <span
+        data-reverted
+        className="flex items-center gap-1 px-2 py-1 text-xs text-muted-foreground"
+        title={t("revertTurn.revertedTitle", { files: all.join(", ") })}
+      >
+        <Undo2 className="h-3 w-3" />
+        {t("revertTurn.reverted")}
+      </span>
+    );
+  }
+
+  const openDialog = () => setOpen(true);
 
   const doRevert = async () => {
     setLoading(true);
@@ -110,9 +130,10 @@ export function RevertTurnAction({
             <AlertDialogDescription asChild>
               <div className="space-y-2 text-xs">
                 <p>
-                  Restores {changed} file(s) to their state before this turn
+                  Restores {changed} {changed === 1 ? "file" : "files"} to
+                  their state before this turn
                   {created > 0
-                    ? `; ${created} file(s) created this turn will be deleted`
+                    ? `; ${created} ${created === 1 ? "file" : "files"} created this turn will be deleted`
                     : ""}
                   .
                 </p>

@@ -16,6 +16,7 @@ function fake(list: ProviderSummary[], verdict: (key?: string) => KeyCheck) {
       removeKey: async (id) => void calls.push(`remove ${id}`),
       test: async (_id, key) => verdict(key),
       addCustom: async () => ({ id: "", models: 0 }),
+      setBaseUrl: async () => {},
       setEnabled: async () => {},
       local: async () => [],
     },

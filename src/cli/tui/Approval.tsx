@@ -6,7 +6,7 @@
  */
 import { approvalDiff } from "../agent/approval-diff";
 import type { PendingApproval } from "../agent/session";
-import { approvalChoices, approvalTitle, firstPreview, type ApprovalChoice } from "../agent/approval-choices";
+import { approvalChoices, approvalTitle, firstPreview, type ApprovalChoice, automationDetails, outsideWorkspace } from "../agent/approval-choices";
 export { approvalChoices, approvalTitle, type ApprovalChoice } from "../agent/approval-choices";
 import { useDiffSegments } from "./diff-highlight";
 import { color } from "./theme";
@@ -30,18 +30,26 @@ export function splitDiffLine(l: { kind: string; text: string }): { prefix: stri
   return m ? { prefix: m[0], code: l.text.slice(m[0].length) } : { prefix: "", code: l.text };
 }
 
-export function Approval({ approval, selected }: { approval: PendingApproval; selected: number }) {
+export function Approval({ approval, selected, expanded = false, workspace }: { approval: PendingApproval; selected: number; expanded?: boolean; workspace?: string }) {
   const p = firstPreview(approval);
   const choices = approvalChoices(approval);
   const shown = p.command ?? p.path ?? p.deniedPath ?? "";
-  const diff = approvalDiff(p);
+  // ctrl+o shows the whole change (QA: "… 2 more lines" had no way to see them).
+  const diff = approvalDiff(p, expanded ? 400 : 14);
   // The file's language colours the code, as in the transcript's diffs; the
   // sign keeps the add/remove colour (it was all green before).
   const split = (diff?.lines ?? []).map(splitDiffLine);
   const segs = useDiffSegments(p.path, split.map((x) => x.code));
+  // Amber is for warnings: a risky command, a write outside the sandbox, a
+  // change outside the project. A routine approval is the accent, as in the
+  // editor's card (owner's palette, 2026-10-13; QA E7).
+  const outside = !p.command && outsideWorkspace(p.path, workspace);
+  const risky = !!(p.isDangerous || p.deniedPath || p.systemScope || outside);
+  const tone = risky ? color.warn : color.accent;
+  const toneBg = risky ? color.warnBg : color.accentBg;
   return (
-    <box border borderStyle="rounded" borderColor={color.warn} backgroundColor={color.warnBg} padding={1} flexDirection="column" gap={1} flexShrink={0}>
-      <text fg={color.warn}>
+    <box border borderStyle="rounded" borderColor={tone} backgroundColor={toneBg} padding={1} flexDirection="column" gap={1} flexShrink={0}>
+      <text fg={tone}>
         <b>{`△ ${approvalTitle(approval)}`}</b>
       </text>
       {shown ? (
@@ -49,7 +57,18 @@ export function Approval({ approval, selected }: { approval: PendingApproval; se
           <text fg={color.text}>{p.command ? `$ ${shown}` : shown}</text>
         </box>
       ) : null}
-      {p.description ? <text fg={color.textDim}>{p.description}</text> : null}
+      {p.description ? <text fg={color.textDim}>{p.description.replace(/`/g, "")}</text> : null}
+      {outside ? <text fg={color.warn}>{`It's outside this project (${workspace}).`}</text> : null}
+      {automationDetails(approval).length ? (
+        // One block: the card's gap between every line made it read as a list of separate notes.
+        <box flexDirection="column">
+          {automationDetails(approval).map((l, i) => (
+            <text key={`ad${i}`} fg={color.text}>
+              {l}
+            </text>
+          ))}
+        </box>
+      ) : null}
       {p.command && p.isDangerous ? (
         // The desktop's own wording (InlinePermissionApprovals.tsx), never a guess
         // such as "can't be undone", which is false for most flagged commands.
@@ -83,18 +102,19 @@ export function Approval({ approval, selected }: { approval: PendingApproval; se
               </text>
             );
           })}
-          {diff.more > 0 ? <text fg={color.faint}>… {diff.more} more lines</text> : null}
+          {diff.more > 0 ? <text fg={color.faint}>{`… ${diff.more} more line${diff.more === 1 ? "" : "s"} (ctrl+o)`}</text> : null}
         </box>
       ) : null}
       <box flexDirection="column">
         {choices.map((c, i) => (
-          <text key={c.mode} fg={i === selected ? color.white : color.textDim} bg={i === selected ? color.warnBg : undefined}>
-            <span fg={i === selected ? color.warn : color.faint}>{i === selected ? "❯ " : "  "}{i + 1}.</span> {i === selected ? <b>{c.label}</b> : c.label}
+          <text key={c.mode} fg={i === selected ? color.white : color.textDim} bg={i === selected ? color.panel : undefined}>
+            <span fg={i === selected ? tone : color.faint}>{i === selected ? "❯ " : "  "}{i + 1}.</span> {i === selected ? <b>{c.label}</b> : c.label}
             <span fg={color.faint}>{` (${approvalKey(c)})`}</span>
           </text>
         ))}
       </box>
-      <text fg={color.muted}>↑↓ choose · enter confirm · y/a/n · esc no</text>
+      {/* The letters these choices actually have ("d" was missing from "y/a/n"). */}
+      <text fg={color.muted}>{`↑↓ choose · enter confirm · ${[...new Set(choices.map(approvalKey))].join("/")} · esc no`}</text>
     </box>
   );
 }

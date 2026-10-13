@@ -1,4 +1,6 @@
 import { useState, useEffect } from "react";
+import { useSetAtom } from "jotai";
+import { providerKeyCheckAtom } from "@/atoms/viewAtoms";
 import { useRouter } from "@tanstack/react-router";
 import { ArrowLeft, AlertTriangle } from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
@@ -156,6 +158,34 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
           ? isElasticConfigured
           : isValidUserKey || hasEnvKey; // Configured if either is set
 
+  // Check the saved key with the provider: on opening the page, and after a
+  // save. Any saved key used to read "Setup Complete", unchecked (QA #24).
+  const savedKey = settings?.providerSettings?.[provider]?.apiKey?.value;
+  const setKeyChecks = useSetAtom(providerKeyCheckAtom);
+  const [keyCheck, setKeyCheck] = useState<{
+    status: string;
+    detail: string;
+  } | null>(null);
+  const isCustomProvider = provider.startsWith("custom::");
+  useEffect(() => {
+    setKeyCheck(null);
+    // A provider the user added is checked keyless too (a local server needs
+    // no key; QA #25).
+    if ((!savedKey || savedKey === "none") && !isCustomProvider) return;
+    let live = true;
+    void IpcClient.getInstance()
+      .checkProviderKey(provider)
+      .then((r) => {
+        if (!live) return;
+        setKeyCheck(r);
+        if (r) setKeyChecks((prev) => ({ ...prev, [provider]: r.status }));
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [provider, savedKey, isCustomProvider]);
+
   // --- Save Handler ---
   const handleSaveKey = async (value: string) => {
     if (!value.trim()) {
@@ -312,8 +342,9 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
             provider === "lmstudio" ||
             provider === "compass"
               ? true
-              : isConfigured
+              : isConfigured || keyCheck?.status === "works"
           }
+          keyCheck={keyCheck}
           isLoading={settingsLoading}
           hasFreeTier={hasFreeTier}
           providerWebsiteUrl={providerWebsiteUrl}
@@ -377,7 +408,10 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
                   onDeleteKey={handleDeleteKey}
                   updateSettings={updateSettings}
                 />
-                {offerDefaultSwitch && (
+                {/* Not for a key the provider just refused (QA #40). */}
+                {offerDefaultSwitch &&
+                  keyCheck?.status !== "rejected" &&
+                  keyCheck?.status !== "unreachable" && (
                   <UseProviderAsDefaultPrompt
                     providerId={provider}
                     providerName={providerDisplayName}

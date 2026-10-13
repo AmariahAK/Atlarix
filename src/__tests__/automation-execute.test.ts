@@ -144,3 +144,32 @@ describe("automationAutoApprove", () => {
     }
   });
 });
+
+describe("a run whose agent turn failed (video session)", () => {
+  it("is a failure with the turn's reason, not an empty ok", async () => {
+    const { turnFailure } = await import("@/lib/automations/execute-run");
+    const why = "Atlarix Auto isn't offered right now. Pick a Core model above, or add your own API key in Settings.";
+    expect(turnFailure([{ channel: "chat:response:chunk", payload: { chatId: 7 } }, { channel: "chat:response:error", payload: { chatId: 7, error: why } }], 7)).toBe(why);
+    expect(turnFailure([{ channel: "chat:stream:disconnected", payload: { chatId: 7 } }], 7)).toBe("Couldn't reach the model provider.");
+    expect(turnFailure([{ channel: "chat:stream:disconnected", payload: { chatId: 7, detail: "fetch failed" } }], 7)).toBe("Couldn't reach the model provider: fetch failed");
+    expect(turnFailure([{ channel: "chat:response:error", payload: { chatId: 8, error: "other chat" } }], 7)).toBeNull();
+    expect(turnFailure([{ channel: "chat:response:end", payload: { chatId: 7 } }], 7)).toBeNull();
+  });
+});
+
+describe("a run's summary is what the agent said (video session)", () => {
+  it("leaves tool calls and their raw results out", async () => {
+    const { replyProse, parseAutomationOutcome } = await import("@/lib/automations/execute-run");
+    const content = [
+      '<atlarix-tool-call tool="run_command" call="c1" status="running">',
+      '{"command":"npm test"}',
+      "</atlarix-tool-call>",
+      '<atlarix-tool-result tool="run_command" call="c1" status="error">',
+      '{"success":false,"error":"Command failed: npm test"}',
+      "</atlarix-tool-result>",
+      "1 of 3 tests fails: subtract returns the wrong sign.",
+    ].join("\n");
+    const out = parseAutomationOutcome(replyProse(content));
+    expect(out.summary).toBe("1 of 3 tests fails: subtract returns the wrong sign.");
+  });
+});

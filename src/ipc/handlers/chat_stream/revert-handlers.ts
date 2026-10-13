@@ -172,7 +172,7 @@ export function registerRevertHandlers(): void {
         return { success: false, error: "No workspace attached" };
       }
       const workspacePath = resolveAppPath(app.path);
-      return performFullRevert({
+      const result = await performFullRevert({
         chatId,
         turnId,
         assistantMessageId,
@@ -182,6 +182,40 @@ export function registerRevertHandlers(): void {
         // it must NOT flag the conversation/messages as reverted.
         ...(filesOnly ? { options: { skipMessageFlags: true } } : {}),
       });
+      if (filesOnly && result.success) {
+        // The reply shows it was reverted (after a restart too), and the agent
+        // is told with the next message (snapshot:take-reverted-files).
+        const { markSnapshotReverted } = await import(
+          "@/lib/snapshot/snapshot-manager"
+        );
+        await markSnapshotReverted(workspacePath, turnId).catch((err) =>
+          logger.warn("revert: could not record the revert:", err),
+        );
+      }
+      return result;
+    },
+  );
+
+  // The files of this chat's turns reverted since the agent was last told
+  // (see markSnapshotReverted); taken once, as the user's next message goes.
+  ipcMain.handle(
+    "snapshot:take-reverted-files",
+    async (_event, payload: { chatId: number; turnIds: string[] }) => {
+      const { chatId, turnIds } = payload;
+      if (!Array.isArray(turnIds) || turnIds.length === 0) return [];
+      const workspaceId = getStreamTransportAppId(chatId);
+      if (workspaceId == null) return [];
+      const app = await db.query.apps.findFirst({
+        where: eq(apps.id, workspaceId),
+      });
+      if (!app?.path) return [];
+      const { takeUntoldRevertedFiles } = await import(
+        "@/lib/snapshot/snapshot-manager"
+      );
+      return takeUntoldRevertedFiles(
+        resolveAppPath(app.path),
+        turnIds.map(String),
+      );
     },
   );
 

@@ -14,6 +14,7 @@ import {
   formatToolResultPreview,
   getToolCompletedSummary,
   noopSummary,
+  backgroundStartedSummary,
   getToolFailedSummary,
   getToolRunningSummary,
   looksLikeToolArgsJson,
@@ -61,6 +62,20 @@ export type StreamThreadItem = (
       endTs?: number;
     }
   | { kind: "plan"; planId: string; ts: number }
+  /**
+   * A message the user sent while this turn ran (a steer), at the point the
+   * agent took it. Stored as its own user row BEFORE the reply, it used to
+   * show above the whole answer (QA #4); the list hides that row when the
+   * reply's thread holds it.
+   */
+  | {
+      kind: "interjection";
+      id: string;
+      text: string;
+      /** The user row's session id (stable across reloads), else its message id. */
+      rowKey: string;
+      ts: number;
+    }
   | {
       kind: "background";
       id: string;
@@ -158,7 +173,67 @@ function toolStatusRank(status: StreamThreadToolStatus): number {
   return 2;
 }
 
+/**
+ * Marks tool args that carry a write's FULL old/new file, merged onto the card
+ * from the approval preview or the write-preview channel
+ * (useStreamChat.mergeWritePreviewIntoThread). Display only, never sent to the
+ * model.
+ */
+export const DISPLAY_PREVIEW_ARG = "__display_preview";
+const DISPLAY_PREVIEW_KEYS = [
+  DISPLAY_PREVIEW_ARG,
+  "old_content",
+  "content",
+  "precomputed_hunks",
+  "added_count",
+  "removed_count",
+] as const;
+
+/**
+ * The card's args once a newer item for it arrives. The item a finished tool
+ * reports with carries the model's own args (an edit's snippets) or none, and
+ * used to replace the merged whole file: the diff then showed the snippets,
+ * numbered from 1, or just "1 line written" (QA #6). The merged file wins.
+ */
+function mergeToolArgs(
+  prev: Record<string, unknown> | undefined,
+  next: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!prev?.[DISPLAY_PREVIEW_ARG] || next?.[DISPLAY_PREVIEW_ARG]) {
+    return next ?? prev;
+  }
+  const kept: Record<string, unknown> = {};
+  for (const k of DISPLAY_PREVIEW_KEYS) if (k in prev) kept[k] = prev[k];
+  return { ...(next ?? prev), ...kept };
+}
+
+/** A finished write card's diff, from the merged whole file when it has one. */
+export function withDisplayPreviewExpand(
+  item: Extract<StreamThreadItem, { kind: "tool" }>,
+): Extract<StreamThreadItem, { kind: "tool" }> {
+  if (item.status === "running" || !item.toolArgs?.[DISPLAY_PREVIEW_ARG]) {
+    return item;
+  }
+  const source = item.resultText ?? item.detail;
+  if (!source) return item;
+  const expand = buildToolExpandView(
+    item.toolName,
+    item.toolArgs,
+    source,
+    item.status,
+  );
+  return expand?.kind === "diff" ? { ...item, expand } : item;
+}
+
 function mergeToolItems(
+  prev: Extract<StreamThreadItem, { kind: "tool" }>,
+  next: Extract<StreamThreadItem, { kind: "tool" }>,
+): StreamThreadItem {
+  const merged = mergeToolItemsRaw(prev, next);
+  return merged.kind === "tool" ? withDisplayPreviewExpand(merged) : merged;
+}
+
+function mergeToolItemsRaw(
   prev: Extract<StreamThreadItem, { kind: "tool" }>,
   next: Extract<StreamThreadItem, { kind: "tool" }>,
 ): StreamThreadItem {
@@ -176,7 +251,7 @@ function mergeToolItems(
       seq: prev.seq ?? next.seq,
       ts: prev.ts,
       toolName: prev.toolName || next.toolName,
-      toolArgs: next.toolArgs ?? prev.toolArgs,
+      toolArgs: mergeToolArgs(prev.toolArgs, next.toolArgs),
       resultText: next.resultText ?? prev.resultText,
       detail:
         next.detail ?? (next.status !== "running" ? prev.detail : undefined),
@@ -204,7 +279,7 @@ function mergeToolItems(
     // Pin ts to the original insertion so a same-rank re-merge can't reorder.
     ts: prev.ts,
     toolName: prev.toolName,
-    toolArgs: next.toolArgs ?? prev.toolArgs,
+    toolArgs: mergeToolArgs(prev.toolArgs, next.toolArgs),
     resultText: next.resultText ?? prev.resultText,
     detail: next.detail ?? prev.detail,
     expand: next.expand ?? prev.expand,
@@ -321,9 +396,24 @@ export function streamThreadItemFromToolStart(payload: {
   };
 }
 
+/**
+ * A no-op reports success:false, so the live activity and the tool's end event
+ * can arrive as "error". It did exactly what it should (see noopSummary): the
+ * card settles as done, not a red "Failed: … / Tool failed" (QA #16).
+ */
+function settleNoopStatus(
+  toolName: string,
+  status: StreamThreadToolStatus,
+  resultText: string | undefined,
+): StreamThreadToolStatus {
+  return status === "error" && noopSummary(toolName, resultText)
+    ? "done"
+    : status;
+}
+
 function finalizeToolItem(
   item: Extract<StreamThreadItem, { kind: "tool" }>,
-  status: StreamThreadToolStatus,
+  reportedStatus: StreamThreadToolStatus,
   opts?: {
     summary?: string;
     detail?: string;
@@ -337,12 +427,16 @@ function finalizeToolItem(
   // Prefer the structured result text (full tool JSON) over the human "Done"
   // detail when building the expand view, so cards keep their real content.
   const expandSource = resultText ?? rawDetail;
+  const status = settleNoopStatus(registryName, reportedStatus, expandSource);
   const expand =
     opts?.expand ??
     (expandSource
       ? buildToolExpandView(registryName, item.toolArgs, expandSource, status)
       : item.expand);
-  return {
+  // The end event can carry a view main built from the model's own args (an
+  // edit's snippet); a card holding the merged whole file is rebuilt from it
+  // (QA #6, approved-by-hand edits on build D).
+  return withDisplayPreviewExpand({
     ...item,
     status,
     summary:
@@ -356,13 +450,14 @@ function finalizeToolItem(
             // "Successfully executed" next to a non-zero exit. Name the attempt.
             getToolFailedSummary(registryName, item.toolArgs)
           : (noopSummary(registryName, resultText) ??
+            backgroundStartedSummary(registryName, resultText) ??
             getToolCompletedSummary(registryName, item.toolArgs))),
     detail: rawDetail,
     resultText,
     expand,
     toolArgs: item.toolArgs,
     endTs: status === "running" ? item.endTs : (item.endTs ?? Date.now()),
-  };
+  });
 }
 
 function findRunningToolIndex(
@@ -579,16 +674,22 @@ export function streamThreadItemFromActivity(
       item.toolCallId?.trim() ||
       (item.parentDelegationId && activityId ? activityId : registryName);
     const isRunning = item.status === "running" || item.status === "active";
-    const status: StreamThreadToolStatus = isRunning
-      ? "running"
-      : item.status === "error"
-        ? "error"
-        : "done";
-
     let rawDetail = (item.resultText ?? item.detail)?.trim();
     if (isRunning && looksLikeToolArgsJson(rawDetail)) {
       rawDetail = undefined;
     }
+    const status: StreamThreadToolStatus = isRunning
+      ? "running"
+      : settleNoopStatus(
+          registryName,
+          item.status === "error" ? "error" : "done",
+          rawDetail,
+        );
+    const noop =
+      status === "done"
+        ? (noopSummary(registryName, rawDetail) ??
+          backgroundStartedSummary(registryName, rawDetail))
+        : null;
 
     const expand =
       !isRunning && rawDetail
@@ -604,7 +705,8 @@ export function streamThreadItemFromActivity(
       toolName: registryName,
       summary: isRunning
         ? runningSummary
-        : summarizeToolActivityItem(item) ||
+        : noop ||
+          summarizeToolActivityItem(item) ||
           (status === "error"
             ? getToolFailedSummary(registryName, item.toolArgs)
             : getToolCompletedSummary(registryName, item.toolArgs)),

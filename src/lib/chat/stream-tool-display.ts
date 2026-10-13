@@ -755,6 +755,31 @@ export function noopSummary(
   }
 }
 
+/** The first line of a run_command result that started a background job. */
+export const BACKGROUND_START_RE =
+  /^(?:Background command started \(job_id: [^)]*\)|Still running after \d+s — moved to the background \(job_id: [^)]*\)): /;
+
+/**
+ * A run_command that went to the background has not finished: its step read
+ * "Ran command / exit 0" at launch (QA #27). Null for anything else.
+ */
+export function backgroundStartedSummary(
+  toolName: string,
+  resultText?: string,
+): string | null {
+  if (toolName !== "run_command" || !resultText?.trim()) return null;
+  let output = resultText;
+  try {
+    const o = JSON.parse(resultText) as { output?: unknown };
+    if (typeof o?.output === "string") output = o.output;
+  } catch {
+    /* plain text */
+  }
+  return BACKGROUND_START_RE.test(output.trim())
+    ? "Started in the background"
+    : null;
+}
+
 export function getToolCompletedSummary(
   registryName: string,
   args?: Record<string, unknown> | null,

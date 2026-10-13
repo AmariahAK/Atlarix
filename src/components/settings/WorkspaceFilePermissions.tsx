@@ -167,9 +167,7 @@ export function WorkspaceFilePermissions() {
         File permissions
       </h2>
       <p className="text-sm text-muted-foreground mb-4">
-        Remember allow or deny decisions for files, directories, or extensions
-        in this workspace. Protected paths (lockfiles, secrets, migrations, CI)
-        always require inline approval.
+        Saved allow and deny rules. Protected paths always ask.
       </p>
 
       <div className="flex flex-wrap gap-2 mb-4">
@@ -314,10 +312,7 @@ export function WorkspaceGrantedFolders() {
         Folders outside this workspace
       </h2>
       <p className="text-sm text-muted-foreground mb-4">
-        By default Atlarix only writes inside the project folder you opened.
-        Grant another folder here to work across repositories — it applies to
-        both file edits and sandboxed commands. Every individual change still
-        asks for approval; a grant only removes the outer wall.
+        Other folders Atlarix may work in. Each change still asks.
       </p>
 
       <div className="flex flex-wrap gap-2 mb-4">

@@ -27,3 +27,30 @@ export function useAccountKind(): AccountKind {
   const { balanceCents, grantedTotalCents } = useCreditBalance();
   return accountKindFrom(balanceCents, grantedTotalCents);
 }
+
+/**
+ * The account's kind right now, asked of main, for a decision that can't wait
+ * on a hook still loading: the Atlarix Auto consent. A Pro account picking
+ * Auto while the picker's balance was still "unknown" was asked to agree to
+ * free Auto's sharing (QA #42). Unknown only when it truly can't be told.
+ */
+export async function fetchAccountKind(): Promise<AccountKind> {
+  const invoke = (
+    window as unknown as {
+      electron?: { ipcRenderer?: { invoke: (c: string) => Promise<unknown> } };
+    }
+  ).electron?.ipcRenderer?.invoke;
+  if (!invoke) return "unknown";
+  try {
+    const r = (await invoke("auth:get-credit-balance")) as
+      | { ok: boolean; balanceCents?: number; grantedTotalCents?: number | null }
+      | undefined;
+    if (!r?.ok) return "unknown";
+    return accountKindFrom(
+      Number(r.balanceCents ?? 0),
+      typeof r.grantedTotalCents === "number" ? r.grantedTotalCents : null,
+    );
+  } catch {
+    return "unknown";
+  }
+}

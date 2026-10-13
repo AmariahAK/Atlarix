@@ -7,6 +7,8 @@
 
 import type { Message } from "@/ipc/ipc_types";
 import { splitPeerMessages } from "@/lib/peers/peer-message";
+import { parseQaAnswers } from "@/lib/interactive-qa-format";
+import { parseDisplaySnapshot } from "@/lib/chat/display-snapshot";
 import { PeerMessageCard } from "./chat/PeerMessageCard";
 import {
   resolvePasteAttachmentsForMessage,
@@ -45,9 +47,10 @@ import {
 } from "@/atoms/appAtoms";
 import {
   activeChatIdAtom,
+  turnModelByAssistantMessageIdAtom,
   assistantMessageHasNonTextPartsAtom,
 } from "@/atoms/chatAtoms";
-import type { WorkMode } from "@/lib/schemas";
+import type { LargeLanguageModel, WorkMode } from "@/lib/schemas";
 import { useAtlarixCoreCatalog } from "@/hooks/useAtlarixCoreCatalog";
 import { resolveModelDisplayLabel } from "@/lib/resolve-model-display-label";
 import { useLanguageModelsByProviders } from "@/hooks/useLanguageModelsByProviders";
@@ -78,6 +81,9 @@ interface SimpleMessageProps {
   onEditUserMessage?: (messageId: number, newContent: string) => Promise<void>;
   /** Issue 4: resume an interrupted assistant turn (partial content preserved). */
   onContinue?: (message: Message) => void;
+  /** Build a plan from its card in the chat (QA #17). */
+  onPlanArtifactBuild?: (planId: string) => void;
+  planArtifactBuildDisabled?: boolean;
 }
 
 function SimpleMessageImpl({
@@ -88,6 +94,8 @@ function SimpleMessageImpl({
   isLatestAssistant = false,
   onEditUserMessage,
   onContinue,
+  onPlanArtifactBuild,
+  planArtifactBuildDisabled,
 }: SimpleMessageProps) {
   const [copied, setCopied] = useState(false);
   const { copyMessageContent, copied: assistantCopied } = useCopyToClipboard();
@@ -98,6 +106,7 @@ function SimpleMessageImpl({
   const currentApp = useAtomValue(currentAppAtom);
   const workspaceInfo = useAtomValue(selectedWorkspaceInfoAtom);
   const activeChatId = useAtomValue(activeChatIdAtom);
+  const turnModels = useAtomValue(turnModelByAssistantMessageIdAtom);
   const chatId = chatIdProp ?? activeChatId;
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content);
@@ -168,15 +177,27 @@ function SimpleMessageImpl({
   const peerSegments = isUser ? splitPeerMessages(message.content ?? "") : null;
   if (peerSegments) return <PeerMessageCard segments={peerSegments} />;
 
+  // The model THIS reply ran on (live: the session's record; reloaded: its
+  // display snapshot). The current model only for a reply that has neither,
+  // e.g. one still streaming (QA #49: every reply was relabelled on a switch).
+  const answeredWith =
+    turnModels[message.id] ??
+    parseDisplaySnapshot(message.displaySnapshot)?.model ??
+    settings?.selectedModel;
   const getModelDisplayName = () =>
-    resolveModelDisplayLabel(settings?.selectedModel, {
+    resolveModelDisplayLabel(answeredWith as LargeLanguageModel | undefined, {
       catalog: coreCatalog,
       modelsByProviders,
     });
 
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-      <div className={`group max-w-3xl ${isUser ? "ml-12" : "mr-12"}`}>
+      {/* min-w-0: as a flex item the bubble was held at its content's width
+          (a plan card, a mind map), wider than the column with its margin on
+          top: text cut on the right, a sideways scrollbar (QA #18). */}
+      <div
+        className={`group min-w-0 max-w-3xl ${isUser ? "ml-12" : "mr-12"}`}
+      >
         {/* Model name header for assistant messages */}
         {isAssistant && (
           <div className="flex items-center gap-2 flex-wrap mb-1.5 text-xs text-muted-foreground">
@@ -288,6 +309,8 @@ function SimpleMessageImpl({
                   isStreaming={isStreaming}
                   isLatestAssistant={isLatestAssistant}
                   contentDrivenThread={false}
+                  onPlanArtifactBuild={onPlanArtifactBuild}
+                  planArtifactBuildDisabled={planArtifactBuildDisabled}
                 />
               ) : (
                 // `@file:`/`@dir:` tokens are re-emitted into the prompt on
@@ -297,6 +320,22 @@ function SimpleMessageImpl({
                 // them out for DISPLAY only; message.content keeps its
                 // tokens, so editing and re-dispatch are unaffected.
                 (() => {
+                  // Answers to the agent's questions: each question with its
+                  // answer, not the stored "Q: 2 questions → A: Q: …" line
+                  // (QA #21). The stored text is what the model reads.
+                  const qa = parseQaAnswers(message.content ?? "");
+                  if (qa) {
+                    return (
+                      <dl className="space-y-1.5 text-sm">
+                        {qa.map((p, i) => (
+                          <div key={i}>
+                            <dt className="text-xs opacity-75">{p.q}</dt>
+                            <dd className="whitespace-pre-wrap">{p.a}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    );
+                  }
                   const { text, mentions } = extractMentions(
                     message.content ?? "",
                   );
@@ -369,9 +408,11 @@ function SimpleMessageImpl({
           </div>
         )}
 
-        {/* Actions under messages — Copy / Revert turn */}
+        {/* Actions under messages — Copy / Revert turn. Shown on hover, but
+            always once the turn's files were reverted: that marker is the
+            transcript's record of it (QA #1). */}
         {isAssistant && message.content && !isStreaming && (
-          <div className="flex mt-1 justify-start gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="flex mt-1 justify-start gap-1 opacity-0 group-hover:opacity-100 has-[[data-reverted]]:opacity-100 transition-opacity">
             <button
               type="button"
               onClick={handleAssistantCopy}
@@ -537,6 +578,8 @@ function messagePropsEqual(
     prev.isLatestAssistant === next.isLatestAssistant &&
     prev.onEditUserMessage === next.onEditUserMessage &&
     prev.onContinue === next.onContinue &&
+    prev.onPlanArtifactBuild === next.onPlanArtifactBuild &&
+    prev.planArtifactBuildDisabled === next.planArtifactBuildDisabled &&
     a.id === b.id &&
     a.role === b.role &&
     a.content === b.content &&

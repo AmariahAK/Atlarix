@@ -55,6 +55,12 @@ export const DANGEROUS_PATTERNS: DangerMatch[] = [
       "This downloads and executes a script from the internet. Only run if you trust the source.",
   },
   {
+    // Downloads PowerShell writes without a downloading command name.
+    id: "ps-web-download",
+    pattern: /\b(?:Invoke-WebRequest|Invoke-RestMethod|Start-BitsTransfer)\b|Net\.WebClient|DownloadFile\s*\(|DownloadString\s*\(|certutil(?:\.exe)?\s+.*-urlcache/i,
+    explanation: "This downloads content from the internet.",
+  },
+  {
     id: "wget-pipe-shell",
     pattern: /wget\s+.*\|\s*(bash|sh)\b/,
     explanation:
@@ -180,6 +186,19 @@ const DANGEROUS_FIRST_TOKENS: Record<string, string> = {
   ncat: "This opens a raw network connection (ncat) — a common data-exfiltration channel.",
   socat: "This relays data between sockets/files — a flexible network channel.",
   printenv: "This prints environment variables, which may include secrets.",
+  // PowerShell's own names for the same things (Windows). Without them a
+  // download ran without asking on Windows: the agent fetched a 35 MB Node zip
+  // with Invoke-WebRequest, while curl/wget ask (QA, Windows VM).
+  "invoke-webrequest": "This downloads content from the internet.",
+  iwr: "This downloads content from the internet.",
+  "invoke-restmethod": "This makes a network request and may download remote content.",
+  irm: "This makes a network request and may download remote content.",
+  "start-bitstransfer": "This downloads content from the internet.",
+  bitsadmin: "This downloads content from the internet.",
+  "invoke-expression": "This executes an arbitrary constructed command.",
+  iex: "This executes an arbitrary constructed command.",
+  "remove-item": "This deletes files. Deleted files cannot be recovered.",
+  "stop-process": "This terminates a running process.",
 };
 
 function firstToken(command: string): string {

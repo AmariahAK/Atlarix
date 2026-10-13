@@ -66,4 +66,15 @@ describe("edit_file multi-edit (operation=replace + edits[])", () => {
     });
     expect(res.preview?.content).toContain("const b = 22;");
   });
+
+  // QA (app) #10: the approval card's summary said "Surgical replace", an
+  // internal name, for one edit and "2 edits" for two.
+  it("summarises one edit as '1 edit', like '2 edits'", async () => {
+    const one = (await edit({
+      operation: "replace",
+      old_content: "const b = 2;",
+      new_content: "const b = 22;",
+    })) as { preview?: { description?: string } };
+    expect(one.preview?.description).toBe("1 edit");
+  });
 });

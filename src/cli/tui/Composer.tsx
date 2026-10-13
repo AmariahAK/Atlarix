@@ -164,7 +164,7 @@ export function Composer({
     <box
       border
       borderStyle="rounded"
-      borderColor={shell ? color.warn : borderColor}
+      borderColor={shell ? color.code : borderColor}
       title={title}
       titleAlignment="left"
       titleColor={color.textDim}
@@ -178,7 +178,7 @@ export function Composer({
       // another line of output (owner, 2026-10-05: "a small elevation").
       backgroundColor={color.raised}
     >
-      <text fg={shell ? color.warn : color.accent}>› </text>
+      <text fg={shell ? color.code : color.accent}>› </text>
       <textarea
         ref={ta}
         flexGrow={1}

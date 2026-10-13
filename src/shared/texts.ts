@@ -33,7 +33,19 @@ const KEY_RE =
 /** What the provider said, without its JSON envelope. */
 function providerSaid(reason: string): string {
   const m = /"message"\s*:\s*"([^"]{1,300})"/.exec(reason);
-  return (m?.[1] ?? reason).replace(/\s+/g, " ").trim().slice(0, 200);
+  const text = (m?.[1] ?? reason)
+    .replace(/\s+/g, " ")
+    // A masked key ("sk-proj-****…****UcIA") is a wall of asterisks that overflows
+    // the card; its two ends say which key it was (QA #32).
+    .replace(/(\S{0,12}?)\*{4,}(\S{0,8})/g, (_m, head: string, tail: string) => `${head}…${tail}`)
+    .trim();
+  if (text.length <= 200) return text;
+  // Cut at a sentence, else a word, never mid-word ("…UcIA. You ca").
+  const cut = text.slice(0, 200);
+  const sentence = cut.lastIndexOf(". ");
+  if (sentence > 80) return cut.slice(0, sentence + 1);
+  const word = cut.lastIndexOf(" ");
+  return `${cut.slice(0, word > 80 ? word : 200)}…`;
 }
 
 /** A BYOK failure worded by what happened, or null when it is none of these. */
@@ -53,7 +65,23 @@ export function byokLimitUserMessage(reason: string, providerId?: string): strin
   return null;
 }
 
+/**
+ * A model's request failed for some other reason. Said in a sentence, without
+ * the provider's JSON or line breaks, and with the likely fix where the words
+ * say what happened: the model id or the address (QA: "(Not Found\n\nDetails:
+ * 404 page not found)", raw `{"error":{…}}`, and "chat settings", a desktop-only
+ * place, in the CLI and editor).
+ */
 export function modelFailureUserMessage(reason: string): string {
-  const detail = reason.trim() || "the request failed";
-  return `This model failed (${detail}). Choose a different model in chat settings or switch provider.`;
+  const said = providerSaid(reason.replace(/\bDetails:\s*/g, "")) || "the request failed";
+  if (/model ['"`]?[^'"`\s]+['"`]? not found|model_not_found|no such model|unknown model/i.test(reason)) {
+    return `The provider doesn't have that model. Check the model's id, or switch model. (It said: "${said}")`;
+  }
+  if (/\b404\b|not found/i.test(reason)) {
+    return `The provider's address answered "not found". Check its base URL (most end in /v1), or switch model. (It said: "${said}")`;
+  }
+  if (/cannot connect|unable to connect|econnrefused|fetch failed|connection refused|enotfound/i.test(reason)) {
+    return `Couldn't reach the provider. Is its server running, and is the address right? Or switch model. (It said: "${said}")`;
+  }
+  return `This model failed: "${said}". Try again, or switch model.`;
 }

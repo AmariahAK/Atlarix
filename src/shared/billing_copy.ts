@@ -310,12 +310,13 @@ export function localResetTime(
 }
 
 /**
- * Atlarix Auto: today's free share is used (proxy 429 `free_usage_limit`).
+ * Atlarix Auto: today's free usage is all used (proxy 429 `free_usage_limit`).
  *
- * Says WHEN it comes back on the user's clock — the free tokens reset at 00:00
- * UTC, which is a different hour everywhere — then the ways to keep going. Not an
- * error the user caused, and not our outage either, so it is never reported to
- * Sentry. Starts with FREE_LIMIT_MARKER so ChatErrorBox can offer the buttons.
+ * Says it plainly and says WHEN it comes back on the user's clock (the free
+ * allowances reset at 00:00 UTC, a different hour everywhere), and nothing more:
+ * no buttons, no upsell (owner, 2026-10-12: "just say daily usage is over, come
+ * back tomorrow, and let it be"). Not an error the user caused, and not our
+ * outage, so it is never reported to Sentry. Holds FREE_LIMIT_MARKER.
  */
 export function freeUsageLimitUserMessage(
   retryAfterSeconds?: number | null,
@@ -324,18 +325,11 @@ export function freeUsageLimitUserMessage(
 ): string {
   const when =
     typeof retryAfterSeconds === "number" && retryAfterSeconds > 0
-      ? ` · resets at ${localResetTime(retryAfterSeconds, now, timeZone)}`
-      : " · resets at midnight UTC";
-  return `Today's free share is used up${when}. ${FREE_LIMIT_WAYS}`;
+      ? `it resets at ${localResetTime(retryAfterSeconds, now, timeZone)}`
+      : "it resets at midnight UTC";
+  return `Today's usage is over. Come back tomorrow (${when}).`;
 }
 
-/**
- * The ways past free Auto's daily limit, cheapest commitment first. Credit and
- * your own key lead because most people who hit the wall do so in their first
- * days and will not start a subscription then; Pro is still named, last.
- */
-export const FREE_LIMIT_WAYS =
-  "To keep going now, add credit and pay only for what you use (from $10), or switch to your own API key or a local model, which have no Atlarix limits. Atlarix Pro ($19/month) covers Auto too.";
 export const USE_OWN_KEY_LABEL = "Use your own key";
 
 /**
@@ -415,6 +409,6 @@ export function compassBadRequestUserMessage(detail?: string): string {
 // once someone edits either side.
 
 export const CORE_EXHAUSTED_MARKER = "balance is used up";
-export const FREE_LIMIT_MARKER = "free share is used up";
+export const FREE_LIMIT_MARKER = "Today's usage is over";
 export const AUTO_CONSENT_MARKER = "Atlarix Auto is free once you OK";
 export const CORE_REACHABILITY_MARKER = "trouble reaching Atlarix Core";

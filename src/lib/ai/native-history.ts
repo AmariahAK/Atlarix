@@ -96,6 +96,53 @@ export function hasNativeToolParts(messages: ModelMessage[]): boolean {
   );
 }
 
+/**
+ * What a turn the user STOPPED leaves for the next turn: the rounds already
+ * folded plus the running round's finished steps, each tool call once and only
+ * with its result (a lone tool_use is rejected by providers), ending in a note
+ * that it was stopped. Null when no tool step finished. Without this a stopped
+ * turn kept only its text and the model said it had read nothing (QA).
+ */
+export function stoppedTurnNative(
+  folded: ModelMessage[],
+  liveRound: ModelMessage[],
+  note: string,
+): ModelMessage[] | null {
+  const idOf = (p: AnyPart) => (p as { toolCallId?: string }).toolCallId;
+  const all = [...folded];
+  // A call and its result share an id: key by both.
+  const keysOf = (m: ModelMessage) =>
+    contentParts(m)
+      .filter((p) => idOf(p))
+      .map((p) => `${p?.type}:${idOf(p)}`);
+  const seen = new Set(all.flatMap(keysOf));
+  for (const m of liveRound) {
+    const keys = keysOf(m);
+    if (keys.length && keys.every((k) => seen.has(k))) continue;
+    all.push(m);
+    for (const k of keys) seen.add(k);
+  }
+  const calls = new Set<string>();
+  const results = new Set<string>();
+  for (const m of all) {
+    for (const p of contentParts(m)) {
+      const id = idOf(p);
+      if (!id) continue;
+      if (p?.type === "tool-call") calls.add(id);
+      if (p?.type === "tool-result") results.add(id);
+    }
+  }
+  const paired = (p: AnyPart) => {
+    const id = idOf(p);
+    return !id || (p?.type !== "tool-call" && p?.type !== "tool-result") || (calls.has(id) && results.has(id));
+  };
+  const kept = all
+    .map((m) => (Array.isArray(m.content) ? ({ ...m, content: contentParts(m).filter(paired) } as unknown as ModelMessage) : m))
+    .filter((m) => !Array.isArray(m.content) || m.content.length > 0);
+  if (!hasNativeToolParts(kept)) return null;
+  return [...kept, { role: "assistant", content: note }];
+}
+
 // ─── Token estimation for array-content messages ────────────────────────────
 
 /** Flat per-image estimate (Anthropic charges ~1.6k tokens for ≤1568px). */

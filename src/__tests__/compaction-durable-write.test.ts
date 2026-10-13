@@ -420,3 +420,36 @@ describe("enforceContextBudget is the BACKSTOP — it must not summarize", () =>
     expect((kept[0] as { commitHash?: string }).commitHash).toMatch(/^sha-/);
   });
 });
+
+describe("/compact asked by the user ends in a summary", () => {
+  beforeEach(() => {
+    sessionHandlers.persistSpy.mockClear();
+    llm.generateText.mockClear();
+  });
+
+  // One long explore turn: a short ask and a reply that is mostly tool output.
+  // Pruning alone frees plenty, so without `summarize` no marker was written and
+  // a resume brought the whole history back (QA, 2026-10-13).
+  const exploreTurn = () => {
+    const out = (i: number) =>
+      `<atlarix-tool-result tool="read_file" call="c${i}" status="complete">\n${"line of code ".repeat(900)}\n</atlarix-tool-result>\n`;
+    return [
+      { id: 1, role: "user", content: "Explore this repo and explain the TUI." },
+      { id: 2, role: "assistant", content: `Reading.\n${Array.from({ length: 12 }, (_, i) => out(i)).join("")}## Answer\nThree weaknesses: a, b, c.` },
+    ];
+  };
+
+  it("summarizes and saves the marker even when pruning freed enough", async () => {
+    const messages = exploreTurn();
+    const limit = Math.floor(countMessagesTokens(messages) / 2);
+    const plain = await runSteppedCompaction(messages, limit, "p", { chatId: -7, workspaceSessionId: "s1" });
+    expect(plain.strategy).not.toBe("summarized");
+
+    const asked = await runSteppedCompaction(messages, limit, "p", { chatId: -7, workspaceSessionId: "s1", summarize: true });
+    expect(asked.strategy).toBe("summarized");
+    expect(asked.summaryPersisted).toBe(true);
+    expect(sessionHandlers.persistSpy).toHaveBeenCalledWith("s1", expect.stringContaining(COMPACTION_SUMMARY_PREFIX), expect.anything());
+    // The summariser is shown the turn's END, where its answer is.
+    expect(JSON.stringify(llm.generateText.mock.calls.at(-1))).toContain("Three weaknesses");
+  });
+});

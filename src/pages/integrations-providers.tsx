@@ -56,10 +56,7 @@ export function IntegrationsProvidersPage() {
         </Button>
       </div>
       <p className="text-xs text-muted-foreground mb-4">
-        Atlarix Core is built in and needs no API key. Add your own keys for
-        other providers as needed; models are fetched from models.dev and
-        refreshed hourly. Token budget caps are set per provider, inside each
-        provider&apos;s own page.
+        Atlarix Core needs no key. Add your own for any other provider.
       </p>
       <ProviderSettingsGrid />
     </div>

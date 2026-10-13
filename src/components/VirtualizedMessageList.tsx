@@ -12,10 +12,11 @@
  * Gated behind SimpleInlineChat's USE_VIRTUALIZED_CHAT kill-switch; when off,
  * SimpleInlineChat renders its original render-all list unchanged.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { ArrowDown } from "lucide-react";
 import type { Message } from "@/ipc/ipc_types";
+import { splitPeerMessages } from "@/lib/peers/peer-message";
 import { SimpleMessage } from "./SimpleMessage";
 import { InlineStreamStatus } from "./chat/InlineStreamStatus";
 import { InlineUserQuestions } from "./chat/InlineUserQuestions";
@@ -56,6 +57,8 @@ export function VirtualizedMessageList({
   lastAssistantIndex,
   onEditUserMessage,
   onContinue,
+  onPlanArtifactBuild,
+  planArtifactBuildDisabled,
 }: {
   messages: Message[];
   chatId: number;
@@ -64,6 +67,8 @@ export function VirtualizedMessageList({
   lastAssistantIndex: number;
   onEditUserMessage: (messageId: number, newContent: string) => Promise<void>;
   onContinue: (message: Message) => void;
+  onPlanArtifactBuild?: (planId: string) => void;
+  planArtifactBuildDisabled?: boolean;
 }) {
   const virtuosoRef = useRef<VirtuosoHandle | null>(null);
   const [atBottom, setAtBottom] = useState(true);
@@ -84,6 +89,29 @@ export function VirtualizedMessageList({
     }
     wasStreamingRef.current = isStreaming;
   }, [isStreaming, atBottom]);
+
+  // Sending takes you to the end of the conversation, even when you had
+  // scrolled up to read (QA #9: the new turn ran off-screen behind "Jump to
+  // latest"). A teammate's message arriving does not move you.
+  const lastOwnMessageId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (msg.role === "user" && !splitPeerMessages(msg.content ?? "")) {
+        return msg.id;
+      }
+    }
+    return undefined;
+  }, [messages]);
+  const prevOwnMessageIdRef = useRef(lastOwnMessageId);
+  useEffect(() => {
+    const prev = prevOwnMessageIdRef.current;
+    prevOwnMessageIdRef.current = lastOwnMessageId;
+    if (prev === undefined || lastOwnMessageId === prev) return;
+    const raf = requestAnimationFrame(() => {
+      virtuosoRef.current?.scrollToIndex({ index: "LAST", align: "end" });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [lastOwnMessageId]);
 
   const lastIndex = messages.length - 1;
   const lastMessage = lastIndex >= 0 ? messages[lastIndex] : undefined;
@@ -123,6 +151,8 @@ export function VirtualizedMessageList({
               isLatestAssistant={index === lastAssistantIndex}
               onEditUserMessage={onEditUserMessage}
               onContinue={onContinue}
+              onPlanArtifactBuild={onPlanArtifactBuild}
+              planArtifactBuildDisabled={planArtifactBuildDisabled}
             />
           </div>
         )}

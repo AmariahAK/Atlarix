@@ -220,6 +220,25 @@ export function createStreamTransport(appId: number): number {
   return id;
 }
 
+/**
+ * The workspace chats this process holds, with how many messages each has and
+ * its newest message id (ids grow with time, so the newest id is the most
+ * recently active chat). For main-side delivery that picks a chat to wake.
+ */
+export function listStreamTransports(): Array<{
+  chatId: number;
+  appId: number | undefined;
+  messageCount: number;
+  lastMessageId: number;
+}> {
+  return [...ephemeralChats.values()].map((c) => ({
+    chatId: c.id,
+    appId: c.appId,
+    messageCount: c.messages.length,
+    lastMessageId: c.messages.reduce((m, x) => Math.max(m, Number(x.id) || 0), 0),
+  }));
+}
+
 export function getStreamTransportAppId(chatId: number): number | undefined {
   return ephemeralChats.get(chatId)?.appId;
 }

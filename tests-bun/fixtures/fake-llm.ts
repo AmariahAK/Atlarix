@@ -7,6 +7,8 @@
  */
 export type Reply =
   | { tool: string; args: Record<string, unknown>; delayMs?: number }
+  /** Several calls in one step (parallel tool calls). */
+  | { tools: Array<{ tool: string; args: Record<string, unknown> }>; delayMs?: number }
   | { text: string; delayMs?: number };
 
 const enc = new TextEncoder();
@@ -28,6 +30,27 @@ function sse(chunks: object[], delayMs = 0): Response {
 }
 
 function reply(r: Reply, n: number): Response {
+  if ("tools" in r) {
+    return sse(
+      [
+        {
+          ...base,
+          choices: [
+            {
+              index: 0,
+              delta: {
+                role: "assistant",
+                tool_calls: r.tools.map((t, k) => ({ index: k, id: `call_${n}_${k}_${t.tool}`, type: "function", function: { name: t.tool, arguments: JSON.stringify(t.args) } })),
+              },
+              finish_reason: null,
+            },
+          ],
+        },
+        { ...base, choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }], usage },
+      ],
+      r.delayMs ?? 0,
+    );
+  }
   if ("tool" in r) {
     return sse(
       [

@@ -22,7 +22,7 @@ import {
   type SessionModeState,
   type SessionUpdate,
 } from "@agentclientprotocol/sdk";
-import { parsePlanChecklist, type PlanChecklistStep } from "@/lib/tasks/plan-checklist";
+import { extractPlanChecklistTitle, parsePlanChecklist, plainStepText, type PlanChecklistStep } from "@/lib/tasks/plan-checklist";
 import type { AgentSession, ModelChoice, SessionState, WorkMode } from "../agent/session";
 import { promptInput } from "./content";
 import {
@@ -82,6 +82,8 @@ class Thread {
   private skills: Array<{ name: string; description: string; readPath: string }> = [];
   private lastMode: WorkMode;
   private planSent = "";
+  private pendingSent = "";
+  private retryingSent: string | null = null;
   /** Going back to an earlier message: the editor cleared its view, so send the whole transcript again. */
   private replayAll = false;
 
@@ -97,6 +99,112 @@ class Thread {
     this.lastMode = session.state.mode;
     session.on("change", (s: SessionState) => this.onChange(s));
     session.on("peer-message", () => this.onPeerMessage());
+    session.on("background-ready", () => this.onBackgroundReady());
+    session.on("tasks-changed", () => this.checkTasks());
+    session.on("automation", (run: Record<string, unknown>) => this.onAutomationRun(run));
+    // A stopped turn's unsent text goes back to the editor's input box.
+    session.on("unsent", (text: string) => {
+      if (this.extras()) void this.client().notify("_atlarix/unsent", { sessionId: this.id, text }).catch(() => {});
+    });
+  }
+
+  /** An automation finished a run: Atlarix's extension says so, as the CLI flashes a line. */
+  private onAutomationRun(run: Record<string, unknown>): void {
+    if (!this.extras()) return;
+    void this.client()
+      .notify("_atlarix/automation_run", {
+        sessionId: this.id,
+        automationId: typeof run.automationId === "string" ? run.automationId : null,
+        name: typeof run.automationName === "string" ? run.automationName : "Automation",
+        status: typeof run.status === "string" ? run.status : "ok",
+        summary: typeof run.summary === "string" ? run.summary : typeof run.error === "string" ? run.error : null,
+      })
+      .catch(() => {});
+  }
+
+  /**
+   * Background work finished while idle. Atlarix's extension opens the wake
+   * turn itself (as the desktop does); other editors only start turns from a
+   * prompt, so there the results wait for the next message, which reads them.
+   */
+  private onBackgroundReady(): void {
+    if (!this.extras()) return;
+    void this.flush().then(() => this.client().notify("_atlarix/background_ready", { sessionId: this.id }).catch(() => {}));
+  }
+
+  private tasksSent = "";
+  private tasksTimer: ReturnType<typeof setTimeout> | null = null;
+  private tasksPoll: ReturnType<typeof setInterval> | null = null;
+
+  /**
+   * Tell Atlarix's extension when what is running changes (a task starts, stalls
+   * or ends), so its chip and task list follow without polling. Coalesced: the
+   * session changes many times a second while a turn streams. While anything
+   * runs, re-checked every few seconds too, since a job ending between turns
+   * changes no transcript cell.
+   */
+  private checkTasks(): void {
+    if (!this.extras() || this.tasksTimer) return;
+    this.tasksTimer = setTimeout(() => {
+      this.tasksTimer = null;
+      void this.session
+        .liveTasks()
+        .then((tasks) => {
+          const sig = tasks.map((t) => `${t.id}:${t.stalled ? 1 : 0}`).join(",");
+          if (tasks.length && !this.tasksPoll) {
+            this.tasksPoll = setInterval(() => this.checkTasks(), 3_000);
+            (this.tasksPoll as { unref?: () => void }).unref?.();
+          } else if (!tasks.length && this.tasksPoll) {
+            clearInterval(this.tasksPoll);
+            this.tasksPoll = null;
+          }
+          if (sig === this.tasksSent) return;
+          this.tasksSent = sig;
+          return this.client().notify("_atlarix/tasks_changed", { sessionId: this.id, count: tasks.length });
+        })
+        .catch(() => {});
+    }, 400);
+  }
+
+  /**
+   * A message sent while a turn runs (Atlarix's extension): "steer" goes into
+   * the running turn at its next step, "queue" opens the next turn, as the
+   * CLI's Enter and Tab. Idle, either starts a turn like a prompt would not:
+   * the editor sends a prompt then, so this only answers while busy.
+   */
+  async interject(text: string, kind: "steer" | "queue"): Promise<{ pending: Array<{ id: string; text: string; kind: string }>; started: boolean }> {
+    const t = text.trim();
+    if (!t) return { pending: this.session.state.pending, started: false };
+    if (!this.session.state.busy) return { pending: this.session.state.pending, started: false };
+    if (kind === "queue") this.session.queueNext(t);
+    else await this.session.submit(t);
+    return { pending: this.session.state.pending, started: true };
+  }
+
+  /** What is running in this session, for Atlarix's extension: list, read the output of, or stop one. */
+  async tasks(action: "list" | "output" | "stop", id?: string): Promise<Record<string, unknown>> {
+    const all = await this.session.liveTasks();
+    if (action === "list") {
+      return {
+        tasks: all.map((t) => ({
+          id: t.id,
+          kind: t.kind,
+          label: t.label,
+          elapsedMs: t.elapsedMs,
+          stalled: t.stalled,
+          tokens: t.tokens ?? null,
+          progress: t.progress ?? null,
+          tools: t.tools.length,
+          canStop: !!t.jobId,
+        })),
+      };
+    }
+    const t = all.find((x) => x.id === id);
+    if (!t) return { gone: true };
+    if (action === "output") return { text: await this.session.taskOutput(t) };
+    const message = await this.session.stopTask(t);
+    this.checkTasks();
+    return { message };
   }
 
   /** Updates go out in order: each waits for the one before it. */
@@ -113,6 +221,8 @@ class Thread {
 
   private onChange(s: SessionState): void {
     for (const u of diffUpdates(s.cells, this.emitted, { replay: this.replayAll, ids: this.extras() })) void this.send(u);
+    // A sub-agent starting or ending inside a turn changes what is running.
+    this.checkTasks();
     if (s.title && s.title !== this.lastTitle && !s.busy) {
       // Renamed from the editor's Past chats while open.
       this.lastTitle = s.title;
@@ -124,6 +234,19 @@ class Thread {
       this.lastMode = s.mode;
       void this.send({ sessionUpdate: "current_mode_update", currentModeId: s.mode });
       void this.options().then((configOptions) => this.send({ sessionUpdate: "config_option_update", configOptions }));
+    }
+    if ((s.retrying ?? null) !== this.retryingSent && this.extras()) {
+      // "Couldn't connect, retrying…" in the editor's working line (QA).
+      this.retryingSent = s.retrying ?? null;
+      void this.client().notify("_atlarix/working", { sessionId: this.id, title: s.retrying ?? null }).catch(() => {});
+    }
+    const pendingSig = s.pending.map((x) => `${x.kind}:${x.id}`).join(",");
+    if (pendingSig !== this.pendingSent && this.extras()) {
+      // What you sent while it worked, still waiting: the editor lists it above the box.
+      this.pendingSent = pendingSig;
+      void this.client()
+        .notify("_atlarix/pending", { sessionId: this.id, items: s.pending.map((x) => ({ id: x.id, text: x.text, kind: x.kind })) })
+        .catch(() => {});
     }
     const planKey = `${s.planReady?.planId ?? ""}:${s.planRevision}`;
     if (planKey !== this.planSent) {
@@ -228,17 +351,30 @@ class Thread {
               atlarix: {
                 plan: {
                   id: p.id,
-                  title: p.title || s.planReady?.title || "Plan",
+                  title: p.title || s.planReady?.title || extractPlanChecklistTitle(p.content) || "Plan",
                   content: p.content,
                   revision: s.planRevision,
                   status: p.status,
-                  buildable: p.status === "plan",
+                  // A build that stopped with steps left can be picked up again (QA C4).
+                  buildable: p.status === "plan" || s.planReady?.planId === p.id,
                 },
               },
             },
           }
         : {}),
     });
+  }
+
+  /**
+   * After a load's replay: the editor has just cleared its screen, so send the
+   * plan again even if this thread already sent it. A reopened chat lost its
+   * plan card and Build it otherwise (QA #54).
+   */
+  async resendPlan(): Promise<void> {
+    const s = this.session.state;
+    this.planSent = `${s.planReady?.planId ?? ""}:${s.planRevision}`;
+    this.lastPlanEntries = false;
+    await this.sendPlan(s);
   }
 
   /** The plan on screen: the ready one, then the one being built. */
@@ -327,9 +463,12 @@ class Thread {
     }
     // Account commands for editors with no Atlarix panel (Zed, JetBrains): the
     // CLI's /status, /billing and /mcp, answered as a message.
-    if (slash && (slash[1] === "status" || slash[1] === "billing" || slash[1] === "mcp" || slash[1] === "logout")) {
+    // `/automations`, `/automations run <name>`, `/automations on|off <name>`.
+    const automations = /^\/automations(?:\s+([\s\S]+))?$/i.exec(text.trim());
+    if (automations || (slash && (slash[1] === "status" || slash[1] === "billing" || slash[1] === "mcp" || slash[1] === "logout"))) {
       const { accountCommandText } = await import("./account-commands");
-      const reply = await accountCommandText(slash[1], this.session).catch((e: Error) => `Couldn't read that: ${e.message}`);
+      const cmd = automations ? `automations ${automations[1]?.trim() ?? ""}`.trim() : slash![1]!;
+      const reply = await accountCommandText(cmd, this.session).catch((e: Error) => `Couldn't read that: ${e.message}`);
       await this.send({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: reply } });
       return { stopReason: "end_turn" };
     }
@@ -365,6 +504,9 @@ class Thread {
       } else if (meta?.peerTurn) {
         // Atlarix's extension, told a message from another session is waiting: read it now.
         await this.session.takeHeldPeerMessages();
+      } else if (meta?.wakeTurn) {
+        // Atlarix's extension, told background work finished: let the agent act on it.
+        await this.session.wakeForBackground();
       } else if (this.session.state.question && meta?.answers?.length) {
         await this.session.answerQuestion(meta.answers);
       } else if (this.session.state.question) {
@@ -390,18 +532,23 @@ class Thread {
     return { stopReason: "end_turn" };
   }
 
+  /** How full the context is, for the editor's ring (after a turn, and on load). */
+  sendUsage(): void {
+    const s = this.session.state;
+    if (s.contextUsed == null || !s.contextLimit) return;
+    void this.send({
+      sessionUpdate: "usage_update",
+      used: s.contextUsed,
+      size: s.contextLimit,
+      ...(s.costUsd > 0 ? { cost: { amount: s.costUsd, currency: "USD" } } : {}),
+      // The task header in Atlarix's extension: this chat's tokens, and how many came from cache.
+      ...(this.extras() ? { _meta: { atlarix: { tokens: s.sessionTokens, cachedTokens: s.cachedTokens } } } : {}),
+    });
+  }
+
   private async afterTurn(): Promise<void> {
     const s = this.session.state;
-    if (s.contextUsed != null && s.contextLimit) {
-      void this.send({
-        sessionUpdate: "usage_update",
-        used: s.contextUsed,
-        size: s.contextLimit,
-        ...(s.costUsd > 0 ? { cost: { amount: s.costUsd, currency: "USD" } } : {}),
-        // The task header in Atlarix's extension: this chat's tokens, and how many came from cache.
-        ...(this.extras() ? { _meta: { atlarix: { tokens: s.sessionTokens, cachedTokens: s.cachedTokens } } } : {}),
-      });
-    }
+    this.sendUsage();
     if (s.title && s.title !== this.lastTitle) {
       this.lastTitle = s.title;
       void this.send({ sessionUpdate: "session_info_update", title: s.title });
@@ -457,7 +604,7 @@ class Thread {
   }
 }
 
-const BUILTIN_COMMANDS = ["compact", "undo", "keys", "status", "billing", "mcp", "handoff", "logout", "build"];
+const BUILTIN_COMMANDS = ["compact", "undo", "keys", "status", "billing", "mcp", "automations", "handoff", "logout", "build"];
 
 function commandsUpdate(planReady: boolean, skills: Array<{ name: string; description: string }> = []): SessionUpdate {
   return {
@@ -469,6 +616,7 @@ function commandsUpdate(planReady: boolean, skills: Array<{ name: string; descri
       { name: "status", description: "Your Atlarix account, plan, credit and this chat's usage." },
       { name: "billing", description: "Get Pro, add credit, or manage or cancel your subscription." },
       { name: "mcp", description: "MCP servers in this folder." },
+      { name: "automations", description: "Scheduled and triggered tasks in this folder; run one, or turn it on or off." },
       { name: "handoff", description: "Continue this chat in the Atlarix app." },
       { name: "logout", description: "Sign out of Atlarix on this computer (the app and CLI share the sign-in)." },
       ...(planReady ? [{ name: "build", description: "Build the plan that is ready for review." }] : []),
@@ -483,6 +631,8 @@ export interface AtlarixPromptMeta {
   answers?: string[];
   /** Read the message another session left while this one was idle. */
   peerTurn?: boolean;
+  /** Background work finished while idle: let the agent deal with it now. */
+  wakeTurn?: boolean;
 }
 
 export function promptMeta(meta: unknown): AtlarixPromptMeta | undefined {
@@ -491,13 +641,14 @@ export function promptMeta(meta: unknown): AtlarixPromptMeta | undefined {
   return {
     answers: Array.isArray(a.answers) ? a.answers.map(String) : undefined,
     peerTurn: a.peerTurn === true,
+    wakeTurn: a.wakeTurn === true,
   };
 }
 
 /** Plan steps as ACP plan entries. Blocked or external steps are still to do. */
 export function planEntries(steps: readonly PlanChecklistStep[]): PlanEntry[] {
   return steps.map((st) => ({
-    content: st.text,
+    content: plainStepText(st.text),
     priority: "medium",
     status: st.state === "done" ? "completed" : st.state === "in_progress" ? "in_progress" : "pending",
   }));
@@ -654,6 +805,8 @@ export class AcpAgent {
     // editor that asks to load it again has nothing on screen, so start over.
     if (existing) existing.emitted.clear();
     await t.replay();
+    await t.resendPlan();
+    t.sendUsage();
     setTimeout(() => void t.refreshCommands(), 0);
     return { configOptions: await this.configOptions(t), modes: this.modes(t) };
   }
@@ -689,6 +842,14 @@ export class AcpAgent {
   }
 
   /** Atlarix's extension, back after a while away: one line on where this session stands. */
+  interject(sessionId: string, text: string, kind: "steer" | "queue") {
+    return this.thread(sessionId).interject(text, kind);
+  }
+
+    tasks(sessionId: string, action: "list" | "output" | "stop", id?: string): Promise<Record<string, unknown>> {
+    return this.thread(sessionId).tasks(action, id);
+  }
+
   async recap(sessionId: string): Promise<{ text: string | null }> {
     const t = this.thread(sessionId);
     if (t.session.state.busy) return { text: null };
@@ -712,6 +873,11 @@ export class AcpAgent {
 
   checkpointBefore(sessionId: string, turnId: string, relativePath: string) {
     return this.thread(sessionId).session.checkpointBefore(turnId, relativePath);
+  }
+
+  /** A checkpoint's "Restore files only": the files go back, the conversation stays. */
+  restoreFiles(sessionId: string, messageId: number) {
+    return this.thread(sessionId).session.restoreFilesSince(messageId);
   }
 
   undoResend(sessionId: string, messageId: number, text: string, restore: boolean): Promise<PromptResponse> {

@@ -10,6 +10,8 @@
     "next-panel-tab": "next panel tab",
     "toggle-left-sidebar": "show or hide the left sidebar",
     "close-tab-or-window": "close the window",
+    "new-window": "open a new window",
+    "app-search": "search workspaces",
     "send-message": "send your message",
     "newline": "start a new line instead of sending"
   },
@@ -17,7 +19,7 @@
     "memory": "Doing a lot of work? Ask Atlarix to remember the key things, so the next session picks up where you left off.",
     "sessionRecall": "Ask about something from earlier in this chat — it can search the transcript, even after compacting.",
     "previousSession": "Ask Atlarix to read a previous session by name when you want accurate context on earlier work.",
-    "autocomplete": "Type / for commands, or @ to point at a file.",
+    "autocomplete": "Type @ to point at a file, or /compact to summarise the conversation so far.",
     "mcp": "Connect MCP servers in Settings → Integrations to give Atlarix your own tools.",
     "skills": "Drop a markdown file in .atlarix/skills/ to teach Atlarix a repeatable job — or ask it to write one.",
     "voice": "Dictate instead of typing — it works with any model that accepts audio, or with your own speech-to-text key.",

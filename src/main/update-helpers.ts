@@ -127,3 +127,41 @@ export function canElectronUpdaterRun(env: {
   }
   return { ok: true };
 }
+
+/**
+ * The "Move to Applications Folder?" dialog. When an Atlarix is already in
+ * Applications, moving replaces it (Electron sends it to the Trash), and the
+ * default button used to be Move with nothing saying so: a test build launched
+ * on a fresh profile replaced the installed app on one Enter (2026-10-13). Say
+ * what goes to the Trash, and make keeping it the default.
+ */
+export function moveToApplicationsDialog(existing: {
+  name: string;
+  version: string | null;
+} | null): {
+  message: string;
+  detail?: string;
+  buttons: [string, string];
+  defaultId: 0 | 1;
+} {
+  const buttons: [string, string] = [
+    "Move to Applications Folder",
+    "Do Not Move",
+  ];
+  if (!existing) {
+    return {
+      message: "Move to Applications Folder? (required for auto-update)",
+      buttons,
+      defaultId: 0,
+    };
+  }
+  const which = existing.version
+    ? `${existing.name} ${existing.version}`
+    : existing.name;
+  return {
+    message: "Move to Applications Folder? (required for auto-update)",
+    detail: `${which} is already in Applications. Moving replaces it, and it goes to the Trash.`,
+    buttons,
+    defaultId: 1,
+  };
+}

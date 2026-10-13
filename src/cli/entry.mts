@@ -46,11 +46,38 @@ function isBatch(): boolean {
     argv.includes("--prompt") ||
     argv.includes("--prompt-file") ||
     argv.includes("--version") ||
-    argv.includes("-v") ||
-    argv.includes("--help") ||
-    argv.includes("-h")
+    argv.includes("-v")
   );
 }
+
+/**
+ * `atlarix --help`, `-h`, `help`: what it can do. They went to the batch
+ * runner, which only said "--prompt or --prompt-file is required" (QA), and
+ * `atlarix help` said it needed a terminal. `atlarix run --help` is still the
+ * runner's own.
+ */
+function wantsHelp(): boolean {
+  return argv[0] !== "run" && (argv[0] === "help" || argv.includes("--help") || argv.includes("-h"));
+}
+
+const HELP = `atlarix ${VERSION}: the Atlarix agent in your terminal
+
+Usage
+  atlarix                      Start in this folder
+  atlarix -c, --continue       Pick up this folder's latest chat
+  atlarix --resume [id]        Open a past chat (a list without an id)
+  atlarix run --prompt "…"     One turn without the UI, for scripts and CI (run --help)
+
+Commands
+  atlarix login [--device]     Sign in (--device: with a code, on a machine without a browser)
+  atlarix logout               Sign out of the CLI
+  atlarix keys                 Your provider keys: list, add <provider>, remove <provider>
+  atlarix acp                  Run as an agent for an editor (Agent Client Protocol)
+  atlarix --version            The version
+
+Inside, type / for commands, @ for files, and shift+tab to change mode.
+Docs: https://atlarix.dev/docs
+`;
 
 async function interactive(): Promise<void> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
@@ -90,6 +117,9 @@ async function interactive(): Promise<void> {
 
   const session = new AgentSession({ workspaceDir: process.cwd(), model: model ?? cliState?.model });
   await session.start();
+  // On the way out: how to come back to this chat (once it has one).
+  const { onShutdownNote } = await import("./shutdown");
+  onShutdownNote(() => (session.sessionId ? `Resume this chat: atlarix --resume ${session.sessionId}  (or atlarix -c in this folder)` : null));
   // `atlarix --resume <session id>`: open that session (the app's "Continue in
   // terminal" runs this). Bare `--resume` still opens the picker.
   const resumeAt = argv.indexOf("--resume");
@@ -106,6 +136,10 @@ async function interactive(): Promise<void> {
     // so with the app open too, every run still happens once).
     const { startAutomationRunner } = await import("../lib/automations/runner");
     startAutomationRunner();
+    // The provider and model catalog refreshes here as in the app (hourly; a
+    // fresh disk cache skips the fetch).
+    const { startModelsDevRefresh } = await import("../lib/models_dev");
+    startModelsDevRefresh();
     // The user's Chrome, through the Atlarix extension: hosted here, or shared
     // with the desktop app when it already hosts it (bridge-lifecycle.ts).
     void startCliBridge();
@@ -115,7 +149,7 @@ async function interactive(): Promise<void> {
   if (cliState?.model) {
     const options = await modelsMod.loadModelOptions().catch(() => []);
     const hit = options.find((o) => o.provider === cliState.model!.provider && o.name === cliState.model!.name);
-    modelLabel = hit?.label ?? cliState.model.name;
+    modelLabel = hit ? modelsMod.headerModelLabel(hit) : cliState.model.name;
   }
 
   const { runTui } = await import("./tui/run");
@@ -272,6 +306,15 @@ async function loginInTerminal(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  if (wantsHelp()) {
+    process.stdout.write(HELP);
+    process.exit(0);
+  }
+  // A one-shot command prints its answer, not the log (that goes to the file).
+  if (argv[0] === "keys" || argv[0] === "login" || argv[0] === "logout") {
+    const { default: log } = await import("electron-log");
+    log.transports.console.level = false;
+  }
   if (argv[0] === "acp") {
     // Before the batch/interactive split: an editor runs this over pipes, and
     // the interactive path refuses anything that isn't a terminal.
@@ -290,6 +333,10 @@ async function main(): Promise<void> {
   }
   if (argv[0] === "keys") {
     await prepareCliData(undefined);
+    // Custom providers live in the database: listing or removing one needs it
+    // open ("Database not initialized" otherwise).
+    const { initializeDatabase } = await import("../db");
+    initializeDatabase();
     const { runKeysCommand, readHidden } = await import("./keys-command");
     const { realServices } = await import("./agent/services");
     const code = await runKeysCommand(argv.slice(1), realServices, {
@@ -314,7 +361,11 @@ async function main(): Promise<void> {
       await signOutCli();
       process.stdout.write("Signed out of the Atlarix CLI. The desktop app and extension stay signed in.\n");
     } else {
-      await loginInTerminal();
+      // Already signed in: say who, rather than opening another sign-in (QA).
+      const { currentEmail } = await import("./auth/account");
+      const who = argv.includes("--force") ? null : await currentEmail().catch(() => null);
+      if (who) process.stdout.write(`Signed in as ${who}. To switch accounts: atlarix logout, then atlarix login.\n`);
+      else await loginInTerminal();
     }
     process.exit(0);
   }

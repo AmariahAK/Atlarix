@@ -41,7 +41,7 @@ let cardShownFor: string | null = null;
 type Ask = "acquisition" | "peerpush" | null;
 
 export function CommunityPrompts() {
-  const { settings, refreshSettings } = useSettings();
+  const { settings, refreshSettings, updateSettings } = useSettings();
   const { user } = useAuth();
   const [ask, setAsk] = useState<Ask>(null);
   const [dismissed, setDismissed] = useState(false);
@@ -67,7 +67,10 @@ export function CommunityPrompts() {
     const stored = settings.acquisitionSource;
     const answeredByThisUser =
       !!stored?.source && stored.userId === currentUserId;
-    if (currentUserId && !answeredByThisUser) {
+    const dismissedByThisUser =
+      !!currentUserId &&
+      settings.acquisitionPromptDismissedFor === currentUserId;
+    if (currentUserId && !answeredByThisUser && !dismissedByThisUser) {
       cardShownFor = currentUserId;
       setAsk("acquisition");
       return;
@@ -94,6 +97,15 @@ export function CommunityPrompts() {
     setAsk(null);
   };
 
+  // X on the "where did you hear" card: remember it for this account so it
+  // isn't asked again every launch (QA #44). No answer is recorded or sent.
+  const dismissAcquisition = () => {
+    if (user?.id) {
+      void updateSettings({ acquisitionPromptDismissedFor: user.id });
+    }
+    close();
+  };
+
   const dismissPeerPush = () => {
     void IpcClient.getInstance().recordPeerPushPrompt("dismissed");
     close();
@@ -103,7 +115,7 @@ export function CommunityPrompts() {
     <div className="fixed bottom-4 right-4 z-[9998] w-[22rem] rounded-xl border border-border bg-card p-4 shadow-lg animate-in slide-in-from-bottom-5">
       <button
         type="button"
-        onClick={ask === "peerpush" ? dismissPeerPush : close}
+        onClick={ask === "peerpush" ? dismissPeerPush : dismissAcquisition}
         aria-label="Dismiss"
         className="absolute right-3 top-3 text-muted-foreground hover:text-foreground"
       >

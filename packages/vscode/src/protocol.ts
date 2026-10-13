@@ -45,6 +45,8 @@ export interface ProviderRow {
   custom?: boolean;
   /** Switched off: key kept, models hidden. */
   off?: boolean;
+  /** How many models it offers, from the catalog (shown before you connect it). */
+  catalogModels?: number;
   baseUrl?: string;
 }
 
@@ -58,6 +60,7 @@ export const RPC_METHODS = [
   "_atlarix/provider_key",
   "_atlarix/provider_test",
   "_atlarix/provider_custom",
+  "_atlarix/provider_base_url",
   "_atlarix/provider_enabled",
   "_atlarix/local_providers",
   "_atlarix/models",
@@ -72,6 +75,9 @@ export const RPC_METHODS = [
   "_atlarix/mcp",
   "_atlarix/status",
   "_atlarix/recap_setting",
+  "_atlarix/tasks",
+  "_atlarix/automations",
+  "_atlarix/interject",
 ] as const;
 export type RpcMethod = (typeof RPC_METHODS)[number];
 
@@ -109,12 +115,20 @@ export type HostMessage =
   | { type: "toast"; text: string; tone?: "info" | "error" }
   | { type: "rpc-result"; id: number; result?: unknown; error?: string; data?: unknown }
   /** Open a screen or picker from outside the view (a command, the status bar). */
-  | { type: "open"; what: "keys" | "model-picker" | "history" | "settings" | "account" | "mcp" | "approve" }
+  | { type: "open"; what: "keys" | "model-picker" | "history" | "settings" | "account" | "mcp" | "approve" | "automations" }
   /** Files matching what follows an @ in the box. */
   | { type: "files"; query: string; files: Array<{ path: string; label: string }> }
   /** The file open in the editor, offered as context unless removed. */
   | { type: "active-file"; item: ContextItem | null }
-  | { type: "host-settings"; settings: HostSettings };
+  | { type: "host-settings"; settings: HostSettings }
+  /** What is running in this chat changed (sub-agents, background commands): `count` of them. */
+  | { type: "tasks-changed"; count: number }
+  /** Messages sent while the turn runs, still waiting (steers, queued). */
+  | { type: "pending"; items: Array<{ id: string; text: string; kind: string }> }
+  | { type: "working"; title: string | null }
+  | { type: "unsent"; text: string }
+  /** An automation finished a run (in this editor, the CLI or the app). */
+  | { type: "automation-run"; name: string; status: string; summary: string | null };
 
 export type ViewMessage =
   | { type: "ready" }

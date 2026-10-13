@@ -4,8 +4,8 @@ import { activeChatIdAtom } from "@/atoms/chatAtoms";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { activeWorkspaceSessionIdAtom } from "@/atoms/sessionAtoms";
 import { useStreamChat } from "@/hooks/useStreamChat";
-import { useSettings } from "@/hooks/useSettings";
-import { BUILD_FROM_PLAN_PROMPT, settingsPatchForWorkMode } from "@/lib/work-mode";
+import { useWorkModeSelection } from "@/hooks/useWorkModeSelection";
+import { BUILD_FROM_PLAN_PROMPT } from "@/lib/work-mode";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ClipboardList, Hammer, CircleCheck, Loader2 } from "lucide-react";
@@ -20,7 +20,7 @@ import type { PlanArtifactPayload } from "@/ipc/utils/emit_plan_artifact";
 import { Button } from "@/components/ui/button";
 import {
   PlanChecklistProgress,
-  planArtifactTitleFromContent,
+  planDisplayTitle,
 } from "@/components/chat/PlanArtifactCard";
 
 function statusLabel(status: PlanArtifactStatus | null): string {
@@ -48,7 +48,7 @@ export function PlanExecutionPanel() {
   const workspaceId = useAtomValue(selectedAppIdAtom);
   const activeSessionId = useAtomValue(activeWorkspaceSessionIdAtom);
   const { streamMessage, isStreaming } = useStreamChat();
-  const { updateSettings } = useSettings();
+  const { setWorkMode } = useWorkModeSelection();
 
   useEffect(() => {
     setDraft(panel.content ?? "");
@@ -193,7 +193,9 @@ export function PlanExecutionPanel() {
 
   const handleBuild = async () => {
     if (!panel.planId) return;
-    await updateSettings(settingsPatchForWorkMode("build"));
+    // The session's mode, not only the global default: a session's stored
+    // mode wins over that, so it stayed in Plan after Build (QA #14).
+    setWorkMode("build");
     await setStatus("building");
     if (activeChatId != null && !isStreaming) {
       void streamMessage({
@@ -223,8 +225,7 @@ export function PlanExecutionPanel() {
                 {panel.planId ? (
                   <span className="flex items-baseline gap-2 min-w-0">
                     <span className="truncate" title={panel.title ?? undefined}>
-                      {panel.title?.trim() ||
-                        planArtifactTitleFromContent(panel.content ?? "")}
+                      {planDisplayTitle(panel.title, panel.content ?? "")}
                     </span>
                     <span className="text-xs text-muted-foreground font-normal shrink-0">
                       {statusLabel(panel.planStatus)}
@@ -259,8 +260,7 @@ export function PlanExecutionPanel() {
                   <option value="">Latest ({sessionPlans.length} plans)</option>
                   {sessionPlans.map((p) => (
                     <option key={p.planId} value={p.planId}>
-                      {(p.title?.trim() ||
-                        planArtifactTitleFromContent(p.content ?? "")) +
+                      {planDisplayTitle(p.title, p.content ?? "") +
                         ` — ${statusLabel(p.planStatus)}`}
                     </option>
                   ))}
@@ -268,8 +268,7 @@ export function PlanExecutionPanel() {
                     <optgroup label="Earlier sessions">
                       {earlierPlans.map((p) => (
                         <option key={p.planId} value={p.planId}>
-                          {(p.title?.trim() ||
-                            planArtifactTitleFromContent(p.content ?? "")) +
+                          {planDisplayTitle(p.title, p.content ?? "") +
                             ` — ${p.sessionTitle?.trim() || "untitled session"}`}
                         </option>
                       ))}

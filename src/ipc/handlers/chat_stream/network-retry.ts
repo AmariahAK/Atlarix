@@ -85,7 +85,12 @@ export function isNetworkStreamError(err: unknown, depth = 0): boolean {
     (err as { name?: string })?.name === "ProviderFinishReasonError"
   )
     return true;
-  if ((err as { name?: string })?.name === "APICallError") {
+  // The SDK names it "AI_APICallError"; checking only "APICallError" missed
+  // every one, so an unreachable provider under Bun (whose fetch says "Unable
+  // to connect…", which the message regex below doesn't know) became an empty
+  // reply: "Something went wrong" (QA).
+  const errName = (err as { name?: string })?.name;
+  if (errName === "APICallError" || errName === "AI_APICallError") {
     // Don't blindly retry EVERY APICallError — a deterministic 4xx (400 bad
     // request, 401/403 auth, 404, 422) fails identically on retry and just
     // wastes the backoff. Honor the SDK's own `isRetryable` verdict when present
@@ -217,9 +222,13 @@ export function retryAfterMs(err: unknown): number | null {
  */
 export class NetworkStreamDisconnectedError extends Error {
   partialResponse: string;
-  constructor(partialResponse: string) {
+  /** The last transport error's own words ("Cannot connect to API: …"). */
+  detail?: string;
+  constructor(partialResponse: string, cause?: unknown) {
     super("Network stream disconnected after retries");
     this.name = "NetworkStreamDisconnectedError";
     this.partialResponse = partialResponse;
+    const m = cause instanceof Error ? cause.message : (cause as { error?: Error } | undefined)?.error?.message;
+    if (m) this.detail = m;
   }
 }

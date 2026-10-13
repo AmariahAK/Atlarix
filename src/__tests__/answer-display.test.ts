@@ -165,3 +165,10 @@ describe("orphan tool-result tails", () => {
     expect(sanitizeMarkdownForDisplay(src)).toBe(src);
   });
 });
+
+describe("sanitizeMarkdownForDisplay keeps paragraphs", () => {
+  it("a blank line before a table and between paragraphs stays (QA #41)", () => {
+    const out = sanitizeMarkdownForDisplay("**(1) Table**\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n**(2) Next** text");
+    expect(out).toBe("**(1) Table**\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n**(2) Next** text");
+  });
+});

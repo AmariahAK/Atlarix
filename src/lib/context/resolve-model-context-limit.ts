@@ -40,6 +40,12 @@ async function fetchOllamaContextLength(name: string): Promise<number | null> {
   const { getOllamaApiUrl } = await import(
     "@/ipc/handlers/local_model_ollama_handler"
   );
+  // The window Atlarix runs the model at (ollama_native_fetch.ts sends it as
+  // num_ctx), not just the one it was trained for: budget what Ollama will
+  // actually hold.
+  const { ollamaNumCtx } = await import("@/ipc/utils/ollama_native_fetch");
+  const run = await ollamaNumCtx(getOllamaApiUrl(), name);
+  if (run) return run;
   const res = await fetch(`${getOllamaApiUrl()}/api/show`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -272,6 +278,24 @@ export async function resolveModelContextLimit(
     const real = await getLocalModelContextLength(pid, model.name ?? "");
     if (typeof real === "number" && real > 0) {
       return { tierLimit: floorSafe(real * clamp), rawContextLength: real };
+    }
+  }
+
+  // A custom provider that is really Ollama: the window it is run at
+  // (ollama_native_fetch.ts), not the 128K guess for an unknown model.
+  if (pid.startsWith("custom::")) {
+    try {
+      const { getLanguageModelProviders } = await import("@/ipc/shared/language_model_helpers");
+      const base = (await getLanguageModelProviders()).find((p) => p.id.toLowerCase() === pid)?.apiBaseUrl;
+      if (base) {
+        const { isOllamaEndpoint, ollamaOrigin, ollamaNumCtx } = await import("@/ipc/utils/ollama_native_fetch");
+        if (await isOllamaEndpoint(base)) {
+          const run = await ollamaNumCtx(ollamaOrigin(base), model.name ?? "");
+          if (run) return { tierLimit: floorSafe(run * clamp), rawContextLength: run };
+        }
+      }
+    } catch {
+      // fall through
     }
   }
 

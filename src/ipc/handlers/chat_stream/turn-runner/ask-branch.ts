@@ -719,7 +719,15 @@ export async function runAskBranch(
                   if (!approved) {
                     const execResultRejected =
                       askPermissionInterceptor.getExecutionResult(operationId);
-                    if (execResultRejected.exitCode !== undefined) {
+                    if (execResultRejected.approvedButFailed && execResultRejected.exitCode === undefined) {
+                    // Allowed, then the write itself failed: not a refusal.
+                    return JSON.stringify({
+                      success: false,
+                      error: execResultRejected.error,
+                      operation: permRequest.operation,
+                    });
+                  }
+                  if (execResultRejected.exitCode !== undefined) {
                       logger.log(
                         `[Ask Mode] Auto-approved op failed: ${operationId} (exit ${execResultRejected.exitCode})`,
                       );

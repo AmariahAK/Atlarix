@@ -24,8 +24,13 @@
     "privateShort": "private, no training"
   },
   "peerMessage": {
-    "from": "Message from {{where}} session",
+    "from": "Message from teammate",
+    "surface": "({{where}})",
     "anotherSession": "another session"
+  },
+  "revertTurn": {
+    "reverted": "Files reverted",
+    "revertedTitle": "This turn's file changes were put back: {{files}}"
   },
   "recap": {
     "label": "While you were away",

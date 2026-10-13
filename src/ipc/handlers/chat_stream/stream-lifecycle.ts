@@ -160,7 +160,7 @@ export async function flushInterruptedDraft(
   chatId: number,
   sessionId: string,
   content: string,
-  opts?: { force?: boolean },
+  opts?: { force?: boolean; modelContent?: string },
 ): Promise<void> {
   // Throttle BEFORE stripping: this runs on every streamed token, and the strip
   // is a regex over the whole turn so far.
@@ -178,6 +178,7 @@ export async function flushInterruptedDraft(
       partialDraftRowByChatId.get(chatId) ?? null,
       sessionId,
       text,
+      opts?.modelContent,
     );
     partialDraftRowByChatId.set(chatId, rowId);
   } catch (e) {

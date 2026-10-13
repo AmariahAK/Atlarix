@@ -574,6 +574,35 @@ export function killBackgroundJob(
   return true;
 }
 
+/** What finished, for a person ("npm run build · exit 0 · 32s"), without draining it. */
+export function describePendingBackgroundCommands(chatId: number): string[] {
+  return (resultsByChat.get(chatId) ?? []).map((r) => {
+    const how = r.cancelled ? "cancelled" : r.exitCode === 0 ? "finished" : `failed · exit ${r.exitCode}`;
+    const line = `${r.command.split("\n")[0]!.slice(0, 80)} ${how} · ${Math.max(1, Math.round(r.durationMs / 1000))}s`;
+    // A failure says why, as a foreground one does ("failed · exit 1" alone
+    // sent the agent to read the job's output to explain it, QA).
+    const why = !r.cancelled && r.exitCode !== 0 ? failureReason(r.output ?? "") : "";
+    return why ? `${line}: ${why}` : line;
+  });
+}
+
+/**
+ * A failed command's reason in one line: PowerShell's own message (the lines
+ * before its "At line:" / "+ …" trailer, joined), else the last line of output.
+ */
+export function failureReason(output: string): string {
+  const lines = output.split("\n").map((l) => l.trim()).filter((l) => l && !/^=== (STDOUT|STDERR) ===$/.test(l) && l !== "```");
+  const trailer = lines.findIndex((l) => /^(\+ |At line:\d|At [A-Za-z]:\\|~+$)/.test(l));
+  let why: string;
+  if (trailer > 0) {
+    let start = trailer - 1;
+    while (start > 0 && !/ : /.test(lines[start]!)) start -= 1;
+    why = lines.slice(start, trailer).join(" ");
+  } else why = lines.at(-1) ?? "";
+  why = why.replace(/\s+/g, " ");
+  return why.length > 160 ? `${why.slice(0, 159)}…` : why;
+}
+
 /**
  * Take-once drain of finished background command results, formatted as a
  * model-facing block. Returns null when nothing is pending.

@@ -18,6 +18,13 @@ const HARD_EXIT_MS = 2000;
 let restore: () => void = () => {};
 let shuttingDown = false;
 
+let goodbye: () => string | null = () => null;
+
+/** A line printed once the terminal is back: how to return to this chat (QA, as Claude Code and Codex do). */
+export function onShutdownNote(fn: () => string | null): void {
+  goodbye = fn;
+}
+
 /** What gives the terminal back (the TUI registers its renderer's). */
 export function onShutdownRestore(fn: () => void): void {
   restore = fn;
@@ -57,6 +64,12 @@ export async function shutdownCli(code = 0): Promise<never> {
     logger.warn("shutdown step failed (exiting anyway):", e);
   }
   restore();
+  try {
+    const note = goodbye();
+    if (note) process.stdout.write(`${note}\n`);
+  } catch {
+    /* nothing to say */
+  }
   process.exit(code);
 }
 

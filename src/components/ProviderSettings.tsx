@@ -4,6 +4,9 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/card";
+import { useTranslation } from "react-i18next";
+import { useAtomValue } from "jotai";
+import { providerKeyCheckAtom } from "@/atoms/viewAtoms";
 import { useNavigate } from "@tanstack/react-router";
 import type { LanguageModelProvider } from "@/ipc/ipc_types";
 
@@ -73,6 +76,9 @@ export function orderProvidersForPaging(
   filtered: LanguageModelProvider[],
   shuffledNonCompass: LanguageModelProvider[],
   searchQuery: string,
+  /** The ones you set up come first: "5 providers configured" used to be
+   * scattered across 37 shuffled pages (QA #31). */
+  isSetUp?: (id: string) => boolean,
 ): LanguageModelProvider[] {
   const compass = filtered.find((p) => p.id === COMPASS_ID);
   const openrouter = filtered.find((p) => p.id === OPENROUTER_ID);
@@ -82,8 +88,11 @@ export function orderProvidersForPaging(
     (!q ||
       compass.name.toLowerCase().includes(q) ||
       compass.id.toLowerCase().includes(q));
+  // OpenRouter is pinned once you've set it up; unconfigured it sorts with the
+  // rest, not ahead of the providers you use (QA #31).
   const openrouterVisible =
     openrouter &&
+    (!isSetUp || isSetUp(openrouter.id)) &&
     (!q ||
       openrouter.name.toLowerCase().includes(q) ||
       openrouter.id.toLowerCase().includes(q));
@@ -93,9 +102,15 @@ export function orderProvidersForPaging(
   // as-is meant a search changed nothing past Core and OpenRouter: typing
   // "deepseek" left all 35 pages and the user paged to find it (reported
   // 2026-09-23). Filter the stable shuffle instead of re-shuffling.
-  const tail = filterProviders(shuffledNonCompass, searchQuery).filter(
-    (p) => p.id !== COMPASS_ID && p.id !== OPENROUTER_ID,
+  const shuffledTail = filterProviders(shuffledNonCompass, searchQuery).filter(
+    (p) => p.id !== COMPASS_ID && (p.id !== OPENROUTER_ID || !openrouterVisible),
   );
+  const tail = isSetUp
+    ? [
+        ...shuffledTail.filter((p) => isSetUp(p.id)),
+        ...shuffledTail.filter((p) => !isSetUp(p.id)),
+      ]
+    : shuffledTail;
 
   if (compassVisible && openrouterVisible) {
     return [compass, openrouter, ...tail];
@@ -130,6 +145,8 @@ export function ProviderSettingsGrid() {
   } = useLanguageModelProviders();
 
   const { deleteProvider, isDeleting } = useCustomLanguageModelProvider();
+  const keyChecks = useAtomValue(providerKeyCheckAtom);
+  const { t } = useTranslation("settings");
 
   const filtered = useMemo(
     () => filterProviders(providers ?? [], searchQuery),
@@ -146,9 +163,8 @@ export function ProviderSettingsGrid() {
    * query, so the query must not retrigger it.
    */
   const reshuffleForDisplay = useCallback(() => {
-    const rest = (providers ?? []).filter(
-      (p) => p.id !== COMPASS_ID && p.id !== OPENROUTER_ID,
-    );
+    // OpenRouter is in the shuffle too: it is pinned only once set up.
+    const rest = (providers ?? []).filter((p) => p.id !== COMPASS_ID);
     setShuffledNonCompass(shuffleArray(rest));
     setPage(1);
   }, [providers]);
@@ -160,8 +176,14 @@ export function ProviderSettingsGrid() {
   }, [reshuffleForDisplay]);
 
   const orderedForPaging = useMemo(
-    () => orderProvidersForPaging(filtered, shuffledNonCompass, searchQuery),
-    [filtered, searchQuery, shuffledNonCompass],
+    () =>
+      orderProvidersForPaging(
+        filtered,
+        shuffledNonCompass,
+        searchQuery,
+        isProviderSetup,
+      ),
+    [filtered, searchQuery, shuffledNonCompass, isProviderSetup],
   );
 
   const totalPages = Math.max(
@@ -292,6 +314,7 @@ export function ProviderSettingsGrid() {
                           <TooltipTrigger asChild>
                             <Button
                               data-testid="edit-custom-provider"
+                              aria-label={`Edit ${provider.name}`}
                               variant="ghost"
                               size="sm"
                               className="h-8 w-8 p-0 hover:bg-muted rounded-md"
@@ -306,6 +329,7 @@ export function ProviderSettingsGrid() {
                           <TooltipTrigger asChild>
                             <Button
                               data-testid="delete-custom-provider"
+                              aria-label={`Delete ${provider.name}`}
                               variant="ghost"
                               size="sm"
                               className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10 rounded-md"
@@ -320,13 +344,20 @@ export function ProviderSettingsGrid() {
                     )}
                     <CardTitle className="text-lg font-medium mb-2">
                       {provider.name}
-                      {isProviderSetup(provider.id) ? (
+                      {keyChecks[provider.id] === "rejected" ? (
+                        // Its page's check was refused: not "Ready" (QA #47).
+                        <span className="ml-3 text-sm font-medium text-red-600 bg-red-50 dark:bg-red-900/30 border border-red-500/50 px-2 py-1 rounded-full">
+                          {t("providers.keyRejected")}
+                        </span>
+                      ) : isProviderSetup(provider.id) ? (
                         <span className="ml-3 text-sm font-medium text-green-500 bg-green-50 dark:bg-green-900/30 border border-green-500/50 dark:border-green-500/50 px-2 py-1 rounded-full">
                           Ready
                         </span>
                       ) : (
                         <span className="text-sm text-gray-500 bg-gray-50 dark:bg-gray-900 dark:text-gray-300 px-2 py-1 rounded-full">
-                          Add key
+                          {/* An endpoint you added may need no key (a local
+                              server): not "Add key" (QA #39), as the CLI says. */}
+                          {isCustom ? "Your endpoint" : "Add key"}
                         </span>
                       )}
                     </CardTitle>

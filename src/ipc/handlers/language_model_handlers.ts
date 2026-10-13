@@ -342,6 +342,16 @@ export function registerLanguageModelHandlers() {
         }
         logger.info(`Successfully deleted provider with ID "${providerId}".`);
       });
+      // Its key and settings go too, and any left by earlier deletes: they
+      // used to stay in user-settings.json for good.
+      try {
+        const remaining = await db.select({ id: languageModelProvidersSchema.id }).from(languageModelProvidersSchema);
+        const { pruneCustomProviderSettings } = await import("@/main/settings");
+        const gone = pruneCustomProviderSettings(new Set(remaining.map((r) => r.id)));
+        if (gone.length) logger.info(`Removed saved settings of deleted provider(s): ${gone.join(", ")}`);
+      } catch (e) {
+        logger.warn("could not remove a deleted provider's saved settings:", e);
+      }
     },
   );
 
@@ -370,6 +380,40 @@ export function registerLanguageModelHandlers() {
     "get-language-models-by-providers",
     async (): Promise<Record<string, LanguageModel[]>> => {
       return getLanguageModelsByProviders();
+    },
+  );
+
+  // Does the saved key for this provider work? One authenticated GET of its
+  // model list (lib/provider-key-check, as the CLI and editor do). The app's
+  // provider page said "Setup Complete" for any saved key, unchecked (QA #24).
+  handle(
+    "providers:check-key",
+    async (
+      _event: IpcMainInvokeEvent,
+      providerId: string,
+    ): Promise<{ status: string; detail: string } | null> => {
+      const { readSettings } = await import("@/main/settings");
+      const key = (
+        readSettings() as {
+          providerSettings?: Record<string, { apiKey?: { value?: string } }>;
+        }
+      ).providerSettings?.[providerId]?.apiKey?.value;
+      const { getLanguageModelProviders } = await import(
+        "@/ipc/shared/language_model_helpers"
+      );
+      const p = (await getLanguageModelProviders()).find(
+        (x) => x.id === providerId,
+      );
+      // A provider the user added may need no key (a local server): check it
+      // keyless rather than calling it "Not Setup" (QA #25).
+      if (!key && p?.type !== "custom") return null;
+      const { keyProbe, checkProviderKey } = await import(
+        "@/lib/provider-key-check"
+      );
+      return checkProviderKey(
+        keyProbe(providerId, key || "none", p?.apiBaseUrl ?? null),
+        key || "none",
+      );
     },
   );
 

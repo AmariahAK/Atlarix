@@ -43,6 +43,8 @@ export function resolveModelDisplayLabel(
     modelsByProviders?: Record<string, LanguageModel[]>;
     ollamaDisplayName?: string;
     lmStudioDisplayName?: string;
+    /** The provider's name as it was added (a custom provider's id is internal). */
+    providerName?: string;
   },
 ): string {
   if (!selectedModel?.name) return "—";
@@ -90,6 +92,10 @@ export function resolveModelDisplayLabel(
     if (byApi?.displayName) return byApi.displayName;
   }
 
+  // A custom provider by its name, not "custom::<id>" (QA #26).
+  if (selectedModel.provider.startsWith("custom::") && options.providerName) {
+    return `${formatModelApiNameForDisplay(selectedModel.name)} (${options.providerName})`;
+  }
   const slug = providerSlugFromApiName(
     selectedModel.name,
     selectedModel.provider,

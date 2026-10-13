@@ -78,13 +78,34 @@ function taskBox(text: string): string {
   );
 }
 
+/**
+ * Draws a fenced block itself instead of showing its code (a `graph` fence as a
+ * diagram). Return null to show the code as usual; `closed` is false while the
+ * stream has not finished the block.
+ */
+export type FenceRenderer = (lang: string, code: string, closed: boolean) => Node | null;
+
 /** Render `markdown` into `container`, replacing whatever was there. */
-export function renderMarkdown(container: HTMLElement, markdown: string): void {
+export function renderMarkdown(
+  container: HTMLElement,
+  markdown: string,
+  opts: { fence?: FenceRenderer } = {},
+): void {
   container.textContent = "";
-  for (const node of parseBlocks(markdown)) container.append(node);
+  for (const node of parseBlocks(withoutComments(markdown), opts.fence)) container.append(node);
 }
 
-function parseBlocks(markdown: string): Node[] {
+/**
+ * HTML comments are not shown, as in any markdown view (a model's own
+ * `<!--plan:created-->` showed as text, QA #43). One still being written (no
+ * `-->` yet) is hidden too. Code the model fenced keeps them.
+ */
+function withoutComments(md: string): string {
+  if (!md.includes("<!--")) return md;
+  return md.replace(/(```[\s\S]*?(?:```|$))|<!--[\s\S]*?(?:-->|$)/g, (m, fence: string | undefined) => fence ?? "");
+}
+
+function parseBlocks(markdown: string, fenceRenderer?: FenceRenderer): Node[] {
   const out: Node[] = [];
   const lines = markdown.replace(/\r\n/g, "\n").split("\n");
   let i = 0;
@@ -104,7 +125,13 @@ function parseBlocks(markdown: string): Node[] {
       // A fence the stream has not closed yet still renders as code. Waiting
       // for the closing ``` makes a long block appear as raw text and then
       // snap into place, which reads as a glitch.
+      const closed = i < lines.length;
       i += 1;
+      const drawn = fence[1] && fenceRenderer ? fenceRenderer(fence[1], body.join("\n"), closed) : null;
+      if (drawn) {
+        out.push(drawn);
+        continue;
+      }
       const pre = document.createElement("pre");
       const code = document.createElement("code");
       if (fence[1]) code.dataset.lang = fence[1];
@@ -127,18 +154,31 @@ function parseBlocks(markdown: string): Node[] {
     // falls through to the branches below unchanged.
     if (isTableStart(lines, i)) {
       const head = splitRow(lines[i]);
+      // Alignment as written (`:---`, `:---:`, `---:`), else numbers to the right.
+      const written = splitRow(lines[i + 1] ?? "").map((c) => {
+        const t = c.trim();
+        return t.startsWith(":") && t.endsWith(":") ? "center" : t.endsWith(":") ? "right" : t.startsWith(":") ? "left" : "";
+      });
       const rows: string[][] = [];
       i += 2; // the header and its ---|--- separator
       while (i < lines.length && lines[i].includes("|") && lines[i].trim()) {
         rows.push(splitRow(lines[i]));
         i += 1;
       }
+      const NUMBER = /^[~≈<>]?\s*[-+]?[$€£]?\d[\d,._]*(?:\s*(?:%|[KMGT]?i?B|ms|s|x|k|M))?$/i;
+      const align = head.map((_, c) => {
+        if (written[c]) return written[c];
+        const cells = rows.map((r) => (r[c] ?? "").replace(/`/g, "").trim()).filter(Boolean);
+        return cells.length > 0 && cells.every((v) => NUMBER.test(v)) ? "right" : "";
+      });
       const t = document.createElement("table");
+      t.className = "md-table";
       const thead = document.createElement("thead");
       const hr = document.createElement("tr");
-      for (const cell of head) {
+      for (const [c, cell] of head.entries()) {
         const th = document.createElement("th");
         appendInline(th, cell);
+        if (align[c]) th.style.textAlign = align[c];
         hr.append(th);
       }
       thead.append(hr);
@@ -151,6 +191,8 @@ function parseBlocks(markdown: string): Node[] {
         for (let c = 0; c < head.length; c += 1) {
           const td = document.createElement("td");
           appendInline(td, row[c] ?? "");
+          if (align[c]) td.style.textAlign = align[c];
+          if (align[c] === "right") td.classList.add("num");
           tr.append(td);
         }
         tbody.append(tr);
@@ -201,7 +243,10 @@ function parseBlocks(markdown: string): Node[] {
       const ul = document.createElement("ul");
       while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
         const li = document.createElement("li");
-        appendInline(li, taskBox(lines[i].replace(/^\s*[-*]\s+/, "")));
+        const item = lines[i].replace(/^\s*[-*]\s+/, "");
+        // Its box is its marker: "• ☐ Run…" showed both (QA).
+        if (/^\[( |x|X|~)\]\s+/.test(item)) li.className = "md-task";
+        appendInline(li, taskBox(item));
         ul.append(li);
         i += 1;
       }
@@ -223,7 +268,9 @@ function parseBlocks(markdown: string): Node[] {
       !/^```/.test(lines[i]) &&
       !/^\s*[-*]\s+/.test(lines[i]) &&
       !/^#{1,6}\s+/.test(lines[i]) &&
-      !ORDERED.test(lines[i])
+      !ORDERED.test(lines[i]) &&
+      // A table may follow a line directly, as GFM allows (QA #41).
+      !(para.length > 0 && isTableStart(lines, i))
     ) {
       para.push(lines[i]);
       i += 1;
@@ -268,12 +315,14 @@ function appendInline(parent: HTMLElement, text: string): void {
       el.textContent = code.slice(1, -1);
       parent.append(el);
     } else if (bold) {
+      // Its inside is inline markdown too: "**Read `a.ts` — failed**" showed
+      // the backticks (QA).
       const el = document.createElement("strong");
-      el.textContent = bold.slice(2, -2);
+      appendInline(el, bold.slice(2, -2));
       parent.append(el);
     } else if (italic) {
       const el = document.createElement("em");
-      el.textContent = italic.slice(1, -1);
+      appendInline(el, italic.slice(1, -1));
       parent.append(el);
     } else if (url) {
       const el = document.createElement("a");

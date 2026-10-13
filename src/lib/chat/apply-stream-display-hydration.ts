@@ -160,12 +160,14 @@ export function buildDisplaySnapshotPayloadForMessage(
     | import("@/lib/thinking/extract-thinking-from-content").CompletedTurnThinkingSnapshot
     | null,
   interleavedContent?: string | null,
+  model?: { provider: string; name: string } | null,
 ): string | null {
   const snap = buildDisplaySnapshotV1({
     completedThread,
     inlineTimeline,
     thinking,
     interleavedContent,
+    model,
   });
   if (!snap) return null;
   return JSON.stringify(snap);

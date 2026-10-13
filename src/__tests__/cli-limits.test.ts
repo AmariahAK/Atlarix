@@ -28,12 +28,11 @@ describe("your own key's limits", () => {
 });
 
 describe("the terminal's notice", () => {
-  it("a free share used up says when it comes back, and how to keep going", () => {
+  it("free usage over says come back tomorrow and when, and nothing more", () => {
     const n = errorNotice(freeUsageLimitUserMessage(3600, Date.UTC(2026, 9, 3, 10), "UTC"));
-    expect(n.title).toBe("Today's free share is used up · resets at 11:00 AM");
-    expect(n.actions).toContain("/billing");
-    // Credit first: the wall comes in a user's first days, before any subscription.
-    expect(n.actions!.indexOf("add credit")).toBeLessThan(n.actions!.indexOf("Pro"));
+    // Written in this machine's locale ("11:00 AM", "11:00"): pin the time, not the format.
+    expect(n.title).toMatch(/^Today's usage is over\. Come back tomorrow \(it resets at 11:00(\s?AM|\s?am)?\)\.$/);
+    expect(n.actions).toBeUndefined();
     expect(n.tone).toBe("warn");
   });
 
@@ -49,5 +48,18 @@ describe("the terminal's notice", () => {
     expect(n.title).toBe("Your deepseek account is out of credit or over its quota");
     expect(n.detail).toBe("It said: Insufficient Balance");
     expect(errorNotice("Something odd.")).toEqual({ tone: "error", title: "Something odd." });
+  });
+});
+
+describe("a provider's words, quoted", () => {
+  it("collapses a masked key and cuts at a sentence", async () => {
+    const { byokLimitUserMessage } = await import("@/shared/texts");
+    const reason = `{"error":{"message":"Incorrect API key provided: sk-proj-${"*".repeat(150)}UcIA. You can find your API key at https://platform.openai.com/account/api-keys. Please check that you are using the right key and that it has not been revoked by an administrator."}}`;
+    const m = byokLimitUserMessage(reason, "openai")!;
+    const said = /\(It said: "(.*)"\)/.exec(m)![1]!;
+    expect(said).toContain("sk-proj-…UcIA.");
+    expect(said).not.toContain("****");
+    expect(said).toMatch(/[.…]$/);
+    expect(said.length).toBeLessThanOrEqual(201);
   });
 });

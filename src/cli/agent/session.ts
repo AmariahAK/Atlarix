@@ -9,6 +9,7 @@
  * `chat:response:error` at the end of a turn. This class turns them into one
  * state object and emits "change"; the TUI renders that state and nothing else.
  */
+import { ownMessages, withTeammateMessages } from "./own-messages";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import path from "node:path";
@@ -29,9 +30,11 @@ import {
 } from "./transcript";
 
 import { conversationText } from "./btw";
+import { inlinePlan } from "./inline-plan";
 import { handler } from "./ipc";
 import { readCliState, turnModelFor } from "./models";
 import { applyLiveTextPatch, type LiveTextPatch } from "@/lib/chat/live-text-patch";
+import { stripThinkBlocks } from "@/ipc/utils/thinking_tags";
 
 /** The desktop's five work modes (WorkModeSchema); "ask" is shown as Explore. */
 export type WorkMode = "build" | "ask" | "plan" | "debug" | "review";
@@ -57,6 +60,8 @@ export interface SessionState {
   busy: boolean;
   /** "Thinking…", "Running command…" — what the agent says it is doing. */
   phase: string | null;
+  /** "Couldn't connect, retrying in 2s (1/3)…" while a request is retried, else null. */
+  retrying: string | null;
   turnStartedAt: number | null;
   approvals: PendingApproval[];
   pending: QueuedMessage[];
@@ -77,7 +82,8 @@ export interface SessionState {
   /** ask_user: the turn ended on these questions; the answers open the next one. */
   question: PendingQuestion | null;
   /** A Plan-mode turn ended with a plan ready to build. */
-  planReady: { planId: string; title: string } | null;
+  /** A plan waiting for /build: a new one, or (`resume`) a build that stopped with steps left. */
+  planReady: { planId: string; title: string; resume?: boolean } | null;
   /** Bumped each time this session's plan is written or changed: the pinned plan redraws live. */
   planRevision: number;
   /** The session's title, once it has one (the first message names it). */
@@ -186,7 +192,23 @@ export async function listFolderSessions(workspaceDir: string): Promise<SessionS
   await registerHandlers();
   const { workspaceAppIdForPath } = await import("@/lib/workspace-app-by-path");
   const appId = await workspaceAppIdForPath(workspaceDir);
-  return (await (await handler("sessions:list"))({}, appId)) as SessionSummary[];
+  return withoutUnusedChats((await (await handler("sessions:list"))({}, appId)) as SessionSummary[]);
+}
+
+/**
+ * A chat opened and never used ("Untitled", no messages) is not a past chat;
+ * the editor listed it (QA #31). One with a title of its own stays.
+ */
+async function withoutUnusedChats<T extends { id: string; title: string | null }>(rows: T[]): Promise<T[]> {
+  const blank = rows.filter((r) => !r.title?.trim() || /^(Untitled|New chat|New session)$/.test(r.title.trim()));
+  if (!blank.length) return rows;
+  const { db } = await import("@/db");
+  const { sessionMessages } = await import("@/db/schema");
+  const { inArray } = await import("drizzle-orm");
+  const used = new Set(
+    (await db.selectDistinct({ id: sessionMessages.sessionId }).from(sessionMessages).where(inArray(sessionMessages.sessionId, blank.map((r) => r.id)))).map((r) => r.id),
+  );
+  return rows.filter((r) => !blank.includes(r) || used.has(r.id));
 }
 
 /** Every folder's chats, newest first, with each one's folder (an editor's Past chats → All folders). */
@@ -194,7 +216,7 @@ export async function listAllSessions(): Promise<Array<SessionSummary & { folder
   const { initializeDatabase } = await import("@/db");
   initializeDatabase();
   await registerHandlers();
-  return (await (await handler("sessions:list-all"))({}, 200)) as Array<SessionSummary & { folder: string; folderName: string }>;
+  return withoutUnusedChats((await (await handler("sessions:list-all"))({}, 200)) as Array<SessionSummary & { folder: string; folderName: string }>);
 }
 
 /** Rename or delete a stored session without opening it (the editor's Past chats). */
@@ -208,6 +230,32 @@ export async function changeFolderSession(sessionId: string, change: { rename: s
 
 let interjectionSeq = 0;
 
+/**
+ * Take main's message list, keeping the thinking of replies already seen.
+ *
+ * When a turn ends, main strips the thinking from its in-memory copy of the
+ * reply (to keep the model's next context lean); the saved copy keeps it. The
+ * next turn's list then replaced ours, and every earlier turn's thoughts went
+ * from the live transcript while a resumed session still had them (QA). A
+ * reply whose new text is its old text minus the thinking keeps the old text.
+ */
+export function keepThoughts(prev: readonly ChatMessageLike[], next: readonly ChatMessageLike[]): ChatMessageLike[] {
+  const before = new Map(prev.map((m) => [String(m.id), m]));
+  return next.map((m) => {
+    const old = before.get(String(m.id));
+    if (m.role !== "assistant" || !old || old.content === m.content || !old.content.includes("think")) return { ...m };
+    const plain = stripThinkBlocks(old.content).trim();
+    const now = m.content.trim();
+    if (plain === now) return { ...m, content: old.content };
+    // A stopped turn: the same text without its thinking, plus the stop note.
+    if (plain && now.startsWith(plain)) return { ...m, content: `${old.content.trimEnd()}${now.slice(plain.length)}` };
+    return { ...m };
+  });
+}
+
+/** Job reports that wake an idle agent (the desktop's list, useStreamChat). */
+const WAKE_STATUSES = new Set(["finished", "stalled", "scheduled", "condition_met"]);
+
 export interface TurnOptions {
   display?: string;
   images?: Array<{ path: string; mime: string; label: string }>;
@@ -215,6 +263,8 @@ export interface TurnOptions {
   continueAfterQuestions?: boolean;
   /** Sending the same message again (after Auto's consent): its `!` output was already given. */
   retry?: boolean;
+  /** Machine-started: background work reported in. Main refuses one it should not run. */
+  systemWake?: boolean;
 }
 
 /** A running sub-agent (spawn-task.ts listRunningSubagentTasks). */
@@ -246,6 +296,8 @@ export class AgentSession extends EventEmitter {
   private staleBelow = 0;
   private shellProc: ChildProcess | null = null;
   private queue: QueuedMessage[] = [];
+  /** Sub-agents running when the user stopped the turn. */
+  private stoppedAgents = new WeakSet<Delegation>();
   private interruptRequested = false;
   private readonly interrupted = new Set<string>();
   /** Steers sent this turn whose message has not shown up in the transcript yet. */
@@ -268,6 +320,9 @@ export class AgentSession extends EventEmitter {
 
   constructor(opts: SessionOptions) {
     super();
+    // This surface saves a Plan-mode reply that is a plan (onTurnEnd), so Plan
+    // mode's prompt says so (mode-prompt-bundle.ts). One surface per process.
+    process.env.ATLARIX_INLINE_PLANS = "1";
     this.workspaceDir = opts.workspaceDir;
     this.model = opts.model;
     this.surface = opts.surface ?? "cli";
@@ -276,6 +331,7 @@ export class AgentSession extends EventEmitter {
       cells: [],
       busy: false,
       phase: null,
+      retrying: null,
       turnStartedAt: null,
       approvals: [],
       pending: [],
@@ -312,6 +368,8 @@ export class AgentSession extends EventEmitter {
     const { workspaceAppIdForPath } = await import("@/lib/workspace-app-by-path");
     this.appId = await workspaceAppIdForPath(this.workspaceDir);
     await this.newSession();
+    // Finished automations in this folder, from any Atlarix: wake to act on them.
+    this.startAutomationClaims();
   }
 
   /**
@@ -325,6 +383,7 @@ export class AgentSession extends EventEmitter {
     this.chatId = 0;
     this.messages = [];
     this.shellRuns = [];
+    this.wakeNotes.length = 0;
     this.queue = [];
     this.anchors.clear();
     this.seenUserIds.clear();
@@ -334,6 +393,8 @@ export class AgentSession extends EventEmitter {
     this.delegationCount.clear();
     this.lastStepTokens = 0;
     this.interrupted.clear();
+    this.turnNotices.clear();
+    this.lastTurnOwner = null;
     this.update({
       cells: [],
       approvals: [],
@@ -341,6 +402,7 @@ export class AgentSession extends EventEmitter {
       lastError: null,
       busy: false,
       phase: null,
+      retrying: null,
       contextPercent: null,
       contextUsed: null,
       contextLimit: null,
@@ -372,7 +434,8 @@ export class AgentSession extends EventEmitter {
   /** This folder's sessions, newest first: the CLI's and the desktop app's. */
   async listSessions(): Promise<SessionSummary[]> {
     const rows = (await (await handler("sessions:list"))({}, this.appId)) as SessionSummary[];
-    return rows;
+    // Not chats opened and never used (an editor's New chat with no message): QA E6.
+    return withoutUnusedChats(rows);
   }
 
   /**
@@ -385,7 +448,7 @@ export class AgentSession extends EventEmitter {
     const { chatId } = (await (await handler("sessions:allocate-transport"))({}, sessionId)) as { chatId: number };
     const got = (await (await handler("sessions:get"))({}, sessionId)) as {
       session: SessionSummary;
-      messages: Array<{ id: string; role: string; content: string; modelContent?: string | null; snapshotTurnId?: string | null }>;
+      messages: Array<{ id: string; role: string; content: string; modelContent?: string | null; snapshotTurnId?: string | null; maxTokensUsed?: number | null }>;
     };
     const rows = got.messages.map((m, i) => ({ id: i + 1, sessionRowId: m.id }));
     await (await handler("sessions:hydrate-transport"))({}, { chatId, sessionId, rows });
@@ -413,6 +476,16 @@ export class AgentSession extends EventEmitter {
       ...(mode === "build" || mode === "ask" || mode === "plan" || mode === "debug" || mode === "review" ? { mode } : {}),
       planReady: plan ? { planId: plan.id, title: plan.title ?? "Plan" } : null,
     });
+    if (!plan) await this.offerResumeBuild();
+    // How full the context is, from the last reply's real token total, so an
+    // opened chat shows its own figure before its first new turn (QA #30).
+    const last = [...got.messages].reverse().find((m) => m.role === "assistant" && (m.maxTokensUsed ?? 0) > 0)?.maxTokensUsed;
+    if (last) {
+      await this.refreshContextWindow();
+      if (this.contextWindow) {
+        this.update({ contextUsed: last, contextLimit: this.contextWindow, contextPercent: Math.min(100, Math.round((last / this.contextWindow) * 100)) });
+      }
+    }
   }
 
   /** `atlarix -c`: the newest session in this folder, if there is one. */
@@ -427,10 +500,7 @@ export class AgentSession extends EventEmitter {
 
   /** Your messages in this session, newest first (what /undo and esc esc can go back to). */
   myMessages(): Array<{ id: number; text: string }> {
-    return this.messages
-      .filter((m) => m.role === "user" && m.content.trim() && !/^\*\*\*Q:\*\*\*/.test(m.content))
-      .map((m) => ({ id: Number(m.id), text: m.content.trim() }))
-      .reverse();
+    return ownMessages(this.messages);
   }
 
   /** What going back to this message would discard: the replies' file snapshots and the files they touched. */
@@ -475,6 +545,30 @@ export class AgentSession extends EventEmitter {
   }
 
   /**
+   * Put the files back as they were before this message's turn, and keep the
+   * conversation as it is (Claude Code's code-only rewind, Cline's "Restore
+   * Files"). The next turn is told, so the agent doesn't build on edits that
+   * are gone.
+   */
+  async restoreFilesSince(messageId: number): Promise<{ restoredFiles: number }> {
+    if (this.state.busy) throw new Error("Wait for this turn to finish (or esc to stop it).");
+    const { turnIds, filesChanged, createdFiles } = await this.undoPreview(messageId);
+    if (!turnIds.length) return { restoredFiles: 0 };
+    const res = (await (await handler("revert:snapshot-range"))({}, { chatId: this.chatId, turnIds })) as {
+      success: boolean;
+      restoredFiles?: number;
+      error?: string;
+    };
+    if (!res.success) throw new Error(res.error ?? "Restoring the files failed; nothing was changed.");
+    const files = [...filesChanged, ...createdFiles];
+    this.restoredNote = `The user restored these files to how they were before an earlier message; your edits to them since are gone: ${files.join(", ")}. Read a file again before changing it.`;
+    return { restoredFiles: res.restoredFiles ?? files.length };
+  }
+
+  /** Said to the agent with the next message after a files-only restore. */
+  private restoredNote: string | null = null;
+
+  /**
    * Replace an earlier message and carry on from there, as the app's edit does
    * (SimpleInlineChat.performEdit): everything after it leaves the conversation,
    * and with `restoreTurnIds` the files those turns changed go back first.
@@ -491,7 +585,11 @@ export class AgentSession extends EventEmitter {
       if (!res.success) throw new Error(res.error ?? "Restoring the files failed; nothing was changed.");
       restoredFiles = res.restoredFiles ?? 0;
     }
-    await (await handler("chat:edit-message"))(this.event, { chatId: this.chatId, userMessageId: messageId, newContent: text });
+    // A row holding a teammate's message and your words: editing yours keeps
+    // theirs (owner: undo never undoes a teammate's message).
+    const before = this.messages.find((m) => Number(m.id) === messageId)?.content ?? "";
+    const newContent = withTeammateMessages(before, text);
+    await (await handler("chat:edit-message"))(this.event, { chatId: this.chatId, userMessageId: messageId, newContent });
     const { getStreamTransport } = await import("@/lib/chat/stream-transport");
     const kept = (getStreamTransport(this.chatId)?.messages ?? []) as ChatMessageLike[];
     this.messages = kept.map((m) => ({ id: m.id, role: m.role, content: m.content, modelContent: m.modelContent ?? null }));
@@ -508,27 +606,26 @@ export class AgentSession extends EventEmitter {
   /** Summarise the conversation so far, as the agent does when the context fills. */
   async compact(): Promise<{ ok: boolean; message: string }> {
     if (this.state.busy) return { ok: false, message: "Compacting waits for the turn to finish (esc stops it)." };
-    if (!this.chatId || this.messages.length < 4) {
+    if (!this.chatId || this.messages.length < 2) {
       return { ok: false, message: "Nothing to compact yet: the conversation is still short." };
     }
     const { forceCompactEphemeralChat } = await import("@/lib/tools/workspace");
-    const { getStreamTransport } = await import("@/lib/chat/stream-transport");
-    const count = (t: unknown) =>
-      ((t as { messages?: Array<{ content?: string }> } | undefined)?.messages ?? []).reduce(
-        (n, m) => n + (m.content?.length ?? 0),
-        0,
-      );
-    const before = count(getStreamTransport(this.chatId));
     this.update({ busy: true, phase: "Compacting…", turnStartedAt: Date.now() });
     try {
-      const done = await forceCompactEphemeralChat(this.chatId, this.model?.provider);
+      const done = await forceCompactEphemeralChat(this.chatId, this.model?.provider, {
+        workspaceSessionId: this.sessionId || null,
+        summarize: true,
+      });
       if (!done) return { ok: false, message: "Nothing to compact yet: the conversation is still short." };
-      const after = count(getStreamTransport(this.chatId));
-      // ~4 characters a token: an estimate, said as one.
-      const tokens = (chars: number) => formatTokenCount(Math.round(chars / 4));
+      // Said as what happened: a summary, or (when the summary could not be
+      // made) only older tool output dropped.
+      const what =
+        done.strategy === "summarized"
+          ? "Atlarix now works from a summary of it."
+          : "Older tool output was dropped; the conversation itself is kept.";
       return {
         ok: true,
-        message: `Compacted · ~${tokens(before)} → ~${tokens(after)} tokens. Earlier messages stay on screen; Atlarix now works from the summary.`,
+        message: `Compacted · ~${formatTokenCount(done.tokensBefore)} → ~${formatTokenCount(done.tokensAfter)} tokens. Earlier messages stay on screen; ${what}`,
       };
     } finally {
       this.update({ busy: false, phase: null, turnStartedAt: null, contextPercent: null, contextUsed: null, contextLimit: null });
@@ -601,6 +698,20 @@ export class AgentSession extends EventEmitter {
     this.update({ planReady: null });
     this.setMode("build");
     await this.submit(BUILD_FROM_PLAN_PROMPT);
+  }
+
+  /**
+   * A build that stopped (you pressed Esc, or it failed) with steps still to do:
+   * offered again, so /build and the card's button pick it up. Without it the
+   * plan sat "building" with no way on but typing "continue" (QA C4).
+   */
+  private async offerResumeBuild(): Promise<void> {
+    if (!this.sessionId || this.state.planReady) return;
+    const { getLatestPlanArtifact } = await import("@/lib/plans/plan-artifacts");
+    const { parsePlanChecklist } = await import("@/lib/tasks/plan-checklist");
+    const plan = await getLatestPlanArtifact(this.sessionId, "building").catch(() => null);
+    if (!plan || !parsePlanChecklist(plan.content).some((s) => s.state !== "done")) return;
+    this.update({ planReady: { planId: plan.id, title: plan.title ?? "Plan", resume: true } });
   }
 
   dismissPlanReady(): void {
@@ -876,6 +987,8 @@ export class AgentSession extends EventEmitter {
   /** Stop hearing this process's broadcasts and leave the session list. */
   async close(): Promise<void> {
     await this.interrupt();
+    if (this.automationPoll) clearInterval(this.automationPoll);
+    this.automationPoll = null;
     this.detachWindow?.();
     this.detachWindow = null;
     const peers = await import("@/lib/peers/peers");
@@ -922,12 +1035,99 @@ export class AgentSession extends EventEmitter {
     });
   }
 
+  /**
+   * Wake the agent for what background work reported. Not while busy (a running
+   * turn picks results up at its next step), not after the user stopped the
+   * turn, and one at a time.
+   */
+  async wakeForBackground(): Promise<void> {
+    if (this.state.busy || this.userStopped || this.wakeInFlight) return;
+    if (!(await this.backgroundToDeliver())) return;
+    // Read what finished BEFORE the wake turn drains it.
+    await this.noteWhatWoke();
+    this.wakeInFlight = true;
+    try {
+      await this.startTurn("", { continueAfterQuestions: true, systemWake: true });
+    } finally {
+      this.wakeInFlight = false;
+    }
+  }
+
+  /**
+   * Whether a wake would have anything to deal with: a finished command or
+   * sub-agent's result, a stalled job's advisory, an automation, a scheduled
+   * wake. A sub-agent awaited inside the turn delivered its report there, and
+   * its "finished" arriving just after the turn must not wake the agent for
+   * nothing (observed: a whole turn spent saying "still nothing to do").
+   */
+  private async backgroundToDeliver(): Promise<boolean> {
+    if (!this.chatId) return false;
+    try {
+      // A finished automation counts again (owner: it wakes the agent like a
+      // finished command). What looped eleven times before (QA, build 2) was a
+      // wake turn that never drained it; the turn now drains it, and a wake
+      // that leaves its reason pending never wakes again (onTurnEnd).
+      const { hasPendingBackgroundCommandResults, hasPendingStalledAdvisories } = await import("@/lib/agent/background-commands");
+      const { hasPendingSubagentResults } = await import("@/lib/agents/subagent-results");
+      const { hasPendingScheduledWakeupNudges } = await import("@/lib/agent/scheduled-wakeups");
+      const { hasPendingAutomationResults } = await import("@/lib/agent/automation-results");
+      return (
+        hasPendingBackgroundCommandResults(this.chatId) ||
+        hasPendingSubagentResults(this.chatId) ||
+        hasPendingStalledAdvisories(this.chatId) ||
+        hasPendingScheduledWakeupNudges(this.chatId) ||
+        // A finished automation this chat claimed (claimAutomationRuns): the
+        // agent wakes to act on it (owner). The wake turn drains it, and a wake
+        // that doesn't never wakes again.
+        hasPendingAutomationResults(this.chatId)
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  /** One line per finished piece of background work, before the wake turn it starts. */
+  private async noteWhatWoke(): Promise<void> {
+    if (!this.chatId) return;
+    await (async () => {
+      const { describePendingSubagentResults } = await import("@/lib/agents/subagent-results");
+      const { describePendingBackgroundCommands } = await import("@/lib/agent/background-commands");
+      const { describePendingAutomationResults } = await import("@/lib/agent/automation-results");
+      return [
+        ...describePendingSubagentResults(this.chatId!),
+        ...describePendingBackgroundCommands(this.chatId!),
+        ...describePendingAutomationResults(this.chatId!),
+      ];
+    })()
+      .then((lines) => {
+        // Each finished piece once, however many reports mention it.
+        const fresh = lines.filter((l) => !this.wakeNotes.some((n) => n.text === `◇ ${l}`));
+        if (!fresh.length) return;
+        const after = this.messages.length ? String(this.messages.at(-1)!.id) : "";
+        for (const text of fresh) this.wakeNotes.push({ id: `${Date.now().toString(36)}${++interjectionSeq}`, afterMessageId: after, text: `◇ ${text}` });
+        this.update({ cells: this.cellsFor(this.state.busy) });
+      })
+      .catch(() => {});
+  }
+
+  /** The user stopped the last turn (esc); cleared by their next message. */
+  private userStopped = false;
+  /** A wake turn is starting, so a second report does not start another. */
+  private wakeInFlight = false;
+
   private async startTurn(text: string, opts: TurnOptions = {}): Promise<void> {
     this.recapLine = null;
+    if (!opts.systemWake) this.userStopped = false;
+    this.turnWasWake = !!opts.systemWake;
     await this.ensureSession();
     if (!opts.continueAfterQuestions) {
       const display = opts.display ?? text;
       if (!opts.retry) text = this.takeShellContext(text);
+      if (this.restoredNote && !opts.retry) {
+        // A files-only restore since the last turn: the agent hears it once.
+        text = `<system-reminder>${this.restoredNote}</system-reminder>\n\n${text}`;
+        this.restoredNote = null;
+      }
       opts = { ...opts, display };
       this.lastTurn = { text, opts };
     }
@@ -938,9 +1138,14 @@ export class AgentSession extends EventEmitter {
       attachmentType: "chat-context" as const,
     }));
     this.turnSeq++;
+    // The last turn's error stays under that turn, not gone with the banner
+    // (QA: "Couldn't reach…" vanished on the next send).
+    if (this.state.lastError && this.lastTurnOwner) this.addTurnNotice(this.lastTurnOwner, "error", this.state.lastError);
+    this.lastTurnOwner = null;
     this.update({
       busy: true,
       phase: "Thinking…",
+      retrying: null,
       turnStartedAt: Date.now(),
       tokensThisTurn: null,
       lastError: null,
@@ -959,6 +1164,7 @@ export class AgentSession extends EventEmitter {
         ...(attachments.length ? { attachments } : {}),
         ...(this.turnModel() ? { modelOverride: this.turnModel() } : {}),
         ...(opts.continueAfterQuestions ? { continueAfterQuestions: true } : {}),
+        ...(opts.systemWake ? { systemWake: true } : {}),
         workModeOverride: this.state.mode,
       });
     } catch (e) {
@@ -979,6 +1185,10 @@ export class AgentSession extends EventEmitter {
   async interrupt(): Promise<void> {
     if (!this.state.busy) return;
     this.interruptRequested = true;
+    // A job reporting in later must not restart what the user just stopped.
+    this.userStopped = true;
+    // Sub-agents this stop cuts off end as stopped, not failed (QA #44).
+    for (const d of this.delegations.values()) if (d.status === "running") this.stoppedAgents.add(d);
     // Anything queued for after this turn would otherwise start right away.
     this.queue = [];
     this.syncPending();
@@ -1019,9 +1229,17 @@ export class AgentSession extends EventEmitter {
 
   /** Each turn this session ran, by its reply's id: "Build · deepseek-flash · 12s". */
   private readonly turnFooters = new Map<string, { text: string; interrupted: boolean }>();
+  /** Lines kept under a turn: its error once the next turn starts, or a stop with no reply. */
+  private readonly turnNotices = new Map<string, Array<{ level: "info" | "error"; text: string }>>();
+  /** The message the last turn's lines belong under: its reply, else your message. */
+  private lastTurnOwner: string | null = null;
+
+  private addTurnNotice(owner: string, level: "info" | "error", text: string): void {
+    this.turnNotices.set(owner, [...(this.turnNotices.get(owner) ?? []), { level, text }]);
+  }
 
   private withFooters(cells: Cell[]): Cell[] {
-    if (!this.turnFooters.size) return cells;
+    if (!this.turnFooters.size && !this.turnNotices.size) return cells;
     // After the reply's LAST line only. A message sent mid-turn sits inside the
     // reply, and a footer after each part made the turn look finished above it.
     const last = new Map<string, number>();
@@ -1030,8 +1248,10 @@ export class AgentSession extends EventEmitter {
     cells.forEach((c, i) => {
       out.push(c);
       const owner = c.id.split(":")[0]!;
+      if (last.get(owner) !== i) return;
+      (this.turnNotices.get(owner) ?? []).forEach((n, k) => out.push({ kind: "notice", id: `${owner}:turn-notice${k}`, level: n.level, text: n.text }));
       const footer = this.turnFooters.get(owner);
-      if (footer && last.get(owner) === i) {
+      if (footer) {
         out.push({ kind: "footer", id: `${owner}:footer`, text: footer.text, interrupted: footer.interrupted });
       }
     });
@@ -1065,13 +1285,57 @@ export class AgentSession extends EventEmitter {
 
   private untimedCells(streaming: boolean): Cell[] {
     const messages = collapseCancelled(this.messages, this.interrupted);
-    return withDelegations(
-      placeShellRuns(
-        markInterrupted(placeSteers(messages, this.anchors, { streaming }), this.interrupted),
-        this.shellRuns,
+    return this.placeWakeNotes(this.settleOldBackgroundAgents(
+      withDelegations(
+        placeShellRuns(
+          markInterrupted(placeSteers(messages, this.anchors, { streaming }), this.interrupted),
+          this.shellRuns,
+        ),
+        this.delegations.values(),
       ),
-      this.delegations.values(),
+    ));
+  }
+
+  /**
+   * A background sub-agent this session never saw run (a resumed session, or
+   * one whose events were missed) has no live state to follow, and its call's
+   * envelope says "running" forever. It did run; say so.
+   */
+  private settleOldBackgroundAgents(cells: Cell[]): Cell[] {
+    const live = new Set([...this.delegations.values()].map((d) => `${d.assistantId}:t:task_${d.index}`));
+    return cells.map((c) =>
+      c.kind === "tool" && c.tool.status === "running" && c.tool.summary === "running in the background" && !live.has(c.id)
+        ? { ...c, tool: { ...c.tool, status: "success", summary: "ran in the background" } }
+        : c,
     );
+  }
+
+  /**
+   * Why the agent spoke again on its own: "◇ Map src/mini finished · 72s", one
+   * line per piece of background work that woke it, after the message it
+   * finished behind. Without them a wake turn began with a bare step and you
+   * could not tell what had happened (QA).
+   */
+  private readonly wakeNotes: Array<{ id: string; afterMessageId: string; text: string }> = [];
+
+  private placeWakeNotes(cells: Cell[]): Cell[] {
+    if (!this.wakeNotes.length) return cells;
+    const out = [...cells];
+    for (const n of this.wakeNotes) {
+      let at = out.length;
+      if (n.afterMessageId) {
+        const prefix = `${n.afterMessageId}:`;
+        for (let i = out.length - 1; i >= 0; i--) {
+          if (out[i]!.id.startsWith(prefix)) {
+            at = i + 1;
+            break;
+          }
+        }
+      }
+      while (at < out.length && out[at]!.id.startsWith("wake:")) at++;
+      out.splice(at, 0, { kind: "notice", id: `wake:${n.id}`, level: "info", text: n.text });
+    }
+    return out;
   }
 
   /** Sub-agents started in this session, by delegation id (their work nests under the `task` line). */
@@ -1115,7 +1379,7 @@ export class AgentSession extends EventEmitter {
       if (at >= 0) d.children[at] = line;
       else d.children.push(line);
     } else if (p.type === "subagent_complete") {
-      d.status = p.status === "error" ? "error" : "success";
+      d.status = p.status === "error" ? (this.stoppedAgents.has(d) ? "interrupted" : "error") : "success";
       if (typeof p.result === "string") d.summary = p.result;
     } else return false;
     return true;
@@ -1259,6 +1523,7 @@ export class AgentSession extends EventEmitter {
         this.addApproval(p);
         return;
       case "chat:response:chunk": {
+        if (this.state.retrying) this.update({ retrying: null });
         if (p.type === "permission-request") {
           this.addApproval(p);
           return;
@@ -1268,7 +1533,7 @@ export class AgentSession extends EventEmitter {
           // sent. Shared, the row already held each patch's text when the patch
           // came, so the patch read as "no change": thinking and the answer
           // reached the screen and the editor only when the turn ended.
-          this.messages = (p.messages as ChatMessageLike[]).map((m) => ({ ...m }));
+          this.messages = keepThoughts(this.messages, p.messages as ChatMessageLike[]);
           this.anchorSteers();
           this.update({ cells: this.cellsFor(this.state.busy) });
           return;
@@ -1295,7 +1560,27 @@ export class AgentSession extends EventEmitter {
         if (p.status === "peer_message" && !this.state.busy) {
           if (this.idlePeerMessages === "hold") this.emit("peer-message");
           else void this.startPeerTurn();
+          return;
         }
+        // Background work reported in (a command or sub-agent finished, a quiet
+        // one looks stuck, a scheduled wake fired): wake the agent to deal with
+        // it, as the desktop does (useStreamChat). Only when idle, never after
+        // the user stopped the turn, one at a time. A running turn picks results
+        // up at its next step.
+        // An editor starts its own turns (`idlePeerMessages: "hold"`), so there
+        // it is told instead, and Atlarix's extension opens the wake turn.
+        if (WAKE_STATUSES.has(String(p.status)) && (p.chatId == null || p.chatId === this.chatId)) {
+          // Finished while a turn runs: the running turn takes the result at
+          // its next step, so the line saying so goes in now (QA: the second
+          // of two agents never got its "finished" line).
+          if (this.state.busy) void this.noteWhatWoke();
+          void this.backgroundToDeliver().then((yes) => {
+            if (!yes) return;
+            if (this.idlePeerMessages === "hold") this.emit("background-ready");
+            else void this.wakeForBackground();
+          });
+        }
+        this.emit("tasks-changed");
         return;
       case "chat:interjections":
         // Main's queue of steers changed: one was delivered, or added elsewhere.
@@ -1305,7 +1590,11 @@ export class AgentSession extends EventEmitter {
         }
         return;
       case "chat:stream:phase":
-        this.update({ phase: typeof p.label === "string" ? p.label : null });
+        this.update({
+          phase: typeof p.label === "string" ? p.label : null,
+          // Shown in place of "Thinking…" until the next try gets anywhere (QA).
+          retrying: p.retry === true && typeof p.label === "string" ? p.label : null,
+        });
         return;
       case "chat:token-usage": {
         // A step's REAL usage carries inputTokens (the whole prompt it sent), which
@@ -1355,11 +1644,28 @@ export class AgentSession extends EventEmitter {
           this.update({ automationUnread: this.state.automationUnread + 1 });
           this.emit("automation", p);
         }
+        // Finished here: take it now rather than at the next poll.
+        if (p.status && p.status !== "running") void this.claimAutomationRuns();
         return;
       case "chat:response:error":
         // A cancel reports itself as an error; it is not one.
         if (this.interruptRequested) return;
         this.update({ lastError: String(p.error ?? p.message ?? "The turn failed.") });
+        return;
+      case "chat:stream:disconnected":
+        // Retries to the provider ran out (it's down, or the address is wrong).
+        // The desktop offers Reconnect; here the turn ends with the reason, or
+        // it sat "working" forever (QA: an unreachable custom provider).
+        if (this.interruptRequested) return;
+        void (async () => {
+          // By name, as other failures say it (QA): "Couldn't reach QA Dead Port".
+          const { providerDisplayName } = await import("@/ipc/shared/language_model_helpers");
+          const named = providerDisplayName(this.turnModel()?.provider);
+          this.update({
+            lastError: `Couldn't reach ${named ?? "the model provider"}${p.detail ? `: ${String(p.detail)}` : "."} Check it's running and the address is right, then try again.`,
+          });
+          await this.onTurnEnd();
+        })();
         return;
       case "chat:response:end":
         if (typeof p.streamId === "number" && p.streamId < this.staleBelow) return;
@@ -1505,14 +1811,28 @@ export class AgentSession extends EventEmitter {
     this.steers = [];
     const wasInterrupted = this.interruptRequested;
     this.interruptRequested = false;
-    const lastReply = [...this.messages].reverse().find((m) => m.role === "assistant");
+    // THIS turn's reply: after its message. The last assistant message in the
+    // chat could be an earlier turn's, and a stop before any reply then marked
+    // that one, or nothing at all (QA: no "Interrupted" line after a stop).
+    const lastUserIdx = this.messages.map((m) => m.role).lastIndexOf("user");
+    // …and one that shows something: a turn that failed or was stopped before
+    // any output leaves an empty reply, and lines kept under it never drew.
+    const shown = new Set(this.untimedCells(false).map((c) => c.id.split(":")[0]!));
+    const lastReply = [...this.messages.slice(lastUserIdx + 1)]
+      .reverse()
+      .find((m) => m.role === "assistant" && shown.has(String(m.id)));
+    const turnUser = !this.turnWasWake && lastUserIdx >= 0 ? String(this.messages[lastUserIdx]!.id) : null;
     if (wasInterrupted && lastReply) this.interrupted.add(String(lastReply.id));
+    else if (wasInterrupted && turnUser) this.addTurnNotice(turnUser, "info", "Interrupted. Tell Atlarix what to do instead.");
+    this.lastTurnOwner = lastReply ? String(lastReply.id) : turnUser;
     if (lastReply && this.state.turnStartedAt) {
       const secs = Math.max(1, Math.round((Date.now() - this.state.turnStartedAt) / 1000));
       const took = secs >= 60 ? `${Math.floor(secs / 60)}m ${String(secs % 60).padStart(2, "0")}s` : `${secs}s`;
       const mode = { build: "Build", ask: "Explore", plan: "Plan", debug: "Debug", review: "Review" }[this.state.mode];
       this.turnFooters.set(String(lastReply.id), {
-        text: [mode, this.model?.name, took].filter(Boolean).join(" · "),
+        // The model it ran on, named even when it's the default (QA, Windows:
+        // "Build · 30s" for Atlarix Auto).
+        text: [mode, await this.footerModelName(), took].filter(Boolean).join(" · "),
         interrupted: wasInterrupted,
       });
     }
@@ -1520,6 +1840,7 @@ export class AgentSession extends EventEmitter {
       pending: [...this.queue],
       busy: false,
       phase: null,
+      retrying: null,
       turnStartedAt: null,
       cells: this.cellsFor(false),
       lastError: wasInterrupted ? null : this.state.lastError,
@@ -1528,11 +1849,36 @@ export class AgentSession extends EventEmitter {
       const { getPlanArtifact } = await import("@/lib/plans/plan-artifacts");
       const plan = await getPlanArtifact(touched.planId).catch(() => null);
       if (plan?.planStatus === "plan") this.update({ planReady: touched });
+    } else if (!touched && !wasInterrupted && this.state.mode === "plan" && !this.state.question && this.sessionId && lastReply) {
+      // The plan was written in the reply, not saved with the plan tool: save
+      // it, so it gets its card and Build it like any other (QA #43b).
+      const { parseAssistantMessageParts } = await import("@/lib/chat/assistant-message-parts");
+      const prose = parseAssistantMessageParts(lastReply.content, false)
+        .filter((p) => p.type === "markdown")
+        .map((p) => (p as { content: string }).content)
+        .join("\n\n");
+      const found = inlinePlan(prose);
+      if (found) {
+        const { createPlanArtifact } = await import("@/lib/plans/plan-artifacts");
+        const row = await createPlanArtifact(this.sessionId, found.content, found.title).catch(() => null);
+        if (row) this.update({ planReady: { planId: row.id, title: found.title } });
+      }
     }
+    if (wasInterrupted || this.state.lastError) await this.offerResumeBuild();
     if (wasInterrupted) {
-      // A stopped turn opens nothing: steers typed during it are dropped with it.
-      await Promise.resolve((await handler("chat:interject-flush"))({}, this.chatId)).catch(() => {});
+      // A stopped turn opens nothing. What you typed into it that the agent never
+      // got (no step came: a stop during a retry) goes back to your input box,
+      // never away (QA: it was dropped; Claude Code puts it back).
+      const flushed = (await Promise.resolve((await handler("chat:interject-flush"))({}, this.chatId)).catch(() => null)) as {
+        text?: string | null;
+      } | null;
       this.syncPending();
+      // Everything typed into this turn that never showed up as a message: still
+      // waiting, or taken by an attempt that failed before the stop.
+      const back = this.steerTexts.filter(Boolean);
+      this.steerTexts = [];
+      const text = back.length ? back.join("\n") : flushed?.text?.trim();
+      if (text) this.emit("unsent", text);
       return;
     }
     // A steer that never reached a step (the model stopped first) opens the next
@@ -1543,8 +1889,69 @@ export class AgentSession extends EventEmitter {
     this.steers = [];
     const next = flushed?.text?.trim() ? flushed.text : this.queue.shift()?.text;
     this.syncPending();
-    if (next) await this.startTurn(next);
+    if (next) return void (await this.startTurn(next));
+    // Background work that finished during this turn's LAST step was too late to
+    // go into it, and its "finished" event found the session busy, so nothing
+    // would ever wake for it: the report sat undelivered and the row looked dead
+    // (QA #50, reproduced: an agent done 0.3s before the turn ended).
+    if (await this.backgroundToDeliver()) {
+      // A wake turn that left its own reason undelivered must not wake again:
+      // that loops, each turn starting with nothing but a mode reminder.
+      if (this.turnWasWake) {
+        void import("electron-log").then((m) => m.default.warn(`[wake] a wake turn ended with its results still pending; not waking again (chat ${this.chatId})`));
+        return;
+      }
+      if (this.idlePeerMessages === "hold") this.emit("background-ready");
+      else void this.wakeForBackground();
+    }
   }
+
+  private async footerModelName(): Promise<string | undefined> {
+    let m = this.turnModel() as { provider?: string; name?: string } | undefined;
+    if (!m) m = await import("@/main/settings").then((x) => x.readSettings().selectedModel as { provider?: string; name?: string }).catch(() => undefined);
+    if (!m?.name) return undefined;
+    return m.provider === "compass" ? (m.name === "core-auto" || m.name === "auto" ? "Atlarix Auto" : m.name) : m.name;
+  }
+
+  /**
+   * Finished notify-the-agent automation runs in this folder that no chat has
+   * taken, from any process (the app, the CLI, an editor): take them and, when
+   * one is fresh, wake to act on it, as for a finished background command.
+   * Polled while the session lives, and run at once when a run finishes here.
+   */
+  private async claimAutomationRuns(): Promise<void> {
+    // Not an empty chat: there's no conversation for a wake to continue (and
+    // the editor opens one on start that you may never use). A chat in use, here
+    // or in another Atlarix, takes it; failing that, your first message does.
+    if (this.claimingAutomations || !this.chatId || !this.messages.length) return;
+    this.claimingAutomations = true;
+    try {
+      const { claimFinishedRuns } = await import("@/lib/automations/agent-delivery");
+      const { PROCESS_OWNER } = await import("@/lib/automations/process-owner");
+      const got = await claimFinishedRuns([this.appId], `${PROCESS_OWNER}:${this.sessionId ?? this.chatId}`);
+      if (!got.some((g) => g.wake)) return;
+      if (this.state.busy) return; // the running turn takes it at its next step, or wakes after it ends
+      if (this.idlePeerMessages === "hold") this.emit("background-ready");
+      else void this.wakeForBackground();
+    } catch {
+      // the next poll tries again
+    } finally {
+      this.claimingAutomations = false;
+    }
+  }
+
+  private claimingAutomations = false;
+  private automationPoll: ReturnType<typeof setInterval> | null = null;
+
+  /** Start looking for finished automation runs to act on (every 15s while this session lives). */
+  private startAutomationClaims(): void {
+    if (this.automationPoll) return;
+    this.automationPoll = setInterval(() => void this.claimAutomationRuns(), 15_000);
+    (this.automationPoll as { unref?: () => void }).unref?.();
+  }
+
+  /** The turn running (or last run) was a wake for background work, not your message. */
+  private turnWasWake = false;
 
   /** Open a turn with a message another session queued while this one was idle. */
   /**

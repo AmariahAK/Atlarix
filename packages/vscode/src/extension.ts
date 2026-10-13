@@ -54,7 +54,13 @@ export function activate(context: vscode.ExtensionContext): void {
         version,
         log: (l) => log.appendLine(l),
         openUrl: (u, kind) => {
-          if (kind === "sign-in") signInUrl = u;
+          // The agent opens its sign-in page in your browser itself; opening it
+          // here too asked "Do you want Code to open the external website?"
+          // after the page was already up (owner). Kept for the fallback below.
+          if (kind === "sign-in") {
+            signInUrl = u;
+            return;
+          }
           void vscode.env.openExternal(vscode.Uri.parse(u));
         },
         onExit: (code) => {
@@ -186,9 +192,18 @@ export function activate(context: vscode.ExtensionContext): void {
           () => c.authenticate(),
         ),
       ).then(() => undefined);
+      // Only when the browser didn't come up (the agent on another machine, a
+      // blocked opener): after a few seconds, offer to open the page from here.
+      const fallback = setTimeout(() => {
+        if (!signingIn || !signInUrl) return;
+        void vscode.window.showInformationMessage("Didn't see Atlarix's sign-in page in your browser?", "Open the sign-in page").then((go) => {
+          if (go && signInUrl) void vscode.env.openExternal(vscode.Uri.parse(signInUrl));
+        });
+      }, 20_000);
       try {
         await signingIn;
       } finally {
+        clearTimeout(fallback);
         signingIn = null;
         signInUrl = null;
       }
@@ -306,6 +321,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("atlarix.settings", async () => (await target())?.show("settings")),
     vscode.commands.registerCommand("atlarix.account", async () => (await target())?.show("account")),
     vscode.commands.registerCommand("atlarix.mcp", async () => (await target())?.show("mcp")),
+    vscode.commands.registerCommand("atlarix.automations", async () => (await target())?.show("automations")),
     vscode.commands.registerCommand("atlarix.pickModel", async () => {
       const chat = await target();
       if (chat === sidebar) await vscode.commands.executeCommand("atlarix.chat.focus");

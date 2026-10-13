@@ -113,7 +113,7 @@ export function CreateCustomProviderDialog({
           <DialogDescription>
             {isEditMode
               ? "Update your custom language model provider configuration."
-              : "Add a provider by API key and base URL. For providers with no API endpoint, use a placeholder base URL (e.g. https://api.example.com). After creation, add your API key and model name(s) in the provider settings."}
+              : "An OpenAI-compatible endpoint."}
           </DialogDescription>
         </DialogHeader>
 
@@ -128,9 +128,6 @@ export function CreateCustomProviderDialog({
               required
               disabled={isLoading || isEditMode}
             />
-            <p className="text-xs text-muted-foreground">
-              A unique identifier for this provider (no spaces).
-            </p>
           </div>
 
           <div className="space-y-2">
@@ -143,9 +140,6 @@ export function CreateCustomProviderDialog({
               required
               disabled={isLoading}
             />
-            <p className="text-xs text-muted-foreground">
-              The name that will be displayed in the UI.
-            </p>
           </div>
 
           <div className="space-y-2">
@@ -160,9 +154,7 @@ export function CreateCustomProviderDialog({
               disabled={isLoading}
             />
             <p className="text-xs text-muted-foreground">
-              Base URL for the API. For providers with no list endpoint, use any
-              placeholder; then add your API key and model name(s) in provider
-              settings.
+              e.g. http://127.0.0.1:11434/v1
             </p>
           </div>
 

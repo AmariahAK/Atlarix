@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { X } from "lucide-react";
+import { useAtomValue } from "jotai";
+import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
 import type { WhatsNewEntry } from "@/main/whats-new";
 
@@ -49,6 +51,7 @@ function isDismissed(id: string): boolean {
 
 export function WhatsNewPanel() {
   const [entry, setEntry] = useState<WhatsNewEntry | null>(null);
+  const selectedAppId = useAtomValue(selectedAppIdAtom);
 
   const load = useCallback(async () => {
     const next = await IpcClient.getInstance().getWhatsNew();
@@ -64,7 +67,9 @@ export function WhatsNewPanel() {
     return off;
   }, [load]);
 
-  if (!entry) return null;
+  // A footnote for the home screen. Over an open workspace it covered the
+  // composer (QA #8); it waits, undismissed, until you are back home.
+  if (!entry || selectedAppId != null) return null;
 
   const dismiss = () => {
     try {

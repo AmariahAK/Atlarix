@@ -8,10 +8,16 @@ import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { turnSnapshotTurnIdByMessageIdAtom } from "@/atoms/chatAtoms";
 import { renderWithProviders } from "./helpers";
 
-const getSnapshotFiles = vi.fn(async () => ({
-  filesChanged: ["src/a.ts"],
-  createdFiles: [],
-}));
+const getSnapshotFiles = vi.fn(
+  async (): Promise<{
+    filesChanged: string[];
+    createdFiles: string[];
+    revertedAt?: string;
+  } | null> => ({
+    filesChanged: ["src/a.ts"],
+    createdFiles: [],
+  }),
+);
 const revertSnapshot = vi.fn(async () => ({ success: true, restoredFiles: 1 }));
 
 vi.mock("@/ipc/ipc_client", () => ({
@@ -52,7 +58,7 @@ describe("RevertTurnAction", () => {
       <RevertTurnAction chatId={CHAT_ID} messageId={MSG_ID} />,
     );
 
-    const btn = screen.getByTitle("Revert this turn's file changes");
+    const btn = await screen.findByTitle("Revert this turn's file changes");
     expect(btn).toBeInTheDocument();
 
     await act(async () => {
@@ -72,5 +78,45 @@ describe("RevertTurnAction", () => {
         filesOnly: true,
       }),
     );
+    // QA #1a: the reply says so, rather than the button just vanishing.
+    expect(await screen.findByText("Files reverted")).toBeInTheDocument();
+    expect(screen.queryByTitle("Revert this turn's file changes")).toBeNull();
+  });
+
+  function withSnapshot() {
+    const { store } = renderWithProviders(<div />);
+    store.set(
+      turnSnapshotTurnIdByMessageIdAtom,
+      new Map([[MSG_ID, String(MSG_ID)]]),
+    );
+  }
+
+  it("QA #1c: a turn reverted before (a reopened chat) shows it, with no Revert", async () => {
+    getSnapshotFiles.mockResolvedValueOnce({
+      filesChanged: ["src/a.ts"],
+      createdFiles: [],
+      revertedAt: "2026-10-13T12:00:00.000Z",
+    });
+    withSnapshot();
+    renderWithProviders(
+      <RevertTurnAction chatId={CHAT_ID} messageId={MSG_ID} />,
+    );
+    const marker = await screen.findByText("Files reverted");
+    expect(marker).toBeInTheDocument();
+    // The action row is hover-only; this attribute keeps it shown (SimpleMessage).
+    expect(marker.closest("[data-reverted]")).not.toBeNull();
+    expect(screen.queryByTitle("Revert this turn's file changes")).toBeNull();
+  });
+
+  it("QA #5: a turn that changed no files offers no Revert", async () => {
+    getSnapshotFiles.mockResolvedValueOnce({ filesChanged: [], createdFiles: [] });
+    withSnapshot();
+    renderWithProviders(
+      <RevertTurnAction chatId={CHAT_ID} messageId={MSG_ID} />,
+    );
+    await waitFor(() => expect(getSnapshotFiles).toHaveBeenCalled());
+    await act(async () => {});
+    expect(screen.queryByTitle("Revert this turn's file changes")).toBeNull();
+    expect(screen.queryByText("Files reverted")).toBeNull();
   });
 });

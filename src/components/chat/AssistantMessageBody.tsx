@@ -35,6 +35,7 @@ import {
 import type { PlanCardData } from "@/lib/plan-cards/plan-card-renderer";
 import { useSmoothStreamedContent } from "@/hooks/useSmoothStreamedContent";
 import { AtlarixMarkdownSegment } from "./AtlarixMarkdownSegment";
+import { UserMessageMarkdownParser } from "./AtlarixMarkdownParser";
 import { InlineThoughtBlock } from "./InlineThoughtBlock";
 import { InlinePlanArtifactSlot } from "./InlinePlanArtifactSlot";
 import { InlineToolPartCard } from "./InlineToolPartCard";
@@ -48,6 +49,7 @@ import {
 import {
   compareThreadItems,
   consolidateSubagentRoundsInThread,
+  DISPLAY_PREVIEW_ARG,
   hasActiveSubagentActivity,
   hasDelegateToolParts,
   hasSubagentRoundPanel,
@@ -60,14 +62,48 @@ import {
   type StreamThreadToolStatus,
   type SubAgentRunEntry,
 } from "@/lib/chat/stream-thread";
-import { isToolExpandable as isToolExpandViewExpandable } from "@/lib/chat/tool-expand-view";
+import {
+  isToolExpandable as isToolExpandViewExpandable,
+  type ToolExpandView,
+} from "@/lib/chat/tool-expand-view";
 import { groupPaginatableRuns } from "@/lib/chat/paginate-tool-runs";
 import { PaginatedToolCards } from "./PaginatedToolCards";
 import { CollapsedScrollSection } from "./CollapsedScrollSection";
 import { SubAgentCard } from "./subagent/SubAgentCard";
 import { SubAgentsRoundPanel } from "./subagent/SubAgentsRoundPanel";
+import { ThreadDiffByCallIdContext } from "./thread-diff-context";
 
-export function AssistantMessageBody({
+type AssistantMessageBodyProps = Parameters<typeof AssistantMessageBodyContent>[0];
+
+/**
+ * The body, with its finished thread's whole-file write diffs on hand for the
+ * stored tool parts (see ThreadDiffByCallIdContext).
+ */
+export function AssistantMessageBody(props: AssistantMessageBodyProps) {
+  const thread = useAtomValue(
+    completedStreamThreadForMessageAtom(props.assistantMessageId ?? -1),
+  );
+  const diffs = useMemo(() => {
+    const m = new Map<string, ToolExpandView>();
+    for (const it of thread ?? []) {
+      if (
+        it.kind === "tool" &&
+        it.toolArgs?.[DISPLAY_PREVIEW_ARG] &&
+        it.expand?.kind === "diff"
+      ) {
+        m.set(it.id, it.expand);
+      }
+    }
+    return m;
+  }, [thread]);
+  return (
+    <ThreadDiffByCallIdContext.Provider value={diffs}>
+      <AssistantMessageBodyContent {...props} />
+    </ThreadDiffByCallIdContext.Provider>
+  );
+}
+
+function AssistantMessageBodyContent({
   content,
   isStreaming,
   assistantMessageId,
@@ -732,7 +768,12 @@ function ipcTimelineTailItems(
   return thread
     .filter((item) => {
       if (item.kind === "subagent_round") return !excludeSubagentRound;
-      if (item.kind === "background" || item.kind === "plan") return true;
+      if (
+        item.kind === "background" ||
+        item.kind === "plan" ||
+        item.kind === "interjection"
+      )
+        return true;
       if (item.kind === "tool") {
         // A native-FC delegation has no content tag, so it always looks
         // "not represented" and lands here — as a second, redundant
@@ -777,7 +818,12 @@ function completedThreadTailItems(
       if (item.kind === "subagent_round") return !excludeSubagentRound;
       if (item.kind === "subagent" || item.kind === "tool_group") return false;
       if (item.kind === "thought") return !hasThoughtInParts;
-      if (item.kind === "background" || item.kind === "plan") return true;
+      if (
+        item.kind === "background" ||
+        item.kind === "plan" ||
+        item.kind === "interjection"
+      )
+        return true;
       if (item.kind === "tool") {
         // See ipcTimelineTailItems: the round panel is the single home for
         // agents, so a delegate row here is a duplicate of it.
@@ -836,6 +882,15 @@ function StreamThreadItemView({
           elapsedMs={item.endTs != null ? item.endTs - item.ts : undefined}
           resultText={item.resultText}
         />
+      );
+    case "interjection":
+      // A message sent while the turn ran, where the agent took it (QA #4).
+      return (
+        <div className="my-1.5 flex justify-end">
+          <div className="ml-12 min-w-0 max-w-3xl rounded-lg border border-user-bubble-border bg-user-bubble px-3 py-2 text-sm text-user-bubble-foreground">
+            <UserMessageMarkdownParser content={item.text} />
+          </div>
+        </div>
       );
     case "plan":
       return (

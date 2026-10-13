@@ -46,3 +46,16 @@ describe("display-snapshot interleavedContent (message ordering fix)", () => {
     expect("interleavedContent" in (snap as object)).toBe(false);
   });
 });
+
+// QA #49 on build I: a plain reply ("pong": no steps, no thinking) stored no
+// snapshot at all, so after a reopen its header named the CURRENT model.
+describe("a reply with nothing but text", () => {
+  it("still keeps the model it ran on", () => {
+    const model = { provider: "z-ai", name: "glm-5.3" };
+    const snap = buildDisplaySnapshotV1({ completedThread: [], model });
+    expect(snap?.model).toEqual(model);
+  });
+  it("stores nothing when there is no model either (control)", () => {
+    expect(buildDisplaySnapshotV1({ completedThread: [] })).toBeNull();
+  });
+});

@@ -31,7 +31,9 @@ export async function renderAddProvider(page: HTMLElement, nav: Nav, focus?: str
   const providers = await loadProviders();
   let query = "";
   let chosen: ProviderRow | null = focus ? (providers.find((p) => p.id === focus) ?? null) : null;
-  let showAll = false;
+  /** Which page of every provider is showing (A–Z, PAGE at a time). */
+  let pageNo = 0;
+  const PAGE = 20;
   let custom = false;
 
   const search = el("input", "field");
@@ -96,20 +98,36 @@ export async function renderAddProvider(page: HTMLElement, nav: Nav, focus?: str
     local.append(lt);
     slot.append(local);
     if (!query.trim()) {
-      if (showAll) {
-        slot.append(eyebrow("EVERY PROVIDER"));
-        const list = el("div", "pick-list");
-        for (const p of [...providers].filter((x) => !x.hasKey).sort((a, b) => a.name.localeCompare(b.name))) list.append(pickRow(p));
-        slot.append(list);
-      } else slot.append(button("Browse every provider A–Z", "link small", () => ((showAll = true), draw())));
+      // Every provider, A–Z, a page at a time, each with how many models it
+      // offers; open one to see them before adding a key (owner: "show every
+      // provider, and the models inside").
+      const all = [...providers].filter((x) => !x.custom).sort((a, b) => a.name.localeCompare(b.name));
+      const pages = Math.max(1, Math.ceil(all.length / PAGE));
+      pageNo = Math.min(pageNo, pages - 1);
+      const head = el("div", "row between");
+      head.append(eyebrow(`EVERY PROVIDER · ${all.length}`), el("span", "muted small", `${pageNo * PAGE + 1}–${Math.min(all.length, (pageNo + 1) * PAGE)} of ${all.length}`));
+      slot.append(head);
+      const list = el("div", "pick-list");
+      for (const p of all.slice(pageNo * PAGE, (pageNo + 1) * PAGE)) list.append(pickRow(p));
+      slot.append(list);
+      const pager = el("div", "pager");
+      const prev = button("← Previous", "small", () => ((pageNo -= 1), draw(), list.scrollIntoView({ block: "start" })));
+      const next = button("Next →", "small", () => ((pageNo += 1), draw(), list.scrollIntoView({ block: "start" })));
+      prev.disabled = pageNo === 0;
+      next.disabled = pageNo >= pages - 1;
+      pager.append(prev, el("span", "muted small", `Page ${pageNo + 1} of ${pages}`), next);
+      slot.append(pager);
     }
     slot.append(el("p", "foot-note", KEYS_NOTE));
   };
 
   const pickRow = (p: ProviderRow) => {
-    const b = button("", "pick-row", () => choose(p));
-    b.append(el("span", "prov__badge", initials(p.name)), el("span", "grow", p.name));
-    if (p.hasKey) b.append(el("span", "ok small", "Connected"));
+    const b = button("", "pick-row", () => nav.go({ name: "provider", id: p.id }));
+    const t = el("span", "col grow");
+    t.append(el("span", "", p.name));
+    if (p.catalogModels) t.append(el("span", "muted small", `${p.catalogModels} model${p.catalogModels === 1 ? "" : "s"}`));
+    b.append(el("span", "prov__badge", initials(p.name)), t);
+    b.append(p.hasKey ? el("span", "ok small", "Connected") : el("span", "muted small", "View ›"));
     return b;
   };
   const choose = (p: ProviderRow) => {
@@ -153,10 +171,15 @@ function customForm(nav: Nav, cancel: () => void): HTMLElement {
   const submit = el("button", "primary small", "Add");
   submit.type = "submit";
   acts.append(button("Cancel", "small", cancel), submit);
+  key.placeholder = "leave empty if it needs none";
   f.append(el("strong", "", "OpenAI-compatible endpoint"), field("Name", name), field("Base URL, up to /v1", base), field("API key", key), modelLabel, err, acts);
   f.addEventListener("submit", async (e) => {
     e.preventDefault();
-    if (!name.value.trim() || !base.value.trim() || !key.value.trim()) return;
+    if (!name.value.trim() || !base.value.trim()) {
+      err.textContent = "A name and a base URL are needed.";
+      err.classList.remove("hidden");
+      return;
+    }
     submit.disabled = true;
     submit.textContent = "Connecting…";
     err.classList.add("hidden");

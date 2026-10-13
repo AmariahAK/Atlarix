@@ -24,7 +24,12 @@ export function conversationText(cells: Cell[], max = MAX_CONTEXT_CHARS): string
     if (c.kind === "user") lines.push(`User: ${c.text}`);
     else if (c.kind === "answers") for (const p of c.pairs) lines.push(`Atlarix asked: ${p.question}\nUser answered: ${p.answer}`);
     else if (c.kind === "markdown") lines.push(`Atlarix: ${c.text}`);
-    else if (c.kind === "tool") lines.push(`[${c.tool.verb} ${c.tool.target}${c.tool.summary ? ` → ${c.tool.summary}` : ""}]`);
+    else if (c.kind === "tool") {
+      // How it ended matters: a recap once called a stopped turn "now reading files" (QA E5).
+      const how = c.tool.status === "interrupted" ? " (stopped)" : c.tool.status === "error" ? " (failed)" : c.tool.status === "running" ? " (still running)" : "";
+      lines.push(`[${c.tool.verb} ${c.tool.target}${c.tool.summary ? ` → ${c.tool.summary}` : ""}${how}]`);
+    } else if (c.kind === "footer" && c.interrupted) lines.push("[The user stopped this turn.]");
+    else if (c.kind === "notice") lines.push(`[${c.text}]`);
   }
   let text = lines.join("\n\n");
   if (text.length > max) text = "…\n" + text.slice(-max);

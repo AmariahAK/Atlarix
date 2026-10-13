@@ -180,7 +180,9 @@ export function openRewind(ctx: ScreenContext): void {
   if (ctx.session.state.busy) return ctx.flash("Wait for this turn to finish (or esc to stop it), then undo.");
   const mine = ctx.session.myMessages();
   if (!mine.length) return ctx.flash("Nothing to undo yet.");
-  if (mine.length === 1) return void openUndo(ctx, mine[0]!.id);
+  // Always the list, even with one message: going straight to editing it
+  // meant a stray esc esc quietly put your last prompt back in the box, ready
+  // to replace the conversation (QA G1). Claude Code and Codex ask first too.
   ctx.host.push(
     new ListDialog({
       title: "Go back to a message",
@@ -394,7 +396,8 @@ export function openQuestions(ctx: ScreenContext, q: PendingQuestion): void {
         intro,
         asking: true,
         footer: "↑↓ move · enter choose · 1-9 pick · or just type your own · esc leave it",
-        items: item.options.map((o, k) => ({ id: String(k), label: `${k + 1}. ${o}` })),
+        // A model that numbered its own options ("1. JSON") showed "1. 1. JSON".
+        items: item.options.map((o, k) => ({ id: String(k), label: `${k + 1}. ${o.replace(/^\s*\d+[.)]\s+/, "")}` })),
         typeRow: { placeholder: "Type your own answer…", onSubmit: (v) => next(v) },
         onChoose: (choice) => next(item.options![Number(choice.id)]!),
         actions: Object.fromEntries(item.options.slice(0, 9).map((o, k) => [String(k + 1), () => next(o)])),
@@ -479,7 +482,7 @@ const RUN_STATUS: Record<string, { text: string; tone: "accent" | "muted" | "err
   ok: { text: "✓", tone: "accent" },
   "nothing-to-report": { text: "–", tone: "muted" },
   error: { text: "✗", tone: "error" },
-  running: { text: "…", tone: "warn" },
+  running: { text: "…", tone: "muted" },
 };
 
 export function openAutomations(ctx: ScreenContext): void {
@@ -496,7 +499,8 @@ export function openAutomations(ctx: ScreenContext): void {
         id: a.id,
         label: a.name,
         badge: a.enabled ? (unread ? { text: `${unread} new`, tone: "accent" as const } : undefined) : { text: "off", tone: "muted" as const },
-        detail: [describeTrigger(a.trigger), a.lastRunAt ? `last ran ${ago(a.lastRunAt, now())}` : "not run yet"].join(" · "),
+        // Short: the row is cut at the dialog's width ("last ran 2m ag", QA).
+        detail: [describeTrigger(a.trigger), a.lastRunAt ? `ran ${ago(a.lastRunAt, now())}` : "not run yet"].join(" · "),
       };
     });
   };
@@ -505,7 +509,7 @@ export function openAutomations(ctx: ScreenContext): void {
   let armedDelete: string | null = null;
   const dialog: ListDialog = new ListDialog({
     title: "Automations",
-    intro: [{ text: "They run while Atlarix (the app or this CLI) is open.", tone: "muted" }],
+    intro: [{ text: "They run while Atlarix (the app, this CLI or an editor) is open.", tone: "muted" }],
     empty: "No automations for this folder. Press n to make one, or ask Atlarix to set one up.",
     footer: "enter runs · n new · e edit · space on/off · r run now · d delete · a all folders · esc",
     items: load,
@@ -562,7 +566,8 @@ function openRuns(ctx: ScreenContext, automationId: string, name: string): void 
         void ctx.services.automations.markRead(runs.filter((r) => r.unread).map((r) => r.id));
         return runs.map((r) => ({
           id: r.id,
-          label: (r.summary ?? r.error ?? r.status).split("\n")[0]!.slice(0, 90),
+          // A summary is markdown: its first line without the backticks (QA).
+          label: (r.summary ?? r.error ?? r.status).split("\n")[0]!.replace(/`/g, "").slice(0, 90),
           badge: RUN_STATUS[r.status],
           detail: ago(r.startedAt, now),
           keywords: JSON.stringify(r),
@@ -571,7 +576,7 @@ function openRuns(ctx: ScreenContext, automationId: string, name: string): void 
       onChoose: (item) => {
         const r = JSON.parse(item.keywords!) as { summary: string | null; error: string | null; triggerContext: string | null; status: string };
         const lines: Line[] = [
-          ...(r.summary ? r.summary.split("\n").map((text) => ({ text })) : []),
+          ...(r.summary ? r.summary.split("\n").map((text) => ({ text: text.replace(/`/g, "") })) : []),
           ...(r.error ? [{ text: r.error, tone: "error" as const }] : []),
           ...(r.triggerContext ? [{ text: "" }, { text: "What triggered it", tone: "muted" as const, bold: true }, ...r.triggerContext.split("\n").map((text) => ({ text, tone: "muted" as const }))] : []),
         ];
@@ -614,7 +619,7 @@ export function openAutomationForm(ctx: ScreenContext, existing: AutomationSumma
       footer: "↑↓ move · enter choose · esc cancel",
       items: [
         { id: "user", label: "Just me", detail: "the run list and a line here; costs no tokens in chat" },
-        { id: "agent", label: "Me and the agent", detail: "the result lands in Atlarix's next turn (tests, CI)" },
+        { id: "agent", label: "Me and the agent", detail: "Atlarix wakes up with the result to act on it (tests, CI)" },
       ],
       onChoose: (i) => {
         draft.notifyAgent = i.id === "agent";
@@ -1155,6 +1160,7 @@ export function openPermissions(ctx: ScreenContext): void {
 const POPULAR_PROVIDERS = ["openai", "anthropic", "google", "openrouter", "deepseek", "xai"];
 const CHROME_ROW = "__chrome";
 const MCP_ROW = "__mcp";
+const CUSTOM_ROW = "__custom";
 
 /** The Chrome extension is talking to Atlarix (from the bridge status line). */
 export function chromeConnected(status: string): boolean {
@@ -1176,13 +1182,24 @@ export function openConnect(ctx: ScreenContext, onSaved: (providerId?: string) =
       footer: "type to search · enter connect · esc close",
       items: async () => {
         const providers = await ctx.services.providers.list();
-        const row = (p: (typeof providers)[number]) => ({
-          id: p.id,
-          label: p.name,
-          keywords: p.id,
-          gutter: p.hasKey ? { text: "✓", tone: "accent" as const } : undefined,
-          right: p.hasKey ? { text: "key saved", tone: "muted" as const } : undefined,
-        });
+        // How many models each offers (the catalog), as the editor shows: you
+        // see what a provider has before you give it a key (owner).
+        const counts = new Map<string, number>();
+        await import("@/lib/models_dev")
+          .then(async ({ catalogModelCount }) => {
+            for (const p of providers) if (!p.custom) counts.set(p.id, await catalogModelCount(p.id));
+          })
+          .catch(() => {});
+        const row = (p: (typeof providers)[number]) => {
+          const n = counts.get(p.id) ?? 0;
+          return {
+            id: p.id,
+            label: p.name,
+            keywords: p.id,
+            gutter: p.hasKey ? { text: "✓", tone: "accent" as const } : undefined,
+            right: p.hasKey ? { text: "key saved", tone: "muted" as const } : n ? { text: `${n} model${n === 1 ? "" : "s"}`, tone: "muted" as const } : undefined,
+          };
+        };
         const popular = POPULAR_PROVIDERS.map((id) => providers.find((p) => p.id === id)).filter((p): p is (typeof providers)[number] => !!p);
         const rest = providers.filter((p) => !POPULAR_PROVIDERS.includes(p.id));
         const chrome = ctx.chromeStatus();
@@ -1199,13 +1216,63 @@ export function openConnect(ctx: ScreenContext, onSaved: (providerId?: string) =
           },
           { id: MCP_ROW, label: "MCP server…", keywords: "mcp tools server", right: { text: "/mcp", tone: "muted" as const } },
           { id: "h:providers", label: "Providers", header: true },
+          // Anything not on the list: a gateway, a proxy, a server on this computer.
+          {
+            id: CUSTOM_ROW,
+            label: "Other: OpenAI-compatible endpoint…",
+            keywords: "other custom openai compatible gateway proxy local vllm llama.cpp lm studio litellm endpoint base url",
+            right: { text: "base URL + key", tone: "muted" as const },
+          },
           ...rest.map(row),
         ];
       },
       onChoose: async (item) => {
         if (item.id === CHROME_ROW) return openChrome(ctx);
         if (item.id === MCP_ROW) return openMcpAdd(ctx, () => openMcp(ctx));
+        if (item.id === CUSTOM_ROW) return openCustomProvider(ctx, onSaved);
         const p = (await ctx.services.providers.list()).find((x) => x.id === item.id);
+        // A key already saved: replace it, or remove it (owner: users sometimes
+        // want it gone, not replaced). Removing asks twice.
+        if (p?.hasKey) {
+          const keyless = p.keyHint === "none";
+          ctx.host.push(
+            new ListDialog({
+              title: item.label,
+              intro: [{ text: p.keyHint === "none" ? `${item.label} needs no key.` : `Your ${item.label} key is saved${p.keyHint ? ` (${p.keyHint})` : ""}.`, tone: "muted" }],
+              footer: "↑↓ move · enter choose · esc back",
+              // No key to replace on a keyless provider: removing it is the
+              // one thing to do (QA: "needs no key", then "Replace the key").
+              items: [
+                ...(keyless ? [] : [{ id: "replace", label: "Replace the key" }]),
+                { id: "remove", label: keyless ? `Remove ${item.label}` : "Remove the key", detail: "chats on its models move to Atlarix Auto" },
+              ],
+              onChoose: (choice) => {
+                if (choice.id === "replace") return askKey();
+                ctx.host.push(
+                  new ListDialog({
+                    // A provider you added goes with its key, as the editor says (QA).
+                    title: keyless ? `Remove ${item.label}?` : p.custom ? `Remove ${item.label} and its key?` : `Remove your ${item.label} key?`,
+                    intro: [{ text: "It's deleted from this computer, for the Atlarix app and the editor too.", tone: "muted" }],
+                    footer: "↑↓ move · enter choose · esc back",
+                    items: [
+                      { id: "keep", label: "Keep it" },
+                      { id: "remove", label: "Remove it" },
+                    ],
+                    onChoose: async (c) => {
+                      if (c.id === "keep") return ctx.host.pop();
+                      await ctx.services.providers.removeKey(item.id);
+                      ctx.host.closeAll();
+                      ctx.flash(`Removed ${keyless ? item.label : `the ${item.label} key`}. Chats on its models move to Atlarix Auto.`, 4000, "success");
+                    },
+                  }),
+                );
+              },
+            }),
+          );
+          return;
+        }
+        askKey();
+        function askKey() {
         ctx.host.push(
           new InputDialog({
             title: `${item.label} API key`,
@@ -1224,6 +1291,82 @@ export function openConnect(ctx: ScreenContext, onSaved: (providerId?: string) =
             },
           }),
         );
+        }
+      },
+    }),
+  );
+}
+
+/**
+ * A provider that isn't on the list: any OpenAI-compatible endpoint. Name,
+ * base URL, key (none for most servers on this computer); its models come from
+ * the endpoint, else it asks for one model id. Shared with the app and the
+ * editor, like every provider.
+ */
+export function openCustomProvider(ctx: ScreenContext, onSaved: (providerId?: string) => void): void {
+  const title = "OpenAI-compatible endpoint";
+  const draft = { name: "", baseUrl: "", key: "" };
+  const save = async (models?: string[]): Promise<string | undefined> => {
+    try {
+      const r = await ctx.services.providers.addCustom({ ...draft, models });
+      ctx.host.closeAll();
+      ctx.flash(`${draft.name} connected · ${r.models} model${r.models === 1 ? "" : "s"}.`, 4000, "success");
+      onSaved(r.id);
+      return undefined;
+    } catch (e) {
+      if (e instanceof Error && e.name === "NoModelsListedError" && !models) {
+        ctx.host.replace(
+          new InputDialog({
+            title,
+            intro: [{ text: "The endpoint didn't list its models.", bold: true }, { text: "Type the id of the model to use, e.g. qwen2.5:7b or gpt-4o-mini.", tone: "muted" }],
+            label: "Model id",
+            onSubmit: (v) => (v.trim() ? save([v.trim()]) : "Type a model id."),
+          }),
+        );
+        return undefined;
+      }
+      return e instanceof Error ? e.message : String(e);
+    }
+  };
+  const keyStep = () =>
+    ctx.host.replace(
+      new InputDialog({
+        title,
+        intro: [
+          { text: "Saved encrypted on this computer and shared with the Atlarix app.", tone: "muted" },
+          { text: "Leave it empty for a server that needs none (most on this computer).", tone: "muted" },
+        ],
+        label: "API key",
+        mask: true,
+        onSubmit: (v) => {
+          draft.key = v.trim();
+          return save();
+        },
+      }),
+    );
+  const urlStep = () =>
+    ctx.host.replace(
+      new InputDialog({
+        title,
+        intro: [{ text: "Up to /v1, e.g. https://api.example.com/v1 or http://localhost:1234/v1", tone: "muted" }],
+        label: "Base URL",
+        onSubmit: (v) => {
+          const url = v.trim();
+          if (!/^https?:\/\/\S+$/i.test(url)) return "A URL starting with https:// (or http:// for one on this computer).";
+          draft.baseUrl = url;
+          keyStep();
+        },
+      }),
+    );
+  ctx.host.push(
+    new InputDialog({
+      title,
+      intro: [{ text: "Any provider that speaks the OpenAI API: a gateway, a proxy, a server on this computer.", tone: "muted" }],
+      label: "Name",
+      onSubmit: (v) => {
+        if (!v.trim()) return "Give it a name.";
+        draft.name = v.trim().slice(0, 60);
+        urlStep();
       },
     }),
   );

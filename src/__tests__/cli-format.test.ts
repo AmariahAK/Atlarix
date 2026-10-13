@@ -37,3 +37,14 @@ describe("formatTokens", () => {
     expect(formatTokens(45_000)).toBe("45k");
   });
 });
+
+describe("abbreviatePath on Windows (QA, Windows VM)", () => {
+  it("keeps backslashes and cuts from the middle, with no stray /…/", () => {
+    const p = "C:\\Users\\Amariah Abishai\\atlarix-qa\\ws one";
+    expect(abbreviatePath(p, 80, "C:\\Users\\Amariah Abishai")).toBe("~\\atlarix-qa\\ws one");
+    const cut = abbreviatePath(p, 24, "C:\\Users\\Someone");
+    expect(cut).toBe("C:\\…\\atlarix-qa\\ws one");
+    expect(cut).not.toContain("/");
+  });
+});
+

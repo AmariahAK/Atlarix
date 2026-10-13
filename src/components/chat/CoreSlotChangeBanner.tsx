@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { IpcClient } from "@/ipc/ipc_client";
+import { useSettings } from "@/hooks/useSettings";
 import { formatModelApiNameForDisplay } from "@/lib/format-openrouter-model-label";
 import type { CoreSlotChange } from "@/lib/routing/core-slot-change";
 
@@ -22,6 +23,10 @@ import type { CoreSlotChange } from "@/lib/routing/core-slot-change";
  */
 export function CoreSlotChangeBanner() {
   const [change, setChange] = useState<CoreSlotChange | null>(null);
+  // Re-check when the user picks a model: their own pick moves the baseline
+  // (useSelectModel), so a notice on screen must not outlive it (QA #46).
+  const { settings } = useSettings();
+  const selectedKey = `${settings?.selectedModel?.provider ?? ""}/${settings?.selectedModel?.name ?? ""}`;
 
   useEffect(() => {
     let cancelled = false;
@@ -42,7 +47,7 @@ export function CoreSlotChangeBanner() {
       cancelled = true;
       off?.();
     };
-  }, []);
+  }, [selectedKey]);
 
   const dismiss = useCallback(() => {
     // Hide first, acknowledge after: the user's click should never wait on IPC, and

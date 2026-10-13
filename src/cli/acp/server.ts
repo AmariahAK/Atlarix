@@ -15,6 +15,7 @@ import * as acp from "@agentclientprotocol/sdk";
 import type { InitializeResponse } from "@agentclientprotocol/sdk";
 import { acpStdout } from "./stdio-guard";
 import { AcpAgent } from "./agent";
+import type { AutomationDraft } from "../agent/services";
 
 export interface AcpRunOptions {
   version: string;
@@ -104,7 +105,8 @@ export function buildAgentApp(
         throw acp.RequestError.invalidParams(undefined, `unknown sign-in method ${ctx.params.methodId}`);
       }
       const { signInCli } = await import("../auth/account");
-      await signInCli((url) => process.stderr.write(`Atlarix sign-in: ${url}\n`));
+      // An editor asked: the browser's page says to go back to it.
+      await signInCli((url) => process.stderr.write(`Atlarix sign-in: ${url}\n`), "your editor");
       return {};
     })
     .onRequest("session/new", (ctx) => agent.newSession(ctx.params.cwd))
@@ -125,6 +127,18 @@ export function buildAgentApp(
       return { chrome: extras.chromeStatus?.() ?? "unavailable", recap: await recapEnabled() };
     })
     .onRequest("_atlarix/recap", (p) => p as { sessionId: string }, (ctx) => agent.recap(ctx.params.sessionId))
+    // What is running in a session (sub-agents, background commands): list, output, stop.
+    .onRequest(
+      "_atlarix/tasks",
+      (p) => p as { sessionId: string; action: "list" | "output" | "stop"; id?: string },
+      (ctx) => {
+        const { sessionId, action, id } = ctx.params;
+        if (action !== "list" && action !== "output" && action !== "stop") {
+          throw acp.RequestError.invalidParams(undefined, `Unknown action: ${String(action)}`);
+        }
+        return agent.tasks(sessionId, action, id);
+      },
+    )
     .onRequest("_atlarix/handoff", (p) => p as { sessionId: string }, async (ctx) => {
       try {
         await agent.handoff(ctx.params.sessionId);
@@ -143,11 +157,23 @@ export function buildAgentApp(
         ? await Promise.all([a.kind?.().catch(() => null) ?? null, a.balanceCents().catch(() => null)])
         : ["signed-out", null];
       const usage = ctx.params.sessionId ? agent.sessionInfo(ctx.params.sessionId) : null;
+      const profile = email ? await a.profile?.().catch(() => null) : null;
       // Free Auto's share left today, as the proxy last reported it (a percentage;
       // known only after an Auto request in this process).
       const { latestAutoStatus } = await import("@/main/auto-status");
       const freeAutoLeft = latestAutoStatus()?.freeRemaining ?? null;
-      return { email, kind, balanceCents, usage, freeAutoLeft, manageUrl: "https://www.atlarix.dev/account", pricingUrl: "https://www.atlarix.dev/pricing" };
+      return {
+        email,
+        name: profile?.name ?? null,
+        avatar: profile?.avatar ?? null,
+        provider: profile?.provider ?? null,
+        kind,
+        balanceCents,
+        usage,
+        freeAutoLeft,
+        manageUrl: "https://www.atlarix.dev/account",
+        pricingUrl: "https://www.atlarix.dev/pricing",
+      };
     })
     .onRequest("_atlarix/checkout", (p) => p as { kind: "pro" | "credit"; amountCents?: number }, async (ctx) => {
       const { realServices } = await import("../agent/services");
@@ -163,7 +189,12 @@ export function buildAgentApp(
     })
     .onRequest("_atlarix/providers", (p) => p as Record<string, unknown>, async () => {
       const { realServices } = await import("../agent/services");
-      return { providers: await realServices.providers.list() };
+      // Each with how many models it offers, from the catalog: the editor lists
+      // every provider with that before you connect one (owner).
+      const { catalogModelCount } = await import("@/lib/models_dev");
+      const providers = await realServices.providers.list();
+      const counts = await Promise.all(providers.map((x) => (x.custom ? Promise.resolve(0) : catalogModelCount(x.id))));
+      return { providers: providers.map((x, i) => (counts[i] ? { ...x, catalogModels: counts[i] } : x)) };
     })
     // A null key removes it. Either way every open chat gets the new model list.
     .onRequest("_atlarix/provider_key", (p) => p as { providerId: string; key: string | null }, async (ctx) => {
@@ -203,6 +234,13 @@ export function buildAgentApp(
       const { detectVisionCapability } = await import("@/lib/routing/model-capability-profile");
       const raw = await getLanguageModels({ providerId: id }).catch(() => []);
       const models = stampDeepThinkingSupport({ [id]: raw })[id] ?? [];
+      if (!models.length) {
+        // No key yet (or the provider lists none live): its models from the
+        // catalog, so its page shows what you'd get before you connect it.
+        const { catalogModelsFor } = await import("@/lib/models_dev");
+        const catalog = await catalogModelsFor(id);
+        return { catalog: true, models: catalog.map((m) => ({ ...m, value: `${id}/${m.id}` })) };
+      }
       return {
         models: models.map((m) => {
           const cost = (m as { cost?: { input?: number; output?: number } }).cost;
@@ -219,12 +257,24 @@ export function buildAgentApp(
         }),
       };
     })
+    .onRequest("_atlarix/provider_base_url", (p) => p as { providerId: string; baseUrl: string }, async (ctx) => {
+      // A custom provider's address, fixed in place (it was read-only: a typo
+      // could only be removed, QA).
+      const { realServices } = await import("../agent/services");
+      try {
+        await realServices.providers.setBaseUrl(ctx.params.providerId, String(ctx.params.baseUrl ?? ""));
+      } catch (e) {
+        throw acp.RequestError.invalidParams(undefined, (e as Error).message);
+      }
+      await agent.modelsChanged();
+      return {};
+    })
     .onRequest("_atlarix/provider_custom", (p) => p as { name: string; baseUrl: string; key: string; models?: string[] }, async (ctx) => {
       const { realServices, NoModelsListedError } = await import("../agent/services");
       const { name, baseUrl, key, models } = ctx.params;
-      if (!name?.trim() || !baseUrl?.trim() || !key?.trim()) throw acp.RequestError.invalidParams(undefined, "A name, a base URL and a key are needed.");
+      if (!name?.trim() || !baseUrl?.trim()) throw acp.RequestError.invalidParams(undefined, "A name and a base URL are needed.");
       try {
-        const r = await realServices.providers.addCustom({ name, baseUrl, key, models });
+        const r = await realServices.providers.addCustom({ name, baseUrl, key: key ?? "", models });
         await agent.modelsChanged();
         return r;
       } catch (e) {
@@ -236,13 +286,14 @@ export function buildAgentApp(
     // Go back to one of your messages (the TUI's /undo): list, what it would undo, and resend.
     .onRequest(
       "_atlarix/undo",
-      (p) => p as { sessionId: string; action: "list" | "preview" | "resend"; messageId?: number; text?: string; restore?: boolean },
+      (p) => p as { sessionId: string; action: "list" | "preview" | "resend" | "restore_files"; messageId?: number; text?: string; restore?: boolean },
       async (ctx) => {
         const { sessionId, action, messageId, text, restore } = ctx.params;
         if (action === "list") return { messages: agent.undoList(sessionId) };
         if (messageId == null) throw acp.RequestError.invalidParams(undefined, "Which message?");
         if (action === "preview") return agent.undoPreview(sessionId, Number(messageId));
         if (action === "resend") return agent.undoResend(sessionId, Number(messageId), String(text ?? ""), restore === true);
+        if (action === "restore_files") return agent.restoreFiles(sessionId, Number(messageId));
         throw acp.RequestError.invalidParams(undefined, `unknown action ${action}`);
       },
     )
@@ -380,6 +431,64 @@ export function buildAgentApp(
           throw acp.RequestError.invalidParams(undefined, `unknown action ${ctx.params.action}`);
       }
     })
+    .onRequest(
+      "_atlarix/automations",
+      (p) =>
+        p as {
+          sessionId: string;
+          action: "list" | "create" | "update" | "toggle" | "remove" | "run" | "read" | "servers" | "tools";
+          id?: string;
+          draft?: AutomationDraft;
+          enabled?: boolean;
+          all?: boolean;
+          runIds?: string[];
+          serverId?: number;
+        },
+      async (ctx) => {
+        // The editor's Automations page: the same services as the CLI's /automations.
+        const { realServices } = await import("../agent/services");
+        const a = realServices.automations;
+        const p = ctx.params;
+        const { appId } = agent.sessionInfo(p.sessionId);
+        const state = async () => ({
+          automations: await a.list(p.all ? null : appId),
+          runs: await a.runs(appId).catch(() => []),
+        });
+        switch (p.action) {
+          case "list":
+            return state();
+          case "create":
+            await a.create(appId, p.draft!);
+            return state();
+          case "update":
+            await a.update(String(p.id), p.draft!);
+            return state();
+          case "toggle":
+            await a.toggle(String(p.id), p.enabled === true);
+            return state();
+          case "remove":
+            await a.remove(String(p.id));
+            return state();
+          case "run":
+            await a.runNow(String(p.id));
+            return state();
+          case "read":
+            await a.markRead(p.runIds ?? []);
+            return {};
+          case "servers":
+            return { servers: await realServices.mcp.list(appId) };
+          case "tools":
+            return { tools: await realServices.mcp.tools(Number(p.serverId)).catch(() => []) };
+          default:
+            throw new Error(`Unknown automations action: ${String(p.action)}`);
+        }
+      },
+    )
+    .onRequest(
+      "_atlarix/interject",
+      (p) => p as { sessionId: string; text: string; kind?: "steer" | "queue" },
+      (ctx) => agent.interject(ctx.params.sessionId, String(ctx.params.text ?? ""), ctx.params.kind === "queue" ? "queue" : "steer"),
+    )
     .onRequest("_atlarix/recap_setting", (p) => p as { on: boolean }, async (ctx) => {
       const { setRecapEnabled } = await import("@/lib/recap/recap");
       await setRecapEnabled(ctx.params.on === true);
@@ -438,7 +547,18 @@ export async function runAcp(opts: AcpRunOptions): Promise<void> {
     changeSession: (sessionId, change) => changeFolderSession(sessionId, change),
   });
 
-  if (!opts.devUrl) opts.startBridge?.();
+  if (!opts.devUrl) {
+    opts.startBridge?.();
+    // The provider and model catalog stays current here too: only the desktop
+    // app refreshed it, so without the app it went stale (owner).
+    const { startModelsDevRefresh } = await import("@/lib/models_dev");
+    startModelsDevRefresh();
+    // Automations run in whichever Atlarix is open, the editor included: with
+    // only VS Code open they never fired. runner.ts leases each run, so with
+    // the app, the CLI or another window open too, every run still happens once.
+    const { startAutomationRunner } = await import("../../lib/automations/runner");
+    startAutomationRunner();
+  }
 
   const connection = buildAgentApp(agent, opts.version, { chromeStatus: opts.chromeStatus }).connect(acp.ndJsonStream(stdoutStream(), stdinStream()));
 

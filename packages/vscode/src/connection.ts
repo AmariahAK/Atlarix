@@ -52,6 +52,18 @@ export interface SessionListener {
   update(n: SessionNotification): void;
   permission(req: RequestPermissionRequest): Promise<RequestPermissionResponse>;
   peerWaiting(): void;
+  /** What is running in the session changed. */
+  tasksChanged?(count: number): void;
+  /** Background work finished while the session was idle: the agent can deal with it now. */
+  backgroundReady?(): void;
+  /** Messages sent while the turn runs changed. */
+  pendingChanged?(items: Array<{ id: string; text: string; kind: string }>): void;
+  /** What the working line says instead of "Thinking" ("Couldn't connect, retrying…"), or null. */
+  workingChanged?(title: string | null): void;
+  /** Text you typed into a turn you stopped that the agent never got: back to the input. */
+  unsent?(text: string): void;
+  /** An automation finished a run. */
+  automationRun?(run: { name: string; status: string; summary: string | null }): void;
 }
 
 export interface ConnectionOptions {
@@ -124,6 +136,49 @@ export class AtlarixConnection {
         (p) => p as { sessionId: string },
         (ctx) => {
           this.listeners.get(ctx.params.sessionId)?.peerWaiting();
+        },
+      )
+      .onNotification(
+        "_atlarix/tasks_changed",
+        (p) => p as { sessionId: string; count?: number },
+        (ctx) => {
+          this.listeners.get(ctx.params.sessionId)?.tasksChanged?.(Number(ctx.params.count ?? 0));
+        },
+      )
+      .onNotification(
+        "_atlarix/working",
+        (p) => p as { sessionId: string; title?: string | null },
+        (ctx) => {
+          this.listeners.get(ctx.params.sessionId)?.workingChanged?.(ctx.params.title ?? null);
+        },
+      )
+      .onNotification(
+        "_atlarix/unsent",
+        (p) => p as { sessionId: string; text?: string },
+        (ctx) => {
+          if (ctx.params.text) this.listeners.get(ctx.params.sessionId)?.unsent?.(ctx.params.text);
+        },
+      )
+      .onNotification(
+        "_atlarix/pending",
+        (p) => p as { sessionId: string; items?: Array<{ id: string; text: string; kind: string }> },
+        (ctx) => {
+          this.listeners.get(ctx.params.sessionId)?.pendingChanged?.(ctx.params.items ?? []);
+        },
+      )
+      .onNotification(
+        "_atlarix/automation_run",
+        (p) => p as { sessionId: string; name?: string; status?: string; summary?: string | null },
+        (ctx) => {
+          const p = ctx.params;
+          this.listeners.get(p.sessionId)?.automationRun?.({ name: p.name ?? "Automation", status: p.status ?? "ok", summary: p.summary ?? null });
+        },
+      )
+      .onNotification(
+        "_atlarix/background_ready",
+        (p) => p as { sessionId: string },
+        (ctx) => {
+          this.listeners.get(ctx.params.sessionId)?.backgroundReady?.();
         },
       );
 

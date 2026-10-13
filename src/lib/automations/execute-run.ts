@@ -5,6 +5,7 @@
  * with kind="background"; results land on automation_runs for the triage feed.
  */
 
+import { parseAssistantMessageParts } from "@/lib/chat/assistant-message-parts";
 import { randomUUID } from "node:crypto";
 import log from "electron-log";
 import { eq } from "drizzle-orm";
@@ -101,6 +102,19 @@ export function parseAutomationOutcome(finalText: string | null): {
   return { status: "ok", summary: tail || null };
 }
 
+/**
+ * What the agent SAID, without its tool calls and their raw results: a run
+ * that skipped the result line had its summary taken from the last lines,
+ * which were a tool's JSON ('{"success":false,"error":"Command fail…', video
+ * session).
+ */
+export function replyProse(content: string): string {
+  return parseAssistantMessageParts(content, false)
+    .filter((p): p is Extract<typeof p, { type: "markdown" }> => p.type === "markdown")
+    .map((p) => p.content)
+    .join("\n\n");
+}
+
 function lastAssistantText(chatId: number): string | null {
   const transport = getStreamTransport(chatId);
   if (!transport) return null;
@@ -111,7 +125,7 @@ function lastAssistantText(chatId: number): string | null {
       typeof m.content === "string" &&
       m.content.trim()
     ) {
-      return m.content;
+      return replyProse(m.content);
     }
   }
   return null;
@@ -156,12 +170,26 @@ async function maybeTellTheAgent(
    * exactly the automations the user triages themselves.
    */
   forceNotifyAgent = false,
+  runId?: string,
 ): Promise<void> {
   if (
     (!automation.notifyAgent && !forceNotifyAgent) ||
     automation.workspaceId == null
   )
     return;
+  if (!forceNotifyAgent) {
+    // An unattended run: one chat in that folder, in the app, the CLI or an
+    // editor, claims it (agent-delivery.ts) and wakes to act on it (owner).
+    // Nothing is queued here: the claim is what keeps it to one chat.
+    return;
+  }
+  // The agent asked for this run: its result goes back to that call, so no
+  // other chat claims it too.
+  if (runId) {
+    const { markRunDelivered } = await import("./agent-delivery");
+    const { PROCESS_OWNER } = await import("./process-owner");
+    markRunDelivered(runId, PROCESS_OWNER);
+  }
   // Nothing to report is not news. Delivering it would train the model to treat
   // automation results as noise, which is exactly what makes a real one get
   // skimmed.
@@ -180,6 +208,30 @@ async function maybeTellTheAgent(
   } catch (e) {
     logger.warn("could not queue automation result for the agent:", e);
   }
+}
+
+/**
+ * Why the run's agent turn failed, if it did (no model available, a refused
+ * key, an unreachable provider), from what the turn sent. Such a run used to
+ * read the empty reply and be recorded "ok" with nothing in it (video session).
+ */
+export function turnFailure(
+  sends: ReadonlyArray<{ channel: string; payload?: { chatId?: number; error?: unknown; detail?: unknown } | null }>,
+  chatId: number,
+): string | null {
+  const failed = sends.find(
+    (x) =>
+      (x.channel === "chat:response:error" || x.channel === "chat:stream:disconnected") &&
+      (x.payload?.chatId == null || x.payload.chatId === chatId),
+  );
+  if (!failed) return null;
+  // A lost connection's detail is raw transport text ("fetch failed"): say
+  // what happened around it, as the chat does (ai-e9).
+  if (failed.channel === "chat:stream:disconnected") {
+    const detail = String(failed.payload?.detail ?? "").trim();
+    return detail ? `Couldn't reach the model provider: ${detail}` : "Couldn't reach the model provider.";
+  }
+  return String(failed.payload?.error ?? "").trim() || "The agent's turn failed.";
 }
 
 export async function executeAutomationRun(
@@ -243,6 +295,7 @@ export async function executeAutomationRun(
       "ok",
       triggerContext ?? headline,
       opts?.forceNotifyAgent,
+      runId,
     );
     logger.info(`automation "${automation.name}" fired (notify-only)`);
     return { runId };
@@ -350,8 +403,11 @@ export async function executeAutomationRun(
       timeoutMs,
     });
 
+    const failure = turnFailure(sender.sends, chatId);
     if (timedOut) {
       runError = `timed out after ${Math.round(timeoutMs / 60000)} min`;
+    } else if (failure) {
+      runError = failure;
     } else {
       const outcome = parseAutomationOutcome(lastAssistantText(chatId));
       status = outcome.status;
@@ -396,6 +452,7 @@ export async function executeAutomationRun(
     status,
     runError ?? summary ?? "",
     opts?.forceNotifyAgent,
+    runId,
   );
   await broadcastRunUpdate(runId);
   try {

@@ -9,6 +9,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { DatabaseSync } from "node:sqlite";
 import {
   __resetPeersForTests,
+  forgetLiveSession,
   listPeerSessions,
   noteLiveSession,
   resolvePeer,
@@ -178,3 +179,23 @@ describe("a CLI that has not had its first message yet", () => {
     expect(again.row.session_id).toBe("sess-real-0003");
   });
 });
+
+describe("list_sessions and blank chats (QA H1)", () => {
+  it("leaves out a never-used chat beside a real one in the same place, but keeps one that is alone", () => {
+    sqlite.exec("CREATE TABLE IF NOT EXISTS session_messages (id TEXT, session_id TEXT)");
+    sqlite.exec("DELETE FROM session_messages");
+    sqlite.prepare("INSERT INTO session_messages VALUES ('m1', 'sess-receiver-0002')").run();
+    sqlite.prepare("INSERT INTO session_messages VALUES ('m2', 'sess-sender-0001')").run();
+    // The editor opens a chat before you use it: same window, same folder.
+    noteLiveSession({ sessionId: "sess-blank-0009", chatId: -19, name: "New editor session (b)", workspace: "/w/b" });
+    // And a blank one alone in another folder: it is the only way to reach that window.
+    noteLiveSession({ sessionId: "sess-alone-0010", chatId: -20, name: "New editor session (c)", workspace: "/w/c" });
+    const names = listPeerSessions("sess-sender-0001").map((r) => r.name);
+    expect(names).not.toContain("New editor session (b)");
+    expect(names).toContain("New editor session (c)");
+    forgetLiveSession("sess-blank-0009");
+    forgetLiveSession("sess-alone-0010");
+    sqlite.exec("DROP TABLE session_messages");
+  });
+});
+

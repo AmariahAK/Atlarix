@@ -832,6 +832,64 @@ export async function getModelsDevProviderCatalog(): Promise<
   return out;
 }
 
+/** A chat model: takes and gives text, not deprecated (no Whisper, no image-only). */
+function isCatalogChatModel(m: ModelsDevModel): boolean {
+  if (m.status === "deprecated") return false;
+  const inputs = m.modalities?.input ?? ["text"];
+  const outputs = m.modalities?.output ?? ["text"];
+  return inputs.includes("text") && outputs.includes("text");
+}
+
+/** One model as a provider's page shows it before (or without) a key. */
+export interface CatalogModel {
+  id: string;
+  name: string;
+  context: number | null;
+  /** US$ per million tokens. */
+  price: { input: number; output: number } | null;
+  tools: boolean;
+  thinking: boolean;
+  images: boolean;
+}
+
+/**
+ * A provider's models straight from the catalog: no key, no network beyond the
+ * hourly-refreshed catalog. Lets a provider's page show what it offers before
+ * you connect it (owner: every provider and the models inside). Newest first
+ * within the catalog's own order; deprecated ones left out.
+ */
+export async function catalogModelsFor(atlarixProviderId: string): Promise<CatalogModel[]> {
+  try {
+    const data = await getModelsDevData();
+    const p = data[resolveModelsDevProviderId(atlarixProviderId)];
+    if (!p) return [];
+    return Object.entries(p.models)
+      .filter(([, m]) => isCatalogChatModel(m))
+      .map(([key, m]) => ({
+        id: m.id ?? key,
+        name: m.name || m.id || key,
+        context: m.limit?.context ?? null,
+        price: m.cost && typeof m.cost.input === "number" && typeof m.cost.output === "number" ? { input: m.cost.input, output: m.cost.output } : null,
+        tools: m.tool_call !== false,
+        thinking: !!m.reasoning,
+        images: !!m.modalities?.input?.includes("image"),
+      }));
+  } catch {
+    return [];
+  }
+}
+
+/** How many models each provider offers in the catalog, by Atlarix provider id. */
+export async function catalogModelCount(atlarixProviderId: string): Promise<number> {
+  try {
+    const data = await getModelsDevData();
+    const p = data[resolveModelsDevProviderId(atlarixProviderId)];
+    return p ? Object.values(p.models).filter(isCatalogChatModel).length : 0;
+  } catch {
+    return 0;
+  }
+}
+
 /**
  * Start background refresh (call from main process on app ready)
  */

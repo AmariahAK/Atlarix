@@ -226,7 +226,10 @@ export const CHAT_MESSAGE_MARKDOWN_PROSE =
   "prose-p:mt-0 prose-p:mb-1 prose-p:leading-snug " +
   "prose-li:my-0.5 prose-ul:my-1 prose-ol:my-1 " +
   "prose-pre:my-1 prose-pre:py-2 prose-pre:leading-snug " +
-  "prose-blockquote:my-1 prose-hr:my-2 prose-table:my-2";
+  "prose-blockquote:my-1 prose-hr:my-2 prose-table:my-2 " +
+  // Typography draws a literal ` either side of inline code; the chip
+  // already marks it as code (QA: every answer showed `npm test`).
+  "prose-code:before:content-none prose-code:after:content-none";
 
 /**
  * Pre-process content to handle unclosed custom tags

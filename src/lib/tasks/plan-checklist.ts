@@ -87,6 +87,35 @@ const RE_NUMBERED_CHECKBOX = /^(\s*\d+[.)]\s+)\[( |x|~|!|@)?\]\s*(.+)$/i;
 const RE_NUMBERED_PLAIN = /^(\s*\d+[.)]\s+)(.+)$/;
 const RE_BULLET_CHECKBOX = /^(\s*[-*+]\s+)\[( |x|~|!|@)?\]\s*(.+)$/i;
 
+/**
+ * The indented plain lines a step wraps onto ("1. [x] Implement `toggle`… return
+ * the\n   updated `Todo`."), joined to its text: cut at the first line, a card
+ * showed "…return the" (QA). Sub-bullets and numbered lines stay their own.
+ */
+function continuation(lines: readonly string[], from: number): string {
+  const parts: string[] = [];
+  for (let j = from; j < lines.length; j++) {
+    const l = lines[j]!;
+    if (!/^\s{2,}\S/.test(l)) break;
+    if (/^\s*(?:[-*+]|\d+[.)])\s/.test(l)) break;
+    parts.push(l.trim());
+  }
+  return parts.join(" ");
+}
+
+/**
+ * A step as plain words, for places that number and style it themselves (an
+ * editor's plan list, a tool line): without the model's own "1." or "[x]", and
+ * without markdown marks. Zed showed "1. 1. Add `toggle…`" (QA).
+ */
+export function plainStepText(text: string): string {
+  return text
+    .replace(/\*\*(.+?)\*\*|__(.+?)__/g, (_m, a: string | undefined, b: string | undefined) => a ?? b ?? "")
+    .replace(/^\s*(?:\d+[.)]\s+)?(?:\[[ x~!@]?\]\s*)?/i, "")
+    .replace(/`/g, "")
+    .trim();
+}
+
 /** Parse every checklist step (numbered w/ or w/o checkbox, bullet checkboxes) with its state. */
 export function parsePlanChecklist(content: string): PlanChecklistStep[] {
   const steps: PlanChecklistStep[] = [];
@@ -97,8 +126,10 @@ export function parsePlanChecklist(content: string): PlanChecklistStep[] {
     const bullet = numbered ? null : line.match(RE_BULLET_CHECKBOX);
     const m = numbered ?? bullet;
     if (m) {
-      const text = m[3]?.trim();
-      if (!text) continue;
+      const first = m[3]?.trim();
+      if (!first) continue;
+      const more = continuation(lines, i + 1);
+      const text = more ? `${first} ${more}` : first;
       steps.push({
         index: steps.length + 1,
         text,
@@ -111,7 +142,8 @@ export function parsePlanChecklist(content: string): PlanChecklistStep[] {
     const rest = plain?.[2]?.trim();
     if (!rest) continue;
     if (/^#{1,6}\s/.test(rest)) continue;
-    steps.push({ index: steps.length + 1, text: rest, state: "todo", line: i });
+    const more = continuation(lines, i + 1);
+    steps.push({ index: steps.length + 1, text: more ? `${rest} ${more}` : rest, state: "todo", line: i });
   }
   return steps;
 }

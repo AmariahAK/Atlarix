@@ -809,16 +809,46 @@ const config: ForgeConfig = {
         }
         if (!appName) continue;
         const appPath = path.join(outDir, appName);
+        // Re-sign with the Developer ID when it's in this keychain, as osxSign
+        // did before the prune. Ad-hoc identities change every build, so the
+        // keychain asked for the login password at each launch ("Atlarix Safe
+        // Storage") and no "Always Allow" ever carried over (QA, build I). The
+        // CLI's local builds do the same (build-bun.ts). Ad-hoc without it.
+        const identity = "Developer ID Application: Amariah Kamau (7VWW7N9R87)";
+        let haveIdentity = false;
+        try {
+          haveIdentity = execFileSync(
+            "security",
+            ["find-identity", "-v", "-p", "codesigning"],
+            { encoding: "utf8" },
+          ).includes(identity);
+        } catch {
+          haveIdentity = false;
+        }
         try {
           execFileSync(
             "codesign",
-            ["--force", "--deep", "--sign", "-", appPath],
+            haveIdentity
+              ? [
+                  "--force",
+                  "--deep",
+                  "--options",
+                  "runtime",
+                  "--entitlements",
+                  path.join(__dirname, "entitlements.plist"),
+                  "--sign",
+                  identity,
+                  appPath,
+                ]
+              : ["--force", "--deep", "--sign", "-", appPath],
             {
               stdio: "inherit",
             },
           );
           execFileSync("xattr", ["-cr", appPath]);
-          console.log(`[postPackage] ad-hoc re-signed local build: ${appPath}`);
+          console.log(
+            `[postPackage] ${haveIdentity ? "Developer ID" : "ad-hoc"} re-signed local build: ${appPath}`,
+          );
         } catch (err) {
           console.warn(
             `[postPackage] ad-hoc re-sign failed (non-fatal): ${String(err)}`,

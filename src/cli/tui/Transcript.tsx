@@ -18,7 +18,8 @@
  * bottom while new output arrives, until the user scrolls up.
  */
 import { useTerminalDimensions } from "@opentui/react";
-import { memo, type ReactNode } from "react";
+import type { ScrollBoxRenderable } from "@opentui/core";
+import { memo, useEffect, useRef, type MutableRefObject, type ReactNode } from "react";
 import {
   previewLines,
   type Cell,
@@ -27,12 +28,12 @@ import {
 } from "../agent/transcript";
 import { COMMANDS } from "./commands";
 import { useDiffSegments } from "./diff-highlight";
-import { oneLine } from "./format";
+import { oneLine, thoughtSummary } from "./format";
 import { Prose } from "./Prose";
 import { color, glyph } from "./theme";
 
 const STATUS_ICON: Record<ToolLine["status"], { icon: string; fg: string }> = {
-  running: { icon: glyph.tool.running, fg: color.warn },
+  running: { icon: glyph.tool.running, fg: color.code },
   success: { icon: glyph.tool.success, fg: color.accentSoft },
   error: { icon: glyph.tool.error, fg: color.error },
   interrupted: { icon: glyph.tool.interrupted, fg: color.muted },
@@ -51,7 +52,7 @@ export function relativeTo(
 /** Tools whose target is a file: its name stands out, the folder stays dim. */
 const FILE_VERBS = new Set(["Read", "Edit", "Read attachment"]);
 
-/** "src/cli/tui/" dim, "App.tsx" bold white, then a ":12-40" range dim. */
+/** A path in sky, its file name bold, then a ":12-40" range muted. */
 function PathTarget({ verb, target }: { verb: string; target: string }) {
   const m = FILE_VERBS.has(verb)
     ? /^(.*\/)?([^/\s:]+)(.*)$/.exec(target)
@@ -59,11 +60,11 @@ function PathTarget({ verb, target }: { verb: string; target: string }) {
   if (!m) return <span fg={color.textDim}>{target}</span>;
   return (
     <span>
-      {m[1] ? <span fg={color.textDim}>{m[1]}</span> : null}
-      <span fg={color.white}>
+      {m[1] ? <span fg={color.code}>{m[1]}</span> : null}
+      <span fg={color.code}>
         <b>{m[2]}</b>
       </span>
-      {m[3] ? <span fg={color.textDim}>{m[3]}</span> : null}
+      {m[3] ? <span fg={color.muted}>{m[3]}</span> : null}
     </span>
   );
 }
@@ -189,7 +190,7 @@ function ToolCell({
           paddingRight={1}
           flexDirection="row"
         >
-          <text fg={color.warn} flexShrink={0}>
+          <text fg={color.code} flexShrink={0}>
             <b>{"! "}</b>
           </text>
           <text fg={color.white} flexGrow={1}>
@@ -216,6 +217,12 @@ function ToolCell({
       )}
       {tool.children?.length ? (
         <box flexDirection="column" paddingLeft={2}>
+          {/* The older calls go above the newest five, where they came. */}
+          {!expanded && tool.children.length > 5 ? (
+            <text
+              fg={color.faint}
+            >{`  … ${tool.children.length - 5} earlier (ctrl+o)`}</text>
+          ) : null}
           {(expanded ? tool.children : tool.children.slice(-5)).map((c, i) => {
             const cs = STATUS_ICON[c.status];
             return (
@@ -229,11 +236,6 @@ function ToolCell({
               </text>
             );
           })}
-          {!expanded && tool.children.length > 5 ? (
-            <text
-              fg={color.faint}
-            >{`  … ${tool.children.length - 5} earlier (ctrl+o)`}</text>
-          ) : null}
         </box>
       ) : null}
       {tool.progress ? (
@@ -250,7 +252,8 @@ function ToolCell({
         <box flexDirection="column">
           {failed ? (
             <text fg={color.error}>
-              {`  ${glyph.result} ${oneLine(runLines.lines.find((l) => l.trim()) ?? "", width - 12 - (exit?.length ?? 0))}`}
+              {/* The error line the summary picked (the last stderr line), not the shell's echo. */}
+              {`  ${glyph.result} ${oneLine((exit ? tool.summary?.slice(0, -(` · ${exit}`).length) : tool.summary) || (runLines.lines.find((l) => l.trim()) ?? ""), width - 12 - (exit?.length ?? 0))}`}
               {exit ? <span fg={color.faint}>{` · ${exit}`}</span> : null}
             </text>
           ) : (
@@ -270,7 +273,8 @@ function ToolCell({
           )}
         </box>
       ) : null}
-      {!tool.diff && !expanded && tool.summary && !showRun ? (
+      {/* A working sub-agent's progress line IS its result line: never two. */}
+      {!tool.diff && !expanded && tool.summary && !showRun && !(tool.progress && tool.status === "running") ? (
         <text fg={tool.status === "error" ? color.error : color.muted}>
           {`  ${glyph.result} `}
           {oneLine(relativeTo(workspace, tool.summary), width - 8)}
@@ -480,7 +484,7 @@ function CellViewInner({
           {cell.pairs.map((p, i) => (
             <box key={i} flexDirection="column">
               <text>
-                <span fg={color.warn}>{`${glyph.question} `}</span>
+                <span fg={color.code}>{`${glyph.question} `}</span>
                 <span fg={color.textDim}>{p.question}</span>
               </text>
               <text>
@@ -494,20 +498,17 @@ function CellViewInner({
         </box>
       );
     case "thought": {
-      // Still being written: what it is thinking now. Done: its title (a bold
-      // first line) or first line, and how long it took. ctrl+o: all of it.
+      // Still being written: its latest line (the status line under the box
+      // already says "Thinking… 11s", so it is not said twice). Done: what it
+      // was about (its bold title, or its first sentence) and how long it
+      // took. ctrl+o: all of it.
       const lines = cell.text.split("\n").filter((l) => l.trim());
-      const title = /^\*\*(.+?)\*\*$/.exec(lines[0]?.trim() ?? "")?.[1];
       const took =
-        cell.ms != null && cell.ms >= 1000
-          ? ` · thought for ${Math.round(cell.ms / 1000)}s`
-          : "";
-      const head = live
-        ? `Thinking… ${(lines.at(-1) ?? "").replace(/\*\*/g, "")}`
-        : (title ?? (lines[0] ?? "").replace(/\*\*/g, ""));
+        cell.ms != null && cell.ms >= 1000 ? ` · ${Math.round(cell.ms / 1000)}s` : "";
+      const head = live ? (lines.at(-1) ?? "").replace(/\*\*/g, "") : thoughtSummary(cell.text);
       return (
         <box marginTop={spaced ? 1 : 0} flexDirection="row">
-          <text fg={live ? color.warn : color.faint} flexShrink={0}>
+          <text fg={live ? color.code : color.faint} flexShrink={0}>
             {`${glyph.thought} `}
           </text>
           {expanded ? (
@@ -519,7 +520,8 @@ function CellViewInner({
             <text fg={color.muted} flexGrow={1}>
               <i>
                 {oneLine(
-                  `${head}${lines.length > 1 && !live ? "\n…" : ""}`,
+                  // A summary that already ends its sentence needs no "…" (QA saw ".…").
+                  `${head}${lines.length > 1 && !live && !/[.!?]$/.test(head) ? "\n…" : ""}`,
                   width - 8 - took.length,
                 )}
               </i>
@@ -590,7 +592,10 @@ export function Transcript({
   busy = false,
   workspace,
   header,
+  scrollRef,
 }: {
+  /** Scrolls the conversation by a number of rows (page up/down from the keyboard). */
+  scrollRef?: MutableRefObject<((rows: number) => void) | null>;
   /** Paths under it are shown relative. */
   workspace?: string;
   /** Drawn first inside the scroll, so it stays at the top and scrolls away with history. */
@@ -601,8 +606,18 @@ export function Transcript({
   busy?: boolean;
 }) {
   const { width } = useTerminalDimensions();
+  const box = useRef<ScrollBoxRenderable | null>(null);
+  useEffect(() => {
+    if (!scrollRef) return;
+    scrollRef.current = (rows) => {
+      if (box.current) box.current.scrollTop = Math.max(0, box.current.scrollTop + rows);
+    };
+    return () => {
+      scrollRef.current = null;
+    };
+  }, [scrollRef]);
   return (
-    <scrollbox flexGrow={1} stickyScroll stickyStart="bottom">
+    <scrollbox ref={box} flexGrow={1} stickyScroll stickyStart="bottom">
       {/* paddingRight: the scrollbar is drawn OVER the last column, so text that
           wrapped exactly to the edge lost its last character under it — the
           "cut off" ends of lines (owner, 2026-10-04: "…the Atlarix agent" with

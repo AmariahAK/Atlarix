@@ -30,6 +30,7 @@ import {
   parkedWaitingByChatIdAtom,
   pendingInterjectionsByChatIdAtom,
   turnSnapshotTurnIdByMessageIdAtom,
+  turnModelByAssistantMessageIdAtom,
   responseDoneAnimationAtom,
   restartedAfterMessageIdAtom,
   pendingUserQuestionByChatIdAtom,
@@ -58,6 +59,8 @@ import {
   upsertStreamThreadItem,
   mergeSubagentActivityIntoThread,
   mergeNestedToolActivityIntoSubagentRound,
+  DISPLAY_PREVIEW_ARG,
+  withDisplayPreviewExpand,
   type StreamThreadItem,
 } from "@/lib/chat/stream-thread";
 import { buildInlineTimelineFromActivity } from "@/lib/chat/inline-timeline";
@@ -99,6 +102,7 @@ import { resolveStreamAppId } from "@/lib/chat-workspace-binding";
 import { ensureWorkspaceSessionForChat } from "@/lib/ensure-workspace-session";
 import { collectPasteAttachmentsFromFileAttachments } from "@/lib/chat/paste-attachment-meta";
 import { buildPromptWithTextPastes } from "@/lib/chat/text-paste-attachment";
+import { withRevertedFilesNote } from "@/lib/chat/reverted-files-reminder";
 import {
   activeSessionWorkModeAtom,
   activeWorkspaceSessionIdAtom,
@@ -251,6 +255,7 @@ export function mergeWritePreviewIntoThread(
     const item = cur[idx] as Extract<StreamThreadItem, { kind: "tool" }>;
     const mergedArgs: Record<string, unknown> = {
       ...item.toolArgs,
+      [DISPLAY_PREVIEW_ARG]: true,
       path: targetPath,
       operation,
       ...(oldContent != null ? { old_content: oldContent } : {}),
@@ -264,7 +269,8 @@ export function mergeWritePreviewIntoThread(
         : {}),
     };
     const next = [...cur];
-    next[idx] = { ...item, toolArgs: mergedArgs };
+    // A card that already finished rebuilds its diff from the whole file.
+    next[idx] = withDisplayPreviewExpand({ ...item, toolArgs: mergedArgs });
     return new Map(prevMap).set(chatId, next);
   });
 }
@@ -791,6 +797,18 @@ export function useStreamChat({
       });
 
       let hasIncrementedStreamCount = false;
+      // The user rows this turn started with; one that appears later, in front
+      // of the reply, was sent while it ran (a steer) — see onUpdate (QA #4).
+      let userIdsAtTurnStart: Set<number> | null = null;
+      // The model this turn runs on, for its reply's header (QA #49).
+      const turnModel =
+        modelOverride ??
+        (settings?.selectedModel
+          ? {
+              provider: settings.selectedModel.provider,
+              name: settings.selectedModel.name,
+            }
+          : null);
       let cleanupStreamListeners: (() => void) | null = null;
       try {
         clearActivityForChatInStore(chatId);
@@ -1608,10 +1626,15 @@ export function useStreamChat({
         // Pass 7: Blueprint injection-mode + debug-trace plumbing removed.
 
         const {
-          modelPrompt: promptForModel,
+          modelPrompt: builtPrompt,
           displayPrompt,
           fileAttachments,
         } = buildPromptWithTextPastes(prompt, attachments);
+        // A message the user typed carries any Revert since the last one.
+        const promptForModel =
+          continueAfterQuestions || continueInterrupted || redo || systemWake
+            ? builtPrompt
+            : await withRevertedFilesNote(chatId, builtPrompt);
         const pasteAttachments =
           collectPasteAttachmentsFromFileAttachments(attachments);
 
@@ -1707,6 +1730,40 @@ export function useStreamChat({
             // v11.1: no freeze-baseline clamp — the turn ends at ask_user, so
             // there is no speculative streaming to suppress while pending.
             const messagesForUi = updatedMessages;
+
+            // A message sent while this turn ran sits in front of the reply as
+            // its own row; record WHERE the agent took it, so the finished
+            // turn shows it there rather than above the whole answer (QA #4).
+            if (userIdsAtTurnStart == null) {
+              userIdsAtTurnStart = new Set(
+                messagesForUi.filter((m) => m.role === "user").map((m) => m.id),
+              );
+            } else {
+              let replyAt = -1;
+              messagesForUi.forEach((m, i) => {
+                if (m.role === "assistant") replyAt = i;
+              });
+              messagesForUi.forEach((m, i) => {
+                if (m.role !== "user" || userIdsAtTurnStart!.has(m.id)) return;
+                userIdsAtTurnStart!.add(m.id);
+                if (replyAt < 0 || i > replyAt) return;
+                const rowKey = m.sessionRowId ?? String(m.id);
+                getDefaultStore().set(streamThreadByChatIdAtom, (prev) => {
+                  const n = new Map(prev);
+                  n.set(
+                    chatId,
+                    upsertStreamThreadItem(n.get(chatId) ?? [], {
+                      kind: "interjection",
+                      id: `interj-${rowKey}`,
+                      text: m.content ?? "",
+                      rowKey,
+                      ts: Date.now(),
+                    }),
+                  );
+                  return n;
+                });
+              });
+            }
 
             if (!hasIncrementedStreamCount) {
               setStreamCountById((prev) => {
@@ -2319,8 +2376,16 @@ export function useStreamChat({
                     inlineForSnap,
                     thinkingForSnap,
                     interleavedForSnap,
+                    turnModel,
                   )
                 : null;
+            if (turnModel && lastAssistant?.id != null) {
+              const id = lastAssistant.id;
+              getDefaultStore().set(turnModelByAssistantMessageIdAtom, (prev) => ({
+                ...prev,
+                [id]: turnModel,
+              }));
+            }
 
             if (snapshotJson && lastAssistant?.id != null) {
               void IpcClient.getInstance()

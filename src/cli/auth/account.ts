@@ -24,6 +24,42 @@ export async function acceptSession(t: Tokens): Promise<string> {
   return data.user.email;
 }
 
+let avatarCache: { url: string; data: string | null } | null = null;
+
+/**
+ * Who you are as your sign-in provider says: name, picture and provider. The
+ * picture comes back as a data: URL (fetched here, at most 256 KB, once per
+ * process), so the editor's page shows it without loading anything itself.
+ */
+export async function currentProfile(): Promise<{ name: string | null; avatar: string | null; provider: string | null }> {
+  const { getSession } = await import("@/lib/auth/supabase-client");
+  const user = (await getSession().catch(() => null))?.user;
+  if (!user) return { name: null, avatar: null, provider: null };
+  const meta = (user.user_metadata ?? {}) as Record<string, unknown>;
+  const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+  const name = str(meta.full_name) ?? str(meta.name) ?? str(meta.user_name) ?? str(meta.preferred_username);
+  const provider = str((user.app_metadata as Record<string, unknown> | undefined)?.provider);
+  const url = str(meta.avatar_url) ?? str(meta.picture);
+  let avatar: string | null = null;
+  if (url && /^https:\/\//.test(url)) {
+    if (avatarCache?.url === url) avatar = avatarCache.data;
+    else {
+      try {
+        // A small one: GitHub's default is 460px.
+        const small = /avatars\.githubusercontent\.com/.test(url) ? `${url}${url.includes("?") ? "&" : "?"}s=128` : url;
+        const res = await fetch(small, { signal: AbortSignal.timeout(4_000) });
+        const type = res.headers.get("content-type") ?? "";
+        const buf = res.ok && /^image\//.test(type) ? Buffer.from(await res.arrayBuffer()) : null;
+        avatar = buf && buf.length <= 256_000 ? `data:${type.split(";")[0]};base64,${buf.toString("base64")}` : null;
+      } catch {
+        avatar = null;
+      }
+      avatarCache = { url, data: avatar };
+    }
+  }
+  return { name, avatar, provider: provider === "email" ? "email" : provider };
+}
+
 export async function currentEmail(): Promise<string | null> {
   const { getSession } = await import("@/lib/auth/supabase-client");
   try {
@@ -56,8 +92,9 @@ export function openInBrowser(url: string): void {
 }
 
 /** The whole browser sign-in, reporting the URL through `onUrl` as soon as it exists. */
-export function signInCli(onUrl: (url: string) => void): Promise<string> {
+export function signInCli(onUrl: (url: string) => void, returnTo?: string): Promise<string> {
   return signInWithBrowser({
+    ...(returnTo ? { returnTo } : {}),
     openUrl: (url) => {
       onUrl(url);
       openInBrowser(url);

@@ -89,6 +89,7 @@ import {
   runningSubagentCount,
 } from "@/lib/agents/subagent-results";
 import { computeWakePendingResults } from "@/lib/agent/collect-results";
+import { takeEarlierDeliveredResults } from "@/lib/agent/delivered-results";
 import { takePendingAutomationResults } from "@/lib/agent/automation-results";
 import {
   AI_STREAMING_ERROR_MESSAGE_PREFIX,
@@ -1599,6 +1600,14 @@ export function registerChatStreamHandlers() {
               };
             };
 
+            // Results an earlier turn was given by injection (never saved), so
+            // this turn still has them instead of redoing the work.
+            const turnStartedAt = Date.now();
+            const loadEarlierDeliveredResultsSection = (): ContextSection | null => {
+              const earlier = takeEarlierDeliveredResults(req.chatId, turnStartedAt);
+              return earlier ? { name: "taskProgress", priority: 1.6, content: earlier } : null;
+            };
+
             // Background sub-agent results that finished after the previous turn
             // ended — drain them into this turn's context the same way.
             const loadSubagentResultsSection = (): ContextSection | null => {
@@ -1624,7 +1633,12 @@ export function registerChatStreamHandlers() {
             // `ok` and the model was never told, which is exactly what was
             // reported.
             const loadAutomationResultsSection = (): ContextSection | null => {
-              if (wakeHasPendingResults) return null; // collect_results is the drain
+              // A wake turn delivers them as fresh input: collect_results when
+              // forced, else prepareStep's injection, as for finished commands
+              // and sub-agents. Here, in the context, a woken model read them as
+              // standing information and did nothing (QA). Ordinary turns take
+              // them here at the start.
+              if (wakeHasPendingResults) return null;
               const pending = takePendingAutomationResults(req.chatId);
               if (!pending) return null;
               return {
@@ -1680,6 +1694,7 @@ export function registerChatStreamHandlers() {
               loadBackgroundResultsSection(),
               loadSubagentResultsSection(),
               loadAutomationResultsSection(),
+              loadEarlierDeliveredResultsSection(),
             ];
             for (const section of loadedSections) {
               if (section) contextSections.push(section);

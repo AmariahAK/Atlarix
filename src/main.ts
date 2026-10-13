@@ -816,6 +816,12 @@ export async function onReady() {
   void import("./lib/automations/runner")
     .then((m) => m.startAutomationRunner())
     .catch((e) => logger.warn("Automation runner failed to start:", e));
+  // A finished notify-the-agent run wakes one of this app's chats in its
+  // folder (from any process: app, CLI, editor). App only: the CLI's
+  // AgentSession claims for itself.
+  void import("./lib/automations/app-delivery")
+    .then((m) => m.startAppAutomationDelivery())
+    .catch((e) => logger.warn("Automation delivery failed to start:", e));
 
   // Register workspace cleanup handlers
   registerCleanupHandlers();
@@ -1347,11 +1353,33 @@ async function promptMoveToApplicationsFolder(): Promise<void> {
   if (app.isInApplicationsFolder()) return;
   logger.log("Prompting user to move to applications folder");
 
+  const { moveToApplicationsDialog } = await import("./main/update-helpers");
+  const installed = path.join("/Applications", `${app.getName()}.app`);
+  let existing: { name: string; version: string | null } | null = null;
+  if (fs.existsSync(installed)) {
+    let version: string | null = null;
+    try {
+      const plist = fs.readFileSync(
+        path.join(installed, "Contents", "Info.plist"),
+        "utf8",
+      );
+      version =
+        /<key>CFBundleShortVersionString<\/key>\s*<string>([^<]+)<\/string>/.exec(
+          plist,
+        )?.[1] ?? null;
+    } catch {
+      // unreadable: still say an app is there
+    }
+    existing = { name: app.getName(), version };
+  }
+  const d = moveToApplicationsDialog(existing);
   const { response } = await dialog.showMessageBox({
     type: "question",
-    buttons: ["Move to Applications Folder", "Do Not Move"],
-    defaultId: 0,
-    message: "Move to Applications Folder? (required for auto-update)",
+    buttons: d.buttons,
+    defaultId: d.defaultId,
+    cancelId: 1,
+    message: d.message,
+    ...(d.detail ? { detail: d.detail } : {}),
   });
 
   if (response === 0) {

@@ -18,6 +18,7 @@ import { useLanguageModelsByProviders } from "@/hooks/useLanguageModelsByProvide
 import { useLocalModels } from "@/hooks/useLocalModels";
 import { useLocalLMSModels } from "@/hooks/useLMStudioModels";
 import { useAtlarixCoreCatalog } from "@/hooks/useAtlarixCoreCatalog";
+import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
 import { resolveModelDisplayLabel } from "@/lib/resolve-model-display-label";
 
 export function useModelDisplayName(): string {
@@ -26,8 +27,12 @@ export function useModelDisplayName(): string {
   const { data: modelsByProviders } = useLanguageModelsByProviders();
   const { models: ollamaModels = [] } = useLocalModels();
   const { models: lmStudioModels = [] } = useLocalLMSModels();
+  const { data: providers } = useLanguageModelProviders();
 
   return resolveModelDisplayLabel(settings?.selectedModel, {
+    providerName: providers?.find(
+      (p) => p.id === settings?.selectedModel?.provider,
+    )?.name,
     catalog,
     modelsByProviders: modelsByProviders ?? undefined,
     ollamaDisplayName: ollamaModels.find(

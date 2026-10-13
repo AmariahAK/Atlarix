@@ -489,7 +489,7 @@ describe("command screens", () => {
     expect(frame).toContain("Build it");
     expect(frame).not.toContain("Keep planning");
     const lines = frame.split("\n");
-    expect(lines.findIndex((l) => l.includes("Add GET /health"))).toBeLessThan(lines.findLastIndex((l) => l.includes("shift+tab mode")));
+    expect(lines.findIndex((l) => l.includes("Add GET /health"))).toBeLessThan(lines.findLastIndex((l) => l.includes("ctrl+y mode")));
     // You can type in the box while it shows.
     await setup.mockInput.typeText("make step 1 more specific");
     expect(await frameContaining(setup, "make step 1 more specific")).toContain("Add GET /health");
@@ -601,6 +601,79 @@ describe("command screens", () => {
     expect(frame).not.toContain("Free"); // Atlarix Auto's row: only Anthropic's models are listed
   });
 
+  it("/connect: a provider with a saved key offers Replace or Remove, and Remove asks first (owner)", async () => {
+    const removed: string[] = [];
+    const { setup } = await mount((s) => {
+      (s.providers as { removeKey?: unknown }).removeKey = async (id: string) => void removed.push(id);
+    });
+    await command(setup, "/connect");
+    await frameContaining(setup, "Chrome extension");
+    await setup.mockInput.typeText("openai");
+    await settle(setup);
+    setup.mockInput.pressEnter();
+    let frame = await frameContaining(setup, "Remove the key");
+    expect(frame).toContain("Replace the key");
+    setup.mockInput.pressArrow("down");
+    await settle(setup);
+    setup.mockInput.pressEnter();
+    frame = await frameContaining(setup, "Remove your OpenAI key?");
+    expect(frame).toContain("Keep it");
+    expect(removed).toEqual([]);
+    setup.mockInput.pressArrow("down");
+    await settle(setup);
+    setup.mockInput.pressEnter();
+    expect(await until(() => removed.length === 1)).toBe(true);
+    expect(removed).toEqual(["openai"]);
+    expect(await frameContaining(setup, "Removed the OpenAI key")).toContain("Atlarix Auto");
+  });
+
+  it("/connect → Other: a provider that isn't on the list, its key optional, a model id when it lists none", async () => {
+    const tries: Array<{ name: string; baseUrl: string; key: string; models?: string[] }> = [];
+    const models = {
+      load: async () => [
+        { provider: "compass", name: "core-auto", label: "Atlarix Auto", providerName: "Atlarix", detail: "", deepThinking: false, free: true },
+        ...(tries.length === 2 ? [{ provider: "custom::mystery-llm", name: "mystery-model-1", label: "mystery-model-1", providerName: "Mystery LLM", detail: "", deepThinking: false }] : []),
+      ],
+      state: () => ({ recent: [], favorites: [] }),
+      save: () => {},
+      choose: () => {},
+      setDeepThinking: () => {},
+    };
+    const { setup } = await mount((s) => {
+      (s.providers as { addCustom?: unknown }).addCustom = async (p: { name: string; baseUrl: string; key: string; models?: string[] }) => {
+        tries.push(p);
+        if (!p.models) {
+          const e = new Error("That endpoint didn't list any models. Type the id of the model to use.");
+          e.name = "NoModelsListedError";
+          throw e;
+        }
+        return { id: "custom::mystery-llm", models: p.models.length };
+      };
+    }, models);
+    await command(setup, "/connect");
+    await frameContaining(setup, "Chrome extension");
+    await setup.mockInput.typeText("compatible");
+    let frame = await frameContaining(setup, "Other: OpenAI-compatible endpoint");
+    setup.mockInput.pressEnter();
+    await frameContaining(setup, "Any provider that speaks the OpenAI API");
+    await command(setup, "Mystery LLM");
+    await frameContaining(setup, "Base URL");
+    await command(setup, "not a url");
+    expect(await frameContaining(setup, "A URL starting with https://")).toContain("Base URL");
+    setup.mockInput.pressKey("u", { ctrl: true });
+    await command(setup, "http://localhost:1234/v1");
+    await frameContaining(setup, "Leave it empty");
+    setup.mockInput.pressEnter(); // no key: a server on this computer
+    frame = await frameContaining(setup, "didn't list its models");
+    await command(setup, "mystery-model-1");
+    expect(await until(() => tries.length === 2)).toBe(true);
+    expect(tries[0]).toEqual({ name: "Mystery LLM", baseUrl: "http://localhost:1234/v1", key: "" });
+    expect(tries[1]!.models).toEqual(["mystery-model-1"]);
+    // Straight to its models, as after saving a key.
+    frame = await frameContaining(setup, "mystery-model-1");
+    expect(frame).toContain("Mystery LLM");
+  });
+
   it("/mcp: space turns a server off, a adds one, and the border counts what's on", async () => {
     const { setup, serviceCalls } = await mount();
     expect(await frameContaining(setup, "⊙ 1 MCP")).toContain("/commands");
@@ -655,13 +728,16 @@ describe("command screens", () => {
         { kind: "user", id: "1:u", text: "what's in [Image #1] and [Pasted text #1 +40 lines]", chips: ["[Image #1]", "[Pasted text #1 +40 lines]"] },
         { kind: "thought", id: "2:0", text: "**Reading the screenshot**\nIt shows a login form.", ms: 4200 },
         { kind: "markdown", id: "2:1", text: "A login form." },
+        { kind: "thought", id: "2:2", text: "Check the submit handler next. It may skip validation.", ms: 2100 },
         { kind: "footer", id: "2:footer", text: "Build · deepseek-flash · 12s" },
       ],
     } as never);
-    const frame = await frameContaining(setup, "thought for 4s");
+    const frame = await frameContaining(setup, "Reading the screenshot · 4s");
     expect(frame).toContain(" Image #1 ");
     expect(frame).toContain(" Pasted text #1 +40 lines ");
     expect(frame).toContain("∴ Reading the screenshot");
+    // No bold title: its first sentence says what it was about.
+    expect(frame).toContain("∴ Check the submit handler next. · 2s");
     expect(frame).not.toContain("**");
     expect(frame).toContain("◆ Build · deepseek-flash · 12s");
   });
@@ -855,6 +931,19 @@ describe("command screens", () => {
     setup.mockInput.pressEnter();
     // No files changed after that one: straight to editing it.
     expect(await frameContaining(setup, "editing an earlier message")).toContain("explain the router");
+  });
+
+  it("esc esc with one message asks which, never fills the box by itself (QA G1)", async () => {
+    const { setup, session } = await mount();
+    const only = session.myMessages().slice(0, 1);
+    (session as unknown as { myMessages: () => unknown[] }).myMessages = () => only;
+    setup.mockInput.pressEscape();
+    await Bun.sleep(100);
+    setup.mockInput.pressEscape();
+    const frame = await frameContaining(setup, "Go back to a message");
+    expect(frame).not.toContain("editing an earlier message");
+    setup.mockInput.pressEscape();
+    expect(await frameContaining(setup, "Ask Atlarix")).not.toContain("editing an earlier message");
   });
 
   it("/plan lists this session's plans and earlier sessions'; b builds an earlier one here", async () => {

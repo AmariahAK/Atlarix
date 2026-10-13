@@ -142,3 +142,16 @@ describe("an assistant row with nothing in it", () => {
     expect(container.querySelector(".bg-user-bubble")).not.toBeNull();
   });
 });
+
+// QA (app) #18: a bubble holding a plan card or a mind map was held at its
+// content's width (a flex item without min-w-0) and overflowed the chat
+// column. jsdom has no layout, so this pins the class; the width itself was
+// checked in the packaged app.
+describe("a message bubble in a narrow column", () => {
+  it("can shrink below its content's width", () => {
+    const { container } = renderWithProviders(
+      <SimpleMessage message={assistantMessage("A reply.")} chatId={CHAT_ID} />,
+    );
+    expect(container.querySelector(".group.max-w-3xl")?.classList.contains("min-w-0")).toBe(true);
+  });
+});

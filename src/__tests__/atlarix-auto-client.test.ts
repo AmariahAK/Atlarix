@@ -32,7 +32,6 @@ import {
   CORE_EXHAUSTED_MARKER,
   FREE_LIMIT_MARKER,
   freeUsageLimitUserMessage,
-  FREE_LIMIT_WAYS,
 } from "@/shared/billing_copy";
 import { autoRequestHeaders } from "@/ipc/utils/get_model_client";
 
@@ -89,14 +88,11 @@ describe("Auto's limit is a limit", () => {
     upgrade: "pro",
   });
 
-  it("says when it resets and what to do, and is not reported as our outage", () => {
+  it("says come back tomorrow and when it resets, nothing more, and is not our outage", () => {
     const c = classifyCompassFailure(429, body);
     expect(c.message).toContain(FREE_LIMIT_MARKER);
-    expect(c.message).toMatch(/resets at \d{1,2}:\d{2}/);
-    // Credit and your own key lead; Pro is named last.
-    expect(c.message).toContain(FREE_LIMIT_WAYS);
-    expect(c.message.indexOf("add credit")).toBeLessThan(c.message.indexOf("Pro"));
-    expect(c.message).toContain("own API key");
+    expect(c.message).toMatch(/^Today's usage is over\. Come back tomorrow \(it resets at \d{1,2}:\d{2}/);
+    expect(c.message).not.toMatch(/credit|Pro|API key/);
     expect(c.isCompassInfraError).toBe(false);
   });
 
@@ -104,7 +100,9 @@ describe("Auto's limit is a limit", () => {
     const midnightUtc = Date.UTC(2026, 8, 24, 0, 0, 0);
     const fiveHoursBefore = midnightUtc - 5 * 3600 * 1000;
     const m = freeUsageLimitUserMessage(5 * 3600, fiveHoursBefore, "Africa/Nairobi");
-    expect(m).toMatch(/resets at 3:00\sAM/);
+    // The hour, in whatever form this machine's locale writes it ("3:00 AM",
+    // "03:00"): the time is the point, not the US format (it failed under en-GB).
+    expect(m).toMatch(/resets at 0?3:00(\s?AM|\s?am)?\b/);
   });
 
   it("a 402 that offers free Auto asks for consent instead of a top-up", () => {

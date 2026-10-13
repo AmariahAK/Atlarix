@@ -480,7 +480,7 @@ export function AutomationForm({
                   key: true,
                   title: "Yes — tell the AI",
                   detail:
-                    "The result lands in the AI's next turn so it can act on it. Good for CI and tests. You can switch this off any time.",
+                    "Results go to you, and Atlarix wakes up with them to act. Good for CI and tests. You can switch this off any time.",
                 },
               ].map((opt) => (
                 <label

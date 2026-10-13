@@ -44,11 +44,13 @@ import type {
   AutomationTrigger,
 } from "@/lib/automations/types";
 import { AutomationForm } from "./AutomationForm";
+import { describeCron } from "@/lib/automations/cron-time";
+import { useTranslation } from "react-i18next";
 
 function triggerLabel(trigger: unknown): string {
   const t = trigger as AutomationTrigger | null;
   if (!t || typeof t !== "object") return "unknown trigger";
-  if (t.kind === "schedule") return `cron ${t.cron}`;
+  if (t.kind === "schedule") return describeCron(t.cron) ?? `cron ${t.cron}`;
   return `MCP ${t.tool} every ${t.intervalMinutes}m`;
 }
 
@@ -75,11 +77,20 @@ function statusBadge(run: AutomationRunView) {
       </span>
     );
   }
+  // "ok" means the run finished WITH something to report: a green ✓ ok read as
+  // "all fine" beside "npm test failed" (QA #12). The row's summary says what.
   return (
-    <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-500">
-      <CheckCircle2 className="h-3 w-3" /> ok
+    <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium bg-muted text-foreground/80">
+      <CheckCircle2 className="h-3 w-3" /> done
     </span>
   );
+}
+
+/** A run's finding in one line, as the CLI and editor show it. */
+function runHeadline(run: AutomationRunView): string | null {
+  const text = run.error ? `Error: ${run.error}` : run.summary;
+  const first = text?.split("\n")[0]?.replace(/`/g, "").trim();
+  return first || null;
 }
 
 function relativeTime(ts: number): string {
@@ -93,6 +104,7 @@ function relativeTime(ts: number): string {
 }
 
 export function AutomationsTab({ appId }: { appId: number | null }) {
+  const { t } = useTranslation("panels");
   const [automationsList, setAutomations] = useAtom(automationsAtom);
   const [runs, setRuns] = useAtom(automationRunsAtom);
   const [focusRunId, setFocusRunId] = useAtom(automationsFocusRunIdAtom);
@@ -275,11 +287,10 @@ export function AutomationsTab({ appId }: { appId: number | null }) {
             <Plus className="mr-1 h-3.5 w-3.5" /> New
           </Button>
         </div>
+        {/* Empty: one line (owner: empty states carry almost no text; QA #37). */}
         {automationsList.length === 0 ? (
           <p className="py-2 text-sm text-muted-foreground">
-            Recurring agent runs on a schedule or trigger — a nightly test
-            audit, a ping when a PR opens, a Slack watch via MCP. Results land
-            in the feed below and ping you when there's something to see.
+            {t("automations.empty")}
           </p>
         ) : (
           <div className="space-y-1.5">
@@ -341,6 +352,7 @@ export function AutomationsTab({ appId }: { appId: number | null }) {
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
                   <Switch
+                    aria-label={a.enabled ? `Turn off ${a.name}` : `Turn on ${a.name}`}
                     checked={a.enabled}
                     onCheckedChange={async (enabled) => {
                       await IpcClient.getInstance().toggleAutomation(
@@ -374,11 +386,13 @@ export function AutomationsTab({ appId }: { appId: number | null }) {
         </div>
         {visibleRuns.length === 0 ? (
           <p className="py-2 text-sm text-muted-foreground">
-            No runs yet
-            {automationsList.length === 0
-              ? " — create an automation above"
-              : ""}
-            .
+            {/* Runs that were archived (nothing to report) are runs: "No runs
+                yet" beside "last run 1m ago" read as a contradiction (QA #22). */}
+            {runs.length > 0
+              ? "No new runs."
+              : automationsList.length === 0
+                ? "No runs yet — create an automation above."
+                : "No runs yet."}
           </p>
         ) : (
           <div className="space-y-1.5">
@@ -409,6 +423,11 @@ export function AutomationsTab({ appId }: { appId: number | null }) {
                     )}
                     <span className="min-w-0 flex-1 truncate text-sm">
                       {run.automationName}
+                      {!isOpen && runHeadline(run) && (
+                        <span className="ml-2 text-xs text-muted-foreground">
+                          {runHeadline(run)}
+                        </span>
+                      )}
                     </span>
                     {statusBadge(run)}
                     <span className="shrink-0 text-[10px] text-muted-foreground">

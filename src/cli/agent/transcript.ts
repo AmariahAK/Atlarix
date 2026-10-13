@@ -6,6 +6,8 @@
  * so tool calls, thinking and prose come apart exactly as they do in the app.
  * Pure: the TUI renders cells; src/__tests__/cli-transcript.test.ts pins the rules.
  */
+import { plainStepText } from "@/lib/tasks/plan-checklist";
+import { BUILD_FROM_PLAN_PROMPT } from "@/lib/work-mode";
 import { computeDiffHunks } from "@/lib/diff/compose-hunks";
 import { peerSurfaceLabel, splitPeerMessages } from "@/lib/peers/peer-message";
 import {
@@ -42,6 +44,8 @@ export interface ToolLine {
   children?: ToolLine[];
   /** What a running sub-agent says it is doing. */
   progress?: string;
+  /** A sub-agent's name, when it started (epoch ms), tokens so far, and its report once done. */
+  agent?: { label?: string; startedAt?: number; tokens?: number; report?: string };
   /** An edit's changes, from its arguments: drawn as + / − lines under the call. */
   diff?: EditDiff;
 }
@@ -67,7 +71,7 @@ export interface Delegation {
   /** The reply it belongs to, and which of that reply's `task` calls it is (0, 1, …). */
   assistantId: string;
   index: number;
-  status: "running" | "success" | "error";
+  status: "running" | "success" | "error" | "interrupted";
   progress?: string;
   summary?: string;
   children: ToolLine[];
@@ -118,13 +122,28 @@ export function withDelegations(cells: Cell[], delegations: Iterable<Delegation>
     if (c.kind !== "tool") return c;
     const d = byCell.get(c.id);
     if (!d) return c;
+    // A sub-agent's first "progress" is often its own prompt read back: not progress.
+    const echo = !!d.progress && !!d.task && d.task.replace(/\s+/g, " ").startsWith(d.progress.replace(/\s+/g, " ").slice(0, 40));
     return {
       ...c,
       tool: {
         ...c.tool,
+        // The call returns at once for a background agent; the row follows the
+        // agent itself (QA saw ◌ stay after both had finished).
+        status: d.status === "running" ? c.tool.status : d.status === "error" || d.status === "interrupted" ? d.status : "success",
         children: d.children,
-        progress: d.status === "running" ? d.progress : undefined,
-        summary: d.status !== "running" && d.summary ? d.summary.split("\n").find((l) => l.trim())?.slice(0, 160) : c.tool.summary,
+        progress: d.status === "running" && !echo ? d.progress : undefined,
+        agent: {
+          label: d.label,
+          startedAt: d.startedAt,
+          tokens: d.tokens,
+          report: d.status !== "running" ? d.summary : undefined,
+        },
+        summary:
+          d.status === "running"
+            ? c.tool.summary
+            : (firstSentence(d.summary ?? "")?.slice(0, 160) ??
+              (c.tool.summary === "running in the background" ? "finished" : c.tool.summary)),
       },
     };
   });
@@ -208,17 +227,33 @@ export function toolTarget(toolName: string, args: unknown): string {
     case "plan": {
       // "◇ Plan  step 3 done", not a bare "◇ Plan" (owner, 2026-10-05).
       const op = str(a.operation);
-      if (op === "write") return ["write", str(a.title)].filter(Boolean).join(" · ");
+      if (op === "write") return ["write", str(a.title).replace(/`/g, "")].filter(Boolean).join(" · ");
       if (op === "set_status") return `status → ${str(a.plan_status) || str(a.status)}`;
       if (op === "update_step") {
-        const which = a.step_index != null ? `step ${String(a.step_index)}` : a.step_text ? `"${str(a.step_text)}"` : "step";
+        // A step's text as it reads, without its markdown backticks (QA E8).
+        const which = a.step_index != null ? `step ${String(a.step_index)}` : a.step_text ? `"${plainStepText(str(a.step_text))}"` : "step";
         return [which, str(a.state) || str(a.status)].filter(Boolean).join(" → ");
       }
-      if (op === "append_step") return ["add step", str(a.step_text)].filter(Boolean).join(" · ");
+      if (op === "append_step") return ["add step", plainStepText(str(a.step_text))].filter(Boolean).join(" · ");
       return op;
     }
+    case "automations": {
+      // "◇ Automation  create · Weekday tests", not a bare "◇ Automation" (QA).
+      const op = str(a.operation);
+      const what = op === "set_notify" ? (a.notify_agent ? "tell the agent" : "stop telling the agent") : op;
+      return [what, str(a.name)].filter(Boolean).join(" · ");
+    }
     case "background_jobs":
-      return [str(a.operation), str(a.job_id) || str(a.command)].filter(Boolean).join(" ");
+      // Not the tool's own vocabulary ("Jobs cancel op_179…"): what it did.
+      if (a.operation === "cancel") return "stop a background job";
+      if (a.operation === "output") return "read a background job's output";
+      if (a.operation === "list") return "list background jobs";
+      return [str(a.operation), str(a.command)].filter(Boolean).join(" ");
+    case "subagents":
+      if (a.operation === "cancel") return "stop a sub-agent";
+      if (a.operation === "output") return "read a sub-agent's progress";
+      if (a.operation === "list") return "list running sub-agents";
+      return str(a.operation);
     default:
       return "";
   }
@@ -274,23 +309,85 @@ export function toolResultText(toolName: string, raw: string | undefined): { tex
     typeof o.result === "string" ? o.result : undefined,
     o.output,
     o.content,
-    o.error,
+    // The message says what happened ("No file at path …"); the error is its code.
     o.message,
+    o.error,
   ].find((x) => typeof x === "string" && x.trim()) as string | undefined;
   return { text: unfence(pick ?? "").trim(), exitCode, failed };
 }
 
-function summarize(toolName: string, r: { text: string; exitCode?: number; failed?: boolean }): string | undefined {
-  const first = r.text.split("\n").find((l) => l.trim())?.trim();
-  if (toolName === "run_command") {
-    const exit = r.exitCode != null && r.exitCode !== 0 ? `exit ${r.exitCode}` : "";
-    return [first ?? (r.exitCode === 0 ? "(no output)" : ""), exit].filter(Boolean).join(" · ") || undefined;
+/**
+ * The first real sentence of a report: past headings and markdown marks
+ * ("## Direct answer" is not what the agent found).
+ */
+export function firstSentence(md: string): string | undefined {
+  for (const raw of md.split("\n")) {
+    const line = raw.trim();
+    if (!line || /^#{1,6}\s/.test(line) || /^(```|---|\|)/.test(line)) continue;
+    const plain = line.replace(/^[-*+]\s+|^\d+[.)]\s+/, "").replace(/\*\*|__|`/g, "").trim();
+    if (!plain) continue;
+    return /^(.+?[.!?])(\s|$)/.exec(plain)?.[1] ?? plain;
   }
+  return undefined;
+}
+
+function summarize(toolName: string, r: { text: string; exitCode?: number; failed?: boolean }): string | undefined {
+  // Command output comes in "=== STDOUT ===" / "=== STDERR ===" sections; the
+  // markers are plumbing (QA #37a).
+  const SECTION = /^=== (STDOUT|STDERR) ===$/;
+  const lines = r.text.split("\n").map((l) => l.trim());
+  const first = lines.find((l) => l && !SECTION.test(l));
+  // The note to the model ("Background command started (job_id: …) … do not
+  // poll …") is not for the person reading (QA).
+  if (toolName === "run_command" && first?.startsWith("Background command started")) return "started in the background";
+  if (toolName === "background_jobs" && first?.startsWith("Cancellation requested")) return "stopping";
+  if (toolName === "run_command") {
+    const failedRun = r.exitCode != null && r.exitCode !== 0;
+    const exit = failedRun ? `exit ${r.exitCode}` : "";
+    // A failure says why: the last stderr line ("tsgo: command not found"), not
+    // the shell's echo of the command on the first (QA #37b).
+    let said = first;
+    if (failedRun) {
+      const err = lines.indexOf("=== STDERR ===");
+      // PowerShell's error trailer ("+ CategoryInfo …", "+ FullyQualifiedErrorId
+      // …", "At line:1 char:1", "~~~") is not the reason: its first line is
+      // ("npx : The term 'npx' is not recognized…", QA, Windows).
+      // PowerShell also wraps that message over several lines, so it is the
+      // lines before its trailer, joined (QA, Windows VM recheck).
+      const PS_NOISE = /^(\+ |At line:\d|At [A-Za-z]:\\|~+$)/;
+      const out = (err >= 0 ? lines.slice(err + 1) : lines).filter((l) => l && !SECTION.test(l));
+      const trailer = out.findIndex((l) => PS_NOISE.test(l));
+      if (trailer > 0) said = out.slice(0, trailer).join(" ").replace(/\s+/g, " ");
+      else said = out.filter((l) => !PS_NOISE.test(l)).at(-1) ?? first;
+    }
+    return [said ?? (r.exitCode === 0 ? "(no output)" : ""), exit].filter(Boolean).join(" · ") || undefined;
+  }
+  // "No files found matching pattern: … Often an extension or casing issue —
+  // try …" is advice for the model; the person reads "no files" (QA #37c).
+  if (toolName === "glob" && first?.startsWith("No files found")) return "no files";
+  // The executor's generic "Successfully executed operation" says nothing.
+  if (toolName === "automations" && first?.startsWith("Successfully executed")) return "done";
+  // The plan tool's tally is written to the model ("…, 2 left for you"); the
+  // person reads it as their own to-do list (QA). Keep the count, drop that.
+  if (toolName === "plan" && first) return first.replace(/,\s*(?:none|\d+) left for you/, "");
+  // A failure's first sentence says what went wrong; what follows ("Use
+  // list_files to find the correct path.") is meant for the model.
+  if (r.failed && first) return firstSentence(first) ?? first;
   if (toolName === "grep" && first) return first.replace(/:$/, "").replace(/match\(es\)/, "matches").replace(/file\(s\)/, "files");
-  // A read echoes "File: /abs/path" then numbered lines: say how many it read.
+  // A read says which lines it read: "Lines: 1-240 of 3641" or "Lines: 1-80 (complete)".
   if (toolName === "read_file" && first?.startsWith("File: ")) {
+    const range = /^Lines: (\d+)-(\d+)(?: of (\d+)| \(complete\))?/m.exec(r.text);
+    if (range) {
+      const [, from, to, of] = range;
+      return of ? `lines ${from}–${to} of ${of}` : `${to} line${to === "1" ? "" : "s"}`;
+    }
     const n = r.text.split("\n").filter((l) => /^\s*\d+[\t│|]/.test(l)).length;
-    return n ? `${n} line${n === 1 ? "" : "s"}` : "read";
+    return n ? `${n} line${n === 1 ? "" : "s"}` : undefined;
+  }
+  // A find: "Found 500 file(s) (newest first):" → "500 files".
+  if (toolName === "glob" && first) {
+    const found = /^Found (\d+) file\(s\)/.exec(first);
+    if (found) return `${found[1]} file${found[1] === "1" ? "" : "s"}`;
   }
   return first;
 }
@@ -381,9 +478,39 @@ export function answerPairs(text: string): Array<{ question: string; answer: str
   return pairs.map((m) => ({ question: m![1]!.trim(), answer: m![2]!.trim() }));
 }
 
+/**
+ * A `task` call's result is an envelope: `<task id="…" state="running">…</task>`
+ * when the sub-agent went to the background, the report inside when it ended.
+ * Read it, so the row says what is true (QA saw the raw tag under the row, and
+ * the done mark on an agent still at work).
+ */
+function taskEnvelope(text: string): { state: string; inner: string } | null {
+  const m = /^\s*<task\b[^>]*\bstate="([a-z_]+)"[^>]*>\n?([\s\S]*?)\n?<\/task>\s*$/.exec(text);
+  return m ? { state: m[1]!, inner: m[2]!.trim() } : null;
+}
+
 export function toolLine(part: Extract<AssistantMessagePart, { type: "tool" }>): ToolLine {
-  const r = toolResultText(part.toolName, part.error ?? part.resultText);
+  // A bare error code ("file_not_found") says less than the result's own
+  // message ("No file at path …"): prefer the message when there is one.
+  const codeOnly = !!part.error && /^[a-z][a-z0-9_]*$/.test(part.error.trim()) && !!part.resultText?.trim();
+  const r = toolResultText(part.toolName, codeOnly ? part.resultText : (part.error ?? part.resultText));
   const diff = part.toolName === "edit_file" && part.status === "success" ? editDiff(part.args) : undefined;
+  const env = part.toolName === "task" ? taskEnvelope(r.text) : null;
+  if (env) {
+    const background = env.state === "running" || env.state === "pending";
+    const first = firstSentence(env.inner);
+    return {
+      id: part.id,
+      verb: VERBS[part.toolName] ?? part.toolName.replace(/_/g, " "),
+      target: toolTarget(part.toolName, part.args),
+      // The call returned at once; the agent itself is still working.
+      status: background ? "running" : env.state === "error" || env.state === "failed" ? "error" : part.status,
+      result: part.resultText,
+      error: part.error,
+      output: env.inner || undefined,
+      summary: background ? "running in the background" : first,
+    };
+  }
   return {
     diff,
     id: part.id,
@@ -392,9 +519,32 @@ export function toolLine(part: Extract<AssistantMessagePart, { type: "tool" }>):
     status: part.status,
     result: part.resultText,
     error: part.error,
-    output: r.text || undefined,
+    // A plan the agent wrote: the plan itself, to read and correct where it was
+    // written, not only in the card above (owner: "why can't I see the plan?").
+    output:
+      part.toolName === "plan" && str((part.args as Record<string, unknown>)?.operation) === "write" && str((part.args as Record<string, unknown>)?.content).trim()
+        ? str((part.args as Record<string, unknown>)?.content).trim()
+        : shownOutput(part.toolName, r.text),
     summary: part.status === "running" ? undefined : diff ? editSummary(diff) : summarize(part.toolName, r),
   };
+}
+
+/**
+ * The output a row shows under a command (the TUI prints it, not the summary):
+ * without the "=== STDOUT ===" plumbing, and none for a command sent to the
+ * background, whose "output" is the note for the model (QA #13, #37a: fixed in
+ * the summary, still printed from here).
+ */
+function shownOutput(toolName: string, text: string): string | undefined {
+  if (!text) return undefined;
+  if (toolName !== "run_command") return text;
+  if (/^\s*(Background command started|Still running after \d+s — moved to the background)/.test(text)) return undefined;
+  const out = text
+    .split("\n")
+    .filter((l) => !/^=== (STDOUT|STDERR) ===$/.test(l.trim()))
+    .join("\n")
+    .trim();
+  return out || undefined;
 }
 
 /**
@@ -441,8 +591,10 @@ function messageCells(m: ChatMessageLike, live: boolean): Cell[] {
           id: `${base}:p${i}`,
           tool: {
             id: `${base}:p${i}`,
+            // A teammate: another of your Atlarix sessions, as Claude Code
+            // calls them (owner), named so it never reads as you.
             verb: "Message",
-            target: `from ${seg.from || "another session"} (${where})`,
+            target: `from teammate ${seg.from || "another session"} (${where})`,
             status: "success",
             summary: first.length > 160 ? `${first.slice(0, 159)}…` : first,
             output: text,
@@ -455,7 +607,11 @@ function messageCells(m: ChatMessageLike, live: boolean): Cell[] {
   } else if (m.role === "user") {
     const pairs = answerPairs(m.content);
     if (pairs) cells.push({ kind: "answers", id: `${base}:u`, pairs });
-    else if (m.content.trim()) {
+    else if (m.content.trim() === BUILD_FROM_PLAN_PROMPT) {
+      // "Build it" sends this for you: a marker, not your words to edit or undo,
+      // and its "Plan panel" is the desktop's (QA: it read as typed on reopen).
+      cells.push({ kind: "notice", id: `${base}:build`, level: "info", text: "▸ Build it" });
+    } else if (m.content.trim()) {
       const { text, chips } = userChips(m.content);
       // A paste: show what was pasted (the placeholder alone said nothing).
       const full = /\[Pasted text #\d+/.test(m.content) && m.modelContent && m.modelContent !== m.content ? m.modelContent.trim() : undefined;
@@ -549,6 +705,7 @@ export function placeSteers(
 ): Cell[] {
   const others = messages.filter((m) => !anchors.has(String(m.id)));
   const cells = toCells(others, opts);
+  const order = new Map(messages.map((m, i) => [String(m.id), i]));
   for (const m of messages) {
     const a = anchors.get(String(m.id));
     if (!a) continue;
@@ -556,7 +713,13 @@ export function placeSteers(
     const firstIdx = cells.findIndex((c) => c.id.startsWith(`${a.assistantId}:`));
     const cell: Cell = { kind: "user", id: `${String(m.id)}:u`, text: m.content.trim() };
     if (!answer || firstIdx < 0) {
-      cells.push(cell);
+      // The answer it came during shows nothing (stopped or failed before any
+      // output): in its own place, before anything sent after it. Appended,
+      // it sank below later turns (QA).
+      const mine = order.get(String(m.id)) ?? Infinity;
+      const at = cells.findIndex((c) => (order.get(c.id.split(":")[0]!) ?? -1) > mine);
+      if (at < 0) cells.push(cell);
+      else cells.splice(at, 0, cell);
       continue;
     }
     const before = toCells([{ ...answer, content: answer.content.slice(0, a.offset) }], { streaming: true }).length;

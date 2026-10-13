@@ -13,10 +13,12 @@
  * intervals: an automation the user chose not to share with the agent cannot
  * cost a single token, no matter how often it fires or how noisy it is.
  *
- * Deliberately does NOT wake a turn. A result lands in the NEXT turn the user
- * starts, honouring the v14.23.0 rule that background work never re-animates a
- * turn the user stopped. The user is separately notified by the existing feed +
- * OS notification path, which is what they act on.
+ * Since 2026-10-13 a fresh unattended result WAKES one chat in its folder, as
+ * a finished background command or sub-agent does (owner): agent-delivery.ts
+ * claims each run once, across the app, the CLI and editors, queues it here and
+ * the claimer wakes. A turn the user stopped still is not re-animated (the
+ * wake checks that), and a wake turn that leaves its results undelivered never
+ * wakes again.
  *
  * KEYED BY WORKSPACE, NOT BY CHAT — the one structural difference from
  * sub-agent results. A sub-agent is spawned FROM a chat and belongs to it; an
@@ -91,6 +93,16 @@ export function takePendingAutomationResults(chatId: number): string | null {
     "",
     ...blocks,
   ].join("\n");
+}
+
+/** One line per queued result, without taking them: what woke the agent. */
+export function describePendingAutomationResults(chatId: number): string[] {
+  const ws = workspaceForChat(chatId);
+  if (ws == null) return [];
+  return (resultsByWorkspace.get(ws) ?? []).map((r) => {
+    const first = r.body.trim().split("\n")[0]?.replace(/`/g, "").slice(0, 120) ?? "";
+    return `Automation "${r.automationName}" ${r.status === "error" ? "failed" : "finished"}${first ? `: ${first}` : ""}`;
+  });
 }
 
 /** Test seam — module state would otherwise leak between cases. */

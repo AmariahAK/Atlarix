@@ -359,6 +359,32 @@ function readRawSettingsFile(): Record<string, unknown> | null {
  * `{ providerSettings: { [id]: { apiKey } } }` kept only the providers that had
  * a key and dropped every other provider's settings.
  */
+/**
+ * Forget saved settings (key, on/off) for custom providers that no longer
+ * exist: deleting one left its key behind in this file (owner: providers he
+ * never added, from test runs, with their keys still stored). `keep` is every
+ * custom provider id still in the database; built-in providers are untouched.
+ */
+export function pruneCustomProviderSettings(keep: ReadonlySet<string>): string[] {
+  const raw = readRawSettingsFile();
+  if (!raw) return [];
+  const providers = { ...((raw.providerSettings ?? {}) as Record<string, unknown>) };
+  const gone = Object.keys(providers).filter((id) => id.startsWith("custom::") && !keep.has(id));
+  if (!gone.length) return [];
+  for (const id of gone) delete providers[id];
+  const validated = UserSettingsSchema.parse({ ...DEFAULT_SETTINGS, ...raw, providerSettings: providers });
+  const filePath = getSettingsFilePath();
+  fs.writeFileSync(filePath, JSON.stringify(validated, null, 2));
+  if (process.platform !== "win32") {
+    try {
+      fs.chmodSync(filePath, 0o600);
+    } catch {
+      /* best-effort hardening, as writeSettings */
+    }
+  }
+  return gone;
+}
+
 export function writeProviderKey(providerId: string, key: string | null): void {
   const raw = readRawSettingsFile();
   const value = key?.trim();

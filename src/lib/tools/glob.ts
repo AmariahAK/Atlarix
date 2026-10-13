@@ -17,6 +17,7 @@ import {
   createParameters,
   stringParam,
   numberParam,
+  enumParam,
 } from "./registry";
 import {
   resolvePathUnderWorkspace,
@@ -97,6 +98,13 @@ export function absorbPatternDirectoryPrefix(
   return { pattern: remainder || "*", searchPath: dir };
 }
 
+/** 980 B, 12.3 KB, 4.1 MB. */
+function humanSize(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 ToolRegistry.register({
   name: "glob",
   description:
@@ -120,6 +128,10 @@ ToolRegistry.register({
         1,
         MAX_LIMIT,
       ),
+      sort: enumParam("'modified' (newest first, the default) or 'size' (largest first, with each file's size)", "modified", [
+        "modified",
+        "size",
+      ]),
     },
     ["pattern"],
   ),
@@ -127,11 +139,13 @@ ToolRegistry.register({
     pattern,
     path: searchPath = ".",
     limit,
+    sort,
     workspace,
   }: {
     pattern: string;
     path?: string;
     limit?: number;
+    sort?: string;
     workspace?: string;
   }) => {
     const max = Math.min(MAX_LIMIT, Math.max(1, limit ?? DEFAULT_LIMIT));
@@ -249,14 +263,16 @@ ToolRegistry.register({
       }
 
       // Modification-time sort, newest first (recently-touched files are
-      // usually what the task is about).
+      // usually what the task is about). By size on request: "the largest
+      // files" was 47 reads for an explore agent with no shell (QA, 2026-10-13).
+      const bySize = sort === "size";
       const withMtime = await Promise.all(
         files.map(async (f) => {
           try {
             const st = await fsp.stat(path.join(fullPath, f));
-            return { f, m: st.mtimeMs };
+            return { f, m: bySize ? st.size : st.mtimeMs, size: st.size };
           } catch {
-            return { f, m: 0 };
+            return { f, m: 0, size: 0 };
           }
         }),
       );
@@ -268,13 +284,15 @@ ToolRegistry.register({
       // `max`, an arbitrary tie-break decides WHICH files the agent gets to
       // see. Caught by a CI-only flake in sibling-project-reads.test.ts.
       withMtime.sort((a, b) => b.m - a.m || a.f.localeCompare(b.f));
-      const kept = withMtime.slice(0, max).map((e) => e.f);
+      const kept = withMtime
+        .slice(0, max)
+        .map((e) => (bySize ? `${e.f}  ${humanSize(e.size)} (${e.size} bytes)` : e.f));
       const truncatedNote =
         withMtime.length > max
           ? `\n… ${withMtime.length - max} more matched — narrow the pattern or raise limit.`
           : "";
 
-      return `Found ${withMtime.length} file(s) (newest first):\n${kept.join("\n")}${truncatedNote}`;
+      return `Found ${withMtime.length} file(s) (${bySize ? "largest first" : "newest first"}):\n${kept.join("\n")}${truncatedNote}`;
     } catch (error) {
       throw new Error(`Failed to find files: ${error}`);
     }

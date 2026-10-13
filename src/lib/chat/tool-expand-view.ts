@@ -2,6 +2,7 @@ import {
   formatToolResultPreview,
   looksLikeRawJson,
   parseToolResultEnvelope,
+  BACKGROUND_START_RE,
 } from "@/lib/chat/stream-tool-display";
 import type { StreamThreadToolStatus } from "@/lib/chat/stream-thread";
 import type { DiffHunk } from "@/lib/diff/compose-hunks";
@@ -708,6 +709,24 @@ function buildCommandOutputView(
           : "";
   const displayOutput = stripUntrustedDataEnvelope(output);
   if (!displayOutput.trim()) return null;
+  // A command that went to the background: what started, not "exit 0" and
+  // the harness's instructions to the model (QA #27).
+  const firstLine = displayOutput.trim().split("\n")[0] ?? "";
+  if (BACKGROUND_START_RE.test(firstLine)) {
+    const command =
+      typeof payload.command === "string" && payload.command.trim()
+        ? payload.command.trim()
+        : undefined;
+    return {
+      kind: "command",
+      command,
+      body: firstLine.replace(
+        BACKGROUND_START_RE,
+        (m) =>
+          `Running in the background (${/job_id: ([^)]*)/.exec(m)?.[1] ?? "job"}): `,
+      ),
+    };
+  }
   const exitRaw = payload.exit_code ?? payload.exitCode ?? payload.code;
   const exitCode =
     typeof exitRaw === "number" && Number.isFinite(exitRaw)

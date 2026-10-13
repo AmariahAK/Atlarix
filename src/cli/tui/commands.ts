@@ -15,7 +15,7 @@ export interface SlashCommand {
 export const COMMANDS: SlashCommand[] = [
   { name: "/model", description: "Atlarix Auto, a Core model, or one of your own keys", group: "session" },
   { name: "/models", description: "Same as /model", group: "session", alias: true },
-  { name: "/mode", description: "Build, Explore, Plan, Debug or Review (shift+tab cycles)", group: "session" },
+  { name: "/mode", description: "Build, Explore, Plan, Debug or Review (shift+tab or ctrl+y cycles)", group: "session" },
   { name: "/new", description: "Start a fresh session in this folder", group: "session" },
   { name: "/rename", description: "Name this session (it's named from your first message until you do)", group: "session" },
   { name: "/resume", description: "Open an earlier session from this folder (the app's too)", group: "session" },

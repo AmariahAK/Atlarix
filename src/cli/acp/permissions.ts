@@ -7,6 +7,7 @@
  * where the request says it can be remembered. A dismissed prompt is a No: the
  * agent never proceeds on silence.
  */
+import { approvalDiff } from "../agent/approval-diff";
 import type {
   PermissionOption,
   PermissionOptionKind,
@@ -15,7 +16,7 @@ import type {
   ToolCallUpdate,
   ToolKind,
 } from "@agentclientprotocol/sdk";
-import { approvalChoices, approvalTitle, firstPreview, type ApprovalChoice } from "../agent/approval-choices";
+import { approvalChoices, approvalTitle, firstPreview, type ApprovalChoice, automationDetails } from "../agent/approval-choices";
 import type { McpConsentRequest, PendingApproval } from "../agent/session";
 import type { Cell } from "../agent/transcript";
 import { toolNameFromId } from "./updates";
@@ -74,7 +75,8 @@ export function approvalToolCall(a: PendingApproval, owner?: string): ToolCallUp
   const note = [
     p.command ? `$ ${p.command}` : "",
     p.deniedPath ? `Write outside the sandbox: ${p.grantPath ?? p.deniedPath}` : "",
-    p.description ?? "",
+    (p.description ?? "").replace(/`/g, ""),
+    ...automationDetails(a),
     p.isDangerous && p.dangerExplanation ? `Risky: ${p.dangerExplanation}` : "",
     p.systemScope && p.systemScopeExplanation ? p.systemScopeExplanation : "",
   ]
@@ -83,9 +85,15 @@ export function approvalToolCall(a: PendingApproval, owner?: string): ToolCallUp
   if (note) content.push({ type: "content", content: { type: "text", text: note } });
   // The same facts, structured, for Atlarix's own extension's approval bar
   // (other editors ignore _meta and read the note above).
+  // What an edit changes and why, as the terminal's card says them (QA #35).
+  const d = p.path ? approvalDiff(p) : null;
   const _meta = {
     atlarix: {
       approval: {
+        intent: p.description?.replace(/`/g, "").trim() || null,
+        details: automationDetails(a),
+        added: d ? d.added : null,
+        removed: d ? d.removed : null,
         command: p.command ?? null,
         path: p.path ?? null,
         risky: !!p.isDangerous,

@@ -9,12 +9,12 @@ import type { ContextItem } from "../../src/protocol";
 import { filterCommands, mentionAt, slashQuery } from "../logic";
 import { post, rpc } from "../rpc";
 import { modelName, on, state } from "../state";
-import { button, el, icon, iconButton, MODE_NAME } from "../ui";
+import { button, el, icon, iconButton, MODE_NAME, tokens } from "../ui";
 import { closePicker, openPicker, picker, pickerOpen } from "./picker";
 import * as T from "./transcript";
 
 export interface ComposerHooks {
-  open(view: "mcp" | "approve" | "keys" | "undo"): void;
+  open(view: "mcp" | "approve" | "keys" | "undo" | "automations"): void;
 }
 let hooks: ComposerHooks;
 
@@ -30,15 +30,26 @@ const box = el("div", "box");
 const chips = el("div", "chips");
 const input = el("textarea", "input");
 input.rows = 2;
-input.placeholder = "Ask Atlarix to build, fix or explain…";
+/** What the empty box invites, by mode: "build, fix" read wrong in Plan or Explore (QA). */
+function idlePlaceholder(): string {
+  if (state.mode === "plan") return "Describe what to plan…";
+  if (state.mode === "ask") return "Ask about the code…";
+  return "Ask Atlarix to build, fix or explain…";
+}
+input.placeholder = idlePlaceholder();
 input.setAttribute("aria-label", "Message");
 const bar = el("div", "box__bar");
 const modePill = button("", "pill mode-pill", () => modeMenu.classList.toggle("hidden"), "Mode");
-const sendBtn = button("", "send", () => submit(), "Send");
+// While it works the button stops it; Enter in the box steers instead.
+const sendBtn = button("", "send", () => (state.busy ? post({ type: "cancel" }) : submit()), "Send");
+/** What you sent while it worked, still waiting: steers and queued messages. */
+const pendingList = el("div", "waiting hidden");
 const approveLine = button("", "approve-line", () => hooks.open("approve"));
 const under = el("div", "under");
 const modelBtn = button("", "model-btn", () => togglePicker(), "Model");
 const chromeDot = el("span", "chrome");
+const ctxRing = el("span", "ctx-ring hidden");
+ctxRing.setAttribute("role", "img");
 
 let context: ContextItem[] = [];
 let activeFile: ContextItem | null = null;
@@ -60,8 +71,9 @@ export function initComposer(h: ComposerHooks): void {
     sendBtn,
   );
   box.append(chips, input, bar);
-  under.append(modelBtn, el("span", "grow"), chromeDot);
-  composer.append(approval, working, editBar, suggest, modeMenu, approveLine, box, under);
+  under.append(modelBtn, ctxRing, el("span", "grow"), chromeDot);
+  on("usage", renderContext);
+  composer.append(approval, working, editBar, suggest, modeMenu, approveLine, pendingList, box, under);
   setBusy(false);
   renderOptions();
   on("options", renderOptions);
@@ -99,7 +111,9 @@ export function setBusy(b: boolean): void {
   sendBtn.setAttribute("aria-label", sendBtn.title);
   sendBtn.classList.toggle("stop", b);
   sendBtn.dataset.state = b ? "busy" : "idle";
-  input.placeholder = b ? "Steer it while it works…" : editing ? "Edit your message…" : "Ask Atlarix to build, fix or explain…";
+  input.placeholder = b ? "Steer it (Enter) · Tab queues for after" : editing ? "Edit your message…" : idlePlaceholder();
+  if (!b) showPending([]);
+  workingNote = null;
   if (b) {
     workingSince = Date.now();
     workingTitle = "Thinking";
@@ -109,6 +123,22 @@ export function setBusy(b: boolean): void {
     workingTimer = null;
   }
   renderWorking();
+}
+
+/** Shown instead of the step title while set ("Couldn't connect, retrying in 2s (1/3)…"). */
+let workingNote: string | null = null;
+
+export function setWorkingNote(note: string | null): void {
+  workingNote = note;
+  renderWorking();
+}
+
+/** A stopped turn's text the agent never got: back in the box, ahead of anything typed since. */
+export function restoreUnsent(text: string): void {
+  const now = input.value.trim();
+  input.value = now ? `${text}\n${now}` : text;
+  input.dispatchEvent(new Event("input"));
+  input.focus();
 }
 
 /** What Atlarix is doing now, from the step in progress. */
@@ -124,10 +154,11 @@ function renderWorking(): void {
   const secs = Math.floor((Date.now() - workingSince) / 1000);
   const spin = el("span", "spinner");
   spin.setAttribute("aria-hidden", "true");
-  working.append(spin, el("span", "working__title", workingTitle), el("span", "grow"), el("span", "muted mono", `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`));
+  working.append(spin, el("span", "working__title", workingNote ?? workingTitle), el("span", "grow"), el("span", "muted mono", `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`));
 }
 
 function renderOptions(): void {
+  if (!state.busy && !editing) input.placeholder = idlePlaceholder();
   modePill.textContent = "";
   modePill.append(el("span", "", MODE_NAME[state.mode] ?? state.mode));
   modePill.insertAdjacentHTML("beforeend", icon("down", 10));
@@ -175,6 +206,33 @@ export function setChrome(status: string): void {
 }
 
 /** The line above the box: whether edits ask first (Settings › Auto-approve). */
+/**
+ * How full the context is: a ring beside the model and its percentage, as the
+ * app draws it (TokenCircle: green, amber from 65%, red from 85%). The chat's
+ * tokens, cache and cost are in its tooltip.
+ */
+export function renderContext(): void {
+  const u = state.usage;
+  ctxRing.classList.toggle("hidden", !(u.size > 0));
+  if (!(u.size > 0)) return;
+  const pct = Math.min(1, Math.max(0, u.used / u.size));
+  const size = 14;
+  const r = (size - 3) / 2;
+  const c = 2 * Math.PI * r;
+  const tone = pct >= 0.85 ? "var(--danger)" : pct >= 0.65 ? "var(--warn)" : "var(--primary)";
+  ctxRing.innerHTML =
+    `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" aria-hidden="true">` +
+    `<circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="currentColor" stroke-opacity="0.18" stroke-width="2"/>` +
+    `<circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="${tone}" stroke-width="2" stroke-linecap="round" ` +
+    `stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${(c * (1 - pct)).toFixed(2)}" transform="rotate(-90 ${size / 2} ${size / 2})"/></svg>`;
+  ctxRing.append(el("span", "", `${Math.round(pct * 100)}%`));
+  const lines = [`Context ${tokens(u.used)} of ${tokens(u.size)}`];
+  if (u.tokens > 0) lines.push(`${tokens(u.tokens)} tokens this chat${u.cachedTokens > 0 ? `, ${tokens(u.cachedTokens)} from cache` : ""}`);
+  if (u.cost > 0) lines.push(`$${u.cost.toFixed(u.cost < 1 ? 3 : 2)} on your keys`);
+  ctxRing.title = lines.join("\n");
+  ctxRing.setAttribute("aria-label", `Context ${Math.round(pct * 100)}% full`);
+}
+
 export async function refreshApproveLine(): Promise<void> {
   if (!state.sessionId) return;
   const r = await rpc<{ folderEdits: boolean; rules: unknown[] }>("_atlarix/permissions", { sessionId: state.sessionId, action: "list" }).catch(() => null);
@@ -216,19 +274,42 @@ function renderApproval(): void {
   renderWorking();
   approval.textContent = "";
   if (!a) return;
-  const meta = (a.toolCall._meta as { atlarix?: { approval?: { command?: string | null; path?: string | null; risky?: boolean; risk?: string | null; outside?: string | null } } } | undefined)
-    ?.atlarix?.approval;
+  const meta = (a.toolCall._meta as {
+    atlarix?: {
+      approval?: {
+        command?: string | null;
+        path?: string | null;
+        risky?: boolean;
+        risk?: string | null;
+        outside?: string | null;
+        intent?: string | null;
+        /** An automation's when / each run / results lines. */
+        details?: string[];
+        added?: number | null;
+        removed?: number | null;
+      };
+    };
+  } | undefined)?.atlarix?.approval;
   const isCommand = !!meta?.command;
   const isEdit = !isCommand && !!meta?.path;
   approval.classList.toggle("risky", !!meta?.risky);
   const head = el("div", "approval__head");
-  head.innerHTML = icon(meta?.risky ? "warn" : isCommand ? "terminal" : "file", 15);
+  const isAutomation = !!meta?.details?.length;
+  head.innerHTML = icon(meta?.risky ? "warn" : isCommand ? "terminal" : isAutomation ? "bolt" : isEdit ? "file" : "check", 15);
   const title = isCommand ? (meta?.risky ? "Run a risky command?" : "Run this command?") : isEdit ? "Apply this edit?" : (a.toolCall.title ?? "Atlarix wants to continue");
   head.append(el("span", "approval__title", title));
   if (approvals.length > 1) head.append(el("span", "muted small", `1 of ${approvals.length}`));
   approval.append(head);
   if (meta?.command) approval.append(el("pre", "approval__code", meta.command));
-  else if (meta?.path) approval.append(el("div", "approval__code", meta.path));
+  else if (meta?.path) {
+    const row = el("div", "approval__code", meta.path);
+    if (meta.added != null || meta.removed != null) {
+      row.append(" ", el("span", "approval__add", `+${meta.added ?? 0}`), " ", el("span", "approval__del", `−${meta.removed ?? 0}`));
+    }
+    approval.append(row);
+  }
+  if (meta?.intent) approval.append(el("div", "approval__intent", meta.intent));
+  for (const line of meta?.details ?? []) approval.append(el("div", "approval__detail", line));
   if (meta?.risk) approval.append(el("div", "approval__risk", meta.risk));
   if (meta?.outside) approval.append(el("div", "approval__risk", `Outside this folder: ${meta.outside}`));
   const acts = el("div", "approval__acts");
@@ -248,6 +329,41 @@ function renderApproval(): void {
 }
 
 // --- Going back to a message ------------------------------------------------------------
+
+/**
+ * A checkpoint's Restore: the files only (the chat stays as it is, the agent is
+ * told), or the files and this message to edit and send again (QA E3; Cline's
+ * "Restore Files" vs "Restore Files & Task", Claude Code's code-only rewind).
+ */
+export function restoreAt(messageId: number, text: string, anchor: HTMLElement): void {
+  T.log.querySelector(".undo-choice")?.remove();
+  const card = el("div", "card undo-choice");
+  card.append(el("div", "card__title", "Restore to this checkpoint"), el("div", "muted small", "The files Atlarix changed after it go back to how they were."));
+  const note = el("div", "muted small hidden");
+  const acts = el("div", "card__options");
+  acts.append(
+    button("Files only", "primary", async () => {
+      acts.querySelectorAll("button").forEach((b) => ((b as HTMLButtonElement).disabled = true));
+      try {
+        const r = await rpc<{ restoredFiles: number }>("_atlarix/undo", { sessionId: state.sessionId, action: "restore_files", messageId });
+        card.remove();
+        T.addNote(`Restored ${r.restoredFiles} file${r.restoredFiles === 1 ? "" : "s"} to this checkpoint. The chat is unchanged; Atlarix is told with your next message.`);
+      } catch (x) {
+        note.textContent = (x as Error).message;
+        note.classList.remove("hidden");
+        acts.querySelectorAll("button").forEach((b) => ((b as HTMLButtonElement).disabled = false));
+      }
+    }),
+    button("Files and edit the message", "", () => {
+      card.remove();
+      beginEdit(messageId, text, true);
+    }),
+    button("Cancel", "link", () => card.remove()),
+  );
+  card.append(note, acts);
+  anchor.after(card);
+  card.scrollIntoView({ block: "nearest" });
+}
 
 /** Edit (restore: null asks if files changed), or a checkpoint's Restore (true). */
 export async function goBack(messageId: number, text: string, restore: boolean | null): Promise<void> {
@@ -350,15 +466,70 @@ function renderChips(): void {
 
 // --- Sending ------------------------------------------------------------------------------
 
+// A New chat is on its way: what you send meanwhile waits for it. Drawn now, the
+// bubble was wiped when the new chat arrived and reset the transcript (QA #55).
+let awaitingSession = false;
+let held: Array<() => void> = [];
+let awaitTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** New chat asked for: hold sends until its session arrives (or 10s pass). */
+export function expectSession(): void {
+  awaitingSession = true;
+  clearTimeout(awaitTimer);
+  awaitTimer = setTimeout(sessionArrived, 10_000);
+}
+
+/** The new chat is here: send what was held, in order. */
+export function sessionArrived(): void {
+  if (!awaitingSession) return;
+  awaitingSession = false;
+  clearTimeout(awaitTimer);
+  const sends = held;
+  held = [];
+  for (const send of sends) send();
+}
+
 export function sendText(text: string, items: ContextItem[], answers?: string[]): void {
+  if (awaitingSession) {
+    held.push(() => sendText(text, items, answers));
+    return;
+  }
   if (state.busy) return;
   T.addUser(text, items);
   setBusy(true);
   post({ type: "send", text, context: items, ...(answers ? { answers } : {}) });
 }
 
+/**
+ * While a turn runs: Enter steers (the agent reads it at its next step), Tab
+ * queues it for after the turn, as the CLI and Codex do. Esc or the button stops.
+ */
+function interject(kind: "steer" | "queue"): void {
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = "";
+  refreshSuggest();
+  void rpc<{ started: boolean }>("_atlarix/interject", { sessionId: state.sessionId, text, kind })
+    .then((r) => {
+      // The turn ended just before it arrived: send it as the next message.
+      if (!r.started) sendText(text, []);
+    })
+    .catch(() => (input.value = text));
+}
+
+/** The list above the box: each waiting message and when it goes in. */
+export function showPending(items: Array<{ id: string; text: string; kind: string }>): void {
+  pendingList.textContent = "";
+  pendingList.classList.toggle("hidden", !items.length);
+  for (const p of items) {
+    const row = el("div", "waiting__row");
+    row.append(el("span", "waiting__text", p.text.split("\n")[0]!), el("span", "waiting__when", p.kind === "steer" ? "goes in after this step" : "sent when this turn ends"));
+    pendingList.append(row);
+  }
+}
+
 function submit(): void {
-  if (state.busy) return post({ type: "cancel" });
+  if (state.busy) return interject("steer");
   const text = input.value.trim();
   if (editing) {
     if (!text) return;
@@ -374,6 +545,11 @@ function submit(): void {
   if (text === "/undo") {
     input.value = "";
     return hooks.open("undo");
+  }
+  // This panel has a page for them; other editors get the list as a message.
+  if (text === "/automations" || text === "/mcp") {
+    input.value = "";
+    return hooks.open(text === "/mcp" ? "mcp" : "automations");
   }
   if (!text && !context.length) return;
   const q = T.questionPending();
@@ -553,7 +729,10 @@ input.addEventListener("keydown", (e) => {
     }
   }
   const sendKey = state.settings.ctrlEnterSends ? e.key === "Enter" && (e.metaKey || e.ctrlKey) : e.key === "Enter" && !e.shiftKey;
-  if (sendKey && !e.isComposing) {
+  if (e.key === "Tab" && !e.shiftKey && state.busy && input.value.trim()) {
+    e.preventDefault();
+    interject("queue");
+  } else if (sendKey && !e.isComposing) {
     e.preventDefault();
     submit();
   } else if (e.key === "Escape" && state.busy) post({ type: "cancel" });

@@ -275,6 +275,32 @@ describe("keys and commands", () => {
     expect(session.calls.filter((c) => c[0] === "setMode").map((c) => c[1])).toEqual(["ask", "plan", "debug", "review", "build"]);
   });
 
+  it("ctrl+y switches the mode as shift+tab does (VS Code can take shift+tab)", async () => {
+    const { setup, session } = await mount();
+    setup.mockInput.pressKey("y", { ctrl: true });
+    await settle(setup);
+    expect(session.calls.filter((c) => c[0] === "setMode").map((c) => c[1])).toEqual(["ask"]);
+  });
+
+  it("page up and down scroll the conversation", async () => {
+    const { setup, session } = await mount();
+    session.set({ cells: Array.from({ length: 80 }, (_, i) => ({ kind: "markdown", id: `m${i}`, text: `line number ${i}` })) } as never);
+    await settle(setup);
+    expect(setup.captureCharFrame()).toContain("line number 79");
+    setup.mockInput.pressKey("\x1b[5~");
+    await settle(setup);
+    expect(setup.captureCharFrame()).not.toContain("line number 79");
+  });
+
+  it("shift+tab switches the mode even with the / menu open", async () => {
+    const { setup, session } = await mount();
+    await setup.mockInput.typeText("/");
+    await settle(setup);
+    setup.mockInput.pressTab({ shift: true });
+    await settle(setup);
+    expect(session.calls.filter((c) => c[0] === "setMode").map((c) => c[1])).toEqual(["ask"]);
+  });
+
   it("/mode picks any of the five modes", async () => {
     const { setup, session } = await mount();
     await setup.mockInput.typeText("/mode");

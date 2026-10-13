@@ -738,6 +738,36 @@ export class IpcClient {
       }
     });
 
+    // Silent network retries ran out (network-retry.ts). Main sends only this,
+    // so with no listener the turn stayed "streaming" for good. End it as an
+    // error that says what happened; the partial reply stays on screen.
+    this.ipcRenderer.on("chat:stream:disconnected", (payload) => {
+      const p = payload as {
+        chatId?: number;
+        detail?: string;
+        providerName?: string;
+        partialResponse?: string;
+      } | null;
+      if (!p || typeof p.chatId !== "number") return;
+      const chatId = p.chatId;
+      this.streamMessages.delete(chatId);
+      this.streamPhaseHandlers.forEach((h) =>
+        h({ chatId, phase: "done", label: "" }),
+      );
+      const callbacks = this.chatStreams.get(chatId);
+      if (!callbacks) return;
+      // The CLI and editor's words (ec6bdc46); a drop after part of the reply
+      // came is a lost connection, not an unreachable provider.
+      const name = p.providerName || "the model provider";
+      const detail = p.detail?.trim() ? `: ${p.detail.trim().replace(/\.?$/, ".")}` : ".";
+      callbacks.onError(
+        p.partialResponse?.trim()
+          ? `Lost the connection to ${name} mid-reply${detail} Try again.`
+          : `Couldn't reach ${name}${detail} Check it's running and the address is right, then try again.`,
+      );
+      this.chatStreams.delete(chatId);
+    });
+
     // MCP tool consent request from main
     this.ipcRenderer.on("mcp:tool-consent-request", (payload) => {
       const handler = this.mcpConsentHandlers.get("consent");
@@ -1052,8 +1082,43 @@ export class IpcClient {
   public async getSnapshotFiles(params: {
     chatId: number;
     turnId: string;
-  }): Promise<{ filesChanged: string[]; createdFiles: string[] } | null> {
+  }): Promise<{
+    filesChanged: string[];
+    createdFiles: string[];
+    /** Set once the user has reverted this turn's files. */
+    revertedAt?: string;
+  } | null> {
     return this.ipcRenderer.invoke("snapshot:files", params);
+  }
+
+  /**
+   * The files of these turns reverted since the agent was last told; marks
+   * them told (the agent hears it once, with the user's next message).
+   */
+  /** /compact: summarise this chat's conversation now. */
+  public async compactChat(params: {
+    chatId: number;
+    providerId?: string;
+    workspaceSessionId?: string | null;
+  }): Promise<{ ok: boolean; message: string }> {
+    return this.ipcRenderer.invoke("chat:compact", params);
+  }
+
+  /** Whether the saved key for this provider works (null: no key saved). */
+  public async checkProviderKey(
+    providerId: string,
+  ): Promise<{
+    status: "works" | "rejected" | "unchecked" | "unreachable";
+    detail: string;
+  } | null> {
+    return this.ipcRenderer.invoke("providers:check-key", providerId);
+  }
+
+  public async takeRevertedFiles(params: {
+    chatId: number;
+    turnIds: string[];
+  }): Promise<string[]> {
+    return this.ipcRenderer.invoke("snapshot:take-reverted-files", params);
   }
 
   /**

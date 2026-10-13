@@ -360,6 +360,12 @@ export const UserSettingsSchema = z.object({
     })
     .optional(),
   /**
+   * The account that closed the "Where did you hear about Atlarix?" card
+   * without answering (X). It is not asked again on that account; nothing is
+   * sent. Closing it used to store nothing, so it came back every launch.
+   */
+  acquisitionPromptDismissedFor: z.string().optional(),
+  /**
    * PeerPush review prompt. `asked` and `clickedThrough` are deliberately
    * SEPARATE: we can see that someone opened the review page, never that they
    * actually reviewed. Conflating them would overstate the conversion.

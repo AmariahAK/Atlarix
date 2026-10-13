@@ -87,6 +87,28 @@ describe("placeSteers", () => {
       "markdown",
     ]);
   });
+
+  it("keeps a steer into an answer that shows nothing in its turn, not below later ones (QA)", async () => {
+    const { placeSteers } = await import("@/cli/agent/transcript");
+    // Two stopped turns, each with a steer and no output, then a third turn.
+    const messages = [
+      { id: 1, role: "user", content: "First" },
+      { id: 2, role: "user", content: "Second" },
+      { id: 3, role: "assistant", content: "" },
+      { id: 4, role: "user", content: "Third" },
+      { id: 5, role: "user", content: "Fourth" },
+      { id: 6, role: "assistant", content: "" },
+      { id: 7, role: "user", content: "Fifth" },
+    ];
+    const cells = placeSteers(
+      messages,
+      new Map([
+        ["2", { messageId: "2", assistantId: "3", offset: 0 }],
+        ["5", { messageId: "5", assistantId: "6", offset: 0 }],
+      ]),
+    );
+    expect(cells.map((c) => (c.kind === "user" ? c.text : c.kind))).toEqual(["First", "Second", "Third", "Fourth", "Fifth"]);
+  });
 });
 
 describe("a turn that ended on questions", () => {
@@ -218,7 +240,9 @@ describe("plan and background job lines say what happened", () => {
   it("names the plan operation and the job operation", () => {
     expect(toolTarget("plan", { operation: "update_step", step_index: 3, state: "done" })).toBe("step 3 → done");
     expect(toolTarget("plan", { operation: "write", title: "CLI smoke test" })).toBe("write · CLI smoke test");
-    expect(toolTarget("background_jobs", { operation: "list" })).toBe("list");
+    expect(toolTarget("background_jobs", { operation: "list" })).toBe("list background jobs");
+    expect(toolTarget("background_jobs", { operation: "cancel", job_id: "op_1791" })).toBe("stop a background job");
+    expect(toolTarget("subagents", { operation: "output", task_id: "t1" })).toBe("read a sub-agent's progress");
   });
 
   it("reads the result inside the envelope, and never shows a cut-off envelope", () => {
@@ -227,5 +251,122 @@ describe("plan and background job lines say what happened", () => {
     const cut = '{"success":true,"result":{"success":true,"planId":"deb8","planStatus":"plan","contentPreview":"This plan exists';
     expect(toolResultText("plan", cut).text).toBe("");
     expect(toolResultText("plan", '{"success":true,"result":{"message":"Plan saved.","x":"cut').text).toBe("Plan saved.");
+  });
+});
+
+describe("a sub-agent's task call", () => {
+  const msg = (result: string) => ({
+    id: 9,
+    role: "assistant",
+    content:
+      `<atlarix-tool-call tool="task" call="t1" status="running">\n{"description":"Map src/mini","prompt":"Read-only reconnaissance task."}\n</atlarix-tool-call>\n` +
+      `<atlarix-tool-result tool="task" call="t1" status="complete">\n${result}\n</atlarix-tool-result>\n`,
+  });
+  const taskTool = (result: string) => {
+    const cell = toCells([msg(result)]).find((c) => c.kind === "tool");
+    return (cell as Extract<ReturnType<typeof toCells>[number], { kind: "tool" }>).tool;
+  };
+
+  it("in the background reads as running, never as its raw envelope", () => {
+    const t = taskTool('<task id="205e9aef" state="running">\nStarted in the background.\n</task>');
+    expect(t.status).toBe("running");
+    expect(t.summary).toBe("running in the background");
+    expect(t.output ?? "").not.toContain("<task");
+  });
+
+  it("when done shows its report, not the tag", () => {
+    const t = taskTool('<task id="205e9aef" state="completed">\nsrc/mini has 12 files; the entry is index.ts.\n</task>');
+    expect(t.status).toBe("success");
+    expect(t.summary).toBe("src/mini has 12 files; the entry is index.ts.");
+  });
+});
+
+describe("what a step's result line says", () => {
+  const line = (tool: string, args: object, result: string) => {
+    const content =
+      `<atlarix-tool-call tool="${tool}" call="c1" status="running">\n${JSON.stringify(args)}\n</atlarix-tool-call>\n` +
+      `<atlarix-tool-result tool="${tool}" call="c1" status="complete">\n${result}\n</atlarix-tool-result>\n`;
+    const cell = toCells([{ id: 3, role: "assistant", content }]).find((c) => c.kind === "tool");
+    return (cell as Extract<ReturnType<typeof toCells>[number], { kind: "tool" }>).tool.summary;
+  };
+
+  it("a read says which lines it read", () => {
+    expect(line("read_file", { path: "a.ts" }, "File: a.ts\nLines: 1-240 of 3641\n\n1\tx")).toBe("lines 1–240 of 3641");
+    expect(line("read_file", { path: "b.ts" }, "File: b.ts\nLines: 1-80 (complete)\n\n1\tx")).toBe("80 lines");
+  });
+
+  it("a find says how many files, without the dangling colon", () => {
+    expect(line("glob", { pattern: "**/*.ts" }, "Found 500 file(s) (newest first):\nsrc/a.ts")).toBe("500 files");
+  });
+});
+
+describe("rows a person reads", () => {
+  const tool = (name: string, args: object, result: string, error?: string) => {
+    const content =
+      `<atlarix-tool-call tool="${name}" call="c1" status="running">\n${JSON.stringify(args)}\n</atlarix-tool-call>\n` +
+      `<atlarix-tool-result tool="${name}" call="c1" status="${error ? "error" : "complete"}"${error ? ` error="${error}"` : ""}>\n${result}\n</atlarix-tool-result>\n`;
+    const cell = toCells([{ id: 4, role: "assistant", content }]).find((c) => c.kind === "tool");
+    return (cell as Extract<ReturnType<typeof toCells>[number], { kind: "tool" }>).tool;
+  };
+
+  it("a background command says it started there, not the note meant for the model", () => {
+    const t = tool("run_command", { command: "python3 -m http.server 8765", background: true }, "Background command started (job_id: op_1): python3 -m http.server 8765\nYou'll receive its result automatically when it exits — do not poll.");
+    expect(t.summary).toBe("started in the background");
+    // The row prints `output` under a command: the note must not be there either.
+    expect(t.output).toBeUndefined();
+  });
+
+  it("a read error as stored (code first, message after) shows the message, without the advice for the model", () => {
+    const t = tool("read_file", { path: "src/nope.ts" }, JSON.stringify({ success: false, error: "file_not_found", message: 'No file at path "src/nope.ts". Use list_files to find the correct path.' }), "file_not_found");
+    expect(t.summary).toBe('No file at path "src/nope.ts".');
+  });
+
+  it("command output without its section markers; a failure shows its error line", () => {
+    const ok = tool("run_command", { command: "bun test" }, JSON.stringify({ success: true, exitCode: 0, output: "=== STDOUT ===\nbun test v1.4.2\n=== STDERR ===\n1 pass" }));
+    expect(ok.summary).toBe("bun test v1.4.2");
+    expect(ok.output).toBe("bun test v1.4.2\n1 pass");
+    const bad = tool("run_command", { command: "bun run typecheck" }, JSON.stringify({ success: false, exitCode: 127, output: "=== STDOUT ===\n$ tsgo -b\n=== STDERR ===\ntsgo: command not found\n" }));
+    expect(bad.summary).toBe("tsgo: command not found · exit 127");
+    // PowerShell's trailer is not the reason; its first line is (QA, Windows).
+    const ps = tool("run_command", { command: "npx --no-install tsc" }, JSON.stringify({
+      success: false,
+      exitCode: 1,
+      // As PowerShell prints it: the message wrapped over two lines, then its trailer.
+      output: "=== STDERR ===\nnpx : The term 'npx' is not recognized as the name of a cmdlet, function, script file, or operable program. Check the\nspelling of the name, or if a path was included, verify that the path is correct and try again.\nAt line:1 char:1\n+ npx --no-install tsc\n+ ~~~\n    + CategoryInfo          : ObjectNotFound: (npx:String) [], CommandNotFoundException\n    + FullyQualifiedErrorId : CommandNotFoundException\n",
+    }));
+    expect(ps.summary).toBe("npx : The term 'npx' is not recognized as the name of a cmdlet, function, script file, or operable program. Check the spelling of the name, or if a path was included, verify that the path is correct and try again. · exit 1");
+  });
+
+  it("a find with no matches says so, not the hint for the model", () => {
+    const t = tool("glob", { pattern: "**/*.zzz" }, JSON.stringify({ success: true, result: "No files found matching pattern: **/*.zzz. Often an extension or casing issue — try a broader glob." }));
+    expect(t.summary).toBe("no files");
+  });
+
+  it("a failed read shows its message, not its error code", () => {
+    const t = tool("read_file", { path: "src/nope.ts" }, 'No file at path "src/nope.ts".', "file_not_found");
+    expect(t.summary).toBe('No file at path "src/nope.ts".');
+  });
+
+  it("a finished sub-agent's line is its first real sentence, past headings", () => {
+    const t = tool("task", { description: "Map src/mini" }, '<task id="t" state="completed">\n## Direct answer\n\n**src/mini** has 12 files. The entry is index.ts.\n</task>');
+    expect(t.summary).toBe("src/mini has 12 files.");
+  });
+});
+
+describe("the Build it prompt (QA P2)", () => {
+  it("is a marker, not a message you typed", async () => {
+    const { BUILD_FROM_PLAN_PROMPT } = await import("@/lib/work-mode");
+    const { diffUpdates } = await import("@/cli/acp/updates");
+    const cells = toCells([
+      { id: 1, role: "user", content: "plan it" },
+      { id: 2, role: "assistant", content: "Here's the plan." },
+      { id: 3, role: "user", content: BUILD_FROM_PLAN_PROMPT },
+    ]);
+    expect(cells.at(-1)).toMatchObject({ kind: "notice", id: "3:build", text: "▸ Build it" });
+    expect(cells.some((c) => c.kind === "user" && c.text.includes("Plan panel"))).toBe(false);
+    // An editor gets a step, never a user bubble it could edit.
+    const ups = diffUpdates(cells, new Map(), { replay: true, ids: true } as never);
+    expect(ups.some((u: any) => u.sessionUpdate === "tool_call" && u.title === "Build it")).toBe(true);
+    expect(JSON.stringify(ups)).not.toContain("Plan panel");
   });
 });

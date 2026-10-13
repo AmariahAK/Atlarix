@@ -55,6 +55,14 @@ export interface SnapshotManifest {
   filesChanged: string[];
   /** Subset of filesChanged that did NOT exist pre-write (revert deletes them). */
   createdFiles: string[];
+  /**
+   * When the user put this turn's files back (the app's Revert on a reply).
+   * The reply then shows it, after a restart too, instead of offering Revert
+   * again.
+   */
+  revertedAt?: string;
+  /** When the agent was told about that revert (once, with the next message). */
+  revertToldAt?: string;
 }
 
 function workspaceKey(workspacePath: string): string {
@@ -684,18 +692,24 @@ export async function snapshotExists(
 export async function listSnapshotFiles(
   workspacePath: string,
   turnId: string,
-): Promise<{ filesChanged: string[]; createdFiles: string[] } | null> {
+): Promise<{
+  filesChanged: string[];
+  createdFiles: string[];
+  revertedAt?: string;
+} | null> {
   if (!workspacePath || !turnId) return null;
   const seg = sanitizeLedgerDirSegment(turnId);
   const primary = path.resolve(workspacePath);
   const filesChanged: string[] = [];
   const createdFiles: string[] = [];
+  let revertedAt: string | undefined;
   let found = false;
 
   for (const root of await turnRoots(workspacePath, turnId)) {
     const manifest = await readManifest(shadowGitDir(root), seg);
     if (!manifest) continue;
     found = true;
+    revertedAt ??= manifest.revertedAt;
     // Re-express an outside root's paths the way the UI shows them (`../sibling/x`), so
     // the revert list reads as one turn rather than several disjoint sets, and so the
     // strings round-trip back through `revertSnapshotFiles`.
@@ -713,7 +727,72 @@ export async function listSnapshotFiles(
   }
 
   if (!found) return null;
-  return { filesChanged, createdFiles };
+  return { filesChanged, createdFiles, ...(revertedAt ? { revertedAt } : {}) };
+}
+
+async function updateManifests(
+  workspacePath: string,
+  turnId: string,
+  update: (m: SnapshotManifest) => boolean,
+): Promise<SnapshotManifest[]> {
+  const seg = sanitizeLedgerDirSegment(turnId);
+  const changed: SnapshotManifest[] = [];
+  for (const root of await turnRoots(workspacePath, turnId)) {
+    const gitDir = shadowGitDir(root);
+    await withWorkspaceLock(root, async () => {
+      const manifest = await readManifest(gitDir, seg);
+      if (!manifest || !update(manifest)) return;
+      await fs.writeFile(
+        turnManifestPath(gitDir, seg),
+        JSON.stringify(manifest, null, 2),
+        "utf8",
+      );
+      changed.push(manifest);
+    });
+  }
+  return changed;
+}
+
+/**
+ * Record that the user put this turn's files back (files only; the
+ * conversation stays). See `SnapshotManifest.revertedAt`.
+ */
+export async function markSnapshotReverted(
+  workspacePath: string,
+  turnId: string,
+): Promise<void> {
+  if (!workspacePath || !turnId) return;
+  await updateManifests(workspacePath, turnId, (m) => {
+    m.revertedAt = new Date().toISOString();
+    delete m.revertToldAt;
+    return true;
+  });
+}
+
+/**
+ * The files of these turns that were reverted since the agent was last told,
+ * marked told: the agent hears about a revert once, with the next message, so
+ * it does not build on edits that are gone. Workspace-relative, as
+ * listSnapshotFiles shows them.
+ */
+export async function takeUntoldRevertedFiles(
+  workspacePath: string,
+  turnIds: string[],
+): Promise<string[]> {
+  if (!workspacePath) return [];
+  const out = new Set<string>();
+  for (const turnId of turnIds) {
+    const listed = await listSnapshotFiles(workspacePath, turnId);
+    if (!listed?.revertedAt) continue;
+    const told = await updateManifests(workspacePath, turnId, (m) => {
+      if (!m.revertedAt || m.revertToldAt) return false;
+      m.revertToldAt = new Date().toISOString();
+      return true;
+    });
+    if (told.length === 0) continue;
+    for (const f of [...listed.filesChanged, ...listed.createdFiles]) out.add(f);
+  }
+  return [...out];
 }
 
 // ── Retention ───────────────────────────────────────────────────────────────

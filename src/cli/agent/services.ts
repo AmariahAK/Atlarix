@@ -127,6 +127,8 @@ export interface CliServices {
     saveKey(providerId: string, key: string): Promise<void>;
     /** Forget the saved key (a provider the user added goes too). */
     removeKey(providerId: string): Promise<void>;
+    /** A custom provider's address, changed after checking something answers there. */
+    setBaseUrl(providerId: string, baseUrl: string): Promise<void>;
     /** Ask the provider whether the saved key works, or `key` before it is saved. */
     test(providerId: string, key?: string): Promise<KeyCheck>;
     /** Add an OpenAI-compatible endpoint with its key; returns its id and how many models it lists. */
@@ -155,6 +157,8 @@ export interface CliServices {
   };
   account: {
     email(): Promise<string | null>;
+    /** Your name, picture (a data: URL) and how you signed in, from GitHub or Google; nulls when unknown. */
+    profile?(): Promise<{ name: string | null; avatar: string | null; provider: string | null }>;
     /** Spendable balance in cents; null when signed out or unknown. */
     balanceCents(): Promise<number | null>;
     /** The header's plan label. Optional so test fakes need not answer it. */
@@ -195,8 +199,8 @@ async function ensureLanguageModelHandlers(register: () => void): Promise<void> 
 
 /** The endpoint listed no models: the caller asks for a model id instead. */
 export class NoModelsListedError extends Error {
-  constructor() {
-    super("That endpoint didn't list any models. Type the id of the model to use.");
+  constructor(hint = "") {
+    super(`That endpoint didn't list any models.${hint} Type the id of the model to use.`);
     this.name = "NoModelsListedError";
   }
 }
@@ -350,7 +354,8 @@ export const realServices: CliServices = {
             name: p.name,
             hasKey: Boolean(key),
             keyUrl: (p as { websiteUrl?: string }).websiteUrl,
-            ...(key ? { keyHint: keyHint(key) } : {}),
+            // "none" is the stand-in for a server that needs no key (addCustom).
+            ...(key ? { keyHint: key === "none" ? "none" : keyHint(key) } : {}),
             ...((p as { type?: string }).type === "custom" ? { custom: true } : {}),
             ...(settings.providerSettings?.[p.id]?.enabled === false ? { off: true } : {}),
             ...(p.apiBaseUrl ? { baseUrl: p.apiBaseUrl } : {}),
@@ -374,10 +379,33 @@ export const realServices: CliServices = {
       invalidateProviderModelCache(providerId);
       const { CUSTOM_PROVIDER_PREFIX } = await import("@/ipc/shared/language_model_helpers");
       if (providerId.startsWith(CUSTOM_PROVIDER_PREFIX)) {
+        // `atlarix keys remove` reaches here with no database open yet.
+        const { initializeDatabase } = await import("@/db");
+        initializeDatabase();
         const { registerLanguageModelHandlers } = await import("@/ipc/handlers/language_model_handlers");
         await ensureLanguageModelHandlers(registerLanguageModelHandlers);
         await invoke("delete-custom-language-model-provider", { providerId });
       }
+    },
+    async setBaseUrl(providerId, baseUrl) {
+      const { CUSTOM_PROVIDER_PREFIX, getLanguageModelProviders } = await import("@/ipc/shared/language_model_helpers");
+      if (!providerId.startsWith(CUSTOM_PROVIDER_PREFIX)) throw new Error("Only a provider you added has an address to change.");
+      const base = baseUrl.trim().replace(/\/+$/, "");
+      if (!/^https?:\/\/\S+$/i.test(base)) throw new Error("The base URL starts with https:// (or http:// for one on this computer).");
+      const p = (await getLanguageModelProviders()).find((x) => x.id === providerId);
+      if (!p) throw new Error("That provider isn't there any more.");
+      // Something has to answer at the new address before it replaces the old.
+      const { keyProbe, checkProviderKey } = await import("@/lib/provider-key-check");
+      const { readSettings } = await import("@/main/settings");
+      const key = (readSettings() as { providerSettings?: Record<string, { apiKey?: { value?: string } }> }).providerSettings?.[providerId]?.apiKey?.value ?? "none";
+      const check = await checkProviderKey(keyProbe(providerId, key, base)!, key);
+      if (check.status === "unreachable") throw new Error(`${check.detail.replace(/^Couldn't reach the provider/, `Couldn't reach ${base}`).replace(/[.?!\s]+$/, "")}. Nothing was changed.`);
+      if (check.status === "rejected") throw new Error(`The key was rejected there: ${check.detail}. Nothing was changed.`);
+      const { registerLanguageModelHandlers } = await import("@/ipc/handlers/language_model_handlers");
+      await ensureLanguageModelHandlers(registerLanguageModelHandlers);
+      await invoke("edit-custom-language-model-provider", { id: providerId.slice(CUSTOM_PROVIDER_PREFIX.length), name: p.name, apiBaseUrl: base });
+      const { invalidateProviderModelCache } = await import("@/lib/provider_model_fetchers");
+      invalidateProviderModelCache(providerId);
     },
     async test(providerId, candidate) {
       const { readSettings } = await import("@/main/settings");
@@ -411,7 +439,10 @@ export const realServices: CliServices = {
         { id: "lmstudio", name: "LM Studio", running: !lmstudio.error, models: lmstudio.models.length },
       ];
     },
-    async addCustom({ name, baseUrl, key, models }) {
+    async addCustom({ name, baseUrl, key: given, models }) {
+      // A server on this computer (LM Studio, llama.cpp, vLLM) often needs no
+      // key; the client still sends one, so a stand-in it will ignore.
+      const key = given.trim() || "none";
       const { CUSTOM_PROVIDER_PREFIX } = await import("@/ipc/shared/language_model_helpers");
       const { keyProbe, checkProviderKey } = await import("@/lib/provider-key-check");
       const base = baseUrl.trim().replace(/\/+$/, "");
@@ -428,8 +459,17 @@ export const realServices: CliServices = {
         const probe = keyProbe(slug, key.trim(), base)!;
         const check = await checkProviderKey(probe, key.trim());
         if (check.status === "rejected") throw new Error(`The key was rejected: ${check.detail}`);
+        // Nothing answered there (a wrong port, the server not running): say so,
+        // and save nothing. It used to be "didn't list any models", then saved.
+        if (check.status === "unreachable") {
+          const why = check.detail.replace(/^Couldn't reach the provider/, `Couldn't reach ${base}`).replace(/[.?!\s]+$/, "");
+          throw new Error(`${why}. Check the address, and that the server is running.`);
+        }
         if (check.status === "works") ids = await listOpenAICompatibleModels(probe);
-        if (!ids.length) throw new NoModelsListedError();
+        if (!ids.length) {
+          // Most of these APIs live under /v1 (http://localhost:11434 → …/v1).
+          throw new NoModelsListedError(/\/v\d+$/.test(base) ? "" : ` If its API is under ${base}/v1, use that address instead.`);
+        }
       }
       const { registerLanguageModelHandlers } = await import("@/ipc/handlers/language_model_handlers");
       await ensureLanguageModelHandlers(registerLanguageModelHandlers);
@@ -475,6 +515,10 @@ export const realServices: CliServices = {
     async email() {
       const { currentEmail } = await import("../auth/account");
       return currentEmail();
+    },
+    async profile() {
+      const { currentProfile } = await import("../auth/account");
+      return currentProfile();
     },
     async checkout(kind, amountCents) {
       const { checkoutUrl } = await import("@/lib/lemonsqueezy");

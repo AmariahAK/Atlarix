@@ -4,7 +4,7 @@
  *
  *   [Rix]  Atlarix v15.4.0
  *          GLM 5.3 · Build · Free
- *          ~/Documents/Github/AI
+ *          ~/Documents/Github/AI  main
  *
  * It is the first thing inside the transcript's scroll, so it sits at the top
  * of a new session and scrolls away with the history instead of holding a
@@ -14,7 +14,7 @@ import type { ReactNode } from "react";
 import { Rix, type RixMood } from "./Rix";
 import { color } from "./theme";
 
-export type AccountKind = "signed-out" | "free" | "pro" | "payg" | "own-key";
+export type AccountKind = "signed-out" | "free" | "pro" | "payg" | "own-key" | "local" | "endpoint";
 
 export const ACCOUNT_LABEL: Record<AccountKind, string> = {
   "signed-out": "Not signed in",
@@ -22,6 +22,9 @@ export const ACCOUNT_LABEL: Record<AccountKind, string> = {
   pro: "Pro",
   payg: "Pay as you go",
   "own-key": "Your key",
+  local: "On this computer",
+  /** A provider you added (an OpenAI-compatible address): it may need no key at all. */
+  endpoint: "Your endpoint",
 };
 
 export function SessionHeader({
@@ -30,6 +33,7 @@ export function SessionHeader({
   mode,
   account,
   workspace,
+  branch,
   mood,
   hint,
 }: {
@@ -39,6 +43,8 @@ export function SessionHeader({
   account: AccountKind | null;
   /** Already shortened to fit. */
   workspace: string;
+  /** The checked-out git branch, if the folder is a repository. */
+  branch?: string | null;
   mood: RixMood;
   /** Lines under the header while the session is still empty. */
   hint?: ReactNode;
@@ -56,7 +62,10 @@ export function SessionHeader({
             <span fg={color.faint}>{` v${version}`}</span>
           </text>
           <text fg={color.textDim}>{line}</text>
-          <text fg={color.textDim}>{workspace}</text>
+          <text>
+            <span fg={color.textDim}>{workspace}</span>
+            {branch ? <span fg={color.code}>{`  ${branch}`}</span> : null}
+          </text>
         </box>
       </box>
       {hint ? <box flexDirection="column" marginTop={1}>{hint}</box> : null}

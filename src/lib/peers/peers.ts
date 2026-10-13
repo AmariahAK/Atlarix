@@ -544,9 +544,27 @@ function liveRows(): Row[] {
 export function listPeerSessions(exclude?: string): PeerSessionRow[] {
   const seen = new Set<string>();
   const out: PeerSessionRow[] = [];
-  for (const r of liveRows().sort((a, b) => b.last_seen - a.last_seen)) {
+  const rows = liveRows().sort((a, b) => b.last_seen - a.last_seen);
+  const blank = blankSessions(rows.map((r) => r.session_id));
+  for (const r of rows) {
     if (r.session_id.startsWith(PROCESS_ROW_PREFIX)) continue;
     if (r.session_id === exclude || seen.has(r.session_id)) continue;
+    // A chat opened and never used (the editor makes one on open) beside a
+    // real one in the same place: offering both made the agent, or you, pick
+    // between two "editor sessions" (QA H1). Alone, it stays: it may be the
+    // only way to reach that window.
+    if (
+      blank.has(r.session_id) &&
+      rows.some(
+        (o) =>
+          o.session_id !== r.session_id &&
+          !blank.has(o.session_id) &&
+          !o.session_id.startsWith(PROCESS_ROW_PREFIX) &&
+          o.surface === r.surface &&
+          o.workspace === r.workspace,
+      )
+    )
+      continue;
     seen.add(r.session_id);
     out.push({
       sessionId: r.session_id,
@@ -561,6 +579,26 @@ export function listPeerSessions(exclude?: string): PeerSessionRow[] {
     });
   }
   return out;
+}
+
+/** Which of these sessions hold no messages yet. None when the database can't say. */
+function blankSessions(ids: string[]): Set<string> {
+  const d = db();
+  if (!d || !ids.length) return new Set();
+  try {
+    const used = new Set(
+      (
+        d
+          .prepare(
+            `SELECT DISTINCT session_id FROM session_messages WHERE session_id IN (${ids.map(() => "?").join(",")})`,
+          )
+          .all(...ids) as Array<{ session_id: string }>
+      ).map((r) => r.session_id),
+    );
+    return new Set(ids.filter((id) => !used.has(id)));
+  } catch {
+    return new Set(); // no session_messages here (tests)
+  }
 }
 
 /**

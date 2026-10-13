@@ -188,7 +188,7 @@ function Block({ token, width, plain, first }: { token: Token; width: number; pl
     case "heading": {
       const h = token as Tokens.Heading;
       return (
-        <text marginTop={marginTop} fg={color.white}>
+        <text marginTop={marginTop} fg={color.heading}>
           <b>
             <Inline tokens={h.tokens} fallback={h.text} />
           </b>
@@ -249,7 +249,8 @@ function CodeBlock({ token, marginTop, plain }: { token: Tokens.Code; marginTop:
       {plain ? (
         <text fg={color.text}>{token.text}</text>
       ) : (
-        <code content={token.text} filetype={filetype} syntaxStyle={syntax} fg={color.text} />
+        // conceal off: the JSON grammar conceals its quotes, so copied JSON came out invalid (QA #42).
+        <code content={token.text} filetype={filetype} syntaxStyle={syntax} fg={color.text} conceal={false} />
       )}
     </box>
   );

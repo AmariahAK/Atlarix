@@ -6,7 +6,8 @@
  * Receives all state as props or from atoms directly.
  */
 
-import { useRef, useEffect, useCallback, useState } from "react";
+import { useRef, useEffect, useCallback, useState, useMemo } from "react";
+import type { StreamThreadItem } from "@/lib/chat/stream-thread";
 import { useAtomValue, useSetAtom, getDefaultStore } from "jotai";
 import {
   chatMessagesByIdAtom,
@@ -17,6 +18,7 @@ import {
   chatErrorByIdAtom,
   turnSnapshotTurnIdByMessageIdAtom,
   streamThreadForChatAtom,
+  completedStreamThreadByAssistantMessageIdAtom,
 } from "../atoms/chatAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
 import { isCompactionSummaryMessage } from "@/lib/chat/compaction-marker";
@@ -46,9 +48,11 @@ import {
 } from "@/shared/billing_copy";
 import { useTranslation } from "react-i18next";
 import { useSettings } from "@/hooks/useSettings";
+import { useWorkModeSelection } from "@/hooks/useWorkModeSelection";
+import { BUILD_FROM_PLAN_PROMPT } from "@/lib/work-mode";
 import { useAccountKind } from "@/hooks/useAccountKind";
 import { COMPASS_PROVIDER_ID, isCoreAutoTier } from "@/ipc/shared/compass_constants";
-import { showError } from "@/lib/toast";
+import { showError, showInfo } from "@/lib/toast";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -227,11 +231,35 @@ export function SimpleInlineChat({
   // too and silently disable the whole compaction slice. This is the view, and
   // only the view: a `[COMPACTION MARKER] gen=N … [END COMPACTION]` blob is
   // harness bookkeeping, not something the user typed or the model said.
+  // A message sent while a turn ran is drawn inside that reply, where the
+  // agent took it (an "interjection" thread item); its own row, stored in
+  // front of the reply, is not shown again above the answer (QA #4).
+  const liveThread = useAtomValue(streamThreadForChatAtom(chatId));
+  const completedThreads = useAtomValue(
+    completedStreamThreadByAssistantMessageIdAtom,
+  );
+  const steerRowKeys = useMemo(() => {
+    const keys = new Set<string>();
+    const add = (items: readonly StreamThreadItem[] | undefined) => {
+      for (const it of items ?? []) {
+        if (it.kind === "interjection") keys.add(it.rowKey);
+      }
+    };
+    add(liveThread);
+    for (const m of messages) {
+      if (m?.role === "assistant") add(completedThreads[m.id]);
+    }
+    return keys;
+  }, [liveThread, completedThreads, messages]);
   const visibleMessages = messages.filter(
     (m) =>
       m &&
       (m.role === "user" || m.role === "assistant") &&
-      !isCompactionSummaryMessage(m),
+      !isCompactionSummaryMessage(m) &&
+      !(
+        m.role === "user" &&
+        steerRowKeys.has(m.sessionRowId ?? String(m.id))
+      ),
   );
   // Anchor the settled "A" to the LAST assistant message, not the last array
   // element — a trailing synthetic/user message (compaction continuation,
@@ -448,6 +476,40 @@ export function SimpleInlineChat({
     [chatId, isStreaming, setMessagesById, streamMessage],
   );
 
+  const runCompact = useCallback(async () => {
+    try {
+      const store = getDefaultStore();
+      const res = await IpcClient.getInstance().compactChat({
+        chatId,
+        providerId: settings?.selectedModel?.provider,
+        workspaceSessionId: store.get(chatIdToSessionIdAtom).get(chatId) ?? null,
+      });
+      showInfo(res.message);
+    } catch (e) {
+      showError(e);
+    }
+  }, [chatId, settings?.selectedModel?.provider]);
+
+  // Build from the plan card in the chat (QA #17), as the Plan panel's Build:
+  // the session switches to Build, the plan is marked building, and the build
+  // turn starts.
+  const { setWorkMode } = useWorkModeSelection();
+  const handlePlanArtifactBuild = useCallback(
+    async (planId: string) => {
+      if (isStreaming) return;
+      setWorkMode("build");
+      await IpcClient.getInstance()
+        .setPlanArtifactStatus(planId, "building")
+        .catch((e) => console.warn("[plan] could not mark building:", e));
+      streamMessage({
+        prompt: BUILD_FROM_PLAN_PROMPT,
+        chatId,
+        workModeOverride: "build",
+      });
+    },
+    [chatId, isStreaming, setWorkMode, streamMessage],
+  );
+
   return (
     <div className="flex flex-col h-full min-h-0 w-full max-w-4xl mx-auto overflow-hidden relative">
       <LoadedSessionBanner />
@@ -462,6 +524,8 @@ export function SimpleInlineChat({
           lastAssistantIndex={lastAssistantIndex}
           onEditUserMessage={handleEditUserMessage}
           onContinue={handleContinue}
+          onPlanArtifactBuild={handlePlanArtifactBuild}
+          planArtifactBuildDisabled={isStreaming}
         />
       ) : (
         <div className="relative flex-1 min-h-0 flex flex-col">
@@ -514,6 +578,8 @@ export function SimpleInlineChat({
                           isLatestAssistant={realIndex === lastAssistantIndex}
                           onEditUserMessage={handleEditUserMessage}
                           onContinue={handleContinue}
+                          onPlanArtifactBuild={handlePlanArtifactBuild}
+                          planArtifactBuildDisabled={isStreaming}
                         />
                       </div>
                     );
@@ -658,6 +724,11 @@ export function SimpleInlineChat({
 
       <SimpleChatInput
         chatId={chatId}
+        // An empty chat has nothing to continue (QA #11); the home screen asks
+        // the same question.
+        placeholder={
+          visibleMessages.length === 0 ? "What are we building?" : undefined
+        }
         onSubmit={(prompt, attachments) => {
           setErrorById((prev) => {
             const next = new Map(prev);
@@ -673,6 +744,11 @@ export function SimpleInlineChat({
             delete next[chatId];
             return next;
           });
+          // /compact is a command, not a message (QA #16), as in the CLI.
+          if (prompt.trim() === "/compact" && !attachments?.length) {
+            void runCompact();
+            return;
+          }
           onSendMessage(prompt, attachments);
         }}
         disabled={isStreaming}
@@ -692,7 +768,8 @@ export function SimpleInlineChat({
                 <p>
                   Editing re-runs from here and discards the{" "}
                   {pendingEdit?.turnIds.length ?? 0} later turn(s). Those turns
-                  changed {pendingEdit?.changed ?? 0} file(s)
+                  changed {pendingEdit?.changed ?? 0}{" "}
+                  {(pendingEdit?.changed ?? 0) === 1 ? "file" : "files"}
                   {pendingEdit && pendingEdit.created > 0
                     ? ` and created ${pendingEdit.created}`
                     : ""}

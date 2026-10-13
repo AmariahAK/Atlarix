@@ -402,8 +402,7 @@ export function ModelsSection({ providerId }: ModelsSectionProps) {
       )}
       {!modelsLoading && !modelsError && (!models || models.length === 0) && (
         <p className="text-muted-foreground mt-4 text-sm">
-          No models are listed for this provider yet. Add a custom model below,
-          or ensure your API key is saved so built-in models can load.
+          No models yet.
         </p>
       )}
 

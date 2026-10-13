@@ -87,3 +87,29 @@ describe("a reply still streaming", () => {
     expect(settleStreaming(done)).toBe(done);
   });
 });
+
+describe("a tip during a turn", () => {
+  it("can leave out tips that would be beside the point", async () => {
+    const { pickTip } = await import("@/cli/tui/tips");
+    for (let i = 0; i < 200; i++) expect(pickTip(`s:${i}`, ["ctrl+t"]).keys).not.toBe("ctrl+t");
+  });
+});
+
+describe("a mermaid flowchart in the terminal", () => {
+  it("is said as its edges; other mermaid stays code", () => {
+    const out = prepareMarkdown("```mermaid\nflowchart LR\n  A[Web] --> B(API)\n```");
+    expect(out).toContain("- Web → API");
+    expect(out).not.toContain("flowchart");
+    const seq = "```mermaid\nsequenceDiagram\n  A->>B: hi\n```";
+    expect(prepareMarkdown(seq)).toContain("sequenceDiagram");
+  });
+});
+
+describe("what a thought was about, in one line", () => {
+  it("reads past 'e.g.' and drops inline markdown", async () => {
+    const { thoughtSummary } = await import("@/cli/tui/format");
+    expect(thoughtSummary("Now a representative tool, e.g. the read tool. Then the rest.")).toBe("Now a representative tool, e.g. the read tool.");
+    expect(thoughtSummary("`ToolPart` — where is it defined?\nSearch for it.")).toBe("ToolPart — where is it defined?");
+    expect(thoughtSummary("**Mapping the routes**\nStart with index.")).toBe("Mapping the routes");
+  });
+});

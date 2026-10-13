@@ -1,4 +1,5 @@
 import { KeyRound, Trash2, Clipboard } from "lucide-react";
+import { keyHint } from "@/lib/provider-key-check";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   Accordion,
@@ -108,7 +109,8 @@ export function ApiKeyConfiguration({
                 </Button>
               </AlertTitle>
               <AlertDescription>
-                <p className="font-mono text-sm">{userApiKey}</p>
+                {/* Masked: the page printed the whole key (QA #24). */}
+                <p className="font-mono text-sm">{keyHint(userApiKey)}</p>
               </AlertDescription>
             </Alert>
           )}
@@ -123,6 +125,8 @@ export function ApiKeyConfiguration({
             <div className="flex items-start space-x-2">
               <Input
                 id="apiKeyInput"
+                type="password"
+                autoComplete="off"
                 value={apiKeyInput}
                 onChange={(e) => onApiKeyInputChange(e.target.value)}
                 placeholder={`Enter new ${providerDisplayName} API Key here`}

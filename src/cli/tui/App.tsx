@@ -19,6 +19,7 @@
  * prompts …) is a dialog on one stack (dialogs.ts, screens.ts): while one is
  * open it owns the keyboard, and esc closes it.
  */
+import { extractPlanChecklistTitle } from "@/lib/tasks/plan-checklist";
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import { splitPeerMessages } from "@/lib/peers/peer-message";
 import { TAB_FRAME_MS, tabTitle, titleSequence } from "./tab-title";
@@ -83,6 +84,7 @@ import {
   type CliState,
   type ModelOption,
   type ModelRef,
+  headerModelLabel,
 } from "../agent/models";
 import { filterEntries, listWorkspaceEntries, mentionAt, mentionInsert } from "../agent/file-index";
 import { parseShellInput } from "../agent/shell-mode";
@@ -91,6 +93,7 @@ import { copyText } from "./clipboard";
 import { color, glyph } from "./theme";
 import { errorNotice, type ErrorNotice } from "./limits";
 import { SessionHeader, type AccountKind } from "./Header";
+import { gitBranch } from "./git-branch";
 import { RATING_CHANCE, RATINGS, shouldAskRating } from "./session-rating";
 import { PlanPanel, type PinnedPlan, type PlanScroll } from "./PlanPanel";
 import { Transcript } from "./Transcript";
@@ -269,7 +272,7 @@ function AgentRows({ rows, width, selected, main }: { rows: StripRow[]; width: n
             "commands",
             picked,
             glyph.tool.running,
-            color.warn,
+            color.code,
             `${n} command${n === 1 ? "" : "s"}`,
             r.tasks.map((t) => t.label.split("\n")[0]).join(", "),
             age(longest),
@@ -355,7 +358,8 @@ export function borderHints(o: {
   if (o.narrow) return [title ?? o.place, tasks].filter(Boolean).join(" · ");
   const mcp = o.mcp ? `⊙ ${o.mcp} MCP` : null;
   // ctrl+o isn't here: each collapsed item says "(ctrl+o)" where it has more.
-  return fit([title, o.place, mcp, "/commands", "shift+tab mode", tasks], [mcp ?? "", "shift+tab mode", "/commands", o.place]);
+  // ctrl+y named beside shift+tab: VS Code's Tab Moves Focus takes shift+tab (QA).
+  return fit([title, o.place, mcp, "/commands", "shift+tab / ctrl+y mode", tasks], [mcp ?? "", "shift+tab / ctrl+y mode", "/commands", o.place]);
 }
 
 /** The palette's visible rows: at most 8, kept around the highlighted one. */
@@ -407,6 +411,7 @@ export function App({
   const [draft, setDraft] = useState("");
   const [paletteIndex, setPaletteIndex] = useState(0);
   const [approvalIndex, setApprovalIndex] = useState(0);
+  const [approvalExpanded, setApprovalExpanded] = useState(false);
   const [quitArmed, setQuitArmed] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [showHelp, setShowHelp] = useState(false);
@@ -531,9 +536,16 @@ export function App({
       flash(`● Automation “${run.automationName ?? "automation"}” · ${what}  (/automations)`, 10_000);
     };
     session.on("automation", onAutomation);
+    // A stopped turn hands back what you typed into it that the agent never got.
+    const onUnsent = (text: string) => {
+      const now = composer.current?.text().trim() ?? "";
+      composer.current?.setText(now ? `${text}\n${now}` : text);
+    };
+    session.on("unsent", onUnsent);
     return () => {
       session.off("change", on);
       session.off("automation", onAutomation);
+      session.off("unsent", onUnsent);
     };
   }, [session]);
 
@@ -545,6 +557,8 @@ export function App({
   // The strip row picked with ↓ (null: the prompt box has the keys).
   const [stripSel, setStripSel] = useState<number | null>(null);
   const rows = useMemo(() => stripRows(liveTasks), [liveTasks]);
+  // Re-read when a turn ends: the agent may have switched branches.
+  const branch = useMemo(() => gitBranch(session.workspaceDir), [session.workspaceDir, state.busy]);
   const stripRef = useRef<{ sel: number | null; rows: StripRow[] }>({ sel: null, rows: [] });
   stripRef.current.rows = rows;
   // Set at once, not on the next render: two quick ↓ must move two rows.
@@ -789,7 +803,9 @@ export function App({
   const turnCount = useRef(0);
   const [tip, setTip] = useState<Tip>(() => pickTip(`welcome:${Date.now()}`));
   useEffect(() => {
-    if (state.busy) setTip(pickTip(`${session.sessionId}:${++turnCount.current}:${Date.now()}`));
+    // Not "ctrl+t turns deep thinking on" during a turn: the model may be
+    // thinking right there on screen (QA).
+    if (state.busy) setTip(pickTip(`${session.sessionId}:${++turnCount.current}:${Date.now()}`, ["ctrl+t"]));
   }, [state.busy]);
 
   const approval = state.approvals[0] ?? null;
@@ -826,7 +842,7 @@ export function App({
             label: o.label,
             detail: alias ? o.providerName : undefined,
             keywords: `${o.providerName} ${o.name}`,
-            gutter: isCurrent ? { text: "●", tone: "accent" } : fav ? { text: "★", tone: "warn" } : undefined,
+            gutter: isCurrent ? { text: "●", tone: "accent" } : fav ? { text: "★", tone: "heading" } : undefined,
             right: o.free ? { text: "Free", tone: "accent" } : o.context ? { text: o.context, tone: "muted" } : undefined,
           });
         }
@@ -885,7 +901,7 @@ export function App({
     setCliState(next);
     models.save({ ...next, deepThinking: live.current.deep });
     models.choose({ provider: o.provider, name: o.name });
-    setModelLabel(o.label);
+    setModelLabel(headerModelLabel(o));
     host.closeAll();
     flash(`Using ${o.label}.`, 2500, "success");
   };
@@ -953,6 +969,8 @@ export function App({
   const [pinnedPlan, setPinnedPlan] = useState<PinnedPlan | null>(null);
   const [planHidden, setPlanHidden] = useState(false);
   const planScroll = useRef<PlanScroll | null>(null);
+  /** The conversation, scrolled from the keyboard (page up/down). */
+  const transcriptScroll = useRef<((rows: number) => void) | null>(null);
   useEffect(() => {
     const ready = state.planReady;
     if (!ready) return setPinnedPlan(null);
@@ -962,7 +980,11 @@ export function App({
       .plans()
       .then((plans) => {
         const p = plans.find((x) => x.id === ready.planId);
-        if (live) setPinnedPlan(p && p.status === "plan" ? { id: p.id, title: p.title || ready.title, status: p.status, content: p.content } : null);
+        // A stopped build is shown too (QA C4). The title is the stored one: a
+        // revision deliberately keeps it (plan.ts: the title names the plan),
+        // and a plan's first heading can be a section ("## Goal", QA R2).
+        const shown = p && (p.status === "plan" || (p.status === "building" && ready.resume));
+        if (live) setPinnedPlan(shown ? { id: p.id, title: p.title || ready.title || extractPlanChecklistTitle(p.content) || "Plan", status: p.status, content: p.content } : null);
       })
       .catch(() => {});
     return () => {
@@ -1171,7 +1193,9 @@ export function App({
         key.preventDefault();
         return;
       }
-      if (key.name === "tab" || key.name === "return") {
+      // Plain tab or enter takes the suggestion; shift+tab still switches the
+      // mode (it was swallowed here while a menu was open).
+      if ((key.name === "tab" && !key.shift) || key.name === "return") {
         chooseMention(mention.matches[mention.index]!);
         key.preventDefault();
         return;
@@ -1219,6 +1243,8 @@ export function App({
       } else if (key.name === "escape") {
         void session.answerApproval(approval.operationId, "deny");
         setApprovalIndex(0);
+      } else if (key.ctrl && key.name === "o") {
+        setApprovalExpanded((x) => !x);
       }
       key.preventDefault();
       return;
@@ -1235,7 +1261,9 @@ export function App({
         key.preventDefault();
         return;
       }
-      if (key.name === "tab" || key.name === "return") {
+      // Plain tab or enter takes the suggestion; shift+tab still switches the
+      // mode (it was swallowed here while a menu was open).
+      if ((key.name === "tab" && !key.shift) || key.name === "return") {
         const typed = parseCommandLine(composer.current?.text() ?? "");
         const chosen = palette[Math.min(paletteIndex, palette.length - 1)]!.name;
         runCommand(chosen, typed?.name === chosen ? typed.rest : "");
@@ -1333,6 +1361,14 @@ export function App({
       key.preventDefault();
       return planScroll.current?.(key.name === "pageup" ? -5 : 5);
     }
+    // Read back without a mouse: page up/down scroll the conversation (they
+    // only reached the plan panel, so Terminal.app with mouse reporting off
+    // could not scroll at all — QA).
+    if (!host.open && (key.name === "pageup" || key.name === "pagedown")) {
+      key.preventDefault();
+      const page = Math.max(3, height - 8);
+      return transcriptScroll.current?.(key.name === "pageup" ? -page : page);
+    }
     if (planShown && key.name === "escape" && !state.busy && !host.open && !composer.current?.text()) {
       key.preventDefault();
       return setPlanHidden(true);
@@ -1356,7 +1392,9 @@ export function App({
       }
       return;
     }
-    if (key.name === "tab" && key.shift) {
+    // ctrl+y does the same: VS Code's "Tab Moves Focus" mode (ctrl+shift+m)
+    // takes shift+tab before the terminal ever sees it.
+    if ((key.name === "tab" && key.shift) || (key.name === "y" && key.ctrl)) {
       session.setMode(MODES[(MODES.indexOf(state.mode) + 1) % MODES.length]!);
       key.preventDefault();
       return;
@@ -1445,7 +1483,9 @@ export function App({
     // next to "4747k tokens": each turn re-sends the context, so the total
     // passes the window). That total is in /status (owner, 2026-10-05).
     contextLabel(state),
-    state.automationUnread > 0 ? `${state.automationUnread} automation result${state.automationUnread === 1 ? "" : "s"}` : null,
+    // Runs you haven't looked at in /automations (the agent may have used
+    // them already): "result" read as something still waiting for it (QA).
+    state.automationUnread > 0 ? `${state.automationUnread} new automation run${state.automationUnread === 1 ? "" : "s"} (/automations)` : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -1475,6 +1515,7 @@ export function App({
     <box flexDirection="column" height="100%" backgroundColor={color.bg} paddingLeft={1} paddingRight={1} onMouseUp={refocusPrompt}>
       <box flexGrow={1} marginBottom={1}>
         <Transcript
+          scrollRef={transcriptScroll}
           cells={state.cells}
           expanded={false}
           plain={plainMarkdown}
@@ -1485,8 +1526,17 @@ export function App({
               version={version}
               model={deep ? `${modelLabel} · deep` : modelLabel}
               mode={MODE_LABEL[state.mode]}
-              account={session.model && session.model.provider !== "compass" ? "own-key" : accountKind}
-              workspace={abbreviatePath(session.workspaceDir, Math.max(12, width - 24))}
+              account={
+                !session.model || session.model.provider === "compass"
+                  ? accountKind
+                  : session.model.provider === "ollama" || session.model.provider === "lmstudio"
+                    ? "local"
+                    : session.model.provider.startsWith("custom::")
+                      ? "endpoint"
+                      : "own-key"
+              }
+              workspace={abbreviatePath(session.workspaceDir, Math.max(12, width - 24 - (branch ? branch.length + 2 : 0)))}
+              branch={branch}
               mood={state.busy ? "working" : "rest"}
               hint={
                 state.cells.length === 0 && !state.busy ? (
@@ -1549,7 +1599,7 @@ export function App({
         </box>
       ) : null}
 
-      {approval ? <Approval approval={approval} selected={approvalIndex} /> : null}
+      {approval ? <Approval approval={approval} selected={approvalIndex} expanded={approvalExpanded} workspace={session.workspaceDir} /> : null}
 
       {/* The agent's questions stay next to the conversation they're about. */}
       {topView && !approval && topView.kind === "list" && topView.asking ? <DialogPanel view={topView} height={height} /> : null}
@@ -1564,7 +1614,7 @@ export function App({
             ["shift+enter, option+enter, ctrl+j", "new line (ctrl+j works in every terminal)"],
             ["esc", "stop the turn · close a menu"],
             ["esc esc", "go back to an earlier message (edit and resend)"],
-            ["shift+tab", "Build → Explore → Plan → Debug → Review"],
+            ["shift+tab", "Build → Explore → Plan → Debug → Review (ctrl+y too)"],
             ["ctrl+t", "deep thinking on / off"],
             ["/model", "choose the model"],
             ["ctrl+o", "detail view: every thought, output and diff in full"],
@@ -1612,7 +1662,7 @@ export function App({
 
       {edit ? (
         <text flexShrink={0}>
-          <span fg={color.warn}>↺ editing an earlier message</span>
+          <span fg={color.code}>↺ editing an earlier message</span>
           <span fg={color.muted}>
             {edit.restoreCount ? ` · sending restores ${edit.restoreCount} file${edit.restoreCount === 1 ? "" : "s"} first` : ""} · enter resends · everything after it is replaced · ctrl+c cancels
           </span>
@@ -1664,7 +1714,18 @@ export function App({
                   max: width - 8,
                 })} `
         }
-        placeholder={state.busy ? "enter steers this turn · tab queues for after it" : "Ask Atlarix to build, fix or explain something…"}
+        placeholder={
+          state.busy
+            ? "enter steers this turn · tab queues for after it"
+            : // By mode, as the editor's box (QA S1-5).
+              state.mode === "plan"
+              ? "Describe what to plan…"
+              : state.mode === "ask"
+                ? "Ask about the code…"
+                : state.mode === "review"
+                  ? "What should I review?"
+                  : "Ask Atlarix to build, fix or explain something…"
+        }
         onChange={(t) => {
           setDraft(t);
           setPaletteIndex(0);

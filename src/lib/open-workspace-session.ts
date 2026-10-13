@@ -59,6 +59,24 @@ export function activateWorkspaceSession(
   }
 }
 
+/**
+ * Activate a session whose row isn't at hand (the tab strip): the id now, its
+ * stored mode as soon as it's read — unless another session became active
+ * meanwhile. Switching by tab used to set the id only, so the previous
+ * session's mode stayed on the chip and ran the next turn (QA #13).
+ */
+export async function activateWorkspaceSessionById(
+  sessionId: string,
+): Promise<void> {
+  activateWorkspaceSession(sessionId, undefined);
+  const res = (await IpcClient.getInstance()
+    .getWorkspaceSession(sessionId, { limit: 1 })
+    .catch(() => null)) as { session?: { workMode?: WorkMode | null } } | null;
+  if (!res?.session) return;
+  if (getDefaultStore().get(activeWorkspaceSessionIdAtom) !== sessionId) return;
+  activateWorkspaceSession(sessionId, res.session.workMode ?? null);
+}
+
 export function registerOpenChatTab(tab: {
   chatId: number;
   appId: number | null;

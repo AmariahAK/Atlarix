@@ -13,6 +13,7 @@ import {
   formatClock,
   HOUR_OPTIONS,
   MINUTE_OPTIONS,
+  describeCron,
 } from "@/lib/automations/cron-time";
 
 describe("clockFromCron", () => {
@@ -118,5 +119,17 @@ describe("picker options", () => {
     expect(formatClock({ hour12: 12, minute: 0, meridiem: "PM" })).toBe(
       "12:00 PM",
     );
+  });
+});
+
+// QA (app) #22: the panel showed "cron 0 9 * * 1-5".
+describe("describeCron", () => {
+  it("says a simple schedule as a person would", () => {
+    expect(describeCron("0 9 * * 1-5")).toBe("9:00 AM, Mon–Fri");
+    expect(describeCron("30 14 * * *")).toBe("2:30 PM, every day");
+  });
+  it("leaves anything else to the cron line", () => {
+    expect(describeCron("*/15 * * * *")).toBeNull();
+    expect(describeCron("0 9 1 * *")).toBeNull();
   });
 });

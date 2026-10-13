@@ -1,5 +1,5 @@
 /**
- * /status, /billing, /mcp and /logout for editors that have no Atlarix panel (Zed and
+ * /status, /billing, /mcp, /automations and /logout for editors that have no Atlarix panel (Zed and
  * JetBrains speak plain ACP): the CLI's own answers, as markdown. Atlarix's VS
  * Code extension has an Account panel instead (_atlarix/account in server.ts).
  */
@@ -30,6 +30,7 @@ export async function accountCommandText(cmd: "status" | "billing" | "mcp" | "lo
     lines.push("", "Shared with the Atlarix app, the CLI and your editors. Turn them on or off in the app, the CLI's `/mcp`, or Atlarix's VS Code extension.");
     return lines.join("\n");
   }
+  if (cmd === "automations" || cmd.startsWith("automations ")) return automationsText(cmd.slice("automations".length).trim(), session);
   if (cmd.startsWith("mcp add ")) {
     const name = cmd.slice("mcp add ".length).trim().toLowerCase();
     const found = await realServices.mcp.found(session.appId).catch(() => []);
@@ -73,9 +74,21 @@ const STATUS: Record<string, string> = { works: "works", rejected: "rejected", u
  * so a key never passes through the chat, where the editor keeps a copy.
  */
 export async function keysCommandText(text: string): Promise<string> {
-  const add = /^\/keys\s+(add|replace|remove)\s+(\S+)/i.exec(text.trim());
+  // Removing involves no secret, so it happens right here (owner: users want
+  // to delete a key, not only replace it).
+  const remove = /^\/keys\s+(?:remove|delete)\s+(\S+)/i.exec(text.trim());
+  if (remove) {
+    const { realServices } = await import("../agent/services");
+    const want = remove[1]!.toLowerCase();
+    const p = (await realServices.providers.list()).find((x) => x.id.toLowerCase() === want || x.name.toLowerCase() === want);
+    if (!p) return `No provider called "${remove[1]}". \`/keys\` lists yours.`;
+    if (!p.hasKey) return `No ${p.name} key saved.`;
+    await realServices.providers.removeKey(p.id);
+    return `Removed the ${p.name} key from this computer (the Atlarix app, the CLI and your editors share it). Chats on its models move to Atlarix Auto.`;
+  }
+  const add = /^\/keys\s+(add|replace)\s+(\S+)/i.exec(text.trim());
   if (add) {
-    const verb = add[1]!.toLowerCase() === "remove" ? "remove" : "add";
+    const verb = "add";
     return `Run this in a terminal (it asks for the key without showing it, so it never passes through the chat):\n\n\`atlarix keys ${verb} ${add[2]}\`\n\nThen \`/keys\` here to check it.`;
   }
   const { realServices } = await import("../agent/services");
@@ -89,9 +102,47 @@ export async function keysCommandText(text: string): Promise<string> {
       const c = checks[i]!;
       const mark = c.status === "works" ? "●" : c.status === "rejected" ? "✕" : "○";
       const why = c.status === "rejected" && c.detail ? `: ${c.detail}` : "";
-      return `- ${mark} ${p.name}${p.keyHint ? ` \`${p.keyHint}\`` : ""}: ${STATUS[c.status] ?? c.status}${why}`;
+      const hint = p.keyHint === "none" ? " (no key needed)" : p.keyHint ? ` \`${p.keyHint}\`` : "";
+      return `- ${mark} ${p.name}${hint}: ${STATUS[c.status] ?? c.status}${why}`;
     }),
     "",
-    "Add or replace one in a terminal: `atlarix keys add <provider>`. Remove one: `atlarix keys remove <provider>`.",
+    "Add or replace one in a terminal: `atlarix keys add <provider>`. Remove one here: `/keys remove <provider>`.",
   ].join("\n");
+}
+
+/**
+ * /automations: this folder's automations and their last runs; `run`, `on` and
+ * `off` with a name act on one. Making one is a sentence to the agent ("run the
+ * tests every weekday at 9"): its automations tool asks you before it saves.
+ */
+async function automationsText(rest: string, session: AgentSession): Promise<string> {
+  const { realServices } = await import("../agent/services");
+  const a = realServices.automations;
+  const list = await a.list(session.appId);
+  const m = /^(run|on|off)\s+(.+)$/i.exec(rest);
+  if (m) {
+    const want = m[2]!.trim().toLowerCase();
+    const hit = list.find((x) => x.name.toLowerCase() === want) ?? list.find((x) => x.name.toLowerCase().includes(want));
+    if (!hit) return `No automation called "${m[2]!.trim()}" in this folder. \`/automations\` lists them.`;
+    const verb = m[1]!.toLowerCase();
+    if (verb === "run") {
+      await a.runNow(hit.id);
+      return `Running “${hit.name}” now. Its result arrives here when it finishes${hit.notifyAgent ? ", and Atlarix reads it on your next message" : ""}.`;
+    }
+    await a.toggle(hit.id, verb === "on");
+    return `“${hit.name}” is ${verb}.`;
+  }
+  if (!list.length) {
+    return "No automations in this folder yet. Ask Atlarix for one, e.g. “run the tests every weekday at 9 and tell me what fails”: it asks you before saving it.";
+  }
+  const runs = await a.runs(session.appId).catch(() => []);
+  const { describeTrigger } = await import("../tui/screens");
+  const lines = ["**Automations in this folder**", ""];
+  for (const x of list) {
+    const last = runs.find((r) => r.automationId === x.id);
+    const result = last ? ` · last: ${last.status === "error" ? "✗" : last.status === "ok" ? "✓" : "–"} ${(last.error ?? last.summary ?? last.status).split("\n")[0]}` : " · not run yet";
+    lines.push(`- ${x.enabled ? "●" : "○"} **${x.name}**: ${describeTrigger(x.trigger)}${x.enabled ? "" : " (off)"}${result}`);
+  }
+  lines.push("", "`/automations run <name>` runs one now · `/automations on|off <name>` · ask Atlarix to make or change one. They run while Atlarix (the app, the CLI or an editor) is open.");
+  return lines.join("\n");
 }

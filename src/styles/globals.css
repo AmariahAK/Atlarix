@@ -267,6 +267,13 @@ html[data-fullscreen="true"] #layout-main-content-container {
   --tw-prose-pre-bg: var(--background);
 }
 
+/* Typography's own pre text is a light grey meant for its dark code box. On
+   the light theme's background box above it all but vanished (the diff in an
+   Edited-file card, any plain code block). Dark keeps prose-invert's. */
+:root:not(.dark) .prose {
+  --tw-prose-pre-code: var(--foreground);
+}
+
 .dark {
   --docs-bg: #0d0d1a;
 

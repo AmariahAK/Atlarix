@@ -19,6 +19,7 @@
  * hook.
  */
 
+import { IpcClient } from "@/ipc/ipc_client";
 import { useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -34,6 +35,12 @@ export function useSelectModel(): (model: LargeLanguageModel) => Promise<void> {
     async (model: LargeLanguageModel) => {
       await updateSettings({ selectedModel: model });
       queryClient.invalidateQueries({ queryKey: TOKEN_COUNT_QUERY_KEY });
+      // The user's own pick is not news: move the "your Core model changed"
+      // baseline to it, or the banner announced it, often in the wrong
+      // direction (QA #46).
+      void IpcClient.getInstance()
+        .ackCoreSlotChange()
+        .catch(() => {});
     },
     [updateSettings, queryClient],
   );

@@ -1,0 +1,44 @@
+import { describe, expect, it } from "vitest";
+import { ownMessages } from "@/cli/agent/own-messages";
+
+const peer = (from: string, text: string) =>
+  `<atlarix-peer-message from="${from}" reply-to="s9" surface="app" workspace="/w">${text}</atlarix-peer-message>`;
+
+describe("what you can go back to (/undo, esc esc, the editor)", () => {
+  it("never a teammate's message; only your own words in a mixed row", () => {
+    const list = ownMessages([
+      { id: 1, role: "user", content: "fix the login bug" },
+      { id: 2, role: "assistant", content: "Done." },
+      { id: 3, role: "user", content: peer("Release prep", "Please don't touch package.json") },
+      { id: 4, role: "assistant", content: "Noted." },
+      { id: 5, role: "user", content: `${peer("Docs", "FYI the README moved")}\n\nand add a test` },
+      { id: 6, role: "user", content: "***Q:*** Which DB? → ***A:*** SQLite" },
+    ]);
+    expect(list).toEqual([
+      { id: 5, text: "and add a test" },
+      { id: 1, text: "fix the login bug" },
+    ]);
+  });
+
+  it("editing your part of a mixed row keeps the teammate's message (owner)", async () => {
+    const { withTeammateMessages } = await import("@/cli/agent/own-messages");
+    const row = `${peer("Docs", "FYI the README moved")}\n\nand add a test`;
+    const edited = withTeammateMessages(row, "and add two tests");
+    expect(edited).toBe(`${peer("Docs", "FYI the README moved")}\n\nand add two tests`);
+    expect(ownMessages([{ id: 1, role: "user", content: edited }])).toEqual([{ id: 1, text: "and add two tests" }]);
+    expect(withTeammateMessages("plain", "changed")).toBe("changed");
+  });
+});
+
+
+describe("Build it is not yours to go back to (QA R1)", () => {
+  it("leaves the build turn out of /undo", async () => {
+    const { BUILD_FROM_PLAN_PROMPT } = await import("@/lib/work-mode");
+    const list = ownMessages([
+      { id: 1, role: "user", content: "plan toggle" },
+      { id: 2, role: "assistant", content: "plan" },
+      { id: 3, role: "user", content: BUILD_FROM_PLAN_PROMPT },
+    ]);
+    expect(list).toEqual([{ id: 1, text: "plan toggle" }]);
+  });
+});

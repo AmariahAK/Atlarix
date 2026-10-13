@@ -1,4 +1,4 @@
-import { SidebarProvider } from "@/components/ui/sidebar";
+import { SidebarProvider, useSidebar } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeProvider } from "../contexts/ThemeContext";
 import { DeepLinkProvider } from "../contexts/DeepLinkContext";
@@ -46,7 +46,7 @@ import { useStreamChat } from "@/hooks/useStreamChat";
 import { useAuth } from "@/lib/auth/useAuth";
 import { showError } from "@/lib/toast";
 import { useLoadApp } from "@/hooks/useLoadApp";
-import { ChevronRight, ChevronLeft } from "lucide-react";
+import { ChevronRight, ChevronLeft, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { IpcClient } from "@/ipc/ipc_client";
 import { subscribeAutoSelfCorrect } from "@/lib/renderer-ipc-bridge";
@@ -192,7 +192,9 @@ function PersistentChatContainer() {
             onClick={handleNewChat}
             className="text-xs text-muted-foreground/70 hover:text-foreground flex items-center gap-1 transition-colors"
           >
-            ← New chat
+            {/* A plus, not "←": the arrow read as Back (QA #11). */}
+            <Plus className="h-3.5 w-3.5" aria-hidden />
+            New chat
           </button>
           <div className="flex items-center gap-2 min-w-0">
             <span className="font-medium">Atlarix</span>
@@ -504,6 +506,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <GlobalAppSearch />
           <div>
             <SidebarProvider>
+              <NarrowWindowFolds rightPanelVisible={rightPanelVisible} />
               <TitleBar />
               {showWorkspaceChrome ? <AppSidebar /> : null}
               <div
@@ -517,8 +520,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                     so the panel covered the chat's right edge (tool cards,
                     composer). */}
                 <div className="relative flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
-                  {/* Top-right panel toggle, at the chat column's corner (not over the panel) */}
-                  {isOnChatPage && showWorkspaceChrome && (
+                  {/* Top-right panel toggle, at the chat column's corner (not over the panel).
+                      Not with a chat open: its header has the same toggle, and
+                      the two stacked (QA #20). */}
+                  {isOnChatPage && showWorkspaceChrome && !suppressOutletForHomeChat && (
                     <button
                       type="button"
                       onClick={toggleRightPanel}
@@ -576,4 +581,31 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       </ThemeProvider>
     </>
   );
+}
+
+/**
+ * In a narrow window, opening the right panel folds the session sidebar: with
+ * both open at 960px the chat column was ~240px, its placeholder wrapped and
+ * the panel's tabs were clipped (QA #20). Closing the panel unfolds it again.
+ */
+const NARROW_WINDOW_PX = 1100;
+export function NarrowWindowFolds({ rightPanelVisible }: { rightPanelVisible: boolean }) {
+  const { open, setOpen } = useSidebar();
+  // Only what the panel folded comes back when it closes (QA #48); a sidebar
+  // the user closed stays closed.
+  const foldedByPanel = useRef(false);
+  useEffect(() => {
+    if (rightPanelVisible) {
+      if (open && window.innerWidth < NARROW_WINDOW_PX) {
+        foldedByPanel.current = true;
+        setOpen(false);
+      }
+    } else if (foldedByPanel.current) {
+      foldedByPanel.current = false;
+      setOpen(true);
+    }
+    // `open` read at the moment the panel changes, not tracked.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rightPanelVisible, setOpen]);
+  return null;
 }

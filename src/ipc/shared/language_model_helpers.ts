@@ -151,11 +151,26 @@ export async function getLanguageModelProviders(): Promise<
   }
   modelsDevProviders.sort((a, b) => a.name.localeCompare(b.name));
 
-  return [
+  const all = [
     ...hardcodedProviders,
     ...customProvidersMap.values(),
     ...modelsDevProviders,
   ];
+  for (const p of all) providerNames.set(p.id, p.name);
+  return all;
+}
+
+/** Display names from the last provider listing (read before any turn runs). */
+const providerNames = new Map<string, string>();
+
+/**
+ * A provider as people know it: "QA ai49 Bad Key", not "custom::qa-ai49-badkey"
+ * (app QA). Synchronous, for error paths; falls back to the id without its
+ * custom:: prefix when the list hasn't been read in this process.
+ */
+export function providerDisplayName(providerId: string | undefined): string | undefined {
+  if (!providerId) return undefined;
+  return providerNames.get(providerId) ?? providerId.replace(/^custom::/, "");
 }
 
 /**
@@ -163,10 +178,55 @@ export async function getLanguageModelProviders(): Promise<
  * @param obj An object containing the providerId.
  * @returns A promise that resolves to an array of LanguageModel objects.
  */
+/**
+ * A provider the user added: its endpoint's live model list, cached per
+ * provider, address and key for a minute (failures too), and shared while a
+ * fetch is in flight. getLanguageModels runs several times per turn
+ * (findLanguageModel → context limit, token counts), and a dead endpoint
+ * would otherwise cost each call its full wait.
+ */
+const LIVE_TTL_MS = 60_000;
+const liveCache = new Map<
+  string,
+  { at: number; models: Promise<LanguageModel[]> }
+>();
+
+export async function liveCustomModels(
+  providerId: string,
+  baseUrl: string,
+  apiKey: string | undefined,
+  now = Date.now(),
+): Promise<LanguageModel[]> {
+  const { createHash } = await import("node:crypto");
+  const keyTag = apiKey?.trim()
+    ? createHash("sha256").update(apiKey.trim()).digest("hex").slice(0, 12)
+    : "none";
+  const cacheKey = `${providerId}|${baseUrl}|${keyTag}`;
+  const hit = liveCache.get(cacheKey);
+  if (hit && now - hit.at < LIVE_TTL_MS) return hit.models;
+  const { fetchCustomProviderModels } = await import(
+    "@/lib/provider_model_fetchers"
+  );
+  // Bounded: a dead address must not hold up the model list.
+  const models = Promise.race([
+    fetchCustomProviderModels(providerId, baseUrl, apiKey).catch(
+      () => [] as LanguageModel[],
+    ),
+    new Promise<LanguageModel[]>((resolve) =>
+      setTimeout(() => resolve([]), 4_000).unref?.(),
+    ),
+  ]);
+  liveCache.set(cacheKey, { at: now, models });
+  return models;
+}
+
 export async function getLanguageModels({
   providerId,
+  live = true,
 }: {
   providerId: string;
+  /** For a provider the user added: also ask its endpoint (cached). */
+  live?: boolean;
 }): Promise<LanguageModel[]> {
   const allProviders = await getLanguageModelProviders();
   const provider = allProviders.find((p) => p.id === providerId);
@@ -265,6 +325,21 @@ export async function getLanguageModels({
       ]);
       cloudModels = mergeByApiName(catalog, native);
     }
+  }
+
+  // A provider the user added: its endpoint's live list, beside any models
+  // typed in by hand (QA #25: a keyless Ollama /v1 listed none).
+  if (live && provider.type === "custom" && provider.apiBaseUrl) {
+    let key: string | undefined;
+    try {
+      const { readSettings } = await import("@/main/settings");
+      key = readSettings().providerSettings?.[providerId]?.apiKey?.value;
+    } catch {
+      // settings not available in this process
+    }
+    const listed = await liveCustomModels(providerId, provider.apiBaseUrl, key);
+    const typed = new Set(customModels.map((m) => m.apiName));
+    return [...customModels, ...listed.filter((m) => !typed.has(m.apiName))];
   }
 
   return [...cloudModels, ...customModels];

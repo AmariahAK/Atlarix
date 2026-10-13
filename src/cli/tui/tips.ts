@@ -18,6 +18,7 @@ export interface Tip {
 
 export const TIPS: Tip[] = [
   { keys: "shift+tab", text: "switches Build, Explore, Plan, Debug and Review" },
+  { keys: "ctrl+y", text: "switches the mode too, where the terminal takes shift+tab (VS Code's Tab Moves Focus)" },
   { keys: "ctrl+o", text: "opens up thinking, tool output and sub-agents' calls" },
   { keys: "enter", text: "while Atlarix works steers the turn; tab queues for after it" },
   { keys: "esc esc", text: "on an empty box goes back to an earlier message, and its file changes" },
@@ -44,9 +45,13 @@ export const TIPS: Tip[] = [
   { text: "Hand independent work to sub-agents and let them run in parallel." },
 ];
 
-/** A stable pick for `key` (a session id + turn number): same key, same tip. */
-export function pickTip(key: string): Tip {
+/**
+ * A stable pick for `key` (a session id + turn number): same key, same tip.
+ * `skip` leaves out tips by their keys, where they would be beside the point.
+ */
+export function pickTip(key: string, skip: readonly string[] = []): Tip {
+  const pool = skip.length ? TIPS.filter((t) => !t.keys || !skip.includes(t.keys)) : TIPS;
   let h = 2166136261;
   for (let i = 0; i < key.length; i++) h = Math.imul(h ^ key.charCodeAt(i), 16777619);
-  return TIPS[(h >>> 0) % TIPS.length]!;
+  return pool[(h >>> 0) % pool.length]!;
 }

@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { InlineMarkdown } from "./InlineMarkdown";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -18,7 +19,8 @@ import {
 } from "@/lib/tasks/plan-checklist";
 
 const LIFECYCLE_STEPS: { key: PlanArtifactStatus; label: string }[] = [
-  { key: "plan", label: "TBD" },
+  // As the CLI says it; "TBD" read as unfinished (QA #17).
+  { key: "plan", label: "Ready to build" },
   { key: "building", label: "Building" },
   { key: "built", label: "Completed" },
 ];
@@ -170,7 +172,7 @@ export function PlanChecklistProgress({
                 step.state === "todo" && "text-muted-foreground",
               )}
             >
-              {step.text}
+              <InlineMarkdown text={step.text} />
             </span>
           </li>
         ))}
@@ -182,6 +184,22 @@ export function PlanChecklistProgress({
 export function planArtifactTitleFromContent(content: string): string {
   const first = content.split("\n").find((l) => l.trim().length > 0) ?? "";
   return first.replace(/^#+\s*/, "").trim() || "Implementation plan";
+}
+
+/**
+ * A plan's title as text. Titles are markdown (a heading or the plan's first
+ * line), and a title is not rendered as markdown, so "Add `--top N` CLI"
+ * showed its backticks in the card, the panel and the switcher (QA #23).
+ */
+export function planDisplayTitle(
+  title: string | null | undefined,
+  content: string,
+): string {
+  const raw = title?.trim() || planArtifactTitleFromContent(content);
+  return raw
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/(\*\*|__)(.+?)\1/g, "$2")
+    .trim();
 }
 
 export function PlanArtifactCard({
@@ -201,7 +219,7 @@ export function PlanArtifactCard({
   buildDisabled?: boolean;
   defaultExpanded?: boolean;
 }) {
-  const displayTitle = title?.trim() || planArtifactTitleFromContent(content);
+  const displayTitle = planDisplayTitle(title, content);
   const canBuild = planStatus !== "built" && onBuild != null;
 
   return (

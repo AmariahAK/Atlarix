@@ -564,7 +564,10 @@ function AppIcons({
                       <span
                         className={
                           item.title.length > 8
-                            ? "text-[10px] leading-tight text-center w-full px-0.5 break-words"
+                            ? // One line at 9px: break-words cut "Integra/tions"
+                              // (QA #11), and hyphens-auto never hyphenated it, so
+                              // it clipped to "Integratio" (QA #45).
+                              "text-[9px] leading-tight text-center w-full whitespace-nowrap tracking-tight"
                             : "text-xs"
                         }
                       >

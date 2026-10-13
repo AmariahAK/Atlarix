@@ -127,7 +127,18 @@ const result = await Bun.build({
         compile: {
           outfile,
           ...(target ? { target: target as Bun.Build.Target } : {}),
-        },
+          // The binary runs in whatever folder the user opens, often a clone
+          // they have not read yet. Left on (Bun's default), it would run that
+          // folder's bunfig.toml `preload` (its code, with the user's keys and
+          // session at hand, before any prompt) and load its .env into the
+          // agent's own environment (HTTPS_PROXY, NODE_EXTRA_CA_CERTS,
+          // ATLARIX_*). A Bun project with a preload also could not open the CLI
+          // at all. Atlarix reads its own config; the workspace's is data.
+          autoloadBunfig: false,
+          autoloadDotenv: false,
+          autoloadTsconfig: false,
+          autoloadPackageJson: false,
+        } as Bun.CompileBuildOptions & Record<string, unknown>,
       }),
   plugins: [cliPlugin(files), ...(libc ? [otherLibcStub(libc)] : [])],
   define: {
@@ -153,3 +164,33 @@ if (!result.success) {
   process.exit(1);
 }
 console.log(`[build-bun] wrote ${outdir ?? path.relative(root, outfile)} (${version})`);
+
+/**
+ * A local macOS build is signed like the release one (Developer ID, identifier
+ * "atlarix", team id), when that identity is in this Mac's keychain. Ad-hoc
+ * signed ("a.out"), every rebuild was a new app to the keychain, and macOS
+ * asked for the login password to read Atlarix's saved sign-in after each
+ * build (owner). Signed the same way each time, one "Always Allow" covers every
+ * build, released ones included. Skipped for other targets, in CI (the release
+ * job signs and notarizes), and with ATLARIX_DEV_SIGN=0.
+ */
+if (
+  process.platform === "darwin" &&
+  !outdir &&
+  (!target || target.includes("darwin")) &&
+  !process.env.CI &&
+  process.env.ATLARIX_DEV_SIGN !== "0"
+) {
+  const { spawnSync } = await import("node:child_process");
+  const ids = spawnSync("security", ["find-identity", "-v", "-p", "codesigning"], { encoding: "utf8" }).stdout ?? "";
+  const identity = /"(Developer ID Application:[^"]+)"/.exec(ids)?.[1];
+  if (identity) {
+    const r = spawnSync(
+      "codesign",
+      ["--force", "--options", "runtime", "--identifier", "atlarix", "--entitlements", path.join(root, "packaging/macos/cli-entitlements.plist"), "--sign", identity, outfile],
+      { encoding: "utf8" },
+    );
+    if (r.status === 0) console.log(`[build-bun] signed as atlarix (${identity.replace(/^.*\((\w+)\)$/, "$1")})`);
+    else console.warn(`[build-bun] couldn't sign (left ad-hoc): ${(r.stderr || "").trim().split("\n").at(-1)}`);
+  }
+}
