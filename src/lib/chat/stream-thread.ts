@@ -62,6 +62,20 @@ export type StreamThreadItem = (
       endTs?: number;
     }
   | { kind: "plan"; planId: string; ts: number }
+  /**
+   * A message the user sent while this turn ran (a steer), at the point the
+   * agent took it. Stored as its own user row BEFORE the reply, it used to
+   * show above the whole answer (QA #4); the list hides that row when the
+   * reply's thread holds it.
+   */
+  | {
+      kind: "interjection";
+      id: string;
+      text: string;
+      /** The user row's session id (stable across reloads), else its message id. */
+      rowKey: string;
+      ts: number;
+    }
   | {
       kind: "background";
       id: string;

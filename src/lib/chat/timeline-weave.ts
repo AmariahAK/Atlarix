@@ -23,7 +23,12 @@ export type WovenEntry =
   | { type: "thread"; item: StreamThreadItem };
 
 /** Thread kinds that may be woven inline; panels/rounds always stay tail. */
-const WEAVABLE_KINDS = new Set<string>(["background", "plan", "tool"]);
+const WEAVABLE_KINDS = new Set<string>([
+  "background",
+  "plan",
+  "tool",
+  "interjection",
+]);
 
 export function weaveIpcItemsIntoParts(args: {
   /** Content parts before the sub-agent panel split. */

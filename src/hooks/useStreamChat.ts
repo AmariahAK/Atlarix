@@ -796,6 +796,9 @@ export function useStreamChat({
       });
 
       let hasIncrementedStreamCount = false;
+      // The user rows this turn started with; one that appears later, in front
+      // of the reply, was sent while it ran (a steer) — see onUpdate (QA #4).
+      let userIdsAtTurnStart: Set<number> | null = null;
       let cleanupStreamListeners: (() => void) | null = null;
       try {
         clearActivityForChatInStore(chatId);
@@ -1717,6 +1720,40 @@ export function useStreamChat({
             // v11.1: no freeze-baseline clamp — the turn ends at ask_user, so
             // there is no speculative streaming to suppress while pending.
             const messagesForUi = updatedMessages;
+
+            // A message sent while this turn ran sits in front of the reply as
+            // its own row; record WHERE the agent took it, so the finished
+            // turn shows it there rather than above the whole answer (QA #4).
+            if (userIdsAtTurnStart == null) {
+              userIdsAtTurnStart = new Set(
+                messagesForUi.filter((m) => m.role === "user").map((m) => m.id),
+              );
+            } else {
+              let replyAt = -1;
+              messagesForUi.forEach((m, i) => {
+                if (m.role === "assistant") replyAt = i;
+              });
+              messagesForUi.forEach((m, i) => {
+                if (m.role !== "user" || userIdsAtTurnStart!.has(m.id)) return;
+                userIdsAtTurnStart!.add(m.id);
+                if (replyAt < 0 || i > replyAt) return;
+                const rowKey = m.sessionRowId ?? String(m.id);
+                getDefaultStore().set(streamThreadByChatIdAtom, (prev) => {
+                  const n = new Map(prev);
+                  n.set(
+                    chatId,
+                    upsertStreamThreadItem(n.get(chatId) ?? [], {
+                      kind: "interjection",
+                      id: `interj-${rowKey}`,
+                      text: m.content ?? "",
+                      rowKey,
+                      ts: Date.now(),
+                    }),
+                  );
+                  return n;
+                });
+              });
+            }
 
             if (!hasIncrementedStreamCount) {
               setStreamCountById((prev) => {

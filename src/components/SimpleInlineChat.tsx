@@ -6,7 +6,8 @@
  * Receives all state as props or from atoms directly.
  */
 
-import { useRef, useEffect, useCallback, useState } from "react";
+import { useRef, useEffect, useCallback, useState, useMemo } from "react";
+import type { StreamThreadItem } from "@/lib/chat/stream-thread";
 import { useAtomValue, useSetAtom, getDefaultStore } from "jotai";
 import {
   chatMessagesByIdAtom,
@@ -17,6 +18,7 @@ import {
   chatErrorByIdAtom,
   turnSnapshotTurnIdByMessageIdAtom,
   streamThreadForChatAtom,
+  completedStreamThreadByAssistantMessageIdAtom,
 } from "../atoms/chatAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
 import { isCompactionSummaryMessage } from "@/lib/chat/compaction-marker";
@@ -229,11 +231,35 @@ export function SimpleInlineChat({
   // too and silently disable the whole compaction slice. This is the view, and
   // only the view: a `[COMPACTION MARKER] gen=N … [END COMPACTION]` blob is
   // harness bookkeeping, not something the user typed or the model said.
+  // A message sent while a turn ran is drawn inside that reply, where the
+  // agent took it (an "interjection" thread item); its own row, stored in
+  // front of the reply, is not shown again above the answer (QA #4).
+  const liveThread = useAtomValue(streamThreadForChatAtom(chatId));
+  const completedThreads = useAtomValue(
+    completedStreamThreadByAssistantMessageIdAtom,
+  );
+  const steerRowKeys = useMemo(() => {
+    const keys = new Set<string>();
+    const add = (items: readonly StreamThreadItem[] | undefined) => {
+      for (const it of items ?? []) {
+        if (it.kind === "interjection") keys.add(it.rowKey);
+      }
+    };
+    add(liveThread);
+    for (const m of messages) {
+      if (m?.role === "assistant") add(completedThreads[m.id]);
+    }
+    return keys;
+  }, [liveThread, completedThreads, messages]);
   const visibleMessages = messages.filter(
     (m) =>
       m &&
       (m.role === "user" || m.role === "assistant") &&
-      !isCompactionSummaryMessage(m),
+      !isCompactionSummaryMessage(m) &&
+      !(
+        m.role === "user" &&
+        steerRowKeys.has(m.sessionRowId ?? String(m.id))
+      ),
   );
   // Anchor the settled "A" to the LAST assistant message, not the last array
   // element — a trailing synthetic/user message (compaction continuation,
