@@ -1182,13 +1182,24 @@ export function openConnect(ctx: ScreenContext, onSaved: (providerId?: string) =
       footer: "type to search · enter connect · esc close",
       items: async () => {
         const providers = await ctx.services.providers.list();
-        const row = (p: (typeof providers)[number]) => ({
-          id: p.id,
-          label: p.name,
-          keywords: p.id,
-          gutter: p.hasKey ? { text: "✓", tone: "accent" as const } : undefined,
-          right: p.hasKey ? { text: "key saved", tone: "muted" as const } : undefined,
-        });
+        // How many models each offers (the catalog), as the editor shows: you
+        // see what a provider has before you give it a key (owner).
+        const counts = new Map<string, number>();
+        await import("@/lib/models_dev")
+          .then(async ({ catalogModelCount }) => {
+            for (const p of providers) if (!p.custom) counts.set(p.id, await catalogModelCount(p.id));
+          })
+          .catch(() => {});
+        const row = (p: (typeof providers)[number]) => {
+          const n = counts.get(p.id) ?? 0;
+          return {
+            id: p.id,
+            label: p.name,
+            keywords: p.id,
+            gutter: p.hasKey ? { text: "✓", tone: "accent" as const } : undefined,
+            right: p.hasKey ? { text: "key saved", tone: "muted" as const } : n ? { text: `${n} model${n === 1 ? "" : "s"}`, tone: "muted" as const } : undefined,
+          };
+        };
         const popular = POPULAR_PROVIDERS.map((id) => providers.find((p) => p.id === id)).filter((p): p is (typeof providers)[number] => !!p);
         const rest = providers.filter((p) => !POPULAR_PROVIDERS.includes(p.id));
         const chrome = ctx.chromeStatus();

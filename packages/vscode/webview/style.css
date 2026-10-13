@@ -2824,3 +2824,12 @@ code {
 .prov__remove:hover {
   color: var(--danger-soft);
 }
+
+/* Every provider, a page at a time (views/addProvider.ts). */
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+}

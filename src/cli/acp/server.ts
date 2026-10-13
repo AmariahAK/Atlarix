@@ -189,7 +189,12 @@ export function buildAgentApp(
     })
     .onRequest("_atlarix/providers", (p) => p as Record<string, unknown>, async () => {
       const { realServices } = await import("../agent/services");
-      return { providers: await realServices.providers.list() };
+      // Each with how many models it offers, from the catalog: the editor lists
+      // every provider with that before you connect one (owner).
+      const { catalogModelCount } = await import("@/lib/models_dev");
+      const providers = await realServices.providers.list();
+      const counts = await Promise.all(providers.map((x) => (x.custom ? Promise.resolve(0) : catalogModelCount(x.id))));
+      return { providers: providers.map((x, i) => (counts[i] ? { ...x, catalogModels: counts[i] } : x)) };
     })
     // A null key removes it. Either way every open chat gets the new model list.
     .onRequest("_atlarix/provider_key", (p) => p as { providerId: string; key: string | null }, async (ctx) => {
@@ -229,6 +234,13 @@ export function buildAgentApp(
       const { detectVisionCapability } = await import("@/lib/routing/model-capability-profile");
       const raw = await getLanguageModels({ providerId: id }).catch(() => []);
       const models = stampDeepThinkingSupport({ [id]: raw })[id] ?? [];
+      if (!models.length) {
+        // No key yet (or the provider lists none live): its models from the
+        // catalog, so its page shows what you'd get before you connect it.
+        const { catalogModelsFor } = await import("@/lib/models_dev");
+        const catalog = await catalogModelsFor(id);
+        return { catalog: true, models: catalog.map((m) => ({ ...m, value: `${id}/${m.id}` })) };
+      }
       return {
         models: models.map((m) => {
           const cost = (m as { cost?: { input?: number; output?: number } }).cost;
@@ -537,6 +549,10 @@ export async function runAcp(opts: AcpRunOptions): Promise<void> {
 
   if (!opts.devUrl) {
     opts.startBridge?.();
+    // The provider and model catalog stays current here too: only the desktop
+    // app refreshed it, so without the app it went stale (owner).
+    const { startModelsDevRefresh } = await import("@/lib/models_dev");
+    startModelsDevRefresh();
     // Automations run in whichever Atlarix is open, the editor included: with
     // only VS Code open they never fired. runner.ts leases each run, so with
     // the app, the CLI or another window open too, every run still happens once.

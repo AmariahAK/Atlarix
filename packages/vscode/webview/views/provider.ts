@@ -122,9 +122,9 @@ export async function renderProvider(page: HTMLElement, nav: Nav, id: string): P
 
   const drawModels = async () => {
     modelsSec.textContent = "";
-    if (!p.hasKey) return;
+    // Shown before a key too, from the catalog: what you'd get (owner).
     const t = el("div", "row between");
-    t.append(el("h2", "sec__title", "Models"), el("span", "muted small", "Starred ones lead the picker"));
+    t.append(el("h2", "sec__title", "Models"), el("span", "muted small", p.hasKey ? "Starred ones lead the picker" : "Add a key above to use them"));
     const search = el("input", "field");
     search.type = "search";
     search.placeholder = "Search models by name or id";
@@ -132,13 +132,13 @@ export async function renderProvider(page: HTMLElement, nav: Nav, id: string): P
     const list = el("div", "model-list");
     modelsSec.append(t, search, list);
     list.append(el("div", "muted pad", "Loading…"));
-    const r = await rpc<{ models: ModelInfo[] }>("_atlarix/models", { providerId: p.id }).catch(() => ({ models: [] }));
+    const r = await rpc<{ models: ModelInfo[]; catalog?: boolean }>("_atlarix/models", { providerId: p.id }).catch(() => ({ models: [] as ModelInfo[], catalog: false }));
     const favs = () => new Set(state.modelGroups.find((g) => g.group === "favorites")?.options.map((o) => o.value) ?? []);
     const draw = () => {
       list.textContent = "";
       const q = search.value.trim().toLowerCase();
       const shown = r.models.filter((m) => !q || `${m.name} ${m.id}`.toLowerCase().includes(q));
-      if (!shown.length) list.append(el("div", "empty-note", r.models.length ? "No model matches." : "No models listed for this key."));
+      if (!shown.length) list.append(el("div", "empty-note", r.models.length ? "No model matches." : p.hasKey ? "No models listed for this key." : "This provider lists its models once you add a key."));
       const f = favs();
       for (const m of shown.slice(0, 200)) {
         const row = el("div", "model-row");
@@ -156,12 +156,16 @@ export async function renderProvider(page: HTMLElement, nav: Nav, id: string): P
         ] as const)
           if (on) tags.append(el("span", "tag", label));
         main.append(name, idBtn, tags);
-        const fav = f.has(m.value);
-        const star = button("", `icon small star${fav ? " on" : ""}`, async () => {
-          await rpc("_atlarix/favorite", { model: m.value, on: !fav }).catch(() => {});
-        }, fav ? `Unstar ${m.name}` : `Star ${m.name}`);
-        star.innerHTML = icon("star", 15, fav ? ' fill="currentColor"' : "");
-        row.append(main, star);
+        row.append(main);
+        // Starring is for models you can use: after a key.
+        if (p.hasKey) {
+          const fav = f.has(m.value);
+          const star = button("", `icon small star${fav ? " on" : ""}`, async () => {
+            await rpc("_atlarix/favorite", { model: m.value, on: !fav }).catch(() => {});
+          }, fav ? `Unstar ${m.name}` : `Star ${m.name}`);
+          star.innerHTML = icon("star", 15, fav ? ' fill="currentColor"' : "");
+          row.append(star);
+        }
         list.append(row);
       }
     };

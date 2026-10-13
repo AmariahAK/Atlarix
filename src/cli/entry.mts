@@ -106,6 +106,10 @@ async function interactive(): Promise<void> {
     // so with the app open too, every run still happens once).
     const { startAutomationRunner } = await import("../lib/automations/runner");
     startAutomationRunner();
+    // The provider and model catalog refreshes here as in the app (hourly; a
+    // fresh disk cache skips the fetch).
+    const { startModelsDevRefresh } = await import("../lib/models_dev");
+    startModelsDevRefresh();
     // The user's Chrome, through the Atlarix extension: hosted here, or shared
     // with the desktop app when it already hosts it (bridge-lifecycle.ts).
     void startCliBridge();

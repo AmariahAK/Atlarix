@@ -412,6 +412,19 @@ describe("atlarix acp", () => {
     await f.conn.agent.request("_atlarix/automations", { sessionId: s2, action: "remove", id });
   }, 60_000);
 
+  it("every provider is listed with its model count, and a provider's models show before a key (owner)", async () => {
+    const e = await editor([{ text: "ok" }], undefined, { _meta: { atlarix: { version: 1 } } });
+    const r = await e.conn.agent.request<{ providers: Array<{ id: string; hasKey: boolean; catalogModels?: number }> }>("_atlarix/providers", {});
+    expect(r.providers.length).toBeGreaterThan(100);
+    const groq = r.providers.find((p) => p.id === "groq")!;
+    expect(groq.hasKey).toBe(false);
+    expect(groq.catalogModels).toBeGreaterThan(0);
+    const m = await e.conn.agent.request<{ catalog?: boolean; models: Array<{ id: string; name: string }> }>("_atlarix/models", { providerId: "groq" });
+    expect(m.catalog).toBe(true);
+    expect(m.models.length).toBe(groq.catalogModels);
+    expect(m.models.some((x) => /whisper/i.test(x.id))).toBe(false); // chat models only
+  }, 60_000);
+
   it("loading a session this process already has open replays it in full", async () => {
     const e = await editor([{ text: "The codeword is heron." }]);
     const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });

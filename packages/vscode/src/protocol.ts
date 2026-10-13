@@ -45,6 +45,8 @@ export interface ProviderRow {
   custom?: boolean;
   /** Switched off: key kept, models hidden. */
   off?: boolean;
+  /** How many models it offers, from the catalog (shown before you connect it). */
+  catalogModels?: number;
   baseUrl?: string;
 }
 
