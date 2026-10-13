@@ -379,6 +379,9 @@ export const realServices: CliServices = {
       invalidateProviderModelCache(providerId);
       const { CUSTOM_PROVIDER_PREFIX } = await import("@/ipc/shared/language_model_helpers");
       if (providerId.startsWith(CUSTOM_PROVIDER_PREFIX)) {
+        // `atlarix keys remove` reaches here with no database open yet.
+        const { initializeDatabase } = await import("@/db");
+        initializeDatabase();
         const { registerLanguageModelHandlers } = await import("@/ipc/handlers/language_model_handlers");
         await ensureLanguageModelHandlers(registerLanguageModelHandlers);
         await invoke("delete-custom-language-model-provider", { providerId });

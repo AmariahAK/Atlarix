@@ -294,6 +294,10 @@ async function main(): Promise<void> {
   }
   if (argv[0] === "keys") {
     await prepareCliData(undefined);
+    // Custom providers live in the database: listing or removing one needs it
+    // open ("Database not initialized" otherwise).
+    const { initializeDatabase } = await import("../db");
+    initializeDatabase();
     const { runKeysCommand, readHidden } = await import("./keys-command");
     const { realServices } = await import("./agent/services");
     const code = await runKeysCommand(argv.slice(1), realServices, {
