@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { parsePlanChecklist } from "@/lib/tasks/plan-checklist";
 import { inlinePlan } from "@/cli/agent/inline-plan";
 
 describe("a Plan-mode reply that is a plan", () => {
@@ -47,4 +48,19 @@ describe("what an inline plan keeps (QA #53)", () => {
     expect(inlinePlan(`## Plan: Add a --version flag${steps}`)!.title).toBe("Add a --version flag");
     expect(inlinePlan(`**Plan — add a --version flag**${steps}`)!.title).toBe("Add a --version flag");
   });
+
+  it("'Step 1 — …' paragraphs are a plan too (QA E2), plain, bold or as headings", () => {
+    const plain = inlinePlan(
+      "Here's how I'd do it.\n\nStep 1 — Read the CLI's flag parser and its tests.\n\nStep 2 — Print the version on --version and exit 0.\n\nStep 3 — Add a test and run the suite.",
+    )!;
+    expect(plain.title).toBe("Read the CLI's flag parser and its tests");
+    // Saved as a numbered list, so the card and the build see three steps.
+    expect(plain.content).toContain("3. Add a test and run the suite.");
+    expect(parsePlanChecklist(plain.content).map((x) => x.text)).toHaveLength(3);
+    expect(inlinePlan("**Step 1:** Find the parser and read it closely.\n**Step 2:** Add the flag and its handler.")!.title).toBe("Find the parser and read it closely");
+    expect(inlinePlan("### Step 1. Find the parser\nRead it closely.\n### Step 2. Add the flag\nWith its handler and a test.")).not.toBeNull();
+    // One step is still not a plan.
+    expect(inlinePlan("Step 1 — just run the tests and tell me what fails, that's all there is to it.")).toBeNull();
+  });
 });
+
