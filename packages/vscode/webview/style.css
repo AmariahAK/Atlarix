@@ -2438,7 +2438,7 @@ body.needs-you .needs-badge {
   font-variant-numeric: tabular-nums;
 }
 .md-table td code {
-  padding: 0 4px;
+  padding: 0;
 }
 /* A diagram keeps a readable size and scrolls, rather than shrinking its labels. */
 .fig {
@@ -2612,7 +2612,8 @@ textarea.field {
   padding: 4px 0;
 }
 
-/* A narrow sidebar (~200px): the header keeps Rix and every button (QA E4). */
+/* A narrow sidebar (VS Code allows ~170px): the header keeps Rix and every
+   button, the box its send button (QA E4, F3). */
 @media (max-width: 320px) {
   .nav {
     padding: 0 4px 0 8px;
@@ -2654,6 +2655,8 @@ textarea.field {
 code {
   background: none;
   border-radius: 0;
+  /* VS Code's own padding, without its grey, read as stray spaces (QA). */
+  padding: 0;
 }
 .pstep__text code,
 .plan__doc code {
@@ -2667,4 +2670,31 @@ code {
   font-size: 0.9em;
   color: var(--fg);
   padding: 1px 0;
+}
+
+/* The very narrowest sidebar (~170px): smaller buttons, the image button in
+   the box goes (paste or drop an image still works), the mode pill shrinks. */
+@media (max-width: 200px) {
+  .nav button.icon,
+  .box__bar button.icon {
+    width: 21px;
+  }
+  .box__bar button.icon[aria-label="Add an image"] {
+    display: none;
+  }
+  .box__bar .pill {
+    padding: 0 5px;
+    font-size: 0.85em;
+  }
+  .send {
+    width: 26px;
+    height: 26px;
+  }
+  .composer {
+    padding-left: 4px;
+    padding-right: 4px;
+  }
+  .approve-line {
+    font-size: 0.85em;
+  }
 }

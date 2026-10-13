@@ -145,7 +145,7 @@ export async function renderAutomations(page: HTMLElement, nav: Nav, onSeen: () 
           const r = el("div", "auto-runs");
           for (const run of mine.slice(0, 5)) {
             const row = el("div", `auto-run auto-run--${run.status}`);
-            const line = (run.error ?? run.summary ?? (run.status === "nothing-to-report" ? "Nothing to report" : run.status === "running" ? "Running…" : "Done")).split("\n")[0]!;
+            const line = (run.error ?? run.summary ?? (run.status === "nothing-to-report" ? "Nothing to report" : run.status === "running" ? "Running…" : "Done")).split("\n")[0]!.replace(/`/g, "");
             row.append(el("span", "auto-run__mark", RUN_MARK[run.status] ?? "·"), el("span", "auto-run__when muted", relTime(run.startedAt)), el("span", "auto-run__text", line));
             row.title = run.error ?? run.summary ?? "";
             r.append(row);

@@ -497,7 +497,8 @@ export function openAutomations(ctx: ScreenContext): void {
         id: a.id,
         label: a.name,
         badge: a.enabled ? (unread ? { text: `${unread} new`, tone: "accent" as const } : undefined) : { text: "off", tone: "muted" as const },
-        detail: [describeTrigger(a.trigger), a.lastRunAt ? `last ran ${ago(a.lastRunAt, now())}` : "not run yet"].join(" · "),
+        // Short: the row is cut at the dialog's width ("last ran 2m ag", QA).
+        detail: [describeTrigger(a.trigger), a.lastRunAt ? `ran ${ago(a.lastRunAt, now())}` : "not run yet"].join(" · "),
       };
     });
   };
@@ -563,7 +564,8 @@ function openRuns(ctx: ScreenContext, automationId: string, name: string): void 
         void ctx.services.automations.markRead(runs.filter((r) => r.unread).map((r) => r.id));
         return runs.map((r) => ({
           id: r.id,
-          label: (r.summary ?? r.error ?? r.status).split("\n")[0]!.slice(0, 90),
+          // A summary is markdown: its first line without the backticks (QA).
+          label: (r.summary ?? r.error ?? r.status).split("\n")[0]!.replace(/`/g, "").slice(0, 90),
           badge: RUN_STATUS[r.status],
           detail: ago(r.startedAt, now),
           keywords: JSON.stringify(r),
@@ -572,7 +574,7 @@ function openRuns(ctx: ScreenContext, automationId: string, name: string): void 
       onChoose: (item) => {
         const r = JSON.parse(item.keywords!) as { summary: string | null; error: string | null; triggerContext: string | null; status: string };
         const lines: Line[] = [
-          ...(r.summary ? r.summary.split("\n").map((text) => ({ text })) : []),
+          ...(r.summary ? r.summary.split("\n").map((text) => ({ text: text.replace(/`/g, "") })) : []),
           ...(r.error ? [{ text: r.error, tone: "error" as const }] : []),
           ...(r.triggerContext ? [{ text: "" }, { text: "What triggered it", tone: "muted" as const, bold: true }, ...r.triggerContext.split("\n").map((text) => ({ text, tone: "muted" as const }))] : []),
         ];
