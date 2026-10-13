@@ -44,7 +44,7 @@ describe("an unreachable provider", () => {
       s.on("change", check);
       check();
     });
-    expect(s.state.lastError).toContain("Couldn't reach the model provider");
+    expect(s.state.lastError).toContain("Couldn't reach ");
     expect(s.state.lastError).not.toContain("Something went wrong");
   }, 70_000);
 

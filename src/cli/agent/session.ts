@@ -1631,10 +1631,15 @@ export class AgentSession extends EventEmitter {
         // The desktop offers Reconnect; here the turn ends with the reason, or
         // it sat "working" forever (QA: an unreachable custom provider).
         if (this.interruptRequested) return;
-        this.update({
-          lastError: `Couldn't reach the model provider${p.detail ? `: ${String(p.detail)}` : "."} Check it's running and the address is right, then try again.`,
-        });
-        void this.onTurnEnd();
+        void (async () => {
+          // By name, as other failures say it (QA): "Couldn't reach QA Dead Port".
+          const { providerDisplayName } = await import("@/ipc/shared/language_model_helpers");
+          const named = providerDisplayName(this.turnModel()?.provider);
+          this.update({
+            lastError: `Couldn't reach ${named ?? "the model provider"}${p.detail ? `: ${String(p.detail)}` : "."} Check it's running and the address is right, then try again.`,
+          });
+          await this.onTurnEnd();
+        })();
         return;
       case "chat:response:end":
         if (typeof p.streamId === "number" && p.streamId < this.staleBelow) return;

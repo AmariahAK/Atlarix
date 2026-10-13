@@ -1234,22 +1234,25 @@ export function openConnect(ctx: ScreenContext, onSaved: (providerId?: string) =
         // A key already saved: replace it, or remove it (owner: users sometimes
         // want it gone, not replaced). Removing asks twice.
         if (p?.hasKey) {
+          const keyless = p.keyHint === "none";
           ctx.host.push(
             new ListDialog({
               title: item.label,
               intro: [{ text: p.keyHint === "none" ? `${item.label} needs no key.` : `Your ${item.label} key is saved${p.keyHint ? ` (${p.keyHint})` : ""}.`, tone: "muted" }],
               footer: "↑↓ move · enter choose · esc back",
+              // No key to replace on a keyless provider: removing it is the
+              // one thing to do (QA: "needs no key", then "Replace the key").
               items: [
-                { id: "replace", label: "Replace the key" },
-                { id: "remove", label: "Remove the key", detail: "chats on its models move to Atlarix Auto" },
+                ...(keyless ? [] : [{ id: "replace", label: "Replace the key" }]),
+                { id: "remove", label: keyless ? `Remove ${item.label}` : "Remove the key", detail: "chats on its models move to Atlarix Auto" },
               ],
               onChoose: (choice) => {
                 if (choice.id === "replace") return askKey();
                 ctx.host.push(
                   new ListDialog({
-                    title: `Remove your ${item.label} key?`,
                     // A provider you added goes with its key, as the editor says (QA).
-                    intro: [{ text: `It's deleted from this computer, for the Atlarix app and the editor too.${p.custom ? " This removes the provider too." : ""}`, tone: "muted" }],
+                    title: keyless ? `Remove ${item.label}?` : p.custom ? `Remove ${item.label} and its key?` : `Remove your ${item.label} key?`,
+                    intro: [{ text: "It's deleted from this computer, for the Atlarix app and the editor too.", tone: "muted" }],
                     footer: "↑↓ move · enter choose · esc back",
                     items: [
                       { id: "keep", label: "Keep it" },
@@ -1259,7 +1262,7 @@ export function openConnect(ctx: ScreenContext, onSaved: (providerId?: string) =
                       if (c.id === "keep") return ctx.host.pop();
                       await ctx.services.providers.removeKey(item.id);
                       ctx.host.closeAll();
-                      ctx.flash(`Removed the ${item.label} key. Chats on its models move to Atlarix Auto.`, 4000, "success");
+                      ctx.flash(`Removed ${keyless ? item.label : `the ${item.label} key`}. Chats on its models move to Atlarix Auto.`, 4000, "success");
                     },
                   }),
                 );
