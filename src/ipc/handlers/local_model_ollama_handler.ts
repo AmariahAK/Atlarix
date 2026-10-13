@@ -52,6 +52,18 @@ interface OllamaModel {
   };
 }
 
+/**
+ * "qwen2.5:3b" → "Qwen2.5 3B": the size stays (3b and 7b of one model were
+ * both "Qwen 2 .5"), the version keeps its dot, ":latest" goes.
+ */
+export function ollamaDisplayName(name: string): string {
+  const [base = name, tag] = name.split(":");
+  const title = (w: string) => w.charAt(0).toUpperCase() + w.slice(1);
+  const words = (base.split("/").pop() ?? base).split(/[-_]/).filter(Boolean).map(title);
+  const tags = tag && tag !== "latest" ? tag.split(/[-_]/).filter(Boolean).map((t) => (/^\d+(?:\.\d+)?[bmk]$/i.test(t) || /^q\d/i.test(t) ? t.toUpperCase() : title(t))) : [];
+  return [...words, ...tags].join(" ");
+}
+
 export async function fetchOllamaModels(): Promise<LocalModelListResponse> {
   try {
     const response = await fetch(`${getOllamaApiUrl()}/api/tags`);
@@ -63,14 +75,7 @@ export async function fetchOllamaModels(): Promise<LocalModelListResponse> {
     const ollamaModels: OllamaModel[] = data.models || [];
 
     const models: LocalModel[] = ollamaModels.map((model: OllamaModel) => {
-      const displayName = model.name
-        .split(":")[0]
-        .replace(/-/g, " ")
-        .replace(/(\d+)/, " $1 ")
-        .split(" ")
-        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-        .join(" ")
-        .trim();
+      const displayName = ollamaDisplayName(model.name);
 
       return {
         modelName: model.name,

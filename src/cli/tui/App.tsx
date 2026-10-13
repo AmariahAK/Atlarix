@@ -1511,7 +1511,13 @@ export function App({
               version={version}
               model={deep ? `${modelLabel} · deep` : modelLabel}
               mode={MODE_LABEL[state.mode]}
-              account={session.model && session.model.provider !== "compass" ? "own-key" : accountKind}
+              account={
+                !session.model || session.model.provider === "compass"
+                  ? accountKind
+                  : session.model.provider === "ollama" || session.model.provider === "lmstudio"
+                    ? "local"
+                    : "own-key"
+              }
               workspace={abbreviatePath(session.workspaceDir, Math.max(12, width - 24 - (branch ? branch.length + 2 : 0)))}
               branch={branch}
               mood={state.busy ? "working" : "rest"}

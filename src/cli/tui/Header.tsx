@@ -14,7 +14,7 @@ import type { ReactNode } from "react";
 import { Rix, type RixMood } from "./Rix";
 import { color } from "./theme";
 
-export type AccountKind = "signed-out" | "free" | "pro" | "payg" | "own-key";
+export type AccountKind = "signed-out" | "free" | "pro" | "payg" | "own-key" | "local";
 
 export const ACCOUNT_LABEL: Record<AccountKind, string> = {
   "signed-out": "Not signed in",
@@ -22,6 +22,7 @@ export const ACCOUNT_LABEL: Record<AccountKind, string> = {
   pro: "Pro",
   payg: "Pay as you go",
   "own-key": "Your key",
+  local: "On this computer",
 };
 
 export function SessionHeader({
