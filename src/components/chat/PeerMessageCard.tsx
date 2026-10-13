@@ -24,13 +24,13 @@ export function PeerMessageCard({ segments }: { segments: PeerSegment[] }) {
       {segments.map((seg, i) =>
         seg.kind === "peer" ? (
           <div key={i} className="flex justify-start">
-            <div className="mr-12 max-w-3xl">
+            <div className="mr-12 min-w-0 max-w-3xl">
               <PeerOne seg={seg} />
             </div>
           </div>
         ) : (
           <div key={i} className="flex justify-end">
-            <div className="ml-12 max-w-3xl rounded-lg border border-user-bubble-border bg-user-bubble p-3 text-user-bubble-foreground">
+            <div className="ml-12 min-w-0 max-w-3xl rounded-lg border border-user-bubble-border bg-user-bubble p-3 text-user-bubble-foreground">
               <UserMessageMarkdownParser content={seg.text} />
             </div>
           </div>

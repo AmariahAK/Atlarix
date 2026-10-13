@@ -181,7 +181,12 @@ function SimpleMessageImpl({
 
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-      <div className={`group max-w-3xl ${isUser ? "ml-12" : "mr-12"}`}>
+      {/* min-w-0: as a flex item the bubble was held at its content's width
+          (a plan card, a mind map), wider than the column with its margin on
+          top: text cut on the right, a sideways scrollbar (QA #18). */}
+      <div
+        className={`group min-w-0 max-w-3xl ${isUser ? "ml-12" : "mr-12"}`}
+      >
         {/* Model name header for assistant messages */}
         {isAssistant && (
           <div className="flex items-center gap-2 flex-wrap mb-1.5 text-xs text-muted-foreground">
