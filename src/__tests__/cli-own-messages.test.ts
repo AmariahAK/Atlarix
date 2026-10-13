@@ -30,3 +30,15 @@ describe("what you can go back to (/undo, esc esc, the editor)", () => {
   });
 });
 
+
+describe("Build it is not yours to go back to (QA R1)", () => {
+  it("leaves the build turn out of /undo", async () => {
+    const { BUILD_FROM_PLAN_PROMPT } = await import("@/lib/work-mode");
+    const list = ownMessages([
+      { id: 1, role: "user", content: "plan toggle" },
+      { id: 2, role: "assistant", content: "plan" },
+      { id: 3, role: "user", content: BUILD_FROM_PLAN_PROMPT },
+    ]);
+    expect(list).toEqual([{ id: 1, text: "plan toggle" }]);
+  });
+});

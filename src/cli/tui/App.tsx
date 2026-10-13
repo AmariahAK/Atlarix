@@ -980,10 +980,11 @@ export function App({
       .plans()
       .then((plans) => {
         const p = plans.find((x) => x.id === ready.planId);
-        // The plan's own title as it reads now (a revision renames it; the
-        // stored one stayed the first: QA C3), and a stopped build too (C4).
+        // A stopped build is shown too (QA C4). The title is the stored one: a
+        // revision deliberately keeps it (plan.ts: the title names the plan),
+        // and a plan's first heading can be a section ("## Goal", QA R2).
         const shown = p && (p.status === "plan" || (p.status === "building" && ready.resume));
-        if (live) setPinnedPlan(shown ? { id: p.id, title: extractPlanChecklistTitle(p.content) || p.title || ready.title, status: p.status, content: p.content } : null);
+        if (live) setPinnedPlan(shown ? { id: p.id, title: p.title || ready.title || extractPlanChecklistTitle(p.content) || "Plan", status: p.status, content: p.content } : null);
       })
       .catch(() => {});
     return () => {

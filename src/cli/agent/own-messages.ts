@@ -1,4 +1,5 @@
 import { splitPeerMessages } from "@/lib/peers/peer-message";
+import { BUILD_FROM_PLAN_PROMPT } from "@/lib/work-mode";
 
 /**
  * Your own messages, newest first: what /undo, esc esc and the editor's "go
@@ -9,7 +10,9 @@ import { splitPeerMessages } from "@/lib/peers/peer-message";
  */
 export function ownMessages(messages: ReadonlyArray<{ id: string | number; role: string; content: string }>): Array<{ id: number; text: string }> {
   return messages
-    .filter((m) => m.role === "user" && m.content.trim() && !/^\*\*\*Q:\*\*\*/.test(m.content))
+    // Nor "Build it": Atlarix sends that turn for you (QA: it was offered as your
+    // latest message, to edit and resend).
+    .filter((m) => m.role === "user" && m.content.trim() && !/^\*\*\*Q:\*\*\*/.test(m.content) && m.content.trim() !== BUILD_FROM_PLAN_PROMPT)
     .flatMap((m) => {
       const peers = splitPeerMessages(m.content);
       const text = peers ? peers.filter((s) => s.kind === "text").map((s) => s.text.trim()).join("\n\n") : m.content.trim();

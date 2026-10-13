@@ -351,7 +351,7 @@ class Thread {
               atlarix: {
                 plan: {
                   id: p.id,
-                  title: extractPlanChecklistTitle(p.content) || p.title || s.planReady?.title || "Plan",
+                  title: p.title || s.planReady?.title || extractPlanChecklistTitle(p.content) || "Plan",
                   content: p.content,
                   revision: s.planRevision,
                   status: p.status,

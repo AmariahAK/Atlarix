@@ -483,7 +483,7 @@ function stepsGroup(): HTMLElement {
 /** A plan step with the plan under it, open; its header folds it. */
 function planStep(step: HTMLElement, markdown: string): HTMLElement {
   const box = el("div", "plan-step");
-  const body = el("div", "plan-step__body md");
+  const body = el("div", "plan-step__body body md");
   renderMarkdown(body, markdown, { fence: drawFence });
   step.classList.add("plan-step__head");
   step.addEventListener("click", () => box.classList.toggle("folded"));
