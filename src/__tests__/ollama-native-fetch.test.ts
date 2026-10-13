@@ -81,4 +81,18 @@ describe("Ollama through its native API", () => {
     await f("http://127.0.0.1:11434/v1/models");
     expect(calls.at(-1)!.url).toBe("http://127.0.0.1:11434/v1/models");
   });
+
+  it("knows a custom provider that is really Ollama, once per address", async () => {
+    const { isOllamaEndpoint, ollamaOrigin } = await import("@/ipc/utils/ollama_native_fetch");
+    const seen: string[] = [];
+    vi.stubGlobal("fetch", async (u: string) => {
+      seen.push(String(u));
+      return String(u).startsWith("http://ol.test") ? new Response(JSON.stringify({ version: "0.40.3" })) : new Response("nope", { status: 404 });
+    });
+    expect(ollamaOrigin("http://ol.test:11434/v1/")).toBe("http://ol.test:11434");
+    expect(await isOllamaEndpoint("http://ol.test:11434/v1")).toBe(true);
+    expect(await isOllamaEndpoint("http://ol.test:11434/v1")).toBe(true);
+    expect(await isOllamaEndpoint("https://gateway.test/v1")).toBe(false);
+    expect(seen).toEqual(["http://ol.test:11434/api/version", "https://gateway.test/api/version"]);
+  });
 });

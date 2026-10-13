@@ -281,6 +281,24 @@ export async function resolveModelContextLimit(
     }
   }
 
+  // A custom provider that is really Ollama: the window it is run at
+  // (ollama_native_fetch.ts), not the 128K guess for an unknown model.
+  if (pid.startsWith("custom::")) {
+    try {
+      const { getLanguageModelProviders } = await import("@/ipc/shared/language_model_helpers");
+      const base = (await getLanguageModelProviders()).find((p) => p.id.toLowerCase() === pid)?.apiBaseUrl;
+      if (base) {
+        const { isOllamaEndpoint, ollamaOrigin, ollamaNumCtx } = await import("@/ipc/utils/ollama_native_fetch");
+        if (await isOllamaEndpoint(base)) {
+          const run = await ollamaNumCtx(ollamaOrigin(base), model.name ?? "");
+          if (run) return { tierLimit: floorSafe(run * clamp), rawContextLength: run };
+        }
+      }
+    } catch {
+      // fall through
+    }
+  }
+
   // BYOK cloud providers (the user's own Anthropic/OpenAI/Google/etc. key): use
   // the per-model window the provider API already reported (models.dev / native
   // /models), the same source the token bar uses via getContextWindowDetailed —

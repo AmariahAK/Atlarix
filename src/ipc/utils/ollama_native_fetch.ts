@@ -24,6 +24,29 @@
 export const OLLAMA_MAX_NUM_CTX = 32_768;
 
 const numCtxCache = new Map<string, number | null>();
+const ollamaAt = new Map<string, Promise<boolean>>();
+
+/** "http://localhost:11434/v1" → "http://localhost:11434": where Ollama's native API lives. */
+export function ollamaOrigin(baseUrl: string): string {
+  return baseUrl.replace(/\/+$/, "").replace(/\/(?:v1|api)$/, "");
+}
+
+/**
+ * Whether an OpenAI-compatible address added as a custom provider is really
+ * Ollama (its /api/version answers). Such a provider was run at Ollama's
+ * default window, 4096, cutting the prompt (QA). Asked once per address.
+ */
+export function isOllamaEndpoint(baseUrl: string): Promise<boolean> {
+  const origin = ollamaOrigin(baseUrl);
+  let known = ollamaAt.get(origin);
+  if (!known) {
+    known = fetch(`${origin}/api/version`, { signal: AbortSignal.timeout(1_500) })
+      .then(async (r) => r.ok && typeof ((await r.json()) as { version?: unknown }).version === "string")
+      .catch(() => false);
+    ollamaAt.set(origin, known);
+  }
+  return known;
+}
 
 /**
  * The window to run `model` at: its Modelfile's `num_ctx` when it sets one
