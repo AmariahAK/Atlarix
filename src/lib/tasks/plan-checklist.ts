@@ -103,6 +103,19 @@ function continuation(lines: readonly string[], from: number): string {
   return parts.join(" ");
 }
 
+/**
+ * A step as plain words, for places that number and style it themselves (an
+ * editor's plan list, a tool line): without the model's own "1." or "[x]", and
+ * without markdown marks. Zed showed "1. 1. Add `toggle…`" (QA).
+ */
+export function plainStepText(text: string): string {
+  return text
+    .replace(/\*\*(.+?)\*\*|__(.+?)__/g, (_m, a: string | undefined, b: string | undefined) => a ?? b ?? "")
+    .replace(/^\s*(?:\d+[.)]\s+)?(?:\[[ x~!@]?\]\s*)?/i, "")
+    .replace(/`/g, "")
+    .trim();
+}
+
 /** Parse every checklist step (numbered w/ or w/o checkbox, bullet checkboxes) with its state. */
 export function parsePlanChecklist(content: string): PlanChecklistStep[] {
   const steps: PlanChecklistStep[] = [];

@@ -22,7 +22,7 @@ import {
   type SessionModeState,
   type SessionUpdate,
 } from "@agentclientprotocol/sdk";
-import { parsePlanChecklist, type PlanChecklistStep } from "@/lib/tasks/plan-checklist";
+import { parsePlanChecklist, plainStepText, type PlanChecklistStep } from "@/lib/tasks/plan-checklist";
 import type { AgentSession, ModelChoice, SessionState, WorkMode } from "../agent/session";
 import { promptInput } from "./content";
 import {
@@ -647,7 +647,7 @@ export function promptMeta(meta: unknown): AtlarixPromptMeta | undefined {
 /** Plan steps as ACP plan entries. Blocked or external steps are still to do. */
 export function planEntries(steps: readonly PlanChecklistStep[]): PlanEntry[] {
   return steps.map((st) => ({
-    content: st.text,
+    content: plainStepText(st.text),
     priority: "medium",
     status: st.state === "done" ? "completed" : st.state === "in_progress" ? "in_progress" : "pending",
   }));

@@ -6,6 +6,7 @@
  * so tool calls, thinking and prose come apart exactly as they do in the app.
  * Pure: the TUI renders cells; src/__tests__/cli-transcript.test.ts pins the rules.
  */
+import { plainStepText } from "@/lib/tasks/plan-checklist";
 import { BUILD_FROM_PLAN_PROMPT } from "@/lib/work-mode";
 import { computeDiffHunks } from "@/lib/diff/compose-hunks";
 import { peerSurfaceLabel, splitPeerMessages } from "@/lib/peers/peer-message";
@@ -230,10 +231,10 @@ export function toolTarget(toolName: string, args: unknown): string {
       if (op === "set_status") return `status → ${str(a.plan_status) || str(a.status)}`;
       if (op === "update_step") {
         // A step's text as it reads, without its markdown backticks (QA E8).
-        const which = a.step_index != null ? `step ${String(a.step_index)}` : a.step_text ? `"${str(a.step_text).replace(/`/g, "")}"` : "step";
+        const which = a.step_index != null ? `step ${String(a.step_index)}` : a.step_text ? `"${plainStepText(str(a.step_text))}"` : "step";
         return [which, str(a.state) || str(a.status)].filter(Boolean).join(" → ");
       }
-      if (op === "append_step") return ["add step", str(a.step_text).replace(/`/g, "")].filter(Boolean).join(" · ");
+      if (op === "append_step") return ["add step", plainStepText(str(a.step_text))].filter(Boolean).join(" · ");
       return op;
     }
     case "automations": {

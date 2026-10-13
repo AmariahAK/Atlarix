@@ -28,3 +28,12 @@ describe("a plan step that wraps onto indented lines (QA P1)", () => {
     expect(r.content.split("\n")[4]).toBe("2. [x] Add tests (toggle on, toggle");
   });
 });
+
+describe("plainStepText (QA A2/C2)", () => {
+  it("drops the model's own number, checkbox and markdown marks", async () => {
+    const { plainStepText } = await import("@/lib/tasks/plan-checklist");
+    expect(plainStepText("1. Add `toggle(id)` to `src/todo.ts`")).toBe("Add toggle(id) to src/todo.ts");
+    expect(plainStepText("**3. Verify**")).toBe("Verify");
+    expect(plainStepText("2) [x] **Run** the tests")).toBe("Run the tests");
+  });
+});
