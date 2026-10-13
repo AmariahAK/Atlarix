@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { describeCron } from "@/lib/automations/cron-time";
 import { useAtomValue, useSetAtom } from "jotai";
 import {
   addOperation,
@@ -122,6 +123,17 @@ function queueEntryFromPermission(
         : 0,
     }),
   };
+}
+
+/**
+ * An automation's trigger as the card shows it: no markdown backticks, and a
+ * simple schedule in words ("on the schedule 0 3 * * 0" → "on the schedule
+ * 3:00 AM, Sundays"), as the Automations panel says it (QA #22, F pass).
+ */
+export function triggerInWords(trigger: string): string {
+  return trigger
+    .replace(/`/g, "")
+    .replace(/\b(\d{1,2} \d{1,2} \* \* [\d,*-]+)/, (cron) => describeCron(cron) ?? cron);
 }
 
 export function FilePermissionCard({
@@ -566,7 +578,7 @@ export function AutomationPermissionCard({
           <p className="mt-1.5 text-amber-900 dark:text-amber-100/90">
             <span className="font-medium">{operation.automationName}</span>
             {operation.automationTrigger ? (
-              <> — {operation.automationTrigger.replace(/`/g, "")}</>
+              <> — {triggerInWords(operation.automationTrigger)}</>
             ) : null}
           </p>
 

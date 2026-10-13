@@ -92,7 +92,8 @@ describe("automation approval card", () => {
   // QA (app) #22: "on the schedule `0 9 * * 1-5`" showed its backticks.
   it("shows the trigger without literal backticks", () => {
     renderWithOps([{ ...base, id: "op-7", automationTrigger: "on the schedule `0 9 * * 1-5`" }]);
-    expect(screen.getByText(/on the schedule 0 9 \* \* 1-5/)).toBeTruthy();
+    // In words, as the panel says it (build F pass).
+    expect(screen.getByText(/on the schedule 9:00 AM, Mon–Fri/)).toBeTruthy();
     expect(screen.queryByText(/`/)).toBeNull();
   });
 
