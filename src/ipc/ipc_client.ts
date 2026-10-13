@@ -1084,6 +1084,15 @@ export class IpcClient {
    * The files of these turns reverted since the agent was last told; marks
    * them told (the agent hears it once, with the user's next message).
    */
+  /** /compact: summarise this chat's conversation now. */
+  public async compactChat(params: {
+    chatId: number;
+    providerId?: string;
+    workspaceSessionId?: string | null;
+  }): Promise<{ ok: boolean; message: string }> {
+    return this.ipcRenderer.invoke("chat:compact", params);
+  }
+
   /** Whether the saved key for this provider works (null: no key saved). */
   public async checkProviderKey(
     providerId: string,

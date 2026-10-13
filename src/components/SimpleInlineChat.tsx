@@ -50,7 +50,7 @@ import { useWorkModeSelection } from "@/hooks/useWorkModeSelection";
 import { BUILD_FROM_PLAN_PROMPT } from "@/lib/work-mode";
 import { useAccountKind } from "@/hooks/useAccountKind";
 import { COMPASS_PROVIDER_ID, isCoreAutoTier } from "@/ipc/shared/compass_constants";
-import { showError } from "@/lib/toast";
+import { showError, showInfo } from "@/lib/toast";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -450,6 +450,20 @@ export function SimpleInlineChat({
     [chatId, isStreaming, setMessagesById, streamMessage],
   );
 
+  const runCompact = useCallback(async () => {
+    try {
+      const store = getDefaultStore();
+      const res = await IpcClient.getInstance().compactChat({
+        chatId,
+        providerId: settings?.selectedModel?.provider,
+        workspaceSessionId: store.get(chatIdToSessionIdAtom).get(chatId) ?? null,
+      });
+      showInfo(res.message);
+    } catch (e) {
+      showError(e);
+    }
+  }, [chatId, settings?.selectedModel?.provider]);
+
   // Build from the plan card in the chat (QA #17), as the Plan panel's Build:
   // the session switches to Build, the plan is marked building, and the build
   // turn starts.
@@ -704,6 +718,11 @@ export function SimpleInlineChat({
             delete next[chatId];
             return next;
           });
+          // /compact is a command, not a message (QA #16), as in the CLI.
+          if (prompt.trim() === "/compact" && !attachments?.length) {
+            void runCompact();
+            return;
+          }
           onSendMessage(prompt, attachments);
         }}
         disabled={isStreaming}

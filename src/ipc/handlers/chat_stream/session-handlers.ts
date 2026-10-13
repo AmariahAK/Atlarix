@@ -27,6 +27,32 @@ import { broadcastToAllWindows } from "@/ipc/utils/broadcast_all_windows";
 const logger = log.scope("chat_stream_handlers");
 
 export function registerSessionHandlers(): void {
+  // /compact typed in the app's composer: summarise the conversation now, as
+  // the CLI's /compact does. The desktop sent it to the model as text, which
+  // sometimes answered "Nothing further to do" without compacting (QA #16).
+  ipcMain.handle(
+    "chat:compact",
+    async (
+      _event,
+      payload: {
+        chatId: number;
+        providerId?: string;
+        workspaceSessionId?: string | null;
+      },
+    ): Promise<{ ok: boolean; message: string }> => {
+      const { forceCompactEphemeralChat } = await import("@/lib/tools/workspace");
+      const { compactResultMessage } = await import(
+        "@/lib/context/compact-result-message"
+      );
+      const done = await forceCompactEphemeralChat(
+        payload.chatId,
+        payload.providerId,
+        { workspaceSessionId: payload.workspaceSessionId ?? null, summarize: true },
+      );
+      return compactResultMessage(done);
+    },
+  );
+
   ipcMain.handle(
     "respond-mode-change",
     async (
