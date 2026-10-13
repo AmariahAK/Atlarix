@@ -119,7 +119,12 @@ export class Chat {
             workspace: this.host.workspace(),
             settings: this.host.settings(),
           });
-          await this.open(this.startWith);
+          // The page loads again on a reload (or after sleep): reopen the chat
+          // this view is ON, not the one it was first opened with. A tab opened
+          // from Past chats then New chat used to reload the old chat, and the
+          // next message went there (QA #52).
+          await this.opening?.catch(() => {});
+          await this.open(this.sessionId ?? this.startWith);
           return;
         case "send":
           return this.send(m.text, m.context, m.answers);
