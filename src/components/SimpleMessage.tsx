@@ -8,6 +8,7 @@
 import type { Message } from "@/ipc/ipc_types";
 import { splitPeerMessages } from "@/lib/peers/peer-message";
 import { parseQaAnswers } from "@/lib/interactive-qa-format";
+import { parseDisplaySnapshot } from "@/lib/chat/display-snapshot";
 import { PeerMessageCard } from "./chat/PeerMessageCard";
 import {
   resolvePasteAttachmentsForMessage,
@@ -46,9 +47,10 @@ import {
 } from "@/atoms/appAtoms";
 import {
   activeChatIdAtom,
+  turnModelByAssistantMessageIdAtom,
   assistantMessageHasNonTextPartsAtom,
 } from "@/atoms/chatAtoms";
-import type { WorkMode } from "@/lib/schemas";
+import type { LargeLanguageModel, WorkMode } from "@/lib/schemas";
 import { useAtlarixCoreCatalog } from "@/hooks/useAtlarixCoreCatalog";
 import { resolveModelDisplayLabel } from "@/lib/resolve-model-display-label";
 import { useLanguageModelsByProviders } from "@/hooks/useLanguageModelsByProviders";
@@ -104,6 +106,7 @@ function SimpleMessageImpl({
   const currentApp = useAtomValue(currentAppAtom);
   const workspaceInfo = useAtomValue(selectedWorkspaceInfoAtom);
   const activeChatId = useAtomValue(activeChatIdAtom);
+  const turnModels = useAtomValue(turnModelByAssistantMessageIdAtom);
   const chatId = chatIdProp ?? activeChatId;
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content);
@@ -174,8 +177,15 @@ function SimpleMessageImpl({
   const peerSegments = isUser ? splitPeerMessages(message.content ?? "") : null;
   if (peerSegments) return <PeerMessageCard segments={peerSegments} />;
 
+  // The model THIS reply ran on (live: the session's record; reloaded: its
+  // display snapshot). The current model only for a reply that has neither,
+  // e.g. one still streaming (QA #49: every reply was relabelled on a switch).
+  const answeredWith =
+    turnModels[message.id] ??
+    parseDisplaySnapshot(message.displaySnapshot)?.model ??
+    settings?.selectedModel;
   const getModelDisplayName = () =>
-    resolveModelDisplayLabel(settings?.selectedModel, {
+    resolveModelDisplayLabel(answeredWith as LargeLanguageModel | undefined, {
       catalog: coreCatalog,
       modelsByProviders,
     });

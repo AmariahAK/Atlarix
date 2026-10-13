@@ -260,6 +260,11 @@ export const streamThreadByChatIdAtom = atom<Map<number, StreamThreadItem[]>>(
 );
 
 /** Frozen stream-thread cards per completed assistant message (chat-only / IPC tools). */
+/** The model each reply of this session ran on (QA #49; persisted in its display snapshot too). */
+export const turnModelByAssistantMessageIdAtom = atom<
+  Record<number, { provider: string; name: string }>
+>({});
+
 export const completedStreamThreadByAssistantMessageIdAtom = atom<
   Record<number, StreamThreadItem[]>
 >({});

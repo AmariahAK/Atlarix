@@ -30,6 +30,7 @@ import {
   parkedWaitingByChatIdAtom,
   pendingInterjectionsByChatIdAtom,
   turnSnapshotTurnIdByMessageIdAtom,
+  turnModelByAssistantMessageIdAtom,
   responseDoneAnimationAtom,
   restartedAfterMessageIdAtom,
   pendingUserQuestionByChatIdAtom,
@@ -799,6 +800,15 @@ export function useStreamChat({
       // The user rows this turn started with; one that appears later, in front
       // of the reply, was sent while it ran (a steer) — see onUpdate (QA #4).
       let userIdsAtTurnStart: Set<number> | null = null;
+      // The model this turn runs on, for its reply's header (QA #49).
+      const turnModel =
+        modelOverride ??
+        (settings?.selectedModel
+          ? {
+              provider: settings.selectedModel.provider,
+              name: settings.selectedModel.name,
+            }
+          : null);
       let cleanupStreamListeners: (() => void) | null = null;
       try {
         clearActivityForChatInStore(chatId);
@@ -2366,8 +2376,16 @@ export function useStreamChat({
                     inlineForSnap,
                     thinkingForSnap,
                     interleavedForSnap,
+                    turnModel,
                   )
                 : null;
+            if (turnModel && lastAssistant?.id != null) {
+              const id = lastAssistant.id;
+              getDefaultStore().set(turnModelByAssistantMessageIdAtom, (prev) => ({
+                ...prev,
+                [id]: turnModel,
+              }));
+            }
 
             if (snapshotJson && lastAssistant?.id != null) {
               void IpcClient.getInstance()

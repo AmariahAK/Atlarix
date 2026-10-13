@@ -14,6 +14,11 @@ export type DisplaySnapshotV1 = {
    * keeps the original order so the frozen view renders exactly like streaming.
    */
   interleavedContent?: string;
+  /**
+   * The model this turn ran on. The reply's header named the CURRENT model,
+   * so switching models relabelled every earlier reply (QA #49).
+   */
+  model?: { provider: string; name: string };
 };
 
 function isDisplaySnapshotV1(value: unknown): value is DisplaySnapshotV1 {
@@ -44,6 +49,7 @@ export function buildDisplaySnapshotV1(args: {
   inlineTimeline?: InlineTimelineItem[];
   thinking?: CompletedTurnThinkingSnapshot | null;
   interleavedContent?: string | null;
+  model?: { provider: string; name: string } | null;
 }): DisplaySnapshotV1 | null {
   const interleaved = args.interleavedContent?.trim() || "";
   if (
@@ -61,5 +67,6 @@ export function buildDisplaySnapshotV1(args: {
       : {}),
     ...(args.thinking ? { thinking: args.thinking } : {}),
     ...(interleaved ? { interleavedContent: interleaved } : {}),
+    ...(args.model ? { model: args.model } : {}),
   };
 }
