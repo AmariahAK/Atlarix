@@ -401,7 +401,10 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
                   onDeleteKey={handleDeleteKey}
                   updateSettings={updateSettings}
                 />
-                {offerDefaultSwitch && (
+                {/* Not for a key the provider just refused (QA #40). */}
+                {offerDefaultSwitch &&
+                  keyCheck?.status !== "rejected" &&
+                  keyCheck?.status !== "unreachable" && (
                   <UseProviderAsDefaultPrompt
                     providerId={provider}
                     providerName={providerDisplayName}

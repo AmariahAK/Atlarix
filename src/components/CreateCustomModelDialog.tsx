@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { IpcClient } from "@/ipc/ipc_client";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { showError, showSuccess } from "@/lib/toast";
 
 interface CreateCustomModelDialogProps {
@@ -35,6 +35,7 @@ export function CreateCustomModelDialog({
 
   const ipcClient = IpcClient.getInstance();
 
+  const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationFn: async () => {
       const params = {
@@ -60,6 +61,11 @@ export function CreateCustomModelDialog({
     },
     onSuccess: () => {
       showSuccess("Custom model created successfully!");
+      // The composer's label and the picker read this list too: without it a
+      // model's name showed as its id, formatted ("GPT 4o Mini", QA #41).
+      void queryClient.invalidateQueries({
+        queryKey: ["language-models-by-providers"],
+      });
       resetForm();
       onSuccess(); // Refetch or update UI
       onClose();

@@ -343,7 +343,9 @@ export function ProviderSettingsGrid() {
                         </span>
                       ) : (
                         <span className="text-sm text-gray-500 bg-gray-50 dark:bg-gray-900 dark:text-gray-300 px-2 py-1 rounded-full">
-                          Add key
+                          {/* An endpoint you added may need no key (a local
+                              server): not "Add key" (QA #39), as the CLI says. */}
+                          {isCustom ? "Your endpoint" : "Add key"}
                         </span>
                       )}
                     </CardTitle>

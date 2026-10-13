@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { IpcClient } from "@/ipc/ipc_client";
 import { useSettings } from "@/hooks/useSettings";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { showError, showSuccess } from "@/lib/toast";
 
 interface Model {
@@ -59,6 +59,7 @@ export function EditCustomModelDialog({
     }
   }, [model]);
 
+  const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationFn: async () => {
       if (!model) throw new Error("No model to edit");
@@ -92,6 +93,11 @@ export function EditCustomModelDialog({
       await ipcClient.createCustomLanguageModel(newParams);
     },
     onSuccess: async () => {
+      // The composer's label and the picker read this list too: without it a
+      // model's name showed as its id, formatted ("GPT 4o Mini", QA #41).
+      void queryClient.invalidateQueries({
+        queryKey: ["language-models-by-providers"],
+      });
       if (
         settings?.selectedModel?.name === model?.apiName &&
         settings?.selectedModel?.provider === providerId
