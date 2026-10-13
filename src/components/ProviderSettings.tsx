@@ -73,6 +73,9 @@ export function orderProvidersForPaging(
   filtered: LanguageModelProvider[],
   shuffledNonCompass: LanguageModelProvider[],
   searchQuery: string,
+  /** The ones you set up come first: "5 providers configured" used to be
+   * scattered across 37 shuffled pages (QA #31). */
+  isSetUp?: (id: string) => boolean,
 ): LanguageModelProvider[] {
   const compass = filtered.find((p) => p.id === COMPASS_ID);
   const openrouter = filtered.find((p) => p.id === OPENROUTER_ID);
@@ -93,9 +96,15 @@ export function orderProvidersForPaging(
   // as-is meant a search changed nothing past Core and OpenRouter: typing
   // "deepseek" left all 35 pages and the user paged to find it (reported
   // 2026-09-23). Filter the stable shuffle instead of re-shuffling.
-  const tail = filterProviders(shuffledNonCompass, searchQuery).filter(
+  const shuffledTail = filterProviders(shuffledNonCompass, searchQuery).filter(
     (p) => p.id !== COMPASS_ID && p.id !== OPENROUTER_ID,
   );
+  const tail = isSetUp
+    ? [
+        ...shuffledTail.filter((p) => isSetUp(p.id)),
+        ...shuffledTail.filter((p) => !isSetUp(p.id)),
+      ]
+    : shuffledTail;
 
   if (compassVisible && openrouterVisible) {
     return [compass, openrouter, ...tail];
@@ -160,8 +169,14 @@ export function ProviderSettingsGrid() {
   }, [reshuffleForDisplay]);
 
   const orderedForPaging = useMemo(
-    () => orderProvidersForPaging(filtered, shuffledNonCompass, searchQuery),
-    [filtered, searchQuery, shuffledNonCompass],
+    () =>
+      orderProvidersForPaging(
+        filtered,
+        shuffledNonCompass,
+        searchQuery,
+        isProviderSetup,
+      ),
+    [filtered, searchQuery, shuffledNonCompass, isProviderSetup],
   );
 
   const totalPages = Math.max(

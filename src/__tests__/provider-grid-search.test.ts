@@ -44,3 +44,13 @@ describe("provider grid search", () => {
     expect(orderProvidersForPaging([], shuffled, "zzz")).toEqual([]);
   });
 });
+
+// QA (app) #31: "5 providers configured", scattered across 37 shuffled pages.
+describe("providers you set up", () => {
+  it("come right after Core and OpenRouter, the rest still shuffled", () => {
+    const setUp = new Set(["google"]);
+    expect(
+      orderProvidersForPaging(ALL, shuffled, "", (id) => setUp.has(id)).map((x) => x.id),
+    ).toEqual(["compass", "openrouter", "google", "kuae", "deepseek"]);
+  });
+});
