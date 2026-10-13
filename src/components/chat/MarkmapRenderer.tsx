@@ -175,6 +175,26 @@ export function MarkmapRenderer({
     };
   }, [content, theme, destroyMarkmap, isStreaming]);
 
+  // Fit again whenever the drawing's box changes size. It was fitted once,
+  // right after creation, when the box can still be unsized (a collapsed
+  // card, a row not laid out yet): the map then sat crammed in a corner,
+  // cut off (QA #19). Opening the card or resizing the window refits.
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg || typeof ResizeObserver === "undefined") return;
+    let last = "";
+    const ro = new ResizeObserver((entries) => {
+      const box = entries[0]?.contentRect;
+      if (!box || box.width < 1 || box.height < 1) return;
+      const size = `${Math.round(box.width)}x${Math.round(box.height)}`;
+      if (size === last) return;
+      last = size;
+      void markmapRef.current?.fit();
+    });
+    ro.observe(svg);
+    return () => ro.disconnect();
+  }, []);
+
   const handleZoomIn = () => {
     void markmapRef.current?.rescale(1.2);
   };
