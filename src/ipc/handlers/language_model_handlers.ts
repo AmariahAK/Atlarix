@@ -342,6 +342,16 @@ export function registerLanguageModelHandlers() {
         }
         logger.info(`Successfully deleted provider with ID "${providerId}".`);
       });
+      // Its key and settings go too, and any left by earlier deletes: they
+      // used to stay in user-settings.json for good.
+      try {
+        const remaining = await db.select({ id: languageModelProvidersSchema.id }).from(languageModelProvidersSchema);
+        const { pruneCustomProviderSettings } = await import("@/main/settings");
+        const gone = pruneCustomProviderSettings(new Set(remaining.map((r) => r.id)));
+        if (gone.length) logger.info(`Removed saved settings of deleted provider(s): ${gone.join(", ")}`);
+      } catch (e) {
+        logger.warn("could not remove a deleted provider's saved settings:", e);
+      }
     },
   );
 
