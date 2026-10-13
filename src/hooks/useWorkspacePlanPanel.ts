@@ -11,46 +11,9 @@ import { messagesForChatAtom } from "@/atoms/chatAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
 import type { PlanArtifactPayload } from "@/ipc/utils/emit_plan_artifact";
 import {
-  parsePlanChangesFromContent,
-  deriveFilesFromPlanMarkdown,
+  resolvePlanChanges,
   type PlanChangesPayload,
-  type PlanFileAction,
 } from "@/lib/plan-changes/plan-changes";
-
-function proposalsToChanges(
-  proposals: { path: string; operation: string }[],
-): PlanChangesPayload | null {
-  if (!proposals.length) return null;
-  const files = proposals
-    .filter((p) => p.path?.trim())
-    .map((p) => {
-      let action: PlanFileAction = "MODIFY";
-      if (p.operation === "create") action = "CREATE";
-      else if (p.operation === "delete") action = "DELETE";
-      return { path: p.path, action };
-    });
-  return files.length ? { files } : null;
-}
-
-function resolveChanges(
-  messages: { role: string; content: string }[],
-  markdown: string | null,
-  proposals: { path: string; operation: string }[],
-): PlanChangesPayload | null {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i];
-    if (m.role !== "assistant") continue;
-    const parsed = parsePlanChangesFromContent(m.content);
-    if (parsed) return parsed;
-  }
-  const fromProposals = proposalsToChanges(proposals);
-  if (fromProposals) return fromProposals;
-  if (markdown) {
-    const derived = deriveFilesFromPlanMarkdown(markdown);
-    if (derived.length) return { files: derived };
-  }
-  return null;
-}
 
 function applyPayloadToPanel(
   payload: PlanArtifactPayload,
@@ -120,7 +83,7 @@ export function useWorkspacePlanPanel(): void {
         }
         return;
       }
-      const changes = resolveChanges(messages, payload.content, proposals);
+      const changes = resolvePlanChanges(messages, payload.content, proposals);
       applyPayloadToPanel(payload, setPanel, changes);
       // The plan is LOADED but the panel is not seized.
       //
@@ -141,7 +104,7 @@ export function useWorkspacePlanPanel(): void {
     const onUpdated = (payload: PlanArtifactPayload) => {
       setPanel((prev) => {
         if (prev.planId && prev.planId !== payload.planId) return prev;
-        const changes = resolveChanges(messages, payload.content, proposals);
+        const changes = resolvePlanChanges(messages, payload.content, proposals);
         return {
           planId: payload.planId,
           content: payload.content,
@@ -164,7 +127,7 @@ export function useWorkspacePlanPanel(): void {
   useEffect(() => {
     setPanel((prev) => {
       if (!prev.content) return prev;
-      const changes = resolveChanges(messages, prev.content, proposals);
+      const changes = resolvePlanChanges(messages, prev.content, proposals);
       const next = changes ?? prev.changes;
       // Return the SAME object when nothing changed so jotai does not write a
       // new reference — otherwise this effect's own write retriggers the render
