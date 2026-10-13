@@ -424,7 +424,8 @@ export class AgentSession extends EventEmitter {
   /** This folder's sessions, newest first: the CLI's and the desktop app's. */
   async listSessions(): Promise<SessionSummary[]> {
     const rows = (await (await handler("sessions:list"))({}, this.appId)) as SessionSummary[];
-    return rows;
+    // Not chats opened and never used (an editor's New chat with no message): QA E6.
+    return withoutUnusedChats(rows);
   }
 
   /**
