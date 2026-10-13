@@ -3,6 +3,56 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [15.6.0] (2026-10-14) — automations that wake the agent, every provider, and a CLI and editor that read like the app
+
+**A finished automation wakes the agent.** An automation set to tell Atlarix now wakes one chat in
+its folder when it finishes, in the app, the CLI, the editor extension or any ACP editor, and the
+agent acts on the result (a failing test run it fixes, a passing one it reports). Each run is taken
+by exactly one chat across every open Atlarix; a stopped chat is never re-woken. Automations have
+their own page in the editor and over ACP (`/automations`), with Run now, on/off, and delete from
+the row.
+
+**Every provider, and its models, before you connect one.** Models & keys lists every provider
+(A–Z, a page at a time) with how many models it offers, kept current from the models.dev catalog.
+Open one to see its models before adding a key. Connect a provider that isn't on the list (any
+OpenAI-compatible address, with or without a key); a local server such as Ollama lists its own
+models and runs them at their real context window. Remove a key from Models & keys, the CLI
+(`/connect`, `atlarix keys remove`) or any ACP editor; removing a provider you added removes its key
+too. A provider that can't be reached says so ("Couldn't reach <name>: …"), with "Couldn't connect,
+retrying in 2s (1/3)…" while it retries, instead of "Something went wrong".
+
+**The CLI and the editor panel, reworked to read like the app.** New colours in both. Thoughts read
+as what they were about and how long they took; tables, diagrams (Mermaid flowcharts) and code are
+drawn; command, read and search rows say what happened. Sub-agents and background tasks show in the
+editor as in the app, and the agent says what woke it. Plans: Plan mode saves a plan written in the
+reply, the card shows each step whole, "Build it" appears where the plan turn ends, a stopped build
+offers "Continue building", and a reopened chat keeps its plan. A message typed while Atlarix works
+steers the turn (Enter) or queues (Tab), and is never lost, even when a request fails and is
+retried. `/compact` writes a real summary. Messages from another of your Atlarix sessions are
+labelled as a teammate's and are never undone with yours.
+
+**The desktop app.** Every finished automation can wake a chat in its folder; a provider you
+added lists its own models and needs no key when it has none; a refused key reads "Key rejected";
+an unreachable provider is named and says what to check; the providers you set up come first.
+Edits show the file's real diff, approved by hand or not; a reply's header names the model it ran
+on, kept after a reopen; a message sent mid-turn shows where the agent took it; a command moved to
+the background shows as running. /compact compacts, as in the CLI. Automations say their
+schedules in words and what a run found. Plans: the chat's plan card has its Build button, the
+Plan panel lists each file once (not the ones the plan won't touch), and Build switches the
+session to Build. Narrow windows fold panels sensibly; the light theme's diffs are readable; the
+"Move to Applications?" prompt says what it replaces and keeps it by default.
+
+**Safety:** on Windows, PowerShell downloads and deletes (Invoke-WebRequest, Remove-Item and
+friends) now always ask, like curl, wget and rm.
+
+**Known issue:** if the CLI and the desktop app both ask the macOS keychain at the same moment, the
+app waits at startup until the CLI's prompt is answered.
+
+**Also:** the editor's sign-in page and Account view are redesigned, and Sign out signs you out;
+the editor follows the reply until you scroll up; the plan shows under its step to read and correct; `atlarix --help` lists the commands and quitting says how to resume; a failed background command says why; Windows
+paths, approvals and PowerShell errors read correctly in the CLI; free usage that's over says when
+it resets.
+
 ## [15.5.0] (2026-10-11) — the editor extension, redesigned; your keys and MCP servers everywhere
 
 **Atlarix in VS Code, Cursor, Kiro and Windsurf is rebuilt around how you work in it.** A bar across the top for a new chat, past chats, MCP servers,
