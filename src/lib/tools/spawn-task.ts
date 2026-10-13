@@ -105,6 +105,20 @@ function appendSubagentOutput(taskId: string, chunk: string): void {
   rec.lastActivityAt = Date.now();
 }
 
+/**
+ * What a segment's latest text adds to the one before. Usually the old text
+ * is a prefix; a long segment arrives capped ("…" + its tail), so then the
+ * new part starts after where the previous text's end shows up again.
+ */
+export function newSegmentText(prev: string, next: string): string {
+  if (!prev) return next;
+  if (next.startsWith(prev)) return next.slice(prev.length);
+  const anchor = prev.slice(-200);
+  const at = next.lastIndexOf(anchor);
+  if (at >= 0) return next.slice(at + anchor.length);
+  return next === prev ? "" : `\n${next}`;
+}
+
 /** R3: trimmed tail of a task's live output, for resume/list surfacing. */
 function subagentOutputTail(rec: TaskRecord, maxLen: number): string {
   const out = (rec.output ?? "").trim();
@@ -449,13 +463,24 @@ ToolRegistry.register({
     // / `task({list})` can show a running sub-agent's progress) and forward to the
     // UI emitter. Capture useful progress only — narration text + FINISHED tool
     // calls; skip raw reasoning (high-volume) and running markers.
+    //
+    // A text emit is the segment's WHOLE text so far (the renderer upserts by
+    // id), so only what it adds since the last emit goes in. Appending each
+    // emit repeated the reply in `task` results and the "Checked sub-agents"
+    // row ("`" + "…them. Edge" + the full text, Windows QA 2026-10-14).
+    const segmentText = new Map<string, string>();
     const bufferingEmit = (payload: SubagentActivityEmit) => {
       if (
         payload.type === "subagent_thought" &&
         payload.channel === "text" &&
         payload.content
       ) {
-        appendSubagentOutput(taskId, payload.content);
+        const added = newSegmentText(
+          segmentText.get(payload.id) ?? "",
+          payload.content,
+        );
+        segmentText.set(payload.id, payload.content);
+        if (added) appendSubagentOutput(taskId, added);
       } else if (payload.type === "tool_use" && payload.status === "done") {
         // `label` is the FORMATTED preview (run-subagent runs the tool result
         // through formatToolResultPreview for it); `detail` is the raw
