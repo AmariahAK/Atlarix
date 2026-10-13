@@ -393,6 +393,13 @@ export async function runStreamRoundWithEmptyOutputRetry(
         safeSend(event.sender, "chat:stream:reset-partial", {
           chatId: params.chatId,
         });
+        // Say why it's waiting: "Thinking… 9s" over a dead connection read as
+        // the model being slow (QA, against Claude Code's "Retrying in Ns").
+        safeSend(event.sender, "chat:stream:phase", {
+          chatId: params.chatId,
+          phase: "thinking",
+          label: `Couldn't connect, retrying in ${Math.max(1, Math.round(delay / 1000))}s (${networkAttempt}/${RECONNECT_DELAYS_MS.length})…`,
+        });
         fullResponse = initialFullResponse;
         partialResponses.delete(params.chatId);
         await new Promise((r) => setTimeout(r, delay));

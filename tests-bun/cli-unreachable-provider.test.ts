@@ -32,6 +32,8 @@ describe("an unreachable provider", () => {
     const model = await seedDevProvider({ baseUrl: `http://127.0.0.1:${await deadPort()}/v1`, model: "fake-model", apiKey: "dev" });
     const s = new AgentSession({ workspaceDir: ws, model });
     await s.start();
+    const phases: string[] = [];
+    s.on("change", (st: { phase: string | null }) => void (st.phase && phases.push(st.phase)));
     await s.submit("say hi");
     await new Promise<void>((resolve, reject) => {
       const t = setTimeout(() => reject(new Error(`turn never finished: ${JSON.stringify(s.state.lastError)}`)), 60_000);
@@ -46,6 +48,8 @@ describe("an unreachable provider", () => {
     });
     expect(s.state.lastError).toContain("Couldn't reach ");
     expect(s.state.lastError).not.toContain("Something went wrong");
+    // The wait says what it is.
+    expect(phases.some((p) => /retrying in \d+s \(1\/3\)/.test(p))).toBe(true);
   }, 70_000);
 
   it("a stop during the retry wait says Interrupted, and the earlier error stays under its turn", async () => {
