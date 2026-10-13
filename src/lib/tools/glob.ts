@@ -108,8 +108,8 @@ function humanSize(n: number): string {
 ToolRegistry.register({
   name: "glob",
   description:
-    "Find files by glob pattern (e.g. '**/*.ts', 'src/**/auth*'). Returns workspace-relative paths, newest first (sort 'size': largest first, with sizes). " +
-    "Use grep to search file CONTENTS. To list one folder: pattern '*' and its path.",
+    "Find files by glob pattern (e.g. '**/*.ts', 'src/**/auth*'). Returns workspace-relative paths sorted by modification time (newest first). " +
+    "Use this for file discovery; use grep to search file CONTENTS. A bare directory listing is `glob` with pattern '*' and a path.",
   requiresWorkspace: true,
   isCore: true,
   isReadOnly: true,
@@ -128,7 +128,7 @@ ToolRegistry.register({
         1,
         MAX_LIMIT,
       ),
-      sort: enumParam("Order", "modified", [
+      sort: enumParam("'modified' (newest first, the default) or 'size' (largest first, with each file's size)", "modified", [
         "modified",
         "size",
       ]),
