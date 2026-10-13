@@ -364,6 +364,8 @@ export class AgentSession extends EventEmitter {
     const { workspaceAppIdForPath } = await import("@/lib/workspace-app-by-path");
     this.appId = await workspaceAppIdForPath(this.workspaceDir);
     await this.newSession();
+    // Finished automations in this folder, from any Atlarix: wake to act on them.
+    this.startAutomationClaims();
   }
 
   /**
@@ -963,6 +965,8 @@ export class AgentSession extends EventEmitter {
   /** Stop hearing this process's broadcasts and leave the session list. */
   async close(): Promise<void> {
     await this.interrupt();
+    if (this.automationPoll) clearInterval(this.automationPoll);
+    this.automationPoll = null;
     this.detachWindow?.();
     this.detachWindow = null;
     const peers = await import("@/lib/peers/peers");
@@ -1037,17 +1041,23 @@ export class AgentSession extends EventEmitter {
   private async backgroundToDeliver(): Promise<boolean> {
     if (!this.chatId) return false;
     try {
-      // NOT a finished automation: by design it never wakes a turn, its result
-      // goes into your next one (automation-results.ts). Counting it here woke
-      // the agent with nothing to read, eleven times over (QA, build 2).
+      // A finished automation counts again (owner: it wakes the agent like a
+      // finished command). What looped eleven times before (QA, build 2) was a
+      // wake turn that never drained it; the turn now drains it, and a wake
+      // that leaves its reason pending never wakes again (onTurnEnd).
       const { hasPendingBackgroundCommandResults, hasPendingStalledAdvisories } = await import("@/lib/agent/background-commands");
       const { hasPendingSubagentResults } = await import("@/lib/agents/subagent-results");
       const { hasPendingScheduledWakeupNudges } = await import("@/lib/agent/scheduled-wakeups");
+      const { hasPendingAutomationResults } = await import("@/lib/agent/automation-results");
       return (
         hasPendingBackgroundCommandResults(this.chatId) ||
         hasPendingSubagentResults(this.chatId) ||
         hasPendingStalledAdvisories(this.chatId) ||
-        hasPendingScheduledWakeupNudges(this.chatId)
+        hasPendingScheduledWakeupNudges(this.chatId) ||
+        // A finished automation this chat claimed (claimAutomationRuns): the
+        // agent wakes to act on it (owner). The wake turn drains it, and a wake
+        // that doesn't never wakes again.
+        hasPendingAutomationResults(this.chatId)
       );
     } catch {
       return false;
@@ -1060,7 +1070,12 @@ export class AgentSession extends EventEmitter {
     await (async () => {
       const { describePendingSubagentResults } = await import("@/lib/agents/subagent-results");
       const { describePendingBackgroundCommands } = await import("@/lib/agent/background-commands");
-      return [...describePendingSubagentResults(this.chatId!), ...describePendingBackgroundCommands(this.chatId!)];
+      const { describePendingAutomationResults } = await import("@/lib/agent/automation-results");
+      return [
+        ...describePendingSubagentResults(this.chatId!),
+        ...describePendingBackgroundCommands(this.chatId!),
+        ...describePendingAutomationResults(this.chatId!),
+      ];
     })()
       .then((lines) => {
         // Each finished piece once, however many reports mention it.
@@ -1587,6 +1602,8 @@ export class AgentSession extends EventEmitter {
           this.update({ automationUnread: this.state.automationUnread + 1 });
           this.emit("automation", p);
         }
+        // Finished here: take it now rather than at the next poll.
+        if (p.status && p.status !== "running") void this.claimAutomationRuns();
         return;
       case "chat:response:error":
         // A cancel reports itself as an error; it is not one.
@@ -1813,6 +1830,43 @@ export class AgentSession extends EventEmitter {
     if (!m) m = await import("@/main/settings").then((x) => x.readSettings().selectedModel as { provider?: string; name?: string }).catch(() => undefined);
     if (!m?.name) return undefined;
     return m.provider === "compass" ? (m.name === "core-auto" || m.name === "auto" ? "Atlarix Auto" : m.name) : m.name;
+  }
+
+  /**
+   * Finished notify-the-agent automation runs in this folder that no chat has
+   * taken, from any process (the app, the CLI, an editor): take them and, when
+   * one is fresh, wake to act on it, as for a finished background command.
+   * Polled while the session lives, and run at once when a run finishes here.
+   */
+  private async claimAutomationRuns(): Promise<void> {
+    // Not an empty chat: there's no conversation for a wake to continue (and
+    // the editor opens one on start that you may never use). A chat in use, here
+    // or in another Atlarix, takes it; failing that, your first message does.
+    if (this.claimingAutomations || !this.chatId || !this.messages.length) return;
+    this.claimingAutomations = true;
+    try {
+      const { claimFinishedRuns } = await import("@/lib/automations/agent-delivery");
+      const { PROCESS_OWNER } = await import("@/lib/automations/process-owner");
+      const got = await claimFinishedRuns([this.appId], `${PROCESS_OWNER}:${this.sessionId ?? this.chatId}`);
+      if (!got.some((g) => g.wake)) return;
+      if (this.state.busy) return; // the running turn takes it at its next step, or wakes after it ends
+      if (this.idlePeerMessages === "hold") this.emit("background-ready");
+      else void this.wakeForBackground();
+    } catch {
+      // the next poll tries again
+    } finally {
+      this.claimingAutomations = false;
+    }
+  }
+
+  private claimingAutomations = false;
+  private automationPoll: ReturnType<typeof setInterval> | null = null;
+
+  /** Start looking for finished automation runs to act on (every 15s while this session lives). */
+  private startAutomationClaims(): void {
+    if (this.automationPoll) return;
+    this.automationPoll = setInterval(() => void this.claimAutomationRuns(), 15_000);
+    (this.automationPoll as { unref?: () => void }).unref?.();
   }
 
   /** The turn running (or last run) was a wake for background work, not your message. */

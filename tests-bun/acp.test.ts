@@ -358,32 +358,40 @@ describe("atlarix acp", () => {
     expect(idle.started).toBe(false);
   }, 60_000);
 
-  it("a finished automation never wakes the chat; it goes into your next message (QA: 11 wake turns in a row)", async () => {
-    const e = await editor(
-      [{ text: "Working on it, this takes a moment to finish.", delayMs: 60 }, { text: "The automation said the tests fail; here's why." }],
-      undefined,
-      { _meta: { atlarix: { version: 1 } } },
-    );
-    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
-    const { appId } = e.agent.sessionInfo(sessionId);
-    const { recordAutomationResult } = await import("../src/lib/agent/automation-results");
-    const turn = e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "do a thing" }] });
-    // Once the turn's request is out (its context already built), as a run
-    // finishing mid-turn does.
-    const sent = Date.now();
-    while (!e.llm.requests.some((r) => (r as { tools?: unknown[] }).tools?.length) && Date.now() - sent < 10_000) await Bun.sleep(10);
-    await Bun.sleep(20);
-    // Finishes while the turn runs, as QA's 'Run now' right after Allow did.
-    recordAutomationResult(appId, { automationId: "a1", automationName: "Weekday tests", status: "error", body: "2 failing: subtract", finishedAt: Date.now() });
-    await turn;
-    await Bun.sleep(1500);
-    const turns = () => e.llm.requests.filter((r) => (r as { tools?: unknown[] }).tools?.length).length;
-    expect(turns()).toBe(1); // no wake turns
-    expect(e.ext.some((x) => x.method === "_atlarix/background_ready")).toBe(false);
-    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "anything new?" }] });
-    expect(turns()).toBe(2);
-    expect(JSON.stringify(e.llm.requests.at(-1)?.messages)).toContain("2 failing: subtract");
-  }, 60_000);
+  it("a finished automation wakes the chat once, from any Atlarix, and the agent gets its result (owner)", async () => {
+    const e = await editor([{ text: "Hello." }, { text: "Looking at the failing tests now." }], undefined, { _meta: { atlarix: { version: 1 } } });
+    // Its own folder: a chat in use in the shared test folder would claim the run first.
+    const own = fs.mkdtempSync(path.join(os.tmpdir(), "acp-wake-"));
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: own, mcpServers: [] });
+    // A chat in use (an empty one never claims a run).
+    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "hi" }] });
+    type Page = { automations: Array<{ id: string; name: string }> };
+    const made = await e.conn.agent.request<Page>("_atlarix/automations", {
+      sessionId,
+      action: "create",
+      draft: { name: "Wake tests", enabled: true, trigger: { kind: "schedule", cron: "0 9 * * 1-5" }, prompt: "Run the tests.", runMode: "read-only", notifyAgent: true, model: null },
+    });
+    const automationId = made.automations.find((a) => a.name === "Wake tests")!.id;
+    // Another process (the app, say) ran it and found failures: only the database knows.
+    const { getDb } = await import("../src/db");
+    const raw = getDb().$client as unknown as { prepare(sql: string): { run(...a: unknown[]): unknown } };
+    raw
+      .prepare("INSERT INTO automation_runs (id, automation_id, status, summary, started_at, finished_at, unread, archived) VALUES (?, ?, 'ok', ?, ?, ?, 1, 0)")
+      .run("run-wake-1", automationId, "3 failing tests in src/math.test.ts", Math.floor(Date.now() / 1000) - 5, Math.floor(Date.now() / 1000));
+    // The editor is told to open a wake turn (its chat claimed the run: polled every 15s).
+    const deadline = Date.now() + 20_000;
+    while (!e.ext.some((x) => x.method === "_atlarix/background_ready") && Date.now() < deadline) await Bun.sleep(200);
+    expect(e.ext.filter((x) => x.method === "_atlarix/background_ready")).toHaveLength(1);
+    // The extension opens the wake turn: the agent reads the result and acts.
+    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "" }], _meta: { atlarix: { wakeTurn: true } } });
+    const asked = JSON.stringify(e.llm.requests.at(-1) ?? {});
+    expect(asked).toContain("3 failing tests in src/math.test.ts");
+    expect(asked).toContain("Wake tests");
+    // Taken once: no second wake for the same run.
+    await Bun.sleep(16_000);
+    expect(e.ext.filter((x) => x.method === "_atlarix/background_ready")).toHaveLength(1);
+    await e.conn.agent.request("_atlarix/automations", { sessionId, action: "remove", id: automationId });
+  }, 90_000);
 
   it("automations: set_notify after Allow is written, not reported as a refusal (QA F1)", async () => {
     const e = await editor([{ text: "placeholder" }]);

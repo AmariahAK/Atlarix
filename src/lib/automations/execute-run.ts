@@ -156,12 +156,26 @@ async function maybeTellTheAgent(
    * exactly the automations the user triages themselves.
    */
   forceNotifyAgent = false,
+  runId?: string,
 ): Promise<void> {
   if (
     (!automation.notifyAgent && !forceNotifyAgent) ||
     automation.workspaceId == null
   )
     return;
+  if (!forceNotifyAgent) {
+    // An unattended run: one chat in that folder, in the app, the CLI or an
+    // editor, claims it (agent-delivery.ts) and wakes to act on it (owner).
+    // Nothing is queued here: the claim is what keeps it to one chat.
+    return;
+  }
+  // The agent asked for this run: its result goes back to that call, so no
+  // other chat claims it too.
+  if (runId) {
+    const { markRunDelivered } = await import("./agent-delivery");
+    const { PROCESS_OWNER } = await import("./process-owner");
+    markRunDelivered(runId, PROCESS_OWNER);
+  }
   // Nothing to report is not news. Delivering it would train the model to treat
   // automation results as noise, which is exactly what makes a real one get
   // skimmed.
@@ -243,6 +257,7 @@ export async function executeAutomationRun(
       "ok",
       triggerContext ?? headline,
       opts?.forceNotifyAgent,
+      runId,
     );
     logger.info(`automation "${automation.name}" fired (notify-only)`);
     return { runId };
@@ -396,6 +411,7 @@ export async function executeAutomationRun(
     status,
     runError ?? summary ?? "",
     opts?.forceNotifyAgent,
+    runId,
   );
   await broadcastRunUpdate(runId);
   try {
