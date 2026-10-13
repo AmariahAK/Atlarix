@@ -156,3 +156,20 @@ describe("a run whose agent turn failed (video session)", () => {
     expect(turnFailure([{ channel: "chat:response:end", payload: { chatId: 7 } }], 7)).toBeNull();
   });
 });
+
+describe("a run's summary is what the agent said (video session)", () => {
+  it("leaves tool calls and their raw results out", async () => {
+    const { replyProse, parseAutomationOutcome } = await import("@/lib/automations/execute-run");
+    const content = [
+      '<atlarix-tool-call tool="run_command" call="c1" status="running">',
+      '{"command":"npm test"}',
+      "</atlarix-tool-call>",
+      '<atlarix-tool-result tool="run_command" call="c1" status="error">',
+      '{"success":false,"error":"Command failed: npm test"}',
+      "</atlarix-tool-result>",
+      "1 of 3 tests fails: subtract returns the wrong sign.",
+    ].join("\n");
+    const out = parseAutomationOutcome(replyProse(content));
+    expect(out.summary).toBe("1 of 3 tests fails: subtract returns the wrong sign.");
+  });
+});

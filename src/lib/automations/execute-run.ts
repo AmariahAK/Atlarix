@@ -5,6 +5,7 @@
  * with kind="background"; results land on automation_runs for the triage feed.
  */
 
+import { parseAssistantMessageParts } from "@/lib/chat/assistant-message-parts";
 import { randomUUID } from "node:crypto";
 import log from "electron-log";
 import { eq } from "drizzle-orm";
@@ -101,6 +102,19 @@ export function parseAutomationOutcome(finalText: string | null): {
   return { status: "ok", summary: tail || null };
 }
 
+/**
+ * What the agent SAID, without its tool calls and their raw results: a run
+ * that skipped the result line had its summary taken from the last lines,
+ * which were a tool's JSON ('{"success":false,"error":"Command fail…', video
+ * session).
+ */
+export function replyProse(content: string): string {
+  return parseAssistantMessageParts(content, false)
+    .filter((p): p is Extract<typeof p, { type: "markdown" }> => p.type === "markdown")
+    .map((p) => p.content)
+    .join("\n\n");
+}
+
 function lastAssistantText(chatId: number): string | null {
   const transport = getStreamTransport(chatId);
   if (!transport) return null;
@@ -111,7 +125,7 @@ function lastAssistantText(chatId: number): string | null {
       typeof m.content === "string" &&
       m.content.trim()
     ) {
-      return m.content;
+      return replyProse(m.content);
     }
   }
   return null;
