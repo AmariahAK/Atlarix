@@ -67,6 +67,26 @@ const VERSION =
  */
 if (process.argv[2] === "run") process.argv.splice(2, 1);
 
+const RUN_HELP = `atlarix run: one turn without the UI, for scripts and CI
+
+Usage
+  atlarix run --prompt "…" [options]
+
+Options
+  --prompt <text> | --prompt-file <path>   The task (one is required)
+  --workspace <dir>         The folder to work in (default: this one)
+  --mode build|ask          Build edits and runs commands; ask only reads (default: build)
+  --provider-id <id>        Provider, e.g. openrouter
+  --provider-url <url>      Any OpenAI-compatible address
+  --model <id>              Model id
+  --api-key <key> | --api-key-file <path>
+  --attach <file>           Attach a file (repeatable)
+  --deep-thinking           The model's highest reasoning level
+  --timeout <ms>            Stop after this long (default: no limit)
+  --output-file <path>      Write the final reply here
+  --trajectory-file <path>  Write the full trace here
+  --version                 The version`;
+
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : undefined;
@@ -94,6 +114,11 @@ async function main() {
   // While this exited 2, harnesses fell through to reporting NODE's version.
   if (process.argv.includes("--version") || process.argv.includes("-v")) {
     console.log(VERSION);
+    process.exit(0);
+  }
+  // `atlarix --help` points here, so this must not demand a prompt first.
+  if (process.argv.includes("--help") || process.argv.includes("-h")) {
+    console.log(RUN_HELP);
     process.exit(0);
   }
 
