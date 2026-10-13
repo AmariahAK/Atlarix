@@ -151,11 +151,26 @@ export async function getLanguageModelProviders(): Promise<
   }
   modelsDevProviders.sort((a, b) => a.name.localeCompare(b.name));
 
-  return [
+  const all = [
     ...hardcodedProviders,
     ...customProvidersMap.values(),
     ...modelsDevProviders,
   ];
+  for (const p of all) providerNames.set(p.id, p.name);
+  return all;
+}
+
+/** Display names from the last provider listing (read before any turn runs). */
+const providerNames = new Map<string, string>();
+
+/**
+ * A provider as people know it: "QA ai49 Bad Key", not "custom::qa-ai49-badkey"
+ * (app QA). Synchronous, for error paths; falls back to the id without its
+ * custom:: prefix when the list hasn't been read in this process.
+ */
+export function providerDisplayName(providerId: string | undefined): string | undefined {
+  if (!providerId) return undefined;
+  return providerNames.get(providerId) ?? providerId.replace(/^custom::/, "");
 }
 
 /**

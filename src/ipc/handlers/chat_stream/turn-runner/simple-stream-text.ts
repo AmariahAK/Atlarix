@@ -76,6 +76,7 @@ import { takePendingScheduledWakeupNudges } from "@/lib/agent/scheduled-wakeups"
 import { takePendingDroppedHistoryNotice } from "@/lib/context/dropped-history-notice";
 import { takePendingSubagentResults } from "@/lib/agents/subagent-results";
 import { takePendingAutomationResults } from "@/lib/agent/automation-results";
+import { providerDisplayName } from "@/ipc/shared/language_model_helpers";
 import { takePendingUserInterjections } from "@/lib/agent/user-interjections";
 import { deliverInterjectionsToTranscript } from "@/ipc/handlers/chat_stream/interjection-delivery";
 import {
@@ -1095,7 +1096,7 @@ export async function simpleStreamText(
         }
       } else {
         message =
-          byokLimitUserMessage(message, modelClient.builtinProviderId) ??
+          byokLimitUserMessage(message, providerDisplayName(modelClient.builtinProviderId)) ??
           modelFailureUserMessage(message);
       }
       if (isProviderRefusal(error)) recordedRefusal = error;
