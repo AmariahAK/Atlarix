@@ -394,7 +394,8 @@ export function openQuestions(ctx: ScreenContext, q: PendingQuestion): void {
         intro,
         asking: true,
         footer: "↑↓ move · enter choose · 1-9 pick · or just type your own · esc leave it",
-        items: item.options.map((o, k) => ({ id: String(k), label: `${k + 1}. ${o}` })),
+        // A model that numbered its own options ("1. JSON") showed "1. 1. JSON".
+        items: item.options.map((o, k) => ({ id: String(k), label: `${k + 1}. ${o.replace(/^\s*\d+[.)]\s+/, "")}` })),
         typeRow: { placeholder: "Type your own answer…", onSubmit: (v) => next(v) },
         onChoose: (choice) => next(item.options![Number(choice.id)]!),
         actions: Object.fromEntries(item.options.slice(0, 9).map((o, k) => [String(k + 1), () => next(o)])),
