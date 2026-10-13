@@ -53,7 +53,7 @@ describe("automation approval card", () => {
     renderWithOps([base]);
     expect(screen.getByText(/Create automation/i)).toBeTruthy();
     expect(screen.getByText(/Runs on its own/i)).toBeTruthy();
-    expect(screen.getByText(/Tells the AI when it finishes/i)).toBeTruthy();
+    expect(screen.getByText(/Atlarix reads them with your next message in this folder/i)).toBeTruthy();
   });
 
   it("says explicitly when the AI will NOT be woken, and why that matters", () => {
@@ -92,6 +92,6 @@ describe("automation approval card", () => {
   it("does not offer run-mode reassurances when deleting", () => {
     renderWithOps([{ ...base, id: "op-6", automationAction: "delete" }]);
     expect(screen.getByText(/Delete automation/i)).toBeTruthy();
-    expect(screen.queryByText(/Tells the AI when it finishes/i)).toBeNull();
+    expect(screen.queryByText(/Atlarix reads them with your next message in this folder/i)).toBeNull();
   });
 });
