@@ -107,6 +107,7 @@ export function setBusy(b: boolean): void {
   sendBtn.dataset.state = b ? "busy" : "idle";
   input.placeholder = b ? "Steer it (Enter) · Tab queues for after" : editing ? "Edit your message…" : "Ask Atlarix to build, fix or explain…";
   if (!b) showPending([]);
+  workingNote = null;
   if (b) {
     workingSince = Date.now();
     workingTitle = "Thinking";
@@ -116,6 +117,22 @@ export function setBusy(b: boolean): void {
     workingTimer = null;
   }
   renderWorking();
+}
+
+/** Shown instead of the step title while set ("Couldn't connect, retrying in 2s (1/3)…"). */
+let workingNote: string | null = null;
+
+export function setWorkingNote(note: string | null): void {
+  workingNote = note;
+  renderWorking();
+}
+
+/** A stopped turn's text the agent never got: back in the box, ahead of anything typed since. */
+export function restoreUnsent(text: string): void {
+  const now = input.value.trim();
+  input.value = now ? `${text}\n${now}` : text;
+  input.dispatchEvent(new Event("input"));
+  input.focus();
 }
 
 /** What Atlarix is doing now, from the step in progress. */
@@ -131,7 +148,7 @@ function renderWorking(): void {
   const secs = Math.floor((Date.now() - workingSince) / 1000);
   const spin = el("span", "spinner");
   spin.setAttribute("aria-hidden", "true");
-  working.append(spin, el("span", "working__title", workingTitle), el("span", "grow"), el("span", "muted mono", `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`));
+  working.append(spin, el("span", "working__title", workingNote ?? workingTitle), el("span", "grow"), el("span", "muted mono", `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`));
 }
 
 function renderOptions(): void {

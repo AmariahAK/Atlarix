@@ -60,6 +60,8 @@ export interface SessionState {
   busy: boolean;
   /** "Thinking…", "Running command…" — what the agent says it is doing. */
   phase: string | null;
+  /** "Couldn't connect, retrying in 2s (1/3)…" while a request is retried, else null. */
+  retrying: string | null;
   turnStartedAt: number | null;
   approvals: PendingApproval[];
   pending: QueuedMessage[];
@@ -328,6 +330,7 @@ export class AgentSession extends EventEmitter {
       cells: [],
       busy: false,
       phase: null,
+      retrying: null,
       turnStartedAt: null,
       approvals: [],
       pending: [],
@@ -398,6 +401,7 @@ export class AgentSession extends EventEmitter {
       lastError: null,
       busy: false,
       phase: null,
+      retrying: null,
       contextPercent: null,
       contextUsed: null,
       contextLimit: null,
@@ -1125,6 +1129,7 @@ export class AgentSession extends EventEmitter {
     this.update({
       busy: true,
       phase: "Thinking…",
+      retrying: null,
       turnStartedAt: Date.now(),
       tokensThisTurn: null,
       lastError: null,
@@ -1502,6 +1507,7 @@ export class AgentSession extends EventEmitter {
         this.addApproval(p);
         return;
       case "chat:response:chunk": {
+        if (this.state.retrying) this.update({ retrying: null });
         if (p.type === "permission-request") {
           this.addApproval(p);
           return;
@@ -1568,7 +1574,11 @@ export class AgentSession extends EventEmitter {
         }
         return;
       case "chat:stream:phase":
-        this.update({ phase: typeof p.label === "string" ? p.label : null });
+        this.update({
+          phase: typeof p.label === "string" ? p.label : null,
+          // Shown in place of "Thinking…" until the next try gets anywhere (QA).
+          retrying: p.retry === true && typeof p.label === "string" ? p.label : null,
+        });
         return;
       case "chat:token-usage": {
         // A step's REAL usage carries inputTokens (the whole prompt it sent), which
@@ -1814,6 +1824,7 @@ export class AgentSession extends EventEmitter {
       pending: [...this.queue],
       busy: false,
       phase: null,
+      retrying: null,
       turnStartedAt: null,
       cells: this.cellsFor(false),
       lastError: wasInterrupted ? null : this.state.lastError,
@@ -1838,9 +1849,19 @@ export class AgentSession extends EventEmitter {
       }
     }
     if (wasInterrupted) {
-      // A stopped turn opens nothing: steers typed during it are dropped with it.
-      await Promise.resolve((await handler("chat:interject-flush"))({}, this.chatId)).catch(() => {});
+      // A stopped turn opens nothing. What you typed into it that the agent never
+      // got (no step came: a stop during a retry) goes back to your input box,
+      // never away (QA: it was dropped; Claude Code puts it back).
+      const flushed = (await Promise.resolve((await handler("chat:interject-flush"))({}, this.chatId)).catch(() => null)) as {
+        text?: string | null;
+      } | null;
       this.syncPending();
+      // Everything typed into this turn that never showed up as a message: still
+      // waiting, or taken by an attempt that failed before the stop.
+      const back = this.steerTexts.filter(Boolean);
+      this.steerTexts = [];
+      const text = back.length ? back.join("\n") : flushed?.text?.trim();
+      if (text) this.emit("unsent", text);
       return;
     }
     // A steer that never reached a step (the model stopped first) opens the next

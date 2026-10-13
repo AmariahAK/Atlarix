@@ -58,6 +58,10 @@ export interface SessionListener {
   backgroundReady?(): void;
   /** Messages sent while the turn runs changed. */
   pendingChanged?(items: Array<{ id: string; text: string; kind: string }>): void;
+  /** What the working line says instead of "Thinking" ("Couldn't connect, retrying…"), or null. */
+  workingChanged?(title: string | null): void;
+  /** Text you typed into a turn you stopped that the agent never got: back to the input. */
+  unsent?(text: string): void;
   /** An automation finished a run. */
   automationRun?(run: { name: string; status: string; summary: string | null }): void;
 }
@@ -139,6 +143,20 @@ export class AtlarixConnection {
         (p) => p as { sessionId: string; count?: number },
         (ctx) => {
           this.listeners.get(ctx.params.sessionId)?.tasksChanged?.(Number(ctx.params.count ?? 0));
+        },
+      )
+      .onNotification(
+        "_atlarix/working",
+        (p) => p as { sessionId: string; title?: string | null },
+        (ctx) => {
+          this.listeners.get(ctx.params.sessionId)?.workingChanged?.(ctx.params.title ?? null);
+        },
+      )
+      .onNotification(
+        "_atlarix/unsent",
+        (p) => p as { sessionId: string; text?: string },
+        (ctx) => {
+          if (ctx.params.text) this.listeners.get(ctx.params.sessionId)?.unsent?.(ctx.params.text);
         },
       )
       .onNotification(

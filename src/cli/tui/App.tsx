@@ -535,9 +535,16 @@ export function App({
       flash(`● Automation “${run.automationName ?? "automation"}” · ${what}  (/automations)`, 10_000);
     };
     session.on("automation", onAutomation);
+    // A stopped turn hands back what you typed into it that the agent never got.
+    const onUnsent = (text: string) => {
+      const now = composer.current?.text().trim() ?? "";
+      composer.current?.setText(now ? `${text}\n${now}` : text);
+    };
+    session.on("unsent", onUnsent);
     return () => {
       session.off("change", on);
       session.off("automation", onAutomation);
+      session.off("unsent", onUnsent);
     };
   }, [session]);
 

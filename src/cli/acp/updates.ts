@@ -258,6 +258,10 @@ export function diffUpdates(cells: readonly Cell[], emitted: Emitted, opts: { re
         });
         continue;
       }
+      // A turn's error kept in the CLI transcript once the next turn starts
+      // (session.ts turnNotices): the editor showed it when that turn failed.
+      // Sent again it landed in the NEXT turn, beside its "Interrupted" (QA).
+      if (c.id.includes(":turn-notice")) continue;
       if (c.level === "error") {
         out.push({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `\n\n${c.text}` } });
       }

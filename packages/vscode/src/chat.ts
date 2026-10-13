@@ -285,6 +285,8 @@ export class Chat {
         tasksChanged: (count) => this.post({ type: "tasks-changed", count }),
         automationRun: (run) => this.post({ type: "automation-run", ...run }),
         pendingChanged: (items) => this.post({ type: "pending", items }),
+        workingChanged: (title) => this.post({ type: "working", title }),
+        unsent: (text) => this.post({ type: "unsent", text }),
         backgroundReady: () => this.onBackgroundReady(),
       };
       this.listener = listener;

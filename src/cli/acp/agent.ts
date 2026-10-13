@@ -83,6 +83,7 @@ class Thread {
   private lastMode: WorkMode;
   private planSent = "";
   private pendingSent = "";
+  private retryingSent: string | null = null;
   /** Going back to an earlier message: the editor cleared its view, so send the whole transcript again. */
   private replayAll = false;
 
@@ -101,6 +102,10 @@ class Thread {
     session.on("background-ready", () => this.onBackgroundReady());
     session.on("tasks-changed", () => this.checkTasks());
     session.on("automation", (run: Record<string, unknown>) => this.onAutomationRun(run));
+    // A stopped turn's unsent text goes back to the editor's input box.
+    session.on("unsent", (text: string) => {
+      if (this.extras()) void this.client().notify("_atlarix/unsent", { sessionId: this.id, text }).catch(() => {});
+    });
   }
 
   /** An automation finished a run: Atlarix's extension says so, as the CLI flashes a line. */
@@ -229,6 +234,11 @@ class Thread {
       this.lastMode = s.mode;
       void this.send({ sessionUpdate: "current_mode_update", currentModeId: s.mode });
       void this.options().then((configOptions) => this.send({ sessionUpdate: "config_option_update", configOptions }));
+    }
+    if ((s.retrying ?? null) !== this.retryingSent && this.extras()) {
+      // "Couldn't connect, retrying…" in the editor's working line (QA).
+      this.retryingSent = s.retrying ?? null;
+      void this.client().notify("_atlarix/working", { sessionId: this.id, title: s.retrying ?? null }).catch(() => {});
     }
     const pendingSig = s.pending.map((x) => `${x.kind}:${x.id}`).join(",");
     if (pendingSig !== this.pendingSent && this.extras()) {

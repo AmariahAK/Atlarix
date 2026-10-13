@@ -658,7 +658,15 @@ export async function simpleStreamText(
        * would be a category error — and suppressing it on a wake turn
        * would silently swallow the user's own words.
        */
-      const interjections = takePendingUserInterjections(req.chatId);
+      // Ones a failed attempt already took (and showed) come first, unsaved again.
+      const carriedInterjections = ctx.carriedInterjections;
+      ctx.carriedInterjections = null;
+      const freshInterjections = takePendingUserInterjections(req.chatId);
+      const interjections =
+        carriedInterjections || freshInterjections
+          ? [...(carriedInterjections ?? []), ...(freshInterjections ?? [])]
+          : null;
+      ctx.deliveredInterjections = interjections;
       if (correction) {
         logger.log(
           `[repetition] injecting mid-round correction (chat ${req.chatId})`,
@@ -734,7 +742,7 @@ export async function simpleStreamText(
         tag: systemReminder,
       });
       const stepMessages = assembled.messages as typeof messages;
-      if (interjections?.length) {
+      if (freshInterjections?.length) {
         // Transcript + durable persistence. Fire-and-forget: the words
         // are already in `stepMessages`, so a slow session write must
         // never delay the dispatch.
@@ -743,7 +751,7 @@ export async function simpleStreamText(
           streamId,
           event,
           placeholderMessageId: Number(placeholderAssistantMessage?.id),
-          interjections,
+          interjections: freshInterjections,
         });
       }
       // v13.3: per-step breakpoint advancement — without it, every

@@ -37,9 +37,10 @@ const GERUND: Record<string, string> = {
 };
 
 /** What the working line says: from what is happening, never internal phase names. */
-export function activityLabel(state: Pick<SessionState, "cells" | "approvals" | "busy">): string | null {
+export function activityLabel(state: Pick<SessionState, "cells" | "approvals" | "busy"> & { retrying?: string | null }): string | null {
   if (!state.busy) return null;
   if (state.approvals.length) return "Waiting for you";
+  if (state.retrying) return state.retrying;
   const last = state.cells.at(-1);
   if (last?.kind === "tool" && last.tool.status === "running") {
     const verb = GERUND[last.tool.verb] ?? last.tool.verb;

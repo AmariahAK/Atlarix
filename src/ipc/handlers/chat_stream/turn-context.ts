@@ -15,6 +15,7 @@
  * (Satellite: never imports the parent handler.)
  */
 
+import type { UserInterjection } from "@/lib/agent/user-interjections";
 import type { ModelMessage } from "ai";
 
 export interface StreamTurnContext {
@@ -53,6 +54,15 @@ export interface StreamTurnContext {
   /** Take-once empty-output nudge: the retry wrapper sets it, simpleStreamText's
    * prepareStep reads-and-clears it (shared across those two extracted fns). */
   pendingEmptyOutputNudge: string | null;
+  /**
+   * Mid-turn messages the latest step took, and those a retry must hand to the
+   * next attempt. A request that failed (no connection) took them and was
+   * retried without them: the model never saw what you said (QA). Same split:
+   * prepareStep sets `delivered` and reads `carried`; round-retry moves one to
+   * the other when it retries.
+   */
+  deliveredInterjections: UserInterjection[] | null;
+  carriedInterjections: UserInterjection[] | null;
   /**
    * Sticky for the rest of the turn once a provider rejects a forced tool_choice
    * (same set/read split as `pendingEmptyOutputNudge`: round-retry sets it,
@@ -93,6 +103,8 @@ export function createStreamTurnContext(): StreamTurnContext {
     stopAgentOrchestrator: undefined,
     lastToolInputPhaseLabel: "",
     pendingEmptyOutputNudge: null,
+    deliveredInterjections: null,
+    carriedInterjections: null,
     forcedToolChoiceRejected: false,
     delegatedAgentsThisTurn: [],
     delegationsStartedThisTurn: 0,

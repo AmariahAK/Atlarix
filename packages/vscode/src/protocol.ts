@@ -125,6 +125,8 @@ export type HostMessage =
   | { type: "tasks-changed"; count: number }
   /** Messages sent while the turn runs, still waiting (steers, queued). */
   | { type: "pending"; items: Array<{ id: string; text: string; kind: string }> }
+  | { type: "working"; title: string | null }
+  | { type: "unsent"; text: string }
   /** An automation finished a run (in this editor, the CLI or the app). */
   | { type: "automation-run"; name: string; status: string; summary: string | null };
 

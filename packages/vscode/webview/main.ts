@@ -304,6 +304,10 @@ onHost((m: HostMessage) => {
       return;
     case "pending":
       return C.showPending(m.items);
+    case "working":
+      return C.setWorkingNote(m.title ?? null);
+    case "unsent":
+      return C.restoreUnsent(m.text);
     case "turn-end":
       C.setBusy(false);
       T.endTurn(m.stopReason === "cancelled");

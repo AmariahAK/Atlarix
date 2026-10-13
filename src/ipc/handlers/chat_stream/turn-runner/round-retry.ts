@@ -337,6 +337,8 @@ export async function runStreamRoundWithEmptyOutputRetry(
           level: "warning",
         });
         fullResponse = initialFullResponse;
+        ctx.carriedInterjections = ctx.deliveredInterjections;
+        ctx.deliveredInterjections = null;
         // #12: don't just re-run the identical round — tell the model to
         // ACT. Reasoning models sometimes emit only reasoning; a targeted
         // nudge (injected into the retry's step 0 via prepareStep) turns a
@@ -398,10 +400,14 @@ export async function runStreamRoundWithEmptyOutputRetry(
         safeSend(event.sender, "chat:stream:phase", {
           chatId: params.chatId,
           phase: "thinking",
+          retry: true,
           label: `Couldn't connect, retrying in ${Math.max(1, Math.round(delay / 1000))}s (${networkAttempt}/${RECONNECT_DELAYS_MS.length})…`,
         });
         fullResponse = initialFullResponse;
         partialResponses.delete(params.chatId);
+        // What you said mid-turn that this failed attempt took goes to the next.
+        ctx.carriedInterjections = ctx.deliveredInterjections;
+        ctx.deliveredInterjections = null;
         await new Promise((r) => setTimeout(r, delay));
         if (params.abortController.signal.aborted) throw err;
         continue;
