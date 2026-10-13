@@ -738,6 +738,25 @@ export class IpcClient {
       }
     });
 
+    // Silent network retries ran out (network-retry.ts). Main sends only this,
+    // so with no listener the turn stayed "streaming" for good. End it as an
+    // error that says what happened; the partial reply stays on screen.
+    this.ipcRenderer.on("chat:stream:disconnected", (payload) => {
+      const p = payload as { chatId?: number; detail?: string } | null;
+      if (!p || typeof p.chatId !== "number") return;
+      const chatId = p.chatId;
+      this.streamMessages.delete(chatId);
+      this.streamPhaseHandlers.forEach((h) =>
+        h({ chatId, phase: "done", label: "" }),
+      );
+      const callbacks = this.chatStreams.get(chatId);
+      if (!callbacks) return;
+      callbacks.onError(
+        `Lost the connection to the provider${p.detail ? ` (${p.detail})` : ""}. Try again.`,
+      );
+      this.chatStreams.delete(chatId);
+    });
+
     // MCP tool consent request from main
     this.ipcRenderer.on("mcp:tool-consent-request", (payload) => {
       const handler = this.mcpConsentHandlers.get("consent");
