@@ -1585,7 +1585,7 @@ export function App({
         </box>
       ) : null}
 
-      {approval ? <Approval approval={approval} selected={approvalIndex} expanded={approvalExpanded} /> : null}
+      {approval ? <Approval approval={approval} selected={approvalIndex} expanded={approvalExpanded} workspace={session.workspaceDir} /> : null}
 
       {/* The agent's questions stay next to the conversation they're about. */}
       {topView && !approval && topView.kind === "list" && topView.asking ? <DialogPanel view={topView} height={height} /> : null}

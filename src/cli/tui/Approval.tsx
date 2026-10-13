@@ -6,7 +6,7 @@
  */
 import { approvalDiff } from "../agent/approval-diff";
 import type { PendingApproval } from "../agent/session";
-import { approvalChoices, approvalTitle, firstPreview, type ApprovalChoice, automationDetails } from "../agent/approval-choices";
+import { approvalChoices, approvalTitle, firstPreview, type ApprovalChoice, automationDetails, outsideWorkspace } from "../agent/approval-choices";
 export { approvalChoices, approvalTitle, type ApprovalChoice } from "../agent/approval-choices";
 import { useDiffSegments } from "./diff-highlight";
 import { color } from "./theme";
@@ -30,7 +30,7 @@ export function splitDiffLine(l: { kind: string; text: string }): { prefix: stri
   return m ? { prefix: m[0], code: l.text.slice(m[0].length) } : { prefix: "", code: l.text };
 }
 
-export function Approval({ approval, selected, expanded = false }: { approval: PendingApproval; selected: number; expanded?: boolean }) {
+export function Approval({ approval, selected, expanded = false, workspace }: { approval: PendingApproval; selected: number; expanded?: boolean; workspace?: string }) {
   const p = firstPreview(approval);
   const choices = approvalChoices(approval);
   const shown = p.command ?? p.path ?? p.deniedPath ?? "";
@@ -43,7 +43,8 @@ export function Approval({ approval, selected, expanded = false }: { approval: P
   // Amber is for warnings: a risky command, a write outside the sandbox, a
   // change outside the project. A routine approval is the accent, as in the
   // editor's card (owner's palette, 2026-10-13; QA E7).
-  const risky = !!(p.isDangerous || p.deniedPath || p.systemScope);
+  const outside = !p.command && outsideWorkspace(p.path, workspace);
+  const risky = !!(p.isDangerous || p.deniedPath || p.systemScope || outside);
   const tone = risky ? color.warn : color.accent;
   const toneBg = risky ? color.warnBg : color.accentBg;
   return (
@@ -57,6 +58,7 @@ export function Approval({ approval, selected, expanded = false }: { approval: P
         </box>
       ) : null}
       {p.description ? <text fg={color.textDim}>{p.description.replace(/`/g, "")}</text> : null}
+      {outside ? <text fg={color.warn}>{`It's outside this project (${workspace}).`}</text> : null}
       {automationDetails(approval).length ? (
         // One block: the card's gap between every line made it read as a list of separate notes.
         <box flexDirection="column">

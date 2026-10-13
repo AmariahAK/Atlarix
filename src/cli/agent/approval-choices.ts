@@ -66,7 +66,7 @@ export function approvalChoices(a: PendingApproval): ApprovalChoice[] {
       choices.push({ label: "Yes, and allow edits to this file from now on", mode: "always_allow_file" });
     }
     if (p.canAlwaysAllowDirectory !== false && p.fileParentDir) {
-      choices.push({ label: `Yes, and allow edits in ${p.fileParentDir}/ from now on`, mode: "always_allow_directory" });
+      choices.push({ label: `Yes, and allow edits in ${nativeDir(p.fileParentDir)} from now on`, mode: "always_allow_directory" });
     }
   }
   choices.push({ label: "No — tell Atlarix what to do instead", mode: "deny" });
@@ -126,5 +126,32 @@ function clockOf(cron: string): string | null {
   const time = `${((h + 11) % 12) + 1}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
   const days: Record<string, string> = { "*": "every day", "1-5": "Mon–Fri", "0,6": "weekends", "6,0": "weekends", "1": "Mondays", "0": "Sundays", "5": "Fridays" };
   return `${time}, ${days[f[4]!] ?? `weekdays ${f[4]}`}`;
+}
+
+/** A folder as its own system writes it, with its separator at the end: "C:\Users\Public\", "src/" (QA, Windows). */
+export function nativeDir(dir: string): string {
+  const win = /^[A-Za-z]:[\\/]|^\\\\/.test(dir);
+  const d = win ? dir.replace(/\//g, "\\") : dir;
+  const sep = win ? "\\" : "/";
+  return d.endsWith(sep) ? d : d + sep;
+}
+
+/**
+ * Whether an edit's file is outside the open project: the card says so, in
+ * the warning colour (QA, Windows: a write to C:\Users\Public read as
+ * routine). Windows paths compare without case and either separator.
+ */
+export function outsideWorkspace(file: string | undefined, workspace: string | undefined): boolean {
+  if (!file || !workspace) return false;
+  const abs = /^([A-Za-z]:[\\/]|\\\\|\/)/.test(file);
+  if (!abs) return false;
+  const win = /^[A-Za-z]:/.test(file) || /^[A-Za-z]:/.test(workspace);
+  const norm = (x: string) => {
+    const n = x.replace(/\\/g, "/").replace(/\/+$/, "");
+    return win ? n.toLowerCase() : n;
+  };
+  const f = norm(file);
+  const w = norm(workspace);
+  return f !== w && !f.startsWith(w + "/");
 }
 

@@ -347,7 +347,11 @@ function summarize(toolName: string, r: { text: string; exitCode?: number; faile
     let said = first;
     if (failedRun) {
       const err = lines.indexOf("=== STDERR ===");
-      const tail = (err >= 0 ? lines.slice(err + 1) : lines).filter((l) => l && !SECTION.test(l));
+      // PowerShell's error trailer ("+ CategoryInfo …", "+ FullyQualifiedErrorId
+      // …", "At line:1 char:1", "~~~") is not the reason: its first line is
+      // ("npx : The term 'npx' is not recognized…", QA, Windows).
+      const PS_NOISE = /^(\+ |At line:\d|At [A-Za-z]:\\|~+$)/;
+      const tail = (err >= 0 ? lines.slice(err + 1) : lines).filter((l) => l && !SECTION.test(l) && !PS_NOISE.test(l));
       said = tail.at(-1) ?? first;
     }
     return [said ?? (r.exitCode === 0 ? "(no output)" : ""), exit].filter(Boolean).join(" · ") || undefined;

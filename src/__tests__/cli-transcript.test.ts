@@ -305,6 +305,13 @@ describe("rows a person reads", () => {
     expect(ok.output).toBe("bun test v1.4.2\n1 pass");
     const bad = tool("run_command", { command: "bun run typecheck" }, JSON.stringify({ success: false, exitCode: 127, output: "=== STDOUT ===\n$ tsgo -b\n=== STDERR ===\ntsgo: command not found\n" }));
     expect(bad.summary).toBe("tsgo: command not found · exit 127");
+    // PowerShell's trailer is not the reason; its first line is (QA, Windows).
+    const ps = tool("run_command", { command: "npx --no-install tsc" }, JSON.stringify({
+      success: false,
+      exitCode: 1,
+      output: "=== STDERR ===\nnpx : The term 'npx' is not recognized as the name of a cmdlet, function, script file, or operable program.\nAt line:1 char:1\n+ npx --no-install tsc\n+ ~~~\n    + CategoryInfo          : ObjectNotFound: (npx:String) [], CommandNotFoundException\n    + FullyQualifiedErrorId : CommandNotFoundException\n",
+    }));
+    expect(ps.summary).toBe("npx : The term 'npx' is not recognized as the name of a cmdlet, function, script file, or operable program. · exit 1");
   });
 
   it("a find with no matches says so, not the hint for the model", () => {

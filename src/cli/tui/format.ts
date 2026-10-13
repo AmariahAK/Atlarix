@@ -6,17 +6,20 @@ import type { SessionState } from "../agent/session";
 
 /** `~` for home, then cut from the middle so the folder's own name survives: `~/…/p2/ws`. */
 export function abbreviatePath(p: string, max: number, home = os.homedir()): string {
-  let s = p === home || p.startsWith(home + "/") ? "~" + p.slice(home.length) : p;
+  // Windows paths keep their own separator: "C:\Users\…\ws one", not a mix of
+  // "\" and "/" with a stray "/…/" (QA, Windows VM).
+  const sep = /^[A-Za-z]:\\|^\\\\/.test(p) || (p.includes("\\") && !p.includes("/")) ? "\\" : "/";
+  let s = p === home || p.startsWith(home + sep) ? "~" + p.slice(home.length) : p;
   if (s.length <= max) return s;
-  const parts = s.split("/");
-  const head = parts[0] === "" ? "/" : parts[0] + "/";
+  const parts = s.split(sep);
+  const head = parts[0] === "" ? sep : parts[0] + sep;
   const tail: string[] = [];
   for (let i = parts.length - 1; i > 0; i--) {
-    const next = [parts[i], ...tail].join("/");
+    const next = [parts[i], ...tail].join(sep);
     if (head.length + 2 + next.length > max && tail.length > 0) break;
     tail.unshift(parts[i]!);
   }
-  s = `${head}…/${tail.join("/")}`;
+  s = `${head}…${sep}${tail.join(sep)}`;
   return s.length <= max ? s : "…" + s.slice(s.length - max + 1);
 }
 
