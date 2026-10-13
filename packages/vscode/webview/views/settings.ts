@@ -253,7 +253,9 @@ async function renderApprove(body: HTMLElement): Promise<void> {
     if (control) row.append(control);
     card.append(row);
   };
-  line("Read files in this folder", "Always; never outside it without asking", status("works", "Always"));
+  // What actually happens (QA: it read /etc/hosts without asking, as designed:
+  // reading is open everywhere, as in the app; changing files outside asks).
+  line("Read files", "Always, in this folder and elsewhere; changing anything outside it asks first", status("works", "Always"));
   line(
     "Edit files in this folder without asking",
     r.folderEdits ? "Edits apply as they're made; deletes and renames still ask" : "Off: every edit shows its diff first",

@@ -88,7 +88,11 @@ export async function renderHistory(page: HTMLElement, nav: Nav): Promise<void> 
     let shown = rows.filter((r) => (scope !== "starred" || r.starred) && (!q || (r.title ?? "untitled").toLowerCase().includes(q)));
     shown = [...shown].sort((a, b) => (sort === "newest" ? 1 : -1) * (new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()));
     if (!rows.length) return void list.append(el("div", "empty-note", scope === "all" ? "No chats yet." : "No past chats in this folder yet."));
-    if (!shown.length) return void list.append(el("div", "empty-note", scope === "starred" ? "Star a chat to keep it here." : "No chat matches."));
+    if (!shown.length) {
+      // With a search, say nothing matched it, even among starred chats (QA).
+      const none = q ? `No chat matches “${query.trim()}”.` : scope === "starred" ? "Star a chat to keep it here." : "No chat matches.";
+      return void list.append(el("div", "empty-note", none));
+    }
     let group = "";
     for (const r of shown) {
       const g = dayGroup(r.updatedAt);

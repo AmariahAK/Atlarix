@@ -1558,10 +1558,11 @@ body.needs-you .needs-badge {
 }
 .tabs {
   display: flex;
+  /* Wrap in a narrow sidebar: scrolled, "General" was out of sight with no hint (QA). */
+  flex-wrap: wrap;
   gap: 2px;
   padding: 0 10px;
   border-bottom: 1px solid var(--border);
-  overflow-x: auto;
   flex: none;
 }
 .tab {
@@ -1824,7 +1825,14 @@ body.needs-you .needs-badge {
 .history__filters {
   display: flex;
   align-items: center;
+  /* Narrow sidebar: chips and the sort wrap whole, never cut ("Newes", QA). */
+  flex-wrap: wrap;
   gap: 6px;
+}
+.history__filters .filter,
+.history__filters .select-sm {
+  flex: none;
+  white-space: nowrap;
 }
 .filter {
   background: none;
