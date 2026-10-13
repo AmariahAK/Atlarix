@@ -157,6 +157,8 @@ export interface CliServices {
   };
   account: {
     email(): Promise<string | null>;
+    /** Your name, picture (a data: URL) and how you signed in, from GitHub or Google; nulls when unknown. */
+    profile?(): Promise<{ name: string | null; avatar: string | null; provider: string | null }>;
     /** Spendable balance in cents; null when signed out or unknown. */
     balanceCents(): Promise<number | null>;
     /** The header's plan label. Optional so test fakes need not answer it. */
@@ -510,6 +512,10 @@ export const realServices: CliServices = {
     async email() {
       const { currentEmail } = await import("../auth/account");
       return currentEmail();
+    },
+    async profile() {
+      const { currentProfile } = await import("../auth/account");
+      return currentProfile();
     },
     async checkout(kind, amountCents) {
       const { checkoutUrl } = await import("@/lib/lemonsqueezy");

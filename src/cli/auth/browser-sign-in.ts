@@ -16,6 +16,7 @@
 import crypto from "node:crypto";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
+import { rixSvg } from "@/lib/rix/rix-svg";
 
 export const SIGN_IN_PAGE = "https://atlarix.dev/auth/app";
 
@@ -31,17 +32,68 @@ export interface BrowserSignInOptions {
   acceptSession: (t: Tokens) => Promise<string>;
   signInPage?: string;
   timeoutMs?: number;
+  /** Where the user goes back to, for the browser's page: "the terminal" (default), "your editor". */
+  returnTo?: string;
 }
 
-const CALLBACK_PAGE = `<!doctype html><meta charset="utf-8"><title>Atlarix CLI</title>
-<body style="font-family:ui-monospace,monospace;background:#0a0e0d;color:#cfe8dd;padding:3rem">
-<p id="m">Finishing sign-in…</p>
+/**
+ * The page the browser lands on: Rix, then what happened, in Atlarix's own
+ * colours. It said one plain line ("Signed in as … return to the terminal"),
+ * the terminal even when the editor asked (owner). `returnTo` names where to go.
+ */
+export function callbackPage(returnTo: string): string {
+  const rix = rixSvg({ state: "working", size: "120px", label: "", id: "rix", detail: "mid" });
+  const where = returnTo.replace(/[<>&"]/g, "");
+  return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Atlarix · Signing in</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0a0e0d; color: #cfe8dd;
+    font: 15px/1.5 "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .card { width: min(440px, calc(100vw - 32px)); padding: 32px 28px 26px; text-align: center; background: #111715;
+    border: 1px solid #35413b; border-radius: 16px; box-shadow: 0 0 60px rgba(61, 220, 151, 0.08); }
+  .rix { display: block; margin: 0 auto 10px; }
+  h1 { margin: 0 0 6px; font-size: 20px; font-weight: 650; color: #e8f5ee; display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .who { margin: 0 0 14px; color: #7dbbe8; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 14px; word-break: break-all; }
+  .next { margin: 0; color: #7c948a; font-size: 14px; }
+  .mark { display: inline-flex; width: 22px; height: 22px; border-radius: 999px; align-items: center; justify-content: center;
+    flex: none; font-size: 13px; font-weight: 700; }
+  .ok .mark { background: #12271e; color: #3ddc97; border: 1px solid #1f5a42; }
+  .bad h1 { color: #f07c7c; }
+  .bad .mark { background: #2a1618; color: #f07c7c; border: 1px solid #5a2c2e; }
+  .foot { margin-top: 22px; padding-top: 14px; border-top: 1px solid #26302c; color: #6b8077; font-size: 12px; }
+  .foot b { color: #3ddc97; font-weight: 600; }
+</style>
+<main class="card" id="card">
+  ${rix}
+  <h1 id="h">Finishing sign-in…</h1>
+  <p class="who" id="who"></p>
+  <p class="next" id="next">One moment.</p>
+  <div class="foot"><b>Atlarix</b> · this page talks only to Atlarix on this computer (127.0.0.1)</div>
+</main>
 <script>
+const $ = (id) => document.getElementById(id);
+const done = (ok, title, who, next) => {
+  $("card").className = "card " + (ok ? "ok" : "bad");
+  $("h").innerHTML = '<span class="mark">' + (ok ? "&#10003;" : "!") + "</span>";
+  $("h").append(title);
+  $("who").textContent = who || "";
+  $("next").textContent = next;
+  const r = document.querySelector(".rix");
+  if (r) r.setAttribute("class", "rix " + (ok ? "found" : "rest"));
+};
 fetch("/token", { method: "POST", headers: { "content-type": "text/plain" }, body: location.hash.slice(1) })
-  .then((r) => r.text())
-  .then((t) => { document.getElementById("m").textContent = t; history.replaceState(null, "", "/callback"); })
-  .catch(() => { document.getElementById("m").textContent = "Could not reach the Atlarix CLI. Start signing in again."; });
-</script>`;
+  .then(async (r) => {
+    const t = await r.text();
+    history.replaceState(null, "", "/callback");
+    const m = /^Signed in as (.+)$/.exec(t);
+    if (r.ok && m) done(true, "You're signed in", m[1], "Go back to ${where}. You can close this tab.");
+    else done(false, "Sign-in didn't finish", "", t);
+  })
+  .catch(() => done(false, "Couldn't reach Atlarix", "", "Atlarix stopped waiting on this computer. Start signing in again from ${where}."));
+</script></html>`;
+}
 
 function sameSecret(a: string, b: string): boolean {
   const x = Buffer.from(a);
@@ -68,7 +120,7 @@ export async function signInWithBrowser(opts: BrowserSignInOptions): Promise<str
       const url = new URL(req.url ?? "/", `http://127.0.0.1:${port}`);
       if (req.method === "GET" && url.pathname === "/callback") {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
-        res.end(CALLBACK_PAGE);
+        res.end(callbackPage(opts.returnTo ?? "the terminal"));
         return;
       }
       if (req.method === "POST" && url.pathname === "/token") {
@@ -111,7 +163,8 @@ export async function signInWithBrowser(opts: BrowserSignInOptions): Promise<str
       if (!access_token || !refresh_token) return reply(400, "The sign-in came back without a session.");
       try {
         const email = await opts.acceptSession({ access_token, refresh_token });
-        reply(200, `Signed in as ${email}. You can close this tab and return to the terminal.`);
+        // The page reads this exact form (callbackPage).
+        reply(200, `Signed in as ${email}`);
         finish(null, email);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);

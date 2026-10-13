@@ -105,7 +105,8 @@ export function buildAgentApp(
         throw acp.RequestError.invalidParams(undefined, `unknown sign-in method ${ctx.params.methodId}`);
       }
       const { signInCli } = await import("../auth/account");
-      await signInCli((url) => process.stderr.write(`Atlarix sign-in: ${url}\n`));
+      // An editor asked: the browser's page says to go back to it.
+      await signInCli((url) => process.stderr.write(`Atlarix sign-in: ${url}\n`), "your editor");
       return {};
     })
     .onRequest("session/new", (ctx) => agent.newSession(ctx.params.cwd))
@@ -156,11 +157,23 @@ export function buildAgentApp(
         ? await Promise.all([a.kind?.().catch(() => null) ?? null, a.balanceCents().catch(() => null)])
         : ["signed-out", null];
       const usage = ctx.params.sessionId ? agent.sessionInfo(ctx.params.sessionId) : null;
+      const profile = email ? await a.profile?.().catch(() => null) : null;
       // Free Auto's share left today, as the proxy last reported it (a percentage;
       // known only after an Auto request in this process).
       const { latestAutoStatus } = await import("@/main/auto-status");
       const freeAutoLeft = latestAutoStatus()?.freeRemaining ?? null;
-      return { email, kind, balanceCents, usage, freeAutoLeft, manageUrl: "https://www.atlarix.dev/account", pricingUrl: "https://www.atlarix.dev/pricing" };
+      return {
+        email,
+        name: profile?.name ?? null,
+        avatar: profile?.avatar ?? null,
+        provider: profile?.provider ?? null,
+        kind,
+        balanceCents,
+        usage,
+        freeAutoLeft,
+        manageUrl: "https://www.atlarix.dev/account",
+        pricingUrl: "https://www.atlarix.dev/pricing",
+      };
     })
     .onRequest("_atlarix/checkout", (p) => p as { kind: "pro" | "credit"; amountCents?: number }, async (ctx) => {
       const { realServices } = await import("../agent/services");
