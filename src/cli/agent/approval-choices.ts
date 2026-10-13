@@ -113,8 +113,8 @@ export function automationDetails(a: PendingApproval): string[] {
   if (p.triggerSummary) lines.push(`When: ${p.triggerSummary.replace(/`/g, "")}${clock ? ` (${clock})` : ""}`);
   if (p.runMode === "read-only") lines.push(`Each run: Atlarix runs a read-only task${p.input?.prompt ? `: “${p.input.prompt.trim()}”` : ""}`);
   else if (p.runMode) lines.push("Each run: just tells you it fired (no model, no tokens)");
-  // Into the next turn in this folder, never waking a chat on its own (automation-results.ts).
-  if (p.notifyAgent != null) lines.push(p.notifyAgent ? "Results: to you, and Atlarix reads them with your next message in this folder" : "Results: to you only");
+  // A fresh result wakes a chat in this folder (agent-delivery.ts).
+  if (p.notifyAgent != null) lines.push(p.notifyAgent ? "Results: to you, and Atlarix wakes up with them to act" : "Results: to you only");
   if (p.grantsMcpConsent) lines.push(`It calls ${p.grantsMcpConsent} on its own, without asking each time.`);
   return lines;
 }

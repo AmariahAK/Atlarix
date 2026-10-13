@@ -619,7 +619,7 @@ export function openAutomationForm(ctx: ScreenContext, existing: AutomationSumma
       footer: "↑↓ move · enter choose · esc cancel",
       items: [
         { id: "user", label: "Just me", detail: "the run list and a line here; costs no tokens in chat" },
-        { id: "agent", label: "Me and the agent", detail: "Atlarix reads the result with your next message here (tests, CI)" },
+        { id: "agent", label: "Me and the agent", detail: "Atlarix wakes up with the result to act on it (tests, CI)" },
       ],
       onChoose: (i) => {
         draft.notifyAgent = i.id === "agent";

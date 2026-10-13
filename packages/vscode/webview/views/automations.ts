@@ -139,7 +139,7 @@ export async function renderAutomations(page: HTMLElement, nav: Nav, onSeen: () 
             : "Just tells you when it fires (no model, no tokens).";
         more.append(
           el("div", "small", what),
-          el("div", "muted small", a.notifyAgent ? "Results go to you, and Atlarix reads them with your next message in this folder." : "Results go to you only."),
+          el("div", "muted small", a.notifyAgent ? "Results go to you, and Atlarix wakes up with them to act." : "Results go to you only."),
         );
         if (mine.length) {
           const r = el("div", "auto-runs");
@@ -271,7 +271,7 @@ export async function renderAutomations(page: HTMLElement, nav: Nav, onSeen: () 
     const who = select(
       [
         ["user", "Just me (costs no tokens in chat)"],
-        ["agent", "Me and Atlarix (it reads the result with my next message here: tests, CI)"],
+        ["agent", "Me and Atlarix (it wakes up with the result to act: tests, CI)"],
       ],
       draft.notifyAgent ? "agent" : "user",
     );
