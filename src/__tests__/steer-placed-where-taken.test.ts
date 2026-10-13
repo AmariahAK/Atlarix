@@ -30,3 +30,30 @@ describe("a steer in a finished reply", () => {
     expect(woven.tail).toEqual([]);
   });
 });
+
+// QA #4 on build H: with one anchored step (the turn's run_command went to the
+// background, so only "Checked background jobs" has a twin), the steer fell to
+// the tail, after the answer.
+describe("a steer with only one step to anchor to", () => {
+  const parts: AssistantMessagePart[] = [
+    { type: "thought", content: "…" },
+    tool("background_jobs_0", "background_jobs"),
+    { type: "markdown", content: "All 7 tests passed." },
+  ];
+  const anchors: StreamThreadItem[] = [
+    { kind: "tool", id: "bj", toolName: "background_jobs", summary: "", status: "done", ts: 500 },
+  ];
+  it("goes before that step when it came first", () => {
+    const steer: StreamThreadItem = { kind: "interjection", id: "interj-r2", text: "Also list failing tests.", rowKey: "r2", ts: 400 };
+    const woven = weaveIpcItemsIntoParts({ before: parts, after: [], items: [steer], anchorsFrom: [...anchors, steer] });
+    const kinds = woven.before.map((e) => (e.type === "part" ? e.part.type : e.item.kind));
+    expect(kinds).toEqual(["thought", "interjection", "tool", "markdown"]);
+    expect(woven.tail).toEqual([]);
+  });
+  it("goes right after it when it came later", () => {
+    const steer: StreamThreadItem = { kind: "interjection", id: "interj-r3", text: "Thanks.", rowKey: "r3", ts: 600 };
+    const woven = weaveIpcItemsIntoParts({ before: parts, after: [], items: [steer], anchorsFrom: [...anchors, steer] });
+    const kinds = woven.before.map((e) => (e.type === "part" ? e.part.type : e.item.kind));
+    expect(kinds).toEqual(["thought", "tool", "interjection", "markdown"]);
+  });
+});

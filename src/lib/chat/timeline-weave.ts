@@ -92,6 +92,25 @@ export function weaveIpcItemsIntoParts(args: {
         }
       }
     }
+    // A steer with fewer than two anchors to bracket it (one step, or it came
+    // before the first or after the last): beside the nearest anchor, not after
+    // the whole answer (QA #4, a turn whose command went to the background).
+    if (!placed && item.kind === "interjection" && anchors.length > 0) {
+      const first = anchors[0]!;
+      const last = anchors[anchors.length - 1]!;
+      const at =
+        item.ts < first.ts
+          ? first.partIndex
+          : item.ts >= last.ts && last.partIndex + 1 < allParts.length
+            ? last.partIndex + 1
+            : -1;
+      if (at >= 0) {
+        const list = insertionsByPartIndex.get(at) ?? [];
+        list.push(item);
+        insertionsByPartIndex.set(at, list);
+        placed = true;
+      }
+    }
     if (!placed) tail.push(item);
   }
 
