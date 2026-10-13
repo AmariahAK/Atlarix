@@ -123,13 +123,8 @@ export function WorkspaceTerminalPermissions() {
         Terminal permissions
       </h2>
       <p className="text-sm text-muted-foreground mb-4">
-        Remember allow or deny decisions for command categories in this
-        workspace (first token of the command, e.g.{" "}
-        <code className="text-xs">git</code> for{" "}
-        <code className="text-xs">git status</code>). Dangerous commands (e.g.
-        force-push) are saved as their own specific rule when you choose “Always
-        allow” inline, and are never auto-approved until you do — you can revoke
-        any rule here.
+        Saved allow and deny rules, by a command&apos;s first word. A dangerous
+        command asks until you allow that exact one.
       </p>
 
       <div className="flex flex-wrap gap-2 mb-4">
@@ -217,9 +212,7 @@ export function WorkspaceTerminalPermissions() {
             Built-in read-only commands
           </h3>
           <p className="text-sm text-muted-foreground mb-3">
-            These read/search commands (and pipelines of them) run without a
-            prompt. Deny any you don’t want auto-running — the OS sandbox still
-            applies either way.
+            These run without asking. Deny any you don&apos;t want.
           </p>
           <div className="flex flex-wrap gap-2">
             {defaults.map((cat) => {
