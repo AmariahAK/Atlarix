@@ -351,6 +351,7 @@ export function AutomationsTab({ appId }: { appId: number | null }) {
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
                   <Switch
+                    aria-label={a.enabled ? `Turn off ${a.name}` : `Turn on ${a.name}`}
                     checked={a.enabled}
                     onCheckedChange={async (enabled) => {
                       await IpcClient.getInstance().toggleAutomation(

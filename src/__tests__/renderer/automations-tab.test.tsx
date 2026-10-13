@@ -136,6 +136,13 @@ describe("AutomationsTab", () => {
     expect(screen.queryByText(/No runs yet/)).toBeNull();
   });
 
+  // QA #30: the enable switch had no label for a screen reader.
+  it("names its on/off switch", async () => {
+    renderWithProviders(<AutomationsTab appId={7} />);
+    await screen.findAllByText("Nightly audit");
+    expect(screen.getByRole("switch", { name: "Turn off Nightly audit" })).toBeTruthy();
+  });
+
   it("shows archived runs when the filter is on", async () => {
     renderWithProviders(<AutomationsTab appId={7} />);
     await screen.findAllByText("Nightly audit");
