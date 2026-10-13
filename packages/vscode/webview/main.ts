@@ -36,6 +36,7 @@ nav.append(
   brand,
   iconButton("plus", "New chat", () => {
     go({ name: "chat" });
+    C.expectSession();
     post({ type: "new-chat" });
   }),
   iconButton("history", "Past chats", () => go({ name: "history" })),
@@ -226,7 +227,7 @@ onHost((m: HostMessage) => {
       else if (m.status === "ready") setNotice(null);
       else if (m.status === "signed-out") setNotice("Sign in to Atlarix to start.", [["Sign in", () => post({ type: "sign-in" })]]);
       else if (m.status === "no-folder") setNotice("Open a folder to work in, then start a chat.");
-      else setNotice(`Atlarix couldn't start: ${m.detail ?? "unknown error"}`, [["Show log", () => post({ type: "show-log" })], ["Retry", () => post({ type: "new-chat" })]]);
+      else setNotice(`Atlarix couldn't start: ${m.detail ?? "unknown error"}`, [["Show log", () => post({ type: "show-log" })], ["Retry", () => (C.expectSession(), post({ type: "new-chat" }))]]);
       return;
     case "session":
       if (m.replay || m.sessionId !== state.sessionId) {
@@ -253,6 +254,7 @@ onHost((m: HostMessage) => {
         T.endTurn();
         void showHome();
         void C.refreshApproveLine();
+        C.sessionArrived();
       }
       return;
     case "update":

@@ -3,6 +3,7 @@
  * newest or oldest first, grouped by day; rename and delete in place, and ★.
  */
 import { dayGroup } from "../logic";
+import { expectSession } from "../chat/composer";
 import { post, rpc } from "../rpc";
 import { state } from "../state";
 import { button, el, icon, MODE_NAME, pageHeader, relTime } from "../ui";
@@ -154,7 +155,7 @@ export async function renderHistory(page: HTMLElement, nav: Nav): Promise<void> 
         button("Delete", "deny-solid small", async () => {
           await rpc("_atlarix/session", { sessionId: r.sessionId, action: "delete" }).catch(() => {});
           rows = rows.filter((x) => x.sessionId !== r.sessionId);
-          if (r.sessionId === state.sessionId) post({ type: "new-chat" });
+          if (r.sessionId === state.sessionId) (expectSession(), post({ type: "new-chat" }));
           draw();
         }),
         button("Keep", "small", () => draw()),

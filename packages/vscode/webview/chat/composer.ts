@@ -399,7 +399,34 @@ function renderChips(): void {
 
 // --- Sending ------------------------------------------------------------------------------
 
+// A New chat is on its way: what you send meanwhile waits for it. Drawn now, the
+// bubble was wiped when the new chat arrived and reset the transcript (QA #55).
+let awaitingSession = false;
+let held: Array<() => void> = [];
+let awaitTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** New chat asked for: hold sends until its session arrives (or 10s pass). */
+export function expectSession(): void {
+  awaitingSession = true;
+  clearTimeout(awaitTimer);
+  awaitTimer = setTimeout(sessionArrived, 10_000);
+}
+
+/** The new chat is here: send what was held, in order. */
+export function sessionArrived(): void {
+  if (!awaitingSession) return;
+  awaitingSession = false;
+  clearTimeout(awaitTimer);
+  const sends = held;
+  held = [];
+  for (const send of sends) send();
+}
+
 export function sendText(text: string, items: ContextItem[], answers?: string[]): void {
+  if (awaitingSession) {
+    held.push(() => sendText(text, items, answers));
+    return;
+  }
   if (state.busy) return;
   T.addUser(text, items);
   setBusy(true);
