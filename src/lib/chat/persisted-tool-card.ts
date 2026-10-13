@@ -23,9 +23,24 @@ function argsPathHint(args: unknown): string | undefined {
 }
 
 /** Human-readable one-line label for a saved tool part (never raw JSON). */
+
+type ToolPart = Extract<AssistantMessagePart, { type: "tool" }>;
+
+/**
+ * A stored no-op (compress_context's status:"noop") is tagged status="error",
+ * because the result says success:false. It did what it should: drawn as done,
+ * not a red "Failed: … / Tool failed" (QA #16, stored and reloaded steps).
+ */
+function settledPart(part: ToolPart): ToolPart {
+  return part.status === "error" && noopSummary(part.toolName, part.resultText)
+    ? { ...part, status: "success" }
+    : part;
+}
+
 export function getPersistedToolSummary(
-  part: Extract<AssistantMessagePart, { type: "tool" }>,
+  rawPart: Extract<AssistantMessagePart, { type: "tool" }>,
 ): string {
+  const part = settledPart(rawPart);
   const toolArgs =
     part.args && typeof part.args === "object"
       ? (part.args as Record<string, unknown>)
@@ -74,8 +89,9 @@ const COUNT_SUMMARY_TOOLS = new Set([
 
 /** Structured expand panel for persisted tool parts (never raw JSON). */
 export function getPersistedToolExpandView(
-  part: Extract<AssistantMessagePart, { type: "tool" }>,
+  rawPart: Extract<AssistantMessagePart, { type: "tool" }>,
 ): ToolExpandView {
+  const part = settledPart(rawPart);
   if (part.status === "running") return { kind: "none" };
 
   const status = part.status === "error" ? "error" : ("done" as const);
@@ -88,13 +104,14 @@ export function getPersistedToolExpandView(
 }
 
 export function persistedToolPartToStreamCard(
-  part: Extract<AssistantMessagePart, { type: "tool" }>,
+  rawPart: Extract<AssistantMessagePart, { type: "tool" }>,
 ): {
   summary: string;
   expand: ToolExpandView;
   status: InlineTimelineToolStatus;
   toolName: string;
 } {
+  const part = settledPart(rawPart);
   const status: InlineTimelineToolStatus =
     part.status === "running"
       ? "running"

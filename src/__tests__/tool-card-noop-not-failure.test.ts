@@ -263,3 +263,25 @@ describe("a no-op reported by the live activity as an error", () => {
     expect(done.summary).toBe("Context already compact");
   });
 });
+
+/**
+ * QA #16 on build D: still red. A turn's older steps (and every step after a
+ * reload) are drawn from the stored tool tags, tagged status="error".
+ */
+import { persistedToolPartToStreamCard } from "@/lib/chat/persisted-tool-card";
+
+describe("a stored no-op step tagged error", () => {
+  it("is drawn as done: 'Context already compact', not red", () => {
+    const card = persistedToolPartToStreamCard({
+      type: "tool",
+      id: "compress_context_0",
+      toolName: "compress_context",
+      status: "error",
+      args: { reason: "compact now" },
+      resultText: NOOP_RESULT,
+    });
+    expect(card.status).toBe("done");
+    expect(card.summary).toBe("Context already compact");
+    expect((card.expand as { isError?: boolean }).isError).toBeFalsy();
+  });
+});
