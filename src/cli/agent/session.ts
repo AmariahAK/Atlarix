@@ -1744,7 +1744,9 @@ export class AgentSession extends EventEmitter {
       const took = secs >= 60 ? `${Math.floor(secs / 60)}m ${String(secs % 60).padStart(2, "0")}s` : `${secs}s`;
       const mode = { build: "Build", ask: "Explore", plan: "Plan", debug: "Debug", review: "Review" }[this.state.mode];
       this.turnFooters.set(String(lastReply.id), {
-        text: [mode, this.model?.name, took].filter(Boolean).join(" · "),
+        // The model it ran on, named even when it's the default (QA, Windows:
+        // "Build · 30s" for Atlarix Auto).
+        text: [mode, await this.footerModelName(), took].filter(Boolean).join(" · "),
         interrupted: wasInterrupted,
       });
     }
@@ -1804,6 +1806,13 @@ export class AgentSession extends EventEmitter {
       if (this.idlePeerMessages === "hold") this.emit("background-ready");
       else void this.wakeForBackground();
     }
+  }
+
+  private async footerModelName(): Promise<string | undefined> {
+    let m = this.turnModel() as { provider?: string; name?: string } | undefined;
+    if (!m) m = await import("@/main/settings").then((x) => x.readSettings().selectedModel as { provider?: string; name?: string }).catch(() => undefined);
+    if (!m?.name) return undefined;
+    return m.provider === "compass" ? (m.name === "core-auto" || m.name === "auto" ? "Atlarix Auto" : m.name) : m.name;
   }
 
   /** The turn running (or last run) was a wake for background work, not your message. */

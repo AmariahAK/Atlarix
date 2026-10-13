@@ -158,6 +158,7 @@ function toast(text: string, tone: "info" | "error" = "info"): void {
 // --- What the agent sends -----------------------------------------------------------------
 
 let replaying = false;
+let slowStart: ReturnType<typeof setTimeout> | undefined;
 
 function onUpdate(u: SessionUpdate): void {
   switch (u.sessionUpdate) {
@@ -243,8 +244,13 @@ onHost((m: HostMessage) => {
   switch (m.type) {
     case "status":
       state.signedIn = m.status === "signed-out" ? false : m.status === "ready" ? true : state.signedIn;
-      if (m.status === "starting") setNotice("Starting Atlarix…");
-      else if (m.status === "ready") setNotice(null);
+      clearTimeout(slowStart);
+      if (m.status === "starting") {
+        setNotice("Starting Atlarix…");
+        // A first start can be slow (Windows on ARM runs the agent emulated:
+        // ~40s of an unchanging line looked stuck, QA).
+        slowStart = setTimeout(() => setNotice("Starting Atlarix… The first start on this computer can take up to a minute."), 6_000);
+      } else if (m.status === "ready") setNotice(null);
       else if (m.status === "signed-out") setNotice("Sign in to Atlarix to start.", [["Sign in", () => post({ type: "sign-in" })]]);
       else if (m.status === "no-folder") setNotice("Open a folder to work in, then start a chat.");
       else setNotice(`Atlarix couldn't start: ${m.detail ?? "unknown error"}`, [["Show log", () => post({ type: "show-log" })], ["Retry", () => (C.expectSession(), post({ type: "new-chat" }))]]);
