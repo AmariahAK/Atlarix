@@ -201,3 +201,65 @@ describe("the native envelope's sentinels", () => {
     expect(v.isError).toBe(true);
   });
 });
+
+/**
+ * QA (app) #16, build A: "/compact" on a short history showed a red ✗
+ * "Failed: Compacting context / Tool failed" card. Stored row: the live tool
+ * activity arrives with status "error" (the result says success:false), and
+ * the card was built in its error state before anything read status:"noop".
+ */
+import {
+  completeStreamToolOnEnd,
+  streamThreadItemFromActivity,
+  type StreamThreadItem,
+} from "@/lib/chat/stream-thread";
+import type { ActivityStreamItem } from "@/atoms/sourceAtoms";
+
+describe("a no-op reported by the live activity as an error", () => {
+  const LIVE = JSON.stringify({
+    success: false,
+    reason: "User requested /compact",
+    tokensBefore: 17222,
+    tokensAfter: 17222,
+    tokensFreed: 0,
+    strategy: "none",
+    summary: "Already compact: history is 17222 tokens (~4% of the 480000-token usable budget) — nothing worth compacting. No action needed.",
+    status: "noop",
+    summaryPersisted: false,
+  });
+
+  it("settles as done, says it was already compact, not in red", () => {
+    const item = streamThreadItemFromActivity({
+      id: "a1",
+      type: "tool_use",
+      toolName: "compress_context",
+      toolCallId: "call_1",
+      status: "error",
+      resultText: LIVE,
+      toolArgs: { reason: "User requested /compact" },
+      timestamp: 1,
+    } as unknown as ActivityStreamItem) as Extract<StreamThreadItem, { kind: "tool" }>;
+    expect(item.status).toBe("done");
+    expect(item.summary).toBe("Context already compact");
+    expect((item.expand as { isError?: boolean }).isError).toBeFalsy();
+  });
+
+  it("the same when the tool's end event says error", () => {
+    const running: StreamThreadItem = {
+      kind: "tool",
+      id: "call_1",
+      toolName: "compress_context",
+      summary: "Compacting context",
+      status: "running",
+      ts: 1,
+    };
+    const [done] = completeStreamToolOnEnd([running], {
+      toolCallId: "call_1",
+      toolName: "compress_context",
+      status: "error",
+      resultText: LIVE,
+    } as never) as Array<Extract<StreamThreadItem, { kind: "tool" }>>;
+    expect(done.status).toBe("done");
+    expect(done.summary).toBe("Context already compact");
+  });
+});

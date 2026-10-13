@@ -381,9 +381,24 @@ export function streamThreadItemFromToolStart(payload: {
   };
 }
 
+/**
+ * A no-op reports success:false, so the live activity and the tool's end event
+ * can arrive as "error". It did exactly what it should (see noopSummary): the
+ * card settles as done, not a red "Failed: … / Tool failed" (QA #16).
+ */
+function settleNoopStatus(
+  toolName: string,
+  status: StreamThreadToolStatus,
+  resultText: string | undefined,
+): StreamThreadToolStatus {
+  return status === "error" && noopSummary(toolName, resultText)
+    ? "done"
+    : status;
+}
+
 function finalizeToolItem(
   item: Extract<StreamThreadItem, { kind: "tool" }>,
-  status: StreamThreadToolStatus,
+  reportedStatus: StreamThreadToolStatus,
   opts?: {
     summary?: string;
     detail?: string;
@@ -397,6 +412,7 @@ function finalizeToolItem(
   // Prefer the structured result text (full tool JSON) over the human "Done"
   // detail when building the expand view, so cards keep their real content.
   const expandSource = resultText ?? rawDetail;
+  const status = settleNoopStatus(registryName, reportedStatus, expandSource);
   const expand =
     opts?.expand ??
     (expandSource
@@ -639,16 +655,19 @@ export function streamThreadItemFromActivity(
       item.toolCallId?.trim() ||
       (item.parentDelegationId && activityId ? activityId : registryName);
     const isRunning = item.status === "running" || item.status === "active";
-    const status: StreamThreadToolStatus = isRunning
-      ? "running"
-      : item.status === "error"
-        ? "error"
-        : "done";
-
     let rawDetail = (item.resultText ?? item.detail)?.trim();
     if (isRunning && looksLikeToolArgsJson(rawDetail)) {
       rawDetail = undefined;
     }
+    const status: StreamThreadToolStatus = isRunning
+      ? "running"
+      : settleNoopStatus(
+          registryName,
+          item.status === "error" ? "error" : "done",
+          rawDetail,
+        );
+    const noop =
+      status === "done" ? noopSummary(registryName, rawDetail) : null;
 
     const expand =
       !isRunning && rawDetail
@@ -664,7 +683,8 @@ export function streamThreadItemFromActivity(
       toolName: registryName,
       summary: isRunning
         ? runningSummary
-        : summarizeToolActivityItem(item) ||
+        : noop ||
+          summarizeToolActivityItem(item) ||
           (status === "error"
             ? getToolFailedSummary(registryName, item.toolArgs)
             : getToolCompletedSummary(registryName, item.toolArgs)),
