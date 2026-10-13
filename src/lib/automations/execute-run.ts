@@ -211,9 +211,13 @@ export function turnFailure(
       (x.payload?.chatId == null || x.payload.chatId === chatId),
   );
   if (!failed) return null;
-  const said = String(failed.payload?.error ?? failed.payload?.detail ?? "").trim();
-  if (said) return said;
-  return failed.channel === "chat:stream:disconnected" ? "Couldn't reach the model provider." : "The agent's turn failed.";
+  // A lost connection's detail is raw transport text ("fetch failed"): say
+  // what happened around it, as the chat does (ai-e9).
+  if (failed.channel === "chat:stream:disconnected") {
+    const detail = String(failed.payload?.detail ?? "").trim();
+    return detail ? `Couldn't reach the model provider: ${detail}` : "Couldn't reach the model provider.";
+  }
+  return String(failed.payload?.error ?? "").trim() || "The agent's turn failed.";
 }
 
 export async function executeAutomationRun(
