@@ -65,7 +65,23 @@ export function byokLimitUserMessage(reason: string, providerId?: string): strin
   return null;
 }
 
+/**
+ * A model's request failed for some other reason. Said in a sentence, without
+ * the provider's JSON or line breaks, and with the likely fix where the words
+ * say what happened: the model id or the address (QA: "(Not Found\n\nDetails:
+ * 404 page not found)", raw `{"error":{…}}`, and "chat settings", a desktop-only
+ * place, in the CLI and editor).
+ */
 export function modelFailureUserMessage(reason: string): string {
-  const detail = reason.trim() || "the request failed";
-  return `This model failed (${detail}). Choose a different model in chat settings or switch provider.`;
+  const said = providerSaid(reason.replace(/\bDetails:\s*/g, "")) || "the request failed";
+  if (/model ['"`]?[^'"`\s]+['"`]? not found|model_not_found|no such model|unknown model/i.test(reason)) {
+    return `The provider doesn't have that model. Check the model's id, or switch model. (It said: "${said}")`;
+  }
+  if (/\b404\b|not found/i.test(reason)) {
+    return `The provider's address answered "not found". Check its base URL (most end in /v1), or switch model. (It said: "${said}")`;
+  }
+  if (/cannot connect|unable to connect|econnrefused|fetch failed|connection refused|enotfound/i.test(reason)) {
+    return `Couldn't reach the provider. Is its server running, and is the address right? Or switch model. (It said: "${said}")`;
+  }
+  return `This model failed: "${said}". Try again, or switch model.`;
 }
