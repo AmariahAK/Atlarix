@@ -46,6 +46,8 @@ import {
 } from "@/shared/billing_copy";
 import { useTranslation } from "react-i18next";
 import { useSettings } from "@/hooks/useSettings";
+import { useWorkModeSelection } from "@/hooks/useWorkModeSelection";
+import { BUILD_FROM_PLAN_PROMPT } from "@/lib/work-mode";
 import { useAccountKind } from "@/hooks/useAccountKind";
 import { COMPASS_PROVIDER_ID, isCoreAutoTier } from "@/ipc/shared/compass_constants";
 import { showError } from "@/lib/toast";
@@ -448,6 +450,26 @@ export function SimpleInlineChat({
     [chatId, isStreaming, setMessagesById, streamMessage],
   );
 
+  // Build from the plan card in the chat (QA #17), as the Plan panel's Build:
+  // the session switches to Build, the plan is marked building, and the build
+  // turn starts.
+  const { setWorkMode } = useWorkModeSelection();
+  const handlePlanArtifactBuild = useCallback(
+    async (planId: string) => {
+      if (isStreaming) return;
+      setWorkMode("build");
+      await IpcClient.getInstance()
+        .setPlanArtifactStatus(planId, "building")
+        .catch((e) => console.warn("[plan] could not mark building:", e));
+      streamMessage({
+        prompt: BUILD_FROM_PLAN_PROMPT,
+        chatId,
+        workModeOverride: "build",
+      });
+    },
+    [chatId, isStreaming, setWorkMode, streamMessage],
+  );
+
   return (
     <div className="flex flex-col h-full min-h-0 w-full max-w-4xl mx-auto overflow-hidden relative">
       <LoadedSessionBanner />
@@ -462,6 +484,8 @@ export function SimpleInlineChat({
           lastAssistantIndex={lastAssistantIndex}
           onEditUserMessage={handleEditUserMessage}
           onContinue={handleContinue}
+          onPlanArtifactBuild={handlePlanArtifactBuild}
+          planArtifactBuildDisabled={isStreaming}
         />
       ) : (
         <div className="relative flex-1 min-h-0 flex flex-col">
@@ -514,6 +538,8 @@ export function SimpleInlineChat({
                           isLatestAssistant={realIndex === lastAssistantIndex}
                           onEditUserMessage={handleEditUserMessage}
                           onContinue={handleContinue}
+                          onPlanArtifactBuild={handlePlanArtifactBuild}
+                          planArtifactBuildDisabled={isStreaming}
                         />
                       </div>
                     );

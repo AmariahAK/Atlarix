@@ -18,7 +18,8 @@ import {
 } from "@/lib/tasks/plan-checklist";
 
 const LIFECYCLE_STEPS: { key: PlanArtifactStatus; label: string }[] = [
-  { key: "plan", label: "TBD" },
+  // As the CLI says it; "TBD" read as unfinished (QA #17).
+  { key: "plan", label: "Ready to build" },
   { key: "building", label: "Building" },
   { key: "built", label: "Completed" },
 ];

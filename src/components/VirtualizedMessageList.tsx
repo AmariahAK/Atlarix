@@ -56,6 +56,8 @@ export function VirtualizedMessageList({
   lastAssistantIndex,
   onEditUserMessage,
   onContinue,
+  onPlanArtifactBuild,
+  planArtifactBuildDisabled,
 }: {
   messages: Message[];
   chatId: number;
@@ -64,6 +66,8 @@ export function VirtualizedMessageList({
   lastAssistantIndex: number;
   onEditUserMessage: (messageId: number, newContent: string) => Promise<void>;
   onContinue: (message: Message) => void;
+  onPlanArtifactBuild?: (planId: string) => void;
+  planArtifactBuildDisabled?: boolean;
 }) {
   const virtuosoRef = useRef<VirtuosoHandle | null>(null);
   const [atBottom, setAtBottom] = useState(true);
@@ -123,6 +127,8 @@ export function VirtualizedMessageList({
               isLatestAssistant={index === lastAssistantIndex}
               onEditUserMessage={onEditUserMessage}
               onContinue={onContinue}
+              onPlanArtifactBuild={onPlanArtifactBuild}
+              planArtifactBuildDisabled={planArtifactBuildDisabled}
             />
           </div>
         )}

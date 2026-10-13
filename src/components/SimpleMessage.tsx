@@ -78,6 +78,9 @@ interface SimpleMessageProps {
   onEditUserMessage?: (messageId: number, newContent: string) => Promise<void>;
   /** Issue 4: resume an interrupted assistant turn (partial content preserved). */
   onContinue?: (message: Message) => void;
+  /** Build a plan from its card in the chat (QA #17). */
+  onPlanArtifactBuild?: (planId: string) => void;
+  planArtifactBuildDisabled?: boolean;
 }
 
 function SimpleMessageImpl({
@@ -88,6 +91,8 @@ function SimpleMessageImpl({
   isLatestAssistant = false,
   onEditUserMessage,
   onContinue,
+  onPlanArtifactBuild,
+  planArtifactBuildDisabled,
 }: SimpleMessageProps) {
   const [copied, setCopied] = useState(false);
   const { copyMessageContent, copied: assistantCopied } = useCopyToClipboard();
@@ -288,6 +293,8 @@ function SimpleMessageImpl({
                   isStreaming={isStreaming}
                   isLatestAssistant={isLatestAssistant}
                   contentDrivenThread={false}
+                  onPlanArtifactBuild={onPlanArtifactBuild}
+                  planArtifactBuildDisabled={planArtifactBuildDisabled}
                 />
               ) : (
                 // `@file:`/`@dir:` tokens are re-emitted into the prompt on
@@ -539,6 +546,8 @@ function messagePropsEqual(
     prev.isLatestAssistant === next.isLatestAssistant &&
     prev.onEditUserMessage === next.onEditUserMessage &&
     prev.onContinue === next.onContinue &&
+    prev.onPlanArtifactBuild === next.onPlanArtifactBuild &&
+    prev.planArtifactBuildDisabled === next.planArtifactBuildDisabled &&
     a.id === b.id &&
     a.role === b.role &&
     a.content === b.content &&
