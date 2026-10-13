@@ -386,6 +386,10 @@ describe("atlarix acp", () => {
     await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "" }], _meta: { atlarix: { wakeTurn: true } } });
     const asked = JSON.stringify(e.llm.requests.at(-1) ?? {});
     expect(asked).toContain("3 failing tests in src/math.test.ts");
+    // As fresh input in the conversation, not standing system context (a woken
+    // model read it there as nothing new and stood by, QA).
+    const conversation = JSON.stringify((e.llm.requests.at(-1)?.messages ?? []).filter((m) => m.role !== "system"));
+    expect(conversation).toContain("3 failing tests in src/math.test.ts");
     expect(asked).toContain("Wake tests");
     // Taken once: no second wake for the same run.
     await Bun.sleep(16_000);

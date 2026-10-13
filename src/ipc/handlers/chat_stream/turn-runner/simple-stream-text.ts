@@ -75,6 +75,7 @@ import { rememberDeliveredResults } from "@/lib/agent/delivered-results";
 import { takePendingScheduledWakeupNudges } from "@/lib/agent/scheduled-wakeups";
 import { takePendingDroppedHistoryNotice } from "@/lib/context/dropped-history-notice";
 import { takePendingSubagentResults } from "@/lib/agents/subagent-results";
+import { takePendingAutomationResults } from "@/lib/agent/automation-results";
 import { takePendingUserInterjections } from "@/lib/agent/user-interjections";
 import { deliverInterjectionsToTranscript } from "@/ipc/handlers/chat_stream/interjection-delivery";
 import {
@@ -587,10 +588,17 @@ export async function simpleStreamText(
       const subagentResults = forceCollectOnWake
         ? null
         : takePendingSubagentResults(req.chatId);
+      // A finished automation (one that notifies the agent) arrives the same
+      // way: on a wake turn this is its channel. In the context section a
+      // model read it as standing information and "stood by" (QA).
+      const automationResults = forceCollectOnWake
+        ? null
+        : takePendingAutomationResults(req.chatId);
       // Injected results are step input only and never saved: keep them so
       // the next turns still have them (delivered-results.ts).
       rememberDeliveredResults(req.chatId, bgResults);
       rememberDeliveredResults(req.chatId, subagentResults);
+      rememberDeliveredResults(req.chatId, automationResults);
       // A4: stall advisories for still-running quiet jobs (decide:
       // keep waiting / read / cancel) — same step-input-only seam.
       const stalledAdvisories = forceCollectOnWake
@@ -665,6 +673,11 @@ export async function simpleStreamText(
           `[background-subagent] injecting finished result (chat ${req.chatId})`,
         );
       }
+      if (automationResults) {
+        logger.log(
+          `[automation] injecting finished result (chat ${req.chatId})`,
+        );
+      }
       if (interjections?.length) {
         logger.log(
           `[interjection] delivering ${interjections.length} mid-turn user message(s) (chat ${req.chatId}, step ${stepNumber})`,
@@ -675,6 +688,7 @@ export async function simpleStreamText(
         droppedHistory,
         bgResults,
         subagentResults,
+        automationResults,
         stalledAdvisories,
         scheduledNudge,
         correction,

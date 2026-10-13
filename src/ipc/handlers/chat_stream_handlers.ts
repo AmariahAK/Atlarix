@@ -1633,12 +1633,12 @@ export function registerChatStreamHandlers() {
             // `ok` and the model was never told, which is exactly what was
             // reported.
             const loadAutomationResultsSection = (): ContextSection | null => {
-              // Only the FORCED collect_results drains automations. A wake turn
-              // that doesn't force it (a reasoning model) delivers background
-              // results through prepareStep, which never took automations: left
-              // here too, nothing read them and the chat woke for them over and
-              // over (QA, build 2).
-              if (forceCollectOnWake) return null; // collect_results is the drain
+              // A wake turn delivers them as fresh input: collect_results when
+              // forced, else prepareStep's injection, as for finished commands
+              // and sub-agents. Here, in the context, a woken model read them as
+              // standing information and did nothing (QA). Ordinary turns take
+              // them here at the start.
+              if (wakeHasPendingResults) return null;
               const pending = takePendingAutomationResults(req.chatId);
               if (!pending) return null;
               return {
