@@ -99,6 +99,7 @@ import { resolveStreamAppId } from "@/lib/chat-workspace-binding";
 import { ensureWorkspaceSessionForChat } from "@/lib/ensure-workspace-session";
 import { collectPasteAttachmentsFromFileAttachments } from "@/lib/chat/paste-attachment-meta";
 import { buildPromptWithTextPastes } from "@/lib/chat/text-paste-attachment";
+import { withRevertedFilesNote } from "@/lib/chat/reverted-files-reminder";
 import {
   activeSessionWorkModeAtom,
   activeWorkspaceSessionIdAtom,
@@ -1608,10 +1609,15 @@ export function useStreamChat({
         // Pass 7: Blueprint injection-mode + debug-trace plumbing removed.
 
         const {
-          modelPrompt: promptForModel,
+          modelPrompt: builtPrompt,
           displayPrompt,
           fileAttachments,
         } = buildPromptWithTextPastes(prompt, attachments);
+        // A message the user typed carries any Revert since the last one.
+        const promptForModel =
+          continueAfterQuestions || continueInterrupted || redo || systemWake
+            ? builtPrompt
+            : await withRevertedFilesNote(chatId, builtPrompt);
         const pasteAttachments =
           collectPasteAttachmentsFromFileAttachments(attachments);
 

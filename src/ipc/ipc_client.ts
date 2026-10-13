@@ -1052,8 +1052,24 @@ export class IpcClient {
   public async getSnapshotFiles(params: {
     chatId: number;
     turnId: string;
-  }): Promise<{ filesChanged: string[]; createdFiles: string[] } | null> {
+  }): Promise<{
+    filesChanged: string[];
+    createdFiles: string[];
+    /** Set once the user has reverted this turn's files. */
+    revertedAt?: string;
+  } | null> {
     return this.ipcRenderer.invoke("snapshot:files", params);
+  }
+
+  /**
+   * The files of these turns reverted since the agent was last told; marks
+   * them told (the agent hears it once, with the user's next message).
+   */
+  public async takeRevertedFiles(params: {
+    chatId: number;
+    turnIds: string[];
+  }): Promise<string[]> {
+    return this.ipcRenderer.invoke("snapshot:take-reverted-files", params);
   }
 
   /**
