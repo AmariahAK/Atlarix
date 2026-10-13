@@ -1137,6 +1137,13 @@ export async function simpleStreamText(
   // here costs nothing; callers that await it still see the rejection.
   const responseMessages = streamResult.responseMessages;
   void Promise.resolve(responseMessages).catch(() => {});
+  // Same for `response`: in ai@7 the getter returns a NEW promise each read
+  // (finalStep.then(...)), so the catch the helper above attached was on
+  // another copy, and the one handed on here rejected unhandled whenever a
+  // round produced nothing and was retried (an unreachable provider). Under
+  // Bun that ended `atlarix run` with "No output generated" (QA).
+  const response = streamResult.response;
+  void Promise.resolve(response).catch(() => {});
   return {
     // `fullStream` is the deprecated spelling of `stream` in ai@7 (same
     // type). Our own bundle key stays `fullStream` so consumers are
@@ -1144,7 +1151,7 @@ export async function simpleStreamText(
     fullStream: streamResult.stream,
     usage: streamResult.usage,
     finishReason: streamResult.finishReason,
-    response: streamResult.response,
+    response,
     /**
      * ai@7: the ACCUMULATED assistant/tool messages for the whole call.
      *

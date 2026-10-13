@@ -579,6 +579,7 @@ export async function handleTurnError(
       chatId: req.chatId,
       partialResponse: error.partialResponse,
       reason: "network",
+      ...(error.detail ? { detail: error.detail } : {}),
       canResume: true,
     });
     if (activeStreamId.get(req.chatId) === streamId)

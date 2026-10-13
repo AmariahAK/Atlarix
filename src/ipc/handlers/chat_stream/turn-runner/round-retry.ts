@@ -400,7 +400,7 @@ export async function runStreamRoundWithEmptyOutputRetry(
         continue;
       }
       if (isNetworkStreamError(err)) {
-        throw new NetworkStreamDisconnectedError(fullResponse);
+        throw new NetworkStreamDisconnectedError(fullResponse, err);
       }
       throw err;
     } finally {

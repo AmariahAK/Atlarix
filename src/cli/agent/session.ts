@@ -1610,6 +1610,16 @@ export class AgentSession extends EventEmitter {
         if (this.interruptRequested) return;
         this.update({ lastError: String(p.error ?? p.message ?? "The turn failed.") });
         return;
+      case "chat:stream:disconnected":
+        // Retries to the provider ran out (it's down, or the address is wrong).
+        // The desktop offers Reconnect; here the turn ends with the reason, or
+        // it sat "working" forever (QA: an unreachable custom provider).
+        if (this.interruptRequested) return;
+        this.update({
+          lastError: `Couldn't reach the model provider${p.detail ? `: ${String(p.detail)}` : "."} Check it's running and the address is right, then try again.`,
+        });
+        void this.onTurnEnd();
+        return;
       case "chat:response:end":
         if (typeof p.streamId === "number" && p.streamId < this.staleBelow) return;
         // Main sends a turn's end TWICE (same stream). Ending it twice ran
