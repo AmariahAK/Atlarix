@@ -196,6 +196,26 @@ async function maybeTellTheAgent(
   }
 }
 
+/**
+ * Why the run's agent turn failed, if it did (no model available, a refused
+ * key, an unreachable provider), from what the turn sent. Such a run used to
+ * read the empty reply and be recorded "ok" with nothing in it (video session).
+ */
+export function turnFailure(
+  sends: ReadonlyArray<{ channel: string; payload?: { chatId?: number; error?: unknown; detail?: unknown } | null }>,
+  chatId: number,
+): string | null {
+  const failed = sends.find(
+    (x) =>
+      (x.channel === "chat:response:error" || x.channel === "chat:stream:disconnected") &&
+      (x.payload?.chatId == null || x.payload.chatId === chatId),
+  );
+  if (!failed) return null;
+  const said = String(failed.payload?.error ?? failed.payload?.detail ?? "").trim();
+  if (said) return said;
+  return failed.channel === "chat:stream:disconnected" ? "Couldn't reach the model provider." : "The agent's turn failed.";
+}
+
 export async function executeAutomationRun(
   automationId: string,
   triggerContext: string | null,
@@ -365,8 +385,11 @@ export async function executeAutomationRun(
       timeoutMs,
     });
 
+    const failure = turnFailure(sender.sends, chatId);
     if (timedOut) {
       runError = `timed out after ${Math.round(timeoutMs / 60000)} min`;
+    } else if (failure) {
+      runError = failure;
     } else {
       const outcome = parseAutomationOutcome(lastAssistantText(chatId));
       status = outcome.status;
