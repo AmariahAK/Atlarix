@@ -113,3 +113,18 @@ describe("a file the plan says won't change (QA #35)", () => {
     ]);
   });
 });
+
+// QA #35 on build G: "no edits to src/tally.js, the existing tests, or
+// package.json" still listed all three.
+describe("files a plan says it won't touch (QA #35, G)", () => {
+  it("are not listed, whatever the wording", () => {
+    const md = `## Changes
+
+- [ ] Add \`src/format.js\` with a JSON formatter.
+- [ ] Wire it into \`bin/tally.js\`.
+
+No edits to \`src/tally.js\`, the existing tests, or \`package.json\`.
+\`README.md\` stays untouched. We won't touch \`docs/USAGE.md\`. Leave \`src/tally.test.js\` alone.`;
+    expect(deriveFilesFromPlanMarkdown(md).map((f) => f.path)).toEqual(["src/format.js", "bin/tally.js"]);
+  });
+});

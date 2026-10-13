@@ -55,8 +55,22 @@ export function parsePlanChangesFromContent(
 }
 
 /** Words that say a file mentioned in a plan is not going to change. */
-const NOT_CHANGING_RE =
-  /\b(no changes? (?:needed|required)|unchanged|not (?:be )?(?:changed|modified|touched)|stays? as[- ]is|leave .{0,80}? as[- ]is|doesn'?t need (?:a )?changes?)\b/i;
+const NOT_CHANGING_RE = new RegExp(
+  [
+    "no changes? (?:needed|required)",
+    "no (?:edits?|changes?) (?:to|in)",
+    "unchanged",
+    "untouched",
+    "not (?:be )?(?:changed|modified|touched|edited)",
+    "(?:won'?t|will not|don'?t|do not) (?:touch|change|modify|edit)",
+    "stays? as[- ]is",
+    "leave .{0,80}? (?:as[- ]is|alone)",
+    "doesn'?t need (?:a )?changes?",
+  ]
+    .map((p) => `\\b${p}\\b`)
+    .join("|"),
+  "i",
+);
 
 const PATH_EXT =
   "ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|cs|rb|php|swift|md|json|yaml|yml|toml|sql|css|scss|html|vue|svelte";
