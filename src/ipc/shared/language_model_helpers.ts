@@ -282,6 +282,32 @@ export async function getLanguageModels({
     }
   }
 
+  // A provider the user added: its endpoint's live list, beside any models
+  // typed in by hand (QA #25: a keyless Ollama /v1 listed none).
+  if (provider.type === "custom" && provider.apiBaseUrl) {
+    let key: string | undefined;
+    try {
+      const { readSettings } = await import("@/main/settings");
+      key = readSettings().providerSettings?.[providerId]?.apiKey?.value;
+    } catch {
+      // settings not available in this process
+    }
+    const { fetchCustomProviderModels } = await import(
+      "@/lib/provider_model_fetchers"
+    );
+    // Bounded: a dead address must not hold up the model list.
+    const live = await Promise.race([
+      fetchCustomProviderModels(providerId, provider.apiBaseUrl, key).catch(
+        () => [] as LanguageModel[],
+      ),
+      new Promise<LanguageModel[]>((resolve) =>
+        setTimeout(() => resolve([]), 4_000).unref?.(),
+      ),
+    ]);
+    const typed = new Set(customModels.map((m) => m.apiName));
+    return [...customModels, ...live.filter((m) => !typed.has(m.apiName))];
+  }
+
   return [...cloudModels, ...customModels];
 }
 

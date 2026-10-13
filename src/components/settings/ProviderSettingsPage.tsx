@@ -163,9 +163,12 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
     status: string;
     detail: string;
   } | null>(null);
+  const isCustomProvider = provider.startsWith("custom::");
   useEffect(() => {
     setKeyCheck(null);
-    if (!savedKey || savedKey === "none") return;
+    // A provider the user added is checked keyless too (a local server needs
+    // no key; QA #25).
+    if ((!savedKey || savedKey === "none") && !isCustomProvider) return;
     let live = true;
     void IpcClient.getInstance()
       .checkProviderKey(provider)
@@ -174,7 +177,7 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
     return () => {
       live = false;
     };
-  }, [provider, savedKey]);
+  }, [provider, savedKey, isCustomProvider]);
 
   // --- Save Handler ---
   const handleSaveKey = async (value: string) => {
@@ -332,7 +335,7 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
             provider === "lmstudio" ||
             provider === "compass"
               ? true
-              : isConfigured
+              : isConfigured || keyCheck?.status === "works"
           }
           keyCheck={keyCheck}
           isLoading={settingsLoading}

@@ -398,19 +398,21 @@ export function registerLanguageModelHandlers() {
           providerSettings?: Record<string, { apiKey?: { value?: string } }>;
         }
       ).providerSettings?.[providerId]?.apiKey?.value;
-      if (!key) return null;
       const { getLanguageModelProviders } = await import(
         "@/ipc/shared/language_model_helpers"
       );
       const p = (await getLanguageModelProviders()).find(
         (x) => x.id === providerId,
       );
+      // A provider the user added may need no key (a local server): check it
+      // keyless rather than calling it "Not Setup" (QA #25).
+      if (!key && p?.type !== "custom") return null;
       const { keyProbe, checkProviderKey } = await import(
         "@/lib/provider-key-check"
       );
       return checkProviderKey(
-        keyProbe(providerId, key, p?.apiBaseUrl ?? null),
-        key,
+        keyProbe(providerId, key || "none", p?.apiBaseUrl ?? null),
+        key || "none",
       );
     },
   );
