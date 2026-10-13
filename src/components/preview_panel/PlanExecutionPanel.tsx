@@ -4,8 +4,8 @@ import { activeChatIdAtom } from "@/atoms/chatAtoms";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { activeWorkspaceSessionIdAtom } from "@/atoms/sessionAtoms";
 import { useStreamChat } from "@/hooks/useStreamChat";
-import { useSettings } from "@/hooks/useSettings";
-import { BUILD_FROM_PLAN_PROMPT, settingsPatchForWorkMode } from "@/lib/work-mode";
+import { useWorkModeSelection } from "@/hooks/useWorkModeSelection";
+import { BUILD_FROM_PLAN_PROMPT } from "@/lib/work-mode";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ClipboardList, Hammer, CircleCheck, Loader2 } from "lucide-react";
@@ -48,7 +48,7 @@ export function PlanExecutionPanel() {
   const workspaceId = useAtomValue(selectedAppIdAtom);
   const activeSessionId = useAtomValue(activeWorkspaceSessionIdAtom);
   const { streamMessage, isStreaming } = useStreamChat();
-  const { updateSettings } = useSettings();
+  const { setWorkMode } = useWorkModeSelection();
 
   useEffect(() => {
     setDraft(panel.content ?? "");
@@ -193,7 +193,9 @@ export function PlanExecutionPanel() {
 
   const handleBuild = async () => {
     if (!panel.planId) return;
-    await updateSettings(settingsPatchForWorkMode("build"));
+    // The session's mode, not only the global default: a session's stored
+    // mode wins over that, so it stayed in Plan after Build (QA #14).
+    setWorkMode("build");
     await setStatus("building");
     if (activeChatId != null && !isStreaming) {
       void streamMessage({
