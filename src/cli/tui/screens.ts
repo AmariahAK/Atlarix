@@ -180,7 +180,9 @@ export function openRewind(ctx: ScreenContext): void {
   if (ctx.session.state.busy) return ctx.flash("Wait for this turn to finish (or esc to stop it), then undo.");
   const mine = ctx.session.myMessages();
   if (!mine.length) return ctx.flash("Nothing to undo yet.");
-  if (mine.length === 1) return void openUndo(ctx, mine[0]!.id);
+  // Always the list, even with one message: going straight to editing it
+  // meant a stray esc esc quietly put your last prompt back in the box, ready
+  // to replace the conversation (QA G1). Claude Code and Codex ask first too.
   ctx.host.push(
     new ListDialog({
       title: "Go back to a message",

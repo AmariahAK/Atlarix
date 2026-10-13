@@ -933,6 +933,19 @@ describe("command screens", () => {
     expect(await frameContaining(setup, "editing an earlier message")).toContain("explain the router");
   });
 
+  it("esc esc with one message asks which, never fills the box by itself (QA G1)", async () => {
+    const { setup, session } = await mount();
+    const only = session.myMessages().slice(0, 1);
+    (session as unknown as { myMessages: () => unknown[] }).myMessages = () => only;
+    setup.mockInput.pressEscape();
+    await Bun.sleep(100);
+    setup.mockInput.pressEscape();
+    const frame = await frameContaining(setup, "Go back to a message");
+    expect(frame).not.toContain("editing an earlier message");
+    setup.mockInput.pressEscape();
+    expect(await frameContaining(setup, "Ask Atlarix")).not.toContain("editing an earlier message");
+  });
+
   it("/plan lists this session's plans and earlier sessions'; b builds an earlier one here", async () => {
     const { setup, session } = await mount();
     await command(setup, "/plan");
