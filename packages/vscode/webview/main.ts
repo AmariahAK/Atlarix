@@ -11,7 +11,7 @@ import type { SessionUpdate } from "@agentclientprotocol/sdk";
 import type { HostMessage } from "../src/protocol";
 import * as C from "./chat/composer";
 import { closePicker, initPicker, picker, renderPicker } from "./chat/picker";
-import { clearTask, renderTask, setPlan, taskCard } from "./chat/task";
+import { clearTask, renderTask, setPlan, taskCard, readyPlanTitle } from "./chat/task";
 import { resetTasks, tasksBar, tasksChanged } from "./chat/tasks";
 import * as T from "./chat/transcript";
 import { onHost, post, rpc } from "./rpc";
@@ -308,12 +308,16 @@ onHost((m: HostMessage) => {
       return C.setWorkingNote(m.title ?? null);
     case "unsent":
       return C.restoreUnsent(m.text);
-    case "turn-end":
+    case "turn-end": {
       C.setBusy(false);
       T.endTurn(m.stopReason === "cancelled");
       if (m.error) turnError(m.error);
       renderTask();
+      const ready = m.stopReason === "cancelled" || m.error ? null : readyPlanTitle();
+      if (ready) T.showPlanReady(ready, () => window.dispatchEvent(new CustomEvent("atlarix-build")));
+      else T.clearPlanReady();
       return;
+    }
     case "add-context":
       C.addContext(m.item);
       return;

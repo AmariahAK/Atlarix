@@ -2833,3 +2833,24 @@ code {
   gap: 8px;
   margin-top: 4px;
 }
+
+/* "Plan ready · Build it" where a plan turn ends (transcript.ts showPlanReady). */
+.plan-ready {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--primary);
+  border-radius: 8px;
+  background: var(--card);
+}
+.plan-ready__label {
+  flex: 1;
+  min-width: 0;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

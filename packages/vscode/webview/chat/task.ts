@@ -30,6 +30,11 @@ export function setPlan(p: { entries: Array<{ content: string; status: string }>
   renderTask();
 }
 
+/** The plan waiting for "Build it", if any: its title. */
+export function readyPlanTitle(): string | null {
+  return plan?.doc?.buildable ? (plan.doc.title ?? "Plan") : null;
+}
+
 export function clearTask(): void {
   plan = null;
   renderTask();

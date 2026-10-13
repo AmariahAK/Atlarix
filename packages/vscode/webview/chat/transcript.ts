@@ -117,6 +117,7 @@ export function isEmpty(): boolean {
 
 /** A new turn begins: its words start a reply of their own, never the end of the last one. */
 export function beginTurn(): void {
+  clearPlanReady();
   foldThought();
   closeCurrent();
   turnCards = [];
@@ -657,6 +658,25 @@ export function showError(text: string, actions: HTMLElement[] = []): void {
   }
   log.append(err);
   scrollDown(true);
+}
+
+/**
+ * "Plan ready · Build it" where the plan turn ENDS: the card with its button is
+ * at the top, out of view after a long turn, and the reply itself may say
+ * "switch to Build" not knowing the button exists (QA P4; Claude Code asks at
+ * the end). One at a time; it goes once the plan is no longer waiting.
+ */
+export function showPlanReady(title: string, onBuild: () => void): void {
+  clearPlanReady();
+  const row = el("div", "plan-ready");
+  row.append(el("span", "plan-ready__label", `Plan ready · ${title}`));
+  row.append(button("Build it", "primary small", onBuild));
+  log.append(row);
+  scrollDown();
+}
+
+export function clearPlanReady(): void {
+  log.querySelectorAll(".plan-ready").forEach((x) => x.remove());
 }
 
 export function showRecap(text: string): void {

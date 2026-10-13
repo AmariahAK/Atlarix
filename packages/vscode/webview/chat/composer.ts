@@ -30,7 +30,13 @@ const box = el("div", "box");
 const chips = el("div", "chips");
 const input = el("textarea", "input");
 input.rows = 2;
-input.placeholder = "Ask Atlarix to build, fix or explain…";
+/** What the empty box invites, by mode: "build, fix" read wrong in Plan or Explore (QA). */
+function idlePlaceholder(): string {
+  if (state.mode === "plan") return "Describe what to plan…";
+  if (state.mode === "ask") return "Ask about the code…";
+  return "Ask Atlarix to build, fix or explain…";
+}
+input.placeholder = idlePlaceholder();
 input.setAttribute("aria-label", "Message");
 const bar = el("div", "box__bar");
 const modePill = button("", "pill mode-pill", () => modeMenu.classList.toggle("hidden"), "Mode");
@@ -105,7 +111,7 @@ export function setBusy(b: boolean): void {
   sendBtn.setAttribute("aria-label", sendBtn.title);
   sendBtn.classList.toggle("stop", b);
   sendBtn.dataset.state = b ? "busy" : "idle";
-  input.placeholder = b ? "Steer it (Enter) · Tab queues for after" : editing ? "Edit your message…" : "Ask Atlarix to build, fix or explain…";
+  input.placeholder = b ? "Steer it (Enter) · Tab queues for after" : editing ? "Edit your message…" : idlePlaceholder();
   if (!b) showPending([]);
   workingNote = null;
   if (b) {
@@ -152,6 +158,7 @@ function renderWorking(): void {
 }
 
 function renderOptions(): void {
+  if (!state.busy && !editing) input.placeholder = idlePlaceholder();
   modePill.textContent = "";
   modePill.append(el("span", "", MODE_NAME[state.mode] ?? state.mode));
   modePill.insertAdjacentHTML("beforeend", icon("down", 10));
