@@ -6,7 +6,7 @@
  */
 import { rpc } from "../rpc";
 import { state } from "../state";
-import { button, el, pageHeader, relTime, toggle } from "../ui";
+import { button, el, icon, pageHeader, relTime, toggle } from "../ui";
 import type { Nav } from "./nav";
 
 type Trigger =
@@ -125,9 +125,17 @@ export async function renderAutomations(page: HTMLElement, nav: Nav, onSeen: () 
       text.append(name, el("span", "mcp-card__sub", sub));
       if (unread) name.append(el("span", "auto-card__new", `${unread} new`));
       label.append(el("span", "dot"), text);
+      // Delete right on the row, as for providers: it hid inside the expanded
+      // card (owner: "I don't see a delete automations button"). Asks first.
+      const trash = button("", "icon small prov__remove", () => {
+        confirming = a.id;
+        draw();
+      }, `Delete ${a.name}`);
+      trash.innerHTML = icon("trash", 14);
       head.append(
         label,
         toggle(a.enabled, `${a.name} on`, (on) => void act(a.id, "toggle", { enabled: on }, on ? "On." : "Off.")),
+        trash,
       );
       card.append(head);
 
