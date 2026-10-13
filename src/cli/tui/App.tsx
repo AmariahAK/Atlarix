@@ -1471,7 +1471,9 @@ export function App({
     // next to "4747k tokens": each turn re-sends the context, so the total
     // passes the window). That total is in /status (owner, 2026-10-05).
     contextLabel(state),
-    state.automationUnread > 0 ? `${state.automationUnread} automation result${state.automationUnread === 1 ? "" : "s"}` : null,
+    // Runs you haven't looked at in /automations (the agent may have used
+    // them already): "result" read as something still waiting for it (QA).
+    state.automationUnread > 0 ? `${state.automationUnread} new automation run${state.automationUnread === 1 ? "" : "s"} (/automations)` : null,
   ]
     .filter(Boolean)
     .join(" · ");
