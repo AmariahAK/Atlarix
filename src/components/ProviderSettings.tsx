@@ -85,8 +85,11 @@ export function orderProvidersForPaging(
     (!q ||
       compass.name.toLowerCase().includes(q) ||
       compass.id.toLowerCase().includes(q));
+  // OpenRouter is pinned once you've set it up; unconfigured it sorts with the
+  // rest, not ahead of the providers you use (QA #31).
   const openrouterVisible =
     openrouter &&
+    (!isSetUp || isSetUp(openrouter.id)) &&
     (!q ||
       openrouter.name.toLowerCase().includes(q) ||
       openrouter.id.toLowerCase().includes(q));
@@ -97,7 +100,7 @@ export function orderProvidersForPaging(
   // "deepseek" left all 35 pages and the user paged to find it (reported
   // 2026-09-23). Filter the stable shuffle instead of re-shuffling.
   const shuffledTail = filterProviders(shuffledNonCompass, searchQuery).filter(
-    (p) => p.id !== COMPASS_ID && p.id !== OPENROUTER_ID,
+    (p) => p.id !== COMPASS_ID && (p.id !== OPENROUTER_ID || !openrouterVisible),
   );
   const tail = isSetUp
     ? [
@@ -155,9 +158,8 @@ export function ProviderSettingsGrid() {
    * query, so the query must not retrigger it.
    */
   const reshuffleForDisplay = useCallback(() => {
-    const rest = (providers ?? []).filter(
-      (p) => p.id !== COMPASS_ID && p.id !== OPENROUTER_ID,
-    );
+    // OpenRouter is in the shuffle too: it is pinned only once set up.
+    const rest = (providers ?? []).filter((p) => p.id !== COMPASS_ID);
     setShuffledNonCompass(shuffleArray(rest));
     setPage(1);
   }, [providers]);

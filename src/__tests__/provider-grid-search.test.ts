@@ -48,9 +48,24 @@ describe("provider grid search", () => {
 // QA (app) #31: "5 providers configured", scattered across 37 shuffled pages.
 describe("providers you set up", () => {
   it("come right after Core and OpenRouter, the rest still shuffled", () => {
-    const setUp = new Set(["google"]);
+    const setUp = new Set(["google", "openrouter"]);
     expect(
       orderProvidersForPaging(ALL, shuffled, "", (id) => setUp.has(id)).map((x) => x.id),
     ).toEqual(["compass", "openrouter", "google", "kuae", "deepseek"]);
+  });
+});
+
+// QA #31 on build H: OpenRouter (no key) was still pinned second.
+describe("OpenRouter in the grid", () => {
+  const shuffledWithOr = [ALL[4]!, ALL[1]!, ALL[3]!, ALL[2]!];
+  it("is pinned only once you've set it up", () => {
+    const setUp = new Set(["google"]);
+    expect(
+      orderProvidersForPaging(ALL, shuffledWithOr, "", (id) => setUp.has(id)).map((x) => x.id),
+    ).toEqual(["compass", "google", "kuae", "openrouter", "deepseek"]);
+    const withOr = new Set(["google", "openrouter"]);
+    expect(
+      orderProvidersForPaging(ALL, shuffledWithOr, "", (id) => withOr.has(id)).map((x) => x.id)[1],
+    ).toBe("openrouter");
   });
 });
