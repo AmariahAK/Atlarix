@@ -40,6 +40,12 @@ async function fetchOllamaContextLength(name: string): Promise<number | null> {
   const { getOllamaApiUrl } = await import(
     "@/ipc/handlers/local_model_ollama_handler"
   );
+  // The window Atlarix runs the model at (ollama_native_fetch.ts sends it as
+  // num_ctx), not just the one it was trained for: budget what Ollama will
+  // actually hold.
+  const { ollamaNumCtx } = await import("@/ipc/utils/ollama_native_fetch");
+  const run = await ollamaNumCtx(getOllamaApiUrl(), name);
+  if (run) return run;
   const res = await fetch(`${getOllamaApiUrl()}/api/show`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
