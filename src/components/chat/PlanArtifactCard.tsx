@@ -185,6 +185,22 @@ export function planArtifactTitleFromContent(content: string): string {
   return first.replace(/^#+\s*/, "").trim() || "Implementation plan";
 }
 
+/**
+ * A plan's title as text. Titles are markdown (a heading or the plan's first
+ * line), and a title is not rendered as markdown, so "Add `--top N` CLI"
+ * showed its backticks in the card, the panel and the switcher (QA #23).
+ */
+export function planDisplayTitle(
+  title: string | null | undefined,
+  content: string,
+): string {
+  const raw = title?.trim() || planArtifactTitleFromContent(content);
+  return raw
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/(\*\*|__)(.+?)\1/g, "$2")
+    .trim();
+}
+
 export function PlanArtifactCard({
   planId,
   title,
@@ -202,7 +218,7 @@ export function PlanArtifactCard({
   buildDisabled?: boolean;
   defaultExpanded?: boolean;
 }) {
-  const displayTitle = title?.trim() || planArtifactTitleFromContent(content);
+  const displayTitle = planDisplayTitle(title, content);
   const canBuild = planStatus !== "built" && onBuild != null;
 
   return (

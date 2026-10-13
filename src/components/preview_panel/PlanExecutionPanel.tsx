@@ -20,7 +20,7 @@ import type { PlanArtifactPayload } from "@/ipc/utils/emit_plan_artifact";
 import { Button } from "@/components/ui/button";
 import {
   PlanChecklistProgress,
-  planArtifactTitleFromContent,
+  planDisplayTitle,
 } from "@/components/chat/PlanArtifactCard";
 
 function statusLabel(status: PlanArtifactStatus | null): string {
@@ -225,8 +225,7 @@ export function PlanExecutionPanel() {
                 {panel.planId ? (
                   <span className="flex items-baseline gap-2 min-w-0">
                     <span className="truncate" title={panel.title ?? undefined}>
-                      {panel.title?.trim() ||
-                        planArtifactTitleFromContent(panel.content ?? "")}
+                      {planDisplayTitle(panel.title, panel.content ?? "")}
                     </span>
                     <span className="text-xs text-muted-foreground font-normal shrink-0">
                       {statusLabel(panel.planStatus)}
@@ -261,8 +260,7 @@ export function PlanExecutionPanel() {
                   <option value="">Latest ({sessionPlans.length} plans)</option>
                   {sessionPlans.map((p) => (
                     <option key={p.planId} value={p.planId}>
-                      {(p.title?.trim() ||
-                        planArtifactTitleFromContent(p.content ?? "")) +
+                      {planDisplayTitle(p.title, p.content ?? "") +
                         ` — ${statusLabel(p.planStatus)}`}
                     </option>
                   ))}
@@ -270,8 +268,7 @@ export function PlanExecutionPanel() {
                     <optgroup label="Earlier sessions">
                       {earlierPlans.map((p) => (
                         <option key={p.planId} value={p.planId}>
-                          {(p.title?.trim() ||
-                            planArtifactTitleFromContent(p.content ?? "")) +
+                          {planDisplayTitle(p.title, p.content ?? "") +
                             ` — ${p.sessionTitle?.trim() || "untitled session"}`}
                         </option>
                       ))}

@@ -25,7 +25,13 @@ export function inferArtifactTitle(
   if (kind === "markmap") {
     for (const line of trimmed.split("\n")) {
       const m = line.match(/^#\s+(.+?)\s*$/);
-      if (m?.[1]) return m[1].trim();
+      // A heading's inline code/bold is markdown; the card title is text
+      // ("Add `--top N` CLI" showed its backticks, QA #23).
+      if (m?.[1])
+        return m[1]
+          .replace(/`([^`]*)`/g, "$1")
+          .replace(/(\*\*|__)(.+?)\1/g, "$2")
+          .trim();
     }
     return "Mind map";
   }

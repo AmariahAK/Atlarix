@@ -39,3 +39,17 @@ describe("inferArtifactTitle", () => {
     expect(inferArtifactTitle("markmap", "- item")).toBe("Mind map");
   });
 });
+
+// QA (app) #23: "Add `--top N` CLI" kept its backticks as a title.
+import { describe as describe23, it as it23, expect as expect23 } from "vitest";
+import { inferArtifactTitle as infer23 } from "@/lib/visual-artifacts/infer-title";
+import { planDisplayTitle } from "@/components/chat/PlanArtifactCard";
+describe23("titles are text, not markdown (QA #23)", () => {
+  it23("a mind map's heading loses its code and bold marks", () => {
+    expect23(infer23("markmap", "# Add `--top N` **CLI**\n## Steps")).toBe("Add --top N CLI");
+  });
+  it23("a plan's title too, stored or from its first line", () => {
+    expect23(planDisplayTitle("Add `--top N` CLI to tally", "")).toBe("Add --top N CLI to tally");
+    expect23(planDisplayTitle(null, "# Fix `src/tally.js`\n\n1. [ ] x")).toBe("Fix src/tally.js");
+  });
+});
