@@ -2571,29 +2571,29 @@ textarea.field {
 }
 
 /* Sent while it works (composer.ts showPending): above the box, quiet. */
-.pending {
+.waiting {
   display: flex;
   flex-direction: column;
   gap: 2px;
   margin: 0 2px 6px;
   font-size: 0.88em;
 }
-.pending__row {
+.waiting__row {
   display: flex;
   gap: 8px;
   min-width: 0;
 }
-.pending__text {
+.waiting__text {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--fg);
 }
-.pending__text::before {
+.waiting__text::before {
   content: "↳ ";
   color: var(--muted);
 }
-.pending__when {
+.waiting__when {
   flex: none;
   color: var(--muted);
 }
@@ -2604,4 +2604,41 @@ textarea.field {
   font-size: 0.88em;
   text-align: center;
   padding: 4px 0;
+}
+
+/* A narrow sidebar (~200px): the header keeps Rix and every button (QA E4). */
+@media (max-width: 320px) {
+  .nav {
+    padding: 0 4px 0 8px;
+    gap: 0;
+  }
+  .nav__name {
+    display: none;
+  }
+  .nav button.icon {
+    width: 24px;
+  }
+  /* The box's own row: the send button stays in view. MCP is in the header too. */
+  .box__bar button.icon {
+    width: 24px;
+  }
+  .box__bar button.icon[aria-label="MCP servers"] {
+    display: none;
+  }
+  .box__bar .pill {
+    padding: 0 7px;
+    margin-right: 2px;
+  }
+  .composer {
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+  /* "Needs you" as a dot beside Rix. */
+  body.needs-you .needs-badge {
+    font-size: 0;
+    width: 8px;
+    height: 8px;
+    padding: 0;
+    background: var(--warn);
+  }
 }

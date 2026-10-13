@@ -37,7 +37,7 @@ const modePill = button("", "pill mode-pill", () => modeMenu.classList.toggle("h
 // While it works the button stops it; Enter in the box steers instead.
 const sendBtn = button("", "send", () => (state.busy ? post({ type: "cancel" }) : submit()), "Send");
 /** What you sent while it worked, still waiting: steers and queued messages. */
-const pendingList = el("div", "pending hidden");
+const pendingList = el("div", "waiting hidden");
 const approveLine = button("", "approve-line", () => hooks.open("approve"));
 const under = el("div", "under");
 const modelBtn = button("", "model-btn", () => togglePicker(), "Model");
@@ -105,7 +105,7 @@ export function setBusy(b: boolean): void {
   sendBtn.setAttribute("aria-label", sendBtn.title);
   sendBtn.classList.toggle("stop", b);
   sendBtn.dataset.state = b ? "busy" : "idle";
-  input.placeholder = b ? "Steer it while it works (Enter) · Tab queues for after" : editing ? "Edit your message…" : "Ask Atlarix to build, fix or explain…";
+  input.placeholder = b ? "Steer it (Enter) · Tab queues for after" : editing ? "Edit your message…" : "Ask Atlarix to build, fix or explain…";
   if (!b) showPending([]);
   if (b) {
     workingSince = Date.now();
@@ -494,8 +494,8 @@ export function showPending(items: Array<{ id: string; text: string; kind: strin
   pendingList.textContent = "";
   pendingList.classList.toggle("hidden", !items.length);
   for (const p of items) {
-    const row = el("div", "pending__row");
-    row.append(el("span", "pending__text", p.text.split("\n")[0]!), el("span", "pending__when", p.kind === "steer" ? "goes in after this step" : "sent when this turn ends"));
+    const row = el("div", "waiting__row");
+    row.append(el("span", "waiting__text", p.text.split("\n")[0]!), el("span", "waiting__when", p.kind === "steer" ? "goes in after this step" : "sent when this turn ends"));
     pendingList.append(row);
   }
 }
