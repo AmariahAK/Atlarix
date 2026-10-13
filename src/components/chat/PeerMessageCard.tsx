@@ -8,24 +8,34 @@ import {
 import { UserMessageMarkdownParser } from "./AtlarixMarkdownParser";
 
 /**
- * A message from another Atlarix session (lib/peers), drawn like a tool step on
- * the agent's side of the conversation — never as the user's own bubble, which
- * read as something the user had typed. Long ones fold.
+ * A message from another Atlarix session (lib/peers): a teammate's, drawn like
+ * a tool step on the agent's side of the conversation — never as the user's own
+ * bubble, which read as something the user had typed. Long ones fold.
+ *
+ * A row can also hold the user's own words (queued messages are joined when an
+ * idle chat wakes); those keep the user's bubble. No Edit on any of it: editing
+ * rewrites the whole row, which would drop the teammate's message, and a
+ * teammate's message is never the user's to resend (owner; the CLI's go-back
+ * list skips it too, cli/agent/own-messages.ts).
  */
 export function PeerMessageCard({ segments }: { segments: PeerSegment[] }) {
   return (
-    <div className="flex justify-start">
-      <div className="mr-12 flex max-w-3xl flex-col gap-1.5">
-        {segments.map((seg, i) =>
-          seg.kind === "peer" ? (
-            <PeerOne key={i} seg={seg} />
-          ) : (
-            <div key={i} className="text-sm text-muted-foreground">
+    <div className="flex flex-col gap-1.5">
+      {segments.map((seg, i) =>
+        seg.kind === "peer" ? (
+          <div key={i} className="flex justify-start">
+            <div className="mr-12 max-w-3xl">
+              <PeerOne seg={seg} />
+            </div>
+          </div>
+        ) : (
+          <div key={i} className="flex justify-end">
+            <div className="ml-12 max-w-3xl rounded-lg border border-user-bubble-border bg-user-bubble p-3 text-user-bubble-foreground">
               <UserMessageMarkdownParser content={seg.text} />
             </div>
-          ),
-        )}
-      </div>
+          </div>
+        ),
+      )}
     </div>
   );
 }
@@ -52,10 +62,11 @@ function PeerOne({ seg }: { seg: Extract<PeerSegment, { kind: "peer" }> }) {
         )}
         <MessagesSquare className="h-3.5 w-3.5 shrink-0" aria-hidden />
         <span>
-          {t("peerMessage.from", { where })}{" "}
+          {t("peerMessage.from")}{" "}
           <span className="font-medium text-foreground/90">
             {seg.from || t("peerMessage.anotherSession")}
-          </span>
+          </span>{" "}
+          {t("peerMessage.surface", { where })}
         </span>
       </button>
       {open ? (
