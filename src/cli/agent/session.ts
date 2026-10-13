@@ -1035,9 +1035,18 @@ export class AgentSession extends EventEmitter {
   private async backgroundToDeliver(): Promise<boolean> {
     if (!this.chatId) return false;
     try {
-      const { computeWakePendingResults } = await import("@/lib/agent/collect-results");
+      // NOT a finished automation: by design it never wakes a turn, its result
+      // goes into your next one (automation-results.ts). Counting it here woke
+      // the agent with nothing to read, eleven times over (QA, build 2).
+      const { hasPendingBackgroundCommandResults, hasPendingStalledAdvisories } = await import("@/lib/agent/background-commands");
+      const { hasPendingSubagentResults } = await import("@/lib/agents/subagent-results");
       const { hasPendingScheduledWakeupNudges } = await import("@/lib/agent/scheduled-wakeups");
-      return computeWakePendingResults(this.chatId, true) || hasPendingScheduledWakeupNudges(this.chatId);
+      return (
+        hasPendingBackgroundCommandResults(this.chatId) ||
+        hasPendingSubagentResults(this.chatId) ||
+        hasPendingStalledAdvisories(this.chatId) ||
+        hasPendingScheduledWakeupNudges(this.chatId)
+      );
     } catch {
       return false;
     }
@@ -1070,6 +1079,7 @@ export class AgentSession extends EventEmitter {
   private async startTurn(text: string, opts: TurnOptions = {}): Promise<void> {
     this.recapLine = null;
     if (!opts.systemWake) this.userStopped = false;
+    this.turnWasWake = !!opts.systemWake;
     await this.ensureSession();
     if (!opts.continueAfterQuestions) {
       const display = opts.display ?? text;
@@ -1783,10 +1793,19 @@ export class AgentSession extends EventEmitter {
     // would ever wake for it: the report sat undelivered and the row looked dead
     // (QA #50, reproduced: an agent done 0.3s before the turn ended).
     if (await this.backgroundToDeliver()) {
+      // A wake turn that left its own reason undelivered must not wake again:
+      // that loops, each turn starting with nothing but a mode reminder.
+      if (this.turnWasWake) {
+        void import("electron-log").then((m) => m.default.warn(`[wake] a wake turn ended with its results still pending; not waking again (chat ${this.chatId})`));
+        return;
+      }
       if (this.idlePeerMessages === "hold") this.emit("background-ready");
       else void this.wakeForBackground();
     }
   }
+
+  /** The turn running (or last run) was a wake for background work, not your message. */
+  private turnWasWake = false;
 
   /** Open a turn with a message another session queued while this one was idle. */
   /**

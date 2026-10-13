@@ -352,6 +352,33 @@ describe("atlarix acp", () => {
     expect(idle.started).toBe(false);
   }, 60_000);
 
+  it("a finished automation never wakes the chat; it goes into your next message (QA: 11 wake turns in a row)", async () => {
+    const e = await editor(
+      [{ text: "Working on it, this takes a moment to finish.", delayMs: 60 }, { text: "The automation said the tests fail; here's why." }],
+      undefined,
+      { _meta: { atlarix: { version: 1 } } },
+    );
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    const { appId } = e.agent.sessionInfo(sessionId);
+    const { recordAutomationResult } = await import("../src/lib/agent/automation-results");
+    const turn = e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "do a thing" }] });
+    // Once the turn's request is out (its context already built), as a run
+    // finishing mid-turn does.
+    const sent = Date.now();
+    while (!e.llm.requests.some((r) => (r as { tools?: unknown[] }).tools?.length) && Date.now() - sent < 10_000) await Bun.sleep(10);
+    await Bun.sleep(20);
+    // Finishes while the turn runs, as QA's 'Run now' right after Allow did.
+    recordAutomationResult(appId, { automationId: "a1", automationName: "Weekday tests", status: "error", body: "2 failing: subtract", finishedAt: Date.now() });
+    await turn;
+    await Bun.sleep(1500);
+    const turns = () => e.llm.requests.filter((r) => (r as { tools?: unknown[] }).tools?.length).length;
+    expect(turns()).toBe(1); // no wake turns
+    expect(e.ext.some((x) => x.method === "_atlarix/background_ready")).toBe(false);
+    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "anything new?" }] });
+    expect(turns()).toBe(2);
+    expect(JSON.stringify(e.llm.requests.at(-1)?.messages)).toContain("2 failing: subtract");
+  }, 60_000);
+
   it("loading a session this process already has open replays it in full", async () => {
     const e = await editor([{ text: "The codeword is heron." }]);
     const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
