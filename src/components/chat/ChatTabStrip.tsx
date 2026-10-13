@@ -25,7 +25,10 @@ import {
   activeWorkspaceSessionIdAtom,
   chatIdToSessionIdAtom,
 } from "@/atoms/sessionAtoms";
-import { removeOpenChatTab } from "@/lib/open-workspace-session";
+import {
+  activateWorkspaceSessionById,
+  removeOpenChatTab,
+} from "@/lib/open-workspace-session";
 import { hydrateSessionIntoChat } from "@/lib/chat/hydrate-session-into-chat";
 import { isChatEvicted } from "@/lib/chat/clear-chat-atoms";
 import { showError } from "@/lib/toast";
@@ -49,7 +52,8 @@ export function ChatTabStrip() {
     setActiveChatId(chatId);
     setSelectedChatId(chatId);
     const sessionId = chatIdToSessionId.get(chatId) ?? null;
-    setActiveSessionId(sessionId);
+    if (sessionId) void activateWorkspaceSessionById(sessionId);
+    else setActiveSessionId(null);
     if (appId != null) {
       setSelectedAppId(appId);
       const app = appsList.find((a) => a.id === appId);
