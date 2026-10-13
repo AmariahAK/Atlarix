@@ -274,7 +274,10 @@ const BUDGET: Record<string, { minTotal: number; maxTotal: number }> = {
   ask: { minTotal: 9_250, maxTotal: 11_800 },
   plan: { minTotal: 8_800, maxTotal: 11_200 },
   build: { minTotal: 12_450, maxTotal: 15_850 },
-  review: { minTotal: 8_950, maxTotal: 11_400 },
+  // 11,400 → 11,500 on 2026-10-13, owner-approved: glob's `sort: "size"` option
+  // (~45 tokens) put Review at 11,429. Paid for by raising this ceiling, NOT by
+  // rewording shared tool text, which the app, CLI and editors all run on.
+  review: { minTotal: 8_950, maxTotal: 11_500 },
   debug: { minTotal: 11_950, maxTotal: 15_250 },
   // A NON-ENGLISH case, because every other case runs in English and the response
   // language block is emitted ONLY when the locale is not en-us. Without this the
