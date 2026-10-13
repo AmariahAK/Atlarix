@@ -148,6 +148,19 @@ export async function getContextWindowDetailed(
     contextWindowMemo.set(key, modelOption.contextWindow);
     return { contextWindow: modelOption.contextWindow, source: "live" };
   }
+  // A model on this computer (Ollama, LM Studio, or Ollama behind a custom
+  // address) knows its window: the one the budget uses. The usage line said
+  // "15k/200k" for an Ollama model run at 32K (QA).
+  const pid = (target.provider ?? "").toLowerCase();
+  if (pid.includes("ollama") || pid.includes("lmstudio") || pid.startsWith("custom::")) {
+    const { resolveModelContextLimit, GENERIC_CONTEXT_FALLBACK } = await import("@/lib/context/resolve-model-context-limit");
+    const raw = (await resolveModelContextLimit(target, settings).catch(() => null))?.rawContextLength;
+    // Not the resolver's own guess for an unknown model: that's no better than ours.
+    if (raw && raw > 0 && raw !== GENERIC_CONTEXT_FALLBACK) {
+      contextWindowMemo.set(key, raw);
+      return { contextWindow: raw, source: "live" };
+    }
+  }
   return { contextWindow: DEFAULT_CONTEXT_WINDOW, source: "fallback" };
 }
 
