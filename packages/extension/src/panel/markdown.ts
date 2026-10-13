@@ -245,7 +245,7 @@ function parseBlocks(markdown: string, fenceRenderer?: FenceRenderer): Node[] {
         const li = document.createElement("li");
         const item = lines[i].replace(/^\s*[-*]\s+/, "");
         // Its box is its marker: "• ☐ Run…" showed both (QA).
-        if (/^\[( |x|X|~)\]\s+/.test(item)) li.className = "task";
+        if (/^\[( |x|X|~)\]\s+/.test(item)) li.className = "md-task";
         appendInline(li, taskBox(item));
         ul.append(li);
         i += 1;

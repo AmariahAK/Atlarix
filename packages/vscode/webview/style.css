@@ -2900,7 +2900,8 @@ code {
   display: none;
 }
 
-/* A checklist item's box is its marker (markdown.ts taskBox). */
-li.task {
+/* A checklist item's box is its marker (markdown.ts taskBox). Not "task":
+   that's the plan card's class, and the items took its card layout (QA). */
+li.md-task {
   list-style: none;
 }
