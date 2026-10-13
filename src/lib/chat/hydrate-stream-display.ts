@@ -95,7 +95,11 @@ export function hydrateStreamDisplayForMessages(
     if (m.role !== "assistant" || !m.content?.trim()) continue;
 
     if (m.displaySnapshot) {
-      const thread = threadFromSnapshot(m.displaySnapshot, m.content);
+      // A snapshot with no steps (one kept only for the reply's model, QA #49)
+      // rebuilds them from the content, as having no snapshot does.
+      const thread = m.displaySnapshot.completedThread.length
+        ? threadFromSnapshot(m.displaySnapshot, m.content)
+        : buildCompletedStreamThreadFromAssistantContent(m.content);
       if (thread.length > 0) {
         completedThreads[m.id] = thread;
       }

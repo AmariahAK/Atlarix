@@ -52,10 +52,13 @@ export function buildDisplaySnapshotV1(args: {
   model?: { provider: string; name: string } | null;
 }): DisplaySnapshotV1 | null {
   const interleaved = args.interleavedContent?.trim() || "";
+  // A plain reply still keeps its model (QA #49: "pong" stored nothing, so a
+  // reopen named the current model on it).
   if (
     !args.completedThread.length &&
     !args.inlineTimeline?.length &&
-    !interleaved
+    !interleaved &&
+    !args.model
   ) {
     return null;
   }
