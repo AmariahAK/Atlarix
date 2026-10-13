@@ -165,3 +165,44 @@ describe("a write card that finishes after its preview arrived", () => {
     expect((tool.expand as { oldContent?: string }).oldContent).toBe(OLD);
   });
 });
+
+/**
+ * QA #6 on build D: an edit approved by hand still numbered the snippet 1-5
+ * (lines 10-14 in the file). Its args held the whole file; its view did not:
+ * the tool's END event carries a view main built from the model's args, and
+ * finishing a card that way replaced it without looking at the merged file.
+ */
+import { completeStreamToolOnEnd } from "@/lib/chat/stream-thread";
+
+describe("a write card finished by its end event", () => {
+  it("keeps the whole-file diff, not the end event's snippet view", () => {
+    const OLD = "a\nb\nexport function topWords(text, n = 3) {\n  return n;\n}\n";
+    const NEW = "a\nb\nexport function topWords(text, limit = 3) {\n  return limit;\n}\n";
+    const store = getDefaultStore();
+    const running: StreamThreadItem = {
+      kind: "tool",
+      id: "call_9",
+      toolName: "edit_file",
+      summary: "Editing",
+      status: "running",
+      ts: 1,
+      toolArgs: { path: "src/tally.js", operation: "replace", old_content: "export function topWords(text, n = 3) {", new_content: "export function topWords(text, limit = 3) {" },
+    };
+    store.set(streamThreadByChatIdAtom, new Map([[CHAT_ID, [running]]]));
+    mergeWritePreviewIntoThread(CHAT_ID, "src/tally.js", "update", OLD, NEW);
+    const snippetView = buildToolExpandView(
+      "edit_file",
+      { path: "src/tally.js", operation: "replace", old_content: "export function topWords(text, n = 3) {", new_content: "export function topWords(text, limit = 3) {" },
+      JSON.stringify({ success: true, path: "src/tally.js", operation: "update", added: 2, removed: 2 }),
+      "done",
+    );
+    const [done] = completeStreamToolOnEnd(store.get(streamThreadByChatIdAtom).get(CHAT_ID)!, {
+      toolCallId: "call_9",
+      toolName: "edit_file",
+      status: "done",
+      resultText: JSON.stringify({ success: true, path: "src/tally.js", operation: "update", added: 2, removed: 2 }),
+      expand: snippetView ?? undefined,
+    } as never) as Array<Extract<StreamThreadItem, { kind: "tool" }>>;
+    expect((done.expand as { oldContent?: string }).oldContent).toBe(OLD);
+  });
+});

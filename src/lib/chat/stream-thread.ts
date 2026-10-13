@@ -418,7 +418,10 @@ function finalizeToolItem(
     (expandSource
       ? buildToolExpandView(registryName, item.toolArgs, expandSource, status)
       : item.expand);
-  return {
+  // The end event can carry a view main built from the model's own args (an
+  // edit's snippet); a card holding the merged whole file is rebuilt from it
+  // (QA #6, approved-by-hand edits on build D).
+  return withDisplayPreviewExpand({
     ...item,
     status,
     summary:
@@ -438,7 +441,7 @@ function finalizeToolItem(
     expand,
     toolArgs: item.toolArgs,
     endTs: status === "running" ? item.endTs : (item.endTs ?? Date.now()),
-  };
+  });
 }
 
 function findRunningToolIndex(
