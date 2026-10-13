@@ -2854,3 +2854,40 @@ code {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* A plan the agent wrote, under its step (transcript.ts planStep). */
+.plan-step {
+  margin: 6px 0 8px;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--primary);
+  border-radius: 8px;
+  background: var(--card);
+  overflow: hidden;
+}
+.plan-step .plan-step__head {
+  margin: 0;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.plan-step__body {
+  padding: 2px 12px 10px;
+  /* Read like a reply, not like the steps' monospace around it. */
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg);
+}
+.plan-step__body h1,
+.plan-step__body h2,
+.plan-step__body h3 {
+  font-family: var(--sans);
+  font-size: 14px;
+  margin: 6px 0 4px;
+  color: var(--heading, var(--fg));
+}
+.plan-step__body code {
+  font-family: var(--mono);
+}
+.plan-step.folded .plan-step__body {
+  display: none;
+}

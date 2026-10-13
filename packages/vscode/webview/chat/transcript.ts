@@ -480,6 +480,17 @@ function stepsGroup(): HTMLElement {
   return g;
 }
 
+/** A plan step with the plan under it, open; its header folds it. */
+function planStep(step: HTMLElement, markdown: string): HTMLElement {
+  const box = el("div", "plan-step");
+  const body = el("div", "plan-step__body md");
+  renderMarkdown(body, markdown, { fence: drawFence });
+  step.classList.add("plan-step__head");
+  step.addEventListener("click", () => box.classList.toggle("folded"));
+  box.append(step, body);
+  return box;
+}
+
 /** A tool call: a quiet step, or a card for an edit or a command. */
 export function toolCall(t: ToolCallUpdate & { _meta?: unknown; kind?: string | null }): void {
   log.querySelector(".home")?.remove();
@@ -548,6 +559,16 @@ export function toolCall(t: ToolCallUpdate & { _meta?: unknown; kind?: string | 
     }
     // A step with nothing to name (internal bookkeeping) is a bare mark: hide it.
     node.classList.toggle("hidden", !title.trim());
+    // A plan the agent wrote: the plan itself, open, to read and correct where
+    // it was written (owner: the card above scrolls out of view).
+    const isPlan = (t._meta as { atlarix?: { planBody?: boolean } } | undefined)?.atlarix?.planBody || existing?.dataset.plan === "1";
+    const planText = text?.trim() || existing?.dataset.planText || "";
+    if (isPlan && planText) {
+      node = planStep(node, planText);
+      node.dataset.planText = planText;
+    }
+    // Remembered before its text arrives: the update that brings it has no _meta.
+    if (isPlan) node.dataset.plan = "1";
   }
   Object.assign(node.dataset, { kind, status, title });
   if (node.classList.contains("cmd-card") || node.classList.contains("edit-card")) {

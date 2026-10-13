@@ -516,7 +516,12 @@ export function toolLine(part: Extract<AssistantMessagePart, { type: "tool" }>):
     status: part.status,
     result: part.resultText,
     error: part.error,
-    output: shownOutput(part.toolName, r.text),
+    // A plan the agent wrote: the plan itself, to read and correct where it was
+    // written, not only in the card above (owner: "why can't I see the plan?").
+    output:
+      part.toolName === "plan" && str((part.args as Record<string, unknown>)?.operation) === "write" && str((part.args as Record<string, unknown>)?.content).trim()
+        ? str((part.args as Record<string, unknown>)?.content).trim()
+        : shownOutput(part.toolName, r.text),
     summary: part.status === "running" ? undefined : diff ? editSummary(diff) : summarize(part.toolName, r),
   };
 }

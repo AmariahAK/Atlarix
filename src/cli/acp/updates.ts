@@ -223,6 +223,8 @@ export function diffUpdates(cells: readonly Cell[], emitted: Emitted, opts: { re
         // "Message from X (app)" step): marked so Atlarix's extension shows it
         // as a message card; other editors show the step as is.
         const peer = t.verb === "Message" && /:p\d+$/.test(c.id) ? { _meta: { atlarix: { peer: { from: t.target?.replace(/^from /, "") ?? "" } } } } : {};
+        // A written plan: Atlarix's extension shows it under the step, to read.
+        const planBody = name === "plan" && /^write\b/.test(t.target ?? "") ? { _meta: { atlarix: { planBody: true } } } : {};
         out.push({
           sessionUpdate: "tool_call",
           toolCallId: c.id,
@@ -230,6 +232,7 @@ export function diffUpdates(cells: readonly Cell[], emitted: Emitted, opts: { re
           kind: toolKind(name),
           status: status(t.status),
           ...peer,
+          ...planBody,
           ...(name === "task" ? subagentMeta(t) : {}),
           ...(t.target && /[/\\.]/.test(t.target) && toolKind(name) !== "execute" ? { locations: [{ path: t.target }] } : {}),
           ...(content.length ? { content } : {}),
