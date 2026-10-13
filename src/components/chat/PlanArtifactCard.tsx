@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { InlineMarkdown } from "./InlineMarkdown";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -171,7 +172,7 @@ export function PlanChecklistProgress({
                 step.state === "todo" && "text-muted-foreground",
               )}
             >
-              {step.text}
+              <InlineMarkdown text={step.text} />
             </span>
           </li>
         ))}
