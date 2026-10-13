@@ -383,6 +383,38 @@ export function registerLanguageModelHandlers() {
     },
   );
 
+  // Does the saved key for this provider work? One authenticated GET of its
+  // model list (lib/provider-key-check, as the CLI and editor do). The app's
+  // provider page said "Setup Complete" for any saved key, unchecked (QA #24).
+  handle(
+    "providers:check-key",
+    async (
+      _event: IpcMainInvokeEvent,
+      providerId: string,
+    ): Promise<{ status: string; detail: string } | null> => {
+      const { readSettings } = await import("@/main/settings");
+      const key = (
+        readSettings() as {
+          providerSettings?: Record<string, { apiKey?: { value?: string } }>;
+        }
+      ).providerSettings?.[providerId]?.apiKey?.value;
+      if (!key) return null;
+      const { getLanguageModelProviders } = await import(
+        "@/ipc/shared/language_model_helpers"
+      );
+      const p = (await getLanguageModelProviders()).find(
+        (x) => x.id === providerId,
+      );
+      const { keyProbe, checkProviderKey } = await import(
+        "@/lib/provider-key-check"
+      );
+      return checkProviderKey(
+        keyProbe(providerId, key, p?.apiBaseUrl ?? null),
+        key,
+      );
+    },
+  );
+
   handle("models-dev:refresh", async (): Promise<{ success: boolean }> => {
     try {
       invalidateProviderModelCache();

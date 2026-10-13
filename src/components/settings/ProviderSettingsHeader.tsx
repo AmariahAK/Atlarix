@@ -18,6 +18,8 @@ import {
 interface ProviderSettingsHeaderProps {
   providerDisplayName: string;
   isConfigured: boolean;
+  /** The saved key's check, when it ran (providers:check-key). */
+  keyCheck?: { status: string; detail: string } | null;
   isLoading: boolean;
   hasFreeTier?: boolean;
   providerWebsiteUrl?: string;
@@ -31,11 +33,14 @@ function getKeyButtonText({ isConfigured }: { isConfigured: boolean }) {
 export function ProviderSettingsHeader({
   providerDisplayName,
   isConfigured,
+  keyCheck,
   isLoading,
   hasFreeTier,
   providerWebsiteUrl,
   onBackClick,
 }: ProviderSettingsHeaderProps) {
+  // A saved key the provider refuses is not "Setup Complete" (QA #24).
+  const rejected = keyCheck?.status === "rejected";
   const handleGetApiKeyClick = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
     if (providerWebsiteUrl) {
@@ -76,19 +81,32 @@ export function ProviderSettingsHeader({
           ) : (
             <Circle
               className={`h-5 w-5 ${
-                isConfigured
-                  ? "fill-green-500 text-green-600"
-                  : "fill-yellow-400 text-yellow-500"
+                rejected
+                  ? "fill-red-500 text-red-600"
+                  : isConfigured
+                    ? "fill-green-500 text-green-600"
+                    : "fill-yellow-400 text-yellow-500"
               }`}
             />
           )}
           <span className="ml-2 text-sm text-gray-600 dark:text-gray-400">
             {isLoading
               ? "Loading..."
-              : isConfigured
-                ? "Setup Complete"
-                : "Not Setup"}
+              : rejected
+                ? "Key rejected"
+                : keyCheck?.status === "unreachable"
+                  ? "Couldn't reach the provider"
+                  : isConfigured
+                    ? "Setup Complete"
+                    : "Not Setup"}
           </span>
+          {!isLoading &&
+          keyCheck &&
+          (rejected || keyCheck.status === "unreachable") ? (
+            <span className="ml-2 truncate text-xs text-muted-foreground">
+              {keyCheck.detail}
+            </span>
+          ) : null}
         </div>
         {!isLoading && hasFreeTier && (
           <span className="text-blue-600 mt-2 dark:text-blue-400 text-sm font-medium bg-blue-100 dark:bg-blue-900/30 px-2 py-1 rounded-full inline-flex items-center">

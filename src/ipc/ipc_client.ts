@@ -1065,6 +1065,16 @@ export class IpcClient {
    * The files of these turns reverted since the agent was last told; marks
    * them told (the agent hears it once, with the user's next message).
    */
+  /** Whether the saved key for this provider works (null: no key saved). */
+  public async checkProviderKey(
+    providerId: string,
+  ): Promise<{
+    status: "works" | "rejected" | "unchecked" | "unreachable";
+    detail: string;
+  } | null> {
+    return this.ipcRenderer.invoke("providers:check-key", providerId);
+  }
+
   public async takeRevertedFiles(params: {
     chatId: number;
     turnIds: string[];

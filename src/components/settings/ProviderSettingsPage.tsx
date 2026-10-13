@@ -156,6 +156,26 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
           ? isElasticConfigured
           : isValidUserKey || hasEnvKey; // Configured if either is set
 
+  // Check the saved key with the provider: on opening the page, and after a
+  // save. Any saved key used to read "Setup Complete", unchecked (QA #24).
+  const savedKey = settings?.providerSettings?.[provider]?.apiKey?.value;
+  const [keyCheck, setKeyCheck] = useState<{
+    status: string;
+    detail: string;
+  } | null>(null);
+  useEffect(() => {
+    setKeyCheck(null);
+    if (!savedKey || savedKey === "none") return;
+    let live = true;
+    void IpcClient.getInstance()
+      .checkProviderKey(provider)
+      .then((r) => live && setKeyCheck(r))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [provider, savedKey]);
+
   // --- Save Handler ---
   const handleSaveKey = async (value: string) => {
     if (!value.trim()) {
@@ -314,6 +334,7 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
               ? true
               : isConfigured
           }
+          keyCheck={keyCheck}
           isLoading={settingsLoading}
           hasFreeTier={hasFreeTier}
           providerWebsiteUrl={providerWebsiteUrl}

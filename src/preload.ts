@@ -41,6 +41,7 @@ const validInvokeChannels = [
   "snapshot:exists",
   "snapshot:files",
   "snapshot:take-reverted-files",
+  "providers:check-key",
   "snapshot:files-range",
   "stream:open", // v3.9: open terminal/pipeline stream
   "stream:close", // v3.9: close stream
