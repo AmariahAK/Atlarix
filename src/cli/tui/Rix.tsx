@@ -15,10 +15,10 @@ export type RixMood = "rest" | "working" | "found";
 /** Pixel palette. "." is empty. */
 const PALETTE: Record<string, string> = {
   G: color.accent, // globe, body
-  D: "#047857", // globe meridians, far legs
+  D: "#1f8f62", // globe meridians, far legs
   S: color.accentSoft, // head, needle tip
   K: color.bg, // the eye
-  N: "#52525b", // needle tail
+  N: color.faint, // needle tail
 };
 
 /**

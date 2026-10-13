@@ -91,6 +91,7 @@ import { copyText } from "./clipboard";
 import { color, glyph } from "./theme";
 import { errorNotice, type ErrorNotice } from "./limits";
 import { SessionHeader, type AccountKind } from "./Header";
+import { gitBranch } from "./git-branch";
 import { RATING_CHANCE, RATINGS, shouldAskRating } from "./session-rating";
 import { PlanPanel, type PinnedPlan, type PlanScroll } from "./PlanPanel";
 import { Transcript } from "./Transcript";
@@ -269,7 +270,7 @@ function AgentRows({ rows, width, selected, main }: { rows: StripRow[]; width: n
             "commands",
             picked,
             glyph.tool.running,
-            color.warn,
+            color.code,
             `${n} command${n === 1 ? "" : "s"}`,
             r.tasks.map((t) => t.label.split("\n")[0]).join(", "),
             age(longest),
@@ -547,6 +548,8 @@ export function App({
   // The strip row picked with ↓ (null: the prompt box has the keys).
   const [stripSel, setStripSel] = useState<number | null>(null);
   const rows = useMemo(() => stripRows(liveTasks), [liveTasks]);
+  // Re-read when a turn ends: the agent may have switched branches.
+  const branch = useMemo(() => gitBranch(session.workspaceDir), [session.workspaceDir, state.busy]);
   const stripRef = useRef<{ sel: number | null; rows: StripRow[] }>({ sel: null, rows: [] });
   stripRef.current.rows = rows;
   // Set at once, not on the next render: two quick ↓ must move two rows.
@@ -1509,7 +1512,8 @@ export function App({
               model={deep ? `${modelLabel} · deep` : modelLabel}
               mode={MODE_LABEL[state.mode]}
               account={session.model && session.model.provider !== "compass" ? "own-key" : accountKind}
-              workspace={abbreviatePath(session.workspaceDir, Math.max(12, width - 24))}
+              workspace={abbreviatePath(session.workspaceDir, Math.max(12, width - 24 - (branch ? branch.length + 2 : 0)))}
+              branch={branch}
               mood={state.busy ? "working" : "rest"}
               hint={
                 state.cells.length === 0 && !state.busy ? (
@@ -1635,7 +1639,7 @@ export function App({
 
       {edit ? (
         <text flexShrink={0}>
-          <span fg={color.warn}>↺ editing an earlier message</span>
+          <span fg={color.code}>↺ editing an earlier message</span>
           <span fg={color.muted}>
             {edit.restoreCount ? ` · sending restores ${edit.restoreCount} file${edit.restoreCount === 1 ? "" : "s"} first` : ""} · enter resends · everything after it is replaced · ctrl+c cancels
           </span>

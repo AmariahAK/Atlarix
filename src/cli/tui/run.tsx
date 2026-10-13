@@ -15,6 +15,7 @@ import { formatFatal } from "../errors";
 import { installProcessGuards, onShutdownRestore, shutdownCli } from "../shutdown";
 import { realServices } from "../agent/services";
 import { App, type ModelSource } from "./App";
+import { color } from "./theme";
 import type { Line } from "./dialogs";
 
 export interface RunTuiOptions {
@@ -132,7 +133,7 @@ export async function runTui(opts: RunTuiOptions): Promise<void> {
       // console overlay would bury them inside a screen that is about to close.
       openConsoleOnError: false,
       useMouse: true,
-      backgroundColor: "#0a0a0a",
+      backgroundColor: color.bg,
     });
   } catch (err) {
     // No renderer means restoreTerminal has nothing to tear down: leave the

@@ -77,7 +77,8 @@ function planSection(p: NonNullable<typeof plan>): HTMLElement {
     const li = el("li", `pstep ${e.status}`);
     li.append(el("span", "pstep__mark", STEP_MARK[e.status] ?? "☐"));
     const text = el("span", "pstep__text");
-    renderMarkdown(text, e.content);
+    // The card numbers nothing itself, but a model's own "1." would read as a stray number.
+    renderMarkdown(text, e.content.replace(/^\s*\d+[.)]\s+/, ""));
     li.append(text);
     list.append(li);
   }

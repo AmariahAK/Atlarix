@@ -1,35 +1,43 @@
 /*
- * Atlarix's design system (the site, the app, the Chrome side panel): a
- * near-black ground, one step up for cards, hairline borders, and one accent,
- * emerald. Not the editor's theme. Inter when it's installed (the webview loads
- * nothing from the web), else the editor's own font; code in the editor's
- * monospace.
+ * Atlarix's design system for the editor, the same palette as the CLI (owner,
+ * 2026-10-13): a green-black base, one step up for cards, hairline borders,
+ * and one accent, green. Sand for headings, sky for code and paths, bright for
+ * bold and names; amber is for warnings only. Not the editor's theme. Inter
+ * when it's installed (the webview loads nothing from the web), else the
+ * editor's own font; code in the editor's monospace.
  */
 :root {
   color-scheme: dark;
-  --bg: #0a0a0a;
-  --card: #1a1a1a;
-  --raised: #141416;
-  --sunk: #111113;
-  --field: #161618;
-  --fg: #fafafa;
-  --muted: #a1a1aa;
-  --faint: #71717a;
-  --border: #27272a;
-  --border-strong: #3a3d44;
-  --primary: #10b77f;
-  --primary-soft: #34d399;
-  --primary-bg: #0f2a20;
-  --primary-line: #1f5c46;
+  --bg: #0a0e0d;
+  --card: #18201d;
+  --raised: #121916;
+  --sunk: #0e1412;
+  --field: #141b18;
+  --fg: #cfe8dd;
+  --bright: #e8f5ee;
+  --heading: #f2e8d5;
+  --muted: #7c948a;
+  --faint: #5b6e66;
+  --border: #26302c;
+  --border-strong: #35413b;
+  --primary: #3ddc97;
+  --primary-soft: #7ee6b8;
+  --primary-bg: #12271e;
+  --primary-line: #1f5a42;
   --on-primary: #04120c;
-  --danger: #ef4343;
-  --danger-soft: #f28b82;
-  --danger-bg: #1a1112;
-  --danger-line: #5a2a2a;
-  --warn: #f5c451;
-  --warn-bg: #1a1712;
-  --warn-line: #5c4a1c;
-  --code: #c4b5fd;
+  --danger: #f07c7c;
+  --danger-soft: #f49a9a;
+  --danger-bg: #1d1213;
+  --danger-line: #5a2c2e;
+  --warn: #e3b65f;
+  --warn-bg: #1a170e;
+  --warn-line: #5a4a22;
+  --code: #7dbbe8;
+  --diff-add: #163024;
+  --diff-del: #2a1618;
+  /* Your messages and chips: plainly lighter than the page. */
+  --band: #1c2622;
+  --band-line: #33403a;
   --radius-sm: 8px;
   --radius-md: 10px;
   --radius-lg: 12px;
@@ -480,8 +488,8 @@ body.needs-you .needs-badge {
 /* Your message: a lighter band, never mistaken for Atlarix's. */
 .msg.user {
   position: relative;
-  background: #1c1e22;
-  border: 1px solid #2f3238;
+  background: var(--band);
+  border: 1px solid var(--band-line);
   border-radius: var(--radius-md);
   padding: 8px 34px 8px 12px;
   white-space: pre-wrap;
@@ -558,6 +566,16 @@ body.needs-you .needs-badge {
 .body a {
   color: var(--primary-soft);
 }
+.body h1,
+.body h2,
+.body h3,
+.body h4 {
+  color: var(--heading);
+}
+.body strong,
+.body b {
+  color: var(--bright);
+}
 .thought {
   color: var(--faint);
   font-size: 0.92em;
@@ -584,7 +602,7 @@ body.needs-you .needs-badge {
 }
 /* While it is being written: "Thinking · 4s" and its latest lines only. */
 .thought.live .thought__label {
-  color: var(--warn);
+  color: var(--code);
 }
 .thought.live .body {
   max-height: 4.6em;
@@ -660,13 +678,13 @@ body.needs-you .needs-badge {
   flex: 1;
   min-width: 0;
   font-family: var(--mono);
+  color: var(--code);
   display: inline-flex;
   align-items: center;
   gap: 4px;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  color: var(--fg);
 }
 .plus,
 .minus {
@@ -693,12 +711,12 @@ body.needs-you .needs-badge {
   white-space: pre;
 }
 .edit-card__diff .add {
-  color: #6ee7b7;
-  background: var(--primary-bg);
+  color: var(--primary-soft);
+  background: var(--diff-add);
 }
 .edit-card__diff .del {
   color: var(--danger-soft);
-  background: #2a1517;
+  background: var(--diff-del);
 }
 .edit-card__diff .ctx,
 .edit-card__diff .gap {
@@ -762,6 +780,7 @@ body.needs-you .needs-badge {
 }
 .file-chip {
   font-family: var(--mono);
+  color: var(--code);
   font-size: 0.85em;
   padding: 1px 8px;
   border-radius: 999px;
@@ -930,7 +949,7 @@ body.needs-you .needs-badge {
   padding: 0;
   text-align: left;
   font-weight: 600;
-  color: var(--fg);
+  color: var(--heading);
 }
 .plan__progress {
   color: var(--muted);
@@ -1094,7 +1113,7 @@ body.needs-you .needs-badge {
   flex-direction: column;
   gap: 6px;
   background: var(--field);
-  border: 1px solid #34373d;
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
   padding: 8px;
 }
@@ -1170,7 +1189,7 @@ body.needs-you .needs-badge {
   align-items: center;
   gap: 4px;
   height: 26px;
-  background: #1c1e22;
+  background: var(--band);
   border: 1px solid var(--border-strong);
   border-radius: 999px;
   padding: 0 10px;
@@ -1247,7 +1266,7 @@ body.needs-you .needs-badge {
   bottom: calc(100% - 6px);
   z-index: 8;
   background: var(--raised);
-  border: 1px solid #2f3238;
+  border: 1px solid var(--band-line);
   border-radius: var(--radius-lg);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
 }
@@ -1286,8 +1305,8 @@ body.needs-you .needs-badge {
   padding: 5px 8px;
 }
 .suggest__item.active {
-  background: #1f2023;
-  border-color: #2f3238;
+  background: var(--band);
+  border-color: var(--band-line);
 }
 .suggest__label {
   white-space: nowrap;
@@ -1402,8 +1421,8 @@ body.needs-you .needs-badge {
   padding: 5px 8px;
 }
 .picker__item.active {
-  background: #1f2023;
-  border-color: #2f3238;
+  background: var(--band);
+  border-color: var(--band-line);
 }
 .picker__check {
   width: 14px;
@@ -1431,7 +1450,7 @@ body.needs-you .needs-badge {
   background: none;
   border: none;
   padding: 0 2px;
-  color: #52525b;
+  color: var(--faint);
   display: inline-flex;
 }
 .picker__item .star {
@@ -1442,7 +1461,7 @@ body.needs-you .needs-badge {
 }
 .star.on,
 .star:hover {
-  color: var(--warn);
+  color: var(--heading);
 }
 .picker__empty {
   color: var(--muted);
@@ -1721,7 +1740,7 @@ body.needs-you .needs-badge {
   flex-direction: column;
   gap: 10px;
   background: var(--raised);
-  border: 1px solid #2f3238;
+  border: 1px solid var(--band-line);
   border-radius: var(--radius-lg);
   padding: 12px;
 }
@@ -1919,7 +1938,7 @@ body.needs-you .needs-badge {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  box-shadow: 0 0 40px rgba(16, 183, 127, 0.08);
+  box-shadow: 0 0 40px rgba(61, 220, 151, 0.08);
 }
 .credit-card__top {
   display: flex;
@@ -2392,7 +2411,7 @@ body.needs-you .needs-badge {
 }
 .md-table th {
   background: var(--card);
-  color: var(--fg);
+  color: var(--bright);
   font-weight: 600;
   border-bottom: 1px solid var(--border);
 }
@@ -2400,6 +2419,7 @@ body.needs-you .needs-badge {
   border-top: 1px solid var(--border);
 }
 .md-table td.num {
+  color: var(--bright);
   font-variant-numeric: tabular-nums;
 }
 .md-table td code {

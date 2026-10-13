@@ -188,7 +188,7 @@ function Block({ token, width, plain, first }: { token: Token; width: number; pl
     case "heading": {
       const h = token as Tokens.Heading;
       return (
-        <text marginTop={marginTop} fg={color.white}>
+        <text marginTop={marginTop} fg={color.heading}>
           <b>
             <Inline tokens={h.tokens} fallback={h.text} />
           </b>

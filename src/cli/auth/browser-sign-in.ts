@@ -34,7 +34,7 @@ export interface BrowserSignInOptions {
 }
 
 const CALLBACK_PAGE = `<!doctype html><meta charset="utf-8"><title>Atlarix CLI</title>
-<body style="font-family:ui-monospace,monospace;background:#0a0a0a;color:#e5e5e5;padding:3rem">
+<body style="font-family:ui-monospace,monospace;background:#0a0e0d;color:#cfe8dd;padding:3rem">
 <p id="m">Finishing sign-in…</p>
 <script>
 fetch("/token", { method: "POST", headers: { "content-type": "text/plain" }, body: location.hash.slice(1) })
