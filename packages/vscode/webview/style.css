@@ -657,6 +657,15 @@ body.needs-you .needs-badge {
 }
 .step.failed {
   color: var(--danger-soft);
+  flex-wrap: wrap;
+}
+.step__why {
+  flex-basis: 100%;
+  padding-left: 1.4em;
+  opacity: 0.85;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .edit-card,
 .cmd-card {
@@ -2487,4 +2496,76 @@ body.needs-you .needs-badge {
   display: flex;
   justify-content: flex-end;
   padding-top: 8px;
+}
+
+/* Automations (views/automations.ts): the MCP card, plus its runs. */
+button.icon {
+  position: relative;
+}
+.nav__count {
+  position: absolute;
+  top: 1px;
+  right: 0;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--on-primary);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+}
+.auto-card__new {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--primary-bg);
+  color: var(--primary-soft);
+  font-size: 0.8em;
+  font-weight: 600;
+}
+textarea.field {
+  resize: vertical;
+}
+.auto-runs {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 8px 0;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 0.85em;
+}
+.auto-run {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+.auto-run__mark {
+  flex: none;
+  width: 1em;
+}
+.auto-card--on .dot {
+  background: var(--primary);
+}
+.auto-run--ok .auto-run__mark {
+  color: var(--primary);
+}
+.auto-run--error .auto-run__mark,
+.auto-run--error .auto-run__text {
+  color: var(--danger-soft);
+}
+.auto-run--running .auto-run__mark {
+  color: var(--code);
+}
+.auto-run__when {
+  flex: none;
+}
+.auto-run__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

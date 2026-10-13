@@ -492,7 +492,12 @@ export function toolCall(t: ToolCallUpdate & { _meta?: unknown; kind?: string | 
   } else {
     node = el("div", `step ${status}`);
     node.append(el("span", "step__mark", status === "completed" ? MARK.done : status === "failed" ? MARK.failed : MARK.running), el("span", "step__title", title));
-    if (status === "failed" && text) node.title = text;
+    if (status === "failed" && text) {
+      // Why it failed, on a line of its own (the CLI's "╰ reason"); all of it on hover.
+      node.title = text;
+      const why = text.trim().split("\n").find((l) => l.trim()) ?? "";
+      if (why) node.append(el("span", "step__why", why.trim()));
+    }
     // A step with nothing to name (internal bookkeeping) is a bare mark: hide it.
     node.classList.toggle("hidden", !title.trim());
   }
