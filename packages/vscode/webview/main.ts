@@ -254,6 +254,10 @@ onHost((m: HostMessage) => {
       else if (m.status === "signed-out") setNotice("Sign in to Atlarix to start.", [["Sign in", () => post({ type: "sign-in" })]]);
       else if (m.status === "no-folder") setNotice("Open a folder to work in, then start a chat.");
       else setNotice(`Atlarix couldn't start: ${m.detail ?? "unknown error"}`, [["Show log", () => post({ type: "show-log" })], ["Retry", () => (C.expectSession(), post({ type: "new-chat" }))]]);
+      // Signed out or back in while Account is open: draw it again. It kept
+      // your email and credit after Sign out, so it looked like nothing
+      // happened (owner).
+      if ((m.status === "signed-out" || m.status === "ready") && stack.at(-1)?.name === "account") void renderAccount(page, navApi);
       return;
     case "session":
       if (m.replay || m.sessionId !== state.sessionId) {

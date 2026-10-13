@@ -1,15 +1,20 @@
 /**
- * Account: who you're signed in as, your plan and credit (Add credit, Get Pro),
- * free Atlarix Auto left today when the proxy has said, this chat's tokens and
- * cost, and Sign out (shared with the app and CLI).
+ * Account: who you are (your picture, name and email, how you signed in, your
+ * plan), your credit (Add credit, Get Pro or Manage), free Atlarix Auto left
+ * today when the proxy has said, this chat's tokens and cost, and Sign out
+ * (shared with the app and CLI). Signed out, one card to sign in.
  */
 import { post, rpc } from "../rpc";
 import { state } from "../state";
-import { button, el, eyebrow, money, pageHeader, tokens } from "../ui";
+import { button, el, eyebrow, money, pageHeader, rixGlyph, tokens } from "../ui";
 import type { Nav } from "./nav";
 
 interface Account {
   email: string | null;
+  name?: string | null;
+  /** A data: URL, fetched by the agent (the page loads nothing from the web). */
+  avatar?: string | null;
+  provider?: string | null;
   kind: "signed-out" | "free" | "pro" | "payg" | null;
   balanceCents: number | null;
   usage: { tokens: number; cachedTokens: number; costUsd: number; contextPercent: number | null } | null;
@@ -17,40 +22,64 @@ interface Account {
 }
 
 const PLAN: Record<string, string> = { "signed-out": "Not signed in", free: "Free", pro: "Pro", payg: "Pay as you go" };
+const PROVIDER: Record<string, string> = { github: "GitHub", google: "Google", email: "Email" };
 
 export async function renderAccount(page: HTMLElement, nav: Nav): Promise<void> {
   page.textContent = "";
   page.append(pageHeader("Account", () => nav.back()));
-  const body = el("div", "page__body");
+  const body = el("div", "page__body account");
   body.append(el("div", "muted pad", "Loading…"));
   page.append(body);
   const a = await rpc<Account>("_atlarix/account", state.sessionId ? { sessionId: state.sessionId } : {}).catch(() => null);
   body.textContent = "";
   if (!a) return void body.append(el("div", "error", "Couldn't read your account."));
 
-  const who = el("div", "who");
-  const avatar = el("span", "avatar", (a.email ?? "?").charAt(0).toUpperCase());
-  avatar.setAttribute("aria-hidden", "true");
-  const id = el("div", "who__id");
-  id.append(el("strong", "", a.email ?? "Not signed in"), el("span", "muted small", "Shared with the Atlarix app and CLI"));
-  who.append(avatar, id);
-  body.append(who);
-
   if (!a.email) {
-    body.append(button("Sign in", "primary wide", () => post({ type: "sign-in" })));
+    // Signed out (here, or in the app or CLI): one way back in.
+    const card = el("section", "signin-card");
+    const mark = el("span", "signin-card__mark");
+    mark.innerHTML = rixGlyph(30);
+    card.append(
+      mark,
+      el("strong", "", "Sign in to Atlarix"),
+      el("span", "muted small", "With GitHub, Google or email, in your browser. The Atlarix app and CLI on this computer share it."),
+      button("Sign in", "primary wide", () => post({ type: "sign-in" })),
+    );
+    body.append(card);
     return;
   }
 
+  // Who you are.
+  const who = el("section", "profile");
+  const avatar = el("span", "profile__avatar");
+  if (a.avatar?.startsWith("data:image/")) {
+    const img = el("img", "");
+    img.src = a.avatar;
+    img.alt = "";
+    avatar.append(img);
+  } else avatar.textContent = (a.name ?? a.email).charAt(0).toUpperCase();
+  avatar.setAttribute("aria-hidden", "true");
+  const id = el("div", "profile__id");
+  id.append(el("strong", "profile__name", a.name ?? a.email));
+  if (a.name) id.append(el("span", "profile__email", a.email));
+  const chips = el("div", "profile__chips");
+  if (a.provider && PROVIDER[a.provider]) chips.append(el("span", "chip-tag", `Signed in with ${PROVIDER[a.provider]}`));
+  chips.append(el("span", `chip-tag plan ${a.kind ?? ""}`, PLAN[a.kind ?? "signed-out"] ?? "—"));
+  id.append(chips);
+  who.append(avatar, id);
+  body.append(who);
+
+  // Your credit.
   const credit = el("section", "credit-card");
   const top = el("div", "credit-card__top");
-  const left = el("div", "");
-  left.append(el("span", "muted small", PLAN[a.kind ?? "signed-out"] ?? "—"), el("div", "credit-card__amount", money(a.balanceCents)));
-  top.append(left, el("span", "muted small", "credit left"));
-  credit.append(top);
-  const acts = el("div", "row gap");
-  acts.append(button("Add credit", "primary grow", () => post({ type: "checkout", kind: "credit" })));
-  if (a.kind !== "pro") acts.append(button("Get Pro", "grow", () => post({ type: "checkout", kind: "pro" })));
-  else acts.append(button("Manage subscription", "grow", () => post({ type: "manage-subscription" })));
+  const left = el("div", "col");
+  left.append(el("span", "credit-card__label", "Credit"), el("div", "credit-card__amount", money(a.balanceCents)));
+  top.append(left);
+  credit.append(top, el("span", "muted small", a.kind === "pro" ? "Pro covers your plan; credit pays for anything past it." : "Pays for Atlarix Auto and Core as you use them."));
+  const acts = el("div", "credit-card__acts");
+  acts.append(button("Add credit", "primary", () => post({ type: "checkout", kind: "credit" })));
+  if (a.kind !== "pro") acts.append(button("Get Pro", "", () => post({ type: "checkout", kind: "pro" })));
+  else acts.append(button("Manage subscription", "", () => post({ type: "manage-subscription" })));
   credit.append(acts);
   if (a.freeAutoLeft != null) {
     const free = el("div", "credit-card__free");
@@ -65,6 +94,7 @@ export async function renderAccount(page: HTMLElement, nav: Nav): Promise<void> 
   }
   body.append(credit);
 
+  // This chat.
   if (a.usage && (a.usage.tokens || a.usage.costUsd)) {
     body.append(eyebrow("THIS CHAT"));
     const grid = el("div", "stat-grid");
@@ -78,9 +108,17 @@ export async function renderAccount(page: HTMLElement, nav: Nav): Promise<void> 
     stat("Your keys", a.usage.costUsd > 0 ? `$${a.usage.costUsd.toFixed(a.usage.costUsd < 1 ? 3 : 2)}` : "$0");
     body.append(grid);
   }
-  body.append(button("All usage on atlarix.dev ↗", "link", () => post({ type: "open-url", url: "https://www.atlarix.dev/account" })));
 
-  const out = el("div", "page__foot");
-  out.append(el("span", "muted small grow", "Signs out the app and CLI on this computer too."), button("Sign out", "small", () => post({ type: "sign-out" })));
+  const links = el("div", "account__links");
+  links.append(
+    button("Usage and invoices ↗", "link small", () => post({ type: "open-url", url: "https://www.atlarix.dev/account" })),
+    button("Pricing ↗", "link small", () => post({ type: "open-url", url: "https://www.atlarix.dev/pricing" })),
+  );
+  body.append(links);
+
+  const out = el("div", "page__foot account__out");
+  const note = el("div", "col grow");
+  note.append(el("strong", "small", "Sign out"), el("span", "muted small", "Signs out the Atlarix app and CLI on this computer too."));
+  out.append(note, button("Sign out", "deny small", () => post({ type: "sign-out" })));
   body.append(out);
 }
