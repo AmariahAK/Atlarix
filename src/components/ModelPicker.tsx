@@ -130,6 +130,7 @@ export function ModelPicker({
         {
           catalog,
           modelsByProviders: modelsByProviders ?? undefined,
+          providerName,
           ollamaDisplayName: ollamaModels.find(
             (m) => m.modelName === model.apiName,
           )?.displayName,
