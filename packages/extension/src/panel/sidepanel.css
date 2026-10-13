@@ -481,6 +481,12 @@ body {
   margin-bottom: 3px;
 }
 
+/* A checklist item draws its own box ([ ] / [x]); the list bullet in front of
+   it was a second marker (markdown.ts marks these li.task). */
+.msg--assistant li.task {
+  list-style: none;
+}
+
 /*
  * Headings, sized for a 320px column.
  *
