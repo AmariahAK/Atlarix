@@ -1,4 +1,4 @@
-import { SidebarProvider } from "@/components/ui/sidebar";
+import { SidebarProvider, useSidebar } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeProvider } from "../contexts/ThemeContext";
 import { DeepLinkProvider } from "../contexts/DeepLinkContext";
@@ -506,6 +506,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <GlobalAppSearch />
           <div>
             <SidebarProvider>
+              <NarrowWindowFolds rightPanelVisible={rightPanelVisible} />
               <TitleBar />
               {showWorkspaceChrome ? <AppSidebar /> : null}
               <div
@@ -519,8 +520,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                     so the panel covered the chat's right edge (tool cards,
                     composer). */}
                 <div className="relative flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
-                  {/* Top-right panel toggle, at the chat column's corner (not over the panel) */}
-                  {isOnChatPage && showWorkspaceChrome && (
+                  {/* Top-right panel toggle, at the chat column's corner (not over the panel).
+                      Not with a chat open: its header has the same toggle, and
+                      the two stacked (QA #20). */}
+                  {isOnChatPage && showWorkspaceChrome && !suppressOutletForHomeChat && (
                     <button
                       type="button"
                       onClick={toggleRightPanel}
@@ -578,4 +581,19 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       </ThemeProvider>
     </>
   );
+}
+
+/**
+ * In a narrow window, opening the right panel folds the session sidebar: with
+ * both open at 960px the chat column was ~240px, its placeholder wrapped and
+ * the panel's tabs were clipped (QA #20). Only when the panel opens; the user
+ * can reopen the sidebar.
+ */
+const NARROW_WINDOW_PX = 1100;
+function NarrowWindowFolds({ rightPanelVisible }: { rightPanelVisible: boolean }) {
+  const { setOpen } = useSidebar();
+  useEffect(() => {
+    if (rightPanelVisible && window.innerWidth < NARROW_WINDOW_PX) setOpen(false);
+  }, [rightPanelVisible, setOpen]);
+  return null;
 }
