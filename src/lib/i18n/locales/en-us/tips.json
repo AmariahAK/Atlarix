@@ -10,6 +10,8 @@
     "next-panel-tab": "next panel tab",
     "toggle-left-sidebar": "show or hide the left sidebar",
     "close-tab-or-window": "close the window",
+    "new-window": "open a new window",
+    "app-search": "search workspaces",
     "send-message": "send your message",
     "newline": "start a new line instead of sending"
   },
