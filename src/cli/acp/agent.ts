@@ -864,6 +864,11 @@ export class AcpAgent {
     return this.thread(sessionId).session.checkpointBefore(turnId, relativePath);
   }
 
+  /** A checkpoint's "Restore files only": the files go back, the conversation stays. */
+  restoreFiles(sessionId: string, messageId: number) {
+    return this.thread(sessionId).session.restoreFilesSince(messageId);
+  }
+
   undoResend(sessionId: string, messageId: number, text: string, restore: boolean): Promise<PromptResponse> {
     return this.thread(sessionId).resend(messageId, text, restore);
   }

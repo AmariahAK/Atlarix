@@ -23,6 +23,8 @@ export interface TranscriptHooks {
   goBack(messageId: number, text: string, restore: boolean | null): void;
   /** The question card's answers, sent as the next message. */
   answer(text: string, answers: string[]): void;
+  /** A checkpoint's Restore: files only, or files and the message to edit. */
+  restore(messageId: number, text: string, anchor: HTMLElement): void;
 }
 
 let hooks: TranscriptHooks;
@@ -38,6 +40,12 @@ let pendingQuestion: Array<{ question: string; options?: string[] }> | null = nu
 
 export function initTranscript(h: TranscriptHooks): void {
   hooks = h;
+}
+
+/** One quiet line in the transcript: something that happened, not a message. */
+export function addNote(text: string): void {
+  log.append(el("div", "note-line", text));
+  log.lastElementChild?.scrollIntoView({ block: "nearest" });
 }
 
 export function questionPending(): Array<{ question: string; options?: string[] }> | null {
@@ -549,7 +557,7 @@ function checkpoint(messageId: number): HTMLElement {
       files.classList.remove("hidden");
       files.scrollIntoView({ block: "nearest" });
     }),
-    button("Restore", "link small", () => !state.busy && hooks.goBack(messageId, textOf(messageId), true)),
+    button("Restore", "link small", () => !state.busy && hooks.restore(messageId, textOf(messageId), wrap)),
     el("span", "checkpoint__rule"),
   );
   const wrap = el("div", "checkpoint-wrap");

@@ -391,6 +391,35 @@ describe("atlarix acp", () => {
     const err = await conn.agent.request("session/new", { cwd: ws, mcpServers: [] }).then(() => null, (e: Error) => e);
     expect(String((err as { message?: string })?.message)).toContain("older than this CLI");
   }, 60_000);
+  it("Atlarix's extension: Restore files only puts the file back, keeps the chat, and tells the agent next time (QA E3)", async () => {
+    const file = path.join(ws, "restore-only.ts");
+    fs.writeFileSync(file, "export const r = 1;\n");
+    const e = await editor(
+      [
+        { tool: "edit_file", args: { path: "restore-only.ts", operation: "replace", old_content: "export const r = 1;", new_content: "export const r = 2;" } },
+        { text: "Set r to 2." },
+        { text: "Understood." },
+      ],
+      undefined,
+      { _meta: { atlarix: { version: 1 } } },
+    );
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "set r to 2" }] });
+    expect(fs.readFileSync(file, "utf8")).toContain("r = 2");
+    const { messages } = await e.conn.agent.request<{ messages: Array<{ id: number; text: string }> }>("_atlarix/undo", { sessionId, action: "list" });
+    const r = await e.conn.agent.request<{ restoredFiles: number }>("_atlarix/undo", { sessionId, action: "restore_files", messageId: messages[0]!.id });
+    expect(r.restoredFiles).toBeGreaterThan(0);
+    expect(fs.readFileSync(file, "utf8")).toContain("r = 1");
+    // The conversation is untouched.
+    const after = await e.conn.agent.request<{ messages: Array<{ text: string }> }>("_atlarix/undo", { sessionId, action: "list" });
+    expect(after.messages.map((m) => m.text)).toEqual(["set r to 2"]);
+    // The next message tells the agent the edit is gone, once.
+    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "what is r now?" }] });
+    const last = JSON.stringify(e.llm.requests.at(-1)?.messages ?? []);
+    expect(last).toContain("restored these files");
+    expect(last).toContain("restore-only.ts");
+  }, 60_000);
+
   it("Atlarix's extension: going back to an earlier message puts the file back and carries on from there", async () => {
     const file = path.join(ws, "undo.ts");
     fs.writeFileSync(file, "export const u = 1;\n");

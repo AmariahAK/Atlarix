@@ -302,6 +302,41 @@ function renderApproval(): void {
 
 // --- Going back to a message ------------------------------------------------------------
 
+/**
+ * A checkpoint's Restore: the files only (the chat stays as it is, the agent is
+ * told), or the files and this message to edit and send again (QA E3; Cline's
+ * "Restore Files" vs "Restore Files & Task", Claude Code's code-only rewind).
+ */
+export function restoreAt(messageId: number, text: string, anchor: HTMLElement): void {
+  T.log.querySelector(".undo-choice")?.remove();
+  const card = el("div", "card undo-choice");
+  card.append(el("div", "card__title", "Restore to this checkpoint"), el("div", "muted small", "The files Atlarix changed after it go back to how they were."));
+  const note = el("div", "muted small hidden");
+  const acts = el("div", "card__options");
+  acts.append(
+    button("Files only", "primary", async () => {
+      acts.querySelectorAll("button").forEach((b) => ((b as HTMLButtonElement).disabled = true));
+      try {
+        const r = await rpc<{ restoredFiles: number }>("_atlarix/undo", { sessionId: state.sessionId, action: "restore_files", messageId });
+        card.remove();
+        T.addNote(`Restored ${r.restoredFiles} file${r.restoredFiles === 1 ? "" : "s"} to this checkpoint. The chat is unchanged; Atlarix is told with your next message.`);
+      } catch (x) {
+        note.textContent = (x as Error).message;
+        note.classList.remove("hidden");
+        acts.querySelectorAll("button").forEach((b) => ((b as HTMLButtonElement).disabled = false));
+      }
+    }),
+    button("Files and edit the message", "", () => {
+      card.remove();
+      beginEdit(messageId, text, true);
+    }),
+    button("Cancel", "link", () => card.remove()),
+  );
+  card.append(note, acts);
+  anchor.after(card);
+  card.scrollIntoView({ block: "nearest" });
+}
+
 /** Edit (restore: null asks if files changed), or a checkpoint's Restore (true). */
 export async function goBack(messageId: number, text: string, restore: boolean | null): Promise<void> {
   if (restore === null) {

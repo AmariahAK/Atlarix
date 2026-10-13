@@ -104,6 +104,7 @@ initPicker((providerId) => (providerId ? go({ name: "provider", id: providerId }
 T.initTranscript({
   goBack: (id, text, restore) => void C.goBack(id, text, restore),
   answer: (text, answers) => C.sendText(text, [], answers),
+  restore: (id, text, anchor) => C.restoreAt(id, text, anchor),
 });
 C.initComposer({
   open: (v) => (v === "approve" ? go({ name: "settings", tab: "approve" }) : v === "keys" ? go({ name: "settings", tab: "keys" }) : go({ name: v })),

@@ -536,6 +536,30 @@ export class AgentSession extends EventEmitter {
   }
 
   /**
+   * Put the files back as they were before this message's turn, and keep the
+   * conversation as it is (Claude Code's code-only rewind, Cline's "Restore
+   * Files"). The next turn is told, so the agent doesn't build on edits that
+   * are gone.
+   */
+  async restoreFilesSince(messageId: number): Promise<{ restoredFiles: number }> {
+    if (this.state.busy) throw new Error("Wait for this turn to finish (or esc to stop it).");
+    const { turnIds, filesChanged, createdFiles } = await this.undoPreview(messageId);
+    if (!turnIds.length) return { restoredFiles: 0 };
+    const res = (await (await handler("revert:snapshot-range"))({}, { chatId: this.chatId, turnIds })) as {
+      success: boolean;
+      restoredFiles?: number;
+      error?: string;
+    };
+    if (!res.success) throw new Error(res.error ?? "Restoring the files failed; nothing was changed.");
+    const files = [...filesChanged, ...createdFiles];
+    this.restoredNote = `The user restored these files to how they were before an earlier message; your edits to them since are gone: ${files.join(", ")}. Read a file again before changing it.`;
+    return { restoredFiles: res.restoredFiles ?? files.length };
+  }
+
+  /** Said to the agent with the next message after a files-only restore. */
+  private restoredNote: string | null = null;
+
+  /**
    * Replace an earlier message and carry on from there, as the app's edit does
    * (SimpleInlineChat.performEdit): everything after it leaves the conversation,
    * and with `restoreTurnIds` the files those turns changed go back first.
@@ -1049,6 +1073,11 @@ export class AgentSession extends EventEmitter {
     if (!opts.continueAfterQuestions) {
       const display = opts.display ?? text;
       if (!opts.retry) text = this.takeShellContext(text);
+      if (this.restoredNote && !opts.retry) {
+        // A files-only restore since the last turn: the agent hears it once.
+        text = `<system-reminder>${this.restoredNote}</system-reminder>\n\n${text}`;
+        this.restoredNote = null;
+      }
       opts = { ...opts, display };
       this.lastTurn = { text, opts };
     }

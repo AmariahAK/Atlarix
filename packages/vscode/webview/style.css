@@ -2597,3 +2597,11 @@ textarea.field {
   flex: none;
   color: var(--muted);
 }
+
+/* transcript.ts addNote: something that happened, e.g. a files-only restore. */
+.note-line {
+  color: var(--muted);
+  font-size: 0.88em;
+  text-align: center;
+  padding: 4px 0;
+}

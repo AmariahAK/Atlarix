@@ -249,13 +249,14 @@ export function buildAgentApp(
     // Go back to one of your messages (the TUI's /undo): list, what it would undo, and resend.
     .onRequest(
       "_atlarix/undo",
-      (p) => p as { sessionId: string; action: "list" | "preview" | "resend"; messageId?: number; text?: string; restore?: boolean },
+      (p) => p as { sessionId: string; action: "list" | "preview" | "resend" | "restore_files"; messageId?: number; text?: string; restore?: boolean },
       async (ctx) => {
         const { sessionId, action, messageId, text, restore } = ctx.params;
         if (action === "list") return { messages: agent.undoList(sessionId) };
         if (messageId == null) throw acp.RequestError.invalidParams(undefined, "Which message?");
         if (action === "preview") return agent.undoPreview(sessionId, Number(messageId));
         if (action === "resend") return agent.undoResend(sessionId, Number(messageId), String(text ?? ""), restore === true);
+        if (action === "restore_files") return agent.restoreFiles(sessionId, Number(messageId));
         throw acp.RequestError.invalidParams(undefined, `unknown action ${action}`);
       },
     )
