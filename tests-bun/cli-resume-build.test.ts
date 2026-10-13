@@ -23,12 +23,10 @@ describe("a stopped build", () => {
     const model = await seedDevProvider({ baseUrl: llm.url, model: "fake-model", apiKey: "dev" });
     const s = new AgentSession({ workspaceDir: ws, model });
     await s.start();
-    const idle = new Promise<void>((r) => {
-      const c = (st: { busy: boolean }) => !st.busy && (s.off("change", c), r());
-      setTimeout(() => s.on("change", c), 20);
-    });
     await s.submit("hi");
-    await idle;
+    // Polled: a listener added after the send missed a turn that had already
+    // ended (fast fake model under a loaded full run) and waited forever.
+    for (let i = 0; i < 300 && (s.state.busy || !s.sessionId); i++) await new Promise((r) => setTimeout(r, 100));
     const { createPlanArtifact, setPlanArtifactStatus } = await import("../src/lib/plans/plan-artifacts");
     const row = await createPlanArtifact(s.sessionId, "# Toggle\n\n1. [x] Add toggle\n2. [ ] Add tests\n", "Toggle");
     await setPlanArtifactStatus(row.id, "building");

@@ -5,6 +5,11 @@ import { runDeviceCli, findDeviceCli } from "@/lib/mobile/device-tools";
 
 /** A booted simulator, or nothing to test. */
 function hasBootedSimulator(): boolean {
+  // Opt-in: just probing runs xcrun, and on a Mac whose Xcode hasn't finished
+  // its first launch that starts `xcodebuild -runFirstLaunch`, which asks the
+  // user for their password to install components (it did, overnight, on the
+  // owner's screen during a full test run). ATLARIX_LIVE_IOS=1 to run these.
+  if (process.env.ATLARIX_LIVE_IOS !== "1") return false;
   if (process.platform !== "darwin") return false;
   try {
     const out = execFileSync(
@@ -28,7 +33,7 @@ function hasBootedSimulator(): boolean {
  * while `simctl io … screenshot -` silently wrote a file named `-` and the log
  * predicate matched nothing at all.
  *
- * To run them: `xcrun simctl boot <name>` first.
+ * To run them: `xcrun simctl boot <name>` first, then ATLARIX_LIVE_IOS=1.
  */
 describe.skipIf(!hasBootedSimulator())("LIVE iOS simulator", () => {
   it("finds xcrun", () => {
