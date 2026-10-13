@@ -2,5 +2,8 @@
   "sessions": {
     "continueInTerminal": "Continue in terminal",
     "openInEditor": "Open in your editor"
+  },
+  "automations": {
+    "empty": "Runs on a schedule or a trigger."
   }
 }

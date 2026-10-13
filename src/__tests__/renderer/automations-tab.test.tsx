@@ -143,6 +143,14 @@ describe("AutomationsTab", () => {
     expect(screen.getByRole("switch", { name: "Turn off Nightly audit" })).toBeTruthy();
   });
 
+  // QA #37: the empty panel carried a paragraph; one line now (owner rule).
+  it("an empty list is one line", async () => {
+    listAutomations.mockResolvedValueOnce({ automations: [], unreadCount: 0 } as never);
+    renderWithProviders(<AutomationsTab appId={7} />);
+    expect(await screen.findByText("Runs on a schedule or a trigger.")).toBeTruthy();
+    expect(screen.queryByText(/nightly test audit/)).toBeNull();
+  });
+
   it("shows archived runs when the filter is on", async () => {
     renderWithProviders(<AutomationsTab appId={7} />);
     await screen.findAllByText("Nightly audit");

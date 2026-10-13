@@ -45,6 +45,7 @@ import type {
 } from "@/lib/automations/types";
 import { AutomationForm } from "./AutomationForm";
 import { describeCron } from "@/lib/automations/cron-time";
+import { useTranslation } from "react-i18next";
 
 function triggerLabel(trigger: unknown): string {
   const t = trigger as AutomationTrigger | null;
@@ -103,6 +104,7 @@ function relativeTime(ts: number): string {
 }
 
 export function AutomationsTab({ appId }: { appId: number | null }) {
+  const { t } = useTranslation("panels");
   const [automationsList, setAutomations] = useAtom(automationsAtom);
   const [runs, setRuns] = useAtom(automationRunsAtom);
   const [focusRunId, setFocusRunId] = useAtom(automationsFocusRunIdAtom);
@@ -285,11 +287,10 @@ export function AutomationsTab({ appId }: { appId: number | null }) {
             <Plus className="mr-1 h-3.5 w-3.5" /> New
           </Button>
         </div>
+        {/* Empty: one line (owner: empty states carry almost no text; QA #37). */}
         {automationsList.length === 0 ? (
           <p className="py-2 text-sm text-muted-foreground">
-            Recurring agent runs on a schedule or trigger — a nightly test
-            audit, a ping when a PR opens, a Slack watch via MCP. Results land
-            in the feed below and ping you when there's something to see.
+            {t("automations.empty")}
           </p>
         ) : (
           <div className="space-y-1.5">
