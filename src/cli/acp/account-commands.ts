@@ -74,9 +74,21 @@ const STATUS: Record<string, string> = { works: "works", rejected: "rejected", u
  * so a key never passes through the chat, where the editor keeps a copy.
  */
 export async function keysCommandText(text: string): Promise<string> {
-  const add = /^\/keys\s+(add|replace|remove)\s+(\S+)/i.exec(text.trim());
+  // Removing involves no secret, so it happens right here (owner: users want
+  // to delete a key, not only replace it).
+  const remove = /^\/keys\s+(?:remove|delete)\s+(\S+)/i.exec(text.trim());
+  if (remove) {
+    const { realServices } = await import("../agent/services");
+    const want = remove[1]!.toLowerCase();
+    const p = (await realServices.providers.list()).find((x) => x.id.toLowerCase() === want || x.name.toLowerCase() === want);
+    if (!p) return `No provider called "${remove[1]}". \`/keys\` lists yours.`;
+    if (!p.hasKey) return `No ${p.name} key saved.`;
+    await realServices.providers.removeKey(p.id);
+    return `Removed the ${p.name} key from this computer (the Atlarix app, the CLI and your editors share it). Chats on its models move to Atlarix Auto.`;
+  }
+  const add = /^\/keys\s+(add|replace)\s+(\S+)/i.exec(text.trim());
   if (add) {
-    const verb = add[1]!.toLowerCase() === "remove" ? "remove" : "add";
+    const verb = "add";
     return `Run this in a terminal (it asks for the key without showing it, so it never passes through the chat):\n\n\`atlarix keys ${verb} ${add[2]}\`\n\nThen \`/keys\` here to check it.`;
   }
   const { realServices } = await import("../agent/services");
@@ -93,7 +105,7 @@ export async function keysCommandText(text: string): Promise<string> {
       return `- ${mark} ${p.name}${p.keyHint ? ` \`${p.keyHint}\`` : ""}: ${STATUS[c.status] ?? c.status}${why}`;
     }),
     "",
-    "Add or replace one in a terminal: `atlarix keys add <provider>`. Remove one: `atlarix keys remove <provider>`.",
+    "Add or replace one in a terminal: `atlarix keys add <provider>`. Remove one here: `/keys remove <provider>`.",
   ].join("\n");
 }
 

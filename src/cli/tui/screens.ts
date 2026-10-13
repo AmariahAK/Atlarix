@@ -1216,6 +1216,44 @@ export function openConnect(ctx: ScreenContext, onSaved: (providerId?: string) =
         if (item.id === MCP_ROW) return openMcpAdd(ctx, () => openMcp(ctx));
         if (item.id === CUSTOM_ROW) return openCustomProvider(ctx, onSaved);
         const p = (await ctx.services.providers.list()).find((x) => x.id === item.id);
+        // A key already saved: replace it, or remove it (owner: users sometimes
+        // want it gone, not replaced). Removing asks twice.
+        if (p?.hasKey) {
+          ctx.host.push(
+            new ListDialog({
+              title: item.label,
+              intro: [{ text: `Your ${item.label} key is saved${p.keyHint ? ` (${p.keyHint})` : ""}.`, tone: "muted" }],
+              footer: "↑↓ move · enter choose · esc back",
+              items: [
+                { id: "replace", label: "Replace the key" },
+                { id: "remove", label: "Remove the key", detail: "chats on its models move to Atlarix Auto" },
+              ],
+              onChoose: (choice) => {
+                if (choice.id === "replace") return askKey();
+                ctx.host.push(
+                  new ListDialog({
+                    title: `Remove your ${item.label} key?`,
+                    intro: [{ text: "It's deleted from this computer, for the Atlarix app and the editor too.", tone: "muted" }],
+                    footer: "↑↓ move · enter choose · esc back",
+                    items: [
+                      { id: "keep", label: "Keep it" },
+                      { id: "remove", label: "Remove it" },
+                    ],
+                    onChoose: async (c) => {
+                      if (c.id === "keep") return ctx.host.pop();
+                      await ctx.services.providers.removeKey(item.id);
+                      ctx.host.closeAll();
+                      ctx.flash(`Removed the ${item.label} key. Chats on its models move to Atlarix Auto.`, 4000, "success");
+                    },
+                  }),
+                );
+              },
+            }),
+          );
+          return;
+        }
+        askKey();
+        function askKey() {
         ctx.host.push(
           new InputDialog({
             title: `${item.label} API key`,
@@ -1234,6 +1272,7 @@ export function openConnect(ctx: ScreenContext, onSaved: (providerId?: string) =
             },
           }),
         );
+        }
       },
     }),
   );

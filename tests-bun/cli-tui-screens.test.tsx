@@ -601,6 +601,32 @@ describe("command screens", () => {
     expect(frame).not.toContain("Free"); // Atlarix Auto's row: only Anthropic's models are listed
   });
 
+  it("/connect: a provider with a saved key offers Replace or Remove, and Remove asks first (owner)", async () => {
+    const removed: string[] = [];
+    const { setup } = await mount((s) => {
+      (s.providers as { removeKey?: unknown }).removeKey = async (id: string) => void removed.push(id);
+    });
+    await command(setup, "/connect");
+    await frameContaining(setup, "Chrome extension");
+    await setup.mockInput.typeText("openai");
+    await settle(setup);
+    setup.mockInput.pressEnter();
+    let frame = await frameContaining(setup, "Remove the key");
+    expect(frame).toContain("Replace the key");
+    setup.mockInput.pressArrow("down");
+    await settle(setup);
+    setup.mockInput.pressEnter();
+    frame = await frameContaining(setup, "Remove your OpenAI key?");
+    expect(frame).toContain("Keep it");
+    expect(removed).toEqual([]);
+    setup.mockInput.pressArrow("down");
+    await settle(setup);
+    setup.mockInput.pressEnter();
+    expect(await until(() => removed.length === 1)).toBe(true);
+    expect(removed).toEqual(["openai"]);
+    expect(await frameContaining(setup, "Removed the OpenAI key")).toContain("Atlarix Auto");
+  });
+
   it("/connect → Other: a provider that isn't on the list, its key optional, a model id when it lists none", async () => {
     const tries: Array<{ name: string; baseUrl: string; key: string; models?: string[] }> = [];
     const models = {
