@@ -25,6 +25,8 @@ export type AssistantMessagePart =
   | {
       type: "tool";
       id: string;
+      /** The model's tool call id, when the stored tag carries it. */
+      callId?: string;
       toolName: string;
       status: ToolPartStatus;
       args?: unknown;
@@ -269,6 +271,7 @@ function rawPiecesToAssistantParts(
         const toolPart: AssistantMessagePart = {
           type: "tool",
           id: mapKey,
+          ...(attrs.call ? { callId: attrs.call } : {}),
           toolName,
           status:
             status === "running"

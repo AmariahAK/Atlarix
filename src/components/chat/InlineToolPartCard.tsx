@@ -1,4 +1,5 @@
-import { memo } from "react";
+import { memo, useContext } from "react";
+import { ThreadDiffByCallIdContext } from "./thread-diff-context";
 import type { AssistantMessagePart } from "@/lib/chat/assistant-message-parts";
 import { isDelegateToolName } from "@/lib/chat/delegate-handoff";
 import { persistedToolPartToStreamCard } from "@/lib/chat/persisted-tool-card";
@@ -17,6 +18,11 @@ function InlineToolPartCardView({
   /** Not one of the turn's last few steps (see StreamToolCallCard). */
   olderStep?: boolean;
 }) {
+  // A write's whole-file diff from the finished thread beats the one rebuilt
+  // from the model's args (its snippets).
+  const threadDiff = useContext(ThreadDiffByCallIdContext).get(
+    part.callId ?? "",
+  );
   if (isDelegateToolName(part.toolName)) {
     return null;
   }
@@ -25,7 +31,7 @@ function InlineToolPartCardView({
   return (
     <StreamToolCallCard
       summary={card.summary}
-      expand={card.expand}
+      expand={threadDiff ?? card.expand}
       status={card.status}
       toolName={card.toolName}
       resultText={part.resultText}
@@ -46,6 +52,7 @@ export const InlineToolPartCard = memo(
     a.olderStep === b.olderStep &&
     a.suppressDelegateTools === b.suppressDelegateTools &&
     a.part.id === b.part.id &&
+    a.part.callId === b.part.callId &&
     a.part.toolName === b.part.toolName &&
     a.part.status === b.part.status &&
     a.part.resultText === b.part.resultText &&

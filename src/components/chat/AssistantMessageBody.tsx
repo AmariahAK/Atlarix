@@ -48,6 +48,7 @@ import {
 import {
   compareThreadItems,
   consolidateSubagentRoundsInThread,
+  DISPLAY_PREVIEW_ARG,
   hasActiveSubagentActivity,
   hasDelegateToolParts,
   hasSubagentRoundPanel,
@@ -60,14 +61,48 @@ import {
   type StreamThreadToolStatus,
   type SubAgentRunEntry,
 } from "@/lib/chat/stream-thread";
-import { isToolExpandable as isToolExpandViewExpandable } from "@/lib/chat/tool-expand-view";
+import {
+  isToolExpandable as isToolExpandViewExpandable,
+  type ToolExpandView,
+} from "@/lib/chat/tool-expand-view";
 import { groupPaginatableRuns } from "@/lib/chat/paginate-tool-runs";
 import { PaginatedToolCards } from "./PaginatedToolCards";
 import { CollapsedScrollSection } from "./CollapsedScrollSection";
 import { SubAgentCard } from "./subagent/SubAgentCard";
 import { SubAgentsRoundPanel } from "./subagent/SubAgentsRoundPanel";
+import { ThreadDiffByCallIdContext } from "./thread-diff-context";
 
-export function AssistantMessageBody({
+type AssistantMessageBodyProps = Parameters<typeof AssistantMessageBodyContent>[0];
+
+/**
+ * The body, with its finished thread's whole-file write diffs on hand for the
+ * stored tool parts (see ThreadDiffByCallIdContext).
+ */
+export function AssistantMessageBody(props: AssistantMessageBodyProps) {
+  const thread = useAtomValue(
+    completedStreamThreadForMessageAtom(props.assistantMessageId ?? -1),
+  );
+  const diffs = useMemo(() => {
+    const m = new Map<string, ToolExpandView>();
+    for (const it of thread ?? []) {
+      if (
+        it.kind === "tool" &&
+        it.toolArgs?.[DISPLAY_PREVIEW_ARG] &&
+        it.expand?.kind === "diff"
+      ) {
+        m.set(it.id, it.expand);
+      }
+    }
+    return m;
+  }, [thread]);
+  return (
+    <ThreadDiffByCallIdContext.Provider value={diffs}>
+      <AssistantMessageBodyContent {...props} />
+    </ThreadDiffByCallIdContext.Provider>
+  );
+}
+
+function AssistantMessageBodyContent({
   content,
   isStreaming,
   assistantMessageId,
