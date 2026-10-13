@@ -411,7 +411,10 @@ export const realServices: CliServices = {
         { id: "lmstudio", name: "LM Studio", running: !lmstudio.error, models: lmstudio.models.length },
       ];
     },
-    async addCustom({ name, baseUrl, key, models }) {
+    async addCustom({ name, baseUrl, key: given, models }) {
+      // A server on this computer (LM Studio, llama.cpp, vLLM) often needs no
+      // key; the client still sends one, so a stand-in it will ignore.
+      const key = given.trim() || "none";
       const { CUSTOM_PROVIDER_PREFIX } = await import("@/ipc/shared/language_model_helpers");
       const { keyProbe, checkProviderKey } = await import("@/lib/provider-key-check");
       const base = baseUrl.trim().replace(/\/+$/, "");

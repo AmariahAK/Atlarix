@@ -1156,6 +1156,7 @@ export function openPermissions(ctx: ScreenContext): void {
 const POPULAR_PROVIDERS = ["openai", "anthropic", "google", "openrouter", "deepseek", "xai"];
 const CHROME_ROW = "__chrome";
 const MCP_ROW = "__mcp";
+const CUSTOM_ROW = "__custom";
 
 /** The Chrome extension is talking to Atlarix (from the bridge status line). */
 export function chromeConnected(status: string): boolean {
@@ -1200,12 +1201,20 @@ export function openConnect(ctx: ScreenContext, onSaved: (providerId?: string) =
           },
           { id: MCP_ROW, label: "MCP server…", keywords: "mcp tools server", right: { text: "/mcp", tone: "muted" as const } },
           { id: "h:providers", label: "Providers", header: true },
+          // Anything not on the list: a gateway, a proxy, a server on this computer.
+          {
+            id: CUSTOM_ROW,
+            label: "Other: OpenAI-compatible endpoint…",
+            keywords: "other custom openai compatible gateway proxy local vllm llama.cpp lm studio litellm endpoint base url",
+            right: { text: "base URL + key", tone: "muted" as const },
+          },
           ...rest.map(row),
         ];
       },
       onChoose: async (item) => {
         if (item.id === CHROME_ROW) return openChrome(ctx);
         if (item.id === MCP_ROW) return openMcpAdd(ctx, () => openMcp(ctx));
+        if (item.id === CUSTOM_ROW) return openCustomProvider(ctx, onSaved);
         const p = (await ctx.services.providers.list()).find((x) => x.id === item.id);
         ctx.host.push(
           new InputDialog({
@@ -1225,6 +1234,81 @@ export function openConnect(ctx: ScreenContext, onSaved: (providerId?: string) =
             },
           }),
         );
+      },
+    }),
+  );
+}
+
+/**
+ * A provider that isn't on the list: any OpenAI-compatible endpoint. Name,
+ * base URL, key (none for most servers on this computer); its models come from
+ * the endpoint, else it asks for one model id. Shared with the app and the
+ * editor, like every provider.
+ */
+export function openCustomProvider(ctx: ScreenContext, onSaved: (providerId?: string) => void): void {
+  const title = "OpenAI-compatible endpoint";
+  const draft = { name: "", baseUrl: "", key: "" };
+  const save = async (models?: string[]): Promise<string | undefined> => {
+    try {
+      const r = await ctx.services.providers.addCustom({ ...draft, models });
+      ctx.host.closeAll();
+      ctx.flash(`${draft.name} connected · ${r.models} model${r.models === 1 ? "" : "s"}.`, 4000, "success");
+      onSaved(r.id);
+      return undefined;
+    } catch (e) {
+      if (e instanceof Error && e.name === "NoModelsListedError" && !models) {
+        ctx.host.replace(
+          new InputDialog({
+            title,
+            intro: [{ text: "The endpoint didn't list its models.", bold: true }, { text: "Type the id of the model to use, e.g. qwen2.5:7b or gpt-4o-mini.", tone: "muted" }],
+            label: "Model id",
+            onSubmit: (v) => (v.trim() ? save([v.trim()]) : "Type a model id."),
+          }),
+        );
+        return undefined;
+      }
+      return e instanceof Error ? e.message : String(e);
+    }
+  };
+  const keyStep = () =>
+    ctx.host.replace(
+      new InputDialog({
+        title,
+        intro: [
+          { text: "Saved encrypted on this computer and shared with the Atlarix app.", tone: "muted" },
+          { text: "Leave it empty for a server that needs none (most on this computer).", tone: "muted" },
+        ],
+        label: "API key",
+        mask: true,
+        onSubmit: (v) => {
+          draft.key = v.trim();
+          return save();
+        },
+      }),
+    );
+  const urlStep = () =>
+    ctx.host.replace(
+      new InputDialog({
+        title,
+        intro: [{ text: "Up to /v1, e.g. https://api.example.com/v1 or http://localhost:1234/v1", tone: "muted" }],
+        label: "Base URL",
+        onSubmit: (v) => {
+          const url = v.trim();
+          if (!/^https?:\/\/\S+$/i.test(url)) return "A URL starting with https:// (or http:// for one on this computer).";
+          draft.baseUrl = url;
+          keyStep();
+        },
+      }),
+    );
+  ctx.host.push(
+    new InputDialog({
+      title,
+      intro: [{ text: "Any provider that speaks the OpenAI API: a gateway, a proxy, a server on this computer.", tone: "muted" }],
+      label: "Name",
+      onSubmit: (v) => {
+        if (!v.trim()) return "Give it a name.";
+        draft.name = v.trim().slice(0, 60);
+        urlStep();
       },
     }),
   );

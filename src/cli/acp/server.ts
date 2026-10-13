@@ -235,9 +235,9 @@ export function buildAgentApp(
     .onRequest("_atlarix/provider_custom", (p) => p as { name: string; baseUrl: string; key: string; models?: string[] }, async (ctx) => {
       const { realServices, NoModelsListedError } = await import("../agent/services");
       const { name, baseUrl, key, models } = ctx.params;
-      if (!name?.trim() || !baseUrl?.trim() || !key?.trim()) throw acp.RequestError.invalidParams(undefined, "A name, a base URL and a key are needed.");
+      if (!name?.trim() || !baseUrl?.trim()) throw acp.RequestError.invalidParams(undefined, "A name and a base URL are needed.");
       try {
-        const r = await realServices.providers.addCustom({ name, baseUrl, key, models });
+        const r = await realServices.providers.addCustom({ name, baseUrl, key: key ?? "", models });
         await agent.modelsChanged();
         return r;
       } catch (e) {

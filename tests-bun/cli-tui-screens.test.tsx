@@ -601,6 +601,53 @@ describe("command screens", () => {
     expect(frame).not.toContain("Free"); // Atlarix Auto's row: only Anthropic's models are listed
   });
 
+  it("/connect → Other: a provider that isn't on the list, its key optional, a model id when it lists none", async () => {
+    const tries: Array<{ name: string; baseUrl: string; key: string; models?: string[] }> = [];
+    const models = {
+      load: async () => [
+        { provider: "compass", name: "core-auto", label: "Atlarix Auto", providerName: "Atlarix", detail: "", deepThinking: false, free: true },
+        ...(tries.length === 2 ? [{ provider: "custom::mystery-llm", name: "mystery-model-1", label: "mystery-model-1", providerName: "Mystery LLM", detail: "", deepThinking: false }] : []),
+      ],
+      state: () => ({ recent: [], favorites: [] }),
+      save: () => {},
+      choose: () => {},
+      setDeepThinking: () => {},
+    };
+    const { setup } = await mount((s) => {
+      (s.providers as { addCustom?: unknown }).addCustom = async (p: { name: string; baseUrl: string; key: string; models?: string[] }) => {
+        tries.push(p);
+        if (!p.models) {
+          const e = new Error("That endpoint didn't list any models. Type the id of the model to use.");
+          e.name = "NoModelsListedError";
+          throw e;
+        }
+        return { id: "custom::mystery-llm", models: p.models.length };
+      };
+    }, models);
+    await command(setup, "/connect");
+    await frameContaining(setup, "Chrome extension");
+    await setup.mockInput.typeText("compatible");
+    let frame = await frameContaining(setup, "Other: OpenAI-compatible endpoint");
+    setup.mockInput.pressEnter();
+    await frameContaining(setup, "Any provider that speaks the OpenAI API");
+    await command(setup, "Mystery LLM");
+    await frameContaining(setup, "Base URL");
+    await command(setup, "not a url");
+    expect(await frameContaining(setup, "A URL starting with https://")).toContain("Base URL");
+    setup.mockInput.pressKey("u", { ctrl: true });
+    await command(setup, "http://localhost:1234/v1");
+    await frameContaining(setup, "Leave it empty");
+    setup.mockInput.pressEnter(); // no key: a server on this computer
+    frame = await frameContaining(setup, "didn't list its models");
+    await command(setup, "mystery-model-1");
+    expect(await until(() => tries.length === 2)).toBe(true);
+    expect(tries[0]).toEqual({ name: "Mystery LLM", baseUrl: "http://localhost:1234/v1", key: "" });
+    expect(tries[1]!.models).toEqual(["mystery-model-1"]);
+    // Straight to its models, as after saving a key.
+    frame = await frameContaining(setup, "mystery-model-1");
+    expect(frame).toContain("Mystery LLM");
+  });
+
   it("/mcp: space turns a server off, a adds one, and the border counts what's on", async () => {
     const { setup, serviceCalls } = await mount();
     expect(await frameContaining(setup, "⊙ 1 MCP")).toContain("/commands");

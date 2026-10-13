@@ -153,10 +153,15 @@ function customForm(nav: Nav, cancel: () => void): HTMLElement {
   const submit = el("button", "primary small", "Add");
   submit.type = "submit";
   acts.append(button("Cancel", "small", cancel), submit);
+  key.placeholder = "leave empty if it needs none";
   f.append(el("strong", "", "OpenAI-compatible endpoint"), field("Name", name), field("Base URL, up to /v1", base), field("API key", key), modelLabel, err, acts);
   f.addEventListener("submit", async (e) => {
     e.preventDefault();
-    if (!name.value.trim() || !base.value.trim() || !key.value.trim()) return;
+    if (!name.value.trim() || !base.value.trim()) {
+      err.textContent = "A name and a base URL are needed.";
+      err.classList.remove("hidden");
+      return;
+    }
     submit.disabled = true;
     submit.textContent = "Connecting…";
     err.classList.add("hidden");
