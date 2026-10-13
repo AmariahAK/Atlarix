@@ -245,8 +245,25 @@ export class Chat {
     }
   }
 
+  /**
+   * A New chat or a load still on its way. Until it lands, `sessionId` is the
+   * PREVIOUS chat's, so a message sent right after New chat went into the old
+   * chat while the panel showed the new one (QA #52). Sends wait for it.
+   */
+  private opening: Promise<void> | null = null;
+
   /** Start a chat, or load a past one into this view. */
   async open(sessionId: string | null): Promise<void> {
+    const run = this.openNow(sessionId);
+    this.opening = run;
+    try {
+      await run;
+    } finally {
+      if (this.opening === run) this.opening = null;
+    }
+  }
+
+  private async openNow(sessionId: string | null): Promise<void> {
     const cwd = this.host.workspace();
     if (!cwd) return this.post({ type: "status", status: "no-folder" });
     this.post({ type: "status", status: "starting" });
@@ -351,6 +368,7 @@ export class Chat {
   }
 
   private async send(text: string, context: ContextItem[], answers?: string[], meta?: Record<string, unknown>): Promise<void> {
+    await this.opening?.catch(() => {});
     const c = await this.host.connection();
     if (!c || !this.sessionId || !this.beginTurn()) return;
     const sessionId = this.sessionId;
@@ -368,6 +386,7 @@ export class Chat {
 
   /** Go back to an earlier message, edited: the agent sends the conversation again from the top. */
   private async resend(messageId: number, text: string, restore: boolean): Promise<void> {
+    await this.opening?.catch(() => {});
     const c = await this.host.connection();
     if (!c || !this.sessionId || !this.beginTurn()) return;
     try {
