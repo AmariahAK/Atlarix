@@ -82,9 +82,10 @@ export function approvalTitle(a: PendingApproval): string {
   if (p.path) return "Edit this file?";
   // A standing job (the automations tool): say which way, its description has the rest.
   if (a.request.operation === "automation_write") {
-    const verb = /^\s*(create|update|change|delete|remove)/i.exec(p.description ?? "")?.[1]?.toLowerCase();
-    if (verb === "delete" || verb === "remove") return "Delete this automation?";
-    if (verb === "update" || verb === "change") return "Change this automation?";
+    // The tool says which (QA: a set_notify change was titled "Create").
+    const action = (p as { action?: string }).action;
+    if (action === "delete") return "Delete this automation?";
+    if (action === "update") return "Change this automation?";
     return "Create this automation?";
   }
   return "Allow this?";

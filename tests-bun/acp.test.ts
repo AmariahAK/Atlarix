@@ -385,6 +385,33 @@ describe("atlarix acp", () => {
     expect(JSON.stringify(e.llm.requests.at(-1)?.messages)).toContain("2 failing: subtract");
   }, 60_000);
 
+  it("automations: set_notify after Allow is written, not reported as a refusal (QA F1)", async () => {
+    const e = await editor([{ text: "placeholder" }]);
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    type Page = { automations: Array<{ id: string; name: string; notifyAgent: boolean }> };
+    const made = await e.conn.agent.request<Page>("_atlarix/automations", {
+      sessionId,
+      action: "create",
+      draft: { name: "Notify flip", enabled: true, trigger: { kind: "schedule", cron: "0 9 * * 1-5" }, prompt: "Run the tests.", runMode: "read-only", notifyAgent: false, model: null },
+    });
+    const id = made.automations.find((a) => a.name === "Notify flip")!.id;
+    // The agent flips who hears, as QA asked it to.
+    e.llm.stop();
+    const f = await editor(
+      [{ tool: "automations", args: { operation: "set_notify", automation_id: id, notify_agent: true } }, { text: "Done." }],
+      undefined,
+      { _meta: { atlarix: { version: 1 } } },
+    );
+    const s2 = (await f.conn.agent.request("session/new", { cwd: ws, mcpServers: [] })).sessionId;
+    await f.conn.agent.request("session/prompt", { sessionId: s2, prompt: [{ type: "text", text: "tell yourself about its runs" }] });
+    const page = await f.conn.agent.request<Page>("_atlarix/automations", { sessionId: s2, action: "list" });
+    expect(page.automations.find((a) => a.id === id)?.notifyAgent).toBe(true);
+    const toolResults = JSON.stringify(f.llm.requests.at(-1)?.messages ?? []);
+    expect(toolResults).not.toContain("Permission denied by user");
+    expect(toolResults).not.toContain("payload missing");
+    await f.conn.agent.request("_atlarix/automations", { sessionId: s2, action: "remove", id });
+  }, 60_000);
+
   it("loading a session this process already has open replays it in full", async () => {
     const e = await editor([{ text: "The codeword is heron." }]);
     const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });

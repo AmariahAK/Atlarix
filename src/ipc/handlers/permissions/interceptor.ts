@@ -140,6 +140,8 @@ export class PermissionInterceptor extends EventEmitter {
 
   /** Map of operation ID to command execution results */
   private commandOutputs: Map<string, CommandResult> = new Map();
+  /** Why an operation the user APPROVED then failed (not a command: those keep their output). */
+  private failureReasons: Map<string, string> = new Map();
 
   /** Per run_command operation: max UTF-8 bytes for formatted output (survives pendingOperations eviction). */
   private commandOutputMaxBytes: Map<string, number> = new Map();
@@ -983,6 +985,7 @@ export class PermissionInterceptor extends EventEmitter {
       );
 
       logger.error(`[executeOperation] Failed ${operationId}:`, error);
+      this.failureReasons.set(operationId, errorMessage);
 
       // Edit-file verifier (B1): the write genuinely failed — record it so
       // the completion gate refuses to finish on an unapplied edit
@@ -1023,6 +1026,8 @@ export class PermissionInterceptor extends EventEmitter {
     command?: string;
     verified?: boolean;
     automationId?: string;
+    /** Allowed by the user, then the operation itself failed (not a refusal). */
+    approvedButFailed?: boolean;
   } {
     const operation = this.pendingOperations.get(operationId);
 
@@ -1181,7 +1186,14 @@ export class PermissionInterceptor extends EventEmitter {
           error: cmdResult.stderr.slice(0, 500) || "Command failed",
         };
       }
-      return { success: false, error: "Execution failed" };
+      // Approved, then failed: say so. Reported as "Permission denied by user",
+      // the agent told the user they had refused what they had allowed (QA F1).
+      const reason = this.failureReasons.get(operationId);
+      return {
+        success: false,
+        approvedButFailed: true,
+        error: reason ? `The user approved this, but it failed: ${reason}` : "The user approved this, but it failed.",
+      };
     }
 
     return { success: false, error: `Operation status: ${operation.status}` };

@@ -342,6 +342,20 @@ ToolRegistry.register({
             changes: [
               `notifyAgent: ${existing.notifyAgent} → ${args.notify_agent}`,
             ],
+            // What gets written: the automation as it is, with only who hears
+            // changed. Without it the approved write failed ("payload
+            // missing") and the agent was told the user had said no (QA F1).
+            input: {
+              ...buildInput(args, {
+                name: existing.name,
+                trigger: existing.trigger,
+                prompt: existing.prompt,
+                runMode: existing.runMode,
+                notifyAgent: existing.notifyAgent,
+                enabled: existing.enabled,
+              }),
+              model: (existing as { model?: AutomationInput["model"] }).model ?? null,
+            },
           },
         };
       }

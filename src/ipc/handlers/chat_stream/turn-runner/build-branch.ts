@@ -1008,6 +1008,14 @@ export async function runBuildBranch(
                       jsonAfterSuccessfulExec(execResult),
                     );
                   }
+                  if (execResult.approvedButFailed && execResult.exitCode === undefined) {
+                    // Allowed, then the write itself failed: not a refusal.
+                    return JSON.stringify({
+                      success: false,
+                      error: execResult.error,
+                      operation: permRequest.operation,
+                    });
+                  }
                   if (execResult.exitCode !== undefined) {
                     logger.log(
                       `[Build Mode] Autonomous exec command failed: ${operationId} (exit ${execResult.exitCode})`,
