@@ -240,6 +240,36 @@ describe("atlarix acp", () => {
     expect(typeof status.chrome).toBe("string");
   }, 60_000);
 
+  it("a reopened chat shows its ready plan again, buildable (QA #54)", async () => {
+    const extras = { _meta: { atlarix: { version: 1 } } };
+    const plan = { tool: "plan", args: { operation: "write", title: "Add a ping route", content: "# Add a ping route\n\n- [ ] Add GET /ping\n- [ ] Test it" } } as const;
+    const first = await editor([plan, { text: "Ready." }], undefined, extras);
+    const { sessionId } = await first.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    await first.conn.agent.request("session/set_config_option", { sessionId, configId: "mode", value: "plan" });
+    await first.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "plan a ping route" }] });
+    await Bun.sleep(300);
+
+    // The same process, the chat opened again (Past chats): its screen was cleared.
+    const before = first.updates.length;
+    await first.conn.agent.request("session/load", { sessionId, cwd: ws, mcpServers: [] });
+    await Bun.sleep(200);
+    const again = first.updates.slice(before).filter((u) => u.sessionId === sessionId && u.update.sessionUpdate === "plan").at(-1)?.update as
+      | { entries: Array<{ content: string }>; _meta?: { atlarix?: { plan?: Record<string, unknown> } } }
+      | undefined;
+    expect(again?.entries.map((x) => x.content)).toEqual(["Add GET /ping", "Test it"]);
+    expect(again?._meta?.atlarix?.plan).toMatchObject({ title: "Add a ping route", buildable: true });
+    await first.agent.closeAll();
+
+    // A new process (the editor restarted): the stored chat brings its plan back too.
+    const second = await editor([], undefined, extras);
+    await second.conn.agent.request("session/load", { sessionId, cwd: ws, mcpServers: [] });
+    await Bun.sleep(200);
+    const loaded = second.updates.filter((u) => u.sessionId === sessionId && u.update.sessionUpdate === "plan").at(-1)?.update as
+      | { _meta?: { atlarix?: { plan?: Record<string, unknown> } } }
+      | undefined;
+    expect(loaded?._meta?.atlarix?.plan).toMatchObject({ title: "Add a ping route", buildable: true });
+  }, 60_000);
+
   it("loading a session this process already has open replays it in full", async () => {
     const e = await editor([{ text: "The codeword is heron." }]);
     const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });

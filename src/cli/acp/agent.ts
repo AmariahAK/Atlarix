@@ -315,6 +315,18 @@ class Thread {
     });
   }
 
+  /**
+   * After a load's replay: the editor has just cleared its screen, so send the
+   * plan again even if this thread already sent it. A reopened chat lost its
+   * plan card and Build it otherwise (QA #54).
+   */
+  async resendPlan(): Promise<void> {
+    const s = this.session.state;
+    this.planSent = `${s.planReady?.planId ?? ""}:${s.planRevision}`;
+    this.lastPlanEntries = false;
+    await this.sendPlan(s);
+  }
+
   /** The plan on screen: the ready one, then the one being built. */
   private activePlanId: string | null = null;
   private lastPlanEntries = false;
@@ -739,6 +751,7 @@ export class AcpAgent {
     // editor that asks to load it again has nothing on screen, so start over.
     if (existing) existing.emitted.clear();
     await t.replay();
+    await t.resendPlan();
     t.sendUsage();
     setTimeout(() => void t.refreshCommands(), 0);
     return { configOptions: await this.configOptions(t), modes: this.modes(t) };
