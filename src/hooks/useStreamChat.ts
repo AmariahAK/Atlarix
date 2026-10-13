@@ -58,6 +58,8 @@ import {
   upsertStreamThreadItem,
   mergeSubagentActivityIntoThread,
   mergeNestedToolActivityIntoSubagentRound,
+  DISPLAY_PREVIEW_ARG,
+  withDisplayPreviewExpand,
   type StreamThreadItem,
 } from "@/lib/chat/stream-thread";
 import { buildInlineTimelineFromActivity } from "@/lib/chat/inline-timeline";
@@ -252,6 +254,7 @@ export function mergeWritePreviewIntoThread(
     const item = cur[idx] as Extract<StreamThreadItem, { kind: "tool" }>;
     const mergedArgs: Record<string, unknown> = {
       ...item.toolArgs,
+      [DISPLAY_PREVIEW_ARG]: true,
       path: targetPath,
       operation,
       ...(oldContent != null ? { old_content: oldContent } : {}),
@@ -265,7 +268,8 @@ export function mergeWritePreviewIntoThread(
         : {}),
     };
     const next = [...cur];
-    next[idx] = { ...item, toolArgs: mergedArgs };
+    // A card that already finished rebuilds its diff from the whole file.
+    next[idx] = withDisplayPreviewExpand({ ...item, toolArgs: mergedArgs });
     return new Map(prevMap).set(chatId, next);
   });
 }

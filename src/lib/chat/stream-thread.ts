@@ -158,7 +158,67 @@ function toolStatusRank(status: StreamThreadToolStatus): number {
   return 2;
 }
 
+/**
+ * Marks tool args that carry a write's FULL old/new file, merged onto the card
+ * from the approval preview or the write-preview channel
+ * (useStreamChat.mergeWritePreviewIntoThread). Display only, never sent to the
+ * model.
+ */
+export const DISPLAY_PREVIEW_ARG = "__display_preview";
+const DISPLAY_PREVIEW_KEYS = [
+  DISPLAY_PREVIEW_ARG,
+  "old_content",
+  "content",
+  "precomputed_hunks",
+  "added_count",
+  "removed_count",
+] as const;
+
+/**
+ * The card's args once a newer item for it arrives. The item a finished tool
+ * reports with carries the model's own args (an edit's snippets) or none, and
+ * used to replace the merged whole file: the diff then showed the snippets,
+ * numbered from 1, or just "1 line written" (QA #6). The merged file wins.
+ */
+function mergeToolArgs(
+  prev: Record<string, unknown> | undefined,
+  next: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!prev?.[DISPLAY_PREVIEW_ARG] || next?.[DISPLAY_PREVIEW_ARG]) {
+    return next ?? prev;
+  }
+  const kept: Record<string, unknown> = {};
+  for (const k of DISPLAY_PREVIEW_KEYS) if (k in prev) kept[k] = prev[k];
+  return { ...(next ?? prev), ...kept };
+}
+
+/** A finished write card's diff, from the merged whole file when it has one. */
+export function withDisplayPreviewExpand(
+  item: Extract<StreamThreadItem, { kind: "tool" }>,
+): Extract<StreamThreadItem, { kind: "tool" }> {
+  if (item.status === "running" || !item.toolArgs?.[DISPLAY_PREVIEW_ARG]) {
+    return item;
+  }
+  const source = item.resultText ?? item.detail;
+  if (!source) return item;
+  const expand = buildToolExpandView(
+    item.toolName,
+    item.toolArgs,
+    source,
+    item.status,
+  );
+  return expand?.kind === "diff" ? { ...item, expand } : item;
+}
+
 function mergeToolItems(
+  prev: Extract<StreamThreadItem, { kind: "tool" }>,
+  next: Extract<StreamThreadItem, { kind: "tool" }>,
+): StreamThreadItem {
+  const merged = mergeToolItemsRaw(prev, next);
+  return merged.kind === "tool" ? withDisplayPreviewExpand(merged) : merged;
+}
+
+function mergeToolItemsRaw(
   prev: Extract<StreamThreadItem, { kind: "tool" }>,
   next: Extract<StreamThreadItem, { kind: "tool" }>,
 ): StreamThreadItem {
@@ -176,7 +236,7 @@ function mergeToolItems(
       seq: prev.seq ?? next.seq,
       ts: prev.ts,
       toolName: prev.toolName || next.toolName,
-      toolArgs: next.toolArgs ?? prev.toolArgs,
+      toolArgs: mergeToolArgs(prev.toolArgs, next.toolArgs),
       resultText: next.resultText ?? prev.resultText,
       detail:
         next.detail ?? (next.status !== "running" ? prev.detail : undefined),
@@ -204,7 +264,7 @@ function mergeToolItems(
     // Pin ts to the original insertion so a same-rank re-merge can't reorder.
     ts: prev.ts,
     toolName: prev.toolName,
-    toolArgs: next.toolArgs ?? prev.toolArgs,
+    toolArgs: mergeToolArgs(prev.toolArgs, next.toolArgs),
     resultText: next.resultText ?? prev.resultText,
     detail: next.detail ?? prev.detail,
     expand: next.expand ?? prev.expand,
