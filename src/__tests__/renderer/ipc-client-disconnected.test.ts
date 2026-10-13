@@ -31,11 +31,24 @@ describe("a stream whose network retries ran out", () => {
     listeners.get("chat:stream:disconnected")?.({
       chatId: 77,
       reason: "network",
+      providerName: "QA Dead Port",
       detail: "connect ECONNREFUSED 127.0.0.1:9",
       canResume: true,
     });
+    // The CLI and editor's sentence (ec6bdc46).
     expect(onError).toHaveBeenCalledWith(
-      "Lost the connection to the provider (connect ECONNREFUSED 127.0.0.1:9). Try again.",
+      "Couldn't reach QA Dead Port: connect ECONNREFUSED 127.0.0.1:9. Check it's running and the address is right, then try again.",
     );
+  });
+});
+
+describe("a stream that dropped mid-reply", () => {
+  it("says the connection was lost, not that the provider is unreachable", async () => {
+    const { IpcClient } = await import("@/ipc/ipc_client");
+    const onError = vi.fn();
+    IpcClient.getInstance().streamMessage("hi", { chatId: 78, redo: false, onUpdate: vi.fn(), onEnd: vi.fn(), onError } as never);
+    await new Promise((r) => setTimeout(r, 0));
+    listeners.get("chat:stream:disconnected")?.({ chatId: 78, partialResponse: "Half an ans", detail: "socket hang up" });
+    expect(onError).toHaveBeenCalledWith("Lost the connection to the model provider mid-reply: socket hang up. Try again.");
   });
 });

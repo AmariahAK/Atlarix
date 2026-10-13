@@ -742,7 +742,12 @@ export class IpcClient {
     // so with no listener the turn stayed "streaming" for good. End it as an
     // error that says what happened; the partial reply stays on screen.
     this.ipcRenderer.on("chat:stream:disconnected", (payload) => {
-      const p = payload as { chatId?: number; detail?: string } | null;
+      const p = payload as {
+        chatId?: number;
+        detail?: string;
+        providerName?: string;
+        partialResponse?: string;
+      } | null;
       if (!p || typeof p.chatId !== "number") return;
       const chatId = p.chatId;
       this.streamMessages.delete(chatId);
@@ -751,8 +756,14 @@ export class IpcClient {
       );
       const callbacks = this.chatStreams.get(chatId);
       if (!callbacks) return;
+      // The CLI and editor's words (ec6bdc46); a drop after part of the reply
+      // came is a lost connection, not an unreachable provider.
+      const name = p.providerName || "the model provider";
+      const detail = p.detail?.trim() ? `: ${p.detail.trim().replace(/\.?$/, ".")}` : ".";
       callbacks.onError(
-        `Lost the connection to the provider${p.detail ? ` (${p.detail})` : ""}. Try again.`,
+        p.partialResponse?.trim()
+          ? `Lost the connection to ${name} mid-reply${detail} Try again.`
+          : `Couldn't reach ${name}${detail} Check it's running and the address is right, then try again.`,
       );
       this.chatStreams.delete(chatId);
     });

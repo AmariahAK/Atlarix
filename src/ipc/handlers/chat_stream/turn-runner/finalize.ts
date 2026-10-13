@@ -575,10 +575,17 @@ export async function handleTurnError(
   // of the generic error box. The renderer keeps the partial visible
   // until the user picks [Reconnect] or [Continue].
   if (error instanceof NetworkStreamDisconnectedError) {
+    const { providerDisplayName } = await import(
+      "@/ipc/shared/language_model_helpers"
+    );
     safeSend(event.sender, "chat:stream:disconnected", {
       chatId: req.chatId,
       partialResponse: error.partialResponse,
       reason: "network",
+      // Named the way the CLI and editor say it (ec6bdc46).
+      providerName: providerDisplayName(
+        getEffectiveModel(readSettings())?.provider,
+      ),
       ...(error.detail ? { detail: error.detail } : {}),
       canResume: true,
     });
