@@ -1714,7 +1714,18 @@ export function App({
                   max: width - 8,
                 })} `
         }
-        placeholder={state.busy ? "enter steers this turn · tab queues for after it" : "Ask Atlarix to build, fix or explain something…"}
+        placeholder={
+          state.busy
+            ? "enter steers this turn · tab queues for after it"
+            : // By mode, as the editor's box (QA S1-5).
+              state.mode === "plan"
+              ? "Describe what to plan…"
+              : state.mode === "ask"
+                ? "Ask about the code…"
+                : state.mode === "review"
+                  ? "What should I review?"
+                  : "Ask Atlarix to build, fix or explain something…"
+        }
         onChange={(t) => {
           setDraft(t);
           setPaletteIndex(0);
