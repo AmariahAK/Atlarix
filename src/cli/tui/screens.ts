@@ -1248,7 +1248,8 @@ export function openConnect(ctx: ScreenContext, onSaved: (providerId?: string) =
                 ctx.host.push(
                   new ListDialog({
                     title: `Remove your ${item.label} key?`,
-                    intro: [{ text: "It's deleted from this computer, for the Atlarix app and the editor too.", tone: "muted" }],
+                    // A provider you added goes with its key, as the editor says (QA).
+                    intro: [{ text: `It's deleted from this computer, for the Atlarix app and the editor too.${p.custom ? " This removes the provider too." : ""}`, tone: "muted" }],
                     footer: "↑↓ move · enter choose · esc back",
                     items: [
                       { id: "keep", label: "Keep it" },
