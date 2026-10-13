@@ -50,7 +50,7 @@ import type { LanguageModel } from "@/ipc/ipc_types";
 import { resolveModelDisplayLabel } from "@/lib/resolve-model-display-label";
 import { AtlarixAutoConsentDialog } from "@/components/AtlarixAutoConsentDialog";
 import { isCoreAutoTier } from "@/ipc/shared/compass_constants";
-import { useAccountKind } from "@/hooks/useAccountKind";
+import { fetchAccountKind, useAccountKind } from "@/hooks/useAccountKind";
 import { useTranslation } from "react-i18next";
 import { UpgradeActions } from "@/components/billing/UpgradeActions";
 
@@ -213,12 +213,15 @@ export function ModelPicker({
     setLockedPick(false);
     // Only FREE Auto shares prompts, so only an account with nothing to pay
     // with is asked. A paying account's Auto is billed and never shared.
-    if (
-      isAuto &&
-      (account === "free" || account === "unknown") &&
-      !settings?.atlarixAutoConsentAt
-    ) {
-      setPendingAuto(model);
+    if (isAuto && !settings?.atlarixAutoConsentAt) {
+      // Unknown here can be a balance still loading on a paying account: ask
+      // main before asking the user (QA #42). Still unknown (signed out,
+      // offline) asks, as before.
+      void (async () => {
+        const kind = account === "unknown" ? await fetchAccountKind() : account;
+        if (kind === "free" || kind === "unknown") setPendingAuto(model);
+        else void selectModel(model);
+      })();
       return;
     }
     void selectModel(model);
