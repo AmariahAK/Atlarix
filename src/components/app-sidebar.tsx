@@ -564,7 +564,10 @@ function AppIcons({
                       <span
                         className={
                           item.title.length > 8
-                            ? "text-[10px] leading-tight text-center w-full px-0.5 break-words"
+                            ? // Hyphenated, not cut at any letter: "Integra/tions"
+                              // read as two words (QA #11). Needs <html lang>,
+                              // which useAppLocale sets.
+                              "text-[10px] leading-tight text-center w-full px-0.5 hyphens-auto"
                             : "text-xs"
                         }
                       >

@@ -46,7 +46,7 @@ import { useStreamChat } from "@/hooks/useStreamChat";
 import { useAuth } from "@/lib/auth/useAuth";
 import { showError } from "@/lib/toast";
 import { useLoadApp } from "@/hooks/useLoadApp";
-import { ChevronRight, ChevronLeft } from "lucide-react";
+import { ChevronRight, ChevronLeft, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { IpcClient } from "@/ipc/ipc_client";
 import { subscribeAutoSelfCorrect } from "@/lib/renderer-ipc-bridge";
@@ -192,7 +192,9 @@ function PersistentChatContainer() {
             onClick={handleNewChat}
             className="text-xs text-muted-foreground/70 hover:text-foreground flex items-center gap-1 transition-colors"
           >
-            ← New chat
+            {/* A plus, not "←": the arrow read as Back (QA #11). */}
+            <Plus className="h-3.5 w-3.5" aria-hidden />
+            New chat
           </button>
           <div className="flex items-center gap-2 min-w-0">
             <span className="font-medium">Atlarix</span>
