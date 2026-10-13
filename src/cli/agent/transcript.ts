@@ -691,6 +691,7 @@ export function placeSteers(
 ): Cell[] {
   const others = messages.filter((m) => !anchors.has(String(m.id)));
   const cells = toCells(others, opts);
+  const order = new Map(messages.map((m, i) => [String(m.id), i]));
   for (const m of messages) {
     const a = anchors.get(String(m.id));
     if (!a) continue;
@@ -698,7 +699,13 @@ export function placeSteers(
     const firstIdx = cells.findIndex((c) => c.id.startsWith(`${a.assistantId}:`));
     const cell: Cell = { kind: "user", id: `${String(m.id)}:u`, text: m.content.trim() };
     if (!answer || firstIdx < 0) {
-      cells.push(cell);
+      // The answer it came during shows nothing (stopped or failed before any
+      // output): in its own place, before anything sent after it. Appended,
+      // it sank below later turns (QA).
+      const mine = order.get(String(m.id)) ?? Infinity;
+      const at = cells.findIndex((c) => (order.get(c.id.split(":")[0]!) ?? -1) > mine);
+      if (at < 0) cells.push(cell);
+      else cells.splice(at, 0, cell);
       continue;
     }
     const before = toCells([{ ...answer, content: answer.content.slice(0, a.offset) }], { streaming: true }).length;

@@ -87,6 +87,28 @@ describe("placeSteers", () => {
       "markdown",
     ]);
   });
+
+  it("keeps a steer into an answer that shows nothing in its turn, not below later ones (QA)", async () => {
+    const { placeSteers } = await import("@/cli/agent/transcript");
+    // Two stopped turns, each with a steer and no output, then a third turn.
+    const messages = [
+      { id: 1, role: "user", content: "First" },
+      { id: 2, role: "user", content: "Second" },
+      { id: 3, role: "assistant", content: "" },
+      { id: 4, role: "user", content: "Third" },
+      { id: 5, role: "user", content: "Fourth" },
+      { id: 6, role: "assistant", content: "" },
+      { id: 7, role: "user", content: "Fifth" },
+    ];
+    const cells = placeSteers(
+      messages,
+      new Map([
+        ["2", { messageId: "2", assistantId: "3", offset: 0 }],
+        ["5", { messageId: "5", assistantId: "6", offset: 0 }],
+      ]),
+    );
+    expect(cells.map((c) => (c.kind === "user" ? c.text : c.kind))).toEqual(["First", "Second", "Third", "Fourth", "Fifth"]);
+  });
 });
 
 describe("a turn that ended on questions", () => {
