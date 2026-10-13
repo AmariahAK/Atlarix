@@ -684,6 +684,11 @@ export function SimpleInlineChat({
 
       <SimpleChatInput
         chatId={chatId}
+        // An empty chat has nothing to continue (QA #11); the home screen asks
+        // the same question.
+        placeholder={
+          visibleMessages.length === 0 ? "What are we building?" : undefined
+        }
         onSubmit={(prompt, attachments) => {
           setErrorById((prev) => {
             const next = new Map(prev);
@@ -718,7 +723,8 @@ export function SimpleInlineChat({
                 <p>
                   Editing re-runs from here and discards the{" "}
                   {pendingEdit?.turnIds.length ?? 0} later turn(s). Those turns
-                  changed {pendingEdit?.changed ?? 0} file(s)
+                  changed {pendingEdit?.changed ?? 0}{" "}
+                  {(pendingEdit?.changed ?? 0) === 1 ? "file" : "files"}
                   {pendingEdit && pendingEdit.created > 0
                     ? ` and created ${pendingEdit.created}`
                     : ""}

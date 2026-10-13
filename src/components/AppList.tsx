@@ -1,10 +1,13 @@
 import { useNavigate } from "@tanstack/react-router";
 import { Folder, MessageSquare, Search, EyeOff } from "lucide-react";
-import { useAtom, useSetAtom } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { selectedAppIdAtom, selectedWorkspaceInfoAtom } from "@/atoms/appAtoms";
 import { appSearchOpenAtom } from "@/atoms/appAtoms";
 import { startNewWorkspaceConversation } from "@/lib/open-workspace-session";
-import { activeWorkspaceSessionIdAtom } from "@/atoms/sessionAtoms";
+import {
+  activeWorkspaceSessionIdAtom,
+  workspaceSessionsRefreshAtom,
+} from "@/atoms/sessionAtoms";
 import { WorkspaceSessionList } from "@/components/workspace/WorkspaceSessionList";
 import {
   SidebarGroup,
@@ -27,6 +30,8 @@ interface WorkspaceWithChats {
   name: string;
   path: string;
   chats: { id: number; title: string | null; createdAt: Date }[];
+  /** Every session in the workspace (chats holds the newest 10). */
+  sessionCount: number;
   /** active = folder on disk; missing = path absent */
   workspaceStatus?: "active" | "missing";
 }
@@ -61,6 +66,9 @@ export function AppList({ show }: { show?: boolean }) {
   const setSearchOpen = useSetAtom(appSearchOpenAtom);
   const setActiveChatId = useSetAtom(activeChatIdAtom);
   const [activeWorkspaceSessionId] = useAtom(activeWorkspaceSessionIdAtom);
+  // Sessions come and go while a workspace is open: the header said
+  // "1 session" with two listed (QA #11).
+  const sessionsRefresh = useAtomValue(workspaceSessionsRefreshAtom);
 
   // Load chats for each workspace
   useEffect(() => {
@@ -87,6 +95,7 @@ export function AppList({ show }: { show?: boolean }) {
               name: app.name,
               path: app.path || "",
               chats: chats.slice(0, 10),
+              sessionCount: chats.length,
               workspaceStatus,
             };
           } catch {
@@ -95,6 +104,7 @@ export function AppList({ show }: { show?: boolean }) {
               name: app.name,
               path: app.path || "",
               chats: [],
+              sessionCount: 0,
               workspaceStatus:
                 app.status ?? (app.pathExists === false ? "missing" : "active"),
             };
@@ -105,7 +115,7 @@ export function AppList({ show }: { show?: boolean }) {
     };
 
     loadChats();
-  }, [apps, selectedAppId]);
+  }, [apps, selectedAppId, sessionsRefresh, activeWorkspaceSessionId]);
 
   /** The one open workspace. `undefined` only while its row is still loading. */
   const openWorkspace = useMemo(
@@ -114,7 +124,7 @@ export function AppList({ show }: { show?: boolean }) {
   );
 
   const workspaceLabel = openWorkspace?.name ?? "Workspace";
-  const sessionCount = openWorkspace?.chats.length ?? 0;
+  const sessionCount = openWorkspace?.sessionCount ?? 0;
   const chord = appSearchChord();
 
   if (!show) {

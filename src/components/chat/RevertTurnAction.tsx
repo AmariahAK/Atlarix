@@ -130,9 +130,10 @@ export function RevertTurnAction({
             <AlertDialogDescription asChild>
               <div className="space-y-2 text-xs">
                 <p>
-                  Restores {changed} file(s) to their state before this turn
+                  Restores {changed} {changed === 1 ? "file" : "files"} to
+                  their state before this turn
                   {created > 0
-                    ? `; ${created} file(s) created this turn will be deleted`
+                    ? `; ${created} ${created === 1 ? "file" : "files"} created this turn will be deleted`
                     : ""}
                   .
                 </p>
