@@ -158,6 +158,11 @@ function atlarixRow(a: Account | null | undefined): HTMLElement {
   return r;
 }
 
+/** A provider's own words, without the wall of asterisks a masked key prints ("sk-proj-****…UcIA"). */
+function tidyDetail(detail: string): string {
+  return detail.replace(/(\S{0,12}?)\*{4,}(\S{0,8})/g, (_m, head: string, tail: string) => `${head}…${tail}`);
+}
+
 function providerRow(p: ProviderRow, nav: Nav): HTMLElement {
   const c = state.keyChecks.get(p.id);
   const bad = c?.status === "rejected";
@@ -166,9 +171,10 @@ function providerRow(p: ProviderRow, nav: Nav): HTMLElement {
   const badge = el("span", "prov__badge", initials(p.name));
   const text = el("span", "prov__text");
   const count = state.modelGroups.flatMap((g) => g.options).filter((o) => o.value.startsWith(`${p.id}/`)).length;
+  const hint = p.keyHint === "none" ? "no key needed" : p.keyHint;
   text.append(
     el("strong", "", p.name),
-    el("span", "muted small mono", p.off ? "Off · key kept, models hidden" : [p.keyHint, count ? `${count} model${count === 1 ? "" : "s"}` : ""].filter(Boolean).join(" · ")),
+    el("span", "muted small mono", p.off ? "Off · key kept, models hidden" : [hint, count ? `${count} model${count === 1 ? "" : "s"}` : ""].filter(Boolean).join(" · ")),
   );
   open.append(badge, text);
   row.append(open);
@@ -179,8 +185,8 @@ function providerRow(p: ProviderRow, nav: Nav): HTMLElement {
         : c.status === "works"
           ? status("works", "Works", c.detail)
           : c.status === "rejected"
-            ? status("bad", "Key rejected", c.detail)
-            : status("muted", c.status === "unchecked" ? "Saved" : "Couldn't check", c.detail),
+            ? status("bad", "Key rejected", c.detail && tidyDetail(c.detail))
+            : status("muted", c.status === "unchecked" ? "Not checked" : "Couldn't reach it", c.detail),
     );
   }
   row.append(
@@ -189,14 +195,41 @@ function providerRow(p: ProviderRow, nav: Nav): HTMLElement {
       await loadProviders(true);
     }),
   );
+
+  // Remove the key right here, not only from the provider's own page (owner:
+  // "not seeing a delete key"). Asks once, in place.
+  const wrap = el("div", `prov-wrap${bad ? " bad" : ""}`);
+  const confirmSlot = el("div", "");
+  const askRemove = () => {
+    confirmSlot.textContent = "";
+    const ask = el("div", "prov__fix");
+    ask.append(
+      el("span", "small grow bad", `Remove the ${p.name} key?${p.custom ? " This removes the provider too." : ""} Chats on its models move to Atlarix Auto.`),
+      button("Remove", "deny-solid small", async () => {
+        await rpc("_atlarix/provider_key", { providerId: p.id, key: null }).catch(() => {});
+        state.keyChecks.delete(p.id);
+        await loadProviders(true);
+      }),
+      button("Keep", "small", () => (confirmSlot.textContent = "")),
+    );
+    confirmSlot.append(ask);
+  };
+  const trash = button("", "icon small prov__remove", askRemove, `Remove the ${p.name} key`);
+  trash.innerHTML = icon("trash", 14);
+  row.append(trash);
+
+  wrap.append(row);
   if (bad) {
     const fix = el("div", "prov__fix");
-    fix.append(el("span", "muted small grow", c?.detail || `${p.name} rejected this key.`), button("Replace key", "primary small", () => nav.go({ name: "provider", id: p.id })));
-    const wrap = el("div", "prov-wrap bad");
-    wrap.append(row, fix);
-    return wrap;
+    fix.append(
+      el("span", "muted small grow", c?.detail ? tidyDetail(c.detail) : `${p.name} rejected this key.`),
+      button("Remove key", "deny small", askRemove),
+      button("Replace key", "primary small", () => nav.go({ name: "provider", id: p.id })),
+    );
+    wrap.append(fix);
   }
-  return row;
+  wrap.append(confirmSlot);
+  return wrap;
 }
 
 // --- Auto-approve -----------------------------------------------------------------------

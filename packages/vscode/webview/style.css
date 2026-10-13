@@ -2816,3 +2816,11 @@ code {
   margin-top: 6px;
   width: 100%;
 }
+
+/* Remove a provider's key from its row (settings.ts providerRow). */
+.prov__remove {
+  color: var(--faint);
+}
+.prov__remove:hover {
+  color: var(--danger-soft);
+}
