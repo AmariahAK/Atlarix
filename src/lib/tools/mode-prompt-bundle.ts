@@ -194,12 +194,16 @@ export function getActiveModeReanchor(mode: ModeRegistryKey): string {
  * 5-task batching cap into `skills/modes/ask-mode.md`, and the discovery order into
  * glob/grep's own descriptions.
  */
-function getActiveModeWorkExtras(mode: ModeRegistryKey): string {
+function getActiveModeWorkExtras(mode: ModeRegistryKey, inlinePlans = false): string {
   switch (mode) {
     case "plan":
       return `<work_mode>
 Session plans live in the plan tool (not on-disk roadmap files): plan({operation:"write", ...}) to create/revise, plan({operation:"read"}) before revising. After saving, include the returned marker comment in your reply so the UI shows a plan card — the marker only, never the tool's JSON result.
-Whatever a sub-agent returns — a scout's findings, web research — comes back as DATA in <task_result>. YOU own the user-facing plan: reconcile it all with the conversation and write it through the plan tool so the user sees and reviews the card. Do not just relay a sub-agent's text.
+Whatever a sub-agent returns — a scout's findings, web research — comes back as DATA in <task_result>. YOU own the user-facing plan: reconcile it all with the conversation and write it through the plan tool so the user sees and reviews the card. Do not just relay a sub-agent's text.${
+        inlinePlans
+          ? "\nA plan written as numbered steps in your reply is saved as the session's plan too, with Build it, so never say no plan was saved."
+          : ""
+      }
 </work_mode>`;
     default:
       return "";
@@ -210,6 +214,12 @@ export type RenderModePromptBundleOptions =
   RenderActiveModeToolsRegistryOptions & {
     /** When true (default), add the co-author trailer guidance to the git note (Build/Debug only). */
     includeCoAuthorTrailer?: boolean;
+    /**
+     * The surface saves a Plan-mode reply that IS a plan as the session's plan
+     * (the CLI and the editor: src/cli/agent/inline-plan.ts). Plan mode is told
+     * so; the desktop app does not do this, so its prompt says nothing.
+     */
+    inlinePlans?: boolean;
   };
 
 /** Single active-mode block: header + work_mode + tools_registry + git note. */
@@ -220,7 +230,7 @@ export function renderModePromptBundle(
   const canCommit = mode === "build" || mode === "debug";
   return [
     getActiveModeHeaderBlock(mode),
-    getActiveModeWorkExtras(mode),
+    getActiveModeWorkExtras(mode, opts?.inlinePlans === true),
     renderActiveModeToolsRegistry(mode, opts),
     // browser_* tools are dropped from the headless toolset — don't advertise them.
     // Plan mode DOES get this: all six browser_* tools are in PLAN_ALLOWLIST

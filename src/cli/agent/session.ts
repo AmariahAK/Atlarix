@@ -316,6 +316,9 @@ export class AgentSession extends EventEmitter {
 
   constructor(opts: SessionOptions) {
     super();
+    // This surface saves a Plan-mode reply that is a plan (onTurnEnd), so Plan
+    // mode's prompt says so (mode-prompt-bundle.ts). One surface per process.
+    process.env.ATLARIX_INLINE_PLANS = "1";
     this.workspaceDir = opts.workspaceDir;
     this.model = opts.model;
     this.surface = opts.surface ?? "cli";

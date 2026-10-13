@@ -345,6 +345,8 @@ In user-visible text, tool summaries, and markdown replies, prefer short ASCII m
           registeredNames: registeredToolNames,
           includeCoAuthorTrailer:
             readSettings().includeAtlarixCoAuthor !== false,
+          // Set by AgentSession (the CLI and the editor), which saves inline plans.
+          inlinePlans: process.env.ATLARIX_INLINE_PLANS === "1",
         })
       : renderModeSystemBlock(undefined);
   const appVersion = getAppVersion();
