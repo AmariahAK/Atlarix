@@ -49,3 +49,11 @@ describe("a provider's key page", () => {
     expect(container.querySelector("#apiKeyInput")?.getAttribute("type")).toBe("password");
   });
 });
+
+import { unreachableDetail } from "@/components/settings/ProviderSettingsHeader";
+describe("an unreachable provider's page", () => {
+  it("doesn't repeat the label, or say just 'fetch failed'", () => {
+    expect(unreachableDetail("Couldn't reach the provider: fetch failed")).toBe("Check it's running and the address is right.");
+    expect(unreachableDetail("Couldn't reach the provider: connect ECONNREFUSED 127.0.0.1:59999")).toBe("connect ECONNREFUSED 127.0.0.1:59999");
+  });
+});

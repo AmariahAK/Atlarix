@@ -104,7 +104,7 @@ export function ProviderSettingsHeader({
           keyCheck &&
           (rejected || keyCheck.status === "unreachable") ? (
             <span className="ml-2 truncate text-xs text-muted-foreground">
-              {keyCheck.detail}
+              {rejected ? keyCheck.detail : unreachableDetail(keyCheck.detail)}
             </span>
           ) : null}
         </div>
@@ -136,4 +136,16 @@ export function ProviderSettingsHeader({
         ))}
     </>
   );
+}
+
+/**
+ * The detail beside "Couldn't reach the provider": not that phrase again, and
+ * not a bare "fetch failed" (QA, build G) — the hint the chat's error gives.
+ */
+export function unreachableDetail(detail: string): string {
+  const rest = detail.replace(/^Couldn't reach the provider:?\s*/i, "").trim();
+  if (!rest || /^fetch failed\.?$/i.test(rest)) {
+    return "Check it's running and the address is right.";
+  }
+  return rest;
 }
