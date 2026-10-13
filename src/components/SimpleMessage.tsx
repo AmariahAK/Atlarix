@@ -7,6 +7,7 @@
 
 import type { Message } from "@/ipc/ipc_types";
 import { splitPeerMessages } from "@/lib/peers/peer-message";
+import { parseQaAnswers } from "@/lib/interactive-qa-format";
 import { PeerMessageCard } from "./chat/PeerMessageCard";
 import {
   resolvePasteAttachmentsForMessage,
@@ -309,6 +310,22 @@ function SimpleMessageImpl({
                 // them out for DISPLAY only; message.content keeps its
                 // tokens, so editing and re-dispatch are unaffected.
                 (() => {
+                  // Answers to the agent's questions: each question with its
+                  // answer, not the stored "Q: 2 questions → A: Q: …" line
+                  // (QA #21). The stored text is what the model reads.
+                  const qa = parseQaAnswers(message.content ?? "");
+                  if (qa) {
+                    return (
+                      <dl className="space-y-1.5 text-sm">
+                        {qa.map((p, i) => (
+                          <div key={i}>
+                            <dt className="text-xs opacity-75">{p.q}</dt>
+                            <dd className="whitespace-pre-wrap">{p.a}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    );
+                  }
                   const { text, mentions } = extractMentions(
                     message.content ?? "",
                   );
