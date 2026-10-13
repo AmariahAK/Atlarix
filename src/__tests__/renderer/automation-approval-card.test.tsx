@@ -89,6 +89,13 @@ describe("automation approval card", () => {
     expect(screen.getByText(/notifyAgent: false → true/)).toBeTruthy();
   });
 
+  // QA (app) #22: "on the schedule `0 9 * * 1-5`" showed its backticks.
+  it("shows the trigger without literal backticks", () => {
+    renderWithOps([{ ...base, id: "op-7", automationTrigger: "on the schedule `0 9 * * 1-5`" }]);
+    expect(screen.getByText(/on the schedule 0 9 \* \* 1-5/)).toBeTruthy();
+    expect(screen.queryByText(/`/)).toBeNull();
+  });
+
   it("does not offer run-mode reassurances when deleting", () => {
     renderWithOps([{ ...base, id: "op-6", automationAction: "delete" }]);
     expect(screen.getByText(/Delete automation/i)).toBeTruthy();

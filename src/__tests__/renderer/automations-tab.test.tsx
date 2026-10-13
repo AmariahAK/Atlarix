@@ -104,7 +104,8 @@ describe("AutomationsTab", () => {
     // Definition + feed row both load (same automation name appears twice).
     const rows = await screen.findAllByText("Nightly audit");
     expect(rows.length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText(/cron 0 9 \* \* \*/)).toBeTruthy();
+    // As a person says it (QA #22), not "cron 0 9 * * *".
+    expect(screen.getByText(/9:00 AM, every day/)).toBeTruthy();
 
     // Feed: archived nothing-to-report run hidden by default.
     expect(screen.queryByText(/nothing to report/i)).toBeNull();
@@ -124,6 +125,15 @@ describe("AutomationsTab", () => {
     await screen.findAllByText("Nightly audit");
     expect(screen.getByText("3 flaky tests found")).toBeTruthy();
     expect(screen.queryByText(/^\s*ok\s*$/)).toBeNull();
+  });
+
+  // QA #22: "No runs yet." beside "last run 1m ago" — the only run had been
+  // archived (nothing to report).
+  it("does not say 'No runs yet' when the runs are archived", async () => {
+    listAutomationRuns.mockResolvedValueOnce([runs[1]!]);
+    renderWithProviders(<AutomationsTab appId={7} />);
+    expect(await screen.findByText("No new runs.")).toBeTruthy();
+    expect(screen.queryByText(/No runs yet/)).toBeNull();
   });
 
   it("shows archived runs when the filter is on", async () => {

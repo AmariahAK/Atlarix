@@ -560,7 +560,7 @@ export function AutomationPermissionCard({
           <p className="mt-1.5 text-amber-900 dark:text-amber-100/90">
             <span className="font-medium">{operation.automationName}</span>
             {operation.automationTrigger ? (
-              <> — {operation.automationTrigger}</>
+              <> — {operation.automationTrigger.replace(/`/g, "")}</>
             ) : null}
           </p>
 

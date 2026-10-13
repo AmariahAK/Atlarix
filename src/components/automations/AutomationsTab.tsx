@@ -44,11 +44,12 @@ import type {
   AutomationTrigger,
 } from "@/lib/automations/types";
 import { AutomationForm } from "./AutomationForm";
+import { describeCron } from "@/lib/automations/cron-time";
 
 function triggerLabel(trigger: unknown): string {
   const t = trigger as AutomationTrigger | null;
   if (!t || typeof t !== "object") return "unknown trigger";
-  if (t.kind === "schedule") return `cron ${t.cron}`;
+  if (t.kind === "schedule") return describeCron(t.cron) ?? `cron ${t.cron}`;
   return `MCP ${t.tool} every ${t.intervalMinutes}m`;
 }
 
@@ -383,11 +384,13 @@ export function AutomationsTab({ appId }: { appId: number | null }) {
         </div>
         {visibleRuns.length === 0 ? (
           <p className="py-2 text-sm text-muted-foreground">
-            No runs yet
-            {automationsList.length === 0
-              ? " — create an automation above"
-              : ""}
-            .
+            {/* Runs that were archived (nothing to report) are runs: "No runs
+                yet" beside "last run 1m ago" read as a contradiction (QA #22). */}
+            {runs.length > 0
+              ? "No new runs."
+              : automationsList.length === 0
+                ? "No runs yet — create an automation above."
+                : "No runs yet."}
           </p>
         ) : (
           <div className="space-y-1.5">

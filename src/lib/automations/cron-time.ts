@@ -70,3 +70,25 @@ export const MINUTE_OPTIONS: number[] = Array.from({ length: 60 }, (_, i) => i);
 export function formatClock(time: ClockTime): string {
   return `${time.hour12}:${String(time.minute).padStart(2, "0")} ${time.meridiem}`;
 }
+
+const DAY_WORDS: Record<string, string> = {
+  "*": "every day",
+  "1-5": "Mon–Fri",
+  "0,6": "weekends",
+  "6,0": "weekends",
+  "1": "Mondays",
+  "0": "Sundays",
+  "5": "Fridays",
+};
+
+/**
+ * "0 9 * * 1-5" → "9:00 AM, Mon–Fri", as a person says it, the way the CLI's
+ * approval does; null when it isn't a simple time of day (the cron line is
+ * the honest label then). The app showed "cron 0 9 * * 1-5" (QA #22).
+ */
+export function describeCron(cron: string): string | null {
+  const f = cron.trim().split(/\s+/);
+  const time = clockFromCron(cron);
+  if (!time || f[2] !== "*" || f[3] !== "*") return null;
+  return `${formatClock(time)}, ${DAY_WORDS[f[4]!] ?? `weekdays ${f[4]}`}`;
+}
