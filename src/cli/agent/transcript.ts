@@ -367,6 +367,9 @@ function summarize(toolName: string, r: { text: string; exitCode?: number; faile
   if (toolName === "glob" && first?.startsWith("No files found")) return "no files";
   // The executor's generic "Successfully executed operation" says nothing.
   if (toolName === "automations" && first?.startsWith("Successfully executed")) return "done";
+  // The plan tool's tally is written to the model ("…, 2 left for you"); the
+  // person reads it as their own to-do list (QA). Keep the count, drop that.
+  if (toolName === "plan" && first) return first.replace(/,\s*(?:none|\d+) left for you/, "");
   // A failure's first sentence says what went wrong; what follows ("Use
   // list_files to find the correct path.") is meant for the model.
   if (r.failed && first) return firstSentence(first) ?? first;

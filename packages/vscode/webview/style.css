@@ -2899,3 +2899,8 @@ code {
 .plan-step.folded .plan-step__body {
   display: none;
 }
+
+/* A checklist item's box is its marker (markdown.ts taskBox). */
+li.task {
+  list-style: none;
+}
