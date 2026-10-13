@@ -17,7 +17,7 @@
   --bright: #e8f5ee;
   --heading: #f2e8d5;
   --muted: #7c948a;
-  --faint: #5b6e66;
+  --faint: #6b8077;
   --border: #26302c;
   --border-strong: #35413b;
   --primary: #3ddc97;
@@ -2367,6 +2367,12 @@ body.needs-you .needs-badge {
   stroke: var(--border-strong);
   stroke-width: 1;
 }
+.fig__edge {
+  stroke: var(--muted);
+}
+.fig__arrow {
+  fill: var(--muted);
+}
 .fig__bar {
   fill: var(--primary);
 }
@@ -2641,4 +2647,17 @@ textarea.field {
     padding: 0;
     background: var(--warn);
   }
+}
+
+/* VS Code's webview gives `code` its own grey background (textPreformat):
+   ours is sky text on nothing, in messages and plan steps alike (QA E8). */
+code {
+  background: none;
+  border-radius: 0;
+}
+.pstep__text code,
+.plan__doc code {
+  font-family: var(--mono);
+  color: var(--code);
+  font-size: 0.95em;
 }

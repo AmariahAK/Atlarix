@@ -45,6 +45,8 @@ function parse(code: string): unknown {
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
 /** A layered drawing: each node one row below the deepest node pointing at it. */
+let graphs = 0;
+
 function drawGraph(g: { title?: string; nodes: Array<{ id: string; name?: string }>; edges: Array<{ source: string; target: string }> }): SVGSVGElement | null {
   const ids = new Set(g.nodes.map((n) => n.id));
   const edges = g.edges.filter((e) => ids.has(e.source) && ids.has(e.target) && e.source !== e.target);
@@ -74,9 +76,30 @@ function drawGraph(g: { title?: string; nodes: Array<{ id: string; name?: string
   });
   const H = PAD * 2 + (rows.length - 1) * ROW + NODE_H;
   const s = svg("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": g.title ?? "Diagram" });
+  // Each edge ends in an arrowhead: which way an import goes is the point (QA E8).
+  const arrow = `fig-arrow-${++graphs}`;
+  const defs = svg("defs", {});
+  const marker = svg("marker", { id: arrow, viewBox: "0 0 6 6", refX: 5.5, refY: 3, markerWidth: 6, markerHeight: 6, orient: "auto-start-reverse" });
+  marker.append(svg("path", { d: "M0,0 L6,3 L0,6 z", class: "fig__arrow" }));
+  defs.append(marker);
+  s.append(defs);
   for (const e of edges) {
     const a = pos.get(e.source)!, b = pos.get(e.target)!;
-    s.append(svg("line", { x1: a.x + a.w / 2, y1: a.y + NODE_H, x2: b.x + b.w / 2, y2: b.y, class: "fig__edge" }));
+    // Downward edges meet the target's top; one going back up (a cycle) meets its bottom.
+    const up = b.y < a.y + NODE_H;
+    const x1 = a.x + a.w / 2, y1 = up ? a.y : a.y + NODE_H;
+    const x2 = b.x + b.w / 2, y2 = up ? b.y + NODE_H : b.y;
+    // An edge that skips a row bends out to the side, not through the nodes between.
+    const skips = Math.abs((level.get(e.target) ?? 0) - (level.get(e.source) ?? 0)) > 1;
+    const bend = skips ? Math.max(a.w, b.w) / 2 + 26 : 0;
+    s.append(
+      svg("path", {
+        d: skips ? `M${x1},${y1} C${x1 + bend},${y1 + ROW / 2} ${x2 + bend},${y2 - ROW / 2} ${x2},${y2}` : `M${x1},${y1} L${x2},${y2}`,
+        class: "fig__edge",
+        fill: "none",
+        "marker-end": `url(#${arrow})`,
+      }),
+    );
   }
   const name = new Map(g.nodes.map((n) => [n.id, n.name ?? n.id]));
   for (const [id, p] of pos) {

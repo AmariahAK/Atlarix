@@ -225,13 +225,14 @@ export function toolTarget(toolName: string, args: unknown): string {
     case "plan": {
       // "◇ Plan  step 3 done", not a bare "◇ Plan" (owner, 2026-10-05).
       const op = str(a.operation);
-      if (op === "write") return ["write", str(a.title)].filter(Boolean).join(" · ");
+      if (op === "write") return ["write", str(a.title).replace(/`/g, "")].filter(Boolean).join(" · ");
       if (op === "set_status") return `status → ${str(a.plan_status) || str(a.status)}`;
       if (op === "update_step") {
-        const which = a.step_index != null ? `step ${String(a.step_index)}` : a.step_text ? `"${str(a.step_text)}"` : "step";
+        // A step's text as it reads, without its markdown backticks (QA E8).
+        const which = a.step_index != null ? `step ${String(a.step_index)}` : a.step_text ? `"${str(a.step_text).replace(/`/g, "")}"` : "step";
         return [which, str(a.state) || str(a.status)].filter(Boolean).join(" → ");
       }
-      if (op === "append_step") return ["add step", str(a.step_text)].filter(Boolean).join(" · ");
+      if (op === "append_step") return ["add step", str(a.step_text).replace(/`/g, "")].filter(Boolean).join(" · ");
       return op;
     }
     case "background_jobs":

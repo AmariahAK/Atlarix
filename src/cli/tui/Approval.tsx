@@ -40,9 +40,15 @@ export function Approval({ approval, selected, expanded = false }: { approval: P
   // sign keeps the add/remove colour (it was all green before).
   const split = (diff?.lines ?? []).map(splitDiffLine);
   const segs = useDiffSegments(p.path, split.map((x) => x.code));
+  // Amber is for warnings: a risky command, a write outside the sandbox, a
+  // change outside the project. A routine approval is the accent, as in the
+  // editor's card (owner's palette, 2026-10-13; QA E7).
+  const risky = !!(p.isDangerous || p.deniedPath || p.systemScope);
+  const tone = risky ? color.warn : color.accent;
+  const toneBg = risky ? color.warnBg : color.accentBg;
   return (
-    <box border borderStyle="rounded" borderColor={color.warn} backgroundColor={color.warnBg} padding={1} flexDirection="column" gap={1} flexShrink={0}>
-      <text fg={color.warn}>
+    <box border borderStyle="rounded" borderColor={tone} backgroundColor={toneBg} padding={1} flexDirection="column" gap={1} flexShrink={0}>
+      <text fg={tone}>
         <b>{`△ ${approvalTitle(approval)}`}</b>
       </text>
       {shown ? (
@@ -89,8 +95,8 @@ export function Approval({ approval, selected, expanded = false }: { approval: P
       ) : null}
       <box flexDirection="column">
         {choices.map((c, i) => (
-          <text key={c.mode} fg={i === selected ? color.white : color.textDim} bg={i === selected ? color.warnBg : undefined}>
-            <span fg={i === selected ? color.warn : color.faint}>{i === selected ? "❯ " : "  "}{i + 1}.</span> {i === selected ? <b>{c.label}</b> : c.label}
+          <text key={c.mode} fg={i === selected ? color.white : color.textDim} bg={i === selected ? color.panel : undefined}>
+            <span fg={i === selected ? tone : color.faint}>{i === selected ? "❯ " : "  "}{i + 1}.</span> {i === selected ? <b>{c.label}</b> : c.label}
             <span fg={color.faint}>{` (${approvalKey(c)})`}</span>
           </text>
         ))}

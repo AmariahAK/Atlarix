@@ -22,7 +22,7 @@ export const color = {
   textDim: "#a3bbb0",
   /** Meta, bullets, hints. */
   muted: "#7c948a",
-  faint: "#5b6e66",
+  faint: "#6b8077",
   /** Amber: warnings only. */
   warn: "#e3b65f",
   warnBg: "#1a170e",
