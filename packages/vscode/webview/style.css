@@ -2461,3 +2461,10 @@ body.needs-you .needs-badge {
   font-size: 0.9em;
   padding-left: 2px;
 }
+
+/* "Build it" under the plan (task.ts). */
+.plan__build {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 8px;
+}

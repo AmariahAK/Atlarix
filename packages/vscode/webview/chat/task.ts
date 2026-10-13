@@ -55,17 +55,23 @@ function planSection(p: NonNullable<typeof plan>): HTMLElement {
     renderTask();
   }, planFolded ? "Show the steps" : "Hide the steps");
   head.append(title);
+  // "Build it" goes under the plan, after you've read it (owner), not beside its title.
+  let build: HTMLElement | null = null;
   if (p.doc?.buildable) {
-    const build = button("Build it", "primary small", () => window.dispatchEvent(new CustomEvent("atlarix-build")));
-    build.toggleAttribute("disabled", state.busy);
-    head.append(build);
+    build = el("div", "plan__build");
+    const b = button("Build it", "primary small", () => window.dispatchEvent(new CustomEvent("atlarix-build")));
+    b.toggleAttribute("disabled", state.busy);
+    build.append(b);
   } else if (p.entries.length) {
     const all = done === p.entries.length || p.doc?.status === "built";
     const label = all ? "Built" : done > 0 ? `${done} of ${p.entries.length}` : state.busy ? "Building…" : "";
     if (label) head.append(el("span", `plan__progress${all ? " done" : ""}`, label));
   }
   sec.append(head);
-  if (planFolded) return sec;
+  if (planFolded) {
+    if (build) sec.append(build);
+    return sec;
+  }
   const list = el("ol", "plan__steps");
   for (const e of p.entries) {
     const li = el("li", `pstep ${e.status}`);
@@ -84,5 +90,6 @@ function planSection(p: NonNullable<typeof plan>): HTMLElement {
     more.append(body);
     sec.append(more);
   }
+  if (build) sec.append(build);
   return sec;
 }
