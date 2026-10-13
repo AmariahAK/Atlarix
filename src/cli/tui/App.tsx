@@ -1517,7 +1517,9 @@ export function App({
                   ? accountKind
                   : session.model.provider === "ollama" || session.model.provider === "lmstudio"
                     ? "local"
-                    : "own-key"
+                    : session.model.provider.startsWith("custom::")
+                      ? "endpoint"
+                      : "own-key"
               }
               workspace={abbreviatePath(session.workspaceDir, Math.max(12, width - 24 - (branch ? branch.length + 2 : 0)))}
               branch={branch}

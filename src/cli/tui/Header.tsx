@@ -14,7 +14,7 @@ import type { ReactNode } from "react";
 import { Rix, type RixMood } from "./Rix";
 import { color } from "./theme";
 
-export type AccountKind = "signed-out" | "free" | "pro" | "payg" | "own-key" | "local";
+export type AccountKind = "signed-out" | "free" | "pro" | "payg" | "own-key" | "local" | "endpoint";
 
 export const ACCOUNT_LABEL: Record<AccountKind, string> = {
   "signed-out": "Not signed in",
@@ -23,6 +23,8 @@ export const ACCOUNT_LABEL: Record<AccountKind, string> = {
   payg: "Pay as you go",
   "own-key": "Your key",
   local: "On this computer",
+  /** A provider you added (an OpenAI-compatible address): it may need no key at all. */
+  endpoint: "Your endpoint",
 };
 
 export function SessionHeader({
