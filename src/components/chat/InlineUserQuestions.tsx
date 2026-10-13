@@ -6,6 +6,7 @@
  * `atlarix-questions` artifact after an app reload.
  */
 
+import { InlineMarkdown } from "./InlineMarkdown";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAtom, useAtomValue } from "jotai";
 import {
@@ -201,7 +202,8 @@ export function InlineUserQuestions({ chatId }: Props) {
           <div key={`${pending.questionId}-${qi}`} className="space-y-2">
             <p className="text-sm text-foreground leading-relaxed font-medium">
               {multi ? `${qi + 1}. ` : ""}
-              {it.question}
+              {/* The model's question, marks drawn (QA #36: raw backticks). */}
+              <InlineMarkdown text={it.question} />
             </p>
 
             {it.options.length > 0 ? (
@@ -230,7 +232,7 @@ export function InlineUserQuestions({ chatId }: Props) {
                         {oi + 1}
                       </span>
                       <span className="flex-1 min-w-0 wrap-break-word">
-                        {opt}
+                        <InlineMarkdown text={opt} />
                       </span>
                       {isSelected ? (
                         <Check className="h-4 w-4 shrink-0 text-primary" />

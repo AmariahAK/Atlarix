@@ -54,6 +54,25 @@ describe("InlineUserQuestions", () => {
     expect(container.textContent).toBe("");
   });
 
+  // QA (app) #36: "when `--min-length` is not passed?" showed its backticks.
+  it("draws the question's and options' code marks", () => {
+    const { store, container } = renderWithProviders(
+      <InlineUserQuestions chatId={CHAT_ID} />,
+    );
+    act(() => {
+      store.set(pendingUserQuestionByChatIdAtom, {
+        [CHAT_ID]: {
+          questionId: "q-md",
+          question: "Default when `--min-length` is not passed?",
+          options: ["`0` — no filtering", "`3`"],
+        },
+      });
+    });
+    expect(container.textContent).toContain("Default when --min-length is not passed?");
+    expect(container.textContent).not.toContain("`");
+    expect(container.querySelectorAll("code").length).toBeGreaterThanOrEqual(3);
+  });
+
   it("single question: option click submits, clears state, and restreams", async () => {
     const { store } = renderWithProviders(
       <InlineUserQuestions chatId={CHAT_ID} />,
