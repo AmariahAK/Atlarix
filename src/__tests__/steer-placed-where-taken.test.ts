@@ -57,3 +57,22 @@ describe("a steer with only one step to anchor to", () => {
     expect(kinds).toEqual(["thought", "tool", "interjection", "markdown"]);
   });
 });
+
+// Same build-H turn: the command that went to the background has a thread card
+// but no content tag, so with one anchor it landed AFTER the answer.
+describe("an untagged card from before the first anchored step", () => {
+  it("is drawn before that step, not after the answer", () => {
+    const parts: AssistantMessagePart[] = [
+      { type: "thought", content: "…" },
+      tool("background_jobs_0", "background_jobs"),
+      { type: "markdown", content: "All 7 tests passed." },
+    ];
+    const run: StreamThreadItem = { kind: "tool", id: "run", toolName: "run_command", summary: "Ran command", status: "done", ts: 762 };
+    const steer: StreamThreadItem = { kind: "interjection", id: "interj-x", text: "Also list…", rowKey: "x", ts: 777 };
+    const bj: StreamThreadItem = { kind: "tool", id: "bj", toolName: "background_jobs", summary: "", status: "done", ts: 787 };
+    const woven = weaveIpcItemsIntoParts({ before: parts, after: [], items: [run, steer], anchorsFrom: [run, steer, bj] });
+    const order = woven.before.map((e) => (e.type === "part" ? e.part.type : e.item.kind === "tool" ? e.item.toolName : e.item.kind));
+    expect(order).toEqual(["thought", "run_command", "interjection", "tool", "markdown"]);
+    expect(woven.tail).toEqual([]);
+  });
+});

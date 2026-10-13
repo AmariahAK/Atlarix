@@ -95,13 +95,24 @@ export function weaveIpcItemsIntoParts(args: {
     // A steer with fewer than two anchors to bracket it (one step, or it came
     // before the first or after the last): beside the nearest anchor, not after
     // the whole answer (QA #4, a turn whose command went to the background).
-    if (!placed && item.kind === "interjection" && anchors.length > 0) {
+    // A tool card or a steer earlier than the first anchored step goes before
+    // it (a command moved to the background has a card but no content tag, and
+    // landed after the answer). "Right after the last step" is for a steer
+    // only. Background and plan cards keep the tail, as the tests pin: a plan
+    // card can legitimately come after the final text.
+    if (
+      !placed &&
+      (item.kind === "tool" || item.kind === "interjection") &&
+      anchors.length > 0
+    ) {
       const first = anchors[0]!;
       const last = anchors[anchors.length - 1]!;
       const at =
         item.ts < first.ts
           ? first.partIndex
-          : item.ts >= last.ts && last.partIndex + 1 < allParts.length
+          : item.kind === "interjection" &&
+              item.ts >= last.ts &&
+              last.partIndex + 1 < allParts.length
             ? last.partIndex + 1
             : -1;
       if (at >= 0) {
