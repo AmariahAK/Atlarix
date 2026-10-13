@@ -248,6 +248,11 @@ export function diffUpdates(cells: readonly Cell[], emitted: Emitted, opts: { re
       emitted.set(k, c.text);
       // What woke the agent ("◇ Map src/mini finished · 72s"): a finished step,
       // which every editor draws, so a turn it did not ask for has its reason.
+      // "Build it" (a plan's build turn): the same kind of marker, in every editor.
+      if (c.id.endsWith(":build")) {
+        out.push({ sessionUpdate: "tool_call", toolCallId: c.id, title: c.text.replace(/^▸\s*/, ""), kind: "other", status: "completed" });
+        continue;
+      }
       if (c.id.startsWith("wake:")) {
         out.push({
           sessionUpdate: "tool_call",

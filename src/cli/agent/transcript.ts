@@ -6,6 +6,7 @@
  * so tool calls, thinking and prose come apart exactly as they do in the app.
  * Pure: the TUI renders cells; src/__tests__/cli-transcript.test.ts pins the rules.
  */
+import { BUILD_FROM_PLAN_PROMPT } from "@/lib/work-mode";
 import { computeDiffHunks } from "@/lib/diff/compose-hunks";
 import { peerSurfaceLabel, splitPeerMessages } from "@/lib/peers/peer-message";
 import {
@@ -597,7 +598,11 @@ function messageCells(m: ChatMessageLike, live: boolean): Cell[] {
   } else if (m.role === "user") {
     const pairs = answerPairs(m.content);
     if (pairs) cells.push({ kind: "answers", id: `${base}:u`, pairs });
-    else if (m.content.trim()) {
+    else if (m.content.trim() === BUILD_FROM_PLAN_PROMPT) {
+      // "Build it" sends this for you: a marker, not your words to edit or undo,
+      // and its "Plan panel" is the desktop's (QA: it read as typed on reopen).
+      cells.push({ kind: "notice", id: `${base}:build`, level: "info", text: "▸ Build it" });
+    } else if (m.content.trim()) {
       const { text, chips } = userChips(m.content);
       // A paste: show what was pasted (the placeholder alone said nothing).
       const full = /\[Pasted text #\d+/.test(m.content) && m.modelContent && m.modelContent !== m.content ? m.modelContent.trim() : undefined;

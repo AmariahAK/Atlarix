@@ -352,3 +352,21 @@ describe("rows a person reads", () => {
     expect(t.summary).toBe("src/mini has 12 files.");
   });
 });
+
+describe("the Build it prompt (QA P2)", () => {
+  it("is a marker, not a message you typed", async () => {
+    const { BUILD_FROM_PLAN_PROMPT } = await import("@/lib/work-mode");
+    const { diffUpdates } = await import("@/cli/acp/updates");
+    const cells = toCells([
+      { id: 1, role: "user", content: "plan it" },
+      { id: 2, role: "assistant", content: "Here's the plan." },
+      { id: 3, role: "user", content: BUILD_FROM_PLAN_PROMPT },
+    ]);
+    expect(cells.at(-1)).toMatchObject({ kind: "notice", id: "3:build", text: "▸ Build it" });
+    expect(cells.some((c) => c.kind === "user" && c.text.includes("Plan panel"))).toBe(false);
+    // An editor gets a step, never a user bubble it could edit.
+    const ups = diffUpdates(cells, new Map(), { replay: true, ids: true } as never);
+    expect(ups.some((u: any) => u.sessionUpdate === "tool_call" && u.title === "Build it")).toBe(true);
+    expect(JSON.stringify(ups)).not.toContain("Plan panel");
+  });
+});
