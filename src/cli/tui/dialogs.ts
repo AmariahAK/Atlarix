@@ -22,7 +22,8 @@ export interface KeyLike {
   shift?: boolean;
 }
 
-export type Tone = "accent" | "muted" | "warn" | "error" | "text";
+/** `heading`: sand, for what is marked rather than warned about (a favourite's ★). */
+export type Tone = "accent" | "muted" | "warn" | "error" | "text" | "heading";
 
 export interface ListItem {
   id: string;

@@ -27,7 +27,9 @@ const toneColor = (t: Tone | undefined): string =>
         ? color.warn
         : t === "error"
           ? color.error
-          : color.text;
+          : t === "heading"
+            ? color.heading
+            : color.text;
 
 /** The screen behind an open dialog: dimmed, still visible. */
 const BACKDROP = RGBA.fromInts(0, 0, 0, 150);

@@ -480,7 +480,7 @@ const RUN_STATUS: Record<string, { text: string; tone: "accent" | "muted" | "err
   ok: { text: "✓", tone: "accent" },
   "nothing-to-report": { text: "–", tone: "muted" },
   error: { text: "✗", tone: "error" },
-  running: { text: "…", tone: "warn" },
+  running: { text: "…", tone: "muted" },
 };
 
 export function openAutomations(ctx: ScreenContext): void {
