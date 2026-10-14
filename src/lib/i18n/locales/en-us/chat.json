@@ -24,7 +24,7 @@
     "privateShort": "private, no training"
   },
   "peerMessage": {
-    "from": "Message from teammate",
+    "from": "Message from contributor",
     "surface": "({{where}})",
     "anotherSession": "another session"
   },

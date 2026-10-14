@@ -591,10 +591,10 @@ function messageCells(m: ChatMessageLike, live: boolean): Cell[] {
           id: `${base}:p${i}`,
           tool: {
             id: `${base}:p${i}`,
-            // A teammate: another of your Atlarix sessions, as Claude Code
+            // A contributor: another of your Atlarix sessions, as Claude Code
             // calls them (owner), named so it never reads as you.
             verb: "Message",
-            target: `from teammate ${seg.from || "another session"} (${where})`,
+            target: `from contributor ${seg.from || "another session"} (${where})`,
             status: "success",
             summary: first.length > 160 ? `${first.slice(0, 159)}…` : first,
             output: text,
