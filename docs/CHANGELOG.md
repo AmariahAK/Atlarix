@@ -3,6 +3,15 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [15.7.1] (unreleased) — fixes from the 15.7.0 QA
+
+A stopped reply stays saved as stopped, in every mode, so after you reopen the chat the next
+message (yours or a contributor's) is answered and the stopped request isn't re-run. An edited
+file's card shows the real change even when the model sends an empty file field. Without Git
+installed, the chat says Revert is off, instead of never offering it; and the Revert dialog takes
+a fresh look at what it will keep each time it opens. Automations: the form says what's missing
+before Create, and a Run now is labelled as yours, not as a scheduled run.
+
 ## [15.7.0] (2026-10-14) — MCP servers from the official MCP Registry, on every surface
 
 **The marketplace is the official MCP Registry, with five Verified servers on top.** Settings → MCP
