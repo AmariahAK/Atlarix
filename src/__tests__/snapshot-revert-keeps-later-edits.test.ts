@@ -184,6 +184,12 @@ describeWithGit("a turn with no record of how it ended", () => {
     await turn("41", { "a.ts": "a1" });
     expect((await listSnapshotFiles(workspace, "41"))?.endRecorded).toBe(true);
   });
+
+  it("listed right after the turn ends, it is checkable (the end is recorded in the background)", async () => {
+    await turn("41", { "a.ts": "a1" }, { end: false });
+    void recordSnapshotTurnEnd("41"); // as ensureTerminal does
+    expect((await listSnapshotFiles(workspace, "41"))?.endRecorded).toBe(true);
+  });
 });
 
 // The confirm dialogs say what a revert WILL do before it happens (CLI: "Atlarix
@@ -215,6 +221,18 @@ describeWithGit("previewing a revert", () => {
     const r41 = await revertSnapshot({ workspacePath: workspace, turnId: "41" });
     expect(r41.kept).toEqual(["a.ts"]);
     expect(await read("a.ts")).toBe("a1 + user");
+  });
+
+  // The turn's end is recorded in the background (`void` at ensureTerminal),
+  // and the CLI's undo dialog opens right after: the preview read the manifest
+  // before that write landed and called the turn unchecked (ai-13's bun run).
+  it("a preview right after the turn ends waits for its end to be recorded", async () => {
+    await captureSnapshot({ workspacePath: workspace, turnId: "41", relativePaths: ["a.ts", "b.ts"] });
+    await write("a.ts", "a1");
+    await write("b.ts", "b1");
+    void recordSnapshotTurnEnd("41"); // as ensureTerminal does
+    await write("b.ts", "edited since");
+    expect(await previewRevert(workspace, ["41"])).toEqual({ restores: ["a.ts"], kept: ["b.ts"] });
   });
 
   it("a created file someone changed is previewed as kept", async () => {
