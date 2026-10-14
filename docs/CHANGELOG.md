@@ -38,6 +38,11 @@ added, or one that is signed out, gets the same card. On the desktop and in edit
 turn servers on and off, and sign one out for you to reconnect. MCP tool rows name what they use
 ("Using Linear: list issues…", then "Linear · list issues" with its result).
 
+**Revert keeps the work you did after the turn.** Going back to an earlier message restores the
+files that turn changed, except ones you (or another session) changed since, and it names those
+files before and after it runs. Files come back byte for byte whatever the folder's
+`.gitattributes` say, and a turn you stopped records its end state too, so its revert is as safe.
+
 **Automations can watch your account's MCP servers,** not only ones on this computer, from the app,
 the CLI and the editor extension.
 
