@@ -167,7 +167,19 @@ QA (15.7.0): a server that is on but fails to connect reads "✓ on" in the CLI,
 page says "Couldn't connect: Connection closed". Test on open (one connect per server), or mark a
 server whose last call failed. Low.
 
-### 5. Launchpad — one door left (different repo)
+### 5. MCP polish from the 15.7.0 app QA
+
+- The app's MCP list doesn't update live when the CLI changes the same profile (a tab switch
+  refetches). Refetch on window focus, or broadcast from the shared DB.
+- The composer menu's switch takes 3–5 s with no pending state; a second click is lost.
+- Automations: "Create" stays disabled until "tell the AI?" is answered, with no hint or default;
+  a manual Run now logs "fired on schedule"; the tool name is free text (offer the server's tools).
+- A local server with no registry icon shows a letter (Brave Search): try the npm scope's
+  GitHub avatar.
+- A peer message into a chat whose last turn was stopped mid-wait re-runs the stopped request
+  (ai-e9's area).
+
+### 6. Launchpad — one door left (different repo)
 
 `atlarix-launchpad`, not this one. One entity behind three doors on one domain — desktop app,
 Chrome extension, PR reviewer — because LLMs and listicles answer by CATEGORY. `/`, `/reviewer`
