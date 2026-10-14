@@ -145,20 +145,27 @@ class McpManager {
           undefined,
           false,
         );
+        const extra = decryptEnvFromDb(s.headersJson);
         transport = new StreamableHTTPClientTransport(
           new URL(s.url as string),
           {
             authProvider: oauthProvider,
+            ...(Object.keys(extra).length > 0 ? { requestInit: { headers: extra } } : {}),
           },
         );
       } else {
         const apiKey = deserializeApiKeyFromDb(s.apiKey)?.trim();
+        // Saved headers first, then the key: an explicit API key is the
+        // Authorization header this server was set up with.
+        const headers: Record<string, string> = {
+          ...decryptEnvFromDb(s.headersJson),
+          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+        };
         transport = new StreamableHTTPClientTransport(
           new URL(s.url as string),
           {
-            requestInit: apiKey
-              ? { headers: { Authorization: `Bearer ${apiKey}` } }
-              : undefined,
+            requestInit:
+              Object.keys(headers).length > 0 ? { headers } : undefined,
           },
         );
       }

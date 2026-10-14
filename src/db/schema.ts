@@ -497,6 +497,16 @@ export const mcpServers = sqliteTable("mcp_servers", {
     string
   > | null>(),
   url: text("url"),
+  /**
+   * Request headers for a server reached by URL (`X-Api-Key`, `X-Org-Id`, …),
+   * values encrypted like `envJson`. From pasted or imported configs, registry
+   * entries and editors' ACP `mcpServers`. `apiKey` still means
+   * `Authorization: Bearer`.
+   */
+  headersJson: text("headers_json", { mode: "json" }).$type<Record<
+    string,
+    string
+  > | null>(),
   apiKey: text("api_key"),
   enabled: integer("enabled", { mode: "boolean" })
     .notNull()

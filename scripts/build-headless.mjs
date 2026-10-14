@@ -135,6 +135,12 @@ const assets = [
     src: path.join(root, "build/models-snapshot.json.gz"),
     dest: "models-snapshot.json.gz",
   },
+  // The MCP marketplace catalog (src/lib/mcp/registry-catalog.ts) for runs with no
+  // network or with the registry down.
+  {
+    src: path.join(root, "build/mcp-registry-snapshot.json.gz"),
+    dest: "mcp-registry-snapshot.json.gz",
+  },
 ];
 // The mode prompts, sub-agent prompts and guides. Headless read them from
 // `<cwd>/src/skills`, which in a benchmark container is the TASK directory, so

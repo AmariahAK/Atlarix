@@ -4,7 +4,6 @@
 
 import { useState } from "react";
 import { useAtomValue } from "jotai";
-import { useQueryClient } from "@tanstack/react-query";
 import { Sparkles } from "lucide-react";
 import { useSearch } from "@tanstack/react-router";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -12,9 +11,10 @@ import { ToolsMcpSettings } from "./ToolsMcpSettings";
 import { McpMarketplaceTab } from "./McpMarketplaceTab";
 import { OrphanedMcpSection } from "./OrphanedMcpSection";
 import { FoundMcpSection } from "./FoundMcpSection";
-import { selectedAppIdAtom, selectedWorkspaceInfoAtom } from "@/atoms/appAtoms";
-
-const MAX_WORKSPACE_MCP = 10;
+import { McpPasteBox } from "./McpPasteBox";
+import { AccountMcpSection } from "./AccountMcpSection";
+import { selectedAppIdAtom } from "@/atoms/appAtoms";
+import { MCP_WORKSPACE_MAX } from "@/lib/workspace-caps";
 
 function WorkspaceRequiredEmpty() {
   return (
@@ -26,16 +26,12 @@ function WorkspaceRequiredEmpty() {
 }
 
 export function McpSettingsPage() {
-  const queryClient = useQueryClient();
   const selectedAppId = useAtomValue(selectedAppIdAtom);
-  const workspaceInfo = useAtomValue(selectedWorkspaceInfoAtom);
   // Deep link: /integrations/mcp?tab=marketplace (first-run wizard CTA).
   const search = useSearch({ strict: false }) as { tab?: string };
   const [activeTab, setActiveTab] = useState<"active" | "marketplace">(() =>
     search?.tab === "marketplace" ? "marketplace" : "active",
   );
-
-  const workspaceName = workspaceInfo?.name ?? "Workspace";
 
   /**
    * Content only. The page shell — scroll container, width, back button, and the
@@ -48,9 +44,7 @@ export function McpSettingsPage() {
       <div>
         <h2 className="text-xl font-semibold text-foreground">MCP servers</h2>
         <p className="text-muted-foreground mt-1 text-sm">
-          Up to {MAX_WORKSPACE_MCP} per workspace. Use{" "}
-          <code className="text-xs bg-muted px-1 rounded">@mcp name</code> in
-          chat.
+          Up to {MCP_WORKSPACE_MAX} on at a time.
         </p>
       </div>
 
@@ -72,12 +66,10 @@ export function McpSettingsPage() {
           {/* The workspace name/path header that used to repeat here is gone —
                 the /integrations layout shows it once, above the section nav. */}
           <TabsContent value="active" className="space-y-8 mt-4">
-            <div className="bg-card rounded-xl shadow-sm p-6 border border-border">
-              <ToolsMcpSettings
-                scope="workspace"
-                appId={selectedAppId}
-                maxServers={MAX_WORKSPACE_MCP}
-              />
+            <div className="bg-card rounded-xl shadow-sm p-6 border border-border space-y-6">
+              <McpPasteBox appId={selectedAppId} />
+              <AccountMcpSection appId={selectedAppId} />
+              <ToolsMcpSettings scope="workspace" appId={selectedAppId} />
             </div>
             <FoundMcpSection appId={selectedAppId} />
             <OrphanedMcpSection workspaceAppId={selectedAppId} />
@@ -85,13 +77,7 @@ export function McpSettingsPage() {
 
           <TabsContent value="marketplace" className="mt-4">
             <div className="bg-card rounded-xl shadow-sm p-6 border border-border">
-              <McpMarketplaceTab
-                workspaceId={selectedAppId}
-                workspaceName={workspaceName}
-                onChanged={() => {
-                  void queryClient.invalidateQueries({ queryKey: ["mcp"] });
-                }}
-              />
+              <McpMarketplaceTab workspaceId={selectedAppId} />
             </div>
           </TabsContent>
         </Tabs>

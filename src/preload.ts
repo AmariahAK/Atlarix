@@ -162,8 +162,18 @@ const validInvokeChannels = [
   "mcp:oauth-status",
   "mcp:revoke-oauth",
   "mcp:set-tool-consent",
-  "mcps:fetch-registry",
-  "mcps:install-from-registry",
+  "mcp:add-pasted",
+  "mcp:limit",
+  // MCP marketplace (official MCP Registry, cached in main)
+  "mcp-catalog:search",
+  "mcp-catalog:icon",
+  "mcp-catalog:install",
+  // Web MCP servers on the account (shared by every surface)
+  "connectors:list",
+  "connectors:set-enabled",
+  "connectors:remove",
+  "connectors:set-secret",
+  "connectors:sign-in",
   // Skills — read only since v14.45 (the marketplace is gone).
   "skills:list-repo-skills",
   "skills:read-repo-skill",

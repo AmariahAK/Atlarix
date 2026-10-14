@@ -16,11 +16,22 @@ import {
   McpServerUpdate,
 } from "../ipc_types";
 import {
-  DEFAULT_MCP_REGISTRY_URL,
-  parseInstallUrl,
-  validateMcpRegistryEntry,
-  type McpRegistryIndex,
-} from "@/shared/mcp-registry";
+  addLocalServer,
+  addPasted,
+  addServerFromUrl,
+  assertRoomForOneMore,
+  installFromCatalog,
+  limitMessage,
+  mcpOnCount,
+  MCP_ON_LIMIT,
+  signInAccountServer,
+} from "@/lib/mcp/mcp-add";
+import {
+  deleteConnector,
+  listConnectorRows,
+  setConnectorEnabled,
+  setConnectorSecret,
+} from "@/lib/mcp/account-connectors";
 import {
   serializeApiKeyForDb,
   encryptEnvForDb,
@@ -55,33 +66,6 @@ export function logMcpError(context: string, e: unknown): void {
 export { MCP_WORKSPACE_MAX };
 
 type ConsentDecision = "accept-once" | "accept-always" | "decline";
-
-/**
- * How many MCP servers are ACTIVE in this workspace.
- *
- * The cap counts enabled servers, not stored rows. Storing a server costs a row; what a
- * workspace with fifty of them actually costs is comprehension and connections, and only
- * enabled ones are ever connected or listed to the model (`mcp.ts` filters on `enabled`
- * in both `list_available_mcps` and `mcp_call`).
- *
- * This is what lets a config import keep everything a user brought without any of it
- * going live: imported servers land `enabled: false` and sit outside the cap until the
- * user or the model turns one on. Note the column DEFAULTS TO TRUE (`schema.ts`), so an
- * inserter that forgets to set it lands the server active and inside the cap.
- */
-async function activeWorkspaceMcpCount(appId: number): Promise<number> {
-  const rows = await db
-    .select()
-    .from(mcpServers)
-    .where(
-      and(
-        eq(mcpServers.scope, "workspace"),
-        eq(mcpServers.appId, appId),
-        eq(mcpServers.enabled, true as any),
-      ),
-    );
-  return rows.length;
-}
 
 export function registerMcpHandlers() {
   handle(
@@ -153,11 +137,9 @@ export function registerMcpHandlers() {
         throw new Error("Select a workspace before adding an MCP server.");
       }
 
-      if ((await activeWorkspaceMcpCount(appId)) >= MCP_WORKSPACE_MAX) {
-        throw new Error(
-          `Maximum ${MCP_WORKSPACE_MAX} enabled MCP servers per workspace. Disable or remove one to add another.`,
-        );
-      }
+      // The limit is on servers that are ON (this folder's and the account's),
+      // so a server added switched off never hits it.
+      if (params.enabled) await assertRoomForOneMore(appId);
       const {
         name,
         transport,
@@ -168,6 +150,8 @@ export function registerMcpHandlers() {
         apiKey,
         enabled,
         authType,
+        headers,
+        registryId,
       } = params;
       const resolvedAuthType =
         authType ??
@@ -185,11 +169,14 @@ export function registerMcpHandlers() {
           args: args || null,
           envJson: encryptEnvForDb(envJson),
           url: url || null,
+          headersJson: encryptEnvForDb(headers ?? null),
           apiKey: apiKey?.trim() ? serializeApiKeyForDb(apiKey.trim()) : null,
           enabled: !!enabled,
           scope,
           appId,
           authType: resolvedAuthType,
+          fromRegistry: !!registryId,
+          registryId: registryId ?? null,
         })
         .returning();
       return sanitizeMcpServerForIpc(result[0]);
@@ -218,17 +205,19 @@ export function registerMcpHandlers() {
     const app = appId ? await db.query.apps.findFirst({ where: eq(apps.id, appId) }) : null;
     const s = findExternalMcpServers(app?.path ?? null).find((x) => x.key === key);
     if (!s) throw new Error("That server isn't in its tool's settings any more.");
-    return createServer({
+    // A public https server goes on the account like any other web server.
+    if (s.transport === "http" && s.url) {
+      return addServerFromUrl(
+        appId,
+        { url: s.url, name: s.name, headers: s.headers, ...(s.bearer ? { bearer: s.bearer } : {}) },
+        { enable: true },
+      );
+    }
+    return addLocalServer(
       appId,
-      name: s.name,
-      transport: s.transport,
-      command: s.command ?? null,
-      args: s.args ?? null,
-      envJson: s.env && Object.keys(s.env).length ? s.env : null,
-      url: s.url ?? null,
-      apiKey: s.bearer ?? null,
-      enabled: true,
-    } as CreateMcpServer);
+      { name: s.name, transport: "stdio", command: s.command ?? null, args: s.args ?? null, env: s.env ?? null },
+      { enable: true },
+    );
   });
 
   handle(
@@ -258,6 +247,13 @@ export function registerMcpHandlers() {
     "mcp:update-server",
     async (_event: IpcMainInvokeEvent, params: McpServerUpdate) => {
       const update: Record<string, unknown> = {};
+      if (params.enabled === true) {
+        const [current] = await db.select().from(mcpServers).where(eq(mcpServers.id, params.id));
+        // Turning one ON is where the limit applies; turning one off, or
+        // editing one that is already on, never hits it.
+        if (current && !current.enabled) await assertRoomForOneMore(current.appId ?? null);
+      }
+      if (params.headers !== undefined) update.headersJson = encryptEnvForDb(params.headers);
       if (params.name !== undefined) update.name = params.name;
       if (params.transport !== undefined) update.transport = params.transport;
       if (params.command !== undefined) update.command = params.command;
@@ -275,7 +271,9 @@ export function registerMcpHandlers() {
       if (params.enabled !== undefined) update.enabled = !!params.enabled;
 
       const authChanged =
-        params.apiKey !== undefined || params.envJson !== undefined;
+        params.apiKey !== undefined ||
+        params.envJson !== undefined ||
+        params.headers !== undefined;
 
       const result = await db
         .update(mcpServers)
@@ -432,156 +430,111 @@ export function registerMcpHandlers() {
     },
   );
 
+  // ─── Marketplace (official MCP Registry, cached) ──────────────────────────
+
   handle(
-    "mcps:fetch-registry",
+    "mcp-catalog:search",
     async (
       _event,
-      params?: { url?: string },
-    ): Promise<{
-      success: boolean;
-      registry?: McpRegistryIndex;
-      error?: string;
-    }> => {
-      const url = params?.url || DEFAULT_MCP_REGISTRY_URL;
-      try {
-        const res = await fetch(url, {
-          headers: {
-            Accept: "application/json",
-            "User-Agent": "Atlarix-MCP-Marketplace",
-          },
-        });
-        if (!res.ok) {
-          return {
-            success: false,
-            error: `Registry fetch failed: HTTP ${res.status}`,
-          };
-        }
-        const json = (await res.json()) as McpRegistryIndex;
-        if (!json || json.version !== "1" || !Array.isArray(json.mcps)) {
-          return {
-            success: false,
-            error: "Registry payload is not a v1 index",
-          };
-        }
-        return { success: true, registry: json };
-      } catch (e) {
-        const message = e instanceof Error ? e.message : String(e);
-        logger.error("[mcps:fetch-registry] error:", e);
-        return { success: false, error: message };
+      params: { query?: string; offset?: number; limit?: number; appId?: number | null },
+    ) => {
+      const { searchMcpCatalog } = await import("@/lib/mcp/registry-catalog");
+      const page = await searchMcpCatalog(params?.query ?? "", {
+        offset: params?.offset,
+        limit: params?.limit,
+      });
+      // Which of these are already added: this folder's own, or on the account.
+      const installed = new Set<string>();
+      if (params?.appId != null) {
+        const rows = await db
+          .select({ registryId: mcpServers.registryId })
+          .from(mcpServers)
+          .where(and(eq(mcpServers.scope, "workspace"), eq(mcpServers.appId, params.appId)));
+        for (const r of rows) if (r.registryId) installed.add(r.registryId);
       }
+      for (const c of (await listConnectorRows()) ?? []) {
+        if (c.registryName) installed.add(c.registryName);
+      }
+      return { ...page, installed: page.entries.filter((e) => installed.has(e.name)).map((e) => e.name) };
     },
   );
 
+  handle("mcp-catalog:icon", async (_event, params: { name: string }) => {
+    if (typeof params?.name !== "string" || !params.name) return null;
+    const { getMcpIcon } = await import("@/lib/mcp/mcp-icons");
+    return getMcpIcon(params.name);
+  });
+
   handle(
-    "mcps:install-from-registry",
+    "mcp-catalog:install",
     async (
       _event,
-      params: {
-        entry: McpRegistryIndex["mcps"][number];
-        env: Record<string, string>;
-        scope?: "global" | "workspace";
-        appId?: number | null;
-      },
-    ): Promise<{
-      success: boolean;
-      serverId?: number;
-      needsOAuth?: boolean;
-      error?: string;
-    }> => {
-      try {
-        const { entry, env, appId = null } = params;
-        const scope = "workspace" as const;
-        if (appId == null) {
-          return {
-            success: false,
-            error: "Select a workspace before installing an MCP.",
-          };
-        }
-
-        const entryError = validateMcpRegistryEntry(entry);
-        if (entryError) {
-          return { success: false, error: entryError };
-        }
-
-        if ((await activeWorkspaceMcpCount(appId)) >= MCP_WORKSPACE_MAX) {
-          return {
-            success: false,
-            error: `Maximum ${MCP_WORKSPACE_MAX} enabled MCP servers per workspace. Disable or remove one to add another.`,
-          };
-        }
-        if (entry.authType === "oauth") {
-          const inserted = await db
-            .insert(mcpServers)
-            .values({
-              name: entry.name,
-              transport: "http",
-              command: null,
-              args: null,
-              envJson: null,
-              url: entry.url!.trim(),
-              enabled: true,
-              scope,
-              appId,
-              fromRegistry: true,
-              registryId: entry.id,
-              authType: "oauth",
-            })
-            .returning();
-
-          const created = inserted[0];
-          if (!created) {
-            return { success: false, error: "Insert returned no rows" };
-          }
-          return { success: true, serverId: created.id, needsOAuth: true };
-        }
-
-        const missing = (entry.envVars ?? [])
-          .filter((v) => !env[v.key]?.trim())
-          .map((v) => v.key);
-        if (missing.length > 0) {
-          return {
-            success: false,
-            error: `Missing required env vars: ${missing.join(", ")}`,
-          };
-        }
-
-        const { command, args } = parseInstallUrl(entry.installUrl ?? "");
-        if (!command) {
-          return {
-            success: false,
-            error: "Registry entry has empty installUrl",
-          };
-        }
-
-        const inserted = await db
-          .insert(mcpServers)
-          .values({
-            name: entry.name,
-            transport: "stdio",
-            command,
-            args,
-            envJson: Object.keys(env).length > 0 ? env : null,
-            url: null,
-            enabled: true,
-            scope,
-            appId,
-            fromRegistry: true,
-            registryId: entry.id,
-            authType: entry.authType === "env" ? "env" : "none",
-          })
-          .returning();
-
-        const created = inserted[0];
-        if (!created) {
-          return { success: false, error: "Insert returned no rows" };
-        }
-        return { success: true, serverId: created.id };
-      } catch (e) {
-        const message = e instanceof Error ? e.message : String(e);
-        logger.error("[mcps:install-from-registry] error:", e);
-        return { success: false, error: message };
-      }
+      params: { appId: number; name: string; optionId: string; values?: Record<string, string> },
+    ) => {
+      if (params?.appId == null) throw new Error("Open a folder before adding an MCP server.");
+      return installFromCatalog(params.appId, {
+        name: params.name,
+        optionId: params.optionId,
+        values: params.values ?? {},
+      });
     },
+  );
+
+  /** "Add your own": a URL, a command, or a config block from another tool. */
+  handle("mcp:add-pasted", async (_event, params: { appId: number; text: string; name?: string }) => {
+    if (params?.appId == null) throw new Error("Open a folder before adding an MCP server.");
+    return addPasted(params.appId, String(params.text ?? ""), params.name ? { name: params.name } : {});
+  });
+
+  /** How many are on, against the limit (this folder's plus the account's). */
+  handle("mcp:limit", async (_event, params: { appId?: number | null }) => ({
+    on: await mcpOnCount(params?.appId ?? null),
+    max: MCP_ON_LIMIT,
+  }));
+
+  // ─── Account servers (web, shared by every surface) ─────────────────────
+
+  handle("connectors:list", async () => listConnectorRows());
+
+  handle(
+    "connectors:set-enabled",
+    async (_event, params: { id: string; enabled: boolean; appId?: number | null }) => {
+      if (params.enabled) {
+        const rows = (await listConnectorRows()) ?? [];
+        const row = rows.find((r) => r.id === params.id);
+        if (row && !row.enabled && (await mcpOnCount(params.appId ?? null)) >= MCP_ON_LIMIT) {
+          throw new Error(limitMessage());
+        }
+      }
+      const out = await setConnectorEnabled(params.id, !!params.enabled);
+      if (!out.ok) throw new Error(out.error);
+      return true;
+    },
+  );
+
+  handle("connectors:remove", async (_event, params: { id: string }) => {
+    const out = await deleteConnector(params.id);
+    if (!out.ok) throw new Error(out.error);
+    return true;
+  });
+
+  handle(
+    "connectors:set-secret",
+    async (_event, params: { id: string; secret: string; appId?: number | null }) => {
+      const out = await setConnectorSecret(params.id, String(params.secret ?? ""));
+      if (!out.ok) throw new Error(out.error);
+      // A key just made it usable: switch it on, room permitting.
+      const row = (await listConnectorRows())?.find((r) => r.id === params.id);
+      if (row && !row.enabled && params.secret && (await mcpOnCount(params.appId ?? null)) < MCP_ON_LIMIT) {
+        await setConnectorEnabled(params.id, true);
+      }
+      return true;
+    },
+  );
+
+  /** Browser sign-in for an account server; resolves when it lands (or gives up). */
+  handle("connectors:sign-in", async (_event, params: { id: string; appId?: number | null }) =>
+    signInAccountServer(params.id, params.appId ?? null),
   );
 
   handle("mcp:sandbox-diagnostics", async () => {

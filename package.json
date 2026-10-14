@@ -29,6 +29,7 @@
     "email:atlarix-auto": "node scripts/send-atlarix-auto-email.mjs",
     "email:atlarix-auto:dry-run": "node scripts/send-atlarix-auto-email.mjs --dry-run",
     "models:snapshot": "node scripts/fetch-models-snapshot.mjs",
+    "mcp:snapshot": "node scripts/fetch-mcp-registry-snapshot.mjs",
     "verify:lockfile": "node scripts/verify-npm-lock-registry.mjs",
     "verify-release": "node scripts/verify-release-assets.js",
     "measure-package-size": "node scripts/measure-package-size.mjs",

@@ -782,6 +782,12 @@ export interface McpServer {
   appId?: number | null;
   authType?: "none" | "env" | "api_key" | "oauth";
   oauthConnected?: boolean;
+  /** Header NAMES a URL server sends (read side; values never leave main). */
+  headerNames?: string[];
+  /** Headers to save (write side only: create and update). */
+  headers?: Record<string, string> | null;
+  /** Installed from the marketplace: the registry server's name. */
+  registryId?: string | null;
   createdAt: number;
   updatedAt: number;
 }

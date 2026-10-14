@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { removeMcpServerFromAllCaches } from "@/hooks/mcpQueryCache";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,6 +29,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Rix } from "@/components/atlarix/Rix";
 import {
   UrlInputField,
   UrlReadOnlyRow,
@@ -305,11 +306,9 @@ function EnvVarsEditor({
 }
 
 export function ToolsMcpSettings({
-  maxServers,
   scope = "workspace",
   appId,
 }: {
-  maxServers?: number;
   scope?: "workspace";
   appId?: number | null;
 } = {}) {
@@ -339,9 +338,11 @@ export function ToolsMcpSettings({
     firejailPath: string | null;
     sandboxWouldBeActive: boolean;
   } | null>(null);
-  const atMaxServers = maxServers != null && servers.length >= maxServers;
-  const countLabel =
-    maxServers != null ? `${servers.length}/${maxServers}` : null;
+  // The limit counts servers that are ON (this folder's and the account's).
+  const { data: limit } = useQuery({
+    queryKey: ["mcp", "limit", appId ?? null],
+    queryFn: () => IpcClient.getInstance().getMcpLimit(appId ?? null),
+  });
 
   const [consents, setConsents] = useState<Record<string, any>>({});
   const [name, setName] = useState("");
@@ -355,6 +356,7 @@ export function ToolsMcpSettings({
   const [apiKey, setApiKey] = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
   const [enabled, setEnabled] = useState(true);
+  const atMaxServers = !!limit && enabled && limit.on >= limit.max;
   const [expandedServerIds, setExpandedServerIds] = useState<Set<number>>(
     () => new Set(),
   );
@@ -518,14 +520,11 @@ export function ToolsMcpSettings({
 
   return (
     <div className="space-y-6">
-      {countLabel != null && (
-        <div className="text-sm font-medium text-muted-foreground">
-          MCP servers: <span className="text-foreground">{countLabel}</span>
-        </div>
-      )}
-
-      <div className="space-y-2">
-        <div className="grid grid-cols-2 gap-3">
+      <details className="space-y-2">
+        <summary className="text-sm text-muted-foreground cursor-pointer select-none">
+          Add manually
+        </summary>
+        <div className="grid grid-cols-2 gap-3 pt-2">
           <div>
             <Label>Name</Label>
             <Input
@@ -630,16 +629,16 @@ export function ToolsMcpSettings({
           <Button onClick={onCreate} disabled={!name.trim() || atMaxServers}>
             Add server
           </Button>
-          {atMaxServers && maxServers != null && (
+          {atMaxServers && limit && (
             <p className="text-xs text-muted-foreground mt-2">
-              Maximum {maxServers} {scope} MCP server
-              {maxServers !== 1 ? "s" : ""} reached.
+              {limit.max} servers are already on.
             </p>
           )}
         </div>
-      </div>
+      </details>
 
       <div className="space-y-3">
+        {servers.length > 0 && <div className="text-sm font-medium">On this computer</div>}
         {servers.map((s) => {
           const isExpanded = expandedServerIds.has(s.id);
           const toolCount = (toolsByServer[s.id] || []).length;
@@ -788,8 +787,9 @@ export function ToolsMcpSettings({
           );
         })}
         {servers.length === 0 && (
-          <div className="text-sm text-muted-foreground">
-            No servers configured yet.
+          <div className="flex flex-col items-center gap-1 py-4 text-sm text-muted-foreground">
+            <Rix size={56} />
+            Nothing on this computer for this folder yet.
           </div>
         )}
       </div>

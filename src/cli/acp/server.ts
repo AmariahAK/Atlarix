@@ -553,6 +553,8 @@ export async function runAcp(opts: AcpRunOptions): Promise<void> {
     // app refreshed it, so without the app it went stale (owner).
     const { startModelsDevRefresh } = await import("@/lib/models_dev");
     startModelsDevRefresh();
+    const { startMcpRegistryRefresh } = await import("@/lib/mcp/registry-catalog");
+    startMcpRegistryRefresh();
     // Automations run in whichever Atlarix is open, the editor included: with
     // only VS Code open they never fired. runner.ts leases each run, so with
     // the app, the CLI or another window open too, every run still happens once.

@@ -140,6 +140,9 @@ async function interactive(): Promise<void> {
     // fresh disk cache skips the fetch).
     const { startModelsDevRefresh } = await import("../lib/models_dev");
     startModelsDevRefresh();
+    // And the MCP marketplace catalog (/mcp browse), the same way.
+    const { startMcpRegistryRefresh } = await import("../lib/mcp/registry-catalog");
+    startMcpRegistryRefresh();
     // The user's Chrome, through the Atlarix extension: hosted here, or shared
     // with the desktop app when it already hosts it (bridge-lifecycle.ts).
     void startCliBridge();

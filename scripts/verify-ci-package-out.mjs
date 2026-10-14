@@ -127,6 +127,13 @@ const EXPECTED_RESOURCES = [
     optional: true,
   },
   {
+    name: "mcp-registry-snapshot.json.gz",
+    platforms: ["darwin", "win32", "linux"],
+    minBytes: 10_000,
+    // Same as the models snapshot: the marketplace syncs on first run without it.
+    optional: true,
+  },
+  {
     name: "atlarix-sandbox.exe",
     platforms: ["win32"],
     minBytes: 20_000,

@@ -17,6 +17,7 @@ const set = (key: string, value: string | undefined) => {
 
 set("ATLARIX_AGENTS_FILE", assets.agentsMd);
 set("ATLARIX_MODELS_SNAPSHOT", assets.modelsSnapshot);
+set("ATLARIX_MCP_REGISTRY_SNAPSHOT", assets.mcpRegistrySnapshot);
 set("ATLARIX_EMBEDDED_RG", assets.rg);
 set("ATLARIX_EMBEDDED_RELAY", assets.relay);
 

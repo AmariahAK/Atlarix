@@ -28,4 +28,5 @@ export const assets = {
   agentsMd: shipped("AGENTS.md"),
   skills: shippedSkills(),
   modelsSnapshot: shipped("models-snapshot.json.gz"),
+  mcpRegistrySnapshot: shipped("mcp-registry-snapshot.json.gz"),
 };

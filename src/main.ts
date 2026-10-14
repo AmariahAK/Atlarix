@@ -55,6 +55,7 @@ import {
 import { scheduleCleanupJobs } from "./db/cleanup_jobs";
 import { registerCleanupHandlers } from "./db/workspace_cleanup";
 import { startModelsDevRefresh } from "./lib/models_dev";
+import { startMcpRegistryRefresh } from "./lib/mcp/registry-catalog";
 import {
   capture as analyticsCapture,
   shutdown as analyticsShutdown,
@@ -830,6 +831,8 @@ export async function onReady() {
   // Start models.dev refresh (dynamic model catalog, OpenCode-style)
   startModelsDevRefresh();
   logger.info("Models.dev refresh started");
+  // The MCP marketplace catalog, synced hourly from the official MCP Registry.
+  startMcpRegistryRefresh();
 
   await onFirstRunMaybe(settings);
   // Activation-funnel entry point (top of funnel). This used to fire alongside
