@@ -1305,8 +1305,12 @@ export function openMcp(ctx: ScreenContext): void {
         id: String(s.id),
         label: s.name,
         detail: `this computer · ${s.transport}`,
-        right: s.enabled ? { text: "✓ on", tone: "accent" as const } : { text: "○ off", tone: "muted" as const },
-        keywords: s.enabled ? "on" : "off",
+        right: s.needsSignIn
+          ? { text: "sign in", tone: "muted" as const }
+          : s.enabled
+            ? { text: "✓ on", tone: "accent" as const }
+            : { text: "○ off", tone: "muted" as const },
+        keywords: s.needsSignIn ? "signin" : s.enabled ? "on" : "off",
       }));
       // Servers set up in other tools on this computer: enter adds one.
       let found: Awaited<ReturnType<typeof ctx.services.mcp.found>> = [];
@@ -1332,6 +1336,10 @@ export function openMcp(ctx: ScreenContext): void {
         await ctx.services.mcp.importFound(ctx.session.appId, item.id.slice("found:".length));
         await dialog.reload();
         return void dialog.say(`${item.label} added.`);
+      }
+      if (item.keywords === "signin") {
+        const r = await ctx.services.mcp.signIn(Number(item.id));
+        return void dialog.say(r.ok ? `Sign in to ${item.label} in your browser.` : (r.error ?? `Couldn't start ${item.label}'s sign-in.`));
       }
       if (item.id.startsWith("acct:")) {
         const c = account?.find((x) => `acct:${x.id}` === item.id);

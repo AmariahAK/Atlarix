@@ -126,11 +126,8 @@ ToolRegistry.register({
         wait: !!args.wait,
       });
       if (!args.wait) {
-        return {
-          shown: true,
-          server: title,
-          message: "The user sees a card to connect it. You will be told when they connect it.",
-        };
+        const { waitingOnUserNote } = await import("@/lib/mcp/mcp-suggestions");
+        return { shown: true, server: title, message: waitingOnUserNote(title) };
       }
       const outcome = await waitForMcpSuggestion(s.id, ctx?.signal);
       return outcome.connected

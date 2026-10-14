@@ -83,6 +83,15 @@ export async function findMcpServer(appId: number | null, nameOrRegistry: string
   };
 }
 
+/**
+ * What the model is told when a server waits on the user: a card is up, and it
+ * hears back like a finished background task, so it ends its turn rather than
+ * sending them to the website or asking them to say "try again" (owner).
+ */
+export function waitingOnUserNote(name: string): string {
+  return `The user has a card to connect "${name}". You will be told when they connect it, like a finished background task, so end your turn here.`;
+}
+
 // ─── Suggestions ────────────────────────────────────────────────────────────
 
 export interface McpSuggestion {

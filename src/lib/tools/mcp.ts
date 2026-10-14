@@ -393,8 +393,9 @@ ToolRegistry.register({
             reason: "",
             wait: false,
           });
+          const { waitingOnUserNote } = await import("@/lib/mcp/mcp-suggestions");
           return {
-            error: `"${match.name}" is on the user's account but not signed in. They have a card to connect it; you will be told when they do.`,
+            error: `"${match.name}" is not signed in yet. ${waitingOnUserNote(match.name)}`,
             needsOAuth: true,
           };
         }
@@ -410,6 +411,20 @@ ToolRegistry.register({
         args.tool!,
         (args.arguments ?? {}) as Record<string, unknown>,
       );
+      // Added but never switched on by a person (the proxy will not turn it on
+      // by itself): the same card, and the agent hears back when it's on.
+      if (!out.ok && /never been turned on/i.test(out.error) && args._chatSessionId != null) {
+        const { addMcpSuggestion, waitingOnUserNote } = await import("@/lib/mcp/mcp-suggestions");
+        addMcpSuggestion({
+          chatId: args._chatSessionId,
+          appId: args.workspaceId ?? null,
+          server: match.name,
+          title: match.name,
+          reason: "",
+          wait: false,
+        });
+        return { error: `"${match.name}" is not switched on yet. ${waitingOnUserNote(match.name)}` };
+      }
       return out.ok ? { result: out.result } : { error: out.error };
     };
 

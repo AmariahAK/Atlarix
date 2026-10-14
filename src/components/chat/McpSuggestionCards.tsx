@@ -154,7 +154,13 @@ function SuggestionCard({ s }: { s: McpSuggestionView }) {
         </div>
       </div>
       <div className="flex items-start gap-3 p-3">
-        <McpServerIcon name={entry?.name ?? s.server} title={title} size={36} />
+        {/* The registry entry's logo; for a server already added under its own
+            name, the logo found from what is stored for it. */}
+        {entry?.name || s.status?.registryName ? (
+          <McpServerIcon name={entry?.name ?? s.status!.registryName!} title={title} size={36} />
+        ) : (
+          <McpServerIcon serverName={s.status?.name ?? s.server} appId={s.appId} title={title} size={36} />
+        )}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 min-w-0">
             <span className="font-medium truncate">{title}</span>

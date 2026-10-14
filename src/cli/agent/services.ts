@@ -52,6 +52,8 @@ export interface McpServerSummary {
   name: string;
   transport: string;
   enabled: boolean;
+  /** A browser sign-in it still needs before it works. */
+  needsSignIn?: boolean;
 }
 
 export interface SavedPermission {
@@ -248,9 +250,21 @@ async function listOpenAICompatibleModels(probe: { url: string; headers: Record<
   }
 }
 
+/** `[mcp:update-server] Error: 10 MCP servers…` → `10 MCP servers…`: the handler's wrapper is not for people. */
+export function plainError(e: unknown): Error {
+  const raw = e instanceof Error ? e.message : String(e);
+  let msg = raw;
+  for (let i = 0; i < 3; i++) msg = msg.replace(/^\s*(\[[\w:.-]+\]\s*)?([A-Z]\w*Error:\s*)?/, "");
+  return new Error(msg.trim() || raw);
+}
+
 async function call<T>(channel: string, ...args: unknown[]): Promise<T> {
   await ensureHandlers();
-  return invoke<T>(channel, ...args);
+  try {
+    return await invoke<T>(channel, ...args);
+  } catch (e) {
+    throw plainError(e);
+  }
 }
 
 export const realServices: CliServices = {
@@ -295,6 +309,7 @@ export const realServices: CliServices = {
         name: String(r.name ?? `Server ${r.id}`),
         transport: String(r.transport ?? ""),
         enabled: r.enabled !== false,
+        needsSignIn: r.authType === "oauth" && r.oauthConnected !== true,
       }));
     },
     test: (id) => call("mcp:test-connection", id),

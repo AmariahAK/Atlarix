@@ -80,6 +80,51 @@ export async function assertRoomForOneMore(appId: number | null): Promise<void> 
   if ((await mcpOnCount(appId)) >= MCP_ON_LIMIT) throw new Error(limitMessage());
 }
 
+// ─── Already here? ──────────────────────────────────────────────────────────
+
+/** The server is already added: adding it again would only make a "-2" copy. */
+export class McpAlreadyAddedError extends Error {
+  constructor(readonly existing: string) {
+    super(`It is already added, as "${existing}".`);
+    this.name = "McpAlreadyAddedError";
+  }
+}
+
+const sameUrl = (a: string | null | undefined, b: string) =>
+  !!a && a.trim().replace(/\/+$/, "").toLowerCase() === b.trim().replace(/\/+$/, "").toLowerCase();
+
+/**
+ * The name of a server that is the same as this one, if one is added: the same
+ * registry entry, the same URL, or the same command and arguments.
+ */
+export async function findSameServer(
+  appId: number | null,
+  ref: { registryName?: string | null; url?: string | null; command?: string | null; args?: string[] | null },
+): Promise<string | null> {
+  if (appId != null) {
+    const rows = await db
+      .select()
+      .from(mcpServers)
+      .where(and(eq(mcpServers.scope, "workspace"), eq(mcpServers.appId, appId)));
+    for (const r of rows) {
+      if (ref.registryName && r.registryId === ref.registryName) return r.name;
+      if (ref.url && sameUrl(r.url, ref.url)) return r.name;
+      if (
+        ref.command &&
+        r.command === ref.command &&
+        JSON.stringify(r.args ?? []) === JSON.stringify(ref.args ?? [])
+      ) {
+        return r.name;
+      }
+    }
+  }
+  for (const c of (await listConnectorRows()) ?? []) {
+    if (ref.registryName && c.registryName === ref.registryName) return c.name;
+    if (ref.url && sameUrl(c.url, ref.url)) return c.name;
+  }
+  return null;
+}
+
 // ─── Results ────────────────────────────────────────────────────────────────
 
 export interface AddedServer {
@@ -198,6 +243,13 @@ export async function addLocalServer(
 ): Promise<AddedServer> {
   if (spec.transport === "stdio" && !spec.command?.trim()) throw new Error("A command is required.");
   if (spec.transport === "http" && !spec.url?.trim()) throw new Error("A URL is required.");
+  const same = await findSameServer(appId, {
+    registryName: spec.registryId,
+    url: spec.transport === "http" ? spec.url : null,
+    command: spec.transport === "stdio" ? spec.command?.trim() : null,
+    args: spec.transport === "stdio" ? (spec.args ?? []) : null,
+  });
+  if (same) throw new McpAlreadyAddedError(same);
   const name = await uniqueLocalName(appId, spec.name);
   const env = spec.env && Object.keys(spec.env).length > 0 ? spec.env : null;
   const headers = spec.headers && Object.keys(spec.headers).length > 0 ? spec.headers : null;
@@ -258,6 +310,8 @@ export async function addWebServer(
   spec: WebServerSpec,
   opts: { enable: boolean },
 ): Promise<AddedServer> {
+  const same = await findSameServer(appId, { registryName: spec.registryName, url: spec.url });
+  if (same) throw new McpAlreadyAddedError(same);
   const authType: ConnectorAuthType =
     spec.auth === "oauth" ? "oauth" : spec.auth === "header" ? "header" : spec.auth === "bearer" ? "api_key" : "none";
   const name = connectorNameFor(spec.name);
@@ -480,6 +534,11 @@ export async function addPasted(appId: number, text: string, opts: { name?: stri
     try {
       out.added.push(await j.run());
     } catch (e) {
+      // Importing the same config twice skips what is already here.
+      if (e instanceof McpAlreadyAddedError) {
+        out.skipped.push({ name: j.name, reason: `already added as "${e.existing}"` });
+        continue;
+      }
       out.failed.push({ name: j.name, error: e instanceof Error ? e.message : String(e) });
     }
   }
@@ -494,6 +553,8 @@ export async function installFromCatalog(
 ): Promise<AddedServer> {
   const server = await getMcpRegistryServer(params.name);
   if (!server) throw new Error("That server is no longer in the marketplace.");
+  const same = await findSameServer(appId, { registryName: server.name });
+  if (same) throw new McpAlreadyAddedError(same);
   const entry = normalizeRegistryServer(server);
   const option = entry.options.find((o) => o.id === params.optionId);
   if (!option) throw new Error("That way of adding it is no longer available.");

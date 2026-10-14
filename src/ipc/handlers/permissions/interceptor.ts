@@ -1150,6 +1150,10 @@ export class PermissionInterceptor extends EventEmitter {
       // A created automation's id only exists after approval, so hand it
       // back here — the tool's own description tells the model to run the
       // automation next, and name is not a key (two may share one).
+      if (operation.request.operation === "mcp_server_write") {
+        const note = (operation.request.preview as { resultNote?: string }).resultNote;
+        return { success: true, ...(note ? { output: note } : {}) };
+      }
       if (operation.request.operation === "automation_write") {
         const autoPreview = operation.request
           .preview as AutomationOperationPreview;
@@ -1673,8 +1677,14 @@ export class PermissionInterceptor extends EventEmitter {
       logger.log(`[mcp] added server ${added.name} (${added.where}), inactive`);
       // It needs the user (a sign-in, a key): the same card a suggestion gets,
       // so they connect it right there and the agent is told.
-      if ((added.needsSignIn || added.needsSecret) && this.activeChatId != null) {
-        const { addMcpSuggestion } = await import("@/lib/mcp/mcp-suggestions");
+      const { addMcpSuggestion, waitingOnUserNote } = await import("@/lib/mcp/mcp-suggestions");
+      // What the model reads back: it waits on the user (a card), or it is
+      // ready to call (a local server turns on at its first use).
+      (preview as { resultNote?: string }).resultNote =
+        added.needsSignIn || added.needsSecret || added.where === "account"
+          ? `"${added.name}" is added. ${waitingOnUserNote(added.name)}`
+          : `"${added.name}" is added, switched off; it turns on the first time you call it with mcp_call.`;
+      if ((added.needsSignIn || added.needsSecret || added.where === "account") && this.activeChatId != null) {
         addMcpSuggestion({
           chatId: this.activeChatId,
           appId: input.appId,
