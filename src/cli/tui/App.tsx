@@ -1000,7 +1000,7 @@ export function App({
     void session.buildPlan(pinnedPlan.id);
   };
   // Atlarix suggested an MCP server: the app shows a card, here a prompt.
-  const lastSuggestion = state.mcpSuggestions.at(-1)?.id;
+  const lastSuggestion = state.mcpSuggestions?.at(-1)?.id;
   useEffect(() => {
     if (!lastSuggestion) return;
     openMcpSuggestion(screen());

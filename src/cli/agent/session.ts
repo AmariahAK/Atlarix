@@ -1665,7 +1665,7 @@ export class AgentSession extends EventEmitter {
         };
         const id = String(sug.id ?? "");
         if (!id) return;
-        const rest = this.state.mcpSuggestions.filter((x) => x.id !== id);
+        const rest = (this.state.mcpSuggestions ?? []).filter((x) => x.id !== id);
         if (p.type !== "added") {
           this.update({ mcpSuggestions: rest });
           return;

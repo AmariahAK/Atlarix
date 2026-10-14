@@ -167,6 +167,39 @@ function fakeServices(calls: Call[]): CliServices {
           calls.push(["mcp.remove", id]);
           servers.splice(servers.findIndex((x) => x.id === id), 1);
         },
+        found: async () => [],
+        account: async () => null,
+        // "Add your own": a URL here becomes a server named for its host.
+        paste: async (appId: number, text: string) => {
+          calls.push(["mcp.paste", appId, text]);
+          const name = new URL(text.trim()).hostname.split(".").at(-2) ?? "server";
+          servers.push({ id: servers.length + 1, name, transport: "http", enabled: true });
+          return { added: [{ where: "local", id: servers.length, name, enabled: true, needsSignIn: false }], failed: [], skipped: [] };
+        },
+        catalog: async (_appId: number, query: string) => {
+          calls.push(["mcp.catalog", query]);
+          return {
+            total: 1,
+            installed: [],
+            entries: [
+              {
+                name: "app.linear/linear",
+                title: "Linear",
+                description: "Issues and projects",
+                publisher: "app.linear",
+                verified: true,
+                kind: "web",
+                icons: [],
+                installable: true,
+                options: [{ id: "remote:0", kind: "web", url: "https://mcp.linear.app/mcp", inputs: [] }],
+              },
+            ],
+          };
+        },
+        install: async (appId: number, name: string, optionId: string) => {
+          calls.push(["mcp.install", appId, name, optionId]);
+          return { where: "account", id: "a1", name: "Linear", enabled: true, needsSignIn: false };
+        },
       };
     })(),
     permissions: { list: async () => [], revoke: rec("permissions.revoke") },
@@ -685,18 +718,33 @@ describe("command screens", () => {
     setup.mockInput.pressKey(" ");
     frame = await frameContaining(setup, "○ off");
     expect(serviceCalls).toContainEqual(["mcp.setEnabled", 1, false]);
+    // One box: a URL, a command or a config.
     setup.mockInput.pressKey("a");
     await frameContaining(setup, "Add an MCP server");
-    await setup.mockInput.typeText("search");
-    setup.mockInput.pressEnter();
-    await frameContaining(setup, "Command or URL");
     await setup.mockInput.typeText("https://mcp.example.com/mcp");
     setup.mockInput.pressEnter();
-    expect(await until(() => serviceCalls.some((c) => c[0] === "mcp.add"))).toBe(true);
-    expect(serviceCalls.find((c) => c[0] === "mcp.add")![2]).toEqual({ name: "search", url: "https://mcp.example.com/mcp" });
-    frame = await frameContaining(setup, "Added search");
+    expect(await until(() => serviceCalls.some((c) => c[0] === "mcp.paste"))).toBe(true);
+    expect(serviceCalls.find((c) => c[0] === "mcp.paste")![2]).toBe("https://mcp.example.com/mcp");
+    frame = await frameContaining(setup, "example added");
     setup.mockInput.pressEscape();
-    expect(await frameContaining(setup, "⊙ 1 MCP")).toBeTruthy(); // github off, search on
+    expect(await frameContaining(setup, "⊙ 1 MCP")).toBeTruthy(); // github off, example on
+  });
+
+  it("/mcp: b browses the marketplace, Verified first, and enter adds one", async () => {
+    const { setup, serviceCalls } = await mount();
+    await command(setup, "/mcp");
+    await frameContaining(setup, "MCP servers");
+    setup.mockInput.pressKey("b");
+    await frameContaining(setup, "MCP marketplace");
+    await setup.mockInput.typeText("linear");
+    setup.mockInput.pressEnter();
+    const frame = await frameContaining(setup, "✓ Verified");
+    expect(frame).toContain("Linear");
+    expect(serviceCalls).toContainEqual(["mcp.catalog", "linear"]);
+    setup.mockInput.pressEnter();
+    expect(await until(() => serviceCalls.some((c) => c[0] === "mcp.install"))).toBe(true);
+    expect(serviceCalls.find((c) => c[0] === "mcp.install")!.slice(2)).toEqual(["app.linear/linear", "remote:0"]);
+    expect(await frameContaining(setup, "Linear added")).toBeTruthy();
   });
 
   it("/chrome says it's connected; /connect lists it under Tools", async () => {

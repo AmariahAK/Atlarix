@@ -484,7 +484,8 @@ class Thread {
    * editor gets its own permission prompt: Connect, or Not now.
    */
   private relaySuggestions(s: SessionState): void {
-    const open = new Set(s.mcpSuggestions.map((x) => x.id));
+    const cards = s.mcpSuggestions ?? [];
+    const open = new Set(cards.map((x) => x.id));
     for (const id of [...this.suggestionsSent]) {
       if (open.has(id)) continue;
       this.suggestionsSent.delete(id);
@@ -492,7 +493,7 @@ class Thread {
         void this.client().notify("_atlarix/mcp_suggestion", { sessionId: this.id, id, resolved: true }).catch(() => {});
       }
     }
-    for (const card of s.mcpSuggestions) {
+    for (const card of cards) {
       if (this.suggestionsSent.has(card.id)) continue;
       this.suggestionsSent.add(card.id);
       if (this.extras()) {

@@ -421,7 +421,7 @@ export function openQuestions(ctx: ScreenContext, q: PendingQuestion): void {
  * tells it no.
  */
 export function openMcpSuggestion(ctx: ScreenContext): void {
-  const card = ctx.session.state.mcpSuggestions.at(-1);
+  const card = ctx.session.state.mcpSuggestions?.at(-1);
   if (!card) return;
   const mcp = ctx.services.mcp;
   const finish = async (pollMs = 0): Promise<void> => {
