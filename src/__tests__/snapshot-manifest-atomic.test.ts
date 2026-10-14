@@ -15,6 +15,7 @@ import {
   listSnapshotFiles,
   markSnapshotReverted,
   recordSnapshotTurnEnd,
+  snapshotExists,
   _setShadowSnapshotsRootForTests,
 } from "@/lib/snapshot/snapshot-manager";
 
@@ -51,11 +52,17 @@ describeWithGit("a turn's manifest while it is rewritten", () => {
     let stop = false;
     let missing = 0;
     let reads = 0;
+    // listSnapshotFiles waits for queued writes; snapshotExists (the Revert
+    // button) reads straight away, so it is the one that can land mid-write.
     const reader = (async () => {
       while (!stop) {
-        const m = await listSnapshotFiles(workspace, "t1");
+        const [listed, exists] = await Promise.all([
+          listSnapshotFiles(workspace, "t1"),
+          snapshotExists(workspace, "t1"),
+        ]);
         reads++;
-        if (!m) missing++;
+        if (!listed) missing++;
+        if (!exists) missing++;
       }
     })();
     // Rewrites: the turn's end, then repeated revert marks.

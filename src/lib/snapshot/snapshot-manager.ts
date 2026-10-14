@@ -327,6 +327,16 @@ function withWorkspaceLock<T>(
   return next;
 }
 
+/**
+ * Once every snapshot write already queued for this workspace has landed. A
+ * reader outside the lock needs it for the newest state: a turn's end is
+ * recorded in the background, and a revert dialog can open right after.
+ * Never rejects: the stored tail has its failures caught (withWorkspaceLock).
+ */
+function workspaceWritesSettled(workspacePath: string): Promise<unknown> {
+  return captureChains.get(workspaceKey(workspacePath)) ?? Promise.resolve();
+}
+
 export interface CaptureSnapshotParams {
   workspacePath: string;
   turnId: string;
@@ -779,6 +789,7 @@ export async function previewRevert(
     const seg = sanitizeLedgerDirSegment(turnId);
     for (const root of await turnRoots(workspacePath, turnId)) {
       const gitDir = shadowGitDir(root);
+      await workspaceWritesSettled(root);
       const manifest = await readManifest(gitDir, seg);
       if (!manifest) continue;
       const tree = new Map<string, string>();
@@ -988,6 +999,7 @@ export async function listSnapshotFiles(
   let found = false;
 
   for (const root of await turnRoots(workspacePath, turnId)) {
+    await workspaceWritesSettled(root);
     const manifest = await readManifest(shadowGitDir(root), seg);
     if (!manifest) continue;
     found = true;
