@@ -2936,3 +2936,27 @@ li.md-task {
   gap: 4px;
   min-width: 0;
 }
+.mcp-icon {
+  flex-shrink: 0;
+  border-radius: 6px;
+  background: var(--sunk);
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+}
+.mcp-icon--img {
+  background: none;
+  object-fit: contain;
+}
+.mcp__actions {
+  display: flex;
+  gap: 8px;
+}
+.suggestion__body .field {
+  min-width: 0;
+}
+.suggestion__body .col.grow {
+  flex: 1 1 0;
+}

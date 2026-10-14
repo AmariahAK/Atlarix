@@ -419,6 +419,7 @@ export function buildAgentApp(
           optionId?: string;
           values?: Record<string, string>;
           secret?: string;
+          serverName?: string;
         },
       async (ctx) => {
         const { realServices } = await import("../agent/services");
@@ -483,6 +484,13 @@ export function buildAgentApp(
           case "suggestDismiss":
             await mcp.suggestDismiss(String(p.id ?? ""));
             return {};
+          // A logo for the editor's rows and cards (a checked data: URL, or null).
+          case "icon":
+            return {
+              icon: await mcp
+                .icon(appId, { name: p.name, url: p.url, serverName: p.serverName })
+                .catch(() => null),
+            };
           default:
             throw acp.RequestError.invalidParams(undefined, `unknown action ${p.action}`);
         }

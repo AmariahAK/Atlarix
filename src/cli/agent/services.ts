@@ -145,6 +145,8 @@ export interface CliServices {
     /** It works now: tell the agent. */
     suggestFinish(id: string): Promise<{ connected: boolean; server?: string; tools?: string[]; reason?: string }>;
     suggestDismiss(id: string): Promise<void>;
+    /** A server's logo as a checked data: URL: by registry name, by URL, or by an added server's name. */
+    icon(appId: number | null, ref: { name?: string; url?: string; serverName?: string }): Promise<string | null>;
     /** Servers an automation can watch: this folder's and the account's, by ref (`local:<id>` / `account:<name>`). */
     watchable(appId: number): Promise<Array<{ ref: string; name: string; detail: string }>>;
     /** A watchable server's tools. */
@@ -372,6 +374,12 @@ export const realServices: CliServices = {
     suggestFinish: (id) => call("mcp-suggest:finish", { id }),
     async suggestDismiss(id) {
       await call("mcp-suggest:dismiss", { id });
+    },
+    async icon(appId, ref) {
+      if (ref.serverName) return call<string | null>("mcp:server-icon", { appId, name: ref.serverName });
+      if (ref.name) return call<string | null>("mcp-catalog:icon", { name: ref.name });
+      if (ref.url) return call<string | null>("mcp-catalog:icon", { url: ref.url });
+      return null;
     },
     async watchable(appId) {
       const [local, account] = await Promise.all([

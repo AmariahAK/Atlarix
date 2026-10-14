@@ -6,6 +6,7 @@
 import { rpc } from "../rpc";
 import { state } from "../state";
 import { button, el } from "../ui";
+import { mcpIcon } from "../mcp-icon";
 
 export interface SuggestionCard {
   id: string;
@@ -66,7 +67,10 @@ function cardView(card: SuggestionCard): HTMLElement {
   const body = el("div", "suggestion__body");
   const text = el("div", "col grow");
   const name = el("span", "");
-  name.append(el("strong", "", card.title), el("span", "muted small", ` · ${card.verified ? "✓ Verified" : card.publisher}`));
+  name.append(el("strong", "", card.title));
+  // No publisher to name: no dangling " · " (QA #12).
+  const by = card.verified ? "✓ Verified" : card.publisher?.trim();
+  if (by) name.append(el("span", "muted small", ` · ${by}`));
   text.append(name);
   if (card.reason) text.append(el("span", "muted small", card.reason));
   const fields = new Map<string, HTMLInputElement>();
@@ -142,7 +146,8 @@ function cardView(card: SuggestionCard): HTMLElement {
       await finish(0);
     };
   };
-  body.append(text, connect);
+  // A server already added has no "/" in its name; a registry entry does.
+  body.append(mcpIcon(card.server.includes("/") ? { name: card.server } : { serverName: card.server }, card.title, 28), text, connect);
   box.append(head, body);
   return box;
 }

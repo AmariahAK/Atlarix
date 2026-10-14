@@ -8,6 +8,7 @@
 import { rpc } from "../rpc";
 import { state } from "../state";
 import { button, el, pageHeader, toggle } from "../ui";
+import { mcpIcon } from "../mcp-icon";
 import type { Nav } from "./nav";
 
 interface Server {
@@ -66,10 +67,14 @@ type Health = { ok: boolean; error?: string; needsOAuth?: boolean } | "checking"
 
 export async function renderMcp(page: HTMLElement, nav: Nav): Promise<void> {
   page.textContent = "";
-  const add = button("Add", "primary small", () => showForm());
-  const browse = button("Browse", "small", () => showBrowse());
-  page.append(pageHeader("MCP servers", () => nav.back(), browse, add));
+  // Browse and Add sit in the body: in the header they squeezed the title to "MCP ser…" (QA #12).
+  const add = button("Add your own", "small", () => showForm());
+  const browse = button("Browse marketplace", "primary small", () => showBrowse());
+  page.append(pageHeader("MCP servers", () => nav.back()));
   const body = el("div", "page__body");
+  const actions = el("div", "mcp__actions");
+  actions.append(browse, add);
+  body.append(actions);
   const list = el("div", "mcp__list");
   const accountSlot = el("div", "");
   const formSlot = el("div", "");
@@ -181,7 +186,7 @@ export async function renderMcp(page: HTMLElement, nav: Nav): Promise<void> {
             : c.lastError
               ? c.lastError
               : `${c.tools.length} tool${c.tools.length === 1 ? "" : "s"}`;
-      label.append(el("span", "dot"), el("span", "grow"));
+      label.append(el("span", "dot"), mcpIcon({ url: c.url }, c.name), el("span", "grow"));
       label.lastElementChild!.append(el("strong", "", c.name), el("span", "mcp-card__sub", sub));
       head.append(label);
       if (needsSignIn) {
@@ -228,9 +233,11 @@ export async function renderMcp(page: HTMLElement, nav: Nav): Promise<void> {
       if (!r.entries?.length) results.append(el("div", "empty-note", "No servers match."));
       for (const e of (r.entries ?? []).slice(0, 25)) {
         const row = el("div", "setting");
+        row.append(mcpIcon({ name: e.name }, e.title, 28));
         const t = el("div", "col grow");
         const name = el("span", "");
-        name.append(el("strong", "", e.title), el("span", "muted small", ` · ${e.verified ? "✓ Verified" : e.publisher} · ${e.kind === "web" ? "web" : "local"}`));
+        const meta = [e.verified ? "✓ Verified" : e.publisher?.trim(), e.kind === "web" ? "web" : "local"].filter(Boolean).join(" · ");
+        name.append(el("strong", "", e.title), el("span", "muted small", ` · ${meta}`));
         const sub = el("span", "muted small", e.description);
         sub.style.overflow = "hidden";
         sub.style.textOverflow = "ellipsis";
@@ -364,7 +371,7 @@ export async function renderMcp(page: HTMLElement, nav: Nav): Promise<void> {
               : status === "bad"
                 ? `Couldn't connect${typeof h === "object" && h.error ? `: ${h.error}` : ""}`
                 : `${t?.length ?? 0} tool${t?.length === 1 ? "" : "s"}`;
-      label.append(el("span", "dot"), el("span", "grow"));
+      label.append(el("span", "dot"), mcpIcon({ serverName: s.name }, s.name), el("span", "grow"));
       label.lastElementChild!.append(el("strong", "", s.name), el("span", "mcp-card__sub", sub));
       head.append(label);
       if (status === "signin") {
