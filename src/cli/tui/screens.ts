@@ -420,16 +420,18 @@ export function openQuestions(ctx: ScreenContext, q: PendingQuestion): void {
  * Connect asks for what it needs, signs in, and tells the agent; Not now
  * tells it no.
  */
-export function openMcpSuggestion(ctx: ScreenContext): void {
+export async function openMcpSuggestion(ctx: ScreenContext): Promise<void> {
   const card = ctx.session.state.mcpSuggestions?.at(-1);
   if (!card) return;
   const mcp = ctx.services.mcp;
+  const limit = await mcp.limit(ctx.session.appId).catch(() => null);
+  const full = limit && limit.on >= limit.max ? limit : null;
   const finish = async (pollMs = 0): Promise<void> => {
     const deadline = Date.now() + pollMs;
     for (;;) {
       const r = await mcp.suggestFinish(card.id);
       if (r.connected) return void ctx.flash(`${r.server ?? card.title} is connected. Atlarix can use it now.`);
-      if (Date.now() >= deadline) return void ctx.flash(`${card.title}: ${r.reason ?? "not connected yet"}`);
+      if (Date.now() >= deadline) return void ctx.flash(r.reason ?? `${card.title} isn't connected yet.`, 6000, "warn");
       await new Promise((res) => setTimeout(res, 2000));
     }
   };
@@ -490,6 +492,8 @@ export function openMcpSuggestion(ctx: ScreenContext): void {
       intro: [
         { text: card.verified ? `${card.title} · ✓ Verified` : `${card.title} · ${card.publisher}`, bold: true },
         ...(card.reason ? [{ text: card.reason, tone: "muted" as const }] : []),
+        // Said before Connect, not discovered after it (QA).
+        ...(full ? [{ text: `${full.on} of ${full.max} are on: it will be added switched off.`, tone: "muted" as const }] : []),
       ],
       footer: "↑↓ move · enter choose · esc not now",
       items: [
@@ -522,7 +526,7 @@ export function openMcpConsent(ctx: ScreenContext): void {
       footer: "↑↓ move · enter choose · esc no",
       items: [
         { id: "accept-once", label: "Yes" },
-        { id: "accept-always", label: `Yes, always for ${req.toolName}`, detail: `on ${req.serverName}` },
+        { id: "accept-always", label: `Yes, always for ${req.toolName} on ${req.serverName}` },
         { id: "decline", label: "No" },
       ],
       onChoose: async (item) => {
@@ -1106,8 +1110,14 @@ async function finishMcpAdded(
   ctx: ScreenContext,
   added: AddedServerView[],
   done: (ok: boolean) => void,
-  report: (msg: string) => void,
+  reportOne: (msg: string) => void,
 ): Promise<void> {
+  // Every line stays: an import of two servers said only the last one (QA).
+  const said: string[] = [];
+  const report = (msg: string) => {
+    said.push(msg);
+    reportOne(said.join(" · "));
+  };
   for (const a of added) {
     if (a.needsSignIn && a.where === "account") {
       const r = await ctx.services.mcp.accountSignIn(ctx.session.appId, String(a.id), (url) =>

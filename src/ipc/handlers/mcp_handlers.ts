@@ -196,7 +196,21 @@ export function registerMcpHandlers() {
     const have = appId
       ? new Set((await db.select({ name: mcpServers.name }).from(mcpServers).where(and(eq(mcpServers.scope, "workspace"), eq(mcpServers.appId, appId)))).map((r) => r.name.toLowerCase()))
       : new Set<string>();
-    return discoverExternalMcpServers(app?.path ?? null).filter((s) => !have.has(s.name.toLowerCase()));
+    // Also the ones already added under another name: same command and
+    // arguments, or same URL (QA: a copy still said "enter adds").
+    const { findExternalMcpServers } = await import("@/lib/mcp/discover-external");
+    const { findSameServer } = await import("@/lib/mcp/mcp-add");
+    const full = new Map(findExternalMcpServers(app?.path ?? null).map((f) => [f.key, f]));
+    const out = [];
+    for (const s of discoverExternalMcpServers(app?.path ?? null)) {
+      if (have.has(s.name.toLowerCase())) continue;
+      const f = full.get(s.key);
+      const same = f
+        ? await findSameServer(appId || null, { url: f.url ?? null, command: f.command ?? null, args: f.args ?? null }).catch(() => null)
+        : null;
+      if (!same) out.push(s);
+    }
+    return out;
   });
 
   /** Add one found server to this folder, its values read again from its file now. */
@@ -593,7 +607,12 @@ export function registerMcpHandlers() {
     if (here.needs) return { connected: false, reason: here.needs === "sign-in" ? "It still needs a sign-in." : "It still needs its key." };
     // Added but OFF (the limit was full): not usable, so not "connected" — the
     // agent must not be told it is ready (QA).
-    if (!here.enabled) return { connected: false, reason: limitMessage() };
+    // And the suggestion is ANSWERED: a model waiting on it hung until Esc (QA).
+    if (!here.enabled) {
+      const reason = `"${here.name}" was added but is off: ${limitMessage()}`;
+      resolveMcpSuggestion(s.id, { connected: false, reason });
+      return { connected: false, reason };
+    }
     const tools = await toolNamesFor(here);
     resolveMcpSuggestion(s.id, { connected: true, server: here.name, where: here.where, tools });
     return { connected: true, server: here.name, tools };

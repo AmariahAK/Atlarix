@@ -380,6 +380,14 @@ describe("MCP rows (QA #8)", () => {
     expect(toolResultText("mcp_call", raw).text).toBe("4 open issues: ENG-12, ENG-9");
   });
 
+  it("…also when the result is the envelope's JSON text", () => {
+    const raw = JSON.stringify({
+      success: true,
+      result: JSON.stringify({ content: [{ type: "text", text: "Echo: row text check" }], isError: false }),
+    });
+    expect(toolResultText("mcp_call", raw).text).toBe("Echo: row text check");
+  });
+
   it("an mcp_call error still reads as the error", () => {
     const raw = JSON.stringify({ success: false, error: '"Linear" is not signed in yet.' });
     expect(toolResultText("mcp_call", raw).text).toContain("not signed in");
@@ -387,5 +395,15 @@ describe("MCP rows (QA #8)", () => {
 
   it("an mcp_servers row names the server by its title", () => {
     expect(toolTarget("mcp_servers", { operation: "suggest", server: "app.linear/linear" })).toBe("suggest · Linear");
+  });
+});
+
+describe("CLI errors read as sentences (QA)", () => {
+  it("drops the channel and the Error: prefixes", async () => {
+    const { plainError } = await import("@/cli/agent/services");
+    expect(plainError(new Error("Error: [mcp:update-server] Error: 10 MCP servers are already on.")).message).toBe(
+      "10 MCP servers are already on.",
+    );
+    expect(plainError(new Error("Error: It is already added.")).message).toBe("It is already added.");
   });
 });

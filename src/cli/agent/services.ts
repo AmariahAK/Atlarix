@@ -145,6 +145,8 @@ export interface CliServices {
     /** It works now: tell the agent. */
     suggestFinish(id: string): Promise<{ connected: boolean; server?: string; tools?: string[]; reason?: string }>;
     suggestDismiss(id: string): Promise<void>;
+    /** Servers on now (this folder's plus the account's) and the most that can be. */
+    limit(appId: number | null): Promise<{ on: number; max: number }>;
     /** A server's logo as a checked data: URL: by registry name, by URL, or by an added server's name. */
     icon(appId: number | null, ref: { name?: string; url?: string; serverName?: string }): Promise<string | null>;
     /** Servers an automation can watch: this folder's and the account's, by ref (`local:<id>` / `account:<name>`). */
@@ -256,7 +258,7 @@ async function listOpenAICompatibleModels(probe: { url: string; headers: Record<
 export function plainError(e: unknown): Error {
   const raw = e instanceof Error ? e.message : String(e);
   let msg = raw;
-  for (let i = 0; i < 3; i++) msg = msg.replace(/^\s*(\[[\w:.-]+\]\s*)?([A-Z]\w*Error:\s*)?/, "");
+  for (let i = 0; i < 3; i++) msg = msg.replace(/^\s*(\[[\w:.-]+\]\s*)?((?:[A-Z]\w*)?Error:\s*)?/, "");
   return new Error(msg.trim() || raw);
 }
 
@@ -372,6 +374,7 @@ export const realServices: CliServices = {
     },
     suggestConnect: (id, optionId, values) => call("mcp-suggest:connect", { id, ...(optionId ? { optionId } : {}), values }),
     suggestFinish: (id) => call("mcp-suggest:finish", { id }),
+    limit: (appId) => call("mcp:limit", { appId }),
     async suggestDismiss(id) {
       await call("mcp-suggest:dismiss", { id });
     },

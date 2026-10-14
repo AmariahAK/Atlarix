@@ -281,6 +281,14 @@ function unfence(text: string): string {
  */
 /** The text parts of an MCP tool result (`content: [{type:"text",text}]`), wherever the wrappers put it. */
 function mcpContentText(v: unknown, depth = 0): string {
+  // The result can arrive as its JSON text (QA: `{"content":[…],"isError":false}` on the row).
+  if (typeof v === "string" && /^\s*\{/.test(v) && depth <= 4) {
+    try {
+      return mcpContentText(JSON.parse(v), depth + 1);
+    } catch {
+      return "";
+    }
+  }
   if (!v || typeof v !== "object" || depth > 4) return "";
   const o = v as Record<string, unknown>;
   if (Array.isArray(o.content)) {
