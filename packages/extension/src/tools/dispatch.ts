@@ -60,6 +60,7 @@ import {
 import { askUser } from "./ask-user";
 import { runCode } from "./run-code";
 import { listAvailableMcps, mcpCall } from "./connectors";
+import { mcpServersTool } from "./mcp-servers";
 import { forgetNote, readNoteTool, remember } from "./notes";
 import { readAttachmentTool } from "./attachments";
 import { createRelic } from "./relics";
@@ -527,6 +528,10 @@ export async function dispatchTool(
         return await listAvailableMcps();
       case "mcp_call":
         return await mcpCall(args);
+      // Search the registry, or offer the user a card to connect a server.
+      // Like `ask_user`, a suggestion ends the turn.
+      case "mcp_servers":
+        return await mcpServersTool(args);
     }
   } catch (err) {
     // The backstop, and it should almost never fire — each handler converts its

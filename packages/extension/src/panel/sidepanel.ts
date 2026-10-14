@@ -36,6 +36,7 @@ import {
   api,
 } from "../shared/browser-api";
 import { signIn, signOut } from "../auth/sign-in";
+import { buildMcpCard, mcpSuggestionFromArgs, type McpCardArgs } from "./mcp-card";
 import { accountState } from "../auth/account";
 import { profileOf } from "../auth/profile";
 import type { OAuthProvider } from "../auth/gotrue";
@@ -1346,6 +1347,17 @@ function describeCall(call: ToolCall): string {
  * ("their answers arrive as the next user message"). A second send path would
  * be a message that looks like the others and behaves differently.
  */
+/** The card `mcp_servers` suggest draws; its answer goes out as the user's next message. */
+function connectCard(suggestion: McpCardArgs): HTMLElement {
+  return buildMcpCard(suggestion, {
+    send(text) {
+      if (!input || running) return;
+      input.value = text;
+      void send();
+    },
+  });
+}
+
 function questionCard(questions: AskUserQuestion[]): HTMLElement {
   const card: HTMLElement = buildQuestionCard(questions, {
     send(questionText, answer) {
@@ -1581,6 +1593,8 @@ function renderConversation(history: CoreMessage[]): void {
   // Which questions already have an answer, so a reopened conversation does not
   // render the card above the reply. See `answeredAskCalls` for the rule.
   const answeredCalls = answeredAskCalls(history);
+  // A connect card the user hasn't answered yet is drawn again, like a question.
+  const answeredSuggestions = answeredAskCalls(history, ["mcp_servers"]);
 
   let userIndex = 0;
   // GROUPED THE SAME WAY A LIVE TURN IS, or reopening a conversation would show
@@ -1687,6 +1701,16 @@ function renderConversation(history: CoreMessage[]): void {
         if (questions.length > 0) {
           closeActivity();
           transcript.append(questionCard(questions));
+        }
+      }
+      if (
+        resolved.function.name === "mcp_servers" &&
+        !answeredSuggestions.has(message.tool_call_id)
+      ) {
+        const suggestion = mcpSuggestionFromArgs(resolved.function.arguments);
+        if (suggestion) {
+          closeActivity();
+          transcript.append(connectCard(suggestion));
         }
       }
     }
@@ -2139,6 +2163,15 @@ async function send(peerTask?: string): Promise<void> {
       if (questions.length > 0) {
         append(questionCard(questions));
         input?.focus();
+      }
+      // `mcp_servers` suggest ends the turn too: its card is the status.
+      for (const m of outcome.messages) {
+        if (m.role !== "assistant") continue;
+        for (const c of m.tool_calls ?? []) {
+          if (c.function.name !== "mcp_servers") continue;
+          const suggestion = mcpSuggestionFromArgs(c.function.arguments);
+          if (suggestion) append(connectCard(suggestion));
+        }
       }
     }
   } catch (err) {

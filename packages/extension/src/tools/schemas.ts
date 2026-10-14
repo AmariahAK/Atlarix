@@ -54,6 +54,7 @@ export const TOOL_NAMES = [
   "ask_user",
   "list_available_mcps",
   "mcp_call",
+  "mcp_servers",
   "read_attachment",
   "create_relic",
   "run_code",
@@ -601,7 +602,7 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
         "when a request sounds like it needs a service you do not obviously " +
         "have — most questions need none, so do not call it reflexively. A " +
         "connector shown as switched off will switch on the first time you " +
-        "call it. Connectors are added at atlarix.dev/account, not from here.",
+        "call it. Connectors are added at atlarix.dev/account, or offered with mcp_servers.",
       parameters: {
         type: "object",
         properties: {},
@@ -640,6 +641,27 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
         // exists to stop the model inventing OUR parameters; these are the
         // remote server's, whose schema we deliberately do not bind — that is
         // what keeps the catalog cheap. Do not "fix" this to match the others.
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "mcp_servers",
+      description:
+        "Find a web MCP server the task needs and offer it to the user. " +
+        "`search` (query): servers in the official MCP Registry, and whether each is already a connector. " +
+        "`suggest` (server, reason): the user sees a card to connect it; this turn ends and their answer arrives as their next message.",
+      parameters: {
+        type: "object",
+        properties: {
+          operation: { type: "string", enum: ["search", "suggest"] },
+          query: { type: "string" },
+          server: { type: "string", description: "A registry name from search, or a connector's name." },
+          reason: { type: "string", description: "One line shown on the card." },
+        },
+        required: ["operation"],
         additionalProperties: false,
       },
     },

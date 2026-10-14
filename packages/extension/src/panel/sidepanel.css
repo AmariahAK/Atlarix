@@ -1744,3 +1744,15 @@ button.file__chip:hover {
   margin: 0 auto 6px;
   display: block;
 }
+
+/* The card mcp_servers suggest draws. */
+.mcp-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin: 8px 0;
+}
+.mcp-card__head { font-size: 11px; opacity: 0.7; margin-bottom: 4px; }
+.mcp-card__title { font-weight: 600; }
+.mcp-card__note, .mcp-card__status { font-size: 12px; opacity: 0.8; margin: 4px 0; }
+.mcp-card__key { width: 100%; margin: 4px 0; }
