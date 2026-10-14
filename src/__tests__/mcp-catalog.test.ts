@@ -288,3 +288,11 @@ describe("the publisher you searched for ranks first (QA)", () => {
     expect(searchCatalog(items, "brave search").entries[0]!.name).toBe("io.github.brave/brave-search-mcp-server");
   });
 });
+
+describe("display titles for registry ids (QA)", () => {
+  it("names the service, not the id", async () => {
+    const { displayTitle } = await import("@/shared/mcp-catalog");
+    expect(displayTitle({ name: "com.canva.mcp/mcp" })).toBe("Canva");
+    expect(displayTitle({ name: "app.linear/linear" })).toBe("Linear");
+  });
+});

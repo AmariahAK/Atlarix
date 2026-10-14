@@ -49,7 +49,7 @@ ToolRegistry.register({
   isReadOnly: false,
   allowInAskMode: true,
   description:
-    "Find MCP servers and manage their connections. " +
+    "Find and connect the MCP server for a service the user asks about that isn't connected; turn added ones on or off. " +
     "`search` (query): servers in the official MCP Registry matching it, with what each needs to connect and whether it is already added. " +
     "`suggest` (server, reason): shows the user a card to connect a server; with `wait: true` it returns when they connect or decline, otherwise you are told when they connect. " +
     "`start` / `stop` (server): turn an added server on or off. " +
@@ -163,11 +163,24 @@ ToolRegistry.register({
           const { mcpManager } = await import("@/ipc/utils/mcp_manager");
           mcpManager.dispose(Number(here.id));
         }
+        // Signed out: the card to sign back in comes up at once (owner: "disconnect
+        // so the user can reconnect via popup"); QA found none came back.
+        if (hasCredential && args._chatSessionId != null) {
+          const { addMcpSuggestion } = await import("@/lib/mcp/mcp-suggestions");
+          addMcpSuggestion({
+            chatId: args._chatSessionId,
+            appId,
+            server: here.registryName ?? here.name,
+            title: here.name,
+            reason: "",
+            wait: false,
+          });
+        }
         return {
           disconnected: true,
           server: here.name,
           message: hasCredential
-            ? `"${here.name}" is signed out. Suggest it to reconnect.`
+            ? `"${here.name}" is signed out. The user has a card to sign back in.`
             : `"${here.name}" has nothing to sign out of, so it is switched off. Start it to use it again.`,
         };
       }

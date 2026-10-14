@@ -44,12 +44,23 @@ export interface McpServerStatus {
 export async function findMcpServer(appId: number | null, nameOrRegistry: string): Promise<McpServerStatus | null> {
   const key = nameOrRegistry.trim().toLowerCase();
   if (!key) return null;
+  // A Verified server added by its address (by the agent, or pasted) has no
+  // registry name: it is still that server, not one to Connect again (QA).
+  const { VERIFIED_MCP_SERVERS } = await import("@/shared/mcp-catalog");
+  const norm = (u: string | null | undefined) => (u ?? "").trim().replace(/\/+$/, "").toLowerCase();
+  const verifiedUrls = new Set(
+    (VERIFIED_MCP_SERVERS.find((v) => v.name.toLowerCase() === key)?.fallback.remotes ?? []).map((r) => norm(r.url)),
+  );
+  const sameAddress = (url: string | null | undefined) => verifiedUrls.size > 0 && verifiedUrls.has(norm(url));
   if (appId != null) {
     const rows = await db
       .select()
       .from(mcpServers)
       .where(and(eq(mcpServers.scope, "workspace"), eq(mcpServers.appId, appId)));
-    const row = rows.find((r) => r.registryId?.toLowerCase() === key) ?? rows.find((r) => r.name.toLowerCase() === key);
+    const row =
+      rows.find((r) => r.registryId?.toLowerCase() === key) ??
+      rows.find((r) => r.name.toLowerCase() === key) ??
+      rows.find((r) => sameAddress(r.url));
     if (row) {
       const needs: McpConnectionNeeds =
         row.authType === "oauth" && !oauthConnectedFromRow(row)
@@ -70,7 +81,9 @@ export async function findMcpServer(appId: number | null, nameOrRegistry: string
   }
   const account = (await listConnectorRows()) ?? [];
   const c =
-    account.find((r) => r.registryName?.toLowerCase() === key) ?? account.find((r) => r.name.toLowerCase() === key);
+    account.find((r) => r.registryName?.toLowerCase() === key) ??
+    account.find((r) => r.name.toLowerCase() === key) ??
+    account.find((r) => sameAddress(r.url));
   if (!c) return null;
   return {
     where: "account",

@@ -334,7 +334,8 @@ ToolRegistry.register({
         servers: compactListedServers(servers),
         limits,
         usage:
-          "Call mcp_call({ server: '<server name>', tool: '<tool name>', arguments: {...} }) to invoke a tool. Each invocation requires user consent on first use." +
+          "Call mcp_call({ server: '<server name>', tool: '<tool name>', arguments: {...} }) to invoke a tool. Each invocation requires user consent on first use. " +
+          "A service that isn't listed here: mcp_servers search finds it in the MCP Registry." +
           (limits.canTurnOnMore
             ? ""
             : ` ${limits.on} of ${limits.max} are on. Adding one is fine (it starts off); turn one off to turn another on.`),

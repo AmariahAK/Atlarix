@@ -228,7 +228,10 @@ const GENERIC_SERVER_NAMES = new Set(["mcp", "server", "mcp-server", "mcpserver"
 /** The owner part of a namespace: `com.notion` → `notion`, `io.github.acme` → `acme`. */
 function namespaceOwner(name: string): string {
   const ns = (name.split("/")[0] ?? name).split(".");
-  return ns[0] === "io" && ns[1] === "github" ? (ns[2] ?? "") : (ns[ns.length - 1] ?? "");
+  if (ns[0] === "io" && ns[1] === "github") return ns[2] ?? "";
+  // `com.canva.mcp` is Canva's: a generic last part is not the owner (QA).
+  const named = ns.slice(1).filter((p) => !GENERIC_SERVER_NAMES.has(p.toLowerCase()));
+  return named[named.length - 1] ?? ns[ns.length - 1] ?? "";
 }
 
 function titleFromName(name: string): string {

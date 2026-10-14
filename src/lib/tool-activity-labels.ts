@@ -2,6 +2,7 @@
  * Human-readable labels for AI tool activity (chat status line).
  * Fix: Finding 4
  */
+import { displayTitle } from "@/shared/mcp-catalog";
 
 const LABELS: Record<string, string> = {
   // Four tools shipped without entries here and fell through to the generic
@@ -367,7 +368,9 @@ function mcpLabel(
   }
   if (toolName === "mcp_servers") {
     const op = str(args.operation);
-    const server = str(args.server);
+    // "Suggesting Canva", not the registry id "com.canva.mcp/mcp" (QA).
+    const rawServer = str(args.server);
+    const server = rawServer.includes("/") ? displayTitle({ name: rawServer }) : rawServer;
     const query = str(args.query);
     if (op === "search") {
       return phase === "running"
