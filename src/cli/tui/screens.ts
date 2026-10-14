@@ -995,31 +995,155 @@ export function openAside(ctx: ScreenContext, question: string): void {
 
 // ─── /mcp ────────────────────────────────────────────────────────────────────
 
-/** Add an MCP server: a name, then the command that starts it or its URL. */
+type AddedServerView = Awaited<ReturnType<ScreenContext["services"]["mcp"]["install"]>>;
+
+/** After an add: sign in, ask for a missing key, or say it worked. */
+async function finishMcpAdded(ctx: ScreenContext, added: AddedServerView[], done: () => void): Promise<void> {
+  for (const a of added) {
+    if (a.needsSignIn && a.where === "account") {
+      const r = await ctx.services.mcp.accountSignIn(ctx.session.appId, String(a.id), (url) =>
+        ctx.flash(`Sign in to ${a.name} in your browser: ${url}`),
+      );
+      ctx.flash(r.ok ? `${a.name} is ${r.enabled ? "on" : "signed in"}.` : (r.error ?? `Couldn't sign in to ${a.name}.`));
+      continue;
+    }
+    if (a.needsSignIn) {
+      const r = await ctx.services.mcp.signIn(Number(a.id));
+      ctx.flash(r.ok ? `Sign in to ${a.name} in your browser.` : (r.error ?? `Couldn't start ${a.name}'s sign-in.`));
+      continue;
+    }
+    if (a.needsSecret && a.where === "account") {
+      const id = String(a.id);
+      ctx.host.push(
+        new InputDialog({
+          title: a.name,
+          label: a.needsSecret.header ?? "API key",
+          mask: true,
+          onSubmit: async (v) => {
+            if (!v.trim()) return "Paste the key, or esc to add it later.";
+            await ctx.services.mcp.accountSecret(ctx.session.appId, id, v.trim());
+            ctx.host.pop();
+            ctx.flash(`${a.name} added.`);
+            done();
+          },
+        }),
+      );
+      return;
+    }
+    ctx.flash(a.note ? `${a.name}: ${a.note}` : `${a.name} added.`);
+  }
+  done();
+}
+
+/** Add your own: a URL, a command, a config block, or the path of a config file. */
 export function openMcpAdd(ctx: ScreenContext, done: () => void): void {
   ctx.host.push(
     new InputDialog({
       title: "Add an MCP server",
-      intro: [{ text: "Its name, as Atlarix will call it (github, postgres, search…).", tone: "muted" }],
-      label: "Name",
-      onSubmit: (name) => {
-        if (!name.trim()) return "Give it a name.";
+      intro: [{ text: "A URL, a command, an mcpServers config, or the path of a config file.", tone: "muted" }],
+      label: "Paste",
+      onSubmit: async (v) => {
+        if (!v.trim()) return "Paste a URL, a command or a config.";
+        const out = await ctx.services.mcp.paste(ctx.session.appId, v);
+        if (out.added.length === 0) {
+          return out.failed[0]?.error ?? (out.skipped[0] ? `Skipped ${out.skipped[0].name}: ${out.skipped[0].reason}.` : "Nothing was added.");
+        }
+        ctx.host.pop();
+        for (const f of out.failed) ctx.flash(`${f.name}: ${f.error}`);
+        await finishMcpAdded(ctx, out.added, done);
+      },
+    }),
+  );
+}
+
+/** Fill in what a marketplace server asks for, one value at a time, then add it. */
+function installCatalogEntry(
+  ctx: ScreenContext,
+  entry: Awaited<ReturnType<ScreenContext["services"]["mcp"]["catalog"]>>["entries"][number],
+  optionId: string,
+  done: () => void,
+): void {
+  const option = entry.options.find((o) => o.id === optionId);
+  if (!option) return;
+  const values: Record<string, string> = {};
+  const inputs = option.inputs;
+  const add = async () => {
+    const added = await ctx.services.mcp.install(ctx.session.appId, entry.name, optionId, values);
+    await finishMcpAdded(ctx, [added], done);
+  };
+  const ask = (i: number) => {
+    const input = inputs[i];
+    if (!input) {
+      void add().catch((e: Error) => ctx.flash(e.message));
+      return;
+    }
+    ctx.host.push(
+      new InputDialog({
+        title: entry.title,
+        intro: input.description && input.description !== input.label ? [{ text: input.description, tone: "muted" }] : undefined,
+        label: input.required ? input.label : `${input.label} (optional)`,
+        initial: input.default ?? "",
+        mask: input.secret,
+        onSubmit: (v) => {
+          if (input.required && !v.trim()) return `${input.label} is needed.`;
+          if (v.trim()) values[input.key] = v.trim();
+          ctx.host.pop();
+          ask(i + 1);
+        },
+      }),
+    );
+  };
+  ask(0);
+}
+
+/** The marketplace: search the registry (Verified first), enter adds. */
+export function openMcpBrowse(ctx: ScreenContext, done: () => void): void {
+  ctx.host.push(
+    new InputDialog({
+      title: "MCP marketplace",
+      intro: [{ text: "Search, or enter for the Verified servers.", tone: "muted" }],
+      label: "Search",
+      onSubmit: async (query) => {
+        const page = await ctx.services.mcp.catalog(ctx.session.appId, query.trim());
+        const installed = new Set(page.installed);
         ctx.host.replace(
-          new InputDialog({
-            title: `Add “${name.trim()}”`,
-            intro: [
-              { text: "The command that starts it, e.g. npx -y @modelcontextprotocol/server-github", tone: "muted" },
-              { text: "or its URL, e.g. https://mcp.example.com/mcp", tone: "muted" },
-            ],
-            label: "Command or URL",
-            onSubmit: async (v) => {
-              const target = v.trim();
-              if (!target) return "A command or a URL.";
-              const isUrl = /^https?:\/\//i.test(target);
-              await ctx.services.mcp.add(ctx.session.appId, { name, ...(isUrl ? { url: target } : { command: target }) });
-              ctx.host.closeAll();
-              ctx.flash(`Added ${name.trim()}. It's on for this folder, and in the Atlarix app too.`);
-              done();
+          new ListDialog({
+            title: query.trim() ? `“${query.trim()}” · ${page.total.toLocaleString()}` : "MCP marketplace",
+            wide: true,
+            searchable: true,
+            empty: "No servers match.",
+            footer: "enter adds · esc back",
+            items: page.entries.map((e) => ({
+              id: e.name,
+              label: e.title,
+              detail: `${e.verified ? "✓ Verified" : e.publisher} · ${e.kind === "web" ? "web" : "local"}${e.description ? ` · ${e.description}` : ""}`,
+              right: installed.has(e.name) ? { text: "added", tone: "muted" as const } : undefined,
+              keywords: `${e.name} ${e.description}`,
+            })),
+            onChoose: (item) => {
+              const entry = page.entries.find((e) => e.name === item.id);
+              if (!entry) return;
+              if (installed.has(entry.name)) return void ctx.flash(`${entry.title} is already added.`);
+              const usable = entry.options.filter((o) => o.kind === "web" || o.supported);
+              if (usable.length <= 1) {
+                if (usable[0]) installCatalogEntry(ctx, entry, usable[0].id, done);
+                return;
+              }
+              ctx.host.push(
+                new ListDialog({
+                  title: `${entry.title} · run it`,
+                  footer: "enter chooses · esc back",
+                  items: usable.map((o) => ({
+                    id: o.id,
+                    label: o.kind === "web" ? "On the web" : "On this computer",
+                    detail: o.kind === "web" ? o.url : `${o.registryType} · ${o.identifier}`,
+                  })),
+                  onChoose: (o) => {
+                    ctx.host.pop();
+                    installCatalogEntry(ctx, entry, o.id, done);
+                  },
+                }),
+              );
             },
           }),
         );
@@ -1029,17 +1153,21 @@ export function openMcpAdd(ctx: ScreenContext, done: () => void): void {
 }
 
 /**
- * /mcp: this folder's servers, shared with the app (opencode's MCPs dialog).
- * space turns one on or off, a adds, d deletes, t tests, enter lists its tools.
+ * /mcp: the servers this folder can use — the account's (every device and the
+ * Chrome extension) and this computer's (shared with the app) — plus ones
+ * found in other tools. space on/off, a adds, b browses the marketplace,
+ * d deletes, t tests, enter lists tools (or signs in).
  */
 export function openMcp(ctx: ScreenContext): void {
   let armed: string | null = null;
+  let account: Awaited<ReturnType<typeof ctx.services.mcp.account>> = null;
   const dialog: ListDialog = new ListDialog({
     title: "MCP servers",
     wide: true,
-    empty: "No MCP servers in this folder yet. a adds one.",
+    empty: "No MCP servers yet. b browses the marketplace, a adds your own.",
     hints: [
       { title: "On/off", key: "space" },
+      { title: "Browse", key: "b" },
       { title: "Add", key: "a" },
       { title: "Delete", key: "d" },
       { title: "Test", key: "t" },
@@ -1047,10 +1175,36 @@ export function openMcp(ctx: ScreenContext): void {
     ],
     footer: "",
     items: async () => {
+      account = await ctx.services.mcp.account().catch(() => null);
+      const onAccount = (account ?? []).map((c) => {
+        const needs =
+          c.authType === "oauth" && !c.connected
+            ? "sign in"
+            : (c.authType === "api_key" || c.authType === "header") && !c.connected
+              ? "needs key"
+              : null;
+        return {
+          id: `acct:${c.id}`,
+          label: c.name,
+          detail: `all devices · ${(() => {
+            try {
+              return new URL(c.url).host;
+            } catch {
+              return c.url;
+            }
+          })()}`,
+          right: needs
+            ? { text: needs, tone: "muted" as const }
+            : c.enabled
+              ? { text: "✓ on", tone: "accent" as const }
+              : { text: "○ off", tone: "muted" as const },
+          keywords: needs ? "needs" : c.enabled ? "on" : "off",
+        };
+      });
       const mine = (await ctx.services.mcp.list(ctx.session.appId)).map((s) => ({
         id: String(s.id),
         label: s.name,
-        detail: s.transport,
+        detail: `this computer · ${s.transport}`,
         right: s.enabled ? { text: "✓ on", tone: "accent" as const } : { text: "○ off", tone: "muted" as const },
         keywords: s.enabled ? "on" : "off",
       }));
@@ -1062,6 +1216,7 @@ export function openMcp(ctx: ScreenContext): void {
         found = [];
       }
       return [
+        ...onAccount,
         ...mine,
         ...found.map((f) => ({
           id: `found:${f.key}`,
@@ -1076,7 +1231,38 @@ export function openMcp(ctx: ScreenContext): void {
       if (item.id.startsWith("found:")) {
         await ctx.services.mcp.importFound(ctx.session.appId, item.id.slice("found:".length));
         await dialog.reload();
-        return void dialog.say(`${item.label} added for this folder (shared with the app and your editors).`);
+        return void dialog.say(`${item.label} added.`);
+      }
+      if (item.id.startsWith("acct:")) {
+        const c = account?.find((x) => `acct:${x.id}` === item.id);
+        if (!c) return;
+        if (item.keywords === "needs") {
+          await finishMcpAdded(
+            ctx,
+            [
+              {
+                where: "account",
+                id: c.id,
+                name: c.name,
+                enabled: c.enabled,
+                needsSignIn: c.authType === "oauth",
+                ...(c.authType !== "oauth" ? { needsSecret: { header: c.authHeader } } : {}),
+              },
+            ],
+            () => void dialog.reload(),
+          );
+          return;
+        }
+        ctx.host.push(
+          new TextDialog({
+            title: `${c.name} · tools`,
+            lines: async () =>
+              c.tools.length
+                ? c.tools.map((t) => ({ text: t, tone: "accent" as const }))
+                : [{ text: "No tools listed yet: they appear after its first use.", tone: "muted" }],
+          }),
+        );
+        return;
       }
       ctx.host.push(
         new TextDialog({
@@ -1095,32 +1281,47 @@ export function openMcp(ctx: ScreenContext): void {
     actions: {
       " ": async (item) => {
         if (item.keywords === "found") return "Enter adds it first.";
+        if (item.keywords === "needs") return "Enter finishes setting it up first.";
         const on = item.keywords !== "on";
-        await ctx.services.mcp.setEnabled(Number(item.id), on);
+        if (item.id.startsWith("acct:")) {
+          await ctx.services.mcp.accountSetEnabled(ctx.session.appId, item.id.slice(5), on);
+        } else {
+          await ctx.services.mcp.setEnabled(Number(item.id), on);
+        }
         await dialog.reload();
         return `${item.label} is ${on ? "on" : "off"}.`;
       },
       t: async (item) => {
         if (item.keywords === "found") return "Enter adds it first.";
+        if (item.id.startsWith("acct:")) return `${item.label} runs through your account; it's tested when it's used.`;
         dialog.say(`Testing ${item.label}…`);
         const r = await ctx.services.mcp.test(Number(item.id));
         if (r.ok) return `${item.label} is working.`;
-        if (r.needsOAuth) return `${item.label} needs you to sign in. Do that in the Atlarix app (Settings → MCP), then it works here too.`;
+        if (r.needsOAuth) {
+          const s = await ctx.services.mcp.signIn(Number(item.id));
+          return s.ok ? `${item.label} needs you to sign in: finish it in your browser.` : `${item.label} needs a sign-in: ${s.error ?? "it couldn't start"}.`;
+        }
         return `${item.label} failed: ${r.error ?? "unknown error"}`;
       },
       d: async (item) => {
         if (item.keywords === "found") return "Enter adds it first.";
         if (armed !== item.id) {
           armed = item.id;
-          return `d again deletes ${item.label} (here and in the app).`;
+          return item.id.startsWith("acct:")
+            ? `d again removes ${item.label} from your account (every device).`
+            : `d again deletes ${item.label} (here and in the app).`;
         }
         armed = null;
-        await ctx.services.mcp.remove(Number(item.id));
+        if (item.id.startsWith("acct:")) await ctx.services.mcp.accountRemove(item.id.slice(5));
+        else await ctx.services.mcp.remove(Number(item.id));
         await dialog.reload();
         return `Deleted ${item.label}.`;
       },
     },
-    listActions: { a: () => openMcpAdd(ctx, () => openMcp(ctx)) },
+    listActions: {
+      a: () => openMcpAdd(ctx, () => void dialog.reload()),
+      b: () => openMcpBrowse(ctx, () => void dialog.reload()),
+    },
   });
   ctx.host.push(dialog);
 }

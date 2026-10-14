@@ -24,7 +24,9 @@ import { ToolRegistry } from "./registry";
 import {
   callAccountConnector,
   listAccountConnectors,
+  listConnectorRows,
 } from "@/lib/mcp/account-connectors";
+import { isPublicHttpsUrl } from "@/shared/mcp-catalog";
 import {
   MCP_WORKSPACE_MAX,
   describeWorkspaceCap,
@@ -96,6 +98,58 @@ function formatMcpError(
     };
   }
   return { error: err instanceof Error ? err.message : String(err) };
+}
+
+/**
+ * Servers the editor passed for this ACP session. They are the user's own
+ * configuration, so they are ON like a folder's enabled servers, within the
+ * same limit: past it they are named, not connected.
+ */
+async function listSessionMcps(sessionId: string | undefined): Promise<ListedMcpServer[]> {
+  const { mcpManager } = await import("../../ipc/utils/mcp_manager");
+  const list = mcpManager.listSessionServers(sessionId);
+  if (list.length === 0) return [];
+  const out: ListedMcpServer[] = [];
+  for (const [i, { id, spec }] of list.entries()) {
+    if (i >= MCP_WORKSPACE_MAX) {
+      out.push({
+        id,
+        name: spec.name,
+        scope: "editor",
+        transport: spec.transport,
+        tools: [],
+        inactive: true,
+        error: `More than ${MCP_WORKSPACE_MAX} servers: this one is not connected.`,
+      });
+      continue;
+    }
+    try {
+      const client = await mcpManager.getClient(id);
+      const toolSet = (await client.tools()) as Record<string, { description?: string }>;
+      out.push({
+        id,
+        name: spec.name,
+        scope: "editor",
+        transport: spec.transport,
+        tools: Object.entries(toolSet).map(([name, t]) => ({
+          name,
+          description: t?.description
+            ? wrapUntrustedData(`mcp-tool:${spec.name}/${name}`, t.description)
+            : t?.description,
+        })),
+      });
+    } catch (err) {
+      out.push({
+        id,
+        name: spec.name,
+        scope: "editor",
+        transport: spec.transport,
+        tools: [],
+        error: formatMcpError(err, spec.name).error,
+      });
+    }
+  }
+  return out;
 }
 
 async function listConfiguredMcps(
@@ -205,9 +259,18 @@ ToolRegistry.register({
     "List MCP (Model Context Protocol) servers configured for this session: global servers plus, when in a workspace, that workspace's own MCP servers. Returns server names, transports, and the tool names each server exposes. Call this BEFORE invoking any MCP tool via mcp_call. " +
     workspaceCapClause("mcp"),
   parameters: { type: "object", properties: {} },
-  handler: async (args: { workspaceId?: number }) => {
+  handler: async (args: { workspaceId?: number; workspaceSessionId?: string }) => {
     try {
-      const servers = await listConfiguredMcps(args.workspaceId ?? null);
+      // The editor's own servers for this session (ACP `mcpServers`) come
+      // first: a folder or account server of the same name is dropped.
+      const sessionServers = await listSessionMcps(args.workspaceSessionId);
+      const editorNames = new Set(sessionServers.map((s) => s.name.toLowerCase()));
+      const servers = [
+        ...sessionServers,
+        ...(await listConfiguredMcps(args.workspaceId ?? null)).filter(
+          (s) => !editorNames.has(s.name.toLowerCase()),
+        ),
+      ];
       // Account connectors travel BESIDE the local ones, never merged into
       // them: a local server can be `stdio` with a command and an environment,
       // an account connector is HTTPS-only with its credential held by the
@@ -291,6 +354,7 @@ ToolRegistry.register({
     tool?: string;
     arguments?: any;
     workspaceId?: number;
+    workspaceSessionId?: string;
     _mcpInvocationContext?: McpInvocationContext;
   }) => {
     if (!args.server || !args.tool) {
@@ -332,10 +396,17 @@ ToolRegistry.register({
       return out.ok ? { result: out.result } : { error: out.error };
     };
 
+    // The editor's own server for this session wins, as in the listing.
+    const { mcpManager: manager } = await import("../../ipc/utils/mcp_manager");
+    const fromEditor = manager
+      .listSessionServers(args.workspaceSessionId)
+      .slice(0, MCP_WORKSPACE_MAX)
+      .find((x) => x.spec.name.toLowerCase() === args.server!.toLowerCase());
+
     // Per-workspace only — see listConfiguredMcps. Without a workspace there is
     // no LOCAL server to find, but an account connector is not per-workspace, so
     // this can no longer return early without looking.
-    if (args.workspaceId == null) {
+    if (args.workspaceId == null && !fromEditor) {
       const viaAccount = await runAccountConnector();
       if (viaAccount) return viaAccount;
       return {
@@ -345,17 +416,19 @@ ToolRegistry.register({
       };
     }
 
-    const [server] = await db
-      .select()
-      .from(mcpServers)
-      .where(
-        and(
-          eq(mcpServers.name, args.server),
-          eq(mcpServers.scope, "workspace"),
-          eq(mcpServers.appId, args.workspaceId),
-        ),
-      )
-      .limit(1);
+    const [server] = fromEditor
+      ? [{ id: fromEditor.id, name: fromEditor.spec.name, enabled: true }]
+      : await db
+          .select()
+          .from(mcpServers)
+          .where(
+            and(
+              eq(mcpServers.name, args.server),
+              eq(mcpServers.scope, "workspace"),
+              eq(mcpServers.appId, args.workspaceId!),
+            ),
+          )
+          .limit(1);
     if (!server) {
       // Not local — it may still be a connector on the account, which is not
       // per-workspace. Only once BOTH have been looked in is "not configured"
@@ -392,7 +465,7 @@ ToolRegistry.register({
             and(
               eq(mcpServers.enabled, true as any),
               eq(mcpServers.scope, "workspace"),
-              eq(mcpServers.appId, args.workspaceId),
+              eq(mcpServers.appId, args.workspaceId!),
             ),
           )
       ).length;
@@ -574,6 +647,11 @@ ToolRegistry.register({
         type: "string",
         description: "edit: rename the server to this.",
       },
+      headers: {
+        type: "object",
+        description:
+          "http: request headers to send. Include a value the user's config already contains; do not invent one.",
+      },
     },
     required: ["operation", "name"],
   },
@@ -586,6 +664,7 @@ ToolRegistry.register({
     url?: string;
     env?: Record<string, string>;
     new_name?: string;
+    headers?: Record<string, string>;
     workspaceId?: number;
   }) => {
     const op = args.operation;
@@ -610,6 +689,47 @@ ToolRegistry.register({
         ),
       )
       .limit(1);
+
+    // Not in this folder: it may be a web server on the account.
+    const account = existing
+      ? undefined
+      : ((await listConnectorRows()) ?? []).find(
+          (c) => c.name.toLowerCase() === name.toLowerCase(),
+        );
+
+    if (account && (op === "delete" || op === "edit")) {
+      const newName = args.new_name?.trim();
+      const changes: string[] = [];
+      if (op === "edit") {
+        if (newName && newName !== account.name) changes.push(`name: ${account.name} → ${newName}`);
+        if (args.url && args.url !== account.url) changes.push(`url: ${account.url} → ${args.url}`);
+        if (!changes.length) {
+          return {
+            success: true,
+            message: `Nothing to change on "${account.name}" — the values given already match.`,
+          };
+        }
+      }
+      return {
+        __permission_required: true,
+        operation: "mcp_server_write",
+        preview: {
+          action: op,
+          serverName: op === "edit" ? (newName ?? account.name) : account.name,
+          systemScope: true,
+          transport: "http" as const,
+          url: args.url ?? account.url,
+          scope: "account" as const,
+          accountId: account.id,
+          changes: changes.length ? changes : undefined,
+          description:
+            op === "delete"
+              ? `Remove the MCP server "${account.name}" from your account.`
+              : `Change MCP server "${account.name}" on your account.`,
+          input: { accountId: account.id, name: newName, url: args.url },
+        },
+      };
+    }
 
     if (op === "delete") {
       if (!existing) {
@@ -674,6 +794,13 @@ ToolRegistry.register({
     }
 
     const envKeys = Object.keys(args.env ?? {});
+    const headerKeys = Object.keys(args.headers ?? {});
+    // A public https server goes on the account (every surface). Decided again
+    // when it is written, which falls back to this computer when signed out.
+    const scope =
+      op === "add" && transport === "http" && url && isPublicHttpsUrl(url)
+        ? ("account" as const)
+        : ("local" as const);
     const finalName = op === "edit" ? (args.new_name?.trim() ?? name) : name;
 
     const changes: string[] = [];
@@ -688,6 +815,7 @@ ToolRegistry.register({
       if (args.url && args.url !== existing.url)
         changes.push(`url: ${existing.url ?? "—"} → ${args.url}`);
       if (envKeys.length) changes.push(`env: ${envKeys.join(", ")}`);
+      if (headerKeys.length) changes.push(`headers: ${headerKeys.join(", ")}`);
       if (!changes.length) {
         // Saying so beats asking the user to approve nothing.
         return {
@@ -714,6 +842,8 @@ ToolRegistry.register({
         // for them by then — but nothing renders `input`, so a secret never reaches
         // the screen. `manage-mcp-server-tool.test.ts` pins that confinement.
         envKeys: envKeys.length ? envKeys : undefined,
+        headerKeys: headerKeys.length ? headerKeys : undefined,
+        scope,
         changes: changes.length ? changes : undefined,
         description:
           op === "add"
@@ -729,6 +859,7 @@ ToolRegistry.register({
           args: transport === "stdio" ? (argv ?? null) : null,
           url: transport === "http" ? url : null,
           envJson: args.env ?? null,
+          headers: transport === "http" ? (args.headers ?? null) : null,
           appId: args.workspaceId,
         },
       },

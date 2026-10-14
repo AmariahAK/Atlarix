@@ -23,6 +23,7 @@ import {
   type SessionUpdate,
 } from "@agentclientprotocol/sdk";
 import { extractPlanChecklistTitle, parsePlanChecklist, plainStepText, type PlanChecklistStep } from "@/lib/tasks/plan-checklist";
+import type { SessionMcpServer } from "@/ipc/utils/mcp_manager";
 import type { AgentSession, ModelChoice, SessionState, WorkMode } from "../agent/session";
 import { promptInput } from "./content";
 import {
@@ -65,6 +66,43 @@ export interface AcpDeps {
   listSessions(cwd: string): Promise<Array<{ id: string; title: string | null; updatedAt: Date | string }>>;
   /** Rename or delete a stored session (the editor's Past chats). */
   changeSession?(sessionId: string, change: { rename: string } | { delete: true }): Promise<void>;
+  /**
+   * The MCP servers the editor passed for a session (`session/new`,
+   * `session/load`), connected for that session alongside the folder's own.
+   * An empty list clears them.
+   */
+  setSessionMcpServers?(sessionId: string, servers: SessionMcpServer[]): void | Promise<void>;
+}
+
+/**
+ * The editor's `mcpServers`, in the shape the MCP manager connects. stdio and
+ * http only (what `initialize` advertises); an `sse` or other entry is left out.
+ */
+export function sessionMcpServersFrom(list: unknown): SessionMcpServer[] {
+  if (!Array.isArray(list)) return [];
+  const out: SessionMcpServer[] = [];
+  const pairs = (v: unknown): Record<string, string> =>
+    Object.fromEntries(
+      (Array.isArray(v) ? v : [])
+        .filter((p): p is { name: string; value: string } => typeof p?.name === "string" && typeof p?.value === "string")
+        .map((p) => [p.name, p.value]),
+    );
+  for (const raw of list as Array<Record<string, unknown>>) {
+    const name = typeof raw?.name === "string" ? raw.name.trim() : "";
+    if (!name) continue;
+    if (raw.type === "http" && typeof raw.url === "string" && /^https?:\/\//i.test(raw.url)) {
+      out.push({ name, transport: "http", url: raw.url, headers: pairs(raw.headers) });
+    } else if (raw.type === undefined && typeof raw.command === "string" && raw.command) {
+      out.push({
+        name,
+        transport: "stdio",
+        command: raw.command,
+        args: Array.isArray(raw.args) ? raw.args.filter((a): a is string => typeof a === "string") : [],
+        env: pairs(raw.env),
+      });
+    }
+  }
+  return out;
 }
 
 function isAuthError(msg: string | null | undefined): boolean {
@@ -443,7 +481,7 @@ class Thread {
     const errorBefore = this.session.state.lastError;
     const slash = /^\/(\w+)\s*$/.exec(text);
     const skill = this.skillFor(text);
-    const mcpAdd = /^\/mcp\s+add\s+(\S+)\s*$/i.exec(text);
+    const mcpAdd = /^\/mcp\s+add\s+(.+?)\s*$/is.exec(text);
     if (mcpAdd) {
       const { accountCommandText } = await import("./account-commands");
       const reply = await accountCommandText(`mcp add ${mcpAdd[1]}`, this.session).catch((e: Error) => `Couldn't add it: ${e.message}`);
@@ -796,16 +834,22 @@ export class AcpAgent {
     return t;
   }
 
-  async newSession(cwd: string): Promise<NewSessionResponse> {
+  async newSession(cwd: string, mcpServers?: unknown): Promise<NewSessionResponse> {
     const t = await this.open(cwd);
+    await this.deps.setSessionMcpServers?.(t.id, sessionMcpServersFrom(mcpServers));
     // After the response, so the editor knows the session the list belongs to.
     setTimeout(() => void t.refreshCommands(), 0);
     return { sessionId: t.id, configOptions: await this.configOptions(t), modes: this.modes(t) };
   }
 
-  async loadSession(cwd: string, sessionId: string): Promise<{ configOptions: SessionConfigOption[]; modes: SessionModeState }> {
+  async loadSession(
+    cwd: string,
+    sessionId: string,
+    mcpServers?: unknown,
+  ): Promise<{ configOptions: SessionConfigOption[]; modes: SessionModeState }> {
     const existing = this.threads.get(sessionId);
     const t = existing ?? (await this.open(cwd, sessionId));
+    await this.deps.setSessionMcpServers?.(t.id, sessionMcpServersFrom(mcpServers));
     // A thread this process already has open remembers what it sent; the
     // editor that asks to load it again has nothing on screen, so start over.
     if (existing) existing.emitted.clear();
@@ -917,6 +961,7 @@ export class AcpAgent {
     if ("delete" in change && open) {
       await open.cancel().catch(() => {});
       await open.session.close().catch(() => {});
+      await this.deps.setSessionMcpServers?.(sessionId, []);
       this.threads.delete(sessionId);
     }
     if (!this.deps.changeSession) throw RequestError.methodNotFound("_atlarix/session");
@@ -956,6 +1001,7 @@ export class AcpAgent {
   }
 
   async closeAll(): Promise<void> {
+    for (const id of this.threads.keys()) await this.deps.setSessionMcpServers?.(id, []);
     await Promise.all([...this.threads.values()].map((t) => t.session.close().catch(() => {})));
     this.threads.clear();
   }

@@ -58,6 +58,9 @@ export interface QueuedOperation {
   mcpUrl?: string;
   /** Env variable NAMES only. A value here would put a secret on the card. */
   mcpEnvKeys?: string[];
+  mcpHeaderKeys?: string[];
+  /** `account`: it goes on every device and the Chrome extension. */
+  mcpScope?: "local" | "account";
   /** edit only: "was → now" per changed field. */
   mcpChanges?: string[];
   content?: string; // File content for write_file

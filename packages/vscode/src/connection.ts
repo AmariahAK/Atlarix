@@ -308,7 +308,7 @@ export class AtlarixConnection {
     return this.agent.request<T>(method, params);
   }
 
-  mcp(sessionId: string, action: "list" | "set" | "add" | "remove" | "test", args: Record<string, unknown> = {}): Promise<McpResult> {
+  mcp(sessionId: string, action: string, args: Record<string, unknown> = {}): Promise<McpResult> {
     return this.agent.request<McpResult>("_atlarix/mcp", { sessionId, action, ...args });
   }
 

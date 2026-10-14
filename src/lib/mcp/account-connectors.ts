@@ -352,6 +352,19 @@ export async function createConnector(input: NewConnector): Promise<WriteResult<
   return typeof id === "string" ? { ok: true, value: { id } } : { ok: false, error: writeMessage(null) };
 }
 
+/** Rename or re-point a connector. A new URL clears its credential and turns it off. */
+export async function updateConnector(
+  id: string,
+  patch: { name?: string; url?: string },
+): Promise<WriteResult<true>> {
+  const out = await rpc("upsert_account_mcp_server", {
+    id,
+    ...(patch.name ? { name: patch.name } : {}),
+    ...(patch.url ? { url: patch.url } : {}),
+  });
+  return out.ok ? { ok: true, value: true } : out;
+}
+
 export async function setConnectorEnabled(id: string, enabled: boolean): Promise<WriteResult<true>> {
   const out = await rpc("set_account_mcp_server_enabled", { id, enabled });
   return out.ok ? { ok: true, value: true } : out;

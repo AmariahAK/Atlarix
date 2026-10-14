@@ -279,6 +279,15 @@ export const McpServerOperationPreviewSchema = z.object({
   url: z.string().optional(),
   /** Names only — never values. A value here would put a secret in the card and the log. */
   envKeys: z.array(z.string()).optional(),
+  /** http: header NAMES it sends. Never values, for the same reason. */
+  headerKeys: z.array(z.string()).optional(),
+  /**
+   * Where it lives: `account` for a public https server (every surface, the
+   * Chrome extension included), `local` for this computer's folder.
+   */
+  scope: z.enum(["local", "account"]).optional(),
+  /** edit/delete of an account server: its id. */
+  accountId: z.string().optional(),
   hasApiKey: z.boolean().optional(),
   /** edit only: a short "was → now" per changed field. */
   changes: z.array(z.string()).optional(),

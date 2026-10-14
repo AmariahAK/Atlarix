@@ -89,6 +89,9 @@ import type { KeyCheck } from "@/lib/provider-key-check";
 
 export type { RelicSummary } from "@/lib/relics/relic-store";
 import type { RelicSummary } from "@/lib/relics/relic-store";
+import type { AddedServer, PasteOutcome } from "@/lib/mcp/mcp-add";
+import type { ConnectorView } from "@/lib/mcp/account-connectors";
+import type { CatalogEntry } from "@/shared/mcp-catalog";
 
 export interface CliServices {
   automations: {
@@ -115,6 +118,22 @@ export interface CliServices {
     found(appId: number): Promise<Array<{ key: string; source: string; name: string; transport: string; summary: string; envNames: string[]; scope: string }>>;
     /** Add one of those to this folder. */
     importFound(appId: number, key: string): Promise<void>;
+    /**
+     * Add your own: a URL, a command line, a config block, or the path of a
+     * config file. A public https server goes on the account (every surface);
+     * the rest stays in this folder.
+     */
+    paste(appId: number, text: string): Promise<PasteOutcome>;
+    /** Search the marketplace (official MCP Registry, cached), Verified first. */
+    catalog(appId: number, query: string, offset?: number): Promise<{ entries: CatalogEntry[]; total: number; installed: string[] }>;
+    install(appId: number, name: string, optionId: string, values: Record<string, string>): Promise<AddedServer>;
+    /** Web servers on the account (null when signed out). */
+    account(): Promise<ConnectorView[] | null>;
+    accountSetEnabled(appId: number, id: string, enabled: boolean): Promise<void>;
+    accountRemove(id: string): Promise<void>;
+    /** Sign in in the browser; `onUrl` gets the page as soon as it exists. */
+    accountSignIn(appId: number, id: string, onUrl: (url: string) => void): Promise<{ ok: boolean; enabled: boolean; error?: string }>;
+    accountSecret(appId: number, id: string, secret: string): Promise<void>;
   };
   permissions: {
     list(appId: number): Promise<SavedPermission[]>;
@@ -279,18 +298,44 @@ export const realServices: CliServices = {
       }
     },
     async add(appId, server) {
-      // The app's form, in one line: a command is split into the program and
-      // its arguments (stdio); a URL is a remote server (http).
-      const parts = server.command?.trim().match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g)?.map((a) => a.replace(/^["']|["']$/g, "")) ?? [];
-      await call("mcp:create-server", {
+      // Through the same path as a paste, so a public URL goes on the account.
+      const out = await call<PasteOutcome>("mcp:add-pasted", {
         appId,
+        text: server.url?.trim() || server.command?.trim() || "",
         name: server.name.trim(),
-        transport: server.url ? "http" : "stdio",
-        command: server.url ? null : (parts[0] ?? null),
-        args: server.url ? null : parts.slice(1),
-        url: server.url?.trim() || null,
-        enabled: true,
       });
+      if (out.failed[0]) throw new Error(out.failed[0].error);
+    },
+    async paste(appId, text) {
+      // A path to a config file (Claude Desktop's, Cursor's…) reads the file.
+      const trimmed = text.trim().replace(/^["']|["']$/g, "");
+      if (/\.jsonc?$/i.test(trimmed) && !/^\s*[{"]/.test(trimmed)) {
+        const { readFile } = await import("node:fs/promises");
+        const { homedir } = await import("node:os");
+        const file = trimmed.replace(/^~(?=$|[\\/])/, homedir());
+        const body = await readFile(file, "utf8").catch(() => null);
+        if (body == null) throw new Error(`Couldn't read ${trimmed}.`);
+        return call("mcp:add-pasted", { appId, text: body });
+      }
+      return call("mcp:add-pasted", { appId, text });
+    },
+    catalog: (appId, query, offset = 0) => call("mcp-catalog:search", { appId, query, offset, limit: 50 }),
+    install: (appId, name, optionId, values) => call("mcp-catalog:install", { appId, name, optionId, values }),
+    account: () => call("connectors:list"),
+    async accountSetEnabled(appId, id, enabled) {
+      await call("connectors:set-enabled", { appId, id, enabled });
+    },
+    async accountRemove(id) {
+      await call("connectors:remove", { id });
+    },
+    async accountSignIn(appId, id, onUrl) {
+      // In-process rather than through the handler, so the page can be shown
+      // here as soon as it exists (a terminal may have no browser).
+      const { signInAccountServer } = await import("@/lib/mcp/mcp-add");
+      return signInAccountServer(id, appId, { onUrl });
+    },
+    async accountSecret(appId, id, secret) {
+      await call("connectors:set-secret", { appId, id, secret });
     },
     setEnabled: (id, enabled) => call("mcp:update-server", { id, enabled }),
     remove: (id) => call("mcp:delete-server", id),

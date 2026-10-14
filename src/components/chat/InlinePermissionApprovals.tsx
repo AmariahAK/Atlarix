@@ -113,6 +113,8 @@ function queueEntryFromPermission(
       mcpArgs: preview.args as string[] | undefined,
       mcpUrl: preview.url as string | undefined,
       mcpEnvKeys: preview.envKeys as string[] | undefined,
+      mcpHeaderKeys: preview.headerKeys as string[] | undefined,
+      mcpScope: preview.scope as "local" | "account" | undefined,
       mcpChanges: preview.changes as string[] | undefined,
     }),
     ...(request.operation === "batch_plan" && {
@@ -502,6 +504,20 @@ export function McpServerPermissionCard({
               <span className="font-mono">
                 {operation.mcpEnvKeys.join(", ")}
               </span>
+            </p>
+          ) : null}
+          {operation.mcpHeaderKeys?.length ? (
+            <p className="mt-1.5 text-[11px] text-amber-900/90 dark:text-amber-100/80">
+              With headers:{" "}
+              <span className="font-mono">
+                {operation.mcpHeaderKeys.join(", ")}
+              </span>
+            </p>
+          ) : null}
+          {operation.mcpScope === "account" ? (
+            <p className="mt-1.5 text-[11px] text-amber-900/90 dark:text-amber-100/80">
+              On your account: the app, the CLI, your editor and the Chrome
+              extension.
             </p>
           ) : null}
 
