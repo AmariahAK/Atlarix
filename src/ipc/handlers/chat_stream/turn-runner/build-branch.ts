@@ -21,7 +21,6 @@ import { shouldAutoApprovePermissions } from "@/lib/agents/agent-runtime";
 import { attachDelegationToolsToSet } from "@/lib/agents/register-delegation-tools";
 import {
   ASK_USER_STREAM_STOP,
-  LOOP_REPETITION_STREAM_STOP,
   FORCE_TEXT_FINISH_STREAM_STOP,
   abortReasonSentinel,
   streamStopAbortReason,
@@ -40,7 +39,6 @@ import { type ChatContextReport } from "@/ipc/ipc_types";
 import { getEffectiveModelForOptions } from "@/ipc/utils/get_model_client";
 import { safeSend } from "@/ipc/utils/safe_sender";
 import { cwdNoteForCommand } from "@/lib/commands/cwd-note";
-import { stripThinkBlocks } from "@/ipc/utils/thinking_tags";
 import { estimateTokens } from "@/ipc/utils/token_utils";
 import {
   appendAutonomousOp,
@@ -63,15 +61,8 @@ import {
 import { isSystemScopeCommand } from "@/lib/system-scope-commands";
 import {
   resolveAskUserToolResult,
-  flushInterruptedDraft,
-  keepInterruptedDraft,
 } from "@/ipc/handlers/chat_stream/stream-lifecycle";
-import {
-  liveRoundStepsByChatId,
-  partialResponses,
-  streamTurnIdByChatId,
-} from "@/ipc/handlers/chat_stream/stream-state";
-import { serializeNativeHistory, stoppedTurnNative } from "@/lib/ai/native-history";
+import { saveStoppedTurn } from "./stopped-turn";
 import {
   runToolExecute,
   attachSearchRoutingActivity,
@@ -2008,85 +1999,12 @@ export async function runBuildBranch(
     const ledgerCompleteStop =
       ctx.askUserEndedTurn || stopSentinel === ASK_USER_STREAM_STOP;
     if (abortController.signal.aborted && !ledgerCompleteStop) {
-      const chatId = req.chatId;
-      const partialResponse = partialResponses.get(req.chatId);
-      // If we have a partial response, save it to the database
-      if (partialResponse) {
-        try {
-          const stopNote =
-            stopSentinel === LOOP_REPETITION_STREAM_STOP
-              ? "[Repeated action — task stopped. Review the activity log and send a message to continue.]"
-              : "[Response cancelled by user]";
-          const cancelledContent = `${partialResponse}
-
-${stopNote}`;
-          const { appendTransportMessage, getStreamTransport } = await import(
-            "@/lib/chat/stream-transport"
-          );
-          // What finished before the stop reaches the next turn as real tool
-          // calls and results, as Claude Code and codex keep them.
-          const live = liveRoundStepsByChatId.get(req.chatId);
-          liveRoundStepsByChatId.delete(req.chatId);
-          const native = stoppedTurnNative(
-            ctx.nativeTurnMessages,
-            live && live.turn === streamTurnIdByChatId.get(req.chatId)
-              ? live.steps()
-              : [],
-            `${stopNote} The steps above finished before the stop; anything after them did not run.`,
-          );
-          // Always set, so the saved row tells the model the turn was stopped
-          // even when no tool step finished. The row's text has no note, and a
-          // chat reopened from disk read a stopped request as still open: the
-          // next message (a peer's) re-ran it (app QA #1, 2026-10-14).
-          const modelContent =
-            serializeNativeHistory(
-              native ?? [
-                { role: "assistant", content: stripThinkBlocks(cancelledContent) },
-              ],
-              { builtinProviderId: modelClient.builtinProviderId },
-            ) || undefined;
-          // Onto the turn's own message, not a second one beside it: the copy
-          // showed the stopped turn twice, once with and once without its
-          // thinking (QA #34).
-          const pid = Number(streamTurnIdByChatId.get(req.chatId));
-          const own = Number.isFinite(pid)
-            ? getStreamTransport(req.chatId)?.messages.find(
-                (m) => m.id === pid && m.role === "assistant",
-              )
-            : undefined;
-          if (own) {
-            own.content = stripThinkBlocks(cancelledContent);
-            if (modelContent) own.modelContent = modelContent;
-          } else {
-            appendTransportMessage(req.chatId, {
-              role: "assistant",
-              content: stripThinkBlocks(cancelledContent),
-              ...(modelContent ? { modelContent } : {}),
-            });
-          }
-          // Issue 4: persist the partial to the session DB as an
-          // interrupted row so it survives reload and offers Continue.
-          if (req.workspaceSessionId) {
-            await flushInterruptedDraft(
-              req.chatId,
-              req.workspaceSessionId,
-              partialResponse,
-              { force: true, ...(modelContent ? { modelContent } : {}) },
-            );
-            // That row is now this turn's record: the next turn must not reuse it.
-            keepInterruptedDraft(req.chatId);
-          }
-          logger.log(
-            `Persisted partial response to ephemeral chat ${chatId} after abort`,
-          );
-          partialResponses.delete(req.chatId);
-        } catch (error) {
-          logger.error(
-            `Error saving partial response for chat ${chatId}:`,
-            error,
-          );
-        }
-      }
+      await saveStoppedTurn({
+        req,
+        stopSentinel,
+        nativeTurnMessages: ctx.nativeTurnMessages,
+        builtinProviderId: modelClient.builtinProviderId,
+      });
       // In the inline original this `return req.chatId` exited runStream
       // entirely (skipping finalization, still running the outer finally).
       // Extracted: signal the caller to do the same via this sentinel.

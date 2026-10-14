@@ -37,9 +37,12 @@ import {
 } from "@/ipc/utils/active-model-identity";
 import { resetAuxUsage } from "@/lib/usage/turn-usage-aggregator";
 import {
+  ASK_USER_STREAM_STOP,
   SUPERSEDED_STREAM_STOP,
+  abortReasonSentinel,
   streamStopAbortReason,
 } from "../../lib/stream/stream-stop-sentinels";
+import { saveStoppedTurn } from "./chat_stream/turn-runner/stopped-turn";
 import log from "electron-log";
 import fs from "node:fs";
 import * as path from "path";
@@ -2344,7 +2347,28 @@ export function registerChatStreamHandlers() {
                 processResponseChunkUpdate,
                 applyTierEscalation,
               };
-              await runAskBranch(ctx, askBranchDeps);
+              try {
+                await runAskBranch(ctx, askBranchDeps);
+              } finally {
+                // Stopped (it throws on the abort): saved as Build saves it —
+                // the stop note, and a draft row the next turn won't reuse.
+                const askStop = abortReasonSentinel(
+                  abortController.signal.reason,
+                );
+                if (
+                  abortController.signal.aborted &&
+                  !ctx.askUserEndedTurn &&
+                  !ctx.turnForcedTextFinish &&
+                  askStop !== ASK_USER_STREAM_STOP
+                ) {
+                  await saveStoppedTurn({
+                    req,
+                    stopSentinel: askStop,
+                    nativeTurnMessages: ctx.nativeTurnMessages,
+                    builtinProviderId: modelClient.builtinProviderId,
+                  });
+                }
+              }
             } else {
               // Build/debug arm extracted to ./chat_stream/turn-runner/build-branch.
               const buildBranchDeps: BuildBranchDeps = {

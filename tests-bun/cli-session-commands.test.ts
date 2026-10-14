@@ -440,4 +440,29 @@ describe("the session's commands", () => {
       "assistant:complete",
     ]);
   }, 60_000);
+
+  // The same in Ask (implementer's review of the fix above): Ask has its own
+  // branch, which saved nothing on a stop, and its draft row was deleted by
+  // the next turn.
+  it("an Ask turn that was stopped is still there, marked stopped, after another turn and a reopen", async () => {
+    const { s } = await sessionWith([
+      { text: "Looking at it now, slowly, word by word, until the user stops me.", delayMs: 400 },
+      { text: "Sure." },
+    ]);
+    s.setMode("ask");
+    await idleAfter(s, async () => {
+      void s.submit("explain the build");
+      while (!s.state.cells.some((c: any) => c.kind === "markdown" && c.text.includes("Looking"))) await Bun.sleep(20);
+      await s.interrupt();
+    });
+    await idleAfter(s, () => s.submit("never mind, say sure"));
+    const second = await sessionWith([{ text: "Got it." }]);
+    await second.s.resume(s.sessionId);
+    await idleAfter(second.s, () => second.s.submit("reply got it"));
+    const sent = (second.llm.requests.at(-1)?.messages ?? []).filter((m: any) => m.role !== "system");
+    const i = sent.findIndex((m: any) => m.role === "user" && m.content === "explain the build");
+    expect(sent[i + 1]?.role).toBe("assistant");
+    expect(JSON.stringify(sent[i + 1])).toContain("Looking");
+    expect(JSON.stringify(sent[i + 1])).toContain("[Response cancelled by user]");
+  }, 60_000);
 });
