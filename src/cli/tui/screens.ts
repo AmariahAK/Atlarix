@@ -4,6 +4,7 @@
  * Nothing here draws or reads keys directly, and nothing touches the database:
  * the session and the services do (and the tests fake both).
  */
+import { keptFilesLine } from "@/lib/chat/kept-files-line";
 import fs from "node:fs";
 import { CORE_PAYMENT_SUMMARY, formatCents } from "@/shared/billing_copy";
 import os from "node:os";
@@ -140,10 +141,14 @@ export async function openUndo(ctx: ScreenContext, messageId?: number): Promise<
   if (!target) return ctx.flash("Nothing to undo yet.");
   const preview = await ctx.session.undoPreview(target.id);
   const touched = preview.filesChanged.length + preview.createdFiles.length;
+  // Restoring leaves a file changed since alone: count what will go back.
+  const keptList = preview.kept ?? [];
+  const kept = new Set(keptList);
+  const goingBack = [...new Set([...preview.filesChanged, ...preview.createdFiles])].filter((f) => !kept.has(f)).length;
   const begin = (restore: boolean) => {
     ctx.host.closeAll();
     ctx.beginEdit?.(
-      { messageId: target.id, restoreTurnIds: restore ? preview.turnIds : null, restoreCount: restore ? touched : 0 },
+      { messageId: target.id, restoreTurnIds: restore ? preview.turnIds : null, restoreCount: restore ? goingBack : 0 },
       target.text,
     );
   };
@@ -155,6 +160,7 @@ export async function openUndo(ctx: ScreenContext, messageId?: number): Promise<
       intro: [
         { text: firstLineOf(target.text), bold: true },
         { text: `Atlarix changed ${touched} file${touched === 1 ? "" : "s"} after it: ${names.join(", ")}${touched > names.length ? " …" : ""}`, tone: "muted" },
+        ...(keptFilesLine(keptList) ? [{ text: keptFilesLine(keptList)!, tone: "muted" as const }] : []),
       ],
       footer: "↑↓ move · enter choose · esc cancel",
       items: [

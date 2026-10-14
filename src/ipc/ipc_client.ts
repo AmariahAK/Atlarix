@@ -1089,6 +1089,8 @@ export class IpcClient {
     revertedAt?: string;
     /** False: the turn has no record of how it ended, so a revert can't check. */
     endRecorded?: boolean;
+    /** What a revert now would keep: changed after the turn. */
+    kept?: string[];
   } | null> {
     return this.ipcRenderer.invoke("snapshot:files", params);
   }
@@ -1167,6 +1169,8 @@ export class IpcClient {
     turnsWithSnapshot: number;
     /** False: some turn has no record of how it ended; a revert can't check it. */
     endRecorded?: boolean;
+    /** What the range revert would keep: changed after those turns. */
+    kept?: string[];
   } | null> {
     return this.ipcRenderer.invoke("snapshot:files-range", { chatId, turnIds });
   }

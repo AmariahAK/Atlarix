@@ -233,10 +233,15 @@ export function registerRevertHandlers(): void {
         where: eq(apps.id, workspaceId),
       });
       if (!app?.path) return null;
-      const { listSnapshotFiles } = await import(
+      const { listSnapshotFiles, previewRevert } = await import(
         "@/lib/snapshot/snapshot-manager"
       );
-      return listSnapshotFiles(resolveAppPath(app.path), String(turnId));
+      const workspacePath = resolveAppPath(app.path);
+      const listed = await listSnapshotFiles(workspacePath, String(turnId));
+      if (!listed) return null;
+      // What a revert now would keep (changed since), for the confirm dialog.
+      const { kept } = await previewRevert(workspacePath, [String(turnId)]);
+      return { ...listed, kept };
     },
   );
 
@@ -331,7 +336,7 @@ export function registerRevertHandlers(): void {
         where: eq(apps.id, workspaceId),
       });
       if (!app?.path) return null;
-      const { listSnapshotFiles } = await import(
+      const { listSnapshotFiles, previewRevert } = await import(
         "@/lib/snapshot/snapshot-manager"
       );
       const workspacePath = resolveAppPath(app.path);
@@ -352,6 +357,10 @@ export function registerRevertHandlers(): void {
         createdFiles: [...createdFiles],
         turnsWithSnapshot,
         endRecorded,
+        // What the range revert (newest first) would keep, for the dialogs.
+        kept: (
+          await previewRevert(workspacePath, [...turnIds].map(String).reverse())
+        ).kept,
       };
     },
   );

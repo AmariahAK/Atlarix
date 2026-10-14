@@ -65,7 +65,8 @@ export interface SnapshotManifest {
   /** When the agent was told about that revert (once, with the next message). */
   revertToldAt?: string;
   /**
-   * Each changed file as the turn LEFT it (sha256; null when absent), recorded
+   * Each changed file as the turn LEFT it (git blob id, or size:mtime past the
+   * snapshot limit; null when absent), recorded
    * at the turn's end. A revert keeps a file that differs now: the user, a
    * later turn or a teammate session changed it since (owner: no random
    * reverts). Missing for a turn from before this or one that never reached
@@ -202,16 +203,24 @@ async function readManifest(
 const turnFilesThisRun = new Map<string, Map<string, Set<string>>>();
 
 /**
- * Past this a file's end state is its size and mtime, not a hash of its bytes:
- * the end state is read on the main thread at every turn's end. Both readers
- * below decide the same way, so they always compare like with like.
+ * Past this a file's end state is its size and mtime, not a hash of its bytes
+ * (the end state is read on the main thread at every turn's end). The limit
+ * is the snapshot's own: a file a revert can put back is always hashed, since
+ * putting back a newer turn rewrites it (new mtime) with exactly how an older
+ * turn left it, and only the bytes can tell. A larger file is never restored.
+ * Both readers below decide the same way, so they compare like with like.
  */
-const HASH_MAX_BYTES = 2 * 1024 * 1024;
+const HASH_MAX_BYTES = MAX_SNAPSHOT_FILE_BYTES;
 
+/**
+ * A file's end state: its git blob id (what `git hash-object` gives), so it
+ * compares directly with a snapshot tree's entries, which is how a revert is
+ * previewed without writing anything (previewRevert).
+ */
 function stamp(st: { size: number; mtimeMs: number }, bytes: () => Buffer): string {
-  return st.size > HASH_MAX_BYTES
-    ? `${st.size}:${st.mtimeMs}`
-    : createHash("sha256").update(bytes()).digest("hex");
+  if (st.size > HASH_MAX_BYTES) return `${st.size}:${st.mtimeMs}`;
+  const b = bytes();
+  return createHash("sha1").update(`blob ${b.length}\0`).update(b).digest("hex");
 }
 
 /** Synchronous on purpose: the end state is read at the instant the turn ends. */
@@ -699,6 +708,58 @@ function displayPath(primary: string, root: string, rel: string): string {
   return root === primary
     ? rel
     : path.relative(primary, path.join(root, rel)).split(path.sep).join("/");
+}
+
+/**
+ * What reverting these turns (newest first, as the range revert runs) would
+ * put back and what it would keep, without writing anything: so a confirm
+ * dialog can say "restores 1 file, keeps b.ts" before it happens. Follows
+ * each file through the chain: once a newer turn puts it back, it is as that
+ * turn's snapshot holds it when the older turn is checked.
+ */
+export async function previewRevert(
+  workspacePath: string,
+  turnIdsNewestFirst: string[],
+): Promise<{ restores: string[]; kept: string[] }> {
+  const primary = path.resolve(workspacePath);
+  const state = new Map<string, string | null>();
+  const restores = new Set<string>();
+  const kept = new Set<string>();
+  for (const turnId of turnIdsNewestFirst) {
+    const seg = sanitizeLedgerDirSegment(turnId);
+    for (const root of await turnRoots(workspacePath, turnId)) {
+      const gitDir = shadowGitDir(root);
+      const manifest = await readManifest(gitDir, seg);
+      if (!manifest) continue;
+      const tree = new Map<string, string>();
+      // -z: names unquoted, whatever they contain.
+      const ls = await git(["ls-tree", "-r", "-z", turnRef(seg)], root, gitEnv(gitDir, root, seg));
+      if (ls.exitCode === 0) {
+        for (const entry of ls.stdout.split("\0")) {
+          const m = /^\d+ blob ([0-9a-f]+)\t([\s\S]+)$/.exec(entry);
+          if (m) tree.set(m[2]!, m[1]!);
+        }
+      }
+      const created = new Set(manifest.createdFiles ?? []);
+      const ends = manifest.endHashes;
+      for (const rel of manifest.filesChanged) {
+        const key = displayPath(primary, root, rel);
+        const now = state.has(key)
+          ? state.get(key)!
+          : await fileHash(path.join(root, rel));
+        if (ends && rel in ends && now !== ends[rel]) {
+          kept.add(key);
+          state.set(key, now);
+          continue;
+        }
+        restores.add(key);
+        state.set(key, tree.get(rel) ?? (created.has(rel) ? null : now));
+      }
+    }
+  }
+  // Same rule as the range revert's result (a union over its turns), so the
+  // dialog before and the line after always agree.
+  return { restores: [...restores], kept: [...kept] };
 }
 
 // v10.1: legacy pre-v10 `.bak` file-copy revert fallback removed — turns

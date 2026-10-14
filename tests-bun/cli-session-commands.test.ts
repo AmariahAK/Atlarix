@@ -220,6 +220,11 @@ describe("the session's commands", () => {
     fs.writeFileSync(file, "export const k = 2; // teammate\n");
 
     const [mine] = s.myMessages();
+    // The dialog before says the same as the result after (nothing written yet).
+    const preview = await s.undoPreview(mine!.id);
+    expect(preview.kept.some((f) => f.endsWith("keep.ts"))).toBe(true);
+    expect(preview.kept.some((f) => f.endsWith("goes-back.ts"))).toBe(false);
+    expect(fs.readFileSync(other, "utf8")).toContain("g = 2");
     const { kept } = await s.restoreFilesSince(mine!.id);
     expect(fs.readFileSync(file, "utf8")).toContain("// teammate");
     expect(fs.readFileSync(other, "utf8")).toContain("g = 1");

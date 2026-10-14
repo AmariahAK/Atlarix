@@ -504,7 +504,7 @@ export class AgentSession extends EventEmitter {
   }
 
   /** What going back to this message would discard: the replies' file snapshots and the files they touched. */
-  async undoPreview(messageId: number): Promise<{ turnIds: string[]; filesChanged: string[]; createdFiles: string[] }> {
+  async undoPreview(messageId: number): Promise<{ turnIds: string[]; filesChanged: string[]; createdFiles: string[]; kept: string[] }> {
     const { discardedTurnSnapshotIds } = await import("@/lib/chat/discarded-turn-snapshots");
     const snapshotById = new Map([...this.turnSnapshots].map(([k, v]) => [Number(k), v]));
     const turnIds = discardedTurnSnapshotIds(
@@ -512,12 +512,14 @@ export class AgentSession extends EventEmitter {
       messageId,
       snapshotById,
     );
-    if (!turnIds.length) return { turnIds, filesChanged: [], createdFiles: [] };
+    if (!turnIds.length) return { turnIds, filesChanged: [], createdFiles: [], kept: [] };
     const files = (await (await handler("snapshot:files-range"))({}, { chatId: this.chatId, turnIds }).catch(() => null)) as {
       filesChanged: string[];
       createdFiles: string[];
+      kept?: string[];
     } | null;
-    return { turnIds, filesChanged: files?.filesChanged ?? [], createdFiles: files?.createdFiles ?? [] };
+    // `kept`: what restoring would leave alone, changed since (no writes).
+    return { turnIds, filesChanged: files?.filesChanged ?? [], createdFiles: files?.createdFiles ?? [], kept: files?.kept ?? [] };
   }
 
   /**

@@ -18,6 +18,7 @@ import {
   captureSnapshot,
   listSnapshotFiles,
   markSnapshotReverted,
+  previewRevert,
   recordSnapshotTurnEnd,
   revertSnapshot,
   takeUntoldRevertedFiles,
@@ -132,8 +133,8 @@ describeWithGit("a revert keeps what changed after the turn", () => {
   });
 });
 
-// Past 2 MB the end state is the file's size and mtime, not a hash of its
-// bytes (read on the main thread at every turn's end).
+// Large files: hashed up to the snapshot's own limit (a revert rewrites them,
+// so only the bytes can tell); past it, size and mtime.
 describeWithGit("a large file", () => {
   const big = (fill: string) => fill.repeat(3 * 1024 * 1024);
 
@@ -144,6 +145,18 @@ describeWithGit("a large file", () => {
     const res = await revertSnapshot({ workspacePath: workspace, turnId: "41" });
     expect((await read("big.txt"))?.endsWith("the user's line\n")).toBe(true);
     expect(res.kept).toEqual(["big.txt"]);
+  });
+
+  it("in a same-chat chain, newest first, still goes all the way back", async () => {
+    // Reverting the newer turn rewrites the file (new mtime) with exactly how
+    // the older turn left it: that must not read as "changed since".
+    await write("big.txt", big("a"));
+    await turn("41", { "big.txt": big("b") });
+    await turn("42", { "big.txt": big("c") });
+    const r42 = await revertSnapshot({ workspacePath: workspace, turnId: "42" });
+    const r41 = await revertSnapshot({ workspacePath: workspace, turnId: "41" });
+    expect((await read("big.txt"))?.slice(0, 3)).toBe("aaa");
+    expect([...(r42.kept ?? []), ...(r41.kept ?? [])]).toEqual([]);
   });
 
   it("untouched since goes back: the end and revert stamps agree (control)", async () => {
@@ -170,5 +183,43 @@ describeWithGit("a turn with no record of how it ended", () => {
   it("an ended turn lists as checkable (control)", async () => {
     await turn("41", { "a.ts": "a1" });
     expect((await listSnapshotFiles(workspace, "41"))?.endRecorded).toBe(true);
+  });
+});
+
+// The confirm dialogs say what a revert WILL do before it happens (CLI: "Atlarix
+// changed 2 files" while only 1 would go back). Read-only; must agree with the
+// revert itself.
+describeWithGit("previewing a revert", () => {
+  it("names what would be kept and changes nothing", async () => {
+    await turn("41", { "a.ts": "a1", "b.ts": "b1" });
+    await write("b.ts", "edited since");
+    expect(await previewRevert(workspace, ["41"])).toEqual({ restores: ["a.ts"], kept: ["b.ts"] });
+    expect(await read("a.ts")).toBe("a1"); // nothing written
+    const res = await revertSnapshot({ workspacePath: workspace, turnId: "41" });
+    expect(res.kept).toEqual(["b.ts"]);
+  });
+
+  it("follows a file through a same-chat chain, newest first", async () => {
+    await turn("41", { "a.ts": "a1", "new.ts": "made" });
+    await turn("42", { "a.ts": "a2" });
+    expect(await previewRevert(workspace, ["42", "41"])).toEqual({ restores: ["a.ts", "new.ts"], kept: [] });
+  });
+
+  it("an edit before the chain's newest turn is still caught for the older one", async () => {
+    await turn("41", { "a.ts": "a1" });
+    await write("a.ts", "a1 + user"); // between the two turns
+    await turn("42", { "a.ts": "a2" });
+    // 42 puts a.ts back to "a1 + user", which 41 then keeps.
+    expect(await previewRevert(workspace, ["42", "41"])).toEqual({ restores: ["a.ts"], kept: ["a.ts"] });
+    await revertSnapshot({ workspacePath: workspace, turnId: "42" });
+    const r41 = await revertSnapshot({ workspacePath: workspace, turnId: "41" });
+    expect(r41.kept).toEqual(["a.ts"]);
+    expect(await read("a.ts")).toBe("a1 + user");
+  });
+
+  it("a created file someone changed is previewed as kept", async () => {
+    await turn("41", { "new.ts": "made" });
+    await write("new.ts", "made + teammate");
+    expect(await previewRevert(workspace, ["41"])).toEqual({ restores: [], kept: ["new.ts"] });
   });
 });

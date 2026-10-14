@@ -45,6 +45,7 @@ export function RevertTurnAction({
         createdFiles: string[];
         revertedAt?: string;
         endRecorded?: boolean;
+        kept?: string[];
       }
     | null
     | undefined
@@ -118,8 +119,12 @@ export function RevertTurnAction({
     }
   };
 
-  const changed = files?.filesChanged.length ?? 0;
-  const created = files?.createdFiles.length ?? 0;
+  // What will actually go back: a file changed since is kept (said below).
+  const keptNow = new Set(files?.kept ?? []);
+  const goingBack = (files?.filesChanged ?? []).filter((f) => !keptNow.has(f));
+  const changed = goingBack.length;
+  const created = (files?.createdFiles ?? []).filter((f) => !keptNow.has(f)).length;
+  const keptLine = keptFilesLine([...keptNow]);
 
   return (
     <>
@@ -153,15 +158,16 @@ export function RevertTurnAction({
                     : ""}
                   .
                 </p>
-                {files && files.filesChanged.length > 0 ? (
+                {goingBack.length > 0 ? (
                   <pre className="max-h-32 overflow-auto rounded border border-border bg-muted/40 p-2 font-mono">
-                    {files.filesChanged.join("\n")}
+                    {goingBack.join("\n")}
                   </pre>
-                ) : (
+                ) : keptNow.size === 0 ? (
                   <p className="text-muted-foreground">
                     No file changes were recorded for this turn.
                   </p>
-                )}
+                ) : null}
+                {keptLine ? <p>{keptLine}</p> : null}
                 {files?.endRecorded === false ? (
                   // A turn from before end states were recorded, or one that
                   // was stopped: changes made since can't be told apart.
