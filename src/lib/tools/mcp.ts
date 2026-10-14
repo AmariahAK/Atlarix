@@ -29,7 +29,6 @@ import {
 import { isPublicHttpsUrl } from "@/shared/mcp-catalog";
 import {
   MCP_WORKSPACE_MAX,
-  describeWorkspaceCap,
   workspaceCapClause,
 } from "@/lib/workspace-caps";
 import { wrapUntrustedData } from "../streaming/untrusted-data";
@@ -319,7 +318,10 @@ ToolRegistry.register({
       }
       // Reported rather than only enforced: "you can't add another" would otherwise
       // look like a fault instead of a full workspace.
-      const limits = describeWorkspaceCap("mcp", servers.length);
+      // What is capped is how many are ON, not how many are added.
+      const { mcpOnCount } = await import("@/lib/mcp/mcp-add");
+      const on = await mcpOnCount(args.workspaceId ?? null).catch(() => 0);
+      const limits = { on, max: MCP_WORKSPACE_MAX, canTurnOnMore: on < MCP_WORKSPACE_MAX };
       if (servers.length === 0) {
         return {
           servers: [],
@@ -333,9 +335,9 @@ ToolRegistry.register({
         limits,
         usage:
           "Call mcp_call({ server: '<server name>', tool: '<tool name>', arguments: {...} }) to invoke a tool. Each invocation requires user consent on first use." +
-          (limits.canAddMore
+          (limits.canTurnOnMore
             ? ""
-            : ` The workspace is at its limit of ${limits.max} MCP server(s). Remove one to add another — this is not a plan limit and there is no tier that raises it.`),
+            : ` ${limits.on} of ${limits.max} are on. Adding one is fine (it starts off); turn one off to turn another on.`),
       };
     } catch (err) {
       return { error: err instanceof Error ? err.message : String(err) };
