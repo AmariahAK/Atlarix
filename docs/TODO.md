@@ -161,7 +161,13 @@ Linux is proven: the `quality` job runs `npm run check:ts` on `ubuntu-latest`. O
 `npm ci` installs cleanly on `windows-latest`, but no Windows job runs `tsc`, so the win32
 binary has never actually been executed there.
 
-### 4. Launchpad — one door left (different repo)
+### 4. CLI `/mcp` shows the switch, not whether the server connects
+
+QA (15.7.0): a server that is on but fails to connect reads "✓ on" in the CLI, while the editor's
+page says "Couldn't connect: Connection closed". Test on open (one connect per server), or mark a
+server whose last call failed. Low.
+
+### 5. Launchpad — one door left (different repo)
 
 `atlarix-launchpad`, not this one. One entity behind three doors on one domain — desktop app,
 Chrome extension, PR reviewer — because LLMs and listicles answer by CATEGORY. `/`, `/reviewer`
