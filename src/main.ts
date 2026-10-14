@@ -95,6 +95,11 @@ import {
   startPeriodicTempSweep,
 } from "./main/temp-hygiene";
 
+// Every Atlarix app on this computer (QA's scratch profiles too) writes this one
+// file, and electron-log's 1 MB default rotated it every ~15 minutes, so a
+// report about the last half hour found nothing (QA). 10 MB, plus main.old.log.
+log.transports.file.maxSize = 10 * 1024 * 1024;
+
 // Silence EPIPE: when stdout/stderr is closed (e.g. parent shell terminated),
 // `console.log` raises EPIPE asynchronously. electron-log's default catcher
 // would then log the error AND show a dialog — and the log write itself hits
