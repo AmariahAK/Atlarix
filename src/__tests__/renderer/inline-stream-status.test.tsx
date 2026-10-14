@@ -200,6 +200,20 @@ describe("compaction is visible mid-turn", () => {
     expect(screen.queryByRole("status")).toBeNull();
   });
 
+  it("ignores an automation's wake line, whatever the automation is called", () => {
+    const store = renderWithProviders(<div />).store;
+    store.set(
+      activityStreamItemsAtom,
+      bg({
+        id: "wake-automation-3-0",
+        status: "done",
+        label: 'Automation "Summarize Slack" finished: Summarized 12 threads',
+      }),
+    );
+    renderWithProviders(<InlineStreamStatus chatId={CHAT_ID} active />);
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
   it("ignores another chat's compaction", () => {
     const store = renderWithProviders(<div />).store;
     store.set(activityStreamItemsAtom, bg({ chatId: CHAT_ID + 1 }));

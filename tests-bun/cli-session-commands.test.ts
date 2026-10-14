@@ -378,4 +378,32 @@ describe("the session's commands", () => {
     const { lastRelic } = await import("../src/cli/tui/App");
     expect(lastRelic(s.state.cells)).toBe(file);
   }, 60_000);
+
+  // The desktop showed nothing to say which automation woke a reply (the CLI
+  // and editor note it themselves). The wake turn's stream now sends it as a
+  // "background" line, which the app's thread draws; the CLI ignores it.
+  it("a wake turn names the automation that woke it", async () => {
+    const { s, llm } = await sessionWith([{ text: "Hello." }, { text: "Looking at the failures." }]);
+    await idleAfter(s, () => s.submit("hi"));
+    const sent: Array<{ channel: string; p: any }> = [];
+    const onSend = (s as any).onSend.bind(s);
+    (s as any).onSend = (channel: string, p: any) => {
+      sent.push({ channel, p });
+      onSend(channel, p);
+    };
+    const { recordAutomationResult } = await import("../src/lib/agent/automation-results");
+    recordAutomationResult((s as any).appId, {
+      automationId: "a1",
+      automationName: "Nightly CI",
+      status: "ok",
+      body: "2 failing checks on main",
+      finishedAt: Date.now(),
+    });
+    await idleAfter(s, async () => {
+      (s as any).onSend("chat:background-job-update", { chatId: s.chatId, source: "automation", status: "finished" });
+    });
+    expect(JSON.stringify(llm.requests.at(-1))).toContain("2 failing checks on main");
+    const lines = sent.filter((x) => x.channel === "chat:activity" && x.p.type === "background").map((x) => x.p.label);
+    expect(lines).toEqual(['Automation "Nightly CI" finished: 2 failing checks on main']);
+  }, 60_000);
 });
