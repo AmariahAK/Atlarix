@@ -510,6 +510,23 @@ export function registerMcpHandlers() {
     return addPasted(params.appId, String(params.text ?? ""), params.name ? { name: params.name } : {});
   });
 
+  /** The Verified five and where each stands here: on, off, needs the user, or not added. */
+  handle("mcp:verified-status", async (_event, params: { appId?: number | null }) => {
+    const { VERIFIED_MCP_SERVERS } = await import("@/shared/mcp-catalog");
+    const { findMcpServer } = await import("@/lib/mcp/mcp-suggestions");
+    return Promise.all(
+      VERIFIED_MCP_SERVERS.map(async (v) => {
+        const here = await findMcpServer(params?.appId ?? null, v.name).catch(() => null);
+        return {
+          name: v.name,
+          title: v.fallback.title ?? v.name,
+          state: !here ? "not-added" : here.needs ? `needs-${here.needs}` : here.enabled ? "on" : "off",
+          ...(here ? { where: here.where, id: here.id } : {}),
+        };
+      }),
+    );
+  });
+
   /** How many are on, against the limit (this folder's plus the account's). */
   handle("mcp:limit", async (_event, params: { appId?: number | null }) => ({
     on: await mcpOnCount(params?.appId ?? null),

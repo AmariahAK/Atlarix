@@ -2650,6 +2650,19 @@ export class IpcClient {
     return this.ipcRenderer.invoke("mcp:add-pasted", params);
   }
 
+  /** The Verified five and where each stands in this folder / on the account. */
+  public async getVerifiedMcpStatus(appId: number | null): Promise<
+    Array<{
+      name: string;
+      title: string;
+      state: "on" | "off" | "not-added" | "needs-sign-in" | "needs-key";
+      where?: "local" | "account";
+      id?: number | string;
+    }>
+  > {
+    return this.ipcRenderer.invoke("mcp:verified-status", { appId });
+  }
+
   /** Servers on now (this folder's plus the account's) and the limit. */
   public async getMcpLimit(appId: number | null): Promise<{ on: number; max: number }> {
     return this.ipcRenderer.invoke("mcp:limit", { appId });

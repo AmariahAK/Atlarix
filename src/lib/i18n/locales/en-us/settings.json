@@ -49,6 +49,10 @@
     "later": "Later",
     "save": "Save",
     "prev": "Prev",
-    "next": "Next"
+    "next": "Next",
+    "verifiedMenu": "MCP servers",
+    "connect": "Connect",
+    "manage": "Manage MCP servers…",
+    "openFolder": "Open a folder first."
   }
 }
