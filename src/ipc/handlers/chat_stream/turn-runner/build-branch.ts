@@ -64,6 +64,7 @@ import { isSystemScopeCommand } from "@/lib/system-scope-commands";
 import {
   resolveAskUserToolResult,
   flushInterruptedDraft,
+  keepInterruptedDraft,
 } from "@/ipc/handlers/chat_stream/stream-lifecycle";
 import {
   liveRoundStepsByChatId,
@@ -2033,11 +2034,17 @@ ${stopNote}`;
               : [],
             `${stopNote} The steps above finished before the stop; anything after them did not run.`,
           );
-          const modelContent = native
-            ? serializeNativeHistory(native, {
-                builtinProviderId: modelClient.builtinProviderId,
-              })
-            : undefined;
+          // Always set, so the saved row tells the model the turn was stopped
+          // even when no tool step finished. The row's text has no note, and a
+          // chat reopened from disk read a stopped request as still open: the
+          // next message (a peer's) re-ran it (app QA #1, 2026-10-14).
+          const modelContent =
+            serializeNativeHistory(
+              native ?? [
+                { role: "assistant", content: stripThinkBlocks(cancelledContent) },
+              ],
+              { builtinProviderId: modelClient.builtinProviderId },
+            ) || undefined;
           // Onto the turn's own message, not a second one beside it: the copy
           // showed the stopped turn twice, once with and once without its
           // thinking (QA #34).
@@ -2066,6 +2073,8 @@ ${stopNote}`;
               partialResponse,
               { force: true, ...(modelContent ? { modelContent } : {}) },
             );
+            // That row is now this turn's record: the next turn must not reuse it.
+            keepInterruptedDraft(req.chatId);
           }
           logger.log(
             `Persisted partial response to ephemeral chat ${chatId} after abort`,

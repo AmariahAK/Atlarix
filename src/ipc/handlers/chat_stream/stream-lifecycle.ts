@@ -186,6 +186,16 @@ export async function flushInterruptedDraft(
   }
 }
 
+/**
+ * Keep the interrupted draft row as the stopped turn's record and forget it
+ * here, so the chat's next turn writes a new draft instead of overwriting this
+ * one (and deleting it when that turn completes).
+ */
+export function keepInterruptedDraft(chatId: number): void {
+  partialDraftRowByChatId.delete(chatId);
+  partialDraftLastFlushAtByChatId.delete(chatId);
+}
+
 /** Delete the interrupted draft for a chat (turn completed cleanly / superseded). */
 export async function clearInterruptedDraft(chatId: number): Promise<void> {
   const rowId = partialDraftRowByChatId.get(chatId);

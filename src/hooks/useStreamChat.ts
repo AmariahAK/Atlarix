@@ -2427,6 +2427,10 @@ export function useStreamChat({
                     )
                   : null;
               if (!sessionIdForPersist || appIdForPersist == null) return;
+              // A stopped turn is saved by main (its interrupted row, with the
+              // stop note for the model). A copy saved here had neither, and
+              // beside that row it showed the turn twice on reopen.
+              if (response.userCancelled) return;
               const assistantContent = lastAssistant?.content?.trim();
               if (!assistantContent) return;
               try {
