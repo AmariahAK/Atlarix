@@ -57,7 +57,8 @@ one did. Servers reached by URL can send any headers a config gives them, stored
 `manage_mcp_server` puts a public https server on your account. Adding the same server twice says
 it is already added, and re-importing a config skips what is already there. A command whose program
 isn't installed is refused. A reply that quotes JSON in a sentence (e.g. `{"success":true,…}`) no
-longer turns into an 'unknown' tool step with the JSON cut out.
+longer turns into an 'unknown' tool step with the JSON cut out. In the app, a reply woken by a finished automation
+now starts by saying which automation woke it, as the CLI and editors already did.
 
 ## [15.6.0] (2026-10-14) — automations that wake the agent, every provider, and a CLI and editor that read like the app
 
