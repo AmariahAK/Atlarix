@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { removeMcpServerFromAllCaches } from "@/hooks/mcpQueryCache";
 import { Button } from "@/components/ui/button";
@@ -332,6 +333,7 @@ export function ToolsMcpSettings({
     refetchAll,
   } = useMcp(filter);
   const { settings, updateSettings } = useSettings();
+  const { t } = useTranslation("settings");
   const [sandboxDiag, setSandboxDiag] = useState<{
     platform: string;
     firejailFound: boolean;
@@ -522,7 +524,7 @@ export function ToolsMcpSettings({
     <div className="space-y-6">
       <details className="space-y-2">
         <summary className="text-sm text-muted-foreground cursor-pointer select-none">
-          Add manually
+          {t("mcp.addManually")}
         </summary>
         <div className="grid grid-cols-2 gap-3 pt-2">
           <div>
@@ -638,7 +640,7 @@ export function ToolsMcpSettings({
       </details>
 
       <div className="space-y-3">
-        {servers.length > 0 && <div className="text-sm font-medium">On this computer</div>}
+        {servers.length > 0 && <div className="text-sm font-medium">{t("mcp.onThisComputer")}</div>}
         {servers.map((s) => {
           const isExpanded = expandedServerIds.has(s.id);
           const toolCount = (toolsByServer[s.id] || []).length;
@@ -789,7 +791,7 @@ export function ToolsMcpSettings({
         {servers.length === 0 && (
           <div className="flex flex-col items-center gap-1 py-4 text-sm text-muted-foreground">
             <Rix size={56} />
-            Nothing on this computer for this folder yet.
+            {t("mcp.emptyLocal")}
           </div>
         )}
       </div>

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -22,6 +23,7 @@ function host(url: string): string {
  */
 export function AccountMcpSection({ appId }: { appId: number }) {
   const ipc = IpcClient.getInstance();
+  const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState<string | null>(null);
   const { finish, dialog } = useMcpAddFlow(appId);
@@ -56,7 +58,7 @@ export function AccountMcpSection({ appId }: { appId: number }) {
 
   return (
     <div className="space-y-2">
-      <div className="text-sm font-medium">On all your devices</div>
+      <div className="text-sm font-medium">{t("mcp.onAllDevices")}</div>
       {data.map((c) => {
         const needsSignIn = c.authType === "oauth" && !c.connected;
         const needsKey = (c.authType === "api_key" || c.authType === "header") && !c.connected;
@@ -74,7 +76,7 @@ export function AccountMcpSection({ appId }: { appId: number }) {
               {busy === c.id && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
               {needsSignIn && (
                 <Button size="sm" variant="outline" disabled={busy != null} onClick={() => void signIn(c)}>
-                  Sign in
+                  {t("mcp.signIn")}
                 </Button>
               )}
               {needsKey && (
@@ -95,7 +97,7 @@ export function AccountMcpSection({ appId }: { appId: number }) {
                     ])
                   }
                 >
-                  Add key
+                  {t("mcp.addKey")}
                 </Button>
               )}
               <Switch
@@ -112,7 +114,7 @@ export function AccountMcpSection({ appId }: { appId: number }) {
                 disabled={busy != null}
                 onClick={() => void run(c.id, () => ipc.removeAccountMcp(c.id))}
               >
-                Remove
+                {t("mcp.remove")}
               </Button>
             </div>
           </div>

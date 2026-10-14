@@ -22,5 +22,33 @@
   },
   "providers": {
     "keyRejected": "Key rejected"
+  },
+  "mcp": {
+    "upTo": "Up to {{max}} on at a time.",
+    "onAllDevices": "On all your devices",
+    "onThisComputer": "On this computer",
+    "emptyLocal": "Nothing on this computer for this folder yet.",
+    "addManually": "Add manually",
+    "signIn": "Sign in",
+    "addKey": "Add key",
+    "remove": "Remove",
+    "add": "Add",
+    "added": "Added",
+    "importFile": "Import file",
+    "pastePlaceholder": "Paste a URL, a command, or an mcpServers config",
+    "searchPlaceholder": "Search MCP servers",
+    "noMatch": "No servers match.",
+    "verified": "Verified",
+    "web": "Web",
+    "local": "Local",
+    "serverCount": "{{count}} servers",
+    "onCount": "{{on}}/{{max}} on",
+    "optional": "(optional)",
+    "run": "Run",
+    "cancel": "Cancel",
+    "later": "Later",
+    "save": "Save",
+    "prev": "Prev",
+    "next": "Next"
   }
 }

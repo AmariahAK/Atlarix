@@ -9,6 +9,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { BadgeCheck, ExternalLink, Loader2, Search } from "lucide-react";
 import { showError } from "@/lib/toast";
@@ -52,6 +53,7 @@ function useDebounced<T>(value: T, ms: number): T {
 
 export function McpMarketplaceTab({ workspaceId }: { workspaceId: number }) {
   const ipc = IpcClient.getInstance();
+  const { t } = useTranslation("settings");
   const [search, setSearch] = useState("");
   const query = useDebounced(search.trim(), 200);
   const [page, setPage] = useState(0);
@@ -108,20 +110,20 @@ export function McpMarketplaceTab({ workspaceId }: { workspaceId: number }) {
         <Input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search MCP servers"
+          placeholder={t("mcp.searchPlaceholder")}
           className="pl-8"
         />
       </div>
 
       <div className="flex items-center justify-between text-xs text-muted-foreground">
         <span>
-          {(results.data?.total ?? 0).toLocaleString()} servers
-          {limit.data ? ` · ${limit.data.on}/${limit.data.max} on` : ""}
+          {t("mcp.serverCount", { count: results.data?.total ?? 0 })}
+          {limit.data ? ` · ${t("mcp.onCount", { on: limit.data.on, max: limit.data.max })}` : ""}
         </span>
         {totalPages > 1 && (
           <span className="flex items-center gap-2">
             <Button variant="ghost" size="sm" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0}>
-              Prev
+              {t("mcp.prev")}
             </Button>
             {page + 1} / {totalPages}
             <Button
@@ -130,7 +132,7 @@ export function McpMarketplaceTab({ workspaceId }: { workspaceId: number }) {
               onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
               disabled={page + 1 >= totalPages}
             >
-              Next
+              {t("mcp.next")}
             </Button>
           </span>
         )}
@@ -150,14 +152,14 @@ export function McpMarketplaceTab({ workspaceId }: { workspaceId: number }) {
                     {entry.verified && (
                       <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-primary shrink-0">
                         <BadgeCheck className="h-3.5 w-3.5" />
-                        Verified
+                        {t("mcp.verified")}
                       </span>
                     )}
                   </div>
                   <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground min-w-0">
                     {!entry.verified && <span className="font-mono truncate">{entry.publisher}</span>}
                     <span className="rounded bg-muted/60 px-1.5 py-0.5 shrink-0">
-                      {entry.kind === "web" ? "Web" : "Local"}
+                      {entry.kind === "web" ? t("mcp.web") : t("mcp.local")}
                     </span>
                   </div>
                 </div>
@@ -183,7 +185,7 @@ export function McpMarketplaceTab({ workspaceId }: { workspaceId: number }) {
                 disabled={isAdded || adding != null || !entry.installable}
                 onClick={() => onAdd(entry)}
               >
-                {adding === entry.name ? <Loader2 className="h-4 w-4 animate-spin" /> : isAdded ? "Added" : "Add"}
+                {adding === entry.name ? <Loader2 className="h-4 w-4 animate-spin" /> : isAdded ? t("mcp.added") : t("mcp.add")}
               </Button>
             </div>
           );
@@ -191,7 +193,7 @@ export function McpMarketplaceTab({ workspaceId }: { workspaceId: number }) {
       </div>
 
       {results.data && results.data.entries.length === 0 && (
-        <p className="text-sm text-muted-foreground py-8 text-center">No servers match.</p>
+        <p className="text-sm text-muted-foreground py-8 text-center">{t("mcp.noMatch")}</p>
       )}
 
       <Dialog open={dialog != null} onOpenChange={(o) => !o && setDialog(null)}>
@@ -203,14 +205,14 @@ export function McpMarketplaceTab({ workspaceId }: { workspaceId: number }) {
                 {dialog.entry.title}
               </DialogTitle>
               <DialogDescription>
-                {dialog.entry.verified ? "Verified" : dialog.entry.publisher}
+                {dialog.entry.verified ? t("mcp.verified") : dialog.entry.publisher}
               </DialogDescription>
             </DialogHeader>
 
             <div className="space-y-3">
               {dialog.entry.options.filter((o) => o.kind === "web" || o.supported).length > 1 && (
                 <div className="space-y-1">
-                  <Label className="text-xs">Run</Label>
+                  <Label className="text-xs">{t("mcp.run")}</Label>
                   <select
                     value={dialog.optionId}
                     onChange={(e) => setDialog({ ...dialog, optionId: e.target.value, values: {} })}
@@ -220,7 +222,7 @@ export function McpMarketplaceTab({ workspaceId }: { workspaceId: number }) {
                       .filter((o) => o.kind === "web" || o.supported)
                       .map((o) => (
                         <option key={o.id} value={o.id}>
-                          {o.kind === "web" ? "Web" : "Local"} · {optionLabel(o)}
+                          {o.kind === "web" ? t("mcp.web") : t("mcp.local")} · {optionLabel(o)}
                         </option>
                       ))}
                   </select>
@@ -230,7 +232,7 @@ export function McpMarketplaceTab({ workspaceId }: { workspaceId: number }) {
                 <div key={input.key} className="space-y-1">
                   <Label htmlFor={`mcp-in-${input.key}`} className="text-xs">
                     {input.label}
-                    {!input.required && <span className="text-muted-foreground"> (optional)</span>}
+                    {!input.required && <span className="text-muted-foreground"> {t("mcp.optional")}</span>}
                   </Label>
                   {input.choices?.length ? (
                     <select
@@ -267,7 +269,7 @@ export function McpMarketplaceTab({ workspaceId }: { workspaceId: number }) {
 
             <DialogFooter className="gap-2">
               <Button variant="outline" onClick={() => setDialog(null)} disabled={adding != null}>
-                Cancel
+                {t("mcp.cancel")}
               </Button>
               <Button
                 onClick={() => void install(dialog.entry, dialog.optionId, dialog.values)}
@@ -278,7 +280,7 @@ export function McpMarketplaceTab({ workspaceId }: { workspaceId: number }) {
                   )
                 }
               >
-                {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : "Add"}
+                {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : t("mcp.add")}
               </Button>
             </DialogFooter>
           </DialogContent>

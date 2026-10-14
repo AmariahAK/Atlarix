@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { FileUp, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -12,6 +13,7 @@ import { useMcpAddFlow } from "./useMcpAddFlow";
  * server lives is decided in main (src/lib/mcp/mcp-add.ts).
  */
 export function McpPasteBox({ appId }: { appId: number }) {
+  const { t } = useTranslation("settings");
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -52,17 +54,17 @@ export function McpPasteBox({ appId }: { appId: number }) {
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void add(text);
         }}
         rows={2}
-        placeholder="Paste a URL, a command, or an mcpServers config"
+        placeholder={t("mcp.pastePlaceholder")}
         className="font-mono text-xs"
         disabled={busy}
       />
       <div className="flex items-center gap-2">
         <Button size="sm" onClick={() => void add(text)} disabled={busy || !text.trim()}>
-          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Add"}
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : t("mcp.add")}
         </Button>
         <Button size="sm" variant="outline" onClick={() => fileRef.current?.click()} disabled={busy}>
           <FileUp className="h-4 w-4 mr-1" />
-          Import file
+          {t("mcp.importFile")}
         </Button>
         <input
           ref={fileRef}

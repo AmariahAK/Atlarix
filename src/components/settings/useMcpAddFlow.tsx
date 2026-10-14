@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,6 +21,7 @@ import type { AddedServer } from "@/lib/mcp/mcp-add";
  */
 export function useMcpAddFlow(appId: number) {
   const queryClient = useQueryClient();
+  const { t } = useTranslation("settings");
   const [secretFor, setSecretFor] = useState<{ id: string; name: string; header: string | null } | null>(null);
   const [secret, setSecret] = useState("");
   const [saving, setSaving] = useState(false);
@@ -96,10 +98,10 @@ export function useMcpAddFlow(appId: number) {
           />
           <DialogFooter>
             <Button variant="outline" onClick={() => setSecretFor(null)} disabled={saving}>
-              Later
+              {t("mcp.later")}
             </Button>
             <Button onClick={() => void saveSecret()} disabled={saving || !secret.trim()}>
-              Save
+              {t("mcp.save")}
             </Button>
           </DialogFooter>
         </DialogContent>

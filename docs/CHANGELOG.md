@@ -3,6 +3,37 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [15.7.0] (unreleased) — MCP servers from the official MCP Registry, on every surface
+
+**The marketplace is the official MCP Registry, with five Verified servers on top.** Settings → MCP
+→ Marketplace searches every server published to registry.modelcontextprotocol.io. Sentry, Notion,
+Supabase, Canva and Linear are Verified and add in one click with a browser sign-in. Every other card
+shows who published it (`io.github.someone`), whether it runs on the web or on this computer, and its
+icon. The catalog is synced in the background every hour and searched on your computer, so the
+marketplace works when the registry is slow or down; a copy ships with the app for a first run with
+no network. Only the latest version of each server is shown, and deprecated or deleted ones drop out.
+
+**Web servers follow you everywhere.** A server at a public https address is saved to your account,
+so the app, the CLI, your editor and the Chrome extension all have it. A command, or an address on
+this computer or your network, stays on this computer for the folder, shared by the app, the CLI and
+your editors. Up to 10 are on at a time, counting both; one more is added switched off and says so.
+
+**Add your own: paste anything.** Paste a URL, a command, or the `mcpServers` block from Claude
+Desktop, Cursor, VS Code or Zed (or import the file), and each server goes where it belongs: a URL is
+checked for how it signs in (browser sign-in, a key, or nothing), a server that needs a key asks for
+it. The same box is `/mcp` → `a` in the CLI (it also takes a config file's path) and Add in the editor
+extension; `/mcp` → `b` and Browse search the marketplace there too.
+
+**Your editor's own MCP servers work in Atlarix.** An ACP editor (Zed, JetBrains, Atlarix's VS Code
+extension) passes the MCP servers you set up in it; Atlarix now connects them for that chat, stdio and
+http, with the same per-tool approval as your other servers. In an editor without an Atlarix panel,
+`/mcp` lists the Verified servers and `/mcp add` takes a URL, a command or a marketplace name.
+
+**Smaller fixes.** An MCP server's sign-in now opens from the CLI and from editors (the link went
+nowhere without an app window). Turning a server on now respects the limit of 10, which only adding
+one did. Servers reached by URL can send any headers a config gives them, stored encrypted.
+`manage_mcp_server` puts a public https server on your account.
+
 ## [15.6.0] (2026-10-14) — automations that wake the agent, every provider, and a CLI and editor that read like the app
 
 **A finished automation wakes the agent.** An automation set to tell Atlarix now wakes one chat in

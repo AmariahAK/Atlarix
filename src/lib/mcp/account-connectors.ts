@@ -273,8 +273,10 @@ async function proxyWrite(path: string, payload: unknown): Promise<WriteResult<R
   }
 }
 
-const ROW_COLUMNS =
-  "id, name, slug, description, url, auth_type, auth_header, registry_name, enabled, credential_set_at, last_error, tools_cache";
+const BASE_COLUMNS =
+  "id, name, slug, description, url, auth_type, enabled, credential_set_at, last_error, tools_cache";
+/** Added by migration 20261014120000; a database without it still lists. */
+const ROW_COLUMNS = `${BASE_COLUMNS}, auth_header, registry_name`;
 
 interface ConnectorDbRow {
   id: string;
@@ -295,10 +297,14 @@ interface ConnectorDbRow {
 export async function listConnectorRows(): Promise<ConnectorView[] | null> {
   if (!(await signedIn())) return null;
   try {
-    const { data, error } = await getSupabaseClient()
-      .from("account_mcp_servers")
-      .select(ROW_COLUMNS)
-      .order("created_at", { ascending: true });
+    const read = (columns: string) =>
+      getSupabaseClient().from("account_mcp_servers").select(columns).order("created_at", { ascending: true });
+    let { data, error } = await read(ROW_COLUMNS);
+    // An older database (the migration not applied yet): the same rows, without
+    // the two newer columns, rather than looking signed out.
+    if (error && /column|auth_header|registry_name/i.test(error.message ?? "")) {
+      ({ data, error } = await read(BASE_COLUMNS));
+    }
     if (error || !Array.isArray(data)) return null;
     return (data as unknown as ConnectorDbRow[]).map((r) => ({
       id: r.id,
@@ -307,8 +313,8 @@ export async function listConnectorRows(): Promise<ConnectorView[] | null> {
       description: r.description ?? "",
       url: r.url,
       authType: r.auth_type,
-      authHeader: r.auth_header,
-      registryName: r.registry_name,
+      authHeader: r.auth_header ?? null,
+      registryName: r.registry_name ?? null,
       enabled: r.enabled,
       connected: r.auth_type === "none" || !!r.credential_set_at,
       lastError: r.last_error,

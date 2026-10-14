@@ -3,6 +3,7 @@
  */
 
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useAtomValue } from "jotai";
 import { Sparkles } from "lucide-react";
 import { useSearch } from "@tanstack/react-router";
@@ -27,6 +28,7 @@ function WorkspaceRequiredEmpty() {
 
 export function McpSettingsPage() {
   const selectedAppId = useAtomValue(selectedAppIdAtom);
+  const { t } = useTranslation("settings");
   // Deep link: /integrations/mcp?tab=marketplace (first-run wizard CTA).
   const search = useSearch({ strict: false }) as { tab?: string };
   const [activeTab, setActiveTab] = useState<"active" | "marketplace">(() =>
@@ -44,7 +46,7 @@ export function McpSettingsPage() {
       <div>
         <h2 className="text-xl font-semibold text-foreground">MCP servers</h2>
         <p className="text-muted-foreground mt-1 text-sm">
-          Up to {MCP_WORKSPACE_MAX} on at a time.
+          {t("mcp.upTo", { max: MCP_WORKSPACE_MAX })}
         </p>
       </div>
 
