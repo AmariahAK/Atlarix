@@ -131,6 +131,38 @@ interface FileOpExecutionResult {
   output?: string;
 }
 
+/**
+ * Revert restores from a git snapshot taken before each write. Without Git
+ * (a fresh Windows) every capture fails and Revert is never offered: say so
+ * once per run, in the chat that was writing, rather than only in the log.
+ */
+let revertNeedsGitNoted = false;
+async function noteRevertNeedsGit(chatId: number): Promise<void> {
+  if (revertNeedsGitNoted) return;
+  const { isGitAvailable, GIT_NOT_INSTALLED_MESSAGE } = await import(
+    "@/ipc/utils/system_git_exec"
+  );
+  if (revertNeedsGitNoted || (await isGitAvailable())) return;
+  revertNeedsGitNoted = true;
+  const payload = {
+    id: "revert-needs-git",
+    type: "background",
+    label: "Revert is off: Git isn't installed.",
+    detail: GIT_NOT_INSTALLED_MESSAGE,
+    status: "done",
+    timestamp: Date.now(),
+    chatId,
+  };
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send("chat:activity", payload);
+  }
+}
+
+/** Test seam: the notice is once per process. */
+export function _resetRevertNeedsGitNoticeForTests(): void {
+  revertNeedsGitNoted = false;
+}
+
 export class PermissionInterceptor extends EventEmitter {
   /** Map of operation ID to pending permission request */
   private pendingOperations: Map<string, BufferedOperation> = new Map();
@@ -1576,6 +1608,7 @@ export class PermissionInterceptor extends EventEmitter {
       });
     } catch (e) {
       logger.warn("[maybeCaptureWorkspaceSnapshot] skipped:", e);
+      void noteRevertNeedsGit(this.activeChatId);
     }
   }
 
