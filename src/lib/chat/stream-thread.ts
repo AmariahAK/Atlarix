@@ -1316,6 +1316,14 @@ export function enrichStreamThreadFromAssistantContent(
     usedByName.set(tool.toolName, idx + 1);
     const contentTool = contentToolsByName.get(tool.toolName)?.[idx];
     if (!contentTool) return tool;
+    // A card holding the merged whole file draws from it, never from the
+    // model's own args in the reply's tags (an edit's snippets, or a blank).
+    if (tool.toolArgs?.[DISPLAY_PREVIEW_ARG]) {
+      return withDisplayPreviewExpand({
+        ...tool,
+        resultText: tool.resultText ?? contentTool.resultText,
+      });
+    }
     if (isExpandableToolItem(tool)) return tool;
     if (!isExpandableToolItem(contentTool)) return tool;
     return {

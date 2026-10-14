@@ -762,8 +762,13 @@ function buildDiffView(
   // ZERO extra tokens. Falls back to the result payload for older sessions.
   const a =
     args && typeof args === "object" ? (args as Record<string, unknown>) : {};
+  // Some models fill every schema field: a `replace` arrived with `content: ""`
+  // beside its new_content/edits, and the card drew the old text all removed.
+  const blankContent =
+    a.content === "" &&
+    (typeof a.new_content === "string" || Array.isArray(a.edits));
   const argNew =
-    typeof a.content === "string"
+    typeof a.content === "string" && !blankContent
       ? a.content
       : typeof a.new_content === "string"
         ? a.new_content
