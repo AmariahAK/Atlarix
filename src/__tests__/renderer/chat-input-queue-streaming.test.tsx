@@ -87,6 +87,9 @@ vi.mock("@/ipc/ipc_client", () => ({
       interjectUserMessage: interject,
       cancelUserInterjection: cancel,
       listUserInterjections: async () => [...mainQueue],
+      // The MCP suggestion cards above the box: none in these tests.
+      listMcpSuggestions: async () => [],
+      onMcpSuggestion: () => () => {},
       onUserInterjections: () => () => {},
     }),
   },
