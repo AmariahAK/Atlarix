@@ -13,6 +13,8 @@
  * and the account's. A server over the limit is still added, switched off,
  * and says so: nothing the user brought is thrown away.
  */
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { and, eq } from "drizzle-orm";
 import log from "electron-log";
 import { db } from "@/db";
@@ -78,6 +80,30 @@ export function limitMessage(): string {
 /** Throws the limit message when turning one more on would pass it. */
 export async function assertRoomForOneMore(appId: number | null): Promise<void> {
   if ((await mcpOnCount(appId)) >= MCP_ON_LIMIT) throw new Error(limitMessage());
+}
+
+// ─── Is the program there? ──────────────────────────────────────────────────
+
+/**
+ * Whether a command can be started: a path that exists, or a name on PATH
+ * (with Windows' PATHEXT). `/mcp add not a real thing` saved a server whose
+ * program was "not" (QA). The app's PATH is the login shell's (resolve-path.ts).
+ */
+export function programExists(command: string): boolean {
+  const cmd = command.trim();
+  if (!cmd) return false;
+  if (path.isAbsolute(cmd) || cmd.includes("/") || cmd.includes("\\")) return existsSync(cmd);
+  const exts =
+    process.platform === "win32"
+      ? ["", ...(process.env.PATHEXT ?? ".EXE;.CMD;.BAT;.COM").split(";").filter(Boolean)]
+      : [""];
+  for (const dir of (process.env.PATH ?? "").split(path.delimiter)) {
+    if (!dir) continue;
+    for (const ext of exts) {
+      if (existsSync(path.join(dir, cmd + ext)) || existsSync(path.join(dir, cmd + ext.toLowerCase()))) return true;
+    }
+  }
+  return false;
 }
 
 // ─── Already here? ──────────────────────────────────────────────────────────
@@ -242,6 +268,9 @@ export async function addLocalServer(
   opts: { enable: boolean },
 ): Promise<AddedServer> {
   if (spec.transport === "stdio" && !spec.command?.trim()) throw new Error("A command is required.");
+  if (spec.transport === "stdio" && !programExists(spec.command!)) {
+    throw new Error(`There is no program called "${spec.command!.trim()}" on this computer.`);
+  }
   if (spec.transport === "http" && !spec.url?.trim()) throw new Error("A URL is required.");
   const same = await findSameServer(appId, {
     registryName: spec.registryId,

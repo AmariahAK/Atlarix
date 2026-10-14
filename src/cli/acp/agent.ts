@@ -579,6 +579,14 @@ class Thread {
     const errorBefore = this.session.state.lastError;
     const slash = /^\/(\w+)\s*$/.exec(text);
     const skill = this.skillFor(text);
+    // `/mcp add` with nothing after it: say what it takes, rather than sending it to the model.
+    if (/^\/mcp\s+add\s*$/i.test(text)) {
+      await this.send({
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "`/mcp add` takes a URL, a command, or a marketplace server's name, e.g. `/mcp add linear`." },
+      });
+      return { stopReason: "end_turn" };
+    }
     const mcpAdd = /^\/mcp\s+add\s+(.+?)\s*$/is.exec(text);
     if (mcpAdd) {
       const { accountCommandText } = await import("./account-commands");

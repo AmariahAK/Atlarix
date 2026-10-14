@@ -15,7 +15,7 @@ vi.mock("electron-log", () => ({
   default: { scope: () => ({ warn: vi.fn(), error: vi.fn(), info: vi.fn(), log: vi.fn() }) },
 }));
 
-let localRows: Array<{ id: number; name: string; enabled: boolean }> = [];
+let localRows: Array<{ id: number; name: string; enabled: boolean; registryId?: string | null; url?: string | null; command?: string | null; args?: string[] | null }> = [];
 const inserted: Array<Record<string, unknown>> = [];
 vi.mock("@/db", () => ({
   db: {
@@ -200,5 +200,25 @@ describe("a pasted config", () => {
 
   it("explains a paste it can't read", async () => {
     await expect(addPasted(7, '{"theme":"dark"}')).rejects.toThrow("No MCP servers found");
+  });
+});
+
+describe("refusing what can't work, or is already here", () => {
+  it("a command whose program isn't on this computer", async () => {
+    const out = await addPasted(7, "not a real thing at all");
+    expect(out.added).toHaveLength(0);
+    expect(out.failed[0]!.error).toMatch(/no program called "not"/);
+  });
+
+  it("the same command, URL or registry entry twice", async () => {
+    localRows = [
+      { id: 1, name: "everything", enabled: true, command: "npx", args: ["-y", "@modelcontextprotocol/server-everything"] },
+    ];
+    const again = await addPasted(7, "npx -y @modelcontextprotocol/server-everything");
+    expect(again.added).toHaveLength(0);
+    expect(again.skipped).toEqual([{ name: "server-everything", reason: 'already added as "everything"' }]);
+    accountRows = [{ id: "a1", enabled: true, url: "https://mcp.linear.app/mcp", name: "Linear", registryName: "app.linear/linear" } as never];
+    await expect(installFromCatalog(7, { name: "app.linear/linear", optionId: "remote:0", values: {} })).rejects.toThrow(/already added, as "Linear"/);
+    await expect(addServerFromUrl(7, { url: "https://mcp.linear.app/mcp/" }, { enable: true })).rejects.toThrow(/already added/);
   });
 });
