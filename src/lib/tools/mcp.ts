@@ -77,6 +77,27 @@ interface ListedMcpServer {
   inactive?: boolean;
 }
 
+/**
+ * The list as the model reads it: every server and every tool NAME always fit.
+ * Full tool descriptions did not — Notion (55 tools) plus Linear (68) went past
+ * the tool-output budget, the cut list read as "truncated", and the agent went
+ * searching the disk for its own configuration (QA). Descriptions are cut to a
+ * line, and dropped altogether when the list would still be too long.
+ */
+const MCP_LIST_MAX_CHARS = 16_000;
+export function compactListedServers(servers: ListedMcpServer[]): ListedMcpServer[] {
+  const line = (d?: string) => {
+    const first = (d ?? "").split(/\n|(?<=\.)\s/)[0]!.trim();
+    return first.length > 90 ? `${first.slice(0, 89)}…` : first;
+  };
+  const short = servers.map((s) => ({
+    ...s,
+    tools: s.tools.map((t) => (line(t.description) ? { name: t.name, description: line(t.description) } : { name: t.name })),
+  }));
+  if (JSON.stringify(short).length <= MCP_LIST_MAX_CHARS) return short;
+  return servers.map((s) => ({ ...s, tools: s.tools.map((t) => ({ name: t.name })) }));
+}
+
 function formatMcpError(
   err: unknown,
   _serverName: string,
@@ -308,7 +329,7 @@ ToolRegistry.register({
         };
       }
       return {
-        servers,
+        servers: compactListedServers(servers),
         limits,
         usage:
           "Call mcp_call({ server: '<server name>', tool: '<tool name>', arguments: {...} }) to invoke a tool. Each invocation requires user consent on first use." +

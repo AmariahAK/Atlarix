@@ -514,8 +514,14 @@ function score(entry: CatalogSearchItem, terms: string[]): number {
     if (s === 0) return 0; // every term must match somewhere
     total += s;
   }
+  // The publisher IS what was searched for (`github` → io.github.github,
+  // `brave search` → io.github.brave): their own server before look-alikes
+  // that only borrow the name in a title (QA: GitHub's own ranked 8th).
+  if (owner && terms.includes(owner)) total += OWN_PUBLISHER_BONUS;
   return total;
 }
+
+const OWN_PUBLISHER_BONUS = 70;
 
 /** A title that starts with a letter reads as a name; `:authority…` and `00Widget` do not. */
 const readable = (title: string) => (/^[A-Za-z]/.test(title) ? 0 : 1);

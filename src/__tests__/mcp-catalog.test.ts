@@ -258,3 +258,33 @@ describe("where a URL lives", () => {
     expect(connectorNameFor("Sentry")).toMatch(/^[A-Za-z0-9][A-Za-z0-9 ._-]{0,59}$/);
   });
 });
+
+describe("list_available_mcps stays whole (QA)", () => {
+  it("cuts tool descriptions to a line, and drops them when still too long", async () => {
+    const { compactListedServers } = await import("@/lib/tools/mcp");
+    const long = "Does a thing. ".repeat(40);
+    const mk = (name: string, n: number) => ({
+      id: 1, name, scope: "account", transport: "http",
+      tools: Array.from({ length: n }, (_, i) => ({ name: `${name}_tool_${i}`, description: long })),
+    });
+    const small = compactListedServers([mk("notion", 5)]);
+    expect(small[0]!.tools[0]!.description).toBe("Does a thing.");
+    const big = compactListedServers([mk("notion", 55), mk("linear", 68), mk("sentry", 200)]);
+    expect(big.flatMap((s) => s.tools)).toHaveLength(323);
+    expect(big[0]!.tools[0]!.description).toBeUndefined();
+  });
+});
+
+describe("the publisher you searched for ranks first (QA)", () => {
+  it("github → GitHub's own; brave search → Brave's own", () => {
+    const items = [
+      { name: "io.github.someone/github", title: "Github", description: "GitHub tools" },
+      { name: "ai.smithery/github-mcp", title: "GitHub", description: "GitHub" },
+      { name: "io.github.github/github-mcp-server", title: "GitHub MCP Server", description: "GitHub's official" },
+      { name: "ai.smithery/brave-search", title: "Brave Search", description: "search" },
+      { name: "io.github.brave/brave-search-mcp-server", title: "Brave Search MCP Server", description: "search" },
+    ];
+    expect(searchCatalog(items, "github").entries[0]!.name).toBe("io.github.github/github-mcp-server");
+    expect(searchCatalog(items, "brave search").entries[0]!.name).toBe("io.github.brave/brave-search-mcp-server");
+  });
+});
