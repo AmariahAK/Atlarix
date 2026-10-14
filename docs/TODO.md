@@ -1,14 +1,9 @@
 # Atlarix TODO
 
-**Current version:** 15.5.0 (2026-10-11): the editor extension redesigned (task card, checkpoints
-with Compare, approval bar, @ and / menus, past chats), Models & keys (keys checked, provider pages,
-own endpoints, a different model for Plan), MCP servers found in other tools, `/keys` and
-`atlarix keys` for Zed and JetBrains. 15.4.2 (2026-10-10): the editor extension asks for a rating once, and its
-listings drop the Debuggers category. 15.4.1 named the repository and "Free" on the listings. 15.4.0 (2026-10-10) shipped Atlarix for VS Code, Cursor, Kiro and Windsurf
-(`packages/vscode`; VS Code Marketplace by hand, Open VSX from CI), Rix the mascot, the CLI's
-left-aligned header, the session recap on every surface, opted-in analytics with an approximate
-location, and more of Atlarix in Zed and JetBrains over ACP. Narrative in
-[`docs/CHANGELOG.md`](./CHANGELOG.md).
+**Current version:** 15.7.0 (2026-10-14): MCP servers from the official MCP Registry on every
+surface (five Verified, paste anything, web servers on the account, local ones per folder), the
+agent suggests and connects the server a task needs, every server shows its logo, and revert keeps
+work done after the turn. Narrative in [`docs/CHANGELOG.md`](./CHANGELOG.md).
 
 **This header has been wrong before.** Update it in the same commit as the version bump, or do
 not trust it.
