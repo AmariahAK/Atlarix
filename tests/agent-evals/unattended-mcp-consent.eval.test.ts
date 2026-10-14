@@ -19,6 +19,8 @@ vi.mock("@/ipc/utils/mcp_manager", async (importOriginal) => {
   return {
     ...actual,
     mcpManager: {
+      // No editor-passed (ACP session) servers in these runs.
+      listSessionServers: () => [],
       getClient: async () => ({
         tools: async () => ({
           post_message: {
