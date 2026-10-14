@@ -85,7 +85,16 @@ export function RevertTurnAction({
     );
   }
 
-  const openDialog = () => setOpen(true);
+  // Looked up again on open: what is kept depends on edits made since the turn,
+  // and the list loaded when the reply appeared predates them (the dialog said
+  // "Restores 2 files" while one was then kept; Windows QA, 2026-10-15).
+  const openDialog = async () => {
+    const fresh = await IpcClient.getInstance()
+      .getSnapshotFiles({ chatId, turnId })
+      .catch(() => undefined);
+    if (fresh) setFiles(fresh);
+    setOpen(true);
+  };
 
   const doRevert = async () => {
     setLoading(true);
