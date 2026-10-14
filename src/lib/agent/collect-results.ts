@@ -26,12 +26,18 @@ import {
   takePendingAutomationResults,
   hasPendingAutomationResults,
 } from "./automation-results";
+import {
+  takePendingMcpConnectResults,
+  hasPendingMcpConnectResults,
+} from "../mcp/mcp-suggestions";
 
 export function collectPendingBackgroundResultsBody(chatId: number): string {
   const parts = [
     takePendingBackgroundCommandResults(chatId),
     takePendingSubagentResults(chatId),
     takePendingAutomationResults(chatId),
+    // An MCP server the agent suggested, now connected by the user.
+    takePendingMcpConnectResults(chatId),
     takePendingStalledAdvisories(chatId),
   ].filter((p): p is string => !!p);
   return parts.length ? parts.join("\n\n") : "No pending background results.";
@@ -55,6 +61,7 @@ export function computeWakePendingResults(
     (hasPendingBackgroundCommandResults(chatId) ||
       hasPendingSubagentResults(chatId) ||
       hasPendingAutomationResults(chatId) ||
+      hasPendingMcpConnectResults(chatId) ||
       hasPendingStalledAdvisories(chatId))
   );
 }

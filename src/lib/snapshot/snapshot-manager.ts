@@ -26,6 +26,7 @@
  */
 
 import * as fs from "fs/promises";
+import * as fsSync from "fs";
 import * as path from "path";
 import { createHash } from "crypto";
 import { exec } from "@/ipc/utils/system_git_exec";
@@ -63,6 +64,17 @@ export interface SnapshotManifest {
   revertedAt?: string;
   /** When the agent was told about that revert (once, with the next message). */
   revertToldAt?: string;
+  /**
+   * Each changed file as the turn LEFT it (git blob id, or size:mtime past the
+   * snapshot limit; null when absent), recorded
+   * at the turn's end. A revert keeps a file that differs now: the user, a
+   * later turn or a teammate session changed it since (owner: no random
+   * reverts). Missing for a turn from before this or one that never reached
+   * its end; such a revert cannot check.
+   */
+  endHashes?: Record<string, string | null>;
+  /** The files the last revert actually put back (kept ones excluded). */
+  revertedFiles?: string[];
 }
 
 function workspaceKey(workspacePath: string): string {
@@ -77,6 +89,7 @@ let shadowRootOverride: string | null = null;
 /** Test seam — point the shadow store at a temp dir. */
 export function _setShadowSnapshotsRootForTests(root: string | null): void {
   shadowRootOverride = root;
+  byteExactRepos.clear(); // as a fresh run would see them
 }
 
 function shadowGitDir(workspacePath: string): string {
@@ -147,10 +160,40 @@ async function git(
   };
 }
 
+/**
+ * The snapshot must hold, and put back, a file's exact bytes. The shadow git
+ * works on the user's own folder, so that folder's .gitattributes (eol=crlf,
+ * text=auto, an LFS filter, ident, working-tree-encoding) and a system
+ * core.autocrlf (Windows) converted bytes on add and checkout: a restore could
+ * change line endings, and a chain then read the rewritten file as "changed
+ * since". $GIT_DIR/info/attributes outranks the folder's .gitattributes.
+ * Idempotent; done once per repo per run, for repos made before this too.
+ */
+const BYTE_EXACT_ATTRIBUTES = "* -text -filter -ident -working-tree-encoding\n";
+const byteExactRepos = new Set<string>();
+
+async function ensureByteExact(gitDir: string, workspacePath: string): Promise<void> {
+  if (byteExactRepos.has(gitDir)) return;
+  const attrs = path.join(gitDir, "info", "attributes");
+  const current = await fs.readFile(attrs, "utf8").catch(() => null);
+  if (current !== BYTE_EXACT_ATTRIBUTES) {
+    await fs.mkdir(path.dirname(attrs), { recursive: true });
+    await fs.writeFile(attrs, BYTE_EXACT_ATTRIBUTES, "utf8");
+  }
+  for (const [key, value] of [
+    ["core.autocrlf", "false"],
+    ["core.eol", "lf"],
+  ]) {
+    await git(["--git-dir", gitDir, "config", key, value], workspacePath, {});
+  }
+  byteExactRepos.add(gitDir);
+}
+
 async function ensureShadowRepo(workspacePath: string): Promise<string> {
   const gitDir = shadowGitDir(workspacePath);
   try {
     await fs.access(path.join(gitDir, "HEAD"));
+    await ensureByteExact(gitDir, workspacePath);
     return gitDir;
   } catch {
     // not initialized yet
@@ -171,6 +214,7 @@ async function ensureShadowRepo(workspacePath: string): Promise<string> {
     {},
   );
   await fs.mkdir(path.join(gitDir, TURNS_DIR), { recursive: true });
+  await ensureByteExact(gitDir, workspacePath);
   logger.info(`Initialized shadow snapshot repo for ${workspacePath}`);
   return gitDir;
 }
@@ -187,6 +231,85 @@ async function readManifest(
   }
 }
 
+/**
+ * Write a manifest atomically (temp file, then rename). It is read without
+ * the workspace lock (the files list, the revert preview), and since a turn's
+ * end rewrites it, a plain writeFile let a reader see it empty mid-write and
+ * take the turn for having no snapshot.
+ */
+async function writeManifest(
+  gitDir: string,
+  seg: string,
+  manifest: SnapshotManifest,
+): Promise<void> {
+  const target = turnManifestPath(gitDir, seg);
+  const tmp = `${target}.${process.pid}.${Date.now()}.tmp`;
+  await fs.writeFile(tmp, JSON.stringify(manifest, null, 2), "utf8");
+  // Windows refuses to replace a file another reader has open at that instant.
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await fs.rename(tmp, target);
+      return;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (attempt >= 5 || (code !== "EPERM" && code !== "EBUSY" && code !== "EACCES")) {
+        await fs.rm(tmp, { force: true }).catch(() => undefined);
+        throw err;
+      }
+      await new Promise((r) => setTimeout(r, 20 * (attempt + 1)));
+    }
+  }
+}
+
+/** What each turn captured this process (root → its files); read at the turn's end. */
+const turnFilesThisRun = new Map<string, Map<string, Set<string>>>();
+
+/**
+ * Past this a file's end state is its size and mtime, not a hash of its bytes
+ * (the end state is read on the main thread at every turn's end). The limit
+ * is the snapshot's own: a file a revert can put back is always hashed, since
+ * putting back a newer turn rewrites it (new mtime) with exactly how an older
+ * turn left it, and only the bytes can tell. A larger file is never restored.
+ * Both readers below decide the same way, so they compare like with like.
+ */
+const HASH_MAX_BYTES = MAX_SNAPSHOT_FILE_BYTES;
+
+/**
+ * A file's end state: its git blob id (what `git hash-object` gives), so it
+ * compares directly with a snapshot tree's entries, which is how a revert is
+ * previewed without writing anything (previewRevert).
+ */
+function stamp(st: { size: number; mtimeMs: number }, bytes: () => Buffer): string {
+  if (st.size > HASH_MAX_BYTES) return `${st.size}:${st.mtimeMs}`;
+  const b = bytes();
+  return createHash("sha1").update(`blob ${b.length}\0`).update(b).digest("hex");
+}
+
+/** Synchronous on purpose: the end state is read at the instant the turn ends. */
+function fileHashSync(abs: string): string | null {
+  try {
+    const st = fsSync.statSync(abs);
+    if (!st.isFile()) return null;
+    return stamp(st, () => fsSync.readFileSync(abs));
+  } catch {
+    return null;
+  }
+}
+
+async function fileHash(abs: string): Promise<string | null> {
+  try {
+    const st = await fs.stat(abs);
+    if (!st.isFile()) return null;
+    const bytes = st.size > HASH_MAX_BYTES ? Buffer.alloc(0) : await fs.readFile(abs);
+    return stamp(st, () => bytes);
+  } catch {
+    return null;
+  }
+}
+
+/** A turn that never ends (a crash mid-turn) must not hold its entry forever. */
+const TURN_FILES_MAX = 200;
+
 /** Serialize snapshot mutations per workspace (captures within a turn are ordered). */
 const captureChains = new Map<string, Promise<unknown>>();
 
@@ -202,6 +325,16 @@ function withWorkspaceLock<T>(
     next.catch(() => undefined),
   );
   return next;
+}
+
+/**
+ * Once every snapshot write already queued for this workspace has landed. A
+ * reader outside the lock needs it for the newest state: a turn's end is
+ * recorded in the background, and a revert dialog can open right after.
+ * Never rejects: the stored tail has its failures caught (withWorkspaceLock).
+ */
+function workspaceWritesSettled(workspacePath: string): Promise<unknown> {
+  return captureChains.get(workspaceKey(workspacePath)) ?? Promise.resolve();
 }
 
 export interface CaptureSnapshotParams {
@@ -311,11 +444,17 @@ export async function captureSnapshot(
 
       manifest.timestamp = new Date().toISOString();
       await fs.mkdir(path.join(gitDir, TURNS_DIR), { recursive: true });
-      await fs.writeFile(
-        turnManifestPath(gitDir, seg),
-        JSON.stringify(manifest, null, 2),
-        "utf8",
-      );
+      await writeManifest(gitDir, seg, manifest);
+
+      const byRoot = turnFilesThisRun.get(turnId) ?? new Map<string, Set<string>>();
+      const files = byRoot.get(workspacePath) ?? new Set<string>();
+      for (const rel of newPaths) files.add(rel);
+      byRoot.set(workspacePath, files);
+      turnFilesThisRun.set(turnId, byRoot);
+      if (turnFilesThisRun.size > TURN_FILES_MAX) {
+        const oldest = turnFilesThisRun.keys().next().value;
+        if (oldest !== undefined) turnFilesThisRun.delete(oldest);
+      }
 
       void maybePruneOldSnapshots(workspacePath, gitDir);
     } catch (err) {
@@ -475,6 +614,42 @@ export interface RevertSnapshotResult {
   success: boolean;
   error?: string;
   restoredFiles?: number;
+  /** Files left as they are: changed after the turn (workspace-relative). */
+  kept?: string[];
+  /** The turn has no record of how it ended, so nothing could be checked. */
+  unchecked?: boolean;
+}
+
+/**
+ * At a turn's end: record each file it changed as it left it, so a later
+ * revert can tell what changed since (see `SnapshotManifest.endHashes`).
+ * The files are read NOW, synchronously: an edit landing a moment after the
+ * turn ended must count as a change since, not as how the turn left it. The
+ * manifest is written on each root's lock, so a revert right after waits.
+ */
+export function recordSnapshotTurnEnd(turnId: string): Promise<void> {
+  const byRoot = turnFilesThisRun.get(turnId);
+  if (!byRoot) return Promise.resolve();
+  turnFilesThisRun.delete(turnId);
+  const seg = sanitizeLedgerDirSegment(turnId);
+  return Promise.all(
+    [...byRoot].map(([root, files]) => {
+      const hashes: Record<string, string | null> = {};
+      for (const rel of files) hashes[rel] = fileHashSync(path.join(root, rel));
+      return withWorkspaceLock(root, async () => {
+        const gitDir = shadowGitDir(root);
+        const manifest = await readManifest(gitDir, seg);
+        if (!manifest) return;
+        // Every file the manifest holds needs an end state: one missing (a
+        // capture from an earlier run of this turn) leaves the turn uncheckable.
+        if (!manifest.filesChanged.every((rel) => rel in hashes)) return;
+        manifest.endHashes = hashes;
+        await writeManifest(gitDir, seg, manifest);
+      }).catch((err) =>
+        logger.warn(`recordSnapshotTurnEnd failed for turn ${turnId}:`, err),
+      );
+    }),
+  ).then(() => undefined);
 }
 
 async function listTreePaths(
@@ -501,24 +676,42 @@ async function shadowRevert(
   workspacePath: string,
   turnId: string,
   filterPaths: string[] | null,
-): Promise<RevertSnapshotResult | null> {
+): Promise<(RevertSnapshotResult & { kept: string[] }) | null> {
   const gitDir = shadowGitDir(workspacePath);
   const seg = sanitizeLedgerDirSegment(turnId);
   const manifest = await readManifest(gitDir, seg);
   if (!manifest) return null; // not a shadow-git turn — caller falls back to legacy
+  await ensureByteExact(gitDir, workspacePath);
 
   const env = gitEnv(gitDir, workspacePath, seg);
   const inTree = await listTreePaths(gitDir, workspacePath, seg);
   const created = new Set(manifest.createdFiles ?? []);
 
-  const wanted =
+  const asked =
     filterPaths == null
       ? manifest.filesChanged
       : filterPaths
           .map((p) => p.split(path.sep).join("/"))
           .filter((rel) => manifest.filesChanged.includes(rel));
 
+  // A file that is no longer as the turn left it is someone's later work: keep it.
+  const ends = manifest.endHashes;
+  const kept: string[] = [];
+  const wanted: string[] = [];
+  for (const rel of asked) {
+    if (
+      ends &&
+      rel in ends &&
+      (await fileHash(path.join(workspacePath, rel))) !== ends[rel]
+    ) {
+      kept.push(rel);
+    } else {
+      wanted.push(rel);
+    }
+  }
+
   let restored = 0;
+  const reverted: string[] = [];
   const toCheckout = wanted.filter((rel) => inTree.has(rel));
   if (toCheckout.length > 0) {
     const co = await git(
@@ -528,6 +721,7 @@ async function shadowRevert(
     );
     if (co.exitCode === 0) {
       restored += toCheckout.length;
+      reverted.push(...toCheckout);
     } else {
       logger.warn(`shadow checkout failed: ${co.stderr || co.stdout}`);
       // Fall back to per-file restore so one bad path doesn't sink the batch.
@@ -537,7 +731,10 @@ async function shadowRevert(
           workspacePath,
           env,
         );
-        if (single.exitCode === 0) restored++;
+        if (single.exitCode === 0) {
+          restored++;
+          reverted.push(rel);
+        }
       }
     }
   }
@@ -548,12 +745,82 @@ async function shadowRevert(
     try {
       await fs.rm(path.join(workspacePath, rel), { force: true });
       restored++;
+      reverted.push(rel);
     } catch {
       // ignore
     }
   }
 
-  return { success: true, restoredFiles: restored };
+  manifest.revertedFiles = reverted;
+  await writeManifest(gitDir, seg, manifest)
+    .catch(() => undefined);
+
+  return {
+    success: true,
+    restoredFiles: restored,
+    kept,
+    ...(ends ? {} : { unchecked: true }),
+  };
+}
+
+/** A root-relative path as the UI shows it (`../sibling/x` for an outside root). */
+function displayPath(primary: string, root: string, rel: string): string {
+  return root === primary
+    ? rel
+    : path.relative(primary, path.join(root, rel)).split(path.sep).join("/");
+}
+
+/**
+ * What reverting these turns (newest first, as the range revert runs) would
+ * put back and what it would keep, without writing anything: so a confirm
+ * dialog can say "restores 1 file, keeps b.ts" before it happens. Follows
+ * each file through the chain: once a newer turn puts it back, it is as that
+ * turn's snapshot holds it when the older turn is checked.
+ */
+export async function previewRevert(
+  workspacePath: string,
+  turnIdsNewestFirst: string[],
+): Promise<{ restores: string[]; kept: string[] }> {
+  const primary = path.resolve(workspacePath);
+  const state = new Map<string, string | null>();
+  const restores = new Set<string>();
+  const kept = new Set<string>();
+  for (const turnId of turnIdsNewestFirst) {
+    const seg = sanitizeLedgerDirSegment(turnId);
+    for (const root of await turnRoots(workspacePath, turnId)) {
+      const gitDir = shadowGitDir(root);
+      await workspaceWritesSettled(root);
+      const manifest = await readManifest(gitDir, seg);
+      if (!manifest) continue;
+      const tree = new Map<string, string>();
+      // -z: names unquoted, whatever they contain.
+      const ls = await git(["ls-tree", "-r", "-z", turnRef(seg)], root, gitEnv(gitDir, root, seg));
+      if (ls.exitCode === 0) {
+        for (const entry of ls.stdout.split("\0")) {
+          const m = /^\d+ blob ([0-9a-f]+)\t([\s\S]+)$/.exec(entry);
+          if (m) tree.set(m[2]!, m[1]!);
+        }
+      }
+      const created = new Set(manifest.createdFiles ?? []);
+      const ends = manifest.endHashes;
+      for (const rel of manifest.filesChanged) {
+        const key = displayPath(primary, root, rel);
+        const now = state.has(key)
+          ? state.get(key)!
+          : await fileHash(path.join(root, rel));
+        if (ends && rel in ends && now !== ends[rel]) {
+          kept.add(key);
+          state.set(key, now);
+          continue;
+        }
+        restores.add(key);
+        state.set(key, tree.get(rel) ?? (created.has(rel) ? null : now));
+      }
+    }
+  }
+  // Same rule as the range revert's result (a union over its turns), so the
+  // dialog before and the line after always agree.
+  return { restores: [...restores], kept: [...kept] };
 }
 
 // v10.1: legacy pre-v10 `.bak` file-copy revert fallback removed — turns
@@ -584,8 +851,11 @@ export async function revertSnapshot(params: {
 }): Promise<RevertSnapshotResult> {
   const { workspacePath, turnId } = params;
   const roots = await turnRoots(workspacePath, turnId);
+  const primary = path.resolve(workspacePath);
   let restored = 0;
   let anyManifest = false;
+  let unchecked = false;
+  const kept: string[] = [];
 
   for (const root of roots) {
     // Per-root lock: each shadow repo has its own capture chain.
@@ -595,10 +865,17 @@ export async function revertSnapshot(params: {
     if (!result) continue; // no manifest for this root — nothing was captured there
     anyManifest = true;
     restored += result.restoredFiles ?? 0;
+    unchecked ||= !!result.unchecked;
+    kept.push(...result.kept.map((rel) => displayPath(primary, root, rel)));
   }
 
   if (!anyManifest) return { success: false, restoredFiles: 0 };
-  return { success: true, restoredFiles: restored };
+  return {
+    success: true,
+    restoredFiles: restored,
+    kept,
+    ...(unchecked ? { unchecked } : {}),
+  };
 }
 
 /**
@@ -626,8 +903,11 @@ export async function revertSnapshotFiles(params: {
     grantedRoots: roots,
   });
 
+  const primary = path.resolve(workspacePath);
   let restored = 0;
   let anyManifest = false;
+  let unchecked = false;
+  const kept: string[] = [];
   for (const group of groups) {
     const result = await withWorkspaceLock(group.root, () =>
       shadowRevert(group.root, turnId, group.relativePaths),
@@ -635,10 +915,17 @@ export async function revertSnapshotFiles(params: {
     if (!result) continue;
     anyManifest = true;
     restored += result.restoredFiles ?? 0;
+    unchecked ||= !!result.unchecked;
+    kept.push(...result.kept.map((rel) => displayPath(primary, group.root, rel)));
   }
 
   if (!anyManifest) return { success: false, restoredFiles: 0 };
-  return { success: true, restoredFiles: restored };
+  return {
+    success: true,
+    restoredFiles: restored,
+    kept,
+    ...(unchecked ? { unchecked } : {}),
+  };
 }
 
 /**
@@ -696,20 +983,34 @@ export async function listSnapshotFiles(
   filesChanged: string[];
   createdFiles: string[];
   revertedAt?: string;
+  /** The files the last revert put back; absent before this was recorded. */
+  revertedFiles?: string[];
+  /** False when the turn has no record of how it ended (a revert can't check). */
+  endRecorded: boolean;
 } | null> {
   if (!workspacePath || !turnId) return null;
   const seg = sanitizeLedgerDirSegment(turnId);
   const primary = path.resolve(workspacePath);
   const filesChanged: string[] = [];
   const createdFiles: string[] = [];
+  let revertedFiles: string[] | undefined;
   let revertedAt: string | undefined;
+  let endRecorded = true;
   let found = false;
 
   for (const root of await turnRoots(workspacePath, turnId)) {
+    await workspaceWritesSettled(root);
     const manifest = await readManifest(shadowGitDir(root), seg);
     if (!manifest) continue;
     found = true;
     revertedAt ??= manifest.revertedAt;
+    if (!manifest.endHashes) endRecorded = false;
+    if (manifest.revertedFiles) {
+      revertedFiles = [
+        ...(revertedFiles ?? []),
+        ...manifest.revertedFiles.map((rel) => displayPath(primary, root, rel)),
+      ];
+    }
     // Re-express an outside root's paths the way the UI shows them (`../sibling/x`), so
     // the revert list reads as one turn rather than several disjoint sets, and so the
     // strings round-trip back through `revertSnapshotFiles`.
@@ -727,7 +1028,13 @@ export async function listSnapshotFiles(
   }
 
   if (!found) return null;
-  return { filesChanged, createdFiles, ...(revertedAt ? { revertedAt } : {}) };
+  return {
+    filesChanged,
+    createdFiles,
+    endRecorded,
+    ...(revertedAt ? { revertedAt } : {}),
+    ...(revertedFiles ? { revertedFiles } : {}),
+  };
 }
 
 async function updateManifests(
@@ -742,11 +1049,7 @@ async function updateManifests(
     await withWorkspaceLock(root, async () => {
       const manifest = await readManifest(gitDir, seg);
       if (!manifest || !update(manifest)) return;
-      await fs.writeFile(
-        turnManifestPath(gitDir, seg),
-        JSON.stringify(manifest, null, 2),
-        "utf8",
-      );
+      await writeManifest(gitDir, seg, manifest);
       changed.push(manifest);
     });
   }
@@ -790,7 +1093,12 @@ export async function takeUntoldRevertedFiles(
       return true;
     });
     if (told.length === 0) continue;
-    for (const f of [...listed.filesChanged, ...listed.createdFiles]) out.add(f);
+    // Only what went back: a kept file is still as the agent (or others) left it.
+    for (const f of listed.revertedFiles ?? [
+      ...listed.filesChanged,
+      ...listed.createdFiles,
+    ])
+      out.add(f);
   }
   return [...out];
 }

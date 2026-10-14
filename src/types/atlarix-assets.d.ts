@@ -7,6 +7,8 @@ declare module "atlarix:assets" {
   export const assets: {
     agentsMd?: string;
     modelsSnapshot?: string;
+    /** The MCP marketplace catalog (official MCP Registry) for offline first runs. */
+    mcpRegistrySnapshot?: string;
     tiktokenWasm?: string;
     rg?: string;
     /** The Chrome bridge relay, when built for this target. */

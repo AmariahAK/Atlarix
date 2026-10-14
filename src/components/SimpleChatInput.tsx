@@ -6,6 +6,7 @@
  */
 
 import React, { useRef, useEffect } from "react";
+import { McpSuggestionCards } from "@/components/chat/McpSuggestionCards";
 import {
   SendIcon,
   Paperclip,
@@ -305,6 +306,9 @@ export function SimpleChatInput({
                 turn they scroll away and a pending approval went unnoticed until
                 you scrolled all the way back. Self-hides when nothing is pending. */}
       <PendingApprovalsBar chatId={chatId} />
+
+      {/* MCP servers the agent suggested: connect one here, no marketplace trip. */}
+      <McpSuggestionCards chatId={chatId} />
 
       <div
         className={cn(

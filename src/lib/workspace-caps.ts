@@ -114,6 +114,10 @@ export function workspaceCapRefusal(kind: WorkspaceCapKind): string {
  */
 export const WORKSPACE_CAP_SENTRY_PATTERNS: RegExp[] = [
   /workspace limit reached/i,
+  // The MCP limit (mcp-add.ts `limitMessage`) and adding a server twice: both
+  // are answers to the user, shown where they clicked, never defects.
+  /MCP servers are already on\. Turn one off/i,
+  /It is already added, as "/i,
 ];
 
 /**
@@ -129,6 +133,15 @@ export const WORKSPACE_CAP_SENTRY_PATTERNS: RegExp[] = [
 export function workspaceCapClause(kind: WorkspaceCapKind): string {
   const noun = CAP_NOUN[kind];
   const max = CAP_MAX[kind];
+  // 15.7: MCP caps what is ON (this folder's and the account's together), not
+  // what is added. The agent read the old sentence as "remove Notion to add
+  // Linear" (owner, QA).
+  if (kind === "mcp") {
+    return (
+      `LIMIT: ${max} MCP servers on at once (this folder's and the account's together). ` +
+      `Adding is not limited: one added past that starts off; turn one off to turn another on.`
+    );
+  }
   return (
     `WORKSPACE LIMIT: ${max} ${noun} per workspace — ` +
     `\`list\` reports the count and whether there is room. ` +

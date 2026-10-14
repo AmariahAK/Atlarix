@@ -44,7 +44,7 @@ describe("a teammate's message in the app", () => {
   it("is labelled a teammate's, with its session and surface", () => {
     render(peer("Release prep", "Please don't touch package.json"));
     expect(
-      screen.getByText((_, el) => el?.tagName === "BUTTON" && el.textContent === "Message from teammate Release prep (CLI)"),
+      screen.getByText((_, el) => el?.tagName === "BUTTON" && el.textContent === "Message from contributor Release prep (CLI)"),
     ).toBeTruthy();
   });
 

@@ -130,6 +130,8 @@ const ASK_TOOLS = [
   "list_available_mcps",
   "manage_mcp_server",
   "mcp_call",
+  // Find a server the question needs and offer the user a card to connect it.
+  "mcp_servers",
   "read_file",
   "run_command",
   "task",

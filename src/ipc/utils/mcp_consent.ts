@@ -22,10 +22,18 @@ export function resolveConsent(
   }
 }
 
+/**
+ * Consents for an editor-passed (ACP session) server, whose id is negative and
+ * has no row to hang a stored consent on: "Allow always" lasts as long as the
+ * session's server does, in memory.
+ */
+const sessionConsents = new Map<string, Consent>();
+
 export async function getStoredConsent(
   serverId: number,
   toolName: string,
 ): Promise<Consent> {
+  if (serverId < 0) return sessionConsents.get(`${serverId}:${toolName}`) ?? "ask";
   const rows = await db
     .select()
     .from(mcpToolConsents)
@@ -44,6 +52,10 @@ async function setStoredConsent(
   toolName: string,
   consent: Consent,
 ): Promise<void> {
+  if (serverId < 0) {
+    sessionConsents.set(`${serverId}:${toolName}`, consent);
+    return;
+  }
   const existing = await db
     .select()
     .from(mcpToolConsents)

@@ -1,14 +1,9 @@
 # Atlarix TODO
 
-**Current version:** 15.5.0 (2026-10-11): the editor extension redesigned (task card, checkpoints
-with Compare, approval bar, @ and / menus, past chats), Models & keys (keys checked, provider pages,
-own endpoints, a different model for Plan), MCP servers found in other tools, `/keys` and
-`atlarix keys` for Zed and JetBrains. 15.4.2 (2026-10-10): the editor extension asks for a rating once, and its
-listings drop the Debuggers category. 15.4.1 named the repository and "Free" on the listings. 15.4.0 (2026-10-10) shipped Atlarix for VS Code, Cursor, Kiro and Windsurf
-(`packages/vscode`; VS Code Marketplace by hand, Open VSX from CI), Rix the mascot, the CLI's
-left-aligned header, the session recap on every surface, opted-in analytics with an approximate
-location, and more of Atlarix in Zed and JetBrains over ACP. Narrative in
-[`docs/CHANGELOG.md`](./CHANGELOG.md).
+**Current version:** 15.7.0 (2026-10-14): MCP servers from the official MCP Registry on every
+surface (five Verified, paste anything, web servers on the account, local ones per folder), the
+agent suggests and connects the server a task needs, every server shows its logo, and revert keeps
+work done after the turn. Narrative in [`docs/CHANGELOG.md`](./CHANGELOG.md).
 
 **This header has been wrong before.** Update it in the same commit as the version bump, or do
 not trust it.
@@ -166,7 +161,25 @@ Linux is proven: the `quality` job runs `npm run check:ts` on `ubuntu-latest`. O
 `npm ci` installs cleanly on `windows-latest`, but no Windows job runs `tsc`, so the win32
 binary has never actually been executed there.
 
-### 4. Launchpad — one door left (different repo)
+### 4. CLI `/mcp` shows the switch, not whether the server connects
+
+QA (15.7.0): a server that is on but fails to connect reads "✓ on" in the CLI, while the editor's
+page says "Couldn't connect: Connection closed". Test on open (one connect per server), or mark a
+server whose last call failed. Low.
+
+### 5. MCP polish from the 15.7.0 app QA
+
+- The app's MCP list doesn't update live when the CLI changes the same profile (a tab switch
+  refetches). Refetch on window focus, or broadcast from the shared DB.
+- The composer menu's switch takes 3–5 s with no pending state; a second click is lost.
+- Automations: "Create" stays disabled until "tell the AI?" is answered, with no hint or default;
+  a manual Run now logs "fired on schedule"; the tool name is free text (offer the server's tools).
+- A local server with no registry icon shows a letter (Brave Search): try the npm scope's
+  GitHub avatar.
+- A peer message into a chat whose last turn was stopped mid-wait re-runs the stopped request
+  (ai-e9's area).
+
+### 6. Launchpad — one door left (different repo)
 
 `atlarix-launchpad`, not this one. One entity behind three doors on one domain — desktop app,
 Chrome extension, PR reviewer — because LLMs and listicles answer by CATEGORY. `/`, `/reviewer`

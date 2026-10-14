@@ -43,7 +43,7 @@ any repo size. The agent has a workspace. You have control.
 - **Zed** (`~/.config/zed/settings.json`): `"agent_servers": { "Atlarix": { "type": "custom", "command": "atlarix", "args": ["acp"] } }`
 - **JetBrains** (AI Assistant → Agents → Add Custom Agent, or `~/.jetbrains/acp.json`): `"agent_servers": { "Atlarix": { "command": "/full/path/to/atlarix", "args": ["acp"] } }`
 
-**Open ecosystem (source / installers / registries):** the **MCP marketplace index** is [AmariahAK/atlarix-mcps](https://github.com/AmariahAK/atlarix-mcps); official desktop builds are published from [AmariahAK/atlarix-releases](https://github.com/AmariahAK/atlarix-releases). The Atlarix app itself is proprietary.
+**Open ecosystem (source / installers / registries):** the **MCP marketplace** is the official [MCP Registry](https://registry.modelcontextprotocol.io); official desktop builds are published from [AmariahAK/atlarix-releases](https://github.com/AmariahAK/atlarix-releases). The Atlarix app itself is proprietary.
 
 Release notes: **[docs/CHANGELOG.md](docs/CHANGELOG.md)** — the current major (15.x) in full. Everything older is one line per version in **[docs/CHANGELOG_PREVIOUS.md](docs/CHANGELOG_PREVIOUS.md)**; the prose is in git history.
 

@@ -140,6 +140,13 @@ export function initMcpOAuthBroadcast(): void {
       serverName,
       authorizationUrl,
     });
+    // No window to hand it to (the CLI, `atlarix acp`): open it directly, or
+    // the sign-in the user just asked for never appears.
+    if (BrowserWindow.getAllWindows().length === 0) {
+      void import("./open-for-user")
+        .then(({ openUrlForUser }) => openUrlForUser(authorizationUrl))
+        .catch((e) => logger.warn("Could not open the MCP sign-in page", e));
+    }
   });
 }
 

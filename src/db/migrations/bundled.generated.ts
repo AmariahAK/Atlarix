@@ -81,6 +81,7 @@ import raw_74_0074_chat_session_work_mode from "../../../drizzle/0074_chat_sessi
 import raw_75_0075_edit_stats from "../../../drizzle/0075_edit_stats.sql?raw";
 import raw_76_0076_drop_installed_skills from "../../../drizzle/0076_drop_installed_skills.sql?raw";
 import raw_77_0077_automation_leases from "../../../drizzle/0077_automation_leases.sql?raw";
+import raw_78_0078_mcp_headers from "../../../drizzle/0078_mcp_headers.sql?raw";
 
 export type BundledMigration = {
   name: string;
@@ -169,6 +170,7 @@ export const BUNDLED_MIGRATIONS: BundledMigration[] = [
   { name: "0075_edit_stats", sql: raw_75_0075_edit_stats as string, drizzleHash: "9fff7ef68fdf9a652b0083ebcde1d263c0ea5f5cc13bd21776037f4622a0948b", when: 1787616000000 },
   { name: "0076_drop_installed_skills", sql: raw_76_0076_drop_installed_skills as string, drizzleHash: "b361a2b664ce74a3efeaa2f73cdf6de582509c6569a1aab54febbef507b98b3c", when: 1787702400000 },
   { name: "0077_automation_leases", sql: raw_77_0077_automation_leases as string, drizzleHash: "22f09427b49eb0fcdd2b62cd472735a88e5dd60974af0d0c008f6e6fddfdf545", when: 1787788800000 },
+  { name: "0078_mcp_headers", sql: raw_78_0078_mcp_headers as string, drizzleHash: "2e2b040eac31e336e8e7662555fd8526e8cdfd59929671e9ca6e063a3f2d4004", when: 1787875200000 },
 ];
 
 /** Map Drizzle __drizzle_migrations.hash → migration tag for bridge. */
@@ -251,4 +253,5 @@ export const DRIZZLE_HASH_TO_NAME: Record<string, string> = {
   "9fff7ef68fdf9a652b0083ebcde1d263c0ea5f5cc13bd21776037f4622a0948b": "0075_edit_stats",
   "b361a2b664ce74a3efeaa2f73cdf6de582509c6569a1aab54febbef507b98b3c": "0076_drop_installed_skills",
   "22f09427b49eb0fcdd2b62cd472735a88e5dd60974af0d0c008f6e6fddfdf545": "0077_automation_leases",
+  "2e2b040eac31e336e8e7662555fd8526e8cdfd59929671e9ca6e063a3f2d4004": "0078_mcp_headers",
 };

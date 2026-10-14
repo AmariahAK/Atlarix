@@ -182,7 +182,8 @@ export function registerRevertHandlers(): void {
         // it must NOT flag the conversation/messages as reverted.
         ...(filesOnly ? { options: { skipMessageFlags: true } } : {}),
       });
-      if (filesOnly && result.success) {
+      // All kept (each changed since) means nothing went back: not "reverted".
+      if (filesOnly && result.success && (result.restoredFiles ?? 0) > 0) {
         // The reply shows it was reverted (after a restart too), and the agent
         // is told with the next message (snapshot:take-reverted-files).
         const { markSnapshotReverted } = await import(
@@ -232,10 +233,15 @@ export function registerRevertHandlers(): void {
         where: eq(apps.id, workspaceId),
       });
       if (!app?.path) return null;
-      const { listSnapshotFiles } = await import(
+      const { listSnapshotFiles, previewRevert } = await import(
         "@/lib/snapshot/snapshot-manager"
       );
-      return listSnapshotFiles(resolveAppPath(app.path), String(turnId));
+      const workspacePath = resolveAppPath(app.path);
+      const listed = await listSnapshotFiles(workspacePath, String(turnId));
+      if (!listed) return null;
+      // What a revert now would keep (changed since), for the confirm dialog.
+      const { kept } = await previewRevert(workspacePath, [String(turnId)]);
+      return { ...listed, kept };
     },
   );
 
@@ -269,6 +275,8 @@ export function registerRevertHandlers(): void {
       let restoredFiles = 0;
       const reverted: string[] = [];
       const skipped: string[] = [];
+      const kept = new Set<string>();
+      let unchecked = false;
       let lastError: string | undefined;
       for (const turnId of ordered) {
         const assistantMessageId = Number(turnId);
@@ -288,6 +296,8 @@ export function registerRevertHandlers(): void {
           if (res.success) {
             reverted.push(turnId);
             restoredFiles += res.restoredFiles ?? 0;
+            for (const f of res.kept ?? []) kept.add(f);
+            unchecked ||= !!res.unchecked;
           } else {
             skipped.push(turnId);
             lastError = res.error ?? lastError;
@@ -304,6 +314,8 @@ export function registerRevertHandlers(): void {
         restoredFiles,
         reverted,
         skipped,
+        kept: [...kept],
+        ...(unchecked ? { unchecked } : {}),
         error: lastError,
       };
     },
@@ -324,17 +336,19 @@ export function registerRevertHandlers(): void {
         where: eq(apps.id, workspaceId),
       });
       if (!app?.path) return null;
-      const { listSnapshotFiles } = await import(
+      const { listSnapshotFiles, previewRevert } = await import(
         "@/lib/snapshot/snapshot-manager"
       );
       const workspacePath = resolveAppPath(app.path);
       const filesChanged = new Set<string>();
       const createdFiles = new Set<string>();
       let turnsWithSnapshot = 0;
+      let endRecorded = true;
       for (const turnId of turnIds) {
         const files = await listSnapshotFiles(workspacePath, String(turnId));
         if (!files) continue;
         turnsWithSnapshot++;
+        if (!files.endRecorded) endRecorded = false;
         for (const f of files.filesChanged ?? []) filesChanged.add(f);
         for (const f of files.createdFiles ?? []) createdFiles.add(f);
       }
@@ -342,6 +356,11 @@ export function registerRevertHandlers(): void {
         filesChanged: [...filesChanged],
         createdFiles: [...createdFiles],
         turnsWithSnapshot,
+        endRecorded,
+        // What the range revert (newest first) would keep, for the dialogs.
+        kept: (
+          await previewRevert(workspacePath, [...turnIds].map(String).reverse())
+        ).kept,
       };
     },
   );

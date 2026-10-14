@@ -135,6 +135,14 @@ export async function runToolExecute(
   // Unattended (automation): no human — a prompt-injected run must not drive
   // mcp_call to servers the user didn't pre-approve, so require a standing
   // "always" consent and never trigger OAuth (mirrors the MCP poller policy).
+  // mcp_servers suggest: a card for the user (none in an unattended run), and
+  // a Stop answers a suggestion the model is waiting on.
+  if (toolName === "mcp_servers") {
+    executeArgs._mcpSuggestContext = {
+      unattended: !!streamOpts?.unattended,
+      signal: streamOpts?.abortController?.signal,
+    };
+  }
   if (toolName === "mcp_call") {
     executeArgs._mcpInvocationContext = streamOpts?.unattended
       ? {

@@ -561,6 +561,37 @@ describe("atlarix acp", () => {
     expect(after.messages.map((m) => m.text)).toEqual(["leave u alone"]);
   }, 90_000);
 
+  // Owner: no random reverts. Going back with restore keeps a file changed
+  // since, and tells Atlarix's extension which (in _meta, no protocol change).
+  it("Atlarix's extension: going back with restore keeps a file changed since, and names it", async () => {
+    const file = path.join(ws, "undo-kept.ts");
+    fs.writeFileSync(file, "export const w = 1;\n");
+    const e = await editor(
+      [
+        { tool: "edit_file", args: { path: "undo-kept.ts", operation: "replace", old_content: "export const w = 1;", new_content: "export const w = 2;" } },
+        { text: "Set w to 2." },
+        { text: "Done differently." },
+      ],
+      undefined,
+      { _meta: { atlarix: { version: 1 } } },
+    );
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "set w to 2" }] });
+    fs.writeFileSync(file, "export const w = 2; // a teammate's fix\n");
+
+    const { messages } = await e.conn.agent.request<{ messages: Array<{ id: number; text: string }> }>("_atlarix/undo", { sessionId, action: "list" });
+    const r = await e.conn.agent.request<{ stopReason: string; _meta?: { atlarix?: { kept?: string[] } } }>("_atlarix/undo", {
+      sessionId,
+      action: "resend",
+      messageId: messages[0]!.id,
+      text: "leave w alone",
+      restore: true,
+    });
+    expect(r.stopReason).toBe("end_turn");
+    expect(fs.readFileSync(file, "utf8")).toContain("a teammate's fix");
+    expect(r._meta?.atlarix?.kept?.some((f) => f.endsWith("undo-kept.ts"))).toBe(true);
+  }, 90_000);
+
   it("Atlarix's extension: a background command is listed, and finishing it wakes the agent", async () => {
     const e = await editor(
       [

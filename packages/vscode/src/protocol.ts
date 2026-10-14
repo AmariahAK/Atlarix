@@ -125,6 +125,8 @@ export type HostMessage =
   | { type: "tasks-changed"; count: number }
   /** Messages sent while the turn runs, still waiting (steers, queued). */
   | { type: "pending"; items: Array<{ id: string; text: string; kind: string }> }
+  /** Atlarix suggests an MCP server for this chat; `resolved` takes the card away. */
+  | { type: "mcp-suggestion"; card: Record<string, unknown> }
   | { type: "working"; title: string | null }
   | { type: "unsent"; text: string }
   /** An automation finished a run (in this editor, the CLI or the app). */

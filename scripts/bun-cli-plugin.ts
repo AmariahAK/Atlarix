@@ -45,6 +45,7 @@ export function assetFiles(target?: string): Record<string, string> {
   return {
     agentsMd: path.join(root, "AGENTS.md"),
     modelsSnapshot: path.join(root, "build/models-snapshot.json.gz"),
+    mcpRegistrySnapshot: path.join(root, "build/mcp-registry-snapshot.json.gz"),
     tiktokenWasm: path.join(root, "node_modules/tiktoken/lite/tiktoken_bg.wasm"),
     // CI and cross builds unpack the target's ripgrep package elsewhere
     // (`npm pack @vscode/ripgrep-<os>-<arch>`) and point here.

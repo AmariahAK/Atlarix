@@ -74,6 +74,10 @@ export async function performFullRevert(params: {
   success: boolean;
   error?: string;
   restoredFiles?: number;
+  /** Files left as they are: changed after the turn. */
+  kept?: string[];
+  /** The turn had no record of how it ended; nothing could be checked. */
+  unchecked?: boolean;
 }> {
   const { chatId, turnId, assistantMessageId, workspacePath } = params;
   const skipMessageFlags = params.options?.skipMessageFlags ?? false;
@@ -99,6 +103,8 @@ export async function performFullRevert(params: {
       success: snap.success,
       error: snap.error,
       restoredFiles: snap.restoredFiles,
+      kept: snap.kept,
+      unchecked: snap.unchecked,
     };
   }
 
@@ -122,5 +128,7 @@ export async function performFullRevert(params: {
     success: snap.success,
     error: snap.error,
     restoredFiles: snap.restoredFiles,
+    kept: snap.kept,
+    unchecked: snap.unchecked,
   };
 }

@@ -24,6 +24,7 @@ import { isAuthRequired, type AtlarixConnection, type SessionListener } from "./
 import type { DiffDocuments } from "./diff";
 import { RPC_METHODS, type ContextItem, type HostMessage, type HostSettings, type ViewMessage } from "./protocol";
 import { rankFiles } from "./files";
+import { keptFilesLine } from "../../../src/lib/chat/kept-files-line";
 
 export interface ChatHost {
   /** The `atlarix` program this extension runs (for "Continue in the terminal"). */
@@ -285,6 +286,7 @@ export class Chat {
         tasksChanged: (count) => this.post({ type: "tasks-changed", count }),
         automationRun: (run) => this.post({ type: "automation-run", ...run }),
         pendingChanged: (items) => this.post({ type: "pending", items }),
+        mcpSuggestion: (card) => this.post({ type: "mcp-suggestion", card }),
         workingChanged: (title) => this.post({ type: "working", title }),
         unsent: (text) => this.post({ type: "unsent", text }),
         backgroundReady: () => this.onBackgroundReady(),
@@ -399,8 +401,10 @@ export class Chat {
     const c = await this.host.connection();
     if (!c || !this.sessionId || !this.beginTurn()) return;
     try {
-      const r = await c.request<{ stopReason?: string }>("_atlarix/undo", { sessionId: this.sessionId, action: "resend", messageId, text, restore });
+      const r = await c.request<{ stopReason?: string; _meta?: { atlarix?: { kept?: string[] } } }>("_atlarix/undo", { sessionId: this.sessionId, action: "resend", messageId, text, restore });
       this.post({ type: "turn-end", stopReason: r.stopReason ?? "end_turn" });
+      const kept = keptFilesLine(r._meta?.atlarix?.kept ?? []);
+      if (kept) this.toast(kept);
     } catch (e) {
       this.post({ type: "turn-end", stopReason: null, error: errorText(e) });
     } finally {

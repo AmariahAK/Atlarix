@@ -8,6 +8,7 @@
  * markup set as HTML is our own SVG.
  */
 import type { SessionUpdate } from "@agentclientprotocol/sdk";
+import * as S from "./chat/suggestions";
 import type { HostMessage } from "../src/protocol";
 import * as C from "./chat/composer";
 import { closePicker, initPicker, picker, renderPicker } from "./chat/picker";
@@ -304,6 +305,9 @@ onHost((m: HostMessage) => {
       return;
     case "pending":
       return C.showPending(m.items);
+    case "mcp-suggestion":
+      if (m.card.resolved) return S.removeSuggestion(String(m.card.id));
+      return S.showSuggestion(m.card as unknown as S.SuggestionCard);
     case "working":
       return C.setWorkingNote(m.title ?? null);
     case "unsent":

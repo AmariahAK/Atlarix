@@ -53,6 +53,7 @@ import { BUILD_FROM_PLAN_PROMPT } from "@/lib/work-mode";
 import { useAccountKind } from "@/hooks/useAccountKind";
 import { COMPASS_PROVIDER_ID, isCoreAutoTier } from "@/ipc/shared/compass_constants";
 import { showError, showInfo } from "@/lib/toast";
+import { keptFilesLine } from "@/lib/chat/kept-files-line";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -121,6 +122,10 @@ export function SimpleInlineChat({
     turnIds: string[];
     changed: number;
     created: number;
+    /** False: some turn can't tell later edits apart (see revertTurn.unchecked). */
+    endRecorded: boolean;
+    /** Files a revert would keep: changed after those turns. */
+    kept: string[];
   } | null>(null);
   const [editReverting, setEditReverting] = useState(false);
 
@@ -387,26 +392,40 @@ export function SimpleInlineChat({
       }
       let changed = 0;
       let created = 0;
+      let endRecorded = true;
+      let kept: string[] = [];
       let lookupFailed = false;
       try {
         const files = await IpcClient.getInstance().getSnapshotFilesRange(
           chatId,
           turnIds,
         );
-        changed = files?.filesChanged.length ?? 0;
-        created = files?.createdFiles.length ?? 0;
+        // Counted as a revert would act: a file changed since is kept.
+        kept = files?.kept ?? [];
+        const keepSet = new Set(kept);
+        changed = (files?.filesChanged ?? []).filter((f) => !keepSet.has(f)).length;
+        created = (files?.createdFiles ?? []).filter((f) => !keepSet.has(f)).length;
+        endRecorded = files?.endRecorded !== false;
       } catch {
         // Counts unknown — fall through to the dialog (below) rather than
         // silently discarding the file-revert choice.
         lookupFailed = true;
       }
-      if (!lookupFailed && changed === 0 && created === 0) {
+      if (!lookupFailed && changed === 0 && created === 0 && kept.length === 0) {
         // Snapshots existed but recorded no file changes — nothing to
         // revert; just edit + resend.
         await performEdit(messageId, newContent, turnIds);
         return;
       }
-      setPendingEdit({ messageId, newContent, turnIds, changed, created });
+      setPendingEdit({
+        messageId,
+        newContent,
+        turnIds,
+        changed,
+        created,
+        endRecorded,
+        kept,
+      });
     },
     [chatId, messagesForChat, snapshotByMessageId, performEdit],
   );
@@ -424,6 +443,9 @@ export function SimpleInlineChat({
           );
           if (!res.success) {
             showError(res.error ?? "Reverting file changes failed");
+          } else {
+            const kept = keptFilesLine(res.kept ?? []);
+            if (kept) showInfo(kept);
           }
         }
         await performEdit(pe.messageId, pe.newContent, pe.turnIds);
@@ -780,6 +802,14 @@ export function SimpleInlineChat({
                   (created files are deleted). Keeping them re-runs on top of
                   the current files.
                 </p>
+                {pendingEdit && keptFilesLine(pendingEdit.kept) ? (
+                  <p>{keptFilesLine(pendingEdit.kept)}</p>
+                ) : null}
+                {pendingEdit?.endRecorded === false ? (
+                  <p className="text-amber-600 dark:text-amber-500">
+                    {t("revertTurn.unchecked")}
+                  </p>
+                ) : null}
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>

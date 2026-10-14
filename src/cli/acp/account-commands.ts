@@ -9,7 +9,11 @@ const money = (cents: number | null) => (cents == null ? "unknown" : `$${(cents 
 const PLAN: Record<string, string> = { "signed-out": "not signed in", free: "Free", pro: "Pro", payg: "Pay as you go" };
 const MANAGE = "https://www.atlarix.dev/account";
 
-export async function accountCommandText(cmd: "status" | "billing" | "mcp" | "logout" | string, session: AgentSession): Promise<string> {
+export async function accountCommandText(
+  cmd: "status" | "billing" | "mcp" | "logout" | string,
+  session: AgentSession,
+  editorServers: ReadonlyArray<{ name: string; transport: "stdio" | "http" }> = [],
+): Promise<string> {
   const { realServices } = await import("../agent/services");
   const a = realServices.account;
   const email = await a.email().catch(() => null);
@@ -19,25 +23,72 @@ export async function accountCommandText(cmd: "status" | "billing" | "mcp" | "lo
     return `Signed out of ${email}. The CLI on this computer shares this sign-in, so it's signed out too; the Atlarix app keeps its own. To sign in again, start a new chat (the editor will ask), or run \`atlarix login\`.`;
   }
   if (cmd === "mcp") {
-    const servers = await realServices.mcp.list(session.appId).catch(() => []);
-    const found = await realServices.mcp.found(session.appId).catch(() => []);
-    const lines = servers.length
-      ? ["**MCP servers in this folder**", "", ...servers.map((s) => `- ${s.enabled ? "●" : "○"} ${s.name} (${s.transport})${s.enabled ? "" : " — off"}`)]
-      : ["No MCP servers in this folder yet."];
+    const [account, servers, found, catalog] = await Promise.all([
+      realServices.mcp.account().catch(() => null),
+      realServices.mcp.list(session.appId).catch(() => []),
+      realServices.mcp.found(session.appId).catch(() => []),
+      realServices.mcp.catalog(session.appId, "").catch(() => null),
+    ]);
+    const lines: string[] = [];
+    if (account?.length) {
+      lines.push(
+        "**On your account** (every device and the Chrome extension)",
+        "",
+        ...account.map((c) => `- ${c.enabled ? "●" : "○"} ${c.name}${c.enabled ? "" : c.connected ? " — off" : " — not signed in"}`),
+        "",
+      );
+    }
+    if (editorServers.length) {
+      lines.push(
+        "**From this editor** (for this chat)",
+        "",
+        ...editorServers.map((s) => `- ● ${s.name} (${s.transport})`),
+        "",
+      );
+    }
+    lines.push(
+      ...(servers.length
+        ? ["**On this computer**", "", ...servers.map((s) => `- ${s.enabled ? "●" : "○"} ${s.name} (${s.transport})${s.enabled ? "" : " — off"}`)]
+        : ["No MCP servers on this computer for this folder yet."]),
+    );
+    const verified = (catalog?.entries ?? []).filter((e) => e.verified && !catalog!.installed.includes(e.name));
+    if (verified.length) {
+      lines.push("", "**Verified**", "", ...verified.map((e) => `- ${e.title}: \`/mcp add ${e.title.toLowerCase()}\``));
+    }
     if (found.length) {
       lines.push("", "**Found on this computer**", "", ...found.map((f) => `- ${f.name} · ${f.source}: \`/mcp add ${f.name}\``));
     }
-    lines.push("", "Shared with the Atlarix app, the CLI and your editors. Turn them on or off in the app, the CLI's `/mcp`, or Atlarix's VS Code extension.");
+    lines.push("", "`/mcp add` also takes a URL, a command, or a marketplace server's name.");
     return lines.join("\n");
   }
   if (cmd === "automations" || cmd.startsWith("automations ")) return automationsText(cmd.slice("automations".length).trim(), session);
   if (cmd.startsWith("mcp add ")) {
-    const name = cmd.slice("mcp add ".length).trim().toLowerCase();
+    const arg = cmd.slice("mcp add ".length).trim();
+    const name = arg.toLowerCase();
     const found = await realServices.mcp.found(session.appId).catch(() => []);
     const hit = found.find((f) => f.name.toLowerCase() === name);
-    if (!hit) return `No server called "${name}" found on this computer. \`/mcp\` lists what was found.`;
-    await realServices.mcp.importFound(session.appId, hit.key);
-    return `Added ${hit.name} (from ${hit.source}) to this folder: the Atlarix app, the CLI and your editors share it. It's ready from your next message.`;
+    if (hit) {
+      await realServices.mcp.importFound(session.appId, hit.key);
+      return `Added ${hit.name} (from ${hit.source}). It's ready from your next message.`;
+    }
+    // A URL, a command or a config: the same as pasting it.
+    if (/^https?:\/\//i.test(arg) || /^[{"]/.test(arg) || /\s/.test(arg)) {
+      const out = await realServices.mcp.paste(session.appId, arg);
+      startSignIns(out.added, session.appId, realServices);
+      return mcpAddedText(out.added, out.failed[0]?.error);
+    }
+    // A marketplace server, by title or registry name.
+    const page = await realServices.mcp.catalog(session.appId, arg).catch(() => null);
+    const entry =
+      page?.entries.find((e) => e.title.toLowerCase() === name || e.name.toLowerCase() === name) ?? null;
+    if (!entry) return `No server called "${arg}" here or in the marketplace. \`/mcp\` lists what there is.`;
+    const option = entry.options.find((o) => (o.kind === "web" || o.supported) && o.inputs.every((i) => !i.required));
+    if (!option) {
+      return `${entry.title} needs details to set up: add it from the Atlarix app, the CLI's \`/mcp\`, or Atlarix's VS Code extension.`;
+    }
+    const added = await realServices.mcp.install(session.appId, entry.name, option.id, {});
+    startSignIns([added], session.appId, realServices);
+    return mcpAddedText([added]);
   }
   if (!email) return "You're not signed in to Atlarix. Run `atlarix login` in a terminal, then try again.";
   const [kind, balance] = await Promise.all([a.kind?.().catch(() => null) ?? null, a.balanceCents().catch(() => null)]);
@@ -145,4 +196,32 @@ async function automationsText(rest: string, session: AgentSession): Promise<str
   }
   lines.push("", "`/automations run <name>` runs one now · `/automations on|off <name>` · ask Atlarix to make or change one. They run while Atlarix (the app, the CLI or an editor) is open.");
   return lines.join("\n");
+}
+
+function mcpAddedText(
+  added: Array<{ name: string; where: "account" | "local"; enabled: boolean; needsSignIn: boolean; needsSecret?: unknown; note?: string }>,
+  error?: string,
+): string {
+  if (!added.length) return error ?? "Nothing was added.";
+  return added
+    .map((a) => {
+      const where = a.where === "account" ? "on your account (every device and the Chrome extension)" : "on this computer";
+      if (a.needsSignIn) return `Added ${a.name} ${where}. Finish signing in, in the browser page that just opened.`;
+      if (a.needsSecret) return `Added ${a.name} ${where}. It needs its key: add it in the Atlarix app or the CLI's \`/mcp\`.`;
+      return `Added ${a.name} ${where}.${a.note ? ` ${a.note}` : a.enabled ? " It's ready from your next message." : ""}`;
+    })
+    .join("\n");
+}
+
+/** Start the browser sign-in for each added server that needs one; the editor opens the page. */
+function startSignIns(
+  added: Array<{ id: string | number; where: "account" | "local"; needsSignIn: boolean }>,
+  appId: number,
+  services: Awaited<typeof import("../agent/services")>["realServices"],
+): void {
+  for (const a of added) {
+    if (!a.needsSignIn) continue;
+    if (a.where === "account") void services.mcp.accountSignIn(appId, String(a.id), () => {}).catch(() => {});
+    else void services.mcp.signIn(Number(a.id)).catch(() => {});
+  }
 }

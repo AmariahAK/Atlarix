@@ -27,7 +27,7 @@ import {
   mcpToolConsents,
 } from "@/db/schema";
 import { broadcastToAllWindows } from "@/ipc/utils/broadcast_all_windows";
-import type { AutomationInput } from "./types";
+import { assertMcpTriggerServer, type AutomationInput } from "./types";
 import {
   AUTOMATIONS_WORKSPACE_MAX as WORKSPACE_MAX,
   workspaceCapRefusal,
@@ -72,7 +72,11 @@ export type MappedAutomation = ReturnType<typeof mapAutomation>;
  */
 async function upsertMcpConsentIfNeeded(input: AutomationInput): Promise<void> {
   if (input.trigger.kind !== "mcp") return;
+  assertMcpTriggerServer(input.trigger);
   const { serverId, tool } = input.trigger;
+  // An account server has no consent row here: the proxy runs it, and saving
+  // the automation is the standing OK the form states.
+  if (serverId == null) return;
   await db
     .insert(mcpToolConsents)
     .values({

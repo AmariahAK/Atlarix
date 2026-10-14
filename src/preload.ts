@@ -162,8 +162,25 @@ const validInvokeChannels = [
   "mcp:oauth-status",
   "mcp:revoke-oauth",
   "mcp:set-tool-consent",
-  "mcps:fetch-registry",
-  "mcps:install-from-registry",
+  "mcp:add-pasted",
+  "mcp:limit",
+  "mcp:verified-status",
+  // MCP marketplace (official MCP Registry, cached in main)
+  "mcp-catalog:search",
+  "mcp-catalog:icon",
+  "mcp:server-icon",
+  "mcp-catalog:install",
+  // Web MCP servers on the account (shared by every surface)
+  "connectors:list",
+  "connectors:set-enabled",
+  "connectors:remove",
+  "connectors:set-secret",
+  "connectors:sign-in",
+  // Suggestion cards: the agent asks the user to connect a server
+  "mcp-suggest:list",
+  "mcp-suggest:connect",
+  "mcp-suggest:finish",
+  "mcp-suggest:dismiss",
   // Skills — read only since v14.45 (the marketplace is gone).
   "skills:list-repo-skills",
   "skills:read-repo-skill",
@@ -319,6 +336,8 @@ const validReceiveChannels = [
   "chat:stream:reset-partial", // backend will (re)start streaming; clear in-flight buffer
   "theme:system-updated",
   "models-dev:status",
+  "mcp:suggestion", // main → every surface: an MCP suggestion card was added or answered
+  "mcp:servers-changed", // main → renderer: the agent turned a server on or off
   "core-models:changed",
   "whats-new:changed",
   "window:fullscreen-changed",

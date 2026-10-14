@@ -235,32 +235,32 @@ const FEATURES: ToolFeature[] = [
   },
   {
     id: "mcp-manual",
-    title: "MCP servers (manual)",
+    title: "Your own MCP servers",
     shortDescription:
-      "Wire stdio or HTTP MCP servers globally or per workspace, up to ten per workspace.",
+      "Paste a URL, a command, or an mcpServers config from another tool; up to ten on at a time.",
     category: "mcp",
     steps: [
-      "Settings → Tools → MCP",
-      "Add command or URL + env",
+      "Settings → MCP",
+      "Paste a URL, a command or a config, or import the file",
       "Approve tool calls per capability",
     ],
     howItWorks:
-      "Manual entries are unchanged by the MCP marketplace; they are ideal for private or bespoke servers.",
+      "A public https server goes on your account and works in the app, the CLI, your editor and the Chrome extension; a command or a local address stays on this computer.",
     link: { label: "Settings → MCP", to: "/settings" },
   },
   {
     id: "mcp-marketplace",
     title: "MCP marketplace",
     shortDescription:
-      "One-click installs from the curated atlarix-mcps registry.",
+      "The official MCP Registry, with Sentry, Notion, Supabase, Canva and Linear verified on top.",
     category: "mcp",
     steps: [
-      "Open MCP → Marketplace tab",
-      "Filter or search",
-      "Connect with env vars, choose scope",
+      "Open MCP → Marketplace",
+      "Search",
+      "Add, then sign in or fill in what it asks for",
     ],
     howItWorks:
-      "Registry rows carry installUrl metadata; installs still respect the same caps as manual servers.",
+      "The registry is synced hourly and searched on your computer, so the marketplace works even when the registry is down. Every card shows who published it.",
     link: { label: "Settings → MCP marketplace", to: "/settings" },
   },
   {

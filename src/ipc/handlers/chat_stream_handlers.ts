@@ -1,4 +1,5 @@
 import { ipcMain } from "electron";
+import { recordSnapshotTurnEnd } from "@/lib/snapshot/snapshot-manager";
 import { ModelMessage } from "ai";
 
 import { db } from "../../db";
@@ -90,7 +91,10 @@ import {
 } from "@/lib/agents/subagent-results";
 import { computeWakePendingResults } from "@/lib/agent/collect-results";
 import { takeEarlierDeliveredResults } from "@/lib/agent/delivered-results";
-import { takePendingAutomationResults } from "@/lib/agent/automation-results";
+import {
+  describePendingAutomationResults,
+  takePendingAutomationResults,
+} from "@/lib/agent/automation-results";
 import {
   AI_STREAMING_ERROR_MESSAGE_PREFIX,
   SAFETY_FILTER_BLOCKED_MESSAGE,
@@ -350,6 +354,12 @@ export function registerChatStreamHandlers() {
       const ensureTerminal = (error?: unknown) => {
         if (ctx.streamTerminated) return;
         ctx.streamTerminated = true;
+        // How the turn left its files, so a later revert keeps anything changed
+        // since (owner: no random reverts). A stopped turn gets here too, from
+        // the `finally` below once it unwinds; chat:cancel records it earlier.
+        if (snapshotTurnIdForTerminal) {
+          void recordSnapshotTurnEnd(snapshotTurnIdForTerminal);
+        }
         if (error) {
           safeSend(event.sender, "chat:response:error", {
             chatId: req.chatId,
@@ -1560,6 +1570,20 @@ export function registerChatStreamHandlers() {
               req.chatId,
               req.continueAfterQuestions === true,
             );
+            // Which automation woke this turn, as the CLI and editor say it
+            // ("Automation "Nightly CI" finished: …"). Read before the drain.
+            if (wakeHasPendingResults) {
+              describePendingAutomationResults(req.chatId).forEach((label, i) =>
+                safeSend(event.sender, "chat:activity", {
+                  id: `wake-automation-${streamId}-${i}`,
+                  type: "background",
+                  label,
+                  status: "done",
+                  timestamp: Date.now(),
+                  chatId: req.chatId,
+                }),
+              );
+            }
             // BUT a forced/object tool_choice is INCOMPATIBLE with extended-thinking
             // mode on several providers (Alibaba/Qwen 400 "tool_choice ... not
             // supported ... in thinking mode"; Anthropic likewise only allows

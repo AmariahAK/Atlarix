@@ -36,6 +36,13 @@ function InlineToolPartCardView({
       toolName={card.toolName}
       resultText={part.resultText}
       olderStep={olderStep}
+      mcpServer={
+        part.toolName === "mcp_call" &&
+        part.args &&
+        typeof (part.args as { server?: unknown }).server === "string"
+          ? (part.args as { server: string }).server
+          : undefined
+      }
     />
   );
 }

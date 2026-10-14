@@ -547,6 +547,13 @@
       "when": 1787788800000,
       "tag": "0077_automation_leases",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "6",
+      "when": 1787875200000,
+      "tag": "0078_mcp_headers",
+      "breakpoints": true
     }
   ]
 }

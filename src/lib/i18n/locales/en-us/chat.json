@@ -24,16 +24,28 @@
     "privateShort": "private, no training"
   },
   "peerMessage": {
-    "from": "Message from teammate",
+    "from": "Message from contributor",
     "surface": "({{where}})",
     "anotherSession": "another session"
   },
   "revertTurn": {
     "reverted": "Files reverted",
-    "revertedTitle": "This turn's file changes were put back: {{files}}"
+    "revertedTitle": "This turn's file changes were put back: {{files}}",
+    "unchecked": "Later edits to these files can't be detected and will be overwritten."
   },
   "recap": {
     "label": "While you were away",
     "dismiss": "Dismiss"
+  },
+  "mcpSuggest": {
+    "recommended": "Recommended for you",
+    "browseAll": "Browse all",
+    "notNow": "Not now",
+    "connect": "Connect",
+    "save": "Save",
+    "key": "API key",
+    "optional": "(optional)",
+    "connected": "{{name}} is connected.",
+    "signInFailed": "Couldn't sign in to {{name}}."
   }
 }

@@ -1150,6 +1150,10 @@ export class PermissionInterceptor extends EventEmitter {
       // A created automation's id only exists after approval, so hand it
       // back here — the tool's own description tells the model to run the
       // automation next, and name is not a key (two may share one).
+      if (operation.request.operation === "mcp_server_write") {
+        const note = (operation.request.preview as { resultNote?: string }).resultNote;
+        return { success: true, ...(note ? { output: note } : {}) };
+      }
       if (operation.request.operation === "automation_write") {
         const autoPreview = operation.request
           .preview as AutomationOperationPreview;
@@ -1605,6 +1609,22 @@ export class PermissionInterceptor extends EventEmitter {
     const { eq } = await import("drizzle-orm");
     const { mcpManager } = await import("@/ipc/utils/mcp_manager");
 
+    // A web server on the account: the same writes the Settings screen makes.
+    if (preview.scope === "account" && preview.accountId && preview.action !== "add") {
+      const acct = await import("@/lib/mcp/account-connectors");
+      if (preview.action === "delete") {
+        const out = await acct.deleteConnector(preview.accountId);
+        if (!out.ok) throw new Error(out.error);
+        logger.log(`[mcp] removed account server ${preview.serverName}`);
+        return;
+      }
+      const patch = (preview.input ?? {}) as { name?: string; url?: string };
+      const out = await acct.updateConnector(preview.accountId, patch);
+      if (!out.ok) throw new Error(out.error);
+      logger.log(`[mcp] edited account server ${preview.serverName}`);
+      return;
+    }
+
     if (preview.action === "delete") {
       if (preview.serverId == null) throw new Error("MCP server id missing");
       await mcpManager.dispose(preview.serverId);
@@ -1628,6 +1648,7 @@ export class PermissionInterceptor extends EventEmitter {
       args: string[] | null;
       url: string | null;
       envJson: Record<string, string> | null;
+      headers?: Record<string, string> | null;
       appId: number;
     } | null;
     if (input == null) {
@@ -1642,6 +1663,39 @@ export class PermissionInterceptor extends EventEmitter {
     // server into a state where it never asks for the key it needs.
     const authType =
       input.envJson && Object.keys(input.envJson).length ? "env" : "none";
+
+    // An http server is added like one pasted in Settings: a public https URL
+    // goes on the account, anything else stays in this folder. Switched OFF
+    // either way, as below.
+    if (preview.action === "add" && input.transport === "http" && input.url) {
+      const { addServerFromUrl } = await import("@/lib/mcp/mcp-add");
+      const added = await addServerFromUrl(
+        input.appId,
+        { url: input.url, name: input.name, headers: input.headers ?? undefined },
+        { enable: false },
+      );
+      logger.log(`[mcp] added server ${added.name} (${added.where}), inactive`);
+      // It needs the user (a sign-in, a key): the same card a suggestion gets,
+      // so they connect it right there and the agent is told.
+      const { addMcpSuggestion, waitingOnUserNote } = await import("@/lib/mcp/mcp-suggestions");
+      // What the model reads back: it waits on the user (a card), or it is
+      // ready to call (a local server turns on at its first use).
+      (preview as { resultNote?: string }).resultNote =
+        added.needsSignIn || added.needsSecret || added.where === "account"
+          ? `"${added.name}" is added. ${waitingOnUserNote(added.name)}`
+          : `"${added.name}" is added, switched off; it turns on the first time you call it with mcp_call.`;
+      if ((added.needsSignIn || added.needsSecret || added.where === "account") && this.activeChatId != null) {
+        addMcpSuggestion({
+          chatId: this.activeChatId,
+          appId: input.appId,
+          server: added.name,
+          title: added.name,
+          reason: "",
+          wait: false,
+        });
+      }
+      return;
+    }
 
     if (preview.action === "add") {
       const [row] = await db
@@ -1677,6 +1731,7 @@ export class PermissionInterceptor extends EventEmitter {
         args: input.args ?? null,
         envJson: encryptEnvForDb(input.envJson ?? null),
         url: input.url || null,
+        ...(input.headers !== undefined ? { headersJson: encryptEnvForDb(input.headers ?? null) } : {}),
         authType,
         updatedAt: new Date(),
       })

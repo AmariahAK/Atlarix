@@ -198,6 +198,70 @@ describe("the session's commands", () => {
     expect(last).not.toContain("set v to 2");
   }, 60_000);
 
+  // Owner: no random reverts. A real turn records how it left its files; a
+  // restore keeps a file changed after that and says so.
+  it("restoring files keeps a file someone changed after the turn, and names it", async () => {
+    const file = path.join(ws, "keep.ts");
+    const other = path.join(ws, "goes-back.ts");
+    fs.writeFileSync(file, "export const k = 1;\n");
+    fs.writeFileSync(other, "export const g = 1;\n");
+    const { s } = await sessionWith([
+      { tool: "edit_file", args: { path: "keep.ts", operation: "replace", old_content: "export const k = 1;", new_content: "export const k = 2;" } },
+      { tool: "edit_file", args: { path: "goes-back.ts", operation: "replace", old_content: "export const g = 1;", new_content: "export const g = 2;" } },
+      { text: "Changed both." },
+    ]);
+    const approve = (st: any) => {
+      if (st.approvals.length) void s.answerApproval(st.approvals[0].operationId, "once");
+    };
+    s.on("change", approve);
+    await idleAfter(s, () => s.submit("set k and g to 2"));
+    s.off("change", approve);
+    // A teammate (or the user) edits one of them after the turn.
+    fs.writeFileSync(file, "export const k = 2; // teammate\n");
+
+    const [mine] = s.myMessages();
+    // The dialog before says the same as the result after (nothing written yet).
+    const preview = await s.undoPreview(mine!.id);
+    expect(preview.kept.some((f) => f.endsWith("keep.ts"))).toBe(true);
+    expect(preview.kept.some((f) => f.endsWith("goes-back.ts"))).toBe(false);
+    expect(fs.readFileSync(other, "utf8")).toContain("g = 2");
+    const { kept } = await s.restoreFilesSince(mine!.id);
+    expect(fs.readFileSync(file, "utf8")).toContain("// teammate");
+    expect(fs.readFileSync(other, "utf8")).toContain("g = 1");
+    expect(kept.some((f) => f.endsWith("keep.ts"))).toBe(true);
+    // The agent is told only about the file that went back.
+    expect((s as any).restoredNote).toContain("goes-back.ts");
+    expect((s as any).restoredNote).not.toContain("keep.ts");
+  }, 60_000);
+
+  // The commonest revert: stop a turn that went wrong, then put its files back.
+  // A stopped turn never reached the turn's end, so it was unchecked.
+  it("a STOPPED turn's restore also keeps a file changed after it", async () => {
+    const file = path.join(ws, "stopped.ts");
+    fs.writeFileSync(file, "export const t = 1;\n");
+    const { s } = await sessionWith([
+      { tool: "edit_file", args: { path: "stopped.ts", operation: "replace", old_content: "export const t = 1;", new_content: "export const t = 2;" } },
+      { text: "Still going, slowly, word by word, until the user stops me.", delayMs: 400 },
+    ]);
+    const approve = (st: any) => {
+      if (st.approvals.length) void s.answerApproval(st.approvals[0].operationId, "once");
+    };
+    s.on("change", approve);
+    await idleAfter(s, async () => {
+      void s.submit("set t to 2");
+      while (!fs.readFileSync(file, "utf8").includes("t = 2")) await Bun.sleep(20);
+      await Bun.sleep(100);
+      await s.interrupt();
+    });
+    s.off("change", approve);
+    fs.writeFileSync(file, "export const t = 2; // the user's fix\n");
+
+    const [mine] = s.myMessages();
+    const { kept } = await s.restoreFilesSince(mine!.id);
+    expect(fs.readFileSync(file, "utf8")).toContain("// the user's fix");
+    expect(kept.some((f) => f.endsWith("stopped.ts"))).toBe(true);
+  }, 60_000);
+
   it("/undo to the FIRST of three messages restores every later turn's files and drops every later message", async () => {
     const file = path.join(ws, "many.ts");
     fs.writeFileSync(file, "export const n = 0;\n");
@@ -313,5 +377,33 @@ describe("the session's commands", () => {
     expect(line.tool.output).toBe(`Saved ${file}`);
     const { lastRelic } = await import("../src/cli/tui/App");
     expect(lastRelic(s.state.cells)).toBe(file);
+  }, 60_000);
+
+  // The desktop showed nothing to say which automation woke a reply (the CLI
+  // and editor note it themselves). The wake turn's stream now sends it as a
+  // "background" line, which the app's thread draws; the CLI ignores it.
+  it("a wake turn names the automation that woke it", async () => {
+    const { s, llm } = await sessionWith([{ text: "Hello." }, { text: "Looking at the failures." }]);
+    await idleAfter(s, () => s.submit("hi"));
+    const sent: Array<{ channel: string; p: any }> = [];
+    const onSend = (s as any).onSend.bind(s);
+    (s as any).onSend = (channel: string, p: any) => {
+      sent.push({ channel, p });
+      onSend(channel, p);
+    };
+    const { recordAutomationResult } = await import("../src/lib/agent/automation-results");
+    recordAutomationResult((s as any).appId, {
+      automationId: "a1",
+      automationName: "Nightly CI",
+      status: "ok",
+      body: "2 failing checks on main",
+      finishedAt: Date.now(),
+    });
+    await idleAfter(s, async () => {
+      (s as any).onSend("chat:background-job-update", { chatId: s.chatId, source: "automation", status: "finished" });
+    });
+    expect(JSON.stringify(llm.requests.at(-1))).toContain("2 failing checks on main");
+    const lines = sent.filter((x) => x.channel === "chat:activity" && x.p.type === "background").map((x) => x.p.label);
+    expect(lines).toEqual(['Automation "Nightly CI" finished: 2 failing checks on main']);
   }, 60_000);
 });

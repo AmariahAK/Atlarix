@@ -55,6 +55,7 @@ import {
 import { scheduleCleanupJobs } from "./db/cleanup_jobs";
 import { registerCleanupHandlers } from "./db/workspace_cleanup";
 import { startModelsDevRefresh } from "./lib/models_dev";
+import { startMcpRegistryRefresh } from "./lib/mcp/registry-catalog";
 import {
   capture as analyticsCapture,
   shutdown as analyticsShutdown,
@@ -93,6 +94,11 @@ import {
   scheduleStartupTempSweep,
   startPeriodicTempSweep,
 } from "./main/temp-hygiene";
+
+// Every Atlarix app on this computer (QA's scratch profiles too) writes this one
+// file, and electron-log's 1 MB default rotated it every ~15 minutes, so a
+// report about the last half hour found nothing (QA). 10 MB, plus main.old.log.
+log.transports.file.maxSize = 10 * 1024 * 1024;
 
 // Silence EPIPE: when stdout/stderr is closed (e.g. parent shell terminated),
 // `console.log` raises EPIPE asynchronously. electron-log's default catcher
@@ -830,6 +836,8 @@ export async function onReady() {
   // Start models.dev refresh (dynamic model catalog, OpenCode-style)
   startModelsDevRefresh();
   logger.info("Models.dev refresh started");
+  // The MCP marketplace catalog, synced hourly from the official MCP Registry.
+  startMcpRegistryRefresh();
 
   await onFirstRunMaybe(settings);
   // Activation-funnel entry point (top of funnel). This used to fire alongside

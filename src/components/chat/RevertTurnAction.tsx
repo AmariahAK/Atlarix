@@ -15,6 +15,7 @@ import { Undo2, Loader2 } from "lucide-react";
 import { turnSnapshotTurnIdByMessageIdAtom } from "@/atoms/chatAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
 import { showError, showSuccess } from "@/lib/toast";
+import { keptFilesLine } from "@/lib/chat/kept-files-line";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,7 +40,13 @@ export function RevertTurnAction({
   const [open, setOpen] = useState(false);
   // undefined while loading; null when the turn captured no snapshot.
   const [files, setFiles] = useState<
-    | { filesChanged: string[]; createdFiles: string[]; revertedAt?: string }
+    | {
+        filesChanged: string[];
+        createdFiles: string[];
+        revertedAt?: string;
+        endRecorded?: boolean;
+        kept?: string[];
+      }
     | null
     | undefined
   >(undefined);
@@ -87,9 +94,19 @@ export function RevertTurnAction({
         filesOnly: true,
       });
       if (res?.success) {
-        setReverted(true);
+        const restored = res.restoredFiles ?? 0;
+        const kept = keptFilesLine(res.kept ?? []);
+        // Every file changed since: nothing went back, so it isn't "reverted".
+        if (restored > 0) setReverted(true);
         showSuccess(
-          `Reverted this turn's file changes (${res.restoredFiles ?? 0} restored).`,
+          [
+            restored > 0
+              ? `Reverted ${restored} ${restored === 1 ? "file" : "files"}.`
+              : null,
+            kept,
+          ]
+            .filter(Boolean)
+            .join(" "),
         );
       } else {
         showError(res?.error ?? "Revert failed");
@@ -102,8 +119,12 @@ export function RevertTurnAction({
     }
   };
 
-  const changed = files?.filesChanged.length ?? 0;
-  const created = files?.createdFiles.length ?? 0;
+  // What will actually go back: a file changed since is kept (said below).
+  const keptNow = new Set(files?.kept ?? []);
+  const goingBack = (files?.filesChanged ?? []).filter((f) => !keptNow.has(f));
+  const changed = goingBack.length;
+  const created = (files?.createdFiles ?? []).filter((f) => !keptNow.has(f)).length;
+  const keptLine = keptFilesLine([...keptNow]);
 
   return (
     <>
@@ -137,19 +158,23 @@ export function RevertTurnAction({
                     : ""}
                   .
                 </p>
-                {files && files.filesChanged.length > 0 ? (
+                {goingBack.length > 0 ? (
                   <pre className="max-h-32 overflow-auto rounded border border-border bg-muted/40 p-2 font-mono">
-                    {files.filesChanged.join("\n")}
+                    {goingBack.join("\n")}
                   </pre>
-                ) : (
+                ) : keptNow.size === 0 ? (
                   <p className="text-muted-foreground">
                     No file changes were recorded for this turn.
                   </p>
-                )}
-                <p className="text-amber-600 dark:text-amber-500">
-                  Edits made by later turns to these files will be overwritten —
-                  this does not undo later turns.
-                </p>
+                ) : null}
+                {keptLine ? <p>{keptLine}</p> : null}
+                {files?.endRecorded === false ? (
+                  // A turn from before end states were recorded, or one that
+                  // was stopped: changes made since can't be told apart.
+                  <p className="text-amber-600 dark:text-amber-500">
+                    {t("revertTurn.unchecked")}
+                  </p>
+                ) : null}
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>

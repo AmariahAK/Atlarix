@@ -67,6 +67,15 @@ export async function pollMcp(
   workspaceId: number,
   opts?: { mcpCall?: McpCallFn },
 ): Promise<McpPollResult> {
+  // A web server on the account: called by name through the proxy, as any
+  // surface calls it. A local server of the same name would win in mcp_call,
+  // exactly as in the agent's own listing.
+  if (trigger.accountServer) {
+    return pollAccountServer(trigger, cursor, workspaceId, opts);
+  }
+  if (trigger.serverId == null) {
+    throw new Error("This automation names no MCP server — edit it and pick one");
+  }
   const [server] = await db
     .select()
     .from(mcpServers)
@@ -123,6 +132,42 @@ export async function pollMcp(
     context:
       `Result of ${server.name}/${trigger.tool} changed since the last poll. Current result:\n` +
       raw.slice(0, CONTEXT_MAX),
+    nextCursor: { hash },
+  };
+}
+
+async function pollAccountServer(
+  trigger: McpTrigger,
+  cursor: McpCursor | null,
+  workspaceId: number,
+  opts?: { mcpCall?: McpCallFn },
+): Promise<McpPollResult> {
+  const name = trigger.accountServer!;
+  const { listConnectorRows } = await import("@/lib/mcp/account-connectors");
+  const rows = await listConnectorRows();
+  if (rows === null) throw new Error(`Sign in to Atlarix to check "${name}" — it is on your account`);
+  const row = rows.find((r) => r.name.toLowerCase() === name.toLowerCase());
+  if (!row) throw new Error(`MCP server "${name}" is no longer on your account — edit or delete this automation`);
+  if (!row.connected) throw new Error(`MCP server "${name}" needs you to sign in again — connect it in Settings → MCP`);
+  if (!row.enabled) throw new Error(`MCP server "${name}" is off — turn it on or edit this automation`);
+  const mcpCall = opts?.mcpCall ?? ((ToolRegistry.get("mcp_call")?.handler ?? null) as McpCallFn | null);
+  if (!mcpCall) throw new Error("mcp_call tool is not registered");
+  const result = await mcpCall({
+    server: row.name,
+    tool: trigger.tool,
+    arguments: trigger.args ?? {},
+    workspaceId,
+    _mcpInvocationContext: { requireConsent: async () => true, requireAuth: async () => false },
+  });
+  if (result && typeof result === "object" && "error" in result && result.error) {
+    throw new Error(String(result.error));
+  }
+  const raw = typeof result.result === "string" ? result.result : stableStringify(result.result);
+  const hash = createHash("sha256").update(raw).digest("hex");
+  if (cursor == null || hash === cursor.hash) return { fired: false, nextCursor: { hash } };
+  return {
+    fired: true,
+    context: `Result of ${row.name}/${trigger.tool} changed since the last poll. Current result:\n` + raw.slice(0, CONTEXT_MAX),
     nextCursor: { hash },
   };
 }

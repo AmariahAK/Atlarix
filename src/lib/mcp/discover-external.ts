@@ -34,6 +34,8 @@ export interface ExternalMcpServerFull extends ExternalMcpServer {
   url?: string;
   /** A bearer token from an Authorization header, when there is one. */
   bearer?: string;
+  /** Every other request header it sends (`X-Api-Key`, …), values included. */
+  headers?: Record<string, string>;
 }
 
 /** JSON with // and /* comments and trailing commas (VS Code's and Zed's files). */
@@ -81,7 +83,7 @@ const record = (v: unknown) =>
     : undefined;
 
 /** One entry in the common shape (`command`/`args`/`env` or `url`/`headers`), or Zed's. */
-function toServer(source: string, name: string, raw: Raw, scope: "folder" | "everywhere"): ExternalMcpServerFull | null {
+export function toServer(source: string, name: string, raw: Raw, scope: "folder" | "everywhere"): ExternalMcpServerFull | null {
   // Zed: `command` is { path, args, env }, or command/args at the top with source "custom".
   const zedCmd = raw.command && typeof raw.command === "object" ? (raw.command as Raw) : null;
   const command = zedCmd ? str(zedCmd.path) : str(raw.command);
@@ -98,7 +100,20 @@ function toServer(source: string, name: string, raw: Raw, scope: "folder" | "eve
   if (url && /^https?:\/\//i.test(url)) {
     const auth = headers.Authorization ?? headers.authorization;
     const bearer = auth?.replace(/^Bearer\s+/i, "");
-    return { ...base, transport: "http", summary: url, url, ...(bearer && bearer !== auth ? { bearer } : {}) };
+    const isBearer = !!bearer && bearer !== auth;
+    // The bearer travels as `bearer`; any other header (a non-Bearer
+    // Authorization included) is kept as it was written.
+    const rest = Object.fromEntries(
+      Object.entries(headers).filter(([k]) => !(isBearer && k.toLowerCase() === "authorization")),
+    );
+    return {
+      ...base,
+      transport: "http",
+      summary: url,
+      url,
+      ...(isBearer ? { bearer } : {}),
+      ...(Object.keys(rest).length > 0 ? { headers: rest } : {}),
+    };
   }
   return null;
 }

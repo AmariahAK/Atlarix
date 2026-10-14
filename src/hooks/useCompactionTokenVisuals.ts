@@ -38,6 +38,8 @@ export function useCompactionTokenVisuals(chatId: number | null): {
     const compactionItems = items.filter(
       (i) =>
         i.type === "background" &&
+        // An automation's wake line is a background row too, named by the user.
+        !i.id.startsWith("wake-") &&
         COMPACTION_LABEL_FILTER.test(i.label) &&
         (i.chatId === chatId || i.chatId == null),
     );

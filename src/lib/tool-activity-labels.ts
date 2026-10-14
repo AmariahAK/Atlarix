@@ -2,6 +2,7 @@
  * Human-readable labels for AI tool activity (chat status line).
  * Fix: Finding 4
  */
+import { displayTitle } from "@/shared/mcp-catalog";
 
 const LABELS: Record<string, string> = {
   // Four tools shipped without entries here and fell through to the generic
@@ -68,6 +69,7 @@ const LABELS: Record<string, string> = {
   list_available_mcps: "Listing MCP servers…",
   manage_mcp_server: "Preparing MCP server change…",
   mcp_call: "Calling MCP tool…",
+  mcp_servers: "Checking MCP servers…",
   // PASS8 B2: get_workspace_overview removed (phantom — never registered).
   get_plan_scope: "Scoping plan…",
   read_implementation_plan: "Reading plan…",
@@ -342,11 +344,60 @@ export function browserToolLabel(
  * Like getToolActivityLabel but folds in the tool's arguments when they
  * identify a concrete subject — e.g. "Writing src/auth.ts…".
  */
+/** An MCP tool's name as words: `list_issues` → `list issues`. */
+const mcpToolWords = (v: unknown) =>
+  typeof v === "string" ? v.replace(/[_-]+/g, " ").trim() : "";
+
+/**
+ * MCP rows name what is used: "Using Linear: list issues…", then
+ * "Linear · list issues" with its data, like any other tool row.
+ */
+function mcpLabel(
+  toolName: string,
+  args: Record<string, unknown>,
+  phase: "running" | "done",
+): string | null {
+  const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+  if (toolName === "mcp_call") {
+    const server = str(args.server);
+    const tool = mcpToolWords(args.tool);
+    if (!server) return null;
+    return phase === "running"
+      ? `Using ${server}${tool ? `: ${tool}` : ""}…`
+      : `${server}${tool ? ` · ${tool}` : ""}`;
+  }
+  if (toolName === "mcp_servers") {
+    const op = str(args.operation);
+    // "Suggesting Canva", not the registry id "com.canva.mcp/mcp" (QA).
+    const rawServer = str(args.server);
+    const server = rawServer.includes("/") ? displayTitle({ name: rawServer }) : rawServer;
+    const query = str(args.query);
+    if (op === "search") {
+      return phase === "running"
+        ? `Searching MCP servers${query ? ` for "${query}"` : ""}…`
+        : `Searched MCP servers${query ? ` for "${query}"` : ""}`;
+    }
+    if (!server) return null;
+    const verbs: Record<string, [string, string]> = {
+      suggest: ["Suggesting", "Suggested"],
+      start: ["Turning on", "Turned on"],
+      stop: ["Turning off", "Turned off"],
+      disconnect: ["Signing out of", "Signed out of"],
+    };
+    const v = verbs[op];
+    if (!v) return null;
+    return phase === "running" ? `${v[0]} ${server}…` : `${v[1]} ${server}`;
+  }
+  return null;
+}
+
 export function getToolActivityLabelWithArgs(
   toolName: string,
   args?: Record<string, unknown> | null,
 ): string {
   if (toolName && args) {
+    const mcp = mcpLabel(toolName, args, "running");
+    if (mcp) return mcp;
     const browser = browserToolLabel(toolName, args, "running");
     if (browser) return `${browser.replace(/…$/u, "")}…`;
     // v13.8: edit_file absorbed write_file — a whole-file write reads as
@@ -426,6 +477,7 @@ const DONE_LABELS: Record<string, string> = {
   list_available_mcps: "Listed MCP servers",
   manage_mcp_server: "Proposed MCP server change",
   mcp_call: "Called MCP tool",
+  mcp_servers: "Checked MCP servers",
   get_plan_scope: "Scoped plan",
   read_implementation_plan: "Read plan",
   write_implementation_plan: "Saved plan",
@@ -449,6 +501,8 @@ export function getToolDoneLabel(
 ): string {
   if (!toolName) return "Done";
   if (args) {
+    const mcp = mcpLabel(toolName, args, "done");
+    if (mcp) return mcp;
     const browser = browserToolLabel(toolName, args, "done");
     if (browser) return browser;
     if (toolName === "grep" || toolName === "glob") {

@@ -1,0 +1,277 @@
+/**
+ * Owner, 2026-10-14: "I don't want you guys to revert the work randomly."
+ *
+ * A revert put every file a turn changed back to its pre-turn state, whatever
+ * had happened to it since: an edit by the user, a later turn, or a teammate
+ * session was wiped without a word. The turn now records each file as it LEFT
+ * it, and a revert keeps (and names) a file that changed after that. A turn
+ * with no such record (from before this, or stopped before its end) reverts as
+ * before and says it could not check. Every surface's restore (the app's
+ * Revert, edit-and-restore, the editor's checkpoint, ACP, the CLI) ends here.
+ */
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { exec as gitExec } from "@/ipc/utils/system_git_exec";
+import {
+  captureSnapshot,
+  listSnapshotFiles,
+  markSnapshotReverted,
+  previewRevert,
+  recordSnapshotTurnEnd,
+  revertSnapshot,
+  takeUntoldRevertedFiles,
+  _setShadowSnapshotsRootForTests,
+} from "@/lib/snapshot/snapshot-manager";
+
+vi.setConfig({ testTimeout: 30_000 });
+
+const gitAvailable = await gitExec(["--version"], os.tmpdir())
+  .then((r) => r.exitCode === 0)
+  .catch(() => false);
+const describeWithGit = gitAvailable ? describe : describe.skip;
+
+let workspace: string;
+let shadowRoot: string;
+const at = (rel: string) => path.join(workspace, rel);
+const read = (rel: string) => fs.readFile(at(rel), "utf8").catch(() => null);
+const write = (rel: string, s: string) => fs.writeFile(at(rel), s, "utf8");
+
+/** A turn: capture, write, end. */
+async function turn(id: string, edits: Record<string, string>, opts: { end?: boolean } = {}) {
+  await captureSnapshot({ workspacePath: workspace, turnId: id, relativePaths: Object.keys(edits) });
+  for (const [rel, s] of Object.entries(edits)) await write(rel, s);
+  if (opts.end !== false) await recordSnapshotTurnEnd(id);
+}
+
+beforeEach(async () => {
+  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "atlarix-keep-ws-"));
+  shadowRoot = await fs.mkdtemp(path.join(os.tmpdir(), "atlarix-keep-shadow-"));
+  _setShadowSnapshotsRootForTests(shadowRoot);
+  await write("a.ts", "a0");
+  await write("b.ts", "b0");
+});
+
+afterEach(async () => {
+  _setShadowSnapshotsRootForTests(null);
+  await fs.rm(workspace, { recursive: true, force: true });
+  await fs.rm(shadowRoot, { recursive: true, force: true });
+});
+
+describeWithGit("a revert keeps what changed after the turn", () => {
+  it("(a) a file edited since is kept and named; the other goes back", async () => {
+    await turn("41", { "a.ts": "a1", "b.ts": "b1" });
+    await write("b.ts", "b1 + the user's edit");
+    const res = await revertSnapshot({ workspacePath: workspace, turnId: "41" });
+    expect(await read("a.ts")).toBe("a0");
+    expect(await read("b.ts")).toBe("b1 + the user's edit");
+    expect(res.kept).toEqual(["b.ts"]);
+    expect(res.restoredFiles).toBe(1);
+  });
+
+  it("(b) a file the turn created and someone then changed is kept, not deleted", async () => {
+    await turn("41", { "new.ts": "made by the turn" });
+    await write("new.ts", "made by the turn + a teammate's edit");
+    const res = await revertSnapshot({ workspacePath: workspace, turnId: "41" });
+    expect(await read("new.ts")).toBe("made by the turn + a teammate's edit");
+    expect(res.kept).toEqual(["new.ts"]);
+  });
+
+  it("(c) a file deleted since is kept deleted, not brought back", async () => {
+    await turn("41", { "a.ts": "a1" });
+    await fs.rm(at("a.ts"));
+    const res = await revertSnapshot({ workspacePath: workspace, turnId: "41" });
+    expect(await read("a.ts")).toBeNull();
+    expect(res.kept).toEqual(["a.ts"]);
+  });
+
+  it("(d) the same chat's turns, newest first, still restore fully", async () => {
+    await turn("41", { "a.ts": "a1" });
+    await turn("42", { "a.ts": "a2", "b.ts": "b2" });
+    const r42 = await revertSnapshot({ workspacePath: workspace, turnId: "42" });
+    const r41 = await revertSnapshot({ workspacePath: workspace, turnId: "41" });
+    expect(await read("a.ts")).toBe("a0");
+    expect(await read("b.ts")).toBe("b0");
+    expect([...(r42.kept ?? []), ...(r41.kept ?? [])]).toEqual([]);
+  });
+
+  it("a later turn's edit is kept when only the earlier turn is reverted", async () => {
+    await turn("41", { "a.ts": "a1" });
+    await turn("42", { "a.ts": "a2" });
+    const res = await revertSnapshot({ workspacePath: workspace, turnId: "41" });
+    expect(await read("a.ts")).toBe("a2");
+    expect(res.kept).toEqual(["a.ts"]);
+  });
+
+  it("an edit landing the moment after the turn ends counts as a change since", async () => {
+    await captureSnapshot({ workspacePath: workspace, turnId: "41", relativePaths: ["a.ts"] });
+    await write("a.ts", "a1");
+    const recorded = recordSnapshotTurnEnd("41"); // the turn's end, not awaited
+    await write("a.ts", "a1 + an edit right after");
+    await recorded;
+    const res = await revertSnapshot({ workspacePath: workspace, turnId: "41" });
+    expect(await read("a.ts")).toBe("a1 + an edit right after");
+    expect(res.kept).toEqual(["a.ts"]);
+  });
+
+  it("nothing changed since: everything goes back (control)", async () => {
+    await turn("41", { "a.ts": "a1", "new.ts": "x" });
+    const res = await revertSnapshot({ workspacePath: workspace, turnId: "41" });
+    expect(await read("a.ts")).toBe("a0");
+    expect(await read("new.ts")).toBeNull();
+    expect(res.kept).toEqual([]);
+    expect(res.unchecked).toBeFalsy();
+  });
+
+  it("the agent is told only the files that went back", async () => {
+    await turn("41", { "a.ts": "a1", "b.ts": "b1" });
+    await write("b.ts", "edited since");
+    await revertSnapshot({ workspacePath: workspace, turnId: "41" });
+    await markSnapshotReverted(workspace, "41");
+    expect(await takeUntoldRevertedFiles(workspace, ["41"])).toEqual(["a.ts"]);
+  });
+});
+
+// Large files: hashed up to the snapshot's own limit (a revert rewrites them,
+// so only the bytes can tell); past it, size and mtime.
+describeWithGit("a large file", () => {
+  const big = (fill: string) => fill.repeat(3 * 1024 * 1024);
+
+  it("edited since is kept", async () => {
+    await write("big.txt", big("a"));
+    await turn("41", { "big.txt": big("b") });
+    await fs.appendFile(at("big.txt"), "the user's line\n");
+    const res = await revertSnapshot({ workspacePath: workspace, turnId: "41" });
+    expect((await read("big.txt"))?.endsWith("the user's line\n")).toBe(true);
+    expect(res.kept).toEqual(["big.txt"]);
+  });
+
+  it("in a same-chat chain, newest first, still goes all the way back", async () => {
+    // Reverting the newer turn rewrites the file (new mtime) with exactly how
+    // the older turn left it: that must not read as "changed since".
+    await write("big.txt", big("a"));
+    await turn("41", { "big.txt": big("b") });
+    await turn("42", { "big.txt": big("c") });
+    const r42 = await revertSnapshot({ workspacePath: workspace, turnId: "42" });
+    const r41 = await revertSnapshot({ workspacePath: workspace, turnId: "41" });
+    expect((await read("big.txt"))?.slice(0, 3)).toBe("aaa");
+    expect([...(r42.kept ?? []), ...(r41.kept ?? [])]).toEqual([]);
+  });
+
+  it("untouched since goes back: the end and revert stamps agree (control)", async () => {
+    await write("big.txt", big("a"));
+    await turn("41", { "big.txt": big("b") });
+    const res = await revertSnapshot({ workspacePath: workspace, turnId: "41" });
+    expect((await read("big.txt"))?.slice(0, 3)).toBe("aaa");
+    expect(res.kept).toEqual([]);
+  });
+});
+
+describeWithGit("a turn with no record of how it ended", () => {
+  it("(e/f) reverts as before, and says it could not check", async () => {
+    // From before this change, or stopped/crashed before its end: no end state.
+    await turn("41", { "a.ts": "a1" }, { end: false });
+    await write("a.ts", "edited since");
+    expect((await listSnapshotFiles(workspace, "41"))?.endRecorded).toBe(false);
+    const res = await revertSnapshot({ workspacePath: workspace, turnId: "41" });
+    expect(await read("a.ts")).toBe("a0");
+    expect(res.unchecked).toBe(true);
+    expect(res.kept).toEqual([]);
+  });
+
+  it("an ended turn lists as checkable (control)", async () => {
+    await turn("41", { "a.ts": "a1" });
+    expect((await listSnapshotFiles(workspace, "41"))?.endRecorded).toBe(true);
+  });
+
+  it("listed right after the turn ends, it is checkable (the end is recorded in the background)", async () => {
+    await turn("41", { "a.ts": "a1" }, { end: false });
+    void recordSnapshotTurnEnd("41"); // as ensureTerminal does
+    expect((await listSnapshotFiles(workspace, "41"))?.endRecorded).toBe(true);
+  });
+});
+
+// The confirm dialogs say what a revert WILL do before it happens (CLI: "Atlarix
+// changed 2 files" while only 1 would go back). Read-only; must agree with the
+// revert itself.
+describeWithGit("previewing a revert", () => {
+  it("names what would be kept and changes nothing", async () => {
+    await turn("41", { "a.ts": "a1", "b.ts": "b1" });
+    await write("b.ts", "edited since");
+    expect(await previewRevert(workspace, ["41"])).toEqual({ restores: ["a.ts"], kept: ["b.ts"] });
+    expect(await read("a.ts")).toBe("a1"); // nothing written
+    const res = await revertSnapshot({ workspacePath: workspace, turnId: "41" });
+    expect(res.kept).toEqual(["b.ts"]);
+  });
+
+  it("follows a file through a same-chat chain, newest first", async () => {
+    await turn("41", { "a.ts": "a1", "new.ts": "made" });
+    await turn("42", { "a.ts": "a2" });
+    expect(await previewRevert(workspace, ["42", "41"])).toEqual({ restores: ["a.ts", "new.ts"], kept: [] });
+  });
+
+  it("an edit before the chain's newest turn is still caught for the older one", async () => {
+    await turn("41", { "a.ts": "a1" });
+    await write("a.ts", "a1 + user"); // between the two turns
+    await turn("42", { "a.ts": "a2" });
+    // 42 puts a.ts back to "a1 + user", which 41 then keeps.
+    expect(await previewRevert(workspace, ["42", "41"])).toEqual({ restores: ["a.ts"], kept: ["a.ts"] });
+    await revertSnapshot({ workspacePath: workspace, turnId: "42" });
+    const r41 = await revertSnapshot({ workspacePath: workspace, turnId: "41" });
+    expect(r41.kept).toEqual(["a.ts"]);
+    expect(await read("a.ts")).toBe("a1 + user");
+  });
+
+  // The turn's end is recorded in the background (`void` at ensureTerminal),
+  // and the CLI's undo dialog opens right after: the preview read the manifest
+  // before that write landed and called the turn unchecked (ai-13's bun run).
+  it("a preview right after the turn ends waits for its end to be recorded", async () => {
+    await captureSnapshot({ workspacePath: workspace, turnId: "41", relativePaths: ["a.ts", "b.ts"] });
+    await write("a.ts", "a1");
+    await write("b.ts", "b1");
+    void recordSnapshotTurnEnd("41"); // as ensureTerminal does
+    await write("b.ts", "edited since");
+    expect(await previewRevert(workspace, ["41"])).toEqual({ restores: ["a.ts"], kept: ["b.ts"] });
+  });
+
+  it("a created file someone changed is previewed as kept", async () => {
+    await turn("41", { "new.ts": "made" });
+    await write("new.ts", "made + teammate");
+    expect(await previewRevert(workspace, ["41"])).toEqual({ restores: [], kept: ["new.ts"] });
+  });
+});
+
+// The shadow git works on the user's folder, so the folder's own
+// .gitattributes (and Windows' system autocrlf) converted bytes on add and
+// checkout: a restore could change line endings, a chain then read the
+// rewritten file as "changed since", and the preview disagreed with the result.
+describeWithGit("a restore puts back the exact bytes", () => {
+  for (const [label, eol] of [["LF", "\n"], ["CRLF", "\r\n"]] as const) {
+    it(`under '* text eol=crlf', a chain of turns goes back byte-identical (${label} content)`, async () => {
+      await write(".gitattributes", "* text eol=crlf\n");
+      const before = ["one", "two", "three", ""].join(eol);
+      await write("a.txt", before);
+      await turn("41", { "a.txt": ["one", "TWO", "three", ""].join(eol) });
+      await turn("42", { "a.txt": ["one", "TWO", "THREE", ""].join(eol) });
+      const preview = await previewRevert(workspace, ["42", "41"]);
+      const r42 = await revertSnapshot({ workspacePath: workspace, turnId: "42" });
+      const r41 = await revertSnapshot({ workspacePath: workspace, turnId: "41" });
+      expect(Buffer.from((await read("a.txt"))!).equals(Buffer.from(before))).toBe(true);
+      expect([...(r42.kept ?? []), ...(r41.kept ?? [])]).toEqual([]);
+      expect(preview).toEqual({ restores: ["a.txt"], kept: [] });
+    });
+  }
+
+  it("an existing snapshot repo is made byte-exact when it is next used", async () => {
+    // Captured before the attributes existed: the repo was made then.
+    await turn("41", { "a.txt": "x\n" });
+    const shadowDirs = await fs.readdir(shadowRoot);
+    const gitDir = path.join(shadowRoot, shadowDirs[0]!);
+    await fs.rm(path.join(gitDir, "info", "attributes"), { force: true });
+    _setShadowSnapshotsRootForTests(shadowRoot); // a later run of the app
+    await write(".gitattributes", "* text eol=crlf\n");
+    await revertSnapshot({ workspacePath: workspace, turnId: "41" });
+    expect(await fs.readFile(path.join(gitDir, "info", "attributes"), "utf8")).toContain("-text");
+  });
+});

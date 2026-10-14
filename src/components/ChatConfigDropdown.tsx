@@ -7,6 +7,7 @@
  *
  * Pass 7: Blueprint-in-prompt tier override removed with the Blueprint subsystem.
  * v12.7: MCP entry removed — MCP management lives in Settings → MCP Servers.
+ * 15.7: the Verified MCP servers are back here, to connect or switch one (owner).
  * 2026-09-21: model section removed — see the note at the menu body.
  */
 
@@ -28,11 +29,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { SlidersHorizontal, Brain, Mic } from "lucide-react";
+import { VerifiedMcpMenuSection } from "@/components/VerifiedMcpMenuSection";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+
+/** What the menu holds; the icon button's name and its tooltip. */
+const MENU_NAME = "Reasoning, voice & MCP servers";
 
 export function ChatConfigDropdown() {
   const { settings, updateSettings } = useSettings();
@@ -90,13 +95,14 @@ export function ChatConfigDropdown() {
               size="sm"
               className="h-8 w-8 p-0"
               data-testid="chat-config-button"
+              aria-label={MENU_NAME}
             >
               <SlidersHorizontal className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
         </TooltipTrigger>
         {/* NOT "Config: model" any more — the model left this menu. */}
-        <TooltipContent>Reasoning &amp; voice</TooltipContent>
+        <TooltipContent>{MENU_NAME}</TooltipContent>
       </Tooltip>
       <DropdownMenuContent
         align="start"
@@ -184,6 +190,9 @@ export function ChatConfigDropdown() {
               </p>
             </>
           ) : null}
+          {/* The Verified MCP servers: connect or switch one without leaving the chat. */}
+          {reasoningCapable || VOICE_PROVIDERS.length > 0 ? <DropdownMenuSeparator /> : null}
+          <VerifiedMcpMenuSection />
         </div>
       </DropdownMenuContent>
     </DropdownMenu>

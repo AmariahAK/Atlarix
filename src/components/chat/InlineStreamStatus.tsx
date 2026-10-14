@@ -132,6 +132,8 @@ export function InlineStreamStatus({
     const rows = activityItems.filter(
       (i) =>
         i.type === "background" &&
+        // An automation's wake line is a background row too, named by the user.
+        !i.id?.startsWith("wake-") &&
         /summariz|compress|compact/i.test(i.label ?? "") &&
         (chatId == null || i.chatId === chatId),
     );

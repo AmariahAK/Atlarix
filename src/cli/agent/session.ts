@@ -92,6 +92,21 @@ export interface SessionState {
   automationUnread: number;
   /** An MCP tool the agent wants to call, waiting for your OK (mcp_consent.ts). */
   mcpConsent: McpConsentRequest | null;
+  /** MCP servers the agent suggested connecting, newest last (mcp-suggestions.ts). */
+  mcpSuggestions: McpSuggestionCard[];
+}
+
+/** A suggestion card as the CLI and ACP show it. */
+export interface McpSuggestionCard {
+  id: string;
+  server: string;
+  title: string;
+  reason: string;
+  verified: boolean;
+  publisher: string;
+  /** Values it asks for before it can be added (none when already added). */
+  inputs: Array<{ key: string; label: string; secret: boolean; required: boolean; default?: string }>;
+  optionId?: string;
 }
 
 export interface McpConsentRequest {
@@ -350,6 +365,7 @@ export class AgentSession extends EventEmitter {
       title: null,
       automationUnread: 0,
       mcpConsent: null,
+      mcpSuggestions: [],
     };
   }
 
@@ -504,7 +520,7 @@ export class AgentSession extends EventEmitter {
   }
 
   /** What going back to this message would discard: the replies' file snapshots and the files they touched. */
-  async undoPreview(messageId: number): Promise<{ turnIds: string[]; filesChanged: string[]; createdFiles: string[] }> {
+  async undoPreview(messageId: number): Promise<{ turnIds: string[]; filesChanged: string[]; createdFiles: string[]; kept: string[] }> {
     const { discardedTurnSnapshotIds } = await import("@/lib/chat/discarded-turn-snapshots");
     const snapshotById = new Map([...this.turnSnapshots].map(([k, v]) => [Number(k), v]));
     const turnIds = discardedTurnSnapshotIds(
@@ -512,12 +528,14 @@ export class AgentSession extends EventEmitter {
       messageId,
       snapshotById,
     );
-    if (!turnIds.length) return { turnIds, filesChanged: [], createdFiles: [] };
+    if (!turnIds.length) return { turnIds, filesChanged: [], createdFiles: [], kept: [] };
     const files = (await (await handler("snapshot:files-range"))({}, { chatId: this.chatId, turnIds }).catch(() => null)) as {
       filesChanged: string[];
       createdFiles: string[];
+      kept?: string[];
     } | null;
-    return { turnIds, filesChanged: files?.filesChanged ?? [], createdFiles: files?.createdFiles ?? [] };
+    // `kept`: what restoring would leave alone, changed since (no writes).
+    return { turnIds, filesChanged: files?.filesChanged ?? [], createdFiles: files?.createdFiles ?? [], kept: files?.kept ?? [] };
   }
 
   /**
@@ -550,19 +568,25 @@ export class AgentSession extends EventEmitter {
    * Files"). The next turn is told, so the agent doesn't build on edits that
    * are gone.
    */
-  async restoreFilesSince(messageId: number): Promise<{ restoredFiles: number }> {
+  async restoreFilesSince(messageId: number): Promise<{ restoredFiles: number; kept: string[] }> {
     if (this.state.busy) throw new Error("Wait for this turn to finish (or esc to stop it).");
     const { turnIds, filesChanged, createdFiles } = await this.undoPreview(messageId);
-    if (!turnIds.length) return { restoredFiles: 0 };
+    if (!turnIds.length) return { restoredFiles: 0, kept: [] };
     const res = (await (await handler("revert:snapshot-range"))({}, { chatId: this.chatId, turnIds })) as {
       success: boolean;
       restoredFiles?: number;
+      kept?: string[];
       error?: string;
     };
     if (!res.success) throw new Error(res.error ?? "Restoring the files failed; nothing was changed.");
-    const files = [...filesChanged, ...createdFiles];
-    this.restoredNote = `The user restored these files to how they were before an earlier message; your edits to them since are gone: ${files.join(", ")}. Read a file again before changing it.`;
-    return { restoredFiles: res.restoredFiles ?? files.length };
+    // A file changed after those turns was left alone (owner: no random
+    // reverts); the agent hears only about what went back.
+    const kept = res.kept ?? [];
+    const files = [...new Set([...filesChanged, ...createdFiles])].filter((f) => !kept.includes(f));
+    if (files.length) {
+      this.restoredNote = `The user restored these files to how they were before an earlier message; your edits to them since are gone: ${files.join(", ")}. Read a file again before changing it.`;
+    }
+    return { restoredFiles: res.restoredFiles ?? files.length, kept };
   }
 
   /** Said to the agent with the next message after a files-only restore. */
@@ -573,17 +597,20 @@ export class AgentSession extends EventEmitter {
    * (SimpleInlineChat.performEdit): everything after it leaves the conversation,
    * and with `restoreTurnIds` the files those turns changed go back first.
    */
-  async resendEdited(messageId: number, text: string, restoreTurnIds: string[] | null): Promise<{ restoredFiles: number }> {
+  async resendEdited(messageId: number, text: string, restoreTurnIds: string[] | null): Promise<{ restoredFiles: number; kept: string[] }> {
     if (this.state.busy) throw new Error("Wait for this turn to finish (or esc to stop it).");
     let restoredFiles = 0;
+    let keptFiles: string[] = [];
     if (restoreTurnIds?.length) {
       const res = (await (await handler("revert:snapshot-range"))({}, { chatId: this.chatId, turnIds: restoreTurnIds })) as {
         success: boolean;
         restoredFiles?: number;
+        kept?: string[];
         error?: string;
       };
       if (!res.success) throw new Error(res.error ?? "Restoring the files failed; nothing was changed.");
       restoredFiles = res.restoredFiles ?? 0;
+      keptFiles = res.kept ?? [];
     }
     // A row holding a teammate's message and your words: editing yours keeps
     // theirs (owner: undo never undoes a teammate's message).
@@ -598,7 +625,7 @@ export class AgentSession extends EventEmitter {
     this.shellRuns = this.shellRuns.filter((r) => !r.afterMessageId || ids.has(r.afterMessageId));
     this.update({ cells: this.cellsFor(false), lastError: null, planReady: null, question: null });
     await this.startTurn("", { continueAfterQuestions: true });
-    return { restoredFiles };
+    return { restoredFiles, kept: keptFiles };
   }
 
   // ─── /compact ──────────────────────────────────────────────────────────────
@@ -1071,7 +1098,10 @@ export class AgentSession extends EventEmitter {
       const { hasPendingSubagentResults } = await import("@/lib/agents/subagent-results");
       const { hasPendingScheduledWakeupNudges } = await import("@/lib/agent/scheduled-wakeups");
       const { hasPendingAutomationResults } = await import("@/lib/agent/automation-results");
+      const { hasPendingMcpConnectResults } = await import("@/lib/mcp/mcp-suggestions");
       return (
+        // An MCP server it suggested, connected by the user.
+        hasPendingMcpConnectResults(this.chatId) ||
         hasPendingBackgroundCommandResults(this.chatId) ||
         hasPendingSubagentResults(this.chatId) ||
         hasPendingStalledAdvisories(this.chatId) ||
@@ -1093,7 +1123,9 @@ export class AgentSession extends EventEmitter {
       const { describePendingSubagentResults } = await import("@/lib/agents/subagent-results");
       const { describePendingBackgroundCommands } = await import("@/lib/agent/background-commands");
       const { describePendingAutomationResults } = await import("@/lib/agent/automation-results");
+      const { describePendingMcpConnectResults } = await import("@/lib/mcp/mcp-suggestions");
       return [
+        ...describePendingMcpConnectResults(this.chatId!),
         ...describePendingSubagentResults(this.chatId!),
         ...describePendingBackgroundCommands(this.chatId!),
         ...describePendingAutomationResults(this.chatId!),
@@ -1619,6 +1651,41 @@ export class AgentSession extends EventEmitter {
           ? (p.questions as PendingQuestion["items"])
           : [{ question: String(p.question ?? ""), options: p.options as string[] | undefined }];
         this.update({ question: { questionId: String(p.questionId ?? ""), items } });
+        return;
+      }
+      case "mcp:suggestion": {
+        if (p.chatId !== this.chatId) return;
+        const sug = (p.suggestion ?? {}) as {
+          id?: string;
+          server?: string;
+          title?: string;
+          reason?: string;
+          status?: unknown;
+          entry?: { title?: string; verified?: boolean; publisher?: string; options?: Array<{ id: string; kind: string; supported?: boolean; inputs?: McpSuggestionCard["inputs"] }> } | null;
+        };
+        const id = String(sug.id ?? "");
+        if (!id) return;
+        const rest = (this.state.mcpSuggestions ?? []).filter((x) => x.id !== id);
+        if (p.type !== "added") {
+          this.update({ mcpSuggestions: rest });
+          return;
+        }
+        const option = sug.entry?.options?.find((o) => o.kind === "web" || o.supported);
+        this.update({
+          mcpSuggestions: [
+            ...rest,
+            {
+              id,
+              server: String(sug.server ?? ""),
+              title: String(sug.entry?.title ?? sug.title ?? sug.server ?? "MCP server"),
+              reason: String(sug.reason ?? ""),
+              verified: !!sug.entry?.verified,
+              publisher: String(sug.entry?.publisher ?? ""),
+              inputs: sug.status ? [] : (option?.inputs ?? []),
+              ...(option ? { optionId: option.id } : {}),
+            },
+          ],
+        });
         return;
       }
       case "mcp:tool-consent-request":

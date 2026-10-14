@@ -349,6 +349,13 @@ const config: ForgeConfig = {
       ...(fs.existsSync(path.join(__dirname, "build/models-snapshot.json.gz"))
         ? [path.join(__dirname, "build/models-snapshot.json.gz")]
         : []),
+      // MCP Registry snapshot — the floor beneath the marketplace's disk cache in
+      // src/lib/mcp/registry-catalog.ts, regenerated via `npm run mcp:snapshot`.
+      // Guarded the same way: a missing snapshot only means an empty marketplace
+      // until the first sync (the Verified servers still show).
+      ...(fs.existsSync(path.join(__dirname, "build/mcp-registry-snapshot.json.gz"))
+        ? [path.join(__dirname, "build/mcp-registry-snapshot.json.gz")]
+        : []),
       // Windows AppContainer sandbox helper (cargo-built + signed in CI before
       // packaging). Resolves at runtime via process.resourcesPath/atlarix-sandbox.exe
       // (see src/lib/sandbox/wrap-command.ts). Guarded so non-Windows / un-built

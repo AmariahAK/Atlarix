@@ -129,12 +129,14 @@ export function answeredAskCalls(
     tool_call_id?: string;
     tool_calls?: readonly { id: string; function: { name: string } }[];
   }[],
+  /** The turn-ending tools to track: `ask_user`, or `mcp_servers` for its connect card. */
+  names: readonly string[] = ["ask_user"],
 ): Set<string> {
   const askCallIds = new Set<string>();
   for (const message of history) {
     if (message.role !== "assistant") continue;
     for (const call of message.tool_calls ?? []) {
-      if (call.function.name === "ask_user") askCallIds.add(call.id);
+      if (names.includes(call.function.name)) askCallIds.add(call.id);
     }
   }
 

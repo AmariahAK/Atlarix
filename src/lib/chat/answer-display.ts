@@ -116,7 +116,7 @@ export function stripOrphanToolTagFragments(content: string): string {
   // fenced `{"success":true,"message":"…"}` example had its body deleted — surfaced by a
   // test asserting such a fence survives. Pre-existing, and not limited to the key added
   // this release.
-  out = mapOutsideFences(out, (seg) => {
+  out = mapOutsideFences(out, keepEmbeddedJson((seg) => {
     let s = seg.replace(
       /[,\s]*"message"\s*:\s*"[^"]*"\s*\}\s*,\s*"cost"\s*:\s*\d+[^<]*$/gi,
       "",
@@ -133,7 +133,7 @@ export function stripOrphanToolTagFragments(content: string): string {
     // (At a fence the segment's own end and the join add one newline more.)
     s = s.replace(/\n{3,}/g, "\n\n").replace(/^\n{2,}/, "\n").replace(/\n{2,}$/, "\n");
     return s;
-  });
+  }));
   return out.trim();
 }
 
@@ -242,6 +242,63 @@ function findJsonObjectEnd(text: string, start: number): number | null {
     }
   }
   return null;
+}
+
+/**
+ * Does the `{…}` at [from, to) share its line with other text? A tool result
+ * the model echoed stands on its own line; JSON in the middle of a sentence,
+ * or in `inline code`, is what the model is saying. ("It returns
+ * `{"success":false,"error":"bad key"}`" became a "◇ unknown" step with the
+ * JSON cut from the reply, in the app, CLI and editor: QA, 2026-10-14.)
+ */
+function sharesLineWithText(content: string, from: number, to: number): boolean {
+  const lineStart = content.lastIndexOf("\n", from - 1) + 1;
+  let lineEnd = content.indexOf("\n", to);
+  if (lineEnd < 0) lineEnd = content.length;
+  return (
+    content.slice(lineStart, from).trim() !== "" ||
+    content.slice(to, lineEnd).trim() !== ""
+  );
+}
+
+/**
+ * Run `fn` over `content` with every JSON object that shares its line with
+ * other text (and every `inline code` span) held out, then put them back
+ * unchanged. The tool-JSON strippers below then only see JSON standing alone.
+ */
+function keepEmbeddedJson(fn: (s: string) => string): (s: string) => string {
+  return (content) => {
+    if (!content.includes("{")) return fn(content);
+    const held: string[] = [];
+    const hold = (s: string) => `\uE000${held.push(s) - 1}\uE000`;
+    let masked = content.replace(/(`+)[^`\n]+?\1/g, (m) =>
+      m.includes("{") ? hold(m) : m,
+    );
+    let out = "";
+    let i = 0;
+    while (i < masked.length) {
+      const brace = masked.indexOf("{", i);
+      if (brace < 0) break;
+      const end = findJsonObjectEnd(masked, brace);
+      // Still being written: held too when text came before it on its line.
+      // Dropped for a moment and drawn again once whole, an editor that had
+      // already drawn `{"success"` showed it twice.
+      if (end == null && masked.slice(masked.lastIndexOf("\n", brace - 1) + 1, brace).trim()) {
+        out += masked.slice(i, brace) + hold(masked.slice(brace));
+        i = masked.length;
+        break;
+      }
+      if (end != null && sharesLineWithText(masked, brace, end)) {
+        out += masked.slice(i, brace) + hold(masked.slice(brace, end));
+        i = end;
+      } else {
+        out += masked.slice(i, brace + 1);
+        i = brace + 1;
+      }
+    }
+    masked = out + masked.slice(i);
+    return fn(masked).replace(/\uE000(\d+)\uE000/g, (_, n) => held[Number(n)] ?? "");
+  };
 }
 
 /** True when parsed object looks like ToolRegistry `{ success, result?, cost? }`. */
@@ -393,7 +450,9 @@ export function splitByToolResultEnvelopes(
       text += content.slice(brace);
       break;
     }
-    const parsed = parseToolResultEnvelope(content.slice(brace, end));
+    const parsed = sharesLineWithText(content, brace, end)
+      ? null
+      : parseToolResultEnvelope(content.slice(brace, end));
     if (parsed) {
       flushText();
       out.push({ kind: "envelope", raw: parsed.raw });
@@ -544,5 +603,5 @@ export function sanitizeMarkdownForDisplay(content: string): string {
   );
   // Fence-aware envelope strip (mirrors stripOrphanToolTagFragments): a real
   // `{ "success": true, "result": … }` example inside a code fence must survive.
-  return mapOutsideFences(cleaned, stripMultilineToolJsonEnvelopes).trim();
+  return mapOutsideFences(cleaned, keepEmbeddedJson(stripMultilineToolJsonEnvelopes)).trim();
 }

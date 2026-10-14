@@ -59,7 +59,9 @@ export function initializeResponse(version: string): InitializeResponse {
     agentCapabilities: {
       loadSession: true,
       promptCapabilities: { image: true, audio: false, embeddedContext: true },
-      mcpCapabilities: { http: false, sse: false },
+      // Editors' own MCP servers (session/new, session/load): stdio always; http
+      // (streamable) too. SSE is not spoken.
+      mcpCapabilities: { http: true, sse: false },
       sessionCapabilities: { list: {} },
     },
     authMethods: [
@@ -109,8 +111,10 @@ export function buildAgentApp(
       await signInCli((url) => process.stderr.write(`Atlarix sign-in: ${url}\n`), "your editor");
       return {};
     })
-    .onRequest("session/new", (ctx) => agent.newSession(ctx.params.cwd))
-    .onRequest("session/load", (ctx) => agent.loadSession(ctx.params.cwd, ctx.params.sessionId))
+    .onRequest("session/new", (ctx) => agent.newSession(ctx.params.cwd, ctx.params.mcpServers))
+    .onRequest("session/load", (ctx) =>
+      agent.loadSession(ctx.params.cwd, ctx.params.sessionId, ctx.params.mcpServers),
+    )
     .onRequest("session/list", (ctx) => agent.listSessions(ctx.params.cwd ?? undefined))
     .onRequest("session/prompt", (ctx) => agent.prompt(ctx.params.sessionId, ctx.params.prompt, ctx.params._meta))
     .onNotification("session/cancel", (ctx) => agent.cancel(ctx.params.sessionId))
@@ -398,39 +402,100 @@ export function buildAgentApp(
       }
       return {};
     })
-    .onRequest("_atlarix/mcp", (p) => p as { sessionId: string; action: string; id?: number; enabled?: boolean; name?: string; command?: string; url?: string }, async (ctx) => {
-      const { realServices } = await import("../agent/services");
-      const mcp = realServices.mcp;
-      const { appId } = agent.sessionInfo(ctx.params.sessionId);
-      const id = Number(ctx.params.id);
-      switch (ctx.params.action) {
-        case "list":
-          return { servers: await mcp.list(appId) };
-        case "set":
-          await mcp.setEnabled(id, ctx.params.enabled === true);
-          return { servers: await mcp.list(appId) };
-        case "add":
-          await mcp.add(appId, { name: String(ctx.params.name ?? ""), command: ctx.params.command, url: ctx.params.url });
-          return { servers: await mcp.list(appId) };
-        case "remove":
-          await mcp.remove(id);
-          return { servers: await mcp.list(appId) };
-        case "test":
-          return { result: await mcp.test(id) };
-        case "tools":
-          return { tools: await mcp.tools(id).catch(() => []) };
-        case "found":
-          return { found: await mcp.found(appId).catch(() => []) };
-        case "import":
-          await mcp.importFound(appId, String((ctx.params as { key?: string }).key ?? ""));
-          return { servers: await mcp.list(appId) };
-        case "oauth":
-          // Opens the server's sign-in page (via the editor) and resolves once it's done or refused.
-          return { result: await mcp.signIn(id) };
-        default:
-          throw acp.RequestError.invalidParams(undefined, `unknown action ${ctx.params.action}`);
-      }
-    })
+    .onRequest(
+      "_atlarix/mcp",
+      (p) =>
+        p as {
+          sessionId: string;
+          action: string;
+          id?: number | string;
+          enabled?: boolean;
+          name?: string;
+          command?: string;
+          url?: string;
+          text?: string;
+          query?: string;
+          offset?: number;
+          optionId?: string;
+          values?: Record<string, string>;
+          secret?: string;
+          serverName?: string;
+        },
+      async (ctx) => {
+        const { realServices } = await import("../agent/services");
+        const mcp = realServices.mcp;
+        const { appId } = agent.sessionInfo(ctx.params.sessionId);
+        const p = ctx.params;
+        const id = Number(p.id);
+        const accountId = String(p.id ?? "");
+        switch (p.action) {
+          case "list":
+            return { servers: await mcp.list(appId) };
+          case "set":
+            await mcp.setEnabled(id, p.enabled === true);
+            return { servers: await mcp.list(appId) };
+          case "add":
+            await mcp.add(appId, { name: String(p.name ?? ""), command: p.command, url: p.url });
+            return { servers: await mcp.list(appId) };
+          case "remove":
+            await mcp.remove(id);
+            return { servers: await mcp.list(appId) };
+          case "test":
+            return { result: await mcp.test(id) };
+          case "tools":
+            return { tools: await mcp.tools(id).catch(() => []) };
+          case "found":
+            return { found: await mcp.found(appId).catch(() => []) };
+          case "import":
+            await mcp.importFound(appId, String((p as { key?: string }).key ?? ""));
+            return { servers: await mcp.list(appId) };
+          case "oauth":
+            // Opens the server's sign-in page (via the editor) and resolves once it's done or refused.
+            return { result: await mcp.signIn(id) };
+          // The marketplace, "add your own", and the account's web servers.
+          case "catalog":
+            return await mcp.catalog(appId, String(p.query ?? ""), Number(p.offset ?? 0));
+          case "install":
+            return { added: await mcp.install(appId, String(p.name ?? ""), String(p.optionId ?? ""), p.values ?? {}) };
+          case "paste":
+            return await mcp.paste(appId, String(p.text ?? ""));
+          case "account":
+            return { servers: await mcp.account() };
+          case "accountSet":
+            await mcp.accountSetEnabled(appId, accountId, p.enabled === true);
+            return { servers: await mcp.account() };
+          case "accountRemove":
+            await mcp.accountRemove(accountId);
+            return { servers: await mcp.account() };
+          case "accountSignIn":
+            // The page opens through the editor (stderr), as a local server's does.
+            return { result: await mcp.accountSignIn(appId, accountId, () => {}) };
+          case "accountSecret":
+            await mcp.accountSecret(appId, accountId, String(p.secret ?? ""));
+            return { servers: await mcp.account() };
+          case "setKey":
+            await mcp.setKey(id, String(p.secret ?? ""));
+            return { servers: await mcp.list(appId) };
+          // A suggestion card in Atlarix's editor extension.
+          case "suggestConnect":
+            return { added: await mcp.suggestConnect(String(p.id ?? ""), p.optionId, p.values ?? {}) };
+          case "suggestFinish":
+            return { result: await mcp.suggestFinish(String(p.id ?? "")) };
+          case "suggestDismiss":
+            await mcp.suggestDismiss(String(p.id ?? ""));
+            return {};
+          // A logo for the editor's rows and cards (a checked data: URL, or null).
+          case "icon":
+            return {
+              icon: await mcp
+                .icon(appId, { name: p.name, url: p.url, serverName: p.serverName })
+                .catch(() => null),
+            };
+          default:
+            throw acp.RequestError.invalidParams(undefined, `unknown action ${p.action}`);
+        }
+      },
+    )
     .onRequest(
       "_atlarix/automations",
       (p) =>
@@ -443,6 +508,7 @@ export function buildAgentApp(
           all?: boolean;
           runIds?: string[];
           serverId?: number;
+          serverRef?: string;
         },
       async (ctx) => {
         // The editor's Automations page: the same services as the CLI's /automations.
@@ -476,9 +542,14 @@ export function buildAgentApp(
             await a.markRead(p.runIds ?? []);
             return {};
           case "servers":
-            return { servers: await realServices.mcp.list(appId) };
+            // This folder's and the account's, each with a ref (`local:<id>` / `account:<name>`).
+            return { servers: await realServices.mcp.watchable(appId) };
           case "tools":
-            return { tools: await realServices.mcp.tools(Number(p.serverId)).catch(() => []) };
+            return {
+              tools: await realServices.mcp
+                .watchTools(p.serverRef ?? (p.serverId != null ? `local:${p.serverId}` : ""))
+                .catch(() => []),
+            };
           default:
             throw new Error(`Unknown automations action: ${String(p.action)}`);
         }
@@ -536,6 +607,11 @@ export async function runAcp(opts: AcpRunOptions): Promise<void> {
         deepThinking: state.deepThinking ?? false,
       };
     },
+    setSessionMcpServers: async (sessionId, servers) => {
+      const { mcpManager } = await import("@/ipc/utils/mcp_manager");
+      if (servers.length > 0) mcpManager.setSessionServers(sessionId, servers);
+      else mcpManager.clearSessionServers(sessionId);
+    },
     rememberModel: (ref) => {
       if (!opts.devUrl) models.writeCliState(models.rememberChoice(models.readCliState(), ref));
     },
@@ -553,6 +629,8 @@ export async function runAcp(opts: AcpRunOptions): Promise<void> {
     // app refreshed it, so without the app it went stale (owner).
     const { startModelsDevRefresh } = await import("@/lib/models_dev");
     startModelsDevRefresh();
+    const { startMcpRegistryRefresh } = await import("@/lib/mcp/registry-catalog");
+    startMcpRegistryRefresh();
     // Automations run in whichever Atlarix is open, the editor included: with
     // only VS Code open they never fired. runner.ts leases each run, so with
     // the app, the CLI or another window open too, every run still happens once.

@@ -68,6 +68,26 @@ export class McpNeedsOAuthError extends McpNeedsAuthError {
   }
 }
 
+/**
+ * A server an editor passed in an ACP `session/new` or `session/load`: the
+ * user's own configuration in that editor, for that session only. Never
+ * stored; it lives as long as the session.
+ */
+export type SessionMcpServer =
+  | {
+      name: string;
+      transport: "stdio";
+      command: string;
+      args: string[];
+      env: Record<string, string>;
+    }
+  | {
+      name: string;
+      transport: "http";
+      url: string;
+      headers: Record<string, string>;
+    };
+
 class McpManager {
   private static _instance: McpManager;
   static get instance(): McpManager {
@@ -77,9 +97,72 @@ class McpManager {
 
   private clients = new Map<number, MCPClient>();
 
+  /**
+   * Session servers, by a NEGATIVE id (a stored server's id is positive), so
+   * one map of clients and one `dispose` serve both.
+   */
+  private sessionServers = new Map<number, { sessionId: string; spec: SessionMcpServer }>();
+  private nextSessionServerId = -1;
+
+  /** Replace a session's editor-passed servers (closing the old ones' connections). */
+  setSessionServers(sessionId: string, specs: SessionMcpServer[]): void {
+    this.clearSessionServers(sessionId);
+    for (const spec of specs) {
+      this.sessionServers.set(this.nextSessionServerId--, { sessionId, spec });
+    }
+  }
+
+  clearSessionServers(sessionId: string): void {
+    for (const [id, v] of this.sessionServers) {
+      if (v.sessionId !== sessionId) continue;
+      this.dispose(id);
+      this.sessionServers.delete(id);
+    }
+  }
+
+  listSessionServers(sessionId: string | null | undefined): Array<{ id: number; spec: SessionMcpServer }> {
+    if (!sessionId) return [];
+    return [...this.sessionServers]
+      .filter(([, v]) => v.sessionId === sessionId)
+      .map(([id, v]) => ({ id, spec: v.spec }));
+  }
+
+  private async getSessionClient(serverId: number): Promise<MCPClient> {
+    const entry = this.sessionServers.get(serverId);
+    if (!entry) throw new Error(`MCP server not found: ${serverId}`);
+    const { spec } = entry;
+    let transport: StdioClientTransport | StreamableHTTPClientTransport;
+    if (spec.transport === "stdio") {
+      const wrapped = await wrapStdioSpawnForFirejail(spec.command, spec.args, readSettings());
+      transport = new StdioClientTransport({
+        command: wrapped.command,
+        args: wrapped.args,
+        env: Object.keys(spec.env).length > 0 ? spec.env : undefined,
+      });
+    } else {
+      transport = new StreamableHTTPClientTransport(new URL(spec.url), {
+        requestInit: Object.keys(spec.headers).length > 0 ? { headers: spec.headers } : undefined,
+      });
+    }
+    try {
+      const client = await createMCPClient({ transport });
+      this.clients.set(serverId, client);
+      return client;
+    } catch (error) {
+      if (error instanceof UnauthorizedError || isUnauthorizedMessage(error)) {
+        // The editor's config is where its credentials live; nothing here can fix them.
+        throw new Error(
+          `MCP server "${spec.name}" refused the connection (not authorised). Its credentials come from your editor's MCP settings.`,
+        );
+      }
+      throw error;
+    }
+  }
+
   async getClient(serverId: number): Promise<MCPClient> {
     const existing = this.clients.get(serverId);
     if (existing) return existing;
+    if (serverId < 0) return this.getSessionClient(serverId);
     const server = await db
       .select()
       .from(mcpServers)
@@ -145,20 +228,27 @@ class McpManager {
           undefined,
           false,
         );
+        const extra = decryptEnvFromDb(s.headersJson);
         transport = new StreamableHTTPClientTransport(
           new URL(s.url as string),
           {
             authProvider: oauthProvider,
+            ...(Object.keys(extra).length > 0 ? { requestInit: { headers: extra } } : {}),
           },
         );
       } else {
         const apiKey = deserializeApiKeyFromDb(s.apiKey)?.trim();
+        // Saved headers first, then the key: an explicit API key is the
+        // Authorization header this server was set up with.
+        const headers: Record<string, string> = {
+          ...decryptEnvFromDb(s.headersJson),
+          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+        };
         transport = new StreamableHTTPClientTransport(
           new URL(s.url as string),
           {
-            requestInit: apiKey
-              ? { headers: { Authorization: `Bearer ${apiKey}` } }
-              : undefined,
+            requestInit:
+              Object.keys(headers).length > 0 ? { headers } : undefined,
           },
         );
       }

@@ -45,6 +45,7 @@ const RUNTIME_FILES = [
   "AGENTS.md",
   "tiktoken_bg.wasm",
   "models-snapshot.json.gz",
+  "mcp-registry-snapshot.json.gz",
 ];
 
 if (!fs.existsSync(path.join(src, "atlarix-headless.mjs"))) {

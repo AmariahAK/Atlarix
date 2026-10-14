@@ -81,6 +81,7 @@ vi.mock("@/ipc/ipc_client", () => ({
       markAutomationRunsRead,
       getCurrentBranch,
       listMcpServers,
+      listAccountMcpServers: vi.fn(async () => null),
       onAutomationRunUpdate,
       onAutomationsChanged,
       runAutomationNow,

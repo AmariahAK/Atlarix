@@ -14,7 +14,9 @@ export interface AutomationSummary {
   workspaceId: number | null;
   name: string;
   enabled: boolean;
-  trigger: { kind: "schedule"; cron: string; preset?: string } | { kind: "mcp"; serverId: number; tool: string; intervalMinutes: number; args?: unknown };
+  trigger:
+    | { kind: "schedule"; cron: string; preset?: string }
+    | { kind: "mcp"; serverId?: number; accountServer?: string; tool: string; intervalMinutes: number; args?: unknown };
   prompt: string;
   runMode: "notify-only" | "read-only";
   notifyAgent: boolean;
@@ -50,6 +52,8 @@ export interface McpServerSummary {
   name: string;
   transport: string;
   enabled: boolean;
+  /** A browser sign-in it still needs before it works. */
+  needsSignIn?: boolean;
 }
 
 export interface SavedPermission {
@@ -89,6 +93,9 @@ import type { KeyCheck } from "@/lib/provider-key-check";
 
 export type { RelicSummary } from "@/lib/relics/relic-store";
 import type { RelicSummary } from "@/lib/relics/relic-store";
+import type { AddedServer, PasteOutcome } from "@/lib/mcp/mcp-add";
+import type { ConnectorView } from "@/lib/mcp/account-connectors";
+import type { CatalogEntry } from "@/shared/mcp-catalog";
 
 export interface CliServices {
   automations: {
@@ -115,6 +122,37 @@ export interface CliServices {
     found(appId: number): Promise<Array<{ key: string; source: string; name: string; transport: string; summary: string; envNames: string[]; scope: string }>>;
     /** Add one of those to this folder. */
     importFound(appId: number, key: string): Promise<void>;
+    /**
+     * Add your own: a URL, a command line, a config block, or the path of a
+     * config file. A public https server goes on the account (every surface);
+     * the rest stays in this folder.
+     */
+    paste(appId: number, text: string): Promise<PasteOutcome>;
+    /** Search the marketplace (official MCP Registry, cached), Verified first. */
+    catalog(appId: number, query: string, offset?: number): Promise<{ entries: CatalogEntry[]; total: number; installed: string[] }>;
+    install(appId: number, name: string, optionId: string, values: Record<string, string>): Promise<AddedServer>;
+    /** Web servers on the account (null when signed out). */
+    account(): Promise<ConnectorView[] | null>;
+    accountSetEnabled(appId: number, id: string, enabled: boolean): Promise<void>;
+    accountRemove(id: string): Promise<void>;
+    /** Sign in in the browser; `onUrl` gets the page as soon as it exists. */
+    accountSignIn(appId: number, id: string, onUrl: (url: string) => void): Promise<{ ok: boolean; enabled: boolean; error?: string }>;
+    accountSecret(appId: number, id: string, secret: string): Promise<void>;
+    /** A local server's API key. */
+    setKey(id: number, key: string): Promise<void>;
+    /** A suggestion card: connect its server (what still needs the user comes back). */
+    suggestConnect(id: string, optionId: string | undefined, values: Record<string, string>): Promise<AddedServer>;
+    /** It works now: tell the agent. */
+    suggestFinish(id: string): Promise<{ connected: boolean; server?: string; tools?: string[]; reason?: string }>;
+    suggestDismiss(id: string): Promise<void>;
+    /** Servers on now (this folder's plus the account's) and the most that can be. */
+    limit(appId: number | null): Promise<{ on: number; max: number }>;
+    /** A server's logo as a checked data: URL: by registry name, by URL, or by an added server's name. */
+    icon(appId: number | null, ref: { name?: string; url?: string; serverName?: string }): Promise<string | null>;
+    /** Servers an automation can watch: this folder's and the account's, by ref (`local:<id>` / `account:<name>`). */
+    watchable(appId: number): Promise<Array<{ ref: string; name: string; detail: string }>>;
+    /** A watchable server's tools. */
+    watchTools(ref: string): Promise<Array<{ name: string; description?: string }>>;
   };
   permissions: {
     list(appId: number): Promise<SavedPermission[]>;
@@ -216,9 +254,21 @@ async function listOpenAICompatibleModels(probe: { url: string; headers: Record<
   }
 }
 
+/** `[mcp:update-server] Error: 10 MCP servers…` → `10 MCP servers…`: the handler's wrapper is not for people. */
+export function plainError(e: unknown): Error {
+  const raw = e instanceof Error ? e.message : String(e);
+  let msg = raw;
+  for (let i = 0; i < 3; i++) msg = msg.replace(/^\s*(\[[\w:.-]+\]\s*)?((?:[A-Z]\w*)?Error:\s*)?/, "");
+  return new Error(msg.trim() || raw);
+}
+
 async function call<T>(channel: string, ...args: unknown[]): Promise<T> {
   await ensureHandlers();
-  return invoke<T>(channel, ...args);
+  try {
+    return await invoke<T>(channel, ...args);
+  } catch (e) {
+    throw plainError(e);
+  }
 }
 
 export const realServices: CliServices = {
@@ -263,6 +313,7 @@ export const realServices: CliServices = {
         name: String(r.name ?? `Server ${r.id}`),
         transport: String(r.transport ?? ""),
         enabled: r.enabled !== false,
+        needsSignIn: r.authType === "oauth" && r.oauthConnected !== true,
       }));
     },
     test: (id) => call("mcp:test-connection", id),
@@ -279,18 +330,77 @@ export const realServices: CliServices = {
       }
     },
     async add(appId, server) {
-      // The app's form, in one line: a command is split into the program and
-      // its arguments (stdio); a URL is a remote server (http).
-      const parts = server.command?.trim().match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g)?.map((a) => a.replace(/^["']|["']$/g, "")) ?? [];
-      await call("mcp:create-server", {
+      // Through the same path as a paste, so a public URL goes on the account.
+      const out = await call<PasteOutcome>("mcp:add-pasted", {
         appId,
+        text: server.url?.trim() || server.command?.trim() || "",
         name: server.name.trim(),
-        transport: server.url ? "http" : "stdio",
-        command: server.url ? null : (parts[0] ?? null),
-        args: server.url ? null : parts.slice(1),
-        url: server.url?.trim() || null,
-        enabled: true,
       });
+      if (out.failed[0]) throw new Error(out.failed[0].error);
+    },
+    async paste(appId, text) {
+      // A path to a config file (Claude Desktop's, Cursor's…) reads the file.
+      const trimmed = text.trim().replace(/^["']|["']$/g, "");
+      if (/\.jsonc?$/i.test(trimmed) && !/^\s*[{"]/.test(trimmed)) {
+        const { readFile } = await import("node:fs/promises");
+        const { homedir } = await import("node:os");
+        const file = trimmed.replace(/^~(?=$|[\\/])/, homedir());
+        const body = await readFile(file, "utf8").catch(() => null);
+        if (body == null) throw new Error(`Couldn't read ${trimmed}.`);
+        return call("mcp:add-pasted", { appId, text: body });
+      }
+      return call("mcp:add-pasted", { appId, text });
+    },
+    catalog: (appId, query, offset = 0) => call("mcp-catalog:search", { appId, query, offset, limit: 50 }),
+    install: (appId, name, optionId, values) => call("mcp-catalog:install", { appId, name, optionId, values }),
+    account: () => call("connectors:list"),
+    async accountSetEnabled(appId, id, enabled) {
+      await call("connectors:set-enabled", { appId, id, enabled });
+    },
+    async accountRemove(id) {
+      await call("connectors:remove", { id });
+    },
+    async accountSignIn(appId, id, onUrl) {
+      // In-process rather than through the handler, so the page can be shown
+      // here as soon as it exists (a terminal may have no browser).
+      const { signInAccountServer } = await import("@/lib/mcp/mcp-add");
+      return signInAccountServer(id, appId, { onUrl });
+    },
+    async accountSecret(appId, id, secret) {
+      await call("connectors:set-secret", { appId, id, secret });
+    },
+    async setKey(id, key) {
+      await call("mcp:update-server", { id, apiKey: key });
+    },
+    suggestConnect: (id, optionId, values) => call("mcp-suggest:connect", { id, ...(optionId ? { optionId } : {}), values }),
+    suggestFinish: (id) => call("mcp-suggest:finish", { id }),
+    limit: (appId) => call("mcp:limit", { appId }),
+    async suggestDismiss(id) {
+      await call("mcp-suggest:dismiss", { id });
+    },
+    async icon(appId, ref) {
+      if (ref.serverName) return call<string | null>("mcp:server-icon", { appId, name: ref.serverName });
+      if (ref.name) return call<string | null>("mcp-catalog:icon", { name: ref.name });
+      if (ref.url) return call<string | null>("mcp-catalog:icon", { url: ref.url });
+      return null;
+    },
+    async watchable(appId) {
+      const [local, account] = await Promise.all([
+        realServices.mcp.list(appId).catch(() => []),
+        realServices.mcp.account().catch(() => null),
+      ]);
+      return [
+        ...local.map((s) => ({ ref: `local:${s.id}`, name: s.name, detail: `this computer · ${s.transport}` })),
+        ...(account ?? []).map((c) => ({ ref: `account:${c.name}`, name: c.name, detail: "all devices" })),
+      ];
+    },
+    async watchTools(ref) {
+      if (ref.startsWith("account:")) {
+        const name = ref.slice("account:".length);
+        const c = ((await realServices.mcp.account()) ?? []).find((x) => x.name === name);
+        return (c?.tools ?? []).map((t) => ({ name: t }));
+      }
+      return realServices.mcp.tools(Number(ref.replace(/^local:/, "")));
     },
     setEnabled: (id, enabled) => call("mcp:update-server", { id, enabled }),
     remove: (id) => call("mcp:delete-server", id),

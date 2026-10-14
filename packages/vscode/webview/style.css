@@ -2905,3 +2905,58 @@ code {
 li.md-task {
   list-style: none;
 }
+
+/* MCP servers Atlarix suggests for this chat, above the box. */
+.suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.suggestion {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card);
+  overflow: hidden;
+}
+.suggestion__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.suggestion__body {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 8px 10px;
+}
+.suggestion__body .col {
+  gap: 4px;
+  min-width: 0;
+}
+.mcp-icon {
+  flex-shrink: 0;
+  border-radius: 6px;
+  background: var(--sunk);
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+}
+.mcp-icon--img {
+  background: none;
+  object-fit: contain;
+}
+.mcp__actions {
+  display: flex;
+  gap: 8px;
+}
+.suggestion__body .field {
+  min-width: 0;
+}
+.suggestion__body .col.grow {
+  flex: 1 1 0;
+}

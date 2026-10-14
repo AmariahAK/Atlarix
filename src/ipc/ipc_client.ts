@@ -288,6 +288,12 @@ export interface UserInterjectionView {
   ts: number;
 }
 
+/** An open suggestion card: what the agent suggested, the catalog entry, and where the server stands. */
+export type McpSuggestionView = import("@/lib/mcp/mcp-suggestions").McpSuggestion & {
+  entry?: import("@/shared/mcp-catalog").CatalogEntry | null;
+  status?: import("@/lib/mcp/mcp-suggestions").McpServerStatus | null;
+};
+
 export class IpcClient {
   private static instance: IpcClient;
   private ipcRenderer: PreloadIpcRenderer;
@@ -1087,6 +1093,10 @@ export class IpcClient {
     createdFiles: string[];
     /** Set once the user has reverted this turn's files. */
     revertedAt?: string;
+    /** False: the turn has no record of how it ended, so a revert can't check. */
+    endRecorded?: boolean;
+    /** What a revert now would keep: changed after the turn. */
+    kept?: string[];
   } | null> {
     return this.ipcRenderer.invoke("snapshot:files", params);
   }
@@ -1145,6 +1155,8 @@ export class IpcClient {
     restoredFiles?: number;
     reverted?: string[];
     skipped?: string[];
+    kept?: string[];
+    unchecked?: boolean;
     error?: string;
   }> {
     return this.ipcRenderer.invoke("revert:snapshot-range", {
@@ -1161,6 +1173,10 @@ export class IpcClient {
     filesChanged: string[];
     createdFiles: string[];
     turnsWithSnapshot: number;
+    /** False: some turn has no record of how it ended; a revert can't check it. */
+    endRecorded?: boolean;
+    /** What the range revert would keep: changed after those turns. */
+    kept?: string[];
   } | null> {
     return this.ipcRenderer.invoke("snapshot:files-range", { chatId, turnIds });
   }
@@ -2579,36 +2595,112 @@ export class IpcClient {
     return this.ipcRenderer.invoke("mcp:sandbox-diagnostics");
   }
 
-  /**
-   * Pass 7 — Fetch the public MCP marketplace registry. Returns the parsed
-   * JSON index when successful. If `url` is omitted the default Atlarix
-   * registry URL is used.
-   */
-  public async fetchMcpRegistry(url?: string): Promise<{
-    success: boolean;
-    registry?: import("@/shared/mcp-registry").McpRegistryIndex;
-    error?: string;
-  }> {
-    return this.ipcRenderer.invoke("mcps:fetch-registry", { url });
-  }
-
-  /**
-   * Pass 7 — Install an entry from the marketplace registry. The user-supplied
-   * env vars are stored in `mcp_servers.env_json`; the row gets
-   * `from_registry=1` / `registry_id=<entry.id>` so the UI can show a badge.
-   */
-  public async installMcpFromRegistry(params: {
-    entry: import("@/shared/mcp-registry").McpRegistryEntry;
-    env: Record<string, string>;
-    scope?: "global" | "workspace";
+  /** Search the MCP marketplace (the official MCP Registry, cached in main). */
+  public async searchMcpCatalog(params: {
+    query?: string;
+    offset?: number;
+    limit?: number;
     appId?: number | null;
   }): Promise<{
-    success: boolean;
-    serverId?: number;
-    needsOAuth?: boolean;
-    error?: string;
+    entries: import("@/shared/mcp-catalog").CatalogEntry[];
+    total: number;
+    syncedAt: string;
+    /** Names among `entries` already added to this folder or the account. */
+    installed: string[];
   }> {
-    return this.ipcRenderer.invoke("mcps:install-from-registry", params);
+    return this.ipcRenderer.invoke("mcp-catalog:search", params);
+  }
+
+  /** A marketplace server's icon as a checked `data:` URL, or null for a letter. */
+  public async getMcpCatalogIcon(name: string): Promise<string | null> {
+    return this.ipcRenderer.invoke("mcp-catalog:icon", { name });
+  }
+
+  /** A stored server's logo, from its registry name, URL or package command. */
+  public async getMcpIconFor(ref: {
+    registryName?: string | null;
+    url?: string | null;
+    command?: string | null;
+    args?: string[] | null;
+  }): Promise<string | null> {
+    return this.ipcRenderer.invoke("mcp-catalog:icon", ref);
+  }
+
+  /** A configured server's logo by its name (this folder's first, then the account's). */
+  public async getMcpServerIcon(appId: number | null, name: string): Promise<string | null> {
+    return this.ipcRenderer.invoke("mcp:server-icon", { appId, name });
+  }
+
+  /** Add a marketplace server: a web one goes on the account, a local one in this folder. */
+  public async installMcpFromCatalog(params: {
+    appId: number;
+    name: string;
+    optionId: string;
+    values?: Record<string, string>;
+  }): Promise<import("@/lib/mcp/mcp-add").AddedServer> {
+    return this.ipcRenderer.invoke("mcp-catalog:install", params);
+  }
+
+  /** "Add your own": a URL, a command line, or a config block from another tool. */
+  public async addPastedMcp(params: {
+    appId: number;
+    text: string;
+    name?: string;
+  }): Promise<import("@/lib/mcp/mcp-add").PasteOutcome> {
+    return this.ipcRenderer.invoke("mcp:add-pasted", params);
+  }
+
+  /** The Verified five and where each stands in this folder / on the account. */
+  public async getVerifiedMcpStatus(appId: number | null): Promise<
+    Array<{
+      name: string;
+      title: string;
+      state: "on" | "off" | "not-added" | "needs-sign-in" | "needs-key";
+      where?: "local" | "account";
+      id?: number | string;
+    }>
+  > {
+    return this.ipcRenderer.invoke("mcp:verified-status", { appId });
+  }
+
+  /** Servers on now (this folder's plus the account's) and the limit. */
+  public async getMcpLimit(appId: number | null): Promise<{ on: number; max: number }> {
+    return this.ipcRenderer.invoke("mcp:limit", { appId });
+  }
+
+  /** The account's web MCP servers, or null when signed out. */
+  public async listAccountMcpServers(): Promise<
+    import("@/lib/mcp/account-connectors").ConnectorView[] | null
+  > {
+    return this.ipcRenderer.invoke("connectors:list");
+  }
+
+  public async setAccountMcpEnabled(params: {
+    id: string;
+    enabled: boolean;
+    appId?: number | null;
+  }): Promise<true> {
+    return this.ipcRenderer.invoke("connectors:set-enabled", params);
+  }
+
+  public async removeAccountMcp(id: string): Promise<true> {
+    return this.ipcRenderer.invoke("connectors:remove", { id });
+  }
+
+  public async setAccountMcpSecret(params: {
+    id: string;
+    secret: string;
+    appId?: number | null;
+  }): Promise<true> {
+    return this.ipcRenderer.invoke("connectors:set-secret", params);
+  }
+
+  /** Sign in to an account server in the browser; resolves when it lands. */
+  public async signInAccountMcp(params: {
+    id: string;
+    appId?: number | null;
+  }): Promise<{ ok: boolean; enabled: boolean; error?: string }> {
+    return this.ipcRenderer.invoke("connectors:sign-in", params);
   }
 
   public async startMcpOAuth(params: {
@@ -4041,6 +4133,42 @@ export class IpcClient {
       chatId,
       taskId,
     });
+  }
+
+  // ─── MCP suggestion cards (the agent asks the user to connect a server) ───
+
+  public async listMcpSuggestions(chatId: number): Promise<McpSuggestionView[]> {
+    return this.ipcRenderer.invoke("mcp-suggest:list", { chatId });
+  }
+
+  public async connectMcpSuggestion(params: {
+    id: string;
+    optionId?: string;
+    values?: Record<string, string>;
+  }): Promise<import("@/lib/mcp/mcp-add").AddedServer> {
+    return this.ipcRenderer.invoke("mcp-suggest:connect", params);
+  }
+
+  public async finishMcpSuggestion(id: string): Promise<{ connected: boolean; server?: string; tools?: string[]; reason?: string }> {
+    return this.ipcRenderer.invoke("mcp-suggest:finish", { id });
+  }
+
+  public async dismissMcpSuggestion(id: string): Promise<boolean> {
+    return this.ipcRenderer.invoke("mcp-suggest:dismiss", { id });
+  }
+
+  public onMcpSuggestion(
+    listener: (payload: { type: "added" | "resolved"; chatId: number; suggestion: McpSuggestionView }) => void,
+  ): () => void {
+    const off = this.ipcRenderer.on("mcp:suggestion", (payload) =>
+      listener(payload as { type: "added" | "resolved"; chatId: number; suggestion: McpSuggestionView }),
+    );
+    return typeof off === "function" ? off : () => {};
+  }
+
+  public onMcpServersChanged(listener: () => void): () => void {
+    const off = this.ipcRenderer.on("mcp:servers-changed", () => listener());
+    return typeof off === "function" ? off : () => {};
   }
 
   public onBackgroundJobUpdate(
