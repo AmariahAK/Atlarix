@@ -10,6 +10,15 @@ import {
   type ToolExpandView,
 } from "@/lib/chat/tool-expand-view";
 import { ToolStatusIcon } from "./ToolStatusIcon";
+import { useAtomValue } from "jotai";
+import { selectedAppIdAtom } from "@/atoms/appAtoms";
+import { McpServerIcon } from "@/components/settings/McpServerIcon";
+
+/** The logo of the MCP server a row used (an added server, by the name the agent called it). */
+function McpRowIcon({ server }: { server: string }) {
+  const appId = useAtomValue(selectedAppIdAtom);
+  return <McpServerIcon serverName={server} appId={appId ?? null} title={server} size={14} className="rounded-[3px]" />;
+}
 import { TextShimmer } from "./TextShimmer";
 import { ToolExpandPanel } from "./tool-expand/ToolExpandPanel";
 import {
@@ -37,6 +46,7 @@ export function StreamToolCallCard({
   elapsedMs,
   resultText,
   olderStep,
+  mcpServer,
 }: {
   summary: string;
   status: InlineTimelineToolStatus;
@@ -56,6 +66,8 @@ export function StreamToolCallCard({
    * looks at again. Errors still open.
    */
   olderStep?: boolean;
+  /** An `mcp_call` row: the server it used, shown by its logo. */
+  mcpServer?: string;
 }) {
   const relic =
     _toolName === "relic" && status === "done"
@@ -71,6 +83,7 @@ export function StreamToolCallCard({
       toolName={_toolName}
       elapsedMs={elapsedMs}
       olderStep={olderStep}
+      mcpServer={mcpServer}
     />
   );
 }
@@ -83,6 +96,7 @@ function ToolCallCardBody({
   olderStep,
   toolName: _toolName,
   elapsedMs,
+  mcpServer,
 }: {
   summary: string;
   status: InlineTimelineToolStatus;
@@ -91,6 +105,7 @@ function ToolCallCardBody({
   toolName?: string;
   elapsedMs?: number;
   olderStep?: boolean;
+  mcpServer?: string;
 }) {
   const isRunning = status === "running";
   const isError = status === "error";
@@ -142,6 +157,7 @@ function ToolCallCardBody({
           <span className="w-3.5 shrink-0" aria-hidden />
         )}
         <ToolStatusIcon status={status} />
+        {mcpServer ? <McpRowIcon server={mcpServer} /> : null}
         <span className={streamToolCardSummary}>
           {isRunning ? <TextShimmer>{summary}</TextShimmer> : summary}
         </span>
