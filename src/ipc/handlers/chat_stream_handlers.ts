@@ -91,7 +91,10 @@ import {
 } from "@/lib/agents/subagent-results";
 import { computeWakePendingResults } from "@/lib/agent/collect-results";
 import { takeEarlierDeliveredResults } from "@/lib/agent/delivered-results";
-import { takePendingAutomationResults } from "@/lib/agent/automation-results";
+import {
+  describePendingAutomationResults,
+  takePendingAutomationResults,
+} from "@/lib/agent/automation-results";
 import {
   AI_STREAMING_ERROR_MESSAGE_PREFIX,
   SAFETY_FILTER_BLOCKED_MESSAGE,
@@ -1567,6 +1570,20 @@ export function registerChatStreamHandlers() {
               req.chatId,
               req.continueAfterQuestions === true,
             );
+            // Which automation woke this turn, as the CLI and editor say it
+            // ("Automation "Nightly CI" finished: …"). Read before the drain.
+            if (wakeHasPendingResults) {
+              describePendingAutomationResults(req.chatId).forEach((label, i) =>
+                safeSend(event.sender, "chat:activity", {
+                  id: `wake-automation-${streamId}-${i}`,
+                  type: "background",
+                  label,
+                  status: "done",
+                  timestamp: Date.now(),
+                  chatId: req.chatId,
+                }),
+              );
+            }
             // BUT a forced/object tool_choice is INCOMPATIBLE with extended-thinking
             // mode on several providers (Alibaba/Qwen 400 "tool_choice ... not
             // supported ... in thinking mode"; Anthropic likewise only allows
