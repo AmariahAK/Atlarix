@@ -5,6 +5,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -177,6 +178,7 @@ export function AutomationForm({
   const [notifyAgent, setNotifyAgent] = useState<boolean | null>(
     existing ? (existing.notifyAgent ?? false) : null,
   );
+  const { t } = useTranslation("panels");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -538,6 +540,12 @@ export function AutomationForm({
           {error && <p className="text-sm text-red-500">{error}</p>}
         </div>
         <DialogFooter>
+          {/* No default on purpose (above), so say why Create is off. */}
+          {notifyAgent === null && (
+            <p className="mr-auto self-center text-xs text-muted-foreground">
+              {t("automations.chooseNotify")}
+            </p>
+          )}
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
