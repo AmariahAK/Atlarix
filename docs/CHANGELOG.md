@@ -38,6 +38,11 @@ added, or one that is signed out, gets the same card. On the desktop and in edit
 turn servers on and off, and sign one out for you to reconnect. MCP tool rows name what they use
 ("Using Linear: list issues…", then "Linear · list issues" with its result).
 
+**Every server shows its own logo:** in the marketplace, your server lists, the suggestion cards, the
+chat's MCP rows and the automation form in the app; in the editor extension; on the Chrome extension's
+card; and on atlarix.dev's Connectors. The box's settings menu now lists the Verified five, so you can
+connect one or switch it on and off without leaving the chat.
+
 **Revert keeps the work you did after the turn.** Going back to an earlier message restores the
 files that turn changed, except ones you (or another session) changed since, and it names those
 files before and after it runs. Files come back byte for byte whatever the folder's
@@ -49,7 +54,10 @@ the CLI and the editor extension.
 **Smaller fixes.** Messages from another Atlarix session read "from contributor". An MCP server's sign-in now opens from the CLI and from editors (the link went
 nowhere without an app window). Turning a server on now respects the limit of 10, which only adding
 one did. Servers reached by URL can send any headers a config gives them, stored encrypted.
-`manage_mcp_server` puts a public https server on your account.
+`manage_mcp_server` puts a public https server on your account. Adding the same server twice says
+it is already added, and re-importing a config skips what is already there. A command whose program
+isn't installed is refused. A reply that quotes JSON in a sentence (e.g. `{"success":true,…}`) no
+longer turns into an 'unknown' tool step with the JSON cut out.
 
 ## [15.6.0] (2026-10-14) — automations that wake the agent, every provider, and a CLI and editor that read like the app
 
