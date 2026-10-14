@@ -328,7 +328,9 @@ describe("errors say what to do about them", () => {
     const midnightUtc = Date.UTC(2026, 8, 24);
     expect(
       freeLimitMessage({ retry_after_seconds: 7200 }, midnightUtc - 7200 * 1000, "Africa/Nairobi"),
-    ).toMatch(/resets at 3:00\sAM/);
+      // The user's own locale writes the time: "3:00 AM" (en-US), "3:00 am"
+      // (en-GB), "3:00 a.m." — the point is the hour is 3:00 in Nairobi.
+    ).toMatch(/resets at 3:00\s?a\.?m\.?/i);
   });
 
   it("sends the routing hints, and never a free-consent header (paid-only surface)", async () => {
