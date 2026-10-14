@@ -68,7 +68,12 @@ function nameFromUrlOrCommand(v: Raw): string {
   const url = typeof v.url === "string" ? v.url : typeof v.serverUrl === "string" ? v.serverUrl : null;
   if (url) {
     try {
-      return new URL(url).hostname.replace(/^(www|mcp|api)\./, "").split(".")[0] || "server";
+      const u = new URL(url);
+      // A server on this machine is named by its port: "127" said nothing (QA).
+      if (/^(localhost|127\.\d+\.\d+\.\d+|\[::1\])$/i.test(u.hostname)) {
+        return u.port ? `localhost-${u.port}` : "localhost";
+      }
+      return u.hostname.replace(/^(www|mcp|api)\./, "").split(".")[0] || "server";
     } catch {
       /* fall through */
     }

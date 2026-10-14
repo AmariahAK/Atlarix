@@ -238,8 +238,13 @@ function titleFromName(name: string): string {
   return words ? words.charAt(0).toUpperCase() + words.slice(1) : name;
 }
 
-function inputLabel(name: string, description?: string): string {
-  return description && description.length <= 60 ? description : name;
+/**
+ * An input is labelled by its own name (`BRAVE_API_KEY`), which is what the
+ * server's docs call it; the registry's description ("Your API key for the
+ * service") goes beside it as the explanation (QA).
+ */
+function inputLabel(name: string, _description?: string): string {
+  return name;
 }
 
 /** `{var}` placeholders in a string. */

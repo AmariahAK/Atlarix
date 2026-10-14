@@ -178,6 +178,7 @@ function SuggestionCard({ s }: { s: McpSuggestionView }) {
                   type={i.secret ? "password" : "text"}
                   className="h-8 text-xs"
                   placeholder={i.required ? i.label : `${i.label} ${t("mcpSuggest.optional")}`}
+                  title={i.description}
                   value={values[i.key] ?? ""}
                   onChange={(e) => setValues({ ...values, [i.key]: e.target.value })}
                 />

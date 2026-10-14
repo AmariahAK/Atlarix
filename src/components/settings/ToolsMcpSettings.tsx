@@ -701,6 +701,7 @@ export function ToolsMcpSettings({
                   </Button>
                   <Switch
                     checked={!!s.enabled}
+                    aria-label={`${s.name} on`}
                     onCheckedChange={() =>
                       // The limit refuses with a sentence for the user, not a crash.
                       void toggleServerEnabled(s.id, !!s.enabled).catch((e) =>

@@ -149,7 +149,7 @@ describe("installing", () => {
 
   it("names what is still missing", () => {
     const e = normalizeRegistryServer(npmServer);
-    expect(missingInputs(e.options[0]!, {})).toEqual(["Token"]);
+    expect(missingInputs(e.options[0]!, {})).toEqual(["ACME_TOKEN"]);
     expect(missingInputs(e.options[0]!, { "env:ACME_TOKEN": "x" })).toEqual([]);
   });
 

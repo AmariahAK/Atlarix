@@ -133,8 +133,6 @@ export function IntegrationsLayout() {
         </div>
         <p className="text-muted-foreground mb-8 max-w-2xl">
           What Atlarix is connected to, and what it is allowed to do there.
-          Models and commit attribution apply everywhere; MCP servers, Skills
-          and permissions belong to one project at a time.
         </p>
 
         <IntegrationsNav />
