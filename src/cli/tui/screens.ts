@@ -768,19 +768,19 @@ export function openAutomationForm(ctx: ScreenContext, existing: AutomationSumma
     });
 
   const mcpTrigger = async () => {
-    const servers = await ctx.services.mcp.list(ctx.session.appId);
+    const servers = await ctx.services.mcp.watchable(ctx.session.appId);
     if (!servers.length) {
       ctx.host.pop();
-      ctx.flash("No MCP servers in this folder. Add one in the Atlarix app (Settings → MCP), then try again.");
+      ctx.flash("No MCP servers yet. /mcp adds one (b browses the marketplace), then try again.");
       return;
     }
     step({
       title,
       intro: [{ text: "Which MCP server does it check?", bold: true }],
       footer: "↑↓ move · enter choose · esc cancel",
-      items: servers.map((s) => ({ id: String(s.id), label: s.name, detail: s.transport })),
+      items: servers.map((s) => ({ id: s.ref, label: s.name, detail: s.detail })),
       onChoose: async (server) => {
-        const tools = await ctx.services.mcp.tools(Number(server.id));
+        const tools = await ctx.services.mcp.watchTools(server.id);
         step({
           title,
           intro: [{ text: `Which ${server.label} tool? It is called on every check; a change in its answer fires the automation.`, bold: true }],
@@ -795,7 +795,14 @@ export function openAutomationForm(ctx: ScreenContext, existing: AutomationSumma
               onSubmit: (v) => {
                 const n = Number(v.trim());
                 if (!Number.isInteger(n) || n < 5) return "A whole number of minutes, 5 or more.";
-                draft.trigger = { kind: "mcp", serverId: Number(server.id), tool: tool.id, intervalMinutes: n };
+                draft.trigger = {
+                  kind: "mcp",
+                  ...(server.id.startsWith("account:")
+                    ? { accountServer: server.id.slice("account:".length) }
+                    : { serverId: Number(server.id.replace(/^local:/, "")) }),
+                  tool: tool.id,
+                  intervalMinutes: n,
+                };
                 what();
               },
             }),

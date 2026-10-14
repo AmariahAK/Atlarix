@@ -1671,6 +1671,19 @@ export class PermissionInterceptor extends EventEmitter {
         { enable: false },
       );
       logger.log(`[mcp] added server ${added.name} (${added.where}), inactive`);
+      // It needs the user (a sign-in, a key): the same card a suggestion gets,
+      // so they connect it right there and the agent is told.
+      if ((added.needsSignIn || added.needsSecret) && this.activeChatId != null) {
+        const { addMcpSuggestion } = await import("@/lib/mcp/mcp-suggestions");
+        addMcpSuggestion({
+          chatId: this.activeChatId,
+          appId: input.appId,
+          server: added.name,
+          title: added.name,
+          reason: "",
+          wait: false,
+        });
+      }
       return;
     }
 

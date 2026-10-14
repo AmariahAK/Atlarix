@@ -11,7 +11,12 @@ import type { Nav } from "./nav";
 
 type Trigger =
   | { kind: "schedule"; cron: string; preset?: string }
-  | { kind: "mcp"; serverId: number; tool: string; intervalMinutes: number; args?: unknown };
+  | { kind: "mcp"; serverId?: number; accountServer?: string; tool: string; intervalMinutes: number; args?: unknown };
+
+/** Which MCP server, as one string: `local:<id>` (this computer) or `account:<name>` (every device). */
+const refOf = (t: Extract<Trigger, { kind: "mcp" }>) => (t.accountServer ? `account:${t.accountServer}` : `local:${t.serverId ?? ""}`);
+const serverOf = (ref: string) =>
+  ref.startsWith("account:") ? { accountServer: ref.slice("account:".length) } : { serverId: Number(ref.replace(/^local:/, "")) };
 
 interface Automation {
   id: string;
@@ -237,7 +242,7 @@ export async function renderAutomations(page: HTMLElement, nav: Nav, onSeen: () 
     mcpRows.append(field("MCP server", server), field("Tool", tool, "Called on every check; a change in its answer fires the automation."), field("Check every (minutes, 5 or more)", every));
     const loadTools = async () => {
       tool.textContent = "";
-      const r = await call<{ tools?: Array<{ name: string }> }>("tools", { serverId: Number(server.value) }).catch(() => ({ tools: [] }));
+      const r = await call<{ tools?: Array<{ name: string }> }>("tools", { serverRef: server.value }).catch(() => ({ tools: [] }));
       for (const x of r.tools ?? []) {
         const o = el("option", "", x.name);
         o.value = x.name;
@@ -248,19 +253,19 @@ export async function renderAutomations(page: HTMLElement, nav: Nav, onSeen: () 
     server.addEventListener("change", () => void loadTools());
     const loadServers = async () => {
       if (server.options.length) return;
-      const r = await call<{ servers?: Array<{ id: number; name: string }> }>("servers").catch(() => ({ servers: [] }));
+      const r = await call<{ servers?: Array<{ ref: string; name: string; detail: string }> }>("servers").catch(() => ({ servers: [] }));
       if (!r.servers?.length) {
-        const o = el("option", "", "No MCP servers in this folder");
+        const o = el("option", "", "No MCP servers yet");
         o.value = "";
         server.append(o);
         return;
       }
       for (const s of r.servers) {
-        const o = el("option", "", s.name);
-        o.value = String(s.id);
+        const o = el("option", "", s.ref.startsWith("account:") ? `${s.name} · all devices` : s.name);
+        o.value = s.ref;
         server.append(o);
       }
-      if (t.kind === "mcp") server.value = String(t.serverId);
+      if (t.kind === "mcp") server.value = refOf(t);
       await loadTools();
     };
 
@@ -328,10 +333,10 @@ export async function renderAutomations(page: HTMLElement, nav: Nav, onSeen: () 
         draft.trigger = { kind: "schedule", cron: cron.value.trim() };
       } else {
         const n = Number(every.value);
-        if (!server.value) return fail("Add an MCP server to this folder first (MCP servers page).");
+        if (!server.value) return fail("Add an MCP server first (MCP servers page).");
         if (!tool.value) return fail("Pick the tool to check.");
         if (!Number.isInteger(n) || n < 5) return fail("Check every 5 minutes or more, in whole minutes.");
-        draft.trigger = { kind: "mcp", serverId: Number(server.value), tool: tool.value, intervalMinutes: n };
+        draft.trigger = { kind: "mcp", ...serverOf(server.value), tool: tool.value, intervalMinutes: n };
       }
       draft.runMode = mode.value as Draft["runMode"];
       draft.prompt = prompt.value.trim();

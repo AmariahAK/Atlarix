@@ -114,7 +114,7 @@ export function AutomationsTab({ appId }: { appId: number | null }) {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<AutomationListItem | null>(null);
   const [mcpServers, setMcpServers] = useState<
-    Array<{ id: number; name: string }>
+    Array<{ ref: string; name: string; where: "local" | "account" }>
   >([]);
   const [transcript, setTranscript] = useState<{
     title: string;
@@ -177,12 +177,25 @@ export function AutomationsTab({ appId }: { appId: number | null }) {
   // Environment probe for the form (MCP servers).
   useEffect(() => {
     if (appId == null) return;
-    IpcClient.getInstance()
-      .listMcpServers()
-      .then((servers: Array<{ id: number; name: string }>) =>
-        setMcpServers(servers.map((s) => ({ id: s.id, name: s.name }))),
-      )
-      .catch(() => setMcpServers([]));
+    // This folder's servers and the account's (every device): either can be watched.
+    const ipc = IpcClient.getInstance();
+    void Promise.all([
+      ipc.listMcpServers({ scope: "workspace", appId }).catch(() => []),
+      ipc.listAccountMcpServers().catch(() => null),
+    ]).then(([local, account]) =>
+      setMcpServers([
+        ...(local as Array<{ id: number; name: string }>).map((s) => ({
+          ref: `local:${s.id}`,
+          name: s.name,
+          where: "local" as const,
+        })),
+        ...(account ?? []).map((c) => ({
+          ref: `account:${c.name}`,
+          name: c.name,
+          where: "account" as const,
+        })),
+      ]),
+    );
   }, [appId]);
 
   // Live feed updates + toast while focused.

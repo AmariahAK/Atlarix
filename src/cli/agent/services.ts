@@ -14,7 +14,9 @@ export interface AutomationSummary {
   workspaceId: number | null;
   name: string;
   enabled: boolean;
-  trigger: { kind: "schedule"; cron: string; preset?: string } | { kind: "mcp"; serverId: number; tool: string; intervalMinutes: number; args?: unknown };
+  trigger:
+    | { kind: "schedule"; cron: string; preset?: string }
+    | { kind: "mcp"; serverId?: number; accountServer?: string; tool: string; intervalMinutes: number; args?: unknown };
   prompt: string;
   runMode: "notify-only" | "read-only";
   notifyAgent: boolean;
@@ -141,6 +143,10 @@ export interface CliServices {
     /** It works now: tell the agent. */
     suggestFinish(id: string): Promise<{ connected: boolean; server?: string; tools?: string[]; reason?: string }>;
     suggestDismiss(id: string): Promise<void>;
+    /** Servers an automation can watch: this folder's and the account's, by ref (`local:<id>` / `account:<name>`). */
+    watchable(appId: number): Promise<Array<{ ref: string; name: string; detail: string }>>;
+    /** A watchable server's tools. */
+    watchTools(ref: string): Promise<Array<{ name: string; description?: string }>>;
   };
   permissions: {
     list(appId: number): Promise<SavedPermission[]>;
@@ -351,6 +357,24 @@ export const realServices: CliServices = {
     suggestFinish: (id) => call("mcp-suggest:finish", { id }),
     async suggestDismiss(id) {
       await call("mcp-suggest:dismiss", { id });
+    },
+    async watchable(appId) {
+      const [local, account] = await Promise.all([
+        realServices.mcp.list(appId).catch(() => []),
+        realServices.mcp.account().catch(() => null),
+      ]);
+      return [
+        ...local.map((s) => ({ ref: `local:${s.id}`, name: s.name, detail: `this computer · ${s.transport}` })),
+        ...(account ?? []).map((c) => ({ ref: `account:${c.name}`, name: c.name, detail: "all devices" })),
+      ];
+    },
+    async watchTools(ref) {
+      if (ref.startsWith("account:")) {
+        const name = ref.slice("account:".length);
+        const c = ((await realServices.mcp.account()) ?? []).find((x) => x.name === name);
+        return (c?.tools ?? []).map((t) => ({ name: t }));
+      }
+      return realServices.mcp.tools(Number(ref.replace(/^local:/, "")));
     },
     setEnabled: (id, enabled) => call("mcp:update-server", { id, enabled }),
     remove: (id) => call("mcp:delete-server", id),

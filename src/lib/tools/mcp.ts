@@ -355,6 +355,7 @@ ToolRegistry.register({
     arguments?: any;
     workspaceId?: number;
     workspaceSessionId?: string;
+    _chatSessionId?: number;
     _mcpInvocationContext?: McpInvocationContext;
   }) => {
     if (!args.server || !args.tool) {
@@ -381,6 +382,22 @@ ToolRegistry.register({
       );
       if (!match) return null;
       if (match.needsOAuth) {
+        // The user can sign in from a card right here; the agent is told when they do.
+        if (args._chatSessionId != null) {
+          const { addMcpSuggestion } = await import("@/lib/mcp/mcp-suggestions");
+          addMcpSuggestion({
+            chatId: args._chatSessionId,
+            appId: args.workspaceId ?? null,
+            server: match.name,
+            title: match.name,
+            reason: "",
+            wait: false,
+          });
+          return {
+            error: `"${match.name}" is on the user's account but not signed in. They have a card to connect it; you will be told when they do.`,
+            needsOAuth: true,
+          };
+        }
         return {
           error:
             `"${match.name}" is set up on your account but has not been authorised. ` +
@@ -649,8 +666,7 @@ ToolRegistry.register({
       },
       headers: {
         type: "object",
-        description:
-          "http: request headers to send. Include a value the user's config already contains; do not invent one.",
+        description: "http: request headers, as the user's config has them.",
       },
     },
     required: ["operation", "name"],

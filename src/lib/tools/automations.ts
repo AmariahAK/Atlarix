@@ -140,7 +140,8 @@ ToolRegistry.register({
         // host-agnostic way to poll any API.
         description:
           'One of: {kind:"schedule", cron:"0 9 * * 1-5"} · ' +
-          `{kind:"mcp", serverId:<number>, tool:"<tool>", args:{…}, intervalMinutes:>=${MIN_POLL_INTERVAL_MINUTES}}`,
+          `{kind:"mcp", serverId:<number>, tool:"<tool>", args:{…}, intervalMinutes:>=${MIN_POLL_INTERVAL_MINUTES}}` +
+          ' (or accountServer:"<name>")',
       },
       prompt: stringParam(
         'What the agent should do on each fire. Required when run_mode is "read-only"; unused for "notify-only".',

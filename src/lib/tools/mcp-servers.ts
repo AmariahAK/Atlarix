@@ -14,7 +14,6 @@
  * approval card.
  */
 import { ToolRegistry } from "./registry";
-import { workspaceCapClause } from "@/lib/workspace-caps";
 
 interface SuggestContext {
   unattended?: boolean;
@@ -50,23 +49,19 @@ ToolRegistry.register({
   isReadOnly: false,
   allowInAskMode: true,
   description:
-    "Find MCP servers in the official MCP Registry and manage connections. " +
-    "`search` (query): servers matching it, with what each needs to connect and whether it is already added. " +
+    "Find MCP servers and manage their connections. " +
+    "`search` (query): servers in the official MCP Registry matching it, with what each needs to connect and whether it is already added. " +
     "`suggest` (server, reason): shows the user a card to connect a server; with `wait: true` it returns when they connect or decline, otherwise you are told when they connect. " +
     "`start` / `stop` (server): turn an added server on or off. " +
-    "`disconnect` (server): sign it out; the user reconnects it from a card. " +
-    workspaceCapClause("mcp"),
+    "`disconnect` (server): sign it out; the user reconnects it from a card.",
   parameters: {
     type: "object",
     properties: {
       operation: { type: "string", enum: ["search", "suggest", "start", "stop", "disconnect"] },
-      query: { type: "string", description: "search: what the server should do or connect to." },
-      server: {
-        type: "string",
-        description: "suggest: a registry name from search, or an added server's name. start/stop/disconnect: an added server's name.",
-      },
-      reason: { type: "string", description: "suggest: one line the user reads on the card." },
-      wait: { type: "boolean", description: "suggest: return only once the user connects or declines." },
+      query: { type: "string" },
+      server: { type: "string", description: "A registry name from search, or an added server's name." },
+      reason: { type: "string", description: "suggest: one line shown on the card." },
+      wait: { type: "boolean" },
     },
     required: ["operation"],
   },

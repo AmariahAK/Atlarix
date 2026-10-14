@@ -43,7 +43,13 @@ export const ScheduleTriggerSchema = z.object({
 
 export const McpTriggerSchema = z.object({
   kind: z.literal("mcp"),
-  serverId: z.number().int(),
+  /** A server on this computer, for the folder (its row id). */
+  serverId: z.number().int().optional(),
+  /**
+   * Or a web server on the account, by name: the same one in the app, the CLI
+   * and editors. Exactly one of the two is set (checked where it is saved).
+   */
+  accountServer: z.string().min(1).max(60).optional(),
   tool: z.string().min(1),
   /** Arguments passed verbatim to the MCP tool on every poll. */
   args: z.unknown().optional(),
@@ -127,4 +133,26 @@ export interface AutomationRunView {
   triggerContext: string | null;
   startedAt: number;
   finishedAt: number | null;
+}
+
+/**
+ * One string for "which MCP server": `local:<id>` or `account:<name>`, for
+ * pickers on every surface. Empty when the trigger names neither.
+ */
+export function mcpTriggerRef(t: Pick<McpTrigger, "serverId" | "accountServer">): string {
+  if (t.accountServer) return `account:${t.accountServer}`;
+  return t.serverId != null ? `local:${t.serverId}` : "";
+}
+
+/** The trigger's server fields from a picker's ref. */
+export function mcpTriggerServerFromRef(ref: string): Pick<McpTrigger, "serverId" | "accountServer"> {
+  if (ref.startsWith("account:")) return { accountServer: ref.slice("account:".length) };
+  const id = Number(ref.startsWith("local:") ? ref.slice("local:".length) : ref);
+  return Number.isInteger(id) ? { serverId: id } : {};
+}
+
+/** Throws a sentence when an MCP trigger names no server, or both kinds. */
+export function assertMcpTriggerServer(t: McpTrigger): void {
+  const n = Number(t.serverId != null) + Number(!!t.accountServer);
+  if (n !== 1) throw new Error("An MCP trigger needs one server: serverId (this computer) or accountServer (your account).");
 }

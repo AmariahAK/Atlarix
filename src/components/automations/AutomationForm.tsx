@@ -26,7 +26,11 @@ import {
   MINUTE_OPTIONS,
 } from "@/lib/automations/cron-time";
 import type { AutomationListItem } from "@/atoms/automationAtoms";
-import type { AutomationTrigger } from "@/lib/automations/types";
+import {
+  mcpTriggerRef,
+  mcpTriggerServerFromRef,
+  type AutomationTrigger,
+} from "@/lib/automations/types";
 
 const SCHEDULE_PRESETS: Array<{ key: string; label: string; cron: string }> = [
   { key: "hourly", label: "Hourly", cron: "0 * * * *" },
@@ -44,8 +48,10 @@ function cnRunMode(disabled: boolean, selected: boolean): string {
 }
 
 interface McpServerOption {
-  id: number;
+  /** `local:<id>` (this computer) or `account:<name>` (every device). */
+  ref: string;
   name: string;
+  where: "local" | "account";
 }
 
 /**
@@ -142,10 +148,10 @@ export function AutomationForm({
   const [interval, setIntervalMin] = useState(
     existingTrigger?.kind === "mcp" ? existingTrigger.intervalMinutes : 15,
   );
-  const [mcpServerId, setMcpServerId] = useState<number | null>(
+  const [mcpServerRef, setMcpServerRef] = useState<string | null>(
     existingTrigger?.kind === "mcp"
-      ? existingTrigger.serverId
-      : (mcpServers[0]?.id ?? null),
+      ? mcpTriggerRef(existingTrigger) || null
+      : (mcpServers[0]?.ref ?? null),
   );
   const [mcpTool, setMcpTool] = useState(
     existingTrigger?.kind === "mcp" ? existingTrigger.tool : "",
@@ -182,7 +188,7 @@ export function AutomationForm({
     if (kind === "schedule") {
       return cron.trim() ? { kind: "schedule", cron: cron.trim() } : null;
     }
-    if (mcpServerId == null || !mcpTool.trim()) return null;
+    if (!mcpServerRef || !mcpTool.trim()) return null;
     let args: unknown;
     try {
       args = mcpArgs.trim() ? JSON.parse(mcpArgs) : {};
@@ -191,12 +197,12 @@ export function AutomationForm({
     }
     return {
       kind: "mcp",
-      serverId: mcpServerId,
+      ...mcpTriggerServerFromRef(mcpServerRef),
       tool: mcpTool.trim(),
       args,
       intervalMinutes: Math.max(5, interval),
     };
-  }, [kind, cron, interval, mcpServerId, mcpTool, mcpArgs]);
+  }, [kind, cron, interval, mcpServerRef, mcpTool, mcpArgs]);
 
   const effectiveRunMode = runMode;
   const valid = Boolean(
@@ -234,7 +240,7 @@ export function AutomationForm({
     }
   };
 
-  const selectedMcpServer = mcpServers.find((s) => s.id === mcpServerId);
+  const selectedMcpServer = mcpServers.find((s) => s.ref === mcpServerRef);
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -363,15 +369,15 @@ export function AutomationForm({
                 <Label>MCP server</Label>
                 <select
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  value={mcpServerId ?? ""}
-                  onChange={(e) => setMcpServerId(Number(e.target.value))}
+                  value={mcpServerRef ?? ""}
+                  onChange={(e) => setMcpServerRef(e.target.value)}
                 >
                   {mcpServers.length === 0 && (
                     <option value="">No MCP servers configured</option>
                   )}
                   {mcpServers.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
+                    <option key={s.ref} value={s.ref}>
+                      {s.where === "account" ? `${s.name} · all devices` : s.name}
                     </option>
                   ))}
                 </select>

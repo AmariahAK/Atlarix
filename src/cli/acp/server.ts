@@ -500,6 +500,7 @@ export function buildAgentApp(
           all?: boolean;
           runIds?: string[];
           serverId?: number;
+          serverRef?: string;
         },
       async (ctx) => {
         // The editor's Automations page: the same services as the CLI's /automations.
@@ -533,9 +534,14 @@ export function buildAgentApp(
             await a.markRead(p.runIds ?? []);
             return {};
           case "servers":
-            return { servers: await realServices.mcp.list(appId) };
+            // This folder's and the account's, each with a ref (`local:<id>` / `account:<name>`).
+            return { servers: await realServices.mcp.watchable(appId) };
           case "tools":
-            return { tools: await realServices.mcp.tools(Number(p.serverId)).catch(() => []) };
+            return {
+              tools: await realServices.mcp
+                .watchTools(p.serverRef ?? (p.serverId != null ? `local:${p.serverId}` : ""))
+                .catch(() => []),
+            };
           default:
             throw new Error(`Unknown automations action: ${String(p.action)}`);
         }
