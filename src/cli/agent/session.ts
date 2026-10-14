@@ -550,19 +550,25 @@ export class AgentSession extends EventEmitter {
    * Files"). The next turn is told, so the agent doesn't build on edits that
    * are gone.
    */
-  async restoreFilesSince(messageId: number): Promise<{ restoredFiles: number }> {
+  async restoreFilesSince(messageId: number): Promise<{ restoredFiles: number; kept: string[] }> {
     if (this.state.busy) throw new Error("Wait for this turn to finish (or esc to stop it).");
     const { turnIds, filesChanged, createdFiles } = await this.undoPreview(messageId);
-    if (!turnIds.length) return { restoredFiles: 0 };
+    if (!turnIds.length) return { restoredFiles: 0, kept: [] };
     const res = (await (await handler("revert:snapshot-range"))({}, { chatId: this.chatId, turnIds })) as {
       success: boolean;
       restoredFiles?: number;
+      kept?: string[];
       error?: string;
     };
     if (!res.success) throw new Error(res.error ?? "Restoring the files failed; nothing was changed.");
-    const files = [...filesChanged, ...createdFiles];
-    this.restoredNote = `The user restored these files to how they were before an earlier message; your edits to them since are gone: ${files.join(", ")}. Read a file again before changing it.`;
-    return { restoredFiles: res.restoredFiles ?? files.length };
+    // A file changed after those turns was left alone (owner: no random
+    // reverts); the agent hears only about what went back.
+    const kept = res.kept ?? [];
+    const files = [...new Set([...filesChanged, ...createdFiles])].filter((f) => !kept.includes(f));
+    if (files.length) {
+      this.restoredNote = `The user restored these files to how they were before an earlier message; your edits to them since are gone: ${files.join(", ")}. Read a file again before changing it.`;
+    }
+    return { restoredFiles: res.restoredFiles ?? files.length, kept };
   }
 
   /** Said to the agent with the next message after a files-only restore. */
@@ -573,17 +579,20 @@ export class AgentSession extends EventEmitter {
    * (SimpleInlineChat.performEdit): everything after it leaves the conversation,
    * and with `restoreTurnIds` the files those turns changed go back first.
    */
-  async resendEdited(messageId: number, text: string, restoreTurnIds: string[] | null): Promise<{ restoredFiles: number }> {
+  async resendEdited(messageId: number, text: string, restoreTurnIds: string[] | null): Promise<{ restoredFiles: number; kept: string[] }> {
     if (this.state.busy) throw new Error("Wait for this turn to finish (or esc to stop it).");
     let restoredFiles = 0;
+    let keptFiles: string[] = [];
     if (restoreTurnIds?.length) {
       const res = (await (await handler("revert:snapshot-range"))({}, { chatId: this.chatId, turnIds: restoreTurnIds })) as {
         success: boolean;
         restoredFiles?: number;
+        kept?: string[];
         error?: string;
       };
       if (!res.success) throw new Error(res.error ?? "Restoring the files failed; nothing was changed.");
       restoredFiles = res.restoredFiles ?? 0;
+      keptFiles = res.kept ?? [];
     }
     // A row holding a teammate's message and your words: editing yours keeps
     // theirs (owner: undo never undoes a teammate's message).
@@ -598,7 +607,7 @@ export class AgentSession extends EventEmitter {
     this.shellRuns = this.shellRuns.filter((r) => !r.afterMessageId || ids.has(r.afterMessageId));
     this.update({ cells: this.cellsFor(false), lastError: null, planReady: null, question: null });
     await this.startTurn("", { continueAfterQuestions: true });
-    return { restoredFiles };
+    return { restoredFiles, kept: keptFiles };
   }
 
   // ─── /compact ──────────────────────────────────────────────────────────────

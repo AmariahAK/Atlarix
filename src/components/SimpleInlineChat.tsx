@@ -53,6 +53,7 @@ import { BUILD_FROM_PLAN_PROMPT } from "@/lib/work-mode";
 import { useAccountKind } from "@/hooks/useAccountKind";
 import { COMPASS_PROVIDER_ID, isCoreAutoTier } from "@/ipc/shared/compass_constants";
 import { showError, showInfo } from "@/lib/toast";
+import { keptFilesLine } from "@/lib/chat/kept-files-line";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -121,6 +122,8 @@ export function SimpleInlineChat({
     turnIds: string[];
     changed: number;
     created: number;
+    /** False: some turn can't tell later edits apart (see revertTurn.unchecked). */
+    endRecorded: boolean;
   } | null>(null);
   const [editReverting, setEditReverting] = useState(false);
 
@@ -387,6 +390,7 @@ export function SimpleInlineChat({
       }
       let changed = 0;
       let created = 0;
+      let endRecorded = true;
       let lookupFailed = false;
       try {
         const files = await IpcClient.getInstance().getSnapshotFilesRange(
@@ -395,6 +399,7 @@ export function SimpleInlineChat({
         );
         changed = files?.filesChanged.length ?? 0;
         created = files?.createdFiles.length ?? 0;
+        endRecorded = files?.endRecorded !== false;
       } catch {
         // Counts unknown — fall through to the dialog (below) rather than
         // silently discarding the file-revert choice.
@@ -406,7 +411,14 @@ export function SimpleInlineChat({
         await performEdit(messageId, newContent, turnIds);
         return;
       }
-      setPendingEdit({ messageId, newContent, turnIds, changed, created });
+      setPendingEdit({
+        messageId,
+        newContent,
+        turnIds,
+        changed,
+        created,
+        endRecorded,
+      });
     },
     [chatId, messagesForChat, snapshotByMessageId, performEdit],
   );
@@ -424,6 +436,9 @@ export function SimpleInlineChat({
           );
           if (!res.success) {
             showError(res.error ?? "Reverting file changes failed");
+          } else {
+            const kept = keptFilesLine(res.kept ?? []);
+            if (kept) showInfo(kept);
           }
         }
         await performEdit(pe.messageId, pe.newContent, pe.turnIds);
@@ -780,6 +795,11 @@ export function SimpleInlineChat({
                   (created files are deleted). Keeping them re-runs on top of
                   the current files.
                 </p>
+                {pendingEdit?.endRecorded === false ? (
+                  <p className="text-amber-600 dark:text-amber-500">
+                    {t("revertTurn.unchecked")}
+                  </p>
+                ) : null}
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>

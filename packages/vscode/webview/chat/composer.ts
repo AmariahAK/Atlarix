@@ -12,6 +12,7 @@ import { modelName, on, state } from "../state";
 import { button, el, icon, iconButton, MODE_NAME, tokens } from "../ui";
 import { closePicker, openPicker, picker, pickerOpen } from "./picker";
 import * as T from "./transcript";
+import { keptFilesLine } from "../../../../src/lib/chat/kept-files-line";
 
 export interface ComposerHooks {
   open(view: "mcp" | "approve" | "keys" | "undo" | "automations"): void;
@@ -345,9 +346,10 @@ export function restoreAt(messageId: number, text: string, anchor: HTMLElement):
     button("Files only", "primary", async () => {
       acts.querySelectorAll("button").forEach((b) => ((b as HTMLButtonElement).disabled = true));
       try {
-        const r = await rpc<{ restoredFiles: number }>("_atlarix/undo", { sessionId: state.sessionId, action: "restore_files", messageId });
+        const r = await rpc<{ restoredFiles: number; kept?: string[] }>("_atlarix/undo", { sessionId: state.sessionId, action: "restore_files", messageId });
         card.remove();
-        T.addNote(`Restored ${r.restoredFiles} file${r.restoredFiles === 1 ? "" : "s"} to this checkpoint. The chat is unchanged; Atlarix is told with your next message.`);
+        const kept = keptFilesLine(r.kept ?? []);
+        T.addNote(`Restored ${r.restoredFiles} file${r.restoredFiles === 1 ? "" : "s"} to this checkpoint.${kept ? ` ${kept}.` : ""} The chat is unchanged; Atlarix is told with your next message.`);
       } catch (x) {
         note.textContent = (x as Error).message;
         note.classList.remove("hidden");

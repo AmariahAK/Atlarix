@@ -287,6 +287,10 @@ export interface RevertSnapshotResult {
   success: boolean;
   error?: string;
   restoredFiles?: number;
+  /** Files left as they are: changed after the turn. */
+  kept?: string[];
+  /** The turn had no record of how it ended; nothing could be checked. */
+  unchecked?: boolean;
 }
 
 export interface AttachmentInfo {

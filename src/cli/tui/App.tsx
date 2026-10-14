@@ -19,6 +19,7 @@
  * prompts …) is a dialog on one stack (dialogs.ts, screens.ts): while one is
  * open it owns the keyboard, and esc closes it.
  */
+import { keptFilesLine } from "@/lib/chat/kept-files-line";
 import { extractPlanChecklistTitle } from "@/lib/tasks/plan-checklist";
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import { splitPeerMessages } from "@/lib/peers/peer-message";
@@ -1455,7 +1456,13 @@ export function App({
       remember(s.display);
       setEdit(null);
       void session.resendEdited(editing.messageId, s.prompt, editing.restoreTurnIds).then(
-        ({ restoredFiles }) => restoredFiles > 0 && flash(`Restored ${restoredFiles} file${restoredFiles === 1 ? "" : "s"} · sent your edited message.`),
+        ({ restoredFiles, kept }) => {
+          const parts = [
+            restoredFiles > 0 ? `Restored ${restoredFiles} file${restoredFiles === 1 ? "" : "s"}` : null,
+            keptFilesLine(kept ?? []),
+          ].filter(Boolean);
+          if (parts.length) flash(`${parts.join(" · ")} · sent your edited message.`);
+        },
         (e) => flash(e instanceof Error ? e.message : String(e)),
       );
       return;

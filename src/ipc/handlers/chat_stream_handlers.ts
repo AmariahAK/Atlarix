@@ -1,4 +1,5 @@
 import { ipcMain } from "electron";
+import { recordSnapshotTurnEnd } from "@/lib/snapshot/snapshot-manager";
 import { ModelMessage } from "ai";
 
 import { db } from "../../db";
@@ -350,6 +351,12 @@ export function registerChatStreamHandlers() {
       const ensureTerminal = (error?: unknown) => {
         if (ctx.streamTerminated) return;
         ctx.streamTerminated = true;
+        // How the turn left its files, so a later revert keeps anything changed
+        // since (owner: no random reverts). A stopped turn never gets here and
+        // reverts unchecked, as before.
+        if (snapshotTurnIdForTerminal) {
+          void recordSnapshotTurnEnd(snapshotTurnIdForTerminal);
+        }
         if (error) {
           safeSend(event.sender, "chat:response:error", {
             chatId: req.chatId,

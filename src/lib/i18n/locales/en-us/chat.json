@@ -30,7 +30,8 @@
   },
   "revertTurn": {
     "reverted": "Files reverted",
-    "revertedTitle": "This turn's file changes were put back: {{files}}"
+    "revertedTitle": "This turn's file changes were put back: {{files}}",
+    "unchecked": "Later edits to these files can't be detected and will be overwritten."
   },
   "recap": {
     "label": "While you were away",

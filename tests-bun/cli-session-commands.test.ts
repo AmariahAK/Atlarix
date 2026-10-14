@@ -198,6 +198,37 @@ describe("the session's commands", () => {
     expect(last).not.toContain("set v to 2");
   }, 60_000);
 
+  // Owner: no random reverts. A real turn records how it left its files; a
+  // restore keeps a file changed after that and says so.
+  it("restoring files keeps a file someone changed after the turn, and names it", async () => {
+    const file = path.join(ws, "keep.ts");
+    const other = path.join(ws, "goes-back.ts");
+    fs.writeFileSync(file, "export const k = 1;\n");
+    fs.writeFileSync(other, "export const g = 1;\n");
+    const { s } = await sessionWith([
+      { tool: "edit_file", args: { path: "keep.ts", operation: "replace", old_content: "export const k = 1;", new_content: "export const k = 2;" } },
+      { tool: "edit_file", args: { path: "goes-back.ts", operation: "replace", old_content: "export const g = 1;", new_content: "export const g = 2;" } },
+      { text: "Changed both." },
+    ]);
+    const approve = (st: any) => {
+      if (st.approvals.length) void s.answerApproval(st.approvals[0].operationId, "once");
+    };
+    s.on("change", approve);
+    await idleAfter(s, () => s.submit("set k and g to 2"));
+    s.off("change", approve);
+    // A teammate (or the user) edits one of them after the turn.
+    fs.writeFileSync(file, "export const k = 2; // teammate\n");
+
+    const [mine] = s.myMessages();
+    const { kept } = await s.restoreFilesSince(mine!.id);
+    expect(fs.readFileSync(file, "utf8")).toContain("// teammate");
+    expect(fs.readFileSync(other, "utf8")).toContain("g = 1");
+    expect(kept.some((f) => f.endsWith("keep.ts"))).toBe(true);
+    // The agent is told only about the file that went back.
+    expect((s as any).restoredNote).toContain("goes-back.ts");
+    expect((s as any).restoredNote).not.toContain("keep.ts");
+  }, 60_000);
+
   it("/undo to the FIRST of three messages restores every later turn's files and drops every later message", async () => {
     const file = path.join(ws, "many.ts");
     fs.writeFileSync(file, "export const n = 0;\n");
