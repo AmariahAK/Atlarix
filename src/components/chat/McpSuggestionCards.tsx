@@ -70,6 +70,7 @@ function SuggestionCard({ s }: { s: McpSuggestionView }) {
     const r = await ipc.finishMcpSuggestion(s.id);
     void queryClient.invalidateQueries({ queryKey: ["mcp"] });
     if (r.connected) showSuccess(t("mcpSuggest.connected", { name: r.server ?? title }));
+    else if (r.reason) showError(`${title}: ${r.reason}`);
     return r.connected;
   }, [ipc, s.id, queryClient, t, title]);
 

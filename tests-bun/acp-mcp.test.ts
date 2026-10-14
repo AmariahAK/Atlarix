@@ -52,7 +52,8 @@ async function editor(script: Reply[]) {
   const asked: RequestPermissionRequest[] = [];
   const client = acp.client({ name: "test-editor" }).onRequest("session/request_permission", (ctx) => {
     asked.push(ctx.params);
-    return { outcome: { outcome: "selected", optionId: "accept-once" } };
+    const ids = ctx.params.options.map((o) => o.optionId);
+    return { outcome: { outcome: "selected", optionId: ids.includes("no") ? "no" : "accept-once" } };
   });
   const conn = client.connect(buildAgentApp(agent, "test"));
   const init = await conn.agent.request("initialize", { protocolVersion: acp.PROTOCOL_VERSION, clientCapabilities: {} });
@@ -159,6 +160,23 @@ describe("an editor's MCP servers", () => {
       e.llm.stop();
     }, 60_000);
   });
+
+  it("a suggestion reaches a plain editor as a permission prompt, and its answer ends the wait", async () => {
+    const e = await editor([
+      { tool: "mcp_servers", args: { operation: "suggest", server: "app.linear/linear", reason: "to read the issue", wait: true } },
+      { text: "ok" },
+    ]);
+    // This editor says Not now to the connect prompt (and Allow once to anything else).
+    const { sessionId } = await e.conn.agent.request("session/new", { cwd: ws, mcpServers: [] });
+    const done = e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "my issues?" }] });
+    const r = await Promise.race([done, new Promise((res) => setTimeout(() => res("timeout"), 20_000))]);
+    expect(r).not.toBe("timeout");
+    const asked = e.asked.find((a) => a.toolCall.title?.includes("Connect Linear"));
+    expect(asked).toBeTruthy();
+    expect(asked!.options.map((o) => o.optionId)).toEqual(["connect", "no"]);
+    expect(toolResults(e.llm)).toContain("Not connected");
+    e.llm.stop();
+  }, 60_000);
 
   it("an sse server is left out rather than half-connected", async () => {
     const { sessionMcpServersFrom } = await import("../src/cli/acp/agent");

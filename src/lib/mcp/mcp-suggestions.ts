@@ -109,9 +109,42 @@ const waiters = new Map<string, (o: McpSuggestionOutcome) => void>();
 type Listener = (ev: { type: "added" | "resolved"; suggestion: McpSuggestion; outcome?: McpSuggestionOutcome }) => void;
 let listener: Listener | null = null;
 
-/** Main-process listener (the IPC host): every surface hears about cards coming and going. */
+/** An extra observer (tests). Surfaces are told by `broadcast` below either way. */
 export function setMcpSuggestionListener(fn: Listener): void {
   listener = fn;
+}
+
+/** A suggestion with what a card shows: the catalog entry and where the server stands. */
+export async function describeMcpSuggestion(s: McpSuggestion) {
+  const { getMcpCatalogEntry } = await import("./registry-catalog");
+  const [status, entry] = await Promise.all([
+    findMcpServer(s.appId, s.server).catch(() => null),
+    getMcpCatalogEntry(s.server).catch(() => null),
+  ]);
+  return { ...s, entry, status };
+}
+
+/**
+ * Tell every surface a card came or went: app windows, and the CLI and ACP
+ * sessions (the Electron stub routes broadcasts to them). Done here, not by a
+ * listener the IPC host registers, because a plain ACP session never loads
+ * the MCP handlers — its cards went nowhere (QA).
+ */
+function broadcast(type: "added" | "resolved", suggestion: McpSuggestion, outcome?: McpSuggestionOutcome): void {
+  void (async () => {
+    try {
+      const { broadcastToAllWindows } = await import("@/ipc/utils/broadcast_all_windows");
+      const payload = type === "added" ? await describeMcpSuggestion(suggestion) : suggestion;
+      broadcastToAllWindows("mcp:suggestion", {
+        type,
+        chatId: suggestion.chatId,
+        suggestion: payload,
+        ...(outcome ? { outcome } : {}),
+      });
+    } catch {
+      // No window and no session to tell (tests): nothing to do.
+    }
+  })();
 }
 
 export function addMcpSuggestion(s: Omit<McpSuggestion, "id" | "createdAt">): McpSuggestion {
@@ -124,6 +157,7 @@ export function addMcpSuggestion(s: Omit<McpSuggestion, "id" | "createdAt">): Mc
   const suggestion: McpSuggestion = { ...s, id: randomUUID(), createdAt: Date.now() };
   pending.set(suggestion.id, suggestion);
   listener?.({ type: "added", suggestion });
+  broadcast("added", suggestion);
   return suggestion;
 }
 
@@ -155,6 +189,7 @@ export function resolveMcpSuggestion(id: string, outcome: McpSuggestionOutcome):
   if (!s) return false;
   pending.delete(id);
   listener?.({ type: "resolved", suggestion: s, outcome });
+  broadcast("resolved", s, outcome);
   const waiter = waiters.get(id);
   if (waiter) {
     waiters.delete(id);

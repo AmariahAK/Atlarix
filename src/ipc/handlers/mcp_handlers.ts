@@ -518,12 +518,11 @@ export function registerMcpHandlers() {
 
   // ─── Suggestions: the agent asks the user to connect a server ────────────
 
-  setMcpSuggestionListenerOnce();
-
   /** A chat's open suggestion cards, with the catalog entry and status for each. */
   handle("mcp-suggest:list", async (_event, params: { chatId?: number }) => {
     const { listMcpSuggestions } = await import("@/lib/mcp/mcp-suggestions");
-    return Promise.all(listMcpSuggestions(params?.chatId).map(describeSuggestion));
+    const { describeMcpSuggestion } = await import("@/lib/mcp/mcp-suggestions");
+    return Promise.all(listMcpSuggestions(params?.chatId).map(describeMcpSuggestion));
   });
 
   /**
@@ -575,6 +574,9 @@ export function registerMcpHandlers() {
     const here = await findMcpServer(s.appId, s.server);
     if (!here) return { connected: false, reason: "It hasn't been added." };
     if (here.needs) return { connected: false, reason: here.needs === "sign-in" ? "It still needs a sign-in." : "It still needs its key." };
+    // Added but OFF (the limit was full): not usable, so not "connected" — the
+    // agent must not be told it is ready (QA).
+    if (!here.enabled) return { connected: false, reason: limitMessage() };
     const tools = await toolNamesFor(here);
     resolveMcpSuggestion(s.id, { connected: true, server: here.name, where: here.where, tools });
     return { connected: true, server: here.name, tools };
@@ -633,38 +635,6 @@ export function registerMcpHandlers() {
   handle("mcp:sandbox-diagnostics", async () => {
     return getMcpSandboxDiagnostics(readSettings());
   });
-}
-
-let suggestionListenerSet = false;
-
-/** Every surface hears about suggestion cards: app windows, the CLI and ACP sessions. */
-function setMcpSuggestionListenerOnce(): void {
-  if (suggestionListenerSet) return;
-  suggestionListenerSet = true;
-  void import("@/lib/mcp/mcp-suggestions").then(({ setMcpSuggestionListener }) =>
-    setMcpSuggestionListener((ev) => {
-      void import("../utils/broadcast_all_windows").then(async ({ broadcastToAllWindows }) => {
-        const suggestion = ev.type === "added" ? await describeSuggestion(ev.suggestion) : ev.suggestion;
-        broadcastToAllWindows("mcp:suggestion", {
-          type: ev.type,
-          chatId: ev.suggestion.chatId,
-          suggestion,
-          ...(ev.outcome ? { outcome: ev.outcome } : {}),
-        });
-      });
-    }),
-  );
-}
-
-/** A suggestion with what a card shows: the catalog entry and where the server stands. */
-async function describeSuggestion(s: import("@/lib/mcp/mcp-suggestions").McpSuggestion) {
-  const { findMcpServer } = await import("@/lib/mcp/mcp-suggestions");
-  const { getMcpCatalogEntry } = await import("@/lib/mcp/registry-catalog");
-  const [status, entry] = await Promise.all([
-    findMcpServer(s.appId, s.server).catch(() => null),
-    getMcpCatalogEntry(s.server).catch(() => null),
-  ]);
-  return { ...s, entry, status };
 }
 
 /** The tool names a connected server offers, for the agent's "it's ready" note. */
