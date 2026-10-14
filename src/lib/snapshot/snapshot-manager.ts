@@ -231,6 +231,36 @@ async function readManifest(
   }
 }
 
+/**
+ * Write a manifest atomically (temp file, then rename). It is read without
+ * the workspace lock (the files list, the revert preview), and since a turn's
+ * end rewrites it, a plain writeFile let a reader see it empty mid-write and
+ * take the turn for having no snapshot.
+ */
+async function writeManifest(
+  gitDir: string,
+  seg: string,
+  manifest: SnapshotManifest,
+): Promise<void> {
+  const target = turnManifestPath(gitDir, seg);
+  const tmp = `${target}.${process.pid}.${Date.now()}.tmp`;
+  await fs.writeFile(tmp, JSON.stringify(manifest, null, 2), "utf8");
+  // Windows refuses to replace a file another reader has open at that instant.
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await fs.rename(tmp, target);
+      return;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (attempt >= 5 || (code !== "EPERM" && code !== "EBUSY" && code !== "EACCES")) {
+        await fs.rm(tmp, { force: true }).catch(() => undefined);
+        throw err;
+      }
+      await new Promise((r) => setTimeout(r, 20 * (attempt + 1)));
+    }
+  }
+}
+
 /** What each turn captured this process (root → its files); read at the turn's end. */
 const turnFilesThisRun = new Map<string, Map<string, Set<string>>>();
 
@@ -404,11 +434,7 @@ export async function captureSnapshot(
 
       manifest.timestamp = new Date().toISOString();
       await fs.mkdir(path.join(gitDir, TURNS_DIR), { recursive: true });
-      await fs.writeFile(
-        turnManifestPath(gitDir, seg),
-        JSON.stringify(manifest, null, 2),
-        "utf8",
-      );
+      await writeManifest(gitDir, seg, manifest);
 
       const byRoot = turnFilesThisRun.get(turnId) ?? new Map<string, Set<string>>();
       const files = byRoot.get(workspacePath) ?? new Set<string>();
@@ -608,11 +634,7 @@ export function recordSnapshotTurnEnd(turnId: string): Promise<void> {
         // capture from an earlier run of this turn) leaves the turn uncheckable.
         if (!manifest.filesChanged.every((rel) => rel in hashes)) return;
         manifest.endHashes = hashes;
-        await fs.writeFile(
-          turnManifestPath(gitDir, seg),
-          JSON.stringify(manifest, null, 2),
-          "utf8",
-        );
+        await writeManifest(gitDir, seg, manifest);
       }).catch((err) =>
         logger.warn(`recordSnapshotTurnEnd failed for turn ${turnId}:`, err),
       );
@@ -720,12 +742,7 @@ async function shadowRevert(
   }
 
   manifest.revertedFiles = reverted;
-  await fs
-    .writeFile(
-      turnManifestPath(gitDir, seg),
-      JSON.stringify(manifest, null, 2),
-      "utf8",
-    )
+  await writeManifest(gitDir, seg, manifest)
     .catch(() => undefined);
 
   return {
@@ -1020,11 +1037,7 @@ async function updateManifests(
     await withWorkspaceLock(root, async () => {
       const manifest = await readManifest(gitDir, seg);
       if (!manifest || !update(manifest)) return;
-      await fs.writeFile(
-        turnManifestPath(gitDir, seg),
-        JSON.stringify(manifest, null, 2),
-        "utf8",
-      );
+      await writeManifest(gitDir, seg, manifest);
       changed.push(manifest);
     });
   }
