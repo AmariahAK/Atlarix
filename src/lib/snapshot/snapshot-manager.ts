@@ -89,6 +89,7 @@ let shadowRootOverride: string | null = null;
 /** Test seam — point the shadow store at a temp dir. */
 export function _setShadowSnapshotsRootForTests(root: string | null): void {
   shadowRootOverride = root;
+  byteExactRepos.clear(); // as a fresh run would see them
 }
 
 function shadowGitDir(workspacePath: string): string {
@@ -159,10 +160,40 @@ async function git(
   };
 }
 
+/**
+ * The snapshot must hold, and put back, a file's exact bytes. The shadow git
+ * works on the user's own folder, so that folder's .gitattributes (eol=crlf,
+ * text=auto, an LFS filter, ident, working-tree-encoding) and a system
+ * core.autocrlf (Windows) converted bytes on add and checkout: a restore could
+ * change line endings, and a chain then read the rewritten file as "changed
+ * since". $GIT_DIR/info/attributes outranks the folder's .gitattributes.
+ * Idempotent; done once per repo per run, for repos made before this too.
+ */
+const BYTE_EXACT_ATTRIBUTES = "* -text -filter -ident -working-tree-encoding\n";
+const byteExactRepos = new Set<string>();
+
+async function ensureByteExact(gitDir: string, workspacePath: string): Promise<void> {
+  if (byteExactRepos.has(gitDir)) return;
+  const attrs = path.join(gitDir, "info", "attributes");
+  const current = await fs.readFile(attrs, "utf8").catch(() => null);
+  if (current !== BYTE_EXACT_ATTRIBUTES) {
+    await fs.mkdir(path.dirname(attrs), { recursive: true });
+    await fs.writeFile(attrs, BYTE_EXACT_ATTRIBUTES, "utf8");
+  }
+  for (const [key, value] of [
+    ["core.autocrlf", "false"],
+    ["core.eol", "lf"],
+  ]) {
+    await git(["--git-dir", gitDir, "config", key, value], workspacePath, {});
+  }
+  byteExactRepos.add(gitDir);
+}
+
 async function ensureShadowRepo(workspacePath: string): Promise<string> {
   const gitDir = shadowGitDir(workspacePath);
   try {
     await fs.access(path.join(gitDir, "HEAD"));
+    await ensureByteExact(gitDir, workspacePath);
     return gitDir;
   } catch {
     // not initialized yet
@@ -183,6 +214,7 @@ async function ensureShadowRepo(workspacePath: string): Promise<string> {
     {},
   );
   await fs.mkdir(path.join(gitDir, TURNS_DIR), { recursive: true });
+  await ensureByteExact(gitDir, workspacePath);
   logger.info(`Initialized shadow snapshot repo for ${workspacePath}`);
   return gitDir;
 }
@@ -617,6 +649,7 @@ async function shadowRevert(
   const seg = sanitizeLedgerDirSegment(turnId);
   const manifest = await readManifest(gitDir, seg);
   if (!manifest) return null; // not a shadow-git turn — caller falls back to legacy
+  await ensureByteExact(gitDir, workspacePath);
 
   const env = gitEnv(gitDir, workspacePath, seg);
   const inTree = await listTreePaths(gitDir, workspacePath, seg);

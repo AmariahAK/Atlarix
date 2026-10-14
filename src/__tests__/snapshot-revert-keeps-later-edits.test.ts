@@ -223,3 +223,37 @@ describeWithGit("previewing a revert", () => {
     expect(await previewRevert(workspace, ["41"])).toEqual({ restores: [], kept: ["new.ts"] });
   });
 });
+
+// The shadow git works on the user's folder, so the folder's own
+// .gitattributes (and Windows' system autocrlf) converted bytes on add and
+// checkout: a restore could change line endings, a chain then read the
+// rewritten file as "changed since", and the preview disagreed with the result.
+describeWithGit("a restore puts back the exact bytes", () => {
+  for (const [label, eol] of [["LF", "\n"], ["CRLF", "\r\n"]] as const) {
+    it(`under '* text eol=crlf', a chain of turns goes back byte-identical (${label} content)`, async () => {
+      await write(".gitattributes", "* text eol=crlf\n");
+      const before = ["one", "two", "three", ""].join(eol);
+      await write("a.txt", before);
+      await turn("41", { "a.txt": ["one", "TWO", "three", ""].join(eol) });
+      await turn("42", { "a.txt": ["one", "TWO", "THREE", ""].join(eol) });
+      const preview = await previewRevert(workspace, ["42", "41"]);
+      const r42 = await revertSnapshot({ workspacePath: workspace, turnId: "42" });
+      const r41 = await revertSnapshot({ workspacePath: workspace, turnId: "41" });
+      expect(Buffer.from((await read("a.txt"))!).equals(Buffer.from(before))).toBe(true);
+      expect([...(r42.kept ?? []), ...(r41.kept ?? [])]).toEqual([]);
+      expect(preview).toEqual({ restores: ["a.txt"], kept: [] });
+    });
+  }
+
+  it("an existing snapshot repo is made byte-exact when it is next used", async () => {
+    // Captured before the attributes existed: the repo was made then.
+    await turn("41", { "a.txt": "x\n" });
+    const shadowDirs = await fs.readdir(shadowRoot);
+    const gitDir = path.join(shadowRoot, shadowDirs[0]!);
+    await fs.rm(path.join(gitDir, "info", "attributes"), { force: true });
+    _setShadowSnapshotsRootForTests(shadowRoot); // a later run of the app
+    await write(".gitattributes", "* text eol=crlf\n");
+    await revertSnapshot({ workspacePath: workspace, turnId: "41" });
+    expect(await fs.readFile(path.join(gitDir, "info", "attributes"), "utf8")).toContain("-text");
+  });
+});
