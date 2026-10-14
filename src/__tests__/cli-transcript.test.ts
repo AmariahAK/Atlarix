@@ -388,6 +388,21 @@ describe("MCP rows (QA #8)", () => {
     expect(toolResultText("mcp_call", raw).text).toBe("Echo: row text check");
   });
 
+  it("…and when that text is inside the untrusted-data fence (the real shape)", () => {
+    const raw = JSON.stringify({
+      success: true,
+      result: {
+        server: "qa-remote",
+        tool: "echo",
+        result:
+          '<untrusted-data source="mcp:qa-remote">\n' +
+          JSON.stringify({ content: [{ type: "text", text: "Echo: row text check" }], isError: false }) +
+          "\n</untrusted-data>",
+      },
+    });
+    expect(toolResultText("mcp_call", raw).text).toBe("Echo: row text check");
+  });
+
   it("an mcp_call error still reads as the error", () => {
     const raw = JSON.stringify({ success: false, error: '"Linear" is not signed in yet.' });
     expect(toolResultText("mcp_call", raw).text).toContain("not signed in");
