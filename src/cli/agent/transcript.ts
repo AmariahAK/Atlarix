@@ -182,6 +182,8 @@ const VERBS: Record<string, string> = {
   background_jobs: "Jobs",
   session_search: "Search sessions",
   mcp_call: "MCP",
+  mcp_servers: "MCP servers",
+  list_available_mcps: "MCP servers",
   compress_context: "Compact",
   schedule_wakeup: "Wake up",
   automations: "Automation",
@@ -223,7 +225,9 @@ export function toolTarget(toolName: string, args: unknown): string {
     case "browser":
       return [str(a.action), str(a.url)].filter(Boolean).join(" ");
     case "mcp_call":
-      return [str(a.server), str(a.tool)].filter(Boolean).join(" · ");
+      return [str(a.server), str(a.tool).replace(/[_-]+/g, " ")].filter(Boolean).join(" · ");
+    case "mcp_servers":
+      return [str(a.operation), str(a.server) || (a.query ? `"${str(a.query)}"` : "")].filter(Boolean).join(" · ");
     case "plan": {
       // "◇ Plan  step 3 done", not a bare "◇ Plan" (owner, 2026-10-05).
       const op = str(a.operation);

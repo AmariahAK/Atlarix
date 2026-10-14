@@ -64,6 +64,8 @@ export interface SessionListener {
   unsent?(text: string): void;
   /** An automation finished a run. */
   automationRun?(run: { name: string; status: string; summary: string | null }): void;
+  /** Atlarix suggests connecting an MCP server (or a suggestion was answered: `resolved`). */
+  mcpSuggestion?(card: Record<string, unknown>): void;
 }
 
 export interface ConnectionOptions {
@@ -172,6 +174,14 @@ export class AtlarixConnection {
         (ctx) => {
           const p = ctx.params;
           this.listeners.get(p.sessionId)?.automationRun?.({ name: p.name ?? "Automation", status: p.status ?? "ok", summary: p.summary ?? null });
+        },
+      )
+      .onNotification(
+        "_atlarix/mcp_suggestion",
+        (p) => p as { sessionId: string } & Record<string, unknown>,
+        (ctx) => {
+          const { sessionId, ...card } = ctx.params;
+          this.listeners.get(sessionId)?.mcpSuggestion?.(card);
         },
       )
       .onNotification(

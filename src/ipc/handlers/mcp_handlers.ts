@@ -492,6 +492,75 @@ export function registerMcpHandlers() {
     max: MCP_ON_LIMIT,
   }));
 
+  // ─── Suggestions: the agent asks the user to connect a server ────────────
+
+  setMcpSuggestionListenerOnce();
+
+  /** A chat's open suggestion cards, with the catalog entry and status for each. */
+  handle("mcp-suggest:list", async (_event, params: { chatId?: number }) => {
+    const { listMcpSuggestions } = await import("@/lib/mcp/mcp-suggestions");
+    return Promise.all(listMcpSuggestions(params?.chatId).map(describeSuggestion));
+  });
+
+  /**
+   * Connect the server a card is for: add it if it isn't here (a public https
+   * one on the account), or switch it on. What still needs the user (a
+   * browser sign-in, a key) comes back for the surface to finish, then
+   * `mcp-suggest:finish`.
+   */
+  handle(
+    "mcp-suggest:connect",
+    async (_event, params: { id: string; optionId?: string; values?: Record<string, string> }) => {
+      const { listMcpSuggestions, findMcpServer } = await import("@/lib/mcp/mcp-suggestions");
+      const s = listMcpSuggestions().find((x) => x.id === params.id);
+      if (!s) throw new Error("That suggestion is no longer open.");
+      const here = await findMcpServer(s.appId, s.server);
+      if (here) {
+        if (!here.needs && !here.enabled) {
+          if (here.where === "account") {
+            const out = await setConnectorEnabled(String(here.id), true);
+            if (!out.ok) throw new Error(out.error);
+          } else {
+            await assertRoomForOneMore(s.appId);
+            await db.update(mcpServers).set({ enabled: true }).where(eq(mcpServers.id, Number(here.id)));
+          }
+        }
+        return {
+          where: here.where,
+          id: here.id,
+          name: here.name,
+          enabled: true,
+          needsSignIn: here.needs === "sign-in",
+          ...(here.needs === "key" ? { needsSecret: { header: null } } : {}),
+        };
+      }
+      if (s.appId == null) throw new Error("Open a folder before adding an MCP server.");
+      const { getMcpCatalogEntry } = await import("@/lib/mcp/registry-catalog");
+      const entry = await getMcpCatalogEntry(s.server);
+      const option = params.optionId ?? entry?.options.find((o) => o.kind === "web" || o.supported)?.id;
+      if (!entry || !option) throw new Error("That server can't be added from here.");
+      return installFromCatalog(s.appId, { name: s.server, optionId: option, values: params.values ?? {} });
+    },
+  );
+
+  /** The surface finished (signed in, saved a key): check it works and tell the agent. */
+  handle("mcp-suggest:finish", async (_event, params: { id: string }) => {
+    const { listMcpSuggestions, findMcpServer, resolveMcpSuggestion } = await import("@/lib/mcp/mcp-suggestions");
+    const s = listMcpSuggestions().find((x) => x.id === params.id);
+    if (!s) return { connected: false, reason: "That suggestion is no longer open." };
+    const here = await findMcpServer(s.appId, s.server);
+    if (!here) return { connected: false, reason: "It hasn't been added." };
+    if (here.needs) return { connected: false, reason: here.needs === "sign-in" ? "It still needs a sign-in." : "It still needs its key." };
+    const tools = await toolNamesFor(here);
+    resolveMcpSuggestion(s.id, { connected: true, server: here.name, where: here.where, tools });
+    return { connected: true, server: here.name, tools };
+  });
+
+  handle("mcp-suggest:dismiss", async (_event, params: { id: string }) => {
+    const { resolveMcpSuggestion } = await import("@/lib/mcp/mcp-suggestions");
+    return resolveMcpSuggestion(params.id, { connected: false, reason: "the user said not now" });
+  });
+
   // ─── Account servers (web, shared by every surface) ─────────────────────
 
   handle("connectors:list", async () => listConnectorRows());
@@ -540,4 +609,52 @@ export function registerMcpHandlers() {
   handle("mcp:sandbox-diagnostics", async () => {
     return getMcpSandboxDiagnostics(readSettings());
   });
+}
+
+let suggestionListenerSet = false;
+
+/** Every surface hears about suggestion cards: app windows, the CLI and ACP sessions. */
+function setMcpSuggestionListenerOnce(): void {
+  if (suggestionListenerSet) return;
+  suggestionListenerSet = true;
+  void import("@/lib/mcp/mcp-suggestions").then(({ setMcpSuggestionListener }) =>
+    setMcpSuggestionListener((ev) => {
+      void import("../utils/broadcast_all_windows").then(async ({ broadcastToAllWindows }) => {
+        const suggestion = ev.type === "added" ? await describeSuggestion(ev.suggestion) : ev.suggestion;
+        broadcastToAllWindows("mcp:suggestion", {
+          type: ev.type,
+          chatId: ev.suggestion.chatId,
+          suggestion,
+          ...(ev.outcome ? { outcome: ev.outcome } : {}),
+        });
+      });
+    }),
+  );
+}
+
+/** A suggestion with what a card shows: the catalog entry and where the server stands. */
+async function describeSuggestion(s: import("@/lib/mcp/mcp-suggestions").McpSuggestion) {
+  const { findMcpServer } = await import("@/lib/mcp/mcp-suggestions");
+  const { getMcpCatalogEntry } = await import("@/lib/mcp/registry-catalog");
+  const [status, entry] = await Promise.all([
+    findMcpServer(s.appId, s.server).catch(() => null),
+    getMcpCatalogEntry(s.server).catch(() => null),
+  ]);
+  return { ...s, entry, status };
+}
+
+/** The tool names a connected server offers, for the agent's "it's ready" note. */
+async function toolNamesFor(here: import("@/lib/mcp/mcp-suggestions").McpServerStatus): Promise<string[]> {
+  try {
+    if (here.where === "local") {
+      const client = await mcpManager.getClient(Number(here.id));
+      return Object.keys((await client.tools()) as Record<string, unknown>);
+    }
+    const { listAccountConnectors, clearAccountConnectorsCache } = await import("@/lib/mcp/account-connectors");
+    clearAccountConnectorsCache();
+    const c = (await listAccountConnectors()).find((x) => x.name === here.name);
+    return (c?.tools ?? []).map((t) => t.name);
+  } catch {
+    return [];
+  }
 }

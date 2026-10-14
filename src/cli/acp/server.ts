@@ -472,6 +472,17 @@ export function buildAgentApp(
           case "accountSecret":
             await mcp.accountSecret(appId, accountId, String(p.secret ?? ""));
             return { servers: await mcp.account() };
+          case "setKey":
+            await mcp.setKey(id, String(p.secret ?? ""));
+            return { servers: await mcp.list(appId) };
+          // A suggestion card in Atlarix's editor extension.
+          case "suggestConnect":
+            return { added: await mcp.suggestConnect(String(p.id ?? ""), p.optionId, p.values ?? {}) };
+          case "suggestFinish":
+            return { result: await mcp.suggestFinish(String(p.id ?? "")) };
+          case "suggestDismiss":
+            await mcp.suggestDismiss(String(p.id ?? ""));
+            return {};
           default:
             throw acp.RequestError.invalidParams(undefined, `unknown action ${p.action}`);
         }

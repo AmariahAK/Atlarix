@@ -288,6 +288,12 @@ export interface UserInterjectionView {
   ts: number;
 }
 
+/** An open suggestion card: what the agent suggested, the catalog entry, and where the server stands. */
+export type McpSuggestionView = import("@/lib/mcp/mcp-suggestions").McpSuggestion & {
+  entry?: import("@/shared/mcp-catalog").CatalogEntry | null;
+  status?: import("@/lib/mcp/mcp-suggestions").McpServerStatus | null;
+};
+
 export class IpcClient {
   private static instance: IpcClient;
   private ipcRenderer: PreloadIpcRenderer;
@@ -4099,6 +4105,42 @@ export class IpcClient {
       chatId,
       taskId,
     });
+  }
+
+  // ─── MCP suggestion cards (the agent asks the user to connect a server) ───
+
+  public async listMcpSuggestions(chatId: number): Promise<McpSuggestionView[]> {
+    return this.ipcRenderer.invoke("mcp-suggest:list", { chatId });
+  }
+
+  public async connectMcpSuggestion(params: {
+    id: string;
+    optionId?: string;
+    values?: Record<string, string>;
+  }): Promise<import("@/lib/mcp/mcp-add").AddedServer> {
+    return this.ipcRenderer.invoke("mcp-suggest:connect", params);
+  }
+
+  public async finishMcpSuggestion(id: string): Promise<{ connected: boolean; server?: string; tools?: string[]; reason?: string }> {
+    return this.ipcRenderer.invoke("mcp-suggest:finish", { id });
+  }
+
+  public async dismissMcpSuggestion(id: string): Promise<boolean> {
+    return this.ipcRenderer.invoke("mcp-suggest:dismiss", { id });
+  }
+
+  public onMcpSuggestion(
+    listener: (payload: { type: "added" | "resolved"; chatId: number; suggestion: McpSuggestionView }) => void,
+  ): () => void {
+    const off = this.ipcRenderer.on("mcp:suggestion", (payload) =>
+      listener(payload as { type: "added" | "resolved"; chatId: number; suggestion: McpSuggestionView }),
+    );
+    return typeof off === "function" ? off : () => {};
+  }
+
+  public onMcpServersChanged(listener: () => void): () => void {
+    const off = this.ipcRenderer.on("mcp:servers-changed", () => listener());
+    return typeof off === "function" ? off : () => {};
   }
 
   public onBackgroundJobUpdate(

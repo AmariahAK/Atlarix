@@ -92,6 +92,21 @@ export interface SessionState {
   automationUnread: number;
   /** An MCP tool the agent wants to call, waiting for your OK (mcp_consent.ts). */
   mcpConsent: McpConsentRequest | null;
+  /** MCP servers the agent suggested connecting, newest last (mcp-suggestions.ts). */
+  mcpSuggestions: McpSuggestionCard[];
+}
+
+/** A suggestion card as the CLI and ACP show it. */
+export interface McpSuggestionCard {
+  id: string;
+  server: string;
+  title: string;
+  reason: string;
+  verified: boolean;
+  publisher: string;
+  /** Values it asks for before it can be added (none when already added). */
+  inputs: Array<{ key: string; label: string; secret: boolean; required: boolean; default?: string }>;
+  optionId?: string;
 }
 
 export interface McpConsentRequest {
@@ -350,6 +365,7 @@ export class AgentSession extends EventEmitter {
       title: null,
       automationUnread: 0,
       mcpConsent: null,
+      mcpSuggestions: [],
     };
   }
 
@@ -1082,7 +1098,10 @@ export class AgentSession extends EventEmitter {
       const { hasPendingSubagentResults } = await import("@/lib/agents/subagent-results");
       const { hasPendingScheduledWakeupNudges } = await import("@/lib/agent/scheduled-wakeups");
       const { hasPendingAutomationResults } = await import("@/lib/agent/automation-results");
+      const { hasPendingMcpConnectResults } = await import("@/lib/mcp/mcp-suggestions");
       return (
+        // An MCP server it suggested, connected by the user.
+        hasPendingMcpConnectResults(this.chatId) ||
         hasPendingBackgroundCommandResults(this.chatId) ||
         hasPendingSubagentResults(this.chatId) ||
         hasPendingStalledAdvisories(this.chatId) ||
@@ -1104,7 +1123,9 @@ export class AgentSession extends EventEmitter {
       const { describePendingSubagentResults } = await import("@/lib/agents/subagent-results");
       const { describePendingBackgroundCommands } = await import("@/lib/agent/background-commands");
       const { describePendingAutomationResults } = await import("@/lib/agent/automation-results");
+      const { describePendingMcpConnectResults } = await import("@/lib/mcp/mcp-suggestions");
       return [
+        ...describePendingMcpConnectResults(this.chatId!),
         ...describePendingSubagentResults(this.chatId!),
         ...describePendingBackgroundCommands(this.chatId!),
         ...describePendingAutomationResults(this.chatId!),
@@ -1630,6 +1651,41 @@ export class AgentSession extends EventEmitter {
           ? (p.questions as PendingQuestion["items"])
           : [{ question: String(p.question ?? ""), options: p.options as string[] | undefined }];
         this.update({ question: { questionId: String(p.questionId ?? ""), items } });
+        return;
+      }
+      case "mcp:suggestion": {
+        if (p.chatId !== this.chatId) return;
+        const sug = (p.suggestion ?? {}) as {
+          id?: string;
+          server?: string;
+          title?: string;
+          reason?: string;
+          status?: unknown;
+          entry?: { title?: string; verified?: boolean; publisher?: string; options?: Array<{ id: string; kind: string; supported?: boolean; inputs?: McpSuggestionCard["inputs"] }> } | null;
+        };
+        const id = String(sug.id ?? "");
+        if (!id) return;
+        const rest = this.state.mcpSuggestions.filter((x) => x.id !== id);
+        if (p.type !== "added") {
+          this.update({ mcpSuggestions: rest });
+          return;
+        }
+        const option = sug.entry?.options?.find((o) => o.kind === "web" || o.supported);
+        this.update({
+          mcpSuggestions: [
+            ...rest,
+            {
+              id,
+              server: String(sug.server ?? ""),
+              title: String(sug.entry?.title ?? sug.title ?? sug.server ?? "MCP server"),
+              reason: String(sug.reason ?? ""),
+              verified: !!sug.entry?.verified,
+              publisher: String(sug.entry?.publisher ?? ""),
+              inputs: sug.status ? [] : (option?.inputs ?? []),
+              ...(option ? { optionId: option.id } : {}),
+            },
+          ],
+        });
         return;
       }
       case "mcp:tool-consent-request":

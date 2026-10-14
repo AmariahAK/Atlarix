@@ -15,6 +15,7 @@ import "./file";
 import "./glob";
 import "./grep";
 import "./mcp";
+import "./mcp-servers"; // find MCP servers, suggest one to connect, start/stop/disconnect
 import "./edit";
 import "./shell";
 import "./background-jobs"; // v14 list/output/cancel for background commands

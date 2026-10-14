@@ -413,6 +413,98 @@ export function openQuestions(ctx: ScreenContext, q: PendingQuestion): void {
   ask(0);
 }
 
+// ─── MCP suggestion ──────────────────────────────────────────────────────────
+
+/**
+ * Atlarix suggests connecting an MCP server (the app shows a card for it):
+ * Connect asks for what it needs, signs in, and tells the agent; Not now
+ * tells it no.
+ */
+export function openMcpSuggestion(ctx: ScreenContext): void {
+  const card = ctx.session.state.mcpSuggestions.at(-1);
+  if (!card) return;
+  const mcp = ctx.services.mcp;
+  const finish = async (pollMs = 0): Promise<void> => {
+    const deadline = Date.now() + pollMs;
+    for (;;) {
+      const r = await mcp.suggestFinish(card.id);
+      if (r.connected) return void ctx.flash(`${r.server ?? card.title} is connected. Atlarix can use it now.`);
+      if (Date.now() >= deadline) return void ctx.flash(`${card.title}: ${r.reason ?? "not connected yet"}`);
+      await new Promise((res) => setTimeout(res, 2000));
+    }
+  };
+  const connect = async (values: Record<string, string>) => {
+    const added = await mcp.suggestConnect(card.id, card.optionId, values);
+    if (added.needsSignIn && added.where === "account") {
+      const r = await mcp.accountSignIn(ctx.session.appId, String(added.id), (url) =>
+        ctx.flash(`Sign in to ${card.title} in your browser: ${url}`),
+      );
+      if (!r.ok) return void ctx.flash(r.error ?? `Couldn't sign in to ${card.title}.`);
+      return finish();
+    }
+    if (added.needsSignIn) {
+      const s = await mcp.signIn(Number(added.id));
+      if (!s.ok) return void ctx.flash(s.error ?? `Couldn't start ${card.title}'s sign-in.`);
+      ctx.flash(`Sign in to ${card.title} in your browser.`);
+      return finish(5 * 60_000);
+    }
+    if (added.needsSecret) {
+      ctx.host.push(
+        new InputDialog({
+          title: card.title,
+          label: added.needsSecret.header ?? "API key",
+          mask: true,
+          onSubmit: async (v) => {
+            if (!v.trim()) return "Paste the key, or esc for not now.";
+            if (added.where === "account") await mcp.accountSecret(ctx.session.appId, String(added.id), v.trim());
+            else await mcp.setKey(Number(added.id), v.trim());
+            ctx.host.pop();
+            await finish();
+          },
+        }),
+      );
+      return;
+    }
+    return finish();
+  };
+  const ask = (i: number, values: Record<string, string>) => {
+    const input = card.inputs[i];
+    if (!input) return void connect(values).catch((e: Error) => ctx.flash(e.message));
+    ctx.host.push(
+      new InputDialog({
+        title: card.title,
+        label: input.required ? input.label : `${input.label} (optional)`,
+        initial: input.default ?? "",
+        mask: input.secret,
+        onSubmit: (v) => {
+          if (input.required && !v.trim()) return `${input.label} is needed.`;
+          ctx.host.pop();
+          ask(i + 1, v.trim() ? { ...values, [input.key]: v.trim() } : values);
+        },
+      }),
+    );
+  };
+  ctx.host.push(
+    new ListDialog({
+      title: `Connect ${card.title}?`,
+      intro: [
+        { text: card.verified ? `${card.title} · ✓ Verified` : `${card.title} · ${card.publisher}`, bold: true },
+        ...(card.reason ? [{ text: card.reason, tone: "muted" as const }] : []),
+      ],
+      footer: "↑↓ move · enter choose · esc not now",
+      items: [
+        { id: "connect", label: "Connect" },
+        { id: "no", label: "Not now" },
+      ],
+      onChoose: async (item) => {
+        ctx.host.closeAll();
+        if (item.id === "no") return void mcp.suggestDismiss(card.id);
+        ask(0, {});
+      },
+    }),
+  );
+}
+
 // ─── MCP tool consent ────────────────────────────────────────────────────────
 
 /** An MCP tool call waiting for an OK, like the app's consent toast. */

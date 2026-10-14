@@ -134,6 +134,13 @@ export interface CliServices {
     /** Sign in in the browser; `onUrl` gets the page as soon as it exists. */
     accountSignIn(appId: number, id: string, onUrl: (url: string) => void): Promise<{ ok: boolean; enabled: boolean; error?: string }>;
     accountSecret(appId: number, id: string, secret: string): Promise<void>;
+    /** A local server's API key. */
+    setKey(id: number, key: string): Promise<void>;
+    /** A suggestion card: connect its server (what still needs the user comes back). */
+    suggestConnect(id: string, optionId: string | undefined, values: Record<string, string>): Promise<AddedServer>;
+    /** It works now: tell the agent. */
+    suggestFinish(id: string): Promise<{ connected: boolean; server?: string; tools?: string[]; reason?: string }>;
+    suggestDismiss(id: string): Promise<void>;
   };
   permissions: {
     list(appId: number): Promise<SavedPermission[]>;
@@ -336,6 +343,14 @@ export const realServices: CliServices = {
     },
     async accountSecret(appId, id, secret) {
       await call("connectors:set-secret", { appId, id, secret });
+    },
+    async setKey(id, key) {
+      await call("mcp:update-server", { id, apiKey: key });
+    },
+    suggestConnect: (id, optionId, values) => call("mcp-suggest:connect", { id, ...(optionId ? { optionId } : {}), values }),
+    suggestFinish: (id) => call("mcp-suggest:finish", { id }),
+    async suggestDismiss(id) {
+      await call("mcp-suggest:dismiss", { id });
     },
     setEnabled: (id, enabled) => call("mcp:update-server", { id, enabled }),
     remove: (id) => call("mcp:delete-server", id),

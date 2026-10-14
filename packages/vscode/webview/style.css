@@ -2905,3 +2905,34 @@ code {
 li.md-task {
   list-style: none;
 }
+
+/* MCP servers Atlarix suggests for this chat, above the box. */
+.suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.suggestion {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card);
+  overflow: hidden;
+}
+.suggestion__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.suggestion__body {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 8px 10px;
+}
+.suggestion__body .col {
+  gap: 4px;
+  min-width: 0;
+}

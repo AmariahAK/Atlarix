@@ -64,6 +64,7 @@ import {
   openLogout,
   openMcp,
   openMcpConsent,
+  openMcpSuggestion,
   openPermissions,
   openPlan,
   openRelics,
@@ -998,6 +999,12 @@ export function App({
     setPinnedPlan(null);
     void session.buildPlan(pinnedPlan.id);
   };
+  // Atlarix suggested an MCP server: the app shows a card, here a prompt.
+  const lastSuggestion = state.mcpSuggestions.at(-1)?.id;
+  useEffect(() => {
+    if (!lastSuggestion) return;
+    openMcpSuggestion(screen());
+  }, [lastSuggestion]);
   useEffect(() => {
     if (!state.mcpConsent) return;
     // The agent is blocked on it: it goes over any open screen.

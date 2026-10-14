@@ -25,6 +25,7 @@ import {
   readSubagentOutput,
 } from "@/lib/tools/spawn-task";
 import { setScheduledWakeupNotifier } from "@/lib/agent/scheduled-wakeups";
+import { setMcpConnectNotifier } from "@/lib/mcp/mcp-suggestions";
 import { broadcastToAllWindows } from "../utils/broadcast_all_windows";
 
 const logger = log.scope("background_ipc");
@@ -51,6 +52,16 @@ export function registerBackgroundHandlers(): void {
       chatId,
       source: "subagent",
       ...ev,
+    });
+  });
+  // An MCP server the agent suggested, connected by the user: the same wake.
+  setMcpConnectNotifier((chatId, ev) => {
+    broadcastToAllWindows("chat:background-job-update", {
+      chatId,
+      source: "mcp",
+      operationId: `mcp:${ev.server}`,
+      status: ev.status,
+      running: 0,
     });
   });
   // R1: a fired self-wake rides the SAME auto-wake channel (source:"scheduled").

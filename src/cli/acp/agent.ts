@@ -331,6 +331,7 @@ class Thread {
         await this.session.answerMcpConsent(mcpConsentDecision(r.outcome));
       });
     }
+    this.relaySuggestions(s);
     if (this.turn && !s.busy) {
       // Idle for a moment, not just between two chained turns (a queued steer
       // opens the next one the instant this one ends).
@@ -472,6 +473,102 @@ class Thread {
       stopReason: "end_turn",
       ...(this.extras() && kept.length ? { _meta: { atlarix: { kept } } } : {}),
     };
+  }
+
+  /** Suggestion cards already sent to the editor, by id. */
+  private readonly suggestionsSent = new Set<string>();
+
+  /**
+   * An MCP server Atlarix suggested. Atlarix's editor extension draws a card
+   * (`_atlarix/mcp_suggestion`, acted on through `_atlarix/mcp`); any other
+   * editor gets its own permission prompt: Connect, or Not now.
+   */
+  private relaySuggestions(s: SessionState): void {
+    const open = new Set(s.mcpSuggestions.map((x) => x.id));
+    for (const id of [...this.suggestionsSent]) {
+      if (open.has(id)) continue;
+      this.suggestionsSent.delete(id);
+      if (this.extras()) {
+        void this.client().notify("_atlarix/mcp_suggestion", { sessionId: this.id, id, resolved: true }).catch(() => {});
+      }
+    }
+    for (const card of s.mcpSuggestions) {
+      if (this.suggestionsSent.has(card.id)) continue;
+      this.suggestionsSent.add(card.id);
+      if (this.extras()) {
+        void this.client().notify("_atlarix/mcp_suggestion", { sessionId: this.id, ...card }).catch(() => {});
+        continue;
+      }
+      void this.flush().then(() => this.askToConnect(card));
+    }
+  }
+
+  private async askToConnect(card: SessionState["mcpSuggestions"][number]): Promise<void> {
+    const { realServices } = await import("../agent/services");
+    const mcp = realServices.mcp;
+    const needsValues = card.inputs.some((i) => i.required && i.default === undefined);
+    const r = await this.client()
+      .request("session/request_permission", {
+        sessionId: this.id,
+        toolCall: {
+          toolCallId: `mcp-suggest:${card.id}`,
+          title: `Connect ${card.title}?`,
+          kind: "other",
+          status: "pending",
+          content: [
+            {
+              type: "content",
+              content: {
+                type: "text",
+                text: [
+                  card.verified ? `${card.title} · Verified` : `${card.title} · ${card.publisher}`,
+                  card.reason,
+                  needsValues
+                    ? `It asks for ${card.inputs.filter((i) => i.required).map((i) => i.label).join(", ")}: add it from the Atlarix app or the CLI's /mcp.`
+                    : "",
+                ]
+                  .filter(Boolean)
+                  .join("\n\n"),
+              },
+            },
+          ],
+        },
+        options: needsValues
+          ? [{ optionId: "no", name: "Not now", kind: "reject_once" }]
+          : [
+              { optionId: "connect", name: "Connect", kind: "allow_once" },
+              { optionId: "no", name: "Not now", kind: "reject_once" },
+            ],
+      })
+      .catch(() => ({ outcome: { outcome: "cancelled" as const } }));
+    const chosen = r.outcome.outcome === "selected" ? r.outcome.optionId : "no";
+    if (chosen !== "connect") {
+      await mcp.suggestDismiss(card.id).catch(() => {});
+      return;
+    }
+    try {
+      const added = await mcp.suggestConnect(card.id, card.optionId, {});
+      // Sign-in pages open through the editor (stderr), as a local server's do.
+      if (added.needsSignIn && added.where === "account") {
+        const signed = await mcp.accountSignIn(this.session.appId, String(added.id), () => {});
+        if (!signed.ok) return void (await mcp.suggestDismiss(card.id).catch(() => {}));
+      } else if (added.needsSignIn) {
+        await mcp.signIn(Number(added.id));
+        const deadline = Date.now() + 5 * 60_000;
+        while (Date.now() < deadline) {
+          if ((await mcp.suggestFinish(card.id)).connected) return;
+          await new Promise((res) => setTimeout(res, 2000));
+        }
+        return void (await mcp.suggestDismiss(card.id).catch(() => {}));
+      } else if (added.needsSecret) {
+        // A key can't be typed into a permission prompt.
+        return void (await mcp.suggestDismiss(card.id).catch(() => {}));
+      }
+      const done = await mcp.suggestFinish(card.id);
+      if (!done.connected) await mcp.suggestDismiss(card.id).catch(() => {});
+    } catch {
+      await mcp.suggestDismiss(card.id).catch(() => {});
+    }
   }
 
   async prompt(blocks: readonly ContentBlock[], meta?: AtlarixPromptMeta): Promise<PromptResponse> {

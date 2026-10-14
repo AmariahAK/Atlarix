@@ -76,6 +76,7 @@ import { takePendingScheduledWakeupNudges } from "@/lib/agent/scheduled-wakeups"
 import { takePendingDroppedHistoryNotice } from "@/lib/context/dropped-history-notice";
 import { takePendingSubagentResults } from "@/lib/agents/subagent-results";
 import { takePendingAutomationResults } from "@/lib/agent/automation-results";
+import { takePendingMcpConnectResults } from "@/lib/mcp/mcp-suggestions";
 import { providerDisplayName } from "@/ipc/shared/language_model_helpers";
 import { takePendingUserInterjections } from "@/lib/agent/user-interjections";
 import { deliverInterjectionsToTranscript } from "@/ipc/handlers/chat_stream/interjection-delivery";
@@ -595,6 +596,11 @@ export async function simpleStreamText(
       const automationResults = forceCollectOnWake
         ? null
         : takePendingAutomationResults(req.chatId);
+      // An MCP server the agent suggested and the user just connected: the
+      // same channel, so a running turn can use it at its next step.
+      const mcpConnected = forceCollectOnWake
+        ? null
+        : takePendingMcpConnectResults(req.chatId);
       // Injected results are step input only and never saved: keep them so
       // the next turns still have them (delivered-results.ts).
       rememberDeliveredResults(req.chatId, bgResults);
@@ -698,6 +704,7 @@ export async function simpleStreamText(
         bgResults,
         subagentResults,
         automationResults,
+        mcpConnected,
         stalledAdvisories,
         scheduledNudge,
         correction,
