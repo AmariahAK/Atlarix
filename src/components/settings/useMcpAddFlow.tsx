@@ -35,6 +35,7 @@ export function useMcpAddFlow(appId: number) {
     async (added: AddedServer) => {
       const ipc = IpcClient.getInstance();
       if (added.needsSignIn) {
+        if (added.note) showInfo(`${added.name}: ${added.note}`);
         showInfo(`Sign in to ${added.name} in your browser.`);
         if (added.where === "account") {
           const r = await ipc.signInAccountMcp({ id: String(added.id), appId });

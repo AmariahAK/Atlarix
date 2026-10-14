@@ -1107,6 +1107,7 @@ async function finishMcpAdded(ctx: ScreenContext, added: AddedServerView[], done
       continue;
     }
     if (a.needsSignIn) {
+      if (a.note) ctx.flash(`${a.name}: ${a.note}`);
       const r = await ctx.services.mcp.signIn(Number(a.id));
       ctx.flash(r.ok ? `Sign in to ${a.name} in your browser.` : (r.error ?? `Couldn't start ${a.name}'s sign-in.`));
       continue;

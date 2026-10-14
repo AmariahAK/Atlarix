@@ -139,11 +139,12 @@ describe("everything else stays on this computer", () => {
     expect(JSON.parse(stored)).toHaveProperty("encryptionType");
   });
 
-  it("a public server when nobody is signed in", async () => {
+  it("a public server when nobody is signed in, and it says why", async () => {
     accountRows = null;
     serverSays("open");
     const a = await addServerFromUrl(7, { url: "https://mcp.example.com/mcp" }, { enable: true });
     expect(a.where).toBe("local");
+    expect(a.note).toMatch(/sign in to Atlarix to share it/);
   });
 
   it("a public server with more headers than the account holds", async () => {

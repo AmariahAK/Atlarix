@@ -374,7 +374,8 @@ export async function addServerFromUrl(
   const headerNames = Object.keys(headers);
   // The account holds ONE secret per server: a bearer, or one named header.
   const fitsAccount = headerNames.length === 0 || (headerNames.length === 1 && !input.bearer);
-  if (isPublicHttpsUrl(url) && fitsAccount && (await accountAvailable())) {
+  const signedIn = await accountAvailable();
+  if (isPublicHttpsUrl(url) && fitsAccount && signedIn) {
     let auth: WebServerSpec["auth"];
     let headerName: string | null = null;
     let secret: string | null = null;
@@ -410,7 +411,7 @@ export async function addServerFromUrl(
     const probe = await probeMcpUrl(url);
     if (!("error" in probe) && probe.auth === "oauth") authType = "oauth";
   }
-  return addLocalServer(
+  const added = await addLocalServer(
     appId,
     {
       name,
@@ -423,6 +424,12 @@ export async function addServerFromUrl(
     },
     opts,
   );
+  // A web server that would have gone on the account: say why it didn't.
+  if (isPublicHttpsUrl(url) && !signedIn) {
+    const why = "Saved on this computer only: sign in to Atlarix to share it with your other devices.";
+    return { ...added, note: added.note ? `${added.note} ${why}` : why };
+  }
+  return added;
 }
 
 function fromPasted(s: PastedServer): { kind: "url"; input: UrlServerInput } | { kind: "local"; spec: LocalServerSpec } {
