@@ -702,7 +702,15 @@ export function ToolsMcpSettings({
                   <Switch
                     checked={!!s.enabled}
                     onCheckedChange={() =>
-                      toggleServerEnabled(s.id, !!s.enabled)
+                      // The limit refuses with a sentence for the user, not a crash.
+                      void toggleServerEnabled(s.id, !!s.enabled).catch((e) =>
+                        showError(
+                          String(e instanceof Error ? e.message : e).replace(
+                            /^.*Error:\s*/s,
+                            "",
+                          ),
+                        ),
+                      )
                     }
                   />
                   <Button

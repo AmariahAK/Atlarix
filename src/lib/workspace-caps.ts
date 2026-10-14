@@ -114,6 +114,10 @@ export function workspaceCapRefusal(kind: WorkspaceCapKind): string {
  */
 export const WORKSPACE_CAP_SENTRY_PATTERNS: RegExp[] = [
   /workspace limit reached/i,
+  // The MCP limit (mcp-add.ts `limitMessage`) and adding a server twice: both
+  // are answers to the user, shown where they clicked, never defects.
+  /MCP servers are already on\. Turn one off/i,
+  /It is already added, as "/i,
 ];
 
 /**
