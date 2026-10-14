@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Rix } from "@/components/atlarix/Rix";
+import { McpServerIcon } from "./McpServerIcon";
 import {
   UrlInputField,
   UrlReadOnlyRow,
@@ -657,6 +658,16 @@ export function ToolsMcpSettings({
                   ) : (
                     <ChevronsUpDown className="h-4 w-4 shrink-0 mt-0.5 text-muted-foreground" />
                   )}
+                  <McpServerIcon
+                    iconRef={{
+                      registryName: s.registryId ?? null,
+                      url: s.url ?? null,
+                      command: s.command ?? null,
+                      args: Array.isArray(s.args) ? s.args : null,
+                    }}
+                    title={s.name}
+                    size={28}
+                  />
                   <div className="min-w-0">
                     <div className="font-medium">{s.name}</div>
                     <div className="text-xs text-muted-foreground flex flex-wrap items-center gap-x-1">

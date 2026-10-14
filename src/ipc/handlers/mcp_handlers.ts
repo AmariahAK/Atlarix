@@ -459,10 +459,34 @@ export function registerMcpHandlers() {
     },
   );
 
-  handle("mcp-catalog:icon", async (_event, params: { name: string }) => {
-    if (typeof params?.name !== "string" || !params.name) return null;
-    const { getMcpIcon } = await import("@/lib/mcp/mcp-icons");
-    return getMcpIcon(params.name);
+  /** A logo as a checked data: URL, by registry name or by what a stored server knows. */
+  handle(
+    "mcp-catalog:icon",
+    async (
+      _event,
+      params: { name?: string; registryName?: string | null; url?: string | null; command?: string | null; args?: string[] | null },
+    ) => {
+      const { getMcpIcon, getMcpIconFor } = await import("@/lib/mcp/mcp-icons");
+      if (typeof params?.name === "string" && params.name) return getMcpIcon(params.name);
+      return getMcpIconFor(params ?? {});
+    },
+  );
+
+  /** A configured server's logo by the name the agent and the chat use. */
+  handle("mcp:server-icon", async (_event, params: { appId?: number | null; name: string }) => {
+    const { getMcpIconFor } = await import("@/lib/mcp/mcp-icons");
+    const key = String(params?.name ?? "").toLowerCase();
+    if (!key) return null;
+    if (params.appId != null) {
+      const rows = await db
+        .select()
+        .from(mcpServers)
+        .where(and(eq(mcpServers.scope, "workspace"), eq(mcpServers.appId, params.appId)));
+      const row = rows.find((r) => r.name.toLowerCase() === key);
+      if (row) return getMcpIconFor({ registryName: row.registryId, url: row.url, command: row.command, args: row.args });
+    }
+    const c = ((await listConnectorRows()) ?? []).find((r) => r.name.toLowerCase() === key);
+    return c ? getMcpIconFor({ registryName: c.registryName, url: c.url }) : null;
   });
 
   handle(

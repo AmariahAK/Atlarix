@@ -2616,6 +2616,21 @@ export class IpcClient {
     return this.ipcRenderer.invoke("mcp-catalog:icon", { name });
   }
 
+  /** A stored server's logo, from its registry name, URL or package command. */
+  public async getMcpIconFor(ref: {
+    registryName?: string | null;
+    url?: string | null;
+    command?: string | null;
+    args?: string[] | null;
+  }): Promise<string | null> {
+    return this.ipcRenderer.invoke("mcp-catalog:icon", ref);
+  }
+
+  /** A configured server's logo by its name (this folder's first, then the account's). */
+  public async getMcpServerIcon(appId: number | null, name: string): Promise<string | null> {
+    return this.ipcRenderer.invoke("mcp:server-icon", { appId, name });
+  }
+
   /** Add a marketplace server: a web one goes on the account, a local one in this folder. */
   public async installMcpFromCatalog(params: {
     appId: number;

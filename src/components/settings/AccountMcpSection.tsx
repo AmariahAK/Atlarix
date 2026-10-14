@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { McpServerIcon } from "./McpServerIcon";
 import { useTranslation } from "react-i18next";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
@@ -64,7 +65,8 @@ export function AccountMcpSection({ appId }: { appId: number }) {
         const needsKey = (c.authType === "api_key" || c.authType === "header") && !c.connected;
         return (
           <div key={c.id} className="border rounded-lg p-3 flex items-center justify-between gap-3">
-            <div className="min-w-0">
+            <McpServerIcon iconRef={{ registryName: c.registryName, url: c.url }} title={c.name} size={28} />
+            <div className="min-w-0 flex-1">
               <div className="font-medium truncate">{c.name}</div>
               <div className="text-xs text-muted-foreground truncate">
                 {host(c.url)}

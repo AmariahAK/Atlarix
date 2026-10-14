@@ -13,7 +13,7 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { getUserDataPath } from "@/paths/paths";
-import { getMcpCatalogEntry } from "./registry-catalog";
+import { findCatalogNameFor, getMcpCatalogEntry } from "./registry-catalog";
 
 const MAX_BYTES = 256 * 1024;
 const TIMEOUT_MS = 8_000;
@@ -28,7 +28,8 @@ function cacheDir(): string {
 }
 
 function keyFor(name: string): string {
-  return createHash("sha256").update(name).digest("hex").slice(0, 32);
+  // Versioned: a better set of sources must not be hidden behind an old "no icon".
+  return createHash("sha256").update(`v2:${name}`).digest("hex").slice(0, 32);
 }
 
 /** An SVG is accepted only when it can do nothing but draw. */
@@ -91,9 +92,19 @@ function apexOrigin(raw: string | undefined): string | null {
   }
 }
 
+/** The GitHub owner behind a server: its repository's, or an `io.github.<owner>` namespace's. */
+function githubOwner(entry: { name?: string; repositoryUrl?: string }): string | null {
+  const fromRepo = /github\.com\/([A-Za-z0-9-]+)\//i.exec(entry.repositoryUrl ?? "")?.[1];
+  if (fromRepo) return fromRepo;
+  const ns = (entry.name ?? "").split("/")[0]?.split(".") ?? [];
+  return ns[0] === "io" && ns[1] === "github" && ns[2] ? ns[2] : null;
+}
+
 function candidatesFor(entry: {
+  name?: string;
   icons: Array<{ src: string; mimeType?: string }>;
   websiteUrl?: string;
+  repositoryUrl?: string;
   options: Array<{ kind: string; url?: string }>;
 }): string[] {
   const out: string[] = [];
@@ -109,6 +120,10 @@ function candidatesFor(entry: {
       /* not a URL */
     }
   }
+  // The publisher's own GitHub picture: the official GitHub, Brave, Cloudflare…
+  // servers publish under their organisation, whose avatar is its logo.
+  const owner = githubOwner(entry);
+  if (owner) out.push(`https://github.com/${owner}.png?size=64`);
   const remote = entry.options.find((o) => o.kind === "web")?.url;
   const apex = apexOrigin(remote) ?? apexOrigin(entry.websiteUrl);
   if (apex) out.push(`${apex}/favicon.ico`);
@@ -121,6 +136,40 @@ function candidatesFor(entry: {
 
 /** The icon for a marketplace server as a data URL, or null for the letter avatar. */
 export async function getMcpIcon(name: string): Promise<string | null> {
+  return resolveIcon(name, async () => {
+    const entry = await getMcpCatalogEntry(name);
+    return entry ? candidatesFor(entry) : [];
+  });
+}
+
+/** What a stored server knows about itself, from which its logo is found. */
+export interface McpIconRef {
+  registryName?: string | null;
+  url?: string | null;
+  command?: string | null;
+  args?: string[] | null;
+}
+
+/**
+ * The icon for a server that is already added: by its registry name, else the
+ * registry entry its URL or package belongs to, else its address's site.
+ */
+export async function getMcpIconFor(ref: McpIconRef): Promise<string | null> {
+  const name = ref.registryName || (await findCatalogNameFor(ref));
+  if (name) {
+    const icon = await getMcpIcon(name);
+    if (icon || !ref.url) return icon;
+  }
+  if (!ref.url) return null;
+  const apex = apexOrigin(ref.url);
+  if (!apex) return null;
+  return resolveIcon(`site:${apex}`, async () => [
+    `${apex}/favicon.ico`,
+    `https://www.google.com/s2/favicons?domain=${encodeURIComponent(apex.replace(/^https:\/\//, ""))}&sz=64`,
+  ]);
+}
+
+async function resolveIcon(name: string, candidates: () => Promise<string[]>): Promise<string | null> {
   if (memory.has(name)) return memory.get(name) ?? null;
   const file = path.join(cacheDir(), keyFor(name));
   try {
@@ -137,13 +186,10 @@ export async function getMcpIcon(name: string): Promise<string | null> {
   } catch {
     // Not cached yet.
   }
-  const entry = await getMcpCatalogEntry(name);
   let found: string | null = null;
-  if (entry) {
-    for (const c of candidatesFor(entry)) {
-      found = await fetchIconAsDataUrl(c);
-      if (found) break;
-    }
+  for (const c of await candidates()) {
+    found = await fetchIconAsDataUrl(c);
+    if (found) break;
   }
   memory.set(name, found);
   try {

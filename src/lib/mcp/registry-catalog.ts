@@ -68,6 +68,8 @@ interface CatalogState {
   records: Map<string, RegistryRecord>;
   /** What search ranks: one light item per listable server, Verified first. Built lazily. */
   index: CatalogSearchItem[] | null;
+  /** Remote URL / host / package id → registry name, for servers added without one. Built lazily. */
+  lookup?: { byUrl: Map<string, string>; byHost: Map<string, string>; byPackage: Map<string, string> } | null;
 }
 
 let state: CatalogState | null = null;
@@ -274,7 +276,7 @@ async function syncOnce(): Promise<void> {
     if (r) records.set(name, r);
     else records.delete(name);
   }
-  state = { syncedAt: newest, records, index: null };
+  state = { syncedAt: newest, records, index: null, lookup: null };
   await saveToCache(state);
   logger.info(
     `Synced ${updates.size} change(s) in ${pages} page(s); ${records.size} servers (${since ? "incremental" : "full"})`,
@@ -377,6 +379,73 @@ export async function getMcpRegistryServer(name: string): Promise<RegistryServer
     return r.server;
   }
   return verified?.fallback ?? null;
+}
+
+// ─── Which registry server is this? ─────────────────────────────────────────
+
+const normUrl = (u: string) => u.trim().replace(/\/+$/, "").toLowerCase();
+const hostOf = (u: string) => {
+  try {
+    return new URL(u).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+};
+/** `@scope/pkg@1.2.3` / `pkg==1.0` / `ghcr.io/x/y:1.0` → the bare id. */
+const bareId = (spec: string) =>
+  spec
+    .trim()
+    .replace(/==.*$/, "")
+    .replace(/^(@?[^@]+)@.*$/, "$1")
+    .replace(/:[^/]*$/, "")
+    .toLowerCase();
+
+function buildLookup(s: CatalogState): NonNullable<CatalogState["lookup"]> {
+  const byUrl = new Map<string, string>();
+  const byHost = new Map<string, string>();
+  const byPackage = new Map<string, string>();
+  const verified = new Set(VERIFIED_MCP_SERVERS.map((v) => v.name));
+  const add = (map: Map<string, string>, key: string, name: string) => {
+    // A Verified server wins its URL and host over any third-party copy.
+    if (!key) return;
+    if (!map.has(key) || verified.has(name)) map.set(key, name);
+  };
+  const servers = [
+    ...[...s.records.values()].filter(isListableRecord).map((r) => r.server),
+    ...VERIFIED_MCP_SERVERS.map((v) => v.fallback),
+  ];
+  for (const server of servers) {
+    for (const r of server.remotes ?? []) {
+      if (!r.url || r.url.includes("{")) continue;
+      add(byUrl, normUrl(r.url), server.name);
+      add(byHost, hostOf(r.url), server.name);
+    }
+    for (const p of server.packages ?? []) add(byPackage, bareId(p.identifier), server.name);
+  }
+  return { byUrl, byHost, byPackage };
+}
+
+/**
+ * The registry server a stored server came from, when it has no registry name
+ * of its own: a pasted `https://mcp.notion.com/mcp` is Notion, and
+ * `npx -y @modelcontextprotocol/server-memory` is that package's server.
+ */
+export async function findCatalogNameFor(ref: {
+  url?: string | null;
+  command?: string | null;
+  args?: string[] | null;
+}): Promise<string | null> {
+  const s = await loadState();
+  s.lookup ??= buildLookup(s);
+  if (ref.url) {
+    return s.lookup.byUrl.get(normUrl(ref.url)) ?? s.lookup.byHost.get(hostOf(ref.url)) ?? null;
+  }
+  for (const a of [ref.command ?? "", ...(ref.args ?? [])]) {
+    if (!a || a.startsWith("-")) continue;
+    const hit = s.lookup.byPackage.get(bareId(a));
+    if (hit) return hit;
+  }
+  return null;
 }
 
 /** For tests. */

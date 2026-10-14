@@ -167,6 +167,7 @@ const validInvokeChannels = [
   // MCP marketplace (official MCP Registry, cached in main)
   "mcp-catalog:search",
   "mcp-catalog:icon",
+  "mcp:server-icon",
   "mcp-catalog:install",
   // Web MCP servers on the account (shared by every surface)
   "connectors:list",
