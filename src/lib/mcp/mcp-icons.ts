@@ -6,7 +6,8 @@
  * under `<userData>/cache/mcp-icons/`, and the card gets a `data:` URL, which
  * is always rendered as an `<img>` (an SVG there cannot run anything) and never
  * inlined. No icon: the server's website favicon, then its address's site
- * favicon, then the card draws a letter.
+ * favicon, then Google's favicon service for either site (fetched here, in
+ * main, like the citation favicons), then the card draws a letter.
  */
 import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
@@ -111,6 +112,10 @@ function candidatesFor(entry: {
   const remote = entry.options.find((o) => o.kind === "web")?.url;
   const apex = apexOrigin(remote) ?? apexOrigin(entry.websiteUrl);
   if (apex) out.push(`${apex}/favicon.ico`);
+  for (const site of [entry.websiteUrl, remote]) {
+    const host = apexOrigin(site)?.replace(/^https:\/\//, "");
+    if (host) out.push(`https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=64`);
+  }
   return [...new Set(out)];
 }
 

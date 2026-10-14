@@ -190,6 +190,24 @@ describe("the Verified five", () => {
     expect(linear[0]!.name).toBe("app.linear/linear");
     expect(linear).toHaveLength(2);
   });
+
+  it("don't win a search they only match by namespace", () => {
+    const entries = [
+      normalizeRegistryServer(VERIFIED_MCP_SERVERS[0]!.fallback), // io.github.getsentry/…
+      normalizeRegistryServer({ name: "io.github.someone/github-tools", title: "GitHub tools" }),
+    ];
+    const r = searchCatalog(entries, "github").entries;
+    expect(r.map((e) => e.title)).toEqual(["GitHub tools"]);
+  });
+
+  it("show their own names, never the registry's generic ones", () => {
+    const records = new Map<string, RegistryRecord>([
+      ["com.notion/mcp", { status: "active", server: { name: "com.notion/mcp", remotes: [{ type: "streamable-http", url: "https://mcp.notion.com/mcp" }] } }],
+    ]);
+    expect(verifiedEntries(records).find((e) => e.name === "com.notion/mcp")!.title).toBe("Notion");
+    expect(normalizeRegistryServer({ name: "com.acme/mcp" }).title).toBe("Acme");
+    expect(normalizeRegistryServer({ name: "io.github.jo/server" }).title).toBe("Jo");
+  });
 });
 
 describe("search", () => {
@@ -202,6 +220,10 @@ describe("search", () => {
     const r = searchCatalog(items, "postgres");
     expect(r.entries.map((e) => e.name)).toEqual(["io.github.a/postgres-tools", "io.github.b/pg"]);
     expect(searchCatalog(items, "postgres nothing").total).toBe(0);
+  });
+  it("lists names that read as names before ones that start with punctuation", () => {
+    const r = searchCatalog([{ name: "x/a", title: ":authority shape", description: "" }, { name: "x/b", title: "Zeta", description: "" }], "");
+    expect(r.entries.map((e) => e.title)).toEqual(["Zeta", ":authority shape"]);
   });
   it("pages", () => {
     const r = searchCatalog(items, "", { offset: 1, limit: 1 });

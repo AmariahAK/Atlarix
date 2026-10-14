@@ -222,9 +222,19 @@ const LOCAL_RUNNERS: Record<string, string> = {
   oci: "docker",
 };
 
+/** Server names that say nothing on their own (`com.notion/mcp`). */
+const GENERIC_SERVER_NAMES = new Set(["mcp", "server", "mcp-server", "mcpserver", "remote", "api"]);
+
+/** The owner part of a namespace: `com.notion` → `notion`, `io.github.acme` → `acme`. */
+function namespaceOwner(name: string): string {
+  const ns = (name.split("/")[0] ?? name).split(".");
+  return ns[0] === "io" && ns[1] === "github" ? (ns[2] ?? "") : (ns[ns.length - 1] ?? "");
+}
+
 function titleFromName(name: string): string {
   const last = name.split("/").pop() ?? name;
-  const words = last.replace(/[-_.]+/g, " ").trim();
+  const base = GENERIC_SERVER_NAMES.has(last.toLowerCase()) ? namespaceOwner(name) || last : last;
+  const words = base.replace(/[-_.]+/g, " ").trim();
   return words ? words.charAt(0).toUpperCase() + words.slice(1) : name;
 }
 
@@ -461,7 +471,12 @@ export function isListableRecord(r: RegistryRecord): boolean {
 export function verifiedEntries(records: Map<string, RegistryRecord>): CatalogEntry[] {
   return VERIFIED_MCP_SERVERS.map((v) => {
     const r = records.get(v.name);
-    const server = r && isListableRecord(r) ? r.server : v.fallback;
+    // The registry copy for its details, our title for the name: the vendors'
+    // own titles read "Mcp", "Sentry mcp", "Canva MCP".
+    const server =
+      r && isListableRecord(r)
+        ? { ...r.server, title: v.fallback.title, websiteUrl: r.server.websiteUrl ?? v.fallback.websiteUrl }
+        : v.fallback;
     const entry = normalizeRegistryServer(server);
     // A registry entry with no usable remote still has a known-good URL.
     if (!entry.options.some((o) => o.kind === "web")) {
@@ -482,7 +497,10 @@ export interface CatalogSearchItem {
 
 function score(entry: CatalogSearchItem, terms: string[]): number {
   const title = entry.title.toLowerCase();
-  const name = entry.name.toLowerCase();
+  // The server part and the owner, never the namespace's `io.github.` prefix,
+  // which half the registry shares and would match every "github" search.
+  const server = (entry.name.split("/").pop() ?? "").toLowerCase();
+  const owner = namespaceOwner(entry.name).toLowerCase();
   const desc = entry.description.toLowerCase();
   let total = 0;
   for (const t of terms) {
@@ -490,14 +508,20 @@ function score(entry: CatalogSearchItem, terms: string[]): number {
     if (title === t) s = 100;
     else if (title.startsWith(t)) s = 60;
     else if (title.includes(t)) s = 40;
-    else if (name.split("/").pop() === t) s = 50;
-    else if (name.includes(t)) s = 25;
+    else if (server === t || owner === t) s = 50;
+    else if (server.includes(t) || owner.includes(t)) s = 25;
     else if (desc.includes(t)) s = 10;
     if (s === 0) return 0; // every term must match somewhere
     total += s;
   }
   return total;
 }
+
+/** A title that starts with a letter or digit reads as a name; `:authority…` does not. */
+const readable = (title: string) => (/^[A-Za-z0-9]/.test(title) ? 0 : 1);
+
+/** Verified first when they match about as well as the rest. */
+const VERIFIED_BONUS = 30;
 
 export interface CatalogSearchResult<T = CatalogEntry> {
   entries: T[];
@@ -521,15 +545,23 @@ export function searchCatalog<T extends CatalogSearchItem>(
   let ranked: T[];
   if (terms.length === 0) {
     ranked = [...entries].sort(
-      (a, b) => verifiedRank(a) - verifiedRank(b) || a.title.localeCompare(b.title),
+      (a, b) =>
+        verifiedRank(a) - verifiedRank(b) ||
+        readable(a.title) - readable(b.title) ||
+        a.title.localeCompare(b.title),
     );
   } else {
+    const bonus = (e: T) => (VERIFIED_ORDER.has(e.name) ? VERIFIED_BONUS : 0);
     ranked = entries
       .map((e) => ({ e, s: score(e, terms) }))
       .filter((x) => x.s > 0)
+      .map((x) => ({ e: x.e, s: x.s + bonus(x.e) }))
       .sort(
         (a, b) =>
-          verifiedRank(a.e) - verifiedRank(b.e) || b.s - a.s || a.e.title.localeCompare(b.e.title),
+          b.s - a.s ||
+          verifiedRank(a.e) - verifiedRank(b.e) ||
+          readable(a.e.title) - readable(b.e.title) ||
+          a.e.title.localeCompare(b.e.title),
       )
       .map((x) => x.e);
   }
