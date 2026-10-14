@@ -3,7 +3,7 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
-## [15.7.0] (unreleased) — MCP servers from the official MCP Registry, on every surface
+## [15.7.0] (2026-10-14) — MCP servers from the official MCP Registry, on every surface
 
 **The marketplace is the official MCP Registry, with five Verified servers on top.** Settings → MCP
 → Marketplace searches every server published to registry.modelcontextprotocol.io. Sentry, Notion,
