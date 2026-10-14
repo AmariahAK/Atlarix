@@ -26,6 +26,9 @@ import {
   MINUTE_OPTIONS,
 } from "@/lib/automations/cron-time";
 import type { AutomationListItem } from "@/atoms/automationAtoms";
+import { McpServerIcon } from "@/components/settings/McpServerIcon";
+import { useAtomValue } from "jotai";
+import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import {
   mcpTriggerRef,
   mcpTriggerServerFromRef,
@@ -241,6 +244,7 @@ export function AutomationForm({
   };
 
   const selectedMcpServer = mcpServers.find((s) => s.ref === mcpServerRef);
+  const appIdForIcon = useAtomValue(selectedAppIdAtom);
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -367,6 +371,10 @@ export function AutomationForm({
             <div className="space-y-2">
               <div className="space-y-1.5">
                 <Label>MCP server</Label>
+                <div className="flex items-center gap-2">
+                {selectedMcpServer ? (
+                  <McpServerIcon serverName={selectedMcpServer.name} appId={appIdForIcon ?? null} title={selectedMcpServer.name} size={28} />
+                ) : null}
                 <select
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                   value={mcpServerRef ?? ""}
@@ -381,6 +389,7 @@ export function AutomationForm({
                     </option>
                   ))}
                 </select>
+                </div>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="automation-mcp-tool">Tool name</Label>
