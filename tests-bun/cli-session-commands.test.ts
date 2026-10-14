@@ -229,6 +229,34 @@ describe("the session's commands", () => {
     expect((s as any).restoredNote).not.toContain("keep.ts");
   }, 60_000);
 
+  // The commonest revert: stop a turn that went wrong, then put its files back.
+  // A stopped turn never reached the turn's end, so it was unchecked.
+  it("a STOPPED turn's restore also keeps a file changed after it", async () => {
+    const file = path.join(ws, "stopped.ts");
+    fs.writeFileSync(file, "export const t = 1;\n");
+    const { s } = await sessionWith([
+      { tool: "edit_file", args: { path: "stopped.ts", operation: "replace", old_content: "export const t = 1;", new_content: "export const t = 2;" } },
+      { text: "Still going, slowly, word by word, until the user stops me.", delayMs: 400 },
+    ]);
+    const approve = (st: any) => {
+      if (st.approvals.length) void s.answerApproval(st.approvals[0].operationId, "once");
+    };
+    s.on("change", approve);
+    await idleAfter(s, async () => {
+      void s.submit("set t to 2");
+      while (!fs.readFileSync(file, "utf8").includes("t = 2")) await Bun.sleep(20);
+      await Bun.sleep(100);
+      await s.interrupt();
+    });
+    s.off("change", approve);
+    fs.writeFileSync(file, "export const t = 2; // the user's fix\n");
+
+    const [mine] = s.myMessages();
+    const { kept } = await s.restoreFilesSince(mine!.id);
+    expect(fs.readFileSync(file, "utf8")).toContain("// the user's fix");
+    expect(kept.some((f) => f.endsWith("stopped.ts"))).toBe(true);
+  }, 60_000);
+
   it("/undo to the FIRST of three messages restores every later turn's files and drops every later message", async () => {
     const file = path.join(ws, "many.ts");
     fs.writeFileSync(file, "export const n = 0;\n");

@@ -132,6 +132,29 @@ describeWithGit("a revert keeps what changed after the turn", () => {
   });
 });
 
+// Past 2 MB the end state is the file's size and mtime, not a hash of its
+// bytes (read on the main thread at every turn's end).
+describeWithGit("a large file", () => {
+  const big = (fill: string) => fill.repeat(3 * 1024 * 1024);
+
+  it("edited since is kept", async () => {
+    await write("big.txt", big("a"));
+    await turn("41", { "big.txt": big("b") });
+    await fs.appendFile(at("big.txt"), "the user's line\n");
+    const res = await revertSnapshot({ workspacePath: workspace, turnId: "41" });
+    expect((await read("big.txt"))?.endsWith("the user's line\n")).toBe(true);
+    expect(res.kept).toEqual(["big.txt"]);
+  });
+
+  it("untouched since goes back: the end and revert stamps agree (control)", async () => {
+    await write("big.txt", big("a"));
+    await turn("41", { "big.txt": big("b") });
+    const res = await revertSnapshot({ workspacePath: workspace, turnId: "41" });
+    expect((await read("big.txt"))?.slice(0, 3)).toBe("aaa");
+    expect(res.kept).toEqual([]);
+  });
+});
+
 describeWithGit("a turn with no record of how it ended", () => {
   it("(e/f) reverts as before, and says it could not check", async () => {
     // From before this change, or stopped/crashed before its end: no end state.

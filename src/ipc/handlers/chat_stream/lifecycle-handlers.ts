@@ -8,6 +8,7 @@
  * (Satellite: never imports the parent handler.)
  */
 
+import { recordSnapshotTurnEnd } from "@/lib/snapshot/snapshot-manager";
 import { ipcMain } from "electron";
 import log from "electron-log";
 import { safeSend } from "@/ipc/utils/safe_sender";
@@ -61,6 +62,13 @@ export function registerLifecycleHandlers(
     // actually stops the work (and stops spending tokens).
     const killed = killForegroundCommandsForChat(chatId);
     const subagentsCancelled = cancelAllSubagentTasksForChat(chatId);
+    // Record how the stopped turn left its files at the moment of Stop, not
+    // only when it has unwound (ensureTerminal, from the turn's `finally`): a
+    // turn stuck unwinding (a hung tool) would leave stop-then-revert
+    // unchecked meanwhile. A write still in flight lands after this and reads
+    // as a change since, so it is kept: the safe way round.
+    const stoppedTurnId = streamTurnIdByChatId.get(chatId);
+    if (stoppedTurnId) void recordSnapshotTurnEnd(stoppedTurnId);
     if (killed > 0 || subagentsCancelled > 0) {
       logger.log(
         `[chat:cancel] Stopped ${killed} command(s) + ${subagentsCancelled} sub-agent(s) for chat ${chatId}`,

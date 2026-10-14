@@ -352,8 +352,8 @@ export function registerChatStreamHandlers() {
         if (ctx.streamTerminated) return;
         ctx.streamTerminated = true;
         // How the turn left its files, so a later revert keeps anything changed
-        // since (owner: no random reverts). A stopped turn never gets here and
-        // reverts unchecked, as before.
+        // since (owner: no random reverts). A stopped turn gets here too, from
+        // the `finally` below once it unwinds; chat:cancel records it earlier.
         if (snapshotTurnIdForTerminal) {
           void recordSnapshotTurnEnd(snapshotTurnIdForTerminal);
         }

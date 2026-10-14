@@ -201,12 +201,25 @@ async function readManifest(
 /** What each turn captured this process (root → its files); read at the turn's end. */
 const turnFilesThisRun = new Map<string, Map<string, Set<string>>>();
 
+/**
+ * Past this a file's end state is its size and mtime, not a hash of its bytes:
+ * the end state is read on the main thread at every turn's end. Both readers
+ * below decide the same way, so they always compare like with like.
+ */
+const HASH_MAX_BYTES = 2 * 1024 * 1024;
+
+function stamp(st: { size: number; mtimeMs: number }, bytes: () => Buffer): string {
+  return st.size > HASH_MAX_BYTES
+    ? `${st.size}:${st.mtimeMs}`
+    : createHash("sha256").update(bytes()).digest("hex");
+}
+
 /** Synchronous on purpose: the end state is read at the instant the turn ends. */
 function fileHashSync(abs: string): string | null {
   try {
     const st = fsSync.statSync(abs);
     if (!st.isFile()) return null;
-    return createHash("sha256").update(fsSync.readFileSync(abs)).digest("hex");
+    return stamp(st, () => fsSync.readFileSync(abs));
   } catch {
     return null;
   }
@@ -216,11 +229,15 @@ async function fileHash(abs: string): Promise<string | null> {
   try {
     const st = await fs.stat(abs);
     if (!st.isFile()) return null;
-    return createHash("sha256").update(await fs.readFile(abs)).digest("hex");
+    const bytes = st.size > HASH_MAX_BYTES ? Buffer.alloc(0) : await fs.readFile(abs);
+    return stamp(st, () => bytes);
   } catch {
     return null;
   }
 }
+
+/** A turn that never ends (a crash mid-turn) must not hold its entry forever. */
+const TURN_FILES_MAX = 200;
 
 /** Serialize snapshot mutations per workspace (captures within a turn are ordered). */
 const captureChains = new Map<string, Promise<unknown>>();
@@ -357,6 +374,10 @@ export async function captureSnapshot(
       for (const rel of newPaths) files.add(rel);
       byRoot.set(workspacePath, files);
       turnFilesThisRun.set(turnId, byRoot);
+      if (turnFilesThisRun.size > TURN_FILES_MAX) {
+        const oldest = turnFilesThisRun.keys().next().value;
+        if (oldest !== undefined) turnFilesThisRun.delete(oldest);
+      }
 
       void maybePruneOldSnapshots(workspacePath, gitDir);
     } catch (err) {

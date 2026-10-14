@@ -412,8 +412,9 @@ class Thread {
     this.emitted.clear();
     this.replayAll = true;
     const errorBefore = this.session.state.lastError;
+    let kept: string[] = [];
     try {
-      await this.session.resendEdited(messageId, text, preview?.turnIds.length ? preview.turnIds : null);
+      ({ kept } = await this.session.resendEdited(messageId, text, preview?.turnIds.length ? preview.turnIds : null));
       if (!this.session.state.busy) turn.done();
       await finished;
     } catch (e) {
@@ -428,7 +429,11 @@ class Thread {
     if (turn.cancelled) return { stopReason: "cancelled" };
     const err = this.session.state.lastError;
     if (err && err !== errorBefore) throw RequestError.internalError(undefined, err);
-    return { stopReason: "end_turn" };
+    // Files the restore left alone (changed since): Atlarix's extension says so.
+    return {
+      stopReason: "end_turn",
+      ...(this.extras() && kept.length ? { _meta: { atlarix: { kept } } } : {}),
+    };
   }
 
   async prompt(blocks: readonly ContentBlock[], meta?: AtlarixPromptMeta): Promise<PromptResponse> {
