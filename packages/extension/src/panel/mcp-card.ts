@@ -35,15 +35,64 @@ export function mcpSuggestionFromArgs(raw: string): McpCardArgs | null {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * The server's logo, as an <img> only: the registry's own raster icon, then
+ * its website's favicon, then its address's; a letter until one loads or if
+ * none does. SVGs are skipped, as in the app.
+ */
+function logoCandidates(p: { icons?: Array<{ src: string; mimeType?: string }>; websiteUrl?: string; url?: string | null }): string[] {
+  const out: string[] = [];
+  for (const i of p.icons ?? []) {
+    if (/^https:\/\//i.test(i.src) && !/svg/i.test(i.mimeType ?? "") && !/\.svg(\?|$)/i.test(i.src)) out.push(i.src);
+  }
+  for (const u of [p.websiteUrl, p.url]) {
+    try {
+      if (!u) continue;
+      const host = new URL(u).hostname;
+      const apex = host.split(".").slice(-2).join(".");
+      out.push(`https://${host}/favicon.ico`, `https://${apex}/favicon.ico`);
+    } catch {
+      /* not a URL */
+    }
+  }
+  return [...new Set(out)];
+}
+
+function setLogo(slot: HTMLElement, title: string, candidates: string[]): void {
+  slot.textContent = (title.trim()[0] ?? "?").toUpperCase();
+  const tryNext = (i: number) => {
+    const src = candidates[i];
+    if (!src) return;
+    const img = new Image();
+    img.referrerPolicy = "no-referrer";
+    img.alt = "";
+    img.className = "mcp-card__logo-img";
+    img.onload = () => {
+      if (img.naturalWidth < 8) return tryNext(i + 1);
+      slot.textContent = "";
+      slot.append(img);
+    };
+    img.onerror = () => tryNext(i + 1);
+    img.src = src;
+  };
+  tryNext(0);
+}
+
 export function buildMcpCard(args: McpCardArgs, deps: { send(text: string): void }): HTMLElement {
   const card = document.createElement("div");
   card.className = "mcp-card";
   const head = document.createElement("div");
   head.className = "mcp-card__head";
   head.textContent = "Recommended for you";
+  const logo = document.createElement("span");
+  logo.className = "mcp-card__logo";
+  logo.setAttribute("aria-hidden", "true");
   const title = document.createElement("div");
   title.className = "mcp-card__title";
   title.textContent = args.server;
+  const named = document.createElement("div");
+  named.className = "mcp-card__named";
+  named.append(logo, title);
   const sub = document.createElement("p");
   sub.className = "mcp-card__note";
   sub.textContent = args.reason ?? "";
@@ -64,7 +113,7 @@ export function buildMcpCard(args: McpCardArgs, deps: { send(text: string): void
   later.className = "button";
   later.textContent = "Not now";
   actions.append(connect, later);
-  card.append(head, title, sub, key, status, actions);
+  card.append(head, named, sub, key, status, actions);
 
   let display = args.server;
   let url: string | null = null;
@@ -78,6 +127,8 @@ export function buildMcpCard(args: McpCardArgs, deps: { send(text: string): void
     if (row) {
       display = row.name;
       url = row.url;
+      const listed = row.registry_name ? await findRegistryServer(row.registry_name).catch(() => null) : null;
+      setLogo(logo, row.name, logoCandidates({ icons: listed?.icons, websiteUrl: listed?.websiteUrl, url: row.url }));
     } else {
       const server = await findRegistryServer(args.server);
       const entry = server ? webEntry(server) : null;
@@ -89,6 +140,7 @@ export function buildMcpCard(args: McpCardArgs, deps: { send(text: string): void
         const h = web.inputs.find((i) => i.key.startsWith("header:"));
         if (h) header = h.key.slice("header:".length);
         title.textContent = entry.verified ? `${entry.title} · ✓ Verified` : `${entry.title} · ${entry.publisher}`;
+        setLogo(logo, entry.title, logoCandidates({ icons: entry.icons, websiteUrl: entry.websiteUrl, url }));
         if (!sub.textContent) sub.textContent = entry.description;
       } else {
         status.textContent = "This server can't be added from here.";
