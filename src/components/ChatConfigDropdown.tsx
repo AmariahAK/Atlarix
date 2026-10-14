@@ -36,6 +36,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+/** What the menu holds; the icon button's name and its tooltip. */
+const MENU_NAME = "Reasoning, voice & MCP servers";
+
 export function ChatConfigDropdown() {
   const { settings, updateSettings } = useSettings();
   const { data: modelsByProviders } = useLanguageModelsByProviders();
@@ -92,13 +95,14 @@ export function ChatConfigDropdown() {
               size="sm"
               className="h-8 w-8 p-0"
               data-testid="chat-config-button"
+              aria-label={MENU_NAME}
             >
               <SlidersHorizontal className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
         </TooltipTrigger>
         {/* NOT "Config: model" any more — the model left this menu. */}
-        <TooltipContent>Reasoning &amp; voice</TooltipContent>
+        <TooltipContent>{MENU_NAME}</TooltipContent>
       </Tooltip>
       <DropdownMenuContent
         align="start"
