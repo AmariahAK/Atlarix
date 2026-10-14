@@ -124,6 +124,8 @@ class Thread {
   private retryingSent: string | null = null;
   /** Going back to an earlier message: the editor cleared its view, so send the whole transcript again. */
   private replayAll = false;
+  /** The editor's own MCP servers for this session, listed by /mcp (QA #9). */
+  editorMcpServers: SessionMcpServer[] = [];
 
   constructor(
     readonly id: string,
@@ -617,7 +619,7 @@ class Thread {
     if (automations || (slash && (slash[1] === "status" || slash[1] === "billing" || slash[1] === "mcp" || slash[1] === "logout"))) {
       const { accountCommandText } = await import("./account-commands");
       const cmd = automations ? `automations ${automations[1]?.trim() ?? ""}`.trim() : slash![1]!;
-      const reply = await accountCommandText(cmd, this.session).catch((e: Error) => `Couldn't read that: ${e.message}`);
+      const reply = await accountCommandText(cmd, this.session, this.editorMcpServers).catch((e: Error) => `Couldn't read that: ${e.message}`);
       await this.send({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: reply } });
       return { stopReason: "end_turn" };
     }
@@ -942,7 +944,8 @@ export class AcpAgent {
 
   async newSession(cwd: string, mcpServers?: unknown): Promise<NewSessionResponse> {
     const t = await this.open(cwd);
-    await this.deps.setSessionMcpServers?.(t.id, sessionMcpServersFrom(mcpServers));
+    t.editorMcpServers = sessionMcpServersFrom(mcpServers);
+    await this.deps.setSessionMcpServers?.(t.id, t.editorMcpServers);
     // After the response, so the editor knows the session the list belongs to.
     setTimeout(() => void t.refreshCommands(), 0);
     return { sessionId: t.id, configOptions: await this.configOptions(t), modes: this.modes(t) };
@@ -955,7 +958,8 @@ export class AcpAgent {
   ): Promise<{ configOptions: SessionConfigOption[]; modes: SessionModeState }> {
     const existing = this.threads.get(sessionId);
     const t = existing ?? (await this.open(cwd, sessionId));
-    await this.deps.setSessionMcpServers?.(t.id, sessionMcpServersFrom(mcpServers));
+    t.editorMcpServers = sessionMcpServersFrom(mcpServers);
+    await this.deps.setSessionMcpServers?.(t.id, t.editorMcpServers);
     // A thread this process already has open remembers what it sent; the
     // editor that asks to load it again has nothing on screen, so start over.
     if (existing) existing.emitted.clear();

@@ -489,18 +489,9 @@ ToolRegistry.register({
      * first use, below, and that is what the user actually approves.
      */
     if (!server.enabled) {
-      const activeCount = (
-        await db
-          .select()
-          .from(mcpServers)
-          .where(
-            and(
-              eq(mcpServers.enabled, true as any),
-              eq(mcpServers.scope, "workspace"),
-              eq(mcpServers.appId, args.workspaceId!),
-            ),
-          )
-      ).length;
+      // The same count as every other switch: this folder's plus the account's.
+      const { mcpOnCount } = await import("@/lib/mcp/mcp-add");
+      const activeCount = await mcpOnCount(args.workspaceId!);
       if (activeCount >= MCP_WORKSPACE_MAX) {
         return {
           error:

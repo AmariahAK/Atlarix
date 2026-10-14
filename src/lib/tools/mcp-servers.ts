@@ -140,30 +140,36 @@ ToolRegistry.register({
       if (!here) return { error: `No MCP server named "${name}" is added here. Call list_available_mcps.` };
       const on = op === "start";
       if (op === "disconnect") {
+        // Nothing to sign out of (no sign-in, no key): disconnecting it means
+        // switching it off, and saying so — "signed out" was wrong (QA #10).
+        const hasCredential = here.authType === "oauth" || here.authType === "api_key" || here.authType === "header";
         if (here.where === "account") {
-          const { setConnectorSecret } = await import("@/lib/mcp/account-connectors");
+          const { setConnectorSecret, setConnectorEnabled } = await import("@/lib/mcp/account-connectors");
           // An empty credential is the proxy's "clear" signal.
-          const out = await setConnectorSecret(String(here.id), "");
+          const out = hasCredential ? await setConnectorSecret(String(here.id), "") : await setConnectorEnabled(String(here.id), false);
           if (!out.ok) return { error: out.error };
-        } else if (here.authType === "oauth") {
-          const { revokeMcpOAuth } = await import("@/lib/mcp/mcp-oauth-service");
-          await revokeMcpOAuth(Number(here.id));
-        } else if (here.authType === "api_key") {
+        } else {
           const { db } = await import("@/db");
           const { mcpServers } = await import("@/db/schema");
           const { eq } = await import("drizzle-orm");
-          await db.update(mcpServers).set({ apiKey: null }).where(eq(mcpServers.id, Number(here.id)));
+          if (here.authType === "oauth") {
+            const { revokeMcpOAuth } = await import("@/lib/mcp/mcp-oauth-service");
+            await revokeMcpOAuth(Number(here.id));
+          } else if (here.authType === "api_key") {
+            await db.update(mcpServers).set({ apiKey: null }).where(eq(mcpServers.id, Number(here.id)));
+          } else {
+            await db.update(mcpServers).set({ enabled: false }).where(eq(mcpServers.id, Number(here.id)));
+          }
+          const { mcpManager } = await import("@/ipc/utils/mcp_manager");
+          mcpManager.dispose(Number(here.id));
         }
-        const { mcpManager } = await import("@/ipc/utils/mcp_manager");
-        if (here.where === "local") mcpManager.dispose(Number(here.id));
-        if (here.authType !== "oauth" && here.authType !== "api_key" && here.where === "local") {
-          // Nothing to sign out of: disconnecting it means switching it off.
-          const { db } = await import("@/db");
-          const { mcpServers } = await import("@/db/schema");
-          const { eq } = await import("drizzle-orm");
-          await db.update(mcpServers).set({ enabled: false }).where(eq(mcpServers.id, Number(here.id)));
-        }
-        return { disconnected: true, server: here.name, message: `"${here.name}" is signed out. Suggest it to reconnect.` };
+        return {
+          disconnected: true,
+          server: here.name,
+          message: hasCredential
+            ? `"${here.name}" is signed out. Suggest it to reconnect.`
+            : `"${here.name}" has nothing to sign out of, so it is switched off. Start it to use it again.`,
+        };
       }
       if (here.enabled === on) return { server: here.name, on, message: `"${here.name}" is already ${on ? "on" : "off"}.` };
       if (on && here.needs) {

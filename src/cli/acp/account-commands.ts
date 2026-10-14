@@ -9,7 +9,11 @@ const money = (cents: number | null) => (cents == null ? "unknown" : `$${(cents 
 const PLAN: Record<string, string> = { "signed-out": "not signed in", free: "Free", pro: "Pro", payg: "Pay as you go" };
 const MANAGE = "https://www.atlarix.dev/account";
 
-export async function accountCommandText(cmd: "status" | "billing" | "mcp" | "logout" | string, session: AgentSession): Promise<string> {
+export async function accountCommandText(
+  cmd: "status" | "billing" | "mcp" | "logout" | string,
+  session: AgentSession,
+  editorServers: ReadonlyArray<{ name: string; transport: "stdio" | "http" }> = [],
+): Promise<string> {
   const { realServices } = await import("../agent/services");
   const a = realServices.account;
   const email = await a.email().catch(() => null);
@@ -31,6 +35,14 @@ export async function accountCommandText(cmd: "status" | "billing" | "mcp" | "lo
         "**On your account** (every device and the Chrome extension)",
         "",
         ...account.map((c) => `- ${c.enabled ? "●" : "○"} ${c.name}${c.enabled ? "" : c.connected ? " — off" : " — not signed in"}`),
+        "",
+      );
+    }
+    if (editorServers.length) {
+      lines.push(
+        "**From this editor** (for this chat)",
+        "",
+        ...editorServers.map((s) => `- ● ${s.name} (${s.transport})`),
         "",
       );
     }
