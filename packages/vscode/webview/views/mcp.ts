@@ -464,5 +464,23 @@ export async function renderMcp(page: HTMLElement, nav: Nav): Promise<void> {
     text.focus();
   };
 
+    // Another surface (the CLI, the app) may have changed the servers: look
+  // again when this view comes back into focus (QA).
+  const gen = String(Date.now() + Math.random());
+  page.dataset.mcpView = gen;
+  const refresh = () => {
+    if (!page.isConnected || page.dataset.mcpView !== gen) {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", onVisible);
+      return;
+    }
+    void load();
+  };
+  const onVisible = () => {
+    if (document.visibilityState === "visible") refresh();
+  };
+  window.addEventListener("focus", refresh);
+  document.addEventListener("visibilitychange", onVisible);
+
   await load();
 }
