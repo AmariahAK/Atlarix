@@ -167,6 +167,12 @@ export interface ListOptions {
   /** Items now, or a loader (the dialog shows "Loading…" until it resolves). */
   items: ListItem[] | (() => Promise<ListItem[]>);
   searchable?: boolean;
+  /**
+   * With `searchable`: what typing searches, when the rows shown are only a
+   * page of something bigger (the MCP marketplace). The rows are replaced by
+   * its answer instead of being filtered locally.
+   */
+  search?: (query: string) => Promise<ListItem[]>;
   empty?: string;
   footer: string;
   /** Enter on a row. */
@@ -259,10 +265,32 @@ export class ListDialog implements Dialog {
     this.onChange?.();
   }
 
+  private searchTimer: ReturnType<typeof setTimeout> | null = null;
+  private searchSeq = 0;
+
+  /** Ask `search` for the typed query, after a short pause; the latest answer wins. */
+  private searchSoon(): void {
+    if (!this.opts.search) return;
+    if (this.searchTimer) clearTimeout(this.searchTimer);
+    const q = this.query ?? "";
+    const seq = ++this.searchSeq;
+    this.searchTimer = setTimeout(() => {
+      void this.opts.search!(q).then(
+        (items) => {
+          if (seq !== this.searchSeq) return;
+          this.items = items;
+          this.index = 0;
+          this.onChange?.();
+        },
+        () => {},
+      );
+    }, 200);
+  }
+
   /** The rows shown: headers kept only when the search is empty. */
   private shown(): ListItem[] {
     const all = this.items ?? [];
-    if (!this.query?.trim()) return all;
+    if (this.opts.search || !this.query?.trim()) return all;
     return all.filter((i) => !i.header && !i.alias && matchesQuery(i, this.query!));
   }
 
@@ -362,9 +390,11 @@ export class ListDialog implements Dialog {
     } else if (this.query !== null && k.name === "backspace") {
       this.query = this.query.slice(0, -1);
       this.index = 0;
+      this.searchSoon();
     } else if (this.query !== null && printable(k)) {
       this.query += printable(k);
       this.index = 0;
+      this.searchSoon();
     } else if (this.query === null && printable(k) && this.opts.listActions?.[printable(k)]) {
       const fn = this.opts.listActions[printable(k)]!;
       void Promise.resolve()

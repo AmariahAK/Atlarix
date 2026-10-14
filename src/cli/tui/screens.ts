@@ -1096,20 +1096,33 @@ export function openAside(ctx: ScreenContext, question: string): void {
 
 type AddedServerView = Awaited<ReturnType<ScreenContext["services"]["mcp"]["install"]>>;
 
-/** After an add: sign in, ask for a missing key, or say it worked. */
-async function finishMcpAdded(ctx: ScreenContext, added: AddedServerView[], done: () => void): Promise<void> {
+/**
+ * After an add: sign in, ask for a missing key, or say it worked. Each line
+ * goes to `report` — the open /mcp list's own notice, where the user is
+ * looking (the status line sat behind it, QA) — and `done(true)` when
+ * something was added.
+ */
+async function finishMcpAdded(
+  ctx: ScreenContext,
+  added: AddedServerView[],
+  done: (ok: boolean) => void,
+  report: (msg: string) => void,
+): Promise<void> {
   for (const a of added) {
     if (a.needsSignIn && a.where === "account") {
       const r = await ctx.services.mcp.accountSignIn(ctx.session.appId, String(a.id), (url) =>
-        ctx.flash(`Sign in to ${a.name} in your browser: ${url}`),
+        report(`Sign in to ${a.name} in your browser: ${url}`),
       );
-      ctx.flash(r.ok ? `${a.name} is ${r.enabled ? "on" : "signed in"}.` : (r.error ?? `Couldn't sign in to ${a.name}.`));
+      report(r.ok ? `${a.name} is ${r.enabled ? "on" : "signed in"}.` : (r.error ?? `Couldn't sign in to ${a.name}.`));
       continue;
     }
     if (a.needsSignIn) {
-      if (a.note) ctx.flash(`${a.name}: ${a.note}`);
       const r = await ctx.services.mcp.signIn(Number(a.id));
-      ctx.flash(r.ok ? `Sign in to ${a.name} in your browser.` : (r.error ?? `Couldn't start ${a.name}'s sign-in.`));
+      report(
+        [a.note, r.ok ? `Sign in to ${a.name} in your browser.` : (r.error ?? `Couldn't start ${a.name}'s sign-in.`)]
+          .filter(Boolean)
+          .join(" "),
+      );
       continue;
     }
     if (a.needsSecret && a.where === "account") {
@@ -1123,25 +1136,26 @@ async function finishMcpAdded(ctx: ScreenContext, added: AddedServerView[], done
             if (!v.trim()) return "Paste the key, or esc to add it later.";
             await ctx.services.mcp.accountSecret(ctx.session.appId, id, v.trim());
             ctx.host.pop();
-            ctx.flash(`${a.name} added.`);
-            done();
+            report(`${a.name} added.`);
+            done(true);
           },
         }),
       );
       return;
     }
-    ctx.flash(a.note ? `${a.name}: ${a.note}` : `${a.name} added.`);
+    report(a.note ? `${a.name} added. ${a.note}` : `${a.name} added.`);
   }
-  done();
+  done(added.length > 0);
 }
 
 /** Add your own: a URL, a command, a config block, or the path of a config file. */
-export function openMcpAdd(ctx: ScreenContext, done: () => void): void {
+export function openMcpAdd(ctx: ScreenContext, done: (ok: boolean) => void, report: (msg: string) => void = ctx.flash): void {
   ctx.host.push(
     new InputDialog({
       title: "Add an MCP server",
       intro: [{ text: "A URL, a command, an mcpServers config, or the path of a config file.", tone: "muted" }],
       label: "Paste",
+      footer: "enter adds · esc cancel",
       onSubmit: async (v) => {
         if (!v.trim()) return "Paste a URL, a command or a config.";
         const out = await ctx.services.mcp.paste(ctx.session.appId, v);
@@ -1149,8 +1163,12 @@ export function openMcpAdd(ctx: ScreenContext, done: () => void): void {
           return out.failed[0]?.error ?? (out.skipped[0] ? `Skipped ${out.skipped[0].name}: ${out.skipped[0].reason}.` : "Nothing was added.");
         }
         ctx.host.pop();
-        for (const f of out.failed) ctx.flash(`${f.name}: ${f.error}`);
-        await finishMcpAdded(ctx, out.added, done);
+        const extra = [
+          ...out.failed.map((f) => `${f.name}: ${f.error}`),
+          ...out.skipped.map((x) => `Skipped ${x.name}: ${x.reason}.`),
+        ];
+        await finishMcpAdded(ctx, out.added, done, report);
+        if (extra.length) report(extra.join(" · "));
       },
     }),
   );
@@ -1161,7 +1179,8 @@ function installCatalogEntry(
   ctx: ScreenContext,
   entry: Awaited<ReturnType<ScreenContext["services"]["mcp"]["catalog"]>>["entries"][number],
   optionId: string,
-  done: () => void,
+  done: (ok: boolean) => void,
+  report: (msg: string) => void,
 ): void {
   const option = entry.options.find((o) => o.id === optionId);
   if (!option) return;
@@ -1169,12 +1188,12 @@ function installCatalogEntry(
   const inputs = option.inputs;
   const add = async () => {
     const added = await ctx.services.mcp.install(ctx.session.appId, entry.name, optionId, values);
-    await finishMcpAdded(ctx, [added], done);
+    await finishMcpAdded(ctx, [added], done, report);
   };
   const ask = (i: number) => {
     const input = inputs[i];
     if (!input) {
-      void add().catch((e: Error) => ctx.flash(e.message));
+      void add().catch((e: Error) => report(e.message));
       return;
     }
     ctx.host.push(
@@ -1196,60 +1215,64 @@ function installCatalogEntry(
   ask(0);
 }
 
-/** The marketplace: search the registry (Verified first), enter adds. */
-export function openMcpBrowse(ctx: ScreenContext, done: () => void): void {
-  ctx.host.push(
-    new InputDialog({
-      title: "MCP marketplace",
-      intro: [{ text: "Search, or enter for the Verified servers.", tone: "muted" }],
-      label: "Search",
-      onSubmit: async (query) => {
-        const page = await ctx.services.mcp.catalog(ctx.session.appId, query.trim());
-        const installed = new Set(page.installed);
-        ctx.host.replace(
-          new ListDialog({
-            title: query.trim() ? `“${query.trim()}” · ${page.total.toLocaleString()}` : "MCP marketplace",
-            wide: true,
-            searchable: true,
-            empty: "No servers match.",
-            footer: "enter adds · esc back",
-            items: page.entries.map((e) => ({
-              id: e.name,
-              label: e.title,
-              detail: `${e.verified ? "✓ Verified" : e.publisher} · ${e.kind === "web" ? "web" : "local"}${e.description ? ` · ${e.description}` : ""}`,
-              right: installed.has(e.name) ? { text: "added", tone: "muted" as const } : undefined,
-              keywords: `${e.name} ${e.description}`,
-            })),
-            onChoose: (item) => {
-              const entry = page.entries.find((e) => e.name === item.id);
-              if (!entry) return;
-              if (installed.has(entry.name)) return void ctx.flash(`${entry.title} is already added.`);
-              const usable = entry.options.filter((o) => o.kind === "web" || o.supported);
-              if (usable.length <= 1) {
-                if (usable[0]) installCatalogEntry(ctx, entry, usable[0].id, done);
-                return;
-              }
-              ctx.host.push(
-                new ListDialog({
-                  title: `${entry.title} · run it`,
-                  footer: "enter chooses · esc back",
-                  items: usable.map((o) => ({
-                    id: o.id,
-                    label: o.kind === "web" ? "On the web" : "On this computer",
-                    detail: o.kind === "web" ? o.url : `${o.registryType} · ${o.identifier}`,
-                  })),
-                  onChoose: (o) => {
-                    ctx.host.pop();
-                    installCatalogEntry(ctx, entry, o.id, done);
-                  },
-                }),
-              );
-            },
-          }),
-        );
-      },
-    }),
-  );
+/** The marketplace: search the registry (Verified first), enter adds; typing searches all of it. */
+export function openMcpBrowse(ctx: ScreenContext, done: () => void, firstQuery = ""): void {
+  type Entry = Awaited<ReturnType<ScreenContext["services"]["mcp"]["catalog"]>>["entries"][number];
+  const entries = new Map<string, Entry>();
+  const installed = new Set<string>();
+  const rowsFor = async (query: string) => {
+    const page = await ctx.services.mcp.catalog(ctx.session.appId, query.trim());
+    for (const n of page.installed) installed.add(n);
+    for (const e of page.entries) entries.set(e.name, e);
+    return page.entries.map((e) => ({
+      id: e.name,
+      label: e.title,
+      detail: `${e.verified ? "✓ Verified" : e.publisher} · ${e.kind === "web" ? "web" : "local"}${e.description ? ` · ${e.description}` : ""}`,
+      right: installed.has(e.name) ? { text: "added", tone: "muted" as const } : undefined,
+    }));
+  };
+  const list: ListDialog = new ListDialog({
+    title: "MCP marketplace",
+    wide: true,
+    searchable: true,
+    search: rowsFor,
+    empty: "No servers match.",
+    footer: "type to search the marketplace · enter adds · esc back",
+    items: () => rowsFor(firstQuery),
+    onChoose: (item) => {
+      const entry = entries.get(item.id);
+      if (!entry) return;
+      if (installed.has(entry.name)) return void list.say(`${entry.title} is already added.`);
+      const added = (ok: boolean) => {
+        if (!ok) return;
+        installed.add(entry.name);
+        void list.reload();
+        done();
+      };
+      const report = (msg: string) => list.say(msg);
+      const usable = entry.options.filter((o) => o.kind === "web" || o.supported);
+      if (usable.length <= 1) {
+        if (usable[0]) installCatalogEntry(ctx, entry, usable[0].id, added, report);
+        return;
+      }
+      ctx.host.push(
+        new ListDialog({
+          title: `${entry.title} · run it`,
+          footer: "enter chooses · esc back",
+          items: usable.map((o) => ({
+            id: o.id,
+            label: o.kind === "web" ? "On the web" : "On this computer",
+            detail: o.kind === "web" ? o.url : `${o.registryType} · ${o.identifier}`,
+          })),
+          onChoose: (o) => {
+            ctx.host.pop();
+            installCatalogEntry(ctx, entry, o.id, added, report);
+          },
+        }),
+      );
+    },
+  });
+  ctx.host.push(list);
 }
 
 /**
@@ -1358,6 +1381,7 @@ export function openMcp(ctx: ScreenContext): void {
               },
             ],
             () => void dialog.reload(),
+            (m) => dialog.say(m),
           );
           return;
         }
@@ -1427,7 +1451,7 @@ export function openMcp(ctx: ScreenContext): void {
       },
     },
     listActions: {
-      a: () => openMcpAdd(ctx, () => void dialog.reload()),
+      a: () => openMcpAdd(ctx, () => void dialog.reload(), (m) => dialog.say(m)),
       b: () => openMcpBrowse(ctx, () => void dialog.reload()),
     },
   });

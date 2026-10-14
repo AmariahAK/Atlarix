@@ -736,11 +736,11 @@ describe("command screens", () => {
     await frameContaining(setup, "MCP servers");
     setup.mockInput.pressKey("b");
     await frameContaining(setup, "MCP marketplace");
+    // Typing searches the whole marketplace, not just the rows already shown.
     await setup.mockInput.typeText("linear");
-    setup.mockInput.pressEnter();
+    expect(await until(() => serviceCalls.some((c) => c[0] === "mcp.catalog" && c[1] === "linear"))).toBe(true);
     const frame = await frameContaining(setup, "✓ Verified");
     expect(frame).toContain("Linear");
-    expect(serviceCalls).toContainEqual(["mcp.catalog", "linear"]);
     setup.mockInput.pressEnter();
     expect(await until(() => serviceCalls.some((c) => c[0] === "mcp.install"))).toBe(true);
     expect(serviceCalls.find((c) => c[0] === "mcp.install")!.slice(2)).toEqual(["app.linear/linear", "remote:0"]);

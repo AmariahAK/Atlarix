@@ -517,8 +517,8 @@ function score(entry: CatalogSearchItem, terms: string[]): number {
   return total;
 }
 
-/** A title that starts with a letter or digit reads as a name; `:authority…` does not. */
-const readable = (title: string) => (/^[A-Za-z0-9]/.test(title) ? 0 : 1);
+/** A title that starts with a letter reads as a name; `:authority…` and `00Widget` do not. */
+const readable = (title: string) => (/^[A-Za-z]/.test(title) ? 0 : 1);
 
 /** Verified first when they match about as well as the rest. */
 const VERIFIED_BONUS = 30;
