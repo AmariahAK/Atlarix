@@ -7,6 +7,7 @@
  * Pure: the TUI renders cells; src/__tests__/cli-transcript.test.ts pins the rules.
  */
 import { plainStepText } from "@/lib/tasks/plan-checklist";
+import { displayTitle } from "@/shared/mcp-catalog";
 import { BUILD_FROM_PLAN_PROMPT } from "@/lib/work-mode";
 import { computeDiffHunks } from "@/lib/diff/compose-hunks";
 import { peerSurfaceLabel, splitPeerMessages } from "@/lib/peers/peer-message";
@@ -226,8 +227,12 @@ export function toolTarget(toolName: string, args: unknown): string {
       return [str(a.action), str(a.url)].filter(Boolean).join(" ");
     case "mcp_call":
       return [str(a.server), str(a.tool).replace(/[_-]+/g, " ")].filter(Boolean).join(" · ");
-    case "mcp_servers":
-      return [str(a.operation), str(a.server) || (a.query ? `"${str(a.query)}"` : "")].filter(Boolean).join(" · ");
+    case "mcp_servers": {
+      // "suggest · Linear", not the registry id "app.linear/linear" (QA #8).
+      const server = str(a.server);
+      const title = server.includes("/") ? displayTitle({ name: server }) : server;
+      return [str(a.operation), title || (a.query ? `"${str(a.query)}"` : "")].filter(Boolean).join(" · ");
+    }
     case "plan": {
       // "◇ Plan  step 3 done", not a bare "◇ Plan" (owner, 2026-10-05).
       const op = str(a.operation);
@@ -274,6 +279,22 @@ function unfence(text: string): string {
  * command, `{"output":"<untrusted-data …>…","exitCode":0}`); a person wants the
  * text inside, not the envelope.
  */
+/** The text parts of an MCP tool result (`content: [{type:"text",text}]`), wherever the wrappers put it. */
+function mcpContentText(v: unknown, depth = 0): string {
+  if (!v || typeof v !== "object" || depth > 4) return "";
+  const o = v as Record<string, unknown>;
+  if (Array.isArray(o.content)) {
+    const text = o.content
+      .map((c) => (c && typeof c === "object" && typeof (c as { text?: unknown }).text === "string" ? (c as { text: string }).text : ""))
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+    if (text) return text;
+  }
+  if (o.structuredContent && typeof o.structuredContent === "object") return JSON.stringify(o.structuredContent);
+  return mcpContentText(o.result, depth + 1);
+}
+
 export function toolResultText(toolName: string, raw: string | undefined): { text: string; exitCode?: number; failed?: boolean } {
   if (!raw) return { text: "" };
   let v: unknown;
@@ -298,6 +319,11 @@ export function toolResultText(toolName: string, raw: string | undefined): { tex
     const r = (typeof inner.url === "string" || typeof inner.path === "string" ? inner : o) as Record<string, unknown>;
     if (typeof r.url === "string") return { text: `Published ${r.url}`, failed };
     if (typeof r.path === "string") return { text: `Saved ${r.path}`, failed };
+  }
+  // An MCP tool's answer is its `content` text, not the envelope around it (QA #8).
+  if (toolName === "mcp_call" && !(typeof o.error === "string" && o.error.trim())) {
+    const said = mcpContentText(o);
+    if (said) return { text: said, failed };
   }
   if (toolName === "background_jobs" && typeof inner.count === "number") {
     return { text: inner.count ? `${inner.count} running` : "none running", failed };

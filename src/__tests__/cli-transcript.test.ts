@@ -370,3 +370,22 @@ describe("the Build it prompt (QA P2)", () => {
     expect(JSON.stringify(ups)).not.toContain("Plan panel");
   });
 });
+
+describe("MCP rows (QA #8)", () => {
+  it("an mcp_call row shows the server's text, not the envelope", () => {
+    const raw = JSON.stringify({
+      success: true,
+      result: { result: { content: [{ type: "text", text: "4 open issues: ENG-12, ENG-9" }] } },
+    });
+    expect(toolResultText("mcp_call", raw).text).toBe("4 open issues: ENG-12, ENG-9");
+  });
+
+  it("an mcp_call error still reads as the error", () => {
+    const raw = JSON.stringify({ success: false, error: '"Linear" is not signed in yet.' });
+    expect(toolResultText("mcp_call", raw).text).toContain("not signed in");
+  });
+
+  it("an mcp_servers row names the server by its title", () => {
+    expect(toolTarget("mcp_servers", { operation: "suggest", server: "app.linear/linear" })).toBe("suggest · Linear");
+  });
+});
