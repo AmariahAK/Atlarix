@@ -29,7 +29,19 @@ extension) passes the MCP servers you set up in it; Atlarix now connects them fo
 http, with the same per-tool approval as your other servers. In an editor without an Atlarix panel,
 `/mcp` lists the Verified servers and `/mcp add` takes a URL, a command or a marketplace name.
 
-**Smaller fixes.** An MCP server's sign-in now opens from the CLI and from editors (the link went
+**Atlarix finds the server a task needs and asks you to connect it.** When a question or task needs
+a service you haven't connected, Atlarix searches the registry and puts a "Recommended for you" card
+above the box (the app, the editor extension, the Chrome extension) or a Connect / Not now prompt (the
+CLI, other ACP editors). Connect adds it, signs you in or takes its key, and Atlarix is told: it either
+waited for your answer or is woken when you connect, like a finished background task. A server it
+added, or one that is signed out, gets the same card. On the desktop and in editors the agent can also
+turn servers on and off, and sign one out for you to reconnect. MCP tool rows name what they use
+("Using Linear: list issues…", then "Linear · list issues" with its result).
+
+**Automations can watch your account's MCP servers,** not only ones on this computer, from the app,
+the CLI and the editor extension.
+
+**Smaller fixes.** Messages from another Atlarix session read "from contributor". An MCP server's sign-in now opens from the CLI and from editors (the link went
 nowhere without an app window). Turning a server on now respects the limit of 10, which only adding
 one did. Servers reached by URL can send any headers a config gives them, stored encrypted.
 `manage_mcp_server` puts a public https server on your account.

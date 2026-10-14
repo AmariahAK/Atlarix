@@ -2,7 +2,9 @@
  * MCP Settings — workspace-scoped to the active IDE workspace (selectedAppId).
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { IpcClient } from "@/ipc/ipc_client";
 import { useTranslation } from "react-i18next";
 import { useAtomValue } from "jotai";
 import { Sparkles } from "lucide-react";
@@ -29,6 +31,15 @@ function WorkspaceRequiredEmpty() {
 export function McpSettingsPage() {
   const selectedAppId = useAtomValue(selectedAppIdAtom);
   const { t } = useTranslation("settings");
+  const queryClient = useQueryClient();
+  // The agent turned a server on or off (mcp_servers): show it.
+  useEffect(
+    () =>
+      IpcClient.getInstance().onMcpServersChanged(() => {
+        void queryClient.invalidateQueries({ queryKey: ["mcp"] });
+      }),
+    [queryClient],
+  );
   // Deep link: /integrations/mcp?tab=marketplace (first-run wizard CTA).
   const search = useSearch({ strict: false }) as { tab?: string };
   const [activeTab, setActiveTab] = useState<"active" | "marketplace">(() =>
