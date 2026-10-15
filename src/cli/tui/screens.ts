@@ -541,7 +541,8 @@ export function openMcpConsent(ctx: ScreenContext): void {
 
 // ─── Atlarix Auto's consent ──────────────────────────────────────────────────
 
-export function openAutoConsent(ctx: ScreenContext): void {
+/** `reask`: asked at startup (a yes to the old wording), so there is no message to send again. */
+export function openAutoConsent(ctx: ScreenContext, opts: { reask?: boolean } = {}): void {
   ctx.host.push(
     new ListDialog({
       title: "Use Atlarix Auto for free?",
@@ -551,7 +552,7 @@ export function openAutoConsent(ctx: ScreenContext): void {
       // for a message there must never be a consent (QA 15.7.1 #7).
       items: [
         { id: "cancel", label: "Not now", detail: "/model picks another model" },
-        { id: "accept", label: "Use Atlarix Auto", detail: "and send the message again" },
+        { id: "accept", label: "Use Atlarix Auto", detail: opts.reask ? "with the new wording" : "and send the message again" },
       ],
       onChoose: async (item) => {
         ctx.host.closeAll();

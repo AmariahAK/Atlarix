@@ -31,17 +31,18 @@ export async function saveStoppedTurn(args: {
 }): Promise<void> {
   const { req, stopSentinel, nativeTurnMessages, builtinProviderId } = args;
   const chatId = req.chatId;
-  const partialResponse = partialResponses.get(req.chatId);
-  // If we have a partial response, save it to the database
-  if (partialResponse) {
+  // Nothing streamed yet still records the turn as stopped: with no row, a
+  // reopened chat read the request as still open (QA 15.7.1 #2).
+  const partialResponse = partialResponses.get(req.chatId) ?? "";
+  {
     try {
       const stopNote =
         stopSentinel === LOOP_REPETITION_STREAM_STOP
           ? "[Repeated action — task stopped. Review the activity log and send a message to continue.]"
           : "[Response cancelled by user]";
-      const cancelledContent = `${partialResponse}
+      const cancelledContent = partialResponse ? `${partialResponse}
 
-${stopNote}`;
+${stopNote}` : stopNote;
       const { appendTransportMessage, getStreamTransport } = await import(
         "@/lib/chat/stream-transport"
       );
@@ -92,7 +93,7 @@ ${stopNote}`;
         await flushInterruptedDraft(
           req.chatId,
           req.workspaceSessionId,
-          partialResponse,
+          partialResponse || stopNote,
           { force: true, ...(modelContent ? { modelContent } : {}) },
         );
         // That row is now this turn's record: the next turn must not reuse it.

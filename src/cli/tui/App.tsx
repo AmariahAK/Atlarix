@@ -1022,7 +1022,7 @@ export function App({
     void session.takeAutoConsentReask().then((due) => {
       if (!due) return;
       autoPrompt.current = "consent";
-      openAutoConsent(screen());
+      openAutoConsent(screen(), { reask: true });
     });
   }, [accountKind, session.model?.provider, session.model?.name]);
 
