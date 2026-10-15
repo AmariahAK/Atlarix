@@ -31,10 +31,13 @@ import {
   approvalOptions,
   approvalOwner,
   approvalToolCall,
+  AUTO_CONSENT_OPTIONS,
+  autoConsentToolCall,
   MCP_CONSENT_OPTIONS,
   mcpConsentDecision,
   mcpConsentToolCall,
 } from "./permissions";
+import { AUTO_CONSENT_MARKER, AUTO_CONSENT_TERMS } from "@/shared/billing_copy";
 import { diffUpdates, type Emitted } from "./updates";
 import { groupOptions, type ModelOption } from "../agent/models";
 
@@ -676,10 +679,52 @@ class Thread {
     await this.flush();
     if (turn.cancelled) return { stopReason: "cancelled" };
     const err = this.session.state.lastError;
+    if (err && err !== errorBefore && err.includes(AUTO_CONSENT_MARKER)) return this.autoConsent();
     if (err && err !== errorBefore) {
       if (isAuthError(err)) throw RequestError.authRequired(undefined, "Sign in to Atlarix first (`atlarix login`).");
       throw RequestError.internalError(undefined, err);
     }
+    return { stopReason: "end_turn" };
+  }
+
+  /**
+   * Free Atlarix Auto needs the user's OK before its first turn. The CLI asks in
+   * a dialog; an editor gets a permission card with the same words (Zed,
+   * JetBrains and Atlarix's own VS Code panel all draw one). On yes the same
+   * request runs again, in this prompt, as the CLI's dialog does it.
+   */
+  private async autoConsent(): Promise<PromptResponse> {
+    const r = await this.client()
+      .request("session/request_permission", {
+        sessionId: this.id,
+        toolCall: autoConsentToolCall(AUTO_CONSENT_TERMS),
+        options: AUTO_CONSENT_OPTIONS,
+      })
+      .catch(() => ({ outcome: { outcome: "cancelled" as const } }));
+    const yes = r.outcome.outcome === "selected" && (r.outcome as { optionId?: string }).optionId === "accept";
+    if (!yes) {
+      await this.send({
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "Atlarix Auto is free once you OK it. Send again to review it, or pick another model." },
+      });
+      return { stopReason: "end_turn" };
+    }
+    const turn = { done: () => {}, cancelled: false };
+    const finished = new Promise<void>((resolve) => (turn.done = resolve));
+    this.turn = turn;
+    try {
+      await this.session.acceptAutoConsent();
+      if (!this.session.state.busy) turn.done();
+      await finished;
+    } finally {
+      this.turn = null;
+    }
+    for (const u of diffUpdates(this.session.state.cells, this.emitted)) void this.send(u);
+    await this.afterTurn();
+    await this.flush();
+    if (turn.cancelled) return { stopReason: "cancelled" };
+    const err = this.session.state.lastError;
+    if (err) throw RequestError.internalError(undefined, err);
     return { stopReason: "end_turn" };
   }
 

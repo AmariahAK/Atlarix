@@ -6,7 +6,7 @@
  */
 import { keptFilesLine } from "@/lib/chat/kept-files-line";
 import fs from "node:fs";
-import { CORE_PAYMENT_SUMMARY, formatCents } from "@/shared/billing_copy";
+import { AUTO_CONSENT_TERMS, CORE_PAYMENT_SUMMARY, formatCents } from "@/shared/billing_copy";
 import os from "node:os";
 import path from "node:path";
 import type { AgentSession, PendingQuestion } from "../agent/session";
@@ -545,11 +545,7 @@ export function openAutoConsent(ctx: ScreenContext): void {
   ctx.host.push(
     new ListDialog({
       title: "Use Atlarix Auto for free?",
-      intro: [
-        { text: "Atlarix Auto costs nothing. It is free because the prompts and replies it handles are shared with the AI providers that serve it (OpenAI, and free models through OpenRouter and Requesty), which may use them to improve their models." },
-        { text: "Don't use it for code or data you can't share. Every other model — Core tiers and your own API keys — is not shared, and neither is Auto once you have Pro or credit: then it is paid and private.", tone: "muted" },
-        { text: "Everyone gets a fair daily share; when yours is used, Auto moves to a free fallback model, then pauses until the daily reset.", tone: "muted" },
-      ],
+      intro: AUTO_CONSENT_TERMS.map((text, i) => (i === 0 ? { text } : { text, tone: "muted" as const })),
       footer: "↑↓ move · enter choose · esc not now",
       // "Not now" FIRST: the dialog opens over the composer, and an Enter typed
       // for a message there must never be a consent (QA 15.7.1 #7).

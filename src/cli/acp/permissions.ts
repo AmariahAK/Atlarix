@@ -154,6 +154,22 @@ export function mcpConsentToolCall(r: McpConsentRequest): ToolCallUpdate {
   };
 }
 
+/** Free Atlarix Auto's consent, as a permission card (the CLI asks it in a dialog). */
+export function autoConsentToolCall(terms: readonly string[]): ToolCallUpdate {
+  return {
+    toolCallId: "auto-consent",
+    title: "Use Atlarix Auto for free?",
+    kind: "other",
+    status: "pending",
+    content: [{ type: "content", content: { type: "text", text: terms.join("\n\n") } }],
+  };
+}
+
+export const AUTO_CONSENT_OPTIONS: PermissionOption[] = [
+  { optionId: "accept", name: "Use Atlarix Auto", kind: "allow_once" },
+  { optionId: "decline", name: "Not now", kind: "reject_once" },
+];
+
 /** A card of its own, so no "always" (see approvalOptions); the app and TUI still offer it. */
 export const MCP_CONSENT_OPTIONS: PermissionOption[] = [
   { optionId: "accept-once", name: "Allow once", kind: "allow_once" },
