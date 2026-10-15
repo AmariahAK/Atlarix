@@ -13,7 +13,9 @@ a fresh look at what it will keep each time it opens. Automations: the form says
 before Create, and a Run now is labelled as yours, not as a scheduled run.
 
 There's more free Atlarix Auto to go round: it can now answer from more free models. Because that
-shares your prompts with more providers, Atlarix asks you once more before you use free Auto.
+shares your prompts with more providers, Atlarix asks you once more before you use free Auto. The
+ask is two short lines now, and VS Code, Zed and JetBrains can give it too (before, a free user
+there was told to accept something that wasn't on screen).
 
 Choose the MCP servers every workspace offers: star a server in the marketplace (or ask the AI) and
 it shows up, ready to connect, in the chat menu of every workspace, new ones included.
@@ -25,6 +27,14 @@ can never get the agent to act on your accounts without your yes.
 longest chat, streaks, a year-long activity calendar, your favourite models and modes, and the
 skills and MCP servers you use most. On the Account page in the app, in VS Code's Account panel,
 and as `/stats` in the CLI and any ACP editor. It's stored only on this computer.
+
+Also fixed: stopping a reply before it starts no longer saves the previous reply in its place; the
+agent finds files in folders like `.atlarix/` when asked for them; and after "Not now" in an editor,
+sending again asks again.
+
+Known issue: if an older Atlarix (15.7.0) runs on the same computer after this one, for example
+the VS Code extension before it updates, it can reset your MCP defaults and ask for free Auto's
+consent once more. From this version on, settings from newer versions are kept.
 
 ## [15.7.0] (2026-10-14) — MCP servers from the official MCP Registry, on every surface
 

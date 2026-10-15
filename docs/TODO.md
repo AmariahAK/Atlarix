@@ -1,9 +1,9 @@
 # Atlarix TODO
 
-**Current version:** 15.7.0 (2026-10-14): MCP servers from the official MCP Registry on every
-surface (five Verified, paste anything, web servers on the account, local ones per folder), the
-agent suggests and connects the server a task needs, every server shows its logo, and revert keeps
-work done after the turn. Narrative in [`docs/CHANGELOG.md`](./CHANGELOG.md).
+**Current version:** 15.7.1 (2026-10-15): "Your activity" stats on every surface, MCP defaults you
+choose, free Auto on more free models (with its consent in VS Code and every ACP editor too), the
+Chrome extension asks before every connector call, and the fixes from the 15.7.0 QA. Narrative in
+[`docs/CHANGELOG.md`](./CHANGELOG.md).
 
 **This header has been wrong before.** Update it in the same commit as the version bump, or do
 not trust it.
