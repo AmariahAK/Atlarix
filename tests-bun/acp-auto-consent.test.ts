@@ -145,5 +145,8 @@ describe("free Atlarix Auto's consent in an editor", () => {
     expect(r.stopReason).toBe("end_turn");
     expect(e.accepted).toEqual([]);
     expect(e.text(sessionId)).toContain("Atlarix Auto is free once you OK it.");
+    // "Send again to review it": the next send asks again (QA 15.7.1 #10).
+    await e.conn.agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "again" }] });
+    expect(e.asked).toHaveLength(2);
   }, 60_000);
 });

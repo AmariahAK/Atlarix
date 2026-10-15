@@ -703,6 +703,9 @@ class Thread {
       .catch(() => ({ outcome: { outcome: "cancelled" as const } }));
     const yes = r.outcome.outcome === "selected" && (r.outcome as { optionId?: string }).optionId === "accept";
     if (!yes) {
+      // Answered: without this the next send's refusal compared equal to this
+      // one and nothing asked again (QA 15.7.1 #10).
+      this.session.declineAutoConsent();
       await this.send({
         sessionUpdate: "agent_message_chunk",
         content: { type: "text", text: "Atlarix Auto is free once you OK it. Send again to review it, or pick another model." },

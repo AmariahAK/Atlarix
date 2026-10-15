@@ -799,6 +799,11 @@ export class AgentSession extends EventEmitter {
     return true;
   }
 
+  /** "Not now" to free Auto's consent: the refusal is answered, so the next send asks again. */
+  declineAutoConsent(): void {
+    this.update({ lastError: null });
+  }
+
   async acceptAutoConsent(): Promise<void> {
     const { writeSettings } = await import("@/main/settings");
     const { autoConsentAccepted } = await import("@/ipc/shared/compass_constants");
