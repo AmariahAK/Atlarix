@@ -3,7 +3,7 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
-## [15.7.1] (unreleased) — fixes from the 15.7.0 QA
+## [15.7.1] (2026-10-15) — your activity, MCP defaults, more free Auto, and fixes
 
 A stopped reply stays saved as stopped, in every mode, so after you reopen the chat the next
 message (yours or a contributor's) is answered and the stopped request isn't re-run. An edited
