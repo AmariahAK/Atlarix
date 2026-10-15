@@ -1391,7 +1391,7 @@ function approvalCard(request: Approval): Promise<boolean> {
       request.kind === "host"
         ? "Chrome will ask you to confirm. Atlarix can read this site until you " +
           "remove it, and nothing else."
-        : request.category === "message"
+        : request.category === "message" || request.category === "connector"
           ? `${request.reason} Atlarix asks every time.`
           : `${request.reason} Allowing a site never covers this — Atlarix asks every time.`;
 

@@ -527,7 +527,7 @@ export async function dispatchTool(
       case "list_available_mcps":
         return await listAvailableMcps();
       case "mcp_call":
-        return await mcpCall(args);
+        return await mcpCall(args, ctx);
       // Search the registry, or offer the user a card to connect a server.
       // Like `ask_user`, a suggestion ends the turn.
       case "mcp_servers":

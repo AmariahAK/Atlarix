@@ -18,6 +18,9 @@ shares your prompts with more providers, Atlarix asks you once more before you u
 Choose the MCP servers every workspace offers: star a server in the marketplace (or ask the AI) and
 it shows up, ready to connect, in the chat menu of every workspace, new ones included.
 
+In the Chrome extension, Atlarix now asks before every call to a connected service, so a web page
+can never get the agent to act on your accounts without your yes.
+
 ## [15.7.0] (2026-10-14) — MCP servers from the official MCP Registry, on every surface
 
 **The marketplace is the official MCP Registry, with five Verified servers on top.** Settings → MCP

@@ -22,7 +22,7 @@
  */
 
 import { CoreError, coreProxyFetch } from "../core/client";
-import type { ToolOutcome } from "./dispatch";
+import type { ToolContext, ToolOutcome } from "./dispatch";
 
 interface ListedTool {
   name: string;
@@ -110,6 +110,7 @@ export async function listAvailableMcps(): Promise<ToolOutcome> {
 
 export async function mcpCall(
   args: Record<string, unknown>,
+  ctx: Pick<ToolContext, "approvedRetry"> = {},
 ): Promise<ToolOutcome> {
   const server = typeof args.server === "string" ? args.server.trim() : "";
   const tool = typeof args.tool === "string" ? args.tool.trim() : "";
@@ -119,6 +120,21 @@ export async function mcpCall(
         "Pass both `server` (a connector name from list_available_mcps) and " +
         "`tool`.",
       label: "Called nothing",
+    };
+  }
+
+  // ASKED EVERY TIME. A connector acts as the user on another service, and this
+  // surface reads pages anyone can write: a page that talks the model into a
+  // call must still get past the user. Listing stays free; it contacts nothing.
+  if (!ctx.approvedRetry) {
+    return {
+      content: `Waiting for the user to approve: ${tool} on ${server}.`,
+      needsApproval: {
+        kind: "action",
+        reason: `Atlarix wants to use your connected ${server} account.`,
+        category: "connector",
+        summary: `Run ${tool} on ${server}?`,
+      },
     };
   }
 

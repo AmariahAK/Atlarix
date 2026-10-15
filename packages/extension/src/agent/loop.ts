@@ -207,6 +207,13 @@ function declineMessage(request: Approval): string {
       `needed it for.`
     );
   }
+  if (request.category === "connector") {
+    return (
+      `The user did not approve that connector call, so nothing was sent to it. This ` +
+      `is their decision — do not make the call another way. Carry on without it, or ` +
+      `ask them what they would rather do.`
+    );
+  }
   if (request.category === "message") {
     return (
       `The user did not approve sending that message, so nothing was sent. This is ` +
