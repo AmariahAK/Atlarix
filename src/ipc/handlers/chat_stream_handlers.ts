@@ -164,7 +164,7 @@ import {
   streamSessionByChatId,
   streamTurnIdByChatId,
   lastTurnModeByChat,
-  pendingAskUserArtifactByChatId,
+  resetTurnState,
   getLastSkillCacheAppId,
   setLastSkillCacheAppId,
   getChatStreamHandler,
@@ -329,8 +329,7 @@ export function registerChatStreamHandlers() {
     activeStreamId.set(req.chatId, streamId);
     const abortController = new AbortController();
     activeStreams.set(req.chatId, abortController);
-    // v11.1: a new stream supersedes any pending ask_user state for this chat.
-    pendingAskUserArtifactByChatId.delete(req.chatId);
+    resetTurnState(req.chatId);
     // FIX 4: remember this request so the renderer's [Reconnect] button can
     // re-dispatch the exact same turn via `chat:stream:reconnect`.
     lastStreamRequest.set(req.chatId, req);

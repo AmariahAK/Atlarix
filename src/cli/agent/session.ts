@@ -1646,6 +1646,14 @@ export class AgentSession extends EventEmitter {
       }
       case "chat:activity":
         if (this.onSubagentActivity(p)) this.update({ cells: this.cellsFor(this.state.busy) });
+        else if (p.id === "revert-needs-git" && p.chatId === this.chatId && typeof p.label === "string") {
+          // Once per run, under the message whose edit found no Git (QA 15.7.1 #3).
+          if (!this.wakeNotes.some((n) => n.id === "revert-needs-git")) {
+            const lastUser = [...this.messages].reverse().find((m) => m.role === "user");
+            this.wakeNotes.push({ id: "revert-needs-git", afterMessageId: lastUser ? String(lastUser.id) : "", text: p.label });
+            this.update({ cells: this.cellsFor(this.state.busy) });
+          }
+        }
         return;
       case "user-question-request": {
         const items = Array.isArray(p.questions) && p.questions.length

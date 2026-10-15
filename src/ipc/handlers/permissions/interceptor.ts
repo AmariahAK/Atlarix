@@ -1608,8 +1608,11 @@ export class PermissionInterceptor extends EventEmitter {
       });
     } catch (e) {
       logger.warn("[maybeCaptureWorkspaceSnapshot] skipped:", e);
-      void noteRevertNeedsGit(this.activeChatId);
     }
+    // Asked directly, not from the catch: a capture swallows its own failures
+    // (it must never block a write), so a missing Git never reached it and the
+    // notice never showed (QA 15.7.1 #3). Cached and once per run.
+    void noteRevertNeedsGit(this.activeChatId);
   }
 
   /**
