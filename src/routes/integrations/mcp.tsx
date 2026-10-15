@@ -10,5 +10,7 @@ export const integrationsMcpRoute = createRoute({
   validateSearch: z.object({
     // First-run wizard deep-links straight to the marketplace tab.
     tab: z.enum(["active", "marketplace"]).optional(),
+    // A default from the composer menu that asks for values opens on its entry.
+    q: z.string().optional(),
   }),
 });

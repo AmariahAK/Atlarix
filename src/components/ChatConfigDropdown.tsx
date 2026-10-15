@@ -13,6 +13,8 @@
  */
 
 import { useSettings } from "@/hooks/useSettings";
+import { useCreditBalance } from "@/hooks/useCreditBalance";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   COMPASS_PROVIDER_ID,
@@ -78,6 +80,8 @@ export function ChatConfigDropdown() {
   // (`useVoiceCapability`), which needs nothing to pick.
   const { data: voiceProviders } = useTranscriptionProviders();
   const VOICE_PROVIDERS = voiceProviders ?? [];
+  const [menuOpen, setMenuOpen] = useState(false);
+  const { balanceCents } = useCreditBalance();
   // `"local"` is a setting for an engine that no longer exists — treat it as unset
   // rather than leaving a checkmark on a row that is not there.
   const stored = settings?.voiceTranscriptionProvider;
@@ -87,7 +91,7 @@ export function ChatConfigDropdown() {
     VOICE_PROVIDERS[0]?.id;
 
   return (
-    <DropdownMenu>
+    <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
       <Tooltip>
         <TooltipTrigger asChild>
           <DropdownMenuTrigger asChild>
@@ -148,7 +152,10 @@ export function ChatConfigDropdown() {
               </DropdownMenuCheckboxItem>
               {onAuto ? (
                 <p className="px-2 pb-1 pt-0.5 text-[10px] leading-snug text-muted-foreground">
-                  {t("atlarixAuto.deepThinkingHint")}
+                  {/* Free Auto has no stronger models to move to, and costs nothing. */}
+                  {balanceCents === 0
+                    ? t("atlarixAuto.deepThinkingHintFree")
+                    : t("atlarixAuto.deepThinkingHint")}
                 </p>
               ) : (
                 <p className="px-2 pb-1 pt-0.5 text-[10px] leading-snug text-muted-foreground">
@@ -193,7 +200,7 @@ export function ChatConfigDropdown() {
           ) : null}
           {/* The user's default MCP servers: connect or switch one without leaving the chat. */}
           {reasoningCapable || VOICE_PROVIDERS.length > 0 ? <DropdownMenuSeparator /> : null}
-          <DefaultMcpMenuSection />
+          <DefaultMcpMenuSection onLeave={() => setMenuOpen(false)} />
         </div>
       </DropdownMenuContent>
     </DropdownMenu>

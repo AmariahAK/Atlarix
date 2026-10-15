@@ -28,8 +28,13 @@ longest chat, streaks, a year-long activity calendar, your favourite models and 
 skills and MCP servers you use most. On the Account page in the app, in VS Code's Account panel,
 and as `/stats` in the CLI and any ACP editor. It's stored only on this computer.
 
-Also fixed: stopping a reply before it starts no longer saves the previous reply in its place; the
-agent finds files in folders like `.atlarix/` when asked for them; and after "Not now" in an editor,
+Also fixed: stopping a reply before it starts no longer saves the previous reply in its place, and
+a stopped reply is marked as stopped (with Continue) right away, not only after you reopen the
+chat; switching workspace from the ⌘K search opens that workspace's own chat, so your next message
+goes where the header says (and a workspace never opened in the app no longer hangs on "Loading
+workspace…"); search results show a chat's words, not its tool markup; chats on free Auto get
+proper titles; Connect on an MCP server that needs a key opens its marketplace entry; the agent
+finds files in folders like `.atlarix/` when asked for them; and after "Not now" in an editor,
 sending again asks again.
 
 Known issue: if an older Atlarix (15.7.0) runs on the same computer after this one, for example

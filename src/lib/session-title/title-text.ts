@@ -118,9 +118,17 @@ export function sanitizeGeneratedTitle(raw: string): string {
 export function looksLikeReplyNotTitle(
   title: string,
   modelName?: string,
+  /** The message being titled: a title about titles is fine when it asked for one. */
+  userText?: string,
 ): boolean {
   const t = title.trim();
   if (!t) return true;
+  // A model that wasn't writing a title: a safety classifier's verdict, or one
+  // that titled the instruction ("Requested title generation") (QA 15.7.1 #12).
+  if (/^(user\s+)?safety\b|^(safe|unsafe)$/i.test(t)) return true;
+  if (/\btitles?\b/i.test(t) && userText != null && !/\btitle/i.test(userText)) {
+    return true;
+  }
   if (t.length > 60 || t.split(/\s+/).length > 8) return true;
   if (/[.!?]\s+\S/.test(t)) return true;
   if (t.endsWith("?")) return true;

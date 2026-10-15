@@ -10,6 +10,7 @@ import log from "electron-log";
 import type { ModelMessage } from "ai";
 import { LOOP_REPETITION_STREAM_STOP } from "@/lib/stream/stream-stop-sentinels";
 import { stripThinkBlocks } from "@/ipc/utils/thinking_tags";
+import { STOP_NOTE } from "@/lib/chat/stopped-reply";
 import { serializeNativeHistory, stoppedTurnNative } from "@/lib/ai/native-history";
 import {
   liveRoundStepsByChatId,
@@ -39,7 +40,7 @@ export async function saveStoppedTurn(args: {
       const stopNote =
         stopSentinel === LOOP_REPETITION_STREAM_STOP
           ? "[Repeated action — task stopped. Review the activity log and send a message to continue.]"
-          : "[Response cancelled by user]";
+          : STOP_NOTE;
       const cancelledContent = partialResponse ? `${partialResponse}
 
 ${stopNote}` : stopNote;

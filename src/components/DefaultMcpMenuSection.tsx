@@ -18,7 +18,12 @@ import { useMcpAddFlow } from "@/components/settings/useMcpAddFlow";
  * Connect when it isn't — the same add and sign-in as the marketplace, without
  * leaving the chat.
  */
-export function DefaultMcpMenuSection() {
+export function DefaultMcpMenuSection({
+  onLeave,
+}: {
+  /** Closes the menu it sits in when it takes the user to another page. */
+  onLeave?: () => void;
+} = {}) {
   const { t } = useTranslation("settings");
   const appId = useAtomValue(selectedAppIdAtom);
   const ipc = IpcClient.getInstance();
@@ -50,8 +55,14 @@ export function DefaultMcpMenuSection() {
       if (s.state === "not-added") {
         if (appId == null) throw new Error(t("mcp.openFolder"));
         // One that asks for values (a key, a path) is added where those are asked.
+        // Opened on its own entry, with the menu closed (QA 15.7.1 #8: it
+        // landed on the active tab and the menu floated over the page).
         if (!s.optionId || s.needsInputs) {
-          void navigate({ to: "/integrations/mcp" });
+          onLeave?.();
+          void navigate({
+            to: "/integrations/mcp",
+            search: { tab: "marketplace", q: s.title },
+          });
           return;
         }
         const added = await ipc.installMcpFromCatalog({ appId, name: s.name, optionId: s.optionId });
@@ -105,7 +116,10 @@ export function DefaultMcpMenuSection() {
       <button
         type="button"
         className="w-full text-left px-2 pb-1 pt-0.5 text-[11px] text-muted-foreground hover:text-foreground"
-        onClick={() => void navigate({ to: "/integrations/mcp" })}
+        onClick={() => {
+          onLeave?.();
+          void navigate({ to: "/integrations/mcp" });
+        }}
       >
         {t("mcp.manage")}
       </button>

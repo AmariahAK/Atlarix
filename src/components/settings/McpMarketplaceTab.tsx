@@ -51,10 +51,17 @@ function useDebounced<T>(value: T, ms: number): T {
   return v;
 }
 
-export function McpMarketplaceTab({ workspaceId }: { workspaceId: number }) {
+export function McpMarketplaceTab({
+  workspaceId,
+  initialQuery,
+}: {
+  workspaceId: number;
+  /** Opens searched for one server (a default whose values are asked here). */
+  initialQuery?: string;
+}) {
   const ipc = IpcClient.getInstance();
   const { t } = useTranslation("settings");
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(initialQuery ?? "");
   const query = useDebounced(search.trim(), 200);
   const [page, setPage] = useState(0);
   const [adding, setAdding] = useState<string | null>(null);

@@ -41,7 +41,7 @@ export function McpSettingsPage() {
     [queryClient],
   );
   // Deep link: /integrations/mcp?tab=marketplace (first-run wizard CTA).
-  const search = useSearch({ strict: false }) as { tab?: string };
+  const search = useSearch({ strict: false }) as { tab?: string; q?: string };
   const [activeTab, setActiveTab] = useState<"active" | "marketplace">(() =>
     search?.tab === "marketplace" ? "marketplace" : "active",
   );
@@ -90,7 +90,10 @@ export function McpSettingsPage() {
 
           <TabsContent value="marketplace" className="mt-4">
             <div className="bg-card rounded-xl shadow-sm p-6 border border-border">
-              <McpMarketplaceTab workspaceId={selectedAppId} />
+              <McpMarketplaceTab
+                workspaceId={selectedAppId}
+                initialQuery={search?.q}
+              />
             </div>
           </TabsContent>
         </Tabs>

@@ -15,18 +15,19 @@
  * advertised instead of apologised for.
  */
 
-import { useAtom } from "jotai";
+import { useAtom, useAtomValue } from "jotai";
 import { useMemo } from "react";
 import { useNavigate } from "@tanstack/react-router";
 
 import { AppSearchDialog } from "./AppSearchDialog";
 import { appSearchOpenAtom, selectedAppIdAtom } from "@/atoms/appAtoms";
 import { useLoadApps } from "@/hooks/useLoadApps";
+import { openWorkspaceByAppId } from "@/lib/open-workspace-session";
 
 export function GlobalAppSearch() {
   const [open, setOpen] = useAtom(appSearchOpenAtom);
-  const [, setSelectedAppId] = useAtom(selectedAppIdAtom);
-  const { apps } = useLoadApps();
+  const selectedAppId = useAtomValue(selectedAppIdAtom);
+  const { apps, refreshApps } = useLoadApps();
   const navigate = useNavigate();
 
   const allApps = useMemo(
@@ -47,12 +48,24 @@ export function GlobalAppSearch() {
       onOpenChange={setOpen}
       allApps={allApps}
       onSelectApp={(id) => {
-        setSelectedAppId(id);
         setOpen(false);
         // The palette is reachable from Settings and Integrations now, so
         // picking a workspace has to take you to it rather than silently
         // changing the selection behind whatever page you were on.
-        void navigate({ to: "/" });
+        if (id === selectedAppId) {
+          void navigate({ to: "/" });
+          return;
+        }
+        // Opened as the welcome screen's recents open it: its own session and
+        // chat. Setting the selection alone moved the header and sidebar while
+        // the chat (and the next message) stayed on the previous workspace,
+        // and one never opened in the app hung on "Loading workspace…"
+        // (QA 15.7.1 #6, #6b).
+        void openWorkspaceByAppId({
+          appId: id,
+          navigate: (opts) => void navigate(opts),
+          refreshApps,
+        });
       }}
     />
   );

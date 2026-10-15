@@ -10,6 +10,7 @@ import { useState, useEffect } from "react";
 import { useDebounce } from "@/hooks/useDebounce";
 import { useSearchApps } from "@/hooks/useSearchApps";
 import type { AppSearchResult } from "@/lib/schemas";
+import { searchPreviewText } from "@/lib/chat/search-preview";
 
 type AppSearchDialogProps = {
   open: boolean;
@@ -111,7 +112,10 @@ export function AppSearchDialog({
             const isSearch = searchQuery.trim() !== "";
             let snippet = null;
             if (isSearch && app.matchedChatMessage) {
-              snippet = getSnippet(app.matchedChatMessage, searchQuery);
+              snippet = getSnippet(
+                searchPreviewText(app.matchedChatMessage),
+                searchQuery,
+              );
             } else if (isSearch && app.matchedChatTitle) {
               snippet = getSnippet(app.matchedChatTitle, searchQuery);
             }

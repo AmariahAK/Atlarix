@@ -153,7 +153,7 @@ export async function generateSessionTitle(
     recordAuxUsage(opts.chatId, result.usage, "title");
 
     const title = sanitizeGeneratedTitle(result.text);
-    if (looksLikeReplyNotTitle(title, model.name)) {
+    if (looksLikeReplyNotTitle(title, model.name, text)) {
       logger.info(`title: rejected a reply, not a title: "${title.slice(0, 60)}"`);
       return null;
     }

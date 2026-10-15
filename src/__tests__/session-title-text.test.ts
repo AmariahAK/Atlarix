@@ -89,6 +89,20 @@ describe("looksLikeReplyNotTitle", () => {
   });
 
   it.each([
+    ["User Safety: safe", "hey"],
+    ["Requested title generation", "list the files here"],
+    ["Generate title for one-word reply", "say kraken"],
+  ])("rejects %j from a free model that wasn't writing a title (QA 15.7.1 #12)", (t, user) => {
+    expect(looksLikeReplyNotTitle(t, "openrouter/free", user)).toBe(true);
+  });
+
+  it("keeps a title about titles when that is what the user asked", () => {
+    expect(
+      looksLikeReplyNotTitle("Blog post title ideas", "openrouter/free", "suggest a title for my blog post"),
+    ).toBe(false);
+  });
+
+  it.each([
     "React useEffect runs twice",
     "Greeting and introduction",
     "Users table Postgres 16 migration",

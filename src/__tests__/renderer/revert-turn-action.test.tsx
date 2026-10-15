@@ -68,6 +68,24 @@ describe("RevertTurnAction", () => {
     expect(screen.getByText(/Kept b\.txt/)).toBeInTheDocument();
   });
 
+  it("QA 15.7.1 #10: with every file kept there is nothing to revert", async () => {
+    getSnapshotFiles.mockResolvedValueOnce({ filesChanged: ["calc.py"], createdFiles: [] });
+    getSnapshotFiles.mockResolvedValueOnce({
+      filesChanged: ["calc.py"],
+      createdFiles: [],
+      kept: ["calc.py"],
+    } as never);
+    const { store } = renderWithProviders(<div />);
+    store.set(turnSnapshotTurnIdByMessageIdAtom, new Map([[MSG_ID, String(MSG_ID)]]));
+    renderWithProviders(<RevertTurnAction chatId={CHAT_ID} messageId={MSG_ID} />);
+    const btn = await screen.findByTitle("Revert this turn's file changes");
+    await act(async () => {
+      fireEvent.click(btn);
+    });
+    expect(await screen.findByText(/Kept calc\.py/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Revert files" })).toBeDisabled();
+  });
+
   it("shows the action and reverts (filesOnly) on confirm when a snapshot exists", async () => {
     const { store } = renderWithProviders(<div />);
     store.set(
