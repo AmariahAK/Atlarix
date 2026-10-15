@@ -39,9 +39,6 @@ export function AtlarixAutoConsentDialog({
             <div className="space-y-2 text-sm">
               <p>{t("atlarixAuto.consentWhy")}</p>
               <p>{t("atlarixAuto.consentCare")}</p>
-              <p className="text-muted-foreground">
-                {t("atlarixAuto.consentShare")}
-              </p>
             </div>
           </AlertDialogDescription>
         </AlertDialogHeader>
