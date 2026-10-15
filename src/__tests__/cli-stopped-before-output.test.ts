@@ -56,3 +56,27 @@ describe("a reopened chat with a turn stopped before any output", () => {
     expect(interrupted.size).toBe(0);
   });
 });
+
+/**
+ * A reply stopped after some text is saved as that text (the stop mark goes to
+ * the model only) with status interrupted. `-c` drew it with no note (QA
+ * 15.7.1 #11b): the row's status is what says it was stopped.
+ */
+describe("a reopened chat with a reply stopped mid-way", () => {
+  it("notes it as interrupted from the row's status", async () => {
+    const { interruptedRowIds } = await import("@/cli/agent/transcript");
+    const rows = [
+      { role: "user", content: "300 word poem", status: "complete" },
+      { role: "assistant", content: "Waves on the", status: "interrupted" },
+    ];
+    const interrupted = new Set(interruptedRowIds(rows));
+    const cells = markInterrupted(
+      [{ kind: "assistant", id: "2:a", text: "Waves on the" } as never],
+      interrupted,
+    );
+    expect(cells.at(-1)).toMatchObject({
+      kind: "notice",
+      text: "Interrupted. Tell Atlarix what to do instead.",
+    });
+  });
+});

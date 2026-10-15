@@ -30,7 +30,8 @@ and as `/stats` in the CLI and any ACP editor. It's stored only on this computer
 
 Also fixed: stopping a reply before it starts no longer saves the previous reply in its place, and
 a stopped reply is marked as stopped (with Continue) right away, not only after you reopen the
-chat; switching workspace from the ⌘K search opens that workspace's own chat, so your next message
+chat, and a stopped reply stays stopped after you quit (the CLI's `-c` marks it too, and it isn't
+re-run); switching workspace from the ⌘K search opens that workspace's own chat, so your next message
 goes where the header says (and a workspace never opened in the app no longer hangs on "Loading
 workspace…"); search results show a chat's words, not its tool markup; chats on free Auto get
 proper titles; Connect on an MCP server that needs a key opens its marketplace entry; the agent

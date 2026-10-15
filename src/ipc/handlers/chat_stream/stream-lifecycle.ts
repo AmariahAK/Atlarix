@@ -218,7 +218,12 @@ export async function clearInterruptedDraft(chatId: number): Promise<void> {
  * system suspend / app quit never loses work-in-progress.
  */
 export async function flushPartialStreamsForShutdown(): Promise<void> {
-  const entries = [...partialResponses.entries()];
+  // Only turns still streaming: a finished or stopped one can leave its text
+  // here, and saving it again wrote an interrupted row without the stop note
+  // (QA 15.7.1 #11).
+  const entries = [...partialResponses.entries()].filter(([chatId]) =>
+    activeStreams.has(chatId),
+  );
   if (entries.length === 0) return;
   logger.info(
     `[partial-draft] shutdown flush for ${entries.length} active stream(s)`,

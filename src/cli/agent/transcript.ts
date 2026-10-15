@@ -769,6 +769,20 @@ export function placeSteers(
   return cells;
 }
 
+/**
+ * The replies a reopened chat shows as interrupted: the saved rows marked so.
+ * A stopped reply's row keeps its text without the stop mark (the mark is in
+ * what the model is sent), so `-c` drew the partial reply with no note (QA
+ * 15.7.1 #11b). Ids are the rows' 1-based positions, as the CLI numbers them.
+ */
+export function interruptedRowIds(
+  rows: ReadonlyArray<{ role: string; status?: string | null }>,
+): string[] {
+  return rows.flatMap((m, i) =>
+    m.role === "assistant" && m.status === "interrupted" ? [String(i + 1)] : [],
+  );
+}
+
 /** What the agent appends to an answer it stopped (build-branch.ts). */
 export const CANCEL_MARK = "[Response cancelled by user]";
 

@@ -18,6 +18,7 @@ import { placeShellRuns, withShellContext, type ShellRun } from "./shell-mode";
 import {
   collapseCancelled,
   markInterrupted,
+  interruptedRowIds,
   placeSteers,
   activityToolLine,
   locateBlocks,
@@ -464,7 +465,7 @@ export class AgentSession extends EventEmitter {
     const { chatId } = (await (await handler("sessions:allocate-transport"))({}, sessionId)) as { chatId: number };
     const got = (await (await handler("sessions:get"))({}, sessionId)) as {
       session: SessionSummary;
-      messages: Array<{ id: string; role: string; content: string; modelContent?: string | null; snapshotTurnId?: string | null; maxTokensUsed?: number | null }>;
+      messages: Array<{ id: string; role: string; content: string; status?: string | null; modelContent?: string | null; snapshotTurnId?: string | null; maxTokensUsed?: number | null }>;
     };
     const rows = got.messages.map((m, i) => ({ id: i + 1, sessionRowId: m.id }));
     await (await handler("sessions:hydrate-transport"))({}, { chatId, sessionId, rows });
@@ -483,6 +484,7 @@ export class AgentSession extends EventEmitter {
     got.messages.forEach((m, i) => {
       if (m.snapshotTurnId) this.turnSnapshots.set(String(i + 1), m.snapshotTurnId);
     });
+    for (const id of interruptedRowIds(got.messages)) this.interrupted.add(id);
     const mode = got.session.workMode;
     const { getLatestPlanArtifact } = await import("@/lib/plans/plan-artifacts");
     const plan = await getLatestPlanArtifact(sessionId, "plan").catch(() => null);

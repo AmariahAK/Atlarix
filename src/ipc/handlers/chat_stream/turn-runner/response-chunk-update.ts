@@ -12,7 +12,11 @@
 import type { IpcMainInvokeEvent } from "electron";
 import { safeSend, safeSendCoalesced } from "@/ipc/utils/safe_sender";
 import { flushInterruptedDraft } from "@/ipc/handlers/chat_stream/stream-lifecycle";
-import { partialResponses } from "@/ipc/handlers/chat_stream/stream-state";
+import {
+  activeStreamId,
+  activeStreams,
+  partialResponses,
+} from "@/ipc/handlers/chat_stream/stream-state";
 import type { ChatStreamParams } from "@/ipc/ipc_types";
 
 export interface ProcessResponseChunkUpdateDeps {
@@ -74,10 +78,17 @@ export async function processResponseChunkUpdate(
   { fullResponse }: { fullResponse: string },
 ): Promise<string> {
   const { req, updatedChat, event, streamId } = deps;
+  // A chunk that lands after the turn was stopped is not this turn's record any
+  // more: the stopped row (with its note for the model) is. Kept, it wrote a
+  // second row without the note, and a resumed chat re-ran the stopped request
+  // (QA 15.7.1 #11).
+  const live =
+    activeStreams.has(req.chatId) &&
+    activeStreamId.get(req.chatId) === streamId;
   // Store the current partial response
-  partialResponses.set(req.chatId, fullResponse);
+  if (live) partialResponses.set(req.chatId, fullResponse);
   // Issue 4: throttled crash-safe persistence of the partial turn.
-  if (req.workspaceSessionId) {
+  if (live && req.workspaceSessionId) {
     void flushInterruptedDraft(
       req.chatId,
       req.workspaceSessionId,
