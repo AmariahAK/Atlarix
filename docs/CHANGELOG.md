@@ -34,7 +34,8 @@ chat, and a stopped reply stays stopped after you quit (the CLI's `-c` marks it 
 re-run); switching workspace from the ⌘K search opens that workspace's own chat, so your next message
 goes where the header says (and a workspace never opened in the app no longer hangs on "Loading
 workspace…"); search results show a chat's words, not its tool markup; chats on free Auto get
-proper titles; Connect on an MCP server that needs a key opens its marketplace entry; the agent
+proper titles; Connect on an MCP server that needs a key opens its marketplace entry; removing a server that's
+on all your devices asks first; the agent
 finds files in folders like `.atlarix/` when asked for them; and after "Not now" in an editor,
 sending again asks again.
 

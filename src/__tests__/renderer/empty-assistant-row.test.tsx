@@ -73,6 +73,20 @@ describe("an assistant row with nothing in it", () => {
     expect(bubble(container)).toBeNull();
   });
 
+  it("a turn stopped before its first word shows the stop, without a bubble (QA 15.7.1 #7b)", () => {
+    const { container, getByText } = renderWithProviders(
+      <SimpleMessage
+        message={{ ...assistantMessage(""), interrupted: true } as Message}
+        isStreaming={false}
+        chatId={CHAT_ID}
+        onContinue={() => {}}
+      />,
+    );
+    expect(getByText(/interrupted before it finished/)).toBeTruthy();
+    expect(getByText("Continue")).toBeTruthy();
+    expect(bubble(container)).toBeNull();
+  });
+
   it("still renders while streaming, so the working indicator survives", () => {
     // The case the pre-existing guard already covered, and it must keep working: a turn
     // that has started but produced no token yet shows InlineStreamStatus. It is also

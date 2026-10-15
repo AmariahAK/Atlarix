@@ -5,6 +5,16 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { IpcClient } from "@/ipc/ipc_client";
 import { showError, showInfo, showSuccess } from "@/lib/toast";
 import type { ConnectorView } from "@/lib/mcp/account-connectors";
@@ -27,6 +37,9 @@ export function AccountMcpSection({ appId }: { appId: number }) {
   const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState<string | null>(null);
+  // Removing takes it off every device, so it is confirmed first, as on the
+  // website (QA 15.7.1 #14).
+  const [removing, setRemoving] = useState<ConnectorView | null>(null);
   const { finish, dialog } = useMcpAddFlow(appId);
   const { data } = useQuery({
     queryKey: ["mcp", "account"],
@@ -114,7 +127,7 @@ export function AccountMcpSection({ appId }: { appId: number }) {
                 size="sm"
                 variant="outline"
                 disabled={busy != null}
-                onClick={() => void run(c.id, () => ipc.removeAccountMcp(c.id))}
+                onClick={() => setRemoving(c)}
               >
                 {t("mcp.remove")}
               </Button>
@@ -123,6 +136,26 @@ export function AccountMcpSection({ appId }: { appId: number }) {
         );
       })}
       {dialog}
+      <AlertDialog open={removing != null} onOpenChange={(open) => !open && setRemoving(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("mcp.removeAccountTitle", { name: removing?.name ?? "" })}</AlertDialogTitle>
+            <AlertDialogDescription>{t("mcp.removeAccountBody")}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("mcp.keepIt")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                const c = removing;
+                setRemoving(null);
+                if (c) void run(c.id, () => ipc.removeAccountMcp(c.id));
+              }}
+            >
+              {t("mcp.remove")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
