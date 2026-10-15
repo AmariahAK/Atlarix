@@ -27,6 +27,8 @@ import type { ToolContext, ToolOutcome } from "./dispatch";
 interface ListedTool {
   name: string;
   description?: string;
+  /** Argument names (plain identifiers, checked by the proxy). */
+  args?: Array<{ name: string; required?: boolean }>;
 }
 
 interface ListedServer {
@@ -95,14 +97,18 @@ export async function listAvailableMcps(): Promise<ToolOutcome> {
     }
     lines.push(`- ${s.name}`);
     for (const t of s.tools) {
-      lines.push(`    ${t.name}${t.description ? ` — ${t.description}` : ""}`);
+      // The argument names, so the first (approved) call is right: a guessed
+      // name costs the user another approval (QA 15.7.1).
+      const args = t.args?.length ? `(${t.args.map((a) => `${a.name}${a.required ? "*" : ""}`).join(", ")})` : "";
+      lines.push(`    ${t.name}${args}${t.description ? ` — ${t.description}` : ""}`);
     }
   }
 
   return {
     content:
       `Connectors on this account, and the tools each one offers. Call one ` +
-      `with mcp_call, using the connector's name exactly as it appears here.\n` +
+      `with mcp_call, using the connector's name exactly as it appears here, and ` +
+      `the argument names shown (* = required).\n` +
       lines.join("\n"),
     label: `Listed ${servers.length} connector${servers.length === 1 ? "" : "s"}`,
   };
@@ -131,7 +137,7 @@ export async function mcpCall(
       content: `Waiting for the user to approve: ${tool} on ${server}.`,
       needsApproval: {
         kind: "action",
-        reason: `Atlarix wants to use your connected ${server} account.`,
+        reason: `Atlarix wants to use your ${server} connector.`,
         category: "connector",
         summary: `Run ${tool} on ${server}?`,
       },

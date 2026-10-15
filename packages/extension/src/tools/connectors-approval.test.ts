@@ -33,7 +33,7 @@ describe("mcp_call asks first", () => {
     const out = await mcpCall(args);
     expect(out.needsApproval).toEqual({
       kind: "action",
-      reason: "Atlarix wants to use your connected Linear account.",
+      reason: "Atlarix wants to use your Linear connector.",
       category: "connector",
       summary: "Run create_issue on Linear?",
     });
@@ -56,5 +56,33 @@ describe("mcp_call asks first", () => {
     const out = await mcpCall({ server: "Linear" });
     expect(out.needsApproval).toBeUndefined();
     expect(proxy).not.toHaveBeenCalled();
+  });
+});
+
+describe("the connector list shows each tool's argument names", () => {
+  it("so the first approved call uses the right ones", async () => {
+    const { listAvailableMcps } = await import("./connectors");
+    proxy.mockResolvedValueOnce({
+      ok: true,
+      servers: [
+        {
+          name: "deepwiki",
+          tools: [
+            {
+              name: "ask_question",
+              description: "Ask about a repo.",
+              args: [{ name: "repoName", required: true }, { name: "depth" }],
+            },
+            { name: "ping" },
+          ],
+        },
+      ],
+    });
+    const out = await listAvailableMcps();
+    expect(out.content).toContain(
+      "    ask_question(repoName*, depth) — Ask about a repo.",
+    );
+    expect(out.content).toContain("    ping\n".trimEnd());
+    expect(out.content).toContain("* = required");
   });
 });

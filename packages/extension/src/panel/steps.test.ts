@@ -134,6 +134,6 @@ describe("every tool has a verb", () => {
         { kind: "tool", name: "list_available_mcps" },
         { kind: "tool", name: "mcp_call" },
       ]),
-    ).toBe("Checked your connectors, Used a connector");
+    ).toBe("Checked your connectors, Asked to use a connector");
   });
 });
