@@ -377,6 +377,11 @@ function mcpLabel(
         ? `Searching MCP servers${query ? ` for "${query}"` : ""}…`
         : `Searched MCP servers${query ? ` for "${query}"` : ""}`;
     }
+    if (op === "defaults") {
+      const set = Array.isArray(args.servers);
+      if (phase === "running") return set ? "Setting default MCP servers…" : "Reading default MCP servers…";
+      return set ? "Set default MCP servers" : "Read default MCP servers";
+    }
     if (!server) return null;
     const verbs: Record<string, [string, string]> = {
       suggest: ["Suggesting", "Suggested"],

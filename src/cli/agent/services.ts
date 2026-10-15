@@ -131,6 +131,8 @@ export interface CliServices {
     /** Search the marketplace (official MCP Registry, cached), Verified first. */
     catalog(appId: number, query: string, offset?: number): Promise<{ entries: CatalogEntry[]; total: number; installed: string[] }>;
     install(appId: number, name: string, optionId: string, values: Record<string, string>): Promise<AddedServer>;
+    /** The user's default servers (every workspace offers them) and where each stands here. */
+    defaults(appId: number): Promise<import("@/lib/mcp/default-servers").DefaultMcpServerStatus[]>;
     /** Web servers on the account (null when signed out). */
     account(): Promise<ConnectorView[] | null>;
     accountSetEnabled(appId: number, id: string, enabled: boolean): Promise<void>;
@@ -353,6 +355,7 @@ export const realServices: CliServices = {
     },
     catalog: (appId, query, offset = 0) => call("mcp-catalog:search", { appId, query, offset, limit: 50 }),
     install: (appId, name, optionId, values) => call("mcp-catalog:install", { appId, name, optionId, values }),
+    defaults: (appId) => call("mcp:defaults", { appId }),
     account: () => call("connectors:list"),
     async accountSetEnabled(appId, id, enabled) {
       await call("connectors:set-enabled", { appId, id, enabled });

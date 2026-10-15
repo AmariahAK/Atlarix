@@ -15,6 +15,9 @@ before Create, and a Run now is labelled as yours, not as a scheduled run.
 There's more free Atlarix Auto to go round: it can now answer from more free models. Because that
 shares your prompts with more providers, Atlarix asks you once more before you use free Auto.
 
+Choose the MCP servers every workspace offers: star a server in the marketplace (or ask the AI) and
+it shows up, ready to connect, in the chat menu of every workspace, new ones included.
+
 ## [15.7.0] (2026-10-14) — MCP servers from the official MCP Registry, on every surface
 
 **The marketplace is the official MCP Registry, with five Verified servers on top.** Settings → MCP

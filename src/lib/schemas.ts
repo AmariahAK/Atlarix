@@ -330,6 +330,12 @@ export const UserSettingsSchema = z.object({
   atlarixAutoConsentVersion: z.number().int().optional(),
   /** When a v1 user was shown the v2 wording once (accepted or not), so it is asked only once. */
   atlarixAutoConsentV2AskedAt: z.string().optional(),
+  /**
+   * The MCP servers every workspace offers in the composer's menu, by registry
+   * name. Absent = the Verified five. Changed from the marketplace or by the
+   * agent (`mcp_servers` defaults).
+   */
+  defaultMcpServers: z.array(z.string()).optional(),
   hasRunBefore: z.boolean().optional(),
   // Activation-funnel markers (analytics): epoch ms of the first agent turn
   // started / completed, so first_task_* events each fire exactly once.

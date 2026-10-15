@@ -17,8 +17,8 @@ vi.mock("@/hooks/useLanguageModelsByProviders", () => ({
 vi.mock("@/hooks/useTranscriptionProviders", () => ({
   useTranscriptionProviders: () => ({ data: [] }),
 }));
-vi.mock("@/components/VerifiedMcpMenuSection", () => ({
-  VerifiedMcpMenuSection: () => null,
+vi.mock("@/components/DefaultMcpMenuSection", () => ({
+  DefaultMcpMenuSection: () => null,
 }));
 
 import { ChatConfigDropdown } from "@/components/ChatConfigDropdown";

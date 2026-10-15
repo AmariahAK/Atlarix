@@ -164,7 +164,8 @@ const validInvokeChannels = [
   "mcp:set-tool-consent",
   "mcp:add-pasted",
   "mcp:limit",
-  "mcp:verified-status",
+  "mcp:defaults",
+  "mcp:set-default",
   // MCP marketplace (official MCP Registry, cached in main)
   "mcp-catalog:search",
   "mcp-catalog:icon",

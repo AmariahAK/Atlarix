@@ -13,11 +13,12 @@ import { McpServerIcon } from "@/components/settings/McpServerIcon";
 import { useMcpAddFlow } from "@/components/settings/useMcpAddFlow";
 
 /**
- * The Verified MCP servers in the composer's config menu (owner): each one's
- * logo, and a switch when it is added or Connect when it isn't — the same add
- * and sign-in as the marketplace, without leaving the chat.
+ * The user's default MCP servers in the composer's config menu (the Verified
+ * five until changed): each one's logo, and a switch when it is added or
+ * Connect when it isn't — the same add and sign-in as the marketplace, without
+ * leaving the chat.
  */
-export function VerifiedMcpMenuSection() {
+export function DefaultMcpMenuSection() {
   const { t } = useTranslation("settings");
   const appId = useAtomValue(selectedAppIdAtom);
   const ipc = IpcClient.getInstance();
@@ -26,8 +27,8 @@ export function VerifiedMcpMenuSection() {
   const [busy, setBusy] = useState<string | null>(null);
   const { finish, dialog } = useMcpAddFlow(appId ?? 0);
   const { data } = useQuery({
-    queryKey: ["mcp", "verified", appId ?? null],
-    queryFn: () => ipc.getVerifiedMcpStatus(appId ?? null),
+    queryKey: ["mcp", "defaults", appId ?? null],
+    queryFn: () => ipc.getDefaultMcpServers(appId ?? null),
   });
 
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ["mcp"] });
@@ -48,7 +49,12 @@ export function VerifiedMcpMenuSection() {
     act(s.name, async () => {
       if (s.state === "not-added") {
         if (appId == null) throw new Error(t("mcp.openFolder"));
-        const added = await ipc.installMcpFromCatalog({ appId, name: s.name, optionId: "remote:0" });
+        // One that asks for values (a key, a path) is added where those are asked.
+        if (!s.optionId || s.needsInputs) {
+          void navigate({ to: "/integrations/mcp" });
+          return;
+        }
+        const added = await ipc.installMcpFromCatalog({ appId, name: s.name, optionId: s.optionId });
         await finish([added]);
       } else if (s.state === "needs-sign-in" && s.where === "account") {
         await ipc.signInAccountMcp({ id: String(s.id), appId });
