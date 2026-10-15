@@ -796,6 +796,13 @@ export function collapseCancelled(
       out.pop();
       if (interrupted.has(String(prev.id))) interrupted.add(String(m.id));
     }
+    // Stopped before any output: the record is the mark alone, which draws
+    // nothing. The "Interrupted" note goes under your message instead (QA
+    // 15.7.1 #2, a reopened chat showed the stopped prompt with nothing under it).
+    if (m.role === "assistant" && m.content.includes(CANCEL_MARK) && !body.trim() && out.at(-1)?.role === "user") {
+      interrupted.add(String(out.at(-1)!.id));
+      continue;
+    }
     out.push(body === m.content ? m : { ...m, content: body });
   }
   return out;
