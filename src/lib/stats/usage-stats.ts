@@ -318,7 +318,12 @@ export async function getActivityStats(
     )
     .all() as Array<{ day: string; n: number }>;
   for (const h of history) {
-    if (recordedSince && h.day >= recordedSince) continue;
+    if (recordedSince && h.day > recordedSince) continue;
+    // The upgrade day: chats before the rollup began count too (QA 15.7.1).
+    if (h.day === recordedSince) {
+      turnsByDay.set(h.day, Math.max(turnsByDay.get(h.day) ?? 0, h.n));
+      continue;
+    }
     turnsByDay.set(h.day, (turnsByDay.get(h.day) ?? 0) + h.n);
   }
   const activeDays = new Set(

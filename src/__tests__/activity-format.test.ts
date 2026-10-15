@@ -94,6 +94,15 @@ describe("the calendar as text", () => {
     expect([col(2), col(3), col(4), col(5)]).toEqual(["▒", "▓", "░", " "]);
   });
 
+  it("keeps a space between month names", () => {
+    const head = F.calendarRows({
+      weeks: Array.from({ length: 6 }, () => []),
+      monthLabels: ["Oct", null, null, "Nov", null, "Dec"],
+    })[0]!;
+    expect(head).not.toMatch(/OctNov|NovDec/);
+    expect(head.trim().startsWith("Oct")).toBe(true);
+  });
+
   it("can be trimmed to fit (the editors show half a year)", () => {
     expect(F.calendarRows(stats(), 26)[1]!.length).toBe(3 + 26);
   });

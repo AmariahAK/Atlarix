@@ -59,7 +59,8 @@ export function calendarRows(
   const gutter = 3;
   let months = " ".repeat(gutter);
   labels.forEach((m, i) => {
-    if (m && months.length <= gutter + i)
+    // A space between names: a partial first month ran into the next ("OctNov").
+    if (m && (months.length === gutter || months.length < gutter + i))
       months = months.padEnd(gutter + i) + m;
   });
   const rows = WEEKDAY_ROWS.map(
