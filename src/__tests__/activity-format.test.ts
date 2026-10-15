@@ -96,11 +96,12 @@ describe("the calendar as text", () => {
 
   it("keeps a space between month names", () => {
     const head = F.calendarRows({
-      weeks: Array.from({ length: 6 }, () => []),
-      monthLabels: ["Oct", null, null, "Nov", null, "Dec"],
+      weeks: Array.from({ length: 7 }, () => []),
+      monthLabels: ["Oct", null, "Nov", null, null, null, "Dec"],
     })[0]!;
     expect(head).not.toMatch(/OctNov|NovDec/);
-    expect(head.trim().startsWith("Oct")).toBe(true);
+    // The partial first month gives way; every full month keeps its name.
+    expect(head.trim()).toBe("Nov Dec");
   });
 
   it("can be trimmed to fit (the editors show half a year)", () => {

@@ -59,8 +59,12 @@ export function calendarRows(
   const gutter = 3;
   let months = " ".repeat(gutter);
   labels.forEach((m, i) => {
-    // A space between names: a partial first month ran into the next ("OctNov").
-    if (m && (months.length === gutter || months.length < gutter + i))
+    if (!m) return;
+    // A name that would run into the next month's gives way to it: the partial
+    // first month, not the month after it ("OctNov", then "Oct     Dec").
+    const next = labels.findIndex((x, j) => j > i && !!x);
+    if (next !== -1 && next - i <= m.length) return;
+    if (months.length === gutter || months.length < gutter + i)
       months = months.padEnd(gutter + i) + m;
   });
   const rows = WEEKDAY_ROWS.map(
