@@ -28,8 +28,16 @@ beforeEach(() => {
   });
 });
 
+/** The account's connectors as /mcp/list returns them. */
+const LIST = {
+  ok: true,
+  servers: [{ name: "Linear", tools: [{ name: "create_issue" }, { name: "list_issues" }] }],
+};
+const calls = () => proxy.mock.calls.filter((c) => c[0] === "/mcp/call");
+
 describe("mcp_call asks first", () => {
-  it("asks, and sends nothing, on the first dispatch", async () => {
+  it("asks, and calls nothing, on the first dispatch", async () => {
+    proxy.mockResolvedValueOnce(LIST);
     const out = await mcpCall(args);
     expect(out.needsApproval).toEqual({
       kind: "action",
@@ -37,7 +45,26 @@ describe("mcp_call asks first", () => {
       category: "connector",
       summary: "Run create_issue on Linear?",
     });
-    expect(proxy).not.toHaveBeenCalled();
+    expect(calls()).toHaveLength(0);
+  });
+
+  // QA 15.7.1 #16: the model guessed "ask_deepwiki", the user approved, and the
+  // call failed with "Unknown tool". A yes is only asked for a call that can run.
+  it("doesn't ask for a tool the connector doesn't have", async () => {
+    proxy.mockResolvedValueOnce(LIST);
+    const out = await mcpCall({ server: "linear", tool: "make_issue" });
+    expect(out.needsApproval).toBeUndefined();
+    expect(out.content).toContain("Linear has no tool make_issue");
+    expect(out.content).toContain("create_issue, list_issues");
+    expect(calls()).toHaveLength(0);
+  });
+
+  it("still asks when the list can't tell (unreadable, or a name it doesn't show)", async () => {
+    proxy.mockRejectedValueOnce(new Error("down"));
+    expect((await mcpCall(args)).needsApproval).toBeDefined();
+    proxy.mockResolvedValueOnce(LIST);
+    expect((await mcpCall({ server: "linear-slug", tool: "x" })).needsApproval).toBeDefined();
+    expect(calls()).toHaveLength(0);
   });
 
   it("makes the call once the user approved it", async () => {

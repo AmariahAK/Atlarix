@@ -21,7 +21,8 @@ Choose the MCP servers every workspace offers: star a server in the marketplace 
 it shows up, ready to connect, in the chat menu of every workspace, new ones included.
 
 In the Chrome extension, Atlarix now asks before every call to a connected service, so a web page
-can never get the agent to act on your accounts without your yes.
+can never get the agent to act on your accounts without your yes. It only asks for a call that can
+run: a tool the service doesn't have is sent back to the agent first.
 
 **Your activity.** See how you use Atlarix on this computer: lifetime tokens, your busiest day and
 longest chat, streaks, a year-long activity calendar, your favourite models and modes, and the

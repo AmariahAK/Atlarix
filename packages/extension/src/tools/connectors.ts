@@ -114,6 +114,31 @@ export async function listAvailableMcps(): Promise<ToolOutcome> {
   };
 }
 
+/**
+ * A tool the named connector doesn't list, said without asking the user: the
+ * model guessed "ask_deepwiki", the user approved, and the call failed with
+ * "Unknown tool" (QA 15.7.1 #16). Null whenever the list can't tell — it can't
+ * be read, the connector isn't shown under that name (the proxy also takes its
+ * slug), or it shows no tools (off, or failing) — and the call is asked as usual.
+ */
+async function missingTool(server: string, tool: string): Promise<ToolOutcome | null> {
+  let body: { ok?: boolean; servers?: ListedServer[] };
+  try {
+    body = await coreProxyFetch("/mcp/list", {});
+  } catch {
+    return null;
+  }
+  const s = body.servers?.find((x) => x.name.toLowerCase() === server.toLowerCase());
+  if (!s || s.inactive || s.error || s.tools.length === 0) return null;
+  if (s.tools.some((t) => t.name === tool)) return null;
+  return {
+    content:
+      `${s.name} has no tool ${tool}. Its tools: ${s.tools.map((t) => t.name).join(", ")}. ` +
+      `Call list_available_mcps for their arguments, then call the right one.`,
+    label: `No ${tool} on ${s.name}`,
+  };
+}
+
 export async function mcpCall(
   args: Record<string, unknown>,
   ctx: Pick<ToolContext, "approvedRetry"> = {},
@@ -133,6 +158,8 @@ export async function mcpCall(
   // surface reads pages anyone can write: a page that talks the model into a
   // call must still get past the user. Listing stays free; it contacts nothing.
   if (!ctx.approvedRetry) {
+    const missing = await missingTool(server, tool);
+    if (missing) return missing;
     return {
       content: `Waiting for the user to approve: ${tool} on ${server}.`,
       needsApproval: {
