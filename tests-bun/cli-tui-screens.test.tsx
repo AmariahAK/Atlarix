@@ -168,6 +168,8 @@ function fakeServices(calls: Call[]): CliServices {
           servers.splice(servers.findIndex((x) => x.id === id), 1);
         },
         found: async () => [],
+        // The user's defaults: Linear isn't added here.
+        defaults: async () => [{ name: "app.linear/linear", title: "Linear", state: "not-added" }],
         account: async () => null,
         // "Add your own": a URL here becomes a server named for its host.
         paste: async (appId: number, text: string) => {
@@ -745,6 +747,18 @@ describe("command screens", () => {
     expect(await until(() => serviceCalls.some((c) => c[0] === "mcp.install"))).toBe(true);
     expect(serviceCalls.find((c) => c[0] === "mcp.install")!.slice(2)).toEqual(["app.linear/linear", "remote:0"]);
     expect(await frameContaining(setup, "Linear added")).toBeTruthy();
+  });
+
+  it("/mcp: a default that isn't added here is listed; enter opens the marketplace on it", async () => {
+    const { setup, serviceCalls } = await mount();
+    await command(setup, "/mcp");
+    const frame = await frameContaining(setup, "your default");
+    expect(frame).toContain("Linear");
+    // github (on this computer) is first; the default comes after it.
+    setup.mockInput.pressArrow("down");
+    setup.mockInput.pressEnter();
+    await frameContaining(setup, "MCP marketplace");
+    expect(await until(() => serviceCalls.some((c) => c[0] === "mcp.catalog" && c[1] === "Linear"))).toBe(true);
   });
 
   it("/chrome says it's connected; /connect lists it under Tools", async () => {

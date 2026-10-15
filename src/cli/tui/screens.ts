@@ -1345,6 +1345,8 @@ export function openMcp(ctx: ScreenContext): void {
             : { text: "○ off", tone: "muted" as const },
         keywords: s.needsSignIn ? "signin" : s.enabled ? "on" : "off",
       }));
+      // The user's defaults not added here: enter opens the marketplace on one.
+      const defaults = (await ctx.services.mcp.defaults(ctx.session.appId).catch(() => [])).filter((d) => d.state === "not-added");
       // Servers set up in other tools on this computer: enter adds one.
       let found: Awaited<ReturnType<typeof ctx.services.mcp.found>> = [];
       try {
@@ -1355,6 +1357,13 @@ export function openMcp(ctx: ScreenContext): void {
       return [
         ...onAccount,
         ...mine,
+        ...defaults.map((d) => ({
+          id: `default:${d.name}`,
+          label: d.title,
+          detail: "your default · not added here",
+          right: { text: "enter adds", tone: "muted" as const },
+          keywords: "default",
+        })),
         ...found.map((f) => ({
           id: `found:${f.key}`,
           label: f.name,
@@ -1365,6 +1374,7 @@ export function openMcp(ctx: ScreenContext): void {
       ];
     },
     onChoose: async (item) => {
+      if (item.id.startsWith("default:")) return void openMcpBrowse(ctx, () => void dialog.reload(), item.label);
       if (item.id.startsWith("found:")) {
         await ctx.services.mcp.importFound(ctx.session.appId, item.id.slice("found:".length));
         await dialog.reload();

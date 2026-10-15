@@ -446,6 +446,8 @@ export function buildAgentApp(
             return { tools: await mcp.tools(id).catch(() => []) };
           case "found":
             return { found: await mcp.found(appId).catch(() => []) };
+          case "defaults":
+            return { defaults: await mcp.defaults(appId).catch(() => []) };
           case "import":
             await mcp.importFound(appId, String((p as { key?: string }).key ?? ""));
             return { servers: await mcp.list(appId) };

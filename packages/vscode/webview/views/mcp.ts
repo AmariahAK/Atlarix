@@ -79,8 +79,9 @@ export async function renderMcp(page: HTMLElement, nav: Nav): Promise<void> {
   const accountSlot = el("div", "");
   const formSlot = el("div", "");
   const foundSlot = el("div", "");
+  const defaultsSlot = el("div", "");
   const notice = el("div", "muted small hidden");
-  body.append(formSlot, notice, accountSlot, list, foundSlot);
+  body.append(formSlot, notice, accountSlot, list, defaultsSlot, foundSlot);
   page.append(body);
   const say = (text: string, bad = false) => {
     notice.textContent = text;
@@ -113,7 +114,27 @@ export async function renderMcp(page: HTMLElement, nav: Nav): Promise<void> {
     draw();
     for (const s of servers) if (s.enabled) void test(s);
     void drawAccount();
+    void drawDefaults();
     void drawFound();
+  };
+
+  /** The user's defaults not added here: Add opens the marketplace on that server. */
+  const drawDefaults = async () => {
+    const r = await call<{ defaults?: Array<{ name: string; title: string; state: string }> }>("defaults").catch(() => ({ defaults: [] }));
+    defaultsSlot.textContent = "";
+    const missing = (r.defaults ?? []).filter((d) => d.state === "not-added");
+    if (!missing.length) return;
+    defaultsSlot.append(el("div", "eyebrow", "YOUR DEFAULTS"));
+    const box = el("div", "card-plain list");
+    for (const d of missing) {
+      const row = el("div", "setting");
+      row.append(mcpIcon({ name: d.name }, d.title, 28));
+      const t = el("div", "col grow");
+      t.append(el("strong", "", d.title), el("span", "muted small", "Not added here"));
+      row.append(t, button("Add", "small", () => showBrowse(d.title)));
+      box.append(row);
+    }
+    defaultsSlot.append(box);
   };
 
   /** After an add: start a sign-in, ask for a missing key, or say it worked. */
@@ -213,11 +234,12 @@ export async function renderMcp(page: HTMLElement, nav: Nav): Promise<void> {
   };
 
   /** The marketplace, searched in Atlarix's cached copy of the registry. */
-  const showBrowse = () => {
+  const showBrowse = (query = "") => {
     formSlot.textContent = "";
     const box = el("div", "inline-form");
     const search = el("input", "field");
     search.placeholder = "Search MCP servers";
+    search.value = query;
     const results = el("div", "list");
     const head = el("div", "row gap");
     head.append(search, button("Close", "small", () => (formSlot.textContent = "")));
