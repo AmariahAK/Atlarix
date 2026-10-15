@@ -12,6 +12,10 @@ installed, the chat says Revert is off, instead of never offering it; and the Re
 a fresh look at what it will keep each time it opens. Automations: the form says what's missing
 before Create, and a Run now is labelled as yours, not as a scheduled run.
 
+Free Atlarix Auto can now also answer from free models through OpenRouter and Requesty, as well
+as OpenAI, so there's more of it to go round. Because that shares your prompts with those
+services too, Atlarix asks you once more before you use free Auto, with the new wording.
+
 ## [15.7.0] (2026-10-14) — MCP servers from the official MCP Registry, on every surface
 
 **The marketplace is the official MCP Registry, with five Verified servers on top.** Settings → MCP
