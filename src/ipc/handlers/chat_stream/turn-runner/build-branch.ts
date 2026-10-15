@@ -8,6 +8,7 @@
  * (Satellite: never imports the parent handler.)
  */
 
+import { rememberWritePrevious } from "@/lib/chat/write-previous";
 import type { IpcMainInvokeEvent } from "electron";
 import { recordFileWrite, resolveReadScope } from "@/lib/tools/file-read-log";
 import type { ModelMessage } from "ai";
@@ -829,6 +830,11 @@ export async function runBuildBranch(
                 // line COUNTS so the collapsed summary stays accurate without
                 // costing transcript tokens.
                 const isFileWrite = permRequest.operation === "edit_file";
+                // What the file held, for the finished card only (the model
+                // gets the counts below, never the text).
+                if (isFileWrite && typeof execResult.oldContent === "string") {
+                  rememberWritePrevious(toolCallId, execResult.oldContent);
+                }
                 const displayFields: Record<string, unknown> = isFileWrite
                   ? (() => {
                       const oldC =
