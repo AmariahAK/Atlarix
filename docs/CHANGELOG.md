@@ -21,6 +21,11 @@ it shows up, ready to connect, in the chat menu of every workspace, new ones inc
 In the Chrome extension, Atlarix now asks before every call to a connected service, so a web page
 can never get the agent to act on your accounts without your yes.
 
+**Your activity.** See how you use Atlarix on this computer: lifetime tokens, your busiest day and
+longest chat, streaks, a year-long activity calendar, your favourite models and modes, and the
+skills and MCP servers you use most. On the Account page in the app, in VS Code's Account panel,
+and as `/stats` in the CLI and any ACP editor. It's stored only on this computer.
+
 ## [15.7.0] (2026-10-14) — MCP servers from the official MCP Registry, on every surface
 
 **The marketplace is the official MCP Registry, with five Verified servers on top.** Settings → MCP

@@ -98,6 +98,8 @@ import type { ConnectorView } from "@/lib/mcp/account-connectors";
 import type { CatalogEntry } from "@/shared/mcp-catalog";
 
 export interface CliServices {
+  /** Your activity on this computer (/stats). */
+  stats(): Promise<import("@/lib/stats/usage-stats").ActivityStats>;
   automations: {
     list(appId: number | null): Promise<AutomationSummary[]>;
     runs(appId: number): Promise<AutomationRun[]>;
@@ -274,6 +276,8 @@ async function call<T>(channel: string, ...args: unknown[]): Promise<T> {
 }
 
 export const realServices: CliServices = {
+  /** Your activity on this computer: read straight from the shared database. */
+  stats: async () => (await import("@/lib/stats/usage-stats")).getActivityStats(),
   automations: {
     async list(appId) {
       if (appId != null) {

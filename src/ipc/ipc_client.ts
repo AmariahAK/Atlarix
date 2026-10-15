@@ -4040,6 +4040,11 @@ export class IpcClient {
     return this.ipcRenderer.invoke("edit-stats:summary");
   }
 
+  /** Your activity on this computer (the stats page). */
+  public async getActivityStats(): Promise<import("@/lib/stats/usage-stats").ActivityStats> {
+    return this.ipcRenderer.invoke("usage:activity");
+  }
+
   /** One line on where a chat stands, for someone coming back to it (lib/recap). */
   public async generateRecap(chatId: number, conversation: string, force = false): Promise<{ text: string | null }> {
     return this.ipcRenderer.invoke("recap:generate", chatId, conversation, force);

@@ -155,6 +155,8 @@ import {
 } from "../../lib/work-mode";
 import { getToolActivityLabel } from "../../lib/tool-activity-labels";
 import { awaitWithTimeout, isTextFile } from "./chat_stream/stream-misc";
+import { dispatchedModelIdentity, resolveEditStatsModel } from "../../lib/stats/edit-stats";
+import { recordTurnUsageSafely } from "../../lib/stats/usage-stats";
 import {
   activeStreams,
   activeStreamRuns,
@@ -2431,6 +2433,15 @@ export function registerChatStreamHandlers() {
               usedCompassThisStream,
               userPrompt,
               abortController,
+            });
+            // Your activity (the stats page): a finished turn, on this computer.
+            recordTurnUsageSafely({
+              model: resolveEditStatsModel(effectiveModel, modelClient ? dispatchedModelIdentity(modelClient) : null),
+              mode: lastTurnModeByChat.get(req.chatId) ?? "build",
+              deep: !!settings.deepThinking,
+              inputTokens: ctx.turnInputTokens,
+              outputTokens: ctx.turnOutputTokens,
+              messages: ctx.nativeTurnMessages,
             });
           }
 

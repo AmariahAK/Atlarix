@@ -72,6 +72,7 @@ import {
   openResume,
   openRewind,
   openStatus,
+  openStats,
   type PendingEdit,
   runCompact,
   runExport,
@@ -1127,6 +1128,8 @@ export function App({
         return openBilling(ctx);
       case "/status":
         return openStatus(ctx);
+      case "/stats":
+        return openStats(ctx);
       case "/login":
         return guard(openLogin(ctx));
       case "/logout":

@@ -229,6 +229,29 @@ function fakeServices(calls: Call[]): CliServices {
         __unset: () => void (consent = "unset"),
       };
     })(),
+    stats: async () => ({
+      since: "2026-09-01",
+      recordedSince: "2026-10-15",
+      lifetimeTokens: 472_400_000,
+      peakDay: { day: "2026-10-14", tokens: 68_700_000 },
+      longestChat: { title: "Fix login", minutes: 84 },
+      currentStreak: 3,
+      longestStreak: 5,
+      totalChats: 96,
+      totalTurns: 1234,
+      weeks: Array.from({ length: 53 }, (_, w) =>
+        Array.from({ length: 7 }, (_, d) => ({ day: `w${w}d${d}`, turns: w === 52 ? d : 0, level: (w === 52 ? Math.min(4, d) : 0) as 0 | 1 | 2 | 3 | 4, inRange: true })),
+      ),
+      monthLabels: Array.from({ length: 53 }, (_, w) => (w === 40 ? "Oct" : null)),
+      models: [{ provider: "compass", modelId: "openai/gpt-5.4-mini", turns: 10, share: 93 }],
+      modes: [{ mode: "build", share: 100 }],
+      deepShare: 0,
+      surfaces: [{ surface: "cli" as const, turns: 10 }],
+      skills: [{ name: "release", runs: 7 }],
+      mcp: [{ name: "deepwiki", runs: 4 }],
+      linesWritten: 0,
+      asOf: "2026-10-15",
+    }),
     account: {
       email: async () => "dev@example.com",
       balanceCents: async () => 1250,
@@ -781,6 +804,18 @@ describe("command screens", () => {
     setup.mockInput.pressEnter();
     await frameContaining(setup, "MCP marketplace");
     expect(await until(() => serviceCalls.some((c) => c[0] === "mcp.catalog" && c[1] === "Linear"))).toBe(true);
+  });
+
+  it("/stats draws your activity: the numbers, the calendar, then models, skills and MCP", async () => {
+    const { setup } = await mount();
+    await command(setup, "/stats");
+    const frame = await frameContaining(setup, "Lifetime tokens");
+    expect(frame).toContain("Your activity");
+    expect(frame).toContain("472.4M");
+    expect(frame).toContain("1h 24m");
+    expect(frame).toContain("Su ");
+    expect(frame).toContain("Less · ░ ▒ ▓ █ More");
+    expect(await frameContaining(setup, "Favourite models")).toBeTruthy();
   });
 
   it("/chrome says it's connected; /connect lists it under Tools", async () => {

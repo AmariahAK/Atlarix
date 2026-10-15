@@ -7,6 +7,7 @@
 import { keptFilesLine } from "@/lib/chat/kept-files-line";
 import fs from "node:fs";
 import { AUTO_CONSENT_TERMS, CORE_PAYMENT_SUMMARY, formatCents } from "@/shared/billing_copy";
+import { activityFootnote, activitySections, activityTiles, calendarRows } from "@/lib/stats/activity-format";
 import os from "node:os";
 import path from "node:path";
 import type { AgentSession, PendingQuestion } from "../agent/session";
@@ -2038,6 +2039,32 @@ export async function statusLines(ctx: ScreenContext): Promise<Line[]> {
 
 export function openStatus(ctx: ScreenContext): void {
   ctx.host.push(new TextDialog({ title: "Status", lines: () => statusLines(ctx) }));
+}
+
+// ─── /stats ──────────────────────────────────────────────────────────────────
+
+/** Your activity on this computer, as the terminal draws it (lib/stats/activity-format). */
+export function statsLines(s: import("@/lib/stats/usage-stats").ActivityStats): Line[] {
+  if (!s.since) return [{ text: "Nothing yet. Your first chat starts the count.", tone: "muted" }];
+  const tiles = activityTiles(s);
+  const width = 16;
+  const lines: Line[] = [
+    { text: tiles.map((t) => t.value.padEnd(width)).join("").trimEnd(), bold: true },
+    { text: tiles.map((t) => t.label.padEnd(width)).join("").trimEnd(), tone: "muted" },
+    { text: "" },
+    { text: "Activity · last 12 months", bold: true },
+    ...calendarRows(s).map((text, i, all) => ({ text, tone: i === 0 || i === all.length - 1 ? ("muted" as const) : ("accent" as const) })),
+  ];
+  for (const section of activitySections(s)) {
+    lines.push({ text: "" }, { text: section.title, bold: true });
+    for (const r of section.rows) lines.push({ text: `  ${r.label.length > 34 ? `${r.label.slice(0, 33)}…` : r.label.padEnd(34)}  ${r.value}` });
+  }
+  lines.push({ text: "" }, { text: activityFootnote(s), tone: "muted" });
+  return lines;
+}
+
+export function openStats(ctx: ScreenContext): void {
+  ctx.host.push(new TextDialog({ title: "Your activity", wide: true, lines: async () => statsLines(await ctx.services.stats()) }));
 }
 
 // ─── /export, /import ────────────────────────────────────────────────────────

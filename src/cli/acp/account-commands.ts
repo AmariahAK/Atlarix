@@ -92,6 +92,10 @@ export async function accountCommandText(
   }
   if (!email) return "You're not signed in to Atlarix. Run `atlarix login` in a terminal, then try again.";
   const [kind, balance] = await Promise.all([a.kind?.().catch(() => null) ?? null, a.balanceCents().catch(() => null)]);
+  if (cmd === "stats") {
+    const { statsMarkdown } = await import("@/lib/stats/activity-format");
+    return statsMarkdown(await realServices.stats());
+  }
   if (cmd === "billing") {
     const lines = ["**Atlarix billing**", "", `Plan: ${PLAN[kind ?? ""] ?? "unknown"} · Credit: ${money(balance)}`, ""];
     if (kind !== "pro") {
