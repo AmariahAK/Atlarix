@@ -3,6 +3,48 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [15.7.1] (2026-10-15) — your activity, MCP defaults, more free Auto, and fixes
+
+A stopped reply stays saved as stopped, in every mode, so after you reopen the chat the next
+message (yours or a contributor's) is answered and the stopped request isn't re-run. An edited
+file's card shows the real change even when the model sends an empty file field. Without Git
+installed, the chat says Revert is off, instead of never offering it; and the Revert dialog takes
+a fresh look at what it will keep each time it opens. Automations: the form says what's missing
+before Create, and a Run now is labelled as yours, not as a scheduled run.
+
+There's more free Atlarix Auto to go round: it can now answer from more free models. Because that
+shares your prompts with more providers, Atlarix asks you once more before you use free Auto. The
+ask is two short lines now, and VS Code, Zed and JetBrains can give it too (before, a free user
+there was told to accept something that wasn't on screen).
+
+Choose the MCP servers every workspace offers: star a server in the marketplace (or ask the AI) and
+it shows up, ready to connect, in the chat menu of every workspace, new ones included.
+
+In the Chrome extension, Atlarix now asks before every call to a connected service, so a web page
+can never get the agent to act on your accounts without your yes. It only asks for a call that can
+run: a tool the service doesn't have is sent back to the agent first.
+
+**Your activity.** See how you use Atlarix on this computer: lifetime tokens, your busiest day and
+longest chat, streaks, a year-long activity calendar, your favourite models and modes, and the
+skills and MCP servers you use most. On the Account page in the app, in VS Code's Account panel,
+and as `/stats` in the CLI and any ACP editor. It's stored only on this computer.
+
+Also fixed: stopping a reply before it starts no longer saves the previous reply in its place, and
+a stopped reply is marked as stopped (with Continue) right away, not only after you reopen the
+chat, and a stopped reply stays stopped after you quit (the CLI's `-c` marks it too, and it isn't
+re-run); switching workspace from the ⌘K search opens that workspace's own chat, so your next message
+goes where the header says (and a workspace never opened in the app no longer hangs on "Loading
+workspace…"); search results show a chat's words, not its tool markup; chats on free Auto get
+proper titles; Connect on an MCP server that needs a key opens its marketplace entry; removing a server that's
+on all your devices asks first; a whole-file rewrite's card in the CLI and your editor counts the
+lines it replaced; the agent
+finds files in folders like `.atlarix/` when asked for them; and after "Not now" in an editor,
+sending again asks again.
+
+Known issue: if an older Atlarix (15.7.0) runs on the same computer after this one, for example
+the VS Code extension before it updates, it can reset your MCP defaults and ask for free Auto's
+consent once more. From this version on, settings from newer versions are kept.
+
 ## [15.7.0] (2026-10-14) — MCP servers from the official MCP Registry, on every surface
 
 **The marketplace is the official MCP Registry, with five Verified servers on top.** Settings → MCP

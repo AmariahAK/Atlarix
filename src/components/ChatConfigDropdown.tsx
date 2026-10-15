@@ -8,10 +8,13 @@
  * Pass 7: Blueprint-in-prompt tier override removed with the Blueprint subsystem.
  * v12.7: MCP entry removed — MCP management lives in Settings → MCP Servers.
  * 15.7: the Verified MCP servers are back here, to connect or switch one (owner).
+ * 15.7.1: they are the user's defaults now (the Verified five until changed).
  * 2026-09-21: model section removed — see the note at the menu body.
  */
 
 import { useSettings } from "@/hooks/useSettings";
+import { useCreditBalance } from "@/hooks/useCreditBalance";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   COMPASS_PROVIDER_ID,
@@ -29,7 +32,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { SlidersHorizontal, Brain, Mic } from "lucide-react";
-import { VerifiedMcpMenuSection } from "@/components/VerifiedMcpMenuSection";
+import { DefaultMcpMenuSection } from "@/components/DefaultMcpMenuSection";
 import {
   Tooltip,
   TooltipContent,
@@ -77,6 +80,8 @@ export function ChatConfigDropdown() {
   // (`useVoiceCapability`), which needs nothing to pick.
   const { data: voiceProviders } = useTranscriptionProviders();
   const VOICE_PROVIDERS = voiceProviders ?? [];
+  const [menuOpen, setMenuOpen] = useState(false);
+  const { balanceCents } = useCreditBalance();
   // `"local"` is a setting for an engine that no longer exists — treat it as unset
   // rather than leaving a checkmark on a row that is not there.
   const stored = settings?.voiceTranscriptionProvider;
@@ -86,7 +91,7 @@ export function ChatConfigDropdown() {
     VOICE_PROVIDERS[0]?.id;
 
   return (
-    <DropdownMenu>
+    <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
       <Tooltip>
         <TooltipTrigger asChild>
           <DropdownMenuTrigger asChild>
@@ -147,7 +152,10 @@ export function ChatConfigDropdown() {
               </DropdownMenuCheckboxItem>
               {onAuto ? (
                 <p className="px-2 pb-1 pt-0.5 text-[10px] leading-snug text-muted-foreground">
-                  {t("atlarixAuto.deepThinkingHint")}
+                  {/* Free Auto has no stronger models to move to, and costs nothing. */}
+                  {balanceCents === 0
+                    ? t("atlarixAuto.deepThinkingHintFree")
+                    : t("atlarixAuto.deepThinkingHint")}
                 </p>
               ) : (
                 <p className="px-2 pb-1 pt-0.5 text-[10px] leading-snug text-muted-foreground">
@@ -190,9 +198,9 @@ export function ChatConfigDropdown() {
               </p>
             </>
           ) : null}
-          {/* The Verified MCP servers: connect or switch one without leaving the chat. */}
+          {/* The user's default MCP servers: connect or switch one without leaving the chat. */}
           {reasoningCapable || VOICE_PROVIDERS.length > 0 ? <DropdownMenuSeparator /> : null}
-          <VerifiedMcpMenuSection />
+          <DefaultMcpMenuSection onLeave={() => setMenuOpen(false)} />
         </div>
       </DropdownMenuContent>
     </DropdownMenu>

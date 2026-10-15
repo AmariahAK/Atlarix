@@ -19,6 +19,9 @@ import { App } from "../src/cli/tui/App";
 
 type Call = [string, ...unknown[]];
 
+/** Whether the next session's once-more consent ask is due (a test sets it before mount). */
+let reaskNext = false;
+
 class FakeSession extends EventEmitter {
   workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "cli-screens-ws-"));
   appId = 7;
@@ -86,6 +89,7 @@ class FakeSession extends EventEmitter {
   async answerMcpConsent(d: string) { if (!this.state.mcpConsent) return; this.rec("answerMcpConsent", d); this.set({ mcpConsent: null }); }
   dismissQuestion() { this.rec("dismissQuestion"); this.set({ question: null }); }
   async acceptAutoConsent() { this.rec("acceptAutoConsent"); }
+  async takeAutoConsentReask() { const due = reaskNext; reaskNext = false; this.rec("takeAutoConsentReask"); return due; }
   async subagentJobs() { return []; }
   async subagentOutput() { return ""; }
   async cancelSubagent() {}
@@ -168,6 +172,8 @@ function fakeServices(calls: Call[]): CliServices {
           servers.splice(servers.findIndex((x) => x.id === id), 1);
         },
         found: async () => [],
+        // The user's defaults: Linear isn't added here.
+        defaults: async () => [{ name: "app.linear/linear", title: "Linear", state: "not-added" }],
         account: async () => null,
         // "Add your own": a URL here becomes a server named for its host.
         paste: async (appId: number, text: string) => {
@@ -223,6 +229,29 @@ function fakeServices(calls: Call[]): CliServices {
         __unset: () => void (consent = "unset"),
       };
     })(),
+    stats: async () => ({
+      since: "2026-09-01",
+      recordedSince: "2026-10-15",
+      lifetimeTokens: 472_400_000,
+      peakDay: { day: "2026-10-14", tokens: 68_700_000 },
+      longestChat: { title: "Fix login", minutes: 84 },
+      currentStreak: 3,
+      longestStreak: 5,
+      totalChats: 96,
+      totalTurns: 1234,
+      weeks: Array.from({ length: 53 }, (_, w) =>
+        Array.from({ length: 7 }, (_, d) => ({ day: `w${w}d${d}`, turns: w === 52 ? d : 0, level: (w === 52 ? Math.min(4, d) : 0) as 0 | 1 | 2 | 3 | 4, inRange: true })),
+      ),
+      monthLabels: Array.from({ length: 53 }, (_, w) => (w === 40 ? "Oct" : null)),
+      models: [{ provider: "compass", modelId: "openai/gpt-5.4-mini", turns: 10, share: 93 }],
+      modes: [{ mode: "build", share: 100 }],
+      deepShare: 0,
+      surfaces: [{ surface: "cli" as const, turns: 10 }],
+      skills: [{ name: "release", runs: 7 }],
+      mcp: [{ name: "deepwiki", runs: 4 }],
+      linesWritten: 0,
+      asOf: "2026-10-15",
+    }),
     account: {
       email: async () => "dev@example.com",
       balanceCents: async () => 1250,
@@ -538,12 +567,30 @@ describe("command screens", () => {
     expect(session.calls.find((c) => c[0] === "buildPlan")).toEqual(["buildPlan", "p1"]);
   });
 
-  it("free Auto's consent: accepting it sends the message again", async () => {
+  it("free Auto's consent: an Enter typed for the composer is never a yes; choosing it sends the message again", async () => {
     const { setup, session } = await mount();
-    session.set({ lastError: "Atlarix Auto is free once you OK sharing its prompts with OpenAI to improve their models." });
-    expect(await frameContaining(setup, "Use Atlarix Auto for free?")).toContain("shared with OpenAI");
+    const ask = "Atlarix Auto is free once you OK sharing its prompts with the AI providers that serve it, to improve their models.";
+    session.set({ lastError: ask });
+    expect(await frameContaining(setup, "Use Atlarix Auto for free?")).toContain("your prompts are shared with the AI providers");
+    // The dialog opens over the composer while the user may still be typing (QA 15.7.1 #7).
+    setup.mockInput.pressEnter();
+    expect(await until(() => !setup.captureCharFrame().includes("Use Atlarix Auto for free?"))).toBe(true);
+    expect(session.calls.some((c) => c[0] === "acceptAutoConsent")).toBe(false);
+    // The next refused send asks again.
+    session.set({ lastError: `${ask} ` });
+    await frameContaining(setup, "Use Atlarix Auto for free?");
+    setup.mockInput.pressArrow("down");
     setup.mockInput.pressEnter();
     expect(await until(() => session.calls.some((c) => c[0] === "acceptAutoConsent"))).toBe(true);
+  }, 20_000);
+
+  it("free Auto's consent: a yes to the old wording is asked once more on a free account", async () => {
+    reaskNext = true;
+    const { setup, session } = await mount((s) => {
+      (s.account as Record<string, unknown>).kind = async () => "free";
+    });
+    expect(await frameContaining(setup, "Use Atlarix Auto for free?")).toContain("OpenRouter and Requesty");
+    expect(session.calls.some((c) => c[0] === "takeAutoConsentReask")).toBe(true);
   });
 
   it("/automations lists them, toggles one, and makes a new one step by step", async () => {
@@ -745,6 +792,30 @@ describe("command screens", () => {
     expect(await until(() => serviceCalls.some((c) => c[0] === "mcp.install"))).toBe(true);
     expect(serviceCalls.find((c) => c[0] === "mcp.install")!.slice(2)).toEqual(["app.linear/linear", "remote:0"]);
     expect(await frameContaining(setup, "Linear added")).toBeTruthy();
+  });
+
+  it("/mcp: a default that isn't added here is listed; enter opens the marketplace on it", async () => {
+    const { setup, serviceCalls } = await mount();
+    await command(setup, "/mcp");
+    const frame = await frameContaining(setup, "your default");
+    expect(frame).toContain("Linear");
+    // github (on this computer) is first; the default comes after it.
+    setup.mockInput.pressArrow("down");
+    setup.mockInput.pressEnter();
+    await frameContaining(setup, "MCP marketplace");
+    expect(await until(() => serviceCalls.some((c) => c[0] === "mcp.catalog" && c[1] === "Linear"))).toBe(true);
+  });
+
+  it("/stats draws your activity: the numbers, the calendar, then models, skills and MCP", async () => {
+    const { setup } = await mount();
+    await command(setup, "/stats");
+    const frame = await frameContaining(setup, "Lifetime tokens");
+    expect(frame).toContain("Your activity");
+    expect(frame).toContain("472.4M");
+    expect(frame).toContain("1h 24m");
+    expect(frame).toContain("Su ");
+    expect(frame).toContain("Less · ░ ▒ ▓ █ More");
+    expect(await frameContaining(setup, "Favourite models")).toBeTruthy();
   });
 
   it("/chrome says it's connected; /connect lists it under Tools", async () => {

@@ -60,7 +60,8 @@ export function registerAutomationHandlers(): void {
 
   handle("automations:run-now", async (_event, id: string) => {
     const { enqueueRun } = await import("@/lib/automations/runner");
-    enqueueRun(id, null, "manual");
+    // The user's own run: its feed line and the agent say so, not "on schedule".
+    enqueueRun(id, "Run now: started by hand, not by its schedule.", "manual");
     return { ok: true };
   });
 

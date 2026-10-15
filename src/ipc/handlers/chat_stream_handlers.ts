@@ -37,9 +37,12 @@ import {
 } from "@/ipc/utils/active-model-identity";
 import { resetAuxUsage } from "@/lib/usage/turn-usage-aggregator";
 import {
+  ASK_USER_STREAM_STOP,
   SUPERSEDED_STREAM_STOP,
+  abortReasonSentinel,
   streamStopAbortReason,
 } from "../../lib/stream/stream-stop-sentinels";
+import { saveStoppedTurn } from "./chat_stream/turn-runner/stopped-turn";
 import log from "electron-log";
 import fs from "node:fs";
 import * as path from "path";
@@ -152,6 +155,8 @@ import {
 } from "../../lib/work-mode";
 import { getToolActivityLabel } from "../../lib/tool-activity-labels";
 import { awaitWithTimeout, isTextFile } from "./chat_stream/stream-misc";
+import { dispatchedModelIdentity, resolveEditStatsModel } from "../../lib/stats/edit-stats";
+import { recordTurnUsageSafely } from "../../lib/stats/usage-stats";
 import {
   activeStreams,
   activeStreamRuns,
@@ -161,7 +166,7 @@ import {
   streamSessionByChatId,
   streamTurnIdByChatId,
   lastTurnModeByChat,
-  pendingAskUserArtifactByChatId,
+  resetTurnState,
   getLastSkillCacheAppId,
   setLastSkillCacheAppId,
   getChatStreamHandler,
@@ -326,8 +331,7 @@ export function registerChatStreamHandlers() {
     activeStreamId.set(req.chatId, streamId);
     const abortController = new AbortController();
     activeStreams.set(req.chatId, abortController);
-    // v11.1: a new stream supersedes any pending ask_user state for this chat.
-    pendingAskUserArtifactByChatId.delete(req.chatId);
+    resetTurnState(req.chatId);
     // FIX 4: remember this request so the renderer's [Reconnect] button can
     // re-dispatch the exact same turn via `chat:stream:reconnect`.
     lastStreamRequest.set(req.chatId, req);
@@ -2344,7 +2348,28 @@ export function registerChatStreamHandlers() {
                 processResponseChunkUpdate,
                 applyTierEscalation,
               };
-              await runAskBranch(ctx, askBranchDeps);
+              try {
+                await runAskBranch(ctx, askBranchDeps);
+              } finally {
+                // Stopped (it throws on the abort): saved as Build saves it —
+                // the stop note, and a draft row the next turn won't reuse.
+                const askStop = abortReasonSentinel(
+                  abortController.signal.reason,
+                );
+                if (
+                  abortController.signal.aborted &&
+                  !ctx.askUserEndedTurn &&
+                  !ctx.turnForcedTextFinish &&
+                  askStop !== ASK_USER_STREAM_STOP
+                ) {
+                  await saveStoppedTurn({
+                    req,
+                    stopSentinel: askStop,
+                    nativeTurnMessages: ctx.nativeTurnMessages,
+                    builtinProviderId: modelClient.builtinProviderId,
+                  });
+                }
+              }
             } else {
               // Build/debug arm extracted to ./chat_stream/turn-runner/build-branch.
               const buildBranchDeps: BuildBranchDeps = {
@@ -2408,6 +2433,15 @@ export function registerChatStreamHandlers() {
               usedCompassThisStream,
               userPrompt,
               abortController,
+            });
+            // Your activity (the stats page): a finished turn, on this computer.
+            recordTurnUsageSafely({
+              model: resolveEditStatsModel(effectiveModel, modelClient ? dispatchedModelIdentity(modelClient) : null),
+              mode: lastTurnModeByChat.get(req.chatId) ?? "build",
+              deep: !!settings.deepThinking,
+              inputTokens: ctx.turnInputTokens,
+              outputTokens: ctx.turnOutputTokens,
+              messages: ctx.nativeTurnMessages,
             });
           }
 

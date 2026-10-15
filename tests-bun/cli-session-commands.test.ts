@@ -406,4 +406,63 @@ describe("the session's commands", () => {
     const lines = sent.filter((x) => x.channel === "chat:activity" && x.p.type === "background").map((x) => x.p.label);
     expect(lines).toEqual(['Automation "Nightly CI" finished: 2 failing checks on main']);
   }, 60_000);
+
+  // App QA #1 (2026-10-14): a turn stopped while it waited, then a teammate's
+  // message to the chat reopened from disk. The stopped turn's saved row had no
+  // stop note, and the next turn overwrote and then deleted it, so the model saw
+  // the request unanswered and re-ran it instead of answering.
+  it("a turn stopped mid-wait stays saved as stopped, and a reopened chat's model is told", async () => {
+    const { s } = await sessionWith([
+      { tool: "edit_file", args: { path: "w.ts", operation: "replace", old_content: "export const a = 1;", new_content: "export const a = 9;" } },
+    ]);
+    fs.writeFileSync(path.join(ws, "w.ts"), "export const a = 1;\n");
+    await idleAfter(s, async () => {
+      void s.submit("set a to 9");
+      while (!s.state.approvals.length) await Bun.sleep(20); // waiting on the user
+      await s.interrupt();
+    });
+    const second = await sessionWith([{ text: "Got it." }]);
+    await second.s.resume(s.sessionId);
+    await idleAfter(second.s, () => second.s.submit("reply got it"));
+    const sent = (second.llm.requests.at(-1)?.messages ?? []).filter((m: any) => m.role !== "system");
+    const i = sent.findIndex((m: any) => m.role === "user" && m.content === "set a to 9");
+    expect(sent[i + 1]?.role).toBe("assistant");
+    expect(JSON.stringify(sent[i + 1])).toContain("[Response cancelled by user]");
+    // The stopped turn's row is still there after the next turn completed.
+    const { getDb } = await import("../src/db");
+    const rows = (getDb().$client as any)
+      .prepare("select role, status from session_messages where session_id = ? order by created_at")
+      .all(s.sessionId);
+    expect(rows.map((r: any) => `${r.role}:${r.status}`)).toEqual([
+      "user:complete",
+      "assistant:interrupted",
+      "user:complete",
+      "assistant:complete",
+    ]);
+  }, 60_000);
+
+  // The same in Ask (implementer's review of the fix above): Ask has its own
+  // branch, which saved nothing on a stop, and its draft row was deleted by
+  // the next turn.
+  it("an Ask turn that was stopped is still there, marked stopped, after another turn and a reopen", async () => {
+    const { s } = await sessionWith([
+      { text: "Looking at it now, slowly, word by word, until the user stops me.", delayMs: 400 },
+      { text: "Sure." },
+    ]);
+    s.setMode("ask");
+    await idleAfter(s, async () => {
+      void s.submit("explain the build");
+      while (!s.state.cells.some((c: any) => c.kind === "markdown" && c.text.includes("Looking"))) await Bun.sleep(20);
+      await s.interrupt();
+    });
+    await idleAfter(s, () => s.submit("never mind, say sure"));
+    const second = await sessionWith([{ text: "Got it." }]);
+    await second.s.resume(s.sessionId);
+    await idleAfter(second.s, () => second.s.submit("reply got it"));
+    const sent = (second.llm.requests.at(-1)?.messages ?? []).filter((m: any) => m.role !== "system");
+    const i = sent.findIndex((m: any) => m.role === "user" && m.content === "explain the build");
+    expect(sent[i + 1]?.role).toBe("assistant");
+    expect(JSON.stringify(sent[i + 1])).toContain("Looking");
+    expect(JSON.stringify(sent[i + 1])).toContain("[Response cancelled by user]");
+  }, 60_000);
 });

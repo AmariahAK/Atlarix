@@ -23,11 +23,11 @@ export async function accountCommandText(
     return `Signed out of ${email}. The CLI on this computer shares this sign-in, so it's signed out too; the Atlarix app keeps its own. To sign in again, start a new chat (the editor will ask), or run \`atlarix login\`.`;
   }
   if (cmd === "mcp") {
-    const [account, servers, found, catalog] = await Promise.all([
+    const [account, servers, found, defaults] = await Promise.all([
       realServices.mcp.account().catch(() => null),
       realServices.mcp.list(session.appId).catch(() => []),
       realServices.mcp.found(session.appId).catch(() => []),
-      realServices.mcp.catalog(session.appId, "").catch(() => null),
+      realServices.mcp.defaults(session.appId).catch(() => []),
     ]);
     const lines: string[] = [];
     if (account?.length) {
@@ -51,9 +51,9 @@ export async function accountCommandText(
         ? ["**On this computer**", "", ...servers.map((s) => `- ${s.enabled ? "●" : "○"} ${s.name} (${s.transport})${s.enabled ? "" : " — off"}`)]
         : ["No MCP servers on this computer for this folder yet."]),
     );
-    const verified = (catalog?.entries ?? []).filter((e) => e.verified && !catalog!.installed.includes(e.name));
-    if (verified.length) {
-      lines.push("", "**Verified**", "", ...verified.map((e) => `- ${e.title}: \`/mcp add ${e.title.toLowerCase()}\``));
+    const notAdded = defaults.filter((d) => d.state === "not-added");
+    if (notAdded.length) {
+      lines.push("", "**Your defaults**", "", ...notAdded.map((d) => `- ${d.title}: \`/mcp add ${d.title.toLowerCase()}\``));
     }
     if (found.length) {
       lines.push("", "**Found on this computer**", "", ...found.map((f) => `- ${f.name} · ${f.source}: \`/mcp add ${f.name}\``));
@@ -92,6 +92,10 @@ export async function accountCommandText(
   }
   if (!email) return "You're not signed in to Atlarix. Run `atlarix login` in a terminal, then try again.";
   const [kind, balance] = await Promise.all([a.kind?.().catch(() => null) ?? null, a.balanceCents().catch(() => null)]);
+  if (cmd === "stats") {
+    const { statsMarkdown } = await import("@/lib/stats/activity-format");
+    return statsMarkdown(await realServices.stats());
+  }
   if (cmd === "billing") {
     const lines = ["**Atlarix billing**", "", `Plan: ${PLAN[kind ?? ""] ?? "unknown"} · Credit: ${money(balance)}`, ""];
     if (kind !== "pro") {

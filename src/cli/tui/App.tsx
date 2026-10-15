@@ -72,6 +72,7 @@ import {
   openResume,
   openRewind,
   openStatus,
+  openStats,
   type PendingEdit,
   runCompact,
   runExport,
@@ -1016,6 +1017,15 @@ export function App({
     autoPrompt.current = "consent";
     openAutoConsent(screen());
   }, [state.lastError]);
+  // A yes to the old wording is asked once more on free Auto (as the app does).
+  useEffect(() => {
+    if (accountKind !== "free" || host.open) return;
+    void session.takeAutoConsentReask().then((due) => {
+      if (!due) return;
+      autoPrompt.current = "consent";
+      openAutoConsent(screen(), { reask: true });
+    });
+  }, [accountKind, session.model?.provider, session.model?.name]);
 
   useEffect(() => {
     if (startWith) runCommand(startWith);
@@ -1118,6 +1128,8 @@ export function App({
         return openBilling(ctx);
       case "/status":
         return openStatus(ctx);
+      case "/stats":
+        return openStats(ctx);
       case "/login":
         return guard(openLogin(ctx));
       case "/logout":

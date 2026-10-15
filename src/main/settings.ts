@@ -513,7 +513,18 @@ export function writeSettings(settings: Partial<UserSettings>): void {
       }
     }
     const validatedSettings = UserSettingsSchema.parse(newSettings);
-    fs.writeFileSync(filePath, JSON.stringify(validatedSettings, null, 2));
+    // Keys this version doesn't know were written by a NEWER Atlarix on this
+    // machine (the app and the CLI update separately): carried through, so
+    // running an older build never erases a newer one's settings. 15.7.0 dropped
+    // 15.7.1's consent version and MCP defaults this way (QA 15.7.1 #8).
+    const known = UserSettingsSchema.shape;
+    const carried = Object.fromEntries(
+      Object.entries(raw ?? {}).filter(([k]) => !(k in known)),
+    );
+    fs.writeFileSync(
+      filePath,
+      JSON.stringify({ ...carried, ...validatedSettings }, null, 2),
+    );
     // The settings file holds provider keys + OAuth tokens (encrypted when a
     // keystore is available, plaintext otherwise). Restrict it to the owner on
     // POSIX so other local users can't read the fallback plaintext. (no-op on

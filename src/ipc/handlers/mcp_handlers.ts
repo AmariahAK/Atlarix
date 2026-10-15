@@ -524,21 +524,18 @@ export function registerMcpHandlers() {
     return addPasted(params.appId, String(params.text ?? ""), params.name ? { name: params.name } : {});
   });
 
-  /** The Verified five and where each stands here: on, off, needs the user, or not added. */
-  handle("mcp:verified-status", async (_event, params: { appId?: number | null }) => {
-    const { VERIFIED_MCP_SERVERS } = await import("@/shared/mcp-catalog");
-    const { findMcpServer } = await import("@/lib/mcp/mcp-suggestions");
-    return Promise.all(
-      VERIFIED_MCP_SERVERS.map(async (v) => {
-        const here = await findMcpServer(params?.appId ?? null, v.name).catch(() => null);
-        return {
-          name: v.name,
-          title: v.fallback.title ?? v.name,
-          state: !here ? "not-added" : here.needs ? `needs-${here.needs}` : here.enabled ? "on" : "off",
-          ...(here ? { where: here.where, id: here.id } : {}),
-        };
-      }),
-    );
+  /** The user's default servers and where each stands here: on, off, needs the user, or not added. */
+  handle("mcp:defaults", async (_event, params: { appId?: number | null }) => {
+    const { defaultMcpServersStatus } = await import("@/lib/mcp/default-servers");
+    return defaultMcpServersStatus(params?.appId ?? null);
+  });
+
+  /** Make a registry server one of the defaults, or take it out. */
+  handle("mcp:set-default", async (_event, params: { name: string; on: boolean }) => {
+    const { toggleDefaultMcpServer } = await import("@/lib/mcp/default-servers");
+    const out = await toggleDefaultMcpServer(String(params?.name ?? ""), !!params?.on);
+    if (!out.ok) throw new Error(out.error);
+    return out.servers;
   });
 
   /** How many are on, against the limit (this folder's plus the account's). */

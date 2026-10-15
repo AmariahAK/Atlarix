@@ -9,15 +9,17 @@ export type Reply =
   | { tool: string; args: Record<string, unknown>; delayMs?: number }
   /** Several calls in one step (parallel tool calls). */
   | { tools: Array<{ tool: string; args: Record<string, unknown> }>; delayMs?: number }
-  | { text: string; delayMs?: number };
+  /** `waitMs`: nothing at all is sent for that long (a stop "before the first token"). */
+  | { text: string; delayMs?: number; waitMs?: number };
 
 const enc = new TextEncoder();
 const base = { id: "fake", object: "chat.completion.chunk", created: 0, model: "fake-model" };
 const usage = { prompt_tokens: 100, completion_tokens: 10, total_tokens: 110 };
 
-function sse(chunks: object[], delayMs = 0): Response {
+function sse(chunks: object[], delayMs = 0, waitMs = 0): Response {
   const body = new ReadableStream({
     async start(c) {
+      if (waitMs) await Bun.sleep(waitMs);
       for (const ch of chunks) {
         c.enqueue(enc.encode(`data: ${JSON.stringify(ch)}\n\n`));
         if (delayMs) await Bun.sleep(delayMs);
@@ -67,6 +69,7 @@ function reply(r: Reply, n: number): Response {
       { ...base, choices: [{ index: 0, delta: {}, finish_reason: "stop" }], usage },
     ],
     r.delayMs ?? 0,
+    r.waitMs ?? 0,
   );
 }
 

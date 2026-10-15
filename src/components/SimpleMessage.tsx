@@ -86,6 +86,34 @@ interface SimpleMessageProps {
   planArtifactBuildDisabled?: boolean;
 }
 
+/** The amber "interrupted" block under a stopped reply, with Continue. */
+function InterruptedNotice({
+  message,
+  onContinue,
+}: {
+  message: Message;
+  onContinue?: (message: Message) => void;
+}) {
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+      <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+      <span className="flex-1 min-w-[8rem]">
+        This response was interrupted before it finished.
+      </span>
+      {onContinue && (
+        <button
+          type="button"
+          onClick={() => onContinue(message)}
+          className="flex items-center gap-1 rounded bg-amber-500/20 px-2 py-1 font-medium text-amber-800 transition-colors hover:bg-amber-500/30 dark:text-amber-200"
+        >
+          <RotateCw className="h-3 w-3" />
+          Continue
+        </button>
+      )}
+    </div>
+  );
+}
+
 function SimpleMessageImpl({
   message,
   chatId: chatIdProp,
@@ -169,7 +197,12 @@ function SimpleMessageImpl({
     assistantMessageHasNonTextPartsAtom(message.id ?? -1),
   );
   if (isAssistant && !message.content && !isStreaming && !hasNonTextParts) {
-    return null;
+    // Stopped before its first word: no bubble, but the stop is still shown
+    // (QA 15.7.1 #7b: with the stop note no longer shown as text, the row
+    // vanished, marker and all).
+    return message.interrupted ? (
+      <InterruptedNotice message={message} onContinue={onContinue} />
+    ) : null;
   }
 
   // A message from another Atlarix session: a tool-like card on the agent's
@@ -390,22 +423,7 @@ function SimpleMessageImpl({
 
         {/* Issue 4: interrupted turn — partial output preserved, offer Continue. */}
         {isAssistant && message.interrupted && !isStreaming && (
-          <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-            <span className="flex-1 min-w-[8rem]">
-              This response was interrupted before it finished.
-            </span>
-            {onContinue && (
-              <button
-                type="button"
-                onClick={() => onContinue(message)}
-                className="flex items-center gap-1 rounded bg-amber-500/20 px-2 py-1 font-medium text-amber-800 transition-colors hover:bg-amber-500/30 dark:text-amber-200"
-              >
-                <RotateCw className="h-3 w-3" />
-                Continue
-              </button>
-            )}
-          </div>
+          <InterruptedNotice message={message} onContinue={onContinue} />
         )}
 
         {/* Actions under messages — Copy / Revert turn. Shown on hover, but

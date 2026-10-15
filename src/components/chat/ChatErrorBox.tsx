@@ -21,6 +21,7 @@ import { useTranslation } from "react-i18next";
 import { useSettings } from "@/hooks/useSettings";
 import { AtlarixAutoConsentDialog } from "@/components/AtlarixAutoConsentDialog";
 import { UpgradeButtons } from "@/components/billing/UpgradeActions";
+import { autoConsentAccepted } from "@/ipc/shared/compass_constants";
 
 /** Open Settings → AI so the user can switch provider / model or add an API key. */
 function openAiSettings() {
@@ -255,9 +256,9 @@ function AutoConsentError({
           setOpen(false);
           // The retry must follow the WRITE: main reads the consent from
           // settings when it builds the request header.
-          void updateSettings({
-            atlarixAutoConsentAt: new Date().toISOString(),
-          }).then(() => (onRetry ? onRetry() : onDismiss()));
+          void updateSettings(autoConsentAccepted()).then(() =>
+            onRetry ? onRetry() : onDismiss(),
+          );
         }}
         onCancel={() => setOpen(false)}
       />

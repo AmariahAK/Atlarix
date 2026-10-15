@@ -280,6 +280,8 @@ export function isJournalMigrationApplied(
       );
     case "0078_mcp_headers":
       return columnExists(sqlite, "mcp_servers", "headers_json");
+    case "0079_usage_stats":
+      return tableExists(sqlite, "usage_stats") && tableExists(sqlite, "usage_tool_stats");
     default:
       return false;
   }

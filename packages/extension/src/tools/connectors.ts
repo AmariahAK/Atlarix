@@ -22,11 +22,13 @@
  */
 
 import { CoreError, coreProxyFetch } from "../core/client";
-import type { ToolOutcome } from "./dispatch";
+import type { ToolContext, ToolOutcome } from "./dispatch";
 
 interface ListedTool {
   name: string;
   description?: string;
+  /** Argument names (plain identifiers, checked by the proxy). */
+  args?: Array<{ name: string; required?: boolean }>;
 }
 
 interface ListedServer {
@@ -95,21 +97,51 @@ export async function listAvailableMcps(): Promise<ToolOutcome> {
     }
     lines.push(`- ${s.name}`);
     for (const t of s.tools) {
-      lines.push(`    ${t.name}${t.description ? ` — ${t.description}` : ""}`);
+      // The argument names, so the first (approved) call is right: a guessed
+      // name costs the user another approval (QA 15.7.1).
+      const args = t.args?.length ? `(${t.args.map((a) => `${a.name}${a.required ? "*" : ""}`).join(", ")})` : "";
+      lines.push(`    ${t.name}${args}${t.description ? ` — ${t.description}` : ""}`);
     }
   }
 
   return {
     content:
       `Connectors on this account, and the tools each one offers. Call one ` +
-      `with mcp_call, using the connector's name exactly as it appears here.\n` +
+      `with mcp_call, using the connector's name exactly as it appears here, and ` +
+      `the argument names shown (* = required).\n` +
       lines.join("\n"),
     label: `Listed ${servers.length} connector${servers.length === 1 ? "" : "s"}`,
   };
 }
 
+/**
+ * A tool the named connector doesn't list, said without asking the user: the
+ * model guessed "ask_deepwiki", the user approved, and the call failed with
+ * "Unknown tool" (QA 15.7.1 #16). Null whenever the list can't tell — it can't
+ * be read, the connector isn't shown under that name (the proxy also takes its
+ * slug), or it shows no tools (off, or failing) — and the call is asked as usual.
+ */
+async function missingTool(server: string, tool: string): Promise<ToolOutcome | null> {
+  let body: { ok?: boolean; servers?: ListedServer[] };
+  try {
+    body = await coreProxyFetch("/mcp/list", {});
+  } catch {
+    return null;
+  }
+  const s = body.servers?.find((x) => x.name.toLowerCase() === server.toLowerCase());
+  if (!s || s.inactive || s.error || s.tools.length === 0) return null;
+  if (s.tools.some((t) => t.name === tool)) return null;
+  return {
+    content:
+      `${s.name} has no tool ${tool}. Its tools: ${s.tools.map((t) => t.name).join(", ")}. ` +
+      `Call list_available_mcps for their arguments, then call the right one.`,
+    label: `No ${tool} on ${s.name}`,
+  };
+}
+
 export async function mcpCall(
   args: Record<string, unknown>,
+  ctx: Pick<ToolContext, "approvedRetry"> = {},
 ): Promise<ToolOutcome> {
   const server = typeof args.server === "string" ? args.server.trim() : "";
   const tool = typeof args.tool === "string" ? args.tool.trim() : "";
@@ -119,6 +151,23 @@ export async function mcpCall(
         "Pass both `server` (a connector name from list_available_mcps) and " +
         "`tool`.",
       label: "Called nothing",
+    };
+  }
+
+  // ASKED EVERY TIME. A connector acts as the user on another service, and this
+  // surface reads pages anyone can write: a page that talks the model into a
+  // call must still get past the user. Listing stays free; it contacts nothing.
+  if (!ctx.approvedRetry) {
+    const missing = await missingTool(server, tool);
+    if (missing) return missing;
+    return {
+      content: `Waiting for the user to approve: ${tool} on ${server}.`,
+      needsApproval: {
+        kind: "action",
+        reason: `Atlarix wants to use your ${server} connector.`,
+        category: "connector",
+        summary: `Run ${tool} on ${server}?`,
+      },
     };
   }
 

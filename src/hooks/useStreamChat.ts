@@ -65,6 +65,7 @@ import {
 } from "@/lib/chat/stream-thread";
 import { buildInlineTimelineFromActivity } from "@/lib/chat/inline-timeline";
 import { extractPartialToolArgs } from "@/lib/chat/partial-tool-args";
+import { markStoppedReply } from "@/lib/chat/stopped-reply";
 import { buildDisplaySnapshotPayloadForMessage } from "@/lib/chat/apply-stream-display-hydration";
 import { parseDisplaySnapshot } from "@/lib/chat/display-snapshot";
 import {
@@ -2205,6 +2206,18 @@ export function useStreamChat({
               getDefaultStore()
                 .get(chatMessagesByIdAtom)
                 .get(response.chatId) ?? [];
+            // The stopped reply gets its "interrupted… Continue" marker now,
+            // not only after a reopen (QA 15.7.1 #7).
+            if (response.userCancelled) {
+              const marked = markStoppedReply(msgs);
+              if (marked !== msgs) {
+                getDefaultStore().set(chatMessagesByIdAtom, (prev) => {
+                  const n = new Map(prev);
+                  n.set(response.chatId, marked);
+                  return n;
+                });
+              }
+            }
             const rawFromRef =
               messageStreamThrottleRef.current.lastAssistantRawByChatId.get(
                 response.chatId,
@@ -2427,6 +2440,10 @@ export function useStreamChat({
                     )
                   : null;
               if (!sessionIdForPersist || appIdForPersist == null) return;
+              // A stopped turn is saved by main (its interrupted row, with the
+              // stop note for the model). A copy saved here had neither, and
+              // beside that row it showed the turn twice on reopen.
+              if (response.userCancelled) return;
               const assistantContent = lastAssistant?.content?.trim();
               if (!assistantContent) return;
               try {

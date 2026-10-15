@@ -10,8 +10,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useQuery } from "@tanstack/react-query";
-import { BadgeCheck, ExternalLink, Loader2, Search } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { BadgeCheck, ExternalLink, Loader2, Search, Star } from "lucide-react";
 import { showError } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -51,10 +51,17 @@ function useDebounced<T>(value: T, ms: number): T {
   return v;
 }
 
-export function McpMarketplaceTab({ workspaceId }: { workspaceId: number }) {
+export function McpMarketplaceTab({
+  workspaceId,
+  initialQuery,
+}: {
+  workspaceId: number;
+  /** Opens searched for one server (a default whose values are asked here). */
+  initialQuery?: string;
+}) {
   const ipc = IpcClient.getInstance();
   const { t } = useTranslation("settings");
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(initialQuery ?? "");
   const query = useDebounced(search.trim(), 200);
   const [page, setPage] = useState(0);
   const [adding, setAdding] = useState<string | null>(null);
@@ -72,6 +79,22 @@ export function McpMarketplaceTab({ workspaceId }: { workspaceId: number }) {
     queryKey: ["mcp", "limit", workspaceId],
     queryFn: () => ipc.getMcpLimit(workspaceId),
   });
+  const queryClient = useQueryClient();
+  const defaults = useQuery({
+    queryKey: ["mcp", "defaults", workspaceId],
+    queryFn: () => ipc.getDefaultMcpServers(workspaceId),
+  });
+  const defaultNames = useMemo(() => new Set((defaults.data ?? []).map((d) => d.name)), [defaults.data]);
+
+  const toggleDefault = async (entry: CatalogEntry) => {
+    try {
+      await ipc.setDefaultMcpServer({ name: entry.name, on: !defaultNames.has(entry.name) });
+    } catch (e) {
+      showError(e instanceof Error ? e.message : String(e));
+    } finally {
+      void queryClient.invalidateQueries({ queryKey: ["mcp", "defaults"] });
+    }
+  };
 
   const installed = useMemo(() => new Set(results.data?.installed ?? []), [results.data]);
   const totalPages = Math.max(1, Math.ceil((results.data?.total ?? 0) / PAGE_SIZE));
@@ -163,6 +186,15 @@ export function McpMarketplaceTab({ workspaceId }: { workspaceId: number }) {
                     </span>
                   </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => void toggleDefault(entry)}
+                  className={defaultNames.has(entry.name) ? "text-primary" : "text-muted-foreground hover:text-foreground"}
+                  aria-label={defaultNames.has(entry.name) ? t("mcp.removeDefault") : t("mcp.makeDefault")}
+                  title={defaultNames.has(entry.name) ? t("mcp.removeDefault") : t("mcp.makeDefault")}
+                >
+                  <Star className="h-3.5 w-3.5" fill={defaultNames.has(entry.name) ? "currentColor" : "none"} />
+                </button>
                 {link && (
                   <a
                     href={link}

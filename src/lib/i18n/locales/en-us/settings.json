@@ -32,6 +32,9 @@
     "signIn": "Sign in",
     "addKey": "Add key",
     "remove": "Remove",
+    "removeAccountTitle": "Remove {{name}}?",
+    "removeAccountBody": "Atlarix stops using it on all your devices, and any sign-in you gave it is deleted. You can add it again later.",
+    "keepIt": "Keep it",
     "add": "Add",
     "added": "Added",
     "importFile": "Import file",
@@ -51,8 +54,22 @@
     "prev": "Prev",
     "next": "Next",
     "verifiedMenu": "MCP servers",
+    "makeDefault": "Show in every workspace",
+    "removeDefault": "Stop showing in every workspace",
     "connect": "Connect",
     "manage": "Manage MCP servers…",
     "openFolder": "Open a folder first."
+  },
+  "activity": {
+    "title": "Your activity",
+    "description": "How you use Atlarix on this computer, across the app, CLI and editors",
+    "loading": "Loading…",
+    "error": "Couldn't read your activity.",
+    "empty": "Nothing yet. Your first chat starts the count.",
+    "calendar": "Activity · last 12 months",
+    "less": "Less",
+    "more": "More",
+    "footnoteSince": "Stored only on this computer. Tokens, models, skills and MCP servers count from {{day}}.",
+    "footnoteNext": "Stored only on this computer. Tokens, models, skills and MCP servers count from your next chat."
   }
 }

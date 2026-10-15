@@ -18,6 +18,7 @@ import { placeShellRuns, withShellContext, type ShellRun } from "./shell-mode";
 import {
   collapseCancelled,
   markInterrupted,
+  interruptedRowIds,
   placeSteers,
   activityToolLine,
   locateBlocks,
@@ -464,7 +465,7 @@ export class AgentSession extends EventEmitter {
     const { chatId } = (await (await handler("sessions:allocate-transport"))({}, sessionId)) as { chatId: number };
     const got = (await (await handler("sessions:get"))({}, sessionId)) as {
       session: SessionSummary;
-      messages: Array<{ id: string; role: string; content: string; modelContent?: string | null; snapshotTurnId?: string | null; maxTokensUsed?: number | null }>;
+      messages: Array<{ id: string; role: string; content: string; status?: string | null; modelContent?: string | null; snapshotTurnId?: string | null; maxTokensUsed?: number | null }>;
     };
     const rows = got.messages.map((m, i) => ({ id: i + 1, sessionRowId: m.id }));
     await (await handler("sessions:hydrate-transport"))({}, { chatId, sessionId, rows });
@@ -483,6 +484,7 @@ export class AgentSession extends EventEmitter {
     got.messages.forEach((m, i) => {
       if (m.snapshotTurnId) this.turnSnapshots.set(String(i + 1), m.snapshotTurnId);
     });
+    for (const id of interruptedRowIds(got.messages)) this.interrupted.add(id);
     const mode = got.session.workMode;
     const { getLatestPlanArtifact } = await import("@/lib/plans/plan-artifacts");
     const plan = await getLatestPlanArtifact(sessionId, "plan").catch(() => null);
@@ -780,9 +782,34 @@ export class AgentSession extends EventEmitter {
   private lastTurn: { text: string; opts: TurnOptions } | null = null;
 
   /** Free Auto asked for the OK to share prompts; record it and send the refused message again. */
+  /**
+   * A yes given to the OLD Auto wording ("shared with OpenAI") is asked again
+   * ONCE on free Auto, as the app's picker does: Auto now also runs on free
+   * models through other providers. Recorded as asked when it opens, so it never
+   * repeats; "Not now" keeps the OpenAI-only Auto that yes covered (QA 15.7.1 #6a).
+   */
+  async takeAutoConsentReask(): Promise<boolean> {
+    const m = this.model;
+    if (!m || m.provider !== "compass") return false;
+    const { isCoreAutoTier, ATLARIX_AUTO_CONSENT_VERSION } = await import("@/ipc/shared/compass_constants");
+    if (!isCoreAutoTier(m.name)) return false;
+    const { readSettings, writeSettings } = await import("@/main/settings");
+    const s = readSettings();
+    const oldYes = !!s.atlarixAutoConsentAt && (s.atlarixAutoConsentVersion ?? 1) < ATLARIX_AUTO_CONSENT_VERSION;
+    if (!oldYes || s.atlarixAutoConsentV2AskedAt) return false;
+    writeSettings({ atlarixAutoConsentV2AskedAt: new Date().toISOString() } as never);
+    return true;
+  }
+
+  /** "Not now" to free Auto's consent: the refusal is answered, so the next send asks again. */
+  declineAutoConsent(): void {
+    this.update({ lastError: null });
+  }
+
   async acceptAutoConsent(): Promise<void> {
     const { writeSettings } = await import("@/main/settings");
-    writeSettings({ atlarixAutoConsentAt: new Date().toISOString() } as never);
+    const { autoConsentAccepted } = await import("@/ipc/shared/compass_constants");
+    writeSettings(autoConsentAccepted() as never);
     this.update({ lastError: null });
     const last = this.lastTurn;
     if (last) await this.startTurn(last.text, { ...last.opts, retry: true });
@@ -1645,6 +1672,14 @@ export class AgentSession extends EventEmitter {
       }
       case "chat:activity":
         if (this.onSubagentActivity(p)) this.update({ cells: this.cellsFor(this.state.busy) });
+        else if (p.id === "revert-needs-git" && p.chatId === this.chatId && typeof p.label === "string") {
+          // Once per run, under the message whose edit found no Git (QA 15.7.1 #3).
+          if (!this.wakeNotes.some((n) => n.id === "revert-needs-git")) {
+            const lastUser = [...this.messages].reverse().find((m) => m.role === "user");
+            this.wakeNotes.push({ id: "revert-needs-git", afterMessageId: lastUser ? String(lastUser.id) : "", text: p.label });
+            this.update({ cells: this.cellsFor(this.state.busy) });
+          }
+        }
         return;
       case "user-question-request": {
         const items = Array.isArray(p.questions) && p.questions.length

@@ -6,6 +6,7 @@
  * so tool calls, thinking and prose come apart exactly as they do in the app.
  * Pure: the TUI renders cells; src/__tests__/cli-transcript.test.ts pins the rules.
  */
+import { writePrevious } from "@/lib/chat/write-previous";
 import { plainStepText } from "@/lib/tasks/plan-checklist";
 import { displayTitle } from "@/shared/mcp-catalog";
 import { BUILD_FROM_PLAN_PROMPT } from "@/lib/work-mode";
@@ -434,14 +435,15 @@ function summarize(toolName: string, r: { text: string; exitCode?: number; faile
 }
 
 /**
- * What an edit_file call changed, from its own arguments: a write is all
+ * What an edit_file call changed, from its own arguments: a write is the text
+ * it replaced (`previous`, when known) against its content, else all
  * additions; a replace (or each of its `edits`) is the old text against the
  * new. Line numbers are the snippet's, not the file's, so none are shown.
  */
-export function editDiff(args: unknown): EditDiff | undefined {
+export function editDiff(args: unknown, previous?: string): EditDiff | undefined {
   const a = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
   const pairs: Array<[string, string]> = [];
-  if (typeof a.content === "string" && (a.operation === "write" || a.old_content == null)) pairs.push(["", a.content]);
+  if (typeof a.content === "string" && (a.operation === "write" || a.old_content == null)) pairs.push([previous ?? "", a.content]);
   if (Array.isArray(a.edits)) {
     for (const e of a.edits as Array<Record<string, unknown>>) pairs.push([str(e?.old_content), str(e?.new_content)]);
   } else if (typeof a.old_content === "string" || typeof a.new_content === "string") {
@@ -535,7 +537,8 @@ export function toolLine(part: Extract<AssistantMessagePart, { type: "tool" }>):
   // message ("No file at path …"): prefer the message when there is one.
   const codeOnly = !!part.error && /^[a-z][a-z0-9_]*$/.test(part.error.trim()) && !!part.resultText?.trim();
   const r = toolResultText(part.toolName, codeOnly ? part.resultText : (part.error ?? part.resultText));
-  const diff = part.toolName === "edit_file" && part.status === "success" ? editDiff(part.args) : undefined;
+  const diff =
+    part.toolName === "edit_file" && part.status === "success" ? editDiff(part.args, writePrevious(part.callId)) : undefined;
   const env = part.toolName === "task" ? taskEnvelope(r.text) : null;
   if (env) {
     const background = env.state === "running" || env.state === "pending";
@@ -769,6 +772,20 @@ export function placeSteers(
   return cells;
 }
 
+/**
+ * The replies a reopened chat shows as interrupted: the saved rows marked so.
+ * A stopped reply's row keeps its text without the stop mark (the mark is in
+ * what the model is sent), so `-c` drew the partial reply with no note (QA
+ * 15.7.1 #11b). Ids are the rows' 1-based positions, as the CLI numbers them.
+ */
+export function interruptedRowIds(
+  rows: ReadonlyArray<{ role: string; status?: string | null }>,
+): string[] {
+  return rows.flatMap((m, i) =>
+    m.role === "assistant" && m.status === "interrupted" ? [String(i + 1)] : [],
+  );
+}
+
 /** What the agent appends to an answer it stopped (build-branch.ts). */
 export const CANCEL_MARK = "[Response cancelled by user]";
 
@@ -795,6 +812,13 @@ export function collapseCancelled(
     ) {
       out.pop();
       if (interrupted.has(String(prev.id))) interrupted.add(String(m.id));
+    }
+    // Stopped before any output: the record is the mark alone, which draws
+    // nothing. The "Interrupted" note goes under your message instead (QA
+    // 15.7.1 #2, a reopened chat showed the stopped prompt with nothing under it).
+    if (m.role === "assistant" && m.content.includes(CANCEL_MARK) && !body.trim() && out.at(-1)?.role === "user") {
+      interrupted.add(String(out.at(-1)!.id));
+      continue;
     }
     out.push(body === m.content ? m : { ...m, content: body });
   }

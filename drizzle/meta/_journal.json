@@ -554,6 +554,13 @@
       "when": 1787875200000,
       "tag": "0078_mcp_headers",
       "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "6",
+      "when": 1787961600000,
+      "tag": "0079_usage_stats",
+      "breakpoints": true
     }
   ]
 }

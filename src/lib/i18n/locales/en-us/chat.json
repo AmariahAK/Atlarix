@@ -1,9 +1,8 @@
 {
   "atlarixAuto": {
     "consentTitle": "Use Atlarix Auto for free?",
-    "consentWhy": "Atlarix Auto costs nothing. It is free because the prompts and replies it handles are shared with OpenAI, which may use them to improve its models.",
-    "consentCare": "Don't use it for code or data you can't share. Every other model — Core tiers and your own API keys — is not shared, and neither is Auto once you have Pro or credit: then it is paid and private.",
-    "consentShare": "Everyone gets a fair daily share; when yours is used, Auto moves to a free fallback model, then pauses until the daily reset.",
+    "consentWhy": "It's free because your prompts are shared with the AI providers that serve it (OpenAI, OpenRouter and Requesty), who may use them to improve their models.",
+    "consentCare": "Don't use it for code you can't share. Pro, credit and your own keys stay private.",
     "consentCancel": "Not now",
     "consentAccept": "Use Atlarix Auto",
     "reviewConsent": "Review and accept",
@@ -18,8 +17,9 @@
     "strongerModel": "Try with a stronger model",
     "strongerModelTitle": "Run this turn again with Auto one level up. Costs more.",
     "deepThinkingHint": "On: Auto uses stronger models for this chat — costs more.",
+    "deepThinkingHintFree": "On: Auto thinks longer before it answers.",
     "rowPrivate": "Private — never used to train models",
-    "rowFree": "Free — prompts shared with OpenAI",
+    "rowFree": "Free — prompts shared with model providers",
     "privateTitle": "Paid Atlarix Auto is private: your prompts and code are never shared or used to train models.",
     "privateShort": "private, no training"
   },

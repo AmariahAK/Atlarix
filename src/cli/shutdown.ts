@@ -44,6 +44,9 @@ export async function shutdownCli(code = 0): Promise<never> {
   (hard as { unref?: () => void }).unref?.();
   try {
     const streams = await import("@/ipc/handlers/chat_stream_handlers");
+    // Save what is still streaming BEFORE aborting: the flush keeps only live
+    // turns, and the abort forgets them (as the app's quit does).
+    await withTimeout(streams.flushPartialStreamsForShutdown(), 1200);
     streams.abortAllStreams();
     const { killAllBackgroundJobs } = await import("@/lib/agent/background-commands");
     killAllBackgroundJobs();
@@ -52,7 +55,6 @@ export async function shutdownCli(code = 0): Promise<never> {
     // Hand the browser over: an Atlarix sharing it through us takes it over.
     const { stopBridge } = await import("@/main/bridge-lifecycle");
     await withTimeout(stopBridge(), 300);
-    await withTimeout(streams.flushPartialStreamsForShutdown(), 1200);
     // Analytics (only queued when the user opted in): sent before the exit.
     const { flushAndClose } = await import("@/main/lib/analytics");
     await withTimeout(flushAndClose(), 800);

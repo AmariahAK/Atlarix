@@ -106,5 +106,11 @@ export function registerEditStatsHandlers(): void {
     };
   });
 
+  /** Your activity: turns, tokens, models, streaks and most-used skills/MCP on this computer. */
+  ipcMain.handle("usage:activity", async () => {
+    const { getActivityStats } = await import("@/lib/stats/usage-stats");
+    return getActivityStats();
+  });
+
   logger.log("[edit-stats] handlers registered");
 }

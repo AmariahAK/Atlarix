@@ -6,7 +6,8 @@
  */
 import { keptFilesLine } from "@/lib/chat/kept-files-line";
 import fs from "node:fs";
-import { CORE_PAYMENT_SUMMARY, formatCents } from "@/shared/billing_copy";
+import { AUTO_CONSENT_TERMS, CORE_PAYMENT_SUMMARY, formatCents } from "@/shared/billing_copy";
+import { activityFootnote, activitySections, activityTiles, calendarRows } from "@/lib/stats/activity-format";
 import os from "node:os";
 import path from "node:path";
 import type { AgentSession, PendingQuestion } from "../agent/session";
@@ -541,19 +542,18 @@ export function openMcpConsent(ctx: ScreenContext): void {
 
 // ─── Atlarix Auto's consent ──────────────────────────────────────────────────
 
-export function openAutoConsent(ctx: ScreenContext): void {
+/** `reask`: asked at startup (a yes to the old wording), so there is no message to send again. */
+export function openAutoConsent(ctx: ScreenContext, opts: { reask?: boolean } = {}): void {
   ctx.host.push(
     new ListDialog({
       title: "Use Atlarix Auto for free?",
-      intro: [
-        { text: "Atlarix Auto costs nothing. It is free because the prompts and replies it handles are shared with OpenAI, which may use them to improve its models." },
-        { text: "Don't use it for code or data you can't share. Every other model — Core tiers and your own API keys — is not shared, and neither is Auto once you have Pro or credit: then it is paid and private.", tone: "muted" },
-        { text: "Everyone gets a fair daily share; when yours is used, Auto moves to a free fallback model, then pauses until the daily reset.", tone: "muted" },
-      ],
+      intro: AUTO_CONSENT_TERMS.map((text, i) => (i === 0 ? { text } : { text, tone: "muted" as const })),
       footer: "↑↓ move · enter choose · esc not now",
+      // "Not now" FIRST: the dialog opens over the composer, and an Enter typed
+      // for a message there must never be a consent (QA 15.7.1 #7).
       items: [
-        { id: "accept", label: "Use Atlarix Auto", detail: "and send the message again" },
         { id: "cancel", label: "Not now", detail: "/model picks another model" },
+        { id: "accept", label: "Use Atlarix Auto", detail: opts.reask ? "with the new wording" : "and send the message again" },
       ],
       onChoose: async (item) => {
         ctx.host.closeAll();
@@ -1345,6 +1345,8 @@ export function openMcp(ctx: ScreenContext): void {
             : { text: "○ off", tone: "muted" as const },
         keywords: s.needsSignIn ? "signin" : s.enabled ? "on" : "off",
       }));
+      // The user's defaults not added here: enter opens the marketplace on one.
+      const defaults = (await ctx.services.mcp.defaults(ctx.session.appId).catch(() => [])).filter((d) => d.state === "not-added");
       // Servers set up in other tools on this computer: enter adds one.
       let found: Awaited<ReturnType<typeof ctx.services.mcp.found>> = [];
       try {
@@ -1355,6 +1357,13 @@ export function openMcp(ctx: ScreenContext): void {
       return [
         ...onAccount,
         ...mine,
+        ...defaults.map((d) => ({
+          id: `default:${d.name}`,
+          label: d.title,
+          detail: "your default · not added here",
+          right: { text: "enter adds", tone: "muted" as const },
+          keywords: "default",
+        })),
         ...found.map((f) => ({
           id: `found:${f.key}`,
           label: f.name,
@@ -1365,6 +1374,7 @@ export function openMcp(ctx: ScreenContext): void {
       ];
     },
     onChoose: async (item) => {
+      if (item.id.startsWith("default:")) return void openMcpBrowse(ctx, () => void dialog.reload(), item.label);
       if (item.id.startsWith("found:")) {
         await ctx.services.mcp.importFound(ctx.session.appId, item.id.slice("found:".length));
         await dialog.reload();
@@ -2029,6 +2039,32 @@ export async function statusLines(ctx: ScreenContext): Promise<Line[]> {
 
 export function openStatus(ctx: ScreenContext): void {
   ctx.host.push(new TextDialog({ title: "Status", lines: () => statusLines(ctx) }));
+}
+
+// ─── /stats ──────────────────────────────────────────────────────────────────
+
+/** Your activity on this computer, as the terminal draws it (lib/stats/activity-format). */
+export function statsLines(s: import("@/lib/stats/usage-stats").ActivityStats): Line[] {
+  if (!s.since) return [{ text: "Nothing yet. Your first chat starts the count.", tone: "muted" }];
+  const tiles = activityTiles(s);
+  const width = 16;
+  const lines: Line[] = [
+    { text: tiles.map((t) => t.value.padEnd(width)).join("").trimEnd(), bold: true },
+    { text: tiles.map((t) => t.label.padEnd(width)).join("").trimEnd(), tone: "muted" },
+    { text: "" },
+    { text: "Activity · last 12 months", bold: true },
+    ...calendarRows(s).map((text, i, all) => ({ text, tone: i === 0 || i === all.length - 1 ? ("muted" as const) : ("accent" as const) })),
+  ];
+  for (const section of activitySections(s)) {
+    lines.push({ text: "" }, { text: section.title, bold: true });
+    for (const r of section.rows) lines.push({ text: `  ${r.label.length > 34 ? `${r.label.slice(0, 33)}…` : r.label.padEnd(34)}  ${r.value}` });
+  }
+  lines.push({ text: "" }, { text: activityFootnote(s), tone: "muted" });
+  return lines;
+}
+
+export function openStats(ctx: ScreenContext): void {
+  ctx.host.push(new TextDialog({ title: "Your activity", wide: true, lines: async () => statsLines(await ctx.services.stats()) }));
 }
 
 // ─── /export, /import ────────────────────────────────────────────────────────

@@ -35,9 +35,36 @@ export const CORE_TIER_4 = "core-4";
  * like the others so selection, dispatch, the JWT fetch and error handling are
  * all the existing Core path — but deliberately NOT in `CORE_TIER_ORDER`: it is
  * never a default, never a fallback, and never substituted for a paid slot.
- * Its prompts are shared with OpenAI, so it is only ever chosen on purpose.
+ * Its prompts are shared with the providers that serve it, so it is only ever
+ * chosen on purpose.
  */
 export const CORE_TIER_AUTO = "core-auto";
+
+/** The Auto consent wording now in force (see `atlarixAutoConsentVersion`). */
+export const ATLARIX_AUTO_CONSENT_VERSION = 2;
+
+/** What accepting Auto's consent writes to settings. */
+export function autoConsentAccepted(now = new Date()): {
+  atlarixAutoConsentAt: string;
+  atlarixAutoConsentVersion: number;
+} {
+  return {
+    atlarixAutoConsentAt: now.toISOString(),
+    atlarixAutoConsentVersion: ATLARIX_AUTO_CONSENT_VERSION,
+  };
+}
+
+/**
+ * The wording version the user said yes to (`X-Atlarix-Free-Consent-Version`),
+ * or null when they have not. The consent header itself is always "1".
+ */
+export function autoConsentHeader(settings: {
+  atlarixAutoConsentAt?: string;
+  atlarixAutoConsentVersion?: number;
+}): "1" | "2" | null {
+  if (!settings.atlarixAutoConsentAt) return null;
+  return (settings.atlarixAutoConsentVersion ?? 1) >= 2 ? "2" : "1";
+}
 
 export const CORE_TIER_ORDER = [
   CORE_TIER_1,
@@ -94,7 +121,7 @@ export function getCompassSyntheticModels(): LanguageModel[] {
         {
           apiName: CORE_TIER_AUTO,
           displayName: auto.label,
-          description: "Free · prompts are shared with OpenAI",
+          description: "Free · prompts are shared with model providers",
           type: "cloud" as const,
           dollarSigns: 0,
           maxOutputTokens: 32_000,

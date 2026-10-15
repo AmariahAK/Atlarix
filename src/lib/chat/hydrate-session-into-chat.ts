@@ -35,6 +35,7 @@ import {
 } from "@/lib/attachment-persistence";
 import { diagSpan, diagSpanSync } from "@/lib/diag/session-load-diag";
 import { markChatRehydrated } from "@/lib/chat/clear-chat-atoms";
+import { withoutStopNote } from "@/lib/chat/stopped-reply";
 
 /**
  * Renderer-only display ids, counting DOWN from a large negative number so they
@@ -67,7 +68,8 @@ export function sessionMessagesToUiMessages(
       // v12 0.4-C2: keep the DB row UUID — edits target the row directly.
       sessionRowId: m.id,
       role: m.role as "user" | "assistant",
-      content: m.content,
+      content:
+        m.status === "interrupted" ? withoutStopNote(m.content) : m.content,
       chatId,
       createdAt: m.createdAt,
       ...(m.status === "interrupted" ? { interrupted: true } : {}),

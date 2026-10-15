@@ -334,12 +334,13 @@ export const USE_OWN_KEY_LABEL = "Use your own key";
 
 /**
  * Atlarix Auto with no credit and no consent yet (proxy 402 `consent_required`).
- * Free Auto shares prompts with OpenAI, so it needs a one-time OK; paying
+ * Free Auto shares prompts with the providers that serve it, so it needs a
+ * one-time OK; paying
  * needs none. Starts with AUTO_CONSENT_MARKER so ChatErrorBox can open the
  * notice.
  */
 export function autoConsentRequiredUserMessage(): string {
-  return `Atlarix Auto is free once you OK sharing its prompts with OpenAI to improve their models. Review and accept to keep going. ${UPGRADE_LINE}`;
+  return `Atlarix Auto is free once you OK sharing its prompts with the AI providers that serve it, to improve their models. Review and accept to keep going. ${UPGRADE_LINE}`;
 }
 
 /** Atlarix Auto's free models are all busy right now (proxy 503 `free_busy`). */
@@ -411,4 +412,10 @@ export function compassBadRequestUserMessage(detail?: string): string {
 export const CORE_EXHAUSTED_MARKER = "balance is used up";
 export const FREE_LIMIT_MARKER = "Today's usage is over";
 export const AUTO_CONSENT_MARKER = "Atlarix Auto is free once you OK";
+
+/** Free Auto's consent, word for word, wherever a surface asks it (CLI dialog, ACP/VS Code card). */
+export const AUTO_CONSENT_TERMS = [
+  "It's free because your prompts are shared with the AI providers that serve it (OpenAI, OpenRouter and Requesty), who may use them to improve their models.",
+  "Don't use it for code you can't share. Pro, credit and your own keys stay private.",
+] as const;
 export const CORE_REACHABILITY_MARKER = "trouble reaching Atlarix Core";

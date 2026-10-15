@@ -42,6 +42,7 @@ export const COMMANDS: SlashCommand[] = [
   { name: "/notifications", description: "Notify when a turn ends or needs you, while the terminal isn't focused (on/off)", group: "account" },
   { name: "/analytics", description: "Usage analytics: on or off (shared with the app)", group: "account" },
   { name: "/status", description: "Account, balance, model, usage, Chrome, MCP", group: "account" },
+  { name: "/stats", description: "Your activity: tokens, streaks, models, skills and MCP on this computer", group: "account" },
   { name: "/login", description: "Sign in to Atlarix", group: "account" },
   { name: "/logout", description: "Sign out of the CLI", group: "account" },
   { name: "/help", description: "Keys and commands", group: "session" },

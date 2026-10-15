@@ -2650,17 +2650,16 @@ export class IpcClient {
     return this.ipcRenderer.invoke("mcp:add-pasted", params);
   }
 
-  /** The Verified five and where each stands in this folder / on the account. */
-  public async getVerifiedMcpStatus(appId: number | null): Promise<
-    Array<{
-      name: string;
-      title: string;
-      state: "on" | "off" | "not-added" | "needs-sign-in" | "needs-key";
-      where?: "local" | "account";
-      id?: number | string;
-    }>
-  > {
-    return this.ipcRenderer.invoke("mcp:verified-status", { appId });
+  /** The user's default servers and where each stands in this folder / on the account. */
+  public async getDefaultMcpServers(
+    appId: number | null,
+  ): Promise<import("@/lib/mcp/default-servers").DefaultMcpServerStatus[]> {
+    return this.ipcRenderer.invoke("mcp:defaults", { appId });
+  }
+
+  /** Make a registry server one of the defaults, or take it out; returns the new list. */
+  public async setDefaultMcpServer(params: { name: string; on: boolean }): Promise<string[]> {
+    return this.ipcRenderer.invoke("mcp:set-default", params);
   }
 
   /** Servers on now (this folder's plus the account's) and the limit. */
@@ -4039,6 +4038,11 @@ export class IpcClient {
     import("@/ipc/ipc_types").EditStatsSummary
   > {
     return this.ipcRenderer.invoke("edit-stats:summary");
+  }
+
+  /** Your activity on this computer (the stats page). */
+  public async getActivityStats(): Promise<import("@/lib/stats/usage-stats").ActivityStats> {
+    return this.ipcRenderer.invoke("usage:activity");
   }
 
   /** One line on where a chat stands, for someone coming back to it (lib/recap). */

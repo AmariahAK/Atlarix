@@ -31,10 +31,13 @@ import {
   approvalOptions,
   approvalOwner,
   approvalToolCall,
+  AUTO_CONSENT_OPTIONS,
+  autoConsentToolCall,
   MCP_CONSENT_OPTIONS,
   mcpConsentDecision,
   mcpConsentToolCall,
 } from "./permissions";
+import { AUTO_CONSENT_MARKER, AUTO_CONSENT_TERMS } from "@/shared/billing_copy";
 import { diffUpdates, type Emitted } from "./updates";
 import { groupOptions, type ModelOption } from "../agent/models";
 
@@ -616,7 +619,7 @@ class Thread {
     // CLI's /status, /billing and /mcp, answered as a message.
     // `/automations`, `/automations run <name>`, `/automations on|off <name>`.
     const automations = /^\/automations(?:\s+([\s\S]+))?$/i.exec(text.trim());
-    if (automations || (slash && (slash[1] === "status" || slash[1] === "billing" || slash[1] === "mcp" || slash[1] === "logout"))) {
+    if (automations || (slash && (slash[1] === "status" || slash[1] === "stats" || slash[1] === "billing" || slash[1] === "mcp" || slash[1] === "logout"))) {
       const { accountCommandText } = await import("./account-commands");
       const cmd = automations ? `automations ${automations[1]?.trim() ?? ""}`.trim() : slash![1]!;
       const reply = await accountCommandText(cmd, this.session, this.editorMcpServers).catch((e: Error) => `Couldn't read that: ${e.message}`);
@@ -676,10 +679,55 @@ class Thread {
     await this.flush();
     if (turn.cancelled) return { stopReason: "cancelled" };
     const err = this.session.state.lastError;
+    if (err && err !== errorBefore && err.includes(AUTO_CONSENT_MARKER)) return this.autoConsent();
     if (err && err !== errorBefore) {
       if (isAuthError(err)) throw RequestError.authRequired(undefined, "Sign in to Atlarix first (`atlarix login`).");
       throw RequestError.internalError(undefined, err);
     }
+    return { stopReason: "end_turn" };
+  }
+
+  /**
+   * Free Atlarix Auto needs the user's OK before its first turn. The CLI asks in
+   * a dialog; an editor gets a permission card with the same words (Zed,
+   * JetBrains and Atlarix's own VS Code panel all draw one). On yes the same
+   * request runs again, in this prompt, as the CLI's dialog does it.
+   */
+  private async autoConsent(): Promise<PromptResponse> {
+    const r = await this.client()
+      .request("session/request_permission", {
+        sessionId: this.id,
+        toolCall: autoConsentToolCall(AUTO_CONSENT_TERMS),
+        options: AUTO_CONSENT_OPTIONS,
+      })
+      .catch(() => ({ outcome: { outcome: "cancelled" as const } }));
+    const yes = r.outcome.outcome === "selected" && (r.outcome as { optionId?: string }).optionId === "accept";
+    if (!yes) {
+      // Answered: without this the next send's refusal compared equal to this
+      // one and nothing asked again (QA 15.7.1 #10).
+      this.session.declineAutoConsent();
+      await this.send({
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "Atlarix Auto is free once you OK it. Send again to review it, or pick another model." },
+      });
+      return { stopReason: "end_turn" };
+    }
+    const turn = { done: () => {}, cancelled: false };
+    const finished = new Promise<void>((resolve) => (turn.done = resolve));
+    this.turn = turn;
+    try {
+      await this.session.acceptAutoConsent();
+      if (!this.session.state.busy) turn.done();
+      await finished;
+    } finally {
+      this.turn = null;
+    }
+    for (const u of diffUpdates(this.session.state.cells, this.emitted)) void this.send(u);
+    await this.afterTurn();
+    await this.flush();
+    if (turn.cancelled) return { stopReason: "cancelled" };
+    const err = this.session.state.lastError;
+    if (err) throw RequestError.internalError(undefined, err);
     return { stopReason: "end_turn" };
   }
 
@@ -755,7 +803,7 @@ class Thread {
   }
 }
 
-const BUILTIN_COMMANDS = ["compact", "undo", "keys", "status", "billing", "mcp", "automations", "handoff", "logout", "build"];
+const BUILTIN_COMMANDS = ["compact", "undo", "keys", "status", "stats", "billing", "mcp", "automations", "handoff", "logout", "build"];
 
 function commandsUpdate(planReady: boolean, skills: Array<{ name: string; description: string }> = []): SessionUpdate {
   return {
@@ -765,6 +813,7 @@ function commandsUpdate(planReady: boolean, skills: Array<{ name: string; descri
       { name: "undo", description: "Go back to one of your messages, edit it and send it again." },
       { name: "keys", description: "Your own API keys, and whether each one works." },
       { name: "status", description: "Your Atlarix account, plan, credit and this chat's usage." },
+      { name: "stats", description: "Your activity on this computer: tokens, streaks, models, skills and MCP." },
       { name: "billing", description: "Get Pro, add credit, or manage or cancel your subscription." },
       { name: "mcp", description: "MCP servers in this folder." },
       { name: "automations", description: "Scheduled and triggered tasks in this folder; run one, or turn it on or off." },

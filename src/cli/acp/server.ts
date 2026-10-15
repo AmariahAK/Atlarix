@@ -153,6 +153,21 @@ export function buildAgentApp(
     })
     // ── Account, billing, keys and MCP for Atlarix's own extension: the CLI's
     // own services (/status, /billing, /connect, /mcp, /logout), nothing new.
+    // Your activity on this computer (the Account panel): rows ready to draw.
+    .onRequest("_atlarix/stats", (p) => p as Record<string, unknown>, async () => {
+      const { realServices } = await import("../agent/services");
+      const { activityFootnote, activitySections, activityTiles } = await import("@/lib/stats/activity-format");
+      const s = await realServices.stats();
+      return {
+        empty: !s.since,
+        tiles: activityTiles(s),
+        sections: activitySections(s),
+        // Half a year fits the sidebar.
+        weeks: s.weeks.slice(-26),
+        monthLabels: s.monthLabels.slice(-26),
+        footnote: activityFootnote(s),
+      };
+    })
     .onRequest("_atlarix/account", (p) => p as { sessionId?: string }, async (ctx) => {
       const { realServices } = await import("../agent/services");
       const a = realServices.account;
@@ -446,6 +461,8 @@ export function buildAgentApp(
             return { tools: await mcp.tools(id).catch(() => []) };
           case "found":
             return { found: await mcp.found(appId).catch(() => []) };
+          case "defaults":
+            return { defaults: await mcp.defaults(appId).catch(() => []) };
           case "import":
             await mcp.importFound(appId, String((p as { key?: string }).key ?? ""));
             return { servers: await mcp.list(appId) };

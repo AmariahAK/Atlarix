@@ -9,6 +9,8 @@
  *   command (lib/mcp/mcp-suggestions.ts).
  * start / stop: switch a configured server on or off (within the limit).
  * disconnect: sign a server out, so the user reconnects it from a card.
+ * defaults: the servers every workspace offers in the composer's menu
+ *   (lib/mcp/default-servers.ts); with `servers`, replaces them.
  *
  * Adding, editing and deleting servers stays with `manage_mcp_server` and its
  * approval card.
@@ -21,8 +23,9 @@ interface SuggestContext {
 }
 
 type Args = {
-  operation?: "search" | "suggest" | "start" | "stop" | "disconnect";
+  operation?: "search" | "suggest" | "start" | "stop" | "disconnect" | "defaults";
   query?: string;
+  servers?: string[];
   server?: string;
   reason?: string;
   wait?: boolean;
@@ -53,12 +56,14 @@ ToolRegistry.register({
     "`search` (query): servers in the official MCP Registry matching it, with what each needs to connect and whether it is already added. " +
     "`suggest` (server, reason): shows the user a card to connect a server; with `wait: true` it returns when they connect or decline, otherwise you are told when they connect. " +
     "`start` / `stop` (server): turn an added server on or off. " +
-    "`disconnect` (server): sign it out; the user reconnects it from a card.",
+    "`disconnect` (server): sign it out; the user reconnects it from a card. " +
+    "`defaults` (servers?): the servers every workspace offers the user; with `servers` (registry names), replaces them.",
   parameters: {
     type: "object",
     properties: {
-      operation: { type: "string", enum: ["search", "suggest", "start", "stop", "disconnect"] },
+      operation: { type: "string", enum: ["search", "suggest", "start", "stop", "disconnect", "defaults"] },
       query: { type: "string" },
+      servers: { type: "array", items: { type: "string" } },
       server: { type: "string", description: "A registry name from search, or an added server's name." },
       reason: { type: "string", description: "suggest: one line shown on the card." },
       wait: { type: "boolean" },
@@ -90,6 +95,16 @@ ToolRegistry.register({
         }),
       );
       return { total: page.total, servers };
+    }
+
+    if (op === "defaults") {
+      const { defaultMcpServersStatus, setDefaultMcpServers } = await import("@/lib/mcp/default-servers");
+      if (args.servers) {
+        const out = await setDefaultMcpServers(args.servers);
+        if (!out.ok) return { error: out.error };
+      }
+      const servers = await defaultMcpServersStatus(appId);
+      return { defaults: servers.map((s) => ({ server: s.name, title: s.title, state: s.state })) };
     }
 
     const name = args.server?.trim();
@@ -213,6 +228,6 @@ ToolRegistry.register({
       return { server: here.name, on };
     }
 
-    return { error: "operation must be one of search, suggest, start, stop, disconnect." };
+    return { error: "operation must be one of search, suggest, start, stop, disconnect, defaults." };
   },
 });

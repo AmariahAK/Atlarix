@@ -201,6 +201,18 @@ export function setLastSkillCacheAppId(appId: number | undefined): void {
 // Track partial responses for cancelled streams
 export const partialResponses = new Map<number, string>();
 
+/**
+ * What a new turn on this chat must not inherit. A new stream supersedes a
+ * pending ask_user; and a turn that finished normally leaves its reply in
+ * `partialResponses` (only a stop or an ask_user end clears it), so a stop
+ * before the next turn's first token saved THAT reply as the stopped one
+ * (QA 15.7.1 #2).
+ */
+export function resetTurnState(chatId: number): void {
+  pendingAskUserArtifactByChatId.delete(chatId);
+  partialResponses.delete(chatId);
+}
+
 // ─── FIX 4: stream reconnect plumbing ──────────────────────────────────────
 // Last successful `chat:stream` request per chat. Re-dispatched when the
 // renderer fires `chat:stream:reconnect` after the auto-retry sequence ran

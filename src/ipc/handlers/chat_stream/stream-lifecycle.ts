@@ -186,6 +186,16 @@ export async function flushInterruptedDraft(
   }
 }
 
+/**
+ * Keep the interrupted draft row as the stopped turn's record and forget it
+ * here, so the chat's next turn writes a new draft instead of overwriting this
+ * one (and deleting it when that turn completes).
+ */
+export function keepInterruptedDraft(chatId: number): void {
+  partialDraftRowByChatId.delete(chatId);
+  partialDraftLastFlushAtByChatId.delete(chatId);
+}
+
 /** Delete the interrupted draft for a chat (turn completed cleanly / superseded). */
 export async function clearInterruptedDraft(chatId: number): Promise<void> {
   const rowId = partialDraftRowByChatId.get(chatId);
@@ -208,7 +218,12 @@ export async function clearInterruptedDraft(chatId: number): Promise<void> {
  * system suspend / app quit never loses work-in-progress.
  */
 export async function flushPartialStreamsForShutdown(): Promise<void> {
-  const entries = [...partialResponses.entries()];
+  // Only turns still streaming: a finished or stopped one can leave its text
+  // here, and saving it again wrote an interrupted row without the stop note
+  // (QA 15.7.1 #11).
+  const entries = [...partialResponses.entries()].filter(([chatId]) =>
+    activeStreams.has(chatId),
+  );
   if (entries.length === 0) return;
   logger.info(
     `[partial-draft] shutdown flush for ${entries.length} active stream(s)`,

@@ -239,6 +239,23 @@ describe("AgentSession", () => {
     expect(r.noCancelText).toBe(true);
   }, 90_000);
 
+  it("a stop before the first token is recorded as stopped, and not as the last turn's reply", async () => {
+    // QA 15.7.1 #2: it saved the PREVIOUS reply as the stopped one, then (once
+    // that was fixed) nothing at all, so a reopened chat read it as still open.
+    const proc = Bun.spawnSync(
+      ["bun", "--preload", "./tests-bun/preload.ts", "tests-bun/scenarios/stop-before-first-token.ts"],
+      { cwd: path.resolve(import.meta.dir, ".."), env: { ...process.env }, stderr: "pipe", stdout: "pipe" },
+    );
+    const line = proc.stdout.toString().split("\n").find((l) => l.startsWith("RESULT "));
+    expect(line, proc.stderr.toString().slice(-2000)).toBeTruthy();
+    expect(JSON.parse(line!.slice(7))).toEqual([
+      ["user", "complete", "What is 5+5?"],
+      ["assistant", "complete", "10"],
+      ["user", "complete", "Write an essay about volcanoes."],
+      ["assistant", "interrupted", "[Response cancelled by user]"],
+    ]);
+  }, 90_000);
+
   it("'always allow' is remembered: the next such command does not ask", async () => {
     llm.stop();
     fs.writeFileSync(path.join(ws, "a1.txt"), "1");

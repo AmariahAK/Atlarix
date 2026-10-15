@@ -98,6 +98,8 @@ import type { ConnectorView } from "@/lib/mcp/account-connectors";
 import type { CatalogEntry } from "@/shared/mcp-catalog";
 
 export interface CliServices {
+  /** Your activity on this computer (/stats). */
+  stats(): Promise<import("@/lib/stats/usage-stats").ActivityStats>;
   automations: {
     list(appId: number | null): Promise<AutomationSummary[]>;
     runs(appId: number): Promise<AutomationRun[]>;
@@ -131,6 +133,8 @@ export interface CliServices {
     /** Search the marketplace (official MCP Registry, cached), Verified first. */
     catalog(appId: number, query: string, offset?: number): Promise<{ entries: CatalogEntry[]; total: number; installed: string[] }>;
     install(appId: number, name: string, optionId: string, values: Record<string, string>): Promise<AddedServer>;
+    /** The user's default servers (every workspace offers them) and where each stands here. */
+    defaults(appId: number): Promise<import("@/lib/mcp/default-servers").DefaultMcpServerStatus[]>;
     /** Web servers on the account (null when signed out). */
     account(): Promise<ConnectorView[] | null>;
     accountSetEnabled(appId: number, id: string, enabled: boolean): Promise<void>;
@@ -272,6 +276,8 @@ async function call<T>(channel: string, ...args: unknown[]): Promise<T> {
 }
 
 export const realServices: CliServices = {
+  /** Your activity on this computer: read straight from the shared database. */
+  stats: async () => (await import("@/lib/stats/usage-stats")).getActivityStats(),
   automations: {
     async list(appId) {
       if (appId != null) {
@@ -353,6 +359,7 @@ export const realServices: CliServices = {
     },
     catalog: (appId, query, offset = 0) => call("mcp-catalog:search", { appId, query, offset, limit: 50 }),
     install: (appId, name, optionId, values) => call("mcp-catalog:install", { appId, name, optionId, values }),
+    defaults: (appId) => call("mcp:defaults", { appId }),
     account: () => call("connectors:list"),
     async accountSetEnabled(appId, id, enabled) {
       await call("connectors:set-enabled", { appId, id, enabled });

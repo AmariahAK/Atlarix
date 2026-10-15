@@ -75,9 +75,11 @@ const VERBS: Record<string, { one: string; many: (n: number) => string }> = {
     one: "Checked your connectors",
     many: () => "Checked your connectors",
   },
+  // "Asked", not "Used": every call waits for the user's yes, and a call they
+  // stopped never ran (QA 15.7.1).
   mcp_call: {
-    one: "Used a connector",
-    many: (n) => `Used connectors ${n} times`,
+    one: "Asked to use a connector",
+    many: (n) => `Asked to use connectors ${n} times`,
   },
   recall: { one: "Looked back", many: (n) => `Looked back ${n} times` },
   web_search: { one: "Searched the web", many: (n) => `Searched the web ${n} times` },

@@ -203,6 +203,12 @@ ToolRegistry.register({
         trimmed === "**/*";
       const ignoreArgs = await ripgrepIgnoreArgs(workspace);
       const rgArgs = ["--files", ...ignoreArgs];
+      // ripgrep skips dot-folders, so `.atlarix/skills/*` (where skills live)
+      // found nothing (QA 15.7.1). A pattern that NAMES a dot-folder looks in
+      // it; .git stays out, and broad patterns keep skipping hidden files.
+      if (!isUniversal && /(^|[\\/])\.[^./\\*]/.test(effectivePattern)) {
+        rgArgs.push("--hidden", "-g", "!.git/");
+      }
       if (!isUniversal) rgArgs.push("-g", effectivePattern);
       let matched: string[] = [];
       try {

@@ -48,6 +48,44 @@ describe("RevertTurnAction", () => {
     expect(screen.queryByTitle("Revert this turn's file changes")).toBeNull();
   });
 
+  it("says what will be kept from a fresh look when the dialog opens", async () => {
+    // Loaded when the reply appeared: nothing changed since yet.
+    getSnapshotFiles.mockResolvedValueOnce({ filesChanged: ["a.txt", "b.txt"], createdFiles: [] });
+    // By the time the user opens the dialog, b.txt was edited by hand.
+    getSnapshotFiles.mockResolvedValueOnce({
+      filesChanged: ["a.txt", "b.txt"],
+      createdFiles: [],
+      kept: ["b.txt"],
+    } as never);
+    const { store } = renderWithProviders(<div />);
+    store.set(turnSnapshotTurnIdByMessageIdAtom, new Map([[MSG_ID, String(MSG_ID)]]));
+    renderWithProviders(<RevertTurnAction chatId={CHAT_ID} messageId={MSG_ID} />);
+    const btn = await screen.findByTitle("Revert this turn's file changes");
+    await act(async () => {
+      fireEvent.click(btn);
+    });
+    expect(await screen.findByText(/Restores 1 file/)).toBeInTheDocument();
+    expect(screen.getByText(/Kept b\.txt/)).toBeInTheDocument();
+  });
+
+  it("QA 15.7.1 #10: with every file kept there is nothing to revert", async () => {
+    getSnapshotFiles.mockResolvedValueOnce({ filesChanged: ["calc.py"], createdFiles: [] });
+    getSnapshotFiles.mockResolvedValueOnce({
+      filesChanged: ["calc.py"],
+      createdFiles: [],
+      kept: ["calc.py"],
+    } as never);
+    const { store } = renderWithProviders(<div />);
+    store.set(turnSnapshotTurnIdByMessageIdAtom, new Map([[MSG_ID, String(MSG_ID)]]));
+    renderWithProviders(<RevertTurnAction chatId={CHAT_ID} messageId={MSG_ID} />);
+    const btn = await screen.findByTitle("Revert this turn's file changes");
+    await act(async () => {
+      fireEvent.click(btn);
+    });
+    expect(await screen.findByText(/Kept calc\.py/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Revert files" })).toBeDisabled();
+  });
+
   it("shows the action and reverts (filesOnly) on confirm when a snapshot exists", async () => {
     const { store } = renderWithProviders(<div />);
     store.set(

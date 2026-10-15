@@ -55,6 +55,7 @@ export type KeyStatus = "works" | "rejected" | "unchecked" | "unreachable";
 /** The `_atlarix/*` methods the webview may call through the host. */
 export const RPC_METHODS = [
   "_atlarix/account",
+  "_atlarix/stats",
   "_atlarix/checkout",
   "_atlarix/providers",
   "_atlarix/provider_key",

@@ -1121,6 +1121,46 @@ export const editStats = sqliteTable(
   ],
 );
 
+/**
+ * Your activity: the agent's finished turns on this computer, as a daily
+ * ROLLUP like `edit_stats` (bounded for the life of the install, no pruning, no
+ * prompt text). Keyed (day, surface, provider, model, mode); `day` is LOCAL and
+ * the model is stored RESOLVED, for the same reasons as `edit_stats`.
+ * `surface` is app | cli | editor (VS Code, Zed and JetBrains run the same agent).
+ */
+export const usageStats = sqliteTable(
+  "usage_stats",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    day: text("day").notNull(),
+    surface: text("surface").notNull(),
+    provider: text("provider").notNull(),
+    modelId: text("model_id").notNull(),
+    mode: text("mode").notNull(),
+    turns: integer("turns").notNull().default(0),
+    /** Turns run at the model's highest reasoning level. */
+    deepTurns: integer("deep_turns").notNull().default(0),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+  },
+  (table) => [
+    unique("usage_stats_bucket_unique").on(table.day, table.surface, table.provider, table.modelId, table.mode),
+  ],
+);
+
+/** Skill and MCP server runs per day (`kind` = skill | mcp), for "most used". */
+export const usageToolStats = sqliteTable(
+  "usage_tool_stats",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    day: text("day").notNull(),
+    kind: text("kind").notNull(),
+    name: text("name").notNull(),
+    runs: integer("runs").notNull().default(0),
+  },
+  (table) => [unique("usage_tool_stats_bucket_unique").on(table.day, table.kind, table.name)],
+);
+
 export const editStatsRelations = relations(editStats, ({ one }) => ({
   workspace: one(apps, {
     fields: [editStats.workspaceId],
