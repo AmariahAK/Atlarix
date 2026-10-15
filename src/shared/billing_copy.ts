@@ -415,8 +415,7 @@ export const AUTO_CONSENT_MARKER = "Atlarix Auto is free once you OK";
 
 /** Free Auto's consent, word for word, wherever a surface asks it (CLI dialog, ACP/VS Code card). */
 export const AUTO_CONSENT_TERMS = [
-  "Atlarix Auto costs nothing. It is free because the prompts and replies it handles are shared with the AI providers that serve it (OpenAI, and free models through OpenRouter and Requesty), which may use them to improve their models.",
-  "Don't use it for code or data you can't share. Every other model — Core tiers and your own API keys — is not shared, and neither is Auto once you have Pro or credit: then it is paid and private.",
-  "Everyone gets a fair daily share; when yours is used, Auto moves to a free fallback model, then pauses until the daily reset.",
+  "It's free because your prompts are shared with the AI providers that serve it (OpenAI, OpenRouter and Requesty), who may use them to improve their models.",
+  "Don't use it for code you can't share. Pro, credit and your own keys stay private.",
 ] as const;
 export const CORE_REACHABILITY_MARKER = "trouble reaching Atlarix Core";

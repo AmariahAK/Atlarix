@@ -548,7 +548,7 @@ describe("command screens", () => {
     const { setup, session } = await mount();
     const ask = "Atlarix Auto is free once you OK sharing its prompts with the AI providers that serve it, to improve their models.";
     session.set({ lastError: ask });
-    expect(await frameContaining(setup, "Use Atlarix Auto for free?")).toContain("shared with the AI providers that serve it");
+    expect(await frameContaining(setup, "Use Atlarix Auto for free?")).toContain("your prompts are shared with the AI providers");
     // The dialog opens over the composer while the user may still be typing (QA 15.7.1 #7).
     setup.mockInput.pressEnter();
     expect(await until(() => !setup.captureCharFrame().includes("Use Atlarix Auto for free?"))).toBe(true);
