@@ -1016,6 +1016,15 @@ export function App({
     autoPrompt.current = "consent";
     openAutoConsent(screen());
   }, [state.lastError]);
+  // A yes to the old wording is asked once more on free Auto (as the app does).
+  useEffect(() => {
+    if (accountKind !== "free" || host.open) return;
+    void session.takeAutoConsentReask().then((due) => {
+      if (!due) return;
+      autoPrompt.current = "consent";
+      openAutoConsent(screen());
+    });
+  }, [accountKind, session.model?.provider, session.model?.name]);
 
   useEffect(() => {
     if (startWith) runCommand(startWith);

@@ -780,6 +780,25 @@ export class AgentSession extends EventEmitter {
   private lastTurn: { text: string; opts: TurnOptions } | null = null;
 
   /** Free Auto asked for the OK to share prompts; record it and send the refused message again. */
+  /**
+   * A yes given to the OLD Auto wording ("shared with OpenAI") is asked again
+   * ONCE on free Auto, as the app's picker does: Auto now also runs on free
+   * models through other providers. Recorded as asked when it opens, so it never
+   * repeats; "Not now" keeps the OpenAI-only Auto that yes covered (QA 15.7.1 #6a).
+   */
+  async takeAutoConsentReask(): Promise<boolean> {
+    const m = this.model;
+    if (!m || m.provider !== "compass") return false;
+    const { isCoreAutoTier, ATLARIX_AUTO_CONSENT_VERSION } = await import("@/ipc/shared/compass_constants");
+    if (!isCoreAutoTier(m.name)) return false;
+    const { readSettings, writeSettings } = await import("@/main/settings");
+    const s = readSettings();
+    const oldYes = !!s.atlarixAutoConsentAt && (s.atlarixAutoConsentVersion ?? 1) < ATLARIX_AUTO_CONSENT_VERSION;
+    if (!oldYes || s.atlarixAutoConsentV2AskedAt) return false;
+    writeSettings({ atlarixAutoConsentV2AskedAt: new Date().toISOString() } as never);
+    return true;
+  }
+
   async acceptAutoConsent(): Promise<void> {
     const { writeSettings } = await import("@/main/settings");
     const { autoConsentAccepted } = await import("@/ipc/shared/compass_constants");

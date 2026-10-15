@@ -551,9 +551,11 @@ export function openAutoConsent(ctx: ScreenContext): void {
         { text: "Everyone gets a fair daily share; when yours is used, Auto moves to a free fallback model, then pauses until the daily reset.", tone: "muted" },
       ],
       footer: "↑↓ move · enter choose · esc not now",
+      // "Not now" FIRST: the dialog opens over the composer, and an Enter typed
+      // for a message there must never be a consent (QA 15.7.1 #7).
       items: [
-        { id: "accept", label: "Use Atlarix Auto", detail: "and send the message again" },
         { id: "cancel", label: "Not now", detail: "/model picks another model" },
+        { id: "accept", label: "Use Atlarix Auto", detail: "and send the message again" },
       ],
       onChoose: async (item) => {
         ctx.host.closeAll();
