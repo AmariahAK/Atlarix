@@ -41,6 +41,7 @@ import {
   MODEL_EMPTY_RESPONSE_USER_MESSAGE,
 } from "@/ipc/utils/no_usable_model_output";
 import { safeSend } from "@/ipc/utils/safe_sender";
+import { stripToolCallXML } from "@/ipc/utils/text_tool_parser";
 import { stripThinkBlocks } from "@/ipc/utils/thinking_tags";
 import { listBackgroundJobs } from "@/lib/agent/background-commands";
 import { clearMutationOutcomes } from "@/lib/agent/mutation-verify";
@@ -121,6 +122,15 @@ export async function finalizeTurn(
     userPrompt,
     abortController,
   } = deps;
+  // ask_user ends the turn by aborting its stream, and the loop's result then
+  // holds nothing of the round that asked: what the agent wrote before the
+  // question lived only in the live row. Saved as the bare marker, that reply
+  // vanished once the answer was sent, from the screen and from the model's
+  // next request (owner, 2026-10-16).
+  if (ctx.askUserEndedTurn) {
+    const live = stripToolCallXML(partialResponses.get(req.chatId) ?? "");
+    if (live.trim().length > ctx.fullResponse.trim().length) ctx.fullResponse = live;
+  }
   // A turn that ENDS on ask_user often says nothing before asking: the question
   // card is the reply. The empty-response fallback ("Something went wrong")
   // was saved above the card on every such turn.

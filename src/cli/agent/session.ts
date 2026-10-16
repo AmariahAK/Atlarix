@@ -246,6 +246,48 @@ export async function changeFolderSession(sessionId: string, change: { rename: s
 
 let interjectionSeq = 0;
 
+/** A "◇ … finished · 21s" line, kept under the line that was last when it finished. */
+export type WakeNote = { id: string; afterCellId: string; afterMessageId: string; text: string };
+
+/**
+ * Put each wake note after the line that was last when it finished. Anchoring
+ * to the MESSAGE alone put it after that message's last line, and a reply still
+ * being written keeps growing, so every note finished mid-turn sank to the
+ * bottom and stacked there (owner, 2026-10-16). The message is the fallback for
+ * a line that has since gone (a collapsed thought).
+ */
+export function placeWakeNotes(cells: readonly Cell[], notes: readonly WakeNote[]): Cell[] {
+  const out = [...cells];
+  for (const n of notes) {
+    let at = n.afterCellId ? out.findIndex((c) => c.id === n.afterCellId) + 1 : 0;
+    if (at === 0) {
+      at = out.length;
+      if (n.afterMessageId) {
+        const prefix = `${n.afterMessageId}:`;
+        for (let i = out.length - 1; i >= 0; i--) {
+          if (out[i]!.id.startsWith(prefix)) {
+            at = i + 1;
+            break;
+          }
+        }
+      }
+    }
+    while (at < out.length && out[at]!.id.startsWith("wake:")) at++;
+    out.splice(at, 0, { kind: "notice", id: `wake:${n.id}`, level: "info", text: n.text });
+  }
+  return out;
+}
+
+/** The line a wake note goes under: the last one on screen that a turn's own lines are built from. */
+function lastAnchorCell(cells: readonly Cell[]): string {
+  for (let i = cells.length - 1; i >= 0; i--) {
+    const c = cells[i]!;
+    if (c.kind === "recap" || c.kind === "footer" || c.id.startsWith("wake:") || c.id.includes(":turn-notice")) continue;
+    return c.id;
+  }
+  return "";
+}
+
 /**
  * Take main's message list, keeping the thinking of replies already seen.
  *
@@ -1163,7 +1205,8 @@ export class AgentSession extends EventEmitter {
         const fresh = lines.filter((l) => !this.wakeNotes.some((n) => n.text === `◇ ${l}`));
         if (!fresh.length) return;
         const after = this.messages.length ? String(this.messages.at(-1)!.id) : "";
-        for (const text of fresh) this.wakeNotes.push({ id: `${Date.now().toString(36)}${++interjectionSeq}`, afterMessageId: after, text: `◇ ${text}` });
+        const afterCellId = lastAnchorCell(this.state.cells);
+        for (const text of fresh) this.wakeNotes.push({ id: `${Date.now().toString(36)}${++interjectionSeq}`, afterCellId, afterMessageId: after, text: `◇ ${text}` });
         this.update({ cells: this.cellsFor(this.state.busy) });
       })
       .catch(() => {});
@@ -1375,26 +1418,10 @@ export class AgentSession extends EventEmitter {
    * finished behind. Without them a wake turn began with a bare step and you
    * could not tell what had happened (QA).
    */
-  private readonly wakeNotes: Array<{ id: string; afterMessageId: string; text: string }> = [];
+  private readonly wakeNotes: WakeNote[] = [];
 
   private placeWakeNotes(cells: Cell[]): Cell[] {
-    if (!this.wakeNotes.length) return cells;
-    const out = [...cells];
-    for (const n of this.wakeNotes) {
-      let at = out.length;
-      if (n.afterMessageId) {
-        const prefix = `${n.afterMessageId}:`;
-        for (let i = out.length - 1; i >= 0; i--) {
-          if (out[i]!.id.startsWith(prefix)) {
-            at = i + 1;
-            break;
-          }
-        }
-      }
-      while (at < out.length && out[at]!.id.startsWith("wake:")) at++;
-      out.splice(at, 0, { kind: "notice", id: `wake:${n.id}`, level: "info", text: n.text });
-    }
-    return out;
+    return this.wakeNotes.length ? placeWakeNotes(cells, this.wakeNotes) : cells;
   }
 
   /** Sub-agents started in this session, by delegation id (their work nests under the `task` line). */
@@ -1676,7 +1703,7 @@ export class AgentSession extends EventEmitter {
           // Once per run, under the message whose edit found no Git (QA 15.7.1 #3).
           if (!this.wakeNotes.some((n) => n.id === "revert-needs-git")) {
             const lastUser = [...this.messages].reverse().find((m) => m.role === "user");
-            this.wakeNotes.push({ id: "revert-needs-git", afterMessageId: lastUser ? String(lastUser.id) : "", text: p.label });
+            this.wakeNotes.push({ id: "revert-needs-git", afterCellId: "", afterMessageId: lastUser ? String(lastUser.id) : "", text: p.label });
             this.update({ cells: this.cellsFor(this.state.busy) });
           }
         }

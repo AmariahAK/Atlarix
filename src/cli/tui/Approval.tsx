@@ -8,6 +8,7 @@ import { approvalDiff } from "../agent/approval-diff";
 import type { PendingApproval } from "../agent/session";
 import { approvalChoices, approvalTitle, firstPreview, type ApprovalChoice, automationDetails, outsideWorkspace } from "../agent/approval-choices";
 export { approvalChoices, approvalTitle, type ApprovalChoice } from "../agent/approval-choices";
+import { useTerminalDimensions } from "@opentui/react";
 import { useDiffSegments } from "./diff-highlight";
 import { color } from "./theme";
 
@@ -30,10 +31,42 @@ export function splitDiffLine(l: { kind: string; text: string }): { prefix: stri
   return m ? { prefix: m[0], code: l.text.slice(m[0].length) } : { prefix: "", code: l.text };
 }
 
+/** Rows a long command shows before ctrl+o. */
+export const COMMAND_ROWS = 10;
+
+/**
+ * As much of a command as fits in `rows` screen rows at `cols` columns, and how
+ * many of its lines are left out. The box never shrinks, so a long command (a PR
+ * body in a heredoc) pushed the choices off the bottom of the screen and there
+ * was nothing to answer (owner, 2026-10-16).
+ */
+export function clipCommand(text: string, cols: number, rows: number): { text: string; more: number } {
+  const lines = text.split("\n");
+  const width = Math.max(1, cols);
+  const out: string[] = [];
+  let used = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const need = Math.max(1, Math.ceil(lines[i]!.length / width));
+    if (used + need > rows) {
+      // One line longer than the whole space: its start, cut.
+      if (!out.length) return { text: `${lines[i]!.slice(0, Math.max(1, rows * width - 1))}…`, more: lines.length - 1 - i };
+      return { text: out.join("\n"), more: lines.length - i };
+    }
+    out.push(lines[i]!);
+    used += need;
+  }
+  return { text, more: 0 };
+}
+
 export function Approval({ approval, selected, expanded = false, workspace }: { approval: PendingApproval; selected: number; expanded?: boolean; workspace?: string }) {
   const p = firstPreview(approval);
   const choices = approvalChoices(approval);
   const shown = p.command ?? p.path ?? p.deniedPath ?? "";
+  const { width, height } = useTerminalDimensions();
+  // ctrl+o shows the rest, as far as the screen holds with the choices, the
+  // prompt box and a few lines of conversation still on it.
+  const room = Math.max(3, height - 20 - choices.length);
+  const command = p.command ? clipCommand(`$ ${shown}`, width - 8, expanded ? room : Math.min(COMMAND_ROWS, room)) : null;
   // ctrl+o shows the whole change (QA: "… 2 more lines" had no way to see them).
   const diff = approvalDiff(p, expanded ? 400 : 14);
   // The file's language colours the code, as in the transcript's diffs; the
@@ -53,8 +86,11 @@ export function Approval({ approval, selected, expanded = false, workspace }: { 
         <b>{`△ ${approvalTitle(approval)}`}</b>
       </text>
       {shown ? (
-        <box backgroundColor={color.bg} paddingLeft={1} paddingRight={1}>
-          <text fg={color.text}>{p.command ? `$ ${shown}` : shown}</text>
+        <box backgroundColor={color.bg} paddingLeft={1} paddingRight={1} flexDirection="column">
+          <text fg={color.text}>{command ? command.text : shown}</text>
+          {command?.more ? (
+            <text fg={color.faint}>{`… ${command.more} more line${command.more === 1 ? "" : "s"}${expanded ? "" : " (ctrl+o)"}`}</text>
+          ) : null}
         </box>
       ) : null}
       {p.description ? <text fg={color.textDim}>{p.description.replace(/`/g, "")}</text> : null}
