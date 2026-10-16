@@ -32,7 +32,10 @@
 # STORE SUBMISSION is automated via `scripts/store-submit.mjs` using the Partner
 # Center Submission API v1. On release tags (workflow_call from release.yml), the
 # script creates a new submission, uploads the .msixupload, and commits — triggering
-# Microsoft certification automatically. Manual runs (workflow_dispatch) skip this.
+# Microsoft certification automatically. If the previous submission is still being
+# certified or published, it is left alone and this release skips the Store (with a
+# warning); only one that failed or never got committed is replaced. Manual runs
+# (workflow_dispatch) skip this.
 # The submission step is `continue-on-error: true` so a Store API failure can never
 # block anything. Requires three GitHub secrets: AZURE_AD_TENANT_ID,
 # AZURE_AD_CLIENT_ID, AZURE_AD_CLIENT_SECRET.
