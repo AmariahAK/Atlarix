@@ -148,6 +148,23 @@ describe("a provider you added that speaks the Anthropic format", () => {
       const turn = fake.requests.filter((q) => q.path === "/v1/messages");
       expect(turn.length).toBeGreaterThan(0);
       expect(turn.every((q) => q.headers.authorization === "Bearer dev-k")).toBe(true);
+
+      // A second turn: the cached system block is byte-for-byte the first
+      // turn's, and this turn's request rides in its own block after it (QA:
+      // it sat inside the cached block, so every turn missed the cache).
+      const before = fake.requests.length;
+      const again = idle(s as never);
+      await s.submit("Now read notes.txt.");
+      await again;
+      type Sys = Array<{ text: string; cache_control?: unknown }>;
+      const mainOf = (qs: typeof fake.requests) =>
+        qs.find((q) => q.path === "/v1/messages" && Array.isArray(q.body?.tools) && (q.body!.tools as unknown[]).length > 0)!;
+      const first = mainOf(fake.requests.slice(0, before)).body!.system as Sys;
+      const second = mainOf(fake.requests.slice(before)).body!.system as Sys;
+      expect(first[0]!.cache_control).toBeTruthy();
+      expect(second[0]!.text).toBe(first[0]!.text);
+      expect(first[0]!.text).not.toContain("<user_context>");
+      expect(second.slice(1).map((b) => b.text).join("\n")).toContain("Now read notes.txt.");
     } finally {
       fake.stop();
     }

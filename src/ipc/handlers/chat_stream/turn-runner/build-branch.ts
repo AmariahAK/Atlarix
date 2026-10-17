@@ -113,6 +113,7 @@ import {
   resolveEditStatsModel,
   dispatchedModelIdentity,
 } from "@/lib/stats/edit-stats";
+import { splitDynamicTail } from "@/prompts/system_prompt";
 
 const logger = log.scope("chat_stream_handlers");
 
@@ -129,6 +130,8 @@ export interface BuildBranchDeps {
   modelContextResolved: { tierLimit: number };
   placeholderAssistantMessage: any;
   systemPrompt: string;
+  /** This turn's tail (date, the request): sent apart from the cached header. */
+  dynamicTail?: string;
   taskLedgerBlock: string | null;
   simpleStreamTextDeps: SimpleStreamTextDeps;
   streamTurnId: string;
@@ -192,6 +195,7 @@ export async function runBuildBranch(
     modelContextResolved,
     placeholderAssistantMessage,
     systemPrompt,
+    dynamicTail,
     taskLedgerBlock,
     simpleStreamTextDeps,
     streamTurnId,
@@ -1906,7 +1910,9 @@ export async function runBuildBranch(
                 : "agent",
           tools,
           repetition: agenticRepetition,
-          buildRoundSystemPrompt: () => systemPrompt,
+          // The per-turn tail in its own system message, after the cached
+          // header, so the next turn reads the cache instead of rewriting it.
+          buildRoundSystemPrompt: () => splitDynamicTail(systemPrompt, dynamicTail),
           detectTextToolCalls: (fr) =>
             useTextToolFallback && containsTextToolCall(fr)
               ? (parseTextToolCalls(fr) as Array<{
