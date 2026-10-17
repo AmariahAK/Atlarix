@@ -21,6 +21,7 @@
   "workspace": {
     "packageJson": {
       "dependencies": [
+        "npm:@agentclientprotocol/sdk@^1.7.0",
         "npm:@ai-sdk/amazon-bedrock@^5.0.58",
         "npm:@ai-sdk/anthropic@^4.0.39",
         "npm:@ai-sdk/azure@^4.0.44",

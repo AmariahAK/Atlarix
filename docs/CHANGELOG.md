@@ -3,6 +3,26 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [15.8.0] (2026-10-17) — /effort: how hard the model thinks, on every model
+
+**/effort** replaces deep thinking with one control for how hard the model thinks, in the app's
+composer menu, the CLI (`/effort`, ctrl+t for the top level or back to the default), and your editor
+(VS Code, Cursor, Zed and JetBrains, plus `/effort` in the chat). On your own key or a Core model it
+offers the model's own levels, exactly as the model lists them — `xhigh` stays `xhigh`, `none` and
+`minimal` appear where a model has them — and sends the one you pick unchanged. A model with only
+on and off shows off · on; one that takes a thinking budget shows three sizes; one with no setting
+shows nothing. The default is what the model ran before, and a model you switch to keeps your level
+only when it lists it too. On paid Atlarix Auto the three levels choose the models: low uses the
+small, fast models (still thinking hard), medium is today's Auto, and max is what deep thinking was.
+Free Auto runs at one level.
+
+Also fixed: a reply that ends by asking you a question keeps everything it wrote before the question
+once you answer, on screen and for the model (it used to vanish, drafted commit messages and all). In
+the CLI, a "finished" line for background work stays where it happened instead of piling up under
+the reply, a long command no longer pushes the Yes / No choices off the screen (ctrl+o shows more),
+and the tab title says `<!> needs you` when Atlarix is waiting on you. Choosing "none" or "off" now
+really turns thinking off on OpenRouter and Claude models, and Gemini gets the level you pick.
+
 ## [15.7.1] (2026-10-15) — your activity, MCP defaults, more free Auto, and fixes
 
 A stopped reply stays saved as stopped, in every mode, so after you reopen the chat the next
