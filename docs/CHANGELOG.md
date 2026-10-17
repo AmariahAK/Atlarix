@@ -3,6 +3,24 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [15.8.2] (2026-10-17) — a lighter start, and the whole MCP marketplace in the CLI and VS Code
+
+The app checks your account once when it starts, instead of once per part of the screen that
+shows it. Sign-in state used to be held separately by each part of the window (about two dozen),
+each asking for it on its own and each showing its own "Signed in" toast; it is now held once and
+shared. Your plan, subscription, ban and onboarding flags are read from the server in one request
+instead of several, and the plan check that follows signing in reuses that read instead of
+repeating it. Measured against the live server, a signed-in launch went from thirteen account
+requests to two. Switching back to the window still checks your plan with the server every time,
+so an upgrade still shows up at once; if the combined read fails, each value falls back to its own
+lookup, so a paid account can never read as free.
+
+The MCP marketplace in the CLI (`/mcp`, then b) and the VS Code panel now says how many servers
+there are, or how many match your search, and lets you page through all of them: the CLI loads
+more as you scroll toward the end, VS Code has Show more. They used to stop at the first 50 and 25
+with no sign there was more. The Debug mode's instructions are a little shorter, with the same
+rules.
+
 ## [15.8.1] (2026-10-17) — a proper welcome in the CLI
 
 Signed out, `atlarix` now opens on a welcome screen with the two ways in: sign in with your
