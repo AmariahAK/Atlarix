@@ -3,6 +3,14 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [15.8.1] (2026-10-17) — a proper welcome in the CLI
+
+Signed out, `atlarix` now opens on a welcome screen with the two ways in: sign in with your
+browser (GitHub, Google or email), or with a code (for SSH or a machine with no browser, offered first where there's no
+display). Nothing opens until you choose, the screen shows each step of the sign-in, esc goes back,
+and ctrl+c quits. Before, it printed a line and opened a browser by itself, which could look like
+the CLI had hung.
+
 ## [15.8.0] (2026-10-17) — /effort: how hard the model thinks, on every model
 
 **/effort** replaces deep thinking with one control for how hard the model thinks, in the app's

@@ -93,14 +93,19 @@ async function interactive(): Promise<void> {
   const devUrl = flag("--provider-url");
   await prepareCliData(devUrl);
 
-  // Signed in first, like every Atlarix surface (the dev endpoint needs none).
+  // Signed in first, like every Atlarix surface (the dev endpoint needs none):
+  // a welcome screen with the two ways in, as Claude Code and Codex open, not a
+  // text line that opened a browser by itself (owner, 2026-10-17).
   if (!devUrl) {
     const { currentEmail } = await import("./auth/account");
     if (!(await currentEmail())) {
-      // Cooked mode for the plain-text sign-in, so ctrl+c cancels it.
-      process.stdin.setRawMode(false);
-      await loginInTerminal();
-      process.stdin.setRawMode(true);
+      const { shouldUseDeviceCode } = await import("./auth/device-sign-in");
+      const { runLogin } = await import("./tui/run");
+      await runLogin({
+        version: VERSION,
+        preferCode: argv.includes("--device") || (!argv.includes("--browser") && shouldUseDeviceCode()),
+        signIn: (method, show) => signInWith(method, show),
+      });
     }
   }
 
@@ -254,11 +259,19 @@ function chromeStatus(): string {
   return bridgeModule?.bridgeRole() === "peer" ? `${what} (shared with the Atlarix app)` : what;
 }
 
+type ShowLines = (lines: Array<{ text: string; tone?: "accent" | "muted" | "warn" | "error" | "text"; bold?: boolean }>) => void;
+
 /** `/login` inside the TUI: the same two ways in, shown as lines in a dialog. */
-async function signInInTui(show: (lines: Array<{ text: string; tone?: "accent" | "muted" | "warn" | "error" | "text"; bold?: boolean }>) => void): Promise<string> {
-  const { shouldUseDeviceCode, signInWithDeviceCode } = await import("./auth/device-sign-in");
+async function signInInTui(show: ShowLines): Promise<string> {
+  const { shouldUseDeviceCode } = await import("./auth/device-sign-in");
+  return signInWith(shouldUseDeviceCode() ? "code" : "browser", show);
+}
+
+/** Sign in through the browser on this machine, or with a code on any device. */
+async function signInWith(method: "browser" | "code", show: ShowLines): Promise<string> {
+  const { signInWithDeviceCode } = await import("./auth/device-sign-in");
   const { acceptSession, signInCli } = await import("./auth/account");
-  if (shouldUseDeviceCode()) {
+  if (method === "code") {
     return signInWithDeviceCode({
       acceptSession,
       show: ({ userCode, verificationUri, expiresInS }) =>
