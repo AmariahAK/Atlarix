@@ -125,10 +125,11 @@ describe("a provider you added is checked at its own address, in its own format"
 });
 
 describe("detectAnthropicAuth: which header the endpoint takes", () => {
-  const server = (accepts: "x-api-key" | "bearer" | "none" | "unlisted") =>
-    vi.fn(async (_url: string, init?: RequestInit) => {
+  const server = (accepts: "x-api-key" | "bearer" | "none" | "unlisted", list = true) =>
+    vi.fn(async (url: string, init?: RequestInit) => {
       const h = new Headers(init?.headers);
       if (accepts === "unlisted") return new Response("<UnknownOperationException/>", { status: 404 });
+      if (!list && String(url).endsWith("/models")) return new Response("<UnknownOperationException/>", { status: 404 });
       const ok =
         (accepts === "x-api-key" && h.get("x-api-key") === "k") ||
         (accepts === "bearer" && h.get("authorization") === "Bearer k");
@@ -159,6 +160,19 @@ describe("detectAnthropicAuth: which header the endpoint takes", () => {
   it("an endpoint that lists no models (Bedrock): unchecked, not rejected", async () => {
     const r = await detectAnthropicAuth("https://gw.example/v1", "k", server("unlisted") as never);
     expect(r.check.status).toBe("unchecked");
+  });
+
+  it("no model list and Bearer only: /messages with an empty body tells the headers apart (QA A1)", async () => {
+    const f = server("bearer", false);
+    const r = await detectAnthropicAuth("https://gw.example/v1", "k", f as never);
+    expect(r.authHeader).toBe("bearer");
+    // Never a real message: every /messages probe carried an empty body.
+    for (const [url, init] of f.mock.calls) if (String(url).endsWith("/messages")) expect(init?.body).toBe("{}");
+  });
+
+  it("no model list and the key refused in both headers: rejected, with the provider's words", async () => {
+    const r = await detectAnthropicAuth("https://gw.example/v1", "k", server("none", false) as never);
+    expect(r).toMatchObject({ authHeader: "x-api-key", check: { status: "rejected", detail: "invalid x-api-key" } });
   });
 
   it("checkProviderKey reads the Anthropic list shape", async () => {

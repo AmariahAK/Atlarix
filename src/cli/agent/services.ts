@@ -489,6 +489,24 @@ export const realServices: CliServices = {
       // Encrypted with the desktop's OS key (entry.mts installs that key), so
       // the desktop app reads the same key. Only this provider's key changes.
       writeProviderKey(providerId, key.trim());
+      // A new key for an Anthropic-format endpoint may want the other header.
+      const { getLanguageModelProviders } = await import("@/ipc/shared/language_model_helpers");
+      const p = (await getLanguageModelProviders()).find((x) => x.id === providerId);
+      if (p?.apiFormat === "anthropic" && p.apiBaseUrl && key.trim()) {
+        const { detectAnthropicAuth } = await import("@/lib/provider-key-check");
+        const found = await detectAnthropicAuth(p.apiBaseUrl, key.trim());
+        if (found.check.status !== "rejected" && found.authHeader !== (p.authHeader ?? "x-api-key")) {
+          const { CUSTOM_PROVIDER_PREFIX } = await import("@/ipc/shared/language_model_helpers");
+          const { registerLanguageModelHandlers } = await import("@/ipc/handlers/language_model_handlers");
+          await ensureLanguageModelHandlers(registerLanguageModelHandlers);
+          await invoke("edit-custom-language-model-provider", {
+            id: providerId.slice(CUSTOM_PROVIDER_PREFIX.length),
+            name: p.name,
+            apiBaseUrl: p.apiBaseUrl,
+            authHeader: found.authHeader,
+          });
+        }
+      }
       const { invalidateProviderModelCache } = await import("@/lib/provider_model_fetchers");
       invalidateProviderModelCache(providerId);
     },

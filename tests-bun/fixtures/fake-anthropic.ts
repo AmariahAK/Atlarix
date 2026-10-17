@@ -46,6 +46,9 @@ export function startFakeAnthropic(opts: {
       }
       if (req.method === "POST" && u.pathname === "/v1/messages") {
         if (!authed(req.headers)) return denied();
+        if (!Array.isArray(body?.messages)) {
+          return Response.json({ type: "error", error: { type: "invalid_request_error", message: "messages: Field required" } }, { status: 400 });
+        }
         const text = opts.reply ?? "Hello from the fake Anthropic endpoint.";
         const model = String(body?.model ?? "claude-haiku-4-5");
         const usage = { input_tokens: 12, output_tokens: 6 };

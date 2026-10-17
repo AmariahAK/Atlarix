@@ -1726,6 +1726,7 @@ export function openCustomProvider(ctx: ScreenContext, onSaved: (providerId?: st
           },
         ],
         label: "Base URL",
+        footer: "enter next · esc cancel",
         onSubmit: (v) => {
           const url = v.trim();
           if (!/^https?:\/\/\S+$/i.test(url)) return "A URL starting with https:// (or http:// for one on this computer).";
@@ -1748,6 +1749,7 @@ export function openCustomProvider(ctx: ScreenContext, onSaved: (providerId?: st
           },
         ],
         label: "Name",
+        footer: "enter next · esc cancel",
         onSubmit: (v) => {
           if (!v.trim()) return "Give it a name.";
           draft.name = v.trim().slice(0, 60);

@@ -143,10 +143,38 @@ export function keyHint(key: string | null | undefined): string | undefined {
 }
 
 /**
+ * Whether the endpoint ACCEPTS this key in this header, asked of /messages with
+ * an empty body: refused (401/403) or not (a 400 for the missing fields, which
+ * spends nothing). For an endpoint that serves no model list (Bedrock's).
+ * Undefined when nothing answered. A server that checks the body before the key
+ * (Bedrock does) answers 400 either way, so this can only ever say "no" for sure.
+ */
+async function messagesAccept(
+  baseUrl: string,
+  apiKey: string,
+  authHeader: "x-api-key" | "bearer",
+  fetchImpl: typeof fetch,
+): Promise<{ accepted: boolean; detail: string } | undefined> {
+  try {
+    const res = await fetchImpl(`${baseUrl.replace(/\/+$/, "")}/messages`, {
+      method: "POST",
+      headers: { ...anthropicHeaders(apiKey, authHeader), "content-type": "application/json" },
+      body: "{}",
+      signal: AbortSignal.timeout(15_000),
+    });
+    const body = await res.text().catch(() => "");
+    return { accepted: res.status !== 401 && res.status !== 403, detail: providerMessage(body, apiKey) || `HTTP ${res.status}` };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Which header an Anthropic-format endpoint takes the key in. Anthropic's own
- * `x-api-key` first; a rejection there is tried again as a Bearer token, which
- * Bedrock's /anthropic endpoint and many gateways expect. Answers with the
- * header that worked, or `x-api-key` and its check when neither did.
+ * `x-api-key` first; a refusal there is tried again as a Bearer token, which
+ * many gateways expect. Asked of the model list, or, when the endpoint serves
+ * none, of /messages with an empty body (free). Answers with the header that
+ * worked, or `x-api-key` and its check when neither did.
  */
 export async function detectAnthropicAuth(
   baseUrl: string,
@@ -158,6 +186,14 @@ export async function detectAnthropicAuth(
     apiKey,
     fetchImpl,
   );
+  if (asKey.status === "unchecked") {
+    // No model list to ask: ask /messages instead.
+    const key = await messagesAccept(baseUrl, apiKey, "x-api-key", fetchImpl);
+    if (!key || key.accepted) return { authHeader: "x-api-key", check: asKey };
+    const bearer = await messagesAccept(baseUrl, apiKey, "bearer", fetchImpl);
+    if (bearer?.accepted) return { authHeader: "bearer", check: asKey };
+    return { authHeader: "x-api-key", check: { status: "rejected", detail: key.detail } };
+  }
   if (asKey.status !== "rejected") return { authHeader: "x-api-key", check: asKey };
   const asBearer = await checkProviderKey(
     keyProbe("", apiKey, baseUrl, { apiFormat: "anthropic", authHeader: "bearer" }),

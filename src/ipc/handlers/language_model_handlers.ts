@@ -448,10 +448,11 @@ export function registerLanguageModelHandlers() {
         "@/lib/provider-key-check"
       );
       // An Anthropic-format endpoint takes the key as `x-api-key` or as a
-      // Bearer token. Not yet known: find out, and keep the header that worked.
-      if (p?.apiFormat === "anthropic" && !p.authHeader && p.apiBaseUrl && key) {
+      // Bearer token: asked on every check (a new key may want the other
+      // one), and the header that worked is kept.
+      if (p?.apiFormat === "anthropic" && p.apiBaseUrl && key) {
         const found = await detectAnthropicAuth(p.apiBaseUrl, key);
-        if (found.authHeader !== "x-api-key" || found.check.status === "works") {
+        if (found.check.status !== "rejected" && found.authHeader !== (p.authHeader ?? "x-api-key")) {
           db.update(languageModelProvidersSchema)
             .set({ auth_header: found.authHeader })
             .where(eq(languageModelProvidersSchema.id, providerId))
