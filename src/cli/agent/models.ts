@@ -152,6 +152,13 @@ export interface CliState {
   planModel?: ModelRef;
   /** Chats starred in an editor's Past chats, newest first. */
   starredSessions?: string[];
+  /**
+   * The header's name for `model`, remembered so the terminal draws at once
+   * instead of loading every provider's model list first (1.7–2.1s measured
+   * 2026-10-17). Keyed by the model it names, so a model chosen elsewhere (an
+   * editor) never borrows another's label.
+   */
+  modelLabel?: ModelRef & { label: string };
 }
 
 /** ~/.atlarix/cli-state.json; ATLARIX_CLI_STATE_FILE keeps a test run off the user's own. */
@@ -172,6 +179,10 @@ export function readCliState(file = statePath()): CliState {
       ratedAt: typeof s.ratedAt === "number" ? s.ratedAt : undefined,
       planModel: s.planModel && typeof s.planModel.provider === "string" && typeof s.planModel.name === "string" ? s.planModel : undefined,
       starredSessions: Array.isArray(s.starredSessions) ? s.starredSessions.filter((x): x is string => typeof x === "string") : undefined,
+      modelLabel:
+        s.modelLabel && typeof s.modelLabel.provider === "string" && typeof s.modelLabel.name === "string" && typeof s.modelLabel.label === "string"
+          ? s.modelLabel
+          : undefined,
     };
   } catch {
     return { recent: [], favorites: [] };
@@ -183,6 +194,14 @@ export function writeCliState(next: CliState, file = statePath()): void {
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(next, null, 2));
   fs.renameSync(tmp, file);
+}
+
+/** The remembered header label for the chosen model, or its plain name. */
+export function savedModelLabel(state: CliState): string | undefined {
+  const m = state.model;
+  if (!m) return undefined;
+  const l = state.modelLabel;
+  return l && same(l, m) ? l.label : m.name;
 }
 
 /** Choosing a model: it becomes the CLI's model and the most recent. */

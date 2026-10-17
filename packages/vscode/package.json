@@ -2,7 +2,7 @@
   "name": "atlarix",
   "displayName": "Atlarix — AI Coding Agent (Any Model, Your Own Key)",
   "description": "AI coding agent for VS Code, Cursor, Kiro and Windsurf. Use Claude, GPT, Gemini, GLM, DeepSeek or local models with your own API key, or Atlarix Auto. Plan, Build, Debug and Review modes; every edit waits for your approval.",
-  "version": "15.8.2",
+  "version": "15.8.3",
   "publisher": "atlarix",
   "private": true,
   "license": "SEE LICENSE IN LICENSE.md",

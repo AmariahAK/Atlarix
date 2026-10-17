@@ -3,6 +3,17 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [15.8.3] (2026-10-17) — the CLI opens in a fraction of a second
+
+`atlarix` drew nothing for about two seconds after you pressed enter: before its first frame it
+built every provider's full model list, only to show the chosen model's name in the header.
+Measured on a real machine, that one step was 1.7 to 2.1 seconds of the wait; everything else
+took about 0.3. The CLI now remembers the model's display name with your other CLI settings and
+draws straight away (0.45 seconds on the same machine). It still loads the model list right after
+the first frame, as it already did for the effort levels, and corrects the name if it changed.
+A name remembered for one model is never shown for another, such as after choosing a model in an
+editor.
+
 ## [15.8.2] (2026-10-17) — a lighter start, and the whole MCP marketplace in the CLI and VS Code
 
 The app checks your account once when it starts, instead of once per part of the screen that

@@ -927,7 +927,7 @@ export function App({
 
   const chooseModel = (o: ModelOption) => {
     if (!models) return;
-    const next = rememberChoice(live.current.cliState, { provider: o.provider, name: o.name });
+    const next = { ...rememberChoice(live.current.cliState, { provider: o.provider, name: o.name }), modelLabel: { provider: o.provider, name: o.name, label: headerModelLabel(o) } };
     // The level stays only when this model lists it too; otherwise its default
     // (owner: never translated between models).
     const was = live.current.effortSel.effort;
@@ -960,6 +960,20 @@ export function App({
     const all = await models.load().catch(() => [] as ModelOption[]);
     const ref = session.model ?? live.current.cliState.model ?? (await models.selected?.().catch(() => undefined));
     const o = ref ? all.find((x) => x.provider === ref.provider && x.name === ref.name) : undefined;
+    // The header drew with the remembered label; now that the list is here,
+    // correct it (and remember it) if it changed or was never saved.
+    const chosen = live.current.cliState.model;
+    if (o && chosen && o.provider === chosen.provider && o.name === chosen.name) {
+      const label = headerModelLabel(o);
+      if (live.current.modelLabel !== label) setModelLabel(label);
+      const saved = live.current.cliState.modelLabel;
+      if (saved?.label !== label || saved.provider !== o.provider || saved.name !== o.name) {
+        const next = { ...live.current.cliState, modelLabel: { provider: o.provider, name: o.name, label } };
+        setCliState(next);
+        // The level lives in effortSel, not cliState (applyEffort): keep it.
+        models.save({ ...next, ...live.current.effortSel });
+      }
+    }
     const info = { choices: o?.effortChoices ?? null, auto: !!o?.free, listed: !!o };
     setEffortInfo(info);
     return info;

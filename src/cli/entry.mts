@@ -156,12 +156,10 @@ async function interactive(): Promise<void> {
     void startCliBridge();
   }
 
-  let modelLabel = model ? `${model.name} (local)` : await selectedModelLabel();
-  if (cliState?.model) {
-    const options = await modelsMod.loadModelOptions().catch(() => []);
-    const hit = options.find((o) => o.provider === cliState.model!.provider && o.name === cliState.model!.name);
-    modelLabel = hit ? modelsMod.headerModelLabel(hit) : cliState.model.name;
-  }
+  // The remembered label, not the model list: building every provider's list
+  // here held the first frame back ~2s. The TUI loads the list right after it
+  // draws and corrects the label if it changed.
+  const modelLabel = model ? `${model.name} (local)` : (cliState && modelsMod.savedModelLabel(cliState)) ?? (await selectedModelLabel());
 
   const { runTui } = await import("./tui/run");
   await runTui({
