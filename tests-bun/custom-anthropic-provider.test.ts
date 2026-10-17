@@ -133,6 +133,26 @@ describe("a provider you added that speaks the Anthropic format", () => {
     }
   }, 60_000);
 
+  it("`--provider-url … --provider-format anthropic` (dev mode, no account) runs turns on that format", async () => {
+    const fake = startFakeAnthropic({ key: "dev-k", accepts: "bearer", reply: "Dev mode on Anthropic format." });
+    try {
+      const { AgentSession, seedDevProvider } = await import("../src/cli/agent/session");
+      const model = await seedDevProvider({ baseUrl: fake.url, model: "claude-haiku-4-5", apiKey: "dev-k", apiFormat: "anthropic" });
+      const s = new AgentSession({ workspaceDir: ws, model });
+      await s.start();
+      const done = idle(s as never);
+      await s.submit("Say hi.");
+      await done;
+      expect(s.state.lastError ?? null).toBeNull();
+      expect(JSON.stringify(s.state)).toContain("Dev mode on Anthropic format.");
+      const turn = fake.requests.filter((q) => q.path === "/v1/messages");
+      expect(turn.length).toBeGreaterThan(0);
+      expect(turn.every((q) => q.headers.authorization === "Bearer dev-k")).toBe(true);
+    } finally {
+      fake.stop();
+    }
+  }, 90_000);
+
   it("refuses a format it doesn't know", async () => {
     const conn = await editorServer();
     const err = await conn.agent

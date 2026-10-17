@@ -19,10 +19,12 @@ import type { AutomationDraft } from "../agent/services";
 
 export interface AcpRunOptions {
   version: string;
-  /** `--provider-url`: a local OpenAI-compatible model, no account (tests). */
+  /** `--provider-url`: a local model, no account (tests). */
   devUrl?: string;
   devModel?: string;
   apiKey?: string;
+  /** `--provider-format anthropic`: that endpoint speaks the Anthropic Messages API. */
+  devFormat?: "openai" | "anthropic";
   /** The user's Chrome through the extension (entry.mts startCliBridge). */
   startBridge?: () => void;
   /** One line on the Chrome connection, as the TUI's /chrome shows it. */
@@ -599,7 +601,7 @@ export async function runAcp(opts: AcpRunOptions): Promise<void> {
 
   const { AgentSession, seedDevProvider, listFolderSessions, changeFolderSession } = await import("../agent/session");
   const devModel = opts.devUrl
-    ? await seedDevProvider({ baseUrl: opts.devUrl, model: opts.devModel ?? "fake-model", apiKey: opts.apiKey })
+    ? await seedDevProvider({ baseUrl: opts.devUrl, model: opts.devModel ?? "fake-model", apiKey: opts.apiKey, apiFormat: opts.devFormat })
     : undefined;
   const models = await import("../agent/models");
   const cliState = opts.devUrl ? null : models.readCliState();

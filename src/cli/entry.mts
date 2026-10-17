@@ -19,7 +19,9 @@
  *
  * Testing against a local model without an account or credits:
  *   atlarix --provider-url http://127.0.0.1:18787/v1 --model fake-model
- * uses a scratch data folder (~/.atlarix/dev-data), never the desktop's.
+ * uses a scratch data folder (~/.atlarix/dev-data), never the desktop's. An
+ * endpoint on the Anthropic format: add `--provider-format anthropic`. The key
+ * is `--api-key`, or ATLARIX_DEV_API_KEY (kept out of the process list).
  */
 import "./acp/stdio-guard";
 import "./tty-early";
@@ -111,7 +113,12 @@ async function interactive(): Promise<void> {
 
   const { AgentSession, seedDevProvider } = await import("./agent/session");
   const model = devUrl
-    ? await seedDevProvider({ baseUrl: devUrl, model: flag("--model") ?? "fake-model", apiKey: flag("--api-key") })
+    ? await seedDevProvider({
+        baseUrl: devUrl,
+        model: flag("--model") ?? "fake-model",
+        apiKey: flag("--api-key") ?? process.env.ATLARIX_DEV_API_KEY,
+        apiFormat: flag("--provider-format") === "anthropic" ? "anthropic" : "openai",
+      })
     : undefined;
   // The CLI's own model choice and deep-thinking switch (~/.atlarix/cli-state.json),
   // never the desktop's: see src/cli/agent/models.ts.
@@ -344,7 +351,8 @@ async function main(): Promise<void> {
       version: VERSION,
       devUrl,
       devModel: flag("--model"),
-      apiKey: flag("--api-key"),
+      apiKey: flag("--api-key") ?? process.env.ATLARIX_DEV_API_KEY,
+      devFormat: flag("--provider-format") === "anthropic" ? "anthropic" : "openai",
       startBridge: () => void startCliBridge(),
       chromeStatus,
     });
