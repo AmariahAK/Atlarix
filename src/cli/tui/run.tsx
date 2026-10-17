@@ -15,6 +15,7 @@ import { formatFatal } from "../errors";
 import { installProcessGuards, onShutdownRestore, shutdownCli } from "../shutdown";
 import { realServices } from "../agent/services";
 import { App, type ModelSource } from "./App";
+import { LoginScreen, type SignInMethod } from "./Login";
 import { color } from "./theme";
 import type { Line } from "./dialogs";
 
@@ -110,6 +111,57 @@ export function reportFatal(err: unknown, write: (s: string) => void = (s) => vo
 export function fatal(err: unknown): never {
   reportFatal(err);
   process.exit(1);
+}
+
+/** The renderer, set up the same way for the welcome and the chat. */
+async function startRenderer(): Promise<CliRenderer> {
+  installProcessGuards();
+  onShutdownRestore(restoreTerminal);
+  // Into the alternate screen BEFORE the renderer starts (see runTui).
+  if (process.stdout.isTTY) process.stdout.write("\x1b[?1049h\x1b[2J\x1b[H");
+  try {
+    const renderer = await createCliRenderer({
+      exitOnCtrlC: false,
+      exitSignals: [],
+      openConsoleOnError: false,
+      useMouse: true,
+      backgroundColor: color.bg,
+    });
+    active = renderer;
+    quietStderr();
+    return renderer;
+  } catch (err) {
+    if (process.stdout.isTTY) process.stdout.write("\x1b[?1049l");
+    throw err;
+  }
+}
+
+/**
+ * The welcome screen for someone signed out (Login.tsx). Resolves with their
+ * email once they are in, and gives the terminal back so the chat can start;
+ * ctrl+c or esc quits.
+ */
+export async function runLogin(opts: {
+  version: string;
+  preferCode: boolean;
+  signIn: (method: SignInMethod, show: (lines: Line[]) => void) => Promise<string>;
+}): Promise<string> {
+  const renderer = await startRenderer();
+  const root = createRoot(renderer);
+  const email = await new Promise<string>((resolve) => {
+    root.render(
+      <LoginScreen
+        version={opts.version}
+        preferCode={opts.preferCode}
+        signIn={opts.signIn}
+        onSignedIn={resolve}
+        onQuit={() => void shutdownCli(0)}
+      />,
+    );
+  });
+  root.unmount();
+  restoreTerminal();
+  return email;
 }
 
 export async function runTui(opts: RunTuiOptions): Promise<void> {

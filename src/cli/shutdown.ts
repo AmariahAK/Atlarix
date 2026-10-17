@@ -76,7 +76,12 @@ export async function shutdownCli(code = 0): Promise<never> {
 }
 
 /** Log-and-survive for stray errors; orderly shutdown for signals. */
+let guardsInstalled = false;
+
+/** Once per process: the welcome screen and the chat both start a renderer. */
 export function installProcessGuards(): void {
+  if (guardsInstalled) return;
+  guardsInstalled = true;
   const survive = (kind: string) => async (reason: unknown) => {
     try {
       const { isStreamStopAbort } = await import("@/lib/stream/stream-stop-sentinels");
