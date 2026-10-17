@@ -26,13 +26,19 @@ not trust it.
 - **The CLI draws its first frame at once** (0fd2d627): the model label comes from the last run
   instead of building every provider's model list first (2.0–2.6 s → 0.45 s to the prompt). Its
   changelog entry is written under 15.8.3; fold it into 15.9.0.
-- **Custom providers on the Anthropic API format, on every surface** (a28b0d83): desktop dialog,
-  `/connect`, `_atlarix/provider_custom`, the VS Code panel. Migration 0080 stores the format and
-  the key header (found on add: `x-api-key`, then Bearer). Live-checked on Bedrock
-  (`bedrock-runtime…/anthropic/v1`, Claude Haiku 4.5: thinking, tools, cache markers). Peer QA
-  (app + CLI, ACP + VS Code) under way. **Known limit:** an endpoint that lists no models and
-  takes ONLY Bearer is saved as `x-api-key` (nothing to probe without spending tokens); Bedrock
-  takes both, so it works there.
+- **Custom providers on the Anthropic API format, on every surface** (a28b0d83 … 34697077):
+  desktop dialog, `/connect`, `_atlarix/provider_custom`, the VS Code panel. Migration 0080 stores
+  the format and the key header, found on add (`x-api-key`, then Bearer; with no model list, an
+  empty-body `/messages` tells them apart for free). A refused key is never saved. Live-checked
+  on Bedrock (`bedrock-runtime…/anthropic/v1`, Claude Haiku 4.5: thinking, tools, cache). CLI dev
+  mode takes `--provider-format anthropic`. Peer QA rounds 1–2 fixed; re-verify under way.
+  **Known limit:** Bedrock reads the body before the key, so a bad Bedrock token is only caught
+  by the first message (which fails cleanly, nothing billed). A key-prefix hint could catch typos.
+- **Build mode's prompt cache works across turns** (b7105c6a): the per-turn tail rode inside the
+  cached system block, so every turn rewrote ~20k tokens (on Bedrock: turns 2–3 now read 18,767
+  cached, write ~600). Every provider, every Build turn.
+- **`/effort low` on budget models** (aba07167): it sent the default's budget and medium sent
+  more than the default, since 15.8.0.
 
 ## After every release — the owner, by hand
 
