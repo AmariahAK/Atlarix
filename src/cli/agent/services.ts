@@ -563,6 +563,26 @@ export const realServices: CliServices = {
       const key = candidate?.trim() || settings.providerSettings?.[providerId]?.apiKey?.value?.trim();
       if (!key) return { status: "unchecked", detail: "No key saved." };
       const provider = (await getLanguageModelProviders()).find((p) => p.id === providerId);
+      // An Anthropic-format endpoint: asked as the app asks it (either header,
+      // and /messages when it lists no models), and the header that worked is
+      // kept, once the key is the saved one (QA B2).
+      if (provider?.apiFormat === "anthropic" && provider.apiBaseUrl) {
+        const { detectAnthropicAuth } = await import("@/lib/provider-key-check");
+        const found = await detectAnthropicAuth(provider.apiBaseUrl, key);
+        const saved = settings.providerSettings?.[providerId]?.apiKey?.value?.trim();
+        if (key === saved && found.check.status !== "rejected" && found.authHeader !== (provider.authHeader ?? "x-api-key")) {
+          const { CUSTOM_PROVIDER_PREFIX } = await import("@/ipc/shared/language_model_helpers");
+          const { registerLanguageModelHandlers } = await import("@/ipc/handlers/language_model_handlers");
+          await ensureLanguageModelHandlers(registerLanguageModelHandlers);
+          await invoke("edit-custom-language-model-provider", {
+            id: providerId.slice(CUSTOM_PROVIDER_PREFIX.length),
+            name: provider.name,
+            apiBaseUrl: provider.apiBaseUrl,
+            authHeader: found.authHeader,
+          });
+        }
+        return found.check;
+      }
       const wire = provider?.type === "custom" ? { apiFormat: provider.apiFormat, authHeader: provider.authHeader } : undefined;
       return checkProviderKey(keyProbe(providerId, key, provider?.apiBaseUrl, wire), key);
     },

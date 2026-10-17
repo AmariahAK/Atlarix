@@ -428,13 +428,17 @@ export function registerLanguageModelHandlers() {
     async (
       _event: IpcMainInvokeEvent,
       providerId: string,
+      /** A key about to be saved, checked first: a refused one is never saved (QA). */
+      candidate?: string,
     ): Promise<{ status: string; detail: string } | null> => {
       const { readSettings } = await import("@/main/settings");
-      const key = (
-        readSettings() as {
-          providerSettings?: Record<string, { apiKey?: { value?: string } }>;
-        }
-      ).providerSettings?.[providerId]?.apiKey?.value;
+      const key =
+        candidate?.trim() ||
+        (
+          readSettings() as {
+            providerSettings?: Record<string, { apiKey?: { value?: string } }>;
+          }
+        ).providerSettings?.[providerId]?.apiKey?.value;
       const { getLanguageModelProviders } = await import(
         "@/ipc/shared/language_model_helpers"
       );

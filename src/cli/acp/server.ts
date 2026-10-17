@@ -609,6 +609,11 @@ export async function runAcp(opts: AcpRunOptions): Promise<void> {
     : undefined;
   const models = await import("../agent/models");
   const cliState = opts.devUrl ? null : models.readCliState();
+  // Dev mode's choices, in memory only (never ~/.atlarix/cli-state.json).
+  const devPick: { model: typeof devModel; effort: { effort: string; deepThinking: boolean } } = {
+    model: devModel,
+    effort: { effort: "", deepThinking: false },
+  };
   const { setRuntimeSettingsOverride } = await import("../../main/settings");
   // The terminal's own level, always, even unset: the app's (user-settings.json)
   // leaked into requests while the CLI showed its own (QA: header showed the
@@ -639,9 +644,17 @@ export async function runAcp(opts: AcpRunOptions): Promise<void> {
     models: async () => {
       // Dev mode: the scratch folder's models (the seeded endpoint, and any
       // provider added there), with their /effort levels.
+      // Atlarix Auto needs an account, which dev mode has none of: not offered.
+      // The model and level chosen here live in memory (QA B1: the level was
+      // never echoed back, so the editor's control jumped to the default).
       if (devModel) {
-        const options = await models.loadModelOptions().catch(() => []);
-        return { options: options.length ? options : [{ ...devModel, label: devModel.name }], current: devModel };
+        const options = (await models.loadModelOptions().catch(() => [])).filter((o) => o.provider !== "compass");
+        const seeded = options.some((o) => o.provider === devModel.provider && o.name === devModel.name);
+        return {
+          options: seeded ? options : [{ ...devModel, label: devModel.name }, ...options],
+          current: devPick.model,
+          effort: devPick.effort,
+        };
       }
       const state = models.readCliState();
       return {
@@ -658,11 +671,13 @@ export async function runAcp(opts: AcpRunOptions): Promise<void> {
       else mcpManager.clearSessionServers(sessionId);
     },
     rememberModel: (ref) => {
-      if (!opts.devUrl) models.writeCliState(models.rememberChoice(models.readCliState(), ref));
+      if (opts.devUrl) devPick.model = ref;
+      else models.writeCliState(models.rememberChoice(models.readCliState(), ref));
     },
     setEffort: (patch) => {
       setRuntimeSettingsOverride(patch);
-      if (!opts.devUrl) models.writeCliState({ ...models.readCliState(), ...patch });
+      if (opts.devUrl) devPick.effort = { effort: patch.effort ?? "", deepThinking: patch.deepThinking ?? false };
+      else models.writeCliState({ ...models.readCliState(), ...patch });
     },
     listSessions: (cwd) => listFolderSessions(cwd),
     changeSession: (sessionId, change) => changeFolderSession(sessionId, change),

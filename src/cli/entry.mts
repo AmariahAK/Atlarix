@@ -185,7 +185,8 @@ async function interactive(): Promise<void> {
     autoUpdate: devUrl ? undefined : (notify) => void import("./update").then((m) => m.startAutoUpdate(VERSION, notify)),
     models: devUrl
       ? {
-          load: modelsMod.loadModelOptions,
+          // Atlarix Auto needs an account, which dev mode has none of.
+          load: async () => (await modelsMod.loadModelOptions()).filter((o) => o.provider !== "compass"),
           state: () => devState,
           save: (st) => {
             devState = st;

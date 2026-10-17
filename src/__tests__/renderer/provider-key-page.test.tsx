@@ -28,6 +28,22 @@ describe("a provider's key page", () => {
     expect(screen.queryByText("Setup Complete")).toBeNull();
   });
 
+  it("an endpoint whose key can't be checked yet says so, not 'Setup Complete' (QA)", () => {
+    const detail = "This endpoint doesn't list its models, so the key is checked by the first message.";
+    renderWithProviders(
+      <ProviderSettingsHeader
+        providerDisplayName="Bedrock"
+        isConfigured
+        keyCheck={{ status: "unchecked", detail }}
+        isLoading={false}
+        onBackClick={() => {}}
+      />,
+    );
+    expect(screen.getByText("Key saved")).toBeTruthy();
+    expect(screen.getByText(detail)).toBeTruthy();
+    expect(screen.queryByText("Setup Complete")).toBeNull();
+  });
+
   it("shows the saved key masked, and hides what you type", () => {
     const { container } = renderWithProviders(
       <ApiKeyConfiguration

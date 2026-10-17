@@ -1117,11 +1117,12 @@ export class IpcClient {
   /** Whether the saved key for this provider works (null: no key saved). */
   public async checkProviderKey(
     providerId: string,
+    candidate?: string,
   ): Promise<{
     status: "works" | "rejected" | "unchecked" | "unreachable";
     detail: string;
   } | null> {
-    return this.ipcRenderer.invoke("providers:check-key", providerId);
+    return this.ipcRenderer.invoke("providers:check-key", providerId, candidate);
   }
 
   public async takeRevertedFiles(params: {

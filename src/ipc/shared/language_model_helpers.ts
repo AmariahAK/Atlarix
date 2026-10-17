@@ -271,7 +271,10 @@ export async function getLanguageModels({
       })
       .from(languageModelsSchema)
       .where(
-        isCustomProvider({ providerId })
+        // A provider from the providers table, whatever its id: the CLI's dev
+        // endpoint is `atlarix-cli-dev`, with no `custom::`, and its model row
+        // was looked up as a built-in's and never found (QA B3).
+        provider.type === "custom" || isCustomProvider({ providerId })
           ? eq(languageModelsSchema.customProviderId, providerId)
           : eq(languageModelsSchema.builtinProviderId, providerId),
       );

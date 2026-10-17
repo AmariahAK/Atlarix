@@ -96,15 +96,19 @@ export function ProviderSettingsHeader({
                 ? "Key rejected"
                 : keyCheck?.status === "unreachable"
                   ? "Couldn't reach the provider"
-                  : isConfigured
-                    ? "Setup Complete"
-                    : "Not Setup"}
+                  : isConfigured && keyCheck?.status === "unchecked"
+                    ? "Key saved"
+                    : isConfigured
+                      ? "Setup Complete"
+                      : "Not Setup"}
           </span>
+          {/* Unchecked says why, e.g. an endpoint with no model list, whose key
+              the first message checks: "Setup Complete" hid that (QA). */}
           {!isLoading &&
           keyCheck &&
-          (rejected || keyCheck.status === "unreachable") ? (
+          (rejected || keyCheck.status === "unreachable" || (isConfigured && keyCheck.status === "unchecked")) ? (
             <span className="ml-2 truncate text-xs text-muted-foreground">
-              {rejected ? keyCheck.detail : unreachableDetail(keyCheck.detail)}
+              {keyCheck.status === "unreachable" ? unreachableDetail(keyCheck.detail) : keyCheck.detail}
             </span>
           ) : null}
         </div>

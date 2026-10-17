@@ -134,10 +134,15 @@ describe("a provider you added that speaks the Anthropic format", () => {
   }, 60_000);
 
   it("`--provider-url … --provider-format anthropic` (dev mode, no account) runs turns on that format", async () => {
-    const fake = startFakeAnthropic({ key: "dev-k", accepts: "bearer", reply: "Dev mode on Anthropic format." });
+    const fake = startFakeAnthropic({ key: "dev-k", accepts: "bearer", noModelList: true, reply: "Dev mode on Anthropic format." });
     try {
       const { AgentSession, seedDevProvider } = await import("../src/cli/agent/session");
       const model = await seedDevProvider({ baseUrl: fake.url, model: "claude-haiku-4-5", apiKey: "dev-k", apiFormat: "anthropic" });
+      // The seeded endpoint is in the model list with its effort levels, even
+      // though it lists no models of its own (QA B3: it was missing).
+      const { loadModelOptions } = await import("../src/cli/agent/models");
+      const listed = (await loadModelOptions()).find((o) => o.provider === model.provider && o.name === model.name);
+      expect(listed?.effortChoices?.levels).toEqual(["low", "medium", "high"]);
       const s = new AgentSession({ workspaceDir: ws, model });
       await s.start();
       const done = idle(s as never);
@@ -145,7 +150,8 @@ describe("a provider you added that speaks the Anthropic format", () => {
       await done;
       expect(s.state.lastError ?? null).toBeNull();
       expect(JSON.stringify(s.state)).toContain("Dev mode on Anthropic format.");
-      const turn = fake.requests.filter((q) => q.path === "/v1/messages");
+      // Real messages only: the free empty-body probes that found the header try both.
+      const turn = fake.requests.filter((q) => q.path === "/v1/messages" && Array.isArray(q.body?.messages));
       expect(turn.length).toBeGreaterThan(0);
       expect(turn.every((q) => q.headers.authorization === "Bearer dev-k")).toBe(true);
 
@@ -185,6 +191,9 @@ describe("a provider you added that speaks the Anthropic format", () => {
         apiFormat: "anthropic",
         models: ["claude-haiku-4-5"],
       });
+      // The editor's key test asks as the app does: no list → the first message checks it (QA B2).
+      const tested = await conn.agent.request<{ status: string; detail: string }>("_atlarix/provider_test", { providerId: r.id });
+      expect(tested).toEqual({ status: "unchecked", detail: "This endpoint doesn't list its models, so the key is checked by the first message." });
       const replaced = await conn.agent
         .request("_atlarix/provider_key", { providerId: r.id, key: "another-wrong-key" })
         .catch((e: Error) => e);

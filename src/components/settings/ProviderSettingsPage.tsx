@@ -202,6 +202,15 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
     setIsSaving(true);
     setSaveError(null);
     try {
+      // Asked before it is saved, as the CLI and editors do: a key the
+      // provider refuses replaces nothing (QA: a working key was overwritten).
+      const check = await IpcClient.getInstance()
+        .checkProviderKey(provider, value.trim())
+        .catch(() => null);
+      if (check?.status === "rejected") {
+        setSaveError(`The key was rejected: ${check.detail}. Nothing was changed.`);
+        return;
+      }
       const settingsUpdate: Partial<UserSettings> = {
         providerSettings: {
           ...settings?.providerSettings,

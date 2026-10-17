@@ -22,6 +22,8 @@ vi.mock("electron", () => ({
   ipcMain: { handle: (ch: string, fn: (...a: unknown[]) => unknown) => handlers.set(ch, fn) },
 }));
 
+vi.mock("@/main/settings", () => ({ readSettings: () => ({ providerSettings: {} }) }));
+
 let sqlite: Database.Database;
 let dbh: ReturnType<typeof drizzle>;
 vi.mock("@/db", () => ({
@@ -148,5 +150,30 @@ describe("the create and edit handlers", () => {
     await expect(
       call("create-custom-language-model-provider", { id: "x", name: "X", apiBaseUrl: "http://x/v1", apiFormat: "gemini" }),
     ).rejects.toThrow(/Unknown API format/);
+  });
+});
+
+describe("the app's key check", () => {
+  beforeEach(freshDb);
+
+  it("checks a key before it is saved, so a refused one is never saved (QA R1)", async () => {
+    await call("create-custom-language-model-provider", {
+      id: "strict",
+      name: "Strict",
+      apiBaseUrl: "https://gw.example/v1",
+      apiFormat: "anthropic",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ error: { message: "invalid x-api-key" } }), { status: 401 })),
+    );
+    try {
+      const check = (await handlers.get("providers:check-key")!({}, "custom::strict", "wrong-key")) as { status: string };
+      expect(check).toMatchObject({ status: "rejected" });
+      // No candidate and no saved key: nothing to check, and no red rejection (QA #7).
+      expect(await handlers.get("providers:check-key")!({}, "custom::strict")).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
