@@ -207,6 +207,7 @@ describe("the routing hints", () => {
       ),
     ).toEqual({
       "X-Atlarix-Purpose": "main",
+      "X-Atlarix-Effort": "max",
       "X-Atlarix-Thinking": "1",
       "X-Atlarix-Mode": "plan",
     });
@@ -216,10 +217,18 @@ describe("the routing hints", () => {
     );
     expect(h).toMatchObject({
       "X-Atlarix-Purpose": "subagent",
+      "X-Atlarix-Effort": "medium",
       "X-Atlarix-Thinking": "0",
       "X-Atlarix-Escalate": "1",
       "X-Atlarix-Free-Consent": "1",
     });
+  });
+
+  it("carry the /effort level for paid Auto's lanes, max also as the old thinking header", () => {
+    expect(autoRequestHeaders({ effort: "low" })).toMatchObject({ "X-Atlarix-Effort": "low", "X-Atlarix-Thinking": "0" });
+    expect(autoRequestHeaders({ effort: "max" })).toMatchObject({ "X-Atlarix-Effort": "max", "X-Atlarix-Thinking": "1" });
+    // A level Auto doesn't have (another model's) runs Auto's default.
+    expect(autoRequestHeaders({ effort: "xhigh" })).toMatchObject({ "X-Atlarix-Effort": "medium" });
   });
 });
 

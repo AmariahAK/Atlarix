@@ -11,6 +11,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import type { EffortChoices } from "@/lib/routing/model-reasoning-profile";
 
 export interface ModelRef {
   provider: string;
@@ -22,6 +23,8 @@ export interface ModelOption extends ModelRef {
   providerName: string;
   detail: string;
   deepThinking: boolean;
+  /** What /effort offers on this model, exactly as it lists them (none: no control). */
+  effortChoices?: EffortChoices;
   /** Costs nothing (Atlarix Auto): the picker's "Free" badge. */
   free?: boolean;
   /** "200K": the context window, for the picker's right column. */
@@ -63,6 +66,7 @@ export async function loadModelOptions(): Promise<ModelOption[]> {
         providerName,
         detail: [provider === COMPASS ? m.description : providerName, ctx].filter(Boolean).join(" · "),
         deepThinking: Boolean((m as { supportsDeepThinking?: boolean }).supportsDeepThinking),
+        effortChoices: (m as { effortChoices?: EffortChoices }).effortChoices,
         free: provider === COMPASS && isCoreAutoTier(m.apiName),
         context: m.contextWindow ? `${Math.round(m.contextWindow / 1000)}K` : undefined,
       });
@@ -136,7 +140,10 @@ export interface CliState {
   model?: ModelRef;
   recent: ModelRef[];
   favorites: ModelRef[];
+  /** On when the top of the model's /effort list is chosen (kept for older builds). */
   deepThinking?: boolean;
+  /** /effort: the level, exactly as the model lists it; empty is its default. */
+  effort?: string;
   /** Terminal notifications when a turn ends or needs you (on unless turned off). */
   notifications?: boolean;
   /** When the session rating was last answered or dismissed (session-rating.ts). */
@@ -147,8 +154,9 @@ export interface CliState {
   starredSessions?: string[];
 }
 
+/** ~/.atlarix/cli-state.json; ATLARIX_CLI_STATE_FILE keeps a test run off the user's own. */
 function statePath(): string {
-  return path.join(os.homedir(), ".atlarix", "cli-state.json");
+  return process.env.ATLARIX_CLI_STATE_FILE || path.join(os.homedir(), ".atlarix", "cli-state.json");
 }
 
 export function readCliState(file = statePath()): CliState {
@@ -159,6 +167,7 @@ export function readCliState(file = statePath()): CliState {
       favorites: s.favorites ?? [],
       model: s.model,
       deepThinking: s.deepThinking,
+      effort: typeof s.effort === "string" ? s.effort : undefined,
       notifications: s.notifications,
       ratedAt: typeof s.ratedAt === "number" ? s.ratedAt : undefined,
       planModel: s.planModel && typeof s.planModel.provider === "string" && typeof s.planModel.name === "string" ? s.planModel : undefined,

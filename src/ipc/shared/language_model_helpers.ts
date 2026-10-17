@@ -26,6 +26,7 @@ import {
 } from "./compass_constants";
 import {
   isReasoningCapableModel,
+  effortChoicesForModel,
   resolveCapabilityProviderId,
   resolveReasoningCatalogModelId,
 } from "@/lib/routing/reasoning-detector";
@@ -458,6 +459,10 @@ export function stampDeepThinkingSupport(
         name: model.apiName,
         provider: providerId,
       }),
+      // /effort's levels for this model, on the same payload for the same
+      // reasons (catalog and Core routing are main-process state).
+      effortChoices:
+        effortChoicesForModel({ name: model.apiName, provider: providerId }) ?? undefined,
       // AUDIO input rides the same payload for the same reasons: the modality
       // registry is main-process state, and this row is already invalidated on
       // provider CRUD and `core-models:changed`, so the mic follows a lineup

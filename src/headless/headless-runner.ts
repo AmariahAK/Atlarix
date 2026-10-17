@@ -44,6 +44,8 @@ export interface RunHeadlessOptions {
    * ceiling.
    */
   deepThinking?: boolean;
+  /** /effort: a level exactly as the model lists it (wins over `deepThinking` when it lists it). */
+  effort?: string;
   /**
    * Stream a JSONL trajectory of the run here (see `trajectory-writer.ts`).
    * Benchmark orchestrators convert it to their own trace format; Harbor's ATIF
@@ -183,6 +185,7 @@ export async function runHeadlessAgent(
     // Always written, both states. `deepThinking` is `z.boolean().optional()` with no
     // default, so omitting it resolved to OFF — one notch below the model's ceiling.
     deepThinking: !!opts.deepThinking,
+    ...(opts.effort ? { effort: opts.effort } : {}),
   };
   if (opts.provider.apiKey) {
     settings.providerSettings = {

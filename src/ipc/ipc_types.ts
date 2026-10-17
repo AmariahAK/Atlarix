@@ -1,3 +1,4 @@
+import type { EffortChoices } from "@/lib/routing/model-reasoning-profile";
 import { z } from "zod";
 import type { DisplaySnapshotV1 } from "@/lib/chat/display-snapshot";
 import type { WorkMode } from "@/lib/schemas";
@@ -588,6 +589,11 @@ export type LanguageModel =
        * back empty and the mic would hide for every model.
        */
       supportsAudioInput?: boolean;
+      /**
+       * What /effort offers for this model, exactly as the model lists it (or
+       * paid Auto's low / medium / max). Resolved in MAIN, like the two above.
+       */
+      effortChoices?: EffortChoices;
       type: "custom";
     }
   | {
@@ -607,6 +613,8 @@ export type LanguageModel =
       supportsDeepThinking?: boolean;
       /** See the `custom` variant above — resolved in main, never in the renderer. */
       supportsAudioInput?: boolean;
+      /** See the `custom` variant above — resolved in main, never in the renderer. */
+      effortChoices?: EffortChoices;
       type: "local" | "cloud";
     };
 

@@ -25,7 +25,8 @@ export const state = {
   modes: [] as Array<{ value: string; name: string; description?: string | null }>,
   modelGroups: [] as Group[],
   modelValue: "",
-  thinking: null as { value: string; options: Array<{ value: string; name: string }> } | null,
+  /** The chosen model's effort levels (config id "thinking"); the default is marked "default". */
+  thinking: null as { value: string; options: Array<{ value: string; name: string; description?: string | null }> } | null,
   commands: [] as Command[],
   settings: { attachOpenFile: true, ctrlEnterSends: false, notifyWhenNeeded: true } as HostSettings,
   providers: null as ProviderRow[] | null,

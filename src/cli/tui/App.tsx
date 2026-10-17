@@ -89,6 +89,13 @@ import {
   type ModelRef,
   headerModelLabel,
 } from "../agent/models";
+import {
+  chosenLevel,
+  effortAfterModelChange,
+  effortSettingsPatch,
+  topLevel,
+  type EffortChoices,
+} from "@/lib/routing/model-reasoning-profile";
 import { filterEntries, listWorkspaceEntries, mentionAt, mentionInsert } from "../agent/file-index";
 import { parseShellInput } from "../agent/shell-mode";
 import { abbreviatePath, activityLabel, formatTokens, oneLine } from "./format";
@@ -152,8 +159,14 @@ export interface ModelSource {
   save: (s: CliState) => void;
   /** Use this model from the next message on. */
   choose: (ref: ModelRef) => void;
-  setDeepThinking: (on: boolean) => void;
+  /** /effort's level (and the old deep-thinking switch kept in step) for this process. */
+  setEffort: (patch: { effort: string; deepThinking: boolean }) => void;
+  /** The model this terminal runs on when none was chosen here (the app's). */
+  selected?: () => Promise<ModelRef | undefined>;
 }
+
+/** Free Auto has no /effort: the cost of being free (owner, 2026-10-17). */
+const FREE_AUTO_EFFORT = "Free Auto runs at one level. Pro, credit or your own key adds effort.";
 
 function elapsed(since: number | null, now: number): string {
   if (!since) return "";
@@ -450,7 +463,21 @@ export function App({
     composer.current?.replaceBeforeCursor(m.query.length + 1, mentionInsert(entry));
   };
   const [cliState, setCliState] = useState<CliState>(() => models?.state() ?? { recent: [], favorites: [] });
-  const [deep, setDeep] = useState<boolean>(() => models?.state().deepThinking ?? false);
+  // /effort: the level as the model lists it ("" = its default), with the old
+  // deep-thinking switch kept in step (effortSettingsPatch); and the current
+  // model's levels, read off its row (null: it has none).
+  const [effortSel, setEffortSel] = useState<{ effort: string; deepThinking: boolean }>(() => {
+    const st = models?.state();
+    return { effort: st?.effort ?? "", deepThinking: st?.deepThinking ?? false };
+  });
+  const [effortInfo, setEffortInfo] = useState<{ choices: EffortChoices | null; auto: boolean; listed: boolean }>({ choices: null, auto: false, listed: true });
+  const effortFreeAuto = effortInfo.auto && accountKind === "free";
+  const effortNow =
+    effortInfo.choices && !effortFreeAuto
+      ? chosenLevel(effortInfo.choices, effortSel.effort || undefined, effortSel.deepThinking && !effortSel.effort)
+      : null;
+  // Named after the model only when it isn't the default: "GPT-5.4 · xhigh".
+  const effortSuffix = effortNow && effortNow !== effortInfo.choices?.defaultLevel ? ` · ${effortNow}` : "";
   const composer = useRef<ComposerApi | null>(null);
   const renderer = useRenderer();
   // /undo and esc esc: the earlier message the next send replaces.
@@ -740,7 +767,7 @@ export function App({
     const next = { ...live.current.cliState, ratedAt: Date.now() };
     live.current.cliState = next;
     setCliState(next);
-    models?.save({ ...next, deepThinking: live.current.deep });
+    models?.save({ ...next, ...live.current.effortSel });
     if (key === "0") return;
     svc().analytics.track("cli_session_rating", {
       rating: RATINGS[key],
@@ -806,7 +833,7 @@ export function App({
   const turnCount = useRef(0);
   const [tip, setTip] = useState<Tip>(() => pickTip(`welcome:${Date.now()}`));
   useEffect(() => {
-    // Not "ctrl+t turns deep thinking on" during a turn: the model may be
+    // Not "ctrl+t raises the effort" during a turn: the model may be
     // thinking right there on screen (QA).
     if (state.busy) setTip(pickTip(`${session.sessionId}:${++turnCount.current}:${Date.now()}`, ["ctrl+t"]));
   }, [state.busy]);
@@ -863,7 +890,7 @@ export function App({
       hints: [
         { title: "Connect provider", key: "ctrl+a" },
         { title: "Favourite", key: "ctrl+f" },
-        { title: "Deep thinking", key: "ctrl+t" },
+        { title: "Effort top / default", key: "ctrl+t" },
       ],
       footer: "",
       // Reloaded on every open: the hosted Core lineup (and Auto) can land after the first one.
@@ -890,7 +917,7 @@ export function App({
           const next = toggleFavorite(live.current.cliState, { provider: o.provider, name: o.name });
           live.current.cliState = next;
           setCliState(next);
-          models.save({ ...next, deepThinking: live.current.deep });
+          models.save({ ...next, ...live.current.effortSel });
           dialog.setItems(rows(all, next));
         },
       },
@@ -901,12 +928,82 @@ export function App({
   const chooseModel = (o: ModelOption) => {
     if (!models) return;
     const next = rememberChoice(live.current.cliState, { provider: o.provider, name: o.name });
+    // The level stays only when this model lists it too; otherwise its default
+    // (owner: never translated between models).
+    const was = live.current.effortSel.effort;
+    const effort = effortAfterModelChange(o.effortChoices ?? null, live.current.effortSel);
+    live.current.effortSel = effort;
+    setEffortSel(effort);
+    models.setEffort(effort);
+    setEffortInfo({ choices: o.effortChoices ?? null, auto: !!o.free, listed: true });
     setCliState(next);
-    models.save({ ...next, deepThinking: live.current.deep });
+    models.save({ ...next, ...effort });
     models.choose({ provider: o.provider, name: o.name });
     setModelLabel(headerModelLabel(o));
     host.closeAll();
-    flash(`Using ${o.label}.`, 2500, "success");
+    // Only a model with levels has a default to be back at (QA).
+    flash(`Using ${o.label}.${was && !effort.effort && o.effortChoices ? " Effort is back to its default." : ""}`, 2500, "success");
+  };
+
+  /** /effort, and ctrl+t: the level, written for this process and remembered. */
+  const applyEffort = (patch: { effort: string; deepThinking: boolean }) => {
+    if (!models) return;
+    live.current.effortSel = patch;
+    setEffortSel(patch);
+    models.setEffort(patch);
+    models.save({ ...live.current.cliState, ...patch });
+  };
+
+  /** The current model's levels, from its row (reloaded: the hosted lineup can land late). */
+  const loadEffortInfo = async (): Promise<{ choices: EffortChoices | null; auto: boolean; listed: boolean }> => {
+    if (!models) return { choices: null, auto: false, listed: true };
+    const all = await models.load().catch(() => [] as ModelOption[]);
+    const ref = session.model ?? live.current.cliState.model ?? (await models.selected?.().catch(() => undefined));
+    const o = ref ? all.find((x) => x.provider === ref.provider && x.name === ref.name) : undefined;
+    const info = { choices: o?.effortChoices ?? null, auto: !!o?.free, listed: !!o };
+    setEffortInfo(info);
+    return info;
+  };
+  useEffect(() => {
+    void loadEffortInfo();
+  }, [session.model?.provider, session.model?.name]);
+
+  /** /effort [level]: the model's own levels, exactly as it lists them. */
+  const openEffort = async (arg: string) => {
+    if (!models) return flash("Effort isn't available here.", 3000);
+    const { choices, auto, listed } = await loadEffortInfo();
+    if (auto && live.current.accountKind === "free") return flash(FREE_AUTO_EFFORT, 5000);
+    // A model that isn't offered here any more (its key gone, the app's choice):
+    // not "no setting", which it may well have (QA).
+    if (!listed) return flash("Pick a model with /model first, then set its effort.", 4000);
+    if (!choices) return flash("This model has no effort setting.", 4000);
+    const want = arg.trim();
+    if (want) {
+      const hit = choices.levels.find((l) => l.toLowerCase() === want.toLowerCase());
+      if (!hit) return flash(`No level "${want}" here: ${choices.levels.join(", ")}.`, 5000, "error");
+      applyEffort(effortSettingsPatch(choices, hit));
+      return flash(`Effort: ${hit}`, 2500, "success");
+    }
+    const sel = live.current.effortSel;
+    const now = chosenLevel(choices, sel.effort || undefined, sel.deepThinking && !sel.effort);
+    host.push(
+      new ListDialog({
+        title: "Effort",
+        footer: "↑↓ move · enter choose · esc close",
+        initialId: now,
+        items: choices.levels.map((l) => ({
+          id: l,
+          label: l,
+          gutter: l === now ? { text: "●", tone: "accent" } : undefined,
+          right: l === choices.defaultLevel ? { text: "default", tone: "muted" } : undefined,
+        })),
+        onChoose: (item) => {
+          applyEffort(effortSettingsPatch(choices, item.id));
+          host.closeAll();
+          flash(`Effort: ${item.id}`, 2500, "success");
+        },
+      }),
+    );
   };
 
   /** ctrl+p: every command, searchable; enter runs it. */
@@ -946,7 +1043,7 @@ export function App({
       if (text) composer.current?.setText(text);
       composer.current?.focus();
     },
-    modelLabel: () => (live.current.deep ? `${live.current.modelLabel} · deep` : live.current.modelLabel),
+    modelLabel: () => `${live.current.modelLabel}${live.current.effortSuffix}`,
     version,
     chromeStatus: chromeStatus ?? (() => "not connected"),
     copy: (text) => (copy ? copy(text) : copyText(text, renderer)),
@@ -1118,7 +1215,7 @@ export function App({
         const on = live.current.cliState.notifications === false;
         const next = { ...live.current.cliState, notifications: on };
         setCliState(next);
-        models?.save({ ...next, deepThinking: live.current.deep });
+        models?.save({ ...next, ...live.current.effortSel });
         return flash(on ? "Notifications on: you'll hear when a turn ends or needs you." : "Notifications off.", 3000);
       }
       case "/analytics":
@@ -1163,6 +1260,9 @@ export function App({
       case "/models":
         openPicker();
         return;
+      case "/effort":
+        void openEffort(rest);
+        return;
       case "/quit":
       case "/exit":
         onQuit();
@@ -1173,11 +1273,11 @@ export function App({
   // useKeyboard keeps the FIRST handler it is given, so a handler that closes
   // over render-time values reads them stale forever (Tab saw "not busy" in the
   // middle of a turn). It reads everything through this ref instead.
-  const live = useRef({ state, approval, palette, paletteIndex, approvalIndex, quitArmed, runCommand, showHelp, cliState, deep, modelLabel, expanded });
-  live.current = { state, approval, palette, paletteIndex, approvalIndex, quitArmed, runCommand, showHelp, cliState, deep, modelLabel, expanded };
+  const live = useRef({ state, approval, palette, paletteIndex, approvalIndex, quitArmed, runCommand, showHelp, cliState, effortSel, effortInfo, effortNow, effortSuffix, effortFreeAuto, accountKind, modelLabel, expanded });
+  live.current = { state, approval, palette, paletteIndex, approvalIndex, quitArmed, runCommand, showHelp, cliState, effortSel, effortInfo, effortNow, effortSuffix, effortFreeAuto, accountKind, modelLabel, expanded };
 
   useKeyboard((key) => {
-    const { palette, paletteIndex, approvalIndex, quitArmed, runCommand, showHelp, cliState, deep } = live.current;
+    const { palette, paletteIndex, approvalIndex, quitArmed, runCommand, showHelp } = live.current;
     // An open dialog owns the keyboard (an approval still comes first: the agent is waiting on it).
     if (host.open && !session.state.approvals.length) {
       key.preventDefault();
@@ -1230,11 +1330,14 @@ export function App({
     if (key.name === "t" && key.ctrl) {
       key.preventDefault();
       if (!models) return;
-      const on = !deep;
-      setDeep(on);
-      models.setDeepThinking(on);
-      models.save({ ...cliState, deepThinking: on });
-      flash(on ? "Deep thinking on: the model thinks at its ceiling." : "Deep thinking off.");
+      // The top of the model's own list, or back to its default.
+      const { effortInfo: info, effortNow: now, effortFreeAuto: freeAuto } = live.current;
+      if (freeAuto) return flash(FREE_AUTO_EFFORT, 5000);
+      if (!info.listed) return flash("Pick a model with /model first, then set its effort.", 4000);
+      if (!info.choices || !now) return flash("This model has no effort setting.", 3000);
+      const next = now === topLevel(info.choices) ? info.choices.defaultLevel : topLevel(info.choices);
+      applyEffort(effortSettingsPatch(info.choices, next));
+      flash(`Effort: ${next}${next === info.choices.defaultLevel ? " (default)" : ""}`);
       return;
     }
     if (showHelp) {
@@ -1503,7 +1606,7 @@ export function App({
   const narrow = width < 100;
   const statusLeft = [
     MODE_LABEL[state.mode],
-    deep ? `${modelLabel} · deep` : modelLabel,
+    `${modelLabel}${effortSuffix}`,
     // How full the context is, as a share AND as tokens of the window. The
     // session's running total sat here too and read as a contradiction ("23%"
     // next to "4747k tokens": each turn re-sends the context, so the total
@@ -1550,7 +1653,7 @@ export function App({
           header={
             <SessionHeader
               version={version}
-              model={deep ? `${modelLabel} · deep` : modelLabel}
+              model={`${modelLabel}${effortSuffix}`}
               mode={MODE_LABEL[state.mode]}
               account={
                 !session.model || session.model.provider === "compass"
@@ -1641,7 +1744,7 @@ export function App({
             ["esc", "stop the turn · close a menu"],
             ["esc esc", "go back to an earlier message (edit and resend)"],
             ["shift+tab", "Build → Explore → Plan → Debug → Review (ctrl+y too)"],
-            ["ctrl+t", "deep thinking on / off"],
+            ["ctrl+t", "effort: the top of the model's list, or its default (/effort for all)"],
             ["/model", "choose the model"],
             ["ctrl+o", "detail view: every thought, output and diff in full"],
             ["ctrl+p", "every command, searchable"],

@@ -88,14 +88,23 @@ export function toggle(on: boolean, label: string, onChange: (on: boolean) => vo
 }
 
 /** A row of choices, one selected (Normal / Deep). */
-export function segmented(options: Array<{ value: string; name: string }>, value: string, label: string, onPick: (v: string) => void): HTMLElement {
+export function segmented(
+  options: Array<{ value: string; name: string; description?: string | null }>,
+  value: string,
+  label: string,
+  onPick: (v: string) => void,
+): HTMLElement {
   const g = el("div", "seg");
   g.setAttribute("role", "radiogroup");
   g.setAttribute("aria-label", label);
   for (const o of options) {
-    const b = button(o.name, `seg__opt${o.value === value ? " on" : ""}`, () => onPick(o.value));
+    // The model's default level is marked (dotted underline, "default" on hover),
+    // so it is clear why no level shows beside the model (QA).
+    const isDefault = o.description === "default";
+    const b = button(o.name, `seg__opt${o.value === value ? " on" : ""}${isDefault ? " seg__opt--default" : ""}`, () => onPick(o.value));
     b.setAttribute("role", "radio");
     b.setAttribute("aria-checked", String(o.value === value));
+    if (isDefault) b.title = "default";
     g.append(b);
   }
   return g;

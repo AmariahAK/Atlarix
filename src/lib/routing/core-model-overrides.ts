@@ -16,6 +16,7 @@ import * as path from "node:path";
 import log from "electron-log";
 import { BrowserWindow } from "electron";
 import { getUserDataPath } from "@/paths/paths";
+import { registerEffortOverrides } from "@/lib/routing/model-reasoning-profile";
 import {
   CORE_TIER_ORDER,
   emptySlotAware,
@@ -61,6 +62,12 @@ interface CoreModelsPayload {
    * `label`; the chain and sizing are the proxy's business.
    */
   auto?: unknown;
+  /**
+   * Optional effort values PROVED per vendor model id where the catalog is
+   * wrong (GLM-5.3 rejects `medium`). The proxy fits requests to them; the app
+   * offers exactly these in /effort.
+   */
+  modelEfforts?: unknown;
 }
 
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -98,18 +105,34 @@ function applyOverridesAndNotify(raw: unknown): void {
   setCoreModelRouting(parseCoreRouting(raw));
   const auto = parseCoreAuto(raw);
   setCoreAuto(auto);
-  // Auto is part of what the picker lists, so offering or withdrawing it must
-  // reach the renderer like a lineup change does.
+  const efforts = parseModelEfforts(raw);
+  registerEffortOverrides(efforts);
+  // Auto and the effort lists are part of what the picker shows, so a change to
+  // either must reach the renderer like a lineup change does.
   const serialized = map
     ? JSON.stringify([
         Object.entries(map).sort(([a], [b]) => a.localeCompare(b)),
         auto,
+        efforts,
       ])
     : null;
   if (serialized !== lastAppliedSerialized) {
     lastAppliedSerialized = serialized;
     broadcastCoreModelsChanged();
   }
+}
+
+/** `modelEfforts`: vendor model id → its effort values, as listed. Bad rows are dropped. */
+export function parseModelEfforts(raw: unknown): Record<string, string[]> {
+  const block = raw && typeof raw === "object" ? (raw as CoreModelsPayload).modelEfforts : undefined;
+  const out: Record<string, string[]> = {};
+  if (!block || typeof block !== "object") return out;
+  for (const [id, values] of Object.entries(block as Record<string, unknown>)) {
+    if (!Array.isArray(values)) continue;
+    const list = values.filter((v): v is string => typeof v === "string" && v.trim() !== "").map((v) => v.trim());
+    if (list.length) out[id] = list;
+  }
+  return out;
 }
 
 /**

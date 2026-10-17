@@ -1103,3 +1103,29 @@ describe("command screens", () => {
     expect(await until(() => serviceCalls.some((c) => c[0] === "relics.remove"))).toBe(true);
   });
 });
+
+describe("/effort on free Auto", () => {
+  it("free Auto has no levels: /effort and ctrl+t say how to get them", async () => {
+    const calls: unknown[] = [];
+    const models = {
+      load: async () => [
+        {
+          provider: "compass", name: "core-auto", label: "Atlarix Auto", providerName: "Atlarix", detail: "", deepThinking: true, free: true,
+          effortChoices: { kind: "effort" as const, levels: ["low", "medium", "max"], defaultLevel: "medium" },
+        },
+      ],
+      state: () => ({ recent: [], favorites: [] }),
+      save: () => {},
+      choose: () => {},
+      setEffort: (p: unknown) => void calls.push(p),
+      selected: async () => ({ provider: "compass", name: "core-auto" }),
+    };
+    const { setup } = await mount((s) => (s.account.kind = async () => "free"), models);
+    await setup.mockInput.typeText("/effort");
+    setup.mockInput.pressEnter();
+    expect(await frameContaining(setup, "Free Auto runs at one level")).toBeTruthy();
+    setup.mockInput.pressKey("t", { ctrl: true });
+    expect(await frameContaining(setup, "Free Auto runs at one level")).toBeTruthy();
+    expect(calls).toEqual([]);
+  });
+});

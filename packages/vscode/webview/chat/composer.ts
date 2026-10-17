@@ -179,7 +179,10 @@ function renderOptions(): void {
   }
   modelBtn.textContent = "";
   modelBtn.classList.toggle("hidden", !state.modelGroups.length);
-  modelBtn.append(el("span", "", modelName()), ...(state.thinking?.value === "deep" ? [el("span", "muted", "· deep")] : []));
+  // The effort beside the model only when it isn't the model's default ("· xhigh").
+  const effort = state.thinking?.options.find((o) => o.value === state.thinking?.value);
+  // The name gives way first in a narrow panel; the level beside it stays (QA).
+  modelBtn.append(el("span", "model-btn__name", modelName()), ...(effort && effort.description !== "default" ? [el("span", "muted model-btn__level", `· ${effort.value}`)] : []));
   modelBtn.insertAdjacentHTML("beforeend", icon("chevUp", 10));
 }
 

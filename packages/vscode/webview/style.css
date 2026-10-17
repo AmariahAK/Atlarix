@@ -1248,6 +1248,19 @@ body.needs-you .needs-badge {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.model-btn__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.model-btn__level,
+.model-btn svg {
+  flex-shrink: 0;
+}
+.seg__opt--default {
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
 .model-btn:hover {
   color: var(--fg);
   border-color: var(--border);
@@ -1484,10 +1497,21 @@ body.needs-you .needs-badge {
 }
 .picker__thinking {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
+  gap: 6px;
   padding: 7px 12px;
   border-bottom: 1px solid var(--border);
+}
+/* Effort lists a model's levels as it has them: five or six (none … xhigh) must
+   wrap in a narrow side panel rather than run off it (QA). */
+.picker__thinking .seg {
+  flex-wrap: wrap;
+  border-radius: 10px;
+}
+.picker__thinking .seg__opt {
+  padding: 1px 8px;
 }
 .picker__keys {
   display: flex;

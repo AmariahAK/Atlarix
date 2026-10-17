@@ -20,6 +20,9 @@ import { PROVIDERS_THAT_SUPPORT_THINKING } from "@/ipc/shared/language_model_con
 import {
   catalogSaysReasons,
   hasMeaningfulReasoningControl,
+  AUTO_EFFORT_CHOICES,
+  effortChoicesFor,
+  type EffortChoices,
 } from "@/lib/routing/model-reasoning-profile";
 import type { LargeLanguageModel, UserSettings } from "@/lib/schemas";
 import {
@@ -197,6 +200,22 @@ export function detectReasoningCapability(
  * models on BYOK had one. The renderer reads `supportsDeepThinking`, stamped onto
  * each model by `getLanguageModelsByProviders`.
  */
+/**
+ * What /effort offers for a model: paid Auto's three levels, the model's own
+ * catalog list (Core models through the vendor serving them, corrected by
+ * core-models.json), or off / on for a reasoning model the catalog doesn't know
+ * yet (it then runs the old deep-thinking path). Null: no control to offer.
+ */
+export function effortChoicesForModel(
+  model: LargeLanguageModel | undefined | null,
+): EffortChoices | null {
+  if (!model) return null;
+  if (model.provider === "compass" && isCoreAutoTier(model.name ?? "")) return AUTO_EFFORT_CHOICES;
+  const choices = effortChoicesFor(resolveCapabilityProviderId(model), resolveReasoningCatalogModelId(model));
+  if (choices) return choices;
+  return isReasoningCapableModel(model) ? { kind: "toggle", levels: ["off", "on"], defaultLevel: "off" } : null;
+}
+
 export function isReasoningCapableModel(
   model: LargeLanguageModel | undefined | null,
 ): boolean {
@@ -369,12 +388,19 @@ export function shouldOmitTemperature(
  * Build provider option fragments to merge into `streamText` `providerOptions` when thinking tier is active.
  * Caller merges shallowly into existing buckets (e.g. preserve openrouter.plugins).
  */
+/** Gemini's named thinking levels. */
+const GEMINI_LEVELS = new Set(["minimal", "low", "medium", "high"]);
+
 export function buildReasoningProviderOptions(
   cap: ReturnType<typeof detectReasoningCapability>,
   thinkingTier: boolean,
   effort: ReasoningEffort = "medium",
   /** Resolved max output tokens — scales the OpenRouter reasoning budget. */
   maxOutputTokens?: number,
+  /** A level chosen with /effort, sent as-is where the route takes a named level. */
+  exactEffort?: string,
+  /** How the chosen level reaches a route that has no named level: a budget size, or off. */
+  chosen?: { budget?: boolean; off?: boolean },
 ): ReasoningProviderPatch {
   if (!thinkingTier) {
     return {};
@@ -397,10 +423,21 @@ export function buildReasoningProviderOptions(
   }
 
   if (cap.useGoogleThoughts) {
+    // A /effort level goes out as Gemini's own control (QA #7: low and high sent
+    // the same request): a named level as `thinkingLevel` (minimal is Gemini's
+    // least, not "off"), a budget size as `thinkingBudget`, off as a zero budget.
+    // Nothing chosen: as before.
+    const level = exactEffort && GEMINI_LEVELS.has(exactEffort.toLowerCase())
+      ? (exactEffort.toLowerCase() as "minimal" | "low" | "medium" | "high")
+      : undefined;
     patch.google = {
-      thinkingConfig: {
-        includeThoughts: true,
-      },
+      thinkingConfig: chosen?.off
+        ? { includeThoughts: false, thinkingBudget: 0 }
+        : {
+            includeThoughts: true,
+            ...(level ? { thinkingLevel: level } : {}),
+            ...(chosen?.budget ? { thinkingBudget: reasoningBudgetTokens(effort, maxOutputTokens ?? 32_000) } : {}),
+          },
     } satisfies GoogleGenerativeAIProviderOptions;
   }
 
@@ -411,7 +448,7 @@ export function buildReasoningProviderOptions(
     // toggle mean something for BYOK too.
     patch.openai = {
       reasoningSummary: "auto",
-      reasoningEffort: effort,
+      reasoningEffort: (exactEffort ?? effort) as OpenAIResponsesProviderOptions["reasoningEffort"],
     } satisfies OpenAIResponsesProviderOptions;
   }
 

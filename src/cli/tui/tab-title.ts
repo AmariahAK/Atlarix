@@ -2,7 +2,9 @@
  * The terminal tab's title: a pulsing diamond while Atlarix works, so a busy
  * session is visible from another tab (owner, 2026-10-04: "an animation that
  * runs when atlarix is working in a tab"). Static otherwise: the session's
- * title, or what it is waiting for.
+ * title, or what it is waiting for. Waiting on you gets its own mark, <!>: a
+ * plain ◆ read the same as idle from another tab (owner, 2026-10-16: "an icon
+ * in the terminal that atlarix needs your permission"; symbols, never emoji).
  */
 export const TAB_FRAMES = ["◇", "◈", "◆", "◈"] as const;
 export const TAB_FRAME_MS = 300;
@@ -17,7 +19,7 @@ function clean(s: string): string {
 
 export function tabTitle(state: TabState, frame: number): string {
   const name = state.title ? clean(state.title) : "atlarix";
-  if (state.waiting) return `◆ needs you · ${name}`;
+  if (state.waiting) return `<!> needs you · ${name}`;
   if (state.busy) return `${TAB_FRAMES[frame % TAB_FRAMES.length]} ${name}`;
   return `◆ ${name}`;
 }

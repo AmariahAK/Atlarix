@@ -26,7 +26,7 @@ export const TIPS: Tip[] = [
   { keys: "/btw", text: "asks a side question without interrupting the turn" },
   { keys: "@", text: "points at a file; paste or drop screenshots straight into the box" },
   { keys: "!", text: "runs a command yourself; Atlarix sees it and its output next turn" },
-  { keys: "ctrl+t", text: "turns deep thinking on and off" },
+  { keys: "ctrl+t", text: "puts the effort at the top of the model's list, or back to its default (/effort for every level)" },
   { keys: "shift+enter", text: "adds a line; in Apple's Terminal use ctrl+j, or type \\ then enter" },
   { keys: "/model", text: "switches models; ctrl+a in it connects your own API key" },
   { keys: "/resume", text: "picks up an earlier session, including ones from the app" },

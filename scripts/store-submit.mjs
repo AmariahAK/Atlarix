@@ -7,7 +7,9 @@
  *
  * Flow:
  *  1. Authenticate via Azure AD client credentials
- *  2. Delete any pending (uncommitted) submission
+ *  2. If a submission is pending: leave it while Microsoft is still working on
+ *     it (this release skips the Store), replace it only if it never got
+ *     committed or it failed
  *  3. Create a new submission (clones the published one — all listing info,
  *     screenshots, age rating, etc. carry forward automatically)
  *  4. Mark old packages PendingDelete, add the new .msixupload as PendingUpload
@@ -24,14 +26,9 @@
 
 import { execSync } from "node:child_process";
 import { readFileSync, statSync, mkdtempSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-
-const TENANT_ID = env("AZURE_AD_TENANT_ID");
-const CLIENT_ID = env("AZURE_AD_CLIENT_ID");
-const CLIENT_SECRET = env("AZURE_AD_CLIENT_SECRET");
-const APP_ID = env("STORE_APP_ID");
-const UPLOAD_PATH = env("MSIXUPLOAD_PATH");
+import { fileURLToPath } from "node:url";
 
 const API = "https://manage.devcenter.microsoft.com/v1.0/my";
 
@@ -44,7 +41,26 @@ function env(name) {
   return v;
 }
 
-async function getToken() {
+// Statuses of a submission that has failed or never started: safe to replace.
+// Anything else, including a status this list doesn't know, is Microsoft still
+// working on it. Deleting one of those cancels its certification, which is how
+// releases faster than certification kept the Store on 14.51.0 for weeks.
+const REPLACEABLE = new Set([
+  "PendingCommit",
+  "CommitFailed",
+  "PreProcessingFailed",
+  "CertificationFailed",
+  "ReleaseFailed",
+  "PublishFailed",
+  "Canceled",
+]);
+
+/** @returns {"keep" | "replace"} */
+export function pendingSubmissionAction(status) {
+  return REPLACEABLE.has(status) ? "replace" : "keep";
+}
+
+async function getToken(TENANT_ID, CLIENT_ID, CLIENT_SECRET) {
   const res = await fetch(
     `https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/token`,
     {
@@ -84,6 +100,12 @@ async function api(token, method, path, body) {
 }
 
 async function main() {
+  const TENANT_ID = env("AZURE_AD_TENANT_ID");
+  const CLIENT_ID = env("AZURE_AD_CLIENT_ID");
+  const CLIENT_SECRET = env("AZURE_AD_CLIENT_SECRET");
+  const APP_ID = env("STORE_APP_ID");
+  const UPLOAD_PATH = env("MSIXUPLOAD_PATH");
+
   statSync(UPLOAD_PATH);
   const filename = basename(UPLOAD_PATH);
   console.log(
@@ -91,15 +113,28 @@ async function main() {
   );
 
   console.log("Authenticating...");
-  const token = await getToken();
+  const token = await getToken(TENANT_ID, CLIENT_ID, CLIENT_SECRET);
 
-  // A product can have at most one pending submission. If a previous CI run
-  // created one but certification failed (or was never committed), delete it.
+  // A product can have at most one pending submission.
   console.log("Checking for pending submissions...");
   const app = await api(token, "GET", `applications/${APP_ID}`);
   if (app.pendingApplicationSubmission) {
     const old = app.pendingApplicationSubmission.id;
-    console.log(`Deleting pending submission ${old}...`);
+    const pending = await api(
+      token,
+      "GET",
+      `applications/${APP_ID}/submissions/${old}`,
+    );
+    if (pendingSubmissionAction(pending?.status) === "keep") {
+      console.log(
+        `::warning::Microsoft Store: submission ${old} is still ${pending?.status ?? "in progress"}, so this release is not submitted (replacing it would cancel its certification). Submit again once it is published, or cancel it in Partner Center and re-run this job.`,
+      );
+      console.log(
+        `Track: https://partner.microsoft.com/en-us/dashboard/products/${APP_ID}/submissions/${old}`,
+      );
+      return;
+    }
+    console.log(`Deleting pending submission ${old} (${pending.status})...`);
     await api(token, "DELETE", `applications/${APP_ID}/submissions/${old}`);
   }
 
@@ -168,7 +203,14 @@ async function main() {
   );
 }
 
-main().catch((err) => {
-  console.error("Store submission failed:", err.message || err);
-  process.exit(1);
-});
+// Only when RUN, never when imported: the test imports pendingSubmissionAction.
+const invokedDirectly =
+  process.argv[1] !== undefined &&
+  resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (invokedDirectly) {
+  main().catch((err) => {
+    console.error("Store submission failed:", err.message || err);
+    process.exit(1);
+  });
+}

@@ -37,6 +37,20 @@ export type ModelReasoningProfile = {
 /** Keys: `${providerId}:${modelId}` and bare `${modelId}`, both lowercased. */
 const profileById = new Map<string, ModelReasoningProfile>();
 const temperatureById = new Map<string, boolean>();
+/**
+ * Effort values PROVED for a model where the catalog is wrong (core-models.json
+ * `modelEfforts`, by bare model id). GLM-5.3 rejects `medium` with error 1210
+ * though nothing in the catalog says so.
+ */
+const effortOverrides = new Map<string, string[]>();
+
+/** Replace the proved effort lists (on every core-models.json load). */
+export function registerEffortOverrides(map: Record<string, string[]>): void {
+  effortOverrides.clear();
+  for (const [id, values] of Object.entries(map)) {
+    if (Array.isArray(values) && values.length) effortOverrides.set(id.toLowerCase(), values.map(String));
+  }
+}
 
 function keyFor(providerId: string | undefined, modelId: string): string {
   return providerId
@@ -61,12 +75,34 @@ export function registerModelsDevReasoning(
     const bare = e.modelId.toLowerCase();
     profileById.set(scoped, e.profile);
     temperatureById.set(scoped, e.supportsTemperature);
-    // Bare id too — callers pass ids with or without a vendor prefix. Don't let one
-    // provider's row clobber another's already-registered capability.
-    if (!profileById.has(bare)) profileById.set(bare, e.profile);
+    // The bare id is settled below, from every row in this batch.
     if (!temperatureById.has(bare))
       temperatureById.set(bare, e.supportsTemperature);
   }
+  // Bare id too — callers pass ids with or without a vendor prefix (a custom
+  // gateway serving gpt-5.4). What MOST rows say, never the first or the longest:
+  // an aggregator listed first hid gpt-5.4's none…xhigh (QA N1), and gateways that
+  // pad their lists would have offered MiniMax-M3 five levels it doesn't take
+  // (QA N6). "No control" counts as an answer; a tie goes to the shorter list.
+  const byBare = new Map<string, ModelReasoningProfile[]>();
+  for (const e of entries) {
+    const bare = e.modelId.toLowerCase();
+    byBare.set(bare, [...(byBare.get(bare) ?? []), e.profile]);
+  }
+  for (const [bare, rows] of byBare) profileById.set(bare, consensusProfile(rows));
+}
+
+/** The profile most rows agree on; a tie goes to the one listing fewer values. */
+function consensusProfile(rows: ModelReasoningProfile[]): ModelReasoningProfile {
+  const sig = (p: ModelReasoningProfile) =>
+    JSON.stringify([p.reasoning, p.options.map((o) => [o.type, o.values ?? []]).sort((a, b) => String(a[0]).localeCompare(String(b[0])))]);
+  const size = (p: ModelReasoningProfile) => p.options.reduce((n, o) => n + 1 + (o.values?.length ?? 0), 0);
+  const counts = new Map<string, { n: number; p: ModelReasoningProfile }>();
+  for (const p of rows) {
+    const k = sig(p);
+    counts.set(k, { n: (counts.get(k)?.n ?? 0) + 1, p });
+  }
+  return [...counts.values()].sort((a, b) => b.n - a.n || size(a.p) - size(b.p))[0]!.p;
 }
 
 function lookup<T>(
@@ -164,6 +200,161 @@ export function normalizedEffortValues(
 }
 
 /**
+ * What `/effort` offers for a model, EXACTLY as the model lists it (owner,
+ * 2026-10-17: "we dont normalize, can we just show it as they come"): `xhigh`
+ * stays `xhigh`, `none` and `minimal` stay. Only models that publish no names get
+ * names made up: three budget sizes, or off / on.
+ *
+ * `defaultLevel` is what runs when nothing was chosen; it matches what the model
+ * got before /effort existed (one below the top of its list).
+ */
+export type EffortChoices = {
+  kind: "effort" | "budget" | "toggle";
+  levels: string[];
+  defaultLevel: string;
+};
+
+/** Budget sizes for a budget-only model, small to large, and the share each asks for. */
+export const BUDGET_LEVELS = ["low", "medium", "high"] as const;
+const BUDGET_HINT: Record<string, "medium" | "high" | "max"> = { low: "medium", medium: "high", high: "max" };
+
+/** Values that turn reasoning off, never a default. */
+const NO_REASONING = new Set(["none", "minimal"]);
+
+/** A model's own effort values, trimmed and de-duplicated, in the catalog's order. */
+export function rawEffortValues(options: ReasoningOption[]): string[] {
+  const effort = options.find((o) => o.type === "effort");
+  if (!effort || !Array.isArray(effort.values)) return [];
+  const out: string[] = [];
+  for (const raw of effort.values) {
+    const v = String(raw).trim();
+    if (v && !out.some((o) => o.toLowerCase() === v.toLowerCase())) out.push(v);
+  }
+  return out;
+}
+
+function defaultOf(levels: string[]): string {
+  const reasoning = levels.filter((l) => !NO_REASONING.has(l.toLowerCase()));
+  const pool = reasoning.length ? reasoning : levels;
+  return pool[Math.max(0, pool.length - 2)]!;
+}
+
+/** The /effort choices for a model, or null when it has none (or isn't known). */
+function overrideFor(modelId: string): string[] | undefined {
+  if (!modelId) return undefined;
+  const id = modelId.toLowerCase();
+  return effortOverrides.get(id) ?? effortOverrides.get(id.split("/").pop()!);
+}
+
+/**
+ * OpenAI's own routes (BYOK OpenAI, Azure, and Core models OpenAI serves) have
+ * always run `medium` when nothing was chosen (`openAiReasoningEffort`), not one
+ * below the top: the default marked in /effort must be what actually runs.
+ */
+function defaultFor(providerId: string | undefined, levels: string[]): string {
+  const p = providerId?.toLowerCase();
+  if ((p === "openai" || p === "azure") && levels.includes("medium")) return "medium";
+  return defaultOf(levels);
+}
+
+export function effortChoicesFor(providerId: string | undefined, modelId: string): EffortChoices | null {
+  const override = overrideFor(modelId);
+  if (override) return { kind: "effort", levels: override, defaultLevel: defaultFor(providerId, override) };
+  const profile = reasoningProfileFor(providerId, modelId);
+  if (!profile?.reasoning) return null;
+  const values = rawEffortValues(profile.options);
+  if (values.length) return { kind: "effort", levels: values, defaultLevel: defaultFor(providerId, values) };
+  if (profile.options.some((o) => o.type === "budget_tokens")) return { kind: "budget", levels: [...BUDGET_LEVELS], defaultLevel: "medium" };
+  if (profile.options.some((o) => o.type === "toggle")) return { kind: "toggle", levels: ["off", "on"], defaultLevel: "off" };
+  return null;
+}
+
+/**
+ * Paid Atlarix Auto's levels. They choose WHICH models run (the proxy's lane
+ * table), not one model's effort: low = the small models at high reasoning,
+ * medium = the default lanes, max = what deep thinking was (owner, 2026-10-17).
+ * Free Auto has none.
+ */
+export const AUTO_EFFORT_LEVELS = ["low", "medium", "max"] as const;
+export type AutoEffort = (typeof AUTO_EFFORT_LEVELS)[number];
+
+/** The /effort choices for paid Auto. */
+export const AUTO_EFFORT_CHOICES: EffortChoices = { kind: "effort", levels: [...AUTO_EFFORT_LEVELS], defaultLevel: "medium" };
+
+/** The Auto level a request carries (`X-Atlarix-Effort`). */
+export function autoEffort(settings: { effort?: string; deepThinking?: boolean } | undefined): AutoEffort {
+  return chosenLevel(AUTO_EFFORT_CHOICES, settings?.effort, !!settings?.deepThinking) as AutoEffort;
+}
+
+/** The top of a model's list: what deep thinking and ctrl+t ask for. */
+export function topLevel(choices: EffortChoices): string {
+  return choices.levels.at(-1)!;
+}
+
+/**
+ * The level that runs: the chosen one when this model lists it (any case), else
+ * the top for the old deep-thinking switch, else the default. A level another
+ * model had is never translated (owner: changing model resets it).
+ */
+export function chosenLevel(choices: EffortChoices, effort: string | undefined, deepThinking = false): string {
+  const want = effort?.trim().toLowerCase();
+  const hit = want ? choices.levels.find((l) => l.toLowerCase() === want) : undefined;
+  if (hit) return hit;
+  return deepThinking ? topLevel(choices) : choices.defaultLevel;
+}
+
+/**
+ * The settings a choice writes, from every surface (app, CLI, editor): the level,
+ * and the old deep-thinking switch kept in step with "the top is chosen", so the
+ * routes that still read it (a model the catalog doesn't know, an older proxy)
+ * keep doing the right thing.
+ */
+export function effortSettingsPatch(choices: EffortChoices, level: string): { effort: string; deepThinking: boolean } {
+  const hit = choices.levels.find((l) => l.toLowerCase() === level.trim().toLowerCase()) ?? choices.defaultLevel;
+  // The default is stored as unset, so it follows each model's own default
+  // after a model change instead of sticking as an explicit level (QA R1).
+  if (hit === choices.defaultLevel) return { effort: "", deepThinking: false };
+  return { effort: hit, deepThinking: hit === topLevel(choices) };
+}
+
+/**
+ * After the model changes: keep the level when the new model lists it too,
+ * otherwise go back to that model's default. Never translated (owner).
+ */
+export function effortAfterModelChange(
+  choices: EffortChoices | null,
+  settings: { effort?: string; deepThinking?: boolean },
+): { effort: string; deepThinking: boolean } {
+  if (!choices) return { effort: "", deepThinking: false };
+  // Nothing chosen: nothing to keep. The new model runs its own default (QA R1).
+  if (!settings.effort?.trim() && !settings.deepThinking) return { effort: "", deepThinking: false };
+  const current = chosenLevel(choices, settings.effort, !!settings.deepThinking && !settings.effort);
+  const listed = settings.effort ? choices.levels.some((l) => l.toLowerCase() === settings.effort!.trim().toLowerCase()) : true;
+  return listed ? effortSettingsPatch(choices, current) : { effort: "", deepThinking: false };
+}
+
+/** A level that turns reasoning off: `none` / `minimal` as listed, or off / on's `off`. */
+export function isReasoningOff(choices: EffortChoices, level: string): boolean {
+  const l = level.toLowerCase();
+  return NO_REASONING.has(l) || (choices.kind === "toggle" && l === "off");
+}
+
+/**
+ * A chosen level's place on the old four-step scale, for routes that take a token
+ * budget rather than a named level (Anthropic, OpenRouter): by its position in the
+ * model's own list, so the top always asks for the most.
+ */
+export function levelShare(choices: EffortChoices, level: string): "medium" | "high" | "xhigh" | "max" {
+  if (choices.kind === "budget") return BUDGET_HINT[level] ?? "high";
+  const reasoning = choices.levels.filter((l) => !NO_REASONING.has(l.toLowerCase()));
+  const i = reasoning.findIndex((l) => l.toLowerCase() === level.toLowerCase());
+  if (i < 0) return "medium";
+  const steps = ["medium", "high", "xhigh", "max"] as const;
+  if (reasoning.length === 1) return "max";
+  return steps[Math.round((i / (reasoning.length - 1)) * (steps.length - 1))]!;
+}
+
+/**
  * What to actually send for this model on this turn.
  *
  * `none`     — send nothing (the model does not reason, or declares no control).
@@ -177,8 +368,8 @@ export function normalizedEffortValues(
 export type ReasoningRequest =
   | { kind: "none" }
   | { kind: "toggle"; enabled: boolean }
-  | { kind: "effort"; effort: EffortLevel }
-  | { kind: "budget"; effortHint: "high" | "max" }
+  | { kind: "effort"; effort: string }
+  | { kind: "budget"; effortHint: "medium" | "high" | "xhigh" | "max" }
   | { kind: "unknown" };
 
 export type ResolveReasoningArgs = {
@@ -186,6 +377,8 @@ export type ResolveReasoningArgs = {
   modelId: string;
   /** The user's Deep-thinking toggle. */
   deepThinking: boolean;
+  /** The level chosen with /effort; unset keeps the behaviour from before it. */
+  effort?: string;
 };
 
 /**
@@ -200,18 +393,36 @@ export function resolveReasoningRequest({
   providerId,
   modelId,
   deepThinking,
+  effort,
 }: ResolveReasoningArgs): ReasoningRequest {
+  // A level chosen with /effort that this model lists goes out exactly as listed.
+  if (effort?.trim()) {
+    const choices = effortChoicesFor(providerId, modelId);
+    const want = effort.trim().toLowerCase();
+    if (choices?.levels.some((l) => l.toLowerCase() === want)) {
+      const level = chosenLevel(choices, effort);
+      if (choices.kind === "effort") return { kind: "effort", effort: level };
+      if (choices.kind === "toggle") return { kind: "toggle", enabled: level === "on" };
+      return { kind: "budget", effortHint: levelShare(choices, level) };
+    }
+  }
+  const override = overrideFor(modelId);
+  if (override) {
+    const choices = { kind: "effort" as const, levels: override, defaultLevel: defaultOf(override) };
+    return { kind: "effort", effort: chosenLevel(choices, undefined, deepThinking) };
+  }
   const profile = reasoningProfileFor(providerId, modelId);
   if (!profile) return { kind: "unknown" };
   if (!profile.reasoning) return { kind: "none" };
 
-  const values = normalizedEffortValues(profile.options);
+  const values = rawEffortValues(profile.options);
   if (values.length > 0) {
     // An effort channel takes precedence over an accompanying toggle: it is strictly
-    // more expressive, and sending both risks contradicting ourselves.
-    const ceilingIndex = values.length - 1;
-    const index = deepThinking ? ceilingIndex : Math.max(0, ceilingIndex - 1);
-    return { kind: "effort", effort: values[index]! };
+    // more expressive, and sending both risks contradicting ourselves. The model's
+    // OWN values, as listed: a normalized ladder sent gpt-5.4 "max", which it
+    // doesn't list (QA R5).
+    const choices = { kind: "effort" as const, levels: values, defaultLevel: defaultFor(providerId, values) };
+    return { kind: "effort", effort: chosenLevel(choices, undefined, deepThinking) };
   }
 
   if (profile.options.some((o) => o.type === "budget_tokens")) {
@@ -261,8 +472,9 @@ export function hasMeaningfulReasoningControl(
   );
 }
 
-/** Test-only: clear both registries. */
+/** Test-only: clear the registries. */
 export function __resetReasoningRegistryForTests(): void {
   profileById.clear();
   temperatureById.clear();
+  effortOverrides.clear();
 }

@@ -601,7 +601,20 @@ export async function runAcp(opts: AcpRunOptions): Promise<void> {
   const models = await import("../agent/models");
   const cliState = opts.devUrl ? null : models.readCliState();
   const { setRuntimeSettingsOverride } = await import("../../main/settings");
-  if (cliState?.deepThinking != null) setRuntimeSettingsOverride({ deepThinking: cliState.deepThinking });
+  // The terminal's own level, always, even unset: the app's (user-settings.json)
+  // leaked into requests while the CLI showed its own (QA: header showed the
+  // default, the request carried the app's "low").
+  if (cliState) setRuntimeSettingsOverride({ deepThinking: cliState.deepThinking ?? false, effort: cliState.effort ?? "" });
+  // Free Auto has no /effort; the plan is looked up at most once a minute.
+  let kindSeen: { at: number; kind: string | null } | null = null;
+  const accountKind = async (): Promise<string | null> => {
+    if (kindSeen && Date.now() - kindSeen.at < 60_000) return kindSeen.kind;
+    const { realServices } = await import("../agent/services");
+    const kind = (await realServices.account.kind?.().catch(() => null)) ?? null;
+    // A failed lookup is not remembered: the next ask tries again (QA R4).
+    if (kind) kindSeen = { at: Date.now(), kind };
+    return kind;
+  };
 
   const agent = new AcpAgent({
     createSession: async (cwd) => {
@@ -621,7 +634,8 @@ export async function runAcp(opts: AcpRunOptions): Promise<void> {
         options: await models.loadModelOptions(),
         current: state.model,
         picks: { favorites: state.favorites, recent: state.recent },
-        deepThinking: state.deepThinking ?? false,
+        effort: { effort: state.effort ?? "", deepThinking: state.deepThinking ?? false },
+        freeAccount: (await accountKind()) === "free",
       };
     },
     setSessionMcpServers: async (sessionId, servers) => {
@@ -632,9 +646,9 @@ export async function runAcp(opts: AcpRunOptions): Promise<void> {
     rememberModel: (ref) => {
       if (!opts.devUrl) models.writeCliState(models.rememberChoice(models.readCliState(), ref));
     },
-    setDeepThinking: (on) => {
-      setRuntimeSettingsOverride({ deepThinking: on });
-      if (!opts.devUrl) models.writeCliState({ ...models.readCliState(), deepThinking: on });
+    setEffort: (patch) => {
+      setRuntimeSettingsOverride(patch);
+      if (!opts.devUrl) models.writeCliState({ ...models.readCliState(), ...patch });
     },
     listSessions: (cwd) => listFolderSessions(cwd),
     changeSession: (sessionId, change) => changeFolderSession(sessionId, change),

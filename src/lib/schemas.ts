@@ -491,10 +491,16 @@ export const UserSettingsSchema = z.object({
   /** @deprecated superseded by the binary `deepThinking` toggle (v14.8.5). */
   thinkingBudget: z.enum(["low", "medium", "high"]).optional(),
   /**
-   * Reasoning is a flat `medium` baseline for every model/provider/mode. This
-   * single toggle raises it to the model's max reasoning ("high") on demand.
+   * The old two-state switch: on asks for the top of the model's effort list.
+   * Read when no `effort` is chosen; /effort replaced it (2026-10-17).
    */
   deepThinking: z.boolean().optional(),
+  /**
+   * /effort: a level exactly as the model lists it (models.dev, or Auto's
+   * low / medium / max). Unset, or one the current model doesn't list, runs the
+   * model's default.
+   */
+  effort: z.string().optional(),
   enableSupabaseWriteSqlMigration: z.boolean().optional(),
   selectedChatMode: ChatModeSchema.optional(),
   /** @deprecated Ignored — unified runtime always enables delegation. */

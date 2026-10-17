@@ -8,8 +8,8 @@ describe("the CLI's tab title", () => {
     expect(tabTitle({ busy: true, waiting: false, title: "Fix login" }, 4)).toBe("◇ Fix login");
   });
 
-  it("says when it needs you, and holds still", () => {
-    expect(tabTitle({ busy: true, waiting: true, title: "Fix login" }, 2)).toBe("◆ needs you · Fix login");
+  it("says when it needs you with its own icon, and holds still", () => {
+    expect(tabTitle({ busy: true, waiting: true, title: "Fix login" }, 2)).toBe("<!> needs you · Fix login");
   });
 
   it("is the session title when idle, atlarix before there is one", () => {
