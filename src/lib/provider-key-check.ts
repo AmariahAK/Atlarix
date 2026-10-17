@@ -188,10 +188,17 @@ export async function detectAnthropicAuth(
   );
   if (asKey.status === "unchecked") {
     // No model list to ask: ask /messages instead.
+    // Not refused, which isn't proof it works (Bedrock reads the body before
+    // the key): the first message is what checks it (QA A6: the /v1 advice
+    // shown here was wrong for an endpoint with no list at all).
+    const unlisted: KeyCheck = {
+      status: "unchecked",
+      detail: "This endpoint doesn't list its models, so the key is checked by the first message.",
+    };
     const key = await messagesAccept(baseUrl, apiKey, "x-api-key", fetchImpl);
-    if (!key || key.accepted) return { authHeader: "x-api-key", check: asKey };
+    if (!key || key.accepted) return { authHeader: "x-api-key", check: unlisted };
     const bearer = await messagesAccept(baseUrl, apiKey, "bearer", fetchImpl);
-    if (bearer?.accepted) return { authHeader: "bearer", check: asKey };
+    if (bearer?.accepted) return { authHeader: "bearer", check: unlisted };
     return { authHeader: "x-api-key", check: { status: "rejected", detail: key.detail } };
   }
   if (asKey.status !== "rejected") return { authHeader: "x-api-key", check: asKey };

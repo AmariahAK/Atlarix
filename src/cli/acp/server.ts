@@ -228,7 +228,11 @@ export function buildAgentApp(
         return {};
       }
       if (!key?.trim()) throw acp.RequestError.invalidParams(undefined, "A provider and a key are needed.");
-      await realServices.providers.saveKey(providerId, key.trim());
+      try {
+        await realServices.providers.saveKey(providerId, key.trim());
+      } catch (e) {
+        throw acp.RequestError.invalidParams(undefined, (e as Error).message);
+      }
       await agent.modelsChanged();
       return {};
     })
@@ -633,7 +637,12 @@ export async function runAcp(opts: AcpRunOptions): Promise<void> {
       return s;
     },
     models: async () => {
-      if (devModel) return { options: [{ ...devModel, label: devModel.name }], current: devModel };
+      // Dev mode: the scratch folder's models (the seeded endpoint, and any
+      // provider added there), with their /effort levels.
+      if (devModel) {
+        const options = await models.loadModelOptions().catch(() => []);
+        return { options: options.length ? options : [{ ...devModel, label: devModel.name }], current: devModel };
+      }
       const state = models.readCliState();
       return {
         options: await models.loadModelOptions(),

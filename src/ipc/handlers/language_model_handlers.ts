@@ -443,7 +443,9 @@ export function registerLanguageModelHandlers() {
       );
       // A provider the user added may need no key (a local server): check it
       // keyless rather than calling it "Not Setup" (QA #25).
-      if (!key && p?.type !== "custom") return null;
+      // An Anthropic-format endpoint always takes a key: none saved yet is
+      // "no key", not a red rejection of the stand-in (QA).
+      if (!key && (p?.type !== "custom" || p.apiFormat === "anthropic")) return null;
       const { keyProbe, checkProviderKey, detectAnthropicAuth } = await import(
         "@/lib/provider-key-check"
       );

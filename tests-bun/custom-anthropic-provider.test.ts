@@ -170,6 +170,34 @@ describe("a provider you added that speaks the Anthropic format", () => {
     }
   }, 90_000);
 
+  it("a key the endpoint refuses changes nothing: not with model ids given, not as a replacement (QA A3, #1)", async () => {
+    const fake = startFakeAnthropic({ key: "good-key", accepts: "bearer", noModelList: true });
+    try {
+      const conn = await editorServer();
+      const refused = await conn.agent
+        .request("_atlarix/provider_custom", { name: "Strict", baseUrl: fake.url, key: "wrong-key", apiFormat: "anthropic", models: ["claude-haiku-4-5"] })
+        .catch((e: Error) => e);
+      expect(String((refused as Error).message)).toContain("rejected");
+      const r = await conn.agent.request<{ id: string }>("_atlarix/provider_custom", {
+        name: "Strict",
+        baseUrl: fake.url,
+        key: "good-key",
+        apiFormat: "anthropic",
+        models: ["claude-haiku-4-5"],
+      });
+      const replaced = await conn.agent
+        .request("_atlarix/provider_key", { providerId: r.id, key: "another-wrong-key" })
+        .catch((e: Error) => e);
+      expect(String((replaced as Error).message)).toContain("rejected");
+      const { readSettings } = await import("../src/main/settings");
+      expect((readSettings() as { providerSettings?: Record<string, { apiKey?: { value?: string } }> }).providerSettings?.[r.id]?.apiKey?.value).toBe(
+        "good-key",
+      );
+    } finally {
+      fake.stop();
+    }
+  }, 60_000);
+
   it("refuses a format it doesn't know", async () => {
     const conn = await editorServer();
     const err = await conn.agent

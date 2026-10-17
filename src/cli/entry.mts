@@ -166,7 +166,13 @@ async function interactive(): Promise<void> {
   // The remembered label, not the model list: building every provider's list
   // here held the first frame back ~2s. The TUI loads the list right after it
   // draws and corrects the label if it changed.
-  const modelLabel = model ? `${model.name} (local)` : (cliState && modelsMod.savedModelLabel(cliState)) ?? (await selectedModelLabel());
+  const modelLabel = model
+    ? `${model.name} (${/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])[:/]/i.test(devUrl ?? "") ? "local" : "dev"})`
+    : (cliState && modelsMod.savedModelLabel(cliState)) ?? (await selectedModelLabel());
+  // Dev mode's choices live in memory, never in ~/.atlarix/cli-state.json (the
+  // user's own): the scratch folder's models, /model, /effort and ctrl+t all
+  // work, so a provider added there can be tried end to end without an account.
+  let devState: import("./agent/models").CliState = { model, recent: [], favorites: [] };
 
   const { runTui } = await import("./tui/run");
   await runTui({
@@ -178,7 +184,16 @@ async function interactive(): Promise<void> {
     chromeStatus,
     autoUpdate: devUrl ? undefined : (notify) => void import("./update").then((m) => m.startAutoUpdate(VERSION, notify)),
     models: devUrl
-      ? undefined
+      ? {
+          load: modelsMod.loadModelOptions,
+          state: () => devState,
+          save: (st) => {
+            devState = st;
+          },
+          choose: (ref) => session.setModel(ref),
+          setEffort: (patch) => setRuntimeSettingsOverride(patch),
+          selected: async () => model,
+        }
       : {
           load: modelsMod.loadModelOptions,
           state: () => modelsMod.readCliState(),

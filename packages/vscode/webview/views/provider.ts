@@ -81,7 +81,7 @@ export async function renderProvider(page: HTMLElement, nav: Nav, id: string): P
     keySec.append(st);
     if (c && (c.status === "rejected" || c.status === "unreachable") && c.detail) keySec.append(el("div", "bad small", c.detail));
     if (c && c.status === "unchecked" && c.detail) {
-      keySec.append(el("div", "muted small", p.custom ? `${c.detail} If it should list them, check the base URL (most end in /v1).` : c.detail));
+      keySec.append(el("div", "muted small", p.custom && p.apiFormat !== "anthropic" ? `${c.detail} If it should list them, check the base URL (most end in /v1).` : c.detail));
     }
     if (p.baseUrl) {
       const d = el("details", "small");

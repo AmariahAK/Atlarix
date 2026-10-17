@@ -177,20 +177,25 @@ function customForm(nav: Nav, cancel: () => void): HTMLElement {
     { value: "openai", name: "OpenAI-compatible" },
     { value: "anthropic", name: "Anthropic" },
   ];
+  // The whole example, wrapped under the field: a placeholder this long is cut
+  // off at the panel's width, hiding the part that matters (QA A4).
+  const baseHint = el("div", "muted small hidden");
   const formatSlot = el("div", "field-label");
   const drawFormat = () => {
     formatSlot.replaceChildren(
       el("span", "", "API format"),
       segmented(formats, apiFormat, "API format", (v) => {
         apiFormat = v === "anthropic" ? "anthropic" : "openai";
-        base.placeholder =
-          apiFormat === "anthropic" ? "https://bedrock-runtime.us-east-1.amazonaws.com/anthropic/v1" : "https://api.example.com/v1";
+        base.placeholder = apiFormat === "anthropic" ? "https://…/anthropic/v1" : "https://api.example.com/v1";
+        baseHint.textContent =
+          apiFormat === "anthropic" ? "Up to /v1, e.g. https://bedrock-runtime.us-east-1.amazonaws.com/anthropic/v1" : "";
+        baseHint.classList.toggle("hidden", apiFormat !== "anthropic");
         drawFormat();
       }),
     );
   };
   drawFormat();
-  f.append(el("strong", "", "Your own endpoint"), formatSlot, field("Name", name), field("Base URL, up to /v1", base), field("API key", key), modelLabel, err, acts);
+  f.append(el("strong", "", "Your own endpoint"), formatSlot, field("Name", name), field("Base URL, up to /v1", base), baseHint, field("API key", key), modelLabel, err, acts);
   f.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!name.value.trim() || !base.value.trim()) {
@@ -216,6 +221,12 @@ function customForm(nav: Nav, cancel: () => void): HTMLElement {
       if (needsModel) modelLabel.classList.remove("hidden");
       err.textContent = (x as Error).message;
       err.classList.remove("hidden");
+      // Both may sit below the fold of a narrow panel: bring them into view (QA A5).
+      if (needsModel) {
+        model.focus();
+        modelLabel.scrollIntoView({ block: "nearest" });
+      }
+      err.scrollIntoView({ block: "nearest" });
       submit.disabled = false;
       submit.textContent = "Add";
     }

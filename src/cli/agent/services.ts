@@ -485,27 +485,37 @@ export const realServices: CliServices = {
       ];
     },
     async saveKey(providerId, key) {
+      const k = key.trim();
+      // Asked before it is saved, as adding one is: a key the provider refuses
+      // changes nothing (QA: a replaced key was saved although both headers
+      // were refused). Unreachable or unlistable still saves; only a refusal stops it.
+      const { getLanguageModelProviders } = await import("@/ipc/shared/language_model_helpers");
+      const p = (await getLanguageModelProviders()).find((x) => x.id === providerId);
+      let authHeader: "x-api-key" | "bearer" | undefined;
+      if (p?.apiFormat === "anthropic" && p.apiBaseUrl) {
+        // A new key for an Anthropic-format endpoint may want the other header.
+        const { detectAnthropicAuth } = await import("@/lib/provider-key-check");
+        const found = await detectAnthropicAuth(p.apiBaseUrl, k);
+        if (found.check.status === "rejected") throw new Error(`The key was rejected: ${found.check.detail}. Nothing was changed.`);
+        authHeader = found.authHeader;
+      } else {
+        const check = await realServices.providers.test(providerId, k).catch(() => null);
+        if (check?.status === "rejected") throw new Error(`The key was rejected: ${check.detail}. Nothing was changed.`);
+      }
       const { writeProviderKey } = await import("@/main/settings");
       // Encrypted with the desktop's OS key (entry.mts installs that key), so
       // the desktop app reads the same key. Only this provider's key changes.
-      writeProviderKey(providerId, key.trim());
-      // A new key for an Anthropic-format endpoint may want the other header.
-      const { getLanguageModelProviders } = await import("@/ipc/shared/language_model_helpers");
-      const p = (await getLanguageModelProviders()).find((x) => x.id === providerId);
-      if (p?.apiFormat === "anthropic" && p.apiBaseUrl && key.trim()) {
-        const { detectAnthropicAuth } = await import("@/lib/provider-key-check");
-        const found = await detectAnthropicAuth(p.apiBaseUrl, key.trim());
-        if (found.check.status !== "rejected" && found.authHeader !== (p.authHeader ?? "x-api-key")) {
-          const { CUSTOM_PROVIDER_PREFIX } = await import("@/ipc/shared/language_model_helpers");
-          const { registerLanguageModelHandlers } = await import("@/ipc/handlers/language_model_handlers");
-          await ensureLanguageModelHandlers(registerLanguageModelHandlers);
-          await invoke("edit-custom-language-model-provider", {
-            id: providerId.slice(CUSTOM_PROVIDER_PREFIX.length),
-            name: p.name,
-            apiBaseUrl: p.apiBaseUrl,
-            authHeader: found.authHeader,
-          });
-        }
+      writeProviderKey(providerId, k);
+      if (p && authHeader && authHeader !== (p.authHeader ?? "x-api-key")) {
+        const { CUSTOM_PROVIDER_PREFIX } = await import("@/ipc/shared/language_model_helpers");
+        const { registerLanguageModelHandlers } = await import("@/ipc/handlers/language_model_handlers");
+        await ensureLanguageModelHandlers(registerLanguageModelHandlers);
+        await invoke("edit-custom-language-model-provider", {
+          id: providerId.slice(CUSTOM_PROVIDER_PREFIX.length),
+          name: p.name,
+          apiBaseUrl: p.apiBaseUrl,
+          authHeader,
+        });
       }
       const { invalidateProviderModelCache } = await import("@/lib/provider_model_fetchers");
       invalidateProviderModelCache(providerId);
@@ -599,6 +609,8 @@ export const realServices: CliServices = {
       if (apiFormat === "anthropic" && key !== "none") {
         found = await detectAnthropicAuth(base, key.trim());
         authHeader = found.authHeader;
+        // Refused in both headers: say so, even with the model ids given (QA A3).
+        if (found.check.status === "rejected") throw new Error(`The key was rejected: ${found.check.detail}`);
       }
       if (!ids.length) {
         // The endpoint's own list. Asked before anything is saved, so a wrong

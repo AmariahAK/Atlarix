@@ -1607,7 +1607,8 @@ export function openConnect(ctx: ScreenContext, onSaved: (providerId?: string) =
               // one thing to do (QA: "needs no key", then "Replace the key").
               items: [
                 ...(keyless ? [] : [{ id: "replace", label: "Replace the key" }]),
-                { id: "remove", label: keyless ? `Remove ${item.label}` : "Remove the key", detail: "chats on its models move to Atlarix Auto" },
+                // A provider you added goes with its key (its models too): say so (QA).
+                { id: "remove", label: keyless || p.custom ? `Remove ${item.label}` : "Remove the key", detail: "chats on its models move to Atlarix Auto" },
               ],
               onChoose: (choice) => {
                 if (choice.id === "replace") return askKey();
@@ -1647,7 +1648,11 @@ export function openConnect(ctx: ScreenContext, onSaved: (providerId?: string) =
             mask: true,
             onSubmit: async (v) => {
               if (v.trim().length < 8) return "That doesn't look like a key.";
-              await ctx.services.providers.saveKey(item.id, v);
+              try {
+                await ctx.services.providers.saveKey(item.id, v);
+              } catch (e) {
+                return e instanceof Error ? e.message : String(e);
+              }
               ctx.host.closeAll();
               ctx.flash(`${item.label} connected.`);
               onSaved(item.id);
@@ -1686,7 +1691,13 @@ export function openCustomProvider(ctx: ScreenContext, onSaved: (providerId?: st
         ctx.host.replace(
           new InputDialog({
             title,
-            intro: [{ text: "The endpoint didn't list its models.", bold: true }, { text: "Type the id of the model to use, e.g. qwen2.5:7b or gpt-4o-mini.", tone: "muted" }],
+            intro: [{ text: "The endpoint didn't list its models.", bold: true }, {
+                text:
+                  draft.apiFormat === "anthropic"
+                    ? "Type the id of the model to use, e.g. us.anthropic.claude-haiku-4-5-20251001-v1:0 or claude-haiku-4-5."
+                    : "Type the id of the model to use, e.g. qwen2.5:7b or gpt-4o-mini.",
+                tone: "muted",
+              }],
             label: "Model id",
             onSubmit: (v) => (v.trim() ? save([v.trim()]) : "Type a model id."),
           }),
