@@ -404,7 +404,7 @@ const GEMINI_LEVELS = new Set(["minimal", "low", "medium", "high"]);
 export function buildReasoningProviderOptions(
   cap: ReturnType<typeof detectReasoningCapability>,
   thinkingTier: boolean,
-  effort: ReasoningEffort = "medium",
+  effort: ReasoningEffort | "low" = "medium",
   /** Resolved max output tokens — scales the OpenRouter reasoning budget. */
   maxOutputTokens?: number,
   /** A level chosen with /effort, sent as-is where the route takes a named level. */
