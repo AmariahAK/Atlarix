@@ -1,9 +1,9 @@
 # Atlarix TODO
 
-**Current version:** 15.7.1 (2026-10-15): "Your activity" stats on every surface, MCP defaults you
-choose, free Auto on more free models (with its consent in VS Code and every ACP editor too), the
-Chrome extension asks before every connector call, and the fixes from the 15.7.0 QA. Narrative in
-[`docs/CHANGELOG.md`](./CHANGELOG.md).
+**Current version:** 15.9.0 (2026-10-17): providers you add can speak the Anthropic Messages API
+(Bedrock, gateways) on every surface, Build mode's prompt cache lasts across messages, the CLI
+opens at once, and `/effort low` really is lower on budget models. (15.8.3 was tagged and stopped
+before anything published.) Narrative in [`docs/CHANGELOG.md`](./CHANGELOG.md).
 
 **This header has been wrong before.** Update it in the same commit as the version bump, or do
 not trust it.
@@ -17,105 +17,46 @@ not trust it.
 | Designed, not scheduled             | [`docs/DESIGN_NOTES.md`](./DESIGN_NOTES.md) |
 | Open work                           | here, and nowhere else                      |
 
-**Last updated:** 2026-10-08
+**Last updated:** 2026-10-17
 
 ---
 
-## Next up — releasing 15.4.0
+## 🔨 In flight — landed on dev, not yet released
 
-- **Owner's go-ahead** to push `v15.4` (Atlarix and atlarix-launchpad) and tag v15.4.0.
-- **VS Code Marketplace: upload by hand.** After the release, upload each `atlarix-<platform>-15.4.0.vsix`
-  from the release at marketplace.visualstudio.com/manage/publishers/atlarix (no Azure DevOps token;
-  move to `vsce publish --oidc` once Microsoft enables trusted publishing — the email is sent).
-- **Open VSX:** `gh variable set VSCODE_AUTO_SUBMIT --body true` before tagging, or `npx ovsx publish`
-  each VSIX by hand. `OVSX_PAT` is set.
-- **ACP registry PR** (agentclientprotocol/registry): `atlarix/agent.json` (npx `atlarix@15.4.0`,
-  args `["acp"]`) + `icon.svg` = `assets/rix/rix-glyph.svg`; run `verify_agents.py --auth-check`.
-  Public, so the owner's go-ahead first.
-- **Windows full turn in the VM:** the VM's desktop app is 14.52, so the CLI (correctly) refuses its
-  database. Update the app there, then run a turn in VS Code on Windows ARM.
-- The launchpad changelog for 15.4.0 is its own rewrite (never a copy of this one).
+Nothing.
 
-## Next up — after 15.0.1
+**Known limit from 15.9.0:** Bedrock reads the request body before the key, so a bad Bedrock
+token is only caught by the first message (it fails cleanly; nothing is billed). A key-prefix
+hint at add time could catch typos.
 
-- **Slack Marketplace submission.** Listing (six live screenshots), scope reasons, security and
-  compliance, and testing instructions are filled in. Still needed before Submit: a reviewer
-  test account with credit (Slack is paid; the owner creates it) and a demo video link
-  showing install → connect → task → PR → Approve & merge. Review is about 10 days
-  preliminary plus about 10 weeks functional.
-- **Slack launch (owner: "another day").** To submit: (1) a reviewer test account with credit,
-  created by the owner; its details go in step 4 "Test Account Details"; (2) a demo video link
-  (install → Connect Atlarix → task → PR → Approve & merge), recorded live; host it unlisted
-  on YouTube or on atlarix.dev; (3) step 5 automated checks, accept the Marketplace
-  agreement, Submit. The /slack page, guide, privacy section and listing are already live.
-  atlarix-cloud-test is private again: make it public only while recording (its Actions are
-  billing-blocked when private).
-- **Sessions that talk to each other (owner, 2026-10-06), in the CLI and the desktop app.** Like
-  Claude Code's cross-session messaging: one Atlarix session can list the other sessions running
-  on this machine (CLI or app, any workspace) and send one a message or a handoff with context,
-  for example "here's the brief, do the video" or "found 3 bugs, here's the repro". The receiver
-  gets it in its own conversation as a message from that session, not as the user's words.
-  - **List:** running sessions, with a name, workspace, surface (CLI/app) and whether each is busy.
-  - **Send:** text plus optional attached context (files, a summary of this session). It is
-    delivered at the receiver's next step, the way a steer is.
-  - **Reply:** the receiver can answer back to the sender's address.
-  - **Rules:**
-    - A peer's message is a teammate's request, never the user's approval: it can't approve a
-      pending permission or change settings, and the UI says who sent it.
-    - Local only: a socket in the user data directory, nothing over the network.
-  - **Where it plugs in:** the existing mid-turn steer queue (`chat:interject`) is the delivery
-    path. The CLI and the app already share sessions and the DB; what's missing is a registry of
-    live sessions and an address per session.
-- **CLI: "AI SDK Warning … temperature is not supported" toast.** Atlarix Auto sends a
-  temperature to OpenAI reasoning models (seen with gpt-6-luna); the SDK drops it and warns,
-  and the CLI's warning toast shows it. Don't send temperature to reasoning models (or drop
-  the SDK's "unsupported" warnings from the toast; they also land in ~/.atlarix/logs/cli.log).
-- **Slack polish seen in the live run:** after Approve/Close the old message keeps its
-  buttons (update it with chat.update); "the agent stopped before finishing" was shown for a
-  CLI install failure (say what failed).
+## After every release — the owner, by hand
 
-## Next up — finishing 15.0.0
+- **VS Code Marketplace: upload each `.vsix`** from the folder left on the Desktop
+  (marketplace.visualstudio.com/manage/publishers/atlarix). The Marketplace is at 15.8.1; Open VSX
+  is automatic (`VSCODE_AUTO_SUBMIT=true`). Move to `vsce publish --oidc` once Microsoft enables
+  trusted publishing.
+- **Microsoft Store resubmission** needs the `unvirtualizedResources` justification (a restricted
+  capability Partner Center asks about; the text is in the MSIX manifest comment).
 
-Deployed 2026-10-03, before the tag: Relics (worker, R2, function), device sign-in, every
-migration, the proxy (cloud runs), the reviewer on cloud.atlarix.dev with the "Atlarix Cloud
-Agent" GitHub App (`atlarix-cloud-agent`, id 5176493), `AmariahAK/atlarix-agent-action` (v1),
-and the Slack app (A0C6B1SKTJ7, home workspace Norah Labs, public distribution on).
+## Waiting on someone else
 
-1. **npm:** done. All 8 packages publish from CI by OIDC (`atlarix` via headless.yml, the 7
-   platform packages via release.yml, trusted 2026-10-04).
-2. **winget:** first submission is microsoft/winget-pkgs#446527 (CLA signed; tags fixed and a long
-   description added 2026-10-04), waiting on moderation. **When it merges:** put winget back on the
-   site (launchpad `src/components/CliInstall.tsx`, `src/pages/Cli.tsx` row + FAQ + meta, `public/llms.txt`). CI
-   runs `komac update` from the next release on.
-0. **GitHub Actions is blocked by billing (2026-10-04, ~14:17 UTC):** every job on the account
-   fails with "recent account payments have failed or your spending limit needs to be increased"
-   — Atlarix CI (90d0ee64 never ran) and the cloud-agent test repo alike. Owner: GitHub → Settings
-   → Billing and plans. Then re-run CI for 90d0ee64 and the `core-2` cloud run (job created
-   2026-10-04, refused before claim; it is swept to failed).
-3. **End to end on a test repository:** own key DONE 2026-10-04 on AmariahAK/atlarix-cloud-test
-   (DeepSeek: install → setup PR → /cloud → PR #2 → Approve merged; `byok_provider/model`
-   recorded, 0 spend, PostHog `cloud_job_finished` billing=byok). Paid Auto DONE the same day
-   (PR #3: 7¢ in 5 ledger rows = `spent_cents`, taken from the Pro allowance first, PostHog
-   billing=core). Still to run: `core-2` (blocked by Actions billing, item 0), then Slack: the app is not installed
-   in any workspace yet (`slack_installs` empty) — Add to Slack from atlarix.dev/cloud (owner's
-   OAuth consent), DM the bot, link the account, send `[byok] owner/repo: task`.
-4. **Install paths:** curl, brew, npm checked at 15.0.0 (2026-10-04); PowerShell and winget
-   on Windows still to check.
-5. **PostHog:** an insight "Weekly active users by billing" from `model_turn`, once events arrive.
-6. **Windows code signing:** buy an Authenticode certificate; the job signs as soon as
-   `SM_CODE_SIGNING_CERT_SHA1_HASH` exists.
-7. **Both Atlarix processes' Chrome tab groups** need the new extension (CWS review of this
-   release); until then they share one group.
+- **winget:** microsoft/winget-pkgs#446527 (AmariahAK.AtlarixCLI 15.0.0) passed validation and has
+  waited for a moderator since 2026-10-04. Until it merges, every release's `update-winget` job
+  fails (expected). **When it merges:** put winget back on the site (launchpad
+  `src/components/CliInstall.tsx`, `src/pages/Cli.tsx` row + FAQ + meta, `public/llms.txt`).
+- **ACP registry:** agentclientprotocol/registry#669 ("Add Atlarix"), open with no review since
+  2026-10-10.
+- **Slack Marketplace:** the listing, scopes, security answers and screenshots are filled in, and
+  the full flow passed end to end on 2026-10-07. Still needed before Submit: a reviewer test
+  account with credit (the owner creates it) and, optionally, a 30–90 s demo video.
 
-## Next up — after v14.52.3
+## Still to verify
 
-- **MS Store submission needs the `unvirtualizedResources` justification.** The MSIX manifest now
-  declares it (with `desktop6:RegistryWriteVirtualization` disabled) so the bridge's registry key
-  reaches the real HKCU. It is a restricted capability: Partner Center asks why. Text is in the
-  manifest comment.
-- **Launchpad homepage video cards describe the retired in-app browser**
-  (`src/components/marketing/VideoWalkthroughs.tsx`: "A full browser inside the app…"). The copy
-  can change; the video itself shows the old browser — needs a decision on re-recording.
+- **Windows:** a full turn in VS Code on Windows ARM (the VM), and the PowerShell and winget install
+  paths.
+- **Cloud agent on paid Core `core-2`:** never run (it was blocked by the Actions billing hold of
+  2026-10-04, since cleared).
+- **PostHog:** a "Weekly active users by billing" insight from `model_turn`.
 
 ## 🔭 Open — the queue
 
@@ -211,17 +152,13 @@ listing, launches).
   it observed, so with three contenders B and C both wake and both acquire. Plan writes already
   use their own FIFO chain (`withPlanArtifactLock`). Changing shared locking semantics deserves
   its own pass.
-- **`useAuth` is an UNSHARED hook with ~21 consumers**, each running its own `checkSession()`.
-  Guard in the IPC handler, never in the hook. The sign-out half is scoped:
-  `SubscriptionManager.signOut()` does not broadcast `auth:resolved`, so a second window keeps a
-  stale session. Fix is one call plus clearing `user`/`status` on a null user — do it with the
-  rest of the unshared-hook work.
 - **8 conditional-hook violations, visible but not blocking.** `useStreamChat.ts` ×4,
   `SubAgentRunCard.tsx` ×2, `useWorkspacePlanPanel.ts` and `RightPanel.tsx` ×1. They work only
   because the condition is stable for a component's lifetime. **`useStreamChat` is the risky
   one** — changing its hook ORDER can break streaming. `react-hooks/rules-of-hooks` is `warn`;
-  raise to `error` once these are gone. `react-hooks/exhaustive-deps` (off) is the next rule
-  worth turning on.
+  raise to `error` once these are gone (the ninth warning, `useSafeStorageProvider` in
+  `src/cli/entry.mts`, is not a React hook: rename it first). `react-hooks/exhaustive-deps` (off)
+  is the next rule worth turning on.
 - **Local packaged builds report `environment=production` to Sentry — SETTLED, keep.** Some bugs
   are only findable through Sentry, and separating the environment would put exactly those runs
   where nobody looks. **Never read production alert VOLUME as a user-impact signal without
@@ -276,19 +213,16 @@ listing, launches).
 
 The reasoning lives in [`docs/DESIGN_NOTES.md`](./DESIGN_NOTES.md); these are the pointers.
 
-- **The CLI.** TUI + loopback-PKCE auth + billing over the headless binary that already ships.
-  The ledger already accepts a `cli` source.
-- **Core under concurrency.** (The reviewer cost-attribution residual below is FIXED: the proxy
-  returns `X-Atlarix-Cost-Cents` and `createCostMeter` sums it.) Mostly solved — `balance-cache.ts` keys on `userId` and holds a
-  per-call reservation, Postgres stays the sole authority, and `spend_from_wallet` takes
-  `FOR UPDATE`. **Two residuals:** multi-replica overspend is bounded at roughly one reserve per
-  replica per user and is not worth fixing until a second replica exists; but **the reviewer's
-  cost attribution BREAKS on a second replica** — `ReviewQueue.spendSince` reconstructs cost from
-  a ledger window that is exact only because one replica is strictly sequential. The fix is for
-  the proxy to return the debited amount on the response. **Do this BEFORE scaling the reviewer.**
+- **Core under concurrency.** Mostly solved: `balance-cache.ts` keys on `userId` and holds a
+  per-call reservation, Postgres stays the sole authority, `spend_from_wallet` takes `FOR UPDATE`,
+  and the reviewer's cost now comes from the proxy (`X-Atlarix-Cost-Cents`, summed by
+  `createCostMeter`) rather than a ledger window. **One residual:** multi-replica overspend is
+  bounded at roughly one reserve per replica per user; not worth fixing until a second replica
+  exists.
 - **DECIDED 2026-10-04: paid Auto picks the model by MODE, not by a learned router**, and there is
   NO automatic escalation; a retry ("Try with a stronger model") stays the user's choice. Live in
-  core-models.json (atlarix-releases 43cd1cb), thinking off → on: explore/build/debug GLM high →
+  core-models.json (atlarix-releases 43cd1cb); since 15.8.0 `/effort` low / medium / max picks the
+  lane (low drops to Luna high), and at medium → max: explore/build/debug GLM high →
   Sol high; plan/review Sol high → Astra high; sub-agents Luna high → GLM high; titles Luna none,
   compaction/summary Luna low; images climb from GLM to Sol automatically. The router options
   below are LATER, and only with outcome data.

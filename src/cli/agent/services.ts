@@ -72,8 +72,10 @@ export interface ProviderSummary {
   keyUrl?: string;
   /** The saved key, masked ("sk-…a91f"), to tell keys apart. */
   keyHint?: string;
-  /** One the user added: an OpenAI-compatible endpoint of their own. */
+  /** One the user added: an endpoint of their own. */
   custom?: boolean;
+  /** One the user added that speaks the Anthropic Messages API (unset: OpenAI-compatible). */
+  apiFormat?: "anthropic";
   /** Switched off in an editor's Models & keys: the key stays, its models are hidden. */
   off?: boolean;
   /** Where its API lives (shown on the provider's page). */
@@ -173,8 +175,8 @@ export interface CliServices {
     setBaseUrl(providerId: string, baseUrl: string): Promise<void>;
     /** Ask the provider whether the saved key works, or `key` before it is saved. */
     test(providerId: string, key?: string): Promise<KeyCheck>;
-    /** Add an OpenAI-compatible endpoint with its key; returns its id and how many models it lists. */
-    addCustom(p: { name: string; baseUrl: string; key: string; models?: string[] }): Promise<{ id: string; models: number }>;
+    /** Add an endpoint of your own (OpenAI-compatible unless `apiFormat` says Anthropic) with its key; returns its id and how many models it lists. */
+    addCustom(p: { name: string; baseUrl: string; key: string; models?: string[]; apiFormat?: "openai" | "anthropic" }): Promise<{ id: string; models: number }>;
     /** Switch a provider off (its key kept, its models hidden in the terminal and editors) or back on. */
     setEnabled(providerId: string, on: boolean): Promise<void>;
     /** Ollama and LM Studio on this computer. */
@@ -474,6 +476,7 @@ export const realServices: CliServices = {
             // "none" is the stand-in for a server that needs no key (addCustom).
             ...(key ? { keyHint: key === "none" ? "none" : keyHint(key) } : {}),
             ...((p as { type?: string }).type === "custom" ? { custom: true } : {}),
+            ...(p.apiFormat === "anthropic" ? { apiFormat: "anthropic" as const } : {}),
             ...(settings.providerSettings?.[p.id]?.enabled === false ? { off: true } : {}),
             ...(p.apiBaseUrl ? { baseUrl: p.apiBaseUrl } : {}),
           };
@@ -482,10 +485,38 @@ export const realServices: CliServices = {
       ];
     },
     async saveKey(providerId, key) {
+      const k = key.trim();
+      // Asked before it is saved, as adding one is: a key the provider refuses
+      // changes nothing (QA: a replaced key was saved although both headers
+      // were refused). Unreachable or unlistable still saves; only a refusal stops it.
+      const { getLanguageModelProviders } = await import("@/ipc/shared/language_model_helpers");
+      const p = (await getLanguageModelProviders()).find((x) => x.id === providerId);
+      let authHeader: "x-api-key" | "bearer" | undefined;
+      if (p?.apiFormat === "anthropic" && p.apiBaseUrl) {
+        // A new key for an Anthropic-format endpoint may want the other header.
+        const { detectAnthropicAuth } = await import("@/lib/provider-key-check");
+        const found = await detectAnthropicAuth(p.apiBaseUrl, k);
+        if (found.check.status === "rejected") throw new Error(`The key was rejected: ${found.check.detail}. Nothing was changed.`);
+        authHeader = found.authHeader;
+      } else {
+        const check = await realServices.providers.test(providerId, k).catch(() => null);
+        if (check?.status === "rejected") throw new Error(`The key was rejected: ${check.detail}. Nothing was changed.`);
+      }
       const { writeProviderKey } = await import("@/main/settings");
       // Encrypted with the desktop's OS key (entry.mts installs that key), so
       // the desktop app reads the same key. Only this provider's key changes.
-      writeProviderKey(providerId, key.trim());
+      writeProviderKey(providerId, k);
+      if (p && authHeader && authHeader !== (p.authHeader ?? "x-api-key")) {
+        const { CUSTOM_PROVIDER_PREFIX } = await import("@/ipc/shared/language_model_helpers");
+        const { registerLanguageModelHandlers } = await import("@/ipc/handlers/language_model_handlers");
+        await ensureLanguageModelHandlers(registerLanguageModelHandlers);
+        await invoke("edit-custom-language-model-provider", {
+          id: providerId.slice(CUSTOM_PROVIDER_PREFIX.length),
+          name: p.name,
+          apiBaseUrl: p.apiBaseUrl,
+          authHeader,
+        });
+      }
       const { invalidateProviderModelCache } = await import("@/lib/provider_model_fetchers");
       invalidateProviderModelCache(providerId);
     },
@@ -515,7 +546,7 @@ export const realServices: CliServices = {
       const { keyProbe, checkProviderKey } = await import("@/lib/provider-key-check");
       const { readSettings } = await import("@/main/settings");
       const key = (readSettings() as { providerSettings?: Record<string, { apiKey?: { value?: string } }> }).providerSettings?.[providerId]?.apiKey?.value ?? "none";
-      const check = await checkProviderKey(keyProbe(providerId, key, base)!, key);
+      const check = await checkProviderKey(keyProbe(providerId, key, base, { apiFormat: p.apiFormat, authHeader: p.authHeader })!, key);
       if (check.status === "unreachable") throw new Error(`${check.detail.replace(/^Couldn't reach the provider/, `Couldn't reach ${base}`).replace(/[.?!\s]+$/, "")}. Nothing was changed.`);
       if (check.status === "rejected") throw new Error(`The key was rejected there: ${check.detail}. Nothing was changed.`);
       const { registerLanguageModelHandlers } = await import("@/ipc/handlers/language_model_handlers");
@@ -532,7 +563,28 @@ export const realServices: CliServices = {
       const key = candidate?.trim() || settings.providerSettings?.[providerId]?.apiKey?.value?.trim();
       if (!key) return { status: "unchecked", detail: "No key saved." };
       const provider = (await getLanguageModelProviders()).find((p) => p.id === providerId);
-      return checkProviderKey(keyProbe(providerId, key, provider?.apiBaseUrl), key);
+      // An Anthropic-format endpoint: asked as the app asks it (either header,
+      // and /messages when it lists no models), and the header that worked is
+      // kept, once the key is the saved one (QA B2).
+      if (provider?.apiFormat === "anthropic" && provider.apiBaseUrl) {
+        const { detectAnthropicAuth } = await import("@/lib/provider-key-check");
+        const found = await detectAnthropicAuth(provider.apiBaseUrl, key);
+        const saved = settings.providerSettings?.[providerId]?.apiKey?.value?.trim();
+        if (key === saved && found.check.status !== "rejected" && found.authHeader !== (provider.authHeader ?? "x-api-key")) {
+          const { CUSTOM_PROVIDER_PREFIX } = await import("@/ipc/shared/language_model_helpers");
+          const { registerLanguageModelHandlers } = await import("@/ipc/handlers/language_model_handlers");
+          await ensureLanguageModelHandlers(registerLanguageModelHandlers);
+          await invoke("edit-custom-language-model-provider", {
+            id: providerId.slice(CUSTOM_PROVIDER_PREFIX.length),
+            name: provider.name,
+            apiBaseUrl: provider.apiBaseUrl,
+            authHeader: found.authHeader,
+          });
+        }
+        return found.check;
+      }
+      const wire = provider?.type === "custom" ? { apiFormat: provider.apiFormat, authHeader: provider.authHeader } : undefined;
+      return checkProviderKey(keyProbe(providerId, key, provider?.apiBaseUrl, wire), key);
     },
     async setEnabled(providerId, on) {
       const { writeProviderSetting } = await import("@/main/settings");
@@ -556,12 +608,12 @@ export const realServices: CliServices = {
         { id: "lmstudio", name: "LM Studio", running: !lmstudio.error, models: lmstudio.models.length },
       ];
     },
-    async addCustom({ name, baseUrl, key: given, models }) {
+    async addCustom({ name, baseUrl, key: given, models, apiFormat = "openai" }) {
       // A server on this computer (LM Studio, llama.cpp, vLLM) often needs no
       // key; the client still sends one, so a stand-in it will ignore.
       const key = given.trim() || "none";
       const { CUSTOM_PROVIDER_PREFIX } = await import("@/ipc/shared/language_model_helpers");
-      const { keyProbe, checkProviderKey } = await import("@/lib/provider-key-check");
+      const { keyProbe, checkProviderKey, detectAnthropicAuth } = await import("@/lib/provider-key-check");
       const base = baseUrl.trim().replace(/\/+$/, "");
       if (!/^https?:\/\//i.test(base)) throw new Error("The base URL starts with https:// (or http:// for one on this computer).");
       const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "custom";
@@ -570,11 +622,21 @@ export const realServices: CliServices = {
         throw new Error(`You already have a provider called ${name.trim()}. Remove it first, or use another name.`);
       }
       let ids = (models ?? []).map((m) => m.trim()).filter(Boolean);
+      // An Anthropic-format endpoint takes the key as `x-api-key` or as a Bearer
+      // token: find out which before anything is saved.
+      let authHeader: "x-api-key" | "bearer" | undefined;
+      let found: Awaited<ReturnType<typeof detectAnthropicAuth>> | undefined;
+      if (apiFormat === "anthropic" && key !== "none") {
+        found = await detectAnthropicAuth(base, key.trim());
+        authHeader = found.authHeader;
+        // Refused in both headers: say so, even with the model ids given (QA A3).
+        if (found.check.status === "rejected") throw new Error(`The key was rejected: ${found.check.detail}`);
+      }
       if (!ids.length) {
         // The endpoint's own list. Asked before anything is saved, so a wrong
         // URL or key leaves nothing behind.
-        const probe = keyProbe(slug, key.trim(), base)!;
-        const check = await checkProviderKey(probe, key.trim());
+        const probe = keyProbe(CUSTOM_PROVIDER_PREFIX + slug, key.trim(), base, { apiFormat, authHeader })!;
+        const check = found?.check ?? (await checkProviderKey(probe, key.trim()));
         if (check.status === "rejected") throw new Error(`The key was rejected: ${check.detail}`);
         // Nothing answered there (a wrong port, the server not running): say so,
         // and save nothing. It used to be "didn't list any models", then saved.
@@ -582,7 +644,16 @@ export const realServices: CliServices = {
           const why = check.detail.replace(/^Couldn't reach the provider/, `Couldn't reach ${base}`).replace(/[.?!\s]+$/, "");
           throw new Error(`${why}. Check the address, and that the server is running.`);
         }
-        if (check.status === "works") ids = await listOpenAICompatibleModels(probe);
+        if (check.status === "works") {
+          if (apiFormat === "anthropic") {
+            const { fetchModelsFromAnthropic } = await import("@/lib/provider_model_fetchers");
+            ids = (await fetchModelsFromAnthropic(key.trim(), { providerId: CUSTOM_PROVIDER_PREFIX + slug, baseUrl: base, authHeader }))
+              .map((m) => m.apiName)
+              .slice(0, 200);
+          } else {
+            ids = await listOpenAICompatibleModels(probe);
+          }
+        }
         if (!ids.length) {
           // Most of these APIs live under /v1 (http://localhost:11434 → …/v1).
           throw new NoModelsListedError(/\/v\d+$/.test(base) ? "" : ` If its API is under ${base}/v1, use that address instead.`);
@@ -590,7 +661,12 @@ export const realServices: CliServices = {
       }
       const { registerLanguageModelHandlers } = await import("@/ipc/handlers/language_model_handlers");
       await ensureLanguageModelHandlers(registerLanguageModelHandlers);
-      await invoke("create-custom-language-model-provider", { id: slug, name: name.trim(), apiBaseUrl: base });
+      await invoke("create-custom-language-model-provider", {
+        id: slug,
+        name: name.trim(),
+        apiBaseUrl: base,
+        ...(apiFormat === "anthropic" ? { apiFormat, ...(authHeader ? { authHeader } : {}) } : {}),
+      });
       const id = CUSTOM_PROVIDER_PREFIX + slug;
       for (const apiName of ids) {
         await invoke("create-custom-language-model", { apiName, displayName: apiName, providerId: id });

@@ -14,6 +14,10 @@ import {
 } from "@/ipc/shared/compass_constants";
 import { findLanguageModel } from "@/ipc/utils/findLanguageModel";
 import log from "electron-log";
+import {
+  anthropicCatalogModelId,
+  isCustomAnthropicFormat,
+} from "@/lib/routing/custom-provider-format";
 
 const logger = log.scope("context-limit");
 
@@ -286,7 +290,8 @@ export async function resolveModelContextLimit(
   if (pid.startsWith("custom::")) {
     try {
       const { getLanguageModelProviders } = await import("@/ipc/shared/language_model_helpers");
-      const base = (await getLanguageModelProviders()).find((p) => p.id.toLowerCase() === pid)?.apiBaseUrl;
+      const custom = (await getLanguageModelProviders()).find((p) => p.id.toLowerCase() === pid);
+      const base = custom?.apiFormat === "anthropic" ? undefined : custom?.apiBaseUrl;
       if (base) {
         const { isOllamaEndpoint, ollamaOrigin, ollamaNumCtx } = await import("@/ipc/utils/ollama_native_fetch");
         if (await isOllamaEndpoint(base)) {
@@ -321,10 +326,10 @@ export async function resolveModelContextLimit(
   // straight to a hardcoded guess.
   try {
     const { getModelsDevLimits } = await import("@/lib/models_dev");
-    const limits = await getModelsDevLimits(
-      model.provider ?? "",
-      model.name ?? "",
-    );
+    // A provider the user added on the Anthropic format: Anthropic's own row.
+    const limits = isCustomAnthropicFormat(model.provider)
+      ? await getModelsDevLimits("anthropic", anthropicCatalogModelId(model.name ?? ""))
+      : await getModelsDevLimits(model.provider ?? "", model.name ?? "");
     if (limits?.context && limits.context > 0) {
       return {
         tierLimit: floorSafe(limits.context * clamp),

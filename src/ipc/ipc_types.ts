@@ -555,8 +555,17 @@ export interface LanguageModelProvider {
    * provider speaks. The dispatch key in `provider-sdk-factories.ts`.
    */
   npm?: string;
+  /** A provider the user added: the wire format it speaks (unset = OpenAI-compatible). */
+  apiFormat?: CustomApiFormat;
+  /** A provider the user added: how it takes the key (unset = the format's usual header). */
+  authHeader?: CustomAuthHeader;
   type: "custom" | "local" | "cloud";
 }
+
+/** The wire formats a provider the user added can speak. */
+export type CustomApiFormat = "openai" | "anthropic";
+/** How an Anthropic-format endpoint takes the key: Anthropic's own header, or a Bearer token (Bedrock). */
+export type CustomAuthHeader = "x-api-key" | "bearer";
 
 export type LanguageModel =
   | {
@@ -623,6 +632,8 @@ export interface CreateCustomLanguageModelProviderParams {
   name: string;
   apiBaseUrl: string;
   envVarName?: string;
+  apiFormat?: CustomApiFormat;
+  authHeader?: CustomAuthHeader;
 }
 
 export interface CreateCustomLanguageModelParams {

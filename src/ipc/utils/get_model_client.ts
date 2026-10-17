@@ -710,7 +710,11 @@ async function getRegularModelClient(
       // plugins), and the local runtimes.
       // A custom provider that is really Ollama (http://localhost:11434/v1) runs
       // through Ollama's native API, at the model's window, not 4096 (QA).
-      if (providerConfig.type === "custom" && providerConfig.apiBaseUrl) {
+      if (
+        providerConfig.type === "custom" &&
+        providerConfig.apiBaseUrl &&
+        providerConfig.apiFormat !== "anthropic"
+      ) {
         const { isOllamaEndpoint, ollamaOrigin } = await import("./ollama_native_fetch");
         if (await isOllamaEndpoint(providerConfig.apiBaseUrl)) {
           return {
@@ -734,6 +738,7 @@ async function getRegularModelClient(
               apiKey,
               baseURL: providerConfig.apiBaseUrl,
               npm: providerConfig.npm,
+              authHeader: providerConfig.authHeader,
             }),
             builtinProviderId: providerConfig.id,
           },

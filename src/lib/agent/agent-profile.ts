@@ -75,12 +75,12 @@ export interface AgentProfile {
   buildForceFinishPrompt?(): string;
 
   /**
-   * Per-iteration system prompt (progressive-reveal manifest refresh).
-   * Build returns a plain string; ask returns a RoundSystemPrompt (async —
-   * it re-resolves the context window per round) so the stable header and
-   * dynamic tail stay separate system blocks for the prompt cache.
+   * Per-iteration system prompt (progressive-reveal manifest refresh). A
+   * RoundSystemPrompt keeps the stable header and the dynamic tail separate
+   * system blocks for the prompt cache: ask builds one per round (async: it
+   * re-resolves the context window), build splits its joined prompt.
    */
-  buildRoundSystemPrompt(): string | Promise<string | RoundSystemPrompt>;
+  buildRoundSystemPrompt(): string | RoundSystemPrompt | Promise<string | RoundSystemPrompt>;
 
   /**
    * Text-tool fallback surface (weak/local models emitting XML tool calls).

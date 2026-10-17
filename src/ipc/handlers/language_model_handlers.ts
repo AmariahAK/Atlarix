@@ -3,6 +3,8 @@ import type {
   LanguageModel,
   CreateCustomLanguageModelProviderParams,
   CreateCustomLanguageModelParams,
+  CustomApiFormat,
+  CustomAuthHeader,
 } from "@/ipc/ipc_types";
 import { createLoggedHandler } from "./safe_handle";
 import log from "electron-log";
@@ -27,6 +29,20 @@ import { IpcMainInvokeEvent } from "electron";
 const logger = log.scope("language_model_handlers");
 const handle = createLoggedHandler(logger);
 
+/** A stored format, or undefined for OpenAI-compatible. Rejects anything else. */
+function customApiFormat(v: unknown): CustomApiFormat | undefined {
+  if (v === undefined || v === null || v === "" || v === "openai") return undefined;
+  if (v === "anthropic") return v;
+  throw new Error(`Unknown API format "${String(v)}"`);
+}
+
+/** A stored key header, or undefined for the format's usual one. */
+function customAuthHeader(v: unknown): CustomAuthHeader | undefined {
+  if (v === undefined || v === null || v === "") return undefined;
+  if (v === "x-api-key" || v === "bearer") return v;
+  throw new Error(`Unknown key header "${String(v)}"`);
+}
+
 export function registerLanguageModelHandlers() {
   handle(
     "get-language-model-providers",
@@ -42,6 +58,8 @@ export function registerLanguageModelHandlers() {
       params: CreateCustomLanguageModelProviderParams,
     ): Promise<LanguageModelProvider> => {
       const { id, name, apiBaseUrl, envVarName } = params;
+      const apiFormat = customApiFormat(params.apiFormat);
+      const authHeader = customAuthHeader(params.authHeader);
 
       // Validation
       if (!id) {
@@ -56,11 +74,13 @@ export function registerLanguageModelHandlers() {
         throw new Error("API base URL is required");
       }
 
-      // Check if a provider with this ID already exists
+      // Check if a provider with this ID already exists. It is stored under the
+      // prefix, so the bare id never matched and a duplicate failed on the
+      // primary key instead of with this message.
       const existingProvider = db
         .select()
         .from(languageModelProvidersSchema)
-        .where(eq(languageModelProvidersSchema.id, id))
+        .where(eq(languageModelProvidersSchema.id, CUSTOM_PROVIDER_PREFIX + id))
         .get();
 
       if (existingProvider) {
@@ -74,6 +94,8 @@ export function registerLanguageModelHandlers() {
         name,
         api_base_url: apiBaseUrl,
         env_var_name: envVarName || null,
+        api_format: apiFormat ?? null,
+        auth_header: authHeader ?? null,
       });
 
       // Return the newly created provider
@@ -82,6 +104,8 @@ export function registerLanguageModelHandlers() {
         name,
         apiBaseUrl,
         envVarName,
+        ...(apiFormat ? { apiFormat } : {}),
+        ...(authHeader ? { authHeader } : {}),
         type: "custom",
       };
     },
@@ -139,6 +163,11 @@ export function registerLanguageModelHandlers() {
       params: CreateCustomLanguageModelProviderParams,
     ): Promise<LanguageModelProvider> => {
       const { id, name, apiBaseUrl, envVarName } = params;
+      // Left out = unchanged: the CLI and editor edit only the base URL.
+      const formatGiven = params.apiFormat !== undefined;
+      const headerGiven = params.authHeader !== undefined;
+      const apiFormat = customApiFormat(params.apiFormat);
+      const authHeader = customAuthHeader(params.authHeader);
 
       if (!id) {
         throw new Error("Provider ID is required");
@@ -171,6 +200,14 @@ export function registerLanguageModelHandlers() {
             name,
             api_base_url: apiBaseUrl,
             env_var_name: envVarName || null,
+            ...(formatGiven ? { api_format: apiFormat ?? null } : {}),
+            // A new format starts from its own usual header unless one is given.
+            ...(headerGiven
+              ? { auth_header: authHeader ?? null }
+              : formatGiven &&
+                  (apiFormat ?? "openai") !== (existingProvider.api_format ?? "openai")
+                ? { auth_header: null }
+                : {}),
           })
           .where(
             eq(languageModelProvidersSchema.id, CUSTOM_PROVIDER_PREFIX + id),
@@ -391,13 +428,17 @@ export function registerLanguageModelHandlers() {
     async (
       _event: IpcMainInvokeEvent,
       providerId: string,
+      /** A key about to be saved, checked first: a refused one is never saved (QA). */
+      candidate?: string,
     ): Promise<{ status: string; detail: string } | null> => {
       const { readSettings } = await import("@/main/settings");
-      const key = (
-        readSettings() as {
-          providerSettings?: Record<string, { apiKey?: { value?: string } }>;
-        }
-      ).providerSettings?.[providerId]?.apiKey?.value;
+      const key =
+        candidate?.trim() ||
+        (
+          readSettings() as {
+            providerSettings?: Record<string, { apiKey?: { value?: string } }>;
+          }
+        ).providerSettings?.[providerId]?.apiKey?.value;
       const { getLanguageModelProviders } = await import(
         "@/ipc/shared/language_model_helpers"
       );
@@ -406,12 +447,35 @@ export function registerLanguageModelHandlers() {
       );
       // A provider the user added may need no key (a local server): check it
       // keyless rather than calling it "Not Setup" (QA #25).
-      if (!key && p?.type !== "custom") return null;
-      const { keyProbe, checkProviderKey } = await import(
+      // An Anthropic-format endpoint always takes a key: none saved yet is
+      // "no key", not a red rejection of the stand-in (QA).
+      if (!key && (p?.type !== "custom" || p.apiFormat === "anthropic")) return null;
+      const { keyProbe, checkProviderKey, detectAnthropicAuth } = await import(
         "@/lib/provider-key-check"
       );
+      // An Anthropic-format endpoint takes the key as `x-api-key` or as a
+      // Bearer token: asked on every check (a new key may want the other
+      // one), and the header that worked is kept.
+      if (p?.apiFormat === "anthropic" && p.apiBaseUrl && key) {
+        const found = await detectAnthropicAuth(p.apiBaseUrl, key);
+        if (found.check.status !== "rejected" && found.authHeader !== (p.authHeader ?? "x-api-key")) {
+          db.update(languageModelProvidersSchema)
+            .set({ auth_header: found.authHeader })
+            .where(eq(languageModelProvidersSchema.id, providerId))
+            .run();
+          invalidateProviderModelCache(providerId);
+        }
+        return found.check;
+      }
       return checkProviderKey(
-        keyProbe(providerId, key || "none", p?.apiBaseUrl ?? null),
+        keyProbe(
+          providerId,
+          key || "none",
+          p?.apiBaseUrl ?? null,
+          p?.type === "custom"
+            ? { apiFormat: p.apiFormat, authHeader: p.authHeader }
+            : undefined,
+        ),
         key || "none",
       );
     },

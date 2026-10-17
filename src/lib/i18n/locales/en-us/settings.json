@@ -21,7 +21,12 @@
     "added": "{{name}} added for this folder."
   },
   "providers": {
-    "keyRejected": "Key rejected"
+    "keyRejected": "Key rejected",
+    "apiFormat": "API format",
+    "apiFormatOpenAi": "OpenAI-compatible",
+    "apiFormatAnthropic": "Anthropic",
+    "apiFormatAnthropicDescription": "An endpoint that speaks the Anthropic Messages API.",
+    "apiFormatAnthropicBaseUrlHint": "Up to /v1, e.g. https://bedrock-runtime.us-east-1.amazonaws.com/anthropic/v1"
   },
   "mcp": {
     "upTo": "Up to {{max}} on at a time.",

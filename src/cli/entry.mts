@@ -19,7 +19,9 @@
  *
  * Testing against a local model without an account or credits:
  *   atlarix --provider-url http://127.0.0.1:18787/v1 --model fake-model
- * uses a scratch data folder (~/.atlarix/dev-data), never the desktop's.
+ * uses a scratch data folder (~/.atlarix/dev-data), never the desktop's. An
+ * endpoint on the Anthropic format: add `--provider-format anthropic`. The key
+ * is `--api-key`, or ATLARIX_DEV_API_KEY (kept out of the process list).
  */
 import "./acp/stdio-guard";
 import "./tty-early";
@@ -111,7 +113,12 @@ async function interactive(): Promise<void> {
 
   const { AgentSession, seedDevProvider } = await import("./agent/session");
   const model = devUrl
-    ? await seedDevProvider({ baseUrl: devUrl, model: flag("--model") ?? "fake-model", apiKey: flag("--api-key") })
+    ? await seedDevProvider({
+        baseUrl: devUrl,
+        model: flag("--model") ?? "fake-model",
+        apiKey: flag("--api-key") ?? process.env.ATLARIX_DEV_API_KEY,
+        apiFormat: flag("--provider-format") === "anthropic" ? "anthropic" : "openai",
+      })
     : undefined;
   // The CLI's own model choice and deep-thinking switch (~/.atlarix/cli-state.json),
   // never the desktop's: see src/cli/agent/models.ts.
@@ -159,7 +166,13 @@ async function interactive(): Promise<void> {
   // The remembered label, not the model list: building every provider's list
   // here held the first frame back ~2s. The TUI loads the list right after it
   // draws and corrects the label if it changed.
-  const modelLabel = model ? `${model.name} (local)` : (cliState && modelsMod.savedModelLabel(cliState)) ?? (await selectedModelLabel());
+  const modelLabel = model
+    ? `${model.name} (${/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])[:/]/i.test(devUrl ?? "") ? "local" : "dev"})`
+    : (cliState && modelsMod.savedModelLabel(cliState)) ?? (await selectedModelLabel());
+  // Dev mode's choices live in memory, never in ~/.atlarix/cli-state.json (the
+  // user's own): the scratch folder's models, /model, /effort and ctrl+t all
+  // work, so a provider added there can be tried end to end without an account.
+  let devState: import("./agent/models").CliState = { model, recent: [], favorites: [] };
 
   const { runTui } = await import("./tui/run");
   await runTui({
@@ -171,7 +184,17 @@ async function interactive(): Promise<void> {
     chromeStatus,
     autoUpdate: devUrl ? undefined : (notify) => void import("./update").then((m) => m.startAutoUpdate(VERSION, notify)),
     models: devUrl
-      ? undefined
+      ? {
+          // Atlarix Auto needs an account, which dev mode has none of.
+          load: async () => (await modelsMod.loadModelOptions()).filter((o) => o.provider !== "compass"),
+          state: () => devState,
+          save: (st) => {
+            devState = st;
+          },
+          choose: (ref) => session.setModel(ref),
+          setEffort: (patch) => setRuntimeSettingsOverride(patch),
+          selected: async () => model,
+        }
       : {
           load: modelsMod.loadModelOptions,
           state: () => modelsMod.readCliState(),
@@ -344,7 +367,8 @@ async function main(): Promise<void> {
       version: VERSION,
       devUrl,
       devModel: flag("--model"),
-      apiKey: flag("--api-key"),
+      apiKey: flag("--api-key") ?? process.env.ATLARIX_DEV_API_KEY,
+      devFormat: flag("--provider-format") === "anthropic" ? "anthropic" : "openai",
       startBridge: () => void startCliBridge(),
       chromeStatus,
     });

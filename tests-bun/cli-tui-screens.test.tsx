@@ -708,7 +708,7 @@ describe("command screens", () => {
   });
 
   it("/connect → Other: a provider that isn't on the list, its key optional, a model id when it lists none", async () => {
-    const tries: Array<{ name: string; baseUrl: string; key: string; models?: string[] }> = [];
+    const tries: Array<{ name: string; baseUrl: string; key: string; models?: string[]; apiFormat?: string }> = [];
     const models = {
       load: async () => [
         { provider: "compass", name: "core-auto", label: "Atlarix Auto", providerName: "Atlarix", detail: "", deepThinking: false, free: true },
@@ -733,9 +733,12 @@ describe("command screens", () => {
     await command(setup, "/connect");
     await frameContaining(setup, "Chrome extension");
     await setup.mockInput.typeText("compatible");
-    let frame = await frameContaining(setup, "Other: OpenAI-compatible endpoint");
+    let frame = await frameContaining(setup, "Other: your own endpoint");
+    expect(frame).toContain("Other: your own endpoint");
     setup.mockInput.pressEnter();
-    await frameContaining(setup, "Any provider that speaks the OpenAI API");
+    expect(await frameContaining(setup, "Which API does it speak?")).toContain("Anthropic");
+    setup.mockInput.pressEnter(); // OpenAI-compatible, the first
+    expect(await frameContaining(setup, "Any provider that speaks the OpenAI API")).toContain("Any provider that speaks the OpenAI API");
     await command(setup, "Mystery LLM");
     await frameContaining(setup, "Base URL");
     await command(setup, "not a url");
@@ -747,11 +750,43 @@ describe("command screens", () => {
     frame = await frameContaining(setup, "didn't list its models");
     await command(setup, "mystery-model-1");
     expect(await until(() => tries.length === 2)).toBe(true);
-    expect(tries[0]).toEqual({ name: "Mystery LLM", baseUrl: "http://localhost:1234/v1", key: "" });
+    expect(tries[0]).toEqual({ name: "Mystery LLM", baseUrl: "http://localhost:1234/v1", key: "", apiFormat: "openai" });
     expect(tries[1]!.models).toEqual(["mystery-model-1"]);
     // Straight to its models, as after saving a key.
     frame = await frameContaining(setup, "mystery-model-1");
     expect(frame).toContain("Mystery LLM");
+  });
+
+  it("/connect → Other → Anthropic: the format reaches addCustom, with its own address hint", async () => {
+    const tries: Array<{ name: string; baseUrl: string; key: string; apiFormat?: string }> = [];
+    const { setup } = await mount((s) => {
+      (s.providers as { addCustom?: unknown }).addCustom = async (p: { name: string; baseUrl: string; key: string; apiFormat?: string }) => {
+        tries.push(p);
+        return { id: "custom::my-bedrock", models: 1 };
+      };
+    });
+    await command(setup, "/connect");
+    await frameContaining(setup, "Chrome extension");
+    await setup.mockInput.typeText("anthropic bedrock");
+    expect(await frameContaining(setup, "Other: your own endpoint")).toContain("Other: your own endpoint");
+    setup.mockInput.pressEnter();
+    await frameContaining(setup, "Which API does it speak?");
+    setup.mockInput.pressArrow("down");
+    await settle(setup);
+    setup.mockInput.pressEnter();
+    expect(await frameContaining(setup, "Anthropic Messages API")).toContain("Anthropic-format endpoint");
+    await command(setup, "My Bedrock");
+    expect(await frameContaining(setup, "bedrock-runtime")).toContain("Base URL");
+    await command(setup, "https://bedrock-runtime.us-east-1.amazonaws.com/anthropic/v1");
+    await frameContaining(setup, "Leave it empty");
+    await command(setup, "tok-123");
+    expect(await until(() => tries.length === 1)).toBe(true);
+    expect(tries[0]).toEqual({
+      name: "My Bedrock",
+      baseUrl: "https://bedrock-runtime.us-east-1.amazonaws.com/anthropic/v1",
+      key: "tok-123",
+      apiFormat: "anthropic",
+    });
   });
 
   it("/mcp: space turns a server off, a adds one, and the border counts what's on", async () => {

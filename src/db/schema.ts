@@ -374,6 +374,10 @@ export const language_model_providers = sqliteTable(
     name: text("name").notNull(),
     api_base_url: text("api_base_url").notNull(),
     env_var_name: text("env_var_name"),
+    /** Wire format: null / "openai" = OpenAI-compatible, "anthropic" = Messages API. */
+    api_format: text("api_format"),
+    /** How the key is sent: null = the format's usual header, or "x-api-key" / "bearer". */
+    auth_header: text("auth_header"),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`),

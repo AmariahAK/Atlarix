@@ -2107,24 +2107,36 @@ export class AgentSession extends EventEmitter {
 }
 
 /**
- * `--provider-url` (testing against a local OpenAI-compatible model, e.g. the
- * fake one): seed that endpoint as a custom provider. Only ever called with a
- * scratch data folder (src/cli/entry.mts), never the desktop's.
+ * `--provider-url` (testing against a local model, e.g. the fake one): seed
+ * that endpoint as a custom provider, OpenAI-compatible unless
+ * `--provider-format anthropic`. Only ever called with a scratch data folder
+ * (src/cli/entry.mts), never the desktop's.
  */
 export async function seedDevProvider(opts: {
   baseUrl: string;
   model: string;
   apiKey?: string;
+  apiFormat?: "openai" | "anthropic";
 }): Promise<ModelChoice> {
   const { initializeDatabase } = await import("@/db");
   const db = initializeDatabase();
   const schema = await import("@/db/schema");
   const id = "atlarix-cli-dev";
+  // The Anthropic format takes the key in one of two headers: ask the endpoint.
+  let authHeader: "x-api-key" | "bearer" | null = null;
+  if (opts.apiFormat === "anthropic") {
+    const { detectAnthropicAuth } = await import("@/lib/provider-key-check");
+    authHeader = (await detectAnthropicAuth(opts.baseUrl, opts.apiKey ?? "dev")).authHeader;
+  }
+  const wire = {
+    api_format: opts.apiFormat === "anthropic" ? "anthropic" : null,
+    auth_header: authHeader,
+  };
   db.insert(schema.language_model_providers)
-    .values({ id, name: "Local endpoint (CLI dev)", api_base_url: opts.baseUrl })
+    .values({ id, name: "Local endpoint (CLI dev)", api_base_url: opts.baseUrl, ...wire })
     .onConflictDoUpdate({
       target: schema.language_model_providers.id,
-      set: { api_base_url: opts.baseUrl },
+      set: { api_base_url: opts.baseUrl, ...wire },
     })
     .run();
   db.insert(schema.language_models)

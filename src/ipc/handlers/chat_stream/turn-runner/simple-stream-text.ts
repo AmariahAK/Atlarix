@@ -99,6 +99,7 @@ import {
   deriveReasoningCeiling,
   shouldOmitTemperature,
 } from "@/lib/routing/reasoning-detector";
+import { isCustomAnthropicFormat } from "@/lib/routing/custom-provider-format";
 import { systemReminder } from "@/lib/streaming/system-reminder";
 import { buildStepMessages } from "@/lib/streaming/step-messages";
 import {
@@ -344,6 +345,8 @@ export async function simpleStreamText(
     // `reasoning_effort`, a `thinking` block inside Google's options).
     const handledNatively =
       offByBudget ||
+      // The Anthropic SDK reads only its own bucket, in its own shape.
+      isCustomAnthropicFormat(modelClient.builtinProviderId) ||
       Boolean(reasoningPatch.openrouter) ||
       Boolean(reasoningPatch.google) ||
       Boolean(reasoningPatch.openai) ||
@@ -367,6 +370,11 @@ export async function simpleStreamText(
   }
 
   const isAnthropic = modelClient.builtinProviderId === "anthropic";
+  // Anthropic's own API, or a provider the user added that speaks its format
+  // (Bedrock's /anthropic, gateways). Its betas stay direct-only: a gateway
+  // may refuse a beta it doesn't know.
+  const speaksAnthropic =
+    isAnthropic || isCustomAnthropicFormat(modelClient.builtinProviderId);
   // v13.2: explicit cache markers for Claude-family models on EVERY
   // route (OpenRouter/Compass/Bedrock/custom proxies) — they get no
   // caching without them. Automatic-caching providers resolve "none".
@@ -491,7 +499,7 @@ export async function simpleStreamText(
       history,
       placement: cacheMarkerPlacement,
       // v13.3: header prefix survives >5min between-turn gaps.
-      headerTtl1h: isAnthropic,
+      headerTtl1h: speaksAnthropic,
     });
   // Continue-from-partial (stall recovery): accumulate each COMPLETED
   // step's native messages (assistant tool-call + tool-result pairs) so

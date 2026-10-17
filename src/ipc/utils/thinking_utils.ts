@@ -87,12 +87,13 @@ const REASONING_MAXTOKENS_FALLBACK = 32_000;
 /**
  * The reasoning token budget for a budget-channel model, SCALED to the model's
  * own catalog max output (fully automatic per-model, not a fixed number):
- *   high → ~50% of max, max → ~85% of max, medium → ~33%.
+ *   low → ~15% of max (only a budget model's /effort low asks for it),
+ *   medium → ~33%, high → ~50%, xhigh → ~70%, max → ~85%.
  * Always leaves an output reserve (≥15% of max, ≥2048 tokens) so reasoning can
  * never starve the visible answer — this IS the truncation guard (TODO #6).
  */
 export function reasoningBudgetTokens(
-  effort: ReasoningEffort,
+  effort: ReasoningEffort | "low",
   maxOutputTokens: number,
 ): number {
   const max = Math.max(1, Math.floor(maxOutputTokens));
@@ -109,7 +110,9 @@ export function reasoningBudgetTokens(
         ? 0.7
         : effort === "high"
           ? 0.5
-          : 0.33;
+          : effort === "low"
+            ? 0.15
+            : 0.33;
   return Math.min(ceil, Math.max(1024, Math.round(max * frac)));
 }
 

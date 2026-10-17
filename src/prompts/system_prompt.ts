@@ -527,10 +527,40 @@ When you need clarification or a decision from the user (architecture choices, d
  */
 export const constructSystemPrompt = (
   params: ConstructSystemPromptParams,
-): string => {
-  const { stableHeader, dynamicTail } = constructSystemPromptParts(params);
+): string => joinSystemPromptParts(constructSystemPromptParts(params));
+
+/** The single-string form of the two parts: the header, then the tail. */
+export function joinSystemPromptParts({ stableHeader, dynamicTail }: SystemPromptParts): string {
   return `${stableHeader}\n\n${dynamicTail}\n`;
-};
+}
+
+/**
+ * A finished system prompt (the joined parts, with whatever was added around
+ * them) split back into what is cached and what changes every turn: the tail
+ * taken out of the middle, to go in its own system message after it.
+ *
+ * Why: the tail carries this turn's request (`<user_context>`), and Build mode
+ * sent it INSIDE the one system block that carries the cache breakpoint, so
+ * every turn missed the provider's prompt cache and wrote ~20k tokens again
+ * (QA, measured on Anthropic: turn 2 read 0). Ask mode already sends it apart.
+ * The prompt's words are unchanged; only the tail's position moves.
+ *
+ * Unchanged (a plain string) when the tail isn't in it as joined, e.g. the
+ * summarize prompt that replaces everything.
+ */
+export function splitDynamicTail(
+  systemPrompt: string,
+  dynamicTail: string | undefined,
+): string | { systemPromptOverride: string; dynamicSystemTail: string } {
+  if (!dynamicTail?.trim()) return systemPrompt;
+  const joined = `\n\n${dynamicTail}\n`;
+  const at = systemPrompt.indexOf(joined);
+  if (at < 0) return systemPrompt;
+  return {
+    systemPromptOverride: systemPrompt.slice(0, at) + systemPrompt.slice(at + joined.length),
+    dynamicSystemTail: dynamicTail,
+  };
+}
 
 /**
  * v2.1: Build system prompt with project instruction precedence (ATLARIX.md, workspace, global, bundle).
@@ -538,7 +568,14 @@ export const constructSystemPrompt = (
  * PASS8 A2: Accepts `effectiveWorkMode` so the active-mode-only `<mode_system>` rendering
  * is threaded through this convenience wrapper.
  */
-export async function buildSystemPromptWithProjectInstructions(params: {
+export async function buildSystemPromptWithProjectInstructions(
+  params: Parameters<typeof buildSystemPromptPartsWithProjectInstructions>[0],
+): Promise<string> {
+  return joinSystemPromptParts(await buildSystemPromptPartsWithProjectInstructions(params));
+}
+
+/** The same, as the two parts (see `splitDynamicTail`). */
+export async function buildSystemPromptPartsWithProjectInstructions(params: {
   workspacePath: string;
   workspacePromptContent: string | null;
   contextSize: number;
@@ -553,7 +590,7 @@ export async function buildSystemPromptWithProjectInstructions(params: {
   labelWithProvider?: string;
   hasWorkspace?: boolean;
   registeredToolNames?: readonly string[];
-}): Promise<string> {
+}): Promise<SystemPromptParts> {
   const {
     workspacePath,
     workspacePromptContent,
@@ -584,7 +621,7 @@ export async function buildSystemPromptWithProjectInstructions(params: {
   ]
     .filter((s) => s.trim().length > 0)
     .join("\n\n");
-  return constructSystemPrompt({
+  return constructSystemPromptParts({
     contextSize,
     chatMode,
     effectiveWorkMode,

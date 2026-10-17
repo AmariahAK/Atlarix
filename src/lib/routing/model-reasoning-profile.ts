@@ -216,7 +216,10 @@ export type EffortChoices = {
 
 /** Budget sizes for a budget-only model, small to large, and the share each asks for. */
 export const BUDGET_LEVELS = ["low", "medium", "high"] as const;
-const BUDGET_HINT: Record<string, "medium" | "high" | "max"> = { low: "medium", medium: "high", high: "max" };
+// `medium` is the default, so it asks for what an unset level does; `low` asks
+// for less. It used to be low → medium, medium → high: low then equalled the
+// default and choosing medium gave more than it (QA, 15.8.0).
+const BUDGET_HINT: Record<string, "low" | "medium" | "max"> = { low: "low", medium: "medium", high: "max" };
 
 /** Values that turn reasoning off, never a default. */
 const NO_REASONING = new Set(["none", "minimal"]);
@@ -344,7 +347,7 @@ export function isReasoningOff(choices: EffortChoices, level: string): boolean {
  * budget rather than a named level (Anthropic, OpenRouter): by its position in the
  * model's own list, so the top always asks for the most.
  */
-export function levelShare(choices: EffortChoices, level: string): "medium" | "high" | "xhigh" | "max" {
+export function levelShare(choices: EffortChoices, level: string): "low" | "medium" | "high" | "xhigh" | "max" {
   if (choices.kind === "budget") return BUDGET_HINT[level] ?? "high";
   const reasoning = choices.levels.filter((l) => !NO_REASONING.has(l.toLowerCase()));
   const i = reasoning.findIndex((l) => l.toLowerCase() === level.toLowerCase());
@@ -369,7 +372,7 @@ export type ReasoningRequest =
   | { kind: "none" }
   | { kind: "toggle"; enabled: boolean }
   | { kind: "effort"; effort: string }
-  | { kind: "budget"; effortHint: "medium" | "high" | "xhigh" | "max" }
+  | { kind: "budget"; effortHint: "low" | "medium" | "high" | "xhigh" | "max" }
   | { kind: "unknown" };
 
 export type ResolveReasoningArgs = {

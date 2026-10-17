@@ -1,13 +1,13 @@
 /**
  * Add a provider: search them all, or pick a popular one; its key goes in a
- * form right here (checked before it's saved). Or your own OpenAI-compatible
- * endpoint, or a model server on this computer.
+ * form right here (checked before it's saved). Or your own endpoint
+ * (OpenAI-compatible or Anthropic), or a model server on this computer.
  */
 import type { ProviderRow } from "../../src/protocol";
 import { matchProviders, SUGGESTED_PROVIDERS } from "../logic";
 import { RpcError, rpc } from "../rpc";
 import { loadProviders } from "../state";
-import { button, el, eyebrow, icon, initials, pageHeader } from "../ui";
+import { button, el, eyebrow, icon, initials, pageHeader, segmented } from "../ui";
 import type { Nav } from "./nav";
 import { keyForm } from "./provider";
 import { KEYS_NOTE } from "./settings";
@@ -87,7 +87,7 @@ export async function renderAddProvider(page: HTMLElement, nav: Nav, focus?: str
       const own = button("", "pick-row", () => ((custom = true), draw()));
       own.innerHTML = icon("code", 15);
       const t = el("span", "col grow");
-      t.append(el("strong", "", "OpenAI-compatible endpoint"), el("span", "muted small", "A gateway or proxy: base URL, key, models"));
+      t.append(el("strong", "", "Your own endpoint"), el("span", "muted small", "OpenAI-compatible or Anthropic: base URL, key, models"));
       own.append(t);
       slot.append(own);
     }
@@ -172,7 +172,30 @@ function customForm(nav: Nav, cancel: () => void): HTMLElement {
   submit.type = "submit";
   acts.append(button("Cancel", "small", cancel), submit);
   key.placeholder = "leave empty if it needs none";
-  f.append(el("strong", "", "OpenAI-compatible endpoint"), field("Name", name), field("Base URL, up to /v1", base), field("API key", key), modelLabel, err, acts);
+  let apiFormat: "openai" | "anthropic" = "openai";
+  const formats = [
+    { value: "openai", name: "OpenAI-compatible" },
+    { value: "anthropic", name: "Anthropic" },
+  ];
+  // The whole example, wrapped under the field: a placeholder this long is cut
+  // off at the panel's width, hiding the part that matters (QA A4).
+  const baseHint = el("div", "muted small hidden");
+  const formatSlot = el("div", "field-label");
+  const drawFormat = () => {
+    formatSlot.replaceChildren(
+      el("span", "", "API format"),
+      segmented(formats, apiFormat, "API format", (v) => {
+        apiFormat = v === "anthropic" ? "anthropic" : "openai";
+        base.placeholder = apiFormat === "anthropic" ? "https://…/anthropic/v1" : "https://api.example.com/v1";
+        baseHint.textContent =
+          apiFormat === "anthropic" ? "Up to /v1, e.g. https://bedrock-runtime.us-east-1.amazonaws.com/anthropic/v1" : "";
+        baseHint.classList.toggle("hidden", apiFormat !== "anthropic");
+        drawFormat();
+      }),
+    );
+  };
+  drawFormat();
+  f.append(el("strong", "", "Your own endpoint"), formatSlot, field("Name", name), field("Base URL, up to /v1", base), baseHint, field("API key", key), modelLabel, err, acts);
   f.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!name.value.trim() || !base.value.trim()) {
@@ -188,6 +211,7 @@ function customForm(nav: Nav, cancel: () => void): HTMLElement {
         name: name.value.trim(),
         baseUrl: base.value.trim(),
         key: key.value.trim(),
+        apiFormat,
         ...(model.value.trim() ? { models: [model.value.trim()] } : {}),
       });
       await loadProviders(true);
@@ -197,6 +221,12 @@ function customForm(nav: Nav, cancel: () => void): HTMLElement {
       if (needsModel) modelLabel.classList.remove("hidden");
       err.textContent = (x as Error).message;
       err.classList.remove("hidden");
+      // Both may sit below the fold of a narrow panel: bring them into view (QA A5).
+      if (needsModel) {
+        model.focus();
+        modelLabel.scrollIntoView({ block: "nearest" });
+      }
+      err.scrollIntoView({ block: "nearest" });
       submit.disabled = false;
       submit.textContent = "Add";
     }

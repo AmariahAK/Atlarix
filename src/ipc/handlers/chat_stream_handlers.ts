@@ -7,9 +7,11 @@ import { apps } from "../../db/schema";
 import { eq } from "drizzle-orm";
 import type { WorkMode } from "../../lib/schemas";
 import {
-  constructSystemPrompt,
-  buildSystemPromptWithProjectInstructions,
+  constructSystemPromptParts,
+  buildSystemPromptPartsWithProjectInstructions,
+  joinSystemPromptParts,
   type ModeSystemKey,
+  type SystemPromptParts,
 } from "../../prompts/system_prompt";
 import { getActiveModeReanchor } from "@/lib/tools/mode-prompt-bundle";
 import {
@@ -1511,10 +1513,10 @@ export function registerChatStreamHandlers() {
               labelWithProvider: modelIdentity.labelWithProvider,
             };
 
-            let baseSystemPrompt: string;
+            let baseParts: SystemPromptParts;
             if (hasWorkspace && appPath && effectiveAppId != null) {
-              baseSystemPrompt = await preflight.time("system-prompt", () =>
-                buildSystemPromptWithProjectInstructions({
+              baseParts = await preflight.time("system-prompt", () =>
+                buildSystemPromptPartsWithProjectInstructions({
                   workspacePath: appPath,
                   workspacePromptContent: null,
                   contextSize,
@@ -1528,7 +1530,7 @@ export function registerChatStreamHandlers() {
                 }),
               );
             } else {
-              baseSystemPrompt = constructSystemPrompt({
+              baseParts = constructSystemPromptParts({
                 chatMode,
                 effectiveWorkMode: modeBlockKey,
                 contextSize,
@@ -1539,6 +1541,10 @@ export function registerChatStreamHandlers() {
                 ...promptIdentityOpts,
               });
             }
+            // Joined, as every consumer of `systemPrompt` reads it; the build
+            // round takes the per-turn tail back out (splitDynamicTail).
+            let baseSystemPrompt = joinSystemPromptParts(baseParts);
+            const baseDynamicTail = baseParts.dynamicTail;
             // v12 7A: prepend the user agent's system block (build path +
             // every non-ask consumer of `systemPrompt`; the ask branch injects
             // it into its own rebuilt header below).
@@ -2385,6 +2391,7 @@ export function registerChatStreamHandlers() {
                 modelContextResolved,
                 placeholderAssistantMessage,
                 systemPrompt,
+                dynamicTail: baseDynamicTail,
                 taskLedgerBlock,
                 simpleStreamTextDeps,
                 streamTurnId,

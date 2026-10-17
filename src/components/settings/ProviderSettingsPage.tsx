@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useSetAtom } from "jotai";
+import { useQueryClient } from "@tanstack/react-query";
 import { providerKeyCheckAtom } from "@/atoms/viewAtoms";
 import { useRouter } from "@tanstack/react-router";
 import { ArrowLeft, AlertTriangle } from "lucide-react";
@@ -162,6 +163,7 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
   // save. Any saved key used to read "Setup Complete", unchecked (QA #24).
   const savedKey = settings?.providerSettings?.[provider]?.apiKey?.value;
   const setKeyChecks = useSetAtom(providerKeyCheckAtom);
+  const queryClient = useQueryClient();
   const [keyCheck, setKeyCheck] = useState<{
     status: string;
     detail: string;
@@ -179,6 +181,11 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
         if (!live) return;
         setKeyCheck(r);
         if (r) setKeyChecks((prev) => ({ ...prev, [provider]: r.status }));
+        // A provider you added lists its models with the key: the list read
+        // before the key (empty, and kept for minutes) is stale now (QA).
+        if (r && r.status !== "rejected" && isCustomProvider) {
+          void queryClient.invalidateQueries({ queryKey: ["language-models", provider] });
+        }
       })
       .catch(() => {});
     return () => {
@@ -195,6 +202,15 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
     setIsSaving(true);
     setSaveError(null);
     try {
+      // Asked before it is saved, as the CLI and editors do: a key the
+      // provider refuses replaces nothing (QA: a working key was overwritten).
+      const check = await IpcClient.getInstance()
+        .checkProviderKey(provider, value.trim())
+        .catch(() => null);
+      if (check?.status === "rejected") {
+        setSaveError(`The key was rejected: ${check.detail}. Nothing was changed.`);
+        return;
+      }
       const settingsUpdate: Partial<UserSettings> = {
         providerSettings: {
           ...settings?.providerSettings,

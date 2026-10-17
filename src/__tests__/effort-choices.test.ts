@@ -123,8 +123,21 @@ describe("what a chosen level sends", () => {
 
   it("maps off / on and budget sizes onto the model's own control", () => {
     expect(resolveReasoningRequest({ providerId: "minimax", modelId: "MiniMax-M3", deepThinking: false, effort: "on" })).toEqual({ kind: "toggle", enabled: true });
-    expect(resolveReasoningRequest({ providerId: "anthropic", modelId: "claude-opus-4-5", deepThinking: false, effort: "low" })).toEqual({ kind: "budget", effortHint: "medium" });
+    expect(resolveReasoningRequest({ providerId: "anthropic", modelId: "claude-opus-4-5", deepThinking: false, effort: "low" })).toEqual({ kind: "budget", effortHint: "low" });
     expect(resolveReasoningRequest({ providerId: "anthropic", modelId: "claude-opus-4-5", deepThinking: false, effort: "high" })).toEqual({ kind: "budget", effortHint: "max" });
+  });
+
+  it("a budget model's medium asks for what an unset level does, and low for less (QA, 15.8.0)", async () => {
+    // /effort low sent the default's budget, and medium sent more than the
+    // default: low was mapped to medium and medium to high.
+    const { reasoningBudgetTokens } = await import("@/ipc/utils/thinking_utils");
+    const choices = effortChoicesFor("anthropic", "claude-opus-4-5")!;
+    const share = (l: string) => reasoningBudgetTokens(levelShare(choices, l), 32_000);
+    const unset = reasoningBudgetTokens("medium", 32_000);
+    expect(share("medium")).toBe(unset);
+    expect(share("low")).toBeLessThan(unset);
+    expect(share("low")).toBeGreaterThanOrEqual(1024);
+    expect(share("high")).toBeGreaterThan(unset);
   });
 
   it("gives budget routes a share by the level's place in the list, top asking for the most", () => {

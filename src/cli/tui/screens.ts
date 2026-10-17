@@ -1582,8 +1582,8 @@ export function openConnect(ctx: ScreenContext, onSaved: (providerId?: string) =
           // Anything not on the list: a gateway, a proxy, a server on this computer.
           {
             id: CUSTOM_ROW,
-            label: "Other: OpenAI-compatible endpoint…",
-            keywords: "other custom openai compatible gateway proxy local vllm llama.cpp lm studio litellm endpoint base url",
+            label: "Other: your own endpoint…",
+            keywords: "other custom openai anthropic compatible messages bedrock gateway proxy local vllm llama.cpp lm studio litellm endpoint base url",
             right: { text: "base URL + key", tone: "muted" as const },
           },
           ...rest.map(row),
@@ -1607,7 +1607,8 @@ export function openConnect(ctx: ScreenContext, onSaved: (providerId?: string) =
               // one thing to do (QA: "needs no key", then "Replace the key").
               items: [
                 ...(keyless ? [] : [{ id: "replace", label: "Replace the key" }]),
-                { id: "remove", label: keyless ? `Remove ${item.label}` : "Remove the key", detail: "chats on its models move to Atlarix Auto" },
+                // A provider you added goes with its key (its models too): say so (QA).
+                { id: "remove", label: keyless || p.custom ? `Remove ${item.label}` : "Remove the key", detail: "chats on its models move to Atlarix Auto" },
               ],
               onChoose: (choice) => {
                 if (choice.id === "replace") return askKey();
@@ -1647,7 +1648,11 @@ export function openConnect(ctx: ScreenContext, onSaved: (providerId?: string) =
             mask: true,
             onSubmit: async (v) => {
               if (v.trim().length < 8) return "That doesn't look like a key.";
-              await ctx.services.providers.saveKey(item.id, v);
+              try {
+                await ctx.services.providers.saveKey(item.id, v);
+              } catch (e) {
+                return e instanceof Error ? e.message : String(e);
+              }
               ctx.host.closeAll();
               ctx.flash(`${item.label} connected.`);
               onSaved(item.id);
@@ -1661,14 +1666,19 @@ export function openConnect(ctx: ScreenContext, onSaved: (providerId?: string) =
 }
 
 /**
- * A provider that isn't on the list: any OpenAI-compatible endpoint. Name,
- * base URL, key (none for most servers on this computer); its models come from
+ * A provider that isn't on the list: any endpoint on the OpenAI or the
+ * Anthropic format. Format, name, base URL, key (none for most servers on this computer); its models come from
  * the endpoint, else it asks for one model id. Shared with the app and the
  * editor, like every provider.
  */
 export function openCustomProvider(ctx: ScreenContext, onSaved: (providerId?: string) => void): void {
-  const title = "OpenAI-compatible endpoint";
-  const draft = { name: "", baseUrl: "", key: "" };
+  let title = "Your own endpoint";
+  const draft: { name: string; baseUrl: string; key: string; apiFormat: "openai" | "anthropic" } = {
+    name: "",
+    baseUrl: "",
+    key: "",
+    apiFormat: "openai",
+  };
   const save = async (models?: string[]): Promise<string | undefined> => {
     try {
       const r = await ctx.services.providers.addCustom({ ...draft, models });
@@ -1681,7 +1691,13 @@ export function openCustomProvider(ctx: ScreenContext, onSaved: (providerId?: st
         ctx.host.replace(
           new InputDialog({
             title,
-            intro: [{ text: "The endpoint didn't list its models.", bold: true }, { text: "Type the id of the model to use, e.g. qwen2.5:7b or gpt-4o-mini.", tone: "muted" }],
+            intro: [{ text: "The endpoint didn't list its models.", bold: true }, {
+                text:
+                  draft.apiFormat === "anthropic"
+                    ? "Type the id of the model to use, e.g. us.anthropic.claude-haiku-4-5-20251001-v1:0 or claude-haiku-4-5."
+                    : "Type the id of the model to use, e.g. qwen2.5:7b or gpt-4o-mini.",
+                tone: "muted",
+              }],
             label: "Model id",
             onSubmit: (v) => (v.trim() ? save([v.trim()]) : "Type a model id."),
           }),
@@ -1711,8 +1727,17 @@ export function openCustomProvider(ctx: ScreenContext, onSaved: (providerId?: st
     ctx.host.replace(
       new InputDialog({
         title,
-        intro: [{ text: "Up to /v1, e.g. https://api.example.com/v1 or http://localhost:1234/v1", tone: "muted" }],
+        intro: [
+          {
+            text:
+              draft.apiFormat === "anthropic"
+                ? "Up to /v1, e.g. https://bedrock-runtime.us-east-1.amazonaws.com/anthropic/v1"
+                : "Up to /v1, e.g. https://api.example.com/v1 or http://localhost:1234/v1",
+            tone: "muted",
+          },
+        ],
         label: "Base URL",
+        footer: "enter next · esc cancel",
         onSubmit: (v) => {
           const url = v.trim();
           if (!/^https?:\/\/\S+$/i.test(url)) return "A URL starting with https:// (or http:// for one on this computer).";
@@ -1721,15 +1746,41 @@ export function openCustomProvider(ctx: ScreenContext, onSaved: (providerId?: st
         },
       }),
     );
+  const nameStep = () =>
+    ctx.host.replace(
+      new InputDialog({
+        title,
+        intro: [
+          {
+            text:
+              draft.apiFormat === "anthropic"
+                ? "Any provider that speaks the Anthropic Messages API: Bedrock, a gateway, a proxy."
+                : "Any provider that speaks the OpenAI API: a gateway, a proxy, a server on this computer.",
+            tone: "muted",
+          },
+        ],
+        label: "Name",
+        footer: "enter next · esc cancel",
+        onSubmit: (v) => {
+          if (!v.trim()) return "Give it a name.";
+          draft.name = v.trim().slice(0, 60);
+          urlStep();
+        },
+      }),
+    );
   ctx.host.push(
-    new InputDialog({
+    new ListDialog({
       title,
-      intro: [{ text: "Any provider that speaks the OpenAI API: a gateway, a proxy, a server on this computer.", tone: "muted" }],
-      label: "Name",
-      onSubmit: (v) => {
-        if (!v.trim()) return "Give it a name.";
-        draft.name = v.trim().slice(0, 60);
-        urlStep();
+      intro: [{ text: "Which API does it speak?", tone: "muted" }],
+      footer: "↑↓ move · enter choose · esc close",
+      items: [
+        { id: "openai", label: "OpenAI-compatible", right: { text: "/chat/completions", tone: "muted" } },
+        { id: "anthropic", label: "Anthropic", right: { text: "/messages", tone: "muted" } },
+      ],
+      onChoose: (item) => {
+        draft.apiFormat = item.id === "anthropic" ? "anthropic" : "openai";
+        title = draft.apiFormat === "anthropic" ? "Anthropic-format endpoint" : "OpenAI-compatible endpoint";
+        nameStep();
       },
     }),
   );

@@ -19,10 +19,12 @@ import type { AutomationDraft } from "../agent/services";
 
 export interface AcpRunOptions {
   version: string;
-  /** `--provider-url`: a local OpenAI-compatible model, no account (tests). */
+  /** `--provider-url`: a local model, no account (tests). */
   devUrl?: string;
   devModel?: string;
   apiKey?: string;
+  /** `--provider-format anthropic`: that endpoint speaks the Anthropic Messages API. */
+  devFormat?: "openai" | "anthropic";
   /** The user's Chrome through the extension (entry.mts startCliBridge). */
   startBridge?: () => void;
   /** One line on the Chrome connection, as the TUI's /chrome shows it. */
@@ -226,7 +228,11 @@ export function buildAgentApp(
         return {};
       }
       if (!key?.trim()) throw acp.RequestError.invalidParams(undefined, "A provider and a key are needed.");
-      await realServices.providers.saveKey(providerId, key.trim());
+      try {
+        await realServices.providers.saveKey(providerId, key.trim());
+      } catch (e) {
+        throw acp.RequestError.invalidParams(undefined, (e as Error).message);
+      }
       await agent.modelsChanged();
       return {};
     })
@@ -288,12 +294,15 @@ export function buildAgentApp(
       await agent.modelsChanged();
       return {};
     })
-    .onRequest("_atlarix/provider_custom", (p) => p as { name: string; baseUrl: string; key: string; models?: string[] }, async (ctx) => {
+    .onRequest("_atlarix/provider_custom", (p) => p as { name: string; baseUrl: string; key: string; models?: string[]; apiFormat?: "openai" | "anthropic" }, async (ctx) => {
       const { realServices, NoModelsListedError } = await import("../agent/services");
-      const { name, baseUrl, key, models } = ctx.params;
+      const { name, baseUrl, key, models, apiFormat } = ctx.params;
       if (!name?.trim() || !baseUrl?.trim()) throw acp.RequestError.invalidParams(undefined, "A name and a base URL are needed.");
+      if (apiFormat !== undefined && apiFormat !== "openai" && apiFormat !== "anthropic") {
+        throw acp.RequestError.invalidParams(undefined, `Unknown API format "${String(apiFormat)}".`);
+      }
       try {
-        const r = await realServices.providers.addCustom({ name, baseUrl, key: key ?? "", models });
+        const r = await realServices.providers.addCustom({ name, baseUrl, key: key ?? "", models, apiFormat });
         await agent.modelsChanged();
         return r;
       } catch (e) {
@@ -596,10 +605,15 @@ export async function runAcp(opts: AcpRunOptions): Promise<void> {
 
   const { AgentSession, seedDevProvider, listFolderSessions, changeFolderSession } = await import("../agent/session");
   const devModel = opts.devUrl
-    ? await seedDevProvider({ baseUrl: opts.devUrl, model: opts.devModel ?? "fake-model", apiKey: opts.apiKey })
+    ? await seedDevProvider({ baseUrl: opts.devUrl, model: opts.devModel ?? "fake-model", apiKey: opts.apiKey, apiFormat: opts.devFormat })
     : undefined;
   const models = await import("../agent/models");
   const cliState = opts.devUrl ? null : models.readCliState();
+  // Dev mode's choices, in memory only (never ~/.atlarix/cli-state.json).
+  const devPick: { model: typeof devModel; effort: { effort: string; deepThinking: boolean } } = {
+    model: devModel,
+    effort: { effort: "", deepThinking: false },
+  };
   const { setRuntimeSettingsOverride } = await import("../../main/settings");
   // The terminal's own level, always, even unset: the app's (user-settings.json)
   // leaked into requests while the CLI showed its own (QA: header showed the
@@ -628,7 +642,20 @@ export async function runAcp(opts: AcpRunOptions): Promise<void> {
       return s;
     },
     models: async () => {
-      if (devModel) return { options: [{ ...devModel, label: devModel.name }], current: devModel };
+      // Dev mode: the scratch folder's models (the seeded endpoint, and any
+      // provider added there), with their /effort levels.
+      // Atlarix Auto needs an account, which dev mode has none of: not offered.
+      // The model and level chosen here live in memory (QA B1: the level was
+      // never echoed back, so the editor's control jumped to the default).
+      if (devModel) {
+        const options = (await models.loadModelOptions().catch(() => [])).filter((o) => o.provider !== "compass");
+        const seeded = options.some((o) => o.provider === devModel.provider && o.name === devModel.name);
+        return {
+          options: seeded ? options : [{ ...devModel, label: devModel.name }, ...options],
+          current: devPick.model,
+          effort: devPick.effort,
+        };
+      }
       const state = models.readCliState();
       return {
         options: await models.loadModelOptions(),
@@ -644,11 +671,13 @@ export async function runAcp(opts: AcpRunOptions): Promise<void> {
       else mcpManager.clearSessionServers(sessionId);
     },
     rememberModel: (ref) => {
-      if (!opts.devUrl) models.writeCliState(models.rememberChoice(models.readCliState(), ref));
+      if (opts.devUrl) devPick.model = ref;
+      else models.writeCliState(models.rememberChoice(models.readCliState(), ref));
     },
     setEffort: (patch) => {
       setRuntimeSettingsOverride(patch);
-      if (!opts.devUrl) models.writeCliState({ ...models.readCliState(), ...patch });
+      if (opts.devUrl) devPick.effort = { effort: patch.effort ?? "", deepThinking: patch.deepThinking ?? false };
+      else models.writeCliState({ ...models.readCliState(), ...patch });
     },
     listSessions: (cwd) => listFolderSessions(cwd),
     changeSession: (sessionId, change) => changeFolderSession(sessionId, change),
