@@ -26,7 +26,7 @@ vi.mock("@/lib/auth/auth-ipc-bridge", () => ({
   subscribePlanChanged: () => () => {},
 }));
 
-import { useAuth } from "@/lib/auth/useAuth";
+import { __resetAuthStoreForTests, useAuth } from "@/lib/auth/useAuth";
 
 /** A banned, signed-in account as `auth:get-current-user` reports it. */
 const BANNED_USER = {
@@ -59,6 +59,8 @@ const invoke = vi.fn(async (channel: string) => {
 });
 
 beforeEach(() => {
+  // useAuth is one shared store now: each test starts from a fresh one.
+  __resetAuthStoreForTests();
   invoke.mockClear();
   Object.defineProperty(window, "electron", {
     configurable: true,

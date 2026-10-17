@@ -30,7 +30,7 @@ vi.mock("@/lib/auth/auth-ipc-bridge", () => ({
   subscribePlanChanged: () => () => {},
 }));
 
-import { useAuth } from "@/lib/auth/useAuth";
+import { __resetAuthStoreForTests, useAuth } from "@/lib/auth/useAuth";
 
 const SIGNED_IN = {
   id: "u-1",
@@ -60,6 +60,8 @@ const invoke = vi.fn(async (channel: string) => {
 });
 
 beforeEach(() => {
+  // useAuth is one shared store now: each test starts from a fresh one.
+  __resetAuthStoreForTests();
   invoke.mockClear();
   Object.defineProperty(window, "electron", {
     configurable: true,

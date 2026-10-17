@@ -174,3 +174,17 @@ describe("PLAN_ROW_SELECT_BASE", () => {
     expect(migratedUsersColumns().has(m![1])).toBe(true);
   });
 });
+
+describe("USER_ROW_SELECT (the one shared read of the account's row)", () => {
+  it("names ONLY columns some migration creates", () => {
+    // Every reader falls back to its own narrow query if this read fails, so a
+    // missing column cannot make anyone free — but it would quietly bring back
+    // the ~8 reads per launch this read exists to remove.
+    const src = fs.readFileSync(CLIENT, "utf8");
+    const m = src.match(/const USER_ROW_SELECT\s*=\s*"([^"]+)"/);
+    expect(m, "USER_ROW_SELECT not found — was it renamed?").toBeTruthy();
+    const cols = m![1]!.split(",").map((c) => c.trim()).filter(Boolean);
+    const known = migratedUsersColumns();
+    expect(cols.filter((c) => !known.has(c))).toEqual([]);
+  });
+});

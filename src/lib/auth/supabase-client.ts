@@ -653,6 +653,78 @@ export interface AtlarixUser {
   createdAt: string;
 }
 
+// ─── One read of the account's row, shared by every reader ───────────────────
+//
+// A signed-in launch read the SAME `users` row ~8 times (2026-10-17, measured in
+// the Supabase edge logs): the plan, the ban flag, the subscription details, the
+// onboarding flag, "does the row exist" and the plan snapshot each ran their own
+// narrow query, and the session restore ran twice. They now share one read with
+// every column they need: one in flight at a time, kept for a few seconds.
+//
+// Each reader keeps its OWN query as the fallback when this one fails (a column
+// not yet deployed, say), so a non-essential column can still never break the
+// plan read — the rule the narrow queries below were written to keep.
+
+const USER_ROW_SELECT =
+  "id, email, plan, effective_tier, subscription_ends_at, subscription_status, lemon_subscription_id, lemon_variant_id, banned_at, onboarding_completed";
+const USER_ROW_TTL_MS = 10_000;
+
+type UserRow = PlanRowInput & {
+  id: string;
+  email?: string | null;
+  onboarding_completed?: boolean | null;
+};
+
+/** The row last read, under every key it answers to (the id and the email it was asked by or carries). */
+let _userRow: { keys: string[]; row: UserRow | null; at: number } | null = null;
+const _userRowInFlight = new Map<string, Promise<UserRow | null | undefined>>();
+
+/**
+ * The account's row by id or email: the row, null when there is none, or
+ * undefined when the read itself failed (the caller then runs its own query).
+ * `fresh` skips the cache, for the paths whose job is to notice a change.
+ */
+async function readUserRow(
+  by: { id?: string; email?: string },
+  fresh = false,
+): Promise<UserRow | null | undefined> {
+  const key = by.id ? `id:${by.id}` : `email:${(by.email ?? "").toLowerCase()}`;
+  const c = _userRow;
+  if (!fresh && c && Date.now() - c.at < USER_ROW_TTL_MS && c.keys.includes(key)) return c.row;
+  const pending = _userRowInFlight.get(key);
+  if (pending) return pending;
+  const p = (async () => {
+    try {
+      const q = getSupabaseClient().from("users").select(USER_ROW_SELECT);
+      const { data, error } = await (by.id ? q.eq("id", by.id) : q.eq("email", by.email!)).maybeSingle();
+      if (error) return undefined;
+      const row = (data as UserRow | null) ?? null;
+      const keys = [key];
+      if (row?.id) keys.push(`id:${row.id}`);
+      if (row?.email) keys.push(`email:${row.email.toLowerCase()}`);
+      _userRow = { keys, row, at: Date.now() };
+      return row;
+    } catch {
+      return undefined;
+    } finally {
+      _userRowInFlight.delete(key);
+    }
+  })();
+  _userRowInFlight.set(key, p);
+  return p;
+}
+
+/** Forget the shared row (a write, or an explicit refresh). */
+function invalidateUserRow(): void {
+  _userRow = null;
+}
+
+/** Test-only: forget the shared row and anything in flight. */
+export function __resetUserRowForTests(): void {
+  _userRow = null;
+  _userRowInFlight.clear();
+}
+
 /**
  * Ensure user exists in our users table (create if not exists)
  */
@@ -660,12 +732,12 @@ async function ensureUserExists(user: User): Promise<void> {
   try {
     const supabase = getSupabaseClient();
 
-    // Check if user exists
-    const { data: existingUser } = await supabase
-      .from("users")
-      .select("id")
-      .eq("id", user.id)
-      .single();
+    // Check if user exists (the shared row read; its own query if that failed)
+    const shared = await readUserRow({ id: user.id });
+    const existingUser =
+      shared !== undefined
+        ? shared
+        : (await supabase.from("users").select("id").eq("id", user.id).single()).data;
 
     if (!existingUser) {
       // Create user record (onboarding_completed false for new users)
@@ -675,6 +747,7 @@ async function ensureUserExists(user: User): Promise<void> {
         plan: "free",
         onboarding_completed: false,
       });
+      invalidateUserRow();
 
       if (error) {
         logger.error("[Supabase] Failed to create user:", error);
@@ -779,6 +852,9 @@ async function fetchPlanRowForUser(
   supabase: ReturnType<typeof getSupabaseClient>,
   userId: string,
 ): Promise<{ data: PlanRowInput | null; error: Error | null }> {
+  const shared = await readUserRow({ id: userId });
+  if (shared !== undefined) return { data: shared, error: null };
+
   let data: PlanRowInput | null = null;
   let error: unknown = null;
   {
@@ -843,6 +919,10 @@ export async function getUserPlan(userId: string): Promise<UserPlanDb> {
  */
 export async function isUserBanned(userId: string): Promise<boolean> {
   try {
+    // The shared row read first; it falls back to the narrow query below, so a
+    // ban column problem still cannot break the plan read.
+    const shared = await readUserRow({ id: userId });
+    if (shared !== undefined) return !!shared?.banned_at;
     const supabase = getSupabaseClient();
     // Its OWN narrow query, deliberately not folded into the plan read. The
     // plan read is load-bearing for entitlement; this one is not, so it must
@@ -919,9 +999,12 @@ let _subDetailCache: {
 } | null = null;
 
 /** Drop cached plan state (on sign-out, realtime plan change, or forced refresh). */
-export function invalidatePlanCaches(): void {
+export function invalidatePlanCaches(opts: { keepRow?: boolean } = {}): void {
   _tierCache = null;
   _subDetailCache = null;
+  // keepRow: the caller has JUST read the row fresh (the plan refresh), so
+  // dropping it would only make the next reader fetch the same thing again.
+  if (!opts.keepRow) invalidateUserRow();
 }
 
 /**
@@ -937,12 +1020,17 @@ export async function getSubscriptionDetails(
     return { status: c.status, endsAt: c.endsAt };
   }
   try {
-    const supabase = getSupabaseClient();
-    const { data } = await supabase
-      .from("users")
-      .select("subscription_status, subscription_ends_at")
-      .eq("email", email)
-      .single();
+    const shared = await readUserRow({ email });
+    const data =
+      shared !== undefined
+        ? shared
+        : (
+            await getSupabaseClient()
+              .from("users")
+              .select("subscription_status, subscription_ends_at")
+              .eq("email", email)
+              .single()
+          ).data;
     const status = (data?.subscription_status as string | null) ?? null;
     const endsAt = (data?.subscription_ends_at as string | null) ?? null;
     _subDetailCache = { email, status, endsAt, at: Date.now() };
@@ -996,6 +1084,8 @@ export async function getEffectiveTier(
  */
 export async function getOnboardingCompleted(userId: string): Promise<boolean> {
   try {
+    const shared = await readUserRow({ id: userId });
+    if (shared !== undefined) return shared?.onboarding_completed === true;
     const supabase = getSupabaseClient();
     const { data, error } = await supabase
       .from("users")
@@ -1027,6 +1117,7 @@ export async function setOnboardingCompleted(
       .from("users")
       .update({ onboarding_completed: value })
       .eq("id", userId);
+    invalidateUserRow();
 
     if (error) {
       logger.error("[Supabase] setOnboardingCompleted error:", error.message);
@@ -1099,15 +1190,21 @@ export interface SubscriptionData {
  */
 export async function fetchPlanSnapshot(
   userEmail: string,
+  fresh = true,
 ): Promise<SubscriptionData | null> {
   try {
-    const { data, error } = await getSupabaseClient()
-      .from("users")
-      .select(
-        "plan, subscription_status, subscription_ends_at, effective_tier, banned_at",
-      )
-      .eq("email", userEmail)
-      .maybeSingle();
+    // Fresh by default: this read's job is to NOTICE a change (focus), so it
+    // does not answer from the shared row — but it refreshes it for the
+    // others. Right after a sign-in read, `fresh: false` reuses that read.
+    const shared = await readUserRow({ email: userEmail }, fresh);
+    const { data, error } =
+      shared !== undefined
+        ? { data: shared, error: null }
+        : await getSupabaseClient()
+            .from("users")
+            .select("plan, subscription_status, subscription_ends_at, effective_tier, banned_at")
+            .eq("email", userEmail)
+            .maybeSingle();
     if (error || !data) return null;
     const row = data as {
       plan?: string | null;

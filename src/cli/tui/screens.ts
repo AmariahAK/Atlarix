@@ -1230,8 +1230,11 @@ export function openMcpBrowse(ctx: ScreenContext, done: () => void, firstQuery =
   type Entry = Awaited<ReturnType<ScreenContext["services"]["mcp"]["catalog"]>>["entries"][number];
   const entries = new Map<string, Entry>();
   const installed = new Set<string>();
-  const rowsFor = async (query: string) => {
-    const page = await ctx.services.mcp.catalog(ctx.session.appId, query.trim());
+  const rowsFor = async (query: string, offset = 0) => {
+    const page = await ctx.services.mcp.catalog(ctx.session.appId, query.trim(), offset);
+    // How much there is to browse: the whole registry, or what the search matched.
+    const count = page.total.toLocaleString("en-US");
+    list.retitle(`MCP marketplace · ${query.trim() ? `${count} ${page.total === 1 ? "match" : "matches"}` : `${count} ${page.total === 1 ? "server" : "servers"}`}`);
     for (const n of page.installed) installed.add(n);
     for (const e of page.entries) entries.set(e.name, e);
     return page.entries.map((e) => ({
@@ -1245,7 +1248,8 @@ export function openMcpBrowse(ctx: ScreenContext, done: () => void, firstQuery =
     title: "MCP marketplace",
     wide: true,
     searchable: true,
-    search: rowsFor,
+    search: (q) => rowsFor(q),
+    more: (q, have) => rowsFor(q, have),
     empty: "No servers match.",
     footer: "type to search the marketplace · enter adds · esc back",
     items: () => rowsFor(firstQuery),
