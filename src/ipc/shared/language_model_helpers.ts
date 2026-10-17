@@ -31,6 +31,10 @@ import {
   resolveReasoningCatalogModelId,
 } from "@/lib/routing/reasoning-detector";
 import { detectAudioCapability } from "@/lib/routing/model-capability-profile";
+import { rememberCustomProviderFormats } from "@/lib/routing/custom-provider-format";
+
+/** The models.dev `npm` value of the Anthropic Messages API (provider-sdk-factories). */
+const ANTHROPIC_NPM = "@ai-sdk/anthropic";
 
 /**
  * Fetches language model providers from both the database (custom) and hardcoded constants (cloud),
@@ -52,11 +56,21 @@ export async function getLanguageModelProviders(): Promise<
       name: cp.name,
       apiBaseUrl: cp.api_base_url,
       envVarName: cp.env_var_name ?? undefined,
+      // The Anthropic format dispatches through the catalog's own Anthropic SDK
+      // factory (provider-sdk-factories), like any models.dev provider on it.
+      ...(cp.api_format === "anthropic"
+        ? { apiFormat: "anthropic" as const, npm: ANTHROPIC_NPM }
+        : {}),
+      ...(cp.auth_header === "x-api-key" || cp.auth_header === "bearer"
+        ? { authHeader: cp.auth_header }
+        : {}),
       type: "custom",
       // hasFreeTier, websiteUrl, gatewayPrefix are not in the custom DB schema
       // They will be undefined unless overridden by hardcoded values if IDs match
     });
   }
+  // Capability lookups (thinking, /effort, cache markers) read this.
+  rememberCustomProviderFormats([...customProvidersMap.values()]);
 
   // The overlaid (first-class) cloud providers. The catalog supplies the endpoint,
   // the wire format and the env-var list; this table supplies the curated name, the
@@ -197,12 +211,13 @@ export async function liveCustomModels(
   baseUrl: string,
   apiKey: string | undefined,
   now = Date.now(),
+  wire: Pick<LanguageModelProvider, "apiFormat" | "authHeader"> = {},
 ): Promise<LanguageModel[]> {
   const { createHash } = await import("node:crypto");
   const keyTag = apiKey?.trim()
     ? createHash("sha256").update(apiKey.trim()).digest("hex").slice(0, 12)
     : "none";
-  const cacheKey = `${providerId}|${baseUrl}|${keyTag}`;
+  const cacheKey = `${providerId}|${baseUrl}|${keyTag}|${wire.apiFormat ?? "openai"}|${wire.authHeader ?? ""}`;
   const hit = liveCache.get(cacheKey);
   if (hit && now - hit.at < LIVE_TTL_MS) return hit.models;
   const { fetchCustomProviderModels } = await import(
@@ -210,7 +225,7 @@ export async function liveCustomModels(
   );
   // Bounded: a dead address must not hold up the model list.
   const models = Promise.race([
-    fetchCustomProviderModels(providerId, baseUrl, apiKey).catch(
+    fetchCustomProviderModels(providerId, baseUrl, apiKey, wire).catch(
       () => [] as LanguageModel[],
     ),
     new Promise<LanguageModel[]>((resolve) =>
@@ -338,7 +353,10 @@ export async function getLanguageModels({
     } catch {
       // settings not available in this process
     }
-    const listed = await liveCustomModels(providerId, provider.apiBaseUrl, key);
+    const listed = await liveCustomModels(providerId, provider.apiBaseUrl, key, Date.now(), {
+      apiFormat: provider.apiFormat,
+      authHeader: provider.authHeader,
+    });
     const typed = new Set(customModels.map((m) => m.apiName));
     return [...customModels, ...listed.filter((m) => !typed.has(m.apiName))];
   }

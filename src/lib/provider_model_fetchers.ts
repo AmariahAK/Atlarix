@@ -26,6 +26,7 @@ import log from "electron-log";
 import type { LanguageModel } from "@/ipc/ipc_types";
 import { OPENROUTER_APP_HEADERS } from "@/ipc/shared/openrouter_app_headers";
 import { OPENWEIGHT_PROVIDER_BASE_URLS } from "@/ipc/shared/language_model_constants";
+import { anthropicHeaders } from "./provider-key-check";
 
 const logger = log.scope("provider_fetchers");
 
@@ -136,8 +137,15 @@ export async function fetchModelsFromOpenAI(
 
 export async function fetchModelsFromAnthropic(
   apiKey: string,
+  /**
+   * Another endpoint on the Anthropic format (a provider the user added): its
+   * base URL up to /v1, how it takes the key, and the provider id to cache under.
+   */
+  endpoint?: { providerId: string; baseUrl: string; authHeader?: "x-api-key" | "bearer" },
 ): Promise<LanguageModel[]> {
-  const cached = fromCache("anthropic");
+  const cacheId = endpoint?.providerId ?? "anthropic";
+  const label = endpoint ? endpoint.providerId : "Anthropic";
+  const cached = fromCache(cacheId);
   if (cached) return cached;
 
   try {
@@ -153,14 +161,15 @@ export async function fetchModelsFromAnthropic(
     const items: AnthropicModel[] = [];
     let after: string | undefined;
     for (let page = 0; page < MAX_PAGES; page++) {
-      const url = new URL("https://api.anthropic.com/v1/models");
+      const url = new URL(
+        endpoint
+          ? `${endpoint.baseUrl.replace(/\/+$/, "")}/models`
+          : "https://api.anthropic.com/v1/models",
+      );
       url.searchParams.set("limit", "1000");
       if (after) url.searchParams.set("after_id", after);
       const res = await fetch(url, {
-        headers: {
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
-        },
+        headers: anthropicHeaders(apiKey, endpoint?.authHeader),
         signal: AbortSignal.timeout(15_000),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -178,18 +187,18 @@ export async function fetchModelsFromAnthropic(
     const models: LanguageModel[] = items.map((m) => ({
       apiName: m.id,
       displayName: m.display_name ?? m.id,
-      description: "Claude model with tool support",
+      description: endpoint ? "Chat model with tool support" : "Claude model with tool support",
       ...(m.max_input_tokens ? { contextWindow: m.max_input_tokens } : {}),
       ...(m.max_tokens ? { maxOutputTokens: m.max_tokens } : {}),
       type: "cloud" as const,
       supportsToolChoice: true,
     }));
     sortModels(models);
-    toCache("anthropic", models);
-    logger.info(`[Anthropic] Fetched ${models.length} models`);
+    toCache(cacheId, models);
+    logger.info(`[${label}] Fetched ${models.length} models`);
     return models;
   } catch (e) {
-    logger.warn("[Anthropic] Fetch failed", e);
+    logger.warn(`[${label}] Fetch failed`, e);
     return [];
   }
 }
@@ -507,7 +516,15 @@ export async function fetchCustomProviderModels(
   providerId: string,
   baseUrl: string,
   apiKey?: string,
+  wire: { apiFormat?: "openai" | "anthropic"; authHeader?: "x-api-key" | "bearer" } = {},
 ): Promise<LanguageModel[]> {
+  if (wire.apiFormat === "anthropic") {
+    return fetchModelsFromAnthropic(apiKey?.trim() || "none", {
+      providerId,
+      baseUrl,
+      authHeader: wire.authHeader,
+    });
+  }
   return fetchOpenAICompatibleModels({
     providerId,
     url: `${baseUrl.replace(/\/+$/, "")}/models`,

@@ -43,6 +43,8 @@ export interface ProviderRow {
   keyHint?: string;
   keyUrl?: string;
   custom?: boolean;
+  /** One you added that speaks the Anthropic Messages API (unset: OpenAI-compatible). */
+  apiFormat?: "anthropic";
   /** Switched off: key kept, models hidden. */
   off?: boolean;
   /** How many models it offers, from the catalog (shown before you connect it). */

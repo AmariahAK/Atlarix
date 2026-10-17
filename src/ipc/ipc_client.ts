@@ -3847,12 +3847,14 @@ export class IpcClient {
     name,
     apiBaseUrl,
     envVarName,
+    apiFormat,
   }: CreateCustomLanguageModelProviderParams): Promise<LanguageModelProvider> {
     return this.ipcRenderer.invoke("create-custom-language-model-provider", {
       id,
       name,
       apiBaseUrl,
       envVarName,
+      apiFormat,
     });
   }
   public async editCustomLanguageModelProvider(

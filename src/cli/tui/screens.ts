@@ -1582,8 +1582,8 @@ export function openConnect(ctx: ScreenContext, onSaved: (providerId?: string) =
           // Anything not on the list: a gateway, a proxy, a server on this computer.
           {
             id: CUSTOM_ROW,
-            label: "Other: OpenAI-compatible endpoint…",
-            keywords: "other custom openai compatible gateway proxy local vllm llama.cpp lm studio litellm endpoint base url",
+            label: "Other: your own endpoint…",
+            keywords: "other custom openai anthropic compatible messages bedrock gateway proxy local vllm llama.cpp lm studio litellm endpoint base url",
             right: { text: "base URL + key", tone: "muted" as const },
           },
           ...rest.map(row),
@@ -1661,14 +1661,19 @@ export function openConnect(ctx: ScreenContext, onSaved: (providerId?: string) =
 }
 
 /**
- * A provider that isn't on the list: any OpenAI-compatible endpoint. Name,
- * base URL, key (none for most servers on this computer); its models come from
+ * A provider that isn't on the list: any endpoint on the OpenAI or the
+ * Anthropic format. Format, name, base URL, key (none for most servers on this computer); its models come from
  * the endpoint, else it asks for one model id. Shared with the app and the
  * editor, like every provider.
  */
 export function openCustomProvider(ctx: ScreenContext, onSaved: (providerId?: string) => void): void {
-  const title = "OpenAI-compatible endpoint";
-  const draft = { name: "", baseUrl: "", key: "" };
+  let title = "Your own endpoint";
+  const draft: { name: string; baseUrl: string; key: string; apiFormat: "openai" | "anthropic" } = {
+    name: "",
+    baseUrl: "",
+    key: "",
+    apiFormat: "openai",
+  };
   const save = async (models?: string[]): Promise<string | undefined> => {
     try {
       const r = await ctx.services.providers.addCustom({ ...draft, models });
@@ -1711,7 +1716,15 @@ export function openCustomProvider(ctx: ScreenContext, onSaved: (providerId?: st
     ctx.host.replace(
       new InputDialog({
         title,
-        intro: [{ text: "Up to /v1, e.g. https://api.example.com/v1 or http://localhost:1234/v1", tone: "muted" }],
+        intro: [
+          {
+            text:
+              draft.apiFormat === "anthropic"
+                ? "Up to /v1, e.g. https://bedrock-runtime.us-east-1.amazonaws.com/anthropic/v1"
+                : "Up to /v1, e.g. https://api.example.com/v1 or http://localhost:1234/v1",
+            tone: "muted",
+          },
+        ],
         label: "Base URL",
         onSubmit: (v) => {
           const url = v.trim();
@@ -1721,15 +1734,40 @@ export function openCustomProvider(ctx: ScreenContext, onSaved: (providerId?: st
         },
       }),
     );
+  const nameStep = () =>
+    ctx.host.replace(
+      new InputDialog({
+        title,
+        intro: [
+          {
+            text:
+              draft.apiFormat === "anthropic"
+                ? "Any provider that speaks the Anthropic Messages API: Bedrock, a gateway, a proxy."
+                : "Any provider that speaks the OpenAI API: a gateway, a proxy, a server on this computer.",
+            tone: "muted",
+          },
+        ],
+        label: "Name",
+        onSubmit: (v) => {
+          if (!v.trim()) return "Give it a name.";
+          draft.name = v.trim().slice(0, 60);
+          urlStep();
+        },
+      }),
+    );
   ctx.host.push(
-    new InputDialog({
+    new ListDialog({
       title,
-      intro: [{ text: "Any provider that speaks the OpenAI API: a gateway, a proxy, a server on this computer.", tone: "muted" }],
-      label: "Name",
-      onSubmit: (v) => {
-        if (!v.trim()) return "Give it a name.";
-        draft.name = v.trim().slice(0, 60);
-        urlStep();
+      intro: [{ text: "Which API does it speak?", tone: "muted" }],
+      footer: "↑↓ move · enter choose · esc close",
+      items: [
+        { id: "openai", label: "OpenAI-compatible", right: { text: "/chat/completions", tone: "muted" } },
+        { id: "anthropic", label: "Anthropic", right: { text: "/messages", tone: "muted" } },
+      ],
+      onChoose: (item) => {
+        draft.apiFormat = item.id === "anthropic" ? "anthropic" : "openai";
+        title = draft.apiFormat === "anthropic" ? "Anthropic-format endpoint" : "OpenAI-compatible endpoint";
+        nameStep();
       },
     }),
   );

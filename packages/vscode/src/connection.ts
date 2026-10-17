@@ -297,7 +297,7 @@ export class AtlarixConnection {
     return this.agent.request("_atlarix/provider_test", { providerId });
   }
 
-  addCustomProvider(p: { name: string; baseUrl: string; key: string; models?: string[] }): Promise<{ id: string; models: number }> {
+  addCustomProvider(p: { name: string; baseUrl: string; key: string; models?: string[]; apiFormat?: "openai" | "anthropic" }): Promise<{ id: string; models: number }> {
     return this.agent.request("_atlarix/provider_custom", p);
   }
 

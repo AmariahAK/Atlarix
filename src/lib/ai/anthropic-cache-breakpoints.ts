@@ -1,4 +1,5 @@
 import type { ModelMessage } from "ai";
+import { isCustomAnthropicFormat } from "@/lib/routing/custom-provider-format";
 
 /**
  * v10.1 prompt caching — message assembly with provider cache breakpoints.
@@ -44,6 +45,9 @@ export function resolveCacheMarkerPlacement(
 ): CacheMarkerPlacement {
   if (builtinProviderId === "anthropic") return "message";
   if (!/claude|anthropic/i.test(modelName ?? "")) return "none";
+  // Claude through a provider the user added on the Anthropic format: the
+  // same native markers as direct Anthropic.
+  if (isCustomAnthropicFormat(builtinProviderId)) return "message";
   if (builtinProviderId === "bedrock" || builtinProviderId === "vertex") {
     return "message";
   }

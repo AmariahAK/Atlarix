@@ -23,7 +23,7 @@ export const ACCOUNT_LABEL: Record<AccountKind, string> = {
   payg: "Pay as you go",
   "own-key": "Your key",
   local: "On this computer",
-  /** A provider you added (an OpenAI-compatible address): it may need no key at all. */
+  /** A provider you added (an address of your own): it may need no key at all. */
   endpoint: "Your endpoint",
 };
 

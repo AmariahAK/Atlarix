@@ -115,6 +115,7 @@ export async function renderProvider(page: HTMLElement, nav: Nav, id: string): P
           }
         });
         d.append(f, msg);
+        d.append(el("div", "muted small", p.apiFormat === "anthropic" ? "Speaks the Anthropic Messages API." : "Speaks the OpenAI API."));
       } else d.append(el("div", "key-field mono", p.baseUrl));
       keySec.append(d);
     }

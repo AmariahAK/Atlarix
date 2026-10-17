@@ -32,8 +32,45 @@ const NATIVE_MODELS_URL: Record<string, string> = {
 /** Signed in through a cloud account rather than one key: nothing to probe. */
 const ACCOUNT_AUTH = new Set(["vertex", "bedrock", "azure", "amazon-bedrock", "google-vertex"]);
 
-/** The request that proves a key, or null when this provider can't be checked this way. */
-export function keyProbe(providerId: string, apiKey: string, baseUrl?: string | null): KeyProbe | null {
+/** How a provider the user added speaks: its wire format and how it takes the key. */
+export interface CustomWire {
+  apiFormat?: "openai" | "anthropic";
+  authHeader?: "x-api-key" | "bearer";
+}
+
+/** The Anthropic format's request headers, with the key sent the way the endpoint takes it. */
+export function anthropicHeaders(
+  apiKey: string,
+  authHeader?: "x-api-key" | "bearer",
+): Record<string, string> {
+  return {
+    ...(authHeader === "bearer"
+      ? { Authorization: `Bearer ${apiKey}` }
+      : { "x-api-key": apiKey }),
+    "anthropic-version": "2023-06-01",
+  };
+}
+
+/**
+ * The request that proves a key, or null when this provider can't be checked this way.
+ *
+ * A provider the user added (a `custom::` id, or any call that passes `wire`) is
+ * probed at its own address in its own format, never by its name: one named
+ * "Anthropic" is not api.anthropic.com.
+ */
+export function keyProbe(
+  providerId: string,
+  apiKey: string,
+  baseUrl?: string | null,
+  wire?: CustomWire,
+): KeyProbe | null {
+  if (wire || providerId.startsWith("custom::")) {
+    if (!baseUrl) return null;
+    const url = `${baseUrl.replace(/\/+$/, "")}/models`;
+    return wire?.apiFormat === "anthropic"
+      ? { url, headers: anthropicHeaders(apiKey, wire.authHeader) }
+      : { url, headers: { Authorization: `Bearer ${apiKey}` } };
+  }
   if (ACCOUNT_AUTH.has(providerId)) return null;
   if (providerId === "anthropic") {
     return { url: "https://api.anthropic.com/v1/models", headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01" } };
@@ -103,4 +140,31 @@ export function keyHint(key: string | null | undefined): string | undefined {
   const dash = k.indexOf("-");
   const prefix = dash > 0 && dash <= 6 ? k.slice(0, dash + 1) : k.slice(0, 3);
   return `${prefix}…${k.slice(-4)}`;
+}
+
+/**
+ * Which header an Anthropic-format endpoint takes the key in. Anthropic's own
+ * `x-api-key` first; a rejection there is tried again as a Bearer token, which
+ * Bedrock's /anthropic endpoint and many gateways expect. Answers with the
+ * header that worked, or `x-api-key` and its check when neither did.
+ */
+export async function detectAnthropicAuth(
+  baseUrl: string,
+  apiKey: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ authHeader: "x-api-key" | "bearer"; check: KeyCheck }> {
+  const asKey = await checkProviderKey(
+    keyProbe("", apiKey, baseUrl, { apiFormat: "anthropic", authHeader: "x-api-key" }),
+    apiKey,
+    fetchImpl,
+  );
+  if (asKey.status !== "rejected") return { authHeader: "x-api-key", check: asKey };
+  const asBearer = await checkProviderKey(
+    keyProbe("", apiKey, baseUrl, { apiFormat: "anthropic", authHeader: "bearer" }),
+    apiKey,
+    fetchImpl,
+  );
+  return asBearer.status === "rejected"
+    ? { authHeader: "x-api-key", check: asKey }
+    : { authHeader: "bearer", check: asBearer };
 }

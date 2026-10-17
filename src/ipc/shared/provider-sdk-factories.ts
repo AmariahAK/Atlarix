@@ -66,6 +66,12 @@ export interface ProviderFactoryInput {
    * vendor-native endpoint (see the rule above).
    */
   baseURL?: string;
+  /**
+   * How the Anthropic format takes the key: `x-api-key` (Anthropic's own) or a
+   * Bearer token (Bedrock's /anthropic endpoint, many gateways). Only a provider
+   * the user added sets it; the other factories ignore it.
+   */
+  authHeader?: "x-api-key" | "bearer";
 }
 
 export type ProviderSdkFactory = (
@@ -104,8 +110,12 @@ export const PROVIDER_SDK_FACTORIES: Record<string, ProviderSdkFactory> = {
     return baseURL ? provider(modelId) : provider.responses(modelId);
   },
 
-  "@ai-sdk/anthropic": ({ modelId, apiKey, baseURL }) =>
-    createAnthropic({ apiKey, ...(baseURL ? { baseURL } : {}) })(modelId),
+  // Exactly one of apiKey / authToken: the SDK refuses both.
+  "@ai-sdk/anthropic": ({ modelId, apiKey, baseURL, authHeader }) =>
+    createAnthropic({
+      ...(authHeader === "bearer" ? { authToken: apiKey } : { apiKey }),
+      ...(baseURL ? { baseURL } : {}),
+    })(modelId),
 
   "@ai-sdk/google": ({ modelId, apiKey, baseURL }) =>
     createGoogle({ apiKey, ...(baseURL ? { baseURL } : {}) })(modelId),

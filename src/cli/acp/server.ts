@@ -288,12 +288,15 @@ export function buildAgentApp(
       await agent.modelsChanged();
       return {};
     })
-    .onRequest("_atlarix/provider_custom", (p) => p as { name: string; baseUrl: string; key: string; models?: string[] }, async (ctx) => {
+    .onRequest("_atlarix/provider_custom", (p) => p as { name: string; baseUrl: string; key: string; models?: string[]; apiFormat?: "openai" | "anthropic" }, async (ctx) => {
       const { realServices, NoModelsListedError } = await import("../agent/services");
-      const { name, baseUrl, key, models } = ctx.params;
+      const { name, baseUrl, key, models, apiFormat } = ctx.params;
       if (!name?.trim() || !baseUrl?.trim()) throw acp.RequestError.invalidParams(undefined, "A name and a base URL are needed.");
+      if (apiFormat !== undefined && apiFormat !== "openai" && apiFormat !== "anthropic") {
+        throw acp.RequestError.invalidParams(undefined, `Unknown API format "${String(apiFormat)}".`);
+      }
       try {
-        const r = await realServices.providers.addCustom({ name, baseUrl, key: key ?? "", models });
+        const r = await realServices.providers.addCustom({ name, baseUrl, key: key ?? "", models, apiFormat });
         await agent.modelsChanged();
         return r;
       } catch (e) {

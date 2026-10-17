@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Dialog,
   DialogContent,
@@ -11,7 +12,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2 } from "lucide-react";
 import { useCustomLanguageModelProvider } from "@/hooks/useCustomLanguageModelProvider";
-import type { LanguageModelProvider } from "@/ipc/ipc_types";
+import type { CustomApiFormat, LanguageModelProvider } from "@/ipc/ipc_types";
+
+const API_FORMATS = [
+  { id: "openai", labelKey: "providers.apiFormatOpenAi" },
+  { id: "anthropic", labelKey: "providers.apiFormatAnthropic" },
+] as const satisfies ReadonlyArray<{ id: CustomApiFormat; labelKey: string }>;
 
 interface CreateCustomProviderDialogProps {
   isOpen: boolean;
@@ -26,10 +32,12 @@ export function CreateCustomProviderDialog({
   onSuccess,
   editingProvider = null,
 }: CreateCustomProviderDialogProps) {
+  const { t } = useTranslation("settings");
   const [id, setId] = useState("");
   const [name, setName] = useState("");
   const [apiBaseUrl, setApiBaseUrl] = useState("");
   const [envVarName, setEnvVarName] = useState("");
+  const [apiFormat, setApiFormat] = useState<CustomApiFormat>("openai");
   const [errorMessage, setErrorMessage] = useState("");
   const isEditMode = Boolean(editingProvider);
 
@@ -45,12 +53,14 @@ export function CreateCustomProviderDialog({
       setName(editingProvider.name || "");
       setApiBaseUrl(editingProvider.apiBaseUrl || "");
       setEnvVarName(editingProvider.envVarName || "");
+      setApiFormat(editingProvider.apiFormat ?? "openai");
     } else if (!isOpen) {
       // Reset form when dialog closes
       setId("");
       setName("");
       setApiBaseUrl("");
       setEnvVarName("");
+      setApiFormat("openai");
       setErrorMessage("");
     }
   }, [editingProvider, isOpen]);
@@ -69,6 +79,7 @@ export function CreateCustomProviderDialog({
           name: name.trim(),
           apiBaseUrl: apiBaseUrl.trim(),
           envVarName: envVarName.trim() || undefined,
+          apiFormat,
         });
       } else {
         await createProvider({
@@ -76,6 +87,7 @@ export function CreateCustomProviderDialog({
           name: name.trim(),
           apiBaseUrl: apiBaseUrl.trim() || "https://manual.provider",
           envVarName: envVarName.trim() || undefined,
+          apiFormat,
         });
       }
 
@@ -84,6 +96,7 @@ export function CreateCustomProviderDialog({
       setName("");
       setApiBaseUrl("");
       setEnvVarName("");
+      setApiFormat("openai");
 
       onSuccess();
     } catch (error) {
@@ -113,7 +126,9 @@ export function CreateCustomProviderDialog({
           <DialogDescription>
             {isEditMode
               ? "Update your custom language model provider configuration."
-              : "An OpenAI-compatible endpoint."}
+              : apiFormat === "anthropic"
+                ? t("providers.apiFormatAnthropicDescription")
+                : "An OpenAI-compatible endpoint."}
           </DialogDescription>
         </DialogHeader>
 
@@ -143,6 +158,30 @@ export function CreateCustomProviderDialog({
           </div>
 
           <div className="space-y-2">
+            <Label id="apiFormatLabel">{t("providers.apiFormat")}</Label>
+            <div
+              role="radiogroup"
+              aria-labelledby="apiFormatLabel"
+              className="flex gap-2"
+            >
+              {API_FORMATS.map((f) => (
+                <Button
+                  key={f.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={apiFormat === f.id}
+                  variant={apiFormat === f.id ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setApiFormat(f.id)}
+                  disabled={isLoading}
+                >
+                  {t(f.labelKey)}
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-2">
             <Label htmlFor="apiBaseUrl">
               API Base URL (optional for manual providers)
             </Label>
@@ -154,7 +193,9 @@ export function CreateCustomProviderDialog({
               disabled={isLoading}
             />
             <p className="text-xs text-muted-foreground">
-              e.g. http://127.0.0.1:11434/v1
+              {apiFormat === "anthropic"
+                ? t("providers.apiFormatAnthropicBaseUrlHint")
+                : "e.g. http://127.0.0.1:11434/v1"}
             </p>
           </div>
 

@@ -26,6 +26,11 @@ import {
 } from "@/lib/routing/model-reasoning-profile";
 import type { LargeLanguageModel, UserSettings } from "@/lib/schemas";
 import {
+  anthropicCatalogModelId,
+  anthropicFormatCapabilityId,
+  isCustomAnthropicFormat,
+} from "@/lib/routing/custom-provider-format";
+import {
   getExtraProviderOptions,
   reasoningBudgetTokens,
   type ReasoningEffort,
@@ -93,6 +98,10 @@ export function resolveReasoningCatalogModelId(
       name
     );
   }
+  // A provider the user added on the Anthropic format: Anthropic's catalog id.
+  if (isCustomAnthropicFormat(effectiveModel.provider)) {
+    return anthropicCatalogModelId(name);
+  }
   return name;
 }
 
@@ -119,7 +128,7 @@ export function resolveCapabilityProviderId(
   effectiveModel: LargeLanguageModel,
 ): string {
   const provider = (effectiveModel.provider ?? "").trim();
-  if (provider !== "compass") return provider;
+  if (provider !== "compass") return anthropicFormatCapabilityId(provider);
   return (
     getCoreModelsDevTargetForTier(effectiveModel.name ?? "")?.providerId ??
     provider
@@ -140,7 +149,8 @@ export function detectReasoningCapability(
 } {
   const id = modelApiId.trim();
   const lower = id.toLowerCase();
-  const pid = builtinProviderId ?? "";
+  // A provider the user added on the Anthropic format takes Anthropic's shape.
+  const pid = anthropicFormatCapabilityId(builtinProviderId) ?? "";
 
   let useOpenRouterReasoning = false;
   if (pid === "openrouter" || pid === "compass") {
@@ -284,7 +294,7 @@ export function resolveDispatchCapabilityProviderId(
   effectiveModel: LargeLanguageModel,
   builtinProviderId: string | undefined,
 ): string | undefined {
-  if (builtinProviderId !== "compass") return builtinProviderId;
+  if (builtinProviderId !== "compass") return anthropicFormatCapabilityId(builtinProviderId);
   if (effectiveModel.provider !== "compass") return builtinProviderId;
   return resolveCapabilityProviderId(effectiveModel);
 }
