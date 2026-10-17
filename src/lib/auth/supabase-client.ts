@@ -999,10 +999,12 @@ let _subDetailCache: {
 } | null = null;
 
 /** Drop cached plan state (on sign-out, realtime plan change, or forced refresh). */
-export function invalidatePlanCaches(): void {
+export function invalidatePlanCaches(opts: { keepRow?: boolean } = {}): void {
   _tierCache = null;
   _subDetailCache = null;
-  invalidateUserRow();
+  // keepRow: the caller has JUST read the row fresh (the plan refresh), so
+  // dropping it would only make the next reader fetch the same thing again.
+  if (!opts.keepRow) invalidateUserRow();
 }
 
 /**
@@ -1188,11 +1190,13 @@ export interface SubscriptionData {
  */
 export async function fetchPlanSnapshot(
   userEmail: string,
+  fresh = true,
 ): Promise<SubscriptionData | null> {
   try {
-    // Fresh: this read's job is to NOTICE a change (focus, realtime), so it
-    // never answers from the shared row — but it refreshes it for the others.
-    const shared = await readUserRow({ email: userEmail }, true);
+    // Fresh by default: this read's job is to NOTICE a change (focus), so it
+    // does not answer from the shared row — but it refreshes it for the
+    // others. Right after a sign-in read, `fresh: false` reuses that read.
+    const shared = await readUserRow({ email: userEmail }, fresh);
     const { data, error } =
       shared !== undefined
         ? { data: shared, error: null }

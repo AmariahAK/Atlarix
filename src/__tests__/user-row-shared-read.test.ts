@@ -82,6 +82,20 @@ describe("the account row, read once", () => {
     expect(queries).toHaveLength(2);
   });
 
+  it("a launch: two session updates, each with its plan check, read the row ONCE", async () => {
+    // Measured 2026-10-17: startup and Supabase's restored-session event each
+    // ran the update, and each update's plan check forced a fresh read and then
+    // dropped it: 4 reads per launch. This is that sequence.
+    for (let i = 0; i < 2; i++) {
+      await client.getUserPlan("u-1");
+      await client.isUserBanned("u-1");
+      await client.getSubscriptionDetails("owner@example.test");
+      await client.fetchPlanSnapshot("owner@example.test", false);
+      client.invalidatePlanCaches({ keepRow: true });
+    }
+    expect(queries).toHaveLength(1);
+  });
+
   it("if the combined read fails, each reader falls back to its own query: the plan is never lost", async () => {
     failCombined = true;
     expect(await client.getUserPlan("u-1")).toBe("pro");

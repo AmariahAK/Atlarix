@@ -270,7 +270,10 @@ export class SubscriptionManager {
     if (user.email) {
       // Was: open a realtime channel. Now a single read on sign-in, with focus
       // refreshes after it — see refreshPlanFromServer for the measurement.
-      await this.refreshPlanFromServer(0);
+      // Not fresh: the plan was read a moment ago in this same update, and a
+      // second read of the same row would only measure the network again.
+      // Focus refreshes (main.ts) still always ask the server.
+      await this.refreshPlanFromServer(0, false);
     }
 
     // Announce the resolved session to every window. Two reasons, and the
@@ -498,7 +501,7 @@ export class SubscriptionManager {
    */
   private static lastPlanRefreshAt = 0;
   private static planRefreshInFlight: Promise<void> | null = null;
-  static async refreshPlanFromServer(minIntervalMs = 15_000): Promise<void> {
+  static async refreshPlanFromServer(minIntervalMs = 15_000, fresh = true): Promise<void> {
     const email = this.session?.email;
     if (!email) return;
     if (this.planRefreshInFlight) return this.planRefreshInFlight;
@@ -509,7 +512,7 @@ export class SubscriptionManager {
     this.planRefreshInFlight = (async () => {
       try {
         const { fetchPlanSnapshot } = await import("./auth/supabase-client");
-        const next = await fetchPlanSnapshot(email);
+        const next = await fetchPlanSnapshot(email, fresh);
         if (!next) return;
         const prev = {
           plan: this.session?.plan ?? "free",
@@ -527,8 +530,9 @@ export class SubscriptionManager {
           Boolean(next.banned) !== Boolean(prev.banned);
         // The cache is dropped either way. "Unchanged" here means unchanged
         // versus the SESSION, and the tier cache can still be stale for
-        // reasons the session does not track.
-        invalidatePlanCaches();
+        // reasons the session does not track. The account row itself was
+        // just read, so it is kept for the readers that follow.
+        invalidatePlanCaches({ keepRow: true });
         if (changed) await this.applyPlanChange(next, prev as any);
       } catch (e) {
         // Never throws: this runs on window focus and must not surface there.
