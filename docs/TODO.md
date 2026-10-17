@@ -1,9 +1,9 @@
 # Atlarix TODO
 
-**Current version:** 15.8.2 (2026-10-17): the app checks your account once at launch (thirteen
-account requests down to two), and the whole MCP marketplace pages in the CLI and VS Code. 15.8.3
-was tagged and stopped before anything published (draft and tag deleted, npm still 15.8.2); its CLI
-startup fix ships in 15.9.0. Narrative in [`docs/CHANGELOG.md`](./CHANGELOG.md).
+**Current version:** 15.9.0 (2026-10-17): providers you add can speak the Anthropic Messages API
+(Bedrock, gateways) on every surface, Build mode's prompt cache lasts across messages, the CLI
+opens at once, and `/effort low` really is lower on budget models. (15.8.3 was tagged and stopped
+before anything published.) Narrative in [`docs/CHANGELOG.md`](./CHANGELOG.md).
 
 **This header has been wrong before.** Update it in the same commit as the version bump, or do
 not trust it.
@@ -21,24 +21,13 @@ not trust it.
 
 ---
 
-## 🔨 In flight — landed on dev, not yet released (→ 15.9.0)
+## 🔨 In flight — landed on dev, not yet released
 
-- **The CLI draws its first frame at once** (0fd2d627): the model label comes from the last run
-  instead of building every provider's model list first (2.0–2.6 s → 0.45 s to the prompt). Its
-  changelog entry is written under 15.8.3; fold it into 15.9.0.
-- **Custom providers on the Anthropic API format, on every surface** (a28b0d83 … 34697077):
-  desktop dialog, `/connect`, `_atlarix/provider_custom`, the VS Code panel. Migration 0080 stores
-  the format and the key header, found on add (`x-api-key`, then Bearer; with no model list, an
-  empty-body `/messages` tells them apart for free). A refused key is never saved. Live-checked
-  on Bedrock (`bedrock-runtime…/anthropic/v1`, Claude Haiku 4.5: thinking, tools, cache). CLI dev
-  mode takes `--provider-format anthropic`. Peer QA rounds 1–2 fixed; re-verify under way.
-  **Known limit:** Bedrock reads the body before the key, so a bad Bedrock token is only caught
-  by the first message (which fails cleanly, nothing billed). A key-prefix hint could catch typos.
-- **Build mode's prompt cache works across turns** (b7105c6a): the per-turn tail rode inside the
-  cached system block, so every turn rewrote ~20k tokens (on Bedrock: turns 2–3 now read 18,767
-  cached, write ~600). Every provider, every Build turn.
-- **`/effort low` on budget models** (aba07167): it sent the default's budget and medium sent
-  more than the default, since 15.8.0.
+Nothing.
+
+**Known limit from 15.9.0:** Bedrock reads the request body before the key, so a bad Bedrock
+token is only caught by the first message (it fails cleanly; nothing is billed). A key-prefix
+hint at add time could catch typos.
 
 ## After every release — the owner, by hand
 

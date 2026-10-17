@@ -3,16 +3,38 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
-## [15.8.3] (2026-10-17) — the CLI opens in a fraction of a second
+## [15.9.0] (2026-10-17) — providers of your own on the Anthropic format, a prompt cache that lasts, and a faster CLI start
 
-`atlarix` drew nothing for about two seconds after you pressed enter: before its first frame it
-built every provider's full model list, only to show the chosen model's name in the header.
-Measured on a real machine, that one step was 1.7 to 2.1 seconds of the wait; everything else
-took about 0.3. The CLI now remembers the model's display name with your other CLI settings and
-draws straight away (0.45 seconds on the same machine). It still loads the model list right after
-the first frame, as it already did for the effort levels, and corrects the name if it changed.
-A name remembered for one model is never shown for another, such as after choosing a model in an
-editor.
+**A provider you add can speak the Anthropic Messages API**, not only OpenAI's: Amazon Bedrock's
+Anthropic endpoint, a company gateway or proxy, any server that takes `/v1/messages`. Choose
+**API format: OpenAI-compatible or Anthropic** when you add it, in the app (Settings → providers →
+add a custom provider), the CLI (`/connect` → Other: your own endpoint), your editor and the VS Code
+panel. The base URL is up to `/v1`, as before. Atlarix finds out which way the endpoint takes your
+key (Anthropic's `x-api-key`, or a Bearer token, which Bedrock and many gateways use) and remembers
+it; a key the endpoint refuses is never saved. Its models come from the endpoint's own list, or you
+type the model id when it has none (Bedrock). Thinking, `/effort` levels and prompt caching work as
+they do on Claude directly: a Bedrock model id such as `us.anthropic.claude-haiku-4-5-20251001-v1:0`
+is recognised as the Claude model it is.
+
+**Build mode keeps its prompt cache from one message to the next.** Each message's own text was
+sent inside the part of the prompt the provider caches, so every message wrote the whole prompt
+again instead of reading it. Now it follows the cached part. Measured on Claude: from the second
+message on, about 18,800 tokens are read from the cache instead of written again, so the fixed
+part of each message costs a small fraction of what it did. This applies to every provider that
+caches.
+
+**The CLI opens in a fraction of a second.** `atlarix` drew nothing for about two seconds after you
+pressed enter: before its first frame it built every provider's model list, only to show the chosen
+model's name in the header. It now remembers that name and draws at once (0.45 seconds where it was
+2), then loads the list and corrects the name if it changed.
+
+Also fixed:
+- `/effort low` on a model that thinks with a budget (Claude, and Gemini and OpenRouter budgets)
+  asked for the same budget as the default, and medium asked for more than the default; low is
+  now smaller and medium is the default.
+- Replacing a provider's key in the CLI or your editor checks it first, and a refused key leaves
+  the old one in place.
+- The CLI's test mode against a local model (`--provider-url`) takes `--provider-format anthropic`.
 
 ## [15.8.2] (2026-10-17) — a lighter start, and the whole MCP marketplace in the CLI and VS Code
 
