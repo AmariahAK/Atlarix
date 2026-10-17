@@ -246,14 +246,25 @@ export async function renderMcp(page: HTMLElement, nav: Nav): Promise<void> {
     box.append(head, results);
     formSlot.append(box);
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const run = async () => {
-      const r = await call<{ entries?: CatalogEntry[]; total?: number; installed?: string[] }>("catalog", { query: search.value.trim() }).catch(
+    let seq = 0;
+    /** A page of results: the first replaces the list, later ones append ("Show more"). */
+    const run = async (offset = 0) => {
+      const mine = offset === 0 ? ++seq : seq;
+      const query = search.value.trim();
+      const r = await call<{ entries?: CatalogEntry[]; total?: number; installed?: string[] }>("catalog", { query, offset }).catch(
         () => ({ entries: [], total: 0, installed: [] }),
       );
-      results.textContent = "";
+      if (mine !== seq) return; // a newer search replaced this one
+      if (offset === 0) results.textContent = "";
+      results.querySelector(".mcp-more")?.remove();
+      const total = r.total ?? 0;
+      if (offset === 0 && total > 0) {
+        const n = total.toLocaleString("en-US");
+        results.append(el("div", "muted small", query ? `${n} ${total === 1 ? "match" : "matches"}` : `${n} ${total === 1 ? "server" : "servers"}`));
+      }
       const installed = new Set(r.installed ?? []);
-      if (!r.entries?.length) results.append(el("div", "empty-note", "No servers match."));
-      for (const e of (r.entries ?? []).slice(0, 25)) {
+      if (offset === 0 && !r.entries?.length) results.append(el("div", "empty-note", "No servers match."));
+      for (const e of r.entries ?? []) {
         const row = el("div", "setting");
         row.append(mcpIcon({ name: e.name }, e.title, 28));
         const t = el("div", "col grow");
@@ -275,6 +286,14 @@ export async function renderMcp(page: HTMLElement, nav: Nav): Promise<void> {
         b.disabled = installed.has(e.name) || usable.length === 0;
         row.append(t, b);
         results.append(row);
+      }
+      const shown = offset + (r.entries?.length ?? 0);
+      if (r.entries?.length && shown < total) {
+        const more = button("Show more", "small mcp-more", () => {
+          more.disabled = true;
+          void run(shown);
+        });
+        results.append(more);
       }
     };
     search.addEventListener("input", () => {

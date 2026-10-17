@@ -173,6 +173,11 @@ export interface ListOptions {
    * its answer instead of being filtered locally.
    */
   search?: (query: string) => Promise<ListItem[]>;
+  /**
+   * The rows after the ones shown, for the same query, asked for as the
+   * highlight nears the end; an empty answer means there are no more.
+   */
+  more?: (query: string, have: number) => Promise<ListItem[]>;
   empty?: string;
   footer: string;
   /** Enter on a row. */
@@ -280,11 +285,36 @@ export class ListDialog implements Dialog {
           if (seq !== this.searchSeq) return;
           this.items = items;
           this.index = 0;
+          this.exhausted = false;
           this.onChange?.();
         },
         () => {},
       );
     }, 200);
+  }
+
+  private loadingMore = false;
+  private exhausted = false;
+
+  /** Near the end of what's loaded: ask `more` for the next rows (one ask at a time). */
+  private moreSoon(): void {
+    const more = this.opts.more;
+    if (!more || this.loadingMore || this.exhausted || this.items === null) return;
+    if (this.index < this.selectable().length - 5) return;
+    this.loadingMore = true;
+    const seq = this.searchSeq;
+    void more(this.query ?? "", this.items.length).then(
+      (rows) => {
+        this.loadingMore = false;
+        if (seq !== this.searchSeq || this.items === null) return;
+        if (rows.length === 0) this.exhausted = true;
+        else this.items = [...this.items, ...rows];
+        this.onChange?.();
+      },
+      () => {
+        this.loadingMore = false;
+      },
+    );
   }
 
   /** The rows shown: headers kept only when the search is empty. */
@@ -379,10 +409,12 @@ export class ListDialog implements Dialog {
       this.index = Math.max(0, this.index - 1);
     } else if (k.name === "down") {
       this.index = Math.min(Math.max(0, n - 1), this.index + 1);
+      this.moreSoon();
     } else if (k.name === "pageup") {
       this.index = Math.max(0, this.index - 10);
     } else if (k.name === "pagedown") {
       this.index = Math.min(Math.max(0, n - 1), this.index + 10);
+      this.moreSoon();
     } else if (k.name === "return") {
       if (this.opts.onChoose) void this.act(async (i) => void (await this.opts.onChoose!(i)));
     } else if (k.ctrl && this.opts.ctrlActions?.[k.name]) {
