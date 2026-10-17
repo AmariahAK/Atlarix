@@ -15,7 +15,7 @@ import { color } from "./theme";
 export type SignInMethod = "browser" | "code";
 
 const METHODS: Array<{ id: SignInMethod; label: string; detail: string }> = [
-  { id: "browser", label: "Sign in with your browser", detail: "opens atlarix.dev on this computer" },
+  { id: "browser", label: "Sign in with your browser", detail: "GitHub, Google or email, on atlarix.dev" },
   { id: "code", label: "Sign in with a code", detail: "for SSH, or a machine with no browser" },
 ];
 
