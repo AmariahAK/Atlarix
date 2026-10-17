@@ -113,7 +113,10 @@ async function interactive(): Promise<void> {
   const modelsMod = await import("./agent/models");
   const cliState = devUrl ? null : modelsMod.readCliState();
   const { setRuntimeSettingsOverride } = await import("../main/settings");
-  if (cliState?.deepThinking != null) setRuntimeSettingsOverride({ deepThinking: cliState.deepThinking });
+  // The terminal's own level, always, even unset: the app's (user-settings.json)
+  // leaked into requests while the CLI showed its own (QA: header showed the
+  // default, the request carried the app's "low").
+  if (cliState) setRuntimeSettingsOverride({ deepThinking: cliState.deepThinking ?? false, effort: cliState.effort ?? "" });
 
   const session = new AgentSession({ workspaceDir: process.cwd(), model: model ?? cliState?.model });
   await session.start();
@@ -171,7 +174,9 @@ async function interactive(): Promise<void> {
           state: () => modelsMod.readCliState(),
           save: (st) => modelsMod.writeCliState(st),
           choose: (ref) => session.setModel(ref),
-          setDeepThinking: (on) => setRuntimeSettingsOverride({ deepThinking: on }),
+          setEffort: (patch) => setRuntimeSettingsOverride(patch),
+          // The model this terminal runs on when none was chosen here: the app's.
+          selected: () => import("../main/settings").then((m) => m.readSettings().selectedModel),
         },
   });
   process.exit(0);

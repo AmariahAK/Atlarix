@@ -40,7 +40,9 @@ import {
 } from "@/ipc/utils/no_usable_model_output";
 import { safeSend } from "@/ipc/utils/safe_sender";
 import { bucketNativeTokensByTool } from "@/lib/ai/native-history";
+import { isReasoningOff, levelShare } from "@/lib/routing/model-reasoning-profile";
 import {
+  chosenEffortFor,
   getExtraProviderOptions,
   getReasoningEffort,
 } from "@/ipc/utils/thinking_utils";
@@ -265,14 +267,32 @@ export async function simpleStreamText(
       catalogModelId,
       modelClient.builtinProviderId,
     );
-    const reasoningPatch = buildReasoningProviderOptions(
+    // A level chosen with /effort: by name where the route takes one (OpenAI),
+    // by its place in the model's list where it takes a budget.
+    const chosenEffort = chosenEffortFor(settings, capabilityProviderId, catalogModelId);
+    // none / minimal / off chosen: reasoning OFF. A budget-shaped route has no
+    // "none" to send, and its patch always switched thinking on (QA): OpenRouter
+    // is told so, Anthropic and Google get no thinking block, and the generic
+    // route below is skipped for them. OpenAI's own route sends `none` as listed.
+    const reasoningOff = chosenEffort ? isReasoningOff(chosenEffort.choices, chosenEffort.level) : false;
+    // (Google is told in its own terms below: minimal as listed, or a zero budget.)
+    const offByBudget = reasoningOff && (cap.useOpenRouterReasoning || cap.useAnthropicThinking);
+    const reasoningPatch = offByBudget
+      ? (cap.useOpenRouterReasoning ? { openrouter: { reasoning: { enabled: false } } } : {}) as ReturnType<typeof buildReasoningProviderOptions>
+      : buildReasoningProviderOptions(
       cap,
       true,
-      getReasoningEffort(
-        settings,
-        deriveReasoningCeiling(effectiveModel, modelClient.builtinProviderId),
-      ),
+      chosenEffort
+        ? levelShare(chosenEffort.choices, chosenEffort.level)
+        : getReasoningEffort(
+            settings,
+            deriveReasoningCeiling(effectiveModel, modelClient.builtinProviderId),
+          ),
       maxOutputTokens,
+      chosenEffort?.choices.kind === "effort" ? chosenEffort.level : undefined,
+      chosenEffort
+        ? { budget: chosenEffort.choices.kind === "budget", off: chosenEffort.choices.kind === "toggle" && reasoningOff }
+        : undefined,
     );
     if (reasoningPatch.openrouter) {
       providerOptions.openrouter = {
@@ -323,6 +343,7 @@ export async function simpleStreamText(
     // the first (OpenRouter's `reasoning` object beside a bare
     // `reasoning_effort`, a `thinking` block inside Google's options).
     const handledNatively =
+      offByBudget ||
       Boolean(reasoningPatch.openrouter) ||
       Boolean(reasoningPatch.google) ||
       Boolean(reasoningPatch.openai) ||

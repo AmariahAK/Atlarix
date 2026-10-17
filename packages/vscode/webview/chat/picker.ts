@@ -113,8 +113,8 @@ function render(scrollToCurrent = false): void {
   if (opts.full && state.thinking) {
     const t = el("div", "picker__thinking");
     t.append(
-      el("span", "muted", "Thinking"),
-      segmented(state.thinking.options, state.thinking.value, "Thinking", (v) => {
+      el("span", "muted", "Effort"),
+      segmented(state.thinking.options, state.thinking.value, "Effort", (v) => {
         post({ type: "set-option", configId: "thinking", value: v });
         if (state.thinking) state.thinking.value = v;
         render();

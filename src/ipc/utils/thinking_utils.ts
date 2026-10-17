@@ -1,5 +1,10 @@
 import { PROVIDERS_THAT_SUPPORT_THINKING } from "../shared/language_model_constants";
-import { resolveReasoningRequest } from "../../lib/routing/model-reasoning-profile";
+import {
+  chosenLevel,
+  effortChoicesFor,
+  resolveReasoningRequest,
+  type EffortChoices,
+} from "../../lib/routing/model-reasoning-profile";
 import type { UserSettings } from "../../lib/schemas";
 
 /**
@@ -57,6 +62,23 @@ export function openAiReasoningEffort(
   settings: UserSettings | undefined,
 ): ReasoningEffort {
   return settings?.deepThinking ? "max" : "medium";
+}
+
+/**
+ * The level chosen with /effort for this dispatch, when this model lists it.
+ * Null means nothing was chosen (or the choice was another model's): every route
+ * then behaves exactly as it did before /effort.
+ */
+export function chosenEffortFor(
+  settings: UserSettings | undefined,
+  providerId: string | undefined,
+  modelId: string | undefined,
+): { level: string; choices: EffortChoices } | null {
+  const want = settings?.effort?.trim();
+  if (!want || !modelId) return null;
+  const choices = effortChoicesFor(providerId, modelId);
+  if (!choices?.levels.some((l) => l.toLowerCase() === want.toLowerCase())) return null;
+  return { level: chosenLevel(choices, want), choices };
 }
 
 /** Fallback max-output when the caller can't supply one (capability probes). */
@@ -119,12 +141,17 @@ export function getExtraProviderOptions(
   }
 
   if (providerId === "openai") {
-    return { reasoningEffort: openAiReasoningEffort(settings) };
+    // A chosen level goes out exactly as the model lists it (`xhigh` stays `xhigh`).
+    const chosen = chosenEffortFor(settings, providerId, modelId);
+    return {
+      reasoningEffort:
+        chosen?.choices.kind === "effort" ? chosen.level : openAiReasoningEffort(settings),
+    };
   }
 
   const deepThinking = !!settings?.deepThinking;
   const resolved = modelId
-    ? resolveReasoningRequest({ providerId, modelId, deepThinking })
+    ? resolveReasoningRequest({ providerId, modelId, deepThinking, effort: settings?.effort })
     : ({ kind: "unknown" } as const);
 
   switch (resolved.kind) {

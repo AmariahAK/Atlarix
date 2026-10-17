@@ -82,6 +82,7 @@ Options
   --api-key <key> | --api-key-file <path>
   --attach <file>           Attach a file (repeatable)
   --deep-thinking           The model's highest reasoning level
+  --effort <level>          A level exactly as the model lists it (e.g. xhigh)
   --timeout <ms>            Stop after this long (default: no limit)
   --output-file <path>      Write the final reply here
   --trajectory-file <path>  Write the full trace here
@@ -152,6 +153,7 @@ async function main() {
   // (`reasoning_effort=max`) — a confound, not a fair reading of the model.
   const deepThinking =
     flag("deep-thinking") ?? envFlag("ATLARIX_HEADLESS_DEEP_THINKING") ?? false;
+  const effort = arg("effort") ?? process.env.ATLARIX_HEADLESS_EFFORT;
   // Unset means NO self-imposed deadline — the launcher owns it. The old
   // 10-minute default silently capped every long task (Terminal-Bench 4.0 allows
   // eight hours) and exited 1, which reads as a failed trial rather than a
@@ -238,6 +240,7 @@ async function main() {
     mode,
     timeoutMs,
     deepThinking,
+    effort,
     trajectoryFile,
     attachments,
   });

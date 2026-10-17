@@ -66,6 +66,7 @@ import { LM_STUDIO_BASE_URL } from "./lm_studio_utils";
 import { createOllamaProvider } from "./ollama_provider";
 import { trackLocalModelConnected } from "@/main/lib/analytics";
 import { getOllamaApiUrl } from "../handlers/local_model_ollama_handler";
+import { autoEffort } from "@/lib/routing/model-reasoning-profile";
 
 export interface ModelClient {
   // ai@6: v3-spec providers are the norm; the two custom V2 adapters
@@ -108,14 +109,18 @@ const logger = log.scope("getModelClient");
  * the proxy offers the free gateways only on "2".
  */
 export function autoRequestHeaders(
-  settings: Pick<UserSettings, "deepThinking" | "atlarixAutoConsentAt" | "atlarixAutoConsentVersion">,
+  settings: Pick<UserSettings, "deepThinking" | "effort" | "atlarixAutoConsentAt" | "atlarixAutoConsentVersion">,
   options?: GetModelClientOptions,
 ): Record<string, string> {
+  // /effort on Auto: low | medium | max choose the lanes. The thinking header
+  // stays for a proxy that predates the effort header (max = deep thinking).
+  const effort = autoEffort(settings);
   const out: Record<string, string> = {
     "X-Atlarix-Purpose":
       options?.purpose ??
       (options?.delegationRole === "subagent" ? "subagent" : "main"),
-    "X-Atlarix-Thinking": settings.deepThinking ? "1" : "0",
+    "X-Atlarix-Effort": effort,
+    "X-Atlarix-Thinking": effort === "max" ? "1" : "0",
   };
   if (options?.workMode) out["X-Atlarix-Mode"] = options.workMode;
   if (options?.escalate) out["X-Atlarix-Escalate"] = "1";

@@ -40,6 +40,7 @@ import {
 import { AUTO_CONSENT_MARKER, AUTO_CONSENT_TERMS } from "@/shared/billing_copy";
 import { diffUpdates, type Emitted } from "./updates";
 import { groupOptions, type ModelOption } from "../agent/models";
+import { chosenLevel, effortAfterModelChange, effortSettingsPatch } from "@/lib/routing/model-reasoning-profile";
 
 const MODES: Array<{ id: WorkMode; name: string; description: string }> = [
   { id: "build", name: "Build", description: "Make changes; every edit and command waits for your yes." },
@@ -58,13 +59,15 @@ export interface AcpDeps {
     current?: ModelChoice;
     /** The TUI's favourites and recents, so the editor's picker leads with them too. */
     picks?: { favorites: ModelChoice[]; recent: ModelChoice[] };
-    /** Deep thinking (ctrl+t in the terminal), shared with the TUI. */
-    deepThinking?: boolean;
+    /** /effort's level (ctrl+t in the terminal), shared with the TUI. */
+    effort?: { effort: string; deepThinking: boolean };
+    /** Signed in on the free plan: free Auto has no /effort. */
+    freeAccount?: boolean;
   }>;
   /** Remember a model the user picked, as the TUI's /model does. */
   rememberModel(ref: ModelChoice): void;
-  /** Deep thinking on or off, as the TUI's ctrl+t. */
-  setDeepThinking?(on: boolean): void;
+  /** /effort's level, as the TUI's /effort (the old deep-thinking switch kept in step). */
+  setEffort?(patch: { effort: string; deepThinking: boolean }): void;
   /** This folder's stored sessions, newest first (the TUI's /resume list). */
   listSessions(cwd: string): Promise<Array<{ id: string; title: string | null; updatedAt: Date | string }>>;
   /** Rename or delete a stored session (the editor's Past chats). */
@@ -117,6 +120,8 @@ class Thread {
   private chain: Promise<unknown> = Promise.resolve();
   private readonly asked = new Set<string>();
   private turn: { done: () => void; cancelled: boolean } | null = null;
+  /** Set a config option as the editor's picker does (the agent's setConfigOption): /effort uses it. */
+  setOption: ((configId: string, value: string) => Promise<SessionConfigOption[]>) | null = null;
   private lastTitle: string | null = null;
   private lastPlan: string | null = null;
   /** This folder's skills and the account's, offered as / commands. */
@@ -599,6 +604,12 @@ class Thread {
       await this.send({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: reply } });
       return { stopReason: "end_turn" };
     }
+    // /effort typed in the chat: answered here, never sent to the model as a turn (QA N3).
+    const effortCmd = /^\/effort(?:\s+(\S+))?\s*$/i.exec(text.trim());
+    if (effortCmd) {
+      await this.send({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: await this.effortCommand(effortCmd[1]) } });
+      return { stopReason: "end_turn" };
+    }
     if (slash?.[1] === "keys" || /^\/keys\s/.test(text)) {
       const { keysCommandText } = await import("./account-commands");
       const reply = await keysCommandText(text).catch((e: Error) => `Couldn't read your keys: ${e.message}`);
@@ -797,19 +808,37 @@ class Thread {
     return `Use the "${s.name}" skill: read ${s.readPath} first.${rest ? `\n\n${rest}` : ""}`;
   }
 
+  /** `/effort` lists this model's levels; `/effort <level>` sets one (as the picker's Effort). */
+  private async effortCommand(arg: string | undefined): Promise<string> {
+    const option = (await this.options()).find((o) => o.id === "thinking") as
+      | { currentValue: unknown; options: Array<{ value: string; description?: string | null }> }
+      | undefined;
+    if (!option) return "This model has no effort setting. (Free Auto runs at one level; Pro, credit or your own key adds effort.)";
+    const levels = option.options.map((o) => o.value);
+    const def = option.options.find((o) => o.description === "default")?.value;
+    const list = levels.map((l) => (l === def ? `${l} (default)` : l)).join(", ");
+    if (!arg) return `Effort: **${String(option.currentValue)}**. This model's levels: ${list}. Set one with \`/effort <level>\` or in the model picker.`;
+    const hit = levels.find((l) => l.toLowerCase() === arg.toLowerCase());
+    if (!hit) return `No level "${arg}". This model's levels: ${list}.`;
+    const configOptions = (await this.setOption?.("thinking", hit)) ?? (await this.options());
+    void this.send({ sessionUpdate: "config_option_update", configOptions });
+    return `Effort: **${hit}**.`;
+  }
+
   async cancel(): Promise<void> {
     if (this.turn) this.turn.cancelled = true;
     await this.session.interrupt();
   }
 }
 
-const BUILTIN_COMMANDS = ["compact", "undo", "keys", "status", "stats", "billing", "mcp", "automations", "handoff", "logout", "build"];
+const BUILTIN_COMMANDS = ["compact", "effort", "undo", "keys", "status", "stats", "billing", "mcp", "automations", "handoff", "logout", "build"];
 
 function commandsUpdate(planReady: boolean, skills: Array<{ name: string; description: string }> = []): SessionUpdate {
   return {
     sessionUpdate: "available_commands_update",
     availableCommands: [
       { name: "compact", description: "Summarize the conversation so far to free up context." },
+      { name: "effort", description: "How hard the model thinks: its own levels, as it lists them.", input: { hint: "a level (optional)" } },
       { name: "undo", description: "Go back to one of your messages, edit it and send it again." },
       { name: "keys", description: "Your own API keys, and whether each one works." },
       { name: "status", description: "Your Atlarix account, plan, credit and this chat's usage." },
@@ -874,7 +903,8 @@ export function modelGroups(
     options: g.options.map((o) => ({
       value: `${o.provider}/${o.name}`,
       name: o.label,
-      ...(o.detail || o.free ? { description: [o.free ? "Free" : "", o.detail].filter(Boolean).join(" · ") } : {}),
+      // "Free" once: Auto's own description already starts with it (QA: "Free · Free · …").
+      ...(o.detail || o.free ? { description: [o.free && !/^free\b/i.test(o.detail ?? "") ? "Free" : "", o.detail].filter(Boolean).join(" · ") } : {}),
     })),
   }));
 }
@@ -910,11 +940,12 @@ export class AcpAgent {
   }
 
   private async configOptions(t: Thread): Promise<SessionConfigOption[]> {
-    const { options, current, picks, deepThinking } = await this.deps.models().catch(() => ({
+    const { options, current, picks, effort, freeAccount } = await this.deps.models().catch(() => ({
       options: [],
       current: undefined,
       picks: undefined,
-      deepThinking: undefined,
+      effort: undefined,
+      freeAccount: undefined,
     }));
     const out: SessionConfigOption[] = [
       {
@@ -940,17 +971,24 @@ export class AcpAgent {
       currentValue: key(chosen),
       options: modelGroups(options, picks),
     });
-    if (options.find((o) => key(o) === key(chosen))?.deepThinking && this.deps.setDeepThinking) {
+    // /effort: the chosen model's own levels, exactly as it lists them (paid
+    // Auto's low / medium / max; none on free Auto). The id stays "thinking" so
+    // editors that already draw it keep working.
+    const opt = options.find((o) => key(o) === key(chosen));
+    const choices = opt?.effortChoices;
+    if (choices && !(opt?.free && freeAccount) && this.deps.setEffort) {
+      const sel = effort ?? { effort: "", deepThinking: false };
       out.push({
         id: "thinking",
-        name: "Thinking",
+        name: "Effort",
         category: "thought_level",
         type: "select",
-        currentValue: deepThinking ? "deep" : "normal",
-        options: [
-          { value: "normal", name: "Normal", description: "The model's usual thinking." },
-          { value: "deep", name: "Deep", description: "Thinks at the model's ceiling: slower, and more tokens." },
-        ],
+        currentValue: chosenLevel(choices, sel.effort || undefined, sel.deepThinking && !sel.effort),
+        options: choices.levels.map((l) => ({
+          value: l,
+          name: l,
+          ...(l === choices.defaultLevel ? { description: "default" } : {}),
+        })),
       });
     }
     return out;
@@ -987,6 +1025,7 @@ export class AcpAgent {
       () => this.atlarixClient,
       () => this.configOptions(t),
     );
+    t.setOption = (configId, value) => this.setConfigOption(t.id, configId, value);
     this.threads.set(t.id, t);
     return t;
   }
@@ -1143,8 +1182,18 @@ export class AcpAgent {
       const ref = { provider: provider!, name: rest.join("/") };
       t.session.setModel(ref);
       this.deps.rememberModel(ref);
-    } else if (configId === "thinking" && this.deps.setDeepThinking) {
-      this.deps.setDeepThinking(String(value) === "deep");
+      // The level stays only when the new model lists it (owner: never translated).
+      const { options, effort } = await this.deps.models().catch(() => ({ options: [], effort: undefined }));
+      const next = options.find((o) => o.provider === ref.provider && o.name === ref.name);
+      this.deps.setEffort?.(effortAfterModelChange(next?.effortChoices ?? null, effort ?? { effort: "", deepThinking: false }));
+    } else if (configId === "thinking" && this.deps.setEffort) {
+      const { options, current } = await this.deps.models();
+      const want = t.session.model ?? current;
+      // The model the picker shows: the first offered when the session's is gone (as configOptions).
+      const shown = options.find((o) => want && o.provider === want.provider && o.name === want.name) ?? options[0];
+      const choices = shown?.effortChoices;
+      if (!choices) throw RequestError.invalidParams(undefined, "this model has no effort setting");
+      this.deps.setEffort(effortSettingsPatch(choices, String(value)));
     } else throw RequestError.invalidParams(undefined, `unknown option ${configId}`);
     return this.configOptions(t);
   }

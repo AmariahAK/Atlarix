@@ -32,8 +32,8 @@ describe("the composer's config button", () => {
       </TooltipProvider>,
     );
     expect(screen.getByTestId("chat-config-button").getAttribute("aria-label")).toBe(
-      "Reasoning, voice & MCP servers",
+      "Effort, voice & MCP servers",
     );
-    expect(screen.getByRole("button", { name: "Reasoning, voice & MCP servers" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Effort, voice & MCP servers" })).toBeTruthy();
   });
 });

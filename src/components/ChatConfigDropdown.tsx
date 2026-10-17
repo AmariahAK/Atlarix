@@ -1,5 +1,5 @@
 /**
- * The composer's config menu: reasoning effort and voice input.
+ * The composer's config menu: effort and voice input.
  *
  * NOT the model. The model is the chip beside this button
  * (`components/ModelPicker.tsx`) — it names what you are on, which this menu
@@ -28,9 +28,12 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { chosenLevel, effortSettingsPatch } from "@/lib/routing/model-reasoning-profile";
 import { SlidersHorizontal, Brain, Mic } from "lucide-react";
 import { DefaultMcpMenuSection } from "@/components/DefaultMcpMenuSection";
 import {
@@ -40,30 +43,31 @@ import {
 } from "@/components/ui/tooltip";
 
 /** What the menu holds; the icon button's name and its tooltip. */
-const MENU_NAME = "Reasoning, voice & MCP servers";
+const MENU_NAME = "Effort, voice & MCP servers";
 
 export function ChatConfigDropdown() {
   const { settings, updateSettings } = useSettings();
   const { data: modelsByProviders } = useLanguageModelsByProviders();
-  // Only offer "deep thinking" for models that can actually reason (opencode's
-  // capability gate) — otherwise the toggle would be a no-op.
-  //
-  // The answer is RESOLVED IN MAIN and read off the model row here. Calling the
-  // capability gate directly from the renderer looked equivalent and was not: the
+  // /effort: the levels THIS model lists, exactly as listed (or paid Auto's
+  // low / medium / max), RESOLVED IN MAIN and read off the model row. Calling the
+  // capability lookups from the renderer looked equivalent and was not: the
   // models.dev reasoning registry and the Core tier→vendor routing map are both
-  // main-process module state, so in here every lookup missed and the gate fell
-  // through to a provider allowlist containing no `compass` — hiding the toggle for
-  // the entire Atlarix Core lineup while the same model on BYOK showed it.
+  // main-process module state, so in here every lookup missed (the reason the
+  // deep-thinking toggle once hid for the whole Atlarix Core lineup).
   //
-  // Undefined (query still loading, or a model not in the list) hides the row rather
-  // than guessing: a toggle that appears and then vanishes is worse than one that
-  // arrives a moment late, and a wrong guess offers a control that does nothing.
-  const reasoningCapable =
-    settings?.selectedModel != null &&
-    modelsByProviders?.[settings.selectedModel.provider]?.find(
-      (m) => m.apiName === settings.selectedModel.name,
-    )?.supportsDeepThinking === true;
-  const deepThinking = !!settings?.deepThinking;
+  // Undefined (query still loading, or a model not in the list) hides the section
+  // rather than guessing: a control that appears and then vanishes is worse than
+  // one that arrives a moment late.
+  const effortChoices =
+    settings?.selectedModel != null
+      ? modelsByProviders?.[settings.selectedModel.provider]?.find(
+          (m) => m.apiName === settings.selectedModel.name,
+        )?.effortChoices
+      : undefined;
+  const reasoningCapable = effortChoices != null;
+  const effortNow = effortChoices
+    ? chosenLevel(effortChoices, settings?.effort, !!settings?.deepThinking && !settings?.effort)
+    : undefined;
   const { t } = useTranslation("chat");
   const onAuto =
     settings?.selectedModel?.provider === COMPASS_PROVIDER_ID &&
@@ -137,31 +141,37 @@ export function ChatConfigDropdown() {
             <>
               <DropdownMenuLabel className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                 <Brain className="h-3.5 w-3.5" />
-                Reasoning
+                Effort
               </DropdownMenuLabel>
-              <DropdownMenuCheckboxItem
-                checked={deepThinking}
-                onCheckedChange={(v) => updateSettings({ deepThinking: !!v })}
-                onSelect={(e) => e.preventDefault()}
-                data-testid="deep-thinking-toggle"
-              >
-                Deep thinking
-                <span className="ml-auto text-[10px] text-muted-foreground">
-                  {deepThinking ? "on" : "off"}
-                </span>
-              </DropdownMenuCheckboxItem>
-              {onAuto ? (
+              {onAuto && balanceCents === 0 ? (
+                // Free Auto runs at one level: the cost of being free (owner).
                 <p className="px-2 pb-1 pt-0.5 text-[10px] leading-snug text-muted-foreground">
-                  {/* Free Auto has no stronger models to move to, and costs nothing. */}
-                  {balanceCents === 0
-                    ? t("atlarixAuto.deepThinkingHintFree")
-                    : t("atlarixAuto.deepThinkingHint")}
+                  {t("atlarixAuto.effortFree")}
                 </p>
               ) : (
-                <p className="px-2 pb-1 pt-0.5 text-[10px] leading-snug text-muted-foreground">
-                  Off = high reasoning (default); on = the maximum this model
-                  supports. Scales automatically to each model's capability.
-                </p>
+                <>
+                  <DropdownMenuRadioGroup
+                    value={effortNow}
+                    onValueChange={(v) => updateSettings(effortSettingsPatch(effortChoices!, v))}
+                  >
+                    {effortChoices!.levels.map((level) => (
+                      <DropdownMenuRadioItem
+                        key={level}
+                        value={level}
+                        onSelect={(e) => e.preventDefault()}
+                        data-testid={`effort-${level}`}
+                      >
+                        {level}
+                        {level === effortChoices!.defaultLevel ? (
+                          <span className="ml-auto text-[10px] text-muted-foreground">default</span>
+                        ) : null}
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                  <p className="px-2 pb-1 pt-0.5 text-[10px] leading-snug text-muted-foreground">
+                    {onAuto ? t("atlarixAuto.effortHint") : "As this model lists them; higher thinks longer and costs more."}
+                  </p>
+                </>
               )}
             </>
           ) : null}

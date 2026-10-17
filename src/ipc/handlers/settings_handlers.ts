@@ -10,6 +10,8 @@ import {
   getSignedInUserId,
 } from "../../main/lib/analytics";
 import { ACQUISITION_DETAIL_MAX } from "../../lib/community/acquisition";
+import { effortAfterModelChange } from "../../lib/routing/model-reasoning-profile";
+import { effortChoicesForModel } from "../../lib/routing/reasoning-detector";
 
 export function registerSettingsHandlers() {
   // Intentionally do NOT use handle because it could log sensitive data from the return value.
@@ -29,7 +31,19 @@ export function registerSettingsHandlers() {
     "set-user-settings",
     async (_, settings: Partial<UserSettings>) => {
       const prev = readSettings();
-      writeSettings(settings);
+      // A new model keeps the /effort level only when it lists it too; otherwise
+      // it runs its own default (owner: never translated between models). Here,
+      // where every window's model change is written, and in main, where the
+      // catalog is.
+      const modelChanged =
+        settings.selectedModel != null &&
+        (settings.selectedModel.provider !== prev.selectedModel?.provider ||
+          settings.selectedModel.name !== prev.selectedModel?.name);
+      writeSettings(
+        modelChanged && settings.effort === undefined
+          ? { ...settings, ...effortAfterModelChange(effortChoicesForModel(settings.selectedModel), prev) }
+          : settings,
+      );
       const next = readSettings();
       if (next.selectedChatMode !== prev.selectedChatMode) {
         if (next.selectedChatMode === "build") {

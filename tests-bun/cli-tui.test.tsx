@@ -623,12 +623,16 @@ describe("parity details", () => {
   });
 });
 
-describe("/model and ctrl+t", () => {
+describe("/model, /effort and ctrl+t", () => {
+  const AUTO = { kind: "effort", levels: ["low", "medium", "max"], defaultLevel: "medium" };
+  // OpenAI's own route runs medium when nothing is chosen (defaultFor).
+  const GPT = { kind: "effort", levels: ["none", "low", "medium", "high", "xhigh", "max"], defaultLevel: "medium" };
   const options = [
-    { provider: "compass", name: "core-auto", label: "Atlarix Auto", providerName: "Atlarix", detail: "", deepThinking: false },
-    { provider: "openai", name: "gpt-6-luna", label: "GPT-6 Luna", providerName: "OpenAI", detail: "OpenAI", deepThinking: true },
+    { provider: "compass", name: "core-auto", label: "Atlarix Auto", providerName: "Atlarix", detail: "", deepThinking: true, free: true, effortChoices: AUTO },
+    { provider: "openai", name: "gpt-6-luna", label: "GPT-6 Luna", providerName: "OpenAI", detail: "OpenAI", deepThinking: true, effortChoices: GPT },
+    { provider: "local", name: "plain", label: "Plain model", providerName: "Local", detail: "", deepThinking: false },
   ];
-  const source = () => {
+  const source = (selected = { provider: "compass", name: "core-auto" }) => {
     const calls: Array<[string, unknown]> = [];
     let state = { recent: [] as Array<{ provider: string; name: string }>, favorites: [] as Array<{ provider: string; name: string }> };
     return {
@@ -641,7 +645,8 @@ describe("/model and ctrl+t", () => {
           calls.push(["save", st]);
         },
         choose: (ref: unknown) => calls.push(["choose", ref]),
-        setDeepThinking: (on: boolean) => calls.push(["deep", on]),
+        setEffort: (patch: unknown) => calls.push(["effort", patch]),
+        selected: async () => selected,
       },
     };
   };
@@ -682,16 +687,73 @@ describe("/model and ctrl+t", () => {
     expect(setup.captureCharFrame()).not.toContain("Select model");
   });
 
-  it("ctrl+t turns deep thinking on and off", async () => {
+  it("ctrl+t puts the effort at the top of the model's list, and back to its default", async () => {
     const { calls, src } = source();
     const { setup } = await mount(undefined, src as never);
+    await settle(setup);
     setup.mockInput.pressKey("t", { ctrl: true });
     await settle(setup);
-    expect(calls).toContainEqual(["deep", true]);
-    expect(setup.captureCharFrame()).toContain("Atlarix Auto · deep");
+    expect(calls).toContainEqual(["effort", { effort: "max", deepThinking: true }]);
+    expect(setup.captureCharFrame()).toContain("Atlarix Auto · max");
     setup.mockInput.pressKey("t", { ctrl: true });
     await settle(setup);
-    expect(calls).toContainEqual(["deep", false]);
+    // Back to the default: stored as unset, so it follows the next model's own default.
+    expect(calls).toContainEqual(["effort", { effort: "", deepThinking: false }]);
+    // The default is not named beside the model.
+    expect(setup.captureCharFrame()).not.toMatch(/Atlarix Auto · (max|medium)/);
+  });
+
+  it("/effort lists the model's own levels exactly as listed, and enter chooses one", async () => {
+    const { calls, src } = source({ provider: "openai", name: "gpt-6-luna" });
+    const { setup } = await mount(undefined, src as never);
+    await setup.mockInput.typeText("/effort");
+    setup.mockInput.pressEnter();
+    await settle(setup);
+    const frame = setup.captureCharFrame();
+    for (const l of ["none", "low", "medium", "high", "xhigh", "max"]) expect(frame).toContain(l);
+    expect(frame).toContain("default");
+    // It opens on the current level (the default, medium); one down is high.
+    setup.mockInput.pressArrow("down");
+    await settle(setup);
+    setup.mockInput.pressEnter();
+    await settle(setup);
+    expect(calls).toContainEqual(["effort", { effort: "high", deepThinking: false }]);
+  });
+
+  it("/effort <level> sets it; a level the model doesn't list names the ones it does", async () => {
+    const { calls, src } = source();
+    const { setup } = await mount(undefined, src as never);
+    await setup.mockInput.typeText("/effort low");
+    setup.mockInput.pressEnter();
+    await settle(setup);
+    expect(calls).toContainEqual(["effort", { effort: "low", deepThinking: false }]);
+    expect(setup.captureCharFrame()).toContain("Atlarix Auto · low");
+    await setup.mockInput.typeText("/effort xhigh");
+    setup.mockInput.pressEnter();
+    await settle(setup);
+    expect(setup.captureCharFrame()).toContain("low, medium, max");
+  });
+
+  it("a model without the level goes back to its own default; none for a model with no setting", async () => {
+    const { calls, src } = source({ provider: "openai", name: "gpt-6-luna" });
+    const { setup } = await mount(undefined, src as never);
+    await setup.mockInput.typeText("/effort none");
+    setup.mockInput.pressEnter();
+    await settle(setup);
+    await setup.mockInput.typeText("/model");
+    setup.mockInput.pressEnter();
+    await settle(setup);
+    await setup.mockInput.typeText("plain");
+    await settle(setup);
+    setup.mockInput.pressEnter();
+    await settle(setup);
+    expect(calls).toContainEqual(["effort", { effort: "", deepThinking: false }]);
+    // A model with no levels has no default to be back at.
+    expect(setup.captureCharFrame()).not.toContain("Effort is back to its default");
+    await setup.mockInput.typeText("/effort");
+    setup.mockInput.pressEnter();
+    await settle(setup);
+    expect(setup.captureCharFrame()).toContain("This model has no effort setting");
   });
 });
 
