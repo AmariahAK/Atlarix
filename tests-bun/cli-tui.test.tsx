@@ -651,6 +651,18 @@ describe("/model, /effort and ctrl+t", () => {
     };
   };
 
+  it("starts on the remembered label and corrects it once the model list loads, remembering it", async () => {
+    // The terminal draws before any model list is built (that held the first
+    // frame back ~2s); the label comes from cli-state and is fixed up here.
+    const { calls, src } = source();
+    (src.state() as { model?: unknown }).model = { provider: "openai", name: "gpt-6-luna" };
+    const { setup } = await mount(undefined, src as never);
+    await settle(setup);
+    expect(setup.captureCharFrame()).toContain("GPT-6 Luna");
+    const saved = calls.filter((c) => c[0] === "save").map((c) => (c[1] as { modelLabel?: unknown }).modelLabel);
+    expect(saved).toContainEqual({ provider: "openai", name: "gpt-6-luna", label: "GPT-6 Luna" });
+  });
+
   it("/model opens the picker, typing filters, enter chooses and the status shows it", async () => {
     const { calls, src } = source();
     const { setup } = await mount(undefined, src as never);
