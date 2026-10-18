@@ -35,7 +35,7 @@
 
 import { execSync } from "node:child_process";
 import { readFileSync, statSync, mkdtempSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
@@ -89,6 +89,16 @@ export function retryDelayMs(attempt, retryAfter) {
   const seconds = retryAfter == null || retryAfter === "" ? NaN : Number(retryAfter);
   if (Number.isFinite(seconds) && seconds >= 0) return Math.min(seconds, 120) * 1000;
   return Math.min(2 ** attempt * 1000, 60_000);
+}
+
+/**
+ * Notes for the Store's testers: why the two restricted capabilities, and how to
+ * try the app. Every submission went in with none, and a manual review of a
+ * restricted capability with nothing to go on is slow (status report 2026-10-18).
+ */
+export function certificationNotes() {
+  const file = join(dirname(fileURLToPath(import.meta.url)), "../build/msix/certification-notes.txt");
+  return readFileSync(file, "utf8").trim();
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -256,6 +266,7 @@ async function main() {
     fileName: filename,
     fileStatus: "PendingUpload",
   });
+  sub.notesForCertification = certificationNotes();
 
   console.log("Updating submission packages...");
   await api(token, "PUT", `applications/${APP_ID}/submissions/${sub.id}`, sub);

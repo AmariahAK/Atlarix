@@ -1,0 +1,10 @@
+Atlarix is a desktop AI coding workstation. It reads and edits the user's own source folders and runs their developer tools.
+
+Restricted capabilities:
+- runFullTrust: Atlarix is a packaged Win32 (Electron) app. It starts terminals (node-pty), git, ripgrep and package managers in the folder the user opens, and reads and writes those files.
+- unvirtualizedResources: Atlarix registers a Chrome native messaging host under HKCU so its optional browser extension can talk to the app. Browsers read that key from the real registry, never from a package hive, so registry write virtualization is disabled.
+
+How to test:
+1. Launch Atlarix and sign in with an email address, Google or GitHub (sign-in opens the browser). The account is free and needs no purchase.
+2. Open any folder and pick the "Atlarix Auto" model, which is free for a number of messages each day.
+3. Ask, for example, "list the files here and summarize the README". The app reads files, asks before running commands, and shows its work in the chat.

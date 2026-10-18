@@ -14,6 +14,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   api,
   awaitCommit,
+  certificationNotes,
   clearPending,
   isRetryable,
   pendingSubmissionAction,
@@ -144,5 +145,14 @@ describe("awaitCommit", () => {
     const s = store([() => ({ status: "CommitStarted" }), () => ({ status: "PreProcessing" })]);
     expect(await awaitCommit(s.call, "APP", "s2", noWait)).toEqual({ status: "PreProcessing" });
     expect(s.log).toEqual(["GET applications/APP/submissions/s2/status", "GET applications/APP/submissions/s2/status"]);
+  });
+});
+
+describe("certification notes", () => {
+  it("go with every submission, explain both restricted capabilities, and fit the field", () => {
+    const notes = certificationNotes();
+    expect(notes).toContain("runFullTrust");
+    expect(notes).toContain("unvirtualizedResources");
+    expect(notes.length).toBeLessThanOrEqual(2000);
   });
 });
