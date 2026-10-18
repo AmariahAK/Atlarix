@@ -68,6 +68,7 @@ import { createOllamaProvider } from "./ollama_provider";
 import { trackLocalModelConnected } from "@/main/lib/analytics";
 import { getOllamaApiUrl } from "../handlers/local_model_ollama_handler";
 import { autoEffort } from "@/lib/routing/model-reasoning-profile";
+import { CORE_TIER_NEWER_BUILD } from "@/shared/texts";
 
 export interface ModelClient {
   // ai@6: v3-spec providers are the norm; the two custom V2 adapters
@@ -391,9 +392,7 @@ async function getRegularModelClient(
         );
       }
       if (!resolvedTier && isCoreTierFromNewerBuild(model.name)) {
-        throw new Error(
-          "That Atlarix Core model comes from a newer version of Atlarix. Update this one, or pick another model.",
-        );
+        throw new Error(CORE_TIER_NEWER_BUILD);
       }
       if (!resolvedTier) {
         throw new Error(

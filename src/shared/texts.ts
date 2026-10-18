@@ -65,6 +65,10 @@ export function byokLimitUserMessage(reason: string, providerId?: string): strin
   return null;
 }
 
+/** A Core pick a newer Atlarix wrote into the shared settings (compass_constants). */
+export const CORE_TIER_NEWER_BUILD =
+  "That Atlarix Core model comes from a newer version of Atlarix. Update this one, or pick another model.";
+
 /**
  * A model's request failed for some other reason. Said in a sentence, without
  * the provider's JSON or line breaks, and with the likely fix where the words
@@ -73,6 +77,8 @@ export function byokLimitUserMessage(reason: string, providerId?: string): strin
  * place, in the CLI and editor).
  */
 export function modelFailureUserMessage(reason: string): string {
+  // Already says what to do, and trying again can't help.
+  if (reason.includes(CORE_TIER_NEWER_BUILD)) return CORE_TIER_NEWER_BUILD;
   const said = providerSaid(reason.replace(/\bDetails:\s*/g, "")) || "the request failed";
   if (/model ['"`]?[^'"`\s]+['"`]? not found|model_not_found|no such model|unknown model/i.test(reason)) {
     return `The provider doesn't have that model. Check the model's id, or switch model. (It said: "${said}")`;
