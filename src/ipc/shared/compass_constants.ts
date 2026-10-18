@@ -95,6 +95,15 @@ export function isCoreTierId(internalTierId: string): boolean {
   );
 }
 
+/**
+ * A `core-N` slot a newer Atlarix offers that this build has no slot for (QA
+ * 2026-10-18: 15.9.0 answered a core-5 pick on core-1, at about 10× its price).
+ */
+export function isCoreTierFromNewerBuild(internalTierId: string): boolean {
+  const norm = normalizeCoreTierId(internalTierId);
+  return /^core-\d+$/.test(norm) && !(CORE_TIER_ORDER as readonly string[]).includes(norm);
+}
+
 /** True for the free Atlarix Auto tier. */
 export function isCoreAutoTier(internalTierId: string | undefined): boolean {
   return !!internalTierId && normalizeCoreTierId(internalTierId) === CORE_TIER_AUTO;
@@ -377,6 +386,10 @@ export function resolveConfiguredCoreTier(
   internalTierId: string,
 ): { tier: string; substituted: boolean } | undefined {
   const norm = normalizeCoreTierId(internalTierId);
+  // A slot this build doesn't know never falls forward either: it is a model a
+  // newer Atlarix offered (settings are shared between the app, the terminal and
+  // the editors), and answering on another one bills a model nobody picked.
+  if (isCoreTierFromNewerBuild(norm)) return undefined;
   if (getCoreModelIdForCoreTier(norm)?.trim())
     return { tier: norm, substituted: false };
   // A withdrawn Auto NEVER falls forward: every other tier is paid, and moving a

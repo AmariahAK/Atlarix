@@ -51,6 +51,7 @@ import {
   autoConsentHeader,
   getCompassMasterApiKey,
   getCoreModelIdForCoreTier,
+  isCoreTierFromNewerBuild,
   getFirstConfiguredCoreTier,
   isCoreAutoTier,
   resolveConfiguredCoreTier,
@@ -387,6 +388,11 @@ async function getRegularModelClient(
       if (!resolvedTier && isCoreAutoTier(model.name)) {
         throw new Error(
           "Atlarix Auto isn't offered right now. Pick a Core model above, or add your own API key in Settings.",
+        );
+      }
+      if (!resolvedTier && isCoreTierFromNewerBuild(model.name)) {
+        throw new Error(
+          "That Atlarix Core model comes from a newer version of Atlarix. Update this one, or pick another model.",
         );
       }
       if (!resolvedTier) {

@@ -61,7 +61,10 @@ export async function loadModelOptions(): Promise<ModelOption[]> {
   for (const [provider, models] of entries) {
     const providerName = provider === COMPASS ? "Atlarix" : (names.get(provider) ?? provider);
     for (const m of models) {
-      const ctx = m.contextWindow ? `${Math.round(m.contextWindow / 1000)}K context` : "";
+      // A Core row carries a cautious placeholder window; the meter shows the
+      // model's real one, so the list reads the same (QA: "200K" here, "/1M" there).
+      const window = provider === COMPASS ? await coreContextWindow(m.apiName, m.contextWindow) : m.contextWindow;
+      const ctx = window ? `${formatWindow(window)} context` : "";
       const paidAuto = provider === COMPASS && isCoreAutoTier(m.apiName) && paysForAuto;
       out.push({
         provider,
@@ -72,11 +75,26 @@ export async function loadModelOptions(): Promise<ModelOption[]> {
         deepThinking: Boolean((m as { supportsDeepThinking?: boolean }).supportsDeepThinking),
         effortChoices: (m as { effortChoices?: EffortChoices }).effortChoices,
         free: provider === COMPASS && isCoreAutoTier(m.apiName) && !paidAuto,
-        context: m.contextWindow ? `${Math.round(m.contextWindow / 1000)}K` : undefined,
+        context: window ? `${formatWindow(window)}` : undefined,
       });
     }
   }
   return out;
+}
+
+/** The window the context meter uses for a Core row, else the row's own. */
+async function coreContextWindow(name: string, listed: number | undefined): Promise<number | undefined> {
+  try {
+    const { getContextWindow } = await import("@/ipc/utils/token_utils");
+    return (await getContextWindow({ provider: COMPASS, name } as never)) || listed;
+  } catch {
+    return listed;
+  }
+}
+
+/** 200K, 1M: the meter's spelling. */
+function formatWindow(tokens: number): string {
+  return tokens >= 1_000_000 ? `${Math.round(tokens / 100_000) / 10}M` : `${Math.round(tokens / 1000)}K`;
 }
 
 /** Whether the signed-in account pays for Auto (Pro or credit); false when unknown. */

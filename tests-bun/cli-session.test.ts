@@ -58,6 +58,16 @@ function waitFor(s: { state: any; on: Function; off: Function }, pred: (st: any)
 }
 
 describe("AgentSession", () => {
+  it("names a Core model in the turn's footer by its model, not its slot id", async () => {
+    const { AgentSession } = await import("../src/cli/agent/session");
+    const { setCoreModelOverrides } = await import("../src/ipc/shared/core-model-override-store");
+    setCoreModelOverrides({ "core-4": "z-ai/glm-5.3-flash" });
+    const s = new AgentSession({ workspaceDir: ws, model: { provider: "compass", name: "core-4" } });
+    const name = await (s as unknown as { footerModelName(): Promise<string | undefined> }).footerModelName();
+    expect(name).toContain("5.3 Flash");
+    expect(name).not.toBe("core-4");
+  });
+
   it("runs a turn: a search line, then the answer", async () => {
     const { AgentSession, seedDevProvider } = await import("../src/cli/agent/session");
     const model = await seedDevProvider({ baseUrl: llm.url, model: "fake-model", apiKey: "dev" });

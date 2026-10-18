@@ -12,6 +12,9 @@ vi.mock("@/ipc/shared/language_model_helpers", () => ({
   }),
 }));
 vi.mock("@/main/settings", () => ({ readSettings: () => ({}) }));
+vi.mock("@/ipc/utils/token_utils", () => ({
+  getContextWindow: async (m: { name: string }) => (m.name === "core-1" ? 1_000_000 : 128_000),
+}));
 vi.mock("@/cli/agent/services", () => ({ realServices: { account: { kind: async () => state.kind } } }));
 
 import { loadModelOptions } from "@/cli/agent/models";
@@ -30,5 +33,12 @@ describe("Atlarix Auto in the terminal's model list", () => {
   it.each(["pro", "payg"])("is not Free on a %s account, which pays for it", async (kind) => {
     state.kind = kind;
     expect(await auto()).toMatchObject({ free: false, detail: "128K context", context: "128K" });
+  });
+});
+
+describe("a Core model's window in the terminal's model list", () => {
+  it("is the one the context meter uses, not the row's placeholder", async () => {
+    const core1 = (await loadModelOptions()).find((o) => o.name === "core-1")!;
+    expect(core1).toMatchObject({ context: "1M", detail: "1M context" });
   });
 });
