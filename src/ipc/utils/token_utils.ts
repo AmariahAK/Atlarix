@@ -13,6 +13,10 @@ import {
   catalogAllowsTemperature,
   supportsTemperatureParam,
 } from "@/lib/routing/model-reasoning-profile";
+import {
+  anthropicCatalogModelId,
+  isCustomAnthropicFormat,
+} from "@/lib/routing/custom-provider-format";
 
 /**
  * Token count using exact tokenizer.
@@ -272,15 +276,22 @@ export async function getMaxTokensWithFloor(
 export async function getTemperature(
   model: LargeLanguageModel,
 ): Promise<number | undefined> {
+  // A provider the user added on the Anthropic format: Anthropic's own row, so
+  // a Bedrock id for a model that takes no temperature gets none (it 400s).
+  const anthropicFormat = isCustomAnthropicFormat(model.provider);
   const providerId =
     model.provider === "compass"
       ? (getCoreModelsDevTargetForTier(model.name)?.providerId ??
         model.provider)
-      : model.provider;
+      : anthropicFormat
+        ? "anthropic"
+        : model.provider;
   const modelId =
     model.provider === "compass"
       ? (getCoreModelsDevTargetForTier(model.name)?.modelId ?? model.name)
-      : model.name;
+      : anthropicFormat
+        ? anthropicCatalogModelId(model.name ?? "")
+        : model.name;
   const allowed =
     model.provider === "compass"
       ? catalogAllowsTemperature(providerId, modelId ?? "")
