@@ -99,10 +99,32 @@ export function stripHallucinatedAtlarixToolTagsFromDelta(
   return out;
 }
 
+/**
+ * DeepSeek's own tool-call markup ("DSML", with full-width bars). Through Bedrock
+ * the call itself arrives as a real tool call, but its opening token leaks into
+ * the text once per call (QA 2026-10-18, DeepSeek V3.2: "…changes.\n\n<｜DSML｜
+ * function_calls" before every tool card). It is never content, so whole blocks
+ * and stray tags both go. `complete`: the text has ended, so a tag cut off at the
+ * very end goes too; mid-stream its rest may still be arriving.
+ */
+export function stripDeepSeekDsml(text: string, complete = true): string {
+  if (!text || !text.includes("DSML")) return text;
+  const out = text.replace(
+    /<[｜|]DSML[｜|]function_calls>[\s\S]*?<\/[｜|]DSML[｜|]function_calls>/g,
+    "",
+  );
+  return out.replace(
+    complete
+      ? /<\/?[｜|]DSML[｜|][^<>\n]*(?:>|(?=<)|(?=\n)|$)/g
+      : /<\/?[｜|]DSML[｜|][^<>\n]*(?:>|(?=<)|(?=\n))/g,
+    "",
+  );
+}
+
 /** Remove orphan tool XML fragments and JSON tails leaked into markdown. */
 export function stripOrphanToolTagFragments(content: string): string {
   if (!content) return "";
-  let out = content;
+  let out = stripDeepSeekDsml(content);
   out = out.replace(/<\/?atlarix-(?:tool|mcp)-[\w-]*[^>]*>/gi, "");
   out = out.replace(/<\/?atlarix-mcp-tool-[\w-]*[^>]*>/gi, "");
   // XML-anchored debris is safe to strip anywhere: tool tags are never legitimate

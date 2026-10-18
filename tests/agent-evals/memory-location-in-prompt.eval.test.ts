@@ -98,7 +98,7 @@ describe("memory location reaches the dispatched prompt", () => {
 
       // And stated as the ONLY store, so searching for another is obviously wrong.
       expect(system).toMatch(/only store/i);
-      expect(system).toMatch(/nowhere else/i);
+      expect(system).toMatch(/never search for another/i);
     });
   }
 

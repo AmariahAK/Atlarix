@@ -41,11 +41,9 @@ describe("run_command carries the git policy", () => {
 
   it("states policy the model cannot infer", () => {
     const d = desc();
-    expect(d).toMatch(/only commit, amend, push or open a PR\/MR when asked/i);
-    expect(d).toMatch(/never commit secrets/i);
+    expect(d).toMatch(/commit, push or open a PR only when asked/i);
     expect(d).toMatch(/force-push/i);
-    expect(d).toMatch(/do not discard uncommitted work you did not create/i);
-    expect(d).toMatch(/`gh`/);
+    expect(d).toMatch(/discard work you did not create/i);
   });
 
   it("does NOT teach git commands the model already knows", () => {
@@ -56,42 +54,28 @@ describe("run_command carries the git policy", () => {
 
   it("names the live OS and shell right next to the call", () => {
     const d = desc();
-    // Deliberately stated here as well as in deviceInfo: next to the call site is
-    // what stops the model inventing bash idioms on a non-bash shell. Only the
-    // trailing "do not assume Linux/bash" was dropped — once the OS and shell are
-    // named, it adds nothing.
-    expect(d).toMatch(/Running on \w+/);
-    expect(d).toMatch(/use that shell's syntax and this OS's path conventions/);
-    expect(d).not.toMatch(/do not assume Linux\/bash/i);
+    expect(d).toMatch(/Runs on \w+/);
+    expect(d).toMatch(/through `[^`]+`/);
   });
 
-  it("keeps the forge CLI open-ended instead of hardcoding GitHub", () => {
-    const d = desc();
-    expect(d).toMatch(/glab/);
-    expect(d).toMatch(/Bitbucket/i);
-    expect(d).toMatch(/PR\/MR URL/);
+  it("does not hardcode a forge: the model picks the CLI the remote uses", () => {
+    expect(desc()).not.toMatch(/\bgh\b.*only|use gh\b/i);
   });
 
   it("frames a quiet job as MAY-not-be-stuck, and does not forbid polling", () => {
     const d = desc();
     expect(d).toMatch(/MAY not be stuck/);
     expect(d).not.toMatch(/never poll/i);
-    // Points at the real parameters that cover the case.
     expect(d).toMatch(/wake_on/);
     expect(d).toMatch(/timeout_ms/);
     expect(d).toMatch(/allow_stalled/);
-    expect(d).toMatch(/told when one is genuinely stuck/);
   });
 
   it("routes file work away from the shell", () => {
-    const d = desc();
-    expect(d).toMatch(/Do NOT use this for file operations/i);
-    expect(d).toMatch(/read_file, edit_file, glob and grep/);
+    expect(desc()).toMatch(/read_file \/ edit_file \/ glob \/ grep for file work/);
   });
 
-  it("tells the model what a failure looks like and how to escape a read-only mode", () => {
-    const d = desc();
-    expect(d).toMatch(/exit code/i);
-    expect(d).toMatch(/switch to Build or Debug rather than retrying/i);
+  it("tells the model how to escape a read-only mode instead of retrying", () => {
+    expect(desc()).toMatch(/switch to Build or Debug rather than retrying/i);
   });
 });

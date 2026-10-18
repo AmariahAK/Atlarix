@@ -9,7 +9,8 @@
 export function firstSentence(text: string, max = 200): string {
   const flat = text.replace(/\s+/g, " ").trim();
   if (!flat) return "";
-  const stop = flat.search(/(?<=[.!?])\s/);
+  // Not after an abbreviation: "(e.g. …" cut there left a fragment ending "(e.g.".
+  const stop = flat.search(/(?<!\b(?:e\.g|i\.e|etc|vs)\.)(?<=[.!?])\s/);
   const cut = (stop > 0 ? flat.slice(0, stop + 1) : flat).trim();
   return cut.length > max ? `${cut.slice(0, max - 1)}…` : cut;
 }

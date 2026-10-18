@@ -110,8 +110,7 @@ describe("memory location in the runtime identity block", () => {
     // a `find`. Naming the path without ruling out alternatives is what failed.
     const text = block(MEM);
     expect(text).toMatch(/only store/i);
-    expect(text).toMatch(/nowhere else/i);
-    expect(text).toMatch(/do not search/i);
+    expect(text).toMatch(/never search for another/i);
   });
 
   it("publishes NO path when there is no workspace", () => {

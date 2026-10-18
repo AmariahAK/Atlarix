@@ -45,7 +45,7 @@ describe("no mode's prompt names a tool it cannot call", () => {
   // Tools whose names appear in prose for reasons other than "you may call this":
   // pointing the user at another mode, or naming a tool to forbid it.
   const MENTION_IS_NOT_A_CLAIM =
-    /you have no |you CANNOT|switch to|not available in this mode|are BLOCKED/i;
+    /you have no |you CANNOT|switch to|not available in this mode|are BLOCKED|\bno `?\w+`? here/i;
 
   for (const mode of ALL_MODES) {
     it(`${mode} prompt only names callable tools`, () => {
@@ -102,7 +102,7 @@ describe("mode system consistency", () => {
       expect(stableHeader).toContain(
         `<tools_registry mode="${mode}" label="${label}">`,
       );
-      expect(stableHeader).toContain("Workspace chat:");
+      expect(stableHeader).toContain("Enabled MCP servers:");
       expect(stableHeader).not.toContain("Explore, Plan, Build");
     });
   }

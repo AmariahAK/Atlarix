@@ -3,6 +3,26 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [15.9.2] (2026-10-18) — a leaner prompt, and browser and DeepSeek fixes
+
+**A leaner prompt on every turn.** Today's models need to be told what is true and what is
+allowed, not walked through how to work, so the fixed part of each request is about a third
+smaller: in Build, about 12,400 tokens where it was 18,400, with every tool still there.
+Each rule is now stated once (plans, reviewing a sub-agent's work and the project rules
+were each repeated two to four times), the coaching is gone, and the rules that fixed a
+real mistake stay, shorter. Along the way: a mode is no longer told about tools it doesn't
+have, notes meant for contributors are no longer sent to the model, and a model's name
+reads "Sonnet 4.6", not "Sonnet 4 6".
+
+**Browser:** reading a page's console right after opening it showed only what came after
+the page finished loading, so anything the page logged while loading (a "ready" message, an
+early error) was hidden. It now counts from when the page starts loading, with older
+versions of the browser extension too. A tab number of 0 is treated as no tab rather than
+refused, and closing a tab that is already gone reports it closed.
+
+**DeepSeek through Amazon Bedrock:** a fragment of DeepSeek's own tool-call markup no longer
+shows in replies, and replies saved before this read clean too.
+
 ## [15.9.1] (2026-10-18) — thinking on the newest Claude models, a fifth Core model, and web search in the terminal and editors
 
 Thinking on Claude always went out as a token budget. Anthropic's newest models (Sonnet 5 and 5.5,
